@@ -54,6 +54,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Configure
         run: cmake -S . -B build-metal -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
@@ -158,6 +160,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install clang-format
         run: brew install clang-format zstd

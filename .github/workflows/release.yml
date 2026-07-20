@@ -37,6 +37,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Download and verify release split bundles
         run: METALSHARP_REPAIR_BUNDLES=0 METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE=1 tools/dmg/create-bundles.sh
@@ -106,6 +108,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -126,7 +130,7 @@ jobs:
           cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
           cmake --build . --parallel $(sysctl -n hw.ncpu)
           mkdir -p ../app/native
-          cp libd3d11.dylib libd3d12.dylib libdxgi.dylib libxaudio2_9.dylib libxinput1_4.dylib ../app/native/ 2>/dev/null || true
+          cp libd3d11.dylib libd3d12.dylib libdxgi.dylib libxaudio2_9.dylib libxinput1_4.dylib libopengl32.dylib ../app/native/ 2>/dev/null || true
           cp metalsharp metalsharp_launcher MetalSharpMigrator ../app/native/ 2>/dev/null || true
           cd ..
           METALSHARP_BUILD_DIR="$PWD/build" tools/package/create-host-runtime.sh

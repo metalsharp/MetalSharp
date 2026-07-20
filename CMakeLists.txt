@@ -28,6 +28,45 @@ find_library(METALIRCONVERTER_LIBRARY
 
 find_package(SDL2 QUIET)
 
+# SPIRV-Cross: GLSL→SPIR-V→MSL shader translation backends.
+# Used by the OpenGL 3.x/4.x bridge to translate guest GLSL shaders into MSL
+# via the Khronos SPIRV-Cross reference implementation. We only need the
+# C++ static libs we actually link against (core + GLSL backend + MSL backend);
+# CLI, C API wrappers, HLSL/CPP/Reflect/Util backends and tests are disabled
+# to keep build time and binary size small. SPIRV-Cross's CMakeLists.txt
+# declares cmake_minimum_required(VERSION 3.0); CMake >=3.27 refuses anything
+# below 3.5, so we relax the policy to 3.5 for the vendored project.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_GLSL ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_MSL ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_CPP OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_REFLECT OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_C_API ON CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_UTIL OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+add_subdirectory(vendor/SPIRV-Cross EXCLUDE_FROM_ALL)
+
+# glslang: GLSL → SPIR-V compiler.
+# Used by the OpenGL 3.x/4.x bridge to compile guest GLSL shaders into SPIR-V
+# before handing them off to SPIRV-Cross for cross-compilation to MSL.
+# Only the libraries we actually link against are built (glslang, OSDependent,
+# SPIRV, glslang-default-resource-limits); the standalone glslang binary,
+# spvremapper, HLSL frontend, spirv-opt, and tests are disabled to keep build
+# time and binary size small. The vendored glslang's CMakeLists.txt ships
+# spirv.hpp (from SPIRV-Headers) directly in SPIRV/, so we do not need to
+# fetch SPIRV-Headers separately.
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/glslang EXCLUDE_FROM_ALL)
+
 add_library(metalsharp_core STATIC
     src/metal/device/Device.cpp
     src/metal/device/Device.mm
@@ -237,6 +276,49 @@ add_executable(metalsharp_native
 )
 target_link_libraries(metalsharp_native PRIVATE metalsharp_loader metalsharp_core)
 set_target_properties(metalsharp_native PROPERTIES OUTPUT_NAME "metalsharp")
+metalsharp_wine_target(metalsharp_native)
+add_custom_command(TARGET metalsharp_native POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:metalsharp_native>"
+        "${CMAKE_SOURCE_DIR}/app/native/$<TARGET_FILE_NAME:metalsharp_native>"
+    COMMENT "Copying $<TARGET_FILE_NAME:metalsharp_native> to app/native/"
+)
+
+# OpenGL 2.1-4.6 bridge. Delegates GL 2.1 to macOS native OpenGL framework.
+# GL 3.x+ shader translation via SPIRV-Cross is scaffolded for Phase 4c.
+add_library(metalsharp_opengl32 SHARED
+    src/opengl/OpenGLBridge.mm
+    src/opengl/EntryPoint.cpp
+    src/opengl/WGLShim.cpp
+    src/opengl/WGLContextManager.mm
+    src/opengl/GLSLCompiler.cpp
+    src/opengl/GLShaderCache.cpp
+    src/opengl/GLShaderTracker.cpp
+    src/opengl/GLErrorTracker.cpp
+    src/opengl/GLMetalRenderer.mm
+)
+target_include_directories(metalsharp_opengl32 PRIVATE include)
+target_link_libraries(metalsharp_opengl32 PRIVATE
+    metalsharp_core
+    ${METAL_FRAMEWORK}
+    ${OPENGL_FRAMEWORK}
+    spirv-cross-core
+    spirv-cross-glsl
+    spirv-cross-msl
+    glslang
+    OSDependent
+    SPIRV
+    glslang-default-resource-limits
+)
+target_compile_options(metalsharp_opengl32 PRIVATE -fobjc-arc)
+set_target_properties(metalsharp_opengl32 PROPERTIES OUTPUT_NAME "opengl32" PREFIX "")
+metalsharp_wine_target(metalsharp_opengl32)
+add_custom_command(TARGET metalsharp_opengl32 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:metalsharp_opengl32>"
+        "${CMAKE_SOURCE_DIR}/app/native/$<TARGET_FILE_NAME:metalsharp_opengl32>"
+    COMMENT "Copying opengl32.dylib to app/native/"
+)
 
 add_executable(metalsharp_migrator
     tools/migrator/main.m
