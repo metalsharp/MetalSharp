@@ -22,7 +22,7 @@ body {
   font-family: var(--font-body);
   font-size: 14px;
   color: var(--text-primary);
-  background: var(--bg-deep);
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -33,7 +33,7 @@ body {
   width: 100vw;
   min-width: 0;
   overflow: hidden;
-  background: var(--bg-deep);
+  background: transparent;
 }
 
 ::-webkit-scrollbar {
@@ -354,6 +354,7 @@ textarea {
 }
 
 :root[data-low-performance="true"] .content,
+:root[data-low-performance="true"] #app,
 :root[data-low-performance="true"] .sidebar,
 :root[data-low-performance="true"] .update-banner,
 :root[data-low-performance="true"] .sharp-card,
@@ -379,4 +380,13 @@ textarea {
 :root[data-low-performance="true"] .setup-progress-fill,
 :root[data-low-performance="true"] .migration-progress-fill {
   transition: width 120ms linear !important;
+}
+
+/* Progress motion is functional feedback: keep active work from looking frozen. */
+:root[data-low-performance="true"] .spinner {
+  animation: spin 0.6s linear infinite !important;
+}
+
+:root[data-low-performance="true"] .loading-icon:not(.complete):not(.error) {
+  animation: spin 0.9s linear infinite !important;
 }
