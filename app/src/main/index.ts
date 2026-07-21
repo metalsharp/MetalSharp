@@ -29,6 +29,33 @@ function ensureShellPath() {
   return shellPath;
 }
 
+function findHomebrew(): string | null {
+  const prefix = process.env.HOMEBREW_PREFIX?.trim();
+  const candidates = [
+    prefix ? path.join(prefix, "bin", "brew") : "",
+    "/opt/homebrew/bin/brew",
+    "/usr/local/bin/brew",
+    ...ensureShellPath()
+      .split(":")
+      .filter(Boolean)
+      .map((dir) => path.join(dir, "brew")),
+  ];
+
+  for (const candidate of new Set(candidates.filter(Boolean))) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      execFileSync(candidate, ["--version"], {
+        env: { ...process.env, PATH: ensureShellPath() },
+        stdio: "ignore",
+      });
+      return candidate;
+    } catch {
+      // continue to next candidate
+    }
+  }
+  return null;
+}
+
 let mainWindow: BrowserWindow | null = null;
 let processManagerWindow: BrowserWindow | null = null;
 let bridge: RustBridge;
@@ -949,26 +976,49 @@ function registerIpc() {
       return { ok: false, error: "Homebrew setup is only available on macOS." };
     }
 
-    const { exec } = require("child_process");
+    const brewPath = findHomebrew();
+    if (brewPath) {
+      return { ok: true, installed: true, path: brewPath, message: "Homebrew is already installed" };
+    }
+
     return new Promise((resolve) => {
-      const script = `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`;
-      exec(
-        `osascript -e 'tell application "Terminal" to do script "${script.replace(/"/g, '\\\\"')}"'`,
-        (err: Error | null) => {
-          if (err) {
-            resolve({
-              ok: false,
-              error: "Failed to open Terminal for Homebrew install",
-            });
-          } else {
-            resolve({
-              ok: true,
-              message: "Terminal opened — complete the Homebrew install there",
-            });
-          }
-        },
-      );
+      const commandPath = path.join(app.getPath("temp"), `metalsharp-homebrew-${process.pid}-${Date.now()}.command`);
+      const command = [
+        "#!/bin/bash",
+        `trap 'rm -f "${commandPath.replace(/'/g, "'\\\\''")}"' EXIT`,
+        '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+        "",
+      ].join("\n");
+
+      try {
+        fs.writeFileSync(commandPath, command, { mode: 0o700 });
+      } catch (err) {
+        resolve({ ok: false, error: `Failed to prepare Homebrew installer: ${(err as Error).message}` });
+        return;
+      }
+
+      execFile("/usr/bin/open", ["-a", "Terminal", commandPath], { timeout: 15000 }, (err: Error | null) => {
+        if (err) {
+          try {
+            fs.unlinkSync(commandPath);
+          } catch {}
+          resolve({
+            ok: false,
+            error: `Failed to open Terminal for Homebrew install: ${err.message}`,
+          });
+        } else {
+          resolve({
+            ok: true,
+            message: "Terminal opened — complete the Homebrew install there",
+          });
+        }
+      });
     });
+  });
+
+  ipcMain.handle("app:homebrew-status", () => {
+    const brewPath = process.platform === "darwin" ? findHomebrew() : null;
+    return { installed: brewPath !== null, path: brewPath ?? undefined };
   });
 
   ipcMain.handle("app:open-in-finder", async (_e, inputPath: string) => {

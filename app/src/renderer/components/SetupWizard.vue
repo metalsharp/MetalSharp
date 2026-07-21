@@ -34,6 +34,12 @@ const vcppX86Installing = ref(false);
 
 async function checkBrew() {
   brewChecking.value = true;
+  const localStatus = await getAPI().homebrewStatus();
+  if (localStatus?.installed) {
+    brewInstalled.value = true;
+    brewChecking.value = false;
+    return;
+  }
   const deps = await api<{ dependencies: { id: string; installed: boolean }[] }>("GET", "/setup/dependencies");
   const brewDep = deps?.dependencies?.find((d) => d.id === "homebrew");
   brewInstalled.value = brewDep?.installed ?? false;
@@ -48,6 +54,13 @@ async function installHomebrew() {
     brewInstalling.value = false;
     return;
   }
+  if (result.installed) {
+    brewInstalled.value = true;
+    brewInstalling.value = false;
+    toast.show("Homebrew is already installed", "success");
+    return;
+  }
+  brewInstalling.value = false;
   toast.show("Terminal opened — complete the Homebrew install, then click Continue", "success");
 }
 

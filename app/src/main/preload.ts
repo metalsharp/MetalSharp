@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   ejectDmg: () => ipcRenderer.invoke("app:eject-dmg"),
   installDeps: (command: string) => ipcRenderer.invoke("app:install-deps", command),
   installHomebrew: () => ipcRenderer.invoke("app:install-homebrew"),
+  homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
   openInFinder: (path: string) => ipcRenderer.invoke("app:open-in-finder", path),
   openLogsFolder: () => ipcRenderer.invoke("app:open-logs-folder"),
