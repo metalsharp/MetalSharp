@@ -200,7 +200,12 @@ jobs:
           fi
 
       - name: Format check
-        run: find src include tests tools \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.mm' \) -print0 | xargs -0 clang-format --dry-run --Werror
+        run: |
+          find src include tests tools \
+            \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.mm' \) \
+            -not -path 'src/wine/mojoshader/*' \
+            -not -path 'tools/d3d12-metal-sdk/cache/*' \
+            -print0 | xargs -0 clang-format --dry-run --Werror
 
       - name: Configure
         run: cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
