@@ -144,6 +144,16 @@ pub fn gptk_prefix_path(home: &Path) -> PathBuf {
     metalsharp_home_dir_for(home).join("prefix-gptk")
 }
 
+/// Canonical home of the shared Sharp Library prefix. Sharp Library apps
+/// that don't have their own installer bottle install into this prefix so
+/// the launcher, runtime components, and auto-sync can treat them as one
+/// consistent bucket. Existing per-installer-bottle prefixes under
+/// `~/.metalsharp/bottles/installer_<id>/prefix/` remain valid for
+/// isolation; this is the parallel shared root.
+pub fn sharp_prefix_path(home: &Path) -> PathBuf {
+    metalsharp_home_dir_for(home).join("sharp-prefix")
+}
+
 pub fn gptk_seed_log_path(home: &Path) -> PathBuf {
     metalsharp_home_dir_for(home).join("logs").join("gptk-prefix-seed.log")
 }

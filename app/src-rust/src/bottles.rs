@@ -1329,7 +1329,10 @@ pub fn sync_steam_game_bottles() -> Result<Vec<BottleManifest>, Box<dyn std::err
 
 pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
     let pe = fs::read(source_installer).ok().and_then(|data| crate::mtsp::pe::parse_pe_imports(&data));
-    let strings = read_ascii_strings(source_installer, 512 * 1024);
+    // Scan up to 4 MB so Inno Setup / NSIS markers that sit past the
+    // historical 512 KB cutoff still get detected (e.g. Moonscraper Chart
+    // Editor's "Inno Setup Setup Data" string lives at offset ~0xb7710).
+    let strings = read_ascii_strings(source_installer, 4 * 1024 * 1024);
     let lower_strings = strings.iter().map(|s| s.to_ascii_lowercase()).collect::<Vec<_>>();
     let imports = pe.as_ref().map(|p| p.imports.as_slice()).unwrap_or(&[]);
     let is_64_bit = pe.as_ref().map(|p| p.is_64_bit).unwrap_or(false);
@@ -1376,9 +1379,22 @@ pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
         hints.push(format!("installer_kind:{:?}", installer_kind).to_ascii_lowercase());
     }
 
+    // Pipeline selection: installer_kind drives the choice for known framework
+    // installers (Inno/NSIS/MSI/WiX and known launcher recipes), because their
+    // install phase only needs plain Wine + user32/comctl32 — no DXVK. The
+    // previous code computed pipeline from PE alone before knowing the
+    // installer_kind, so 32-bit Inno/NSIS installers (Moonscraper, GOG, Itch.io
+    // games) launched with M9 (DXVK), forcing MoltenVK init in a context where
+    // the installer UI never gets a chance to render. Runtime profile stays
+    // GameInstall for these so the *installed* app later launches with the
+    // WineBare pipeline defined for GameInstall.
+    let is_framework_installer = matches!(
+        installer_kind,
+        InstallerKind::Msi | InstallerKind::Nsis | InstallerKind::Inno | InstallerKind::Wix
+    );
     let pipeline = if let Some(recipe) = known_launcher {
         recipe.forced_pipeline.unwrap_or(crate::mtsp::engine::PipelineId::WineBare)
-    } else if is_msi {
+    } else if is_msi || is_framework_installer {
         crate::mtsp::engine::PipelineId::WineBare
     } else {
         installer_pipeline_from_pe(pe.as_ref())
@@ -1397,10 +1413,7 @@ pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
         RuntimeProfile::JavaLauncher
     } else if matches!(installer_kind, InstallerKind::Squirrel | InstallerKind::Electron | InstallerKind::Webview) {
         RuntimeProfile::Launcher
-    } else if matches!(
-        installer_kind,
-        InstallerKind::Msi | InstallerKind::Nsis | InstallerKind::Inno | InstallerKind::Wix
-    ) {
+    } else if is_framework_installer {
         RuntimeProfile::GameInstall
     } else {
         match pipeline {
@@ -1782,6 +1795,15 @@ fn complete_bottle_launch(id: &str, pid: u32) -> Result<BottleManifest, Box<dyn 
     refresh_manifest_runtime_views(&mut manifest);
     manifest.updated_at = timestamp_secs();
     save_bottle(&manifest)?;
+    // After an installer bottle finishes, rescan the bottle's prefix so the
+    // freshly-installed app appears in Sharp Library without a manual refresh
+    // click. This is the moonscraper-style "ran the installer but it never
+    // showed up" fix.
+    if manifest.bottle_type == BottleType::Installer {
+        if let Err(e) = crate::sharp_library::sync_after_bottle_complete(id) {
+            eprintln!("bottles: sharp library sync after {} failed: {}", id, e);
+        }
+    }
     Ok(manifest)
 }
 
@@ -3690,9 +3712,28 @@ fn classify_installer_kind(source_installer: &Path, lower_strings: &[String], is
         InstallerKind::Webview
     } else if lower_strings.iter().any(|s| s.contains("unityplayer.dll") || s.contains("unitycrashhandler")) {
         InstallerKind::Unity
-    } else if lower_strings.iter().any(|s| s.contains("inno setup") || s.contains("innosetup")) {
+    } else if lower_strings.iter().any(|s| {
+        // Inno Setup markers: the literal "Inno Setup" / "innosetup" strings
+        // plus the JRInno/UnpackedSetupLdr signatures emitted by the Inno
+        // compiler. Also accept the TSetup* class names that only the Inno
+        // bootstrapper emits.
+        s.contains("inno setup")
+            || s.contains("innosetup")
+            || s.contains("jr.inno.setup")
+            || s.contains("jr.inno")
+            || s.contains("unpackedseteupldr")
+            || s.starts_with("tsetup")
+    }) {
         InstallerKind::Inno
-    } else if lower_strings.iter().any(|s| s.contains("nullsoft") || s.contains("nsis")) {
+    } else if lower_strings.iter().any(|s| {
+        // NSIS markers must be specific enough to avoid colliding with Delphi
+        // type names like "TRttiAnsiStringType" or "TAnsiString". Accept the
+        // official Nullsoft banner plus the installer-only signature.
+        s.contains("nullsoft install system")
+            || s.contains("nullsoft.nsis")
+            || s.contains("nsis.sf.net")
+            || s.contains("makeansisafe")
+    }) {
         InstallerKind::Nsis
     } else if lower_strings.iter().any(|s| s.contains("wixbundle") || s.contains("wix toolset") || s.contains("burn")) {
         InstallerKind::Wix
@@ -5988,6 +6029,124 @@ fn timestamp_secs() -> String {
 mod tests {
     use super::*;
     use crate::mtsp::engine::PipelineId;
+
+    /// Build a synthetic installer EXE: a valid 32-bit or 64-bit PE header
+    /// with the given ASCII strings injected at the supplied offsets. Used to
+    /// exercise `classify_installer` against the Moonscraper-style case
+    /// where Inno Setup markers live past the historical 512 KB string-scan
+    /// limit.
+    fn write_test_installer(
+        dir: &Path,
+        file_name: &str,
+        machine: u16,
+        markers: &[(&str, usize)],
+    ) -> PathBuf {
+        let path = dir.join(file_name);
+        let mut data = test_pe(machine, 0);
+        // Pad out to the requested offsets so we can place markers past
+        // 512 KB (the old `read_ascii_strings` limit) without growing the
+        // whole file proportionally. The markers themselves carry the Inno
+        // Setup identification string.
+        data.resize(2 * 1024 * 1024, 0);
+        for (text, offset) in markers {
+            let bytes = text.as_bytes();
+            let end = offset + bytes.len();
+            if data.len() < end {
+                data.resize(end, 0);
+            }
+            data[*offset..end].copy_from_slice(bytes);
+        }
+        fs::write(&path, &data).expect("write installer fixture");
+        path
+    }
+
+    #[test]
+    fn moonscraper_inno_setup_detected_when_marker_past_old_512kb_limit() {
+        // Moonscraper Chart Editor's Inno Setup marker sits at ~0xb7710
+        // (~750 KB) — past the historical 512 KB scan window. The classifier
+        // must still detect it, must NOT false-positive as NSIS via the
+        // Delphi "TRttiAnsiStringType" substring, and must pick WineBare as
+        // the install-phase pipeline.
+        let dir = test_dir("moonscraper-inno");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+        let path = write_test_installer(
+            &dir,
+            "MSCE.Installer.Win32.exe",
+            0x14c, // IMAGE_FILE_MACHINE_I386
+            &[("Inno Setup Setup Data (6.1.0) (u)", 0xb7710)],
+        );
+        let classification = classify_installer(&path);
+        assert_eq!(classification.installer_kind, InstallerKind::Inno, "moonscraper Inno marker should win");
+        assert_eq!(classification.pipeline, PipelineId::WineBare, "Inno installer should use WineBare, not DXVK");
+        assert_eq!(classification.runtime_profile, RuntimeProfile::GameInstall);
+        assert!(classification.hints.iter().any(|h| h == "installer_kind:inno"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trtti_ansi_string_type_no_longer_false_matches_as_nsis() {
+        // The old classifier matched "nsis" anywhere in any ASCII string,
+        // including inside Delphi type names like TRttiAnsiStringType which
+        // appear in any Delphi-compiled installer (Inno Setup included).
+        // The hardened NSIS check requires "nullsoft install system" or
+        // similar specific markers, so a string that contains
+        // "TRttiAnsiStringType" but no real NSIS marker must classify as
+        // Unknown (or any non-NSIS kind), never Nsis.
+        let dir = test_dir("trtti-no-false-nsis");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+        let path = write_test_installer(
+            &dir,
+            "some-delphi-installer.exe",
+            0x14c,
+            &[
+                ("TRttiAnsiStringType", 0x1000),
+                ("SomeOtherDelphiClass", 0x2000),
+            ],
+        );
+        let classification = classify_installer(&path);
+        assert_ne!(
+            classification.installer_kind,
+            InstallerKind::Nsis,
+            "Delphi types must not be classified as NSIS"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn msi_installer_uses_wine_bare_pipeline() {
+        let dir = test_dir("msi-wine-bare");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("setup.msi");
+        fs::write(&path, b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1").expect("write MSI OLE header");
+        let classification = classify_installer(&path);
+        assert_eq!(classification.installer_kind, InstallerKind::Msi);
+        assert_eq!(classification.pipeline, PipelineId::WineBare);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_ascii_strings_finds_markers_past_512kb() {
+        // The new 4 MB scan window must catch Inno Setup markers placed at
+        // ~1.5 MB, well past the historical 512 KB cutoff.
+        let dir = test_dir("strings-past-512kb");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("fixture.bin");
+        let mut data = vec![0_u8; 2 * 1024 * 1024];
+        let marker = b"Inno Setup Setup Data (6.2.0) (u)";
+        let offset = 1_500_000_usize;
+        data[offset..offset + marker.len()].copy_from_slice(marker);
+        fs::write(&path, &data).expect("write fixture");
+        let strings = read_ascii_strings(&path, 4 * 1024 * 1024);
+        assert!(
+            strings.iter().any(|s| s.contains("Inno Setup Setup Data")),
+            "Inno marker at 1.5 MB must be reachable through the new scan window"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn m11_32_and_m10_32_pipelines_map_to_their_runtime_profiles() {

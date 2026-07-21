@@ -34,6 +34,14 @@ fn steam_prefix() -> PathBuf {
     crate::platform::metalsharp_home_dir().join("prefix-steam")
 }
 
+/// Canonical home of the shared Sharp Library prefix. All non-Steam,
+/// non-GOG Sharp Library imports that do not have their own bottle
+/// install into this prefix so the launcher, runtime components, and
+/// auto-sync can treat them as one consistent bucket.
+pub fn sharp_prefix_dir() -> PathBuf {
+    crate::platform::metalsharp_home_dir().join("sharp-prefix")
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct SharpApp {
     pub id: String,
@@ -95,6 +103,8 @@ pub fn load_library() -> Result<Vec<SharpApp>, Box<dyn std::error::Error>> {
     let mut changed = prune_library_apps(&mut apps);
     changed |= sync_non_steam_shortcuts(&mut apps);
     changed |= sync_wine_prefix_apps(&mut apps);
+    changed |= sync_installer_bottles(&mut apps);
+    changed |= sync_sharp_prefix_apps(&mut apps);
     changed |= prune_library_apps(&mut apps);
     changed |= apply_default_launcher_covers(&mut apps)?;
     changed |= apply_default_launcher_launch_args(&mut apps);
@@ -132,6 +142,7 @@ struct WinePrefixApp {
     name: String,
     exe_path: PathBuf,
     install_dir: PathBuf,
+    bottle_id: Option<String>,
 }
 
 fn sync_wine_prefix_apps(apps: &mut Vec<SharpApp>) -> bool {
@@ -142,6 +153,61 @@ fn sync_wine_prefix_apps(apps: &mut Vec<SharpApp>) -> bool {
     changed
 }
 
+/// Walk every installer bottle's prefix and surface installed EXEs as Sharp
+/// Library apps. This is the canonical fix for "I ran the moonscraper
+/// installer through Sharp Library but the app never appeared" — the bottle
+/// is created and the installer runs, but the launcher-side sync only ever
+/// scanned `prefix-steam/drive_c`. Each installer bottle now contributes its
+/// own detected apps, stamped with `bottle_id` so launching routes back to
+/// the right bottle.
+fn sync_installer_bottles(apps: &mut Vec<SharpApp>) -> bool {
+    let mut changed = false;
+    let bottles = match crate::bottles::list_bottles() {
+        Ok(list) => list,
+        Err(_) => return false,
+    };
+    for bottle in bottles {
+        if bottle.bottle_type != crate::bottles::BottleType::Installer {
+            continue;
+        }
+        let prefix = PathBuf::from(&bottle.prefix_path).join("drive_c");
+        if !prefix.exists() {
+            continue;
+        }
+        for candidate in scan_wine_prefix_apps_under(&prefix) {
+            let mut stamped = candidate;
+            stamped.bottle_id = Some(bottle.id.clone());
+            stamped.id = rewrite_app_id_with_bottle(&stamped.id, &bottle.id);
+            changed |= sync_wine_prefix_app(apps, stamped);
+        }
+    }
+    changed
+}
+
+/// Scan the shared `~/.metalsharp/sharp-prefix` for installed apps. This is
+/// the non-Steam, non-GOG root for Sharp Library imports that don't have
+/// their own bottle (Phase 3).
+fn sync_sharp_prefix_apps(apps: &mut Vec<SharpApp>) -> bool {
+    let mut changed = false;
+    let prefix = sharp_prefix_dir().join("drive_c");
+    if !prefix.exists() {
+        return false;
+    }
+    for candidate in scan_wine_prefix_apps_under(&prefix) {
+        changed |= sync_wine_prefix_app(apps, candidate);
+    }
+    changed
+}
+
+fn rewrite_app_id_with_bottle(original_id: &str, bottle_id: &str) -> String {
+    // wine_app_<stable-hash> -> installer_app_<bottle-id>_<stable-hash>
+    if let Some(rest) = original_id.strip_prefix("wine_app_") {
+        format!("installer_app_{}_{}", bottle_id, rest)
+    } else {
+        format!("installer_app_{}_{}", bottle_id, original_id)
+    }
+}
+
 fn sync_wine_prefix_app(apps: &mut Vec<SharpApp>, candidate: WinePrefixApp) -> bool {
     let install_dir_string = candidate.install_dir.to_string_lossy().to_string();
     let exe_path_string = candidate.exe_path.to_string_lossy().to_string();
@@ -149,12 +215,22 @@ fn sync_wine_prefix_app(apps: &mut Vec<SharpApp>, candidate: WinePrefixApp) -> b
 
     if let Some(app) = apps.iter_mut().find(|app| app.id == candidate.id || app_absolute_exe_path(app) == absolute_exe)
     {
-        if !app.id.starts_with("wine_app_") {
+        // Only auto-managed apps (scanned from a Wine prefix) are eligible
+        // for in-place updates. Steam shortcuts, manual imports, and other
+        // user-curated entries must be left alone so they don't get clobbered
+        // by the prefix scanner.
+        let is_auto_managed =
+            app.id.starts_with("wine_app_") || app.id.starts_with("installer_app_");
+        if !is_auto_managed {
             return false;
         }
-
-        let size_bytes = dir_size(&candidate.install_dir);
         let mut changed = false;
+        if let Some(bottle_id) = &candidate.bottle_id {
+            if app.bottle_id.as_deref() != Some(bottle_id.as_str()) {
+                app.bottle_id = Some(bottle_id.clone());
+                changed = true;
+            }
+        }
         if app.name != candidate.name {
             app.name = candidate.name.clone();
             changed = true;
@@ -167,6 +243,7 @@ fn sync_wine_prefix_app(apps: &mut Vec<SharpApp>, candidate: WinePrefixApp) -> b
             app.exe_path = exe_path_string.clone();
             changed = true;
         }
+        let size_bytes = dir_size(&candidate.install_dir);
         if app.size_bytes != size_bytes {
             app.size_bytes = size_bytes;
             changed = true;
@@ -174,7 +251,7 @@ fn sync_wine_prefix_app(apps: &mut Vec<SharpApp>, candidate: WinePrefixApp) -> b
         return changed;
     }
 
-    apps.push(SharpApp {
+    let mut app = SharpApp {
         id: candidate.id,
         name: candidate.name,
         exe_path: exe_path_string,
@@ -185,16 +262,35 @@ fn sync_wine_prefix_app(apps: &mut Vec<SharpApp>, candidate: WinePrefixApp) -> b
         engine: "auto".to_string(),
         launch_args: Vec::new(),
         user_launch_args: Vec::new(),
-        bottle_id: None,
+        bottle_id: candidate.bottle_id.clone(),
         installed_at: chrono_now(),
         size_bytes: dir_size(&candidate.install_dir),
-    });
+    };
+    let size_bytes = dir_size(&candidate.install_dir);
+    app.size_bytes = size_bytes;
+    apps.push(app);
     true
 }
 
 fn scan_wine_prefix_apps() -> Vec<WinePrefixApp> {
     let drive_c = steam_prefix().join("drive_c");
-    scan_wine_prefix_apps_under(&drive_c)
+    let mut candidates: Vec<WinePrefixApp> = scan_wine_prefix_apps_under(&drive_c)
+        .into_iter()
+        .map(|mut c| {
+            c.bottle_id = None;
+            c
+        })
+        .collect();
+    // Also include apps from the shared sharp-prefix root so non-Steam/non-GOG
+    // Sharp Library imports show up here.
+    let shared = sharp_prefix_dir().join("drive_c");
+    if shared.exists() {
+        for mut c in scan_wine_prefix_apps_under(&shared) {
+            c.bottle_id = None;
+            candidates.push(c);
+        }
+    }
+    candidates
 }
 
 fn scan_wine_prefix_apps_under(drive_c: &Path) -> Vec<WinePrefixApp> {
@@ -300,6 +396,7 @@ fn add_wine_prefix_candidate(
         name,
         exe_path: PathBuf::from(exe_path),
         install_dir: install_dir.to_path_buf(),
+        bottle_id: None,
     });
 }
 
@@ -339,7 +436,8 @@ fn should_skip_wine_app_dir(path: &Path) -> bool {
 }
 
 fn is_unwanted_wine_prefix_app(app: &SharpApp) -> bool {
-    app.id.starts_with("wine_app_")
+    let is_wine_scanned = app.id.starts_with("wine_app_") || app.id.starts_with("installer_app_");
+    is_wine_scanned
         && (should_skip_wine_app_name(&app.name)
             || should_skip_wine_app_dir(Path::new(&app.install_dir))
             || should_skip_wine_app_exe(&PathBuf::from(&app.exe_path)))
@@ -893,6 +991,29 @@ fn stage_installer_exe(
 fn installer_launch_id(src: &Path, pipeline: crate::mtsp::engine::PipelineId) -> u32 {
     let key = format!("installer:{}:{}", pipeline_engine_id(pipeline), src.to_string_lossy());
     stable_launch_id(&key)
+}
+
+/// Re-run the Sharp Library sync after an installer bottle completes so the
+/// freshly-installed app appears in `library.json` without the user having to
+/// press Refresh. Called from `bottles::complete_bottle_launch` only for
+/// `BottleType::Installer` bottles.
+pub fn sync_after_bottle_complete(bottle_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut apps = load_library().unwrap_or_default();
+    let mut changed = false;
+    changed |= sync_installer_bottles(&mut apps);
+    changed |= sync_sharp_prefix_apps(&mut apps);
+    changed |= prune_library_apps(&mut apps);
+    if changed {
+        // Best-effort: if a save fails, log but do not propagate — the bottle
+        // completion should never block on a library refresh.
+        if let Err(e) = save_library(&apps) {
+            eprintln!(
+                "sharp_library: save_library after bottle {} sync failed: {}",
+                bottle_id, e
+            );
+        }
+    }
+    Ok(())
 }
 
 pub fn import_bottle_app(
@@ -1781,6 +1902,48 @@ mod tests {
         assert!(!is_safe_library_id("../runtime"));
         assert!(!is_safe_library_id("nested/game"));
         assert!(!is_safe_library_id("/tmp/game"));
+    }
+
+    #[test]
+    fn installer_bottle_app_id_is_namespaced_by_bottle() {
+        // After scanning an installer bottle's prefix, the candidate ID
+        // should be rewritten from `wine_app_<hash>` to
+        // `installer_app_<bottle>_<hash>` so it can't collide with apps
+        // discovered in the steam prefix.
+        let original = "wine_app_abcdef0123";
+        let rewritten = rewrite_app_id_with_bottle(original, "installer_d34b6b99c2ad4df1");
+        assert_eq!(rewritten, "installer_app_installer_d34b6b99c2ad4df1_abcdef0123");
+    }
+
+    #[test]
+    fn installer_app_ids_are_pruned_by_wine_app_filters() {
+        // The Wine prefix scanner's skip list (Windows Media Player, IE, etc.)
+        // must apply to installer-bottle apps too, otherwise moonscraper
+        // scanning would surface Windows Media Player as a Sharp Library
+        // app.
+        let mut app = SharpApp {
+            id: format!("installer_app_installer_x_{}", "stable"),
+            name: "Windows Media Player".into(),
+            exe_path: "C:\\Program Files\\Windows Media Player\\wmplayer.exe".into(),
+            install_dir: "C:\\Program Files\\Windows Media Player".into(),
+            cover: None,
+            cover_position_x: 50,
+            cover_position_y: 50,
+            engine: "auto".into(),
+            launch_args: Vec::new(),
+            user_launch_args: Vec::new(),
+            bottle_id: Some("installer_x".into()),
+            installed_at: chrono_now(),
+            size_bytes: 0,
+        };
+        assert!(is_unwanted_wine_prefix_app(&app));
+        let mut apps = vec![app.clone()];
+        prune_library_apps(&mut apps);
+        assert!(apps.is_empty(), "Windows Media Player must be pruned from installer bottles too");
+        app.id = "wine_app_stable".into();
+        apps = vec![app];
+        prune_library_apps(&mut apps);
+        assert!(apps.is_empty(), "Same rule still applies for wine_app_ ids");
     }
 
     #[test]

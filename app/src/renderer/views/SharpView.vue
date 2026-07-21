@@ -1093,6 +1093,37 @@ function bottleBadgeClass(health: string) {
   return health === "ready" ? "badge-ok" : "badge-warn";
 }
 
+function bottleBadgeLabel(bottle: BottleManifest) {
+  switch (bottle.health) {
+    case "ready":
+      return "Installed";
+    case "needs_repair":
+      return "Bottle needs repair";
+    case "partial":
+      return "Partial install";
+    case "new":
+    default:
+      return "Not installed";
+  }
+}
+
+function bottleForApp(app: SharpApp) {
+  if (!app.bottle_id) return null;
+  return bottles.value.find((b) => b.id === app.bottle_id) ?? null;
+}
+
+async function openBottleLaunchLog(bottle: BottleManifest) {
+  if (!bottle.last_launch_log) return;
+  const result = await api<{ ok: boolean; path?: string; error?: string }>(
+    "POST",
+    "/diagnostics/open",
+    { path: bottle.last_launch_log },
+  );
+  if (!result?.ok) {
+    toast.show(result?.error ?? "Failed to open launch log", "error");
+  }
+}
+
 async function launchApp(id: string, engine: string) {
   const app = apps.value.find((a) => a.id === id);
   if (!app) return;
@@ -1494,6 +1525,23 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
           <div class="sharp-card-meta">
             <span class="badge badge-ok">Sharp App</span>
             <span class="sharp-card-size">{{ formatBytes(app.size_bytes) }}</span>
+          </div>
+          <div v-if="bottleForApp(app)" class="sharp-card-bottle">
+            <span class="badge" :class="bottleBadgeClass(bottleForApp(app)!.health)">
+              {{ bottleBadgeLabel(bottleForApp(app)!) }}
+            </span>
+            <span
+              v-if="bottleForApp(app)!.last_launch_status === 'exited' && bottleForApp(app)!.last_launch_log"
+              class="sharp-card-launch-log"
+            >
+              <a
+                href="#"
+                @click.prevent="openBottleLaunchLog(bottleForApp(app)!)"
+                :title="bottleForApp(app)!.last_launch_log ?? ''"
+              >
+                Open launch log
+              </a>
+            </span>
           </div>
           <div class="sharp-card-actions">
             <div class="sharp-card-actions-row">
@@ -2280,6 +2328,20 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
   align-items: center;
   gap: 6px;
   margin-bottom: 10px;
+}
+.sharp-card-bottle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+.sharp-card-launch-log a {
+  color: var(--accent, #4ea8de);
+  text-decoration: none;
+}
+.sharp-card-launch-log a:hover {
+  text-decoration: underline;
 }
 .sharp-card-size {
   font-size: 11px;
