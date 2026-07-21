@@ -21,6 +21,7 @@ const wineSteamRunning = inject<Ref<boolean>>("wineSteamRunning")!;
 const macSteamInstalled = inject<Ref<boolean>>("macSteamInstalled")!;
 const macSteamRunning = inject<Ref<boolean>>("macSteamRunning")!;
 const backendConnected = inject<Ref<boolean>>("backendConnected")!;
+const backendRestarting = ref(false);
 const backendVersion = inject<Ref<string | null>>("backendVersion")!;
 const updateStatus = inject<Ref<UpdateStatus | null>>("updateStatus")!;
 const updateDownloading = inject<Ref<boolean>>("updateDownloading")!;
@@ -275,10 +276,20 @@ async function toggleMacSteam() {
 }
 
 async function restartBackend() {
-  toast.show("Restarting backend...", "success");
-  const result = await getAPI().restartBackend();
-  if (result.ok) toast.show("Backend restarted", "success");
-  else toast.show(result.error ?? "Failed to restart", "error");
+  if (backendRestarting.value) return;
+  backendRestarting.value = true;
+  try {
+    toast.show("Restarting backend...", "success");
+    const result = await getAPI().restartBackend();
+    backendConnected.value = result.ok && (await getAPI().isBackendAlive());
+    if (backendConnected.value) toast.show("Backend restarted", "success");
+    else toast.show(result.error ?? "Backend did not come back online", "error");
+  } catch (error) {
+    backendConnected.value = false;
+    toast.show(error instanceof Error ? error.message : "Failed to restart backend", "error");
+  } finally {
+    backendRestarting.value = false;
+  }
 }
 
 async function openMetalsharpFolder() {
@@ -490,7 +501,9 @@ function uninstallMetalsharp() {
           <div class="settings-desc">Kill and restart the backend process</div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-secondary btn-sm" @click="restartBackend">Restart Backend</button>
+          <button class="btn btn-secondary btn-sm" :disabled="backendRestarting" @click="restartBackend">
+            {{ backendRestarting ? "Restarting..." : "Restart Backend" }}
+          </button>
         </div>
       </div>
       <div class="settings-row">

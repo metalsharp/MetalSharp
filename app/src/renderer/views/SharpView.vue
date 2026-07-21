@@ -76,6 +76,12 @@ interface BottleManifest {
   installed_app_detections: { name: string; exe_path: string; source: string }[];
 }
 
+interface M12DryRun {
+  ok: boolean;
+  dry_run: boolean;
+  missing?: Array<{ filename?: string }>;
+}
+
 interface BottleDiagnostic {
   id: string;
   ready: boolean;
@@ -791,7 +797,12 @@ async function refreshBottle(id: string) {
 
 async function doctorBottle(id: string) {
   bottleLoading.value[id] = true;
-  const result = await api<{ ok: boolean; report?: BottleDiagnostic; error?: string }>("POST", "/bottles/doctor", { id });
+  const result = await api<{ ok: boolean; report?: BottleDiagnostic; error?: string }>(
+    "POST",
+    "/bottles/doctor",
+    { id },
+    2 * 60 * 1000,
+  );
   bottleLoading.value[id] = false;
   if (result?.ok && result.report) {
     bottleReports.value[id] = result.report;
@@ -805,7 +816,12 @@ async function doctorBottle(id: string) {
 
 async function prepareBottle(id: string) {
   bottleLoading.value[id] = true;
-  const result = await api<{ ok: boolean; report?: BottleDiagnostic; error?: string }>("POST", "/bottles/prepare", { id });
+  const result = await api<{ ok: boolean; report?: BottleDiagnostic; error?: string }>(
+    "POST",
+    "/bottles/prepare",
+    { id },
+    10 * 60 * 1000,
+  );
   bottleLoading.value[id] = false;
   if (result?.ok && result.report) {
     bottleReports.value[id] = result.report;
@@ -922,10 +938,15 @@ async function runD3DMetalAction(bottle: BottleManifest, action: D3DMetalGptkAct
 
 async function repairBottleComponent(id: string, component: string) {
   bottleLoading.value[id] = true;
-  const result = await api<{ ok: boolean; repair?: ComponentRepair; error?: string }>("POST", "/bottles/repair-component", {
-    id,
-    component,
-  });
+  const result = await api<{ ok: boolean; repair?: ComponentRepair; error?: string }>(
+    "POST",
+    "/bottles/repair-component",
+    {
+      id,
+      component,
+    },
+    10 * 60 * 1000,
+  );
   if (result?.ok && result.repair) {
     const repair = result.repair;
     const failed = ["asset_missing", "failed", "install_failed"].includes(repair.status);
@@ -946,11 +967,16 @@ async function pollRepairDone(id: string, component: string) {
   const maxPolls = 120;
   for (let i = 0; i < maxPolls; i++) {
     await new Promise((r) => setTimeout(r, pollInterval));
-    const poll = await api<{ ok: boolean; repair?: ComponentRepair; error?: string }>("POST", "/bottles/repair-component", {
-      id,
-      component,
-      dryRun: true,
-    });
+    const poll = await api<{ ok: boolean; repair?: ComponentRepair; error?: string }>(
+      "POST",
+      "/bottles/repair-component",
+      {
+        id,
+        component,
+        dryRun: true,
+      },
+      2 * 60 * 1000,
+    );
     if (!poll?.ok || !poll.repair) break;
     const status = poll.repair.status;
     if (status === "already_installed") {
@@ -984,9 +1010,21 @@ async function setBottleProfile(id: string, profile: string) {
   });
   bottleLoading.value[id] = false;
   if (result?.ok && result.bottle) {
+    const isM12 = profile === "m12";
+    const appid = result.bottle.steam_app_id ?? 0;
+    const m12DryRun = isM12
+      ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${appid}`)
+      : null;
     upsertBottle(result.bottle);
     if (result.bottle.runtime_profile !== "d3dmetal") clearD3DMetalBottleState(id);
-    toast.show("Bottle profile updated", "success");
+    if (isM12 && m12DryRun?.ok === false) {
+      const missing = m12DryRun.missing?.map((entry) => entry.filename).filter(Boolean).join(", ");
+      toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
+    } else if (isM12 && !m12DryRun) {
+      toast.show("M12 bottle saved, but its dry run could not be completed", "error");
+    } else {
+      toast.show("Bottle profile updated", "success");
+    }
     await doctorBottle(id);
   } else {
     toast.show(result?.error ?? "Failed to update bottle profile", "error");

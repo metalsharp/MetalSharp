@@ -846,7 +846,8 @@ async function saveBottleEdit() {
     // Saving an M12 bottle must execute the same read-only M12 diagnostic
     // that launch uses. It validates the isolated DLL lane, Unix sidecars,
     // and M12 environment without deploying or spawning the game.
-    const m12DryRun = bottlePreferredMode.value === "m12"
+    const isM12 = bottlePreferredMode.value === "m12";
+    const m12DryRun = isM12
       ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`)
       : null;
     bottleName.value = result.bottle.name;
@@ -860,10 +861,10 @@ async function saveBottleEdit() {
       runtimeReport.value.bottle_name = result.bottle.name;
       runtimeReport.value.preferred_pipeline = result.bottle.preferred_pipeline || null;
     }
-    if (m12DryRun?.ok === false) {
+    if (isM12 && m12DryRun?.ok === false) {
       const missing = m12DryRun.missing?.map((entry) => entry.filename).filter(Boolean).join(", ");
       toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
-    } else if (!m12DryRun) {
+    } else if (isM12 && !m12DryRun) {
       toast.show("M12 bottle saved, but its dry run could not be completed", "error");
     } else if (result.preflight?.ok === false) {
       toast.show(result.preflight.error ?? "Bottle saved; runtime doctor needs attention", "error");
