@@ -1352,8 +1352,25 @@ pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
             || s.contains("mscoree")
             || s.contains("windowsruntime")
     });
-    let strings_webview = lower_strings.iter().any(|s| s.contains("webview2") || s.contains("edgeupdate"));
-    let strings_java = lower_strings.iter().any(|s| s.contains("java") || s.contains("jre") || s.contains("jdk"));
+    // Require specific installer-marker phrases for webview / java. A naive
+    // substring check on a multi-MB binary hits false positives from short
+    // substrings like "jRe", "jDk", or "edge" inside the data section.
+    let strings_webview = lower_strings.iter().any(|s| {
+        s.contains("webview2")
+            || s.contains("webviewloader")
+            || s.contains("microsoft.webview")
+            || s.contains("edgeupdate.exe")
+            || s.contains("microsoft edge webview2")
+    });
+    let strings_java = lower_strings.iter().any(|s| {
+        s.contains("java runtime")
+            || s.contains("java(tm)")
+            || s.contains("javaw.exe")
+            || s.contains("jre-")
+            || s.contains("/jdk-")
+            || s.contains("openjdk")
+            || s.contains("oracle corporation")
+    });
     let known_launcher = known_launcher_recipe(source_installer, &lower_strings);
     let installer_kind = known_launcher
         .map(|recipe| recipe.installer_kind)
