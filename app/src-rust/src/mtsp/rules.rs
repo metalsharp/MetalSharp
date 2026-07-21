@@ -92,7 +92,7 @@ fn parse_rules_full(toml_str: &str) -> (HashMap<u32, PipelineId>, HashMap<u32, G
     let mut pipelines = HashMap::new();
     let mut recipes = HashMap::new();
 
-    let doc: toml::Value = match toml_str.parse() {
+    let doc: toml::Value = match toml::from_str(toml_str) {
         Ok(v) => v,
         Err(_) => return (pipelines, recipes),
     };

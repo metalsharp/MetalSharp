@@ -8,7 +8,21 @@
 
 -
 
-## Checklist
+## PR Readiness (MANDATORY)
+
+<!-- Process/review gates enforced by CI
+     (.github/workflows/pr-readiness-check.yml). Checked items must use [x].
+     To bypass intentionally, apply the `checklist-exception` label. -->
+
+- [ ] Compatibility verified with at least one real game (game + launch method noted below)
+- [ ] No hardcoded paths, secrets, or absolute `/Users/...` paths introduced
+- [ ] Config/rules TOML validated if `configs/mtsp-rules.toml` or DLL maps changed
+- [ ] Version triple (`CMakeLists.txt`, `Cargo.toml`, `package.json`, `package-lock.json`) in sync if version bumped
+- [ ] Bottle/runtime migration and launch behavior preserved (rollback plan noted if changed)
+- [ ] Docs / compatibility matrix updated for user-facing changes
+- [ ] Regression test added for each bug fix
+
+## Local toolchain (run before push)
 
 > **Install the pre-commit hook once per clone** (it catches the same things
 > as this checklist, and the same things as CI, locally in ~3s):
