@@ -3,6 +3,14 @@ name: Release CI
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      developer_sdk:
+        description: "Build & publish the D3D12 developer SDK bundle (1 = yes, 0 = skip)"
+        required: false
+        default: '0'
+        type: choice
+        options: ['0', '1']
 
 concurrency:
   group: release-ci-${{ github.ref }}
@@ -16,6 +24,13 @@ permissions:
 jobs:
   developer-sdk:
     name: Publish Developer SDK Bundle
+    # Only build/publish the D3D12 developer SDK when explicitly enabled:
+    #   - manual run with developer_sdk=1, or
+    #   - repository variable METALSHARP_BUILD_DEVELOPER_SDK == '1'.
+    # Defaults to skipped so the DMG + GitHub Release are never blocked by it.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.developer_sdk == '1') ||
+      vars.METALSHARP_BUILD_DEVELOPER_SDK == '1'
     runs-on: macos-14
     concurrency:
       group: metalsharp-developer-sdk-bundles
@@ -86,7 +101,8 @@ jobs:
 
   build:
     name: Build DMG
-    needs: [developer-sdk]
+    # Decoupled from developer-sdk: the DMG must build and the GitHub Release
+    # must publish even when the D3D12 developer SDK build is disabled (=0).
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -128,7 +144,7 @@ jobs:
 
       - name: Download bundles for DMG
         run: |
-          METALSHARP_REPAIR_BUNDLES=0 tools/dmg/create-bundles.sh
+          METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REPAIR_M12=0 tools/dmg/create-bundles.sh
           tools/dmg/stage-release-bundles.sh app/bundles dist/staged-bundles
           for required in \
             metalsharp-electron.tar.zst \

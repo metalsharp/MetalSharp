@@ -10,6 +10,11 @@ REPO="${METALSHARP_BUNDLE_REPO:-aaf2tbz/metalsharp}"
 MANIFEST="$PROJECT_ROOT/tools/bundles/asset-manifest.tsv"
 REPAIR_BUNDLES="${METALSHARP_REPAIR_BUNDLES:-1}"
 SKIP_DEVELOPER_SDK="${METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE:-0}"
+# M12 (dxmt-m12) dll refresh is off by default. Rebuilding the m12 lane from a
+# local runtime root silently changes the dlls and desyncs the bundle from the
+# installer's compiled-in DXMT_M12_EXPECTED_HASHES. Set METALSHARP_REPAIR_M12=1
+# only when intentionally refreshing the canonical m12 material.
+REPAIR_M12="${METALSHARP_REPAIR_M12:-0}"
 
 mkdir -p "$BUNDLE_DIR" "$OUT_DIR"
 
@@ -106,7 +111,11 @@ while IFS=$'\t' read -r asset _root _platforms _notes; do
 done < "$MANIFEST"
 
 if [ "$REPAIR_BUNDLES" = "1" ]; then
-  repair_graphics_m12_bundle
+  if [ "$REPAIR_M12" = "1" ]; then
+    repair_graphics_m12_bundle
+  else
+    echo "M12 dll repair disabled (METALSHARP_REPAIR_M12!=1); preserving canonical dxmt-m12 lane"
+  fi
   repair_assets_fnalibs_bundle
 
   "$PROJECT_ROOT/tools/dmg/repair-runtime-bundle.py" \
