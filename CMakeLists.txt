@@ -4,9 +4,21 @@ project(metalsharp VERSION 0.56.3 LANGUAGES C CXX OBJC OBJCXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Build for Rosetta 2 — Windows PE code executes natively under x86_64 translation")
+set(METALSHARP_WINE_ARCH "x86_64" CACHE STRING "Architecture for Wine/Rosetta PE-facing targets")
+set(METALSHARP_HOST_ARCH "arm64" CACHE STRING "Architecture for macOS host-side targets")
+set(CMAKE_OSX_ARCHITECTURES "${METALSHARP_WINE_ARCH}" CACHE STRING "Default architecture for Wine/Rosetta targets" FORCE)
+# Per-target architecture helpers: PE-facing/Wine targets are x86_64 (Rosetta),
+# host-side targets are arm64. The project default stays the Wine arch.
+function(metalsharp_wine_target target)
+    set_target_properties(${target} PROPERTIES OSX_ARCHITECTURES "${METALSHARP_WINE_ARCH}")
+endfunction()
+
+function(metalsharp_host_target target)
+    set_target_properties(${target} PROPERTIES OSX_ARCHITECTURES "${METALSHARP_HOST_ARCH}")
+endfunction()
 
 find_library(METAL_FRAMEWORK Metal REQUIRED)
+find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
 find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
 find_library(APPKIT_FRAMEWORK AppKit REQUIRED)

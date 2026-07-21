@@ -179,6 +179,13 @@ add_executable(test_spirv_cross_sanity
 target_link_libraries(test_spirv_cross_sanity PRIVATE spirv-cross-c spirv-cross-glsl spirv-cross-msl spirv-cross-core)
 add_test(NAME spirv_cross_sanity COMMAND test_spirv_cross_sanity)
 
+add_executable(test_opengl_bridge
+    test_opengl_bridge.cpp
+)
+target_link_libraries(test_opengl_bridge PRIVATE metalsharp_opengl32 metalsharp_core)
+target_compile_options(test_opengl_bridge PRIVATE -fobjc-arc)
+add_test(NAME opengl_bridge COMMAND test_opengl_bridge)
+
 add_executable(test_glsl_compiler
     test_glsl_compiler.cpp
 )
