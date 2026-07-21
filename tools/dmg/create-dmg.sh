@@ -45,7 +45,7 @@ for binary in metalsharp metalsharp_launcher; do
 done
 
 mkdir -p "$DMG_DIR/lib"
-for dylib in d3d11.dylib d3d12.dylib dxgi.dylib xaudio2_9.dylib xinput1_4.dylib; do
+for dylib in d3d11.dylib d3d12.dylib dxgi.dylib xaudio2_9.dylib xinput1_4.dylib opengl32.dylib; do
     if [[ -f "$BUILD_DIR/$dylib" ]]; then
         cp "$BUILD_DIR/$dylib" "$DMG_DIR/lib/"
         ok "  $dylib"

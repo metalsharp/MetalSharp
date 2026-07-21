@@ -1,0 +1,56 @@
+name: PR Readiness Checklist
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  readiness-checklist:
+    name: Validate mandatory PR checklist
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Check required checklist items
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const labels = (pr.labels || []).map((l) => l.name);
+            if (labels.includes("checklist-exception")) {
+              core.notice(
+                "Bypassing mandatory readiness checklist because PR has label: checklist-exception",
+              );
+              return;
+            }
+
+            const body = pr.body || "";
+            const required = [
+              "Compatibility verified with at least one real game (game + launch method noted below)",
+              "No hardcoded paths, secrets, or absolute `/Users/...` paths introduced",
+              "Config/rules TOML validated if `configs/mtsp-rules.toml` or DLL maps changed",
+              "Version triple (`CMakeLists.txt`, `Cargo.toml`, `package.json`, `package-lock.json`) in sync if version bumped",
+              "Bottle/runtime migration and launch behavior preserved (rollback plan noted if changed)",
+              "Docs / compatibility matrix updated for user-facing changes",
+              "Regression test added for each bug fix",
+            ];
+
+            const missing = required.filter((item) => {
+              const escaped = item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const re = new RegExp(`-\\s*\\[[xX]\\]\\s*${escaped}`);
+              return !re.test(body);
+            });
+
+            if (missing.length > 0) {
+              core.setFailed(
+                [
+                  "Missing required checked PR readiness items:",
+                  ...missing.map((m) => `- ${m}`),
+                  "",
+                  "Please update the PR body checklist in .github/PULL_REQUEST_TEMPLATE.md.\nTo bypass intentionally, apply label: checklist-exception",
+                ].join("\n"),
+              );
+            }

@@ -16,7 +16,7 @@ jobs:
     name: Shell CI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install ShellCheck
         run: |
@@ -30,7 +30,7 @@ jobs:
     name: Rules TOML CI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install toml
         run: pip3 install --user toml
@@ -42,7 +42,7 @@ jobs:
     name: Doc Freshness CI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check doc freshness (warn-only)
         run: python3 tools/ci/check-doc-freshness.py
@@ -51,7 +51,9 @@ jobs:
     name: Metal CI
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Configure
         run: cmake -S . -B build-metal -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
@@ -69,9 +71,9 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -96,7 +98,7 @@ jobs:
       run:
         working-directory: app/src-rust
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -131,9 +133,9 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -155,7 +157,7 @@ jobs:
     name: DMG Workflow CI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Verify DMG workflow contract
         run: python3 tools/ci/verify-dmg-workflow.py
@@ -164,7 +166,9 @@ jobs:
     name: C/C++/Obj-C CI
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install clang-format
         run: brew install clang-format zstd
@@ -210,7 +214,7 @@ jobs:
           fi
 
       - name: Format check
-        run: find src include tests tools \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.mm' \) -print0 | xargs -0 clang-format --dry-run --Werror
+        run: find src include tests tools \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.mm' \) -not -path '*/vendor/*' -not -path '*/wine/*' -print0 | xargs -0 clang-format --dry-run --Werror
 
       - name: Configure
         run: cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON

@@ -50,7 +50,6 @@ const filter = ref<"all" | "installed" | "not_installed">("all");
 const runningAppId = ref<number | null>(null);
 const runningPid = ref<number | null>(null);
 const launchingAppId = ref<number | null>(null);
-const expandedAppId = ref<number | null>(null);
 let artworkRetryTimer: number | null = null;
 const artworkRetryRequestedAppIds = new Set<number>();
 
@@ -106,6 +105,14 @@ function isWineSteamRouteLaunch(game: SteamGame, launchMethod: string) {
   return isWineSteamRouteId(method);
 }
 
+const directEacAppIds = new Set([1245620, 1888160]);
+
+function effectiveLaunchMethod(game: SteamGame, launchMethod: string) {
+  const method = launchMethod.toLowerCase();
+  if (directEacAppIds.has(game.appid) && ["auto", "steam", "wine_steam"].includes(method)) return "m12";
+  return launchMethod;
+}
+
 function applyFilter() {
   if (!library.value) {
     filteredGames.value = [];
@@ -119,10 +126,6 @@ function applyFilter() {
     games = games.filter((g) => g.name.toLowerCase().includes(q));
   }
   filteredGames.value = [...games].sort(gameNameSort);
-}
-
-function onCardExpanded(appid: number, open: boolean) {
-  expandedAppId.value = open ? appid : null;
 }
 
 function requestArtworkRetry(appid: number) {
@@ -192,7 +195,8 @@ async function toggleMacSteam() {
 }
 
 async function launchGame(game: SteamGame, launchMethod = "auto") {
-  if (isMacSteamLaunch(launchMethod) && wineSteamRunning.value) {
+  const selectedLaunchMethod = effectiveLaunchMethod(game, launchMethod);
+  if (isMacSteamLaunch(selectedLaunchMethod) && wineSteamRunning.value) {
     if (!confirm(`Stop Wine Steam and launch ${game.name} through MacOS Steam?`)) return;
     const stopResult = await api<{ ok: boolean; running?: boolean; error?: string }>("POST", "/steam/stop");
     if (!stopResult?.ok || stopResult.running !== false) {
@@ -204,7 +208,7 @@ async function launchGame(game: SteamGame, launchMethod = "auto") {
   }
 
   launchingAppId.value = game.appid;
-  const useWineSteamRoute = isWineSteamRouteLaunch(game, launchMethod);
+  const useWineSteamRoute = isWineSteamRouteLaunch(game, selectedLaunchMethod);
   const launchEndpoint = useWineSteamRoute ? "/steam/launch-game" : "/game/launch-auto";
   const launchResult = await api<{
     ok: boolean;
@@ -216,8 +220,8 @@ async function launchGame(game: SteamGame, launchMethod = "auto") {
     steam_runtime?: string;
   }>("POST", launchEndpoint, {
     appid: game.appid,
-    launchMethod,
-  });
+    launchMethod: selectedLaunchMethod,
+  }, 10 * 60 * 1000);
 
   launchingAppId.value = null;
 
@@ -226,7 +230,7 @@ async function launchGame(game: SteamGame, launchMethod = "auto") {
     runningAppId.value = game.appid;
     if (useWineSteamRoute && !launchResult.offline_mode && launchResult.steam_runtime !== "offline")
       wineSteamRunning.value = true;
-    if (isMacSteamLaunch(launchMethod) || launchResult.gameType === "macos_steam") macSteamRunning.value = true;
+    if (isMacSteamLaunch(selectedLaunchMethod) || launchResult.gameType === "macos_steam") macSteamRunning.value = true;
     toast.show(`Launched ${game.name}`, "success");
   } else {
     toast.show(launchResult?.error ?? `Failed to launch ${game.name}`, "error");
@@ -345,7 +349,11 @@ watch([library, search, filter], () => {
     </div>
 
     <div v-else class="game-grid">
-      <div v-for="game in filteredGames" :key="game.appid" class="game-grid-item">
+      <div
+        v-for="game in filteredGames"
+        :key="game.appid"
+        class="game-grid-item"
+      >
         <GameCard
           :game="game"
           :running="runningAppId === game.appid"
@@ -357,7 +365,6 @@ watch([library, search, filter], () => {
           @stop="stopGame(game)"
           @install="installGame(game)"
           @uninstall="uninstallGame(game)"
-          @expanded="onCardExpanded"
           @artwork-missing="requestArtworkRetry"
         />
       </div>

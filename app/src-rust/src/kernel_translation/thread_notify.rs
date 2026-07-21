@@ -395,7 +395,7 @@ pub fn handle_compute_delta(body: &Map<String, Value>) -> Value {
 
     {
         let mut watchers = lock_watchers();
-        for (_, watcher) in watchers.iter_mut() {
+        for watcher in watchers.values_mut() {
             if watcher.pid == from.pid && watcher.active {
                 watcher.deltas_detected += 1;
                 watcher.threads_created += created_count as u64;

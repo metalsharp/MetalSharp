@@ -172,3 +172,51 @@ add_executable(test_roadmap
 target_link_libraries(test_roadmap PRIVATE metalsharp_d3d12 metalsharp_core)
 
 add_test(NAME roadmap COMMAND test_roadmap)
+
+add_executable(test_spirv_cross_sanity
+    test_spirv_cross_sanity.cpp
+)
+target_link_libraries(test_spirv_cross_sanity PRIVATE spirv-cross-c spirv-cross-glsl spirv-cross-msl spirv-cross-core)
+add_test(NAME spirv_cross_sanity COMMAND test_spirv_cross_sanity)
+
+add_executable(test_opengl_bridge
+    test_opengl_bridge.cpp
+)
+target_link_libraries(test_opengl_bridge PRIVATE metalsharp_opengl32 metalsharp_core)
+target_compile_options(test_opengl_bridge PRIVATE -fobjc-arc)
+add_test(NAME opengl_bridge COMMAND test_opengl_bridge)
+
+add_executable(test_glsl_compiler
+    test_glsl_compiler.cpp
+)
+target_link_libraries(test_glsl_compiler PRIVATE
+    metalsharp_opengl32
+    metalsharp_core
+    glslang
+    OSDependent
+    SPIRV
+    glslang-default-resource-limits
+    spirv-cross-core
+    spirv-cross-glsl
+    spirv-cross-msl)
+add_test(NAME glsl_compiler COMMAND test_glsl_compiler)
+
+add_executable(test_metal_renderer
+    test_metal_renderer.mm
+)
+target_link_libraries(test_metal_renderer PRIVATE metalsharp_opengl32 metalsharp_core ${METAL_FRAMEWORK})
+target_compile_options(test_metal_renderer PRIVATE -fobjc-arc)
+add_test(NAME metal_renderer COMMAND test_metal_renderer)
+
+add_executable(test_wgl_context
+    test_wgl_context.mm
+)
+target_link_libraries(test_wgl_context PRIVATE metalsharp_opengl32 metalsharp_core ${METAL_FRAMEWORK} ${APPKIT_FRAMEWORK})
+target_compile_options(test_wgl_context PRIVATE -fobjc-arc)
+add_test(NAME wgl_context COMMAND test_wgl_context)
+
+add_executable(test_phase5_error_ext
+    test_phase5_error_ext.cpp
+)
+target_link_libraries(test_phase5_error_ext PRIVATE metalsharp_opengl32 metalsharp_core)
+add_test(NAME phase5_error_ext COMMAND test_phase5_error_ext)

@@ -208,7 +208,7 @@ fn now_ms() -> u64 {
 fn dispatch_process_event(event: &ProcessNotifyEvent) -> Vec<u64> {
     let callbacks = lock_callbacks();
     let mut dispatched = Vec::new();
-    for (_, cb) in callbacks.iter() {
+    for cb in callbacks.values() {
         if cb.active && cb.callback_type == CallbackType::ProcessNotify {
             dispatched.push(cb.id);
         }
@@ -219,7 +219,7 @@ fn dispatch_process_event(event: &ProcessNotifyEvent) -> Vec<u64> {
 fn dispatch_thread_event(event: &ThreadNotifyEvent) -> Vec<u64> {
     let callbacks = lock_callbacks();
     let mut dispatched = Vec::new();
-    for (_, cb) in callbacks.iter() {
+    for cb in callbacks.values() {
         if cb.active && cb.callback_type == CallbackType::ThreadNotify {
             dispatched.push(cb.id);
         }
@@ -230,7 +230,7 @@ fn dispatch_thread_event(event: &ThreadNotifyEvent) -> Vec<u64> {
 fn dispatch_image_event(event: &ImageLoadNotifyEvent) -> Vec<u64> {
     let callbacks = lock_callbacks();
     let mut dispatched = Vec::new();
-    for (_, cb) in callbacks.iter() {
+    for cb in callbacks.values() {
         if cb.active && cb.callback_type == CallbackType::ImageLoadNotify {
             dispatched.push(cb.id);
         }
