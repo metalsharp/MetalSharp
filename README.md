@@ -23,7 +23,7 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 ## Quick Start
 
-Download the latest DMG from [Releases](https://github.com/aaf2tbz/metalsharp/releases), drag MetalSharp into `/Applications`, and open it. The setup wizard handles the rest.
+Download the latest DMG from [Releases](https://github.com/aaf2tbz/metalsharp/releases), drag MetalSharp into `/Applications`, and open it. The setup wizard handles the rest. To ensure accurate Steam Installation, please wait for Steam to finish both update windows it will launch before installing the x64 /x86 Reddist Installers. 
 
 If Gatekeeper cannot verify the app, open **System Settings → Privacy & Security** and choose **Open Anyway** for MetalSharp. VirusTotal scans are included with release notes when available.
 
