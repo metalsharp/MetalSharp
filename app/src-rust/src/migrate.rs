@@ -744,6 +744,7 @@ struct PreservedData {
     steam_config_json: Option<Vec<u8>>,
     prefix_steam_tmp: PathBuf,
     prefix_gptk_tmp: PathBuf,
+    sharp_prefix_tmp: PathBuf,
     cache_tmp: PathBuf,
     games_tmp: PathBuf,
     sharp_library_tmp: PathBuf,
@@ -834,6 +835,7 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
 
     let prefix_gptk_tmp = tmp.join("prefix-gptk");
     let prefix_gptk = ms_dir.join("prefix-gptk");
+    let sharp_prefix_tmp = tmp.join("sharp-prefix");
     if prefix_gptk.exists() {
         let _ = fs::create_dir_all(&prefix_gptk_tmp);
         preserve_settings_only(&prefix_gptk, &prefix_gptk_tmp);
@@ -883,6 +885,7 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
     }
 
     write_migrate_progress("running", 2, MIGRATION_TOTAL_STEPS, "Preserving user settings (bottle metadata)...", None);
+    preserve_sharp_prefix(ms_dir, &tmp, &mut report);
     let bottles_tmp = tmp.join("bottles");
     let bottles = ms_dir.join("bottles");
     if bottles.exists() {
@@ -930,6 +933,7 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
             steam_config_json,
             prefix_steam_tmp,
             prefix_gptk_tmp,
+            sharp_prefix_tmp,
             cache_tmp,
             games_tmp,
             sharp_library_tmp,
@@ -1084,6 +1088,50 @@ fn preserve_gog_bottle_prefix(bottles: &Path, bottles_tmp: &Path, report: &mut M
         "gog-prefix",
         Some(src.to_string_lossy().to_string()),
         "dedicated GOG Wine prefix preserved across runtime install",
+    );
+}
+
+/// Preserve the shared Sharp Library Wine prefix (`~/.metalsharp/sharp-prefix`)
+/// across reinstalls. This is the canonical home for non-Steam, non-GOG
+/// Sharp Library apps that don't have their own installer bottle. Without
+/// this preservation the user would lose every imported app + its installed
+/// state on every MetalSharp upgrade.
+fn preserve_sharp_prefix(ms_dir: &PathBuf, tmp: &PathBuf, report: &mut MigrationReport) {
+    let src = ms_dir.join("sharp-prefix");
+    if !src.exists() {
+        report.record("preserve", "skipped", "sharp-prefix", None, "sharp-prefix directory absent");
+        return;
+    }
+    let dst = tmp.join("sharp-prefix");
+    let _ = fs::create_dir_all(&dst);
+    copy_dir_recursive(&src, &dst);
+    report.record(
+        "preserve",
+        "preserved",
+        "sharp-prefix",
+        Some(src.to_string_lossy().to_string()),
+        "shared Sharp Library Wine prefix preserved across runtime install",
+    );
+}
+
+fn restore_sharp_prefix(sharp_prefix_tmp: &PathBuf, ms_dir: &PathBuf, report: &mut MigrationReport) {
+    let src = sharp_prefix_tmp.join("sharp-prefix");
+    if !src.exists() {
+        report.record("restore", "skipped", "sharp-prefix", None, "no preserved sharp-prefix payload");
+        return;
+    }
+    let dst = ms_dir.join("sharp-prefix");
+    if dst.exists() {
+        let _ = fs::remove_dir_all(&dst);
+    }
+    let _ = fs::create_dir_all(&dst);
+    copy_dir_recursive(&src, &dst);
+    report.record(
+        "restore",
+        "restored",
+        "sharp-prefix",
+        Some(dst.to_string_lossy().to_string()),
+        "shared Sharp Library Wine prefix restored across runtime install",
     );
 }
 
@@ -2109,6 +2157,8 @@ fn restore_user_data(ms_dir: &PathBuf, preserved: &PreservedData, report: &mut M
     } else {
         report.record("restore", "skipped", "sharp-library", None, "no preserved sharp-library payload");
     }
+
+    restore_sharp_prefix(&preserved.sharp_prefix_tmp, ms_dir, report);
 
     if preserved.bottles_tmp.exists() {
         let dst = ms_dir.join("bottles");

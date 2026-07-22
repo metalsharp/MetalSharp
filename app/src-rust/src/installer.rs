@@ -1913,6 +1913,9 @@ fn find_system_command(cmd: &str) -> Option<PathBuf> {
             PathBuf::from("/usr/bin/mono"),
         ],
         "wine" => vec![PathBuf::from("/usr/bin/wine"), PathBuf::from("/usr/local/bin/wine")],
+        "innoextract" => {
+            vec![PathBuf::from("/opt/homebrew/bin/innoextract"), PathBuf::from("/usr/local/bin/innoextract")]
+        },
         _ => vec![PathBuf::from(cmd)],
     };
     for c in &candidates {
@@ -1950,6 +1953,14 @@ pub fn ensure_zstd() -> Result<bool, String> {
         return Ok(false);
     }
     brew_install("zstd")
+}
+
+pub fn innoextract_binary() -> Result<PathBuf, String> {
+    if let Some(path) = find_system_command("innoextract") {
+        return Ok(path);
+    }
+    brew_install("innoextract")?;
+    find_system_command("innoextract").ok_or_else(|| "innoextract was installed but its binary was not found".into())
 }
 
 fn install_mono_arm64() -> Result<bool, String> {
