@@ -219,8 +219,7 @@ fn sync_wine_prefix_app(apps: &mut Vec<SharpApp>, candidate: WinePrefixApp) -> b
         // for in-place updates. Steam shortcuts, manual imports, and other
         // user-curated entries must be left alone so they don't get clobbered
         // by the prefix scanner.
-        let is_auto_managed =
-            app.id.starts_with("wine_app_") || app.id.starts_with("installer_app_");
+        let is_auto_managed = app.id.starts_with("wine_app_") || app.id.starts_with("installer_app_");
         if !is_auto_managed {
             return false;
         }
@@ -888,7 +887,94 @@ fn start_wine_installer(src: &Path, fresh_bottle: bool) -> Result<SharpInstallOu
     } else {
         crate::bottles::ensure_installer_bottle(src, &classification)?
     };
+
+    // Inno Setup 6's 32-bit unpacking subprocess currently crashes in the
+    // macOS WoW64 runtime before it can copy its payload. MoonScraper is a
+    // portable Unity application, so extract its {app} payload with the
+    // native ARM-compatible innoextract tool instead of that broken subprocess.
+    // Keep this allowlisted: arbitrary Inno packages may require registry,
+    // service, or Pascal-script actions that extraction alone cannot emulate.
+    if is_moonscraper_inno_installer(src, &classification) {
+        return extract_moonscraper_inno_app(src, &bottle);
+    }
+
     start_wine_installer_in_bottle(src, &classification, &bottle, pipeline)
+}
+
+fn is_moonscraper_inno_installer(src: &Path, classification: &crate::bottles::InstallerClassification) -> bool {
+    if classification.installer_kind != crate::bottles::InstallerKind::Inno {
+        return false;
+    }
+    let name = src.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    name.starts_with("msce.") && name.contains(".installer.") && name.ends_with(".exe")
+}
+
+fn extract_moonscraper_inno_app(
+    src: &Path,
+    bottle: &crate::bottles::BottleManifest,
+) -> Result<SharpInstallOutcome, Box<dyn std::error::Error>> {
+    let prefix = PathBuf::from(&bottle.prefix_path);
+    let install_dir = prefix.join("drive_c").join("Program Files").join("Moonscraper Chart Editor");
+    let bottle_dir = prefix.parent().ok_or("installer bottle prefix has no parent")?;
+    let staging_dir = bottle_dir.join("native-inno-extract.tmp");
+    let log_path = crate::bottles::next_launch_log_path(&bottle.id);
+
+    let _ = fs::remove_dir_all(&staging_dir);
+    fs::create_dir_all(&staging_dir)?;
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut log = OpenOptions::new().create(true).truncate(true).write(true).open(&log_path)?;
+    writeln!(log, "installer_kind=inno")?;
+    writeln!(log, "strategy=native_inno_extract")?;
+    writeln!(log, "source={}", src.display())?;
+    writeln!(log, "destination={}", install_dir.display())?;
+    crate::bottles::set_last_launch_log(&bottle.id, &log_path)?;
+
+    let innoextract =
+        crate::installer::innoextract_binary().map_err(|error| format!("innoextract unavailable: {error}"))?;
+    writeln!(log, "extractor={}", innoextract.display())?;
+    let output = Command::new(&innoextract)
+        .arg("--extract")
+        .arg("--silent")
+        .arg("--output-dir")
+        .arg(&staging_dir)
+        .arg(src)
+        .output()?;
+    log.write_all(&output.stdout)?;
+    log.write_all(&output.stderr)?;
+    if !output.status.success() {
+        let _ = fs::remove_dir_all(&staging_dir);
+        return Err(format!("innoextract failed with status {}", output.status).into());
+    }
+
+    let app_dir = staging_dir.join("app");
+    let executable = app_dir.join("Moonscraper Chart Editor.exe");
+    if !executable.is_file() {
+        let _ = fs::remove_dir_all(&staging_dir);
+        return Err("MoonScraper Inno payload did not contain the expected application executable".into());
+    }
+
+    if install_dir.exists() {
+        fs::remove_dir_all(&install_dir)?;
+    }
+    if let Some(parent) = install_dir.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(&app_dir, &install_dir)?;
+    fs::remove_dir_all(&staging_dir)?;
+    writeln!(log, "status=complete")?;
+    crate::bottles::refresh_app_detections(&bottle.id)?;
+
+    let apps = load_library()?;
+    let app = apps
+        .into_iter()
+        .find(|app| {
+            app.bottle_id.as_deref() == Some(bottle.id.as_str())
+                && app.exe_path.eq_ignore_ascii_case("Moonscraper Chart Editor.exe")
+        })
+        .ok_or("MoonScraper was extracted but Sharp Library did not detect its executable")?;
+    Ok(SharpInstallOutcome::Imported(Box::new(app)))
 }
 
 fn start_wine_installer_in_bottle(
@@ -1007,10 +1093,7 @@ pub fn sync_after_bottle_complete(bottle_id: &str) -> Result<(), Box<dyn std::er
         // Best-effort: if a save fails, log but do not propagate — the bottle
         // completion should never block on a library refresh.
         if let Err(e) = save_library(&apps) {
-            eprintln!(
-                "sharp_library: save_library after bottle {} sync failed: {}",
-                bottle_id, e
-            );
+            eprintln!("sharp_library: save_library after bottle {} sync failed: {}", bottle_id, e);
         }
     }
     Ok(())
@@ -1902,6 +1985,23 @@ mod tests {
         assert!(!is_safe_library_id("../runtime"));
         assert!(!is_safe_library_id("nested/game"));
         assert!(!is_safe_library_id("/tmp/game"));
+    }
+
+    #[test]
+    fn native_inno_extraction_is_allowlisted_to_moonscraper() {
+        let classification = crate::bottles::InstallerClassification {
+            arch: crate::bottles::BottleArch::Win32,
+            installer_kind: crate::bottles::InstallerKind::Inno,
+            runtime_profile: crate::bottles::RuntimeProfile::GameInstall,
+            pipeline: crate::mtsp::engine::PipelineId::WineBare,
+            hints: vec![],
+        };
+        assert!(is_moonscraper_inno_installer(Path::new("/tmp/MSCE.1.5.13.Installer.Win64.exe"), &classification));
+        assert!(!is_moonscraper_inno_installer(Path::new("/tmp/Other.Installer.exe"), &classification));
+
+        let mut non_inno = classification;
+        non_inno.installer_kind = crate::bottles::InstallerKind::Exe;
+        assert!(!is_moonscraper_inno_installer(Path::new("/tmp/MSCE.1.5.13.Installer.Win64.exe"), &non_inno));
     }
 
     #[test]

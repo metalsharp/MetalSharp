@@ -1405,10 +1405,8 @@ pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
     // the installer UI never gets a chance to render. Runtime profile stays
     // GameInstall for these so the *installed* app later launches with the
     // WineBare pipeline defined for GameInstall.
-    let is_framework_installer = matches!(
-        installer_kind,
-        InstallerKind::Msi | InstallerKind::Nsis | InstallerKind::Inno | InstallerKind::Wix
-    );
+    let is_framework_installer =
+        matches!(installer_kind, InstallerKind::Msi | InstallerKind::Nsis | InstallerKind::Inno | InstallerKind::Wix);
     let pipeline = if let Some(recipe) = known_launcher {
         recipe.forced_pipeline.unwrap_or(crate::mtsp::engine::PipelineId::WineBare)
     } else if is_msi || is_framework_installer {
@@ -6052,12 +6050,7 @@ mod tests {
     /// exercise `classify_installer` against the Moonscraper-style case
     /// where Inno Setup markers live past the historical 512 KB string-scan
     /// limit.
-    fn write_test_installer(
-        dir: &Path,
-        file_name: &str,
-        machine: u16,
-        markers: &[(&str, usize)],
-    ) -> PathBuf {
+    fn write_test_installer(dir: &Path, file_name: &str, machine: u16, markers: &[(&str, usize)]) -> PathBuf {
         let path = dir.join(file_name);
         let mut data = test_pe(machine, 0);
         // Pad out to the requested offsets so we can place markers past
@@ -6117,17 +6110,10 @@ mod tests {
             &dir,
             "some-delphi-installer.exe",
             0x14c,
-            &[
-                ("TRttiAnsiStringType", 0x1000),
-                ("SomeOtherDelphiClass", 0x2000),
-            ],
+            &[("TRttiAnsiStringType", 0x1000), ("SomeOtherDelphiClass", 0x2000)],
         );
         let classification = classify_installer(&path);
-        assert_ne!(
-            classification.installer_kind,
-            InstallerKind::Nsis,
-            "Delphi types must not be classified as NSIS"
-        );
+        assert_ne!(classification.installer_kind, InstallerKind::Nsis, "Delphi types must not be classified as NSIS");
         let _ = fs::remove_dir_all(&dir);
     }
 
