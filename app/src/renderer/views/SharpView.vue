@@ -8,6 +8,7 @@ import IconUpload from "~icons/lucide/upload";
 import IconRefreshCcw from "~icons/lucide/refresh-ccw";
 import IconMonitor from "~icons/lucide/monitor";
 import IconX from "~icons/lucide/x";
+import sharpLogoUrl from "../icon.png";
 
 interface LaunchDoctorCheck {
   id: string;
@@ -1510,7 +1511,7 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
             :alt="app.name"
             :style="{ objectPosition: coverPosition(app) }"
           />
-          <span v-else class="sharp-icon-placeholder">{{ app.name.charAt(0) }}</span>
+          <img v-else :src="sharpLogoUrl" :alt="`${app.name} default artwork`" class="sharp-cover-fallback" />
           <button
             v-if="runningSharpPids[app.id]"
             class="running-close-button"
@@ -1714,7 +1715,7 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
           <div v-for="game in gogGames" :key="game.productId" class="sharp-card gog-card" :class="{ running: game.running }">
             <div class="sharp-card-banner">
               <img v-if="game.imageUrl" :src="game.imageUrl" :alt="game.title" />
-              <span v-else class="sharp-icon-placeholder">{{ game.title.charAt(0) }}</span>
+              <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
               <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopGogGame(game)">
                 <IconX width="14" height="14" />
               </button>
@@ -2286,11 +2287,12 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
   height: 100%;
   object-fit: cover;
 }
-.sharp-icon-placeholder {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text-dim);
-  opacity: 0.34;
+.sharp-card-banner img.sharp-cover-fallback {
+  object-fit: contain;
+  padding: 26px;
+  background:
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 48%),
+    var(--bg-surface);
 }
 .running-close-button {
   position: absolute;
