@@ -203,43 +203,48 @@ const userSelectablePipelineNames: Record<string, string> = {
   m9: "M9",
   fna_arm64: "Mono/FNA",
 };
+const displayedPipelineName = computed(() => {
+  if (props.game.installed) return pipelineName.value;
+  const routeId = props.game.preferred_pipeline || props.game.launch_method || "";
+  return props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+});
 
 const componentDisplayName: Record<string, string> = {
   "mono-arm64": "Mono ARM64",
   "mono-x86": "Mono x86_64",
-  "fna": "FNA Runtime",
-  "xna": "XNA Assemblies",
-  "sdl2": "SDL2",
-  "fna3d": "FNA3D",
-  "faudio": "FAudio",
-  "fmod": "FMOD Audio",
-  "m12_d3d12": "M12 d3d12.dll",
-  "m12_d3d11": "M12 d3d11.dll",
-  "m12_d3d10core": "M12 d3d10core.dll",
-  "m12_dxgi_dxmt": "M12 dxgi_dxmt.dll",
-  "m12_dxgi": "M12 dxgi.dll",
-  "m12_winemetal": "M12 winemetal.dll / .so",
-  "m12_gpu_stubs": "M12 GPU Stubs",
-  "d3d12_agility": "D3D12 Agility",
-  "gpu_vendor_stubs": "GPU Stubs",
-  "gptk_amd_stub": "GPTK AMD Stub",
-  "d3d10core": "D3D10core",
-  "winemetal": "Winemetal",
-  "gptk": "GPTK",
-  "gptk_prefix": "GPTK Prefix",
-  "rosetta": "Rosetta",
-  "corefonts": "Core Fonts",
-  "vcrun2019_x64": "VC++ 2015-2022 x64",
-  "vcrun2019_x86": "VC++ 2015-2022 x86",
-  "vcrun2019": "VC++ 2015-2022",
-  "vcrun2010": "VC++ 2010",
-  "vcrun2013": "VC++ 2013",
-  "dotnet40": ".NET 4.0",
-  "dotnet48": ".NET 4.8",
-  "webview2": "WebView2",
-  "directx_jun2010": "DX Jun2010",
-  "openal": "OpenAL",
-  "physx": "PhysX",
+  fna: "FNA Runtime",
+  xna: "XNA Assemblies",
+  sdl2: "SDL2",
+  fna3d: "FNA3D",
+  faudio: "FAudio",
+  fmod: "FMOD Audio",
+  m12_d3d12: "M12 d3d12.dll",
+  m12_d3d11: "M12 d3d11.dll",
+  m12_d3d10core: "M12 d3d10core.dll",
+  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
+  m12_dxgi: "M12 dxgi.dll",
+  m12_winemetal: "M12 winemetal.dll / .so",
+  m12_gpu_stubs: "M12 GPU Stubs",
+  d3d12_agility: "D3D12 Agility",
+  gpu_vendor_stubs: "GPU Stubs",
+  gptk_amd_stub: "GPTK AMD Stub",
+  d3d10core: "D3D10core",
+  winemetal: "Winemetal",
+  gptk: "GPTK",
+  gptk_prefix: "GPTK Prefix",
+  rosetta: "Rosetta",
+  corefonts: "Core Fonts",
+  vcrun2019_x64: "VC++ 2015-2022 x64",
+  vcrun2019_x86: "VC++ 2015-2022 x86",
+  vcrun2019: "VC++ 2015-2022",
+  vcrun2010: "VC++ 2010",
+  vcrun2013: "VC++ 2013",
+  dotnet40: ".NET 4.0",
+  dotnet48: ".NET 4.8",
+  webview2: "WebView2",
+  directx_jun2010: "DX Jun2010",
+  openal: "OpenAL",
+  physx: "PhysX",
 };
 
 const runtimeProfileDisplayName: Record<string, string> = {
@@ -320,7 +325,14 @@ const bottlePipelineOptions = computed(() =>
 );
 
 function preferredBottlePipeline(report: SteamRuntimeReport) {
-  const candidates = [report.preferred_pipeline, report.pipeline, report.runtime_profile, props.game.preferred_pipeline, props.game.launch_method, selectedLaunchMode.value];
+  const candidates = [
+    report.preferred_pipeline,
+    report.pipeline,
+    report.runtime_profile,
+    props.game.preferred_pipeline,
+    props.game.launch_method,
+    selectedLaunchMode.value,
+  ];
   return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "m11";
 }
 
@@ -379,9 +391,7 @@ function runtimeReportFromD3DMetalState(state: D3DMetalGptkState, actions: D3DMe
   };
 }
 
-const visibleD3DMetalActions = computed(() =>
-  d3dmetalActions.value.filter((action) => action.id !== "play_d3dmetal"),
-);
+const visibleD3DMetalActions = computed(() => d3dmetalActions.value.filter((action) => action.id !== "play_d3dmetal"));
 
 const pendingD3DMetalActions = computed(() =>
   visibleD3DMetalActions.value.filter((action) => !d3dmetalActionReady(action)),
@@ -457,7 +467,6 @@ onMounted(async () => {
       }
       goldbergCacheOk.value = gs.cache_files_ok === true;
     }
-
   }
 });
 
@@ -520,14 +529,15 @@ async function refreshPipelineMetadata() {
 }
 
 async function toggleGoldberg(enable: boolean) {
-  const result = await api<{ ok: boolean; goldberg_active: boolean; cache_files_ok?: boolean; backed_up_at?: number | null }>(
-    "POST",
-    "/goldberg/toggle",
-    {
-      appid: props.game.appid,
-      enable,
-    },
-  );
+  const result = await api<{
+    ok: boolean;
+    goldberg_active: boolean;
+    cache_files_ok?: boolean;
+    backed_up_at?: number | null;
+  }>("POST", "/goldberg/toggle", {
+    appid: props.game.appid,
+    enable,
+  });
   if (result?.ok) {
     goldbergActive.value = result.goldberg_active;
     if (typeof result.backed_up_at === "number") {
@@ -646,7 +656,7 @@ async function loadD3DMetalStatus() {
 async function playSelectedLaunchMode() {
   const launchMode = effectivePlayLaunchMode();
   if (launchMode !== "d3dmetal") {
-    emit('play', launchMode);
+    emit("play", launchMode);
     return;
   }
   if (!d3dmetalState.value) await loadD3DMetalStatus();
@@ -662,12 +672,12 @@ async function playSelectedLaunchMode() {
     return;
   }
   const pid = await runD3DMetalAction(playAction);
-  if (pid) emit('d3dmetalLaunched', pid);
+  if (pid) emit("d3dmetalLaunched", pid);
 }
 
 async function runD3DMetalPanelAction(action: D3DMetalGptkAction) {
   const pid = await runD3DMetalAction(action);
-  if (action.id === "play_d3dmetal" && pid) emit('d3dmetalLaunched', pid);
+  if (action.id === "play_d3dmetal" && pid) emit("d3dmetalLaunched", pid);
 }
 
 function d3dmetalActionRoute(actionId: string) {
@@ -692,11 +702,16 @@ async function runD3DMetalAction(action: D3DMetalGptkAction): Promise<number | n
   const gameDir = runtimeReport.value?.game_install_path;
   d3dmetalLoading.value = true;
   const route = d3dmetalActionRoute(action.id);
-  const result = await api<D3DMetalGptkResponse>("POST", route, {
-    appid: props.game.appid,
-    bottleId,
-    gameDir,
-  }, 10 * 60 * 1000);
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    route,
+    {
+      appid: props.game.appid,
+      bottleId,
+      gameDir,
+    },
+    10 * 60 * 1000,
+  );
   d3dmetalLoading.value = false;
   if (result?.ok) {
     toast.show(action.id === "play_d3dmetal" ? "D3DMetal launch started" : `${action.label}: complete`, "success");
@@ -798,12 +813,17 @@ async function saveBottleEdit() {
     // take several minutes. Surface a bottom-right toast so the bottle
     // doesn't look stale while the request is in flight.
     toast.show("Saving D3DMetal bottle — downloading GPTK runtime on first save…", "success");
-    const d3dmetalResult = await api<D3DMetalGptkResponse>("POST", "/d3dmetal/bottles/save", {
-      appid: props.game.appid,
-      bottleId,
-      name: bottleName.value || props.game.name,
-      gameDir,
-    }, 10 * 60 * 1000);
+    const d3dmetalResult = await api<D3DMetalGptkResponse>(
+      "POST",
+      "/d3dmetal/bottles/save",
+      {
+        appid: props.game.appid,
+        bottleId,
+        name: bottleName.value || props.game.name,
+        gameDir,
+      },
+      10 * 60 * 1000,
+    );
     bottleSaving.value = false;
     if (d3dmetalResult?.ok && d3dmetalResult.state) {
       d3dmetalState.value = d3dmetalResult.state;
@@ -847,13 +867,12 @@ async function saveBottleEdit() {
     // that launch uses. It validates the isolated DLL lane, Unix sidecars,
     // and M12 environment without deploying or spawning the game.
     const isM12 = bottlePreferredMode.value === "m12";
-    const m12DryRun = isM12
-      ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`)
-      : null;
+    const m12DryRun = isM12 ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`) : null;
     bottleName.value = result.bottle.name;
-    bottlePreferredMode.value = result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
-      ? result.bottle.preferred_pipeline
-      : bottlePreferredMode.value;
+    bottlePreferredMode.value =
+      result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
+        ? result.bottle.preferred_pipeline
+        : bottlePreferredMode.value;
     selectedLaunchMode.value = bottlePreferredMode.value;
     pipelineName.value = userSelectablePipelineNames[bottlePreferredMode.value] || pipelineName.value;
     pipelineResolvedLocally.value = true;
@@ -862,7 +881,10 @@ async function saveBottleEdit() {
       runtimeReport.value.preferred_pipeline = result.bottle.preferred_pipeline || null;
     }
     if (isM12 && m12DryRun?.ok === false) {
-      const missing = m12DryRun.missing?.map((entry) => entry.filename).filter(Boolean).join(", ");
+      const missing = m12DryRun.missing
+        ?.map((entry) => entry.filename)
+        .filter(Boolean)
+        .join(", ");
       toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
     } else if (isM12 && !m12DryRun) {
       toast.show("M12 bottle saved, but its dry run could not be completed", "error");
@@ -920,7 +942,7 @@ function formatBytes(bytes: number): string {
         </span>
       </div>
       <div class="game-card-meta">
-        <span v-if="game.installed" class="route-chip">{{ pipelineName }}</span>
+        <span class="route-chip">{{ displayedPipelineName }}</span>
 
         <label v-if="game.installed" class="tool-chip toggle-label steam-emu-toggle" title="gbe_fork Steam emulator">
           <input
@@ -935,9 +957,13 @@ function formatBytes(bytes: number): string {
           v-if="game.installed && goldbergActive"
           class="tool-chip steam-emu-cache"
           :class="goldbergCacheOk ? 'cache-ok' : 'cache-missing'"
-          :title="goldbergCacheOk
-            ? 'Original Steam DLLs are cached at ~/.metalsharp/cache/goldberg/' + props.game.appid + '/. Toggling OFF will restore them even if the in-game .orig files were deleted.'
-            : 'Original Steam DLLs are NOT cached. Toggling OFF relies on the in-game .orig files only — restore may be incomplete if Steam or a manual edit has overwritten them.'"
+          :title="
+            goldbergCacheOk
+              ? 'Original Steam DLLs are cached at ~/.metalsharp/cache/goldberg/' +
+                props.game.appid +
+                '/. Toggling OFF will restore them even if the in-game .orig files were deleted.'
+              : 'Original Steam DLLs are NOT cached. Toggling OFF relies on the in-game .orig files only — restore may be incomplete if Steam or a manual edit has overwritten them.'
+          "
         >
           <span class="cache-dot"></span>
           {{ goldbergCacheOk ? "Backup cached" : "Backup missing" }}
@@ -973,11 +999,7 @@ function formatBytes(bytes: number): string {
               title="Run Launch Doctor"
               @click="runDoctor"
             >
-              <IconShieldPlus
-                v-if="!doctorLoading"
-                width="16"
-                height="16"
-              />
+              <IconShieldPlus v-if="!doctorLoading" width="16" height="16" />
               <span v-else class="spinner"></span>
             </button>
             <button
@@ -987,11 +1009,7 @@ function formatBytes(bytes: number): string {
               title="Run Runtime Doctor"
               @click="runRuntimeDoctor"
             >
-              <IconBox
-                v-if="!runtimeLoading"
-                width="16"
-                height="16"
-              />
+              <IconBox v-if="!runtimeLoading" width="16" height="16" />
               <span v-else class="spinner"></span>
             </button>
           </div>
@@ -1034,13 +1052,18 @@ function formatBytes(bytes: number): string {
           </div>
           <div v-if="runtimeOpen" class="doctor-panel">
             <div v-if="runtimeLoading" class="doctor-loading">Checking bottle runtime...</div>
-            <div v-else-if="bottleSaving && bottlePreferredMode === 'd3dmetal'" class="doctor-loading">Saving D3DMetal bottle — GPTK may download…</div>
+            <div v-else-if="bottleSaving && bottlePreferredMode === 'd3dmetal'" class="doctor-loading">
+              Saving D3DMetal bottle — GPTK may download…
+            </div>
             <template v-else-if="runtimeReport">
               <div class="doctor-summary">
                 <span class="badge" :class="runtimeReport.actions.length ? 'badge-warn' : 'badge-ok'">
                   {{ runtimeReport.actions.length ? "Bottle Repair" : "Bottle Ready" }}
                 </span>
-                <span>{{ runtimeReport.bottle_id ?? "steam prefix" }} / {{ runtimeProfileLabel(runtimeReport.runtime_profile) }}</span>
+                <span
+                  >{{ runtimeReport.bottle_id ?? "steam prefix" }} /
+                  {{ runtimeProfileLabel(runtimeReport.runtime_profile) }}</span
+                >
               </div>
               <div class="bottle-edit-row">
                 <span>Bottle Name</span>
@@ -1062,9 +1085,7 @@ function formatBytes(bytes: number): string {
               <button class="btn btn-secondary btn-sm" :disabled="bottleSaving" @click="saveBottleEdit">
                 {{ bottleSaving ? "Saving..." : "Save Bottle" }}
               </button>
-              <div v-if="defaultRule && !currentIsDefaultRule" class="compact-runtime-note">
-                Custom route
-              </div>
+              <div v-if="defaultRule && !currentIsDefaultRule" class="compact-runtime-note">Custom route</div>
               <div v-if="isD3DMetalBottleSelected() && d3dmetalState" class="compact-runtime-status">
                 <div class="runtime-status-chips" aria-label="D3DMetal runtime status">
                   <span
@@ -1077,7 +1098,11 @@ function formatBytes(bytes: number): string {
                   </span>
                 </div>
                 <div v-if="d3dmetalState.last_error" class="doctor-notes blocked">{{ d3dmetalState.last_error }}</div>
-                <div v-for="action in pendingD3DMetalActions" :key="action.id" class="runtime-action-row compact-repair-row">
+                <div
+                  v-for="action in pendingD3DMetalActions"
+                  :key="action.id"
+                  class="runtime-action-row compact-repair-row"
+                >
                   <span>{{ action.label }}</span>
                   <button
                     class="btn btn-secondary btn-sm"
@@ -1089,16 +1114,18 @@ function formatBytes(bytes: number): string {
                 </div>
               </div>
               <div v-if="!isD3DMetalBottleSelected() && unresolvedRuntimeComponents.length" class="doctor-checks">
-                <div v-for="component in unresolvedRuntimeComponents" :key="component.id" class="doctor-check" :class="componentStateClass(component.state)">
+                <div
+                  v-for="component in unresolvedRuntimeComponents"
+                  :key="component.id"
+                  class="doctor-check"
+                  :class="componentStateClass(component.state)"
+                >
                   <span class="doctor-check-state">{{ componentStateIcon(component.state) }}</span>
                   <span class="doctor-check-label">{{ bottleComponentLabel(component.id) }}</span>
                   <span class="doctor-check-detail">{{ component.state }}</span>
                 </div>
               </div>
-              <div
-                v-else-if="!isD3DMetalBottleSelected() && runtimeComponentsVerified"
-                class="compact-runtime-note"
-              >
+              <div v-else-if="!isD3DMetalBottleSelected() && runtimeComponentsVerified" class="compact-runtime-note">
                 Runtime verified
               </div>
               <div v-if="runtimeReport.actions.length && !isD3DMetalBottleSelected()" class="doctor-notes blocked">
@@ -1166,7 +1193,7 @@ function formatBytes(bytes: number): string {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.04),
     0 0 0 1px rgba(185, 255, 77, 0.24),
-    0 0 42px rgba(185, 255, 77, 0.20),
+    0 0 42px rgba(185, 255, 77, 0.2),
     0 24px 58px rgba(0, 0, 0, 0.38);
 }
 .game-card.uninstalled {
@@ -1192,7 +1219,7 @@ function formatBytes(bytes: number): string {
   box-shadow:
     inset 0 0 0 1px rgba(0, 245, 255, 0.14),
     0 0 0 1px rgba(185, 255, 77, 0.28),
-    0 0 46px rgba(0, 245, 255, 0.20),
+    0 0 46px rgba(0, 245, 255, 0.2),
     0 26px 64px rgba(0, 0, 0, 0.44);
   transform: translateY(-3px);
 }
@@ -1208,7 +1235,7 @@ function formatBytes(bytes: number): string {
   box-shadow:
     0 0 0 1px rgba(112, 255, 140, 0.38),
     0 0 46px rgba(112, 255, 140, 0.24),
-    0 0 80px rgba(0, 245, 255, 0.10),
+    0 0 80px rgba(0, 245, 255, 0.1),
     0 26px 64px rgba(0, 0, 0, 0.42);
 }
 
@@ -1226,9 +1253,7 @@ function formatBytes(bytes: number): string {
 }
 :global(:root[data-theme="developer"] .game-card-banner) {
   border-radius: 18px 18px 0 0;
-  background:
-    linear-gradient(135deg, rgba(185, 255, 77, 0.15), rgba(255, 46, 247, 0.13)),
-    var(--bg-surface);
+  background: linear-gradient(135deg, rgba(185, 255, 77, 0.15), rgba(255, 46, 247, 0.13)), var(--bg-surface);
   box-shadow: inset 0 0 0 1px rgba(0, 245, 255, 0.18);
 }
 .game-card-cover {
@@ -1252,7 +1277,7 @@ function formatBytes(bytes: number): string {
 :global(:root[data-theme="developer"] .game-card-cover.fallback) {
   background:
     radial-gradient(circle at 26% 32%, rgba(255, 46, 247, 0.24), transparent 36%),
-    radial-gradient(circle at 76% 64%, rgba(0, 245, 255, 0.20), transparent 40%),
+    radial-gradient(circle at 76% 64%, rgba(0, 245, 255, 0.2), transparent 40%),
     linear-gradient(135deg, rgba(185, 255, 77, 0.13), rgba(9, 7, 15, 0.92));
 }
 .game-card:hover .game-card-cover {

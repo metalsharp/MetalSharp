@@ -65,6 +65,65 @@ textarea {
   font-size: inherit;
 }
 
+/* Shared translucent header surface for the primary library and diagnostics views. */
+.glass-header {
+  background-color: color-mix(in srgb, var(--bg-surface) 32%, transparent);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.19), transparent 26%),
+    linear-gradient(
+      112deg,
+      color-mix(in srgb, var(--accent) 22%, transparent),
+      transparent 46%,
+      rgba(255, 255, 255, 0.085)
+    );
+  backdrop-filter: blur(42px) saturate(210%) brightness(1.12);
+  -webkit-backdrop-filter: blur(42px) saturate(210%) brightness(1.12);
+  border-bottom-color: color-mix(in srgb, white 18%, var(--border));
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 -1px rgba(255, 255, 255, 0.08),
+    0 16px 42px rgba(0, 0, 0, 0.18);
+  isolation: isolate;
+}
+:root[data-theme="dark"] .glass-header {
+  background-color: rgba(18, 28, 40, 0.32);
+}
+:root[data-theme="light"] .glass-header {
+  background-color: rgba(255, 255, 255, 0.32);
+}
+:root[data-theme="light"] .glass-header h1 {
+  color: #354b5d;
+}
+:root[data-theme="light"] .glass-header .library-counts,
+:root[data-theme="light"] .glass-header .subtitle,
+:root[data-theme="light"] .glass-header .sharp-header-title p {
+  color: #536b7c;
+}
+:root[data-theme="light"] .glass-header .badge {
+  font-weight: 750;
+}
+:root[data-theme="light"] .glass-header .badge-warn {
+  color: #875b00;
+  background-color: rgba(169, 120, 24, 0.16);
+}
+:root[data-theme="light"] .glass-header .badge-ok {
+  color: #2f7540;
+  background-color: rgba(67, 143, 85, 0.16);
+}
+:root[data-theme="developer"] .glass-header {
+  background-color: rgba(9, 7, 15, 0.32);
+}
+
+.view-body-surface {
+  background: var(--bg-deep);
+}
+:root[data-theme="developer"] .view-body-surface {
+  background:
+    linear-gradient(118deg, rgba(185, 255, 77, 0.025), transparent 36%, rgba(0, 245, 255, 0.03) 72%, transparent),
+    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.14), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.11), transparent 30%), var(--bg-deep);
+}
+
 .hidden {
   display: none !important;
 }
@@ -139,19 +198,19 @@ textarea {
 }
 
 .btn-install {
-  background: #3ac5a9;
+  background: var(--play-color);
   color: #fff;
-  border-color: #3ac5a9;
+  border-color: var(--play-color);
 }
 .btn-install:hover {
-  background: #2fb89b;
+  background: var(--play-color-hover);
 }
 :root[data-theme="light"] .btn-install {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--play-color);
+  border-color: var(--play-color);
 }
 :root[data-theme="light"] .btn-install:hover {
-  background: var(--accent-hover);
+  background: var(--play-color-hover);
 }
 
 :root[data-theme="developer"] .btn {

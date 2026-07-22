@@ -7,6 +7,7 @@ Use this page as the repo map before changing launch/runtime code.
 ## Guides
 
 - [How to Use MetalSharp](guides/how-to-use-metalsharp.md) - install, launch, diagnose, and update flow.
+- [Library and Logs UI](guides/library-and-logs-ui.md) - library source selection, Sharp app tools, and log drawer behavior.
 - [Install from Source](guides/install-from-source.md) - build MetalSharp from source without the DMG.
 - [GPTK (D3DMetal) Guide](guides/gptk-guide.md) - Homebrew GPTK setup, D3DMetal bottle actions, prefix seeding, and troubleshooting.
 

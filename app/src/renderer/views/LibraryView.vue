@@ -45,7 +45,7 @@ const reloadLibrary = inject<() => Promise<void>>("loadLibrary")!;
 
 const toast = useToast();
 const search = ref("");
-const filter = ref<"all" | "installed" | "not_installed">("all");
+const filter = ref<"all" | "installed" | "not_installed">("installed");
 
 const runningAppId = ref<number | null>(null);
 const runningPid = ref<number | null>(null);
@@ -218,10 +218,15 @@ async function launchGame(game: SteamGame, launchMethod = "auto") {
     gameType?: string;
     offline_mode?: boolean;
     steam_runtime?: string;
-  }>("POST", launchEndpoint, {
-    appid: game.appid,
-    launchMethod: selectedLaunchMethod,
-  }, 10 * 60 * 1000);
+  }>(
+    "POST",
+    launchEndpoint,
+    {
+      appid: game.appid,
+      launchMethod: selectedLaunchMethod,
+    },
+    10 * 60 * 1000,
+  );
 
   launchingAppId.value = null;
 
@@ -297,7 +302,7 @@ watch([library, search, filter], () => {
 
 <template>
   <div class="library-view">
-    <div class="library-header">
+    <div class="library-header glass-header">
       <div class="library-title-row">
         <div>
           <h1>Library</h1>
@@ -340,33 +345,31 @@ watch([library, search, filter], () => {
       </div>
     </div>
 
-    <div v-if="!library || library.games.length === 0" class="empty-state">
-      <div class="empty-icon">
-        <IconBattery width="48" height="48" />
+    <div class="library-body view-body-surface">
+      <div v-if="!library || library.games.length === 0" class="empty-state">
+        <div class="empty-icon">
+          <IconBattery width="48" height="48" />
+        </div>
+        <h2>No games found</h2>
+        <p>Add your Steam API key in Settings to load your library, or download a game manually.</p>
       </div>
-      <h2>No games found</h2>
-      <p>Add your Steam API key in Settings to load your library, or download a game manually.</p>
-    </div>
 
-    <div v-else class="game-grid">
-      <div
-        v-for="game in filteredGames"
-        :key="game.appid"
-        class="game-grid-item"
-      >
-        <GameCard
-          :game="game"
-          :running="runningAppId === game.appid"
-          :launching="launchingAppId === game.appid"
-          :steam-installed="wineSteamInstalled"
-          :developer-mode="developerMode"
-          @play="launchGame(game, $event)"
-          @d3dmetal-launched="markD3DMetalLaunched(game, $event)"
-          @stop="stopGame(game)"
-          @install="installGame(game)"
-          @uninstall="uninstallGame(game)"
-          @artwork-missing="requestArtworkRetry"
-        />
+      <div v-else class="game-grid">
+        <div v-for="game in filteredGames" :key="game.appid" class="game-grid-item">
+          <GameCard
+            :game="game"
+            :running="runningAppId === game.appid"
+            :launching="launchingAppId === game.appid"
+            :steam-installed="wineSteamInstalled"
+            :developer-mode="developerMode"
+            @play="launchGame(game, $event)"
+            @d3dmetal-launched="markD3DMetalLaunched(game, $event)"
+            @stop="stopGame(game)"
+            @install="installGame(game)"
+            @uninstall="uninstallGame(game)"
+            @artwork-missing="requestArtworkRetry"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -374,31 +377,34 @@ watch([library, search, filter], () => {
 
 <style scoped>
 .library-view {
-  padding: 0 28px 32px;
+  padding: 0 28px;
   height: 100%;
   width: 100%;
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--bg-deep);
+  display: flex;
+  flex-direction: column;
+  background: transparent;
 }
 :global(:root[data-theme="developer"] .library-view) {
-  background:
-    radial-gradient(circle at 18% 4%, rgba(255, 46, 247, 0.15), transparent 30%),
-    radial-gradient(circle at 90% 16%, rgba(0, 245, 255, 0.13), transparent 32%),
-    linear-gradient(180deg, rgba(185, 255, 77, 0.04), transparent 240px),
-    var(--bg-deep);
+  background: transparent;
 }
 
 .library-header {
-  margin: 0 -28px 20px;
+  flex-shrink: 0;
+  margin: 0 -28px;
   padding: 44px 28px 14px;
   min-width: 0;
-  background: var(--page-header-bg);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   position: relative;
   overflow: hidden;
+}
+.library-body {
+  flex: 1;
+  margin: 0 -28px;
+  padding: 20px 28px 32px;
 }
 :global(:root[data-theme="developer"] .library-header) {
   border-bottom-color: rgba(185, 255, 77, 0.28);
@@ -410,12 +416,19 @@ watch([library, search, filter], () => {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
-              radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
+  background:
+    radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
   pointer-events: none;
 }
 :global(:root[data-theme="developer"] .library-header::after) {
-  background: linear-gradient(90deg, rgba(255, 46, 247, 0.10), transparent 34%, rgba(0, 245, 255, 0.09) 78%, transparent);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 46, 247, 0.1),
+    transparent 34%,
+    rgba(0, 245, 255, 0.09) 78%,
+    transparent
+  );
 }
 .library-title-row {
   display: grid;
@@ -505,15 +518,6 @@ watch([library, search, filter], () => {
 }
 
 @media (max-width: 1040px) {
-  .library-title-row {
-    grid-template-columns: 1fr;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .library-status-strip {
-    justify-self: start;
-    justify-content: flex-start;
-  }
   .library-controls {
     grid-template-columns: 1fr;
   }
@@ -559,7 +563,9 @@ watch([library, search, filter], () => {
     grid-template-columns: 1fr;
   }
   .library-status-strip .badge {
-    max-width: calc(100vw - var(--sidebar-width-collapsed) - 48px);
+    max-width: min(180px, calc(50vw - 32px));
+    padding-inline: 6px;
+    font-size: 9px;
   }
 }
 

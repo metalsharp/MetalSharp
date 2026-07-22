@@ -1517,6 +1517,39 @@ pub fn set_cover(id: &str, cover_path: &str) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+pub fn add_asset(id: &str, asset_path: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let src = PathBuf::from(asset_path);
+    let library = load_library()?;
+    let app = library.iter().find(|app| app.id == id).ok_or("App not found")?;
+    let bottle_id = app.bottle_id.as_deref().ok_or("App is not associated with a bottle")?;
+    let bottle = crate::bottles::load_bottle(bottle_id)?;
+    copy_asset_into_prefix(&src, Path::new(&bottle.prefix_path))
+}
+
+fn copy_asset_into_prefix(src: &Path, prefix: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if !src.is_file() {
+        return Err("Asset file not found".into());
+    }
+
+    let filename = src.file_name().filter(|name| !name.is_empty()).ok_or("Asset filename is invalid")?;
+    let prefix = prefix.to_path_buf();
+    fs::create_dir_all(&prefix)?;
+    let prefix = fs::canonicalize(prefix)?;
+    let destination_dir = prefix.join("drive_c").join("metalsharp-assets");
+    fs::create_dir_all(&destination_dir)?;
+    let destination_dir = fs::canonicalize(destination_dir)?;
+    if !destination_dir.starts_with(&prefix) {
+        return Err("Refusing to add asset outside the app bottle prefix".into());
+    }
+
+    let destination = destination_dir.join(filename);
+    if destination.symlink_metadata().map(|metadata| metadata.file_type().is_symlink()).unwrap_or(false) {
+        return Err("Refusing to replace a symlink in the app bottle prefix".into());
+    }
+    fs::copy(src, &destination)?;
+    Ok(destination)
+}
+
 pub fn set_cover_position(id: &str, x: u8, y: u8) -> Result<(), Box<dyn std::error::Error>> {
     let mut library = load_library()?;
     if let Some(app) = library.iter_mut().find(|a| a.id == id) {
@@ -1956,6 +1989,18 @@ pub fn handle_set_cover(body: &serde_json::Map<String, Value>) -> Value {
     }
     match set_cover(id, cover_path) {
         Ok(()) => json!({"ok": true}),
+        Err(e) => json!({"ok": false, "error": e.to_string()}),
+    }
+}
+
+pub fn handle_add_asset(body: &serde_json::Map<String, Value>) -> Value {
+    let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let asset_path = body.get("assetPath").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() || asset_path.is_empty() {
+        return json!({"ok": false, "error": "id and assetPath required"});
+    }
+    match add_asset(id, asset_path) {
+        Ok(path) => json!({"ok": true, "path": path}),
         Err(e) => json!({"ok": false, "error": e.to_string()}),
     }
 }
@@ -2476,6 +2521,37 @@ mod tests {
 
         assert_eq!(app.bottle_id.as_deref(), Some("installer_demo"));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn add_asset_copies_file_into_bottle_prefix() {
+        let dir = test_dir("add-asset");
+        let prefix = dir.join("prefix");
+        let source = dir.join("custom.dll");
+        fs::create_dir_all(&dir).expect("create test dir");
+        fs::write(&source, b"asset payload").expect("write asset");
+
+        let destination = copy_asset_into_prefix(&source, &prefix).expect("copy asset");
+
+        assert_eq!(
+            destination,
+            fs::canonicalize(&prefix)
+                .expect("canonical prefix")
+                .join("drive_c")
+                .join("metalsharp-assets")
+                .join("custom.dll")
+        );
+        assert_eq!(fs::read(destination).expect("read copied asset"), b"asset payload");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn add_asset_rejects_missing_source_file() {
+        let dir = test_dir("add-asset-missing");
+        let result = copy_asset_into_prefix(&dir.join("missing.dll"), &dir.join("prefix"));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Asset file not found"));
     }
 
     #[test]

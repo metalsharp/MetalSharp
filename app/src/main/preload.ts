@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   uninstallApp: () => ipcRenderer.send("app:uninstall"),
   pickExeFile: () => ipcRenderer.invoke("app:pick-exe-file"),
   pickImageFile: () => ipcRenderer.invoke("app:pick-image-file"),
+  pickAssetFile: () => ipcRenderer.invoke("app:pick-asset-file"),
   pickDirectory: (title?: string) => ipcRenderer.invoke("app:pick-directory", title),
   gogOAuthLogin: (authUrl: string) => ipcRenderer.invoke("gog:oauth-login", authUrl),
   processManagerToggle: () => ipcRenderer.invoke("process-manager:toggle"),
