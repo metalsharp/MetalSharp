@@ -70,6 +70,10 @@ function isUiOnlyRuntime(): boolean {
   return process.env.METALSHARP_UI_ONLY === "1";
 }
 
+function isDevPreviewRuntime(): boolean {
+  return isDevRuntime() && process.env.METALSHARP_PREVIEW === "1";
+}
+
 function isProcessManagerOnlyRuntime(): boolean {
   return process.env.METALSHARP_PROCESS_MANAGER_ONLY === "1" || process.argv.includes("--process-manager-overlay");
 }
@@ -781,7 +785,7 @@ function registerIpc() {
   );
 
   ipcMain.handle("app:is-first-launch", () => {
-    if (isUiOnlyRuntime()) return false;
+    if (isUiOnlyRuntime() || isDevPreviewRuntime()) return false;
     return isFirstLaunch();
   });
 
@@ -1349,6 +1353,19 @@ webview{flex:1;border:none}
       title: "Select a cover image",
       properties: ["openFile"],
       filters: [{ name: "Image", extensions: ["jpg", "jpeg", "png"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-asset-file", async () => {
+    if (!mainWindow) return null;
+    const runtimePath = path.join(app.getPath("home"), ".metalsharp", "runtime");
+    fs.mkdirSync(runtimePath, { recursive: true });
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Add an asset to this app's bottle",
+      defaultPath: runtimePath,
+      properties: ["openFile"],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];

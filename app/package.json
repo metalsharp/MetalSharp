@@ -13,6 +13,7 @@
     "start": "npm run build && electron .",
     "dev": "tsc -w & vite build --watch & electron .",
     "dev:vite": "vite",
+    "preview": "npm run build && METALSHARP_PREVIEW=1 METALSHARP_HOME=\"$HOME/.metalsharp\" electron .",
     "rust:build": "cd src-rust && cargo build --release",
     "rust:dev": "cd src-rust && cargo build",
     "build:all": "npm run rust:build && npm run build",

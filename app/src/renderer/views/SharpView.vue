@@ -3,7 +3,6 @@ import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import type { SharpApp } from "../api-types";
-import IconDownload from "~icons/lucide/download";
 import IconUpload from "~icons/lucide/upload";
 import IconRefreshCcw from "~icons/lucide/refresh-ccw";
 import IconMonitor from "~icons/lucide/monitor";
@@ -140,15 +139,6 @@ interface D3DMetalGptkResponse {
   error?: string;
 }
 
-interface RedistSourceGuide {
-  id: string;
-  name: string;
-  source_url: string;
-  local_targets: string[];
-  policy: string;
-  notes: string;
-}
-
 interface GogStatus {
   status: string;
   ready: boolean;
@@ -188,32 +178,16 @@ interface GogGame {
 
 const toast = useToast();
 const sourceMode = ref<"installers" | "gog">("installers");
-const headerTitle = computed(() => sourceMode.value === "gog" ? "GOG Games Library" : "Sharp Library");
+const headerTitle = computed(() => (sourceMode.value === "gog" ? "GOG Games Library" : "Sharp Library"));
 const headerSubtitle = computed(() =>
   sourceMode.value === "gog"
     ? "Connect, sync, install, and play GOG games through MetalSharp."
     : "Install and manage Windows applications outside Steam.",
 );
 const apps = ref<SharpApp[]>([]);
-const dropdownOpen = ref<string | null>(null);
-const dropdownStyle = ref<Record<string, string>>({});
-
-function openDropdown(name: string, event: MouseEvent) {
-  if (dropdownOpen.value === name) {
-    dropdownOpen.value = null;
-    return;
-  }
-  const btn = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  dropdownStyle.value = {
-    top: `${btn.bottom + 6}px`,
-    left: `${btn.left}px`,
-    width: '420px',
-  };
-  dropdownOpen.value = name;
-}
+const cardToolsOpen = ref<Record<string, boolean>>({});
 const bottles = ref<BottleManifest[]>([]);
 const runtimeProfiles = ref<RuntimeProfileDefinition[]>([]);
-const redistSources = ref<RedistSourceGuide[]>([]);
 const bottleReports = ref<Record<string, BottleDiagnostic | null>>({});
 const d3dmetalStates = ref<Record<string, D3DMetalGptkState | null>>({});
 const d3dmetalActions = ref<Record<string, D3DMetalGptkAction[]>>({});
@@ -228,7 +202,6 @@ const launchErrors = ref<Record<string, string>>({});
 const runningSharpPids = ref<Record<string, number>>({});
 const recentLogLines = ref<Record<string, string[]>>({});
 const recentCrashReports = ref<Record<string, CrashReport[]>>({});
-const launchArgDrafts = ref<Record<string, string>>({});
 const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
 const gogLoading = ref<Record<string, boolean>>({});
@@ -275,7 +248,14 @@ async function installGogMono() {
   }
   gogLoading.value.mono = true;
   // Short timeout — the backend now returns immediately (kicks off download or launches installer).
-  const result = await api<{ ok: boolean; pid?: number; alreadyInstalled?: boolean; downloading?: boolean; error?: string; status?: WineMonoStatus }>("POST", "/wine-mono/install", { prefix: "gog" }, 30 * 1000);
+  const result = await api<{
+    ok: boolean;
+    pid?: number;
+    alreadyInstalled?: boolean;
+    downloading?: boolean;
+    error?: string;
+    status?: WineMonoStatus;
+  }>("POST", "/wine-mono/install", { prefix: "gog" }, 30 * 1000);
   gogLoading.value.mono = false;
   if (result?.ok) {
     if (result.alreadyInstalled) {
@@ -427,39 +407,39 @@ const engineOptions = [
 const componentDisplayName: Record<string, string> = {
   "mono-arm64": "Mono ARM64",
   "mono-x86": "Mono x86_64",
-  "fna": "FNA Runtime",
-  "xna": "XNA Assemblies",
-  "sdl2": "SDL2",
-  "fna3d": "FNA3D",
-  "faudio": "FAudio",
-  "fmod": "FMOD Audio",
-  "m12_d3d12": "M12 d3d12.dll",
-  "m12_d3d11": "M12 d3d11.dll",
-  "m12_d3d10core": "M12 d3d10core.dll",
-  "m12_dxgi_dxmt": "M12 dxgi_dxmt.dll",
-  "m12_dxgi": "M12 dxgi.dll",
-  "m12_winemetal": "M12 winemetal.dll / .so",
-  "m12_gpu_stubs": "M12 GPU Stubs",
-  "d3d12_agility": "D3D12 Agility",
-  "gpu_vendor_stubs": "GPU Stubs",
-  "gptk_amd_stub": "GPTK AMD Stub",
-  "d3d10core": "D3D10core",
-  "winemetal": "Winemetal",
-  "gptk": "GPTK",
-  "gptk_prefix": "GPTK Prefix",
-  "rosetta": "Rosetta",
-  "corefonts": "Core Fonts",
-  "vcrun2019_x64": "VC++ 2015-2022 x64",
-  "vcrun2019_x86": "VC++ 2015-2022 x86",
-  "vcrun2019": "VC++ 2015-2022",
-  "vcrun2010": "VC++ 2010",
-  "vcrun2013": "VC++ 2013",
-  "dotnet40": ".NET 4.0",
-  "dotnet48": ".NET 4.8",
-  "webview2": "WebView2",
-  "directx_jun2010": "DX Jun2010",
-  "openal": "OpenAL",
-  "physx": "PhysX",
+  fna: "FNA Runtime",
+  xna: "XNA Assemblies",
+  sdl2: "SDL2",
+  fna3d: "FNA3D",
+  faudio: "FAudio",
+  fmod: "FMOD Audio",
+  m12_d3d12: "M12 d3d12.dll",
+  m12_d3d11: "M12 d3d11.dll",
+  m12_d3d10core: "M12 d3d10core.dll",
+  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
+  m12_dxgi: "M12 dxgi.dll",
+  m12_winemetal: "M12 winemetal.dll / .so",
+  m12_gpu_stubs: "M12 GPU Stubs",
+  d3d12_agility: "D3D12 Agility",
+  gpu_vendor_stubs: "GPU Stubs",
+  gptk_amd_stub: "GPTK AMD Stub",
+  d3d10core: "D3D10core",
+  winemetal: "Winemetal",
+  gptk: "GPTK",
+  gptk_prefix: "GPTK Prefix",
+  rosetta: "Rosetta",
+  corefonts: "Core Fonts",
+  vcrun2019_x64: "VC++ 2015-2022 x64",
+  vcrun2019_x86: "VC++ 2015-2022 x86",
+  vcrun2019: "VC++ 2015-2022",
+  vcrun2010: "VC++ 2010",
+  vcrun2013: "VC++ 2013",
+  dotnet40: ".NET 4.0",
+  dotnet48: ".NET 4.8",
+  webview2: "WebView2",
+  directx_jun2010: "DX Jun2010",
+  openal: "OpenAL",
+  physx: "PhysX",
 };
 
 const fnaComponentIds = new Set(["mono-arm64", "mono-x86", "fna", "xna", "sdl2", "fna3d", "faudio", "fmod"]);
@@ -486,7 +466,14 @@ const selectableRuntimeProfileIds = new Set(["m12", "d3dmetal", "m11", "m11_32",
 const visibleRuntimeProfiles = computed(() => {
   const profiles = runtimeProfiles.value.some((profile) => profile.id === "d3dmetal")
     ? runtimeProfiles.value
-    : [...runtimeProfiles.value, { id: "d3dmetal", name: "D3DMetal (GPTK)", components: ["gptk", "rosetta", "gptk_prefix", "vcrun2019_x64", "vcrun2019_x86"] }];
+    : [
+        ...runtimeProfiles.value,
+        {
+          id: "d3dmetal",
+          name: "D3DMetal (GPTK)",
+          components: ["gptk", "rosetta", "gptk_prefix", "vcrun2019_x64", "vcrun2019_x86"],
+        },
+      ];
   return profiles
     .filter((profile) => selectableRuntimeProfileIds.has(profile.id))
     .map((profile) => ({
@@ -500,27 +487,20 @@ function sharpAppNameSort(a: SharpApp, b: SharpApp) {
 }
 
 async function load() {
-  const [result, bottleResult, profileResult, redistResult, gogStatusResult, gogGamesResult] = await Promise.all([
+  const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
     api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
     api<{ ok: boolean; bottles: BottleManifest[] }>("GET", "/bottles"),
     api<{ ok: boolean; profiles: RuntimeProfileDefinition[] }>("GET", "/bottles/profiles"),
-    api<{ ok: boolean; sources: RedistSourceGuide[] }>("GET", "/bottles/redist-sources"),
     api<{ ok: boolean; status: GogStatus }>("GET", "/sharp-library/gog/status"),
     api<{ ok: boolean; games: GogGame[]; status: GogStatus }>("GET", "/sharp-library/gog/games"),
   ]);
   if (result?.ok) {
     apps.value = [...result.apps].sort(sharpAppNameSort);
-    for (const app of apps.value) {
-      if (launchArgDrafts.value[app.id] === undefined) {
-        launchArgDrafts.value[app.id] = (app.user_launch_args ?? []).join(" ");
-      }
-    }
   }
   if (bottleResult?.ok) {
     bottles.value = bottleResult.bottles;
   }
   if (profileResult?.ok) runtimeProfiles.value = profileResult.profiles;
-  if (redistResult?.ok) redistSources.value = redistResult.sources;
   if (gogStatusResult?.ok) gogStatus.value = gogStatusResult.status;
   if (gogGamesResult?.ok) {
     setGogGames(gogGamesResult.games ?? []);
@@ -533,7 +513,9 @@ async function load() {
 }
 
 function setGogGames(games: GogGame[]) {
-  gogGames.value = [...games].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }));
+  gogGames.value = [...games].sort((a, b) =>
+    a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+  );
 }
 
 async function refreshGog() {
@@ -559,7 +541,12 @@ function upsertGogGame(game: GogGame) {
 
 async function initializeGogPrefix() {
   gogLoading.value.setup = true;
-  const result = await api<{ ok: boolean; status?: GogStatus; error?: string }>("POST", "/sharp-library/gog/initialize-prefix", {}, 5 * 60 * 1000);
+  const result = await api<{ ok: boolean; status?: GogStatus; error?: string }>(
+    "POST",
+    "/sharp-library/gog/initialize-prefix",
+    {},
+    5 * 60 * 1000,
+  );
   gogLoading.value.setup = false;
   if (result?.ok) {
     if (result.status) {
@@ -610,7 +597,12 @@ async function removeGogPrefix() {
 async function disconnectGog() {
   if (!confirm("Disconnect GOG and show Login again? Installed games will stay on disk.")) return;
   gogLoading.value.login = true;
-  const result = await api<{ ok: boolean; status?: GogStatus; error?: string }>("POST", "/sharp-library/gog/logout", {}, 30 * 1000);
+  const result = await api<{ ok: boolean; status?: GogStatus; error?: string }>(
+    "POST",
+    "/sharp-library/gog/logout",
+    {},
+    30 * 1000,
+  );
   gogLoading.value.login = false;
   if (result?.ok) {
     if (result.status) gogStatus.value = result.status;
@@ -651,7 +643,12 @@ async function loginGog() {
     return;
   }
   toast.show("GOG login code captured; finishing connection…", "success");
-  const result = await api<{ ok: boolean; status?: GogStatus; error?: string }>("POST", "/sharp-library/gog/auth-code", { code: login.code }, 90 * 1000);
+  const result = await api<{ ok: boolean; status?: GogStatus; error?: string }>(
+    "POST",
+    "/sharp-library/gog/auth-code",
+    { code: login.code },
+    90 * 1000,
+  );
   gogLoading.value.login = false;
   if (result?.ok && result.status) {
     gogStatus.value = result.status;
@@ -664,7 +661,12 @@ async function loginGog() {
 
 async function syncGogLibrary() {
   gogLoading.value.sync = true;
-  const result = await api<{ ok: boolean; games?: GogGame[]; status?: GogStatus; error?: string }>("POST", "/sharp-library/gog/sync", {}, 5 * 60 * 1000);
+  const result = await api<{ ok: boolean; games?: GogGame[]; status?: GogStatus; error?: string }>(
+    "POST",
+    "/sharp-library/gog/sync",
+    {},
+    5 * 60 * 1000,
+  );
   gogLoading.value.sync = false;
   if (result?.ok) {
     if (result.games) setGogGames(result.games);
@@ -680,11 +682,16 @@ async function installGogGame(game: GogGame) {
   const installPath = await getAPI().pickDirectory(`Choose install folder for ${game.title}`);
   if (!installPath) return;
   gogLoading.value[`${game.productId}:install`] = true;
-  const result = await api<{ ok: boolean; game?: GogGame; pid?: number; error?: string }>("POST", "/sharp-library/gog/install", {
-    productId: game.productId,
-    platform: game.platform || "windows",
-    installPath,
-  }, 90 * 1000);
+  const result = await api<{ ok: boolean; game?: GogGame; pid?: number; error?: string }>(
+    "POST",
+    "/sharp-library/gog/install",
+    {
+      productId: game.productId,
+      platform: game.platform || "windows",
+      installPath,
+    },
+    90 * 1000,
+  );
   gogLoading.value[`${game.productId}:install`] = false;
   if (result?.ok && result.game) {
     upsertGogGame(result.game);
@@ -697,7 +704,11 @@ async function installGogGame(game: GogGame) {
 
 async function monitorGogProgress(productId: string) {
   for (let i = 0; i < 720; i++) {
-    const result = await api<{ ok: boolean; percent?: number; active?: boolean; game?: GogGame; error?: string }>("POST", "/sharp-library/gog/progress", { productId });
+    const result = await api<{ ok: boolean; percent?: number; active?: boolean; game?: GogGame; error?: string }>(
+      "POST",
+      "/sharp-library/gog/progress",
+      { productId },
+    );
     if (result?.ok) {
       gogProgress.value[productId] = result.percent ?? gogProgress.value[productId] ?? 0;
       if (result.game) upsertGogGame(result.game);
@@ -711,7 +722,12 @@ async function monitorGogProgress(productId: string) {
 
 async function playGogGame(game: GogGame) {
   gogLoading.value[`${game.productId}:play`] = true;
-  const result = await api<{ ok: boolean; game?: GogGame; pid?: number; error?: string }>("POST", "/sharp-library/gog/play", { productId: game.productId }, 90 * 1000);
+  const result = await api<{ ok: boolean; game?: GogGame; pid?: number; error?: string }>(
+    "POST",
+    "/sharp-library/gog/play",
+    { productId: game.productId },
+    90 * 1000,
+  );
   gogLoading.value[`${game.productId}:play`] = false;
   if (result?.ok && result.game) {
     upsertGogGame(result.game);
@@ -723,7 +739,9 @@ async function playGogGame(game: GogGame) {
 
 async function stopGogGame(game: GogGame) {
   gogLoading.value[`${game.productId}:stop`] = true;
-  const result = await api<{ ok: boolean; game?: GogGame; error?: string }>("POST", "/sharp-library/gog/stop", { productId: game.productId });
+  const result = await api<{ ok: boolean; game?: GogGame; error?: string }>("POST", "/sharp-library/gog/stop", {
+    productId: game.productId,
+  });
   gogLoading.value[`${game.productId}:stop`] = false;
   if (result?.ok && result.game) {
     upsertGogGame(result.game);
@@ -736,7 +754,12 @@ async function stopGogGame(game: GogGame) {
 async function uninstallGogGame(game: GogGame) {
   if (!confirm(`Delete ${game.title} from disk?`)) return;
   gogLoading.value[`${game.productId}:uninstall`] = true;
-  const result = await api<{ ok: boolean; game?: GogGame; error?: string }>("POST", "/sharp-library/gog/uninstall", { productId: game.productId }, 90 * 1000);
+  const result = await api<{ ok: boolean; game?: GogGame; error?: string }>(
+    "POST",
+    "/sharp-library/gog/uninstall",
+    { productId: game.productId },
+    90 * 1000,
+  );
   gogLoading.value[`${game.productId}:uninstall`] = false;
   if (result?.ok && result.game) {
     upsertGogGame(result.game);
@@ -786,7 +809,9 @@ async function installExe() {
 
 async function refreshBottle(id: string) {
   bottleLoading.value[id] = true;
-  const result = await api<{ ok: boolean; bottle?: BottleManifest; error?: string }>("POST", "/bottles/refresh", { id });
+  const result = await api<{ ok: boolean; bottle?: BottleManifest; error?: string }>("POST", "/bottles/refresh", {
+    id,
+  });
   bottleLoading.value[id] = false;
   if (result?.ok && result.bottle) {
     upsertBottle(result.bottle);
@@ -826,7 +851,10 @@ async function prepareBottle(id: string) {
   bottleLoading.value[id] = false;
   if (result?.ok && result.report) {
     bottleReports.value[id] = result.report;
-    toast.show(result.report.ready ? "Bottle prepared" : "Bottle needs runtime repair", result.report.ready ? "success" : "error");
+    toast.show(
+      result.report.ready ? "Bottle prepared" : "Bottle needs runtime repair",
+      result.report.ready ? "success" : "error",
+    );
     await load();
   } else {
     toast.show(result?.error ?? "Failed to prepare bottle", "error");
@@ -870,12 +898,17 @@ async function saveD3DMetalBottle(bottle: BottleManifest) {
   // take several minutes. Surface a bottom-right toast so the bottle
   // doesn't look stale while the request is in flight.
   toast.show("Saving D3DMetal bottle — downloading GPTK runtime on first save…", "success");
-  const result = await api<D3DMetalGptkResponse>("POST", "/d3dmetal/bottles/save", {
-    appid: bottle.steam_app_id,
-    bottleId: bottle.id,
-    name: bottle.name,
-    gameDir: bottle.game_install_path,
-  }, 10 * 60 * 1000);
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    "/d3dmetal/bottles/save",
+    {
+      appid: bottle.steam_app_id,
+      bottleId: bottle.id,
+      name: bottle.name,
+      gameDir: bottle.game_install_path,
+    },
+    10 * 60 * 1000,
+  );
   bottleLoading.value[bottle.id] = false;
   if (result?.ok && result.state) {
     d3dmetalStates.value[bottle.id] = result.state;
@@ -909,17 +942,26 @@ function d3dmetalActionRoute(actionId: string) {
   }
 }
 
-async function runD3DMetalAction(bottle: BottleManifest, action: D3DMetalGptkAction, app?: SharpApp): Promise<number | null> {
+async function runD3DMetalAction(
+  bottle: BottleManifest,
+  action: D3DMetalGptkAction,
+  app?: SharpApp,
+): Promise<number | null> {
   if (!bottle.steam_app_id) return null;
   bottleLoading.value[bottle.id] = true;
   const route = d3dmetalActionRoute(action.id);
-  const result = await api<D3DMetalGptkResponse>("POST", route, {
-    appid: bottle.steam_app_id,
-    bottleId: bottle.id,
-    gameDir: bottle.game_install_path,
-    gameExe: app ? sharpAppExeAbsolute(app) : undefined,
-    launchArgs: app ? [...(app.launch_args ?? []), ...(app.user_launch_args ?? [])] : undefined,
-  }, 10 * 60 * 1000);
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    route,
+    {
+      appid: bottle.steam_app_id,
+      bottleId: bottle.id,
+      gameDir: bottle.game_install_path,
+      gameExe: app ? sharpAppExeAbsolute(app) : undefined,
+      launchArgs: app ? [...(app.launch_args ?? []), ...(app.user_launch_args ?? [])] : undefined,
+    },
+    10 * 60 * 1000,
+  );
   bottleLoading.value[bottle.id] = false;
   if (result?.ok) {
     toast.show(action.id === "play_d3dmetal" ? "D3DMetal launch started" : `${action.label}: complete`, "success");
@@ -1005,21 +1047,26 @@ async function setBottleProfile(id: string, profile: string) {
     return;
   }
   bottleLoading.value[id] = true;
-  const result = await api<{ ok: boolean; bottle?: BottleManifest; error?: string }>("POST", "/bottles/set-runtime-profile", {
-    id,
-    profile,
-  });
+  const result = await api<{ ok: boolean; bottle?: BottleManifest; error?: string }>(
+    "POST",
+    "/bottles/set-runtime-profile",
+    {
+      id,
+      profile,
+    },
+  );
   bottleLoading.value[id] = false;
   if (result?.ok && result.bottle) {
     const isM12 = profile === "m12";
     const appid = result.bottle.steam_app_id ?? 0;
-    const m12DryRun = isM12
-      ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${appid}`)
-      : null;
+    const m12DryRun = isM12 ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${appid}`) : null;
     upsertBottle(result.bottle);
     if (result.bottle.runtime_profile !== "d3dmetal") clearD3DMetalBottleState(id);
     if (isM12 && m12DryRun?.ok === false) {
-      const missing = m12DryRun.missing?.map((entry) => entry.filename).filter(Boolean).join(", ");
+      const missing = m12DryRun.missing
+        ?.map((entry) => entry.filename)
+        .filter(Boolean)
+        .join(", ");
       toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
     } else if (isM12 && !m12DryRun) {
       toast.show("M12 bottle saved, but its dry run could not be completed", "error");
@@ -1034,10 +1081,14 @@ async function setBottleProfile(id: string, profile: string) {
 
 async function setBottleWindowsVersion(id: string, version: string) {
   bottleLoading.value[id] = true;
-  const result = await api<{ ok: boolean; repair?: ComponentRepair; error?: string }>("POST", "/bottles/set-windows-version", {
-    id,
-    version,
-  });
+  const result = await api<{ ok: boolean; repair?: ComponentRepair; error?: string }>(
+    "POST",
+    "/bottles/set-windows-version",
+    {
+      id,
+      version,
+    },
+  );
   bottleLoading.value[id] = false;
   if (result?.ok && result.repair) {
     toast.show(`Windows mode ${version} requested`, "success");
@@ -1063,18 +1114,17 @@ async function relaunchBottleInstaller(bottle: BottleManifest) {
   }
 }
 
-async function openRedistSource(source: RedistSourceGuide) {
-  await getAPI().copyText(source.source_url);
-  toast.show(`${source.name} source URL copied`, "success");
-}
-
 async function addBottleApp(bottle: BottleManifest, app: { name: string; exe_path: string }) {
   bottleLoading.value[bottle.id] = true;
-  const result = await api<{ ok: boolean; app?: SharpApp; error?: string }>("POST", "/sharp-library/import-bottle-app", {
-    bottleId: bottle.id,
-    exePath: app.exe_path,
-    name: app.name,
-  });
+  const result = await api<{ ok: boolean; app?: SharpApp; error?: string }>(
+    "POST",
+    "/sharp-library/import-bottle-app",
+    {
+      bottleId: bottle.id,
+      exePath: app.exe_path,
+      name: app.name,
+    },
+  );
   bottleLoading.value[bottle.id] = false;
   if (result?.ok && result.app) {
     toast.show(`Added ${result.app.name}`, "success");
@@ -1115,11 +1165,9 @@ function bottleForApp(app: SharpApp) {
 
 async function openBottleLaunchLog(bottle: BottleManifest) {
   if (!bottle.last_launch_log) return;
-  const result = await api<{ ok: boolean; path?: string; error?: string }>(
-    "POST",
-    "/diagnostics/open",
-    { path: bottle.last_launch_log },
-  );
+  const result = await api<{ ok: boolean; path?: string; error?: string }>("POST", "/diagnostics/open", {
+    path: bottle.last_launch_log,
+  });
   if (!result?.ok) {
     toast.show(result?.error ?? "Failed to open launch log", "error");
   }
@@ -1214,6 +1262,24 @@ async function setCover(id: string) {
   } else toast.show(result?.error ?? "Failed to set cover", "error");
 }
 
+async function addAsset(app: SharpApp) {
+  if (!app.bottle_id) {
+    toast.show(`${app.name} is not associated with an app bottle`, "error");
+    return;
+  }
+  const filePath = await getAPI().pickAssetFile();
+  if (!filePath) return;
+  const result = await api<{ ok: boolean; path?: string; error?: string }>("POST", "/sharp-library/add-asset", {
+    id: app.id,
+    assetPath: filePath,
+  });
+  if (result?.ok) {
+    toast.show(`Added asset to ${app.name}`, "success");
+  } else {
+    toast.show(result?.error ?? "Failed to add asset", "error");
+  }
+}
+
 async function updateCoverPosition(app: SharpApp) {
   const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/set-cover-position", {
     id: app.id,
@@ -1225,25 +1291,6 @@ async function updateCoverPosition(app: SharpApp) {
 
 function coverPosition(app: SharpApp): string {
   return `${app.cover_position_x ?? 50}% ${app.cover_position_y ?? 50}%`;
-}
-
-function splitLaunchArgs(value: string): string[] {
-  const matches = value.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
-  return matches.map((arg) => arg.replace(/^"|"$/g, "").trim()).filter(Boolean);
-}
-
-async function saveLaunchArgs(app: SharpApp) {
-  const args = splitLaunchArgs(launchArgDrafts.value[app.id] ?? "");
-  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/set-launch-args", {
-    id: app.id,
-    args,
-  });
-  if (result?.ok) {
-    app.user_launch_args = args;
-    toast.show("Launch options saved", "success");
-  } else {
-    toast.show(result?.error ?? "Failed to save launch options", "error");
-  }
 }
 
 async function runDoctor(app: SharpApp) {
@@ -1399,41 +1446,24 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-function closeDropdowns(e: MouseEvent) {
-  if (!(e.target as HTMLElement).closest('.dropdown-wrap')) dropdownOpen.value = null;
-}
-onMounted(() => { document.addEventListener('click', closeDropdowns); load(); });
-onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopGogMonoPoll(); });
+onMounted(load);
+onUnmounted(stopGogMonoPoll);
 </script>
 
 <template>
   <div class="sharp-view">
-    <div class="sharp-header">
+    <div class="sharp-header glass-header">
       <div class="sharp-header-title">
         <h1>{{ headerTitle }}</h1>
         <p>{{ headerSubtitle }}</p>
       </div>
       <div class="sharp-header-controls">
-        <div class="source-switch">
-          <button class="btn btn-secondary btn-sm" :class="{ active: sourceMode === 'installers' }" @click="sourceMode = 'installers'">Installers</button>
-          <button class="btn btn-secondary btn-sm" :class="{ active: sourceMode === 'gog' }" @click="sourceMode = 'gog'">GOG</button>
-        </div>
-        <div v-if="sourceMode === 'installers' && redistSources.length" class="dropdown-wrap">
-          <button class="btn btn-secondary" @click="openDropdown('redist', $event)">
-            <IconDownload class="btn-icon" width="14" height="14" />
-            <span class="btn-label-long">Redist Sources</span><span class="btn-label-short">Redist</span> <span class="dropdown-count">{{ redistSources.length }}</span>
-          </button>
-          <div v-if="dropdownOpen === 'redist'" class="dropdown-panel" :style="dropdownStyle" @click.stop>
-            <div class="dropdown-scroll">
-              <article v-for="source in redistSources" :key="source.id" class="redist-source-compact">
-                <div><strong>{{ source.name }}</strong><small>{{ source.policy }}</small></div>
-                <p>{{ source.notes }}</p>
-                <div class="redist-targets"><span v-for="target in source.local_targets" :key="target">{{ target }}</span></div>
-                <button class="btn btn-secondary btn-sm" @click="openRedistSource(source)">Copy Source URL</button>
-              </article>
-            </div>
-          </div>
-        </div>
+        <label class="source-selector">
+          <select v-model="sourceMode" class="control-input" aria-label="Library source">
+            <option value="installers">Installers</option>
+            <option value="gog">GOG</option>
+          </select>
+        </label>
         <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
           <IconUpload class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
@@ -1442,9 +1472,11 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
           v-if="sourceMode === 'gog'"
           class="btn btn-secondary"
           :disabled="gogLoading.setup || gogLoading.removing"
-          :title="gogStatus?.prefixInitialized
-            ? 'Remove the GOG Wine prefix. Downloaded GOG games stay on disk but cannot launch until the prefix is re-created.'
-            : 'Create the isolated Wine prefix required to install and launch GOG games.'"
+          :title="
+            gogStatus?.prefixInitialized
+              ? 'Remove the GOG Wine prefix. Downloaded GOG games stay on disk but cannot launch until the prefix is re-created.'
+              : 'Create the isolated Wine prefix required to install and launch GOG games.'
+          "
           @click="gogStatus?.prefixInitialized ? removeGogPrefix() : initializeGogPrefix()"
         >
           <span class="btn-label-long">{{
@@ -1455,16 +1487,22 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
                 : gogStatus?.prefixInitialized
                   ? "Remove Prefix"
                   : "Initialize GOG Prefix"
-          }}</span><span class="btn-label-short">Prefix</span>
+          }}</span
+          ><span class="btn-label-short">Prefix</span>
         </button>
         <button
           v-if="sourceMode === 'gog' && showGogInstallMono"
           class="btn btn-primary"
-          :disabled="gogLoading.mono || (gogMonoStatus?.running && !gogMonoStatus?.stalled) || (gogMonoStatus?.downloading && !gogMonoStatus?.stalled)"
+          :disabled="
+            gogLoading.mono ||
+            (gogMonoStatus?.running && !gogMonoStatus?.stalled) ||
+            (gogMonoStatus?.downloading && !gogMonoStatus?.stalled)
+          "
           :title="gogMonoButtonTitle()"
           @click="installGogMono"
         >
-          <span class="btn-label-long">{{ gogMonoButtonLabel() }}</span><span class="btn-label-short">Mono</span>
+          <span class="btn-label-long">{{ gogMonoButtonLabel() }}</span
+          ><span class="btn-label-short">Mono</span>
         </button>
         <button
           v-if="sourceMode === 'gog' && showGogInstallMono && (gogMonoStatus?.stalled || gogMonoStatus?.running)"
@@ -1479,303 +1517,380 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
           v-if="sourceMode === 'gog'"
           class="btn btn-primary"
           :disabled="gogLoading.login || !gogStatus?.prefixInitialized"
-          :title="gogStatus?.oauthHelperAvailable === false
-            ? 'GOG OAuth helper is missing; click “Prefix” or refresh to stage the new bundled helper.'
-            : 'Sign in to GOG to enable library sync and downloads'"
+          :title="
+            gogStatus?.oauthHelperAvailable === false
+              ? 'GOG OAuth helper is missing; click “Prefix” or refresh to stage the new bundled helper.'
+              : 'Sign in to GOG to enable library sync and downloads'
+          "
           @click="handleGogAuthButton"
         >
-          <span class="btn-label-long">{{ gogStatus?.authenticated ? "GOG Connected" : gogLoading.login ? "Connecting…" : "Login to GOG" }}</span><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
+          <span class="btn-label-long">{{
+            gogStatus?.authenticated ? "GOG Connected" : gogLoading.login ? "Connecting…" : "Login to GOG"
+          }}</span
+          ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
         </button>
-        <button class="btn btn-secondary" :disabled="sourceMode === 'gog' && gogLoading.sync" @click="refreshCurrentSource">
+        <button
+          class="btn btn-secondary"
+          :disabled="sourceMode === 'gog' && gogLoading.sync"
+          @click="refreshCurrentSource"
+        >
           <IconRefreshCcw class="btn-icon" width="14" height="14" />
-          <span class="btn-label-long">{{ sourceMode === 'gog' ? gogLoading.sync ? "Syncing…" : "Sync GOG" : "Refresh" }}</span><span class="btn-label-short">{{ sourceMode === 'gog' ? "Sync" : "Refresh" }}</span>
+          <span class="btn-label-long">{{
+            sourceMode === "gog" ? (gogLoading.sync ? "Syncing…" : "Sync GOG") : "Refresh"
+          }}</span
+          ><span class="btn-label-short">{{ sourceMode === "gog" ? "Sync" : "Refresh" }}</span>
         </button>
       </div>
     </div>
 
-    <template v-if="sourceMode === 'installers'">
-    <div v-if="apps.length === 0" class="empty-state">
-      <div class="empty-icon">
-        <IconMonitor width="48" height="48" />
-      </div>
-      <h2>No applications installed</h2>
-      <p>Click "Install Windows Program" to add a Windows application</p>
-    </div>
-
-    <div v-else class="sharp-grid">
-      <div v-for="app in apps" :key="app.id" class="sharp-card" :class="{ running: runningSharpPids[app.id] }">
-        <div class="sharp-card-banner">
-          <img
-            v-if="app.cover"
-            :src="`http://127.0.0.1:9274/sharp-library/cover?id=${app.id}`"
-            :alt="app.name"
-            :style="{ objectPosition: coverPosition(app) }"
-          />
-          <img v-else :src="sharpLogoUrl" :alt="`${app.name} default artwork`" class="sharp-cover-fallback" />
-          <button
-            v-if="runningSharpPids[app.id]"
-            class="running-close-button"
-            title="Close application"
-            @click="stopSharpApp(app)"
-          >
-            <IconX width="14" height="14" />
-          </button>
-        </div>
-        <div class="sharp-card-body">
-          <div class="sharp-card-title">{{ app.name }}</div>
-          <div class="sharp-card-meta">
-            <span class="badge badge-ok">Sharp App</span>
-            <span class="sharp-card-size">{{ formatBytes(app.size_bytes) }}</span>
+    <div class="sharp-body view-body-surface">
+      <template v-if="sourceMode === 'installers'">
+        <div v-if="apps.length === 0" class="empty-state">
+          <div class="empty-icon">
+            <IconMonitor width="48" height="48" />
           </div>
-          <div v-if="bottleForApp(app)" class="sharp-card-bottle">
-            <span class="badge" :class="bottleBadgeClass(bottleForApp(app)!.health)">
-              {{ bottleBadgeLabel(bottleForApp(app)!) }}
-            </span>
-            <span
-              v-if="bottleForApp(app)!.last_launch_status === 'exited' && bottleForApp(app)!.last_launch_log"
-              class="sharp-card-launch-log"
-            >
-              <a
-                href="#"
-                @click.prevent="openBottleLaunchLog(bottleForApp(app)!)"
-                :title="bottleForApp(app)!.last_launch_log ?? ''"
-              >
-                Open launch log
-              </a>
-            </span>
-          </div>
-          <div class="sharp-card-actions">
-            <div class="sharp-card-actions-row">
-              <button v-if="runningSharpPids[app.id]" class="btn btn-stop" @click="stopSharpApp(app)">Stop</button>
-              <button v-else class="btn btn-play" @click="launchApp(app.id, app.engine)">Play</button>
-              <select
-                class="control-input"
-                :value="app.engine"
-                @change="updateEngine(app.id, ($event.target as HTMLSelectElement).value)"
-              >
-                <option v-for="option in engineOptions" :key="option.id" :value="option.id">
-                  {{ option.name }}
-                </option>
-              </select>
-            </div>
-            <details class="sharp-card-tools">
-              <summary class="drawer-summary">
-                <span>Tools</span>
-                <small>cover, launch args, diagnostics</small>
-              </summary>
-              <div class="sharp-tool-actions">
-                <button class="btn btn-secondary btn-sm" @click="setCover(app.id)">Set Cover</button>
-                <button class="btn btn-secondary btn-sm" :disabled="doctorLoading[app.id]" @click="runDoctor(app)">
-                  {{ doctorLoading[app.id] ? "Checking" : "Doctor" }}
-                </button>
-                <button
-                  class="btn btn-secondary btn-sm"
-                  :disabled="diagnosticsLoading[app.id]"
-                  @click="openDiagnostics(app)"
-                >
-                  {{ diagnosticsLoading[app.id] ? "Loading" : "Diagnostics" }}
-                </button>
-              </div>
-              <div v-if="app.cover" class="cover-position-controls">
-                <label>
-                  <span>X</span>
-                  <input
-                    v-model.number="app.cover_position_x"
-                    type="range"
-                    min="0"
-                    max="100"
-                    @change="updateCoverPosition(app)"
-                  />
-                </label>
-                <label>
-                  <span>Y</span>
-                  <input
-                    v-model.number="app.cover_position_y"
-                    type="range"
-                    min="0"
-                    max="100"
-                    @change="updateCoverPosition(app)"
-                  />
-                </label>
-              </div>
-              <div class="launch-options-row">
-                <input
-                  v-model="launchArgDrafts[app.id]"
-                  class="control-input launch-options-input"
-                  type="text"
-                  placeholder="Launch options..."
-                  @keydown.enter="saveLaunchArgs(app)"
-                />
-                <button class="btn btn-secondary btn-sm" @click="saveLaunchArgs(app)">Save</button>
-              </div>
-              <button class="btn btn-danger btn-sm sharp-uninstall-button" @click="uninstallApp(app.id)">
-                Uninstall
-              </button>
-            </details>
-            <div v-if="launchErrors[app.id]" class="launch-failure">
-              <span>Last launch failed</span>
-              <strong>{{ launchErrors[app.id] }}</strong>
-            </div>
-            <details v-if="doctorOpen[app.id]" class="doctor-panel" open>
-              <summary class="drawer-summary">
-                <span>Launch Doctor</span>
-                <small>{{ doctorReports[app.id]?.summary ?? "Checking launch prerequisites" }}</small>
-              </summary>
-              <div v-if="doctorLoading[app.id]" class="doctor-loading">Checking launch prerequisites...</div>
-              <template v-else-if="doctorReports[app.id]">
-                <div class="doctor-summary">
-                  <span class="badge" :class="doctorReports[app.id]?.ready ? 'badge-ok' : 'badge-warn'">
-                    {{ doctorReports[app.id]?.ready ? "Ready" : "Blocked" }}
-                  </span>
-                  <span>{{ doctorReports[app.id]?.summary }}</span>
-                </div>
-                <div class="doctor-checks">
-                  <div
-                    v-for="check in doctorReports[app.id]?.checks ?? []"
-                    :key="check.id"
-                    class="doctor-check"
-                    :class="{ failed: !check.ok }"
-                  >
-                    <span class="doctor-check-state">{{ check.ok ? "OK" : "!" }}</span>
-                    <span class="doctor-check-label">{{ check.label }}</span>
-                    <span class="doctor-check-detail">
-                      {{ check.detail }}
-                      <button
-                        v-if="!check.ok || check.id === 'launcher_exe'"
-                        class="doctor-action"
-                        @click="runDoctorAction(app, check)"
-                      >
-                        {{ doctorActionLabel(check, app) }}
-                      </button>
-                    </span>
-                  </div>
-                </div>
-                <div v-if="doctorReports[app.id]?.recipe.launch_args.length" class="doctor-notes">
-                  <div>Args: {{ doctorReports[app.id]?.recipe.launch_args.join(" ") }}</div>
-                </div>
-                <div v-if="doctorReports[app.id]?.blockers.length" class="doctor-notes blocked">
-                  <div v-for="blocker in doctorReports[app.id]?.blockers" :key="blocker">{{ blocker }}</div>
-                </div>
-                <div v-if="doctorReports[app.id]?.warnings.length" class="doctor-notes">
-                  <div v-for="warning in doctorReports[app.id]?.warnings" :key="warning">{{ warning }}</div>
-                </div>
-              </template>
-            </details>
-            <details v-if="diagnosticsOpen[app.id]" class="diagnostics-panel" open>
-              <summary class="drawer-summary">
-                <span>Logs and crash reports</span>
-                <small
-                  >{{ recentCrashReports[app.id]?.length ?? 0 }} crash reports ·
-                  {{ recentLogLines[app.id]?.length ?? 0 }} log lines</small
-                >
-              </summary>
-              <div class="diagnostics-toolbar">
-                <button class="btn btn-secondary btn-sm" @click="clearShaderCache(app)">Clear All Shader Caches</button>
-                <button class="btn btn-secondary btn-sm" @click="openLogFolder">Open Logs</button>
-                <button class="btn btn-secondary btn-sm" @click="copyDiagnosticBundle(app)">Copy Bundle</button>
-              </div>
-              <div v-if="recentCrashReports[app.id]?.length" class="diagnostics-section">
-                <div class="diagnostics-title">Recent crash reports</div>
-                <div v-for="report in recentCrashReports[app.id]" :key="report.file" class="crash-row">
-                  <span>{{ report.name }}</span>
-                  <small>{{ report.timestamp }} · {{ report.source }}</small>
-                </div>
-              </div>
-              <div class="diagnostics-section">
-                <div class="diagnostics-title">Recent launch log</div>
-                <pre class="log-tail">{{ (recentLogLines[app.id] ?? ["No recent log lines loaded."]).join("\n") }}</pre>
-              </div>
-            </details>
-          </div>
-        </div>
-      </div>
-    </div>
-    </template>
-
-    <template v-else>
-      <section class="gog-panel">
-        <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-          <h2>gogdl is not installed</h2>
-          <p>Install gogdl under ~/.metalsharp/tools/gogdl or set METALSHARP_GOGDL_BIN.</p>
-        </div>
-        <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
-          <h2>Initialize GOG prefix</h2>
-          <p>Create the isolated Wine prefix before connecting games.</p>
-        </div>
-        <div v-else-if="!gogStatus?.authenticated" class="empty-state compact">
-          <h2>Login to GOG to connect your games</h2>
-          <p>MetalSharp will capture the GOG login code from a controlled sign-in window.</p>
-        </div>
-        <div v-else-if="gogGames.length === 0" class="empty-state compact">
-          <h2>No GOG games synced</h2>
-          <p>Click Sync Library after adding games to your GOG account.</p>
+          <h2>No applications installed</h2>
+          <p>Click "Install Windows Program" to add a Windows application</p>
         </div>
 
         <div v-else class="sharp-grid">
-          <div v-for="game in gogGames" :key="game.productId" class="sharp-card gog-card" :class="{ running: game.running }">
+          <div v-for="app in apps" :key="app.id" class="sharp-card" :class="{ running: runningSharpPids[app.id] }">
             <div class="sharp-card-banner">
-              <img v-if="game.imageUrl" :src="game.imageUrl" :alt="game.title" />
-              <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
-              <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopGogGame(game)">
+              <img
+                v-if="app.cover"
+                :src="`http://127.0.0.1:9274/sharp-library/cover?id=${app.id}`"
+                :alt="app.name"
+                :style="{ objectPosition: coverPosition(app) }"
+              />
+              <img v-else :src="sharpLogoUrl" :alt="`${app.name} default artwork`" class="sharp-cover-fallback" />
+              <button
+                v-if="runningSharpPids[app.id]"
+                class="running-close-button"
+                title="Close application"
+                @click="stopSharpApp(app)"
+              >
                 <IconX width="14" height="14" />
               </button>
             </div>
             <div class="sharp-card-body">
-              <div class="sharp-card-title">{{ game.title }}</div>
+              <div class="sharp-card-title">{{ app.name }}</div>
               <div class="sharp-card-meta">
-                <span class="badge" :class="game.running ? 'badge-ok' : game.installed ? 'badge-ok' : game.status === 'downloading' ? 'badge-warn' : 'badge-muted'">
-                  {{ game.running ? "Running" : game.installed ? "Installed" : game.status === "downloading" ? "Downloading" : "GOG" }}
+                <span class="badge badge-ok">Sharp App</span>
+                <span v-if="bottleForApp(app)" class="badge" :class="bottleBadgeClass(bottleForApp(app)!.health)">
+                  {{ bottleBadgeLabel(bottleForApp(app)!) }}
                 </span>
-                <span v-if="game.downloadSizeBytes" class="sharp-card-size">{{ formatBytes(game.downloadSizeBytes) }}</span>
+                <span class="sharp-card-size">{{ formatBytes(app.size_bytes) }}</span>
               </div>
-              <div v-if="game.status === 'downloading'" class="gog-progress">
-                <div class="gog-progress-bar"><span :style="{ width: `${gogProgress[game.productId] ?? 0}%` }"></span></div>
-                <small>{{ Math.floor(gogProgress[game.productId] ?? 0) }}%</small>
+              <div
+                v-if="bottleForApp(app)?.last_launch_status === 'exited' && bottleForApp(app)?.last_launch_log"
+                class="sharp-card-bottle"
+              >
+                <span class="sharp-card-launch-log">
+                  <a
+                    href="#"
+                    @click.prevent="openBottleLaunchLog(bottleForApp(app)!)"
+                    :title="bottleForApp(app)!.last_launch_log ?? ''"
+                  >
+                    Open launch log
+                  </a>
+                </span>
               </div>
               <div class="sharp-card-actions">
                 <div class="sharp-card-actions-row">
-                  <button v-if="game.running" class="btn btn-stop" :disabled="gogLoading[`${game.productId}:stop`]" @click="stopGogGame(game)">Stop</button>
-                  <button v-else-if="game.installed" class="btn btn-play" :disabled="gogLoading[`${game.productId}:play`]" @click="playGogGame(game)">Play</button>
-                  <button v-else class="btn btn-primary" :disabled="game.status === 'downloading' || gogLoading[`${game.productId}:install`]" @click="installGogGame(game)">
-                    {{ game.status === 'downloading' ? "Downloading…" : "Install" }}
+                  <button v-if="runningSharpPids[app.id]" class="btn btn-stop" @click="stopSharpApp(app)">Stop</button>
+                  <button v-else class="btn btn-play" @click="launchApp(app.id, app.engine)">Play</button>
+                  <select
+                    class="control-input"
+                    :value="app.engine"
+                    @change="updateEngine(app.id, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option v-for="option in engineOptions" :key="option.id" :value="option.id">
+                      {{ option.name }}
+                    </option>
+                  </select>
+                  <button
+                    class="btn btn-secondary sharp-tools-button"
+                    type="button"
+                    :aria-expanded="cardToolsOpen[app.id] === true"
+                    @click="cardToolsOpen[app.id] = !cardToolsOpen[app.id]"
+                  >
+                    Tools
                   </button>
-                  <button v-if="game.installed" class="btn btn-danger" :disabled="gogLoading[`${game.productId}:uninstall`]" @click="uninstallGogGame(game)">Uninstall</button>
                 </div>
-                <div v-if="game.status === 'install_failed' && game.lastError" class="gog-card-meta">
-                  <strong class="launch-failure">{{ game.lastError }}</strong>
+                <div v-if="cardToolsOpen[app.id]" class="sharp-card-tools">
+                  <div class="sharp-tool-actions">
+                    <button class="btn btn-secondary btn-sm" @click="setCover(app.id)">Set Cover</button>
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      :disabled="!app.bottle_id"
+                      :title="
+                        app.bottle_id
+                          ? 'Copy a file into this app bottle prefix'
+                          : 'This app is not associated with a bottle'
+                      "
+                      @click="addAsset(app)"
+                    >
+                      Add Asset
+                    </button>
+                  </div>
+                  <div v-if="app.cover" class="cover-position-controls">
+                    <label>
+                      <span>X</span>
+                      <input
+                        v-model.number="app.cover_position_x"
+                        type="range"
+                        min="0"
+                        max="100"
+                        @change="updateCoverPosition(app)"
+                      />
+                    </label>
+                    <label>
+                      <span>Y</span>
+                      <input
+                        v-model.number="app.cover_position_y"
+                        type="range"
+                        min="0"
+                        max="100"
+                        @change="updateCoverPosition(app)"
+                      />
+                    </label>
+                  </div>
+                  <button class="btn btn-danger btn-sm sharp-uninstall-button" @click="uninstallApp(app.id)">
+                    Uninstall
+                  </button>
                 </div>
+                <div v-if="launchErrors[app.id]" class="launch-failure">
+                  <span>Last launch failed</span>
+                  <strong>{{ launchErrors[app.id] }}</strong>
+                </div>
+                <details v-if="doctorOpen[app.id]" class="doctor-panel" open>
+                  <summary class="drawer-summary">
+                    <span>Launch Doctor</span>
+                    <small>{{ doctorReports[app.id]?.summary ?? "Checking launch prerequisites" }}</small>
+                  </summary>
+                  <div v-if="doctorLoading[app.id]" class="doctor-loading">Checking launch prerequisites...</div>
+                  <template v-else-if="doctorReports[app.id]">
+                    <div class="doctor-summary">
+                      <span class="badge" :class="doctorReports[app.id]?.ready ? 'badge-ok' : 'badge-warn'">
+                        {{ doctorReports[app.id]?.ready ? "Ready" : "Blocked" }}
+                      </span>
+                      <span>{{ doctorReports[app.id]?.summary }}</span>
+                    </div>
+                    <div class="doctor-checks">
+                      <div
+                        v-for="check in doctorReports[app.id]?.checks ?? []"
+                        :key="check.id"
+                        class="doctor-check"
+                        :class="{ failed: !check.ok }"
+                      >
+                        <span class="doctor-check-state">{{ check.ok ? "OK" : "!" }}</span>
+                        <span class="doctor-check-label">{{ check.label }}</span>
+                        <span class="doctor-check-detail">
+                          {{ check.detail }}
+                          <button
+                            v-if="!check.ok || check.id === 'launcher_exe'"
+                            class="doctor-action"
+                            @click="runDoctorAction(app, check)"
+                          >
+                            {{ doctorActionLabel(check, app) }}
+                          </button>
+                        </span>
+                      </div>
+                    </div>
+                    <div v-if="doctorReports[app.id]?.recipe.launch_args.length" class="doctor-notes">
+                      <div>Args: {{ doctorReports[app.id]?.recipe.launch_args.join(" ") }}</div>
+                    </div>
+                    <div v-if="doctorReports[app.id]?.blockers.length" class="doctor-notes blocked">
+                      <div v-for="blocker in doctorReports[app.id]?.blockers" :key="blocker">{{ blocker }}</div>
+                    </div>
+                    <div v-if="doctorReports[app.id]?.warnings.length" class="doctor-notes">
+                      <div v-for="warning in doctorReports[app.id]?.warnings" :key="warning">{{ warning }}</div>
+                    </div>
+                  </template>
+                </details>
+                <details v-if="diagnosticsOpen[app.id]" class="diagnostics-panel" open>
+                  <summary class="drawer-summary">
+                    <span>Logs and crash reports</span>
+                    <small
+                      >{{ recentCrashReports[app.id]?.length ?? 0 }} crash reports ·
+                      {{ recentLogLines[app.id]?.length ?? 0 }} log lines</small
+                    >
+                  </summary>
+                  <div class="diagnostics-toolbar">
+                    <button class="btn btn-secondary btn-sm" @click="clearShaderCache(app)">
+                      Clear All Shader Caches
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @click="openLogFolder">Open Logs</button>
+                    <button class="btn btn-secondary btn-sm" @click="copyDiagnosticBundle(app)">Copy Bundle</button>
+                  </div>
+                  <div v-if="recentCrashReports[app.id]?.length" class="diagnostics-section">
+                    <div class="diagnostics-title">Recent crash reports</div>
+                    <div v-for="report in recentCrashReports[app.id]" :key="report.file" class="crash-row">
+                      <span>{{ report.name }}</span>
+                      <small>{{ report.timestamp }} · {{ report.source }}</small>
+                    </div>
+                  </div>
+                  <div class="diagnostics-section">
+                    <div class="diagnostics-title">Recent launch log</div>
+                    <pre class="log-tail">{{
+                      (recentLogLines[app.id] ?? ["No recent log lines loaded."]).join("\n")
+                    }}</pre>
+                  </div>
+                </details>
               </div>
             </div>
           </div>
         </div>
-      </section>
-    </template>
+      </template>
+
+      <template v-else>
+        <section class="gog-panel">
+          <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
+            <h2>gogdl is not installed</h2>
+            <p>Install gogdl under ~/.metalsharp/tools/gogdl or set METALSHARP_GOGDL_BIN.</p>
+          </div>
+          <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
+            <h2>Initialize GOG prefix</h2>
+            <p>Create the isolated Wine prefix before connecting games.</p>
+          </div>
+          <div v-else-if="!gogStatus?.authenticated" class="empty-state compact">
+            <h2>Login to GOG to connect your games</h2>
+            <p>MetalSharp will capture the GOG login code from a controlled sign-in window.</p>
+          </div>
+          <div v-else-if="gogGames.length === 0" class="empty-state compact">
+            <h2>No GOG games synced</h2>
+            <p>Click Sync Library after adding games to your GOG account.</p>
+          </div>
+
+          <div v-else class="sharp-grid">
+            <div
+              v-for="game in gogGames"
+              :key="game.productId"
+              class="sharp-card gog-card"
+              :class="{ running: game.running }"
+            >
+              <div class="sharp-card-banner">
+                <img v-if="game.imageUrl" :src="game.imageUrl" :alt="game.title" />
+                <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
+                <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopGogGame(game)">
+                  <IconX width="14" height="14" />
+                </button>
+              </div>
+              <div class="sharp-card-body">
+                <div class="sharp-card-title">{{ game.title }}</div>
+                <div class="sharp-card-meta">
+                  <span
+                    class="badge"
+                    :class="
+                      game.running
+                        ? 'badge-ok'
+                        : game.installed
+                          ? 'badge-ok'
+                          : game.status === 'downloading'
+                            ? 'badge-warn'
+                            : 'badge-muted'
+                    "
+                  >
+                    {{
+                      game.running
+                        ? "Running"
+                        : game.installed
+                          ? "Installed"
+                          : game.status === "downloading"
+                            ? "Downloading"
+                            : "GOG"
+                    }}
+                  </span>
+                  <span v-if="game.downloadSizeBytes" class="sharp-card-size">{{
+                    formatBytes(game.downloadSizeBytes)
+                  }}</span>
+                </div>
+                <div v-if="game.status === 'downloading'" class="gog-progress">
+                  <div class="gog-progress-bar">
+                    <span :style="{ width: `${gogProgress[game.productId] ?? 0}%` }"></span>
+                  </div>
+                  <small>{{ Math.floor(gogProgress[game.productId] ?? 0) }}%</small>
+                </div>
+                <div class="sharp-card-actions">
+                  <div class="sharp-card-actions-row">
+                    <button
+                      v-if="game.running"
+                      class="btn btn-stop"
+                      :disabled="gogLoading[`${game.productId}:stop`]"
+                      @click="stopGogGame(game)"
+                    >
+                      Stop
+                    </button>
+                    <button
+                      v-else-if="game.installed"
+                      class="btn btn-play"
+                      :disabled="gogLoading[`${game.productId}:play`]"
+                      @click="playGogGame(game)"
+                    >
+                      Play
+                    </button>
+                    <button
+                      v-else
+                      class="btn btn-primary"
+                      :disabled="game.status === 'downloading' || gogLoading[`${game.productId}:install`]"
+                      @click="installGogGame(game)"
+                    >
+                      {{ game.status === "downloading" ? "Downloading…" : "Install" }}
+                    </button>
+                    <button
+                      v-if="game.installed"
+                      class="btn btn-danger"
+                      :disabled="gogLoading[`${game.productId}:uninstall`]"
+                      @click="uninstallGogGame(game)"
+                    >
+                      Uninstall
+                    </button>
+                  </div>
+                  <div v-if="game.status === 'install_failed' && game.lastError" class="gog-card-meta">
+                    <strong class="launch-failure">{{ game.lastError }}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .sharp-view {
-  padding: 0 28px 32px;
+  padding: 0 28px;
   height: 100%;
   overflow-y: auto;
-}
-.sharp-header {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  margin: 0 -28px 20px;
-  padding: 44px 28px 13px;
-  background: var(--page-header-bg);
+  background: transparent;
+}
+.sharp-header {
+  flex-shrink: 0;
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  margin: 0 -28px;
+  padding: 44px 28px 14px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   position: relative;
+}
+.sharp-body {
+  flex: 1;
+  margin: 0 -28px;
+  padding: 20px 28px 32px;
 }
 .sharp-header::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
-              radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
+  background:
+    radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
   pointer-events: none;
 }
 .sharp-header-controls {
@@ -1785,14 +1900,24 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
   flex-wrap: wrap;
   -webkit-app-region: no-drag;
   margin-top: auto;
-  padding-top: 25px;
   min-height: 0;
   container-type: inline-size;
 }
-.btn-label-short { display: none; }
+@media (max-width: 1040px) {
+  .sharp-header {
+    height: 202px;
+  }
+}
+.btn-label-short {
+  display: none;
+}
 @container (max-width: 700px) {
-  .btn-label-long { display: none; }
-  .btn-label-short { display: inline; }
+  .btn-label-long {
+    display: none;
+  }
+  .btn-label-short {
+    display: inline;
+  }
 }
 .sharp-header-controls .btn {
   min-width: 0;
@@ -1830,17 +1955,16 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
   overflow: visible;
   -webkit-app-region: no-drag;
 }
-.source-switch {
+.source-selector {
   display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+  align-items: center;
+  gap: 7px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
 }
-.source-switch .active {
-  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+.source-selector .control-input {
+  min-width: 112px;
 }
 
 .support-drawer {
@@ -2231,18 +2355,6 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
     0 0 34px color-mix(in srgb, var(--accent) 28%, transparent),
     0 20px 42px color-mix(in srgb, var(--bg-deep) 42%, transparent);
 }
-.gog-card {
-  border-color: color-mix(in srgb, var(--border) 84%, transparent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--border) 58%, transparent),
-    0 10px 26px color-mix(in srgb, var(--bg-deep) 34%, transparent);
-}
-.gog-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent),
-    0 14px 30px color-mix(in srgb, var(--bg-deep) 38%, transparent);
-}
 .gog-card .sharp-card-banner {
   isolation: isolate;
   background: color-mix(in srgb, var(--bg-deep) 94%, black);
@@ -2363,22 +2475,23 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
 .sharp-card-actions-row .btn-stop {
   min-width: 58px;
 }
+.sharp-card-actions-row .control-input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.sharp-tools-button {
+  flex: 0 0 auto;
+}
 .sharp-card-tools {
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
 }
-.sharp-card-tools .drawer-summary {
-  padding: 8px;
-}
-.sharp-card-tools[open] {
-  padding-bottom: 8px;
-}
 .sharp-tool-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  padding: 0 8px 8px;
 }
 .sharp-tool-actions .btn {
   min-width: 0;
@@ -2388,7 +2501,7 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 7px;
-  padding: 0 8px 8px;
+  padding: 8px 0 0;
 }
 .cover-position-controls label {
   display: grid;
@@ -2412,8 +2525,8 @@ onUnmounted(() => { document.removeEventListener('click', closeDropdowns); stopG
   width: 100%;
 }
 .sharp-uninstall-button {
-  margin: 0 8px;
-  width: calc(100% - 16px);
+  margin-top: 8px;
+  width: 100%;
 }
 
 .launch-failure {

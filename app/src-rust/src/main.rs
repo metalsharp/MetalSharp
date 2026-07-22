@@ -42,6 +42,7 @@ mod updater;
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tiny_http::{Header, Method, Response, Server};
@@ -749,6 +750,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0);
             let log_path = log_dir.join(format!("{}.log", chrono_date()));
+            let log_name = log_path.file_name().unwrap_or_default().to_string_lossy().to_string();
             if let Ok(content) = std::fs::read_to_string(&log_path) {
                 let all_lines: Vec<&str> = content.lines().collect();
                 let total = all_lines.len();
@@ -757,79 +759,36 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                     200,
                     json!({
                         "ok": true,
+                        "name": log_name,
                         "total": total,
                         "lines": new_lines,
                     }),
                 )
             } else {
-                resp(200, json!({"ok": true, "total": 0, "lines": []}))
+                resp(200, json!({"ok": true, "name": log_name, "total": 0, "lines": []}))
             }
         },
         (Method::Get, "/logs/crash-reports") => {
             let home = dirs::home_dir().unwrap_or_default();
             let ms_home = crate::platform::metalsharp_home_dir_for(&home);
-            let mut reports = Vec::new();
-
-            let game_base = ms_home.join("games");
-            if let Ok(rd) = std::fs::read_dir(&game_base) {
-                for entry in rd.flatten() {
-                    if entry.path().is_dir() {
-                        let appid_str = entry.file_name().to_string_lossy().to_string();
-                        let appid: u32 = appid_str.parse().unwrap_or(0);
-                        let pipeline = if appid > 0 {
-                            crate::bottles::resolve_steam_pipeline_for_request(appid, None)
-                        } else {
-                            crate::mtsp::engine::PipelineId::M11
-                        };
-                        let pipeline_label = pipeline_label_for(pipeline);
-                        let _ = scan_crash_files(&entry.path(), &appid_str, pipeline_label, &mut reports, 0);
-                    }
-                }
-            }
-
-            let bottles_dir = ms_home.join("bottles");
-            if let Ok(rd) = std::fs::read_dir(&bottles_dir) {
-                for entry in rd.flatten() {
-                    let bottle_id = entry.file_name().to_string_lossy().to_string();
-                    let logs_dir = entry.path().join("logs");
-                    if !logs_dir.is_dir() {
-                        continue;
-                    }
-                    let appid: u32 = bottle_id.strip_prefix("steam_").and_then(|s| s.parse().ok()).unwrap_or(0);
-                    let pipeline = if appid > 0 {
-                        crate::bottles::resolve_steam_pipeline_for_request(appid, None)
-                    } else {
-                        crate::mtsp::engine::PipelineId::M11
-                    };
-                    let pipeline_label = pipeline_label_for(pipeline);
-                    let _ = scan_crash_files(&logs_dir, &bottle_id, pipeline_label, &mut reports, 0);
-                }
-            }
-
-            let steam_dumps =
-                ms_home.join("prefix-steam").join("drive_c").join("Program Files (x86)").join("Steam").join("dumps");
-            if steam_dumps.is_dir() {
-                let _ = scan_steam_dumps(&steam_dumps, &mut reports);
-            }
-
-            let prefix = ms_home.join("prefix-steam").join("drive_c");
-            for crash_dir in [
-                prefix.join("users").join("steamuser").join("AppData").join("Local").join("CrashDumps"),
-                prefix.join("ProgramData").join("CrashDumps"),
-            ] {
-                if crash_dir.is_dir() {
-                    let _ = scan_crash_files(&crash_dir, "system", "System", &mut reports, 0);
-                }
-            }
-
-            reports.sort_by(|a: &serde_json::Value, b: &serde_json::Value| {
-                b.get("timestamp")
-                    .unwrap_or(&json!(""))
-                    .as_str()
-                    .unwrap_or("")
-                    .cmp(a.get("timestamp").unwrap_or(&json!("")).as_str().unwrap_or(""))
-            });
+            let reports = collect_crash_reports(&ms_home);
             resp(200, json!({"ok": true, "reports": reports}))
+        },
+        (Method::Post, "/logs/crash-report") => {
+            let body = read_body(req);
+            let Some(file) = body.get("file").and_then(|value| value.as_str()) else {
+                return resp(400, json!({"ok": false, "error": "file required"}));
+            };
+            let home = dirs::home_dir().unwrap_or_default();
+            let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+            let reports = collect_crash_reports(&ms_home);
+            if !crash_report_is_enumerated(&reports, file) {
+                return resp(404, json!({"ok": false, "error": "crash report not found"}));
+            }
+            match crash_report_preview(&ms_home, std::path::Path::new(file)) {
+                Ok(lines) => resp(200, json!({"ok": true, "lines": lines})),
+                Err(error) => resp(400, json!({"ok": false, "error": error})),
+            }
         },
         (Method::Get, "/config") => resp(200, launch::get_config()),
         (Method::Post, "/config") => {
@@ -1992,6 +1951,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             let body = read_body(req);
             resp(200, sharp_library::handle_set_cover(&body))
         },
+        (Method::Post, "/sharp-library/add-asset") => {
+            let body = read_body(req);
+            resp(200, sharp_library::handle_add_asset(&body))
+        },
         (Method::Post, "/sharp-library/set-cover-position") => {
             let body = read_body(req);
             resp(200, sharp_library::handle_set_cover_position(&body))
@@ -2670,6 +2633,77 @@ fn pipeline_label_for(pipeline: crate::mtsp::engine::PipelineId) -> &'static str
     }
 }
 
+fn collect_crash_reports(ms_home: &std::path::Path) -> Vec<serde_json::Value> {
+    let mut reports = Vec::new();
+
+    let game_base = ms_home.join("games");
+    if let Ok(rd) = std::fs::read_dir(&game_base) {
+        for entry in rd.flatten() {
+            if entry.path().is_dir() {
+                let appid_str = entry.file_name().to_string_lossy().to_string();
+                let appid: u32 = appid_str.parse().unwrap_or(0);
+                let pipeline = if appid > 0 {
+                    crate::bottles::resolve_steam_pipeline_for_request(appid, None)
+                } else {
+                    crate::mtsp::engine::PipelineId::M11
+                };
+                let pipeline_label = pipeline_label_for(pipeline);
+                scan_crash_files(&entry.path(), &appid_str, pipeline_label, &mut reports, 0);
+            }
+        }
+    }
+
+    let bottles_dir = ms_home.join("bottles");
+    if let Ok(rd) = std::fs::read_dir(&bottles_dir) {
+        for entry in rd.flatten() {
+            let bottle_id = entry.file_name().to_string_lossy().to_string();
+            let logs_dir = entry.path().join("logs");
+            if !logs_dir.is_dir() {
+                continue;
+            }
+            let appid: u32 = bottle_id.strip_prefix("steam_").and_then(|s| s.parse().ok()).unwrap_or(0);
+            let pipeline = if appid > 0 {
+                crate::bottles::resolve_steam_pipeline_for_request(appid, None)
+            } else {
+                crate::mtsp::engine::PipelineId::M11
+            };
+            let pipeline_label = pipeline_label_for(pipeline);
+            scan_crash_files(&logs_dir, &bottle_id, pipeline_label, &mut reports, 0);
+        }
+    }
+
+    let steam_dumps =
+        ms_home.join("prefix-steam").join("drive_c").join("Program Files (x86)").join("Steam").join("dumps");
+    if steam_dumps.is_dir() {
+        scan_steam_dumps(&steam_dumps, &mut reports);
+    }
+
+    let prefix = ms_home.join("prefix-steam").join("drive_c");
+    for crash_dir in [
+        prefix.join("users").join("steamuser").join("AppData").join("Local").join("CrashDumps"),
+        prefix.join("ProgramData").join("CrashDumps"),
+    ] {
+        if crash_dir.is_dir() {
+            scan_crash_files(&crash_dir, "system", "System", &mut reports, 0);
+        }
+    }
+
+    reports.sort_by(|a: &serde_json::Value, b: &serde_json::Value| {
+        b.get("timestamp")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .cmp(a.get("timestamp").and_then(|value| value.as_str()).unwrap_or(""))
+    });
+    reports
+}
+
+fn crash_report_is_enumerated(reports: &[serde_json::Value], requested_file: &str) -> bool {
+    reports
+        .iter()
+        .filter_map(|report| report.get("file").and_then(|value| value.as_str()))
+        .any(|file| file == requested_file)
+}
+
 fn pipeline_label_for_exe(exe_name: &str) -> &'static str {
     let exe_lower = exe_name.to_lowercase();
     let home = dirs::home_dir().unwrap_or_default();
@@ -2778,6 +2812,55 @@ fn scan_crash_files(
     }
 }
 
+fn crash_report_preview(ms_home: &std::path::Path, file: &std::path::Path) -> Result<Vec<String>, String> {
+    let home = ms_home.canonicalize().map_err(|error| format!("MetalSharp home unavailable: {error}"))?;
+    let file = file.canonicalize().map_err(|error| format!("Crash report unavailable: {error}"))?;
+    if !file.starts_with(&home) || !file.is_file() {
+        return Err("Crash report path is outside the MetalSharp runtime".into());
+    }
+
+    let mut bytes = Vec::new();
+    std::fs::File::open(&file)
+        .map_err(|error| format!("Unable to open crash report: {error}"))?
+        .take(256 * 1024)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("Unable to read crash report: {error}"))?;
+    Ok(crash_preview_lines(&bytes))
+}
+
+fn crash_preview_lines(bytes: &[u8]) -> Vec<String> {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        let lines: Vec<String> = text.lines().take(200).map(str::to_owned).collect();
+        if !lines.is_empty() {
+            return lines;
+        }
+    }
+
+    let mut lines = Vec::new();
+    let mut current = Vec::new();
+    for &byte in bytes {
+        if byte.is_ascii_graphic() || byte == b' ' || byte == b'\t' {
+            current.push(byte);
+        } else {
+            if current.len() >= 4 {
+                lines.push(String::from_utf8_lossy(&current).trim().to_string());
+                if lines.len() == 200 {
+                    break;
+                }
+            }
+            current.clear();
+        }
+    }
+    if lines.len() < 200 && current.len() >= 4 {
+        lines.push(String::from_utf8_lossy(&current).trim().to_string());
+    }
+    lines.retain(|line| !line.is_empty());
+    if lines.is_empty() {
+        lines.push("No readable text was found in this binary crash report.".into());
+    }
+    lines
+}
+
 fn persist_crash_log(source: &str, path: &std::path::Path, timestamp: &str, size: u64) {
     let log_dir = crash_reports_log_dir();
     let _ = std::fs::create_dir_all(&log_dir);
@@ -2801,6 +2884,25 @@ fn persist_crash_log(source: &str, path: &std::path::Path, timestamp: &str, size
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crash_preview_allowlist_rejects_unenumerated_metalsharp_files() {
+        let reports = vec![json!({"file": "/tmp/.metalsharp/dumps/crash.dmp"})];
+
+        assert!(crash_report_is_enumerated(&reports, "/tmp/.metalsharp/dumps/crash.dmp"));
+        assert!(!crash_report_is_enumerated(&reports, "/tmp/.metalsharp/gog/auth.json"));
+    }
+
+    #[test]
+    fn crash_preview_keeps_plain_text_lines() {
+        assert_eq!(crash_preview_lines(b"first line\nsecond line\n"), ["first line", "second line"]);
+    }
+
+    #[test]
+    fn crash_preview_extracts_readable_strings_from_binary_dumps() {
+        let preview = crash_preview_lines(b"\0\x01crash reason\0\xffmodule.dll\0");
+        assert_eq!(preview, ["crash reason", "module.dll"]);
+    }
 
     #[test]
     fn request_appid_rejects_missing_string_zero_and_oversized_values() {

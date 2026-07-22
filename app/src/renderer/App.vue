@@ -35,8 +35,7 @@ interface SteamLibrary {
 }
 
 const currentView = ref("library");
-const isProcessManagerOverlay =
-  new URLSearchParams(window.location.search).get("overlay") === "process-manager";
+const isProcessManagerOverlay = new URLSearchParams(window.location.search).get("overlay") === "process-manager";
 const showSetup = ref(false);
 const showMigration = ref(false);
 const backendConnected = ref(false);
@@ -76,7 +75,11 @@ const activeView = computed(() => viewMap[currentView.value] ?? LibraryView);
 const updateChangelog = computed(() => {
   if (!updateStatus.value?.release_notes) return "";
   const firstLine = updateStatus.value.release_notes.split("\n").find((l) => l.trim().length > 0) ?? "";
-  const cleaned = firstLine.replace(/^#+\s*/, "").replace(/\*\*/g, "").replace(/`/g, "").trim();
+  const cleaned = firstLine
+    .replace(/^#+\s*/, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .trim();
   if (cleaned.length <= 20) return cleaned;
   return cleaned.slice(0, 19) + "\u2026";
 });
@@ -344,11 +347,18 @@ onMounted(async () => {
       @navigate="currentView = $event"
       @toggle-theme="toggleTheme()"
     />
-    <main class="content">
+    <main
+      class="content"
+      :class="{ 'content-glass-header': ['library', 'sharp-library', 'logs'].includes(currentView) }"
+    >
       <div class="drag-strip"></div>
       <div v-if="updateStatus?.ok && updateStatus?.available && !updateDismissed" class="update-banner">
         <span class="update-banner-text" v-if="!updateDownloading"
-          >MetalSharp v{{ updateStatus.latest_version }} is available<span v-if="updateChangelog" class="update-changelog">{{ updateChangelog }}</span></span
+          >MetalSharp v{{ updateStatus.latest_version }} is available<span
+            v-if="updateChangelog"
+            class="update-changelog"
+            >{{ updateChangelog }}</span
+          ></span
         >
         <span class="update-banner-text" v-else>{{ updateMessage }}</span>
         <div v-if="updateDownloading" class="update-banner-progress">
@@ -364,7 +374,9 @@ onMounted(async () => {
         >
           What's New
         </button>
-        <button v-if="!updateDownloading" class="update-banner-close" @click="updateDismissed = true" title="Dismiss">&times;</button>
+        <button v-if="!updateDownloading" class="update-banner-close" @click="updateDismissed = true" title="Dismiss">
+          &times;
+        </button>
       </div>
       <component :is="activeView" :key="currentView" />
     </main>
@@ -374,7 +386,13 @@ onMounted(async () => {
       <section class="update-changelog-modal" @click.stop>
         <header class="update-changelog-modal-header">
           <h2>MetalSharp v{{ updateStatus?.latest_version }}</h2>
-          <button class="modal-close-btn" type="button" aria-label="Close" title="Close" @click="showUpdateChangelog = false">
+          <button
+            class="modal-close-btn"
+            type="button"
+            aria-label="Close"
+            title="Close"
+            @click="showUpdateChangelog = false"
+          >
             x
           </button>
         </header>
@@ -411,7 +429,13 @@ onMounted(async () => {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(95, 183, 232, 0.06) 0%, transparent 30%, transparent 70%, rgba(95, 183, 232, 0.04) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(95, 183, 232, 0.06) 0%,
+    transparent 30%,
+    transparent 70%,
+    rgba(95, 183, 232, 0.04) 100%
+  );
   pointer-events: none;
 }
 .update-banner:hover {
@@ -551,12 +575,14 @@ onMounted(async () => {
   background:
     linear-gradient(118deg, rgba(185, 255, 77, 0.025), transparent 36%, rgba(0, 245, 255, 0.03) 72%, transparent),
     radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.14), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.11), transparent 30%),
-    var(--bg-deep);
+    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.11), transparent 30%), var(--bg-deep);
+}
+.content.content-glass-header {
+  background: transparent;
 }
 :root[data-theme="developer"] .update-banner {
   background:
-    linear-gradient(90deg, rgba(185, 255, 77, 0.16), rgba(0, 245, 255, 0.10), rgba(255, 46, 247, 0.14)),
+    linear-gradient(90deg, rgba(185, 255, 77, 0.16), rgba(0, 245, 255, 0.1), rgba(255, 46, 247, 0.14)),
     rgba(9, 7, 15, 0.84);
   border-bottom-color: rgba(185, 255, 77, 0.28);
   color: var(--text-primary);
