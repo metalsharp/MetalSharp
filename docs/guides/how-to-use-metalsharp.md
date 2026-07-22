@@ -58,6 +58,8 @@ Use **Install Windows Program** to select an `.exe` or `.msi`. MetalSharp may im
 
 Apps imported from a bottle keep their `bottle_id`, launch through that bottle, and write per-bottle logs.
 
+MoonScraper Chart Editor's Inno Setup bootstrapper is handled without its Windows installer UI because that bootstrapper crashes in macOS Wine's WoW64 runtime. MetalSharp uses the native `innoextract` tool (installing it through Homebrew when needed), extracts the portable application into its dedicated bottle, and adds the detected editor directly to Sharp Library.
+
 ## Logs and Settings
 
 Use **Logs** when something fails. The page has drawer sections for live logs, crash reports, and recent log files.
