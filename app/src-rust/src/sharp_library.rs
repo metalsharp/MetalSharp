@@ -1160,10 +1160,33 @@ pub fn import_bottle_app(
 
 pub fn uninstall_app(id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut library = load_library()?;
-    let idx = library.iter().position(|a| a.id == id).ok_or("App not found")?;
+    let app = library.iter().find(|app| app.id == id).cloned().ok_or("App not found")?;
 
     if !is_safe_library_id(id) {
         return Err("Invalid app id".into());
+    }
+
+    if let Some(bottle_id) = app.bottle_id.as_deref() {
+        let bottle = crate::bottles::load_bottle(bottle_id)?;
+        if bottle.bottle_type == crate::bottles::BottleType::Installer {
+            // Installer apps are auto-discovered from their bottle on every
+            // refresh. Removing only library.json therefore makes the card
+            // immediately reappear. The installer bottle is app-owned, so
+            // uninstall the bottle and every card discovered from it.
+            let bottle_dir = crate::bottles::bottle_dir(bottle_id);
+            remove_dir_all_under(&bottle_dir, &crate::bottles::bottles_root())?;
+            let removed_ids: Vec<String> = library
+                .iter()
+                .filter(|candidate| candidate.bottle_id.as_deref() == Some(bottle_id))
+                .map(|candidate| candidate.id.clone())
+                .collect();
+            library.retain(|candidate| candidate.bottle_id.as_deref() != Some(bottle_id));
+            for removed_id in removed_ids {
+                remove_cover(&removed_id);
+            }
+            save_library(&library)?;
+            return Ok(());
+        }
     }
 
     let app_dir = base_dir().join(id);
@@ -1171,14 +1194,17 @@ pub fn uninstall_app(id: &str) -> Result<(), Box<dyn std::error::Error>> {
         remove_dir_all_under(&app_dir, &base_dir())?;
     }
 
-    let cover_path = base_dir().join(format!("{}.cover", id));
-    if cover_path.exists() {
-        let _ = fs::remove_file(&cover_path);
-    }
-
-    library.remove(idx);
+    remove_cover(id);
+    library.retain(|candidate| candidate.id != id);
     save_library(&library)?;
     Ok(())
+}
+
+fn remove_cover(id: &str) {
+    let cover_path = base_dir().join(format!("{}.cover", id));
+    if cover_path.exists() {
+        let _ = fs::remove_file(cover_path);
+    }
 }
 
 fn is_safe_library_id(id: &str) -> bool {
