@@ -819,6 +819,44 @@ function registerIpc() {
       return { ok: false, error: "Installed MetalSharp.app was not found in /Applications." };
     }
 
+    // A prefix update can leave Wine helpers alive after migration. Force-stop
+    // every MetalSharp Wine/runtime process and verify none survived before
+    // deleting the preservation cache or opening the updated app.
+    const processCleanup = (await requestMigrationBackend("POST", "/processes/force-kill", undefined, 15000)) as {
+      ok?: boolean;
+      survivors?: unknown[];
+      errors?: unknown[];
+      error?: string;
+    };
+    if (!processCleanup?.ok || (processCleanup.survivors?.length ?? 0) > 0) {
+      const survivorCount = processCleanup?.survivors?.length ?? 0;
+      return {
+        ok: false,
+        error:
+          processCleanup?.error ??
+          `Could not stop all Wine processes (${survivorCount} still running). Try Launch MetalSharp again.`,
+      };
+    }
+
+    // The restore is complete, so all exact-name migration preservation roots
+    // in the system temp directory are now stale and safe to remove.
+    const preserveCleanup = (await requestMigrationBackend(
+      "POST",
+      "/update/migrate/cleanup-preserved",
+      undefined,
+      30000,
+    )) as {
+      ok?: boolean;
+      removed?: number;
+      errors?: unknown[];
+      error?: string;
+    };
+    if (!preserveCleanup?.ok) {
+      console.warn(
+        `Migration handoff: preserved temp cleanup was incomplete: ${preserveCleanup?.error ?? JSON.stringify(preserveCleanup?.errors ?? [])}`,
+      );
+    }
+
     // Remove cached updater DMGs before tearing down the backend; this keeps the
     // user's disk from retaining the old installer image after a successful update.
     try {
@@ -849,7 +887,12 @@ function registerIpc() {
     spawnFreshInstalledAppAfterExit(appPath);
 
     setTimeout(() => app.exit(0), 50);
-    return { ok: true, deletedDmg, launched: appPath };
+    return {
+      ok: true,
+      deletedDmg,
+      removedMigrationTempDirs: preserveCleanup?.removed ?? 0,
+      launched: appPath,
+    };
   });
 
   ipcMain.handle("app:eject-dmg", async () => {
