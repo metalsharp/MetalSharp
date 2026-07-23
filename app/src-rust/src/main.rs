@@ -220,6 +220,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Get, "/update/migrate/progress") => resp(200, migrate::read_migrate_progress()),
         // Phase 2: report what the last migration preserved, skipped, and why.
         (Method::Get, "/update/migrate/report") => resp(200, migrate::latest_migration_report()),
+        (Method::Post, "/update/migrate/cleanup-preserved") => resp(200, migrate::cleanup_preserved_temp_dirs()),
         (Method::Get, "/setup/state") => resp(200, setup::state()),
         (Method::Post, "/setup/save") => {
             let body = read_body(req);
@@ -2285,17 +2286,27 @@ fn force_kill_metalsharp_processes() -> Value {
         }
     }
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let survivors: Vec<serde_json::Value> = process_lines()
+        .into_iter()
+        .filter_map(|line| parse_process_line_owned(&line))
+        .filter(|(pid, command)| *pid != this_pid && is_force_kill_target(command, &home))
+        .map(|(pid, command)| json!({"pid": pid, "command": command}))
+        .collect();
+
     app_log(&format!(
-        "Force killed MetalSharp processes: {} TERM, {} KILL, {} errors",
+        "Force killed MetalSharp processes: {} TERM, {} KILL, {} survivors, {} errors",
         terminated.len(),
         killed.len(),
+        survivors.len(),
         errors.len()
     ));
 
     json!({
-        "ok": errors.is_empty(),
+        "ok": survivors.is_empty(),
         "terminated": terminated,
         "killed": killed,
+        "survivors": survivors,
         "errors": errors,
         "backendPid": this_pid,
     })
@@ -2884,6 +2895,20 @@ fn persist_crash_log(source: &str, path: &std::path::Path, timestamp: &str, size
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn force_kill_targets_metalsharp_wine_helpers_but_not_app_processes() {
+        let home = std::path::Path::new("/Users/test/.metalsharp");
+
+        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/wineserver", home));
+        assert!(is_force_kill_target(
+            "/Users/test/.metalsharp/runtime/wine/bin/wine64 C:\\windows\\system32\\wineboot.exe",
+            home
+        ));
+        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/wine Steam.exe", home));
+        assert!(!is_force_kill_target("/Applications/MetalSharp.app/Contents/MacOS/MetalSharp", home));
+        assert!(!is_force_kill_target("/Applications/Steam.app/Contents/MacOS/steam_osx", home));
+    }
 
     #[test]
     fn crash_preview_allowlist_rejects_unenumerated_metalsharp_files() {

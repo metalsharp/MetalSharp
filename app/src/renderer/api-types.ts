@@ -200,7 +200,13 @@ type MetalsharpAPI = {
   ) => Promise<BackendResponse>;
   isFirstLaunch: () => Promise<boolean>;
   isMigrationMode: () => Promise<boolean>;
-  restartAfterMigration: () => Promise<{ ok: boolean; error?: string; deletedDmg?: string | null; launched?: string }>;
+  restartAfterMigration: () => Promise<{
+    ok: boolean;
+    error?: string;
+    deletedDmg?: string | null;
+    removedMigrationTempDirs?: number;
+    launched?: string;
+  }>;
   ejectDmg: () => Promise<void>;
   installDeps: (command: string) => Promise<{ ok: boolean; error?: string }>;
   installHomebrew: () => Promise<{ ok: boolean; installed?: boolean; path?: string; message?: string; error?: string }>;

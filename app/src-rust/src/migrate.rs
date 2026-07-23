@@ -56,8 +56,59 @@ const MIGRATION_STEAM_METADATA_EXTENSIONS: &[&str] =
 const MIGRATION_STEAM_METADATA_DENY_NAMES: &[&str] =
     &["cache", "common", "compatdata", "crashes", "depotcache", "downloading", "logs", "shadercache", "Temp", "tmp"];
 const MIGRATION_TOTAL_STEPS: usize = 8;
+const MIGRATION_PRESERVE_TEMP_PREFIX: &str = "metalsharp-migration-preserve-";
 
 static MIGRATING: AtomicBool = AtomicBool::new(false);
+
+pub fn cleanup_preserved_temp_dirs() -> serde_json::Value {
+    let temp_root = std::env::temp_dir();
+    let (removed, errors) = cleanup_preserved_temp_dirs_in(&temp_root);
+    log_to_file(&format!(
+        "Migration handoff: removed {} preserved temp director{} with {} error(s)",
+        removed,
+        if removed == 1 { "y" } else { "ies" },
+        errors.len()
+    ));
+    json!({
+        "ok": errors.is_empty(),
+        "removed": removed,
+        "errors": errors,
+    })
+}
+
+fn cleanup_preserved_temp_dirs_in(temp_root: &Path) -> (usize, Vec<String>) {
+    let entries = match fs::read_dir(temp_root) {
+        Ok(entries) => entries,
+        Err(error) => {
+            return (0, vec![format!("read {}: {}", temp_root.display(), error)]);
+        },
+    };
+
+    let mut removed = 0usize;
+    let mut errors = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with(MIGRATION_PRESERVE_TEMP_PREFIX) {
+            continue;
+        }
+
+        let path = entry.path();
+        let is_real_directory = entry.file_type().map(|kind| kind.is_dir() && !kind.is_symlink()).unwrap_or(false);
+        if !is_real_directory {
+            continue;
+        }
+
+        match fs::remove_dir_all(&path) {
+            Ok(()) => removed += 1,
+            Err(error) => errors.push(format!("remove {}: {}", path.display(), error)),
+        }
+    }
+
+    (removed, errors)
+}
 
 /// Phase 2: an observational record of what a migration preserved, what it
 /// skipped, and why. This does not change what is preserved or restored — it
@@ -756,7 +807,8 @@ struct PreservedData {
 fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
     let mut report = MigrationReport::new();
     let tmp = std::env::temp_dir().join(format!(
-        "metalsharp-migration-preserve-{}-{}-{:x}",
+        "{}{}-{}-{:x}",
+        MIGRATION_PRESERVE_TEMP_PREFIX,
         std::process::id(),
         temp_suffix(),
         std::hash::Hasher::finish(&std::collections::hash_map::DefaultHasher::new())
@@ -2351,6 +2403,35 @@ fn unix_days_to_ymd(days_since_epoch: u64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleanup_preserved_temp_dirs_removes_only_real_matching_directories() {
+        let temp_root = test_dir("cleanup-preserved-temp");
+        let stale_one = temp_root.join("metalsharp-migration-preserve-100-first");
+        let stale_two = temp_root.join("metalsharp-migration-preserve-200-second");
+        let unrelated = temp_root.join("metalsharp-other-cache");
+        let symlink_target = temp_root.join("symlink-target");
+        let matching_symlink = temp_root.join("metalsharp-migration-preserve-symlink");
+
+        for dir in [&stale_one, &stale_two, &unrelated, &symlink_target] {
+            fs::create_dir_all(dir).expect("create cleanup fixture");
+        }
+        fs::write(stale_one.join("prefix.reg"), b"preserved").expect("write stale fixture");
+        std::os::unix::fs::symlink(&symlink_target, &matching_symlink).expect("create matching symlink");
+
+        let (removed, errors) = cleanup_preserved_temp_dirs_in(&temp_root);
+
+        assert_eq!(removed, 2);
+        assert!(errors.is_empty());
+        assert!(!stale_one.exists());
+        assert!(!stale_two.exists());
+        assert!(unrelated.exists());
+        assert!(matching_symlink.symlink_metadata().is_ok());
+        assert!(symlink_target.exists());
+
+        let _ = fs::remove_file(matching_symlink);
+        let _ = fs::remove_dir_all(temp_root);
+    }
 
     #[test]
     fn migration_report_records_preserved_and_skipped_categories() {
