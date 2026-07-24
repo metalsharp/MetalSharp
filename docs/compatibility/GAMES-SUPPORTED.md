@@ -36,7 +36,7 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 | Cyberpunk 2077 | 1091500 | Offline play. |
 | Ghostrunner | 1139900 | D3DMetal route confirmed. |
 | Control - Ultimate Edition | 870780 | |
-| Star Wars Jedi: Falln Order | 1172380 | |
+| Star Wars Jedi: Fallen Order | 1172380 | |
 | Shadow Of The Tomb Raider | 750920 | |
 
 ---
