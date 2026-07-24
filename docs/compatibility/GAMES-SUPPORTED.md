@@ -26,7 +26,7 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 
 ## D3DMetal
 
-Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bottles use the explicit Save → Repair Redist → Seed Prefix → Play D3DMetal flow, with route DLLs copied from `/Applications/Game Porting Toolkit.app` into the shared GPTK prefix.
+Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bottles use the explicit Save → Repair Redist → Seed Prefix → Play D3DMetal flow, with route DLLs copied from `/Applications/Game Porting Toolkit.app` into the shared GPTK prefix. Mainly for Dx12 Gaming. 
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -35,18 +35,15 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 | High On Life | 1583230 | Also works on M12. |
 | Cyberpunk 2077 | 1091500 | Offline play. |
 | Ghostrunner | 1139900 | D3DMetal route confirmed. |
+| Control - Ultimate Edition | 870780 | |
+| Star Wars Jedi: Falln Order | 1172380 | |
+| Shadow Of The Tomb Raider | 750920 | |
 
 ---
 
 ## M12 — D3D12 to Metal
 
-| Game | AppID | Notes |
-|---|---:|---|
-| PEAK | 3527290 | Medium settings. |
-| Hollow Knight: Silksong | 1030300 | |
-| Schedule I | 3164500 | |
-| Yu-Gi-Oh! Master Duel | 1449850 | |
-| Dark Deception | 332950 | Runtime bootstrap required on first launch. |
+- In Development: Not yet running games, only launching them. 
 
 ---
 
@@ -75,6 +72,22 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 | Graveyard Keeper | 599140 | |
 | Brawlhalla | 291550 | |
 | Black Myth: Wukong | 2358720 | Compatibility Mode. |
+| Beam.ng Drive | 1067430 | |
+| Ball X Pit | 2062430 | |
+| Schedule I |	3164500 | |
+| Nine Sols | 1809540 | |
+| Skekiro Shadows Die Twice | 814380 | |
+| Sons Of The Forest | 1326470 | |
+| Thronefall | 2239150 | |
+| 9 Kings | 2784470 | |
+| Amid Evil | 673130 | |
+| Borderlands 3 | 397540 | |
+| Crab Champions | 774801 | |
+| Plate Up! | 1599600 | |
+| Rv There Yet? | 3949040 | | 
+| UltraKill | 1229490 | |
+| Velheim | 892970 | |
+| Untitled Goose Game | 837470 | |
 
 ---
 
@@ -84,12 +97,15 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 |---|---:|---|
 | Inscryption | 1092790 | Binary: `Inscryption.exe`. |
 | Hades | 1145360 | Binary: `x86/Hades.exe`. |
+| Balatro| 2379780 | |
 
 ---
 
 ## M10 — D3D10 to Metal
 
-*No games currently confirmed working through M10. Available for D3D10-specific titles.*
+| Game | AppID | Notes |
+|---|---:|---|
+| Mind Scanners | 1389550 | |
 
 ---
 
@@ -102,8 +118,7 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 | Portal 2 | 620 | Steam Emu supported. |
 | Among Us | 945360 | Steam online play. |
 | Team Fortress 2 | 440 | Steam online play. VAC works. |
-| Nidhogg 2 | 535520 | |
-| Fallout: New Vegas | 22380 | Direct Steam Launch. |
+| Undertale | 391540 | |
 
 ---
 
@@ -111,9 +126,7 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 
 | Game | AppID | Notes |
 |---|---:|---|
-| Celeste | 504230 | FNA/XNA assets, FMOD shims, Steamworks shim. x86_64 Mono. Install wizard fallback paths for `steam_api` detection. |
-| Terraria | 105600 | TerrariaLauncher/patcher support, x86_64 Mono, XNA/FNA assemblies. |
-| DREDGE | 1562430 | Auto-detected as FNA flavor. Generic FNA config. |
+| Celeste | 504230 | FNA/XNA assets, FMOD shims, Steamworks shim. x86_64 Mono |
 
 ---
 
