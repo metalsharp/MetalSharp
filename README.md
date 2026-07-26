@@ -27,7 +27,13 @@ Download the latest DMG from [Releases](https://github.com/aaf2tbz/metalsharp/re
 
 If Gatekeeper cannot verify the app, open **System Settings → Privacy & Security** and choose **Open Anyway** for MetalSharp. VirusTotal scans are included with release notes when available.
 
-For building from source, see [Install from Source](docs/guides/install-from-source.md).
+### Install With Homebrew:
+
+```sh
+brew install --cask aaf2tbz/tap/metalsharp
+```
+
+This installs the signed MetalSharp release into `/Applications`. For developer builds, see [Build from Source](docs/guides/install-from-source.md).
 
 ## Routes
 
@@ -68,7 +74,7 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 ## Documentation
 
-- [Install from Source](docs/guides/install-from-source.md)
+- [Build from Source](docs/guides/install-from-source.md)
 - [How to Use MetalSharp](docs/guides/how-to-use-metalsharp.md)
 - [GPTK (D3DMetal) Guide](docs/guides/gptk-guide.md)
 - [Game Compatibility](docs/compatibility/GAMES-SUPPORTED.md)
