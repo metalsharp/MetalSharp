@@ -1,8 +1,32 @@
-import { ref, watch } from "vue";
+import { type Component, ref, watch } from "vue";
+import IconAxe from "~icons/lucide/axe";
+import IconBinoculars from "~icons/lucide/binoculars";
+import IconBone from "~icons/lucide/bone";
+import IconBraces from "~icons/lucide/braces";
+import IconCitrus from "~icons/lucide/citrus";
+import IconClipboardList from "~icons/lucide/clipboard-list";
+import IconCpu from "~icons/lucide/cpu";
+import IconCrosshair from "~icons/lucide/crosshair";
+import IconFileCode from "~icons/lucide/file-code";
+import IconFileText from "~icons/lucide/file-text";
+import IconFlame from "~icons/lucide/flame";
+import IconGem from "~icons/lucide/gem";
+import IconGrape from "~icons/lucide/grape";
+import IconLayers from "~icons/lucide/layers";
+import IconLeaf from "~icons/lucide/leaf";
+import IconRefreshCcw from "~icons/lucide/refresh-ccw";
+import IconRocket from "~icons/lucide/rocket";
+import IconRotateCw from "~icons/lucide/rotate-cw";
+import IconScroll from "~icons/lucide/scroll";
+import IconScrollText from "~icons/lucide/scroll-text";
+import IconServer from "~icons/lucide/server";
+import IconSkull from "~icons/lucide/skull";
+import IconTrees from "~icons/lucide/trees";
+import IconZap from "~icons/lucide/zap";
 
-export type ThemeName = "dark" | "light" | "developer";
+export type ThemeName = "dark" | "light" | "developer" | "skeleton" | "forest" | "orange-peel" | "dragonfruit";
 
-const themes: ThemeName[] = ["dark", "light", "developer"];
+export const themes: ThemeName[] = ["dark", "light", "developer", "skeleton", "forest", "orange-peel", "dragonfruit"];
 
 function readSavedTheme(): ThemeName {
   const requested = new URLSearchParams(window.location.search).get("theme");
@@ -24,11 +48,67 @@ document.documentElement.dataset.theme = theme.value;
 document.body.classList.toggle("light", theme.value === "light");
 document.body.classList.toggle("developer", theme.value === "developer");
 
+export type NavIconKey = "library" | "sharp" | "logs" | "refresh" | "steam";
+
+const defaultNavIcons: Record<NavIconKey, Component> = {
+  library: IconServer,
+  sharp: IconLayers,
+  logs: IconFileText,
+  refresh: IconRefreshCcw,
+  steam: IconCrosshair,
+};
+
+const themeNavIcons: Partial<Record<ThemeName, Partial<Record<NavIconKey, Component>>>> = {
+  developer: {
+    library: IconCpu,
+    sharp: IconBraces,
+    logs: IconFileCode,
+    refresh: IconRotateCw,
+    steam: IconRocket,
+  },
+  skeleton: {
+    library: IconSkull,
+    sharp: IconBone,
+    logs: IconScroll,
+    refresh: IconRotateCw,
+    steam: IconAxe,
+  },
+  forest: {
+    library: IconTrees,
+    sharp: IconLeaf,
+    logs: IconScroll,
+    refresh: IconRotateCw,
+    steam: IconBinoculars,
+  },
+  "orange-peel": {
+    library: IconFlame,
+    sharp: IconCitrus,
+    logs: IconClipboardList,
+    refresh: IconRotateCw,
+    steam: IconZap,
+  },
+  dragonfruit: {
+    library: IconZap,
+    sharp: IconGem,
+    logs: IconScrollText,
+    refresh: IconRotateCw,
+    steam: IconGrape,
+  },
+};
+
+export function themedNavIcon(key: NavIconKey): Component {
+  return themeNavIcons[theme.value]?.[key] ?? defaultNavIcons[key];
+}
+
 export function useTheme() {
   function toggle() {
     const currentIndex = themes.indexOf(theme.value);
     theme.value = themes[(currentIndex + 1) % themes.length];
   }
 
-  return { theme, toggle };
+  function setTheme(name: ThemeName) {
+    if (themes.includes(name)) theme.value = name;
+  }
+
+  return { theme, toggle, setTheme };
 }

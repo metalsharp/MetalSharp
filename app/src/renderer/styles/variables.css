@@ -49,20 +49,20 @@
 }
 
 :root[data-theme="light"] {
-  --bg-deep: #f4f6f8;
-  --bg-surface: #eef2f6;
-  --bg-card: #ffffff;
-  --bg-card-hover: #f7f9fb;
-  --game-card-bg: #ffffff;
-  --game-card-body-bg: #ffffff;
+  --bg-deep: #f5f3ee;
+  --bg-surface: #efece5;
+  --bg-card: #fdfbf7;
+  --bg-card-hover: #f8f5ee;
+  --game-card-bg: #fdfbf7;
+  --game-card-body-bg: #fdfbf7;
   --game-card-text: #1e2732;
   --game-card-dim: #6d7b88;
-  --bg-input: #ffffff;
-  --accent: #347fba;
-  --accent-hover: #246fa8;
+  --bg-input: #fdfbf7;
+  --accent: #2b6fa5;
+  --accent-hover: #1f5c8c;
   --accent-dim: #5d99c4;
-  --accent-glow: rgba(52, 127, 186, 0.14);
-  --card-glow: rgba(20, 34, 48, 0.09);
+  --accent-glow: rgba(43, 111, 165, 0.16);
+  --card-glow: rgba(20, 34, 48, 0.15);
   --card-installed-glow-color: #4db8ff;
   --success: #438f55;
   --success-bg: rgba(67, 143, 85, 0.1);
@@ -76,9 +76,9 @@
   --text-secondary: #596875;
   --text-dim: #8997a4;
   --text-bright: #0e1a26;
-  --border: rgba(30, 39, 50, 0.1);
-  --border-strong: rgba(30, 39, 50, 0.18);
-  --sidebar-bg: rgba(255, 255, 255, 0.56);
+  --border: rgba(30, 39, 50, 0.14);
+  --border-strong: rgba(30, 39, 50, 0.24);
+  --sidebar-bg: rgba(253, 251, 247, 0.56);
   --sidebar-hover: rgba(255, 255, 255, 0.38);
   --sidebar-active: rgba(52, 127, 186, 0.11);
   --sidebar-text: #1e2732;
@@ -114,14 +114,14 @@
   --warn: #ffd84d;
   --warn-bg: rgba(255, 216, 77, 0.14);
   --text-primary: #f8ffe7;
-  --text-secondary: #98f2ff;
-  --text-dim: #b39bd0;
+  --text-secondary: #8fd0dc;
+  --text-dim: #c2b1dc;
   --text-bright: #ffffff;
-  --border: rgba(0, 245, 255, 0.18);
+  --border: rgba(0, 245, 255, 0.14);
   --border-strong: rgba(185, 255, 77, 0.32);
   --sidebar-bg: rgba(9, 7, 15, 0.58);
   --sidebar-hover: rgba(255, 46, 247, 0.11);
-  --sidebar-active: linear-gradient(90deg, rgba(185, 255, 77, 0.12), rgba(0, 245, 255, 0.08), rgba(255, 46, 247, 0.1));
+  --sidebar-active: linear-gradient(90deg, rgba(185, 255, 77, 0.16), rgba(0, 245, 255, 0.1), rgba(255, 46, 247, 0.14));
   --sidebar-text: #f8ffe7;
   --sidebar-text-active: var(--sidebar-text);
   --sidebar-text-hover: #b9ff4d;
@@ -132,4 +132,171 @@
     radial-gradient(circle at 88% 18%, rgba(0, 245, 255, 0.18), transparent 30%),
     linear-gradient(100deg, #0a0611 0%, #191026 34%, #05232c 68%, #22082d 100%);
   --transition: 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:root[data-theme="skeleton"] {
+  --bg-deep: #131313;
+  --bg-surface: #1b1b1b;
+  --bg-card: #222222;
+  --bg-card-hover: #2a2a2a;
+  --game-card-bg: #222222;
+  --game-card-body-bg: #222222;
+  --game-card-text: var(--text-primary);
+  --game-card-dim: var(--text-dim);
+  --bg-input: #171717;
+  --accent: #d6d0c4;
+  --accent-hover: #ede9e0;
+  --accent-dim: #8f8a80;
+  --accent-glow: rgba(214, 208, 196, 0.16);
+  --card-glow: rgba(255, 255, 255, 0.08);
+  --card-installed-glow-color: #c9c3b8;
+  --success: #a3b89f;
+  --success-bg: rgba(163, 184, 159, 0.14);
+  --play-color: #c9c3b8;
+  --play-color-hover: #8f8a80;
+  --error: #c09090;
+  --error-bg: rgba(192, 144, 144, 0.13);
+  --warn: #c4b088;
+  --warn-bg: rgba(196, 176, 136, 0.14);
+  --text-primary: #e8e2d5;
+  --text-secondary: #a8a49a;
+  --text-dim: #7a766e;
+  --text-bright: #ffffff;
+  --border: rgba(232, 226, 213, 0.1);
+  --border-strong: rgba(232, 226, 213, 0.18);
+  --sidebar-bg: rgba(19, 19, 19, 0.58);
+  --sidebar-hover: rgba(232, 226, 213, 0.1);
+  --sidebar-active: rgba(232, 226, 213, 0.14);
+  --sidebar-text: #e8e2d5;
+  --sidebar-text-active: var(--sidebar-text);
+  --sidebar-text-hover: #ffffff;
+  --sidebar-logo-color: #e8e2d5;
+  --sidebar-logo-accent: #8f8a80;
+  --page-header-bg: linear-gradient(90deg, #1b1b1b 0%, #242424 30%, #2b2b2b 60%, #242424 100%);
+}
+
+:root[data-theme="forest"] {
+  --bg-deep: #0d1510;
+  --bg-surface: #121c15;
+  --bg-card: #182219;
+  --bg-card-hover: #1e2b20;
+  --game-card-bg: #182219;
+  --game-card-body-bg: #182219;
+  --game-card-text: var(--text-primary);
+  --game-card-dim: var(--text-dim);
+  --bg-input: #101a12;
+  --accent: #5cb870;
+  --accent-hover: #7ed494;
+  --accent-dim: #3d8452;
+  --accent-glow: rgba(92, 184, 112, 0.2);
+  --card-glow: rgba(92, 184, 112, 0.1);
+  --card-installed-glow-color: #6fce88;
+  --success: #6fce88;
+  --success-bg: rgba(111, 206, 136, 0.14);
+  --play-color: #4d9e62;
+  --play-color-hover: #35704a;
+  --error: #d66a5a;
+  --error-bg: rgba(214, 106, 90, 0.13);
+  --warn: #d8b24b;
+  --warn-bg: rgba(216, 178, 75, 0.14);
+  --text-primary: #dce8dc;
+  --text-secondary: #a4b8a4;
+  --text-dim: #71856f;
+  --text-bright: #f2faf2;
+  --border: rgba(140, 190, 150, 0.12);
+  --border-strong: rgba(140, 190, 150, 0.2);
+  --sidebar-bg: rgba(13, 21, 16, 0.58);
+  --sidebar-hover: rgba(92, 184, 112, 0.12);
+  --sidebar-active: rgba(92, 184, 112, 0.18);
+  --sidebar-text: #dce8dc;
+  --sidebar-text-active: var(--sidebar-text);
+  --sidebar-text-hover: #7ed494;
+  --sidebar-logo-color: #dce8dc;
+  --sidebar-logo-accent: #a87a4a;
+  --page-header-bg: linear-gradient(90deg, #121c15 0%, #1a2e1c 30%, #213a22 60%, #1a2e1c 100%);
+}
+
+:root[data-theme="orange-peel"] {
+  --bg-deep: #120b08;
+  --bg-surface: #1b110c;
+  --bg-card: #231610;
+  --bg-card-hover: #2b1b12;
+  --game-card-bg: #231610;
+  --game-card-body-bg: #231610;
+  --game-card-text: var(--text-primary);
+  --game-card-dim: var(--text-dim);
+  --bg-input: #170e0a;
+  --accent: #ff7a1a;
+  --accent-hover: #ffa04d;
+  --accent-dim: #b05a14;
+  --accent-glow: rgba(255, 122, 26, 0.2);
+  --card-glow: rgba(255, 122, 26, 0.12);
+  --card-installed-glow-color: #ff8a2e;
+  --success: #7cbf6a;
+  --success-bg: rgba(124, 191, 106, 0.14);
+  --play-color: #d97a2e;
+  --play-color-hover: #a85a18;
+  --error: #e0604f;
+  --error-bg: rgba(224, 96, 79, 0.13);
+  --warn: #ffb84d;
+  --warn-bg: rgba(255, 184, 77, 0.14);
+  --text-primary: #f2e4d8;
+  --text-secondary: #c4a894;
+  --text-dim: #8f7261;
+  --text-bright: #fff8f0;
+  --border: rgba(255, 170, 120, 0.12);
+  --border-strong: rgba(255, 170, 120, 0.2);
+  --sidebar-bg: rgba(18, 11, 8, 0.58);
+  --sidebar-hover: rgba(255, 122, 26, 0.12);
+  --sidebar-active: rgba(255, 122, 26, 0.18);
+  --sidebar-text: #f2e4d8;
+  --sidebar-text-active: var(--sidebar-text);
+  --sidebar-text-hover: #ffa04d;
+  --sidebar-logo-color: #ff7a1a;
+  --sidebar-logo-accent: #ffa04d;
+  --page-header-bg: linear-gradient(90deg, #1b110c 0%, #33190c 30%, #47220f 60%, #33190c 100%);
+}
+
+:root[data-theme="dragonfruit"] {
+  --bg-deep: #1a0e18;
+  --bg-surface: #241322;
+  --bg-card: #2c182a;
+  --bg-card-hover: #361e33;
+  --game-card-bg: #2c182a;
+  --game-card-body-bg: #2c182a;
+  --game-card-text: var(--text-primary);
+  --game-card-dim: var(--text-dim);
+  --bg-input: #200f1e;
+  --accent: #ff2e88;
+  --accent-hover: #ff66aa;
+  --accent-dim: #b81e62;
+  --accent-glow: rgba(255, 46, 136, 0.22);
+  --card-glow: rgba(255, 46, 136, 0.14);
+  --card-installed-glow-color: #9be34a;
+  --success: #9be34a;
+  --success-bg: rgba(155, 227, 74, 0.12);
+  --play-color: #ff2e88;
+  --play-color-hover: #ff66aa;
+  --error: #ff5c5c;
+  --error-bg: rgba(255, 92, 92, 0.13);
+  --warn: #ffc44d;
+  --warn-bg: rgba(255, 196, 77, 0.14);
+  --text-primary: #f8e4f0;
+  --text-secondary: #c49ab8;
+  --text-dim: #94708c;
+  --text-bright: #ffffff;
+  --border: rgba(255, 120, 180, 0.14);
+  --border-strong: rgba(255, 120, 180, 0.24);
+  --sidebar-bg: rgba(26, 14, 24, 0.58);
+  --sidebar-hover: rgba(255, 46, 136, 0.1);
+  --sidebar-active: rgba(255, 46, 136, 0.16);
+  --sidebar-text: #f8e4f0;
+  --sidebar-text-active: var(--sidebar-text);
+  --sidebar-text-hover: #ff66aa;
+  --sidebar-logo-color: #ff2e88;
+  --sidebar-logo-accent: #a86ae0;
+  --page-header-bg:
+    radial-gradient(circle at 14% 14%, rgba(255, 46, 136, 0.18), transparent 34%),
+    radial-gradient(circle at 86% 18%, rgba(168, 106, 224, 0.16), transparent 32%),
+    linear-gradient(100deg, #22082a 0%, #3a1038 36%, #52123f 66%, #2a0e30 100%);
 }
