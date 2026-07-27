@@ -185,14 +185,14 @@
   --game-card-text: var(--text-primary);
   --game-card-dim: var(--text-dim);
   --bg-input: #101a12;
-  --accent: #5cb870;
-  --accent-hover: #7ed494;
-  --accent-dim: #3d8452;
-  --accent-glow: rgba(92, 184, 112, 0.2);
-  --card-glow: rgba(92, 184, 112, 0.1);
-  --card-installed-glow-color: #6fce88;
-  --success: #6fce88;
-  --success-bg: rgba(111, 206, 136, 0.14);
+  --accent: #3f7d4f;
+  --accent-hover: #5cb870;
+  --accent-dim: #2c5a3a;
+  --accent-glow: rgba(63, 125, 79, 0.22);
+  --card-glow: rgba(63, 125, 79, 0.1);
+  --card-installed-glow-color: #4d9e62;
+  --success: #4d9e62;
+  --success-bg: rgba(77, 158, 98, 0.14);
   --play-color: #4d9e62;
   --play-color-hover: #35704a;
   --error: #d66a5a;
@@ -206,11 +206,11 @@
   --border: rgba(140, 190, 150, 0.12);
   --border-strong: rgba(140, 190, 150, 0.2);
   --sidebar-bg: rgba(13, 21, 16, 0.58);
-  --sidebar-hover: rgba(92, 184, 112, 0.12);
-  --sidebar-active: rgba(92, 184, 112, 0.18);
+  --sidebar-hover: rgba(63, 125, 79, 0.12);
+  --sidebar-active: rgba(63, 125, 79, 0.18);
   --sidebar-text: #dce8dc;
   --sidebar-text-active: var(--sidebar-text);
-  --sidebar-text-hover: #7ed494;
+  --sidebar-text-hover: #5cb870;
   --sidebar-logo-color: #dce8dc;
   --sidebar-logo-accent: #a87a4a;
   --page-header-bg: linear-gradient(90deg, #121c15 0%, #1a2e1c 30%, #213a22 60%, #1a2e1c 100%);
@@ -226,16 +226,16 @@
   --game-card-text: var(--text-primary);
   --game-card-dim: var(--text-dim);
   --bg-input: #170e0a;
-  --accent: #ff7a1a;
-  --accent-hover: #ffa04d;
-  --accent-dim: #b05a14;
-  --accent-glow: rgba(255, 122, 26, 0.2);
-  --card-glow: rgba(255, 122, 26, 0.12);
-  --card-installed-glow-color: #ff8a2e;
+  --accent: #eda465;
+  --accent-hover: #f3bd8a;
+  --accent-dim: #b57f52;
+  --accent-glow: rgba(237, 164, 101, 0.2);
+  --card-glow: rgba(237, 164, 101, 0.12);
+  --card-installed-glow-color: #eda465;
   --success: #7cbf6a;
   --success-bg: rgba(124, 191, 106, 0.14);
-  --play-color: #d97a2e;
-  --play-color-hover: #a85a18;
+  --play-color: #d99e66;
+  --play-color-hover: #b5804e;
   --error: #e0604f;
   --error-bg: rgba(224, 96, 79, 0.13);
   --warn: #ffb84d;
@@ -247,13 +247,13 @@
   --border: rgba(255, 170, 120, 0.12);
   --border-strong: rgba(255, 170, 120, 0.2);
   --sidebar-bg: rgba(18, 11, 8, 0.58);
-  --sidebar-hover: rgba(255, 122, 26, 0.12);
-  --sidebar-active: rgba(255, 122, 26, 0.18);
+  --sidebar-hover: rgba(237, 164, 101, 0.12);
+  --sidebar-active: rgba(237, 164, 101, 0.18);
   --sidebar-text: #f2e4d8;
   --sidebar-text-active: var(--sidebar-text);
-  --sidebar-text-hover: #ffa04d;
-  --sidebar-logo-color: #ff7a1a;
-  --sidebar-logo-accent: #ffa04d;
+  --sidebar-text-hover: #f3bd8a;
+  --sidebar-logo-color: #eda465;
+  --sidebar-logo-accent: #f3bd8a;
   --page-header-bg: linear-gradient(90deg, #1b110c 0%, #33190c 30%, #47220f 60%, #33190c 100%);
 }
 
@@ -267,16 +267,16 @@
   --game-card-text: var(--text-primary);
   --game-card-dim: var(--text-dim);
   --bg-input: #200f1e;
-  --accent: #ff2e88;
-  --accent-hover: #ff66aa;
-  --accent-dim: #b81e62;
-  --accent-glow: rgba(255, 46, 136, 0.22);
-  --card-glow: rgba(255, 46, 136, 0.14);
+  --accent: #e897b8;
+  --accent-hover: #f2bcd0;
+  --accent-dim: #b06e8c;
+  --accent-glow: rgba(232, 151, 184, 0.2);
+  --card-glow: rgba(232, 151, 184, 0.13);
   --card-installed-glow-color: #9be34a;
   --success: #9be34a;
   --success-bg: rgba(155, 227, 74, 0.12);
-  --play-color: #ff2e88;
-  --play-color-hover: #ff66aa;
+  --play-color: #e897b8;
+  --play-color-hover: #f2bcd0;
   --error: #ff5c5c;
   --error-bg: rgba(255, 92, 92, 0.13);
   --warn: #ffc44d;
@@ -285,18 +285,18 @@
   --text-secondary: #c49ab8;
   --text-dim: #94708c;
   --text-bright: #ffffff;
-  --border: rgba(255, 120, 180, 0.14);
-  --border-strong: rgba(255, 120, 180, 0.24);
+  --border: rgba(232, 160, 195, 0.14);
+  --border-strong: rgba(232, 160, 195, 0.24);
   --sidebar-bg: rgba(26, 14, 24, 0.58);
-  --sidebar-hover: rgba(255, 46, 136, 0.1);
-  --sidebar-active: rgba(255, 46, 136, 0.16);
+  --sidebar-hover: rgba(232, 151, 184, 0.1);
+  --sidebar-active: rgba(232, 151, 184, 0.16);
   --sidebar-text: #f8e4f0;
   --sidebar-text-active: var(--sidebar-text);
-  --sidebar-text-hover: #ff66aa;
-  --sidebar-logo-color: #ff2e88;
-  --sidebar-logo-accent: #a86ae0;
+  --sidebar-text-hover: #f2bcd0;
+  --sidebar-logo-color: #e897b8;
+  --sidebar-logo-accent: #c5a3de;
   --page-header-bg:
-    radial-gradient(circle at 14% 14%, rgba(255, 46, 136, 0.18), transparent 34%),
-    radial-gradient(circle at 86% 18%, rgba(168, 106, 224, 0.16), transparent 32%),
-    linear-gradient(100deg, #22082a 0%, #3a1038 36%, #52123f 66%, #2a0e30 100%);
+    radial-gradient(circle at 14% 14%, rgba(232, 151, 184, 0.16), transparent 34%),
+    radial-gradient(circle at 86% 18%, rgba(197, 163, 222, 0.15), transparent 32%),
+    linear-gradient(100deg, #241126 0%, #371432 36%, #4a173a 66%, #2a112e 100%);
 }
