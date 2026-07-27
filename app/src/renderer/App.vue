@@ -60,7 +60,7 @@ const updateDismissed = ref(false);
 let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let installPollTimer: ReturnType<typeof setInterval> | null = null;
 
-const { theme, toggle: toggleTheme } = useTheme();
+const { theme, setTheme } = useTheme();
 const toast = useToast();
 
 const viewMap: Record<string, Component> = {
@@ -319,6 +319,17 @@ watch(lowPerformanceMode, (enabled) => {
 onMounted(async () => {
   applyLowPerformanceMode(lowPerformanceMode.value);
   await checkBackend();
+  if (new URLSearchParams(window.location.search).get("skip-to") === "library") {
+    // The dev backend may still be starting (first-run bottle scan); wait for
+    // it before loading the library instead of racing a dead window.
+    for (let i = 0; i < 60 && !backendConnected.value; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      await checkBackend();
+    }
+    await initApp();
+    checkForUpdates();
+    return;
+  }
   const migrationMode = await getAPI().isMigrationMode?.();
   if (migrationMode) {
     showMigration.value = true;
@@ -345,7 +356,7 @@ onMounted(async () => {
       :current-view="currentView"
       :theme="theme"
       @navigate="currentView = $event"
-      @toggle-theme="toggleTheme()"
+      @select-theme="setTheme($event)"
     />
     <main
       class="content"
@@ -573,9 +584,9 @@ onMounted(async () => {
 }
 :root[data-theme="developer"] .content {
   background:
-    linear-gradient(118deg, rgba(185, 255, 77, 0.025), transparent 36%, rgba(0, 245, 255, 0.03) 72%, transparent),
-    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.14), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.11), transparent 30%), var(--bg-deep);
+    linear-gradient(118deg, rgba(185, 255, 77, 0.02), transparent 36%, rgba(0, 245, 255, 0.024) 72%, transparent),
+    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.11), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.09), transparent 30%), var(--bg-deep);
 }
 .content.content-glass-header {
   background: transparent;
