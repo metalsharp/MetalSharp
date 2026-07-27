@@ -89,7 +89,7 @@ textarea {
   background-color: rgba(18, 28, 40, 0.32);
 }
 :root[data-theme="light"] .glass-header {
-  background-color: rgba(255, 255, 255, 0.32);
+  background-color: rgba(252, 250, 246, 0.46);
 }
 :root[data-theme="light"] .glass-header h1 {
   color: #354b5d;
@@ -113,15 +113,48 @@ textarea {
 :root[data-theme="developer"] .glass-header {
   background-color: rgba(9, 7, 15, 0.32);
 }
+:root[data-theme="skeleton"] .glass-header {
+  background-color: rgba(19, 19, 19, 0.32);
+}
+:root[data-theme="forest"] .glass-header {
+  background-color: rgba(13, 21, 16, 0.32);
+}
+:root[data-theme="orange-peel"] .glass-header {
+  background-color: rgba(18, 11, 8, 0.32);
+}
+:root[data-theme="dragonfruit"] .glass-header {
+  background-color: rgba(26, 14, 24, 0.32);
+}
 
 .view-body-surface {
   background: var(--bg-deep);
 }
 :root[data-theme="developer"] .view-body-surface {
   background:
-    linear-gradient(118deg, rgba(185, 255, 77, 0.025), transparent 36%, rgba(0, 245, 255, 0.03) 72%, transparent),
-    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.14), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.11), transparent 30%), var(--bg-deep);
+    linear-gradient(118deg, rgba(185, 255, 77, 0.02), transparent 36%, rgba(0, 245, 255, 0.024) 72%, transparent),
+    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.11), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.09), transparent 30%), var(--bg-deep);
+}
+:root[data-theme="skeleton"] .view-body-surface {
+  background:
+    radial-gradient(circle at 24% 16%, rgba(232, 226, 213, 0.05), transparent 36%),
+    radial-gradient(circle at 84% 10%, rgba(255, 255, 255, 0.04), transparent 30%), var(--bg-deep);
+}
+:root[data-theme="forest"] .view-body-surface {
+  background:
+    radial-gradient(circle at 24% 16%, rgba(92, 184, 112, 0.07), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(168, 122, 74, 0.05), transparent 30%), var(--bg-deep);
+}
+:root[data-theme="orange-peel"] .view-body-surface {
+  background:
+    linear-gradient(118deg, rgba(255, 122, 26, 0.03), transparent 38%, rgba(255, 160, 77, 0.024) 74%, transparent),
+    radial-gradient(circle at 24% 16%, rgba(255, 122, 26, 0.08), transparent 34%), var(--bg-deep);
+}
+:root[data-theme="dragonfruit"] .view-body-surface {
+  background:
+    linear-gradient(118deg, rgba(255, 46, 136, 0.03), transparent 38%, rgba(168, 106, 224, 0.03) 74%, transparent),
+    radial-gradient(circle at 24% 16%, rgba(255, 46, 136, 0.1), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(168, 106, 224, 0.08), transparent 30%), var(--bg-deep);
 }
 
 .hidden {
@@ -215,7 +248,6 @@ textarea {
 
 :root[data-theme="developer"] .btn {
   border-color: color-mix(in srgb, var(--accent-hover) 34%, transparent);
-  border-radius: 999px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 54%),
     linear-gradient(90deg, rgba(0, 245, 255, 0.12), rgba(255, 46, 247, 0.08));

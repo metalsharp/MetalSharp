@@ -3,11 +3,13 @@ import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import type { SharpApp } from "../api-types";
+import { themedNavIcon } from "../composables/useTheme";
 import IconUpload from "~icons/lucide/upload";
-import IconRefreshCcw from "~icons/lucide/refresh-ccw";
 import IconMonitor from "~icons/lucide/monitor";
 import IconX from "~icons/lucide/x";
 import sharpLogoUrl from "../icon.png";
+
+const refreshIcon = computed(() => themedNavIcon("refresh"));
 
 interface LaunchDoctorCheck {
   id: string;
@@ -1534,7 +1536,7 @@ onUnmounted(stopGogMonoPoll);
           :disabled="sourceMode === 'gog' && gogLoading.sync"
           @click="refreshCurrentSource"
         >
-          <IconRefreshCcw class="btn-icon" width="14" height="14" />
+          <component :is="refreshIcon" class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">{{
             sourceMode === "gog" ? (gogLoading.sync ? "Syncing…" : "Sync GOG") : "Refresh"
           }}</span
