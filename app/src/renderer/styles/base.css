@@ -119,8 +119,25 @@ textarea {
 :root[data-theme="forest"] .glass-header {
   background-color: rgba(13, 21, 16, 0.32);
 }
+:root[data-theme="forest"] .bottle-button {
+  color: #ffffff;
+  border-color: rgba(95, 67, 38, 0.65);
+  background: rgba(95, 67, 38, 0.22);
+}
+:root[data-theme="forest"] .game-card .badge-ok,
+:root[data-theme="forest"] .game-card .badge-warn,
+:root[data-theme="forest"] .route-chip {
+  background: rgba(95, 67, 38, 0.3);
+  color: #ffffff;
+}
 :root[data-theme="orange-peel"] .glass-header {
   background-color: rgba(18, 11, 8, 0.32);
+}
+:root[data-theme="orange-peel"] .route-chip,
+:root[data-theme="orange-peel"] .game-card .badge-ok,
+:root[data-theme="orange-peel"] .game-card .badge-warn {
+  background: #ffffff;
+  color: #000000;
 }
 :root[data-theme="dragonfruit"] .glass-header {
   background-color: rgba(26, 14, 24, 0.32);
@@ -138,23 +155,49 @@ textarea {
 :root[data-theme="skeleton"] .view-body-surface {
   background:
     radial-gradient(circle at 24% 16%, rgba(232, 226, 213, 0.05), transparent 36%),
-    radial-gradient(circle at 84% 10%, rgba(255, 255, 255, 0.04), transparent 30%), var(--bg-deep);
+    radial-gradient(circle at 84% 10%, rgba(255, 255, 255, 0.04), transparent 30%),
+    linear-gradient(rgba(19, 19, 19, 0.45), rgba(19, 19, 19, 0.45)), url("../assets/skeleton-bones.png"), var(--bg-deep);
+  background-size:
+    auto,
+    auto,
+    auto,
+    512px 512px;
 }
 :root[data-theme="forest"] .view-body-surface {
   background:
     radial-gradient(circle at 24% 16%, rgba(92, 184, 112, 0.07), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(168, 122, 74, 0.05), transparent 30%), var(--bg-deep);
+    radial-gradient(circle at 84% 10%, rgba(168, 122, 74, 0.05), transparent 30%),
+    linear-gradient(rgba(13, 21, 16, 0.55), rgba(13, 21, 16, 0.55)), url("../assets/forest-bark.png"), var(--bg-deep);
+  background-size:
+    auto,
+    auto,
+    auto,
+    512px 512px;
 }
 :root[data-theme="orange-peel"] .view-body-surface {
   background:
-    linear-gradient(118deg, rgba(255, 122, 26, 0.03), transparent 38%, rgba(255, 160, 77, 0.024) 74%, transparent),
-    radial-gradient(circle at 24% 16%, rgba(255, 122, 26, 0.08), transparent 34%), var(--bg-deep);
+    radial-gradient(circle at 24% 16%, rgba(237, 164, 101, 0.08), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(255, 184, 77, 0.05), transparent 28%),
+    linear-gradient(rgba(18, 11, 8, 0.45), rgba(18, 11, 8, 0.45)), url("../assets/orange-peel.png"), var(--bg-deep);
+  background-size:
+    auto,
+    auto,
+    auto,
+    512px 512px;
 }
 :root[data-theme="dragonfruit"] .view-body-surface {
   background:
-    linear-gradient(118deg, rgba(255, 46, 136, 0.03), transparent 38%, rgba(168, 106, 224, 0.03) 74%, transparent),
-    radial-gradient(circle at 24% 16%, rgba(255, 46, 136, 0.1), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(168, 106, 224, 0.08), transparent 30%), var(--bg-deep);
+    linear-gradient(118deg, rgba(232, 151, 184, 0.04), transparent 38%, rgba(197, 163, 222, 0.04) 74%, transparent),
+    radial-gradient(circle at 24% 16%, rgba(232, 151, 184, 0.1), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(197, 163, 222, 0.08), transparent 30%),
+    linear-gradient(rgba(26, 14, 24, 0.45), rgba(26, 14, 24, 0.45)), url("../assets/dragonfruit-flesh.png"),
+    var(--bg-deep);
+  background-size:
+    auto,
+    auto,
+    auto,
+    auto,
+    512px 512px;
 }
 
 .hidden {
@@ -220,6 +263,13 @@ textarea {
 .btn-play:hover {
   background: var(--play-color-hover);
 }
+:root[data-theme="forest"] .btn-play {
+  background: #5f4326;
+  border-color: #5f4326;
+}
+:root[data-theme="forest"] .btn-play:hover {
+  background: #4a3319;
+}
 
 .btn-stop {
   background: var(--error);
@@ -237,6 +287,13 @@ textarea {
 }
 .btn-install:hover {
   background: var(--play-color-hover);
+}
+:root[data-theme="forest"] .btn-install {
+  background: #5f4326;
+  border-color: #5f4326;
+}
+:root[data-theme="forest"] .btn-install:hover {
+  background: #4a3319;
 }
 :root[data-theme="light"] .btn-install {
   background: var(--play-color);

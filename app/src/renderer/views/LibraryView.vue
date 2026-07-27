@@ -57,6 +57,29 @@ const artworkRetryRequestedAppIds = new Set<number>();
 
 const filteredGames = ref<SteamGame[]>([]);
 
+const GRID_GAP = 18;
+const GRID_MIN_COLUMN = 300;
+const gameGridEl = ref<HTMLElement | null>(null);
+const columnCount = ref(1);
+let gridResizeObserver: ResizeObserver | null = null;
+
+function updateColumnCount() {
+  const width = gameGridEl.value?.clientWidth ?? 0;
+  if (width <= 0) return;
+  columnCount.value = Math.max(1, Math.floor((width + GRID_GAP) / (GRID_MIN_COLUMN + GRID_GAP)));
+}
+
+// Split games into per-column stacks (round-robin keeps row-major order).
+// A card that grows (e.g. bottle panel) only pushes cards below it in its
+// own column, instead of stretching the whole grid row.
+const gameColumns = computed(() => {
+  const columns: SteamGame[][] = Array.from({ length: columnCount.value }, () => []);
+  filteredGames.value.forEach((game, index) => {
+    columns[index % columnCount.value].push(game);
+  });
+  return columns;
+});
+
 function gameNameSort(a: SteamGame, b: SteamGame) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
@@ -288,12 +311,27 @@ async function uninstallGame(game: SteamGame) {
 
 onMounted(() => {
   applyFilter();
+  gridResizeObserver = new ResizeObserver(updateColumnCount);
+  if (gameGridEl.value) gridResizeObserver.observe(gameGridEl.value);
+  updateColumnCount();
 });
 
 onUnmounted(() => {
+  if (gridResizeObserver) {
+    gridResizeObserver.disconnect();
+    gridResizeObserver = null;
+  }
   if (artworkRetryTimer !== null) {
     window.clearTimeout(artworkRetryTimer);
     artworkRetryTimer = null;
+  }
+});
+
+watch(gameGridEl, (el, prev) => {
+  if (prev) gridResizeObserver?.unobserve(prev);
+  if (el) {
+    gridResizeObserver?.observe(el);
+    updateColumnCount();
   }
 });
 
@@ -356,8 +394,9 @@ watch([library, search, filter], () => {
         <p>Add your Steam API key in Settings to load your library, or download a game manually.</p>
       </div>
 
-      <div v-else class="game-grid">
-        <div v-for="game in filteredGames" :key="game.appid" class="game-grid-item">
+      <div v-else ref="gameGridEl" class="game-grid">
+        <div v-for="(column, columnIndex) in gameColumns" :key="columnIndex" class="game-grid-column">
+          <div v-for="game in column" :key="game.appid" class="game-grid-item">
           <GameCard
             :game="game"
             :running="runningAppId === game.appid"
@@ -371,6 +410,7 @@ watch([library, search, filter], () => {
             @uninstall="uninstallGame(game)"
             @artwork-missing="requestArtworkRetry"
           />
+          </div>
         </div>
       </div>
     </div>
@@ -572,13 +612,20 @@ watch([library, search, filter], () => {
 }
 
 .game-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  display: flex;
+  align-items: flex-start;
   gap: 18px;
-  align-items: start;
   min-width: 0;
   width: 100%;
   max-width: 100%;
+}
+
+.game-grid-column {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .game-grid-item {
