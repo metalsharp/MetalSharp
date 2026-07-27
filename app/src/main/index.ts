@@ -604,8 +604,10 @@ async function createWindow(migrating = false) {
     },
   });
 
+  const query: Record<string, string> = uiOnly ? { theme: "developer" } : {};
+  if (process.env.METALSHARP_DEV_LIBRARY === "1") query["skip-to"] = "library";
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
-    query: isUiOnlyRuntime() ? { theme: "developer" } : {},
+    query,
   });
 }
 
