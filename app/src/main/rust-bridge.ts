@@ -169,7 +169,9 @@ export class RustBridge {
         resolve(true);
       });
       req.on("error", () => resolve(false));
-      req.setTimeout(1500, () => {
+      // Dev backends can be busy with a first-run bottle scan; don't treat a
+      // slow /status as dead or ensureRunning will kill and restart it forever.
+      req.setTimeout(this.devMode ? 10000 : 1500, () => {
         req.destroy();
         resolve(false);
       });

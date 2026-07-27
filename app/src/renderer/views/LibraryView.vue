@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, inject, onMounted, onUnmounted, watch, type Ref } from "vue";
+import { computed, ref, inject, onMounted, onUnmounted, watch, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
 import { api } from "../composables/useApi";
+import { themedNavIcon } from "../composables/useTheme";
 import GameCard from "../components/GameCard.vue";
-import IconCrosshair from "~icons/lucide/crosshair";
-import IconRefreshCcw from "~icons/lucide/refresh-ccw";
 import IconBattery from "~icons/lucide/battery";
+
+const steamIcon = computed(() => themedNavIcon("steam"));
+const refreshIcon = computed(() => themedNavIcon("refresh"));
 
 interface SteamGame {
   appid: number;
@@ -322,7 +324,7 @@ watch([library, search, filter], () => {
       <div class="library-controls">
         <div class="library-launch-actions">
           <button class="btn btn-secondary library-control-button" title="Wine Steam" @click="toggleSteam">
-            <IconCrosshair class="control-icon" width="15" height="15" />
+            <component :is="steamIcon" class="control-icon" width="15" height="15" />
             <span class="control-label">{{ wineSteamRunning ? "Stop Wine Steam" : "Start Wine Steam" }}</span>
           </button>
           <button
@@ -330,7 +332,7 @@ watch([library, search, filter], () => {
             title="Refresh"
             @click="reloadLibrary()"
           >
-            <IconRefreshCcw class="control-icon" width="15" height="15" />
+            <component :is="refreshIcon" class="control-icon" width="15" height="15" />
             <span class="control-label">Refresh</span>
           </button>
         </div>

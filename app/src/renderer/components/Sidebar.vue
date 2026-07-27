@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, type Component } from "vue";
 import IconMenu from "~icons/lucide/menu";
-import IconServer from "~icons/lucide/server";
-import IconLayers from "~icons/lucide/layers";
-import IconFileText from "~icons/lucide/file-text";
 import IconMoon from "~icons/lucide/moon";
 import IconSun from "~icons/lucide/sun";
 import IconSettings from "~icons/lucide/settings";
 import IconTerminal from "~icons/lucide/terminal";
-import type { ThemeName } from "../composables/useTheme";
+import IconBone from "~icons/lucide/bone";
+import IconTreePine from "~icons/lucide/tree-pine";
+import IconCitrus from "~icons/lucide/citrus";
+import IconSparkles from "~icons/lucide/sparkles";
+import { themedNavIcon, type ThemeName } from "../composables/useTheme";
 
 const props = defineProps<{
   currentView: string;
@@ -17,15 +18,35 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   navigate: [view: string];
-  toggleTheme: [];
+  selectTheme: [theme: ThemeName];
 }>();
 
 const collapsed = ref(false);
+const themePickerOpen = ref(false);
 
-const themeToggleLabel = computed(() => {
-  if (props.theme === "developer") return "Dev Mode";
-  return props.theme === "light" ? "Light Mode" : "Dark Mode";
-});
+interface ThemeOption {
+  name: ThemeName;
+  label: string;
+  icon: Component;
+}
+
+const themeOptions: ThemeOption[] = [
+  { name: "dark", label: "Dark", icon: IconMoon },
+  { name: "light", label: "Light", icon: IconSun },
+  { name: "developer", label: "Dev Mode", icon: IconTerminal },
+  { name: "skeleton", label: "Skeleton", icon: IconBone },
+  { name: "forest", label: "Forest", icon: IconTreePine },
+  { name: "orange-peel", label: "Orange Peel", icon: IconCitrus },
+  { name: "dragonfruit", label: "Dragonfruit", icon: IconSparkles },
+];
+
+const currentThemeOption = computed(() => themeOptions.find((o) => o.name === props.theme) ?? themeOptions[0]);
+const themeToggleLabel = computed(() => currentThemeOption.value.label);
+
+function chooseTheme(name: ThemeName) {
+  emit("selectTheme", name);
+  themePickerOpen.value = false;
+}
 
 interface NavItem {
   view: string;
@@ -33,11 +54,11 @@ interface NavItem {
   icon: Component;
 }
 
-const navItems: NavItem[] = [
-  { view: "library", label: "Library", icon: IconServer },
-  { view: "sharp-library", label: "Sharp", icon: IconLayers },
-  { view: "logs", label: "Logs", icon: IconFileText },
-];
+const navItems = computed<NavItem[]>(() => [
+  { view: "library", label: "Library", icon: themedNavIcon("library") },
+  { view: "sharp-library", label: "Sharp", icon: themedNavIcon("sharp") },
+  { view: "logs", label: "Logs", icon: themedNavIcon("logs") },
+]);
 </script>
 
 <template>
@@ -69,14 +90,27 @@ const navItems: NavItem[] = [
     <div class="sidebar-bottom">
       <button
         class="sidebar-nav-item sidebar-theme-toggle"
-        @click="emit('toggleTheme')"
+        @click="themePickerOpen = !themePickerOpen"
         :title="collapsed ? themeToggleLabel : undefined"
       >
-        <IconTerminal v-if="theme === 'developer'" class="sidebar-nav-icon" width="18" height="18" />
-        <IconSun v-else-if="theme === 'light'" class="sidebar-nav-icon" width="18" height="18" />
-        <IconMoon v-else class="sidebar-nav-icon" width="18" height="18" />
+        <component :is="currentThemeOption.icon" class="sidebar-nav-icon" width="18" height="18" />
         <span v-if="!collapsed" class="sidebar-nav-label">{{ themeToggleLabel }}</span>
       </button>
+      <Teleport to="body">
+        <div v-if="themePickerOpen" class="theme-picker-backdrop" @click="themePickerOpen = false"></div>
+        <div v-if="themePickerOpen" class="theme-picker-popover">
+          <button
+            v-for="option in themeOptions"
+            :key="option.name"
+            class="theme-picker-item"
+            :class="{ active: option.name === theme }"
+            @click="chooseTheme(option.name)"
+          >
+            <component :is="option.icon" class="theme-picker-icon" width="16" height="16" />
+            <span class="theme-picker-label">{{ option.label }}</span>
+          </button>
+        </div>
+      </Teleport>
       <button
         class="sidebar-nav-item"
         :class="{ active: currentView === 'settings' }"
@@ -138,6 +172,22 @@ const navItems: NavItem[] = [
 
 :global(:root[data-theme="developer"] .sidebar) {
   background-color: rgba(9, 7, 15, 0.32);
+}
+
+:global(:root[data-theme="skeleton"] .sidebar) {
+  background-color: rgba(19, 19, 19, 0.32);
+}
+
+:global(:root[data-theme="forest"] .sidebar) {
+  background-color: rgba(13, 21, 16, 0.32);
+}
+
+:global(:root[data-theme="orange-peel"] .sidebar) {
+  background-color: rgba(18, 11, 8, 0.32);
+}
+
+:global(:root[data-theme="dragonfruit"] .sidebar) {
+  background-color: rgba(26, 14, 24, 0.32);
 }
 
 :global(:root[data-low-performance="true"] .sidebar) {
@@ -244,7 +294,7 @@ const navItems: NavItem[] = [
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
   min-height: 36px;
   padding: 8px 10px;
@@ -256,7 +306,7 @@ const navItems: NavItem[] = [
   cursor: pointer;
   transition: all var(--transition);
   width: 100%;
-  text-align: center;
+  text-align: left;
   font-size: 13px;
   -webkit-app-region: no-drag;
   white-space: nowrap;
@@ -388,6 +438,61 @@ const navItems: NavItem[] = [
 
 .sidebar-theme-toggle {
   margin-bottom: 4px;
+}
+
+.theme-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 89;
+}
+
+.theme-picker-popover {
+  position: fixed;
+  left: 8px;
+  bottom: 96px;
+  width: calc(var(--sidebar-width-expanded) - 16px);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px var(--card-glow);
+  -webkit-app-region: no-drag;
+}
+
+.theme-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition);
+}
+.theme-picker-item:hover {
+  background: var(--sidebar-hover);
+  border-color: var(--border);
+}
+.theme-picker-item.active {
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.theme-picker-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar-bottom {
