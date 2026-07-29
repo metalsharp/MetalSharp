@@ -429,10 +429,6 @@ watch([library, search, filter], () => {
   flex-direction: column;
   background: transparent;
 }
-:global(:root[data-theme="developer"] .library-view) {
-  background: transparent;
-}
-
 .library-header {
   flex-shrink: 0;
   margin: 0 -28px;
@@ -448,12 +444,6 @@ watch([library, search, filter], () => {
   margin: 0 -28px;
   padding: 20px 28px 32px;
 }
-:global(:root[data-theme="developer"] .library-header) {
-  border-bottom-color: rgba(185, 255, 77, 0.28);
-  box-shadow:
-    inset 0 -1px 0 rgba(0, 245, 255, 0.22),
-    0 20px 56px rgba(0, 0, 0, 0.22);
-}
 .library-header::after {
   content: "";
   position: absolute;
@@ -462,15 +452,6 @@ watch([library, search, filter], () => {
     radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
     radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
   pointer-events: none;
-}
-:global(:root[data-theme="developer"] .library-header::after) {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 46, 247, 0.1),
-    transparent 34%,
-    rgba(0, 245, 255, 0.09) 78%,
-    transparent
-  );
 }
 .library-title-row {
   display: grid;
@@ -488,11 +469,6 @@ watch([library, search, filter], () => {
   font-size: 24px;
   font-weight: 750;
   line-height: 1.1;
-}
-:global(:root[data-theme="developer"] .library-header h1) {
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-weight: 800;
 }
 .library-counts {
   margin-top: 6px;

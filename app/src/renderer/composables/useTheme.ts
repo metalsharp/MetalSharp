@@ -1,32 +1,60 @@
 import { type Component, ref, watch } from "vue";
 import IconAxe from "~icons/lucide/axe";
+import IconBanana from "~icons/lucide/banana";
 import IconBinoculars from "~icons/lucide/binoculars";
 import IconBone from "~icons/lucide/bone";
 import IconBraces from "~icons/lucide/braces";
 import IconCitrus from "~icons/lucide/citrus";
 import IconClipboardList from "~icons/lucide/clipboard-list";
-import IconCpu from "~icons/lucide/cpu";
 import IconCrosshair from "~icons/lucide/crosshair";
-import IconFileCode from "~icons/lucide/file-code";
 import IconFileText from "~icons/lucide/file-text";
 import IconFlame from "~icons/lucide/flame";
+import IconFlameKindling from "~icons/lucide/flame-kindling";
 import IconGem from "~icons/lucide/gem";
 import IconGrape from "~icons/lucide/grape";
 import IconLayers from "~icons/lucide/layers";
 import IconLeaf from "~icons/lucide/leaf";
+import IconRadar from "~icons/lucide/radar";
 import IconRefreshCcw from "~icons/lucide/refresh-ccw";
-import IconRocket from "~icons/lucide/rocket";
 import IconRotateCw from "~icons/lucide/rotate-cw";
+import IconScanLine from "~icons/lucide/scan-line";
 import IconScroll from "~icons/lucide/scroll";
 import IconScrollText from "~icons/lucide/scroll-text";
 import IconServer from "~icons/lucide/server";
+import IconShell from "~icons/lucide/shell";
 import IconSkull from "~icons/lucide/skull";
+import IconSun from "~icons/lucide/sun";
+import IconTreePalm from "~icons/lucide/tree-palm";
 import IconTrees from "~icons/lucide/trees";
+import IconUmbrella from "~icons/lucide/umbrella";
+import IconWaves from "~icons/lucide/waves";
 import IconZap from "~icons/lucide/zap";
 
-export type ThemeName = "dark" | "light" | "developer" | "skeleton" | "forest" | "orange-peel" | "dragonfruit";
+// prettier-ignore
+export type ThemeName =
+  | "dark"
+  | "light"
+  | "skeleton"
+  | "forest"
+  | "orange-peel"
+  | "dragonfruit"
+  | "banana"
+  | "lava"
+  | "beach"
+  | "xray";
 
-export const themes: ThemeName[] = ["dark", "light", "developer", "skeleton", "forest", "orange-peel", "dragonfruit"];
+export const themes: ThemeName[] = [
+  "dark",
+  "light",
+  "skeleton",
+  "forest",
+  "orange-peel",
+  "dragonfruit",
+  "banana",
+  "lava",
+  "beach",
+  "xray",
+];
 
 function readSavedTheme(): ThemeName {
   const requested = new URLSearchParams(window.location.search).get("theme");
@@ -40,13 +68,11 @@ const theme = ref<ThemeName>(readSavedTheme());
 watch(theme, (val) => {
   document.documentElement.dataset.theme = val;
   document.body.classList.toggle("light", val === "light");
-  document.body.classList.toggle("developer", val === "developer");
   localStorage.setItem("metalsharp-theme", val);
 });
 
 document.documentElement.dataset.theme = theme.value;
 document.body.classList.toggle("light", theme.value === "light");
-document.body.classList.toggle("developer", theme.value === "developer");
 
 export type NavIconKey = "library" | "sharp" | "logs" | "refresh" | "steam";
 
@@ -59,13 +85,6 @@ const defaultNavIcons: Record<NavIconKey, Component> = {
 };
 
 const themeNavIcons: Partial<Record<ThemeName, Partial<Record<NavIconKey, Component>>>> = {
-  developer: {
-    library: IconCpu,
-    sharp: IconBraces,
-    logs: IconFileCode,
-    refresh: IconRotateCw,
-    steam: IconRocket,
-  },
   skeleton: {
     library: IconSkull,
     sharp: IconBone,
@@ -93,6 +112,34 @@ const themeNavIcons: Partial<Record<ThemeName, Partial<Record<NavIconKey, Compon
     logs: IconScrollText,
     refresh: IconRotateCw,
     steam: IconGrape,
+  },
+  banana: {
+    library: IconBanana,
+    sharp: IconSun,
+    logs: IconScroll,
+    refresh: IconRotateCw,
+    steam: IconZap,
+  },
+  lava: {
+    library: IconFlameKindling,
+    sharp: IconFlame,
+    logs: IconScrollText,
+    refresh: IconRotateCw,
+    steam: IconZap,
+  },
+  beach: {
+    library: IconTreePalm,
+    sharp: IconUmbrella,
+    logs: IconWaves,
+    refresh: IconRotateCw,
+    steam: IconShell,
+  },
+  xray: {
+    library: IconScanLine,
+    sharp: IconRadar,
+    logs: IconBraces,
+    refresh: IconRotateCw,
+    steam: IconCrosshair,
   },
 };
 
