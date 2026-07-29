@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, ref, type Component } from "vue";
+import { computed, nextTick, ref, watch, type Component } from "vue";
 import IconMenu from "~icons/lucide/menu";
 import IconMoon from "~icons/lucide/moon";
 import IconSun from "~icons/lucide/sun";
 import IconSettings from "~icons/lucide/settings";
-import IconTerminal from "~icons/lucide/terminal";
 import IconBone from "~icons/lucide/bone";
 import IconTreePine from "~icons/lucide/tree-pine";
 import IconCitrus from "~icons/lucide/citrus";
 import IconSparkles from "~icons/lucide/sparkles";
+import IconBanana from "~icons/lucide/banana";
+import IconFlame from "~icons/lucide/flame";
+import IconTreePalm from "~icons/lucide/tree-palm";
+import IconScanLine from "~icons/lucide/scan-line";
 import { themedNavIcon, type ThemeName } from "../composables/useTheme";
 
 const props = defineProps<{
@@ -23,6 +26,13 @@ const emit = defineEmits<{
 
 const collapsed = ref(false);
 const themePickerOpen = ref(false);
+const themePickerRef = ref<HTMLElement | null>(null);
+
+watch(themePickerOpen, async (open) => {
+  if (!open) return;
+  await nextTick();
+  themePickerRef.value?.querySelector(".theme-picker-item.active")?.scrollIntoView({ block: "nearest" });
+});
 
 interface ThemeOption {
   name: ThemeName;
@@ -33,11 +43,14 @@ interface ThemeOption {
 const themeOptions: ThemeOption[] = [
   { name: "dark", label: "Dark", icon: IconMoon },
   { name: "light", label: "Light", icon: IconSun },
-  { name: "developer", label: "Dev Mode", icon: IconTerminal },
   { name: "skeleton", label: "Skeleton", icon: IconBone },
   { name: "forest", label: "Forest", icon: IconTreePine },
   { name: "orange-peel", label: "Orange Peel", icon: IconCitrus },
   { name: "dragonfruit", label: "Dragonfruit", icon: IconSparkles },
+  { name: "banana", label: "Banana", icon: IconBanana },
+  { name: "lava", label: "Lava", icon: IconFlame },
+  { name: "beach", label: "Beach", icon: IconTreePalm },
+  { name: "xray", label: "Xray", icon: IconScanLine },
 ];
 
 const currentThemeOption = computed(() => themeOptions.find((o) => o.name === props.theme) ?? themeOptions[0]);
@@ -99,16 +112,19 @@ const navItems = computed<NavItem[]>(() => [
       <Teleport to="body">
         <div v-if="themePickerOpen" class="theme-picker-backdrop" @click="themePickerOpen = false"></div>
         <div v-if="themePickerOpen" class="theme-picker-popover">
-          <button
-            v-for="option in themeOptions"
-            :key="option.name"
-            class="theme-picker-item"
-            :class="{ active: option.name === theme }"
-            @click="chooseTheme(option.name)"
-          >
-            <component :is="option.icon" class="theme-picker-icon" width="16" height="16" />
-            <span class="theme-picker-label">{{ option.label }}</span>
-          </button>
+          <div class="theme-picker-header">Theme</div>
+          <div ref="themePickerRef" class="theme-picker-list">
+            <button
+              v-for="option in themeOptions"
+              :key="option.name"
+              class="theme-picker-item"
+              :class="{ active: option.name === theme }"
+              @click="chooseTheme(option.name)"
+            >
+              <component :is="option.icon" class="theme-picker-icon" width="16" height="16" />
+              <span class="theme-picker-label">{{ option.label }}</span>
+            </button>
+          </div>
         </div>
       </Teleport>
       <button
@@ -170,10 +186,6 @@ const navItems = computed<NavItem[]>(() => [
   background-color: rgba(255, 255, 255, 0.32);
 }
 
-:global(:root[data-theme="developer"] .sidebar) {
-  background-color: rgba(9, 7, 15, 0.32);
-}
-
 :global(:root[data-theme="skeleton"] .sidebar) {
   background-color: rgba(19, 19, 19, 0.32);
 }
@@ -188,6 +200,22 @@ const navItems = computed<NavItem[]>(() => [
 
 :global(:root[data-theme="dragonfruit"] .sidebar) {
   background-color: rgba(26, 14, 24, 0.32);
+}
+
+:global(:root[data-theme="banana"] .sidebar) {
+  background-color: rgba(74, 61, 22, 0.32);
+}
+
+:global(:root[data-theme="lava"] .sidebar) {
+  background-color: rgba(26, 6, 6, 0.32);
+}
+
+:global(:root[data-theme="beach"] .sidebar) {
+  background-color: rgba(138, 116, 78, 0.32);
+}
+
+:global(:root[data-theme="xray"] .sidebar) {
+  background-color: rgba(4, 8, 6, 0.32);
 }
 
 :global(:root[data-low-performance="true"] .sidebar) {
@@ -400,34 +428,6 @@ const navItems = computed<NavItem[]>(() => [
     inset 0 0 10px rgba(52, 127, 186, 0.03);
 }
 
-:global(:root[data-theme="developer"] .sidebar::before) {
-  background:
-    linear-gradient(180deg, rgba(255, 46, 247, 0.16) 0%, transparent 34%),
-    linear-gradient(115deg, rgba(185, 255, 77, 0.1), transparent 42%, rgba(0, 245, 255, 0.08));
-}
-
-:global(:root[data-theme="developer"] .sidebar-nav-item.active) {
-  border-color: rgba(185, 255, 77, 0.24);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.09),
-    inset 0 0 14px rgba(255, 46, 247, 0.06),
-    0 0 0 1px rgba(0, 245, 255, 0.07);
-}
-
-:global(:root[data-theme="developer"] .sidebar-nav-item.active::before) {
-  background:
-    linear-gradient(90deg, transparent 0%, rgba(185, 255, 77, 0.45) 45%, rgba(0, 245, 255, 0.28) 52%, transparent 100%),
-    linear-gradient(180deg, rgba(255, 46, 247, 0.16), transparent 64%);
-  opacity: 0.18;
-}
-
-:global(:root[data-theme="developer"] .sidebar-nav-item.active::after) {
-  border-color: rgba(0, 245, 255, 0.18);
-  box-shadow:
-    inset 0 0 0 1px rgba(185, 255, 77, 0.07),
-    inset 0 0 12px rgba(255, 46, 247, 0.05);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .sidebar-nav-item.active::before {
     animation: none;
@@ -450,11 +450,10 @@ const navItems = computed<NavItem[]>(() => [
   position: fixed;
   left: 8px;
   bottom: 96px;
-  width: calc(var(--sidebar-width-expanded) - 16px);
+  width: calc(var(--sidebar-width-expanded) - 8px);
   z-index: 90;
   display: flex;
   flex-direction: column;
-  gap: 2px;
   padding: 6px;
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
@@ -463,7 +462,38 @@ const navItems = computed<NavItem[]>(() => [
   -webkit-app-region: no-drag;
 }
 
+.theme-picker-header {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.theme-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 288px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-dim) transparent;
+}
+.theme-picker-list::-webkit-scrollbar {
+  width: 4px;
+}
+.theme-picker-list::-webkit-scrollbar-thumb {
+  background: var(--accent-dim);
+  border-radius: 2px;
+}
+
 .theme-picker-item {
+  scroll-snap-align: start;
   display: flex;
   align-items: center;
   gap: 10px;

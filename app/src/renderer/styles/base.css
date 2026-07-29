@@ -110,9 +110,6 @@ textarea {
   color: #2f7540;
   background-color: rgba(67, 143, 85, 0.16);
 }
-:root[data-theme="developer"] .glass-header {
-  background-color: rgba(9, 7, 15, 0.32);
-}
 :root[data-theme="skeleton"] .glass-header {
   background-color: rgba(19, 19, 19, 0.32);
 }
@@ -142,15 +139,21 @@ textarea {
 :root[data-theme="dragonfruit"] .glass-header {
   background-color: rgba(26, 14, 24, 0.32);
 }
+:root[data-theme="banana"] .glass-header {
+  background-color: rgba(74, 61, 22, 0.32);
+}
+:root[data-theme="lava"] .glass-header {
+  background-color: rgba(26, 6, 6, 0.32);
+}
+:root[data-theme="beach"] .glass-header {
+  background-color: rgba(138, 116, 78, 0.32);
+}
+:root[data-theme="xray"] .glass-header {
+  background-color: rgba(4, 8, 6, 0.32);
+}
 
 .view-body-surface {
   background: var(--bg-deep);
-}
-:root[data-theme="developer"] .view-body-surface {
-  background:
-    linear-gradient(118deg, rgba(185, 255, 77, 0.02), transparent 36%, rgba(0, 245, 255, 0.024) 72%, transparent),
-    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.11), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.09), transparent 30%), var(--bg-deep);
 }
 :root[data-theme="skeleton"] .view-body-surface {
   background:
@@ -198,6 +201,44 @@ textarea {
     auto,
     auto,
     512px 512px;
+}
+:root[data-theme="banana"] .view-body-surface {
+  background:
+    radial-gradient(circle at 24% 16%, rgba(242, 197, 49, 0.1), transparent 34%),
+    radial-gradient(circle at 84% 10%, rgba(255, 217, 77, 0.08), transparent 30%),
+    linear-gradient(rgba(74, 61, 22, 0.62), rgba(74, 61, 22, 0.62)), url("../assets/banana-slices.png"), var(--bg-deep);
+  background-size:
+    auto,
+    auto,
+    auto,
+    512px 512px;
+}
+:root[data-theme="lava"] .view-body-surface {
+  background:
+    radial-gradient(circle at 50% 110%, rgba(255, 74, 61, 0.14), transparent 52%),
+    radial-gradient(circle at 24% 16%, rgba(255, 74, 61, 0.06), transparent 34%),
+    linear-gradient(rgba(26, 6, 6, 0.38), rgba(26, 6, 6, 0.38)), url("../assets/lava-cracks.png"), var(--bg-deep);
+  background-size:
+    auto,
+    auto,
+    auto,
+    512px 512px;
+}
+:root[data-theme="beach"] .view-body-surface {
+  background:
+    radial-gradient(ellipse at 50% 115%, rgba(56, 189, 248, 0.28), transparent 55%),
+    radial-gradient(circle at 24% 16%, rgba(255, 253, 246, 0.06), transparent 34%),
+    linear-gradient(rgba(138, 116, 78, 0.42), rgba(138, 116, 78, 0.42)), url("../assets/beach-sand.png"), var(--bg-deep);
+  background-size: auto, auto, auto, cover;
+  background-position: center, center, center, center;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
+}
+:root[data-theme="xray"] .view-body-surface {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 20px, rgba(61, 255, 122, 0.05) 22px, transparent 24px 44px),
+    repeating-linear-gradient(90deg, transparent 0 20px, rgba(61, 255, 122, 0.05) 22px, transparent 24px 44px),
+    radial-gradient(circle at 24% 16%, rgba(61, 255, 122, 0.07), transparent 34%),
+    radial-gradient(circle at 84% 88%, rgba(255, 122, 26, 0.06), transparent 30%), var(--bg-deep);
 }
 
 .hidden {
@@ -303,70 +344,97 @@ textarea {
   background: var(--play-color-hover);
 }
 
-:root[data-theme="developer"] .btn {
-  border-color: color-mix(in srgb, var(--accent-hover) 34%, transparent);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 54%),
-    linear-gradient(90deg, rgba(0, 245, 255, 0.12), rgba(255, 46, 247, 0.08));
-  color: var(--text-primary);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 10px 24px rgba(0, 0, 0, 0.18);
-}
-:root[data-theme="developer"] .btn:hover {
-  border-color: var(--accent);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 54%),
-    linear-gradient(90deg, rgba(185, 255, 77, 0.18), rgba(0, 245, 255, 0.13), rgba(255, 46, 247, 0.13));
-  box-shadow:
-    inset 0 0 0 1px rgba(185, 255, 77, 0.16),
-    0 0 22px rgba(185, 255, 77, 0.14),
-    0 12px 26px rgba(0, 0, 0, 0.24);
-}
-:root[data-theme="developer"] .btn-primary,
-:root[data-theme="developer"] .btn-play,
-:root[data-theme="developer"] .btn-install {
-  border-color: rgba(185, 255, 77, 0.72);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 52%), linear-gradient(90deg, #b9ff4d, #00f5ff);
-  color: #09070f;
+/* Banana: saturated yellow buttons with dark text. */
+:root[data-theme="banana"] .btn-primary,
+:root[data-theme="banana"] .btn-play,
+:root[data-theme="banana"] .btn-install {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), transparent 52%), #f2c531;
+  border-color: #d9ae1f;
+  color: #3d3108;
   text-shadow: none;
+  box-shadow: 0 0 18px rgba(242, 197, 49, 0.22);
+}
+:root[data-theme="banana"] .btn-primary:hover,
+:root[data-theme="banana"] .btn-play:hover,
+:root[data-theme="banana"] .btn-install:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 52%), #ffd94d;
+  border-color: #ffd94d;
+}
+
+/* Lava: dark smoldering buttons with white text and ember hover. */
+:root[data-theme="lava"] .btn {
+  background: linear-gradient(180deg, rgba(255, 90, 61, 0.08), transparent 56%), #0a0303;
+  border-color: rgba(255, 110, 90, 0.28);
+  color: #fff2ee;
   box-shadow:
-    0 0 0 1px rgba(185, 255, 77, 0.2),
-    0 0 28px rgba(0, 245, 255, 0.18);
+    inset 0 0 0 1px rgba(255, 110, 90, 0.06),
+    0 8px 20px rgba(0, 0, 0, 0.32);
 }
-:root[data-theme="developer"] .btn-primary:hover,
-:root[data-theme="developer"] .btn-play:hover,
-:root[data-theme="developer"] .btn-install:hover {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 52%),
-    linear-gradient(90deg, #d7ff84, #00f5ff, #ff2ef7);
+:root[data-theme="lava"] .btn:hover {
+  border-color: rgba(255, 74, 61, 0.6);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 74, 61, 0.18),
+    0 0 18px rgba(255, 74, 61, 0.2),
+    0 10px 22px rgba(0, 0, 0, 0.36);
 }
-:root[data-theme="developer"] .btn-secondary {
-  border-color: rgba(0, 245, 255, 0.3);
-  background: linear-gradient(180deg, rgba(0, 245, 255, 0.12), transparent 60%), rgba(13, 11, 23, 0.82);
-  color: var(--text-secondary);
+:root[data-theme="lava"] .btn-primary,
+:root[data-theme="lava"] .btn-play,
+:root[data-theme="lava"] .btn-install {
+  background: linear-gradient(180deg, rgba(255, 90, 61, 0.14), transparent 56%), #0a0303;
+  border-color: rgba(255, 74, 61, 0.52);
+  color: #ffffff;
+  text-shadow: 0 0 8px rgba(255, 74, 61, 0.4);
 }
-:root[data-theme="developer"] .btn-danger,
-:root[data-theme="developer"] .btn-stop {
-  border-color: rgba(255, 79, 119, 0.62);
-  background: linear-gradient(90deg, rgba(255, 79, 119, 0.16), rgba(255, 46, 247, 0.12));
-  color: #ffd7df;
+:root[data-theme="lava"] .btn-primary:hover,
+:root[data-theme="lava"] .btn-play:hover,
+:root[data-theme="lava"] .btn-install:hover {
+  background: linear-gradient(180deg, rgba(255, 90, 61, 0.2), transparent 56%), #1c0705;
+  border-color: #ff4a3d;
 }
-:root[data-theme="developer"] input,
-:root[data-theme="developer"] select,
-:root[data-theme="developer"] textarea {
-  border-color: rgba(0, 245, 255, 0.24);
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 50%), var(--bg-input);
-  color: var(--text-primary);
-  outline: none;
+
+/* Beach: sandy buttons with white text and a clean blue hover glow. */
+:root[data-theme="beach"] .btn-play,
+:root[data-theme="beach"] .btn-install,
+:root[data-theme="beach"] .btn-primary {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 54%), #d9b97c;
+  border-color: #c4a35f;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(124, 104, 69, 0.5);
 }
-:root[data-theme="developer"] input:focus,
-:root[data-theme="developer"] select:focus,
-:root[data-theme="developer"] textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(185, 255, 77, 0.12);
+:root[data-theme="beach"] .btn-play:hover,
+:root[data-theme="beach"] .btn-install:hover,
+:root[data-theme="beach"] .btn-primary:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 54%), #c4a35f;
+  border-color: #38bdf8;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.35);
+}
+
+/* Xray: wireframe buttons — black fill, phosphor-green border and text. */
+:root[data-theme="xray"] .btn {
+  background: rgba(4, 8, 6, 0.82);
+  border-color: rgba(61, 255, 122, 0.4);
+  color: #d8ffe4;
+  box-shadow: inset 0 0 0 1px rgba(61, 255, 122, 0.08);
+}
+:root[data-theme="xray"] .btn:hover {
+  border-color: #3dff7a;
+  box-shadow:
+    inset 0 0 0 1px rgba(61, 255, 122, 0.2),
+    0 0 16px rgba(61, 255, 122, 0.22);
+}
+:root[data-theme="xray"] .btn-primary,
+:root[data-theme="xray"] .btn-play,
+:root[data-theme="xray"] .btn-install {
+  background: linear-gradient(180deg, rgba(61, 255, 122, 0.12), transparent 58%), #0a120c;
+  border-color: #3dff7a;
+  color: #3dff7a;
+  text-shadow: 0 0 8px rgba(61, 255, 122, 0.45);
+}
+:root[data-theme="xray"] .btn-primary:hover,
+:root[data-theme="xray"] .btn-play:hover,
+:root[data-theme="xray"] .btn-install:hover {
+  background: linear-gradient(180deg, rgba(61, 255, 122, 0.2), transparent 58%), #142116;
+  color: #8affb0;
 }
 .btn-sm {
   padding: 4px 10px;
@@ -400,11 +468,6 @@ textarea {
 .badge-error {
   background: var(--error-bg);
   color: var(--error);
-}
-:root[data-theme="developer"] .badge {
-  border-radius: 999px;
-  border: 1px solid currentColor;
-  background: rgba(9, 7, 15, 0.68);
 }
 
 .spinner {
@@ -443,6 +506,23 @@ textarea {
 }
 .control-input::placeholder {
   color: var(--text-dim);
+}
+
+/* Lava: search/inputs stay truly black with an ember focus ring. */
+:root[data-theme="lava"] input,
+:root[data-theme="lava"] select,
+:root[data-theme="lava"] textarea,
+:root[data-theme="lava"] .control-input {
+  background: #0a0303;
+  border-color: rgba(255, 110, 90, 0.24);
+  color: #fff2ee;
+}
+:root[data-theme="lava"] input:focus,
+:root[data-theme="lava"] select:focus,
+:root[data-theme="lava"] textarea:focus,
+:root[data-theme="lava"] .control-input:focus {
+  border-color: #ff4a3d;
+  box-shadow: 0 0 0 3px rgba(255, 74, 61, 0.14);
 }
 
 .toggle-label {
