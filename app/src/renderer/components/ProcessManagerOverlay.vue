@@ -150,7 +150,6 @@ function onKey(e: KeyboardEvent): void {
 }
 
 onMounted(() => {
-  document.documentElement.dataset.theme = "developer";
   document.body.classList.add("process-manager-overlay-body");
   window.addEventListener("keydown", onKey);
   void refresh();
