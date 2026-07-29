@@ -582,26 +582,7 @@ onMounted(async () => {
   flex-direction: column;
   background: var(--bg-deep);
 }
-:root[data-theme="developer"] .content {
-  background:
-    linear-gradient(118deg, rgba(185, 255, 77, 0.02), transparent 36%, rgba(0, 245, 255, 0.024) 72%, transparent),
-    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.11), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.09), transparent 30%), var(--bg-deep);
-}
 .content.content-glass-header {
   background: transparent;
-}
-:root[data-theme="developer"] .update-banner {
-  background:
-    linear-gradient(90deg, rgba(185, 255, 77, 0.16), rgba(0, 245, 255, 0.1), rgba(255, 46, 247, 0.14)),
-    rgba(9, 7, 15, 0.84);
-  border-bottom-color: rgba(185, 255, 77, 0.28);
-  color: var(--text-primary);
-}
-:root[data-theme="developer"] .update-banner-btn {
-  border-radius: 999px;
-  border-color: rgba(185, 255, 77, 0.42);
-  background: rgba(9, 7, 15, 0.62);
-  color: var(--accent);
 }
 </style>
