@@ -9,6 +9,30 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+PACKAGE_ASSETS = [
+    "install-metalsharp-wine-runtime.sh",
+    "metalsharp-bundle-manifest.tsv",
+    "MetalSharp-Wine-Public-Source-2026-07-31.tar.zst",
+    "MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256",
+    "PARTS-SHA256SUMS.txt",
+    "REASSEMBLE.txt",
+]
+RUNTIME_PARTS = [
+    f"MetalSharp-Wine-Runtime-COMPLETE-all-arch-2026-07-31.tar.zst.part{part:02d}"
+    for part in range(1, 5)
+]
+RELEASE_ASSETS = PACKAGE_ASSETS + RUNTIME_PARTS
+RETIRED_BUNDLES = [
+    "metalsharp-electron.tar.zst",
+    "metalsharp-graphics-dll.tar.zst",
+    "metalsharp-runtime.tar.zst",
+    "metalsharp-assets.tar.zst",
+    "fnalibs.tar.zst",
+    "metalsharp-scripts-tools.tar.zst",
+    "metalsharp-steam.tar.zst",
+    "metalsharp-d3d12-developer-sdk.tar.zst",
+]
+
 
 def fail(message: str) -> None:
     print(f"DMG workflow check failed: {message}", file=sys.stderr)
@@ -22,23 +46,7 @@ def read(path: str) -> str:
     return full.read_text()
 
 
-def manifest_assets() -> list[str]:
-    assets: list[str] = []
-    for line in read("tools/bundles/asset-manifest.tsv").splitlines():
-        if not line or line.startswith("#"):
-            continue
-        fields = line.split("\t")
-        if len(fields) < 3:
-            fail(f"invalid manifest row: {line}")
-        asset, _root, platforms = fields[:3]
-        if "mac" in platforms.split(","):
-            assets.append(asset)
-    if not assets:
-        fail("bundle manifest has no mac assets")
-    return assets
-
-
-def check_package_resources(assets: list[str]) -> None:
+def check_package_resources() -> None:
     package = json.loads(read("app/package.json"))
     build = package.get("build", {})
     resources = build.get("extraResources", [])
@@ -55,11 +63,26 @@ def check_package_resources(assets: list[str]) -> None:
         ("native/host", "runtime/host"),
         ("updater", "scripts/tools/updater"),
     }
-    required_pairs.update((f"bundles/{asset}", f"bundles/{asset}") for asset in assets)
+    required_pairs.add(("release-runtime", "runtime-bundle"))
 
     missing = sorted(required_pairs - pairs)
     if missing:
         fail(f"app/package.json missing extraResources entries: {missing}")
+
+    runtime_resource = next(
+        (entry for entry in resources if isinstance(entry, dict) and entry.get("from") == "release-runtime"),
+        None,
+    )
+    if runtime_resource is None:
+        fail("app/package.json has no complete-runtime resource directory")
+    filters = runtime_resource.get("filter", [])
+    missing_assets = sorted(set(PACKAGE_ASSETS) - set(filters))
+    if missing_assets:
+        fail(f"complete-runtime resource filter is missing: {missing_assets}")
+    for entry in resources:
+        source = entry.get("from", "") if isinstance(entry, dict) else ""
+        if source.startswith("bundles/") and source.endswith(".tar.zst"):
+            fail(f"retired split bundle is still packaged: {source}")
 
     if build.get("afterPack") != "build/adhoc-deep-sign.cjs":
         fail("app/package.json must keep afterPack=build/adhoc-deep-sign.cjs")
@@ -67,7 +90,7 @@ def check_package_resources(assets: list[str]) -> None:
         fail("app/package.json must keep afterSign=build/notarize.cjs")
 
 
-def check_dmg_verifier(assets: list[str]) -> None:
+def check_dmg_verifier() -> None:
     verifier = read("tools/dmg/verify-dmg-runtime-assets.sh")
     for needle in [
         "Contents/Resources",
@@ -75,14 +98,16 @@ def check_dmg_verifier(assets: list[str]) -> None:
         "runtime/host",
         "scripts/tools/updater/update.py",
         "scripts/tools/updater/update.sh",
-        "tools/bundles/verify-bundles.sh",
+        "prepare-complete-runtime-assets.sh",
+        "--verify-package",
+        "DMG still contains retired split runtime bundles",
     ]:
         if needle not in verifier:
             fail(f"DMG verifier no longer checks {needle}")
 
-    for asset in assets:
+    for asset in PACKAGE_ASSETS:
         if asset not in verifier:
-            fail(f"DMG verifier no longer checks bundle asset {asset}")
+            fail(f"DMG verifier no longer checks complete-runtime asset {asset}")
 
 
 def check_updater_handoff() -> None:
@@ -95,21 +120,25 @@ def check_updater_handoff() -> None:
 
 
 def check_bundle_scripts() -> None:
-    create_bundles = read("tools/dmg/create-bundles.sh")
+    prepare_runtime = read("tools/dmg/prepare-complete-runtime-assets.sh")
     for needle in [
-        "tools/dmg/repair-runtime-bundle.py",
-        "repair_assets_fnalibs_bundle",
-        "tools/bundles/verify-bundles.sh",
-        "--bundle-dir \"$BUNDLE_DIR\" \"$asset\"",
-        "Refreshing stale bundle",
+        "v0.60.0-dependency-bundles",
+        "93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee",
         "metalsharp-bundle-manifest.tsv",
+        "--verify-only",
+        "--verify-package",
+        "PARTS-SHA256SUMS.txt",
+        "shasum -a 256",
+        "bash -n",
     ]:
-        if needle not in create_bundles:
-            fail(f"create-bundles.sh no longer performs {needle}")
-
-    stage_bundles = read("tools/dmg/stage-release-bundles.sh")
-    if "asset-manifest.tsv" not in stage_bundles or "tar --use-compress-program=unzstd" not in stage_bundles:
-        fail("stage-release-bundles.sh no longer stages bundle manifest archives")
+        if needle not in prepare_runtime:
+            fail(f"complete-runtime asset preparation no longer performs {needle}")
+    for asset in PACKAGE_ASSETS:
+        if asset not in prepare_runtime:
+            fail(f"complete-runtime preparation omits release asset {asset}")
+    for part in range(1, 5):
+        if f'"$ARCHIVE.part{part:02d}"' not in prepare_runtime:
+            fail(f"complete-runtime preparation omits runtime part {part:02d}")
 
 
 def check_workflows() -> None:
@@ -139,10 +168,8 @@ def check_workflows() -> None:
         fail("main CI verifier must not share the release SDK publish concurrency group")
 
     for required in [
-        "Publish Developer SDK Bundle",
-        "Publish developer SDK package",
-        "Publish developer SDK bundle",
         "Build DMG",
+        "Download complete runtime assets for DMG and release",
         "Check Apple signing credentials",
         "Verify Apple notarization",
         "Mark unsigned DMG",
@@ -150,6 +177,23 @@ def check_workflows() -> None:
     ]:
         if required not in release:
             fail(f"release workflow missing publish step: {required}")
+    for required in [
+        "tools/dmg/prepare-complete-runtime-assets.sh app/release-runtime",
+        "app/release-runtime/*",
+        "--verify-only release-flat",
+    ]:
+        if required not in release:
+            fail(f"release workflow missing complete-runtime contract: {required}")
+    for forbidden in [
+        "Publish Developer SDK Bundle",
+        "tools/dmg/create-bundles.sh",
+        "tools/dmg/stage-release-bundles.sh",
+    ] + RETIRED_BUNDLES:
+        if forbidden in release:
+            fail(f"release workflow still references retired bundle path: {forbidden}")
+    for asset in RELEASE_ASSETS:
+        if asset not in release:
+            fail(f"release workflow does not publish {asset}")
     for required in [
         "tools/dmg/check-apple-signing-readiness.sh",
         "steps.apple-signing.outputs.ready == 'true'",
@@ -181,13 +225,12 @@ def check_workflows() -> None:
 
 
 def main() -> int:
-    assets = manifest_assets()
-    check_package_resources(assets)
-    check_dmg_verifier(assets)
+    check_package_resources()
+    check_dmg_verifier()
     check_updater_handoff()
     check_bundle_scripts()
     check_workflows()
-    print(f"DMG workflow contract verified ({len(assets)} mac bundle assets).")
+    print(f"DMG workflow contract verified ({len(PACKAGE_ASSETS)} packaged, {len(RELEASE_ASSETS)} release assets).")
     return 0
 
 

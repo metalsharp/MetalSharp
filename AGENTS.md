@@ -112,6 +112,9 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   verifies each part against `PARTS-SHA256SUMS.txt`, streams all four parts
   through the canonical reconstructed SHA-256, syntax-checks the installer,
   and rejects any DMG that still contains retired split archives.
+- `tools/ci/verify-dmg-workflow.py` enforces the same six packaged assets and
+  ten separately published release assets. It must reject any return of the
+  eight split archives or the retired developer-SDK release job.
 - Phase 8 validation: package-only assets from the live dependency release
   passed hash and shell verification; release YAML parses; package metadata
   contains only the complete-runtime resource contract; the deterministic
