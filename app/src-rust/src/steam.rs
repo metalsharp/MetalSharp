@@ -1590,7 +1590,7 @@ fn run_runtime_provider_stage(prefix: &Path, verify_only: bool) -> Result<(), Bo
     Ok(())
 }
 
-fn steam_prefix_all_arch_ready(prefix: &Path) -> bool {
+pub(crate) fn steam_prefix_all_arch_ready(prefix: &Path) -> bool {
     [
         "system.reg",
         "user.reg",

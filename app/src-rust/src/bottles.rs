@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -18,18 +18,43 @@ const VCPP_X64_URL: &str = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
 const VCPP_X86_URL: &str = "https://aka.ms/vs/17/release/vc_redist.x86.exe";
 const VCPP_X64_FILENAME: &str = "vc_redist.x64.exe";
 const VCPP_X86_FILENAME: &str = "vc_redist.x86.exe";
-const VCPP_MIN_SIZE: u64 = 1_000_000;
+const VCPP_X64_MIN_SIZE: u64 = 15_000_000;
+const VCPP_X86_MIN_SIZE: u64 = 5_000_000;
 
 fn vcpp_cached_dir() -> Option<PathBuf> {
     Some(crate::platform::metalsharp_home_dir().join("runtime").join("redist").join("vcredist"))
 }
 
-fn vcpp_downloaded(path: &Path) -> bool {
-    path.is_file() && fs::metadata(path).map(|m| m.len() > VCPP_MIN_SIZE).unwrap_or(false)
+fn vcpp_downloaded(path: &Path, arch: &str) -> bool {
+    let minimum_size = match arch {
+        // Microsoft's x64 redistributable currently uses an i386 PE bootstrap
+        // around the larger x64 payload. Size and PE validity distinguish it
+        // from the smaller x86 package; the bootstrap machine does not.
+        "x64" => VCPP_X64_MIN_SIZE,
+        "x86" => VCPP_X86_MIN_SIZE,
+        _ => return false,
+    };
+    if !path.is_file() || !fs::metadata(path).map(|m| m.len() > minimum_size).unwrap_or(false) {
+        return false;
+    }
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let mut dos = [0u8; 64];
+    if file.read_exact(&mut dos).is_err() || &dos[..2] != b"MZ" {
+        return false;
+    }
+    let pe_offset = u32::from_le_bytes([dos[0x3c], dos[0x3d], dos[0x3e], dos[0x3f]]) as u64;
+    let mut pe = [0u8; 6];
+    file.seek(SeekFrom::Start(pe_offset)).is_ok()
+        && file.read_exact(&mut pe).is_ok()
+        && &pe[..4] == b"PE\0\0"
+        && matches!(u16::from_le_bytes([pe[4], pe[5]]), 0x014c | 0x8664)
 }
 
-fn vcpp_download(url: &str, dest: &Path) -> Result<(), String> {
-    if vcpp_downloaded(dest) {
+fn vcpp_download(url: &str, dest: &Path, arch: &str) -> Result<(), String> {
+    if vcpp_downloaded(dest, arch) {
         return Ok(());
     }
     let tmp = dest.with_extension("download");
@@ -37,7 +62,7 @@ fn vcpp_download(url: &str, dest: &Path) -> Result<(), String> {
     if let Some(parent) = dest.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let output = Command::new("curl")
+    let output = Command::new("/usr/bin/curl")
         .args(["--fail", "--location", "--silent", "--show-error", "--retry", "3", "-o"])
         .arg(&tmp)
         .arg(url)
@@ -47,9 +72,9 @@ fn vcpp_download(url: &str, dest: &Path) -> Result<(), String> {
         let _ = fs::remove_file(&tmp);
         return Err(format!("curl download failed for {}", url));
     }
-    if !vcpp_downloaded(&tmp) {
+    if !vcpp_downloaded(&tmp, arch) {
         let _ = fs::remove_file(&tmp);
-        return Err(format!("downloaded file too small or missing: {}", dest.display()));
+        return Err(format!("downloaded {} redistributable is not a valid PE bootstrap: {}", arch, dest.display()));
     }
     let _ = fs::rename(&tmp, dest);
     Ok(())
@@ -59,7 +84,7 @@ fn vcpp_both_cached() -> Option<(PathBuf, PathBuf)> {
     let dir = vcpp_cached_dir()?;
     let x64 = dir.join(VCPP_X64_FILENAME);
     let x86 = dir.join(VCPP_X86_FILENAME);
-    if vcpp_downloaded(&x64) && vcpp_downloaded(&x86) {
+    if vcpp_downloaded(&x64, "x64") && vcpp_downloaded(&x86, "x86") {
         Some((x64, x86))
     } else {
         None
@@ -71,13 +96,13 @@ fn vcpp_ensure_downloaded() -> Result<(PathBuf, PathBuf), String> {
     let _ = fs::create_dir_all(&dir);
     let x64 = dir.join(VCPP_X64_FILENAME);
     let x86 = dir.join(VCPP_X86_FILENAME);
-    if !vcpp_downloaded(&x64) {
+    if !vcpp_downloaded(&x64, "x64") {
         eprintln!("vcredist: downloading VC++ 2015-2022 x64 from Microsoft ...");
-        vcpp_download(VCPP_X64_URL, &x64)?;
+        vcpp_download(VCPP_X64_URL, &x64, "x64")?;
     }
-    if !vcpp_downloaded(&x86) {
+    if !vcpp_downloaded(&x86, "x86") {
         eprintln!("vcredist: downloading VC++ 2015-2022 x86 from Microsoft ...");
-        vcpp_download(VCPP_X86_URL, &x86)?;
+        vcpp_download(VCPP_X86_URL, &x86, "x86")?;
     }
     Ok((x64, x86))
 }
@@ -105,33 +130,25 @@ fn vcpp_install_into_prefix(prefix: &Path) -> Result<(), String> {
     }
     let prefix_str = prefix.to_string_lossy().to_string();
     eprintln!("vcredist: installing VC++ 2015-2022 x64 into {} ...", prefix.display());
-    let x64_status = Command::new(&wine)
-        .arg(&x64)
-        .arg("/install")
-        .env("WINEPREFIX", &prefix_str)
-        .env("WINEDEBUG", "-all")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("wine x64 failed: {}", e))?;
+    let mut x64_command = Command::new(&wine);
+    x64_command.arg(&x64).arg("/install").stdout(Stdio::null()).stderr(Stdio::null());
+    configure_metalsharp_vcpp_env(&mut x64_command, &ms_root, &prefix_str);
+    let x64_status = x64_command.status().map_err(|e| format!("wine x64 failed: {}", e))?;
     if !x64_status.success() {
         return Err("VC++ x64 installer failed".into());
     }
-    let _ = Command::new(ms_root.join("bin").join("wineserver")).env("WINEPREFIX", &prefix_str).arg("-w").status();
+    let _ =
+        Command::new(crate::platform::runtime_wineserver(&ms_root)).env("WINEPREFIX", &prefix_str).arg("-w").status();
     eprintln!("vcredist: installing VC++ 2015-2022 x86 into {} ...", prefix.display());
-    let x86_status = Command::new(&wine)
-        .arg(&x86)
-        .arg("/install")
-        .env("WINEPREFIX", &prefix_str)
-        .env("WINEDEBUG", "-all")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("wine x86 failed: {}", e))?;
+    let mut x86_command = Command::new(&wine);
+    x86_command.arg(&x86).arg("/install").stdout(Stdio::null()).stderr(Stdio::null());
+    configure_metalsharp_vcpp_env(&mut x86_command, &ms_root, &prefix_str);
+    let x86_status = x86_command.status().map_err(|e| format!("wine x86 failed: {}", e))?;
     if !x86_status.success() {
         return Err("VC++ x86 installer failed".into());
     }
-    let _ = Command::new(ms_root.join("bin").join("wineserver")).env("WINEPREFIX", &prefix_str).arg("-w").status();
+    let _ =
+        Command::new(crate::platform::runtime_wineserver(&ms_root)).env("WINEPREFIX", &prefix_str).arg("-w").status();
     if vcpp_prefix_has_runtime(prefix) {
         eprintln!("vcredist: VC++ 2015-2022 verified in {}", prefix.display());
         Ok(())
@@ -171,28 +188,36 @@ fn run_interactive_vcpp_installer(prefix: &Path, installer: &Path, arch: &str) -
     }
     let prefix_str = prefix.to_string_lossy().to_string();
     eprintln!("vcredist: launching interactive VC++ 2015-2022 {} installer into {} ...", arch, prefix.display());
-    let mut cmd = Command::new(&wine);
-    cmd.arg("start")
-        .arg("/wait")
-        .arg("/unix")
-        .arg(installer)
-        .args(vcpp_setup_install_args())
-        .env("WINEPREFIX", &prefix_str)
-        .env("WINEARCH", "win64")
-        .env("WINEDEBUG", "-all")
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+    let mut cmd = vcpp_installer_command(&wine, &ms_root, &prefix_str, installer);
+    cmd.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     if let Some(parent) = installer.parent() {
         cmd.current_dir(parent);
     }
-    crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
     let status = cmd.status().map_err(|e| format!("wine {} failed: {}", arch, e))?;
     if vcpp_installer_status_ok(status.code()) {
         Ok(())
     } else {
         Err(format!("VC++ {} installer exited with status {:?}", arch, status.code()))
     }
+}
+
+fn vcpp_installer_command(wine: &Path, ms_root: &Path, prefix: &str, installer: &Path) -> Command {
+    let mut cmd = Command::new(wine);
+    cmd.arg("start").arg("/wait").arg("/unix").arg(installer).args(vcpp_setup_install_args());
+    configure_metalsharp_vcpp_env(&mut cmd, ms_root, prefix);
+    cmd
+}
+
+fn configure_metalsharp_vcpp_env(cmd: &mut Command, ms_root: &Path, prefix: &str) {
+    cmd.env("WINEPREFIX", prefix)
+        .env("WINEARCH", "win64")
+        .env("WINEBUILDDIR", ms_root.join("build-ec"))
+        .env("FEX_TSOENABLED", "0")
+        .env("FEX_VECTORTSOENABLED", "0")
+        .env("FEX_MEMCPYSETTSOENABLED", "0")
+        .env("WINEDEBUG", "-all")
+        .env("WINEDEBUGGER", "none");
+    crate::platform::set_runtime_library_env(cmd, ms_root);
 }
 
 fn vcpp_setup_install_args() -> [&'static str; 1] {
@@ -7381,6 +7406,48 @@ mod tests {
     #[test]
     fn setup_vcpp_install_args_are_interactive() {
         assert_eq!(vcpp_setup_install_args(), ["/install"]);
+    }
+
+    #[test]
+    fn setup_vcpp_download_gate_accepts_microsoft_x86_bootstrap_for_x64_payload() {
+        let dir = test_dir("vcpp-pe-gate");
+        fs::create_dir_all(&dir).expect("create fixture dir");
+        let installer = dir.join("vc_redist.exe");
+        let mut x64 = vec![0u8; (VCPP_X64_MIN_SIZE + 1) as usize];
+        x64[..0x200].copy_from_slice(&test_pe(0x014c, 0x10b));
+        fs::write(&installer, x64).expect("write x64 fixture");
+        assert!(vcpp_downloaded(&installer, "x64"));
+
+        let mut x86 = vec![0u8; (VCPP_X86_MIN_SIZE + 1) as usize];
+        x86[..0x200].copy_from_slice(&test_pe(0x014c, 0x10b));
+        fs::write(&installer, x86).expect("write x86 fixture");
+        assert!(vcpp_downloaded(&installer, "x86"));
+        assert!(!vcpp_downloaded(&installer, "x64"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn setup_vcpp_command_uses_complete_runtime_without_tso() {
+        let wine = PathBuf::from("/runtime/wine/bin/metalsharp-wine");
+        let root = PathBuf::from("/runtime/wine");
+        let installer = PathBuf::from("/runtime/redist/vc_redist.x86.exe");
+        let cmd = vcpp_installer_command(&wine, &root, "/prefix-steam", &installer);
+        assert_eq!(cmd.get_program(), wine.as_os_str());
+        assert_eq!(
+            cmd.get_args().map(|arg| arg.to_string_lossy().to_string()).collect::<Vec<_>>(),
+            vec!["start", "/wait", "/unix", "/runtime/redist/vc_redist.x86.exe", "/install"]
+        );
+        let env = cmd
+            .get_envs()
+            .filter_map(|(key, value)| {
+                value.map(|value| (key.to_string_lossy().to_string(), value.to_string_lossy().to_string()))
+            })
+            .collect::<HashMap<_, _>>();
+        assert_eq!(env.get("WINEPREFIX").map(String::as_str), Some("/prefix-steam"));
+        assert_eq!(env.get("WINEBUILDDIR").map(String::as_str), Some("/runtime/wine/build-ec"));
+        assert_eq!(env.get("FEX_TSOENABLED").map(String::as_str), Some("0"));
+        assert_eq!(env.get("FEX_VECTORTSOENABLED").map(String::as_str), Some("0"));
+        assert_eq!(env.get("FEX_MEMCPYSETTSOENABLED").map(String::as_str), Some("0"));
     }
 
     #[test]

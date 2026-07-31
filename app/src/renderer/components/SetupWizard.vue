@@ -211,7 +211,7 @@ async function goToDoneStep() {
 async function installVcppX64() {
   vcppX64Installing.value = true;
   try {
-    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x64");
+    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x64", undefined, 2700000);
     if (result?.ok) {
       vcppX64Done.value = true;
       toast.show("VC++ 2015-2022 x64 installed", "success");
@@ -227,7 +227,7 @@ async function installVcppX64() {
 async function installVcppX86() {
   vcppX86Installing.value = true;
   try {
-    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x86");
+    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x86", undefined, 2700000);
     if (result?.ok) {
       vcppX86Done.value = true;
       toast.show("VC++ 2015-2022 x86 installed", "success");
@@ -362,7 +362,7 @@ async function installVcppX86() {
       <div v-if="step === 3" class="setup-body">
         <div class="setup-section-header">
           <h1>VC++ 2015-2022 Runtimes</h1>
-          <p>Many Windows games depend on the Microsoft Visual C++ Redistributable. Install both x64 and x86 into the standard MetalSharp Wine prefix so Steam games can find the runtime DLLs they need at launch.</p>
+          <p>Many Windows games depend on the Microsoft Visual C++ Redistributable. Install both x64 and x86 through the complete MetalSharp Wine runtime into its accepted all-architecture Steam prefix.</p>
         </div>
 
         <div class="setup-vcpp-section">
