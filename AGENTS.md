@@ -32,6 +32,15 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   `.metalsharp-steam-install-complete`. Steam is not reported installed before
   that marker exists. All install and handoff launches keep every FEX TSO mode
   disabled.
+- Phase 3 makes a functioning Homebrew installation a hard setup gate. Both
+  Electron and the Rust backend require `brew --version` to succeed; file
+  presence alone is not acceptance. The Terminal installer downloads the
+  official Homebrew installer with curl, validates it with `bash -n`, runs it,
+  then verifies the installed brew before reporting success.
+- GPTK/D3DMetal remains separate from the complete MetalSharp Wine runtime and
+  is owned by Homebrew. Saving a D3DMetal bottle invokes the existing
+  `gcenx/wine/game-porting-toolkit` tap/trust/cask route; do not stage a private
+  GPTK copy into the main runtime.
 
 ## What This Project Is
 

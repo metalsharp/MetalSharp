@@ -24,6 +24,7 @@ const installingSteam = ref(false);
 const brewChecking = ref(true);
 const brewInstalled = ref(false);
 const brewInstalling = ref(false);
+const brewVersion = ref("");
 
 const steps = ["Welcome", "Homebrew", "Runtime", "VC++", "Done"];
 
@@ -37,12 +38,14 @@ async function checkBrew() {
   const localStatus = await getAPI().homebrewStatus();
   if (localStatus?.installed) {
     brewInstalled.value = true;
+    brewVersion.value = localStatus.version ?? "Homebrew verified";
     brewChecking.value = false;
     return;
   }
   const deps = await api<{ dependencies: { id: string; installed: boolean }[] }>("GET", "/setup/dependencies");
   const brewDep = deps?.dependencies?.find((d) => d.id === "homebrew");
   brewInstalled.value = brewDep?.installed ?? false;
+  brewVersion.value = brewInstalled.value ? "Homebrew verified" : "";
   brewChecking.value = false;
 }
 
@@ -56,6 +59,7 @@ async function installHomebrew() {
   }
   if (result.installed) {
     brewInstalled.value = true;
+    brewVersion.value = result.version ?? "Homebrew verified";
     brewInstalling.value = false;
     toast.show("Homebrew is already installed", "success");
     return;
@@ -293,7 +297,7 @@ async function installVcppX86() {
       <div v-if="step === 1" class="setup-body">
         <div class="setup-section-header">
           <h1>Install Homebrew</h1>
-          <p>MetalSharp uses Homebrew for setup tools such as zstd and Rosetta checks. GPTK/D3DMetal is optional and is only installed later when you save a game as a D3DMetal bottle.</p>
+          <p>Homebrew is required by MetalSharp. It supplies setup tools such as zstd and is the trusted owner of the separate GPTK/D3DMetal runtime. GPTK itself is installed through Homebrew only when you save a game as a D3DMetal bottle.</p>
         </div>
 
         <div class="setup-brew-step">
@@ -302,6 +306,7 @@ async function installVcppX86() {
             2. Follow the prompts in Terminal to install Homebrew<br />
             3. When finished, click <strong>Continue</strong>
           </p>
+          <p v-if="brewInstalled" class="setup-brew-verified">✓ {{ brewVersion }}</p>
           <div class="setup-actions">
             <button class="btn btn-secondary" @click="step = 0">Back</button>
             <button class="btn btn-primary" :disabled="brewInstalling" @click="installHomebrew">
