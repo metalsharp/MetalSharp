@@ -8,7 +8,7 @@
 <a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
 <a href="https://github.com/aaf2tbz/metalsharp/releases"><img src="https://img.shields.io/github/v/release/aaf2tbz/metalsharp?style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/aaf2tbz/metalsharp/discussions"><img src="https://img.shields.io/github/discussions/aaf2tbz/metalsharp?style=for-the-badge" alt="Discussions"></a>
-<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-orange.svg?style=for-the-badge" alt="PolyForm Noncommercial 1.0.0"></a>
 <a href="https://discord.gg/qW5rUr4dH"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
 
 </div>
@@ -89,4 +89,7 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 ## License
 
-MIT licensed. Third-party components keep their original licenses; see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
+MetalSharp-owned code is licensed under the [PolyForm Noncommercial License
+1.0.0](LICENSE). Commercial licensing is available from
+`averyfelts@aol.com`. Third-party components keep their original licenses;
+see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
