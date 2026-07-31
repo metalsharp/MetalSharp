@@ -98,6 +98,25 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
 - Phase 7 validation: the deterministic Rust suite passes 653/653, strict
   Clippy passes, all Rust targets build, and the TypeScript/Vite production
   build passes.
+- Phase 8 removes every retired split-runtime archive from the DMG resource
+  list and release workflow. `tools/dmg/prepare-complete-runtime-assets.sh`
+  downloads and pins the v0.60.0 installer, manifest, public source archive,
+  four runtime parts, checksum files, and reassembly instructions.
+- The DMG embeds the installer, manifest, public source/provenance payload,
+  part checksums, and reassembly instructions under `runtime-bundle/`; it does
+  not embed the four runtime parts. Release CI publishes those parts as
+  separate assets so every file stays below GitHub's 2 GiB release-asset cap.
+  The backend prefers the packaged installer and passes its directory through
+  `--bundle-dir`, allowing local discovery before network download.
+- The release gate verifies every asset hash against the pinned manifest,
+  verifies each part against `PARTS-SHA256SUMS.txt`, streams all four parts
+  through the canonical reconstructed SHA-256, syntax-checks the installer,
+  and rejects any DMG that still contains retired split archives.
+- Phase 8 validation: package-only assets from the live dependency release
+  passed hash and shell verification; release YAML parses; package metadata
+  contains only the complete-runtime resource contract; the deterministic
+  Rust suite passes 653/653; strict Clippy, all Rust targets, and the
+  TypeScript/Vite production build pass.
 
 ## What This Project Is
 

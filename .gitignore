@@ -32,6 +32,7 @@ src/fna/FNA3D/
 build-x86/
 app/bundles/*.tar.zst
 app/bundles/SteamSetup.exe
+app/release-runtime/
 
 # CMake build directories (in addition to the generic `build/`)
 /build-metal/
