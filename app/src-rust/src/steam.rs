@@ -2,15 +2,55 @@ use serde_json::{json, Value};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 static STEAM_INSTALLING: AtomicBool = AtomicBool::new(false);
+static STEAM_INSTALL_HANDOFF: OnceLock<Mutex<SteamInstallHandoffState>> = OnceLock::new();
+const STEAM_INSTALL_HANDOFF_LIMIT: u8 = 2;
+const STEAM_INSTALL_MARKER: &str = ".metalsharp-steam-install-complete";
+const XTAJIT64_SHA256: &str = "7b9f55ceabe971ffa1f514570bb54ed7b5640959e4440e7f8a013e9af13ab7e6";
+const XTAJIT_SHA256: &str = "7d2ac83d2c0935e04d033d609c42d8307294225dcb4cb16b88af849e95c694ab";
 const STEAMWEBHELPER_WRAPPER_MAX_BYTES: u64 = 100_000;
 const STEAMWEBHELPER_WRAPPER_SHA256: &str = "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9";
 const STEAM_D3D12_GUARD_APPS: &[&str] = &["Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"];
 const STEAM_D3D12_GUARD_DLLS: &[&str] = &["d3d12", "d3d12core", "d3d12SDKLayers", "dxcore"];
 
+#[derive(Clone, Debug, Default)]
+struct SteamInstallHandoffState {
+    accepted: u8,
+    active: bool,
+    complete: bool,
+    last_child_pid: Option<u32>,
+    last_error: Option<String>,
+}
+
+fn install_handoff_state() -> &'static Mutex<SteamInstallHandoffState> {
+    STEAM_INSTALL_HANDOFF.get_or_init(|| Mutex::new(SteamInstallHandoffState::default()))
+}
+
+fn reset_install_handoff_state() {
+    if let Ok(mut state) = install_handoff_state().lock() {
+        *state = SteamInstallHandoffState::default();
+    }
+}
+
+fn install_handoff_json(state: &SteamInstallHandoffState) -> Value {
+    json!({
+        "accepted": state.accepted,
+        "remaining": STEAM_INSTALL_HANDOFF_LIMIT.saturating_sub(state.accepted),
+        "active": state.active,
+        "complete": state.complete,
+        "last_child_pid": state.last_child_pid,
+        "last_error": state.last_error,
+    })
+}
+
+fn runtime_root() -> PathBuf {
+    crate::platform::metalsharp_home_dir().join("runtime")
+}
+
 fn ms_wine() -> PathBuf {
-    let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
+    let ms_root = runtime_root().join("wine");
     crate::platform::runtime_wine_binary(&ms_root)
 }
 
@@ -60,7 +100,9 @@ pub fn status() -> Value {
 
     let wine_steam_dir = steam_prefix().join("drive_c").join("Program Files (x86)").join("Steam");
     let wine_steam_exe = wine_steam_dir.join("Steam.exe");
-    let windows_installed = wine_steam_exe.exists();
+    let windows_installed = wine_steam_exe.exists()
+        && wine_steam_dir.join("steamui.dll").exists()
+        && wine_steam_dir.join(STEAM_INSTALL_MARKER).exists();
     let windows_path = if windows_installed { Some(wine_steam_dir.to_string_lossy().to_string()) } else { None };
 
     let login_state = detect_login_state();
@@ -77,6 +119,10 @@ pub fn status() -> Value {
     let running = is_wine_steam_running();
     let ms_available = ms_wine().exists();
     let installing = is_installing_steam();
+    let handoff = install_handoff_state()
+        .lock()
+        .map(|state| install_handoff_json(&state))
+        .unwrap_or_else(|_| json!({"last_error": "Steam install handoff state is unavailable"}));
 
     json!({
         "installed": windows_installed,
@@ -88,7 +134,8 @@ pub fn status() -> Value {
         "mac_running": mac_running,
         "running": running,
         "metalsharp_wine_available": ms_available,
-        "installing": installing
+        "installing": installing,
+        "install_handoff": handoff
     })
 }
 
@@ -937,6 +984,18 @@ fn steamwebhelper_wrapper_valid(path: &Path) -> bool {
     file_sha256(path).as_deref() == Some(STEAMWEBHELPER_WRAPPER_SHA256)
 }
 
+fn steamwebhelper_wrapper_deployed(steam_dir: &Path) -> bool {
+    let cef_dirs = cef_subdirs(steam_dir);
+    !cef_dirs.is_empty()
+        && cef_dirs.iter().any(|cef_dir| {
+            let wrapper = cef_dir.join("steamwebhelper.exe");
+            let real = cef_dir.join("steamwebhelper_real.exe");
+            steamwebhelper_wrapper_valid(&wrapper)
+                && std::fs::metadata(real).map(|metadata| metadata.len()).unwrap_or(0)
+                    > STEAMWEBHELPER_WRAPPER_MAX_BYTES
+        })
+}
+
 fn file_sha256(path: &Path) -> Option<String> {
     for (program, args) in [("shasum", vec!["-a", "256"]), ("sha256sum", Vec::new())] {
         let Ok(output) = Command::new(program).args(args).arg(path).output() else {
@@ -1451,10 +1510,266 @@ fn parse_vdf_value(line: &str, key: &str) -> Option<String> {
     Some(rest.trim_matches('"').to_string())
 }
 
+fn steam_installer_valid(path: &Path) -> bool {
+    if std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0) < 1_000_000 {
+        return false;
+    }
+    let mut header = [0u8; 2];
+    std::fs::File::open(path).and_then(|mut file| std::io::Read::read_exact(&mut file, &mut header)).is_ok()
+        && header == *b"MZ"
+}
+
+fn copy_file_required(source: &Path, destination: &Path, label: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !source.is_file() {
+        return Err(format!("missing {label}: {}", source.display()).into());
+    }
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::copy(source, destination)?;
+    Ok(())
+}
+
+fn stage_i386_builtins(build: &Path, prefix: &Path) -> Result<usize, Box<dyn std::error::Error>> {
+    let dll_root = build.join("dlls");
+    let syswow64 = prefix.join("drive_c/windows/syswow64");
+    std::fs::create_dir_all(&syswow64)?;
+    let mut staged = 0usize;
+
+    for component in std::fs::read_dir(&dll_root)? {
+        let component = component?;
+        let lane = component.path().join("i386-windows");
+        if !lane.is_dir() {
+            continue;
+        }
+        for entry in std::fs::read_dir(lane)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("dll")) {
+                std::fs::copy(&path, syswow64.join(entry.file_name()))?;
+                staged += 1;
+            }
+        }
+    }
+
+    if staged == 0 {
+        return Err("complete runtime contains no i386 Wine builtins to stage into the Steam prefix".into());
+    }
+    Ok(staged)
+}
+
+fn run_runtime_provider_stage(prefix: &Path, verify_only: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let root = runtime_root();
+    let script = root.join("scripts/stage-runtime-providers.sh");
+    let xtajit64 = root.join("providers/xtajit64-arm64ec-known-good.dll");
+    let xtajit = root.join("providers/xtajit-arm64-known-good.dll");
+    if !script.is_file() {
+        return Err(format!("runtime provider staging script is missing: {}", script.display()).into());
+    }
+
+    let status = Command::new("/bin/bash")
+        .arg(&script)
+        .arg(if verify_only { "--verify-prefix" } else { "--prefix" })
+        .arg(prefix)
+        .env("WINEBUILDDIR", root.join("wine/build-ec"))
+        .env("VKMT_XTAJIT64_SOURCE", &xtajit64)
+        .env("VKMT_XTAJIT_SOURCE", &xtajit)
+        .env("VKMT_XTAJIT64_SHA256", XTAJIT64_SHA256)
+        .env("VKMT_XTAJIT_SHA256", XTAJIT_SHA256)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .output()?;
+    if !status.status.success() {
+        return Err(format!(
+            "runtime provider {} failed: {}",
+            if verify_only { "verification" } else { "staging" },
+            String::from_utf8_lossy(&status.stderr).lines().last().unwrap_or("unknown error")
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn steam_prefix_all_arch_ready(prefix: &Path) -> bool {
+    [
+        "system.reg",
+        "user.reg",
+        "drive_c/windows/system32/kernel32.dll",
+        "drive_c/windows/system32/ntdll.dll",
+        "drive_c/windows/system32/wow64.dll",
+        "drive_c/windows/system32/wow64win.dll",
+        "drive_c/windows/system32/xtajit64.dll",
+        "drive_c/windows/system32/xtajit.dll",
+        "drive_c/windows/syswow64/kernel32.dll",
+        "drive_c/windows/syswow64/ntdll.dll",
+        ".vkmt/gstreamer-runtime.sha256",
+    ]
+    .iter()
+    .all(|relative| prefix.join(relative).is_file())
+}
+
+fn prepare_steam_prefix(prefix: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let root = runtime_root();
+    let build = root.join("wine/build-ec");
+    let wine = ms_wine();
+    let system32 = prefix.join("drive_c/windows/system32");
+    std::fs::create_dir_all(&system32)?;
+    std::fs::create_dir_all(prefix.join("drive_c/windows/syswow64"))?;
+
+    copy_file_required(
+        &build.join("dlls/wow64/aarch64-windows/wow64.dll"),
+        &system32.join("wow64.dll"),
+        "ARM64 WoW64 provider",
+    )?;
+    copy_file_required(
+        &build.join("dlls/wow64win/aarch64-windows/wow64win.dll"),
+        &system32.join("wow64win.dll"),
+        "ARM64 WoW64 windowing provider",
+    )?;
+    stage_i386_builtins(&build, prefix)?;
+    run_runtime_provider_stage(prefix, false)?;
+
+    let wineboot = build.join("programs/wineboot/aarch64-windows/wineboot.exe");
+    let status = Command::new(&wine)
+        .arg(&wineboot)
+        .arg("--init")
+        .env("WINEPREFIX", prefix)
+        .env("WINEBUILDDIR", &build)
+        .env("WINEBOOTSTRAPMODE", "1")
+        .env("WINE_NO_EXPLORER", "1")
+        .env("WINEDEBUG", "-all")
+        .env("WINEDEBUGGER", "none")
+        .env("FEX_TSOENABLED", "0")
+        .env("FEX_VECTORTSOENABLED", "0")
+        .env("FEX_MEMCPYSETTSOENABLED", "0")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()?;
+    if !status.success() {
+        return Err(format!("all-architecture wineboot failed with {status}").into());
+    }
+
+    let wineserver = crate::platform::runtime_wineserver(&root.join("wine"));
+    let wait_status = Command::new(wineserver).arg("-w").env("WINEPREFIX", prefix).status()?;
+    if !wait_status.success() {
+        return Err(format!("wineserver -w failed after Steam prefix initialization with {wait_status}").into());
+    }
+
+    run_runtime_provider_stage(prefix, false)?;
+    run_runtime_provider_stage(prefix, true)?;
+    if !steam_prefix_all_arch_ready(prefix) {
+        return Err("Steam prefix was initialized but the ARM64/ARM64EC/x86_64/i386 acceptance gate failed".into());
+    }
+    Ok(())
+}
+
+fn stop_steam_install_prefix() -> Result<(), Box<dyn std::error::Error>> {
+    let prefix = steam_prefix();
+    let wineserver = crate::platform::runtime_wineserver(&runtime_root().join("wine"));
+    for argument in ["-k", "-w"] {
+        let status = Command::new(&wineserver).arg(argument).env("WINEPREFIX", &prefix).status()?;
+        if !status.success() {
+            return Err(format!("Steam install wineserver {argument} failed with {status}").into());
+        }
+    }
+    Ok(())
+}
+
+fn spawn_steam_install_bootstrap() -> Result<u32, Box<dyn std::error::Error>> {
+    let prefix = steam_prefix();
+    let steam_dir = prefix.join("drive_c/Program Files (x86)/Steam");
+    let steam = steam_dir.join("Steam.exe");
+    if !steam.is_file() {
+        return Err(format!("Steam handoff executable is missing: {}", steam.display()).into());
+    }
+
+    let log_dir = crate::platform::metalsharp_home_dir().join("logs");
+    std::fs::create_dir_all(&log_dir)?;
+    let output =
+        std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("steam-install-handoff.log"))?;
+    let errors = output.try_clone()?;
+    let child = Command::new(ms_wine())
+        .arg(&steam)
+        .current_dir(&steam_dir)
+        .env("WINEPREFIX", &prefix)
+        .env("WINEBUILDDIR", runtime_root().join("wine/build-ec"))
+        .env("WINEBOOTSTRAPMODE", "1")
+        .env("VKMT_STEAM_HANDOFF_NOTIFY", "1")
+        .env("VKMT_STEAM_BOOTSTRAP_WAKE_RECOVERY", "0")
+        .env("FEX_TSOENABLED", "0")
+        .env("FEX_VECTORTSOENABLED", "0")
+        .env("FEX_MEMCPYSETTSOENABLED", "0")
+        .env("WINEDEBUG", "-all")
+        .env("WINEDEBUGGER", "none")
+        .env("MS_FWD_COMPAT_GL_CTX", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(output))
+        .stderr(std::process::Stdio::from(errors))
+        .spawn()?;
+    Ok(child.id())
+}
+
+fn run_install_handoff_cycle(cycle: u8) -> Result<Option<u32>, Box<dyn std::error::Error>> {
+    std::thread::sleep(std::time::Duration::from_millis(350));
+    stop_steam_install_prefix()?;
+    if cycle < STEAM_INSTALL_HANDOFF_LIMIT {
+        return spawn_steam_install_bootstrap().map(Some);
+    }
+
+    let steam_dir = steam_prefix().join("drive_c/Program Files (x86)/Steam");
+    deploy_steamwebhelper_wrapper(&steam_dir);
+    if !steamwebhelper_wrapper_deployed(&steam_dir) {
+        return Err("Steam updated successfully, but the verified steamwebhelper wrapper was not deployed".into());
+    }
+    std::fs::write(steam_dir.join(STEAM_INSTALL_MARKER), "handoffs=2\nwrapper_deployed=1\nno_tso=1\n")?;
+    Ok(None)
+}
+
+pub fn accept_install_handoff() -> (u16, Value) {
+    let mut state = match install_handoff_state().lock() {
+        Ok(state) => state,
+        Err(_) => return (500, json!({"ok": false, "error": "Steam install handoff state is unavailable"})),
+    };
+    if !STEAM_INSTALLING.load(Ordering::SeqCst) {
+        return (409, json!({"ok": false, "accepted": false, "reason": "no-install-active"}));
+    }
+    if state.active {
+        return (409, json!({"ok": false, "accepted": false, "reason": "handoff-active"}));
+    }
+    if state.accepted >= STEAM_INSTALL_HANDOFF_LIMIT {
+        return (429, json!({"ok": false, "accepted": false, "reason": "handoff-limit"}));
+    }
+
+    state.accepted += 1;
+    state.active = true;
+    let cycle = state.accepted;
+    drop(state);
+
+    std::thread::spawn(move || {
+        let outcome = run_install_handoff_cycle(cycle);
+        if let Ok(mut state) = install_handoff_state().lock() {
+            state.active = false;
+            match outcome {
+                Ok(pid) => {
+                    state.last_child_pid = pid;
+                    state.complete = cycle == STEAM_INSTALL_HANDOFF_LIMIT;
+                    state.last_error = None;
+                },
+                Err(error) => state.last_error = Some(error.to_string()),
+            }
+        }
+    });
+
+    (202, json!({"ok": true, "accepted": true, "cycle": cycle, "limit": STEAM_INSTALL_HANDOFF_LIMIT}))
+}
+
 pub fn install_steam() -> Result<String, Box<dyn std::error::Error>> {
     let steam_dir = steam_prefix().join("drive_c").join("Program Files (x86)").join("Steam");
 
-    if steam_dir.join("steamui.dll").exists() && steam_exe_path().exists() {
+    if steam_dir.join(STEAM_INSTALL_MARKER).exists()
+        && steam_dir.join("steamui.dll").exists()
+        && steam_exe_path().exists()
+    {
         return Ok("Steam already installed".into());
     }
 
@@ -1465,9 +1780,16 @@ pub fn install_steam() -> Result<String, Box<dyn std::error::Error>> {
     if STEAM_INSTALLING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         return Ok("Steam installation already in progress".into());
     }
+    reset_install_handoff_state();
 
     std::thread::spawn(move || {
-        let _ = run_install_steam();
+        if let Err(error) = run_install_steam() {
+            if let Ok(mut state) = install_handoff_state().lock() {
+                state.active = false;
+                state.complete = false;
+                state.last_error = Some(error.to_string());
+            }
+        }
         STEAM_INSTALLING.store(false, Ordering::SeqCst);
     });
 
@@ -1481,136 +1803,97 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
 
     let steam_dir = steam_prefix().join("drive_c").join("Program Files (x86)").join("Steam");
 
+    let _ = stop_steam_install_prefix();
     let _ = std::fs::remove_dir_all(steam_prefix());
 
     let installer = metalsharp_dir.join("SteamSetup.exe");
     let _ = std::fs::remove_file(&installer);
 
     let url = "https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe";
-    let output = Command::new("curl").args(["-sL", "-o", &installer.to_string_lossy(), url]).status()?;
-    if !output.success() {
+    let output = Command::new("/usr/bin/curl")
+        .args(["--fail", "--location", "--silent", "--show-error", "--retry", "4", "--output"])
+        .arg(&installer)
+        .arg(url)
+        .status()?;
+    if !output.success() || !steam_installer_valid(&installer) {
+        let _ = std::fs::remove_file(&installer);
         if let Some(bundled) = find_bundled_steam_asset("SteamSetup.exe") {
             let _ = std::fs::copy(&bundled, &installer);
         }
     }
-    if !installer.exists() {
-        return Err("Failed to download Steam installer".into());
+    if !steam_installer_valid(&installer) {
+        return Err("Failed to download a valid Steam installer".into());
     }
 
     let wine = ms_wine();
-    if !wine.exists() {
+    if !wine.exists() || !crate::installer::complete_runtime_current_for_home(&home) {
         return Err("MetalSharp Wine not found".into());
     }
 
     let prefix = steam_prefix();
     std::fs::create_dir_all(&prefix)?;
-
-    let prefix_str = prefix.to_string_lossy().to_string();
-
-    let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
-
-    let mut wineboot_cmd = Command::new(&wine);
-    wineboot_cmd
-        .env("WINEPREFIX", &prefix_str)
-        .env("WINEDEBUG", "-all")
-        .env("WINEDEBUGGER", "/usr/bin/true")
-        .env("WINEDLLOVERRIDES", "winedbg=d")
-        .arg("wineboot")
-        .arg("--init")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    crate::platform::set_runtime_library_env(&mut wineboot_cmd, &ms_root);
-    let wineboot_result = wineboot_cmd.status();
-
-    if wineboot_result.is_err() {
-        return Err("wineboot --init failed — MetalSharp Wine may not be properly installed".into());
-    }
-
-    let windows_dir = prefix.join("drive_c").join("windows").join("system32");
-    let mut wineboot_ok = false;
-    for _ in 0..30 {
-        if windows_dir.exists() {
-            wineboot_ok = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_secs(2));
-    }
-    if !wineboot_ok {
-        return Err("wineboot --init timed out — Wine prefix was not created within 60 seconds".into());
-    }
+    prepare_steam_prefix(&prefix)?;
 
     let seed_log = prefix.join("drive_c").join("metalsharp-post-wineboot.log");
     let _ = crate::bottles::seed_post_wineboot_config(&prefix, &seed_log);
 
     let mut install_cmd = Command::new(&wine);
     install_cmd
-        .env("WINEPREFIX", &prefix_str)
+        .env("WINEPREFIX", &prefix)
+        .env("WINEBUILDDIR", runtime_root().join("wine/build-ec"))
+        .env("WINEBOOTSTRAPMODE", "1")
+        .env("VKMT_STEAM_HANDOFF_NOTIFY", "1")
+        .env("VKMT_STEAM_BOOTSTRAP_WAKE_RECOVERY", "0")
+        .env("FEX_TSOENABLED", "0")
+        .env("FEX_VECTORTSOENABLED", "0")
+        .env("FEX_MEMCPYSETTSOENABLED", "0")
         .env("WINEDEBUG", "-all")
-        .env("WINEDEBUGGER", "/usr/bin/true")
+        .env("WINEDEBUGGER", "none")
         .env("WINEDLLOVERRIDES", "winedbg=d")
         .arg(&installer)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    crate::platform::set_runtime_library_env(&mut install_cmd, &ms_root);
 
     let mut install_child = install_cmd.spawn()?;
     let install_pid = install_child.id();
 
     let steam_exe = steam_dir.join("Steam.exe");
     let steam_ui_dll = steam_dir.join("steamui.dll");
-    let mut install_crashed = false;
-    for _ in 0..70 {
-        // Check if the installer process is still running before waiting.
+    let mut installer_exited = false;
+    for _ in 0..2700 {
         match install_child.try_wait() {
             Ok(Some(status)) => {
-                if !status.success() {
+                if !status.success() && !steam_exe.exists() {
                     eprintln!("steam: installer exited early with status {:?}", status.code());
-                    install_crashed = true;
+                    return Err(format!("Steam installer exited before installing Steam (pid {install_pid})").into());
                 }
-                break;
+                installer_exited = true;
             },
-            Ok(None) => {}, // Still running
+            Ok(None) => {},
             Err(e) => {
                 eprintln!("steam: failed to check installer status: {}", e);
-                break;
             },
         }
-        if steam_exe.exists() && steam_ui_dll.exists() {
-            break;
+
+        let state = install_handoff_state()
+            .lock()
+            .map(|state| state.clone())
+            .map_err(|_| "Steam install handoff state is unavailable")?;
+        if let Some(error) = state.last_error {
+            return Err(format!("Steam updater handoff failed: {error}").into());
+        }
+        if state.complete
+            && steam_exe.exists()
+            && steam_ui_dll.exists()
+            && steam_dir.join(STEAM_INSTALL_MARKER).exists()
+        {
+            return Ok("Steam install completed after two updater handoffs".into());
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    // If installer crashed, wait briefly for any remaining file I/O to settle
-    // before checking if Steam was partially installed anyway.
-    if install_crashed {
-        std::thread::sleep(std::time::Duration::from_secs(3));
-        if steam_exe.exists() && steam_ui_dll.exists() {
-            eprintln!("steam: installer crashed but Steam files are present — continuing");
-        } else {
-            // Kill any remaining Wine processes from the failed install
-            let _ = Command::new("pkill")
-                .args(["-f", &format!("WINEPREFIX={}", prefix_str)])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-            return Err(format!("Steam installer crashed (pid {}). Check Wine setup and retry.", install_pid).into());
-        }
-    }
-
-    if steam_exe.exists() && steam_ui_dll.exists() {
-        deploy_steamwebhelper_wrapper(&steam_dir);
-    }
-
-    for _ in 0..30 {
-        if !cef_subdirs(&steam_dir).is_empty() {
-            deploy_steamwebhelper_wrapper(&steam_dir);
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_secs(2));
-    }
-
-    Ok("Steam install thread complete".into())
+    let exited = if installer_exited { " after the installer process exited" } else { "" };
+    Err(format!("Steam installation timed out before both updater handoffs completed{exited}").into())
 }
 
 pub fn watch_steamapps() -> Vec<u32> {
@@ -1642,6 +1925,10 @@ pub fn watch_steamapps() -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_prefix(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("metalsharp-steam-{name}-{}", std::process::id()))
+    }
 
     #[test]
     fn stop_wine_steam_targets_report_has_required_shape() {
@@ -1734,5 +2021,57 @@ mod tests {
 
         assert_eq!(fields.get(1).copied(), Some("steam"));
         assert_eq!(STEAMWEBHELPER_WRAPPER_SHA256.len(), 64);
+    }
+
+    #[test]
+    fn all_arch_prefix_gate_requires_native_wow64_and_i386_surfaces() {
+        let prefix = test_prefix("all-arch-gate");
+        let _ = std::fs::remove_dir_all(&prefix);
+        for relative in [
+            "system.reg",
+            "user.reg",
+            "drive_c/windows/system32/kernel32.dll",
+            "drive_c/windows/system32/ntdll.dll",
+            "drive_c/windows/system32/wow64.dll",
+            "drive_c/windows/system32/wow64win.dll",
+            "drive_c/windows/system32/xtajit64.dll",
+            "drive_c/windows/system32/xtajit.dll",
+            "drive_c/windows/syswow64/kernel32.dll",
+            "drive_c/windows/syswow64/ntdll.dll",
+            ".vkmt/gstreamer-runtime.sha256",
+        ] {
+            let path = prefix.join(relative);
+            std::fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
+            std::fs::write(path, b"fixture").expect("write fixture");
+        }
+
+        assert!(steam_prefix_all_arch_ready(&prefix));
+        std::fs::remove_file(prefix.join("drive_c/windows/syswow64/ntdll.dll")).expect("remove i386 fixture");
+        assert!(!steam_prefix_all_arch_ready(&prefix));
+        let _ = std::fs::remove_dir_all(prefix);
+    }
+
+    #[test]
+    fn handoff_endpoint_rejects_callbacks_without_active_install() {
+        STEAM_INSTALLING.store(false, Ordering::SeqCst);
+        reset_install_handoff_state();
+        let (status, response) = accept_install_handoff();
+
+        assert_eq!(status, 409);
+        assert_eq!(response.get("reason").and_then(Value::as_str), Some("no-install-active"));
+    }
+
+    #[test]
+    fn steam_installer_gate_requires_large_pe_payload() {
+        let fixture = test_prefix("installer-gate.exe");
+        let mut payload = vec![0u8; 1_000_001];
+        payload[..2].copy_from_slice(b"MZ");
+        std::fs::write(&fixture, &payload).expect("write installer fixture");
+        assert!(steam_installer_valid(&fixture));
+
+        payload[..2].copy_from_slice(b"NO");
+        std::fs::write(&fixture, &payload).expect("replace installer fixture");
+        assert!(!steam_installer_valid(&fixture));
+        let _ = std::fs::remove_file(fixture);
     }
 }
