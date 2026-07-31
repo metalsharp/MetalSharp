@@ -86,6 +86,18 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   and its Unix winemetal bridge identifies as ARM64. The deterministic Rust
   suite passes 651/651, strict Clippy passes, all Rust targets build, and the
   TypeScript/Vite production build passes.
+- Phase 7 adds global Controller `[D | X]` and Msync controls to the left
+  sidebar. Settings persist as `controllerMode` (`dinput` or `xinput`) and
+  `msyncEnabled`; legacy snake-case aliases are read and written as well.
+- Every managed Wine path receives `METALSHARP_CONTROLLER_MODE` and
+  `WINEMSYNC`, including MTSP direct routes, Steam route handoffs, Steam
+  setup/update processes, ordinary Wine launches, prefix initialization, and
+  GOG. Existing installs default to XInput and Msync enabled. Environment
+  overrides remain available as `METALSHARP_CONTROLLER_MODE` and
+  `METALSHARP_MSYNC`.
+- Phase 7 validation: the deterministic Rust suite passes 653/653, strict
+  Clippy passes, all Rust targets build, and the TypeScript/Vite production
+  build passes.
 
 ## What This Project Is
 

@@ -46,6 +46,7 @@ pub fn launch_via_steam(appid: u32) -> Result<u32, Box<dyn std::error::Error>> {
         .args(["start", &url])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    apply_wine_runtime_preferences(&mut cmd);
     crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
     spawn_and_reap(cmd)
 }
@@ -87,6 +88,7 @@ pub fn launch_via_steam_with_env(
 
     let mut cmd = Command::new(&wine);
     cmd.env("WINEPREFIX", &prefix_str).env("WINEDEBUG", "-all").env("WINEDEBUGGER", "none");
+    apply_wine_runtime_preferences(&mut cmd);
     crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
 
     for (key, val) in extra_env {
@@ -192,6 +194,8 @@ pub fn get_config() -> Value {
     let native_available = find_metalsharp_native().is_ok();
     let mono_available = find_mono().is_ok();
     let graphics_runtime_logs = graphics_runtime_logs_enabled();
+    let controller_mode = controller_mode();
+    let msync_enabled = msync_enabled();
 
     json!({
         "ok": true,
@@ -199,7 +203,42 @@ pub fn get_config() -> Value {
         "mono_available": mono_available,
         "graphicsRuntimeLogs": graphics_runtime_logs,
         "graphics_runtime_logs": graphics_runtime_logs,
+        "controllerMode": controller_mode,
+        "controller_mode": controller_mode,
+        "msyncEnabled": msync_enabled,
+        "msync_enabled": msync_enabled,
     })
+}
+
+pub fn controller_mode() -> String {
+    if let Ok(value) = std::env::var("METALSHARP_CONTROLLER_MODE") {
+        if let Some(mode) = normalize_controller_mode(&value) {
+            return mode.to_string();
+        }
+    }
+    read_config_string("controllerMode")
+        .or_else(|| read_config_string("controller_mode"))
+        .and_then(|value| normalize_controller_mode(&value).map(str::to_string))
+        .unwrap_or_else(|| "xinput".to_string())
+}
+
+pub fn msync_enabled() -> bool {
+    if let Ok(value) = std::env::var("METALSHARP_MSYNC") {
+        return truthy(&value);
+    }
+    read_config_bool("msyncEnabled").or_else(|| read_config_bool("msync_enabled")).unwrap_or(true)
+}
+
+pub fn apply_wine_runtime_preferences(command: &mut Command) {
+    command.env("WINEMSYNC", if msync_enabled() { "1" } else { "0" });
+    command.env("METALSHARP_CONTROLLER_MODE", controller_mode());
+}
+
+pub fn wine_runtime_preference_env_pairs() -> [(String, String); 2] {
+    [
+        ("WINEMSYNC".to_string(), if msync_enabled() { "1" } else { "0" }.to_string()),
+        ("METALSHARP_CONTROLLER_MODE".to_string(), controller_mode()),
+    ]
 }
 
 pub fn graphics_runtime_logs_enabled() -> bool {
@@ -214,6 +253,21 @@ fn read_config_bool(key: &str) -> Option<bool> {
     let contents = std::fs::read_to_string(path).ok()?;
     let value: Value = serde_json::from_str(&contents).ok()?;
     value.get(key).and_then(json_bool)
+}
+
+fn read_config_string(key: &str) -> Option<String> {
+    let path = config_path_for_home(&dirs::home_dir()?);
+    let contents = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+    value.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+fn normalize_controller_mode(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "d" | "dinput" => Some("dinput"),
+        "x" | "xinput" => Some("xinput"),
+        _ => None,
+    }
 }
 
 fn json_bool(value: &Value) -> Option<bool> {
@@ -354,6 +408,7 @@ pub fn ensure_wine_prefix(prefix: &PathBuf) -> Result<(), Box<dyn std::error::Er
         .arg("--init")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    apply_wine_runtime_preferences(&mut cmd);
     crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
     let status = cmd.status()?;
 
@@ -386,6 +441,19 @@ pub fn set_config(body: &Map<String, Value>) -> Result<Value, Box<dyn std::error
         cfg.insert("graphics_runtime_logs".into(), json!(value));
     }
 
+    if let Some(value) = body.get("controllerMode").or_else(|| body.get("controller_mode")) {
+        let raw = value.as_str().ok_or("controllerMode must be dinput or xinput")?;
+        let mode = normalize_controller_mode(raw).ok_or("controllerMode must be dinput or xinput")?;
+        cfg.insert("controllerMode".into(), json!(mode));
+        cfg.insert("controller_mode".into(), json!(mode));
+    }
+
+    if let Some(raw) = body.get("msyncEnabled").or_else(|| body.get("msync_enabled")) {
+        let value = json_bool(raw).ok_or("msyncEnabled must be a boolean")?;
+        cfg.insert("msyncEnabled".into(), json!(value));
+        cfg.insert("msync_enabled".into(), json!(value));
+    }
+
     std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?;
     Ok(get_config())
 }
@@ -401,6 +469,7 @@ fn launch_via_wine(exe_path: &str) -> Result<u32, Box<dyn std::error::Error>> {
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let mut cmd = Command::new(&wine);
     cmd.env("WINEPREFIX", &prefix_str).arg(exe_path);
+    apply_wine_runtime_preferences(&mut cmd);
     crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
     let child = cmd.spawn()?;
 
@@ -457,5 +526,21 @@ mod tests {
         assert!(ensure_steam_env_handoff_supported(true, &env).is_err());
         assert!(ensure_steam_env_handoff_supported(true, &[]).is_ok());
         assert!(ensure_steam_env_handoff_supported(false, &env).is_ok());
+    }
+
+    #[test]
+    fn controller_mode_contract_accepts_only_dinput_or_xinput() {
+        assert_eq!(normalize_controller_mode("D"), Some("dinput"));
+        assert_eq!(normalize_controller_mode(" xinput "), Some("xinput"));
+        assert_eq!(normalize_controller_mode("automatic"), None);
+    }
+
+    #[test]
+    fn runtime_preferences_have_stable_launch_keys() {
+        let pairs = wine_runtime_preference_env_pairs();
+        assert_eq!(pairs[0].0, "WINEMSYNC");
+        assert_eq!(pairs[1].0, "METALSHARP_CONTROLLER_MODE");
+        assert!(matches!(pairs[0].1.as_str(), "0" | "1"));
+        assert!(matches!(pairs[1].1.as_str(), "dinput" | "xinput"));
     }
 }

@@ -1105,6 +1105,7 @@ pub fn launch_custom_with_options(
         .env("WINEPREFIX", &prefix_str)
         .env("WINEDEBUG", wine_debug_value())
         .env("WINEDEBUGGER", "none");
+    crate::launch::apply_wine_runtime_preferences(&mut cmd);
     apply_route_library_env(&mut cmd, &ms_root, &node.dyld_paths);
     apply_metalfx_home_env(&mut cmd, &home);
 
@@ -1125,7 +1126,6 @@ pub fn launch_custom_with_options(
         cmd.env("DXMT_WINEMETAL_UNIXLIB", dxmt_winemetal_unixlib_path(&ms_root));
     }
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
@@ -1432,8 +1432,8 @@ fn launch_d3dmetal_gptk_with_context(
         .env("WINESERVER", &gptk_wineserver)
         .env("WINELOADER", &gptk_wine64)
         .env("DYLD_FALLBACK_LIBRARY_PATH", &dyld)
-        .env("MS_GRAPHICS_BACKEND", node.graphics_backend)
-        .env("WINEMSYNC", "1");
+        .env("MS_GRAPHICS_BACKEND", node.graphics_backend);
+    crate::launch::apply_wine_runtime_preferences(&mut cmd);
     apply_metalfx_home_env(&mut cmd, &home);
 
     if node.uses_winedllpath_routing() {
@@ -1558,6 +1558,7 @@ fn launch_wine_graphics_with_context(
         .env("WINEPREFIX", &prefix_str)
         .env("WINEDEBUG", wine_debug_value())
         .env("WINEDEBUGGER", "none");
+    crate::launch::apply_wine_runtime_preferences(&mut cmd);
     apply_route_library_env(&mut cmd, &ms_root, &node.dyld_paths);
     apply_metalfx_home_env(&mut cmd, &home);
 
@@ -1579,7 +1580,6 @@ fn launch_wine_graphics_with_context(
     }
 
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
 
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
@@ -1657,6 +1657,7 @@ fn launch_wine_bare_with_context(
         .env("WINEPREFIX", &prefix_str)
         .env("WINEDEBUG", wine_debug_value())
         .env("WINEDEBUGGER", "none");
+    crate::launch::apply_wine_runtime_preferences(&mut cmd);
     apply_route_library_env(&mut cmd, &ms_root, &node.dyld_paths);
     apply_metalfx_home_env(&mut cmd, &home);
 
@@ -1667,7 +1668,6 @@ fn launch_wine_bare_with_context(
     let cache_paths = build_cache_paths(&home, node, appid);
     apply_cache_env(&mut cmd, node, cache_paths.as_ref(), &ms_root);
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
@@ -2355,7 +2355,7 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
         env.push(("DXMT_WINEMETAL_UNIXLIB".to_string(), dxmt_winemetal_unixlib_path(&ms_root)));
     }
     env.push(("MS_GRAPHICS_BACKEND".to_string(), node.graphics_backend.to_string()));
-    env.push(("WINEMSYNC".to_string(), "1".to_string()));
+    env.extend(crate::launch::wine_runtime_preference_env_pairs());
     env.extend(cache_env_pairs(node, cache_paths.as_ref(), &ms_root));
     env.extend(node.env_vars.iter().map(|ev| (ev.key.to_string(), ev.value.to_string())));
     env.extend(app_compat_env_pairs(appid, node.id));
@@ -2388,6 +2388,7 @@ fn is_reserved_route_env_key(pipeline_id: PipelineId, key: &str) -> bool {
             | "VK_ICD_FILENAMES"
             | "MS_GRAPHICS_BACKEND"
             | "WINEMSYNC"
+            | "METALSHARP_CONTROLLER_MODE"
     )
 }
 
@@ -5226,6 +5227,7 @@ mod tests {
             "VK_ICD_FILENAMES",
             "MS_GRAPHICS_BACKEND",
             "WINEMSYNC",
+            "METALSHARP_CONTROLLER_MODE",
         ] {
             assert!(is_reserved_route_env_key(PipelineId::M12, key), "{} must be reserved for M12", key);
             assert!(!is_reserved_route_env_key(PipelineId::M11, key), "{} should remain overridable outside M12", key);
@@ -5247,6 +5249,8 @@ mod tests {
         assert!(keys.contains("SteamOverlayGameId"));
         assert!(keys.contains("VKD3D_SHADER_CACHE_PATH"));
         assert!(keys.contains("DXVK_STATE_CACHE_PATH"));
+        assert!(keys.contains("WINEMSYNC"));
+        assert!(keys.contains("METALSHARP_CONTROLLER_MODE"));
         assert!(!keys.contains("VKD3D_LOG_FILE"));
         assert!(keys.contains("METALSHARP_CACHE_SUMMARY"));
         assert!(!env.iter().any(|(key, _)| key.starts_with("DXMT")));
