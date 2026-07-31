@@ -33,6 +33,10 @@ interface AppConfig {
   mono_available?: boolean;
   graphicsRuntimeLogs?: boolean;
   graphics_runtime_logs?: boolean;
+  controllerMode?: "dinput" | "xinput";
+  controller_mode?: "dinput" | "xinput";
+  msyncEnabled?: boolean;
+  msync_enabled?: boolean;
 }
 
 interface UpdateStatus {

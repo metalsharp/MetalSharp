@@ -335,6 +335,7 @@ fn seed_steam_d3d12_guard(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn s
         .env("WINEDEBUGGER", "none")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    crate::launch::apply_wine_runtime_preferences(&mut cmd);
     crate::platform::set_runtime_library_env(&mut cmd, ms_root);
     let status = cmd.status()?;
     if status.success() {
@@ -422,6 +423,7 @@ fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> R
         .arg(&exe)
         .args(args)
         .stdout(std::process::Stdio::null());
+    crate::launch::apply_wine_runtime_preferences(&mut cmd);
 
     if let Some(f) = log_file {
         cmd.stderr(std::process::Stdio::from(f));
@@ -1660,7 +1662,8 @@ fn prepare_steam_prefix(prefix: &Path) -> Result<(), Box<dyn std::error::Error>>
     run_runtime_provider_stage(prefix, false)?;
 
     let wineboot = build.join("programs/wineboot/aarch64-windows/wineboot.exe");
-    let status = Command::new(&wine)
+    let mut wineboot_command = Command::new(&wine);
+    wineboot_command
         .arg(&wineboot)
         .arg("--init")
         .env("WINEPREFIX", prefix)
@@ -1673,8 +1676,9 @@ fn prepare_steam_prefix(prefix: &Path) -> Result<(), Box<dyn std::error::Error>>
         .env("FEX_VECTORTSOENABLED", "0")
         .env("FEX_MEMCPYSETTSOENABLED", "0")
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
+        .stderr(std::process::Stdio::null());
+    crate::launch::apply_wine_runtime_preferences(&mut wineboot_command);
+    let status = wineboot_command.status()?;
     if !status.success() {
         return Err(format!("all-architecture wineboot failed with {status}").into());
     }
@@ -1718,7 +1722,8 @@ fn spawn_steam_install_bootstrap() -> Result<u32, Box<dyn std::error::Error>> {
     let output =
         std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("steam-install-handoff.log"))?;
     let errors = output.try_clone()?;
-    let child = Command::new(ms_wine())
+    let mut command = Command::new(ms_wine());
+    command
         .arg(&steam)
         .current_dir(&steam_dir)
         .env("WINEPREFIX", &prefix)
@@ -1734,8 +1739,9 @@ fn spawn_steam_install_bootstrap() -> Result<u32, Box<dyn std::error::Error>> {
         .env("MS_FWD_COMPAT_GL_CTX", "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(output))
-        .stderr(std::process::Stdio::from(errors))
-        .spawn()?;
+        .stderr(std::process::Stdio::from(errors));
+    crate::launch::apply_wine_runtime_preferences(&mut command);
+    let child = command.spawn()?;
     Ok(child.id())
 }
 
@@ -1883,6 +1889,7 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
         .arg(&installer)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    crate::launch::apply_wine_runtime_preferences(&mut install_cmd);
 
     let mut install_child = install_cmd.spawn()?;
     let install_pid = install_child.id();

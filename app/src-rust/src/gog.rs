@@ -570,11 +570,11 @@ fn initialize_prefix() -> Result<(), String> {
         .arg("wineboot")
         .arg("-u")
         .env("WINEPREFIX", prefix.to_string_lossy().to_string())
-        .env("WINEMSYNC", "1")
         .env("WINEDEBUG", "-all")
         .env("MS_FWD_COMPAT_GL_CTX", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    crate::launch::apply_wine_runtime_preferences(&mut command);
     crate::platform::set_runtime_library_env(&mut command, &wine_root());
     let status = command.status().map_err(|error| format!("failed to initialize GOG prefix: {}", error))?;
     if status.success() {

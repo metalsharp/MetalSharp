@@ -41,6 +41,8 @@ export interface AppConfig {
   launchMode: "native" | "wine";
   wineAvailable: boolean;
   nativeAvailable: boolean;
+  controllerMode?: "dinput" | "xinput";
+  msyncEnabled?: boolean;
 }
 
 export interface RustResponse<T = unknown> {
