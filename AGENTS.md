@@ -51,6 +51,16 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   payload size, and verify x64 DLLs in `system32` or x86 DLLs in `syswow64`.
   Microsoft's x64 redistributable intentionally uses an i386 PE bootstrap, so
   do not misclassify its bootstrap machine as the installed payload target.
+- Phase 5 does not change the Launch Steam endpoint, UI button, executable, or
+  flags. Its wrapper maintenance now prefers the canonical complete-runtime
+  asset at `runtime/integration/steam-webhelper/steamwebhelper.exe`, whose
+  accepted SHA-256 is
+  `f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9`.
+- Steam updates are repaired before launch only when the wrapper/real-helper
+  pair fails its hash-and-size contract. Wrapper deployment is refused unless
+  the target is exactly the MetalSharp Steam prefix or a MetalSharp-managed
+  bottle prefix; never deploy into CrossOver, another Wine installation, or an
+  arbitrary path.
 
 ## What This Project Is
 
