@@ -392,6 +392,7 @@ fn complete_runtime_current_for_root(root: &Path) -> bool {
 fn find_complete_runtime_installer() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(resources) = crate::platform::app_resources_dir() {
+        candidates.push(resources.join("runtime-bundle").join(COMPLETE_RUNTIME_INSTALLER));
         candidates.push(resources.join("scripts").join(COMPLETE_RUNTIME_INSTALLER));
     }
     candidates
@@ -410,11 +411,12 @@ pub(crate) fn install_complete_runtime(home: &PathBuf) -> Result<bool, String> {
         format!("{} is missing from the MetalSharp application resources", COMPLETE_RUNTIME_INSTALLER)
     })?;
     let target = complete_runtime_root(home);
-    let output = Command::new("/bin/bash")
-        .arg(&installer)
-        .args(["--target"])
-        .arg(&target)
-        .args(["--replace", "--discard-backup"])
+    let mut command = Command::new("/bin/bash");
+    command.arg(&installer).args(["--target"]).arg(&target).args(["--replace", "--discard-backup"]);
+    if let Some(bundle_dir) = installer.parent().filter(|parent| parent.join("PARTS-SHA256SUMS.txt").is_file()) {
+        command.arg("--bundle-dir").arg(bundle_dir);
+    }
+    let output = command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()

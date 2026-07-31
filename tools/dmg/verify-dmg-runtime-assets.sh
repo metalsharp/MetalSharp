@@ -11,11 +11,10 @@ if [ ! -s "$DMG" ]; then
 fi
 
 MOUNT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-dmg-mount.XXXXXX")"
-LIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-dmg-bundles.XXXXXX")"
 
 cleanup() {
   hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
-  rm -rf "$MOUNT_DIR" "$LIST_DIR"
+  rm -rf "$MOUNT_DIR"
 }
 trap cleanup EXIT
 
@@ -30,7 +29,7 @@ fi
 RESOURCES="$APP_DIR/Contents/Resources"
 BACKEND="$RESOURCES/runtime/metalsharp-backend"
 HOST="$RESOURCES/runtime/host"
-BUNDLES="$RESOURCES/bundles"
+RUNTIME_BUNDLE="$RESOURCES/runtime-bundle"
 
 for required in \
   "$BACKEND" \
@@ -38,14 +37,12 @@ for required in \
   "$HOST/HostRuntimeABI.h" \
   "$RESOURCES/scripts/tools/updater/update.py" \
   "$RESOURCES/scripts/tools/updater/update.sh" \
-  "$BUNDLES/metalsharp-electron.tar.zst" \
-  "$BUNDLES/metalsharp-graphics-dll.tar.zst" \
-  "$BUNDLES/metalsharp-runtime.tar.zst" \
-  "$BUNDLES/metalsharp-assets.tar.zst" \
-  "$BUNDLES/fnalibs.tar.zst" \
-  "$BUNDLES/metalsharp-scripts-tools.tar.zst" \
-  "$BUNDLES/metalsharp-steam.tar.zst" \
-  "$BUNDLES/metalsharp-d3d12-developer-sdk.tar.zst"
+  "$RUNTIME_BUNDLE/install-metalsharp-wine-runtime.sh" \
+  "$RUNTIME_BUNDLE/metalsharp-bundle-manifest.tsv" \
+  "$RUNTIME_BUNDLE/MetalSharp-Wine-Public-Source-2026-07-31.tar.zst" \
+  "$RUNTIME_BUNDLE/MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256" \
+  "$RUNTIME_BUNDLE/PARTS-SHA256SUMS.txt" \
+  "$RUNTIME_BUNDLE/REASSEMBLE.txt"
 do
   if [ ! -s "$required" ]; then
     echo "DMG missing required runtime asset: ${required#$APP_DIR/}" >&2
@@ -60,7 +57,11 @@ if [ ! -s "$HOST/libmetalsharp_host_runtime.dylib" ] \
   exit 1
 fi
 
-cp "$BUNDLES"/*.tar.zst "$LIST_DIR"/
-"$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$LIST_DIR" --require mac
+if find "$RESOURCES/bundles" -maxdepth 1 -type f -name '*.tar.zst' -print -quit 2>/dev/null | grep -q .; then
+  echo "DMG still contains retired split runtime bundles" >&2
+  exit 1
+fi
+
+"$PROJECT_ROOT/tools/dmg/prepare-complete-runtime-assets.sh" --verify-package "$RUNTIME_BUNDLE"
 
 echo "DMG runtime assets verified: $DMG"
