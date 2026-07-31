@@ -390,12 +390,19 @@ pub fn selected_deploy_dlls_for_pipeline(
     node: &PipelineNode,
     ms_root: &Path,
 ) -> Vec<RecipeDll> {
-    let d3d9_subpath = if node.id == PipelineId::M9 { m9_d3d9_source_subpath(game_dir, exe_path) } else { "" };
+    let m9_uses_i386 = node.id == PipelineId::M9 && m9_d3d9_source_subpath(game_dir, exe_path).contains("i386-windows");
     let target_dirs = deploy_target_dirs_for_pipeline(game_dir, exe_path, node);
 
     node.deploy_dlls
         .iter()
-        .filter(|dll| node.id != PipelineId::M9 || dll.source_subpath == d3d9_subpath)
+        .filter(|dll| {
+            node.id != PipelineId::M9
+                || if m9_uses_i386 {
+                    dll.source_subpath.contains("i386-windows")
+                } else {
+                    dll.source_subpath == "build-ec/dlls/d3d9/x86_64-windows"
+                }
+        })
         .flat_map(|dll| {
             let source_path = ms_root.join(dll.source_subpath).join(dll.filename);
             let dest_name = dll.dest_filename.unwrap_or(dll.filename);
@@ -856,19 +863,19 @@ fn m9_d3d9_source_subpath(game_dir: &Path, exe_path: Option<&Path>) -> &'static 
         Some(path) => path.to_path_buf(),
         None => match resolve_game_exe(0, game_dir) {
             Ok(path) => path,
-            Err(_) => return "lib/wine/x86_64-windows",
+            Err(_) => return "build-ec/dlls/d3d9/x86_64-windows",
         },
     };
 
     if let Ok(data) = std::fs::read(&exe) {
         if let Some(pe) = super::pe::parse_pe_imports(&data) {
             if !pe.is_64_bit {
-                return "lib/wine/i386-windows";
+                return "build-ec/dlls/d3d9/i386-windows";
             }
         }
     }
 
-    "lib/wine/x86_64-windows"
+    "build-ec/dlls/d3d9/x86_64-windows"
 }
 
 fn runtime_file_present(path: &Path) -> bool {
@@ -899,30 +906,42 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
 
     match node.id {
         PipelineId::M12 => {
-            let unix_dir = ms_root.join("lib").join("dxmt_m12").join("x86_64-unix");
-            for filename in ["winemetal.so", "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"] {
-                let path = unix_dir.join(filename);
+            for (name, path) in [
+                (
+                    "build-ec/dlls/winevulkan/winevulkan.so",
+                    ms_root.join("build-ec").join("dlls").join("winevulkan").join("winevulkan.so"),
+                ),
+                (
+                    "build-ec/dlls/winevulkan/x86_64-windows/winevulkan.dll",
+                    ms_root
+                        .join("build-ec")
+                        .join("dlls")
+                        .join("winevulkan")
+                        .join("x86_64-windows")
+                        .join("winevulkan.dll"),
+                ),
+                (
+                    "build-ec/dlls/vulkan-1/x86_64-windows/vulkan-1.dll",
+                    ms_root.join("build-ec").join("dlls").join("vulkan-1").join("x86_64-windows").join("vulkan-1.dll"),
+                ),
+                (
+                    "build-ec/dlls/win32u/libMoltenVK.dylib",
+                    ms_root.join("build-ec").join("dlls").join("win32u").join("libMoltenVK.dylib"),
+                ),
+                ("lib/moltenvk/libMoltenVK.dylib", ms_root.join("lib").join("moltenvk").join("libMoltenVK.dylib")),
+            ] {
                 assets.push(RuntimeAsset {
-                    name: format!("lib/dxmt_m12/x86_64-unix/{filename}"),
+                    name: name.to_string(),
                     present: runtime_file_present(&path),
                     path,
                     required: true,
                 });
             }
         },
-        PipelineId::M11 => {
-            let path = ms_root.join("lib").join("dxmt").join("x86_64-unix").join("winemetal.so");
+        PipelineId::M10 | PipelineId::M11 | PipelineId::M10_32 | PipelineId::M11_32 => {
+            let path = ms_root.join("build-ec").join("dxmt-v0.80").join("aarch64-unix").join("winemetal.so");
             assets.push(RuntimeAsset {
-                name: "lib/dxmt/x86_64-unix/winemetal.so".into(),
-                present: runtime_file_present(&path),
-                path,
-                required: true,
-            });
-        },
-        PipelineId::M11_32 | PipelineId::M10_32 => {
-            let path = ms_root.join("lib").join("dxmt").join("i386-unix").join("winemetal.so");
-            assets.push(RuntimeAsset {
-                name: "lib/dxmt/i386-unix/winemetal.so".into(),
+                name: "build-ec/dxmt-v0.80/aarch64-unix/winemetal.so".into(),
                 present: runtime_file_present(&path),
                 path,
                 required: true,
@@ -993,37 +1012,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn m11_validates_legacy_winemetal_so_without_changing_m12_sidecars() {
+    fn m11_validates_winemetal_while_m12_validates_vulkan_host_boundary() {
         let ms_root = test_dir("runtime-assets-winemetal-lanes");
         let m11 = super::super::engine::get_pipeline(PipelineId::M11);
         let m12 = super::super::engine::get_pipeline(PipelineId::M12);
 
         let m11_assets = runtime_assets_for_node(m11, &ms_root);
-        assert!(m11_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        assert!(m11_assets.iter().any(|asset| asset.name == "build-ec/dxmt-v0.80/aarch64-unix/winemetal.so"));
         assert!(!m11_assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/x86_64-unix/")));
 
         let m12_assets = runtime_assets_for_node(m12, &ms_root);
-        assert!(m12_assets.iter().any(|asset| asset.name == "lib/dxmt_m12/x86_64-unix/winemetal.so"));
-        assert!(m12_assets.iter().any(|asset| asset.name == "lib/dxmt_m12/x86_64-unix/libc++.1.dylib"));
+        assert!(m12_assets.iter().any(|asset| asset.name == "build-ec/dlls/winevulkan/winevulkan.so"));
+        assert!(m12_assets.iter().any(|asset| asset.name == "build-ec/dlls/win32u/libMoltenVK.dylib"));
+        assert!(m12_assets.iter().any(|asset| asset.name == "lib/moltenvk/libMoltenVK.dylib"));
         assert!(!m12_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        assert!(!m12_assets.iter().any(|asset| asset.name.contains("dxmt_m12")));
 
         let _ = std::fs::remove_dir_all(ms_root);
     }
 
     #[test]
-    fn m11_32_and_m10_32_validate_i386_winemetal_so_sidecar() {
+    fn m11_32_and_m10_32_validate_native_arm64_winemetal_sidecar() {
         let ms_root = test_dir("runtime-assets-i386-winemetal-lanes");
         for id in [PipelineId::M11_32, PipelineId::M10_32] {
             let node = super::super::engine::get_pipeline(id);
             let assets = runtime_assets_for_node(node, &ms_root);
-            // doctor must surface the i386 unix sidecar as a required runtime asset
+            // The PE lane is i386, but the Unix bridge stays native ARM64.
             assert!(
-                assets.iter().any(|asset| asset.name == "lib/dxmt/i386-unix/winemetal.so"),
-                "{:?} missing i386-unix/winemetal.so runtime asset",
+                assets.iter().any(|asset| asset.name == "build-ec/dxmt-v0.80/aarch64-unix/winemetal.so"),
+                "{:?} missing native ARM64 winemetal.so runtime asset",
                 id
             );
-            // and must not pull the x86_64-only M11/M12 sidecars
-            assert!(!assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+            assert!(!assets.iter().any(|asset| asset.name.contains("i386-unix")));
             assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/")));
         }
         let _ = std::fs::remove_dir_all(ms_root);
@@ -1561,7 +1581,10 @@ mod tests {
         let sources: std::collections::HashSet<_> = selected.iter().map(|dll| dll.source_subpath.as_str()).collect();
         let filenames: std::collections::HashSet<_> = selected.iter().map(|dll| dll.filename.as_str()).collect();
 
-        assert_eq!(sources, std::collections::HashSet::from(["lib/wine/i386-windows"]));
+        assert_eq!(
+            sources,
+            std::collections::HashSet::from(["build-ec/dlls/d3d9/i386-windows", "build-ec/dlls/dxgi/i386-windows",])
+        );
         assert_eq!(filenames, std::collections::HashSet::from(["d3d9.dll", "dxgi.dll"]));
         assert_eq!(selected.len(), 2);
         let _ = std::fs::remove_dir_all(game_dir);
@@ -1584,7 +1607,7 @@ mod tests {
         );
         let sources: std::collections::HashSet<_> = selected.iter().map(|dll| dll.source_subpath.as_str()).collect();
 
-        assert_eq!(sources, std::collections::HashSet::from(["lib/wine/x86_64-windows"]));
+        assert_eq!(sources, std::collections::HashSet::from(["build-ec/dlls/d3d9/x86_64-windows"]));
         assert_eq!(selected.len(), 1);
         let _ = std::fs::remove_dir_all(game_dir);
         let _ = std::fs::remove_dir_all(runtime);

@@ -390,46 +390,7 @@ fn parse_version_parts(value: &str) -> Vec<u32> {
 }
 
 fn runtime_core_ready(ms_dir: &Path) -> bool {
-    let runtime_wine = ms_dir.join("runtime").join("wine");
-    let runtime_host = ms_dir.join("runtime").join("host");
-    let wine = crate::platform::runtime_wine_binary(&runtime_wine);
-    if !wine.exists() {
-        return false;
-    }
-
-    if !host_runtime_ready(&runtime_host) {
-        return false;
-    }
-
-    if !crate::installer::dxmt_runtime_current_for_ms_dir(ms_dir) {
-        return false;
-    }
-
-    if !crate::installer::metalsharp_runtime_lib_ready(&runtime_wine) {
-        return false;
-    }
-
-    [
-        runtime_wine.join("lib").join("wine").join("x86_64-unix"),
-        runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d9.dll"),
-        runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d10.dll"),
-        runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d10_1.dll"),
-        ms_dir.join("runtime").join("goldberg").join("x86").join("steam_api.dll"),
-        ms_dir.join("runtime").join("goldberg").join("x64").join("steam_api64.dll"),
-        ms_dir.join("configs").join("mtsp-rules.toml"),
-        runtime_wine.join("etc").join("dxmt.conf"),
-    ]
-    .iter()
-    .all(|path| path.exists())
-        && crate::installer::dxmt_graphics_runtimes_current_for_ms_dir(ms_dir)
-}
-
-fn host_runtime_ready(dir: &Path) -> bool {
-    file_nonempty(&dir.join("manifest.json"))
-        && file_nonempty(&dir.join("HostRuntimeABI.h"))
-        && (file_nonempty(&dir.join("libmetalsharp_host_runtime.dylib"))
-            || file_nonempty(&dir.join("libmetalsharp_host_runtime.so"))
-            || file_nonempty(&dir.join("metalsharp_host_runtime.dll")))
+    crate::installer::complete_runtime_current_for_ms_dir(ms_dir)
 }
 
 fn file_nonempty(path: &Path) -> bool {
@@ -2559,15 +2520,13 @@ mod tests {
     }
 
     #[test]
-    fn missing_dxmt_manifest_requests_repair() {
-        let home = test_dir("missing-dxmt-manifest");
+    fn missing_m12_vkd3d_runtime_requests_repair() {
+        let home = test_dir("missing-m12-vkd3d-runtime");
         let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
         write_runtime_core(&ms_dir);
 
-        fs::remove_file(
-            ms_dir.join("runtime").join("wine").join("lib").join("dxmt").join("metalsharp-dxmt-runtime.json"),
-        )
-        .expect("remove DXMT manifest");
+        fs::remove_file(ms_dir.join("runtime").join("graphics").join("vkd3d-proton").join("x86_64").join("d3d12.dll"))
+            .expect("remove M12 vkd3d-proton d3d12 runtime");
 
         assert!(!runtime_core_ready(&ms_dir));
         assert!(runtime_needs_repair(&home, true));
@@ -2575,8 +2534,8 @@ mod tests {
     }
 
     #[test]
-    fn missing_metalsharp_hook_requests_runtime_repair() {
-        let home = test_dir("missing-metalsharp-hook");
+    fn retired_split_bundle_hook_does_not_invalidate_complete_runtime() {
+        let home = test_dir("retired-split-bundle-hook");
         let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
         write_runtime_core(&ms_dir);
 
@@ -2591,8 +2550,8 @@ mod tests {
         )
         .expect("remove MetalSharp ntdll hook");
 
-        assert!(!runtime_core_ready(&ms_dir));
-        assert!(runtime_needs_repair(&home, true));
+        assert!(runtime_core_ready(&ms_dir));
+        assert!(!runtime_needs_repair(&home, true));
         let _ = fs::remove_dir_all(home);
     }
 
@@ -3152,15 +3111,12 @@ mod tests {
         );
 
         write_runtime_core(&ms_dir);
-        fs::write(
-            ms_dir.join("runtime").join("wine").join("lib").join("dxmt_m12").join("x86_64-windows").join("d3d12.dll"),
-            b"stale-m12-d3d12",
-        )
-        .expect("poison M12 hash-gated runtime file");
+        fs::remove_file(ms_dir.join("runtime").join("graphics").join("vkd3d-proton/x86_64/d3d12.dll"))
+            .expect("remove required M12 runtime file");
         assert_eq!(
             verify_migration_ready(&ms_dir, None).unwrap_err(),
             "runtime bundle is still incomplete after install",
-            "stale M12 hashes must not satisfy migration readiness"
+            "missing M12 vkd3d-proton files must not satisfy migration readiness"
         );
         let _ = fs::remove_dir_all(home);
     }
@@ -3183,6 +3139,41 @@ mod tests {
         write_host_runtime(ms_dir);
 
         for path in [
+            runtime_wine.join("build-ec").join("wine"),
+            runtime_wine.join("build-ec").join("server").join("wineserver"),
+            runtime_wine.join("wine-11.12").join("nls").join("locale.nls"),
+            runtime_wine.join("wine-11.12").join("fonts").join("tahoma.ttf"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-unix").join("winemetal.so"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("d3d10core.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("d3d11.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("dxgi.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("winemetal.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("d3d10core.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("d3d11.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("dxgi.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("winemetal.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d9").join("x86_64-windows").join("d3d9.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d9").join("i386-windows").join("d3d9.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10").join("x86_64-windows").join("d3d10.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10").join("i386-windows").join("d3d10.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10_1").join("x86_64-windows").join("d3d10_1.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10_1").join("i386-windows").join("d3d10_1.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("dxgi").join("i386-windows").join("dxgi.dll"),
+            ms_dir.join("runtime").join("graphics").join("dxvk").join("i386").join("d3d9.dll"),
+            ms_dir.join("runtime").join("graphics").join("dxvk").join("x86_64").join("dxgi.dll"),
+            ms_dir.join("runtime").join("graphics").join("vkd3d-proton").join("x86_64").join("d3d12.dll"),
+            ms_dir.join("runtime").join("graphics").join("vkd3d-proton").join("x86_64").join("d3d12core.dll"),
+            ms_dir.join("runtime").join("graphics").join("opengl-metal").join("metalsharp-opengl.dylib"),
+            ms_dir.join("runtime").join("graphics").join("moltenvk").join("libMoltenVK.dylib"),
+            ms_dir.join("runtime").join("providers").join("xtajit64-arm64ec-known-good.dll"),
+            ms_dir.join("runtime").join("providers").join("xtajit-arm64-known-good.dll"),
+            ms_dir.join("runtime").join("scripts").join("stage-runtime-providers.sh"),
+            runtime_wine.join("build-ec").join("dlls").join("wow64").join("aarch64-windows").join("wow64.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("wow64win").join("aarch64-windows").join("wow64win.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("winevulkan").join("winevulkan.so"),
+            runtime_wine.join("build-ec").join("dlls").join("winevulkan").join("x86_64-windows").join("winevulkan.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("vulkan-1").join("x86_64-windows").join("vulkan-1.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("win32u").join("libMoltenVK.dylib"),
             runtime_wine.join("lib").join("wine").join("x86_64-unix").join(".keep"),
             runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d9.dll"),
             runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d10.dll"),
@@ -3240,6 +3231,12 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).expect("create runtime parent");
             fs::write(path, b"test").expect("write runtime file");
         }
+
+        fs::write(
+            ms_dir.join("runtime").join(".metalsharp-runtime-install"),
+            format!("archive_sha256={}\nno_tso=1\n", crate::installer::COMPLETE_RUNTIME_ARCHIVE_SHA256),
+        )
+        .expect("write complete runtime marker");
 
         crate::installer::write_dxmt_m12_expected_test_files(&runtime_wine.join("lib").join("dxmt_m12"));
 

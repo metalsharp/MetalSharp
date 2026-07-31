@@ -554,7 +554,7 @@ mod tests {
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
 
-        let m12_required = ["d3d12.dll", "d3d11.dll", "dxgi_dxmt.dll", "dxgi.dll", "winemetal.dll"];
+        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
         let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
         let required_by_pipeline =
             [(PipelineId::M12, m12_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];

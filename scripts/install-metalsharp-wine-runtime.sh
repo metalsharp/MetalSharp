@@ -218,8 +218,30 @@ validate_archive_layout() {
     "$PACKAGE_ROOT/wine/build-ec/server/wineserver" \
     "$PACKAGE_ROOT/wine/wine-11.12/nls/locale.nls" \
     "$PACKAGE_ROOT/wine/wine-11.12/fonts/tahoma.ttf" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/aarch64-unix/winemetal.so" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/aarch64-windows/d3d10core.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/aarch64-windows/d3d11.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/aarch64-windows/dxgi.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/aarch64-windows/winemetal.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/i386-windows/d3d10core.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/i386-windows/d3d11.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/i386-windows/dxgi.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dxmt-v0.80/i386-windows/winemetal.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/d3d9/x86_64-windows/d3d9.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/d3d9/i386-windows/d3d9.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/d3d10/x86_64-windows/d3d10.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/d3d10/i386-windows/d3d10.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/d3d10_1/x86_64-windows/d3d10_1.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/d3d10_1/i386-windows/d3d10_1.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/dxgi/i386-windows/dxgi.dll" \
     "$PACKAGE_ROOT/graphics/dxvk/i386/d3d9.dll" \
     "$PACKAGE_ROOT/graphics/vkd3d-proton/x86_64/d3d12.dll" \
+    "$PACKAGE_ROOT/graphics/vkd3d-proton/x86_64/d3d12core.dll" \
+    "$PACKAGE_ROOT/graphics/dxvk/x86_64/dxgi.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/winevulkan/winevulkan.so" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/winevulkan/x86_64-windows/winevulkan.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/vulkan-1/x86_64-windows/vulkan-1.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/win32u/libMoltenVK.dylib" \
     "$PACKAGE_ROOT/graphics/opengl-metal/metalsharp-opengl.dylib" \
     "$PACKAGE_ROOT/graphics/moltenvk/libMoltenVK.dylib" \
     "$PACKAGE_ROOT/providers/xtajit64-arm64ec-known-good.dll" \

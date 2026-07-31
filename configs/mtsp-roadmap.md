@@ -44,7 +44,7 @@ TOML, not Rust code.
 
 | ID | Name | Backend | Notes |
 |---|---|---|---|
-| M12 | D3D12 → Metal | dxmt | Public D3D12 route; deploys D3D12/DXGI/DXIL/Agility sidecars when selected |
+| M12 | D3D12 → Vulkan → Metal | vkd3d-proton | Public D3D12 route; deploys vkd3d-proton D3D12/D3D12Core, DXVK DXGI, and Agility sidecars, then uses Wine Vulkan and MoltenVK |
 | M11 | D3D11 → Metal | dxmt | Public D3D11 route |
 | M10 | D3D10 → Metal | dxmt | Public D3D10 route |
 | M9 | D3D9 → Metal | dxmt | Public D3D9 route under the DXMT launch/cache family |
@@ -54,7 +54,7 @@ TOML, not Rust code.
 
 | ID | Role |
 |---|---|
-| DXMT | Auto-router that selects M12/M11/M10/M9 from rules and PE evidence |
+| DXMT | Legacy auto-router that resolves D3D12 evidence to M12 and D3D9-D3D11 evidence to M9-M11; M12 itself is not a DXMT backend |
 | M32 | 32-bit Wine fallback retained for diagnostics/legacy records |
 | Steam | Windows Steam client handoff retained for bootstrap/diagnostics |
 | MacOS Steam | Native Steam handoff retained for diagnostics/special cases |

@@ -28,7 +28,7 @@ fn has_custom_exe_fix(recipe: &GameRecipe) -> bool {
 fn dll_arch_for_source_subpath(subpath: &str) -> &'static str {
     if subpath.contains("i386") {
         "32-bit"
-    } else if subpath.contains("x86_64") {
+    } else if subpath.contains("x86_64") || subpath.contains("aarch64-windows") {
         "64-bit"
     } else {
         "mixed"
@@ -147,7 +147,8 @@ mod tests {
     #[test]
     fn launch_shape_for_hades_m11_reports_64_bit_dxmt_deploy_set() {
         // Switching Hades from the M11(32) default to plain M11 must report the
-        // 64-bit DXMT deploy set (d3d11/dxgi/winemetal from lib/dxmt/x86_64-windows)
+        // 64-bit DXMT deploy set (the x86-64/ARM64EC-compatible PE payload in
+        // the complete runtime's aarch64-windows lane)
         // and the M11 wine overrides, so the UI can show the user exactly what
         // will be applied.
         let shape = handle_launch_shape(1145360, PipelineId::M11);
@@ -174,7 +175,7 @@ mod tests {
         assert!(filenames.contains(&"winemetal.dll"));
         for dll in dlls {
             assert_eq!(dll.get("arch").and_then(|v| v.as_str()), Some("64-bit"));
-            assert!(dll.get("source_subpath").and_then(|v| v.as_str()).unwrap_or("").contains("x86_64-windows"));
+            assert!(dll.get("source_subpath").and_then(|v| v.as_str()).unwrap_or("").contains("aarch64-windows"));
         }
     }
 

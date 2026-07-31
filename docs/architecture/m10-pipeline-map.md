@@ -19,12 +19,14 @@ D3D10 game
 
 M10 deploys Wine's public D3D10 entrypoint DLLs for games that import `d3d10.dll` or `d3d10_1.dll`, then routes the core handoff through DXMT's `d3d10core.dll` plus the same DXMT D3D11, DXGI, and winemetal runtime used by M11.
 
-M10 deploys these public D3D10 entrypoints from `~/.metalsharp/runtime/wine/lib/wine/x86_64-windows/`:
+M10 deploys these public D3D10 entrypoints from the corresponding
+`~/.metalsharp/runtime/wine/build-ec/dlls/{d3d10,d3d10_1}/x86_64-windows/` directories:
 
 - `d3d10.dll`
 - `d3d10_1.dll`
 
-M10 deploys these DXMT handoff DLLs from `~/.metalsharp/runtime/wine/lib/dxmt/x86_64-windows/`:
+M10 deploys these DXMT handoff DLLs from
+`~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/aarch64-windows/`:
 
 - `d3d11.dll`
 - `dxgi.dll`
@@ -44,16 +46,16 @@ M10 deliberately does not deploy `d3d12.dll`.
 | Shader cache subdir | `m10` |
 | Preset fallback family | `m10`, then `dxmt-metal` |
 
-M10 uses the same DXMT Unix library search path as M11:
+M10 uses the same native ARM64 DXMT Unix bridge as M11:
 
 ```text
-lib/wine/x86_64-unix
-lib/dxmt/x86_64-unix
+build-ec/dlls/ntdll
+build-ec/dxmt-v0.80/aarch64-unix
 ```
 
 ## Selection Rules
 
-The backend resolves M10 from 64-bit PE imports before broad directory heuristics. That keeps 64-bit D3D10 games from being demoted to M11 just because their folder also includes common engine or Steam markers. 32-bit D3D10 executables are not routed into M10 because this runtime contract deploys the x86_64 D3D10/DXMT payload.
+The backend resolves M10 from 64-bit PE imports before broad directory heuristics. That keeps 64-bit D3D10 games from being demoted to M11 just because their folder also includes common engine or Steam markers. The explicit M10(32) route deploys the i386 D3D10/DXMT PE payload while retaining the native ARM64 Unix bridge.
 
 Recognized D3D10 imports:
 

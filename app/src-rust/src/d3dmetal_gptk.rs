@@ -1011,7 +1011,7 @@ fn stage_game_local_d3dmetal_route_dlls_for_exe(state: &D3DMetalGptkState, game_
         let marker = marker_root.join("latest-manifest.json");
         let manifest = json!({
             "quarantined_at": now_secs(),
-            "reason": "D3DMetal/GPTK lane replaces app-local M12/DXMT route DLLs with Homebrew-matched D3DMetal route DLLs",
+            "reason": "D3DMetal/GPTK owns a separate Homebrew-matched prefix and replaces any app-local MetalSharp graphics-route DLLs",
             "moved": moved,
             "deployed": deployed,
         });

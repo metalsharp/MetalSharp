@@ -27,6 +27,9 @@ It is used by the public Wine-backed routes M12, M11, M10, and M9. Internal fall
 │   ├── dxmt/
 │   │   ├── x86_64-unix/
 │   │   └── x86_64-windows/
+│   ├── vkd3d-proton/x86_64/
+│   ├── dxvk/x86_64/
+│   └── moltenvk/
 └── etc/
     ├── dxmt.conf
     └── vulkan/icd.d/MoltenVK_icd.json
@@ -57,7 +60,7 @@ User/runtime state lives beside the runtime root:
 
 | Route | Wine use |
 |---|---|
-| M12 | Wine + DXMT D3D12/D3D11/DXGI |
+| M12 | Wine + vkd3d-proton D3D12 + DXVK DXGI + Wine Vulkan + ARM64 MoltenVK |
 | M11 | Wine + DXMT D3D11/DXGI |
 | M10 | Wine + DXMT D3D10/D3D11/DXGI |
 | M9 | Wine + D3D9 Metal under the DXMT launch family |
@@ -83,10 +86,8 @@ M12:
 
 ```text
 d3d12.dll
-d3d11.dll
+d3d12core.dll
 dxgi.dll
-d3d10core.dll
-winemetal.dll
 ```
 
 M9:

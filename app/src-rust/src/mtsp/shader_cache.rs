@@ -45,7 +45,7 @@ fn find_preset(home: &PathBuf, cache_subdir: &str, appid: u32) -> Option<PathBuf
 fn preset_lookup_subdirs(cache_subdir: &str) -> Vec<&str> {
     match cache_subdir {
         "m9" | "m10" | "m11" => vec![cache_subdir, "dxmt-metal"],
-        "m12" => vec![cache_subdir, "dxmt-metal12"],
+        "m12" => vec![cache_subdir, "vkd3d-proton"],
         _ => vec![cache_subdir],
     }
 }
@@ -171,7 +171,7 @@ fn merge_preset_into_user(preset_db: &PathBuf, user_db: &PathBuf) -> Option<u64>
 // Phase 4: Shader / PSO / cache diagnostics
 // ============================================================================
 //
-// The DXMT runtime is shipped prebuilt under lib/dxmt(-m12); vendor/dxmt is
+// The DXMT runtime is shipped prebuilt under lib/dxmt; vendor/dxmt is
 // reference source and is NOT compiled by this repo's CMake build. These Rust
 // diagnostics therefore observe the runtime's on-disk products (the DXMT
 // SQLite shader/pipeline caches and any JSON PSO trace sidecars DXMT emits
@@ -182,15 +182,15 @@ fn merge_preset_into_user(preset_db: &PathBuf, user_db: &PathBuf) -> Option<u64>
 // gives the cache doctor a real, testable introspection path today.
 
 /// The shader-cache family a pipeline shares. M9/M10/M11 share the legacy
-/// `dxmt-metal` family; M12/M13 use the isolated `dxmt-metal12` family.
+/// `dxmt-metal` family; M12 uses vkd3d-proton and M13 uses D3DMetal.
 pub fn shader_cache_family(pipeline: crate::mtsp::engine::PipelineId) -> &'static [&'static str] {
     use crate::mtsp::engine::PipelineId;
     match pipeline {
         PipelineId::M9 => &["m9", "dxmt-metal"],
         PipelineId::M10 => &["m10", "dxmt-metal"],
         PipelineId::M11 => &["m11", "dxmt-metal"],
-        PipelineId::M12 => &["m12", "dxmt-metal12"],
-        PipelineId::M13 => &["m13", "dxmt-metal12"],
+        PipelineId::M12 => &["m12", "vkd3d-proton"],
+        PipelineId::M13 => &["m13", "d3dmetal"],
         _ => &[],
     }
 }
@@ -506,9 +506,9 @@ mod tests {
         use crate::mtsp::engine::PipelineId;
         // M9/M10/M11 share the legacy dxmt-metal family.
         assert_eq!(shader_cache_family(PipelineId::M11), &["m11", "dxmt-metal"]);
-        // M12/M13 use the isolated dxmt-metal12 family and must not mix.
-        assert_eq!(shader_cache_family(PipelineId::M12), &["m12", "dxmt-metal12"]);
-        assert_eq!(shader_cache_family(PipelineId::M13), &["m13", "dxmt-metal12"]);
+        // M12 and M13 use their actual backend families and must not mix.
+        assert_eq!(shader_cache_family(PipelineId::M12), &["m12", "vkd3d-proton"]);
+        assert_eq!(shader_cache_family(PipelineId::M13), &["m13", "d3dmetal"]);
     }
 
     #[test]
