@@ -298,17 +298,7 @@ fn cef_subdirs(steam_dir: &Path) -> Vec<PathBuf> {
 
 fn ensure_steam_launch_ready(steam_dir: &PathBuf) {
     for cef_dir in cef_subdirs(steam_dir) {
-        let wrapper = cef_dir.join("steamwebhelper.exe");
-        let real = cef_dir.join("steamwebhelper_real.exe");
-
-        let wrapper_size = std::fs::metadata(&wrapper).map(|m| m.len()).unwrap_or(0);
-        let real_size = std::fs::metadata(&real).map(|m| m.len()).unwrap_or(0);
-
-        let wrapper_missing = wrapper_size == 0;
-        let wrapper_overwritten = wrapper_size > STEAMWEBHELPER_WRAPPER_MAX_BYTES;
-        let real_missing_or_bad = real_size > 0 && real_size < STEAMWEBHELPER_WRAPPER_MAX_BYTES;
-
-        if wrapper_missing || wrapper_overwritten || real_missing_or_bad {
+        if !steamwebhelper_pair_ready(&cef_dir) {
             deploy_steamwebhelper_wrapper(steam_dir);
             return;
         }
@@ -775,6 +765,12 @@ pub fn get_wine_steam_installed_games() -> Vec<u32> {
 }
 
 pub fn deploy_steamwebhelper_wrapper(steam_dir: &PathBuf) {
+    let metalsharp_home = crate::platform::metalsharp_home_dir();
+    if !managed_steam_dir(&metalsharp_home, steam_dir) {
+        eprintln!("steam: refusing to deploy CEF wrapper outside MetalSharp prefixes: {}", steam_dir.display());
+        return;
+    }
+
     let wrapper = match find_bundled_steamwebhelper_wrapper() {
         Some(wrapper) => wrapper,
         None => match download_steamwebhelper_wrapper_fallback() {
@@ -796,16 +792,19 @@ pub fn deploy_steamwebhelper_wrapper(steam_dir: &PathBuf) {
 
         let original_size = std::fs::metadata(&original).map(|m| m.len()).unwrap_or(0);
         let real_size = std::fs::metadata(&real).map(|m| m.len()).unwrap_or(0);
+        let original_is_wrapper = steamwebhelper_wrapper_valid(&original);
+        let original_is_real = original_size > STEAMWEBHELPER_WRAPPER_MAX_BYTES;
+        let real_is_real = real_size > STEAMWEBHELPER_WRAPPER_MAX_BYTES;
 
-        if original_size > 0 && original_size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES {
+        if original_is_wrapper && real_is_real {
             if !wrapper_marker.exists() {
                 let _ = std::fs::write(&wrapper_marker, "deployed");
             }
             continue;
         }
 
-        if real_size < STEAMWEBHELPER_WRAPPER_MAX_BYTES {
-            if original_size > STEAMWEBHELPER_WRAPPER_MAX_BYTES {
+        if !real_is_real {
+            if original_is_real {
                 let _ = std::fs::remove_file(&real);
                 let _ = std::fs::rename(&original, &real);
             } else {
@@ -815,14 +814,46 @@ pub fn deploy_steamwebhelper_wrapper(steam_dir: &PathBuf) {
             let _ = std::fs::remove_file(&original);
         }
 
-        if std::fs::copy(&wrapper, &original).is_ok() {
+        if std::fs::copy(&wrapper, &original).is_ok() && steamwebhelper_wrapper_valid(&original) {
             let _ = std::fs::write(&wrapper_marker, "deployed");
         }
     }
 }
 
 fn find_bundled_steamwebhelper_wrapper() -> Option<PathBuf> {
+    let runtime_wrapper = runtime_steamwebhelper_wrapper(&runtime_root());
+    if steamwebhelper_wrapper_valid(&runtime_wrapper) {
+        return Some(runtime_wrapper);
+    }
     find_bundled_steam_asset("steamwebhelper.exe").filter(|path| steamwebhelper_wrapper_valid(path))
+}
+
+fn runtime_steamwebhelper_wrapper(runtime: &Path) -> PathBuf {
+    runtime.join("integration").join("steam-webhelper").join("steamwebhelper.exe")
+}
+
+fn managed_steam_dir(metalsharp_home: &Path, steam_dir: &Path) -> bool {
+    if let (Ok(home_real), Ok(steam_real)) = (metalsharp_home.canonicalize(), steam_dir.canonicalize()) {
+        if !steam_real.starts_with(home_real) {
+            return false;
+        }
+    }
+
+    let primary = metalsharp_home.join("prefix-steam/drive_c/Program Files (x86)/Steam");
+    if steam_dir == primary {
+        return true;
+    }
+
+    let Ok(relative) = steam_dir.strip_prefix(metalsharp_home.join("bottles")) else {
+        return false;
+    };
+    let components = relative.components().collect::<Vec<_>>();
+    components.len() == 5
+        && matches!(components[0], Component::Normal(_))
+        && components[1] == Component::Normal(std::ffi::OsStr::new("prefix"))
+        && components[2] == Component::Normal(std::ffi::OsStr::new("drive_c"))
+        && components[3] == Component::Normal(std::ffi::OsStr::new("Program Files (x86)"))
+        && components[4] == Component::Normal(std::ffi::OsStr::new("Steam"))
 }
 
 fn find_bundled_steam_asset(filename: &str) -> Option<PathBuf> {
@@ -986,14 +1017,13 @@ fn steamwebhelper_wrapper_valid(path: &Path) -> bool {
 
 fn steamwebhelper_wrapper_deployed(steam_dir: &Path) -> bool {
     let cef_dirs = cef_subdirs(steam_dir);
-    !cef_dirs.is_empty()
-        && cef_dirs.iter().any(|cef_dir| {
-            let wrapper = cef_dir.join("steamwebhelper.exe");
-            let real = cef_dir.join("steamwebhelper_real.exe");
-            steamwebhelper_wrapper_valid(&wrapper)
-                && std::fs::metadata(real).map(|metadata| metadata.len()).unwrap_or(0)
-                    > STEAMWEBHELPER_WRAPPER_MAX_BYTES
-        })
+    !cef_dirs.is_empty() && cef_dirs.iter().any(|cef_dir| steamwebhelper_pair_ready(cef_dir))
+}
+
+fn steamwebhelper_pair_ready(cef_dir: &Path) -> bool {
+    steamwebhelper_wrapper_valid(&cef_dir.join("steamwebhelper.exe"))
+        && std::fs::metadata(cef_dir.join("steamwebhelper_real.exe")).map(|metadata| metadata.len()).unwrap_or(0)
+            > STEAMWEBHELPER_WRAPPER_MAX_BYTES
 }
 
 fn file_sha256(path: &Path) -> Option<String> {
@@ -2021,6 +2051,45 @@ mod tests {
 
         assert_eq!(fields.get(1).copied(), Some("steam"));
         assert_eq!(STEAMWEBHELPER_WRAPPER_SHA256.len(), 64);
+    }
+
+    #[test]
+    fn steam_wrapper_prefers_complete_runtime_integration_path() {
+        let runtime = PathBuf::from("/metalsharp/runtime");
+        assert_eq!(
+            runtime_steamwebhelper_wrapper(&runtime),
+            runtime.join("integration/steam-webhelper/steamwebhelper.exe")
+        );
+    }
+
+    #[test]
+    fn wrapper_deployment_is_confined_to_metalsharp_prefixes() {
+        let home = PathBuf::from("/Users/test/.metalsharp");
+        assert!(managed_steam_dir(&home, &home.join("prefix-steam/drive_c/Program Files (x86)/Steam")));
+        assert!(managed_steam_dir(&home, &home.join("bottles/steam_123/prefix/drive_c/Program Files (x86)/Steam")));
+        assert!(!managed_steam_dir(
+            &home,
+            Path::new("/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/Bottles/Steam/drive_c/Program Files (x86)/Steam")
+        ));
+        assert!(!managed_steam_dir(
+            &home,
+            &home.join("bottles/steam_123/not-prefix/drive_c/Program Files (x86)/Steam")
+        ));
+    }
+
+    #[test]
+    fn steam_update_or_corrupt_small_wrapper_requires_redeployment() {
+        let cef = test_prefix("wrapper-update-repair");
+        let _ = std::fs::remove_dir_all(&cef);
+        std::fs::create_dir_all(&cef).expect("create CEF fixture");
+        std::fs::write(cef.join("steamwebhelper_real.exe"), vec![0u8; 100_001]).expect("write real helper");
+
+        std::fs::write(cef.join("steamwebhelper.exe"), b"not-the-pinned-wrapper").expect("write corrupt wrapper");
+        assert!(!steamwebhelper_pair_ready(&cef));
+
+        std::fs::write(cef.join("steamwebhelper.exe"), vec![0u8; 100_001]).expect("simulate Steam overwrite");
+        assert!(!steamwebhelper_pair_ready(&cef));
+        let _ = std::fs::remove_dir_all(cef);
     }
 
     #[test]
