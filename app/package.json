@@ -137,6 +137,10 @@
         ]
       },
       {
+        "from": "../scripts/install-metalsharp-wine-runtime.sh",
+        "to": "scripts/install-metalsharp-wine-runtime.sh"
+      },
+      {
         "from": "bundles/metalsharp-electron.tar.zst",
         "to": "bundles/metalsharp-electron.tar.zst"
       },

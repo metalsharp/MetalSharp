@@ -31,6 +31,8 @@ const ASSETS_BUNDLE: &str = "metalsharp-assets";
 const FNALIBS_BUNDLE: &str = "fnalibs";
 const SCRIPTS_TOOLS_BUNDLE: &str = "metalsharp-scripts-tools";
 const STEAM_BUNDLE: &str = "metalsharp-steam";
+const COMPLETE_RUNTIME_INSTALLER: &str = "install-metalsharp-wine-runtime.sh";
+const COMPLETE_RUNTIME_ARCHIVE_SHA256: &str = "93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee";
 const METALSHARP_NTDLL_HOOK_DLL: &str = "metalsharp_ntdll_hook.dll";
 const DXMT_REQUIRED_PE: &[&str] = &[
     "d3d10core.dll",
@@ -319,19 +321,78 @@ fn install_steps() -> Vec<InstallStep> {
         ("System Tools", Box::new(|_| install_xcode_cli())),
         ("Rosetta 2", Box::new(|_| install_rosetta())),
         ("Extract Tools (zstd)", Box::new(|_| ensure_zstd())),
-        ("Runtime Bundle Downloads", Box::new(ensure_runtime_bundle_assets)),
-        ("Runtime Assets", Box::new(install_metalsharp_bundle)),
-        ("Host Runtime ABI", Box::new(install_host_runtime)),
-        ("Support Assets", Box::new(install_split_assets_bundle)),
-        ("Scripts and Tools", Box::new(install_scripts_tools_bundle)),
-        ("DXMT Graphics Runtimes", Box::new(|home| ensure_graphics_runtimes_ready(home))),
-        ("Goldberg Steam Emulator", Box::new(install_goldberg)),
-        ("Steam Bridge Shim", Box::new(install_steam_bridge)),
-        ("Pipeline Rules", Box::new(install_mtsp_rules)),
-        ("Mono Configs", Box::new(install_mono_configs)),
-        ("Runtime Support", Box::new(|_| install_mono_arm64())),
-        ("FNA Shim Precompile", Box::new(|_| crate::mtsp::launcher::precompile_all_fna_shims().map(|_| true))),
+        ("Complete Multi-Architecture Runtime", Box::new(install_complete_runtime)),
     ]
+}
+
+fn complete_runtime_root(home: &Path) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(home).join("runtime")
+}
+
+fn complete_runtime_marker(root: &Path) -> PathBuf {
+    root.join(".metalsharp-runtime-install")
+}
+
+pub fn complete_runtime_current_for_home(home: &Path) -> bool {
+    let root = complete_runtime_root(home);
+    let marker = match fs::read_to_string(complete_runtime_marker(&root)) {
+        Ok(marker) => marker,
+        Err(_) => return false,
+    };
+
+    marker.lines().any(|line| line == format!("archive_sha256={COMPLETE_RUNTIME_ARCHIVE_SHA256}"))
+        && file_nonempty(&root.join("wine/bin/metalsharp-wine"))
+        && file_nonempty(&root.join("wine/build-ec/wine"))
+        && file_nonempty(&root.join("wine/build-ec/server/wineserver"))
+        && file_nonempty(&root.join("wine/wine-11.12/nls/locale.nls"))
+        && file_nonempty(&root.join("wine/wine-11.12/fonts/tahoma.ttf"))
+        && file_nonempty(&root.join("graphics/dxvk/i386/d3d9.dll"))
+        && file_nonempty(&root.join("graphics/vkd3d-proton/x86_64/d3d12.dll"))
+        && file_nonempty(&root.join("graphics/opengl-metal/metalsharp-opengl.dylib"))
+        && file_nonempty(&root.join("graphics/moltenvk/libMoltenVK.dylib"))
+}
+
+fn find_complete_runtime_installer() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(resources) = crate::platform::app_resources_dir() {
+        candidates.push(resources.join("scripts").join(COMPLETE_RUNTIME_INSTALLER));
+    }
+    candidates
+        .push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join("scripts").join(COMPLETE_RUNTIME_INSTALLER));
+    candidates.push(PathBuf::from("scripts").join(COMPLETE_RUNTIME_INSTALLER));
+    candidates.push(PathBuf::from("../scripts").join(COMPLETE_RUNTIME_INSTALLER));
+    candidates.into_iter().find(|path| file_nonempty(path))
+}
+
+fn install_complete_runtime(home: &PathBuf) -> Result<bool, String> {
+    if complete_runtime_current_for_home(home) {
+        return Ok(false);
+    }
+
+    let installer = find_complete_runtime_installer().ok_or_else(|| {
+        format!("{} is missing from the MetalSharp application resources", COMPLETE_RUNTIME_INSTALLER)
+    })?;
+    let target = complete_runtime_root(home);
+    let output = Command::new("/bin/bash")
+        .arg(&installer)
+        .args(["--target"])
+        .arg(&target)
+        .args(["--replace", "--discard-backup"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|e| format!("start complete runtime installer: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("unknown installer error");
+        return Err(format!("complete runtime installer failed: {detail}"));
+    }
+    if !complete_runtime_current_for_home(home) {
+        return Err("complete runtime installer exited successfully, but the runtime verification gate failed".into());
+    }
+
+    Ok(true)
 }
 
 fn runtime_bundle_assets_for_host() -> &'static [&'static str] {
@@ -2541,21 +2602,6 @@ mod tests {
     }
 
     #[test]
-    fn runtime_bundle_preflight_knows_beta7_assets() {
-        let mac_assets = MAC_RUNTIME_BUNDLE_ASSETS;
-        for expected in [
-            "metalsharp-runtime.tar.zst",
-            "metalsharp-graphics-dll.tar.zst",
-            "metalsharp-assets.tar.zst",
-            "fnalibs.tar.zst",
-            "metalsharp-scripts-tools.tar.zst",
-            "metalsharp-steam.tar.zst",
-        ] {
-            assert!(mac_assets.contains(&expected), "missing mac bundle asset {}", expected);
-        }
-    }
-
-    #[test]
     fn install_order_runs_xcode_cli_before_rosetta() {
         let names: Vec<&str> = install_steps().into_iter().map(|(name, _)| name).collect();
 
@@ -2566,16 +2612,44 @@ mod tests {
     }
 
     #[test]
-    fn install_steps_use_split_graphics_runtime_and_do_not_install_eac_toggle_or_gptk() {
+    fn install_steps_use_only_prerequisites_and_complete_runtime() {
         let names: Vec<&str> = install_steps().into_iter().map(|(name, _)| name).collect();
 
-        assert!(names.contains(&"DXMT Graphics Runtimes"));
-        assert!(!names.contains(&"Offline EAC Mode"));
-        assert!(
-            names.iter().all(|name| !name.to_ascii_lowercase().contains("gptk")),
-            "first-time setup must not install GPTK; D3DMetal bottles own Homebrew GPTK setup: {:?}",
-            names
+        assert_eq!(
+            names,
+            vec!["System Tools", "Rosetta 2", "Extract Tools (zstd)", "Complete Multi-Architecture Runtime"]
         );
+    }
+
+    #[test]
+    fn complete_runtime_gate_requires_matching_marker_and_all_surfaces() {
+        let home = test_home("complete-runtime-gate");
+        let root = complete_runtime_root(&home);
+        for rel in [
+            "wine/bin/metalsharp-wine",
+            "wine/build-ec/wine",
+            "wine/build-ec/server/wineserver",
+            "wine/wine-11.12/nls/locale.nls",
+            "wine/wine-11.12/fonts/tahoma.ttf",
+            "graphics/dxvk/i386/d3d9.dll",
+            "graphics/vkd3d-proton/x86_64/d3d12.dll",
+            "graphics/opengl-metal/metalsharp-opengl.dylib",
+            "graphics/moltenvk/libMoltenVK.dylib",
+        ] {
+            let path = root.join(rel);
+            fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
+            fs::write(path, b"fixture").expect("write fixture");
+        }
+        fs::write(
+            complete_runtime_marker(&root),
+            format!("archive_sha256={COMPLETE_RUNTIME_ARCHIVE_SHA256}\nno_tso=1\n"),
+        )
+        .expect("write marker");
+
+        assert!(complete_runtime_current_for_home(&home));
+        fs::remove_file(root.join("graphics/vkd3d-proton/x86_64/d3d12.dll")).expect("remove gate fixture");
+        assert!(!complete_runtime_current_for_home(&home));
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]
