@@ -61,6 +61,31 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   the target is exactly the MetalSharp Steam prefix or a MetalSharp-managed
   bottle prefix; never deploy into CrossOver, another Wine installation, or an
   arbitrary path.
+- Phase 6 makes M12 a vkd3d-proton route, not a DXMT route. Its only PE
+  owners are `lib/vkd3d-proton/x86_64/{d3d12.dll,d3d12core.dll}` and
+  `lib/dxvk/x86_64/dxgi.dll`; the host handoff is Wine Vulkan to the bundled
+  ARM64 MoltenVK library. Never restore winemetal, `dxgi_dxmt`, or
+  `lib/dxmt_m12` to M12.
+- M12 bottle save migrates old component ids to `m12_vkd3d_d3d12`,
+  `m12_vkd3d_d3d12core`, `m12_dxvk_dxgi`, `m12_winevulkan`, and
+  `m12_moltenvk`. Save, prepare, Play, dry-run, runtime doctor, migration, and
+  the complete-runtime gate all validate the same ownership boundaries.
+- M9/M10/M10(32)/M11/M11(32) consume the complete runtime directly, not the
+  retired split-graphics manifest gate. M10/M11 use DXMT's
+  `aarch64-windows` PE lane; M10(32)/M11(32) use its `i386-windows` PE lane;
+  both cross into the native ARM64 `aarch64-unix/winemetal.so`. M9 uses the
+  Wine build's x86_64/i386 D3D9 lanes. D3DMetal remains a separate
+  Homebrew-owned GPTK prefix and must not borrow M12 runtime DLLs.
+- The M12 launch environment contains vkd3d-proton/DXVK cache paths and no
+  DXMT/winemetal variables. All complete-runtime launch adapters continue to
+  pin every FEX TSO mode off.
+- Phase 6 validation: the canonical archive passed the strengthened
+  prepare-only layout gate; extracted M12 PE DLLs identify as x86-64, the Wine
+  Vulkan Unix bridge identifies as ARM64, DXMT's i386 PE lane identifies as
+  i386, its `aarch64-windows` PE lane identifies as x86-64/ARM64EC-compatible,
+  and its Unix winemetal bridge identifies as ARM64. The deterministic Rust
+  suite passes 651/651, strict Clippy passes, all Rust targets build, and the
+  TypeScript/Vite production build passes.
 
 ## What This Project Is
 
@@ -130,7 +155,8 @@ Modern runtime paths use MTSP pipeline ids and bottle profiles. Steam games get 
 | `M9` | D3D9 / 32-bit capable DXMT-family route | Nidhogg 2, Undertale, Blasphemous, Dave the Diver |
 | `M10` | D3D10 to Metal | D3D10 apps/games |
 | `M11` | D3D11 to Metal | Rain World, Schedule I, Subnautica BZ |
-| `M12` | D3D12 to Metal through the isolated `dxmt-m12` runtime surface | Peak, Silksong, Elden Ring, D3D12 investigation titles |
+| `M12` | vkd3d-proton D3D12 + DXVK DXGI through Wine Vulkan and ARM64 MoltenVK | Peak, Silksong, Elden Ring, D3D12 investigation titles |
+| `D3DMetal` | Homebrew GPTK/D3DMetal in its own prefix | Explicit GPTK route |
 | `Mono/FNA` | Windows XNA/FNA through native Mono, staged FNA/XNA assemblies, and host shims | Celeste, Terraria |
 
 Internal route ids such as `dxmt`, `wine_bare`, `m32`, `steam`, `macos_steam`, and `m13` stay backend-parseable for legacy records, diagnostics, and fallback behavior, but they are not normal bottle route buttons.
@@ -139,11 +165,15 @@ Internal route ids such as `dxmt`, `wine_bare`, `m32`, `steam`, `macos_steam`, a
 
 - Wine runtime: `~/.metalsharp/runtime/wine/`
 - Wine prefix: `~/.metalsharp/prefix-steam/`
-- DXMT PE DLLs for M9/M10/M11: `~/.metalsharp/runtime/wine/lib/dxmt/x86_64-windows/`
-- DXMT M12 PE DLLs: `~/.metalsharp/runtime/wine/lib/dxmt-m12/x86_64-windows/`
-- DXMT M12 Unix bridge and sidecars: `~/.metalsharp/runtime/wine/lib/dxmt-m12/x86_64-unix/`
-- DXVK i386 DLLs: `~/.metalsharp/runtime/wine/lib/dxvk/i386-windows/`
-- MoltenVK ICD: `~/.metalsharp/runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json`
+- DXMT M10/M11 PE DLLs: `~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/aarch64-windows/`
+- DXMT M10(32)/M11(32) PE DLLs: `~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/i386-windows/`
+- DXMT native host bridge: `~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/aarch64-unix/winemetal.so`
+- M9 Wine D3D9 DLLs: `~/.metalsharp/runtime/wine/build-ec/dlls/d3d9/{x86_64,i386}-windows/`
+- M12 vkd3d-proton DLLs: `~/.metalsharp/runtime/wine/lib/vkd3d-proton/x86_64/`
+- M12 DXVK DXGI: `~/.metalsharp/runtime/wine/lib/dxvk/x86_64/dxgi.dll`
+- M12 Wine Vulkan bridge: `~/.metalsharp/runtime/wine/build-ec/dlls/winevulkan/`
+- M12 MoltenVK host library: `~/.metalsharp/runtime/wine/build-ec/dlls/win32u/libMoltenVK.dylib`
+- DXVK i386 DLLs: `~/.metalsharp/runtime/wine/lib/dxvk/i386/`
 - DXMT config: `~/.metalsharp/runtime/wine/etc/dxmt.conf`
 - Local redistributables: `~/.metalsharp/runtime/redist/`
 - Runtime bottles: `~/.metalsharp/bottles/<bottle_id>/`

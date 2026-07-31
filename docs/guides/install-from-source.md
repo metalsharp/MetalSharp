@@ -1,5 +1,5 @@
 # Install from Source
-**Updated:** 2026-07-08
+**Updated:** 2026-07-31
 
 
 Build MetalSharp from source without using the DMG. Requires macOS 14+ on Apple Silicon.
@@ -42,7 +42,7 @@ cd app && npm install && npm run build && cd ..
 
 ## Fetch Runtime Bundles
 
-Downloads MetalSharp-owned runtime assets from the GitHub release: Wine, DXMT/M12 graphics DLLs, Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
+Downloads the complete multi-architecture Wine runtime from the GitHub release, including DXMT M9-M11 lanes, the M12 vkd3d-proton/DXVK/Wine Vulkan/MoltenVK route, Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
 
 GPTK/D3DMetal is not bundled in MetalSharp release assets. When you save a D3DMetal bottle, MetalSharp installs/trusts Homebrew GPTK separately and uses `/Applications/Game Porting Toolkit.app` directly.
 

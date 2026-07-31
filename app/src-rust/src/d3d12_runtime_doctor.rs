@@ -56,6 +56,45 @@ pub fn handle_steam_d3d12_runtime_doctor(body: &serde_json::Map<String, Value>) 
     let bottle = crate::bottles::ensure_steam_game_bottle(appid, &name, dual.wine_dir.as_deref(), pipeline).ok();
 
     let latest = latest_cached_report(appid);
+    if pipeline == crate::mtsp::engine::PipelineId::M12 {
+        let home = dirs::home_dir().unwrap_or_default();
+        let dry_run = crate::mtsp::launcher::pipeline_dry_run_for(&home, appid, Some(pipeline));
+        let ready = dry_run.get("ok").and_then(Value::as_bool).unwrap_or(false);
+        let app_root = probe_runs_root(&home, appid);
+        let run_dir = app_root.join(timestamp_secs());
+        let _ = fs::create_dir_all(&run_dir);
+        let report = json!({
+            "schema": "metalsharp.d3d12-runtime-doctor.summary.v2",
+            "appid": appid,
+            "name": name,
+            "bottleId": bottle.as_ref().map(|b| b.id.clone()),
+            "pipeline": pipeline,
+            "backend": "vkd3d-proton",
+            "applicable": true,
+            "ready": ready,
+            "status": if ready { "ready" } else { "runtime_incomplete" },
+            "summary": if ready {
+                "M12 route owns vkd3d-proton D3D12, DXVK DXGI, Wine Vulkan, and ARM64 MoltenVK; every runtime boundary is present."
+            } else {
+                "M12 vkd3d-proton/Vulkan runtime is incomplete; inspect the structured dry-run for exact missing boundaries."
+            },
+            "sdkAvailability": {
+                "available": false,
+                "applicable": false,
+                "summary": "The legacy DXMT D3D12 SDK probe suite is not used by the vkd3d-proton M12 route."
+            },
+            "route": dry_run,
+            "artifacts": {
+                "runDir": run_dir.to_string_lossy().to_string(),
+                "latestSummaryJson": app_root.join("latest-summary.json").to_string_lossy().to_string(),
+            },
+            "finishedAt": timestamp_secs(),
+        });
+        let _ = fs::write(run_dir.join(SUMMARY_JSON_NAME), serde_json::to_vec_pretty(&report).unwrap_or_default());
+        let _ = fs::create_dir_all(&app_root);
+        let _ = fs::write(app_root.join("latest-summary.json"), serde_json::to_vec_pretty(&report).unwrap_or_default());
+        return json!({"ok": ready, "report": report});
+    }
     if pipeline != crate::mtsp::engine::PipelineId::M12 {
         return json!({
             "ok": true,
@@ -68,7 +107,7 @@ pub fn handle_steam_d3d12_runtime_doctor(body: &serde_json::Map<String, Value>) 
                 "applicable": false,
                 "ready": false,
                 "status": "not_applicable",
-                "summary": "D3D12 runtime doctor only applies to the M12 DXMT D3D12 route.",
+                "summary": "D3D12 runtime doctor only applies to the M12 vkd3d-proton route.",
                 "sdkAvailability": sdk_availability(),
                 "latestCachedReport": latest,
             }

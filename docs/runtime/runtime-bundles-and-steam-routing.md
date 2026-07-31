@@ -15,7 +15,7 @@ Current split bundle roots:
 | Asset | Why it is guarded |
 |---|---|
 | `metalsharp-electron.tar.zst` | Contains `electron/`, the built Electron application payload. |
-| `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the legacy DXMT D3D9/D3D10/D3D11 surface and the isolated M12 D3D12 surface. |
+| `metalsharp-graphics-dll.tar.zst` | Legacy split-bundle compatibility asset; the 0.60 preview installs the complete runtime archive instead. |
 | `metalsharp-runtime.tar.zst` | Contains `runtime/`, the Wine runtime, host ABI, and backend executable. |
 | `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, GPTK, DXVK, Goldberg, EAC toggle, shims, and runtime support assets. |
 | `metalsharp-scripts-tools.tar.zst` | Contains `scripts/tools/`, updater scripts, configs, native tools, and CEF helpers. |
@@ -32,20 +32,16 @@ tools/bundles/verify-developer-sdk.sh app/bundles/metalsharp-d3d12-developer-sdk
 
 ## Installer Acceptance Rules
 
-The installer consumes the split runtime tarballs by root name. `metalsharp-graphics-dll.tar.zst` is the only source for the active DXMT runtime payloads used by M9-M12.
+The 0.60 preview installer consumes the complete multi-architecture runtime archive. Older split graphics bundles remain documented for compatibility with earlier releases but are not the M12 source of truth.
 
-The graphics bundle has two runtime surfaces:
-
-```text
-Graphics/dll/dxmt/      -> legacy DXMT payload for M9, M10, and M11
-Graphics/dll/dxmt-m12/  -> updated D3D12/DXGI/winemetal payload for M12 only
-```
-
-After install those surfaces live under:
+The active graphics routes are:
 
 ```text
-~/.metalsharp/runtime/wine/lib/dxmt/
-~/.metalsharp/runtime/wine/lib/dxmt-m12/
+runtime/wine/lib/dxmt/                  -> DXMT payload for M9, M10, and M11
+runtime/wine/lib/vkd3d-proton/x86_64/   -> M12 d3d12.dll and d3d12core.dll
+runtime/wine/lib/dxvk/x86_64/           -> M12 dxgi.dll
+runtime/wine/build-ec/dlls/winevulkan/  -> M12 ARM64 Wine Vulkan bridge
+runtime/wine/lib/moltenvk/               -> pinned ARM64 MoltenVK payload
 ```
 
 Installed DXMT runtime state is recorded in:
@@ -54,7 +50,7 @@ Installed DXMT runtime state is recorded in:
 ~/.metalsharp/runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json
 ```
 
-Do not trust a runtime by version string alone. Check the manifest, required DLLs, the `dxmt-m12` sidecars, and source archive hash when diagnosing deployment drift.
+Do not trust a runtime by version string alone. Check the complete-runtime marker and the route-specific PE/Unix host artifacts. M12 must not resolve any `dxmt-m12` or winemetal artifact.
 
 ## Steam Launch Route
 

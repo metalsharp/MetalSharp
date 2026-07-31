@@ -1,141 +1,78 @@
 # M12 Pipeline Map
-**Updated:** 2026-07-08
+**Updated:** 2026-07-31
 
+M12 is MetalSharp's 64-bit D3D12 route:
 
-Last verified: 2026-06-13.
-
-M12 is the D3D12 -> DXMT -> Metal path used by the game launcher. The current
-MetalSharp tree also contains a native `metalsharp_d3d12` implementation and a
-Cocoa/CAMetalLayer viewer path, but those are not the same runtime path that M12
-uses for Wine-launched games.
-
-## Runtime Ownership
-
-| Layer | Current owner | Evidence | Status |
-| --- | --- | --- | --- |
-| Game detection | `app/src-rust/src/mtsp/pe.rs`, `rules.rs` | D3D12 imports select `PipelineId::M12` for 64-bit games. | Present in current project |
-| Pipeline definition | `app/src-rust/src/mtsp/engine.rs` | M12 is named `D3D12 -> Metal via DXMT`, is the first stable pipeline, deploys DXMT DLLs, and sets D3D12/DXGI/D3D11 overrides. | Present in current project |
-| Launcher handoff | `app/src-rust/src/mtsp/launcher.rs` | M12 routes through `launch_dxmt_metal`, copies DLLs into the game directory, and sets Wine/DYLD/cache env. | Present in current project |
-| Shader/cache routing | `app/src-rust/src/mtsp/shader_cache.rs` | M12 uses `m12` and `dxmt-metal12` cache directories. | Present in current project |
-| M12 artifact surface | `~/.metalsharp/runtime/wine/lib/dxmt-m12` | M12 loads the updated D3D12/DXGI/winemetal payload from the isolated `dxmt-m12` directory. | Present in current project |
-| Legacy DXMT surface | `~/.metalsharp/runtime/wine/lib/dxmt` | M9/M10/M11 continue to use the known-good legacy DXMT payload. | Present in current project |
-| DXMT D3D12 implementation | External DXMT source tree | Conformance branch contains the real DXMT D3D12/DXIL/winemetal work used by M12 runtime DLLs. | External source tree |
-| Native D3D12 target | `include/metalsharp/D3D12Device.h`, `src/d3d/d3d12/*` | Builds `build/d3d12.dylib` and exposes `D3D12CreateDevice`. | In-tree, smoke-tested |
-| Cocoa surface | `src/win32/user32/WindowManager.mm`, `src/dxgi/DXGISwapChain.mm` | Creates NSWindow/CAMetalLayer for the native loader path. | In-tree, not the Wine M12 surface |
-| Wine M12 surface | DXMT `winemetal.so` plus Wine/macOS windowing | DXMT presents through Wine/winemetal, not through the native `WindowManager` path. | External runtime path |
-
-## M12 Launch Flow
-
-1. The PE scanner sees `d3d12.dll` and rules select `PipelineId::M12`.
-2. The launcher resolves the game directory and Wine prefix.
-3. M12 deploys DXMT PE DLLs from `lib/dxmt-m12/x86_64-windows` into the game directory:
-   `d3d12.dll`, `d3d11.dll`, `dxgi.dll`, `d3d10core.dll`, and `winemetal.dll`.
-4. M12 sets `WINEDLLOVERRIDES` so Wine prefers the deployed native DXMT DLLs.
-5. M12 adds `lib/dxmt-m12/x86_64-unix` and Wine unix library paths to `DYLD_FALLBACK_LIBRARY_PATH`.
-6. M12 sets shader and pipeline cache paths under the MetalSharp cache root.
-7. Wine launches the executable without a forced DirectX command-line flag. `dx12` and `d3d12` are route aliases for selecting M12, not universal game args.
-8. DXMT handles D3D12/DXGI calls, compiles DXIL/MSL work, sends commands through
-   `winemetal`, and presents through the Wine/macOS surface.
-
-## Current Verification
-
-These checks were run from the repository root:
-
-```sh
-cmake --build build --target test_d3d12
-cmake --build build --target test_d3d12_entrypoint test_d3d12
-./build/tests/test_d3d12
-./build/tests/test_d3d12_entrypoint
-ctest --test-dir build -R "d3d12|d3d12_entrypoint|phase18|phase19" --output-on-failure
-nm -gU build/d3d12.dylib | rg "D3D12CreateDevice|D3D12GetDebugInterface|D3D12SerializeRootSignature"
-otool -L build/d3d12.dylib
+```text
+D3D12 PE imports
+  → PipelineId::M12
+  → vkd3d-proton d3d12.dll + d3d12core.dll
+  → DXVK dxgi.dll
+  → Wine Vulkan PE/Unix bridge
+  → ARM64 MoltenVK
+  → Metal
 ```
 
-Results:
+## Runtime ownership
 
-- `test_d3d12` passed: 50 passed, 0 failed.
-- `test_d3d12_entrypoint` passed: 5 passed, 0 failed.
-- `ctest` passed `d3d12`, `d3d12_entrypoint`, `phase18`, and `phase19`.
-- `build/d3d12.dylib` exports `D3D12CreateDevice`.
-- `build/d3d12.dylib` links Metal, Foundation, QuartzCore, AppKit, and
-  `libmetalirconverter`.
+| Boundary | Canonical runtime path |
+|---|---|
+| D3D12 entrypoint | `runtime/wine/lib/vkd3d-proton/x86_64/d3d12.dll` |
+| D3D12 core | `runtime/wine/lib/vkd3d-proton/x86_64/d3d12core.dll` |
+| DXGI | `runtime/wine/lib/dxvk/x86_64/dxgi.dll` |
+| Vulkan PE loader | `runtime/wine/build-ec/dlls/vulkan-1/x86_64-windows/vulkan-1.dll` |
+| Wine Vulkan PE bridge | `runtime/wine/build-ec/dlls/winevulkan/x86_64-windows/winevulkan.dll` |
+| Wine Vulkan ARM64 bridge | `runtime/wine/build-ec/dlls/winevulkan/winevulkan.so` |
+| Active MoltenVK host library | `runtime/wine/build-ec/dlls/win32u/libMoltenVK.dylib` |
+| Packaged MoltenVK source artifact | `runtime/wine/lib/moltenvk/libMoltenVK.dylib` |
 
-The external DXMT source tree also rebuilt successfully with:
+M12 must not load `winemetal.dll`, `winemetal.so`, `dxgi_dxmt.dll`, or any `lib/dxmt_m12` artifact. M9/M10/M11 keep their separate DXMT surface.
 
-```sh
-ninja -C <dxmt-source>/build src/winemetal/unix/winemetal.so src/d3d12/d3d12.dll
-```
+## Bottle save and Play
 
-The current release-hosted graphics bundle contains two DXMT surfaces:
+An M12 bottle persists these runtime components:
 
-- `Graphics/dll/dxmt`: the 0.46.5 legacy surface used by M9/M10/M11.
-- `Graphics/dll/dxmt-m12`: the updated M12 surface used only by M12, including
-  `winemetal.so`, `libc++.1.dylib`, `libc++abi.1.dylib`, and
-  `libunwind.1.dylib`.
+- `m12_vkd3d_d3d12`
+- `m12_vkd3d_d3d12core`
+- `m12_dxvk_dxgi`
+- `m12_winevulkan`
+- `m12_moltenvk`
 
-## Completion State
+Saving an older M12 bottle rebuilds its component list and drops the retired DXMT-M12 component IDs. Saving or playing validates the complete runtime, stages the three PE route DLLs beside the selected executable and into the shared Steam prefix `system32`, then applies the route environment.
 
-| Area | State | Notes |
-| --- | --- | --- |
-| M12 app routing | Primary/stable | Current project maps D3D12 games to M12 before broad directory heuristics, uses M12 as the unresolved default, and invokes the backend launcher path. |
-| M12 backend handoff | Present | The handoff copies isolated M12 DXMT DLLs, configures Wine/DYLD env, cache env, and launch args. |
-| Subnautica-class M12 runtime | Demonstrated by local use | This validates the launcher/runtime path, not the native CMake D3D12 dylib. |
-| Avery DXMT probes | Strongest external proof | `tests/ROADMAP.md` in `dxmt-src` marks probes 2-6 complete, including compute, triangle, indexed draw, depth, and texture sampling. |
-| Deployed runtime parity | Split surface | M9/M10/M11 stay on the known-good `dxmt` surface while M12 uses the updated release-hosted `dxmt-m12` surface. |
-| Avery source cleanliness | Needs cleanup | `dxmt-src` has dirty debug/probe changes and notes that prior dirty changes broke Steam launching. |
-| Native in-tree D3D12 | Expanded coverage | Smoke, C entrypoint, MSL compute PSO dispatch, and MSL indexed draw tests pass. |
-| Native compute PSO | Implemented for MSL/DXBC/DXIL paths | The in-tree native `CreateComputePipelineState` now creates a real Metal compute pipeline when shader bytecode is available. |
-| Native indexed draw | Covered by offscreen test | GPU virtual-address lookup now binds real Metal vertex/index buffers and the test executes an indexed draw. |
-| Native raytracing/mesh | Stubbed | Advanced D3D12 calls return success or placeholders without full Metal execution. |
-| Native Cocoa viewer | Implemented separately | The NSWindow/CAMetalLayer path exists for native-loader presentation, but M12 Wine games present through DXMT/winemetal. |
+## Environment contract
 
-## Stability Gaps To Close
+M12 sets:
 
-1. Add a first-class M12 runtime verification command in this repo that launches
-   a small D3D12 probe through the same `launch_dxmt_metal` environment used by
-   games. — **Addressed (Phase 3):** `GET /diagnostics/m12/dry-run?appid=...`
-   and `GET /diagnostics/pipeline/dry-run?appid=...&pipeline=m12` report the
-   exact env pairs, artifact hashes, and unix sidecars M12 would load, using
-   the same `steam_pipeline_env_pairs` builder as `launch_dxmt_metal`, without
-   launching Steam or the game. The existing `POST /steam/d3d12-runtime-doctor`
-   runs the SDK mini-probe suite through that same environment.
-2. Add a native Cocoa viewer test target if the goal is to exercise the in-tree
-   `metalsharp_d3d12` implementation through CAMetalLayer rather than through
-   Wine/winemetal.
-3. Expand native D3D12 tests beyond the current graphics/compute coverage:
-   texture sampling, depth compare, and swapchain present.
+- `WINEDLLOVERRIDES=d3d12,d3d12core,dxgi=n,b;…`
+- `WINEDLLPATH` containing the vkd3d-proton x86_64 lane and DXVK x86_64 lane
+- `DYLD_LIBRARY_PATH` / `DYLD_FALLBACK_LIBRARY_PATH` containing Wine Vulkan, win32u, and ntdll ARM64 host directories
+- `VKD3D_SHADER_CACHE_PATH`
+- `DXVK_STATE_CACHE_PATH`
+- `MS_GRAPHICS_BACKEND=vkd3d-proton`
+- `WINEMSYNC=1`
 
-## Practical Conclusion
+It does not set DXMT configuration, winemetal, or DXMT cache variables. Graphics logs add vkd3d-proton, DXVK, and MoltenVK logging only when the user opts in.
 
-The current MetalSharp project treats M12 as the D3D12 DXMT route while keeping
-older DXMT routes isolated. D3D12 PE import detection selects M12, the backend
-handoff deploys the `dxmt-m12` runtime, and M9/M10/M11 continue to use the
-legacy `dxmt` surface that is known to work for current Steam/Wine titles.
+## Diagnostics
 
-## M12 Artifact and Launch Verification (Phase 3)
+`GET /diagnostics/m12/dry-run?appid=<appid>` and the generic pipeline dry-run report:
 
-A reviewer can prove M12 loaded the intended artifacts without launching a full
-game using the read-only dry-run verifier. It runs through the same environment
-builder (`steam_pipeline_env_pairs`) as `launch_dxmt_metal`, so the reported env
-pairs and artifact sources are exactly what a real M12 launch would use.
+- every PE source path, size, and SHA-256;
+- every Wine Vulkan/MoltenVK host boundary;
+- the exact launch environment;
+- structured missing artifacts with `ok: false`.
 
-- `GET /diagnostics/m12/dry-run?appid=<appid>` — M12-specific dry-run including
-  the `lib/dxmt-m12/x86_64-unix` sidecars (`winemetal.so`, `libc++.1.dylib`,
-  `libc++abi.1.dylib`, `libunwind.1.dylib`).
-- `GET /diagnostics/pipeline/dry-run?appid=<appid>&pipeline=m12|m11|...` —
-  generic pipeline dry-run for comparing lanes.
+The D3D12 runtime doctor now consumes this route contract. The retired DXMT D3D12 SDK probe suite is not used to claim M12 readiness.
 
-The dry-run reports, per artifact: resolved source path, presence, sha256, and
-size; required artifacts that are missing produce a structured `ok: false` with
-a `missing[]` array rather than a silent fallback. Env keys verified present:
-`WINEDLLOVERRIDES` (winemetal overrides), `DXMT_SHADER_CACHE_PATH` (isolated
-`m12` lane), `DYLD_FALLBACK_LIBRARY_PATH`/`LD_LIBRARY_PATH`, `SteamAppId`, and
-`DXMT_WINEMETAL_UNIXLIB`.
+## Tested invariants
 
-Contract guarantees covered by tests:
+The deterministic backend suite verifies that:
 
-- M12 deploys `d3d12.dll`, `dxgi.dll`, `d3d11.dll`, `d3d10core.dll`,
-  `winemetal.dll` from `lib/dxmt-m12/x86_64-windows`.
-- M11 does **not** deploy `d3d12.dll` and points only at `lib/dxmt`, never
-  `lib/dxmt-m12`.
-- M12 dry-run includes `d3d12.dll`; M11 dry-run does not.
+- D3D12 PE detection selects M12 only for a compatible 64-bit route;
+- M12 deploys exactly the vkd3d-proton/DXVK ownership set;
+- M12 route switches remove stale DXMT DLLs;
+- M12 prefix staging includes `d3d12.dll`, `d3d12core.dll`, and `dxgi.dll`;
+- M12 has no DXMT/winemetal environment;
+- M9/M10/M11 remain on their existing DXMT lanes;
+- D3DMetal remains a distinct Homebrew GPTK prefix.

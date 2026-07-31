@@ -170,7 +170,7 @@ fn bottle_log_dir(home: &Path, bottle_id: &str) -> Option<PathBuf> {
 }
 
 /// Resolve the on-disk shader cache directories that a pipeline would use for
-/// an appid, including the legacy shared DXMT-Metal family aliases. This
+/// an appid, including each translation backend's shared family alias. This
 /// mirrors [`crate::mtsp::shader_cache`] lookup families so the diagnostic
 /// reports the same roots the runtime consults.
 pub fn shader_cache_dirs(home: &Path, pipeline: crate::mtsp::engine::PipelineId, appid: u32) -> Vec<PathBuf> {
@@ -183,8 +183,8 @@ pub fn shader_cache_dirs(home: &Path, pipeline: crate::mtsp::engine::PipelineId,
         PipelineId::M9 => &["m9", "dxmt-metal"],
         PipelineId::M10 => &["m10", "dxmt-metal"],
         PipelineId::M11 => &["m11", "dxmt-metal"],
-        PipelineId::M12 => &["m12", "dxmt-metal12"],
-        PipelineId::M13 => &["m13", "dxmt-metal12"],
+        PipelineId::M12 => &["m12", "vkd3d-proton"],
+        PipelineId::M13 => &["m13", "d3dmetal"],
         _ => &[],
     };
 
@@ -481,7 +481,7 @@ mod tests {
         let dirs = shader_cache_dirs(&home, crate::mtsp::engine::PipelineId::M12, 7);
         let names: Vec<String> = dirs.iter().map(|d| d.to_string_lossy().to_string()).collect();
         assert!(names.iter().any(|n| n.contains("shader-cache/m12/7")), "got {:?}", names);
-        assert!(names.iter().any(|n| n.contains("shader-cache/dxmt-metal12/7")), "got {:?}", names);
+        assert!(names.iter().any(|n| n.contains("shader-cache/vkd3d-proton/7")), "got {:?}", names);
         // M12 must NOT share the dxmt-metal legacy family.
         assert!(!names.iter().any(|n| n.contains("shader-cache/dxmt-metal/")), "got {:?}", names);
         let _ = fs::remove_dir_all(&home);

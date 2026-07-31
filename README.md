@@ -15,7 +15,7 @@
 
 ---
 
-MetalSharp is an application designed to run Windows Steam and Windows Steam games natively on Apple Silicon macOS. Now includes GOG-Games Support. MetalSharp builds and includes its own custom Wine 11.5 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling. 
+MetalSharp is an application designed to run Windows Steam and Windows Steam games natively on Apple Silicon macOS. Now includes GOG-Games Support. MetalSharp includes its custom Wine 11.12 multi-architecture runtime, game launch rules, DXMT, DXVK, vkd3d-proton, MoltenVK, runtime bottles, and repair tooling.
 
 <img width="946" height="646" alt="Screenshot 2026-07-21 at 5 49 12 AM" src="https://github.com/user-attachments/assets/c4aa6d64-ca4b-4ee2-ade4-5f12d511925a" />
 
@@ -39,7 +39,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 | Route | Engine |
 |---|---|
-| **M12** | D3D12 to Metal (experimental DXMT) |
+| **M12** | D3D12 via vkd3d-proton + DXVK DXGI → Wine Vulkan → ARM64 MoltenVK → Metal |
 | **M11** | D3D11 to Metal (DXMT) |
 | **M11(32)** | D3D11 i386 to Metal (DXMT) |
 | **M10** | D3D10 to Metal (DXMT) |
@@ -59,7 +59,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 ## Requirements
 
 - Apple Silicon Mac M1-M5, macOS 14+
-- About 2 GB free space
+- At least 20 GB free space for the complete runtime installation
 - Homebrew (installed by setup wizard)
 
 All other bundled assets, DLLs, and graphics backends are installed during the setup process. GPTK/D3DMetal is the exception: MetalSharp installs and uses Homebrew GPTK only when a D3DMetal bottle is saved.

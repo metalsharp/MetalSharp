@@ -25,8 +25,6 @@ pub fn state() -> Value {
     let config_path = crate::platform::metalsharp_home_dir_for(&home).join("setup.json");
     let complete_runtime_current = crate::installer::complete_runtime_current_for_home(&home);
     let dxmt_runtime = crate::installer::dxmt_runtime_status();
-    let dxmt_current = dxmt_runtime.get("current").and_then(|v| v.as_bool()).unwrap_or(false);
-    let dxmt_m12_current = dxmt_runtime.get("m12Current").and_then(|v| v.as_bool()).unwrap_or(false);
     let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let metalsharp_runtime_lib_ready = crate::installer::metalsharp_runtime_lib_ready(&wine_dir);
     let runtime_current = complete_runtime_current;
@@ -129,7 +127,9 @@ pub fn dependencies() -> Value {
     let steam = check_path(&home.join("Library/Application Support/Steam/Steam.app/Contents/MacOS/steam_osx"))
         || check_path(&PathBuf::from("/Applications/Steam.app/Contents/MacOS/steam_osx"));
     let homebrew = homebrew_ready();
-    let moltenvk = check_path(&PathBuf::from("/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"));
+    let wine_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+    let moltenvk = check_path(&wine_root.join("build-ec/dlls/win32u/libMoltenVK.dylib"))
+        && check_path(&wine_root.join("lib/moltenvk/libMoltenVK.dylib"));
     let metalsharp_wine = crate::installer::complete_runtime_current_for_home(&home);
     let host_runtime = host_runtime_installed(&home);
     let dxmt_status = crate::installer::dxmt_runtime_status();
@@ -139,12 +139,15 @@ pub fn dependencies() -> Value {
         .or_else(|| dxmt_status.get("current"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let dxmt_m12_runtime = dxmt_status
-        .get("dxmt_m12")
-        .and_then(|lane| lane.get("current"))
-        .or_else(|| dxmt_status.get("m12Current"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let m12_vkd3d_runtime = [
+        "lib/vkd3d-proton/x86_64/d3d12.dll",
+        "lib/vkd3d-proton/x86_64/d3d12core.dll",
+        "lib/dxvk/x86_64/dxgi.dll",
+        "build-ec/dlls/winevulkan/winevulkan.so",
+        "build-ec/dlls/win32u/libMoltenVK.dylib",
+    ]
+    .iter()
+    .all(|relative| check_path(&wine_root.join(relative)));
 
     let all_ok = homebrew && rosetta && xcode_cli && metalsharp_wine;
 
@@ -203,19 +206,13 @@ pub fn dependencies() -> Value {
                 "status": dxmt_status.get("dxmt").cloned().unwrap_or_else(|| dxmt_status.clone()),
             },
             {
-                "id": "dxmt_m12_runtime",
-                "name": "DXMT M12 Runtime",
-                "desc": "Isolated D3D12-to-Metal runtime staged under runtime/wine/lib/dxmt_m12 with its own DLLs and winemetal.so sidecars.",
-                "installed": dxmt_m12_runtime,
+                "id": "m12_vkd3d_runtime",
+                "name": "M12 vkd3d-proton Runtime",
+                "desc": "D3D12 through vkd3d-proton with DXVK-owned DXGI, Wine Vulkan, and the bundled ARM64 MoltenVK-to-Metal host route.",
+                "installed": m12_vkd3d_runtime,
                 "required": true,
-                "installCmd": "metalsharp-setup-dxmt-m12",
-                "status": dxmt_status.get("dxmt_m12").cloned().unwrap_or_else(|| dxmt_status.clone()),
-                "path": dxmt_status
-                    .get("dxmt_m12")
-                    .and_then(|lane| lane.get("path"))
-                    .cloned()
-                    .or_else(|| dxmt_status.get("m12Path").cloned())
-                    .unwrap_or(json!(null)),
+                "installCmd": "metalsharp-setup-wine",
+                "path": wine_root.join("lib/vkd3d-proton/x86_64").to_string_lossy(),
             },
             {
                 "id": "mono",
@@ -227,11 +224,11 @@ pub fn dependencies() -> Value {
             },
             {
                 "id": "moltenvk",
-                "name": "MoltenVK",
-                "desc": "Vulkan→Metal translation. Optional fallback graphics backend.",
+                "name": "Bundled MoltenVK",
+                "desc": "ARM64 Vulkan-to-Metal translation used by the M12 vkd3d-proton route.",
                 "installed": moltenvk,
-                "required": false,
-                "installCmd": "brew install molten-vk",
+                "required": true,
+                "installCmd": "metalsharp-setup-wine",
             },
             {
                 "id": "steam",
@@ -396,8 +393,8 @@ pub fn prepare_game(appid: u32) -> Result<Value, Box<dyn std::error::Error>> {
         _ => {
             if is_dotnet {
                 prepare_fna_game(appid, &game_dir, &home)?;
-            } else if pipeline.is_dxmt_family() {
-                prepare_dxmt_pipeline(appid, &game_dir, &home, pipeline)?;
+            } else if pipeline.is_dxmt_family() || pipeline == crate::mtsp::engine::PipelineId::M12 {
+                prepare_graphics_pipeline(appid, &game_dir, &home, pipeline)?;
             }
         },
     }
@@ -589,7 +586,7 @@ fn prepare_celeste(game_dir: &PathBuf, home: &PathBuf) -> Result<(), Box<dyn std
     Ok(())
 }
 
-fn prepare_dxmt_pipeline(
+fn prepare_graphics_pipeline(
     appid: u32,
     game_dir: &PathBuf,
     home: &PathBuf,
@@ -601,7 +598,8 @@ fn prepare_dxmt_pipeline(
         stage_agility_sdk_for_game(appid, game_dir, home)?;
     }
     if !marker.exists() {
-        let _ = std::fs::write(&marker, "dxmt");
+        let route = if pipeline == crate::mtsp::engine::PipelineId::M12 { "vkd3d-proton" } else { "dxmt" };
+        let _ = std::fs::write(&marker, route);
     }
     Ok(())
 }
