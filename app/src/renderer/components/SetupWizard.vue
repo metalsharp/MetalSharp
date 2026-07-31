@@ -307,7 +307,7 @@ async function installVcppX86() {
       <div v-if="step === 2" class="setup-body">
         <div class="setup-section-header">
           <h1>Install Runtime</h1>
-          <p>Install the MetalSharp-owned Wine runtime, DXMT graphics runtimes, Steam support files, Mono/FNA support, scripts, and bottle rules. GPTK is not installed during first-time setup.</p>
+          <p>Download, verify, and install the complete MetalSharp Wine 11.12 runtime for ARM64, ARM64EC, x86_64, and i386/WoW64. The installer includes the Metal/Vulkan graphics stacks, fonts, TLS, media, Java, Mono, SDL, and runtime providers. GPTK remains a separate Homebrew-owned route.</p>
         </div>
 
         <button

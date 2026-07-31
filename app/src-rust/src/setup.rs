@@ -23,12 +23,13 @@ const DEFAULT_AGILITY_PACKAGE_VERSION: &str = "1.619.3";
 pub fn state() -> Value {
     let home = dirs::home_dir().unwrap_or_default();
     let config_path = crate::platform::metalsharp_home_dir_for(&home).join("setup.json");
+    let complete_runtime_current = crate::installer::complete_runtime_current_for_home(&home);
     let dxmt_runtime = crate::installer::dxmt_runtime_status();
     let dxmt_current = dxmt_runtime.get("current").and_then(|v| v.as_bool()).unwrap_or(false);
     let dxmt_m12_current = dxmt_runtime.get("m12Current").and_then(|v| v.as_bool()).unwrap_or(false);
     let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let metalsharp_runtime_lib_ready = crate::installer::metalsharp_runtime_lib_ready(&wine_dir);
-    let runtime_current = dxmt_current && dxmt_m12_current && metalsharp_runtime_lib_ready;
+    let runtime_current = complete_runtime_current;
 
     if config_path.exists() {
         if let Ok(contents) = std::fs::read_to_string(&config_path) {
@@ -42,6 +43,7 @@ pub fn state() -> Value {
                     "deviceName": cfg.get("deviceName").and_then(|v| v.as_str()).unwrap_or(""),
                     "steamApiKeySet": cfg.get("steamApiKeySet").and_then(|v| v.as_bool()).unwrap_or(false),
                     "runtimeMigrationRequired": saved_completed && !runtime_current,
+                    "completeRuntimeCurrent": complete_runtime_current,
                     "dxmtRuntime": dxmt_runtime,
                     "metalsharpRuntimeLibReady": metalsharp_runtime_lib_ready,
                 });
@@ -57,6 +59,7 @@ pub fn state() -> Value {
         "deviceName": "",
         "steamApiKeySet": false,
         "runtimeMigrationRequired": false,
+        "completeRuntimeCurrent": complete_runtime_current,
         "dxmtRuntime": dxmt_runtime,
         "metalsharpRuntimeLibReady": metalsharp_runtime_lib_ready,
     })
@@ -127,8 +130,7 @@ pub fn dependencies() -> Value {
         || check_path(&PathBuf::from("/Applications/Steam.app/Contents/MacOS/steam_osx"));
     let homebrew = check_command("brew");
     let moltenvk = check_path(&PathBuf::from("/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"));
-    let metalsharp_wine = check_path(&crate::platform::metalsharp_home_dir_for(&home).join("runtime/wine/bin/wine"))
-        || check_path(&crate::platform::metalsharp_home_dir_for(&home).join("runtime/wine/bin/metalsharp-wine"));
+    let metalsharp_wine = crate::installer::complete_runtime_current_for_home(&home);
     let host_runtime = host_runtime_installed(&home);
     let dxmt_status = crate::installer::dxmt_runtime_status();
     let dxmt_runtime = dxmt_status
@@ -144,8 +146,7 @@ pub fn dependencies() -> Value {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let all_ok =
-        homebrew && rosetta && xcode_cli && metalsharp_wine && host_runtime && dxmt_runtime && dxmt_m12_runtime;
+    let all_ok = homebrew && rosetta && xcode_cli && metalsharp_wine;
 
     json!({
         "ok": true,
@@ -178,8 +179,8 @@ pub fn dependencies() -> Value {
             },
             {
                 "id": "metalsharp_wine",
-                "name": "MetalSharp Wine",
-                "desc": "From-source Wine 11.5 with DXMT Metal D3D11, gnutls TLS, MoltenVK. Runs Windows Steam and launches games with native Metal rendering.",
+                "name": "MetalSharp Complete Wine Runtime",
+                "desc": "Verified Wine 11.12 multi-architecture runtime with ARM64, ARM64EC, x86_64 and i386/WoW64 execution plus the complete Metal and Vulkan graphics stack.",
                 "installed": metalsharp_wine,
                 "required": true,
                 "installCmd": "metalsharp-setup-wine",

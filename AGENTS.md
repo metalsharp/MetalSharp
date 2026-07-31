@@ -1,7 +1,26 @@
 # AGENTS.md
-**Updated:** 2026-07-08
+**Updated:** 2026-07-31
 
 Guide for AI agents working on the MetalSharp repository.
+
+## 0.60.0 Preview Release Work
+
+Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
+`~/Documents/obsidian/Avery'sVault/0.60.0 Official Preview Release Plan.md`.
+
+- Phase 1 replaces first-run split-bundle installation with
+  `scripts/install-metalsharp-wine-runtime.sh` from release
+  `v0.60.0-dependency-bundles`.
+- The canonical complete-runtime SHA-256 is
+  `93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee`.
+- Runtime completion is gated by `.metalsharp-runtime-install` plus Wine,
+  wineserver, fonts/NLS, DXVK i386, vkd3d-proton D3D12, OpenGL-Metal, and
+  MoltenVK payloads. Do not restore the old six-archive setup gate.
+- The runtime installs transactionally at `~/.metalsharp/runtime`; prefixes,
+  Steam, bottles, saves, and shader caches remain outside that directory.
+- Phase 1 keeps Rosetta installation until macOS 28 and keeps GPTK/Homebrew as
+  a separate route. The complete runtime launch adapters explicitly disable
+  FEX TSO, vector TSO, and memcpy/set TSO.
 
 ## What This Project Is
 
