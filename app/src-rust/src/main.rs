@@ -419,6 +419,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 resp(500, json!({"ok": false, "error": e.to_string()}))
             },
         },
+        (Method::Post, "/steam/handoff") => {
+            let (status, body) = steam::accept_install_handoff();
+            resp(status, body)
+        },
         (Method::Post, "/steam/launch") => {
             app_log("Launching Wine Steam...");
             match steam::launch_wine_steam() {

@@ -222,6 +222,11 @@ validate_archive_layout() {
     "$PACKAGE_ROOT/graphics/vkd3d-proton/x86_64/d3d12.dll" \
     "$PACKAGE_ROOT/graphics/opengl-metal/metalsharp-opengl.dylib" \
     "$PACKAGE_ROOT/graphics/moltenvk/libMoltenVK.dylib" \
+    "$PACKAGE_ROOT/providers/xtajit64-arm64ec-known-good.dll" \
+    "$PACKAGE_ROOT/providers/xtajit-arm64-known-good.dll" \
+    "$PACKAGE_ROOT/scripts/stage-runtime-providers.sh" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/wow64/aarch64-windows/wow64.dll" \
+    "$PACKAGE_ROOT/wine/build-ec/dlls/wow64win/aarch64-windows/wow64win.dll" \
     "$PACKAGE_ROOT/dependencies" \
     "$PACKAGE_ROOT/providers" \
     "$PACKAGE_ROOT/source/LICENSE-METALSHARP-POLYFORM-NONCOMMERCIAL.md" \

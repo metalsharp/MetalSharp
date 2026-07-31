@@ -350,6 +350,11 @@ pub fn complete_runtime_current_for_home(home: &Path) -> bool {
         && file_nonempty(&root.join("graphics/vkd3d-proton/x86_64/d3d12.dll"))
         && file_nonempty(&root.join("graphics/opengl-metal/metalsharp-opengl.dylib"))
         && file_nonempty(&root.join("graphics/moltenvk/libMoltenVK.dylib"))
+        && file_nonempty(&root.join("providers/xtajit64-arm64ec-known-good.dll"))
+        && file_nonempty(&root.join("providers/xtajit-arm64-known-good.dll"))
+        && file_nonempty(&root.join("scripts/stage-runtime-providers.sh"))
+        && file_nonempty(&root.join("wine/build-ec/dlls/wow64/aarch64-windows/wow64.dll"))
+        && file_nonempty(&root.join("wine/build-ec/dlls/wow64win/aarch64-windows/wow64win.dll"))
 }
 
 fn find_complete_runtime_installer() -> Option<PathBuf> {
@@ -2635,6 +2640,11 @@ mod tests {
             "graphics/vkd3d-proton/x86_64/d3d12.dll",
             "graphics/opengl-metal/metalsharp-opengl.dylib",
             "graphics/moltenvk/libMoltenVK.dylib",
+            "providers/xtajit64-arm64ec-known-good.dll",
+            "providers/xtajit-arm64-known-good.dll",
+            "scripts/stage-runtime-providers.sh",
+            "wine/build-ec/dlls/wow64/aarch64-windows/wow64.dll",
+            "wine/build-ec/dlls/wow64win/aarch64-windows/wow64win.dll",
         ] {
             let path = root.join(rel);
             fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");

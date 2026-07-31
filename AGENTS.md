@@ -21,6 +21,17 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
 - Phase 1 keeps Rosetta installation until macOS 28 and keeps GPTK/Homebrew as
   a separate route. The complete runtime launch adapters explicitly disable
   FEX TSO, vector TSO, and memcpy/set TSO.
+- Phase 2 creates `~/.metalsharp/prefix-steam` as a single all-architecture
+  prefix. Before wineboot it stages ARM64 WoW64 providers, every i386 Wine
+  builtin, and the accepted ARM64/ARM64EC CPU providers; after wineboot it
+  restages/verifies providers and requires both system32 and syswow64 gates.
+- Steam installation enables the ntdll host notification only for installer
+  processes. `POST /steam/handoff` accepts exactly two serialized callbacks:
+  cycle 1 shuts down only the Steam prefix and relaunches its updater; cycle 2
+  shuts it down, deploys and verifies the CEF wrapper, and writes
+  `.metalsharp-steam-install-complete`. Steam is not reported installed before
+  that marker exists. All install and handoff launches keep every FEX TSO mode
+  disabled.
 
 ## What This Project Is
 

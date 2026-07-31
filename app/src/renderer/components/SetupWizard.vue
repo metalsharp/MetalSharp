@@ -132,7 +132,7 @@ async function startInstall() {
 
 async function checkSteam() {
   const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-  if (s?.installed || s?.running) {
+  if (s?.installed) {
     steamInstalled.value = true;
   }
   installingSteam.value = true;
@@ -147,8 +147,16 @@ async function installSteam() {
     return;
   }
   const poll = setInterval(async () => {
-    const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-    if (s?.installed || s?.running) {
+    const s = await api<{
+      installed: boolean;
+      installing: boolean;
+      install_handoff?: { accepted?: number; last_error?: string | null };
+    }>("GET", "/steam/status");
+    if (s?.install_handoff?.last_error) {
+      clearInterval(poll);
+      steamInstalling.value = false;
+      toast.show(s.install_handoff.last_error, "error");
+    } else if (s?.installed) {
       clearInterval(poll);
       steamInstalled.value = true;
       steamInstalling.value = false;
@@ -157,7 +165,7 @@ async function installSteam() {
   setTimeout(() => {
     clearInterval(poll);
     steamInstalling.value = false;
-  }, 300000);
+  }, 2700000);
 }
 
 async function finish() {
