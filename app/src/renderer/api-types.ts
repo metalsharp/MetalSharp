@@ -209,8 +209,15 @@ type MetalsharpAPI = {
   }>;
   ejectDmg: () => Promise<void>;
   installDeps: (command: string) => Promise<{ ok: boolean; error?: string }>;
-  installHomebrew: () => Promise<{ ok: boolean; installed?: boolean; path?: string; message?: string; error?: string }>;
-  homebrewStatus: () => Promise<{ installed: boolean; path?: string }>;
+  installHomebrew: () => Promise<{
+    ok: boolean;
+    installed?: boolean;
+    path?: string;
+    version?: string;
+    message?: string;
+    error?: string;
+  }>;
+  homebrewStatus: () => Promise<{ installed: boolean; path?: string; version?: string }>;
   openInFinder: (path: string) => Promise<void>;
   openLogsFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   openMetalsharpFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;

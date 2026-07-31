@@ -1547,7 +1547,9 @@ fn gptk_dyld_path() -> String {
 
 fn find_brew() -> Result<PathBuf, String> {
     for path in [PathBuf::from("/opt/homebrew/bin/brew"), PathBuf::from("/usr/local/bin/brew")] {
-        if path.is_file() {
+        if path.is_file()
+            && Command::new(&path).arg("--version").output().map(|output| output.status.success()).unwrap_or(false)
+        {
             return Ok(path);
         }
     }
@@ -1555,10 +1557,13 @@ fn find_brew() -> Result<PathBuf, String> {
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() {
-            return Ok(PathBuf::from(path));
+            let path = PathBuf::from(path);
+            if Command::new(&path).arg("--version").output().map(|result| result.status.success()).unwrap_or(false) {
+                return Ok(path);
+            }
         }
     }
-    Err("Homebrew not found".to_string())
+    Err("Homebrew was not found or failed its brew --version verification".to_string())
 }
 
 fn command_text(output: &std::process::Output) -> String {

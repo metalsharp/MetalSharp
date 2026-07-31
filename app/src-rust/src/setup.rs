@@ -128,7 +128,7 @@ pub fn dependencies() -> Value {
     let xcode_cli = check_command("clang") || check_command("xcodebuild");
     let steam = check_path(&home.join("Library/Application Support/Steam/Steam.app/Contents/MacOS/steam_osx"))
         || check_path(&PathBuf::from("/Applications/Steam.app/Contents/MacOS/steam_osx"));
-    let homebrew = check_command("brew");
+    let homebrew = homebrew_ready();
     let moltenvk = check_path(&PathBuf::from("/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"));
     let metalsharp_wine = crate::installer::complete_runtime_current_for_home(&home);
     let host_runtime = host_runtime_installed(&home);
@@ -156,7 +156,7 @@ pub fn dependencies() -> Value {
             {
                 "id": "homebrew",
                 "name": "Homebrew",
-                "desc": "Package manager — required to install other dependencies",
+                "desc": "Required package manager and owner of the separate GPTK/D3DMetal runtime",
                 "installed": homebrew,
                 "required": true,
                 "installCmd": "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
@@ -1964,6 +1964,22 @@ fn build_shim(src: &PathBuf, game_dir: &PathBuf) {
 
 fn check_command(cmd: &str) -> bool {
     mac_cmd("which").arg(cmd).output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+fn homebrew_ready() -> bool {
+    ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+        .iter()
+        .any(|brew| Command::new(brew).arg("--version").output().map(|o| o.status.success()).unwrap_or(false))
+        || mac_cmd("which")
+            .arg("brew")
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|brew| {
+                Command::new(brew.trim()).arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+            })
+            .unwrap_or(false)
 }
 
 fn check_path(path: &PathBuf) -> bool {
