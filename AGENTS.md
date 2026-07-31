@@ -41,6 +41,16 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   is owned by Homebrew. Saving a D3DMetal bottle invokes the existing
   `gcenx/wine/game-porting-toolkit` tap/trust/cask route; do not stage a private
   GPTK copy into the main runtime.
+- Phase 4 runs the interactive VC++ 2015-2022 x64 and x86 installers only
+  through `runtime/wine/bin/metalsharp-wine` and only after both the canonical
+  complete-runtime gate and the Steam all-architecture prefix gate pass. Both
+  installer commands pin `WINEBUILDDIR`, the Steam prefix, and all FEX TSO
+  modes off; they may wait up to 45 minutes for user interaction.
+- Redistributables download from Microsoft's current aka.ms endpoints using
+  `/usr/bin/curl`, require a valid PE bootstrap and architecture-appropriate
+  payload size, and verify x64 DLLs in `system32` or x86 DLLs in `syswow64`.
+  Microsoft's x64 redistributable intentionally uses an i386 PE bootstrap, so
+  do not misclassify its bootstrap machine as the installed payload target.
 
 ## What This Project Is
 

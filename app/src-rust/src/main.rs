@@ -254,8 +254,16 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/setup/install-vcpp-x64") => {
             let home = dirs::home_dir().unwrap_or_default();
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-            if !prefix.join("drive_c/windows/system32").exists() {
-                resp(400, json!({"ok": false, "error": "Wine prefix not ready — install runtime and Steam first"}))
+            if !crate::installer::complete_runtime_current_for_home(&home) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "Complete MetalSharp Wine runtime not ready — install or repair the runtime first"}),
+                )
+            } else if !steam::steam_prefix_all_arch_ready(&prefix) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "All-architecture Steam prefix not ready — complete Steam installation first"}),
+                )
             } else {
                 match bottles::vcpp_ensure_and_install_x64(&prefix) {
                     Ok(()) => resp(200, json!({"ok": true})),
@@ -266,8 +274,16 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/setup/install-vcpp-x86") => {
             let home = dirs::home_dir().unwrap_or_default();
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-            if !prefix.join("drive_c/windows/system32").exists() {
-                resp(400, json!({"ok": false, "error": "Wine prefix not ready — install runtime and Steam first"}))
+            if !crate::installer::complete_runtime_current_for_home(&home) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "Complete MetalSharp Wine runtime not ready — install or repair the runtime first"}),
+                )
+            } else if !steam::steam_prefix_all_arch_ready(&prefix) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "All-architecture Steam prefix not ready — complete Steam installation first"}),
+                )
             } else {
                 match bottles::vcpp_ensure_and_install_x86(&prefix) {
                     Ok(()) => resp(200, json!({"ok": true})),
