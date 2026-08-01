@@ -33,12 +33,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: rust
           config-file: .github/codeql/codeql-rust.yml
 
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: '/language:rust'
 
@@ -58,12 +58,12 @@ jobs:
       - run: npm ci
         working-directory: app
 
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: javascript-typescript
           config-file: .github/codeql/codeql-vue.yml
 
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: '/language:vue'
 
@@ -85,12 +85,12 @@ jobs:
       - run: npm ci
         working-directory: app
 
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: javascript-typescript
           config-file: .github/codeql/codeql-js.yml
 
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: '/language:javascript'
 
