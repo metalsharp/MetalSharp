@@ -153,6 +153,7 @@ interface GogStatus {
   oauthHelperScript?: string | null;
   winePrefix: string;
   prefixInitialized: boolean;
+  prefixAllArchReady: boolean;
   winePath: string;
 }
 
@@ -1746,12 +1747,12 @@ onUnmounted(stopGogMonoPoll);
       <template v-else>
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-            <h2>gogdl is not installed</h2>
-            <p>Install gogdl under ~/.metalsharp/tools/gogdl or set METALSHARP_GOGDL_BIN.</p>
+            <h2>GOG support is not installed</h2>
+            <p>Repair the Complete Multi-Architecture Runtime to restore the verified native ARM64 GOG bundle.</p>
           </div>
           <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
             <h2>Initialize GOG prefix</h2>
-            <p>Create the isolated Wine prefix before connecting games.</p>
+            <p>Create the isolated ARM64, ARM64EC, x86_64, and i386/WoW64 Wine prefix before connecting games.</p>
           </div>
           <div v-else-if="!gogStatus?.authenticated" class="empty-state compact">
             <h2>Login to GOG to connect your games</h2>

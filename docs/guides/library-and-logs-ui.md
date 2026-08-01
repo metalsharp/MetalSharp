@@ -1,6 +1,6 @@
 # Library and Logs UI
 
-**Updated:** 2026-07-22
+**Updated:** 2026-07-31
 
 ## Library
 
@@ -17,6 +17,19 @@ Installed application cards show their app type, install state, and size on one 
 - **Uninstall** to remove the application.
 
 Add Asset is unavailable for applications that are not associated with an app-specific bottle.
+
+### GOG
+
+GOG support is installed with the Complete Multi-Architecture Runtime. The
+bundled native ARM64 GOGDL client handles login, library synchronization,
+downloads, imports, uninstall, and Play without cloning source or installing
+Python packages on the user's machine.
+
+**Initialize GOG Prefix** creates or repairs one isolated prefix containing
+the accepted ARM64, ARM64EC, x86_64, and i386/WoW64 provider lanes. The GOG
+view does not treat a partial `drive_c` as initialized. GOG Play uses the same
+complete Wine runtime, no-TSO execution contract, controller mode, and Msync
+setting as the rest of MetalSharp.
 
 ## Logs
 

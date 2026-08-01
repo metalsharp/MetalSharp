@@ -34,6 +34,7 @@ mod migrate;
 mod mono;
 mod mtsp;
 mod platform;
+mod runtime_prefix;
 mod scan;
 mod setup;
 mod sharp_library;
