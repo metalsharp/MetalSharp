@@ -124,7 +124,7 @@ def check_bundle_scripts() -> None:
     prepare_runtime = read("tools/dmg/prepare-complete-runtime-assets.sh")
     for needle in [
         "v0.60.0-dependency-bundles",
-        "93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee",
+        "e44a84bceeca62f01fd95a133364ec82467cd8883ff81bcc1bdfdf4a6c3ad146",
         "metalsharp-bundle-manifest.tsv",
         "--verify-only",
         "--verify-package",

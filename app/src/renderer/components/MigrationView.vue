@@ -18,10 +18,10 @@ const percent = computed(() => {
 });
 
 const stages = [
-  { name: "[D3D]" },
-  { name: "[DXMT]" },
-  { name: "[x86_64]" },
-  { name: "[Metal]" },
+  { name: "[Data]" },
+  { name: "[Runtime]" },
+  { name: "[Prefixes]" },
+  { name: "[Verify]" },
 ];
 
 const MAX_START_RETRIES = 20;
@@ -100,6 +100,15 @@ function stopPolling() {
   }
 }
 
+async function retryMigration() {
+  error.value = null;
+  complete.value = false;
+  step.value = 0;
+  total.value = 0;
+  message.value = "Retrying migration from the last safe checkpoint...";
+  await startMigration();
+}
+
 async function restartApp() {
   launching.value = true;
   message.value = "Closing old MetalSharp, stopping the backend, and launching the updated app...";
@@ -153,7 +162,8 @@ onUnmounted(() => {
       <button v-if="complete" class="restart-btn" :disabled="launching" @click="restartApp()">
         {{ launching ? "Launching..." : "Launch MetalSharp" }}
       </button>
-      <p v-if="error" class="error-hint">Try restarting the app. If the issue persists, check the logs.</p>
+      <button v-if="error" class="restart-btn" @click="retryMigration()">Retry Migration</button>
+      <p v-if="error" class="error-hint">Your Steam installation and user data remain preserved at the last safe checkpoint.</p>
     </div>
   </div>
 </template>

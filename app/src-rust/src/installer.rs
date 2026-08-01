@@ -33,7 +33,7 @@ const SCRIPTS_TOOLS_BUNDLE: &str = "metalsharp-scripts-tools";
 const STEAM_BUNDLE: &str = "metalsharp-steam";
 const COMPLETE_RUNTIME_INSTALLER: &str = "install-metalsharp-wine-runtime.sh";
 pub(crate) const COMPLETE_RUNTIME_ARCHIVE_SHA256: &str =
-    "93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee";
+    "e44a84bceeca62f01fd95a133364ec82467cd8883ff81bcc1bdfdf4a6c3ad146";
 pub(crate) const GOG_SUPPORT_ARCHIVE_SHA256: &str = "f13075f27d5155e84199619410936931b32310c4ec4161de992c1f727ac24155";
 const METALSHARP_NTDLL_HOOK_DLL: &str = "metalsharp_ntdll_hook.dll";
 const DXMT_REQUIRED_PE: &[&str] = &[
