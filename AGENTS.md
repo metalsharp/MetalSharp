@@ -148,6 +148,12 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   a disposable existing-runtime fixture; the deterministic Rust suite passes
   655/655; strict Clippy, all Rust targets, TypeScript, Vite, DMG workflow, and
   shell gates pass.
+- Wine Mono 11.2.0 is part of the complete runtime. The GOG and Settings tabs
+  no longer offer a second interactive MSI download/install/reset path, and
+  the retired `/wine-mono/*` backend endpoints and installer module are gone.
+  This does not remove bundled Mono, the Mono/FNA launch lanes, or bottle-level
+  compatibility metadata. Post-removal validation passes 644/644 Rust tests,
+  strict Clippy, all Rust targets, and the Electron production build.
 
 ## What This Project Is
 
