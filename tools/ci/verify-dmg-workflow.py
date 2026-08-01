@@ -122,6 +122,7 @@ def check_updater_handoff() -> None:
 
 def check_bundle_scripts() -> None:
     prepare_runtime = read("tools/dmg/prepare-complete-runtime-assets.sh")
+    runtime_installer = read("scripts/install-metalsharp-wine-runtime.sh")
     for needle in [
         "v0.60.0-dependency-bundles",
         "e44a84bceeca62f01fd95a133364ec82467cd8883ff81bcc1bdfdf4a6c3ad146",
@@ -140,6 +141,29 @@ def check_bundle_scripts() -> None:
     for part in range(1, 5):
         if f'"$ARCHIVE.part{part:02d}"' not in prepare_runtime:
             fail(f"complete-runtime preparation omits runtime part {part:02d}")
+
+    if 'local name="$1" destination="$2" partial="${destination}.partial"' in runtime_installer:
+        fail("runtime installer expands the unset download destination under set -u")
+    if 'partial="${destination}.partial"' not in runtime_installer:
+        fail("runtime installer no longer derives its partial download path after destination assignment")
+    for link in [
+        '"$bin/wine"',
+        '"$bin/wine64"',
+        '"$bin/metalsharp-wine"',
+        '"$bin/wineserver"',
+        '"$lib/dxmt"',
+        '"$lib/dxmt-m12"',
+        '"$lib/dxmt_m12"',
+        '"$lib/dxvk"',
+        '"$lib/vkd3d-proton"',
+        '"$lib/opengl-metal"',
+        '"$lib/moltenvk"',
+    ]:
+        if not any(
+            line.strip().startswith("ln -sfn ") and line.strip().endswith(link)
+            for line in runtime_installer.splitlines()
+        ):
+            fail(f"runtime installer no longer replaces the packaged symlink idempotently: {link}")
 
 
 def check_workflows() -> None:
