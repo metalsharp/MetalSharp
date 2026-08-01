@@ -141,7 +141,8 @@ verify_parts_dir() {
 }
 
 download_asset() {
-  local name="$1" destination="$2" partial="${destination}.partial"
+  local name="$1" destination="$2" partial
+  partial="${destination}.partial"
   [ "$LOCAL_ONLY" -eq 0 ] || die "missing local asset: $name"
   mkdir -p "$(dirname "$destination")"
   info "Downloading $name"
@@ -347,10 +348,10 @@ case "$(basename "$0")" in
 esac
 LAUNCHER
   chmod 0755 "$launcher"
-  ln -s metalsharp-runtime-launcher "$bin/wine"
-  ln -s metalsharp-runtime-launcher "$bin/wine64"
-  ln -s metalsharp-runtime-launcher "$bin/metalsharp-wine"
-  ln -s metalsharp-runtime-launcher "$bin/wineserver"
+  ln -sfn metalsharp-runtime-launcher "$bin/wine"
+  ln -sfn metalsharp-runtime-launcher "$bin/wine64"
+  ln -sfn metalsharp-runtime-launcher "$bin/metalsharp-wine"
+  ln -sfn metalsharp-runtime-launcher "$bin/wineserver"
 }
 
 repair_build_tree_links() {
@@ -380,13 +381,13 @@ PY
 write_metalsharp_layout() {
   local root="$1" lib="$1/wine/lib"
   mkdir -p "$lib"
-  ln -s ../build-ec/dxmt-v0.80 "$lib/dxmt"
-  ln -s ../build-ec/dxmt-v0.80 "$lib/dxmt-m12"
-  ln -s ../build-ec/dxmt-v0.80 "$lib/dxmt_m12"
-  ln -s ../../graphics/dxvk "$lib/dxvk"
-  ln -s ../../graphics/vkd3d-proton "$lib/vkd3d-proton"
-  ln -s ../../graphics/opengl-metal "$lib/opengl-metal"
-  ln -s ../../graphics/moltenvk "$lib/moltenvk"
+  ln -sfn ../build-ec/dxmt-v0.80 "$lib/dxmt"
+  ln -sfn ../build-ec/dxmt-v0.80 "$lib/dxmt-m12"
+  ln -sfn ../build-ec/dxmt-v0.80 "$lib/dxmt_m12"
+  ln -sfn ../../graphics/dxvk "$lib/dxvk"
+  ln -sfn ../../graphics/vkd3d-proton "$lib/vkd3d-proton"
+  ln -sfn ../../graphics/opengl-metal "$lib/opengl-metal"
+  ln -sfn ../../graphics/moltenvk "$lib/moltenvk"
 }
 
 stage_gog_support() {

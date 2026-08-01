@@ -8,7 +8,7 @@ REPO="${METALSHARP_RUNTIME_REPO:-metalsharp/MetalSharp}"
 TAG="${METALSHARP_RUNTIME_TAG:-v0.60.0-dependency-bundles}"
 ARCHIVE="MetalSharp-Wine-Runtime-COMPLETE-all-arch-2026-07-31.tar.zst"
 ARCHIVE_SHA256="e44a84bceeca62f01fd95a133364ec82467cd8883ff81bcc1bdfdf4a6c3ad146"
-MANIFEST_SHA256="bba8103217dbc72914a8496cb782882af0883fbb18664956ba365dba68fec4eb"
+MANIFEST_SHA256="1832a96f003e1e3ff2f16974c796f1ba315e6aa7d8ca966eea3f811cd189a8b7"
 
 ASSETS=(
   metalsharp-bundle-manifest.tsv

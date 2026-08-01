@@ -177,6 +177,24 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   Architecture probes must use `apply_complete_runtime_env` equivalence,
   including the runtime fallback library path and all FEX TSO modes disabled;
   omitting that environment is not a valid i386 result.
+- Final release-path validation used a fresh copy-on-write clone of that
+  immutable 0.57 backup and an empty AverySSD cache. The migration downloaded
+  all four published runtime parts plus GOG support, reassembled and verified
+  the canonical archive, activated the runtime transactionally, and completed
+  all 8 migration steps. Of 6,845 baseline user-payload files, 6,841 remained
+  byte-identical; the only expected differences were deletion of the stale
+  root `SteamSetup.exe` and Steam `.crash` marker plus appends to two logs.
+  The preserved `steam.exe` and `SteamUI.dll` hashes were unchanged.
+- That upgraded prefix passed ARM64 (rc 0), ARM64EC (rc 42), x86_64 (rc 7),
+  and i386/WoW64 (rc 0 plus marker) with Msync enabled and all FEX TSO modes
+  disabled. `POST /steam/launch` then started the preserved Steam executable,
+  kept it alive through the handoff, and produced an on-screen Wine window
+  titled `Sign in to Steam`; `POST /steam/stop` shut down only that prefix.
+- The fresh download exposed two installer-only regressions now covered by
+  `tools/ci/verify-dmg-workflow.py`: a same-line `local` expansion referenced
+  `destination` before assignment under `set -u`, and packaged launch/layout
+  symlinks were recreated with non-idempotent `ln -s`. Download assignment is
+  now ordered explicitly and all expected packaged symlinks use `ln -sfn`.
 
 ## What This Project Is
 
