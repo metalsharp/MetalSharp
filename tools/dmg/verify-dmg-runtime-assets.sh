@@ -41,6 +41,7 @@ for required in \
   "$RUNTIME_BUNDLE/metalsharp-bundle-manifest.tsv" \
   "$RUNTIME_BUNDLE/MetalSharp-Wine-Public-Source-2026-07-31.tar.zst" \
   "$RUNTIME_BUNDLE/MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256" \
+  "$RUNTIME_BUNDLE/MetalSharp-GOG-Support-arm64-1.2.2.tar.zst" \
   "$RUNTIME_BUNDLE/PARTS-SHA256SUMS.txt" \
   "$RUNTIME_BUNDLE/REASSEMBLE.txt"
 do

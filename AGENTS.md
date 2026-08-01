@@ -120,6 +120,34 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   contains only the complete-runtime resource contract; the deterministic
   Rust suite passes 653/653; strict Clippy, all Rust targets, and the
   TypeScript/Vite production build pass.
+- The post-Phase-8 GOG pass adds
+  `MetalSharp-GOG-Support-arm64-1.2.2.tar.zst` to the dependency release and
+  DMG bootstrap payload. It is a self-contained thin ARM64 Heroic GOGDL 1.2.2
+  executable with Requests/TLS, the compiled xdelta3 module, licenses,
+  per-file hashes, and pinned provenance. The archive SHA-256 is
+  `f13075f27d5155e84199619410936931b32310c4ec4161de992c1f727ac24155`.
+- The complete-runtime installer validates and stages GOG support under
+  `runtime/integration/gog/`. Existing accepted Wine runtimes receive this
+  small layer in place without reassembling, extracting, or replacing the
+  multi-gigabyte Wine runtime. Runtime readiness now requires the GOG archive
+  marker and executable.
+- Steam and GOG prefix creation share `runtime_prefix.rs`. Both stage ARM64
+  WoW64 providers, all i386 builtins, canonical ARM64/ARM64EC execution
+  providers, and GStreamer before explicit ARM64 wineboot; wait for the exact
+  prefix wineserver; restage and verify providers; and require the same
+  ARM64/ARM64EC/x86_64/i386 acceptance gate. A `drive_c` directory alone is
+  never GOG-prefix acceptance.
+- GOG prefers the canonical bundled native ARM64 GOGDL path over legacy
+  `~/.metalsharp/tools/gogdl`. Download, import, and Play commands inherit the
+  complete runtime's `WINEBUILDDIR`, library paths, controller/Msync settings,
+  and all three FEX TSO-off flags. The source-install fallback is pinned to
+  Heroic GOGDL `v1.2.2`, never an unpinned main branch.
+- GOG validation: the native bundle passed archive/per-file hashes, Mach-O,
+  code-signature, version, embedded-xdelta, and unauthenticated command probes;
+  installer add/repair and idempotency completed in two seconds each against
+  a disposable existing-runtime fixture; the deterministic Rust suite passes
+  655/655; strict Clippy, all Rust targets, TypeScript, Vite, DMG workflow, and
+  shell gates pass.
 
 ## What This Project Is
 

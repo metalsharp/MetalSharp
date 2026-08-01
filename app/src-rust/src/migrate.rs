@@ -3168,6 +3168,7 @@ mod tests {
             ms_dir.join("runtime").join("providers").join("xtajit64-arm64ec-known-good.dll"),
             ms_dir.join("runtime").join("providers").join("xtajit-arm64-known-good.dll"),
             ms_dir.join("runtime").join("scripts").join("stage-runtime-providers.sh"),
+            ms_dir.join("runtime").join("integration").join("gog").join("bin").join("gogdl"),
             runtime_wine.join("build-ec").join("dlls").join("wow64").join("aarch64-windows").join("wow64.dll"),
             runtime_wine.join("build-ec").join("dlls").join("wow64win").join("aarch64-windows").join("wow64win.dll"),
             runtime_wine.join("build-ec").join("dlls").join("winevulkan").join("winevulkan.so"),
@@ -3234,7 +3235,11 @@ mod tests {
 
         fs::write(
             ms_dir.join("runtime").join(".metalsharp-runtime-install"),
-            format!("archive_sha256={}\nno_tso=1\n", crate::installer::COMPLETE_RUNTIME_ARCHIVE_SHA256),
+            format!(
+                "archive_sha256={}\ngog_archive_sha256={}\nno_tso=1\n",
+                crate::installer::COMPLETE_RUNTIME_ARCHIVE_SHA256,
+                crate::installer::GOG_SUPPORT_ARCHIVE_SHA256
+            ),
         )
         .expect("write complete runtime marker");
 

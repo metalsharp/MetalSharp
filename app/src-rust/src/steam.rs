@@ -8,8 +8,6 @@ static STEAM_INSTALLING: AtomicBool = AtomicBool::new(false);
 static STEAM_INSTALL_HANDOFF: OnceLock<Mutex<SteamInstallHandoffState>> = OnceLock::new();
 const STEAM_INSTALL_HANDOFF_LIMIT: u8 = 2;
 const STEAM_INSTALL_MARKER: &str = ".metalsharp-steam-install-complete";
-const XTAJIT64_SHA256: &str = "7b9f55ceabe971ffa1f514570bb54ed7b5640959e4440e7f8a013e9af13ab7e6";
-const XTAJIT_SHA256: &str = "7d2ac83d2c0935e04d033d609c42d8307294225dcb4cb16b88af849e95c694ab";
 const STEAMWEBHELPER_WRAPPER_MAX_BYTES: u64 = 100_000;
 const STEAMWEBHELPER_WRAPPER_SHA256: &str = "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9";
 const STEAM_D3D12_GUARD_APPS: &[&str] = &["Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"];
@@ -1562,139 +1560,12 @@ fn copy_file_required(source: &Path, destination: &Path, label: &str) -> Result<
     Ok(())
 }
 
-fn stage_i386_builtins(build: &Path, prefix: &Path) -> Result<usize, Box<dyn std::error::Error>> {
-    let dll_root = build.join("dlls");
-    let syswow64 = prefix.join("drive_c/windows/syswow64");
-    std::fs::create_dir_all(&syswow64)?;
-    let mut staged = 0usize;
-
-    for component in std::fs::read_dir(&dll_root)? {
-        let component = component?;
-        let lane = component.path().join("i386-windows");
-        if !lane.is_dir() {
-            continue;
-        }
-        for entry in std::fs::read_dir(lane)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("dll")) {
-                std::fs::copy(&path, syswow64.join(entry.file_name()))?;
-                staged += 1;
-            }
-        }
-    }
-
-    if staged == 0 {
-        return Err("complete runtime contains no i386 Wine builtins to stage into the Steam prefix".into());
-    }
-    Ok(staged)
-}
-
-fn run_runtime_provider_stage(prefix: &Path, verify_only: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let root = runtime_root();
-    let script = root.join("scripts/stage-runtime-providers.sh");
-    let xtajit64 = root.join("providers/xtajit64-arm64ec-known-good.dll");
-    let xtajit = root.join("providers/xtajit-arm64-known-good.dll");
-    if !script.is_file() {
-        return Err(format!("runtime provider staging script is missing: {}", script.display()).into());
-    }
-
-    let status = Command::new("/bin/bash")
-        .arg(&script)
-        .arg(if verify_only { "--verify-prefix" } else { "--prefix" })
-        .arg(prefix)
-        .env("WINEBUILDDIR", root.join("wine/build-ec"))
-        .env("VKMT_XTAJIT64_SOURCE", &xtajit64)
-        .env("VKMT_XTAJIT_SOURCE", &xtajit)
-        .env("VKMT_XTAJIT64_SHA256", XTAJIT64_SHA256)
-        .env("VKMT_XTAJIT_SHA256", XTAJIT_SHA256)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .output()?;
-    if !status.status.success() {
-        return Err(format!(
-            "runtime provider {} failed: {}",
-            if verify_only { "verification" } else { "staging" },
-            String::from_utf8_lossy(&status.stderr).lines().last().unwrap_or("unknown error")
-        )
-        .into());
-    }
-    Ok(())
-}
-
 pub(crate) fn steam_prefix_all_arch_ready(prefix: &Path) -> bool {
-    [
-        "system.reg",
-        "user.reg",
-        "drive_c/windows/system32/kernel32.dll",
-        "drive_c/windows/system32/ntdll.dll",
-        "drive_c/windows/system32/wow64.dll",
-        "drive_c/windows/system32/wow64win.dll",
-        "drive_c/windows/system32/xtajit64.dll",
-        "drive_c/windows/system32/xtajit.dll",
-        "drive_c/windows/syswow64/kernel32.dll",
-        "drive_c/windows/syswow64/ntdll.dll",
-        ".vkmt/gstreamer-runtime.sha256",
-    ]
-    .iter()
-    .all(|relative| prefix.join(relative).is_file())
+    crate::runtime_prefix::all_arch_ready(prefix)
 }
 
 fn prepare_steam_prefix(prefix: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let root = runtime_root();
-    let build = root.join("wine/build-ec");
-    let wine = ms_wine();
-    let system32 = prefix.join("drive_c/windows/system32");
-    std::fs::create_dir_all(&system32)?;
-    std::fs::create_dir_all(prefix.join("drive_c/windows/syswow64"))?;
-
-    copy_file_required(
-        &build.join("dlls/wow64/aarch64-windows/wow64.dll"),
-        &system32.join("wow64.dll"),
-        "ARM64 WoW64 provider",
-    )?;
-    copy_file_required(
-        &build.join("dlls/wow64win/aarch64-windows/wow64win.dll"),
-        &system32.join("wow64win.dll"),
-        "ARM64 WoW64 windowing provider",
-    )?;
-    stage_i386_builtins(&build, prefix)?;
-    run_runtime_provider_stage(prefix, false)?;
-
-    let wineboot = build.join("programs/wineboot/aarch64-windows/wineboot.exe");
-    let mut wineboot_command = Command::new(&wine);
-    wineboot_command
-        .arg(&wineboot)
-        .arg("--init")
-        .env("WINEPREFIX", prefix)
-        .env("WINEBUILDDIR", &build)
-        .env("WINEBOOTSTRAPMODE", "1")
-        .env("WINE_NO_EXPLORER", "1")
-        .env("WINEDEBUG", "-all")
-        .env("WINEDEBUGGER", "none")
-        .env("FEX_TSOENABLED", "0")
-        .env("FEX_VECTORTSOENABLED", "0")
-        .env("FEX_MEMCPYSETTSOENABLED", "0")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    crate::launch::apply_wine_runtime_preferences(&mut wineboot_command);
-    let status = wineboot_command.status()?;
-    if !status.success() {
-        return Err(format!("all-architecture wineboot failed with {status}").into());
-    }
-
-    let wineserver = crate::platform::runtime_wineserver(&root.join("wine"));
-    let wait_status = Command::new(wineserver).arg("-w").env("WINEPREFIX", prefix).status()?;
-    if !wait_status.success() {
-        return Err(format!("wineserver -w failed after Steam prefix initialization with {wait_status}").into());
-    }
-
-    run_runtime_provider_stage(prefix, false)?;
-    run_runtime_provider_stage(prefix, true)?;
-    if !steam_prefix_all_arch_ready(prefix) {
-        return Err("Steam prefix was initialized but the ARM64/ARM64EC/x86_64/i386 acceptance gate failed".into());
-    }
-    Ok(())
+    crate::runtime_prefix::prepare(prefix).map_err(Into::into)
 }
 
 fn stop_steam_install_prefix() -> Result<(), Box<dyn std::error::Error>> {

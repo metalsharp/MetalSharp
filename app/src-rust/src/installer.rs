@@ -34,6 +34,7 @@ const STEAM_BUNDLE: &str = "metalsharp-steam";
 const COMPLETE_RUNTIME_INSTALLER: &str = "install-metalsharp-wine-runtime.sh";
 pub(crate) const COMPLETE_RUNTIME_ARCHIVE_SHA256: &str =
     "93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee";
+pub(crate) const GOG_SUPPORT_ARCHIVE_SHA256: &str = "f13075f27d5155e84199619410936931b32310c4ec4161de992c1f727ac24155";
 const METALSHARP_NTDLL_HOOK_DLL: &str = "metalsharp_ntdll_hook.dll";
 const DXMT_REQUIRED_PE: &[&str] = &[
     "d3d10core.dll",
@@ -350,6 +351,7 @@ fn complete_runtime_current_for_root(root: &Path) -> bool {
     };
 
     marker.lines().any(|line| line == format!("archive_sha256={COMPLETE_RUNTIME_ARCHIVE_SHA256}"))
+        && marker.lines().any(|line| line == format!("gog_archive_sha256={GOG_SUPPORT_ARCHIVE_SHA256}"))
         && marker.lines().any(|line| line == "no_tso=1")
         && file_nonempty(&root.join("wine/bin/metalsharp-wine"))
         && file_nonempty(&root.join("wine/build-ec/wine"))
@@ -387,6 +389,7 @@ fn complete_runtime_current_for_root(root: &Path) -> bool {
         && file_nonempty(&root.join("scripts/stage-runtime-providers.sh"))
         && file_nonempty(&root.join("wine/build-ec/dlls/wow64/aarch64-windows/wow64.dll"))
         && file_nonempty(&root.join("wine/build-ec/dlls/wow64win/aarch64-windows/wow64win.dll"))
+        && file_nonempty(&root.join("integration/gog/bin/gogdl"))
 }
 
 fn find_complete_runtime_installer() -> Option<PathBuf> {
@@ -2701,6 +2704,7 @@ mod tests {
             "scripts/stage-runtime-providers.sh",
             "wine/build-ec/dlls/wow64/aarch64-windows/wow64.dll",
             "wine/build-ec/dlls/wow64win/aarch64-windows/wow64win.dll",
+            "integration/gog/bin/gogdl",
         ] {
             let path = root.join(rel);
             fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
@@ -2708,10 +2712,16 @@ mod tests {
         }
         fs::write(
             complete_runtime_marker(&root),
-            format!("archive_sha256={COMPLETE_RUNTIME_ARCHIVE_SHA256}\nno_tso=1\n"),
+            format!(
+                "archive_sha256={COMPLETE_RUNTIME_ARCHIVE_SHA256}\ngog_archive_sha256={GOG_SUPPORT_ARCHIVE_SHA256}\nno_tso=1\n"
+            ),
         )
         .expect("write marker");
 
+        assert!(complete_runtime_current_for_home(&home));
+        fs::remove_file(root.join("integration/gog/bin/gogdl")).expect("remove GOG support fixture");
+        assert!(!complete_runtime_current_for_home(&home));
+        fs::write(root.join("integration/gog/bin/gogdl"), b"fixture").expect("restore GOG support fixture");
         assert!(complete_runtime_current_for_home(&home));
         fs::remove_file(root.join("graphics/vkd3d-proton/x86_64/d3d12.dll")).expect("remove gate fixture");
         assert!(!complete_runtime_current_for_home(&home));

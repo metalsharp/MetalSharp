@@ -8,13 +8,14 @@ REPO="${METALSHARP_RUNTIME_REPO:-metalsharp/MetalSharp}"
 TAG="${METALSHARP_RUNTIME_TAG:-v0.60.0-dependency-bundles}"
 ARCHIVE="MetalSharp-Wine-Runtime-COMPLETE-all-arch-2026-07-31.tar.zst"
 ARCHIVE_SHA256="93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee"
-MANIFEST_SHA256="60bc7c19ef8cbbaa55c325fab139c743bea1b1c5d5fd4071791f4a0924487b36"
+MANIFEST_SHA256="bba8103217dbc72914a8496cb782882af0883fbb18664956ba365dba68fec4eb"
 
 ASSETS=(
   metalsharp-bundle-manifest.tsv
   install-metalsharp-wine-runtime.sh
   MetalSharp-Wine-Public-Source-2026-07-31.tar.zst
   MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256
+  MetalSharp-GOG-Support-arm64-1.2.2.tar.zst
   "$ARCHIVE.part01"
   "$ARCHIVE.part02"
   "$ARCHIVE.part03"
@@ -27,6 +28,7 @@ PACKAGE_ASSETS=(
   install-metalsharp-wine-runtime.sh
   MetalSharp-Wine-Public-Source-2026-07-31.tar.zst
   MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256
+  MetalSharp-GOG-Support-arm64-1.2.2.tar.zst
   PARTS-SHA256SUMS.txt
   REASSEMBLE.txt
 )

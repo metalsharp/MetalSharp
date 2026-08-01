@@ -12,6 +12,9 @@ PART01_SHA256="e3ff07bafe27fbf0f4fd7f761e962e7b3203e7e730c82d5d3e26fd5062bb0568"
 PART02_SHA256="5e3c4e96898daa954fbf629819f760aadc3c73481c6200b1ade5e577131aa133"
 PART03_SHA256="cf79389d77f0bd3002894f704948808510860306e0781b556ab91d233290a067"
 PART04_SHA256="cc33cc12386793f47c1bc090f1d55e89c5f6971160ce4c3cbb7372c099b1232b"
+GOG_ARCHIVE_NAME="MetalSharp-GOG-Support-arm64-1.2.2.tar.zst"
+GOG_ARCHIVE_SHA256="f13075f27d5155e84199619410936931b32310c4ec4161de992c1f727ac24155"
+GOG_PACKAGE_ROOT="MetalSharp-GOG-Support-arm64-1.2.2"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CACHE_DIR="${METALSHARP_RUNTIME_CACHE:-$HOME/Library/Caches/MetalSharp/runtime-bundles/$TAG}"
@@ -23,14 +26,16 @@ PREPARE_ONLY=0
 REPLACE=0
 BACKUP_OLD=1
 STAGE_DIR=""
+GOG_STAGE_DIR=""
+GOG_PROBE=""
 
 usage() {
   cat <<'USAGE'
 Usage: install-metalsharp-wine-runtime.sh [options]
 
-Finds or downloads the four MetalSharp Wine runtime parts, verifies them,
-reassembles and validates the tar.zst, prepares MetalSharp launch wrappers,
-and installs the complete runtime transactionally.
+Finds or downloads the four MetalSharp Wine runtime parts and the native ARM64
+GOG support archive, verifies them, prepares MetalSharp launch wrappers, and
+installs the complete runtime transactionally.
 
 Options:
   --archive PATH       Use an already-reassembled runtime archive.
@@ -61,6 +66,12 @@ info() {
 cleanup() {
   if [ -n "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
     find "$STAGE_DIR" -depth -delete
+  fi
+  if [ -n "$GOG_STAGE_DIR" ] && [ -d "$GOG_STAGE_DIR" ]; then
+    find "$GOG_STAGE_DIR" -depth -delete
+  fi
+  if [ -n "$GOG_PROBE" ] && [ -e "$GOG_PROBE" ]; then
+    find "$GOG_PROBE" -delete
   fi
 }
 trap cleanup EXIT INT TERM
@@ -208,6 +219,34 @@ prepare_archive() {
   echo "$archive"
 }
 
+find_local_gog_archive() {
+  local candidate dir
+  for dir in "$BUNDLE_DIR" "$PWD" "$SCRIPT_DIR" "$HOME/Downloads" "$HOME/Desktop" "$CACHE_DIR"; do
+    [ -n "$dir" ] || continue
+    candidate="$dir/$GOG_ARCHIVE_NAME"
+    if verify_file "$candidate" "$GOG_ARCHIVE_SHA256" "$GOG_ARCHIVE_NAME"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+prepare_gog_archive() {
+  local archive
+  if archive="$(find_local_gog_archive)"; then
+    echo "$archive"
+    return 0
+  fi
+  mkdir -p "$CACHE_DIR"
+  archive="$CACHE_DIR/$GOG_ARCHIVE_NAME"
+  [ ! -e "$archive" ] || find "$archive" -delete
+  download_asset "$GOG_ARCHIVE_NAME" "$archive"
+  verify_file "$archive" "$GOG_ARCHIVE_SHA256" "$GOG_ARCHIVE_NAME" \
+    || die "downloaded $GOG_ARCHIVE_NAME failed verification"
+  echo "$archive"
+}
+
 validate_archive_layout() {
   local archive="$1" listing required
   info "Testing zstd stream"
@@ -261,6 +300,30 @@ validate_archive_layout() {
     die "archive unexpectedly contains encrypted source or an AES key"
   fi
   info "Archive layout verified"
+}
+
+validate_gog_archive() {
+  local archive="$1" listing binary
+  info "Testing native ARM64 GOG support archive"
+  "$ZSTD" -q -t "$archive"
+  listing="$("$ZSTD" -q -dc "$archive" | tar -tf -)"
+  for required in \
+    "$GOG_PACKAGE_ROOT/integration/gog/bin/gogdl" \
+    "$GOG_PACKAGE_ROOT/integration/gog/licenses/heroic-gogdl-GPL-3.0.txt" \
+    "$GOG_PACKAGE_ROOT/integration/gog/metadata/PROVENANCE.tsv" \
+    "$GOG_PACKAGE_ROOT/integration/gog/metadata/SHA256SUMS"; do
+    grep -Fqx "$required" <<< "$listing" || die "GOG support archive is missing: $required"
+  done
+  GOG_PROBE="$(mktemp "${TMPDIR:-/tmp}/metalsharp-gogdl.XXXXXX")"
+  binary="$GOG_PROBE"
+  "$ZSTD" -q -dc "$archive" \
+    | tar -xOf - "$GOG_PACKAGE_ROOT/integration/gog/bin/gogdl" > "$binary"
+  chmod 0755 "$binary"
+  file "$binary" | grep -q 'Mach-O 64-bit executable arm64' || die "bundled gogdl is not native ARM64"
+  [ "$("$binary" --version)" = "1.2.2" ] || die "bundled gogdl version probe failed"
+  find "$binary" -delete
+  GOG_PROBE=""
+  info "Native ARM64 GOG support archive verified"
 }
 
 write_launch_adapters() {
@@ -326,12 +389,52 @@ write_metalsharp_layout() {
   ln -s ../../graphics/moltenvk "$lib/moltenvk"
 }
 
+stage_gog_support() {
+  local root="$1" archive="$2" extracted destination backup
+  GOG_STAGE_DIR="$(mktemp -d "$(dirname "$root")/.metalsharp-gog-stage.XXXXXX")"
+  extracted="$GOG_STAGE_DIR"
+  "$ZSTD" -q -dc "$archive" | tar -xf - -C "$extracted"
+  (cd "$extracted/$GOG_PACKAGE_ROOT" \
+    && shasum -a 256 -c integration/gog/metadata/SHA256SUMS >/dev/null)
+  [ -x "$extracted/$GOG_PACKAGE_ROOT/integration/gog/bin/gogdl" ] \
+    || die "extracted native GOG support binary is missing"
+  mkdir -p "$root/integration"
+  destination="$root/integration/gog"
+  backup="$root/integration/.gog.backup.$$"
+  [ ! -e "$backup" ] || die "GOG support backup path already exists: $backup"
+  if [ -e "$destination" ]; then
+    mv "$destination" "$backup"
+  else
+    backup=""
+  fi
+  if ! mv "$extracted/$GOG_PACKAGE_ROOT/integration/gog" "$destination"; then
+    [ -z "$backup" ] || mv "$backup" "$destination"
+    die "failed to activate native GOG support"
+  fi
+  [ -z "$backup" ] || find "$backup" -depth -delete
+  find "$extracted" -depth -delete
+  GOG_STAGE_DIR=""
+}
+
 install_archive() {
-  local archive="$1" parent available_kb required_kb root backup marker
+  local archive="$1" gog_archive="$2" parent available_kb required_kb root backup marker marker_tmp
   parent="$(dirname "$TARGET")"
   marker="$TARGET/.metalsharp-runtime-install"
   if [ -f "$marker" ] && grep -Fq "archive_sha256=$ARCHIVE_SHA256" "$marker"; then
-    info "This exact runtime is already installed at $TARGET"
+    if grep -Fq "gog_archive_sha256=$GOG_ARCHIVE_SHA256" "$marker" \
+      && [ -x "$TARGET/integration/gog/bin/gogdl" ]; then
+      info "This exact runtime and GOG support bundle are already installed at $TARGET"
+      return 0
+    fi
+    info "Adding native ARM64 GOG support to the existing complete runtime"
+    stage_gog_support "$TARGET" "$gog_archive"
+    marker_tmp="${marker}.gog-update"
+    grep -Ev '^gog_archive(_sha256)?=' "$marker" > "$marker_tmp"
+    printf '%s\n' \
+      "gog_archive=$GOG_ARCHIVE_NAME" \
+      "gog_archive_sha256=$GOG_ARCHIVE_SHA256" >> "$marker_tmp"
+    mv "$marker_tmp" "$marker"
+    info "Installed native ARM64 GOG support at $TARGET/integration/gog"
     return 0
   fi
   if [ -e "$TARGET" ] && [ "$REPLACE" -ne 1 ]; then
@@ -359,10 +462,13 @@ install_archive() {
   repair_build_tree_links "$root"
   write_launch_adapters "$root"
   write_metalsharp_layout "$root"
+  stage_gog_support "$root" "$gog_archive"
   cat > "$root/.metalsharp-runtime-install" <<EOF
 release=$TAG
 archive=$ARCHIVE_NAME
 archive_sha256=$ARCHIVE_SHA256
+gog_archive=$GOG_ARCHIVE_NAME
+gog_archive_sha256=$GOG_ARCHIVE_SHA256
 installed_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 no_tso=1
 EOF
@@ -393,6 +499,20 @@ EOF
   [ -z "$backup" ] || info "Previous runtime backup: $backup"
 }
 
+GOG_ARCHIVE="$(prepare_gog_archive)"
+verify_file "$GOG_ARCHIVE" "$GOG_ARCHIVE_SHA256" "$GOG_ARCHIVE_NAME" \
+  || die "prepared GOG archive failed final verification"
+validate_gog_archive "$GOG_ARCHIVE"
+
+# Adding or verifying the small GOG layer on an already-accepted runtime must
+# not reread, reassemble, or extract the multi-gigabyte Wine archive.
+if [ -f "$TARGET/.metalsharp-runtime-install" ] \
+  && grep -Fq "archive_sha256=$ARCHIVE_SHA256" "$TARGET/.metalsharp-runtime-install"; then
+  [ "$PREPARE_ONLY" -eq 0 ] || { info "Prepared GOG archive: $GOG_ARCHIVE"; exit 0; }
+  install_archive "" "$GOG_ARCHIVE"
+  exit 0
+fi
+
 ARCHIVE="$(prepare_archive)"
 verify_file "$ARCHIVE" "$ARCHIVE_SHA256" "$ARCHIVE_NAME" \
   || die "prepared archive failed final verification"
@@ -403,4 +523,4 @@ if [ "$PREPARE_ONLY" -eq 1 ]; then
   exit 0
 fi
 
-install_archive "$ARCHIVE"
+install_archive "$ARCHIVE" "$GOG_ARCHIVE"

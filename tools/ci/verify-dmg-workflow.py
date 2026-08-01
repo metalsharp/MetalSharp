@@ -14,6 +14,7 @@ PACKAGE_ASSETS = [
     "metalsharp-bundle-manifest.tsv",
     "MetalSharp-Wine-Public-Source-2026-07-31.tar.zst",
     "MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256",
+    "MetalSharp-GOG-Support-arm64-1.2.2.tar.zst",
     "PARTS-SHA256SUMS.txt",
     "REASSEMBLE.txt",
 ]
