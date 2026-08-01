@@ -31,7 +31,6 @@ mod launch;
 mod launcher_evidence;
 mod metalfx;
 mod migrate;
-mod mono;
 mod mtsp;
 mod platform;
 mod runtime_prefix;
@@ -1914,20 +1913,6 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/sharp-library/gog/uninstall") => {
             let body = read_body(req);
             resp(200, gog::handle_uninstall(&Value::Object(body)))
-        },
-        (Method::Get, "/wine-mono/status") => {
-            let prefix = query_param(req.url(), "prefix").unwrap_or_else(|| "gog".to_string());
-            resp(200, mono::handle_status(&prefix))
-        },
-        (Method::Post, "/wine-mono/install") => {
-            let body = read_body(req);
-            let prefix = body.get("prefix").and_then(|v| v.as_str()).unwrap_or("gog").to_string();
-            resp(200, mono::handle_install(&prefix))
-        },
-        (Method::Post, "/wine-mono/reset") => {
-            let body = read_body(req);
-            let prefix = body.get("prefix").and_then(|v| v.as_str()).unwrap_or("gog").to_string();
-            resp(200, mono::handle_reset(&prefix))
         },
         (Method::Post, "/sharp-library/install") => {
             let body = read_body(req);
