@@ -12,7 +12,7 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   `scripts/install-metalsharp-wine-runtime.sh` from release
   `v0.60.0-dependency-bundles`.
 - The canonical complete-runtime SHA-256 is
-  `93a456a40a7bf0ad2fecace5c01c58a366f85cc2901f6f8780c056c9e3b256ee`.
+  `e44a84bceeca62f01fd95a133364ec82467cd8883ff81bcc1bdfdf4a6c3ad146`.
 - Runtime completion is gated by `.metalsharp-runtime-install` plus Wine,
   wineserver, fonts/NLS, DXVK i386, vkd3d-proton D3D12, OpenGL-Metal, and
   MoltenVK payloads. Do not restore the old six-archive setup gate.
@@ -154,6 +154,29 @@ Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
   This does not remove bundled Mono, the Mono/FNA launch lanes, or bottle-level
   compatibility metadata. Post-removal validation passes 644/644 Rust tests,
   strict Clippy, all Rust targets, and the Electron production build.
+
+- The 0.57 -> 0.60 migration is an in-place runtime replacement. Preserve and
+  restore setup/configuration, Steam prefix metadata and payloads, bottles,
+  games, Sharp Library data, and dosdevice links; replace the runtime and then
+  run native ARM64 `wineboot --init --update` on every real prefix. Prefix
+  update failure is fatal and must remain retryable in the migration wizard.
+  Cleanup owns only `runtime/`, transient installer progress files, and the
+  cache `downloads/`, `updates/`, `updater-tools/`, and `tmp/` subdirectories;
+  it must not delete configs, cover/API metadata, logs, or shader caches.
+- The custom i386 provider contract is exact: System32 contains `xtajit.dll`
+  and must not contain `wow64cpu.dll` or `xtajit-*-candidate.dll`; the default
+  value of `HKLM\\Software\\Microsoft\\Wow64\\x86` must be `xtajit.dll`.
+  Wineboot can reselect `wow64cpu.dll` when that competing file is staged, so
+  migration removes conflicts and explicitly restores the registry value.
+- Live migration validation used the installed 0.57 Steam prefix at
+  `~/.metalsharp/prefix-steam`, with the immutable safety copy at
+  `/Volumes/AverySSD/MetalSharp-0.57-Live-Safety-2026-07-31`. Migration passed
+  8/8, preserved Steam's executable at SHA-256
+  `eb823470675e0a8f8b91c4f4f1e4bb6148e72b606a518f250a10c598bb1705b8`,
+  and passed ARM64, ARM64EC, x86_64, and i386 execution in that same prefix.
+  Architecture probes must use `apply_complete_runtime_env` equivalence,
+  including the runtime fallback library path and all FEX TSO modes disabled;
+  omitting that environment is not a valid i386 result.
 
 ## What This Project Is
 

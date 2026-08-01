@@ -1991,6 +1991,33 @@ mod tests {
             std::fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
             std::fs::write(path, b"fixture").expect("write fixture");
         }
+        let write_pe = |relative: &str, machine: u16| {
+            let mut bytes = vec![0u8; 0x46];
+            bytes[..2].copy_from_slice(b"MZ");
+            bytes[0x3c..0x40].copy_from_slice(&(0x40u32).to_le_bytes());
+            bytes[0x40..0x44].copy_from_slice(b"PE\0\0");
+            bytes[0x44..0x46].copy_from_slice(&machine.to_le_bytes());
+            std::fs::write(prefix.join(relative), bytes).expect("write PE fixture");
+        };
+        for relative in [
+            "drive_c/windows/system32/kernel32.dll",
+            "drive_c/windows/system32/ntdll.dll",
+            "drive_c/windows/system32/wow64.dll",
+            "drive_c/windows/system32/wow64win.dll",
+        ] {
+            write_pe(relative, 0xaa64);
+        }
+        for relative in ["drive_c/windows/syswow64/kernel32.dll", "drive_c/windows/syswow64/ntdll.dll"] {
+            write_pe(relative, 0x014c);
+        }
+        let dosdevices = prefix.join("dosdevices");
+        std::fs::create_dir_all(&dosdevices).expect("create dosdevices fixture");
+        std::os::unix::fs::symlink("/", dosdevices.join("z:")).expect("create Wine Z mapping fixture");
+        std::fs::write(
+            prefix.join("system.reg"),
+            "WINE REGISTRY Version 2\n\n[Software\\\\Microsoft\\\\Wow64\\\\x86] 1\n@=\"xtajit.dll\"\n",
+        )
+        .expect("write i386 provider registry fixture");
 
         assert!(steam_prefix_all_arch_ready(&prefix));
         std::fs::remove_file(prefix.join("drive_c/windows/syswow64/ntdll.dll")).expect("remove i386 fixture");
