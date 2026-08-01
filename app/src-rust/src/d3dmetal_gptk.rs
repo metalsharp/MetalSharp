@@ -1011,7 +1011,7 @@ fn stage_game_local_d3dmetal_route_dlls_for_exe(state: &D3DMetalGptkState, game_
         let marker = marker_root.join("latest-manifest.json");
         let manifest = json!({
             "quarantined_at": now_secs(),
-            "reason": "D3DMetal/GPTK lane replaces app-local M12/DXMT route DLLs with Homebrew-matched D3DMetal route DLLs",
+            "reason": "D3DMetal/GPTK owns a separate Homebrew-matched prefix and replaces any app-local MetalSharp graphics-route DLLs",
             "moved": moved,
             "deployed": deployed,
         });
@@ -1547,7 +1547,9 @@ fn gptk_dyld_path() -> String {
 
 fn find_brew() -> Result<PathBuf, String> {
     for path in [PathBuf::from("/opt/homebrew/bin/brew"), PathBuf::from("/usr/local/bin/brew")] {
-        if path.is_file() {
+        if path.is_file()
+            && Command::new(&path).arg("--version").output().map(|output| output.status.success()).unwrap_or(false)
+        {
             return Ok(path);
         }
     }
@@ -1555,10 +1557,13 @@ fn find_brew() -> Result<PathBuf, String> {
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() {
-            return Ok(PathBuf::from(path));
+            let path = PathBuf::from(path);
+            if Command::new(&path).arg("--version").output().map(|result| result.status.success()).unwrap_or(false) {
+                return Ok(path);
+            }
         }
     }
-    Err("Homebrew not found".to_string())
+    Err("Homebrew was not found or failed its brew --version verification".to_string())
 }
 
 fn command_text(output: &std::process::Output) -> String {

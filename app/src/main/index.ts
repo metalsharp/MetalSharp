@@ -29,7 +29,12 @@ function ensureShellPath() {
   return shellPath;
 }
 
-function findHomebrew(): string | null {
+type HomebrewInstallation = {
+  path: string;
+  version: string;
+};
+
+function findHomebrew(): HomebrewInstallation | null {
   const prefix = process.env.HOMEBREW_PREFIX?.trim();
   const candidates = [
     prefix ? path.join(prefix, "bin", "brew") : "",
@@ -44,11 +49,14 @@ function findHomebrew(): string | null {
   for (const candidate of new Set(candidates.filter(Boolean))) {
     try {
       fs.accessSync(candidate, fs.constants.X_OK);
-      execFileSync(candidate, ["--version"], {
+      const version = execFileSync(candidate, ["--version"], {
         env: { ...process.env, PATH: ensureShellPath() },
-        stdio: "ignore",
-      });
-      return candidate;
+        encoding: "utf8",
+        timeout: 10000,
+      })
+        .split("\n")[0]
+        .trim();
+      if (version) return { path: candidate, version };
     } catch {
       // continue to next candidate
     }
@@ -1025,17 +1033,35 @@ function registerIpc() {
       return { ok: false, error: "Homebrew setup is only available on macOS." };
     }
 
-    const brewPath = findHomebrew();
-    if (brewPath) {
-      return { ok: true, installed: true, path: brewPath, message: "Homebrew is already installed" };
+    const homebrew = findHomebrew();
+    if (homebrew) {
+      return { ok: true, installed: true, ...homebrew, message: "Homebrew is already installed and verified" };
     }
 
     return new Promise((resolve) => {
       const commandPath = path.join(app.getPath("temp"), `metalsharp-homebrew-${process.pid}-${Date.now()}.command`);
       const command = [
         "#!/bin/bash",
-        `trap 'rm -f "${commandPath.replace(/'/g, "'\\\\''")}"' EXIT`,
-        '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+        "set -euo pipefail",
+        `COMMAND_PATH='${commandPath.replace(/'/g, "'\\\\''")}'`,
+        'INSTALL_SCRIPT="$(/usr/bin/mktemp -t metalsharp-homebrew-install)"',
+        'cleanup() { /bin/rm -f "$COMMAND_PATH" "$INSTALL_SCRIPT"; }',
+        "trap cleanup EXIT",
+        'echo "MetalSharp: downloading the official Homebrew installer..."',
+        '/usr/bin/curl --fail --show-error --silent --location https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh --output "$INSTALL_SCRIPT"',
+        '/bin/bash -n "$INSTALL_SCRIPT"',
+        '/bin/bash "$INSTALL_SCRIPT"',
+        `BREW="\${HOMEBREW_PREFIX:-}/bin/brew"`,
+        'if [[ ! -x "$BREW" ]]; then',
+        "  for CANDIDATE in /opt/homebrew/bin/brew /usr/local/bin/brew; do",
+        '    if [[ -x "$CANDIDATE" ]]; then BREW="$CANDIDATE"; break; fi',
+        "  done",
+        "fi",
+        'if [[ ! -x "$BREW" ]]; then echo "MetalSharp: Homebrew installed but brew could not be found." >&2; exit 1; fi',
+        '"$BREW" --version',
+        'echo "MetalSharp: Homebrew installation verified. Return to MetalSharp and click Continue."',
+        'printf "\\nPress Return to close this window..."',
+        "read -r _",
         "",
       ].join("\n");
 
@@ -1066,8 +1092,8 @@ function registerIpc() {
   });
 
   ipcMain.handle("app:homebrew-status", () => {
-    const brewPath = process.platform === "darwin" ? findHomebrew() : null;
-    return { installed: brewPath !== null, path: brewPath ?? undefined };
+    const homebrew = process.platform === "darwin" ? findHomebrew() : null;
+    return { installed: homebrew !== null, ...homebrew };
   });
 
   ipcMain.handle("app:open-in-finder", async (_e, inputPath: string) => {

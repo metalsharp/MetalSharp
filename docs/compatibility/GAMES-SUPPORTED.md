@@ -13,7 +13,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Pipeline | Backend | Use |
 |---|---|---|
 | **D3DMetal** | Homebrew GPTK / Apple D3DMetal | D3D11/D3D12 via Apple's D3DMetal framework. GPTK is installed through Homebrew and is not bundled by MetalSharp. |
-| **M12** | DXMT | D3D12 to Metal |
+| **M12** | vkd3d-proton + DXVK + MoltenVK | D3D12 through Vulkan to Metal |
 | **M11** | DXMT | D3D11 to Metal |
 | **M11 (32-bit)** | DXMT | D3D11 to Metal, 32-bit prefix route |
 | **M10** | DXMT | D3D10 to Metal |

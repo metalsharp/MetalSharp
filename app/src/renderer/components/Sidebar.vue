@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, type Component } from "vue";
+import { computed, nextTick, onMounted, ref, watch, type Component } from "vue";
 import IconMenu from "~icons/lucide/menu";
 import IconMoon from "~icons/lucide/moon";
 import IconSun from "~icons/lucide/sun";
@@ -13,6 +13,7 @@ import IconFlame from "~icons/lucide/flame";
 import IconTreePalm from "~icons/lucide/tree-palm";
 import IconScanLine from "~icons/lucide/scan-line";
 import { themedNavIcon, type ThemeName } from "../composables/useTheme";
+import { api } from "../composables/useApi";
 
 const props = defineProps<{
   currentView: string;
@@ -27,6 +28,48 @@ const emit = defineEmits<{
 const collapsed = ref(false);
 const themePickerOpen = ref(false);
 const themePickerRef = ref<HTMLElement | null>(null);
+const controllerMode = ref<"dinput" | "xinput">("xinput");
+const msyncEnabled = ref(true);
+const runtimePreferencesSaving = ref(false);
+
+async function loadRuntimePreferences() {
+  const config = await api<AppConfig>("GET", "/config");
+  if (!config?.ok) return;
+  controllerMode.value = config.controllerMode ?? config.controller_mode ?? "xinput";
+  msyncEnabled.value = Boolean(config.msyncEnabled ?? config.msync_enabled ?? true);
+}
+
+async function saveRuntimePreferences(body: Record<string, unknown>) {
+  if (runtimePreferencesSaving.value) return false;
+  runtimePreferencesSaving.value = true;
+  const config = await api<AppConfig>("POST", "/config", body);
+  if (config?.ok) {
+    controllerMode.value = config.controllerMode ?? config.controller_mode ?? controllerMode.value;
+    msyncEnabled.value = Boolean(config.msyncEnabled ?? config.msync_enabled ?? msyncEnabled.value);
+  }
+  runtimePreferencesSaving.value = false;
+  return Boolean(config?.ok);
+}
+
+function selectControllerMode(mode: "dinput" | "xinput") {
+  if (mode === controllerMode.value) return;
+  const previous = controllerMode.value;
+  controllerMode.value = mode;
+  void saveRuntimePreferences({ controllerMode: mode }).then((saved) => {
+    if (!saved) controllerMode.value = previous;
+  });
+}
+
+function toggleMsync() {
+  const previous = msyncEnabled.value;
+  const enabled = !msyncEnabled.value;
+  msyncEnabled.value = enabled;
+  void saveRuntimePreferences({ msyncEnabled: enabled }).then((saved) => {
+    if (!saved) msyncEnabled.value = previous;
+  });
+}
+
+onMounted(() => void loadRuntimePreferences());
 
 watch(themePickerOpen, async (open) => {
   if (!open) return;
@@ -97,6 +140,46 @@ const navItems = computed<NavItem[]>(() => [
       >
         <component :is="item.icon" class="sidebar-nav-icon" width="18" height="18" />
         <span v-if="!collapsed" class="sidebar-nav-label">{{ item.label }}</span>
+      </button>
+    </div>
+
+    <div class="sidebar-runtime-controls">
+      <div class="runtime-control controller-control" :title="collapsed ? `Controller: ${controllerMode}` : undefined">
+        <span v-if="!collapsed" class="runtime-control-label">Controller</span>
+        <div class="controller-selector" role="group" aria-label="Controller input mode">
+          <button
+            class="controller-option"
+            :class="{ active: controllerMode === 'dinput' }"
+            :aria-pressed="controllerMode === 'dinput'"
+            :disabled="runtimePreferencesSaving"
+            title="DirectInput"
+            @click="selectControllerMode('dinput')"
+          >
+            D
+          </button>
+          <span v-if="!collapsed" class="controller-divider">|</span>
+          <button
+            class="controller-option"
+            :class="{ active: controllerMode === 'xinput' }"
+            :aria-pressed="controllerMode === 'xinput'"
+            :disabled="runtimePreferencesSaving"
+            title="XInput"
+            @click="selectControllerMode('xinput')"
+          >
+            X
+          </button>
+        </div>
+      </div>
+      <button
+        class="msync-toggle"
+        :class="{ active: msyncEnabled }"
+        :aria-pressed="msyncEnabled"
+        :disabled="runtimePreferencesSaving"
+        :title="collapsed ? `Msync ${msyncEnabled ? 'on' : 'off'}` : undefined"
+        @click="toggleMsync"
+      >
+        <span class="msync-label-full">Msync</span>
+        <span class="msync-label-compact">M</span>
       </button>
     </div>
 
@@ -534,6 +617,116 @@ const navItems = computed<NavItem[]>(() => [
   flex: 0 0 auto;
 }
 
+.sidebar-runtime-controls {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.runtime-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--sidebar-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.runtime-control-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.controller-selector {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-surface) 62%, transparent);
+}
+
+.controller-option {
+  min-width: 25px;
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.controller-option.active {
+  background: var(--accent-glow);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
+
+.controller-divider {
+  color: var(--border-strong);
+  font-weight: 400;
+}
+
+.msync-toggle {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.msync-toggle.active {
+  border-color: rgba(63, 211, 132, 0.66);
+  background: rgba(32, 178, 105, 0.18);
+  color: rgb(83, 231, 151);
+  box-shadow: inset 0 0 12px rgba(32, 178, 105, 0.12);
+}
+
+.msync-label-compact,
+.sidebar.collapsed .msync-label-full {
+  display: none;
+}
+
+.sidebar.collapsed .msync-label-compact {
+  display: inline;
+}
+
+.controller-option:disabled,
+.msync-toggle:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.sidebar.collapsed .sidebar-runtime-controls {
+  align-items: center;
+  padding-inline: 6px;
+}
+
+.sidebar.collapsed .runtime-control {
+  justify-content: center;
+}
+
+.sidebar.collapsed .controller-selector {
+  flex-direction: column;
+  padding: 1px;
+}
+
+.sidebar.collapsed .controller-option {
+  min-width: 27px;
+  padding-inline: 4px;
+}
+
 .sidebar.collapsed .sidebar-top {
   justify-content: center;
   padding-left: 6px;
@@ -568,6 +761,29 @@ const navItems = computed<NavItem[]>(() => [
     justify-content: center;
     padding: 8px;
     gap: 0;
+  }
+  .sidebar-runtime-controls {
+    align-items: center;
+    padding-inline: 6px;
+  }
+  .runtime-control {
+    justify-content: center;
+  }
+  .runtime-control-label,
+  .controller-divider,
+  .msync-label-full {
+    display: none;
+  }
+  .msync-label-compact {
+    display: inline;
+  }
+  .controller-selector {
+    flex-direction: column;
+    padding: 1px;
+  }
+  .controller-option {
+    min-width: 27px;
+    padding-inline: 4px;
   }
 }
 </style>

@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -18,18 +18,43 @@ const VCPP_X64_URL: &str = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
 const VCPP_X86_URL: &str = "https://aka.ms/vs/17/release/vc_redist.x86.exe";
 const VCPP_X64_FILENAME: &str = "vc_redist.x64.exe";
 const VCPP_X86_FILENAME: &str = "vc_redist.x86.exe";
-const VCPP_MIN_SIZE: u64 = 1_000_000;
+const VCPP_X64_MIN_SIZE: u64 = 15_000_000;
+const VCPP_X86_MIN_SIZE: u64 = 5_000_000;
 
 fn vcpp_cached_dir() -> Option<PathBuf> {
     Some(crate::platform::metalsharp_home_dir().join("runtime").join("redist").join("vcredist"))
 }
 
-fn vcpp_downloaded(path: &Path) -> bool {
-    path.is_file() && fs::metadata(path).map(|m| m.len() > VCPP_MIN_SIZE).unwrap_or(false)
+fn vcpp_downloaded(path: &Path, arch: &str) -> bool {
+    let minimum_size = match arch {
+        // Microsoft's x64 redistributable currently uses an i386 PE bootstrap
+        // around the larger x64 payload. Size and PE validity distinguish it
+        // from the smaller x86 package; the bootstrap machine does not.
+        "x64" => VCPP_X64_MIN_SIZE,
+        "x86" => VCPP_X86_MIN_SIZE,
+        _ => return false,
+    };
+    if !path.is_file() || !fs::metadata(path).map(|m| m.len() > minimum_size).unwrap_or(false) {
+        return false;
+    }
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let mut dos = [0u8; 64];
+    if file.read_exact(&mut dos).is_err() || &dos[..2] != b"MZ" {
+        return false;
+    }
+    let pe_offset = u32::from_le_bytes([dos[0x3c], dos[0x3d], dos[0x3e], dos[0x3f]]) as u64;
+    let mut pe = [0u8; 6];
+    file.seek(SeekFrom::Start(pe_offset)).is_ok()
+        && file.read_exact(&mut pe).is_ok()
+        && &pe[..4] == b"PE\0\0"
+        && matches!(u16::from_le_bytes([pe[4], pe[5]]), 0x014c | 0x8664)
 }
 
-fn vcpp_download(url: &str, dest: &Path) -> Result<(), String> {
-    if vcpp_downloaded(dest) {
+fn vcpp_download(url: &str, dest: &Path, arch: &str) -> Result<(), String> {
+    if vcpp_downloaded(dest, arch) {
         return Ok(());
     }
     let tmp = dest.with_extension("download");
@@ -37,7 +62,7 @@ fn vcpp_download(url: &str, dest: &Path) -> Result<(), String> {
     if let Some(parent) = dest.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let output = Command::new("curl")
+    let output = Command::new("/usr/bin/curl")
         .args(["--fail", "--location", "--silent", "--show-error", "--retry", "3", "-o"])
         .arg(&tmp)
         .arg(url)
@@ -47,9 +72,9 @@ fn vcpp_download(url: &str, dest: &Path) -> Result<(), String> {
         let _ = fs::remove_file(&tmp);
         return Err(format!("curl download failed for {}", url));
     }
-    if !vcpp_downloaded(&tmp) {
+    if !vcpp_downloaded(&tmp, arch) {
         let _ = fs::remove_file(&tmp);
-        return Err(format!("downloaded file too small or missing: {}", dest.display()));
+        return Err(format!("downloaded {} redistributable is not a valid PE bootstrap: {}", arch, dest.display()));
     }
     let _ = fs::rename(&tmp, dest);
     Ok(())
@@ -59,7 +84,7 @@ fn vcpp_both_cached() -> Option<(PathBuf, PathBuf)> {
     let dir = vcpp_cached_dir()?;
     let x64 = dir.join(VCPP_X64_FILENAME);
     let x86 = dir.join(VCPP_X86_FILENAME);
-    if vcpp_downloaded(&x64) && vcpp_downloaded(&x86) {
+    if vcpp_downloaded(&x64, "x64") && vcpp_downloaded(&x86, "x86") {
         Some((x64, x86))
     } else {
         None
@@ -71,13 +96,13 @@ fn vcpp_ensure_downloaded() -> Result<(PathBuf, PathBuf), String> {
     let _ = fs::create_dir_all(&dir);
     let x64 = dir.join(VCPP_X64_FILENAME);
     let x86 = dir.join(VCPP_X86_FILENAME);
-    if !vcpp_downloaded(&x64) {
+    if !vcpp_downloaded(&x64, "x64") {
         eprintln!("vcredist: downloading VC++ 2015-2022 x64 from Microsoft ...");
-        vcpp_download(VCPP_X64_URL, &x64)?;
+        vcpp_download(VCPP_X64_URL, &x64, "x64")?;
     }
-    if !vcpp_downloaded(&x86) {
+    if !vcpp_downloaded(&x86, "x86") {
         eprintln!("vcredist: downloading VC++ 2015-2022 x86 from Microsoft ...");
-        vcpp_download(VCPP_X86_URL, &x86)?;
+        vcpp_download(VCPP_X86_URL, &x86, "x86")?;
     }
     Ok((x64, x86))
 }
@@ -105,33 +130,25 @@ fn vcpp_install_into_prefix(prefix: &Path) -> Result<(), String> {
     }
     let prefix_str = prefix.to_string_lossy().to_string();
     eprintln!("vcredist: installing VC++ 2015-2022 x64 into {} ...", prefix.display());
-    let x64_status = Command::new(&wine)
-        .arg(&x64)
-        .arg("/install")
-        .env("WINEPREFIX", &prefix_str)
-        .env("WINEDEBUG", "-all")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("wine x64 failed: {}", e))?;
+    let mut x64_command = Command::new(&wine);
+    x64_command.arg(&x64).arg("/install").stdout(Stdio::null()).stderr(Stdio::null());
+    configure_metalsharp_vcpp_env(&mut x64_command, &ms_root, &prefix_str);
+    let x64_status = x64_command.status().map_err(|e| format!("wine x64 failed: {}", e))?;
     if !x64_status.success() {
         return Err("VC++ x64 installer failed".into());
     }
-    let _ = Command::new(ms_root.join("bin").join("wineserver")).env("WINEPREFIX", &prefix_str).arg("-w").status();
+    let _ =
+        Command::new(crate::platform::runtime_wineserver(&ms_root)).env("WINEPREFIX", &prefix_str).arg("-w").status();
     eprintln!("vcredist: installing VC++ 2015-2022 x86 into {} ...", prefix.display());
-    let x86_status = Command::new(&wine)
-        .arg(&x86)
-        .arg("/install")
-        .env("WINEPREFIX", &prefix_str)
-        .env("WINEDEBUG", "-all")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("wine x86 failed: {}", e))?;
+    let mut x86_command = Command::new(&wine);
+    x86_command.arg(&x86).arg("/install").stdout(Stdio::null()).stderr(Stdio::null());
+    configure_metalsharp_vcpp_env(&mut x86_command, &ms_root, &prefix_str);
+    let x86_status = x86_command.status().map_err(|e| format!("wine x86 failed: {}", e))?;
     if !x86_status.success() {
         return Err("VC++ x86 installer failed".into());
     }
-    let _ = Command::new(ms_root.join("bin").join("wineserver")).env("WINEPREFIX", &prefix_str).arg("-w").status();
+    let _ =
+        Command::new(crate::platform::runtime_wineserver(&ms_root)).env("WINEPREFIX", &prefix_str).arg("-w").status();
     if vcpp_prefix_has_runtime(prefix) {
         eprintln!("vcredist: VC++ 2015-2022 verified in {}", prefix.display());
         Ok(())
@@ -171,28 +188,36 @@ fn run_interactive_vcpp_installer(prefix: &Path, installer: &Path, arch: &str) -
     }
     let prefix_str = prefix.to_string_lossy().to_string();
     eprintln!("vcredist: launching interactive VC++ 2015-2022 {} installer into {} ...", arch, prefix.display());
-    let mut cmd = Command::new(&wine);
-    cmd.arg("start")
-        .arg("/wait")
-        .arg("/unix")
-        .arg(installer)
-        .args(vcpp_setup_install_args())
-        .env("WINEPREFIX", &prefix_str)
-        .env("WINEARCH", "win64")
-        .env("WINEDEBUG", "-all")
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+    let mut cmd = vcpp_installer_command(&wine, &ms_root, &prefix_str, installer);
+    cmd.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     if let Some(parent) = installer.parent() {
         cmd.current_dir(parent);
     }
-    crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
     let status = cmd.status().map_err(|e| format!("wine {} failed: {}", arch, e))?;
     if vcpp_installer_status_ok(status.code()) {
         Ok(())
     } else {
         Err(format!("VC++ {} installer exited with status {:?}", arch, status.code()))
     }
+}
+
+fn vcpp_installer_command(wine: &Path, ms_root: &Path, prefix: &str, installer: &Path) -> Command {
+    let mut cmd = Command::new(wine);
+    cmd.arg("start").arg("/wait").arg("/unix").arg(installer).args(vcpp_setup_install_args());
+    configure_metalsharp_vcpp_env(&mut cmd, ms_root, prefix);
+    cmd
+}
+
+fn configure_metalsharp_vcpp_env(cmd: &mut Command, ms_root: &Path, prefix: &str) {
+    cmd.env("WINEPREFIX", prefix)
+        .env("WINEARCH", "win64")
+        .env("WINEBUILDDIR", ms_root.join("build-ec"))
+        .env("FEX_TSOENABLED", "0")
+        .env("FEX_VECTORTSOENABLED", "0")
+        .env("FEX_MEMCPYSETTSOENABLED", "0")
+        .env("WINEDEBUG", "-all")
+        .env("WINEDEBUGGER", "none");
+    crate::platform::set_runtime_library_env(cmd, ms_root);
 }
 
 fn vcpp_setup_install_args() -> [&'static str; 1] {
@@ -620,16 +645,17 @@ pub fn load_bottle(id: &str) -> Result<BottleManifest, Box<dyn std::error::Error
 fn normalize_loaded_runtime_profile_components(manifest: &mut BottleManifest) {
     let should_rebuild = match manifest.runtime_profile {
         RuntimeProfile::M12 => {
-            let has_pr230_shape = M12_RUNTIME_COMPONENT_IDS
+            let has_vkd3d_shape = M12_RUNTIME_COMPONENT_IDS
                 .iter()
                 .all(|id| manifest.installed_components.iter().any(|component| component.id == *id));
             let has_stale_m12_shape = manifest.installed_components.iter().any(|component| {
-                matches!(
-                    component.id.as_str(),
-                    "d3d12" | "d3d11" | "dxgi" | "gpu_vendor_stubs" | "gptk" | "gptk_prefix" | "rosetta"
-                )
+                is_legacy_m12_runtime_component(&component.id)
+                    || matches!(
+                        component.id.as_str(),
+                        "d3d12" | "d3d11" | "dxgi" | "gpu_vendor_stubs" | "gptk" | "gptk_prefix" | "rosetta"
+                    )
             });
-            !has_pr230_shape || has_stale_m12_shape
+            !has_vkd3d_shape || has_stale_m12_shape
         },
         RuntimeProfile::D3DMetal => {
             manifest.installed_components.iter().any(|component| is_m12_runtime_component(&component.id))
@@ -644,23 +670,26 @@ fn normalize_loaded_runtime_profile_components(manifest: &mut BottleManifest) {
 }
 
 const M12_RUNTIME_COMPONENT_IDS: &[&str] =
-    &["m12_d3d12", "m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_dxgi", "m12_winemetal", "m12_gpu_stubs"];
+    &["m12_vkd3d_d3d12", "m12_vkd3d_d3d12core", "m12_dxvk_dxgi", "m12_winevulkan", "m12_moltenvk"];
+
+fn is_legacy_m12_runtime_component(component_id: &str) -> bool {
+    matches!(
+        component_id,
+        "m12_d3d12" | "m12_d3d11" | "m12_d3d10core" | "m12_dxgi_dxmt" | "m12_dxgi" | "m12_winemetal" | "m12_gpu_stubs"
+    )
+}
 
 fn m12_runtime_component_artifacts(component_id: &str) -> Option<&'static [&'static str]> {
     match component_id {
-        "m12_d3d12" => Some(&["x86_64-windows/d3d12.dll"]),
-        "m12_d3d11" => Some(&["x86_64-windows/d3d11.dll"]),
-        "m12_d3d10core" => Some(&["x86_64-windows/d3d10core.dll"]),
-        "m12_dxgi_dxmt" => Some(&["x86_64-windows/dxgi_dxmt.dll"]),
-        "m12_dxgi" => Some(&["x86_64-windows/dxgi.dll"]),
-        "m12_winemetal" => Some(&[
-            "x86_64-windows/winemetal.dll",
-            "x86_64-unix/winemetal.so",
-            "x86_64-unix/libc++.1.dylib",
-            "x86_64-unix/libc++abi.1.dylib",
-            "x86_64-unix/libunwind.1.dylib",
+        "m12_vkd3d_d3d12" => Some(&["lib/vkd3d-proton/x86_64/d3d12.dll"]),
+        "m12_vkd3d_d3d12core" => Some(&["lib/vkd3d-proton/x86_64/d3d12core.dll"]),
+        "m12_dxvk_dxgi" => Some(&["lib/dxvk/x86_64/dxgi.dll"]),
+        "m12_winevulkan" => Some(&[
+            "build-ec/dlls/winevulkan/winevulkan.so",
+            "build-ec/dlls/winevulkan/x86_64-windows/winevulkan.dll",
+            "build-ec/dlls/vulkan-1/x86_64-windows/vulkan-1.dll",
         ]),
-        "m12_gpu_stubs" => Some(&["x86_64-windows/nvapi64.dll", "x86_64-windows/nvngx.dll"]),
+        "m12_moltenvk" => Some(&["build-ec/dlls/win32u/libMoltenVK.dylib", "lib/moltenvk/libMoltenVK.dylib"]),
         _ => None,
     }
 }
@@ -672,13 +701,20 @@ fn is_m12_runtime_component(component_id: &str) -> bool {
 fn inspect_m12_runtime_component(component_id: &str) -> Option<ComponentState> {
     let artifacts = m12_runtime_component_artifacts(component_id)?;
     let home = dirs::home_dir()?;
+    let wine_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let valid_count = artifacts
         .iter()
-        .filter(|artifact| crate::installer::dxmt_m12_runtime_artifact_valid_for_home(&home, artifact))
+        .filter(|artifact| {
+            wine_root
+                .join(artifact)
+                .metadata()
+                .map(|metadata| metadata.is_file() && metadata.len() > 0)
+                .unwrap_or(false)
+        })
         .count();
     if valid_count == artifacts.len() {
         Some(ComponentState::Installed)
-    } else if valid_count > 0 || crate::installer::dxmt_m12_runtime_current_for_home(&home) {
+    } else if valid_count > 0 || crate::installer::complete_runtime_current_for_home(&home) {
         Some(ComponentState::NeedsRepair)
     } else {
         Some(ComponentState::Missing)
@@ -691,13 +727,18 @@ fn m12_runtime_component_detail(component_id: &str) -> String {
     let paths = artifacts
         .iter()
         .map(|artifact| {
-            crate::installer::dxmt_m12_runtime_artifact_path_for_home(&home, artifact).to_string_lossy().to_string()
+            crate::platform::metalsharp_home_dir_for(&home)
+                .join("runtime")
+                .join("wine")
+                .join(artifact)
+                .to_string_lossy()
+                .to_string()
         })
         .collect::<Vec<_>>();
     if paths.is_empty() {
-        "M12 DXMT runtime artifact".to_string()
+        "M12 vkd3d-proton/Vulkan runtime artifact".to_string()
     } else {
-        format!("PR230 M12 DXMT runtime artifact(s): {}", paths.join(", "))
+        format!("M12 vkd3d-proton/DXVK/MoltenVK runtime artifact(s): {}", paths.join(", "))
     }
 }
 
@@ -705,7 +746,7 @@ pub fn save_bottle(manifest: &BottleManifest) -> Result<(), Box<dyn std::error::
     validate_bottle_id(&manifest.id)?;
     let mut persisted = manifest.clone();
     refresh_mono_fna_components_before_save(&mut persisted);
-    refresh_dxmt_runtime_before_save(&mut persisted);
+    refresh_graphics_runtime_before_save(&mut persisted);
     let _guard = BOTTLE_SAVE_LOCK.lock().map_err(|_| "bottle save lock poisoned")?;
     let dir = bottle_dir(&manifest.id);
     fs::create_dir_all(dir.join("prefix"))?;
@@ -718,12 +759,13 @@ pub fn save_bottle(manifest: &BottleManifest) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
+fn refresh_graphics_runtime_before_save(manifest: &mut BottleManifest) {
     let (lane, components): (&str, &[&str]) = match manifest.runtime_profile {
+        RuntimeProfile::M9 => ("complete-runtime-m9", &["d3d9"]),
         RuntimeProfile::M11 | RuntimeProfile::M11_32 | RuntimeProfile::M10 | RuntimeProfile::M10_32 => {
-            ("dxmt", &["d3d11", "dxgi"])
+            ("complete-runtime-dxmt", &["d3d11", "dxgi"])
         },
-        RuntimeProfile::M12 => ("dxmt_m12", M12_RUNTIME_COMPONENT_IDS),
+        RuntimeProfile::M12 => ("vkd3d-proton", M12_RUNTIME_COMPONENT_IDS),
         _ => return,
     };
 
@@ -734,11 +776,14 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
     let runtime_ready = dirs::home_dir()
         .ok_or_else(|| "home directory could not be resolved".to_string())
         .and_then(|home| match manifest.runtime_profile {
-            RuntimeProfile::M11 | RuntimeProfile::M11_32 | RuntimeProfile::M10 | RuntimeProfile::M10_32 => {
-                crate::installer::ensure_dxmt_runtime_ready(&home).map(|_| true)
-            },
-            RuntimeProfile::M12 => crate::installer::ensure_dxmt_m12_runtime_ready(&home)
-                .map(|_| crate::installer::dxmt_m12_runtime_current_for_home(&home)),
+            RuntimeProfile::M9
+            | RuntimeProfile::M11
+            | RuntimeProfile::M11_32
+            | RuntimeProfile::M10
+            | RuntimeProfile::M10_32 => ensure_complete_graphics_runtime_ready(&home),
+            RuntimeProfile::M12 => Ok(M12_RUNTIME_COMPONENT_IDS
+                .iter()
+                .all(|id| inspect_m12_runtime_component(id) == Some(ComponentState::Installed))),
             _ => Ok(false),
         })
         .unwrap_or_else(|e| {
@@ -889,7 +934,7 @@ pub fn save_steam_compatdata(
 ) -> Result<SteamCompatdataRecord, Box<dyn std::error::Error>> {
     let mut persisted = manifest.clone();
     refresh_mono_fna_components_before_save(&mut persisted);
-    refresh_dxmt_runtime_before_save(&mut persisted);
+    refresh_graphics_runtime_before_save(&mut persisted);
     let appid = persisted.steam_app_id.ok_or("steam compatdata requires steam appid")?;
     let record = steam_compatdata_record(&persisted, pipeline);
     eprintln!(
@@ -1187,13 +1232,22 @@ pub fn prepare_steam_game_launch(
     #[cfg(not(test))]
     if let Some(home) = dirs::home_dir() {
         match pipeline {
-            crate::mtsp::engine::PipelineId::M11 => {
-                crate::installer::ensure_dxmt_runtime_ready(&home)
-                    .map_err(|e| format!("M11 runtime setup failed before Steam launch: {}", e))?;
+            crate::mtsp::engine::PipelineId::M9
+            | crate::mtsp::engine::PipelineId::M10
+            | crate::mtsp::engine::PipelineId::M10_32
+            | crate::mtsp::engine::PipelineId::M11
+            | crate::mtsp::engine::PipelineId::M11_32 => {
+                ensure_complete_graphics_runtime_ready(&home)
+                    .map_err(|e| format!("{:?} runtime setup failed before Steam launch: {}", pipeline, e))?;
             },
-            crate::mtsp::engine::PipelineId::M12 => {
-                crate::installer::ensure_dxmt_m12_runtime_ready(&home)
-                    .map_err(|e| format!("M12 runtime setup failed before Steam launch: {}", e))?;
+            crate::mtsp::engine::PipelineId::M12
+                if !M12_RUNTIME_COMPONENT_IDS
+                    .iter()
+                    .all(|id| inspect_m12_runtime_component(id) == Some(ComponentState::Installed)) =>
+            {
+                return Err(
+                    "M12 vkd3d-proton runtime is incomplete; reinstall the Complete Multi-Architecture Runtime".into(),
+                );
             },
             _ => {},
         }
@@ -1202,8 +1256,8 @@ pub fn prepare_steam_game_launch(
     // MTSP routes. /steam/launch-game immediately calls
     // mtsp::launcher::prepare_steam_pipeline_env(), which validates the route
     // runtime and stages the same game-local DLLs/env that launch will use.
-    // Calling the old setup path here can overwrite an explicitly staged M12
-    // runtime with packaged assets and break PR/runtime proof runs.
+    // Calling the old setup path here can overwrite explicitly staged route
+    // DLLs and break runtime proof runs.
     let dual = crate::scan::resolve_dual_game_dir(appid);
     let name = crate::steam::get_game_name_from_manifest(appid).unwrap_or_else(|| format!("Game {}", appid));
     let mut manifest = ensure_steam_game_bottle_inner(appid, &name, dual.wine_dir.as_deref(), pipeline, false)?;
@@ -1314,6 +1368,18 @@ pub fn prepare_steam_game_launch(
         let _ = save_steam_compatdata(&manifest, pipeline);
     }
     Ok(manifest)
+}
+
+fn ensure_complete_graphics_runtime_ready(home: &Path) -> Result<bool, String> {
+    if crate::installer::complete_runtime_current_for_home(home) {
+        return Ok(true);
+    }
+    crate::installer::install_complete_runtime(&home.to_path_buf())?;
+    if crate::installer::complete_runtime_current_for_home(home) {
+        Ok(true)
+    } else {
+        Err("Complete Multi-Architecture Runtime is missing one or more M9-M12 route artifacts".into())
+    }
 }
 
 pub fn sync_steam_game_bottles() -> Result<Vec<BottleManifest>, Box<dyn std::error::Error>> {
@@ -1571,8 +1637,10 @@ fn stage_m12_dlls_for_saved_steam_bottle(
     }
 
     let home = dirs::home_dir().ok_or("no home dir")?;
-    crate::installer::ensure_dxmt_m12_runtime_ready(&home)
-        .map_err(|e| format!("M12 runtime setup failed while saving bottle: {}", e))?;
+    if !M12_RUNTIME_COMPONENT_IDS.iter().all(|id| inspect_m12_runtime_component(id) == Some(ComponentState::Installed))
+    {
+        return Err("M12 vkd3d-proton runtime is incomplete; reinstall the Complete Multi-Architecture Runtime".into());
+    }
 
     let (_env, recipe) = crate::mtsp::launcher::prepare_steam_pipeline_env(appid, crate::mtsp::engine::PipelineId::M12)
         .map_err(|e| format!("M12 DLL deployment failed while saving bottle: {}", e))?;
@@ -1587,7 +1655,7 @@ fn stage_m12_dlls_for_saved_steam_bottle(
 /// files are moved aside) and deploys the new route's DLLs next to the exe.
 ///
 /// M12 is handled by `stage_m12_dlls_for_saved_steam_bottle` (which also
-/// ensures the isolated M12 runtime is ready). This helper covers the other
+/// verifies the complete vkd3d-proton/Vulkan runtime). This helper covers the other
 /// DXMT-family routes (M9/M10/M10_32/M11/M11_32); non-DXMT profiles return
 /// `None` and are staged at launch time as before.
 fn stage_route_dlls_for_saved_steam_bottle(
@@ -2525,10 +2593,11 @@ pub fn repair_component(
                 detail: if state == ComponentState::Installed {
                     format!("{} is already current", m12_runtime_component_detail(component_id))
                 } else {
-                    "Refreshes the bundled PR230 M12 DXMT runtime surface under runtime/wine/lib/dxmt_m12".to_string()
+                    "Reinstalls the Complete Multi-Architecture Runtime containing vkd3d-proton, DXVK, Wine Vulkan, and MoltenVK".to_string()
                 },
                 asset_path: Some(
-                    crate::installer::dxmt_m12_runtime_artifact_path_for_home(&home, "x86_64-windows/d3d12.dll")
+                    crate::platform::metalsharp_home_dir_for(&home)
+                        .join("runtime/wine/lib/vkd3d-proton/x86_64/d3d12.dll")
                         .to_string_lossy()
                         .to_string(),
                 ),
@@ -2537,7 +2606,7 @@ pub fn repair_component(
             });
         }
 
-        crate::installer::ensure_dxmt_m12_runtime_ready(&home)?;
+        crate::installer::install_complete_runtime(&home)?;
         for id in M12_RUNTIME_COMPONENT_IDS {
             let state = inspect_m12_runtime_component(id).unwrap_or(ComponentState::Missing);
             mark_component_state(&mut manifest, id, state);
@@ -2553,9 +2622,13 @@ pub fn repair_component(
         return Ok(ComponentRepairReport {
             id: component_id.to_string(),
             status: if state == ComponentState::Installed { "installed" } else { "needs_repair" }.to_string(),
-            detail: format!("Refreshed PR230 M12 DXMT runtime surface; {}", m12_runtime_component_detail(component_id)),
+            detail: format!(
+                "Refreshed the complete M12 vkd3d-proton runtime; {}",
+                m12_runtime_component_detail(component_id)
+            ),
             asset_path: Some(
-                crate::installer::dxmt_m12_runtime_artifact_path_for_home(&home, "x86_64-windows/d3d12.dll")
+                crate::platform::metalsharp_home_dir_for(&home)
+                    .join("runtime/wine/lib/vkd3d-proton/x86_64/d3d12.dll")
                     .to_string_lossy()
                     .to_string(),
             ),
@@ -3445,13 +3518,11 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
             BottleArch::Win64,
             true,
             &[
-                "m12_d3d12",
-                "m12_d3d11",
-                "m12_d3d10core",
-                "m12_dxgi_dxmt",
-                "m12_dxgi",
-                "m12_winemetal",
-                "m12_gpu_stubs",
+                "m12_vkd3d_d3d12",
+                "m12_vkd3d_d3d12core",
+                "m12_dxvk_dxgi",
+                "m12_winevulkan",
+                "m12_moltenvk",
                 "vcrun2019_x64",
                 "vcrun2019_x86",
                 "d3d12_agility",
@@ -5231,12 +5302,13 @@ fn component_source_policy(id: &str, arch: BottleArch) -> ComponentSourcePolicy 
     if is_m12_runtime_component(id) {
         let state = inspect_m12_runtime_component(id).unwrap_or(ComponentState::Unknown);
         let home = dirs::home_dir().unwrap_or_default();
-        let path = m12_runtime_component_artifacts(id)
-            .and_then(|artifacts| artifacts.first().copied())
-            .map(|artifact| crate::installer::dxmt_m12_runtime_artifact_path_for_home(&home, artifact));
+        let path =
+            m12_runtime_component_artifacts(id).and_then(|artifacts| artifacts.first().copied()).map(|artifact| {
+                crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine").join(artifact)
+            });
         return ComponentSourcePolicy {
             id: id.to_string(),
-            source: "metalsharp_pr230_dxmt_m12_runtime".to_string(),
+            source: "metalsharp_complete_vkd3d_proton_runtime".to_string(),
             available: state == ComponentState::Installed,
             detail: m12_runtime_component_detail(id),
             path: path.map(|p| p.to_string_lossy().to_string()),
@@ -5373,13 +5445,11 @@ fn component_action_detail(id: &str) -> String {
         "mono-arm64" => "Install MetalSharp ARM64 Mono runtime".to_string(),
         "mono-x86" => "Install MetalSharp x86_64 Mono runtime".to_string(),
         "fna" => "Install FNA/XNA compatibility assemblies and native shims".to_string(),
-        "m12_d3d12" => "Refresh PR230 M12 d3d12.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_d3d11" => "Refresh PR230 M12 d3d11.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_d3d10core" => "Refresh PR230 M12 d3d10core.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_dxgi_dxmt" => "Refresh PR230 M12 dxgi_dxmt.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_dxgi" => "Refresh PR230 M12 dxgi.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_winemetal" => "Refresh PR230 M12 winemetal.dll, winemetal.so, and required Unix sidecars".to_string(),
-        "m12_gpu_stubs" => "Refresh PR230 M12 NVAPI/NVNGX GPU stub DLLs".to_string(),
+        "m12_vkd3d_d3d12" => "Restore vkd3d-proton d3d12.dll from the complete runtime".to_string(),
+        "m12_vkd3d_d3d12core" => "Restore vkd3d-proton d3d12core.dll from the complete runtime".to_string(),
+        "m12_dxvk_dxgi" => "Restore the DXVK-owned dxgi.dll paired with vkd3d-proton".to_string(),
+        "m12_winevulkan" => "Restore Wine Vulkan's PE and ARM64 Unix bridge artifacts".to_string(),
+        "m12_moltenvk" => "Restore the bundled ARM64 MoltenVK host runtime".to_string(),
         "d3d12_agility" => "Download and stage the D3D12 Agility SDK payload".to_string(),
         "gecko" => "Install Wine Gecko for embedded browser surfaces".to_string(),
         "dotnet40" => "Install the native .NET Framework 4.0 runtime for CLR v4 titles".to_string(),
@@ -7384,6 +7454,48 @@ mod tests {
     }
 
     #[test]
+    fn setup_vcpp_download_gate_accepts_microsoft_x86_bootstrap_for_x64_payload() {
+        let dir = test_dir("vcpp-pe-gate");
+        fs::create_dir_all(&dir).expect("create fixture dir");
+        let installer = dir.join("vc_redist.exe");
+        let mut x64 = vec![0u8; (VCPP_X64_MIN_SIZE + 1) as usize];
+        x64[..0x200].copy_from_slice(&test_pe(0x014c, 0x10b));
+        fs::write(&installer, x64).expect("write x64 fixture");
+        assert!(vcpp_downloaded(&installer, "x64"));
+
+        let mut x86 = vec![0u8; (VCPP_X86_MIN_SIZE + 1) as usize];
+        x86[..0x200].copy_from_slice(&test_pe(0x014c, 0x10b));
+        fs::write(&installer, x86).expect("write x86 fixture");
+        assert!(vcpp_downloaded(&installer, "x86"));
+        assert!(!vcpp_downloaded(&installer, "x64"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn setup_vcpp_command_uses_complete_runtime_without_tso() {
+        let wine = PathBuf::from("/runtime/wine/bin/metalsharp-wine");
+        let root = PathBuf::from("/runtime/wine");
+        let installer = PathBuf::from("/runtime/redist/vc_redist.x86.exe");
+        let cmd = vcpp_installer_command(&wine, &root, "/prefix-steam", &installer);
+        assert_eq!(cmd.get_program(), wine.as_os_str());
+        assert_eq!(
+            cmd.get_args().map(|arg| arg.to_string_lossy().to_string()).collect::<Vec<_>>(),
+            vec!["start", "/wait", "/unix", "/runtime/redist/vc_redist.x86.exe", "/install"]
+        );
+        let env = cmd
+            .get_envs()
+            .filter_map(|(key, value)| {
+                value.map(|value| (key.to_string_lossy().to_string(), value.to_string_lossy().to_string()))
+            })
+            .collect::<HashMap<_, _>>();
+        assert_eq!(env.get("WINEPREFIX").map(String::as_str), Some("/prefix-steam"));
+        assert_eq!(env.get("WINEBUILDDIR").map(String::as_str), Some("/runtime/wine/build-ec"));
+        assert_eq!(env.get("FEX_TSOENABLED").map(String::as_str), Some("0"));
+        assert_eq!(env.get("FEX_VECTORTSOENABLED").map(String::as_str), Some("0"));
+        assert_eq!(env.get("FEX_MEMCPYSETTSOENABLED").map(String::as_str), Some("0"));
+    }
+
+    #[test]
     fn setup_vcpp_accepts_reboot_required_status() {
         assert!(vcpp_installer_status_ok(Some(0)));
         assert!(vcpp_installer_status_ok(Some(194)));
@@ -7495,13 +7607,11 @@ mod tests {
         let m12 = default_components_for(RuntimeProfile::M12);
         let m12_ids = m12.iter().map(|c| c.id.as_str()).collect::<Vec<_>>();
         for required in [
-            "m12_d3d12",
-            "m12_d3d11",
-            "m12_d3d10core",
-            "m12_dxgi_dxmt",
-            "m12_dxgi",
-            "m12_winemetal",
-            "m12_gpu_stubs",
+            "m12_vkd3d_d3d12",
+            "m12_vkd3d_d3d12core",
+            "m12_dxvk_dxgi",
+            "m12_winevulkan",
+            "m12_moltenvk",
             "vcrun2019_x64",
             "vcrun2019_x86",
             "corefonts",
@@ -7519,17 +7629,15 @@ mod tests {
     }
 
     #[test]
-    fn m12_winemetal_component_tracks_required_unix_sidecars() {
-        let artifacts = m12_runtime_component_artifacts("m12_winemetal").expect("m12 winemetal artifacts");
-        for required in [
-            "x86_64-windows/winemetal.dll",
-            "x86_64-unix/winemetal.so",
-            "x86_64-unix/libc++.1.dylib",
-            "x86_64-unix/libc++abi.1.dylib",
-            "x86_64-unix/libunwind.1.dylib",
-        ] {
-            assert!(artifacts.contains(&required), "m12_winemetal must validate {required}");
-        }
+    fn m12_vulkan_components_track_required_host_boundary() {
+        let winevulkan = m12_runtime_component_artifacts("m12_winevulkan").expect("M12 Wine Vulkan artifacts");
+        assert!(winevulkan.contains(&"build-ec/dlls/winevulkan/winevulkan.so"));
+        assert!(winevulkan.contains(&"build-ec/dlls/winevulkan/x86_64-windows/winevulkan.dll"));
+        assert!(winevulkan.contains(&"build-ec/dlls/vulkan-1/x86_64-windows/vulkan-1.dll"));
+
+        let moltenvk = m12_runtime_component_artifacts("m12_moltenvk").expect("M12 MoltenVK artifacts");
+        assert!(moltenvk.contains(&"build-ec/dlls/win32u/libMoltenVK.dylib"));
+        assert!(moltenvk.contains(&"lib/moltenvk/libMoltenVK.dylib"));
     }
 
     #[test]

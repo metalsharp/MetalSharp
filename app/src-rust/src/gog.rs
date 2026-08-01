@@ -13,6 +13,7 @@ const GOG_PREFIX_BOTTLE_ID: &str = "gog-prefix";
 const GOG_AUTH_URL: &str = "https://auth.gog.com/auth?client_id=46899977096215655&redirect_uri=https%3A%2F%2Fembed.gog.com%2Fon_login_success%3Forigin%3Dclient&response_type=code&layout=galaxy";
 const GOG_CLIENT_ID: &str = "46899977096215655";
 const HEROIC_GOGDL_REPO_URL: &str = "https://github.com/Heroic-Games-Launcher/heroic-gogdl.git";
+const HEROIC_GOGDL_REF: &str = "v1.2.2";
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +143,7 @@ fn gogdl_candidates() -> Vec<PathBuf> {
             candidates.push(PathBuf::from(explicit));
         }
     }
+    candidates.push(ms_home().join("runtime").join("integration").join("gog").join("bin").join("gogdl"));
     candidates.push(ms_home().join("tools").join("gogdl"));
     candidates.push(ms_home().join("runtime").join("gogdl"));
     if let Ok(path_env) = std::env::var("PATH") {
@@ -153,7 +155,17 @@ fn gogdl_candidates() -> Vec<PathBuf> {
 }
 
 fn gogdl_binary() -> Option<PathBuf> {
-    gogdl_candidates().into_iter().find(|path| path.is_file())
+    gogdl_candidates().into_iter().find(|path| {
+        if !path.is_file() {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            path.metadata().map(|metadata| metadata.permissions().mode() & 0o111 != 0).unwrap_or(false)
+        }
+        #[cfg(not(unix))]
+        true
+    })
 }
 
 fn tools_dir() -> PathBuf {
@@ -299,11 +311,19 @@ fn ensure_gogdl_available() -> Result<(), String> {
             .arg("clone")
             .arg("--depth")
             .arg("1")
+            .arg("--branch")
+            .arg(HEROIC_GOGDL_REF)
             .arg("--recurse-submodules")
             .arg(HEROIC_GOGDL_REPO_URL)
             .arg(&source);
         run_bootstrap_command(&mut command, "GOG support source setup")?;
     } else {
+        let mut command = Command::new(&git);
+        command.arg("-C").arg(&source).arg("fetch").arg("--depth").arg("1").arg("origin").arg(HEROIC_GOGDL_REF);
+        run_bootstrap_command(&mut command, "GOG support source pin refresh")?;
+        let mut command = Command::new(&git);
+        command.arg("-C").arg(&source).arg("checkout").arg("--detach").arg(HEROIC_GOGDL_REF);
+        run_bootstrap_command(&mut command, "GOG support source pin checkout")?;
         let mut command = Command::new(&git);
         command.arg("-C").arg(&source).arg("submodule").arg("update").arg("--init").arg("--recursive");
         run_bootstrap_command(&mut command, "GOG support source refresh")?;
@@ -335,6 +355,8 @@ fn gogdl_command() -> Result<Command, String> {
         .arg(gog_auth_config_path())
         .env("GOGDL_CONFIG_PATH", gogdl_config_dir())
         .env("GOGDL_SUPPORT_PATH", gogdl_support_dir());
+    crate::runtime_prefix::apply_complete_runtime_env(&mut command, &gog_prefix());
+    command.env("MS_FWD_COMPAT_GL_CTX", "1");
     Ok(command)
 }
 
@@ -512,9 +534,10 @@ fn status_value() -> Value {
     let prefix = gog_prefix();
     let oauth_dest = gog_oauth_helper_dest_dir();
     let oauth_available = oauth_dest.join(".inline-helper").is_file();
+    let prefix_all_arch_ready = crate::runtime_prefix::all_arch_ready(&prefix);
     let status = if binary.is_none() {
         "missing_gogdl"
-    } else if !prefix.join("drive_c").is_dir() {
+    } else if !prefix_all_arch_ready {
         "needs_prefix"
     } else if !authenticated {
         "needs_login"
@@ -538,7 +561,8 @@ fn status_value() -> Value {
         "oauthHelperScript": "(inline Electron BrowserWindow)".to_string(),
         "bottleId": GOG_PREFIX_BOTTLE_ID,
         "winePrefix": prefix.to_string_lossy().to_string(),
-        "prefixInitialized": prefix.join("drive_c").is_dir(),
+        "prefixInitialized": prefix_all_arch_ready,
+        "prefixAllArchReady": prefix_all_arch_ready,
         "winePath": wine_binary().to_string_lossy().to_string(),
     })
 }
@@ -558,30 +582,10 @@ fn initialize_prefix() -> Result<(), String> {
     ensure_gogdl_available()?;
     let prefix = gog_prefix();
     fs::create_dir_all(&prefix).map_err(|error| format!("failed to create GOG prefix: {}", error))?;
-    if prefix.join("drive_c").is_dir() {
+    if crate::runtime_prefix::all_arch_ready(&prefix) {
         return Ok(());
     }
-    let wine = wine_binary();
-    if !wine.is_file() {
-        return Err(format!("MetalSharp Wine not found: {}", wine.display()));
-    }
-    let mut command = Command::new(&wine);
-    command
-        .arg("wineboot")
-        .arg("-u")
-        .env("WINEPREFIX", prefix.to_string_lossy().to_string())
-        .env("WINEMSYNC", "1")
-        .env("WINEDEBUG", "-all")
-        .env("MS_FWD_COMPAT_GL_CTX", "1")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    crate::platform::set_runtime_library_env(&mut command, &wine_root());
-    let status = command.status().map_err(|error| format!("failed to initialize GOG prefix: {}", error))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("wineboot failed with {:?}", status.code()))
-    }
+    crate::runtime_prefix::prepare(&prefix)
 }
 
 pub fn handle_auth_code(body: &Value) -> Value {

@@ -24,6 +24,7 @@ const installingSteam = ref(false);
 const brewChecking = ref(true);
 const brewInstalled = ref(false);
 const brewInstalling = ref(false);
+const brewVersion = ref("");
 
 const steps = ["Welcome", "Homebrew", "Runtime", "VC++", "Done"];
 
@@ -37,12 +38,14 @@ async function checkBrew() {
   const localStatus = await getAPI().homebrewStatus();
   if (localStatus?.installed) {
     brewInstalled.value = true;
+    brewVersion.value = localStatus.version ?? "Homebrew verified";
     brewChecking.value = false;
     return;
   }
   const deps = await api<{ dependencies: { id: string; installed: boolean }[] }>("GET", "/setup/dependencies");
   const brewDep = deps?.dependencies?.find((d) => d.id === "homebrew");
   brewInstalled.value = brewDep?.installed ?? false;
+  brewVersion.value = brewInstalled.value ? "Homebrew verified" : "";
   brewChecking.value = false;
 }
 
@@ -56,6 +59,7 @@ async function installHomebrew() {
   }
   if (result.installed) {
     brewInstalled.value = true;
+    brewVersion.value = result.version ?? "Homebrew verified";
     brewInstalling.value = false;
     toast.show("Homebrew is already installed", "success");
     return;
@@ -132,7 +136,7 @@ async function startInstall() {
 
 async function checkSteam() {
   const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-  if (s?.installed || s?.running) {
+  if (s?.installed) {
     steamInstalled.value = true;
   }
   installingSteam.value = true;
@@ -147,8 +151,16 @@ async function installSteam() {
     return;
   }
   const poll = setInterval(async () => {
-    const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-    if (s?.installed || s?.running) {
+    const s = await api<{
+      installed: boolean;
+      installing: boolean;
+      install_handoff?: { accepted?: number; last_error?: string | null };
+    }>("GET", "/steam/status");
+    if (s?.install_handoff?.last_error) {
+      clearInterval(poll);
+      steamInstalling.value = false;
+      toast.show(s.install_handoff.last_error, "error");
+    } else if (s?.installed) {
       clearInterval(poll);
       steamInstalled.value = true;
       steamInstalling.value = false;
@@ -157,7 +169,7 @@ async function installSteam() {
   setTimeout(() => {
     clearInterval(poll);
     steamInstalling.value = false;
-  }, 300000);
+  }, 2700000);
 }
 
 async function finish() {
@@ -199,7 +211,7 @@ async function goToDoneStep() {
 async function installVcppX64() {
   vcppX64Installing.value = true;
   try {
-    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x64");
+    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x64", undefined, 2700000);
     if (result?.ok) {
       vcppX64Done.value = true;
       toast.show("VC++ 2015-2022 x64 installed", "success");
@@ -215,7 +227,7 @@ async function installVcppX64() {
 async function installVcppX86() {
   vcppX86Installing.value = true;
   try {
-    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x86");
+    const result = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-vcpp-x86", undefined, 2700000);
     if (result?.ok) {
       vcppX86Done.value = true;
       toast.show("VC++ 2015-2022 x86 installed", "success");
@@ -285,7 +297,7 @@ async function installVcppX86() {
       <div v-if="step === 1" class="setup-body">
         <div class="setup-section-header">
           <h1>Install Homebrew</h1>
-          <p>MetalSharp uses Homebrew for setup tools such as zstd and Rosetta checks. GPTK/D3DMetal is optional and is only installed later when you save a game as a D3DMetal bottle.</p>
+          <p>Homebrew is required by MetalSharp. It supplies setup tools such as zstd and is the trusted owner of the separate GPTK/D3DMetal runtime. GPTK itself is installed through Homebrew only when you save a game as a D3DMetal bottle.</p>
         </div>
 
         <div class="setup-brew-step">
@@ -294,6 +306,7 @@ async function installVcppX86() {
             2. Follow the prompts in Terminal to install Homebrew<br />
             3. When finished, click <strong>Continue</strong>
           </p>
+          <p v-if="brewInstalled" class="setup-brew-verified">✓ {{ brewVersion }}</p>
           <div class="setup-actions">
             <button class="btn btn-secondary" @click="step = 0">Back</button>
             <button class="btn btn-primary" :disabled="brewInstalling" @click="installHomebrew">
@@ -307,7 +320,7 @@ async function installVcppX86() {
       <div v-if="step === 2" class="setup-body">
         <div class="setup-section-header">
           <h1>Install Runtime</h1>
-          <p>Install the MetalSharp-owned Wine runtime, DXMT graphics runtimes, Steam support files, Mono/FNA support, scripts, and bottle rules. GPTK is not installed during first-time setup.</p>
+          <p>Download, verify, and install the complete MetalSharp Wine 11.12 runtime for ARM64, ARM64EC, x86_64, and i386/WoW64. The installer includes the Metal/Vulkan graphics stacks, fonts, TLS, media, Java, Mono, SDL, and runtime providers. GPTK remains a separate Homebrew-owned route.</p>
         </div>
 
         <button
@@ -349,7 +362,7 @@ async function installVcppX86() {
       <div v-if="step === 3" class="setup-body">
         <div class="setup-section-header">
           <h1>VC++ 2015-2022 Runtimes</h1>
-          <p>Many Windows games depend on the Microsoft Visual C++ Redistributable. Install both x64 and x86 into the standard MetalSharp Wine prefix so Steam games can find the runtime DLLs they need at launch.</p>
+          <p>Many Windows games depend on the Microsoft Visual C++ Redistributable. Install both x64 and x86 through the complete MetalSharp Wine runtime into its accepted all-architecture Steam prefix.</p>
         </div>
 
         <div class="setup-vcpp-section">

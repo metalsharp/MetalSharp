@@ -1,6 +1,6 @@
 {
   "name": "metalsharp",
-  "version": "0.57.0",
+  "version": "0.60.0",
   "description": "MetalSharp — D3D→Metal translation layer frontend",
   "author": "MetalSharp",
   "repository": {
@@ -21,7 +21,7 @@
     "build:native": "bash ../scripts/tools/native/build-helper.sh",
     "pack": "npm run build:all && electron-builder --dir",
     "prepare:native": "../tools/package/prepare-native-placeholders.sh",
-    "fetch:bundles:mac": "../tools/dmg/create-bundles.sh",
+    "fetch:bundles:mac": "../tools/dmg/prepare-complete-runtime-assets.sh",
     "fetch:bundles": "npm run fetch:bundles:mac",
     "dist": "npm run prepare:native && npm run build:all && npm run build:native && npm run fetch:bundles && electron-builder",
     "dmg": "npm run dist -- --mac dmg"
@@ -137,36 +137,21 @@
         ]
       },
       {
-        "from": "bundles/metalsharp-electron.tar.zst",
-        "to": "bundles/metalsharp-electron.tar.zst"
+        "from": "../scripts/install-metalsharp-wine-runtime.sh",
+        "to": "scripts/install-metalsharp-wine-runtime.sh"
       },
       {
-        "from": "bundles/metalsharp-graphics-dll.tar.zst",
-        "to": "bundles/metalsharp-graphics-dll.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-runtime.tar.zst",
-        "to": "bundles/metalsharp-runtime.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-assets.tar.zst",
-        "to": "bundles/metalsharp-assets.tar.zst"
-      },
-      {
-        "from": "bundles/fnalibs.tar.zst",
-        "to": "bundles/fnalibs.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-scripts-tools.tar.zst",
-        "to": "bundles/metalsharp-scripts-tools.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-steam.tar.zst",
-        "to": "bundles/metalsharp-steam.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-d3d12-developer-sdk.tar.zst",
-        "to": "bundles/metalsharp-d3d12-developer-sdk.tar.zst"
+        "from": "release-runtime",
+        "to": "runtime-bundle",
+        "filter": [
+          "install-metalsharp-wine-runtime.sh",
+          "metalsharp-bundle-manifest.tsv",
+          "MetalSharp-Wine-Public-Source-2026-07-31.tar.zst",
+          "MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256",
+          "MetalSharp-GOG-Support-arm64-1.2.2.tar.zst",
+          "PARTS-SHA256SUMS.txt",
+          "REASSEMBLE.txt"
+        ]
       }
     ],
     "directories": {

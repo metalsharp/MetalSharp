@@ -31,9 +31,9 @@ mod launch;
 mod launcher_evidence;
 mod metalfx;
 mod migrate;
-mod mono;
 mod mtsp;
 mod platform;
+mod runtime_prefix;
 mod scan;
 mod setup;
 mod sharp_library;
@@ -254,8 +254,16 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/setup/install-vcpp-x64") => {
             let home = dirs::home_dir().unwrap_or_default();
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-            if !prefix.join("drive_c/windows/system32").exists() {
-                resp(400, json!({"ok": false, "error": "Wine prefix not ready — install runtime and Steam first"}))
+            if !crate::installer::complete_runtime_current_for_home(&home) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "Complete MetalSharp Wine runtime not ready — install or repair the runtime first"}),
+                )
+            } else if !steam::steam_prefix_all_arch_ready(&prefix) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "All-architecture Steam prefix not ready — complete Steam installation first"}),
+                )
             } else {
                 match bottles::vcpp_ensure_and_install_x64(&prefix) {
                     Ok(()) => resp(200, json!({"ok": true})),
@@ -266,8 +274,16 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/setup/install-vcpp-x86") => {
             let home = dirs::home_dir().unwrap_or_default();
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-            if !prefix.join("drive_c/windows/system32").exists() {
-                resp(400, json!({"ok": false, "error": "Wine prefix not ready — install runtime and Steam first"}))
+            if !crate::installer::complete_runtime_current_for_home(&home) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "Complete MetalSharp Wine runtime not ready — install or repair the runtime first"}),
+                )
+            } else if !steam::steam_prefix_all_arch_ready(&prefix) {
+                resp(
+                    400,
+                    json!({"ok": false, "error": "All-architecture Steam prefix not ready — complete Steam installation first"}),
+                )
             } else {
                 match bottles::vcpp_ensure_and_install_x86(&prefix) {
                     Ok(()) => resp(200, json!({"ok": true})),
@@ -418,6 +434,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 app_issue_log("steam-install", "wine-steam", &e.to_string(), &[]);
                 resp(500, json!({"ok": false, "error": e.to_string()}))
             },
+        },
+        (Method::Post, "/steam/handoff") => {
+            let (status, body) = steam::accept_install_handoff();
+            resp(status, body)
         },
         (Method::Post, "/steam/launch") => {
             app_log("Launching Wine Steam...");
@@ -1893,20 +1913,6 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/sharp-library/gog/uninstall") => {
             let body = read_body(req);
             resp(200, gog::handle_uninstall(&Value::Object(body)))
-        },
-        (Method::Get, "/wine-mono/status") => {
-            let prefix = query_param(req.url(), "prefix").unwrap_or_else(|| "gog".to_string());
-            resp(200, mono::handle_status(&prefix))
-        },
-        (Method::Post, "/wine-mono/install") => {
-            let body = read_body(req);
-            let prefix = body.get("prefix").and_then(|v| v.as_str()).unwrap_or("gog").to_string();
-            resp(200, mono::handle_install(&prefix))
-        },
-        (Method::Post, "/wine-mono/reset") => {
-            let body = read_body(req);
-            let prefix = body.get("prefix").and_then(|v| v.as_str()).unwrap_or("gog").to_string();
-            resp(200, mono::handle_reset(&prefix))
         },
         (Method::Post, "/sharp-library/install") => {
             let body = read_body(req);

@@ -4,13 +4,6 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      developer_sdk:
-        description: "Build & publish the D3D12 developer SDK bundle (1 = yes, 0 = skip)"
-        required: false
-        default: '0'
-        type: choice
-        options: ['0', '1']
 
 concurrency:
   group: release-ci-${{ github.ref }}
@@ -19,92 +12,10 @@ concurrency:
 permissions:
   contents: write
   actions: read
-  packages: write
 
 jobs:
-  developer-sdk:
-    name: Publish Developer SDK Bundle
-    # Only build/publish the D3D12 developer SDK when explicitly enabled:
-    #   - manual run with developer_sdk=1, or
-    #   - repository variable METALSHARP_BUILD_DEVELOPER_SDK == '1'.
-    # Defaults to skipped so the DMG + GitHub Release are never blocked by it.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.developer_sdk == '1') ||
-      vars.METALSHARP_BUILD_DEVELOPER_SDK == '1'
-    runs-on: macos-14
-    concurrency:
-      group: metalsharp-developer-sdk-bundles
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - name: Download and verify release split bundles
-        run: METALSHARP_REPAIR_BUNDLES=0 METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE=1 tools/dmg/create-bundles.sh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build self-contained developer SDK
-        run: |
-          tools/bundles/create-developer-sdk.py \
-            --bundle-dir app/bundles \
-            --out-dir dist/developer-sdk \
-            --manifest dist/bundles/metalsharp-bundle-manifest.tsv
-          tools/bundles/verify-developer-sdk.sh \
-            dist/developer-sdk/metalsharp-d3d12-developer-sdk.tar.zst
-
-      - name: Setup ORAS
-        uses: oras-project/setup-oras@v2
-
-      - name: Publish developer SDK package
-        run: |
-          set -euo pipefail
-          OWNER="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          PACKAGE="ghcr.io/$OWNER/metalsharp-d3d12-developer-sdk"
-          VERSION="${GITHUB_REF_NAME#v}"
-          ARCHIVE="dist/developer-sdk/metalsharp-d3d12-developer-sdk.tar.zst"
-          SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
-          echo "$GH_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          oras push "$PACKAGE:$VERSION" \
-            "$ARCHIVE:application/vnd.metalsharp.d3d12-developer-sdk.layer.v1.tar+zstd" \
-            --artifact-type application/vnd.metalsharp.d3d12-developer-sdk.v1 \
-            --annotation "org.opencontainers.image.title=MetalSharp D3D12 Developer SDK" \
-            --annotation "org.opencontainers.image.description=Self-contained MetalSharp D3D12 developer SDK with staged Wine runtime and DXMT files" \
-            --annotation "org.opencontainers.image.version=$VERSION" \
-            --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --annotation "org.opencontainers.image.revision=$GITHUB_SHA" \
-            --annotation "org.opencontainers.image.digest.sha256=$SHA"
-          oras tag "$PACKAGE:$VERSION" latest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify downloaded release bundle layout
-        run: |
-          set -euo pipefail
-          tools/bundles/verify-bundles.sh --bundle-dir dist/bundles --require mac \
-            metalsharp-electron.tar.zst \
-            metalsharp-graphics-dll.tar.zst \
-            metalsharp-runtime.tar.zst \
-            metalsharp-assets.tar.zst \
-            fnalibs.tar.zst \
-            metalsharp-scripts-tools.tar.zst \
-            metalsharp-steam.tar.zst
-          ! tar --use-compress-program=unzstd -tf dist/bundles/metalsharp-assets.tar.zst \
-            | grep -E '^assets/eac-toggle/'
-
-      - name: Publish developer SDK bundle
-        run: |
-          tools/bundles/publish-release-assets.sh bundles \
-            dist/developer-sdk/metalsharp-d3d12-developer-sdk.tar.zst \
-            dist/developer-sdk/metalsharp-bundle-manifest.tsv
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build:
     name: Build DMG
-    # Decoupled from developer-sdk: the DMG must build and the GitHub Release
-    # must publish even when the D3D12 developer SDK build is disabled (=0).
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -146,23 +57,10 @@ jobs:
       - name: Build TypeScript
         run: cd app && npm run build
 
-      - name: Download bundles for DMG
+      - name: Download complete runtime assets for DMG and release
         run: |
-          METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REPAIR_M12=0 tools/dmg/create-bundles.sh
-          tools/dmg/stage-release-bundles.sh app/bundles dist/staged-bundles
-          for required in \
-            metalsharp-electron.tar.zst \
-            metalsharp-graphics-dll.tar.zst \
-            metalsharp-runtime.tar.zst \
-            metalsharp-assets.tar.zst \
-            metalsharp-scripts-tools.tar.zst \
-            metalsharp-steam.tar.zst \
-            metalsharp-d3d12-developer-sdk.tar.zst
-          do
-            test -s "app/bundles/$required"
-          done
-          ls -lh app/bundles/
-          find dist/staged-bundles -type d | sort | sed -n '1,120p'
+          tools/dmg/prepare-complete-runtime-assets.sh app/release-runtime
+          ls -lh app/release-runtime/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -243,10 +141,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: MetalSharp-dmg
+          compression-level: 0
           path: |
             dist/electron/*.dmg
             dist/electron/DMG-SIGNING.txt
-            dist/bundles/metalsharp-bundle-manifest.tsv
+            app/release-runtime/*
 
   release:
     name: Release
@@ -255,6 +154,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -268,17 +169,32 @@ jobs:
           mkdir -p release-flat
           find release -type f -name '*.dmg' -exec cp {} release-flat/ \;
           find release -type f -name 'DMG-SIGNING.txt' -exec cp {} release-flat/ \;
-          find release -type f -name 'metalsharp-bundle-manifest.tsv' -exec cp {} release-flat/ \;
+          for asset in \
+            install-metalsharp-wine-runtime.sh \
+            metalsharp-bundle-manifest.tsv \
+            MetalSharp-Wine-Public-Source-2026-07-31.tar.zst \
+            MetalSharp-Wine-Public-Source-2026-07-31.tar.zst.sha256 \
+            MetalSharp-GOG-Support-arm64-1.2.2.tar.zst \
+            MetalSharp-Wine-Runtime-COMPLETE-all-arch-2026-07-31.tar.zst.part01 \
+            MetalSharp-Wine-Runtime-COMPLETE-all-arch-2026-07-31.tar.zst.part02 \
+            MetalSharp-Wine-Runtime-COMPLETE-all-arch-2026-07-31.tar.zst.part03 \
+            MetalSharp-Wine-Runtime-COMPLETE-all-arch-2026-07-31.tar.zst.part04 \
+            PARTS-SHA256SUMS.txt \
+            REASSEMBLE.txt
+          do
+            source="$(find release -type f -name "$asset" -print -quit)"
+            test -n "$source"
+            cp "$source" release-flat/
+          done
           test "$(find release-flat -type f -name '*.dmg' | wc -l | tr -d ' ')" -ge 1
           test -s release-flat/DMG-SIGNING.txt
           test -s release-flat/metalsharp-bundle-manifest.tsv
+          tools/dmg/prepare-complete-runtime-assets.sh --verify-only release-flat
           find release-flat -type f -print | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-flat/*.dmg
-            release-flat/DMG-SIGNING.txt
-            release-flat/metalsharp-bundle-manifest.tsv
+            release-flat/*
           generate_release_notes: true

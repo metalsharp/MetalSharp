@@ -325,10 +325,14 @@ pub fn needs_migration() -> serde_json::Value {
 fn runtime_needs_repair(home: &Path, setup_completed: bool) -> bool {
     let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
     if runtime_core_ready(&ms_dir) {
-        return false;
+        return existing_prefixes_need_repair(&ms_dir);
     }
 
     setup_completed || ms_dir.join("prefix-steam").exists()
+}
+
+fn existing_prefixes_need_repair(ms_dir: &Path) -> bool {
+    collect_existing_wine_prefixes(ms_dir).iter().any(|prefix| !crate::runtime_prefix::all_arch_ready(prefix))
 }
 
 fn post_update_marker_path(ms_dir: &Path) -> PathBuf {
@@ -390,46 +394,7 @@ fn parse_version_parts(value: &str) -> Vec<u32> {
 }
 
 fn runtime_core_ready(ms_dir: &Path) -> bool {
-    let runtime_wine = ms_dir.join("runtime").join("wine");
-    let runtime_host = ms_dir.join("runtime").join("host");
-    let wine = crate::platform::runtime_wine_binary(&runtime_wine);
-    if !wine.exists() {
-        return false;
-    }
-
-    if !host_runtime_ready(&runtime_host) {
-        return false;
-    }
-
-    if !crate::installer::dxmt_runtime_current_for_ms_dir(ms_dir) {
-        return false;
-    }
-
-    if !crate::installer::metalsharp_runtime_lib_ready(&runtime_wine) {
-        return false;
-    }
-
-    [
-        runtime_wine.join("lib").join("wine").join("x86_64-unix"),
-        runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d9.dll"),
-        runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d10.dll"),
-        runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d10_1.dll"),
-        ms_dir.join("runtime").join("goldberg").join("x86").join("steam_api.dll"),
-        ms_dir.join("runtime").join("goldberg").join("x64").join("steam_api64.dll"),
-        ms_dir.join("configs").join("mtsp-rules.toml"),
-        runtime_wine.join("etc").join("dxmt.conf"),
-    ]
-    .iter()
-    .all(|path| path.exists())
-        && crate::installer::dxmt_graphics_runtimes_current_for_ms_dir(ms_dir)
-}
-
-fn host_runtime_ready(dir: &Path) -> bool {
-    file_nonempty(&dir.join("manifest.json"))
-        && file_nonempty(&dir.join("HostRuntimeABI.h"))
-        && (file_nonempty(&dir.join("libmetalsharp_host_runtime.dylib"))
-            || file_nonempty(&dir.join("libmetalsharp_host_runtime.so"))
-            || file_nonempty(&dir.join("metalsharp_host_runtime.dll")))
+    crate::installer::complete_runtime_current_for_ms_dir(ms_dir)
 }
 
 fn file_nonempty(path: &Path) -> bool {
@@ -479,7 +444,8 @@ fn run_migration() {
     }
 
     let marker_requested = post_update_marker.as_ref().map(|marker| marker.needed).unwrap_or(false);
-    if runtime_core_ready(&ms_dir) && !marker_requested {
+    let runtime_was_ready = runtime_core_ready(&ms_dir);
+    if runtime_was_ready && !existing_prefixes_need_repair(&ms_dir) && !marker_requested {
         update_migration_metadata(&ms_dir);
         let marker = post_update_marker_path(&ms_dir);
         let _ = fs::remove_file(&marker);
@@ -510,40 +476,66 @@ fn run_migration() {
     let (preserved, mut report) = preserve_user_data(&ms_dir);
 
     step += 1;
-    write_migrate_progress("running", step, total_steps, "Cleaning stale runtime state...", None);
-    remove_old_runtime(&ms_dir);
+    if runtime_was_ready {
+        write_migrate_progress(
+            "running",
+            step,
+            total_steps,
+            "Complete runtime already installed; keeping it in place...",
+            None,
+        );
+    } else {
+        write_migrate_progress("running", step, total_steps, "Cleaning stale runtime state...", None);
+        remove_old_runtime(&ms_dir);
+    }
 
     step += 1;
-    write_migrate_progress("running", step, total_steps, "Installing update...", None);
-    let install_ok = match crate::installer::start_install_all() {
-        Ok(v) if v.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false) => match wait_for_install_complete() {
-            Ok(()) => true,
-            Err(e) => {
-                write_migrate_progress("error", step, total_steps, &format!("Runtime install failed: {}", e), Some(&e));
+    write_migrate_progress(
+        "running",
+        step,
+        total_steps,
+        if runtime_was_ready { "Using the verified complete runtime..." } else { "Installing update..." },
+        None,
+    );
+    let install_ok = if runtime_was_ready {
+        true
+    } else {
+        match crate::installer::start_install_all() {
+            Ok(v) if v.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false) => match wait_for_install_complete() {
+                Ok(()) => true,
+                Err(e) => {
+                    write_migrate_progress(
+                        "error",
+                        step,
+                        total_steps,
+                        &format!("Runtime install failed: {}", e),
+                        Some(&e),
+                    );
+                    false
+                },
+            },
+            Ok(v) => {
+                let error = v.get("error").and_then(|e| e.as_str()).unwrap_or("runtime install did not start");
+                write_migrate_progress(
+                    "error",
+                    step,
+                    total_steps,
+                    &format!("Runtime install failed: {}", error),
+                    Some(error),
+                );
                 false
             },
-        },
-        Ok(v) => {
-            let error = v.get("error").and_then(|e| e.as_str()).unwrap_or("runtime install did not start");
-            write_migrate_progress(
-                "error",
-                step,
-                total_steps,
-                &format!("Runtime install failed: {}", error),
-                Some(error),
-            );
-            false
-        },
-        Err(e) => {
-            write_migrate_progress(
-                "error",
-                step,
-                total_steps,
-                &format!("Runtime install failed: {}", e),
-                Some(&e.to_string()),
-            );
-            false
-        },
+            Err(e) => {
+                write_migrate_progress(
+                    "error",
+                    step,
+                    total_steps,
+                    &format!("Runtime install failed: {}", e),
+                    Some(&e.to_string()),
+                );
+                false
+            },
+        }
     };
 
     step += 1;
@@ -572,8 +564,21 @@ fn run_migration() {
         None,
     );
     match update_existing_wine_prefixes(&ms_dir, step) {
-        Ok(updated) => log_to_file(&format!("Migration: wineboot -u completed for {} prefix(es)", updated)),
-        Err(e) => log_to_file(&format!("Migration: wineboot -u failed (non-fatal): {}", e)),
+        Ok(updated) => log_to_file(&format!(
+            "Migration: all-architecture provider staging and wineboot update completed for {} prefix(es)",
+            updated
+        )),
+        Err(error) => {
+            write_migrate_progress(
+                "error",
+                step,
+                total_steps,
+                &format!("Wine prefix update failed: {error}"),
+                Some(&error),
+            );
+            log_to_file(&format!("Migration blocked by Wine prefix acceptance failure: {error}"));
+            return;
+        },
     }
     register_external_steam_libraries(&ms_dir);
     clear_steam_crash_marker(&ms_dir);
@@ -603,10 +608,10 @@ fn run_migration() {
     let _ = fs::remove_file(&marker);
     let _ = fs::remove_file(migration_steam_config_backup_path(&ms_dir));
 
-    // wineboot -u can fork Steam.exe twice for self-update. Let those updater
-    // windows finish naturally so the next app launch is not left with a
-    // half-completed Steam update.
-    wait_for_steam_update_windows_after_migration(&ms_dir, 15);
+    // Prefix migration uses wineboot's combined init+update contract, which
+    // deliberately suppresses HKCU Run entries. Steam remains installed but
+    // is not launched or updated behind the user's back during migration.
+    log_to_file("Migration: Wine prefix update completed without launching user startup applications");
 
     write_migrate_progress("complete", total_steps, total_steps, "MetalSharp is updated and ready.", None);
     log_to_file(&format!("Migration to v{} finished (install_ok=true)", MIGRATE_VERSION));
@@ -998,20 +1003,9 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
 }
 
 fn update_existing_wine_prefixes(ms_dir: &Path, step: usize) -> Result<usize, String> {
-    let runtime_wine = ms_dir.join("runtime").join("wine");
-    let wine = crate::platform::runtime_wine_binary(&runtime_wine);
-    if !wine.exists() {
-        return Err(format!("MetalSharp Wine not found at {}", wine.display()));
-    }
-
     let mut updated = 0usize;
+    let mut failures = Vec::new();
     for prefix in collect_existing_wine_prefixes(ms_dir) {
-        let steam_library_drive_links = collect_steam_library_drive_links(&prefix);
-        // Snapshot all dosdevice symlinks before wineboot rewrites them.
-        // This covers custom drive mappings (external drives, Z:, etc.) that
-        // wineboot -u may destroy.
-        let all_dosdevice_links = collect_prefix_dosdevice_links(&prefix);
-
         write_migrate_progress(
             "running",
             step,
@@ -1030,10 +1024,34 @@ fn update_existing_wine_prefixes(ms_dir: &Path, step: usize) -> Result<usize, St
             continue;
         }
 
-        run_wineboot_update(&wine, &runtime_wine, &prefix)?;
+        if let Err(error) = prune_stale_installer_dosdevices(&prefix) {
+            failures.push(format!("{}: {error}", prefix.display()));
+            continue;
+        }
+
+        let steam_library_drive_links = collect_steam_library_drive_links(&prefix);
+        // Snapshot the surviving dosdevice symlinks only after stale installer
+        // media and its raw-device companion have been pruned. This covers
+        // custom drive mappings that wineboot may rewrite without resurrecting
+        // the 0.57 DMG mapping afterward.
+        let all_dosdevice_links = collect_prefix_dosdevice_links(&prefix);
+
+        if let Err(error) = crate::runtime_prefix::update_existing(&prefix) {
+            failures.push(format!("{}: {error}", prefix.display()));
+            continue;
+        }
 
         restore_steam_library_drive_links(&prefix, &steam_library_drive_links);
         restore_prefix_dosdevice_links(&prefix, &all_dosdevice_links);
+
+        // wineboot re-enumerates currently mounted DMGs and can recreate the
+        // old installer drive even after the pre-update cleanup. Remove that
+        // pair once more after Wine has finished, while leaving user volume
+        // mappings intact.
+        if let Err(error) = prune_stale_installer_dosdevices(&prefix) {
+            failures.push(format!("{}: {error}", prefix.display()));
+            continue;
+        }
 
         // Post-check: verify critical dosdevice links survived wineboot.
         verify_prefix_dosdevices_integrity(&prefix);
@@ -1041,18 +1059,28 @@ fn update_existing_wine_prefixes(ms_dir: &Path, step: usize) -> Result<usize, St
         updated += 1;
     }
 
-    Ok(updated)
+    if failures.is_empty() {
+        Ok(updated)
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
 fn collect_existing_wine_prefixes(ms_dir: &Path) -> Vec<PathBuf> {
     let mut prefixes = Vec::new();
     push_existing_prefix(&mut prefixes, ms_dir.join("prefix-steam"));
-    push_existing_prefix(&mut prefixes, gog_bottle_prefix_path(ms_dir));
+    push_existing_prefix(&mut prefixes, ms_dir.join("sharp-prefix"));
+    let bottles = ms_dir.join("bottles");
+    if let Ok(entries) = fs::read_dir(&bottles) {
+        for entry in entries.flatten() {
+            push_existing_prefix(&mut prefixes, entry.path().join("prefix"));
+        }
+    }
     prefixes
 }
 
 fn push_existing_prefix(prefixes: &mut Vec<PathBuf>, prefix: PathBuf) {
-    if !prefix.exists() {
+    if !prefix.join("drive_c").is_dir() {
         return;
     }
     if prefixes.iter().any(|existing| existing == &prefix) {
@@ -1206,52 +1234,6 @@ fn restore_gog_bottle_prefix(bottles_tmp: &Path, bottles: &Path, report: &mut Mi
         Some(dst.to_string_lossy().to_string()),
         "dedicated GOG Wine prefix restored across runtime install",
     );
-}
-
-fn run_wineboot_update(wine: &Path, runtime_wine: &Path, prefix: &Path) -> Result<(), String> {
-    let mut cmd = Command::new(wine);
-    cmd.env("WINEPREFIX", prefix.to_string_lossy().to_string())
-        .env("WINEDEBUG", "-all")
-        .env("WINEDEBUGGER", "/usr/bin/true")
-        .env("WINEDLLOVERRIDES", "winedbg=d")
-        .arg("wineboot")
-        .arg("-u")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    crate::platform::set_runtime_library_env(&mut cmd, runtime_wine);
-
-    log_to_file(&format!("Starting wineboot -u for prefix: {}", prefix.display()));
-
-    let mut child = cmd.spawn().map_err(|e| {
-        log_to_file(&format!("Failed to spawn wineboot for {}: {}", prefix.display(), e));
-        format!("spawn wineboot for {}: {}", prefix.display(), e)
-    })?;
-
-    for attempt in 0..240 {
-        if let Some(status) = child.try_wait().map_err(|e| {
-            log_to_file(&format!("Failed to wait for wineboot for {}: {}", prefix.display(), e));
-            format!("wait wineboot for {}: {}", prefix.display(), e)
-        })? {
-            if status.success() {
-                log_to_file(&format!("wineboot -u completed successfully for prefix: {}", prefix.display()));
-                return Ok(());
-            }
-            let error_msg = format!("wineboot -u failed for {} with exit code: {:?}", prefix.display(), status.code());
-            log_to_file(&error_msg);
-            return Err(error_msg);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        if attempt == 120 {
-            log_to_file(&format!("wineboot -u still running after 60 seconds for prefix: {}", prefix.display()));
-        }
-    }
-
-    let error_msg = format!("wineboot -u timed out (120 seconds) for {}", prefix.display());
-    log_to_file(&error_msg);
-    let _ = child.kill();
-    let _ = child.wait();
-    Err(error_msg)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1497,6 +1479,51 @@ fn is_dmg_mount_target(target: &Path) -> bool {
         return false;
     }
     lower.contains("-arm64") || lower.contains("-x86_64") || lower.contains(".dmg") || lower.contains("-intel")
+}
+
+fn prune_stale_installer_dosdevices(prefix: &Path) -> Result<usize, String> {
+    let dosdevices = prefix.join("dosdevices");
+    if !dosdevices.is_dir() {
+        return Ok(0);
+    }
+
+    let mut stale_names = Vec::new();
+    for entry in fs::read_dir(&dosdevices)
+        .map_err(|error| format!("failed to enumerate {}: {error}", dosdevices.display()))?
+        .flatten()
+    {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(target) = fs::read_link(entry.path()) else {
+            continue;
+        };
+        if is_dmg_mount_target(&target) {
+            stale_names.push(name.clone());
+            if name.ends_with(':') && !name.ends_with("::") {
+                stale_names.push(format!("{name}:"));
+            }
+        }
+    }
+
+    stale_names.sort();
+    stale_names.dedup();
+    let mut removed = 0;
+    for name in stale_names {
+        let path = dosdevices.join(&name);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || metadata.is_file() => {
+                fs::remove_file(&path)
+                    .map_err(|error| format!("failed to remove stale {}: {error}", path.display()))?;
+                removed += 1;
+                log_to_file(&format!("Migration: removed stale installer dosdevice {}", path.display()));
+            },
+            Ok(_) => return Err(format!("stale installer dosdevice is not a removable link: {}", path.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) => return Err(format!("failed to inspect stale {}: {error}", path.display())),
+        }
+    }
+    Ok(removed)
 }
 
 fn collect_prefix_dosdevice_links(prefix: &Path) -> Vec<(String, PathBuf)> {
@@ -2089,17 +2116,7 @@ fn ensure_z_drive(dosdevices: &Path) {
 }
 
 fn remove_old_runtime(ms_dir: &PathBuf) {
-    let dirs_to_remove = [
-        "runtime",
-        "configs",
-        "cache",
-        "logs",
-        "shader-cache",
-        "crashes",
-        "SteamSetup.exe",
-        "install_progress.json",
-        "update_progress.json",
-    ];
+    let dirs_to_remove = ["runtime", "SteamSetup.exe", "install_progress.json", "update_progress.json"];
 
     for name in &dirs_to_remove {
         let p = ms_dir.join(name);
@@ -2112,11 +2129,19 @@ fn remove_old_runtime(ms_dir: &PathBuf) {
         }
     }
 
+    // Keep user-facing cache metadata (covers, API configuration), logs, and
+    // compiled shader caches. Only installer/download scratch payloads are
+    // runtime-owned and safe to discard during replacement.
+    for name in ["downloads", "updates", "updater-tools", "tmp"] {
+        let scratch = ms_dir.join("cache").join(name);
+        if fs::symlink_metadata(&scratch).map(|metadata| metadata.is_dir()).unwrap_or(false) {
+            let _ = fs::remove_dir_all(&scratch);
+        } else if fs::symlink_metadata(&scratch).map(|metadata| metadata.is_file()).unwrap_or(false) {
+            let _ = fs::remove_file(&scratch);
+        }
+    }
+
     let _ = fs::create_dir_all(ms_dir.join("runtime"));
-    let _ = fs::create_dir_all(ms_dir.join("configs"));
-    let _ = fs::create_dir_all(ms_dir.join("cache"));
-    let _ = fs::create_dir_all(ms_dir.join("logs"));
-    let _ = fs::create_dir_all(ms_dir.join("shader-cache"));
 }
 
 fn restore_user_data(ms_dir: &PathBuf, preserved: &PreservedData, report: &mut MigrationReport) {
@@ -2405,6 +2430,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migration_removes_only_stale_installer_drive_pair() {
+        let prefix = test_dir("stale-installer-dosdevices");
+        let dosdevices = prefix.join("dosdevices");
+        fs::create_dir_all(&dosdevices).expect("create dosdevices fixture");
+        std::os::unix::fs::symlink("../drive_c", dosdevices.join("c:")).expect("create C fixture");
+        std::os::unix::fs::symlink("/Volumes/MetalSharp 0.57.0-arm64 1", dosdevices.join("d:"))
+            .expect("create stale installer fixture");
+        std::os::unix::fs::symlink("/dev/rdisk8s1", dosdevices.join("d::")).expect("create raw device fixture");
+        std::os::unix::fs::symlink("/Volumes/Games", dosdevices.join("e:")).expect("create user drive fixture");
+
+        assert_eq!(prune_stale_installer_dosdevices(&prefix).expect("prune stale installer mappings"), 2);
+        assert!(fs::symlink_metadata(dosdevices.join("d:")).is_err());
+        assert!(fs::symlink_metadata(dosdevices.join("d::")).is_err());
+        assert_eq!(fs::read_link(dosdevices.join("c:")).expect("preserve C mapping"), Path::new("../drive_c"));
+        assert_eq!(fs::read_link(dosdevices.join("e:")).expect("preserve user mapping"), Path::new("/Volumes/Games"));
+        assert_eq!(collect_prefix_dosdevice_links(&prefix), vec![("e:".to_string(), PathBuf::from("/Volumes/Games"))]);
+
+        let _ = fs::remove_dir_all(prefix);
+    }
+
+    #[test]
     fn cleanup_preserved_temp_dirs_removes_only_real_matching_directories() {
         let temp_root = test_dir("cleanup-preserved-temp");
         let stale_one = temp_root.join("metalsharp-migration-preserve-100-first");
@@ -2559,15 +2605,13 @@ mod tests {
     }
 
     #[test]
-    fn missing_dxmt_manifest_requests_repair() {
-        let home = test_dir("missing-dxmt-manifest");
+    fn missing_m12_vkd3d_runtime_requests_repair() {
+        let home = test_dir("missing-m12-vkd3d-runtime");
         let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
         write_runtime_core(&ms_dir);
 
-        fs::remove_file(
-            ms_dir.join("runtime").join("wine").join("lib").join("dxmt").join("metalsharp-dxmt-runtime.json"),
-        )
-        .expect("remove DXMT manifest");
+        fs::remove_file(ms_dir.join("runtime").join("graphics").join("vkd3d-proton").join("x86_64").join("d3d12.dll"))
+            .expect("remove M12 vkd3d-proton d3d12 runtime");
 
         assert!(!runtime_core_ready(&ms_dir));
         assert!(runtime_needs_repair(&home, true));
@@ -2575,8 +2619,8 @@ mod tests {
     }
 
     #[test]
-    fn missing_metalsharp_hook_requests_runtime_repair() {
-        let home = test_dir("missing-metalsharp-hook");
+    fn retired_split_bundle_hook_does_not_invalidate_complete_runtime() {
+        let home = test_dir("retired-split-bundle-hook");
         let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
         write_runtime_core(&ms_dir);
 
@@ -2591,8 +2635,8 @@ mod tests {
         )
         .expect("remove MetalSharp ntdll hook");
 
-        assert!(!runtime_core_ready(&ms_dir));
-        assert!(runtime_needs_repair(&home, true));
+        assert!(runtime_core_ready(&ms_dir));
+        assert!(!runtime_needs_repair(&home, true));
         let _ = fs::remove_dir_all(home);
     }
 
@@ -2603,8 +2647,10 @@ mod tests {
         let steam_prefix = ms_dir.join("prefix-steam");
         let bottle_dir = ms_dir.join("bottles").join("installer_demo");
         let bottle_prefix = bottle_dir.join("prefix");
-        fs::create_dir_all(&steam_prefix).expect("create Steam prefix");
-        fs::create_dir_all(&bottle_prefix).expect("create bottle prefix");
+        let sharp_prefix = ms_dir.join("sharp-prefix");
+        fs::create_dir_all(steam_prefix.join("drive_c")).expect("create Steam prefix");
+        fs::create_dir_all(bottle_prefix.join("drive_c")).expect("create bottle prefix");
+        fs::create_dir_all(sharp_prefix.join("drive_c")).expect("create Sharp prefix");
         fs::write(
             bottle_dir.join("bottle.json"),
             serde_json::to_vec(&json!({
@@ -2618,8 +2664,9 @@ mod tests {
         let prefixes = collect_existing_wine_prefixes(&ms_dir);
 
         assert!(prefixes.contains(&steam_prefix));
-        assert!(!prefixes.contains(&bottle_prefix));
-        assert_eq!(prefixes.len(), 1);
+        assert!(prefixes.contains(&bottle_prefix));
+        assert!(prefixes.contains(&sharp_prefix));
+        assert_eq!(prefixes.len(), 3);
         let _ = fs::remove_dir_all(home);
     }
 
@@ -2629,12 +2676,12 @@ mod tests {
         let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
         let steam_prefix = ms_dir.join("prefix-steam");
         let gog_prefix = ms_dir.join("bottles").join(GOG_PREFIX_BOTTLE_ID).join("prefix");
-        fs::create_dir_all(&steam_prefix).expect("create Steam prefix");
+        fs::create_dir_all(steam_prefix.join("drive_c")).expect("create Steam prefix");
 
         let prefixes_without_gog = collect_existing_wine_prefixes(&ms_dir);
         assert_eq!(prefixes_without_gog, vec![steam_prefix.clone()]);
 
-        fs::create_dir_all(&gog_prefix).expect("create GOG prefix");
+        fs::create_dir_all(gog_prefix.join("drive_c")).expect("create GOG prefix");
         let prefixes_with_gog = collect_existing_wine_prefixes(&ms_dir);
         assert!(prefixes_with_gog.contains(&steam_prefix));
         assert!(prefixes_with_gog.contains(&gog_prefix));
@@ -2962,10 +3009,15 @@ mod tests {
         let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
         fs::create_dir_all(ms_dir.join("cache").join("covers")).expect("create cache metadata dir");
         fs::create_dir_all(ms_dir.join("cache").join("updates")).expect("create update cache dir");
+        fs::create_dir_all(ms_dir.join("configs")).expect("create settings dir");
+        fs::create_dir_all(ms_dir.join("shader-cache")).expect("create shader cache dir");
         fs::write(ms_dir.join("cache").join("steam_config.json"), br#"{"api_key_set":true}"#)
             .expect("write steam config");
         fs::write(ms_dir.join("cache").join("covers").join("620.png"), b"cover").expect("write cover");
         fs::write(ms_dir.join("cache").join("updates").join("MetalSharp.dmg"), b"dmg").expect("write cached dmg");
+        fs::write(ms_dir.join("configs").join("user.json"), b"settings").expect("write settings fixture");
+        fs::write(ms_dir.join("shader-cache").join("pipeline.bin"), b"shader cache")
+            .expect("write shader cache fixture");
 
         let (preserved, mut report) = preserve_user_data(&ms_dir);
         remove_old_runtime(&ms_dir);
@@ -2975,8 +3027,10 @@ mod tests {
             fs::read_to_string(ms_dir.join("cache").join("steam_config.json")).unwrap(),
             r#"{"api_key_set":true}"#
         );
-        assert!(!ms_dir.join("cache").join("covers").join("620.png").exists());
+        assert!(ms_dir.join("cache").join("covers").join("620.png").exists());
         assert!(!ms_dir.join("cache").join("updates").join("MetalSharp.dmg").exists());
+        assert_eq!(fs::read(ms_dir.join("configs").join("user.json")).unwrap(), b"settings");
+        assert_eq!(fs::read(ms_dir.join("shader-cache").join("pipeline.bin")).unwrap(), b"shader cache");
         let _ = fs::remove_dir_all(home);
     }
 
@@ -3152,15 +3206,12 @@ mod tests {
         );
 
         write_runtime_core(&ms_dir);
-        fs::write(
-            ms_dir.join("runtime").join("wine").join("lib").join("dxmt_m12").join("x86_64-windows").join("d3d12.dll"),
-            b"stale-m12-d3d12",
-        )
-        .expect("poison M12 hash-gated runtime file");
+        fs::remove_file(ms_dir.join("runtime").join("graphics").join("vkd3d-proton/x86_64/d3d12.dll"))
+            .expect("remove required M12 runtime file");
         assert_eq!(
             verify_migration_ready(&ms_dir, None).unwrap_err(),
             "runtime bundle is still incomplete after install",
-            "stale M12 hashes must not satisfy migration readiness"
+            "missing M12 vkd3d-proton files must not satisfy migration readiness"
         );
         let _ = fs::remove_dir_all(home);
     }
@@ -3183,6 +3234,42 @@ mod tests {
         write_host_runtime(ms_dir);
 
         for path in [
+            runtime_wine.join("build-ec").join("wine"),
+            runtime_wine.join("build-ec").join("server").join("wineserver"),
+            runtime_wine.join("wine-11.12").join("nls").join("locale.nls"),
+            runtime_wine.join("wine-11.12").join("fonts").join("tahoma.ttf"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-unix").join("winemetal.so"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("d3d10core.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("d3d11.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("dxgi.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("aarch64-windows").join("winemetal.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("d3d10core.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("d3d11.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("dxgi.dll"),
+            runtime_wine.join("build-ec").join("dxmt-v0.80").join("i386-windows").join("winemetal.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d9").join("x86_64-windows").join("d3d9.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d9").join("i386-windows").join("d3d9.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10").join("x86_64-windows").join("d3d10.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10").join("i386-windows").join("d3d10.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10_1").join("x86_64-windows").join("d3d10_1.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("d3d10_1").join("i386-windows").join("d3d10_1.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("dxgi").join("i386-windows").join("dxgi.dll"),
+            ms_dir.join("runtime").join("graphics").join("dxvk").join("i386").join("d3d9.dll"),
+            ms_dir.join("runtime").join("graphics").join("dxvk").join("x86_64").join("dxgi.dll"),
+            ms_dir.join("runtime").join("graphics").join("vkd3d-proton").join("x86_64").join("d3d12.dll"),
+            ms_dir.join("runtime").join("graphics").join("vkd3d-proton").join("x86_64").join("d3d12core.dll"),
+            ms_dir.join("runtime").join("graphics").join("opengl-metal").join("metalsharp-opengl.dylib"),
+            ms_dir.join("runtime").join("graphics").join("moltenvk").join("libMoltenVK.dylib"),
+            ms_dir.join("runtime").join("providers").join("xtajit64-arm64ec-known-good.dll"),
+            ms_dir.join("runtime").join("providers").join("xtajit-arm64-known-good.dll"),
+            ms_dir.join("runtime").join("scripts").join("stage-runtime-providers.sh"),
+            ms_dir.join("runtime").join("integration").join("gog").join("bin").join("gogdl"),
+            runtime_wine.join("build-ec").join("dlls").join("wow64").join("aarch64-windows").join("wow64.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("wow64win").join("aarch64-windows").join("wow64win.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("winevulkan").join("winevulkan.so"),
+            runtime_wine.join("build-ec").join("dlls").join("winevulkan").join("x86_64-windows").join("winevulkan.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("vulkan-1").join("x86_64-windows").join("vulkan-1.dll"),
+            runtime_wine.join("build-ec").join("dlls").join("win32u").join("libMoltenVK.dylib"),
             runtime_wine.join("lib").join("wine").join("x86_64-unix").join(".keep"),
             runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d9.dll"),
             runtime_wine.join("lib").join("wine").join("x86_64-windows").join("d3d10.dll"),
@@ -3240,6 +3327,16 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).expect("create runtime parent");
             fs::write(path, b"test").expect("write runtime file");
         }
+
+        fs::write(
+            ms_dir.join("runtime").join(".metalsharp-runtime-install"),
+            format!(
+                "archive_sha256={}\ngog_archive_sha256={}\nno_tso=1\n",
+                crate::installer::COMPLETE_RUNTIME_ARCHIVE_SHA256,
+                crate::installer::GOG_SUPPORT_ARCHIVE_SHA256
+            ),
+        )
+        .expect("write complete runtime marker");
 
         crate::installer::write_dxmt_m12_expected_test_files(&runtime_wine.join("lib").join("dxmt_m12"));
 

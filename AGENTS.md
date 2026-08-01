@@ -1,7 +1,200 @@
 # AGENTS.md
-**Updated:** 2026-07-08
+**Updated:** 2026-07-31
 
 Guide for AI agents working on the MetalSharp repository.
+
+## 0.60.0 Preview Release Work
+
+Development is isolated on `agent/0.60-preview-release`. The saved phase plan is
+`~/Documents/obsidian/Avery'sVault/0.60.0 Official Preview Release Plan.md`.
+
+- Phase 1 replaces first-run split-bundle installation with
+  `scripts/install-metalsharp-wine-runtime.sh` from release
+  `v0.60.0-dependency-bundles`.
+- The canonical complete-runtime SHA-256 is
+  `e44a84bceeca62f01fd95a133364ec82467cd8883ff81bcc1bdfdf4a6c3ad146`.
+- Runtime completion is gated by `.metalsharp-runtime-install` plus Wine,
+  wineserver, fonts/NLS, DXVK i386, vkd3d-proton D3D12, OpenGL-Metal, and
+  MoltenVK payloads. Do not restore the old six-archive setup gate.
+- The runtime installs transactionally at `~/.metalsharp/runtime`; prefixes,
+  Steam, bottles, saves, and shader caches remain outside that directory.
+- Phase 1 keeps Rosetta installation until macOS 28 and keeps GPTK/Homebrew as
+  a separate route. The complete runtime launch adapters explicitly disable
+  FEX TSO, vector TSO, and memcpy/set TSO.
+- Phase 2 creates `~/.metalsharp/prefix-steam` as a single all-architecture
+  prefix. Before wineboot it stages ARM64 WoW64 providers, every i386 Wine
+  builtin, and the accepted ARM64/ARM64EC CPU providers; after wineboot it
+  restages/verifies providers and requires both system32 and syswow64 gates.
+- Steam installation enables the ntdll host notification only for installer
+  processes. `POST /steam/handoff` accepts exactly two serialized callbacks:
+  cycle 1 shuts down only the Steam prefix and relaunches its updater; cycle 2
+  shuts it down, deploys and verifies the CEF wrapper, and writes
+  `.metalsharp-steam-install-complete`. Steam is not reported installed before
+  that marker exists. All install and handoff launches keep every FEX TSO mode
+  disabled.
+- Phase 3 makes a functioning Homebrew installation a hard setup gate. Both
+  Electron and the Rust backend require `brew --version` to succeed; file
+  presence alone is not acceptance. The Terminal installer downloads the
+  official Homebrew installer with curl, validates it with `bash -n`, runs it,
+  then verifies the installed brew before reporting success.
+- GPTK/D3DMetal remains separate from the complete MetalSharp Wine runtime and
+  is owned by Homebrew. Saving a D3DMetal bottle invokes the existing
+  `gcenx/wine/game-porting-toolkit` tap/trust/cask route; do not stage a private
+  GPTK copy into the main runtime.
+- Phase 4 runs the interactive VC++ 2015-2022 x64 and x86 installers only
+  through `runtime/wine/bin/metalsharp-wine` and only after both the canonical
+  complete-runtime gate and the Steam all-architecture prefix gate pass. Both
+  installer commands pin `WINEBUILDDIR`, the Steam prefix, and all FEX TSO
+  modes off; they may wait up to 45 minutes for user interaction.
+- Redistributables download from Microsoft's current aka.ms endpoints using
+  `/usr/bin/curl`, require a valid PE bootstrap and architecture-appropriate
+  payload size, and verify x64 DLLs in `system32` or x86 DLLs in `syswow64`.
+  Microsoft's x64 redistributable intentionally uses an i386 PE bootstrap, so
+  do not misclassify its bootstrap machine as the installed payload target.
+- Phase 5 does not change the Launch Steam endpoint, UI button, executable, or
+  flags. Its wrapper maintenance now prefers the canonical complete-runtime
+  asset at `runtime/integration/steam-webhelper/steamwebhelper.exe`, whose
+  accepted SHA-256 is
+  `f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9`.
+- Steam updates are repaired before launch only when the wrapper/real-helper
+  pair fails its hash-and-size contract. Wrapper deployment is refused unless
+  the target is exactly the MetalSharp Steam prefix or a MetalSharp-managed
+  bottle prefix; never deploy into CrossOver, another Wine installation, or an
+  arbitrary path.
+- Phase 6 makes M12 a vkd3d-proton route, not a DXMT route. Its only PE
+  owners are `lib/vkd3d-proton/x86_64/{d3d12.dll,d3d12core.dll}` and
+  `lib/dxvk/x86_64/dxgi.dll`; the host handoff is Wine Vulkan to the bundled
+  ARM64 MoltenVK library. Never restore winemetal, `dxgi_dxmt`, or
+  `lib/dxmt_m12` to M12.
+- M12 bottle save migrates old component ids to `m12_vkd3d_d3d12`,
+  `m12_vkd3d_d3d12core`, `m12_dxvk_dxgi`, `m12_winevulkan`, and
+  `m12_moltenvk`. Save, prepare, Play, dry-run, runtime doctor, migration, and
+  the complete-runtime gate all validate the same ownership boundaries.
+- M9/M10/M10(32)/M11/M11(32) consume the complete runtime directly, not the
+  retired split-graphics manifest gate. M10/M11 use DXMT's
+  `aarch64-windows` PE lane; M10(32)/M11(32) use its `i386-windows` PE lane;
+  both cross into the native ARM64 `aarch64-unix/winemetal.so`. M9 uses the
+  Wine build's x86_64/i386 D3D9 lanes. D3DMetal remains a separate
+  Homebrew-owned GPTK prefix and must not borrow M12 runtime DLLs.
+- The M12 launch environment contains vkd3d-proton/DXVK cache paths and no
+  DXMT/winemetal variables. All complete-runtime launch adapters continue to
+  pin every FEX TSO mode off.
+- Phase 6 validation: the canonical archive passed the strengthened
+  prepare-only layout gate; extracted M12 PE DLLs identify as x86-64, the Wine
+  Vulkan Unix bridge identifies as ARM64, DXMT's i386 PE lane identifies as
+  i386, its `aarch64-windows` PE lane identifies as x86-64/ARM64EC-compatible,
+  and its Unix winemetal bridge identifies as ARM64. The deterministic Rust
+  suite passes 651/651, strict Clippy passes, all Rust targets build, and the
+  TypeScript/Vite production build passes.
+- Phase 7 adds global Controller `[D | X]` and Msync controls to the left
+  sidebar. Settings persist as `controllerMode` (`dinput` or `xinput`) and
+  `msyncEnabled`; legacy snake-case aliases are read and written as well.
+- Every managed Wine path receives `METALSHARP_CONTROLLER_MODE` and
+  `WINEMSYNC`, including MTSP direct routes, Steam route handoffs, Steam
+  setup/update processes, ordinary Wine launches, prefix initialization, and
+  GOG. Existing installs default to XInput and Msync enabled. Environment
+  overrides remain available as `METALSHARP_CONTROLLER_MODE` and
+  `METALSHARP_MSYNC`.
+- Phase 7 validation: the deterministic Rust suite passes 653/653, strict
+  Clippy passes, all Rust targets build, and the TypeScript/Vite production
+  build passes.
+- Phase 8 removes every retired split-runtime archive from the DMG resource
+  list and release workflow. `tools/dmg/prepare-complete-runtime-assets.sh`
+  downloads and pins the v0.60.0 installer, manifest, public source archive,
+  four runtime parts, checksum files, and reassembly instructions.
+- The DMG embeds the installer, manifest, public source/provenance payload,
+  part checksums, and reassembly instructions under `runtime-bundle/`; it does
+  not embed the four runtime parts. Release CI publishes those parts as
+  separate assets so every file stays below GitHub's 2 GiB release-asset cap.
+  The backend prefers the packaged installer and passes its directory through
+  `--bundle-dir`, allowing local discovery before network download.
+- The release gate verifies every asset hash against the pinned manifest,
+  verifies each part against `PARTS-SHA256SUMS.txt`, streams all four parts
+  through the canonical reconstructed SHA-256, syntax-checks the installer,
+  and rejects any DMG that still contains retired split archives.
+- `tools/ci/verify-dmg-workflow.py` enforces the same six packaged assets and
+  ten separately published release assets. It must reject any return of the
+  eight split archives or the retired developer-SDK release job.
+- Phase 8 validation: package-only assets from the live dependency release
+  passed hash and shell verification; release YAML parses; package metadata
+  contains only the complete-runtime resource contract; the deterministic
+  Rust suite passes 653/653; strict Clippy, all Rust targets, and the
+  TypeScript/Vite production build pass.
+- The post-Phase-8 GOG pass adds
+  `MetalSharp-GOG-Support-arm64-1.2.2.tar.zst` to the dependency release and
+  DMG bootstrap payload. It is a self-contained thin ARM64 Heroic GOGDL 1.2.2
+  executable with Requests/TLS, the compiled xdelta3 module, licenses,
+  per-file hashes, and pinned provenance. The archive SHA-256 is
+  `f13075f27d5155e84199619410936931b32310c4ec4161de992c1f727ac24155`.
+- The complete-runtime installer validates and stages GOG support under
+  `runtime/integration/gog/`. Existing accepted Wine runtimes receive this
+  small layer in place without reassembling, extracting, or replacing the
+  multi-gigabyte Wine runtime. Runtime readiness now requires the GOG archive
+  marker and executable.
+- Steam and GOG prefix creation share `runtime_prefix.rs`. Both stage ARM64
+  WoW64 providers, all i386 builtins, canonical ARM64/ARM64EC execution
+  providers, and GStreamer before explicit ARM64 wineboot; wait for the exact
+  prefix wineserver; restage and verify providers; and require the same
+  ARM64/ARM64EC/x86_64/i386 acceptance gate. A `drive_c` directory alone is
+  never GOG-prefix acceptance.
+- GOG prefers the canonical bundled native ARM64 GOGDL path over legacy
+  `~/.metalsharp/tools/gogdl`. Download, import, and Play commands inherit the
+  complete runtime's `WINEBUILDDIR`, library paths, controller/Msync settings,
+  and all three FEX TSO-off flags. The source-install fallback is pinned to
+  Heroic GOGDL `v1.2.2`, never an unpinned main branch.
+- GOG validation: the native bundle passed archive/per-file hashes, Mach-O,
+  code-signature, version, embedded-xdelta, and unauthenticated command probes;
+  installer add/repair and idempotency completed in two seconds each against
+  a disposable existing-runtime fixture; the deterministic Rust suite passes
+  655/655; strict Clippy, all Rust targets, TypeScript, Vite, DMG workflow, and
+  shell gates pass.
+- Wine Mono 11.2.0 is part of the complete runtime. The GOG and Settings tabs
+  no longer offer a second interactive MSI download/install/reset path, and
+  the retired `/wine-mono/*` backend endpoints and installer module are gone.
+  This does not remove bundled Mono, the Mono/FNA launch lanes, or bottle-level
+  compatibility metadata. Post-removal validation passes 644/644 Rust tests,
+  strict Clippy, all Rust targets, and the Electron production build.
+
+- The 0.57 -> 0.60 migration is an in-place runtime replacement. Preserve and
+  restore setup/configuration, Steam prefix metadata and payloads, bottles,
+  games, Sharp Library data, and dosdevice links; replace the runtime and then
+  run native ARM64 `wineboot --init --update` on every real prefix. Prefix
+  update failure is fatal and must remain retryable in the migration wizard.
+  Cleanup owns only `runtime/`, transient installer progress files, and the
+  cache `downloads/`, `updates/`, `updater-tools/`, and `tmp/` subdirectories;
+  it must not delete configs, cover/API metadata, logs, or shader caches.
+- The custom i386 provider contract is exact: System32 contains `xtajit.dll`
+  and must not contain `wow64cpu.dll` or `xtajit-*-candidate.dll`; the default
+  value of `HKLM\\Software\\Microsoft\\Wow64\\x86` must be `xtajit.dll`.
+  Wineboot can reselect `wow64cpu.dll` when that competing file is staged, so
+  migration removes conflicts and explicitly restores the registry value.
+- Live migration validation used the installed 0.57 Steam prefix at
+  `~/.metalsharp/prefix-steam`, with the immutable safety copy at
+  `/Volumes/AverySSD/MetalSharp-0.57-Live-Safety-2026-07-31`. Migration passed
+  8/8, preserved Steam's executable at SHA-256
+  `eb823470675e0a8f8b91c4f4f1e4bb6148e72b606a518f250a10c598bb1705b8`,
+  and passed ARM64, ARM64EC, x86_64, and i386 execution in that same prefix.
+  Architecture probes must use `apply_complete_runtime_env` equivalence,
+  including the runtime fallback library path and all FEX TSO modes disabled;
+  omitting that environment is not a valid i386 result.
+- Final release-path validation used a fresh copy-on-write clone of that
+  immutable 0.57 backup and an empty AverySSD cache. The migration downloaded
+  all four published runtime parts plus GOG support, reassembled and verified
+  the canonical archive, activated the runtime transactionally, and completed
+  all 8 migration steps. Of 6,845 baseline user-payload files, 6,841 remained
+  byte-identical; the only expected differences were deletion of the stale
+  root `SteamSetup.exe` and Steam `.crash` marker plus appends to two logs.
+  The preserved `steam.exe` and `SteamUI.dll` hashes were unchanged.
+- That upgraded prefix passed ARM64 (rc 0), ARM64EC (rc 42), x86_64 (rc 7),
+  and i386/WoW64 (rc 0 plus marker) with Msync enabled and all FEX TSO modes
+  disabled. `POST /steam/launch` then started the preserved Steam executable,
+  kept it alive through the handoff, and produced an on-screen Wine window
+  titled `Sign in to Steam`; `POST /steam/stop` shut down only that prefix.
+- The fresh download exposed two installer-only regressions now covered by
+  `tools/ci/verify-dmg-workflow.py`: a same-line `local` expansion referenced
+  `destination` before assignment under `set -u`, and packaged launch/layout
+  symlinks were recreated with non-idempotent `ln -s`. Download assignment is
+  now ordered explicitly and all expected packaged symlinks use `ln -sfn`.
 
 ## What This Project Is
 
@@ -71,7 +264,8 @@ Modern runtime paths use MTSP pipeline ids and bottle profiles. Steam games get 
 | `M9` | D3D9 / 32-bit capable DXMT-family route | Nidhogg 2, Undertale, Blasphemous, Dave the Diver |
 | `M10` | D3D10 to Metal | D3D10 apps/games |
 | `M11` | D3D11 to Metal | Rain World, Schedule I, Subnautica BZ |
-| `M12` | D3D12 to Metal through the isolated `dxmt-m12` runtime surface | Peak, Silksong, Elden Ring, D3D12 investigation titles |
+| `M12` | vkd3d-proton D3D12 + DXVK DXGI through Wine Vulkan and ARM64 MoltenVK | Peak, Silksong, Elden Ring, D3D12 investigation titles |
+| `D3DMetal` | Homebrew GPTK/D3DMetal in its own prefix | Explicit GPTK route |
 | `Mono/FNA` | Windows XNA/FNA through native Mono, staged FNA/XNA assemblies, and host shims | Celeste, Terraria |
 
 Internal route ids such as `dxmt`, `wine_bare`, `m32`, `steam`, `macos_steam`, and `m13` stay backend-parseable for legacy records, diagnostics, and fallback behavior, but they are not normal bottle route buttons.
@@ -80,11 +274,15 @@ Internal route ids such as `dxmt`, `wine_bare`, `m32`, `steam`, `macos_steam`, a
 
 - Wine runtime: `~/.metalsharp/runtime/wine/`
 - Wine prefix: `~/.metalsharp/prefix-steam/`
-- DXMT PE DLLs for M9/M10/M11: `~/.metalsharp/runtime/wine/lib/dxmt/x86_64-windows/`
-- DXMT M12 PE DLLs: `~/.metalsharp/runtime/wine/lib/dxmt-m12/x86_64-windows/`
-- DXMT M12 Unix bridge and sidecars: `~/.metalsharp/runtime/wine/lib/dxmt-m12/x86_64-unix/`
-- DXVK i386 DLLs: `~/.metalsharp/runtime/wine/lib/dxvk/i386-windows/`
-- MoltenVK ICD: `~/.metalsharp/runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json`
+- DXMT M10/M11 PE DLLs: `~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/aarch64-windows/`
+- DXMT M10(32)/M11(32) PE DLLs: `~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/i386-windows/`
+- DXMT native host bridge: `~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/aarch64-unix/winemetal.so`
+- M9 Wine D3D9 DLLs: `~/.metalsharp/runtime/wine/build-ec/dlls/d3d9/{x86_64,i386}-windows/`
+- M12 vkd3d-proton DLLs: `~/.metalsharp/runtime/wine/lib/vkd3d-proton/x86_64/`
+- M12 DXVK DXGI: `~/.metalsharp/runtime/wine/lib/dxvk/x86_64/dxgi.dll`
+- M12 Wine Vulkan bridge: `~/.metalsharp/runtime/wine/build-ec/dlls/winevulkan/`
+- M12 MoltenVK host library: `~/.metalsharp/runtime/wine/build-ec/dlls/win32u/libMoltenVK.dylib`
+- DXVK i386 DLLs: `~/.metalsharp/runtime/wine/lib/dxvk/i386/`
 - DXMT config: `~/.metalsharp/runtime/wine/etc/dxmt.conf`
 - Local redistributables: `~/.metalsharp/runtime/redist/`
 - Runtime bottles: `~/.metalsharp/bottles/<bottle_id>/`

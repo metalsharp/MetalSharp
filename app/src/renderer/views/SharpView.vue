@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import type { SharpApp } from "../api-types";
@@ -153,6 +153,7 @@ interface GogStatus {
   oauthHelperScript?: string | null;
   winePrefix: string;
   prefixInitialized: boolean;
+  prefixAllArchReady: boolean;
   winePath: string;
 }
 
@@ -209,192 +210,6 @@ const gogGames = ref<GogGame[]>([]);
 const gogLoading = ref<Record<string, boolean>>({});
 const gogProgress = ref<Record<string, number>>({});
 
-interface WineMonoStatus {
-  latestVersion: string;
-  installedVersion?: string | null;
-  installed: boolean;
-  upToDate: boolean;
-  running: boolean;
-  stalled?: boolean;
-  pid?: number | null;
-  logPath?: string | null;
-  targetVersion: string;
-  startedAt?: number | null;
-  elapsedSeconds?: number | null;
-  lastError?: string | null;
-  msiCached: boolean;
-  downloading: boolean;
-  downloadBytes: number;
-  downloadTotal: number;
-  downloadError?: string | null;
-}
-const gogMonoStatus = ref<WineMonoStatus | null>(null);
-const gogMonoPollHandle = ref<ReturnType<typeof setInterval> | null>(null);
-
-const showGogInstallMono = computed(() => {
-  if (!gogStatus.value?.prefixInitialized) return false;
-  const status = gogMonoStatus.value;
-  if (!status) return true; // unknown — show until we confirm it is up to date
-  return !status.upToDate;
-});
-
-async function refreshGogMonoStatus() {
-  const result = await api<WineMonoStatus>("GET", "/wine-mono/status?prefix=gog");
-  if (result?.ok) gogMonoStatus.value = result;
-}
-
-async function installGogMono() {
-  if (!gogStatus.value?.prefixInitialized) {
-    toast.show("Initialize the GOG prefix first", "error");
-    return;
-  }
-  gogLoading.value.mono = true;
-  // Short timeout — the backend now returns immediately (kicks off download or launches installer).
-  const result = await api<{
-    ok: boolean;
-    pid?: number;
-    alreadyInstalled?: boolean;
-    downloading?: boolean;
-    error?: string;
-    status?: WineMonoStatus;
-  }>("POST", "/wine-mono/install", { prefix: "gog" }, 30 * 1000);
-  gogLoading.value.mono = false;
-  if (result?.ok) {
-    if (result.alreadyInstalled) {
-      await refreshGogMonoStatus();
-      toast.show("Wine Mono is already up to date", "success");
-      return;
-    }
-    if (result.downloading) {
-      // Backend kicked off async download — poll for progress.
-      startGogMonoPoll();
-      return;
-    }
-    // Installer launched.
-    toast.show("Wine Mono installer launched — complete it in the Wine window", "success");
-    startGogMonoPoll();
-  } else {
-    const errMsg = result?.error ?? "Failed to launch Wine Mono installer";
-    toast.show(errMsg, "error", 12_000);
-    await refreshGogMonoStatus();
-  }
-}
-
-async function resetGogMonoInstall() {
-  gogLoading.value.mono = true;
-  const result = await api<{ ok: boolean; killedProcesses?: number; error?: string }>(
-    "POST",
-    "/wine-mono/reset",
-    { prefix: "gog" },
-    15 * 1000,
-  );
-  gogLoading.value.mono = false;
-  await refreshGogMonoStatus();
-  if (result?.ok) {
-    const killed = result.killedProcesses ?? 0;
-    toast.show(
-      killed > 0
-        ? `Cleared ${killed} stuck Mono processes; click Install Mono to retry`
-        : "Mono install state cleared; click Install Mono to retry",
-      "success",
-    );
-  } else {
-    toast.show(result?.error ?? "Failed to reset Wine Mono install", "error");
-  }
-}
-
-function formatElapsedSeconds(seconds: number | null | undefined): string {
-  if (!seconds || seconds < 0) return "0:00";
-  const total = Math.floor(seconds);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function gogMonoButtonLabel(): string {
-  const s = gogMonoStatus.value;
-  if (!s) return "Install Mono";
-  if (s.downloading && s.downloadTotal > 0) {
-    const raw = (s.downloadBytes / s.downloadTotal) * 100;
-    const pct = Math.min(100, Math.floor(raw / 5) * 5);
-    return `Downloading ${pct}%…`;
-  }
-  if (s.downloading) return "Downloading Mono…";
-  if (s.running && s.stalled) return "Stalled — tap to retry";
-  if (s.running) {
-    const elapsed = formatElapsedSeconds(s.elapsedSeconds);
-    return `Running… ${elapsed}`;
-  }
-  if (gogLoading.value.mono) return "Installing Mono…";
-  return "Install Mono";
-}
-
-function gogMonoButtonTitle(): string {
-  const s = gogMonoStatus.value;
-  if (!s) return "Install Wine Mono";
-  if (s.downloadError) {
-    return `Wine Mono download failed: ${s.downloadError}. Click to retry.`;
-  }
-  if (s.stalled) {
-    return s.lastError
-      ? `Wine Mono installer stalled: ${s.lastError}. Click to retry, or use Reset to clear stuck processes.`
-      : "Wine Mono installer stalled. Click to retry, or use Reset to clear stuck processes.";
-  }
-  const base = `Wine Mono ${s.installedVersion ?? "not installed"} → ${s.latestVersion}`;
-  return s.lastError ? `${base}. ${s.lastError}` : base;
-}
-
-function startGogMonoPoll() {
-  if (gogMonoPollHandle.value) return;
-  let stalledToastShown = false;
-  gogMonoPollHandle.value = setInterval(async () => {
-    await refreshGogMonoStatus();
-    const status = gogMonoStatus.value;
-    if (!status) return;
-
-    // If the backend reports a hung install, surface a single recovery toast
-    // and let the user decide whether to retry or reset.
-    if (status.stalled === true && !stalledToastShown) {
-      stalledToastShown = true;
-      toast.show(
-        status.lastError
-          ? `Wine Mono installer stalled (${status.lastError}); tap Reset to clear or Install Mono to retry`
-          : "Wine Mono installer stalled; tap Reset to clear or Install Mono to retry",
-        "error",
-        10_000,
-      );
-    }
-    if (!status.stalled) {
-      stalledToastShown = false;
-    }
-
-    // Download completed successfully → trigger the installer.
-    if (status.msiCached && !status.downloading && !status.running && !status.upToDate && !status.stalled) {
-      stopGogMonoPoll();
-      gogLoading.value.mono = true;
-      await installGogMono();
-      return;
-    }
-
-    if (status.upToDate) {
-      stopGogMonoPoll();
-      toast.show(`Wine Mono ${status.latestVersion} installed`, "success");
-    } else if (!status.running && !status.downloading) {
-      // Installer exited without landing the latest version (user cancelled).
-      stopGogMonoPoll();
-      if (status.lastError) {
-        toast.show(status.lastError, "error", 12_000);
-      }
-    }
-  }, 3000);
-}
-
-function stopGogMonoPoll() {
-  if (gogMonoPollHandle.value) {
-    clearInterval(gogMonoPollHandle.value);
-    gogMonoPollHandle.value = null;
-  }
-}
 const engineOptions = [
   { id: "d3dmetal", name: "D3DMetal" },
   { id: "m12", name: "M12" },
@@ -415,13 +230,11 @@ const componentDisplayName: Record<string, string> = {
   fna3d: "FNA3D",
   faudio: "FAudio",
   fmod: "FMOD Audio",
-  m12_d3d12: "M12 d3d12.dll",
-  m12_d3d11: "M12 d3d11.dll",
-  m12_d3d10core: "M12 d3d10core.dll",
-  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
-  m12_dxgi: "M12 dxgi.dll",
-  m12_winemetal: "M12 winemetal.dll / .so",
-  m12_gpu_stubs: "M12 GPU Stubs",
+  m12_vkd3d_d3d12: "M12 vkd3d-proton d3d12.dll",
+  m12_vkd3d_d3d12core: "M12 vkd3d-proton d3d12core.dll",
+  m12_dxvk_dxgi: "M12 DXVK dxgi.dll",
+  m12_winevulkan: "M12 Wine Vulkan bridge",
+  m12_moltenvk: "M12 ARM64 MoltenVK",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -511,7 +324,6 @@ async function load() {
       if (game.status === "downloading") void monitorGogProgress(game.productId);
     }
   }
-  if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
 }
 
 function setGogGames(games: GogGame[]) {
@@ -526,7 +338,6 @@ async function refreshGog() {
     api<{ ok: boolean; games: GogGame[]; status: GogStatus }>("GET", "/sharp-library/gog/games"),
   ]);
   if (statusResult?.ok) gogStatus.value = statusResult.status;
-  if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
   if (gamesResult?.ok) {
     setGogGames(gamesResult.games ?? []);
     gogStatus.value = gamesResult.status;
@@ -576,7 +387,7 @@ async function initializeGogPrefix() {
 async function removeGogPrefix() {
   const message =
     "Remove the GOG Wine prefix? " +
-    "This will permanently delete the isolated Wine prefix and all Wine Mono components. " +
+    "This will permanently delete the isolated Wine prefix and its prefix-specific runtime state. " +
     "Downloaded GOG games will stay on disk but cannot launch until the prefix is re-created.";
   if (!confirm(message)) return;
   gogLoading.value.removing = true;
@@ -1449,7 +1260,6 @@ function formatBytes(bytes: number): string {
 }
 
 onMounted(load);
-onUnmounted(stopGogMonoPoll);
 </script>
 
 <template>
@@ -1491,29 +1301,6 @@ onUnmounted(stopGogMonoPoll);
                   : "Initialize GOG Prefix"
           }}</span
           ><span class="btn-label-short">Prefix</span>
-        </button>
-        <button
-          v-if="sourceMode === 'gog' && showGogInstallMono"
-          class="btn btn-primary"
-          :disabled="
-            gogLoading.mono ||
-            (gogMonoStatus?.running && !gogMonoStatus?.stalled) ||
-            (gogMonoStatus?.downloading && !gogMonoStatus?.stalled)
-          "
-          :title="gogMonoButtonTitle()"
-          @click="installGogMono"
-        >
-          <span class="btn-label-long">{{ gogMonoButtonLabel() }}</span
-          ><span class="btn-label-short">Mono</span>
-        </button>
-        <button
-          v-if="sourceMode === 'gog' && showGogInstallMono && (gogMonoStatus?.stalled || gogMonoStatus?.running)"
-          class="btn btn-secondary btn-sm"
-          :disabled="gogLoading.mono"
-          title="Kill any stuck Wine Mono processes and reset the install state"
-          @click="resetGogMonoInstall"
-        >
-          <span class="btn-label-long">Reset</span><span class="btn-label-short">Reset</span>
         </button>
         <button
           v-if="sourceMode === 'gog'"
@@ -1748,12 +1535,12 @@ onUnmounted(stopGogMonoPoll);
       <template v-else>
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-            <h2>gogdl is not installed</h2>
-            <p>Install gogdl under ~/.metalsharp/tools/gogdl or set METALSHARP_GOGDL_BIN.</p>
+            <h2>GOG support is not installed</h2>
+            <p>Repair the Complete Multi-Architecture Runtime to restore the verified native ARM64 GOG bundle.</p>
           </div>
           <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
             <h2>Initialize GOG prefix</h2>
-            <p>Create the isolated Wine prefix before connecting games.</p>
+            <p>Create the isolated ARM64, ARM64EC, x86_64, and i386/WoW64 Wine prefix before connecting games.</p>
           </div>
           <div v-else-if="!gogStatus?.authenticated" class="empty-state compact">
             <h2>Login to GOG to connect your games</h2>

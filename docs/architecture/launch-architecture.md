@@ -40,7 +40,7 @@ D3DMetal is an explicit GPTK lane rather than a generic bottle repair path. Savi
 
 | Public route | Backend | Launch path |
 |---|---|---|
-| **M12** | DXMT | Direct Wine launch with isolated `dxmt-m12` D3D12/D3D11/DXGI/winemetal DLLs |
+| **M12** | vkd3d-proton + DXVK + MoltenVK | Direct Wine launch with vkd3d-proton `d3d12`/`d3d12core`, DXVK `dxgi`, Wine Vulkan, and ARM64 MoltenVK |
 | **M11** | DXMT | Direct Wine launch with legacy `dxmt` D3D11/DXGI DLLs |
 | **M10** | DXMT | Direct Wine launch with legacy `dxmt` D3D10/D3D11/DXGI DLLs |
 | **M9** | DXMT launch family | Direct Wine launch with bundled `d3d9.dll` and DXMT-family cache/env |
@@ -79,16 +79,18 @@ Runtime prep is recipe-driven. DXMT/Wine DLL overrides are deployed next to the 
 into the game root, which keeps nested layouts such as `Binaries/Win64` and launcher-heavy games from loading the wrong
 binary or missing local overrides.
 
-M11/M10/M9 read from the legacy runtime surface:
+M11/M10 read their DXMT payload directly from the complete runtime build lane;
+M9 reads Wine's D3D9 entrypoints from `build-ec/dlls/d3d9`:
 
 ```text
-~/.metalsharp/runtime/wine/lib/dxmt
+~/.metalsharp/runtime/wine/build-ec/dxmt-v0.80/{aarch64-windows,i386-windows,aarch64-unix}
 ```
 
-M12 reads from the isolated D3D12 surface:
+M12 reads its PE translation DLLs from two explicitly owned surfaces:
 
 ```text
-~/.metalsharp/runtime/wine/lib/dxmt-m12
+~/.metalsharp/runtime/wine/lib/vkd3d-proton/x86_64/{d3d12.dll,d3d12core.dll}
+~/.metalsharp/runtime/wine/lib/dxvk/x86_64/dxgi.dll
 ```
 
 M11/M10 copy:
@@ -98,13 +100,15 @@ M11/M10 copy:
 - `d3d10core.dll`
 - `winemetal.dll`
 
-M10 is selected by 64-bit `d3d10.dll`, `d3d10_1.dll`, or `d3d10core.dll` imports. It deploys Wine's public `d3d10.dll` and `d3d10_1.dll` entrypoints plus DXMT's `d3d10core.dll`, so public D3D10 imports and the DXMT core handoff are both owned by the x86_64 M10 runtime contract.
+M10 is selected by 64-bit `d3d10.dll`, `d3d10_1.dll`, or `d3d10core.dll` imports. It deploys Wine's public `d3d10.dll` and `d3d10_1.dll` entrypoints plus DXMT's `d3d10core.dll`, so public D3D10 imports and the DXMT core handoff are both owned by the complete M10 runtime contract. M10(32) uses the parallel i386 PE entrypoints with the native ARM64 Unix bridge.
 
-M12 also copies:
+M12 copies:
 
 - `d3d12.dll`
+- `d3d12core.dll`
+- `dxgi.dll`
 
-M12 also adds the `dxmt-m12` unix library directory to the fallback library path so `winemetal.so` and its bundled C++ sidecars are resolved from the same surface as the PE DLLs.
+M12 then routes through Wine's ARM64 `winevulkan.so`/`winevulkan.dll` boundary and the runtime-pinned ARM64 `libMoltenVK.dylib`. It never loads `winemetal.dll`, `winemetal.so`, or the legacy `dxmt_m12` lane.
 
 M9 copies:
 
