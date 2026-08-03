@@ -52,6 +52,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 ## Features and Notes 
 
+| Feature | Notes |
 |---|---|
 | **Sharp Library** - Import and run standalone Windows programs, installers, and launchers | Working Partially |
 | **Sharp GOG Library** - Download and play GOG games througn the sharp library | Prefix, Sign in, Play |
