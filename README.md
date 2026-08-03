@@ -37,16 +37,16 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 ## Routes
 
-| Route | Engine |
-|---|---|
-| **M12** | D3D12 to Metal (experimental DXMT) |
-| **M11** | D3D11 to Metal (DXMT) |
-| **M11(32)** | D3D11 i386 to Metal (DXMT) |
-| **M10** | D3D10 to Metal (DXMT) |
-| **M10(32)** | D3D10 i386 to Metal (DXMT) |
-| **M9** | D3D9 i386 Wine, DXMT Overrides|
-| **Mono/FNA** | Windows XNA/FNA via native Mono |
-| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with Homebrew-matched D3DMetal route DLLs. |
+| Route | Engine | How To Use |
+|---|---|---|
+| **M12** | D3D12 to Metal (experimental DXMT) | Not yet playable |  
+| **M11** | D3D11 to Metal (DXMT) | Save 'M11' Bottle, Hit Play |
+| **M11(32)** | D3D11 i386 to Metal (DXMT) | Save M11(32) Bottle, Hit Play |
+| **M10** | D3D10 to Metal (DXMT) | Save 'M10' Bottle, Hit Play |
+| **M10(32)** | D3D10 i386 to Metal (DXMT) | Save M10(32) Bottle, Hit Play |
+| **M9** | D3D9 i386 Wine, DXMT Overrides| Save 'M9' Bottle, Hit Play |
+| **Mono/FNA** | Windows XNA/FNA via native Mono | Save 'Mono/Fna' Bottle, Hit Play |
+| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with Homebrew-matched D3DMetal route DLLs. | Save 'D3DMetal' Bottle, Fix, Hit Play |
 
 ## Features
 
