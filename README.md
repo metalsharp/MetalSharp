@@ -19,7 +19,7 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 <img width="946" height="646" alt="Screenshot 2026-07-21 at 5 49 12 AM" src="https://github.com/user-attachments/assets/c4aa6d64-ca4b-4ee2-ade4-5f12d511925a" />
 
-
+The Arm64 Build With FEX is Out Now For Developers: https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles , 0.57.0 Remains The Current Working Version. 
 
 ## Quick Start
 
@@ -48,13 +48,14 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 | **Mono/FNA** | Windows XNA/FNA via native Mono | Save 'Mono/Fna' Bottle, Hit Play |
 | **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with Homebrew-matched D3DMetal route DLLs. | Save 'D3DMetal' Bottle, Fix, Hit Play |
 
-## Features
+## Features and Notes 
 
-- **Sharp Library** - Import and run standalone Windows programs, installers, and launchers.
-- **Sharp GOG Library** - Download and play GOG games througn the sharp library. 
-- **Runtime Bottles** - Select your launch method, repair missing assets, and switch between bottle runtimes.
-- **MTSP Routing** - Automatic pipeline selection based on game compatibility data and developer testing.
-- **Steam Integration** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates.
+|---|---|
+| **Sharp Library** - Import and run standalone Windows programs, installers, and launchers | Working Partially |
+| **Sharp GOG Library** - Download and play GOG games througn the sharp library | Prefix, Sign in, Play |
+| **Runtime Bottles** - Select your launch method, repair missing assets, and switch between bottle runtimes | Good For Running Games |
+| **MTSP Routing** - Automatic pipeline selection based on game compatibility data and developer testing | Default Rules for Tested Games |
+| **Steam Integration** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates | |
 
 ## Requirements
 
