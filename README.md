@@ -19,7 +19,9 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 <img width="946" height="646" alt="Screenshot 2026-07-21 at 5 49 12 AM" src="https://github.com/user-attachments/assets/c4aa6d64-ca4b-4ee2-ade4-5f12d511925a" />
 
-The Arm64 Build With FEX is Out Now For Developers: https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles , 0.57.0 Remains The Current Working Version. 
+##Arm64-FEX Build For Devs Out Now
+
+[Releases](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.57.0 Remains The Current Working Version. 
 
 ## Quick Start
 
