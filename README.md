@@ -55,7 +55,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 | Feature | Notes |
 |---|---|
 | **Sharp Library** - Import and run standalone Windows programs, installers, and launchers | Working Partially |
-| **Sharp GOG Library** - Download and play GOG games througn the sharp library | Prefix, Sign in, Play |
+| **Sharp GOG Library** - Download and play GOG games through the sharp library | Prefix, Sign in, Play |
 | **Runtime Bottles** - Select your launch method, repair missing assets, and switch between bottle runtimes | Good For Running Games |
 | **MTSP Routing** - Automatic pipeline selection based on game compatibility data and developer testing | Default Rules for Tested Games |
 | **Steam Integration** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates | |
