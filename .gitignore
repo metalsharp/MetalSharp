@@ -12,6 +12,10 @@ out/
 *.obj
 *.pdb
 *.ilk
+# Shipped Windows DLLs that must stay tracked (bundled into the runtime by
+# create-split-bundles.py): ntdll hook + controller input shims (x/d).
+!lib/metalsharp/x86_64-windows/*.dll
+!lib/metalsharp/i386-windows/*.dll
 .DS_Store
 compile_commands.json
 .vscode/
