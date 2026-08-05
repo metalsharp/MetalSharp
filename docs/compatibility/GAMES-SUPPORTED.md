@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-07-08
+Updated: 2026-08-05
 
 Tested and working games organized by pipeline. Only games confirmed playable are listed.
 
@@ -97,7 +97,8 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 |---|---:|---|
 | Inscryption | 1092790 | Binary: `Inscryption.exe`. |
 | Hades | 1145360 | Binary: `x86/Hades.exe`. |
-| Balatro| 2379780 | |
+| Balatro | 2379780 | |
+| The Binding of Isaac: Rebirth | 250900 | Binary: `isaac-ng.exe`. Windows OpenGL path verified on an internal drive; requires compatibility-profile context handling. |
 
 ---
 
