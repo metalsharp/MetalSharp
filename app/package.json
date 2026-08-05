@@ -29,6 +29,9 @@
   "dependencies": {
     "electron-store": "^10.0.0"
   },
+  "overrides": {
+    "fast-uri": "^3.1.5"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",
     "@electron/notarize": "^2.5.0",
