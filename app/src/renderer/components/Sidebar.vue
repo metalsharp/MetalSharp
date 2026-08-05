@@ -37,12 +37,45 @@ type ControllerInput = "off" | "x" | "d";
 const controllerInput = ref<ControllerInput>("off");
 const controllerInputBusy = ref(false);
 
+// MetalFX Spatial upscaling (DXMT routes only: M10/M10(32)/M11/M11(32)).
+// Drives the existing /metalfx/state + /metalfx/toggle overlay system
+// (metalfx.overlay.json + dxmt.conf); the launcher reconciles the DXMT env
+// from that state at launch.
+type MetalFxMode = "1.75" | "1.50" | "off";
+const metalFx = ref<MetalFxMode>("1.50");
+const metalFxBusy = ref(false);
+
 onMounted(async () => {
   const config = await api<AppConfig>("GET", "/config");
   if (config?.ok && (config.controllerInput === "x" || config.controllerInput === "d")) {
     controllerInput.value = config.controllerInput;
   }
+  const state = await api<MetalFxState>("GET", "/metalfx/state");
+  if (state?.ok) {
+    metalFx.value = !state.enabled ? "off" : Math.abs((state.factor ?? 1.5) - 1.75) < 0.01 ? "1.75" : "1.50";
+  }
 });
+
+async function setMetalFxMode(mode: MetalFxMode) {
+  if (metalFxBusy.value || mode === metalFx.value) return;
+  const previous = metalFx.value;
+  metalFxBusy.value = true;
+  metalFx.value = mode; // optimistic
+  const body = mode === "off" ? { enabled: false } : { enabled: true, factor: mode === "1.75" ? 1.75 : 1.5 };
+  const result = await api<MetalFxState>("POST", "/metalfx/toggle", body);
+  if (result?.ok) {
+    toast.show(
+      mode === "off"
+        ? "MetalFX disabled for DXMT routes — applies on next launch"
+        : `MetalFX set to ${mode}× for DXMT routes — applies on next launch`,
+      "success",
+    );
+  } else {
+    metalFx.value = previous;
+    toast.show("Failed to update MetalFX", "error");
+  }
+  metalFxBusy.value = false;
+}
 
 async function setControllerInput(mode: ControllerInput) {
   if (controllerInputBusy.value || mode === controllerInput.value) return;
@@ -137,6 +170,44 @@ const navItems = computed<NavItem[]>(() => [
     </div>
 
     <div class="sidebar-bottom">
+      <div class="sidebar-input-selector" :title="collapsed ? 'MetalFX' : undefined">
+        <div v-if="!collapsed" class="sidebar-input-label">
+          <IconScanLine class="sidebar-input-icon" width="14" height="14" />
+          <span>MetalFX</span>
+        </div>
+        <div class="sidebar-input-options" role="group" aria-label="MetalFX upscaling">
+          <button
+            class="sidebar-input-option"
+            :class="{ active: metalFx === '1.75' }"
+            :disabled="metalFxBusy"
+            :aria-pressed="metalFx === '1.75'"
+            :title="collapsed ? '1.75' : undefined"
+            @click="setMetalFxMode('1.75')"
+          >
+            1.75
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: metalFx === '1.50' }"
+            :disabled="metalFxBusy"
+            :aria-pressed="metalFx === '1.50'"
+            :title="collapsed ? '1.50' : undefined"
+            @click="setMetalFxMode('1.50')"
+          >
+            1.50
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: metalFx === 'off' }"
+            :disabled="metalFxBusy"
+            :aria-pressed="metalFx === 'off'"
+            :title="collapsed ? 'Off' : undefined"
+            @click="setMetalFxMode('off')"
+          >
+            Off
+          </button>
+        </div>
+      </div>
       <div class="sidebar-input-selector" :title="collapsed ? 'Controller input' : undefined">
         <div v-if="!collapsed" class="sidebar-input-label">
           <IconGamepad class="sidebar-input-icon" width="14" height="14" />
