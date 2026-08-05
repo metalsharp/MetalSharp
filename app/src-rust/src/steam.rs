@@ -371,6 +371,9 @@ fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> R
     if let Err(err) = seed_steam_d3d12_guard(&prefix, &ms_root) {
         eprintln!("steam: WARNING — failed to seed Steam D3D12 guard AppDefaults: {}", err);
     }
+    if let Err(err) = crate::mtsp::input_shims::deploy_current_for_prefix(&prefix) {
+        eprintln!("steam: WARNING — controller input shim deploy into prefix failed: {}", err);
+    }
     if !crate::installer::moltenvk_ready(&ms_root) {
         eprintln!("steam: WARNING — MoltenVK not found in Wine runtime, Steam webhelper UI may fail to render");
     }

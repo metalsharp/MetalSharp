@@ -926,6 +926,15 @@ fn is_metalsharp_route_dll_conflict(path: &Path) -> bool {
 pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Box<dyn std::error::Error>> {
     validate_recipe_runtime(recipe)?;
 
+    // Controller input shims ([x]/[d] selector) ride along with every
+    // game-dir deployment. Additive and best-effort: a missing source or a
+    // bad runtime must never block the launch, so failures only warn.
+    if let Some(game_dir) = recipe.game_dir.as_deref() {
+        if let Err(err) = crate::mtsp::input_shims::deploy_current_for_game(game_dir) {
+            eprintln!("mtsp: WARNING — controller input shim deploy failed: {}", err);
+        }
+    }
+
     if recipe.dlls.is_empty() {
         return Ok(());
     }
