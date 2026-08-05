@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, type Component } from "vue";
+import { computed, nextTick, onMounted, ref, watch, type Component } from "vue";
 import IconMenu from "~icons/lucide/menu";
 import IconMoon from "~icons/lucide/moon";
 import IconSun from "~icons/lucide/sun";
@@ -12,7 +12,10 @@ import IconBanana from "~icons/lucide/banana";
 import IconFlame from "~icons/lucide/flame";
 import IconTreePalm from "~icons/lucide/tree-palm";
 import IconScanLine from "~icons/lucide/scan-line";
+import IconGamepad from "~icons/lucide/gamepad-2";
 import { themedNavIcon, type ThemeName } from "../composables/useTheme";
+import { api } from "../composables/useApi";
+import { useToast } from "../composables/useToast";
 
 const props = defineProps<{
   currentView: string;
@@ -24,9 +27,42 @@ const emit = defineEmits<{
   selectTheme: [theme: ThemeName];
 }>();
 
+const toast = useToast();
+
 const collapsed = ref(false);
 const themePickerOpen = ref(false);
 const themePickerRef = ref<HTMLElement | null>(null);
+
+type ControllerInput = "off" | "x" | "d";
+const controllerInput = ref<ControllerInput>("off");
+const controllerInputBusy = ref(false);
+
+onMounted(async () => {
+  const config = await api<AppConfig>("GET", "/config");
+  if (config?.ok && (config.controllerInput === "x" || config.controllerInput === "d")) {
+    controllerInput.value = config.controllerInput;
+  }
+});
+
+async function setControllerInput(mode: ControllerInput) {
+  if (controllerInputBusy.value || mode === controllerInput.value) return;
+  const previous = controllerInput.value;
+  controllerInputBusy.value = true;
+  controllerInput.value = mode; // optimistic
+  const result = await api<AppConfig>("POST", "/config", { controllerInput: mode });
+  if (result?.ok) {
+    toast.show(
+      mode === "off"
+        ? "Controller input shims removed"
+        : `Controller input shims set to ${mode === "x" ? "XInput" : "DInput"} — applied on next launch`,
+      "success",
+    );
+  } else {
+    controllerInput.value = previous;
+    toast.show("Failed to update controller input", "error");
+  }
+  controllerInputBusy.value = false;
+}
 
 watch(themePickerOpen, async (open) => {
   if (!open) return;
@@ -101,6 +137,44 @@ const navItems = computed<NavItem[]>(() => [
     </div>
 
     <div class="sidebar-bottom">
+      <div class="sidebar-input-selector" :title="collapsed ? 'Controller input' : undefined">
+        <div v-if="!collapsed" class="sidebar-input-label">
+          <IconGamepad class="sidebar-input-icon" width="14" height="14" />
+          <span>Controller</span>
+        </div>
+        <div class="sidebar-input-options" role="group" aria-label="Controller input shims">
+          <button
+            class="sidebar-input-option"
+            :class="{ active: controllerInput === 'off' }"
+            :disabled="controllerInputBusy"
+            :aria-pressed="controllerInput === 'off'"
+            :title="collapsed ? 'Off' : undefined"
+            @click="setControllerInput('off')"
+          >
+            Off
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: controllerInput === 'x' }"
+            :disabled="controllerInputBusy"
+            :aria-pressed="controllerInput === 'x'"
+            :title="collapsed ? 'XInput' : undefined"
+            @click="setControllerInput('x')"
+          >
+            X
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: controllerInput === 'd' }"
+            :disabled="controllerInputBusy"
+            :aria-pressed="controllerInput === 'd'"
+            :title="collapsed ? 'DInput' : undefined"
+            @click="setControllerInput('d')"
+          >
+            D
+          </button>
+        </div>
+      </div>
       <button
         class="sidebar-nav-item sidebar-theme-toggle"
         @click="themePickerOpen = !themePickerOpen"
@@ -438,6 +512,69 @@ const navItems = computed<NavItem[]>(() => [
 
 .sidebar-theme-toggle {
   margin-bottom: 4px;
+}
+
+.sidebar-input-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-surface) 38%, transparent);
+}
+
+.sidebar-input-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.sidebar-input-icon {
+  flex-shrink: 0;
+}
+
+.sidebar-input-options {
+  display: flex;
+  gap: 4px;
+}
+
+.sidebar-input-option {
+  flex: 1;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--sidebar-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-input-option:hover:not(:disabled) {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-hover);
+  border-color: var(--border);
+}
+
+.sidebar-input-option.active {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 60%), var(--sidebar-active);
+  color: var(--sidebar-text-active);
+  border-color: rgba(95, 183, 232, 0.18);
+}
+
+.sidebar-input-option:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .theme-picker-backdrop {
