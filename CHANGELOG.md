@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- **Legacy OpenGL games under Wine** — stop forcing `MS_FWD_COMPAT_GL_CTX=1` globally for Steam, GOG prefix initialization, and the Wine wrapper. Games now receive compatibility-profile semantics by default, while route-specific environments can still opt into forward-compatible contexts. This fixes black output caused by legacy GLSL shader compilation failures in games such as The Binding of Isaac: Repentance.
+- **Legacy OpenGL games under Wine** — stop forcing `MS_FWD_COMPAT_GL_CTX=1` globally for Steam, GOG prefix initialization, and the Wine wrapper. Games now receive compatibility-profile semantics by default, while route-specific environments can still opt into forward-compatible contexts. Steam also disables Wine tracing by default instead of logging every OpenGL call; `METALSHARP_WINEDEBUG` remains available for explicit diagnostics. This fixes black output and unstable frame pacing in games such as The Binding of Isaac: Repentance.
 
 ## v0.54.5 — 2026-07-09
 
