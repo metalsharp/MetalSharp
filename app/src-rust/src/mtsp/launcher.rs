@@ -1033,7 +1033,7 @@ fn repair_metalsharp_wine_wrapper_env_order() -> Result<(), Box<dyn std::error::
     }
 
     let script = std::fs::read_to_string(&wrapper)?;
-    let mut repaired = script.clone();
+    let mut repaired = repair_metalsharp_wine_wrapper(&script);
     let winedll_block = r#"if [ -n "${WINEDLLPATH:-}" ]; then
   export WINEDLLPATH="$WINEDLLPATH:$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows"
 else
@@ -1054,7 +1054,7 @@ else
 fi
 "#;
     if let (Some(start), Some(end)) =
-        (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export MS_FWD_COMPAT_GL_CTX=1"))
+        (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export VK_ICD_FILENAMES="))
     {
         let replace_start = start + "export WINEDATADIR=\"$MS_ROOT/share\"\n".len();
         repaired.replace_range(replace_start..end, dyld_block);
@@ -1064,6 +1064,10 @@ fi
         std::fs::write(&wrapper, repaired)?;
     }
     Ok(())
+}
+
+fn repair_metalsharp_wine_wrapper(script: &str) -> String {
+    script.replace("export MS_FWD_COMPAT_GL_CTX=1\n", "")
 }
 
 pub fn launch_custom_with_pipeline(
@@ -5015,6 +5019,18 @@ fn spawn_metalshaderconverter_sidecar(appid: u32, home: &Path, cache_paths: Opti
 mod tests {
     use super::*;
     use crate::mtsp::recipe;
+
+    #[test]
+    fn wine_wrapper_does_not_force_forward_compatible_opengl() {
+        let wrapper =
+            "export WINEDATADIR=\"$MS_ROOT/share\"\nexport MS_FWD_COMPAT_GL_CTX=1\nexport VK_ICD_FILENAMES=foo\n";
+
+        let repaired = repair_metalsharp_wine_wrapper(wrapper);
+
+        assert!(!repaired.contains("MS_FWD_COMPAT_GL_CTX"));
+        assert!(repaired.contains("export WINEDATADIR=\"$MS_ROOT/share\""));
+        assert!(repaired.contains("export VK_ICD_FILENAMES=foo"));
+    }
 
     #[test]
     fn deploy_steam_appid_writes_visible_appid_file_for_each_known_subdir() {
