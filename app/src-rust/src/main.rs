@@ -2358,8 +2358,21 @@ fn is_force_kill_target(command: &str, home: &std::path::Path) -> bool {
         || lower.contains("c:\\windows\\")
         || lower.contains(".exe");
 
-    if wine_process && (under_metalsharp_home || lower.contains("wine") || lower.contains("steamwebhelper")) {
-        return true;
+    // Isolation contract: MetalSharp must only ever kill processes it owns.
+    // A bare `wine`/`wineserver`/`wineloader` match is NOT enough — that
+    // would kill a foreign Wine (CrossOver, SakuraGiri, Whisky, GPTK) that
+    // happens to be running. Ownership is proven by the process command
+    // referencing the MetalSharp home, an MS prefix/bottle path, or the
+    // metalsharp-wine wrapper itself.
+    if wine_process {
+        let owned = under_metalsharp_home
+            || command.contains("metalsharp-wine")
+            || lower.contains("prefix-steam")
+            || lower.contains("sharp-prefix")
+            || lower.contains("/bottles/")
+            || lower.contains("gogdl")
+            || lower.contains("heroic_gogdl");
+        return owned;
     }
 
     under_metalsharp_home
@@ -2908,6 +2921,33 @@ mod tests {
         assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/wine Steam.exe", home));
         assert!(!is_force_kill_target("/Applications/MetalSharp.app/Contents/MacOS/MetalSharp", home));
         assert!(!is_force_kill_target("/Applications/Steam.app/Contents/MacOS/steam_osx", home));
+    }
+
+    #[test]
+    fn force_kill_never_targets_foreign_wine_processes() {
+        // Isolation contract: a foreign Wine launcher (CrossOver, SakuraGiri,
+        // Whisky, GPTK) must never be killed by MetalSharp cleanup, even when
+        // its command line contains wine/wineserver/wineloader tokens.
+        let home = std::path::Path::new("/Users/test/.metalsharp");
+
+        assert!(!is_force_kill_target(
+            "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineserver -f",
+            home
+        ));
+        assert!(!is_force_kill_target(
+            "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine64 C:\\windows\\system32\\wineboot.exe",
+            home
+        ));
+        assert!(!is_force_kill_target(
+            "/Users/test/Library/Application Support/SakuraGiri/engine/wine/bin/wineloader",
+            home
+        ));
+        assert!(!is_force_kill_target("/opt/homebrew/bin/wineserver", home));
+        assert!(!is_force_kill_target("/usr/local/bin/wine", home));
+
+        // MS-owned processes must still be targeted.
+        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/wineserver -f", home));
+        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/metalsharp-wine Steam.exe", home));
     }
 
     #[test]

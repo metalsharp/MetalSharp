@@ -325,19 +325,26 @@ fn find_wine() -> Result<String, Box<dyn std::error::Error>> {
         return Ok(ms_wine.to_string_lossy().to_string());
     }
 
-    let candidates = vec![
-        PathBuf::from("/opt/homebrew/bin/wine64"),
-        PathBuf::from("/usr/bin/wine"),
-        PathBuf::from("/usr/local/bin/wine"),
-    ];
+    // Isolation contract: MetalSharp must NEVER fall back to a system or
+    // third-party Wine (Homebrew, GPTK, CrossOver, Whisky, SakuraGiri…).
+    // Those runtimes are not ABI-compatible with MetalSharp's prefix and
+    // graphics stack, and resolving one of them is exactly how a foreign
+    // launcher's Wine ends up running MetalSharp's Steam/prefix. Fail
+    // loudly so the user runs setup instead.
+    Err(format!(
+        "MetalSharp Wine runtime missing at {} — run setup. System/third-party Wine is intentionally not used (found: {:?})",
+        ms_wine.display(),
+        system_wine_candidates_present()
+    )
+    .into())
+}
 
-    for c in candidates {
-        if c.exists() {
-            return Ok(c.to_string_lossy().to_string());
-        }
-    }
-
-    Err("wine not found".into())
+fn system_wine_candidates_present() -> Vec<String> {
+    ["/opt/homebrew/bin/wine64", "/usr/bin/wine", "/usr/local/bin/wine"]
+        .iter()
+        .filter(|path| PathBuf::from(path).exists())
+        .map(|path| (*path).to_string())
+        .collect()
 }
 
 pub fn ensure_wine_prefix(prefix: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
@@ -395,6 +402,15 @@ fn launch_via_wine(exe_path: &str) -> Result<u32, Box<dyn std::error::Error>> {
     let wine = find_wine()?;
     let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
     let prefix_str = prefix.to_string_lossy().to_string();
+
+    if std::env::var_os("MS_LAUNCH_TRACE").is_some() {
+        eprintln!("[trace] launch_via_wine wine_bin={}", wine);
+        eprintln!("[trace] prefix={}", prefix_str);
+        eprintln!("[trace] parent WINEPREFIX={:?}", std::env::var("WINEPREFIX"));
+        eprintln!("[trace] parent WINEDLLPATH={:?}", std::env::var("WINEDLLPATH"));
+        eprintln!("[trace] parent DYLD_FALLBACK_LIBRARY_PATH={:?}", std::env::var("DYLD_FALLBACK_LIBRARY_PATH"));
+        eprintln!("[trace] parent WINESERVER={:?}", std::env::var("WINESERVER"));
+    }
 
     ensure_wine_prefix(&prefix)?;
 
@@ -457,5 +473,57 @@ mod tests {
         assert!(ensure_steam_env_handoff_supported(true, &env).is_err());
         assert!(ensure_steam_env_handoff_supported(true, &[]).is_ok());
         assert!(ensure_steam_env_handoff_supported(false, &env).is_ok());
+    }
+
+    fn with_ms_home(temp: &std::path::Path, f: impl FnOnce()) {
+        let prev = std::env::var_os("METALSHARP_HOME");
+        std::env::set_var("METALSHARP_HOME", temp);
+        f();
+        match prev {
+            Some(v) => std::env::set_var("METALSHARP_HOME", v),
+            None => std::env::remove_var("METALSHARP_HOME"),
+        }
+    }
+
+    #[test]
+    fn find_wine_never_falls_back_to_system_wine_when_ms_runtime_missing() {
+        // Isolation contract: with no MetalSharp runtime, find_wine must fail
+        // loudly instead of resolving a system/third-party wine (CrossOver,
+        // SakuraGiri, GPTK/Homebrew all install into the candidate paths).
+        let temp = std::env::temp_dir().join(format!("ms-findwine-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        with_ms_home(&temp, || {
+            let result = find_wine();
+            let err = result.expect_err("find_wine must fail when MS runtime is missing");
+            let msg = err.to_string();
+            assert!(msg.contains("run setup"), "error must direct user to setup: {}", msg);
+            assert!(!msg.contains("wine not found"), "error must not be the old generic message");
+        });
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn find_wine_returns_ms_runtime_when_present() {
+        let temp = std::env::temp_dir().join(format!("ms-findwine-present-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let bin = temp.join("runtime").join("wine").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let wrapper = bin.join("metalsharp-wine");
+        std::fs::write(&wrapper, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        with_ms_home(&temp, || {
+            let found = find_wine().expect("find_wine must return the MS runtime wrapper");
+            assert_eq!(found, wrapper.to_string_lossy().to_string());
+        });
+
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }

@@ -218,11 +218,17 @@ write_status "starting" 0 "Starting update..."
 force_stop_old_runtime
 
 write_status "killing_steam" 15 "Stopping Steam and Wine processes..."
-for pat in steam steam.exe steamwebhelper steamwebhelper.exe wine wine64 wineserver wineloader; do
-    pkill -x "$pat" 2>/dev/null || true
-done
-for pat in Steam.exe steamwebhelper.exe wineserver wineloader; do
-    pkill -f "$pat" 2>/dev/null || true
+# Isolation contract: only kill processes owned by MetalSharp. Bare-name
+# pkills would also kill a foreign Wine launcher's processes (CrossOver,
+# SakuraGiri, Whisky, GPTK) whose wineserver/wineloader/wine64 share these
+# exact process names, so wine-helper kills are path-scoped to the MS home.
+MS_HOME_RE="${METALSHARP_HOME:-$HOME/.metalsharp}"
+# Steam UI helper processes inside the MS prefix (path-scoped).
+pkill -f ".*$MS_HOME_RE/prefix-steam/.*Steam" 2>/dev/null || true
+pkill -f ".*$MS_HOME_RE/prefix-steam/.*steamwebhelper" 2>/dev/null || true
+# MS runtime wine helpers (path-scoped to the runtime/prefix).
+for pat in wineserver wineloader wine wine64 wineboot; do
+    pkill -f ".*$MS_HOME_RE/.*$pat" 2>/dev/null || true
 done
 sleep 1
 

@@ -146,7 +146,19 @@ fn is_wine_steam_cleanup_command(command: &str) -> bool {
     }
 
     let prefix = steam_prefix().to_string_lossy().to_string();
+    let ms_home = crate::platform::metalsharp_home_dir().to_string_lossy().to_string();
     let lower = command.to_lowercase();
+
+    // Isolation contract: generic wine helper tokens (wineserver, wineloader,
+    // winedevice.exe) must NOT be killed on their own — a foreign Wine
+    // launcher (CrossOver, SakuraGiri, Whisky, GPTK) also runs those names.
+    // Only treat them as MetalSharp Steam processes when the command line
+    // also references the MetalSharp home (runtime/prefix/bottles all live
+    // under it), the MS wine runtime, or a Steam path inside the MS prefix.
+    let ms_owned = command.contains(&prefix)
+        || command.contains(&ms_home)
+        || lower.contains("metalsharp-wine")
+        || lower.contains("c:\\program files (x86)\\steam");
 
     command.contains(&prefix)
         || lower.contains("c:\\program files (x86)\\steam")
@@ -154,9 +166,8 @@ fn is_wine_steam_cleanup_command(command: &str) -> bool {
         || lower.contains("steamwebhelper_real.exe")
         || lower.contains("c:\\windows\\system32\\explorer.exe /desktop")
         || (lower.contains("c:\\windows\\system32\\conhost.exe") && lower.contains("--headless"))
-        || lower.contains("winedevice.exe")
-        || lower.contains("wineserver")
-        || lower.contains("wineloader")
+        || (ms_owned
+            && (lower.contains("winedevice.exe") || lower.contains("wineserver") || lower.contains("wineloader")))
 }
 
 fn wine_steam_cleanup_pids() -> Vec<u32> {
@@ -408,6 +419,18 @@ fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> R
 
     for (key, val) in extra_env {
         cmd.env(key, val);
+    }
+
+    if std::env::var_os("MS_LAUNCH_TRACE").is_some() {
+        eprintln!("[trace] wine_bin={}", wine.display());
+        eprintln!("[trace] prefix={}", prefix_str);
+        eprintln!("[trace] cwd={}", steam_dir.display());
+        eprintln!("[trace] parent WINEPREFIX={:?}", std::env::var("WINEPREFIX"));
+        eprintln!("[trace] parent WINEDLLPATH={:?}", std::env::var("WINEDLLPATH"));
+        eprintln!("[trace] parent DYLD_FALLBACK_LIBRARY_PATH={:?}", std::env::var("DYLD_FALLBACK_LIBRARY_PATH"));
+        eprintln!("[trace] parent DYLD_LIBRARY_PATH={:?}", std::env::var("DYLD_LIBRARY_PATH"));
+        eprintln!("[trace] parent WINESERVER={:?}", std::env::var("WINESERVER"));
+        eprintln!("[trace] parent WINELOADER={:?}", std::env::var("WINELOADER"));
     }
 
     let child = cmd.spawn()?;
@@ -1747,6 +1770,33 @@ mod tests {
         assert!(!is_wine_steam_cleanup_command(
             "/bin/zsh -lc ps axo pid=,command= | rg -i \"explorer.exe|conhost.exe\"",
         ));
+    }
+
+    #[test]
+    fn wine_steam_cleanup_ignores_foreign_wine_helpers() {
+        // Isolation contract: generic wineserver/wineloader/winedevice tokens
+        // are not enough — a foreign Wine launcher (CrossOver, SakuraGiri,
+        // Whisky, GPTK) also runs those names. Only MS-owned commands that
+        // reference the MS home (runtime/prefix/bottles live under it) or the
+        // metalsharp-wine wrapper qualify.
+        assert!(!is_wine_steam_cleanup_command(
+            "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineserver -f",
+        ));
+        assert!(!is_wine_steam_cleanup_command(
+            "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader",
+        ));
+        assert!(!is_wine_steam_cleanup_command(
+            "/Users/test/Library/Application Support/SakuraGiri/engine/wine/bin/winedevice.exe",
+        ));
+        assert!(!is_wine_steam_cleanup_command("/opt/homebrew/bin/wineserver"));
+
+        // MS-owned wine helpers must still be targeted (paths under the real
+        // MetalSharp home, which the ownership check resolves at runtime).
+        let ms_home = crate::platform::metalsharp_home_dir();
+        let ms_wineserver = ms_home.join("runtime").join("wine").join("bin").join("wineserver");
+        assert!(is_wine_steam_cleanup_command(&format!("{} -f", ms_wineserver.display())));
+        let ms_wrapper = ms_home.join("runtime").join("wine").join("bin").join("metalsharp-wine");
+        assert!(is_wine_steam_cleanup_command(&format!("{} wineloader", ms_wrapper.display())));
     }
 
     #[test]

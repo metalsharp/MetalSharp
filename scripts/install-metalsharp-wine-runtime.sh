@@ -22,6 +22,7 @@ LOCAL_ONLY=0
 PREPARE_ONLY=0
 REPLACE=0
 BACKUP_OLD=1
+VERIFY_HERMETIC=0
 STAGE_DIR=""
 
 usage() {
@@ -41,6 +42,8 @@ Options:
   --prepare-only       Verify/reassemble the archive without extracting it.
   --replace            Replace an existing target after validation.
   --discard-backup     With --replace, delete the prior runtime after install.
+  --verify-hermetic    After install, verify the launcher ignores foreign
+                       WINE*/DYLD_* env (CrossOver/SakuraGiri isolation).
   -h, --help           Show this help.
 
 Without --replace, an existing runtime is preserved. Wine prefixes, Steam,
@@ -75,6 +78,7 @@ while [ "$#" -gt 0 ]; do
     --prepare-only) PREPARE_ONLY=1; shift ;;
     --replace) REPLACE=1; shift ;;
     --discard-backup) BACKUP_OLD=0; shift ;;
+    --verify-hermetic) VERIFY_HERMETIC=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -246,6 +250,13 @@ BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 VKMT_RUNTIME_ROOT="$(cd "$BIN_DIR/../.." && pwd)"
 export VKMT_RUNTIME_ROOT
 export WINEBUILDDIR="$VKMT_RUNTIME_ROOT/wine/build-ec"
+# Isolation contract: the backend always sets WINEPREFIX/WINEDEBUG/
+# WINEDLLOVERRIDES/DYLD_FALLBACK_LIBRARY_PATH explicitly on every spawn, so
+# this launcher must NOT unset them (that would clobber bottle prefixes and
+# Steam DLL overrides). Drop only CX_ROOT: CrossOver's identity variable —
+# a real CrossOver reading CX_ROOT could mistake this process for one of its
+# own bottles, and no MetalSharp code sets it.
+unset CX_ROOT 2>/dev/null || true
 export WINEPREFIX="${WINEPREFIX:-$HOME/.metalsharp/prefix-steam}"
 export FEX_TSOENABLED=0
 export FEX_VECTORTSOENABLED=0
@@ -366,6 +377,35 @@ EOF
   [ -z "$backup" ] || info "Previous runtime backup: $backup"
 }
 
+verify_hermetic() {
+  local root="$1" launcher="$1/wine/bin/metalsharp-wine" out
+  [ -x "$launcher" ] || die "verify-hermetic: launcher missing: $launcher"
+
+  # Simulate a foreign Wine launcher's environment (CrossOver/SakuraGiri-style
+  # WINEPREFIX, WINEDLLPATH, DYLD paths, and CX_ROOT identity variable). The
+  # launcher must still resolve MetalSharp's own wine binary and must not
+  # emit CrossOver's identity variable.
+  out="$(env \
+    WINEPREFIX="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bottles/Steam" \
+    WINEDLLPATH="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib/wine/x86_64-windows" \
+    DYLD_FALLBACK_LIBRARY_PATH="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib" \
+    CX_ROOT="/Applications/CrossOver.app" \
+    "$launcher" --version 2>&1)" || true
+
+  if echo "$out" | grep -qi "crossover"; then
+    die "verify-hermetic: launcher resolved a foreign Wine (CrossOver env leaked)"
+  fi
+  if echo "$out" | grep -q "wine-[0-9]"; then
+    info "verify-hermetic: launcher resolves MetalSharp Wine under foreign env"
+  else
+    info "verify-hermetic: launcher ran under foreign env (output: $(echo "$out" | head -1))"
+  fi
+
+  if grep -q "CX_ROOT" "$launcher"; then
+    die "verify-hermetic: launcher still exports CX_ROOT"
+  fi
+}
+
 ARCHIVE="$(prepare_archive)"
 verify_file "$ARCHIVE" "$ARCHIVE_SHA256" "$ARCHIVE_NAME" \
   || die "prepared archive failed final verification"
@@ -377,3 +417,7 @@ if [ "$PREPARE_ONLY" -eq 1 ]; then
 fi
 
 install_archive "$ARCHIVE"
+
+if [ "$VERIFY_HERMETIC" -eq 1 ]; then
+  verify_hermetic "$TARGET"
+fi

@@ -129,6 +129,42 @@ run the game executable directly through the selected MTSP pipeline with this pr
 | `DXMT_CONFIG_FILE` | DXMT config file |
 | `SteamAppId` / `SteamGameId` | Steam identity for direct Steam-bottle game launches |
 
+### Isolation Contract (read before changing any launch code)
+
+MetalSharp's Wine runtime is **hermetic**: Steam and every Wine-backed route must
+resolve MetalSharp's own wine binary, prefix, DLLs, and environment **100% of the
+time**, regardless of which other Wine-based launchers are installed on the host
+(CrossOver, SakuraGiri, Whisky, Game Porting Toolkit, Homebrew wine…).
+
+Rules:
+
+1. **Wine binary**: always resolve via `platform::runtime_wine_binary()` /
+   `ms_wine()` (i.e. `~/.metalsharp/runtime/wine/bin/metalsharp-wine`). Never
+   fall back to `wine`/`wine64`/`wineserver` from PATH, `/usr/local/bin`
+   (CrossOver installs CLI symlinks there), or `/opt/homebrew/bin` (GPTK).
+   `launch::find_wine()` fails loudly instead of falling back.
+2. **Environment ownership**: the backend sets `WINEPREFIX`, `WINEDEBUG`,
+   `WINEDLLOVERRIDES`, and `DYLD_FALLBACK_LIBRARY_PATH` explicitly on every
+   spawn. Launcher/wrapper scripts must never `unset` those (it would clobber
+   bottle prefixes and Steam DLL overrides). `WINEDLLPATH` and
+   `DYLD_FALLBACK_LIBRARY_PATH` in the wrapper must list MetalSharp's own
+   directories **before** any inherited value.
+3. **No foreign identity**: never export `CX_ROOT` (CrossOver's identity
+   variable) or mimic another launcher's env vars.
+4. **Process ownership**: kill/cleanup logic (`stop_wine_steam`,
+   `is_force_kill_target`, `update.sh`, process-manager helper) targets only
+   processes whose command line references the MetalSharp home
+   (`~/.metalsharp/`), an MS prefix/bottle path, or `metalsharp-wine`. A bare
+   `wineserver`/`wineloader`/`wine64` name match is never sufficient — foreign
+   launchers run processes with those exact names.
+5. **Vulkan ICD**: `VK_ICD_FILENAMES` must resolve inside the runtime
+   (`$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json`) or be unset — never a
+   hardcoded Homebrew path, which is absent on CrossOver-only machines.
+
+The GPTK lane is the working model for isolation: it owns its prefix
+(`prefix-gptk`), its DYLD paths (`gptk_seed_dyld`), and its route DLLs. The
+Steam/plain-Wine lanes must be just as self-contained.
+
 ## Steam Wrapper
 
 Wine Steam uses the bundled `steamwebhelper.exe` wrapper. Steam updates may replace it, so MetalSharp redeploys it when preparing or launching Steam.
