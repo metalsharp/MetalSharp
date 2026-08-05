@@ -2103,6 +2103,7 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.250900]
 pipeline = "m11_32"
 name = "The Binding of Isaac: Rebirth"
+exe_names = ["isaac-ng.exe"]
 
 [overrides.250900.dependencies]
 components = ["vcrun2019_x86", "directx_jun2010"]
@@ -6769,4 +6770,3 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 
 [overrides.4498220.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
-
