@@ -215,11 +215,18 @@ mod xnu_vm {
 
     pub fn query_vm_region(pid: u32, base_address: u64) -> Option<VmRegion> {
         unsafe {
-            let mut task: u32 = 0;
-            let kr = task_for_pid(mach_task_self(), pid as i32, &mut task);
-            if kr != KERN_SUCCESS {
-                return None;
-            }
+            let self_task = mach_task_self();
+            // Self queries neither require task_for_pid entitlement nor return an owned port.
+            let (task, deallocate_task) = if pid == libc::getpid() as u32 {
+                (self_task, false)
+            } else {
+                let mut task: u32 = 0;
+                let kr = task_for_pid(self_task, pid as i32, &mut task);
+                if kr != KERN_SUCCESS {
+                    return None;
+                }
+                (task, true)
+            };
 
             let mut addr = if base_address == 0 { 0x1000 } else { base_address };
             let mut size: u64 = 0;
@@ -237,7 +244,9 @@ mod xnu_vm {
                 &mut object_name,
             );
 
-            let _ = mach_port_deallocate(mach_task_self(), task);
+            if deallocate_task {
+                let _ = mach_port_deallocate(self_task, task);
+            }
 
             if kr != KERN_SUCCESS {
                 return None;
@@ -841,12 +850,14 @@ mod tests {
     }
 
     #[test]
-    fn test_nt_query_virtual_memory_basic_returns_success() {
+    fn test_nt_query_virtual_memory_mapped_address_returns_success() {
         let h = alloc_handle(getpid() as u32, 0, 0x1F0FFF, "Process");
+        let marker = 0u64;
+        let base_address = (&marker as *const u64) as usize as u64;
 
         let mut req = Vec::new();
         req.extend_from_slice(&h.to_le_bytes());
-        req.extend_from_slice(&0x10000u64.to_le_bytes());
+        req.extend_from_slice(&base_address.to_le_bytes());
         req.extend_from_slice(&0x00u32.to_le_bytes());
         req.extend_from_slice(&48u32.to_le_bytes());
 
@@ -856,8 +867,11 @@ mod tests {
         let return_len = u32::from_le_bytes(resp[4..8].try_into().unwrap());
         assert_eq!(return_len, 48);
         assert_eq!(resp.len(), 8 + 48);
-        let region_size = u64::from_le_bytes(resp[16..24].try_into().unwrap());
+        let region_base = u64::from_le_bytes(resp[8..16].try_into().unwrap());
+        let region_size = u64::from_le_bytes(resp[32..40].try_into().unwrap());
         assert!(region_size > 0);
+        assert!(base_address >= region_base);
+        assert!(base_address - region_base < region_size);
     }
 
     #[test]
