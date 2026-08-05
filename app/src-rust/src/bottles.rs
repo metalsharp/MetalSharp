@@ -690,7 +690,8 @@ fn m12_runtime_component_artifacts(
         "m12_dxgi" => Some(&[("dxvk", "x86_64-windows/dxgi.dll")]),
         "m12_moltenvk" => Some(&[("moltenvk-vkmt", "libMoltenVK.dylib"), ("moltenvk-vkmt", "MoltenVK_icd.json")]),
         "m12_gpu_stubs" => {
-            Some(&[("vkd3d-proton", "x86_64-windows/nvapi64.dll"), ("vkd3d-proton", "x86_64-windows/nvngx.dll")])
+            // Stubs are shared with the DXMT M12 lane (vkd3d-proton ships none).
+            Some(&[("dxmt_m12", "x86_64-windows/nvapi64.dll"), ("dxmt_m12", "x86_64-windows/nvngx.dll")])
         },
         _ => None,
     }
