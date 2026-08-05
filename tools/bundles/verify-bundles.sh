@@ -83,6 +83,10 @@ verify_local() {
       failed=1
       continue
     fi
+    if [ "$asset" = "metalsharp-graphics-dll.tar.zst" ] && ! verify_vkd3d_graphics_core "$path"; then
+      failed=1
+      continue
+    fi
     if [ "$asset" = "metalsharp-assets.tar.zst" ] && ! verify_assets_core "$path"; then
       failed=1
       continue
@@ -201,6 +205,30 @@ verify_graphics_core() {
     Graphics/dll/dxmt-m12/x86_64-windows/nvngx.dll \
     Graphics/dll/dxmt-m12/x86_64-windows/winemetal.dll &&
     verify_hash_manifest "$path" "GRAPHICS M12" "Graphics/dll/dxmt-m12" "$SCRIPT_DIR/m12-dxmt-runtime-hashes.tsv"
+}
+
+# The vkd3d-proton M12 stack is optional in the graphics bundle (DXMT remains
+# the fallback when absent). When the lanes ARE present, verify their layout.
+verify_vkd3d_graphics_core() {
+  local path="$1"
+  local missing=0
+  for rel in \
+    Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll \
+    Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll \
+    Graphics/dll/dxvk/x86_64-windows/dxgi.dll \
+    Graphics/dll/moltenvk-vkmt/libMoltenVK.dylib \
+    Graphics/dll/moltenvk-vkmt/MoltenVK_icd.json
+  do
+    if ! tar --use-compress-program=unzstd -tf "$path" "$rel" >/dev/null 2>&1; then
+      echo "VKD3D lane present but missing $rel (optional; DXMT fallback active)" >&2
+      missing=1
+    fi
+  done
+  if [ "$missing" -eq 1 ]; then
+    echo "ERROR: vkd3d-proton graphics lanes are partially staged; ship all lanes or none" >&2
+    return 1
+  fi
+  echo "OK: vkd3d-proton graphics lanes present (M12 vkd3d-proton backend usable)"
 }
 
 verify_hash_manifest() {

@@ -286,6 +286,29 @@ def build_staging(tmp: Path) -> dict[str, Path]:
         copy_tree(m12_root / "x86_64-unix", roots["graphics"] / "dxmt_m12" / "x86_64-unix")
         copy_tree(m12_root / "x86_64-windows", roots["graphics"] / "dxmt_m12" / "x86_64-windows")
 
+    # vkd3d-proton M12 stack (optional): staged from explicit VKMT source dirs
+    # (METALSHARP_VKD3D_SOURCE / METALSHARP_DXVK_SOURCE / METALSHARP_MOLTENVK_SOURCE).
+    # When absent the graphics bundle ships DXMT-only and M12 falls back.
+    vkd3d_source = os.environ.get("METALSHARP_VKD3D_SOURCE")
+    if vkd3d_source:
+        vkd3d_root = Path(vkd3d_source).expanduser()
+        for arch, sub in (("x86_64-windows", "x86_64-windows"), ("i386-windows", "i386-windows")):
+            src = vkd3d_root / sub
+            if src.is_dir():
+                copy_tree(src, roots["graphics"] / "vkd3d-proton" / arch)
+    dxvk_source = os.environ.get("METALSHARP_DXVK_SOURCE")
+    if dxvk_source:
+        dxvk_root = Path(dxvk_source).expanduser()
+        for arch, sub in (("x86_64-windows", "x86_64-windows"), ("i386-windows", "i386-windows")):
+            src = dxvk_root / sub
+            if src.is_dir():
+                copy_tree(src, roots["graphics"] / "dxvk" / arch)
+    moltenvk_source = os.environ.get("METALSHARP_MOLTENVK_SOURCE")
+    if moltenvk_source:
+        mvk_root = Path(moltenvk_source).expanduser()
+        if mvk_root.is_dir():
+            copy_tree(mvk_root, roots["graphics"] / "moltenvk-vkmt")
+
     for name in ["mono-arm64", "goldberg", "shims", "shader-cache"]:
         copy_tree(source2 / name, roots["assets"] / name)
     copy_tree(source2 / "wine" / "etc", roots["assets"] / "wine" / "etc")
