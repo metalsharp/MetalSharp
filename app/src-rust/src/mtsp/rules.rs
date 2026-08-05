@@ -555,7 +555,9 @@ mod tests {
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
 
-        let m12_required = ["d3d12.dll", "d3d11.dll", "dxgi_dxmt.dll", "dxgi.dll", "winemetal.dll"];
+        // M12 runs vkd3d-proton by default: the deployed check set is the
+        // vkd3d forwarder + implementation + DXVK dxgi (no DXMT DLLs).
+        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
         let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
         let required_by_pipeline =
             [(PipelineId::M12, m12_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
@@ -573,6 +575,17 @@ mod tests {
                         dll,
                         recipe.check_dlls
                     );
+                }
+                if pipeline == PipelineId::M12 {
+                    for stale in ["dxgi_dxmt.dll", "winemetal.dll", "d3d11.dll"] {
+                        assert!(
+                            !recipe.check_dlls.iter().any(|value| value == stale),
+                            "appid {} M12 diagnostics must not require DXMT-only {} (got {:?})",
+                            appid,
+                            stale,
+                            recipe.check_dlls
+                        );
+                    }
                 }
             }
         }
