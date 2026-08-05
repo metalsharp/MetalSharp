@@ -336,6 +336,10 @@ fn use_legacy_compatible_opengl_context(cmd: &mut Command) {
     cmd.env_remove("MS_FWD_COMPAT_GL_CTX");
 }
 
+fn steam_wine_debug_value(configured: Option<String>) -> String {
+    configured.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| "-all".to_string())
+}
+
 fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> Result<u32, Box<dyn std::error::Error>> {
     let wine = ms_wine();
     if !wine.exists() {
@@ -382,7 +386,7 @@ fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> R
     let mut cmd = Command::new(&wine);
     cmd.current_dir(&steam_dir)
         .env("WINEPREFIX", &prefix_str)
-        .env("WINEDEBUG", "+vulkan,+d3d,+d3d11,+dxgi,+wined3d,+opengl")
+        .env("WINEDEBUG", steam_wine_debug_value(std::env::var("METALSHARP_WINEDEBUG").ok()))
         .env("WINEDEBUGGER", "none")
         .env("STEAM_RUNTIME", "0")
         .env(
@@ -1671,6 +1675,17 @@ mod tests {
             command.get_envs().find(|(key, _)| *key == "MS_FWD_COMPAT_GL_CTX").and_then(|(_, value)| value),
             Some(std::ffi::OsStr::new("1"))
         );
+    }
+
+    #[test]
+    fn steam_disables_wine_tracing_by_default() {
+        assert_eq!(steam_wine_debug_value(None), "-all");
+        assert_eq!(steam_wine_debug_value(Some(String::new())), "-all");
+    }
+
+    #[test]
+    fn steam_accepts_explicit_wine_debug_override() {
+        assert_eq!(steam_wine_debug_value(Some("+opengl".to_string())), "+opengl");
     }
 
     #[test]
