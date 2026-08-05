@@ -114,9 +114,21 @@ static std::vector<PsRow> read_ps() {
 static bool session_interesting(const PsRow &r) {
   std::string hay = r.name + " " + r.command;
   for (auto &c : hay) c = tolower(c);
-  return hay.find("wine") != std::string::npos || hay.find("steam") != std::string::npos ||
-         hay.find("metalsharp") != std::string::npos || hay.find("wineserver") != std::string::npos ||
-         hay.find("wine-preloader") != std::string::npos || hay.find("drive_c/") != std::string::npos;
+  // Isolation contract: bare `wine`/`wineserver` tokens are not enough — a
+  // foreign Wine launcher (CrossOver, SakuraGiri, Whisky, GPTK) also runs
+  // those names. A process is interesting only when it references the
+  // MetalSharp home/prefix (runtime, prefix-steam, bottles, sharp-prefix) or
+  // the metalsharp-wine wrapper, or is a Steam client process inside the MS
+  // prefix (drive_c/... steam paths only make sense under an MS prefix).
+  bool ms_owned = hay.find("metalsharp") != std::string::npos ||
+                  hay.find(".metalsharp/") != std::string::npos ||
+                  hay.find("prefix-steam") != std::string::npos ||
+                  hay.find("sharp-prefix") != std::string::npos ||
+                  hay.find("/bottles/") != std::string::npos;
+  if (ms_owned) return true;
+  bool steam_in_prefix = hay.find("drive_c/") != std::string::npos &&
+                         hay.find("steam") != std::string::npos;
+  return steam_in_prefix;
 }
 
 // FPS files: /tmp/metalsharp-fps-<pid>/session-fps contains a leading number.
