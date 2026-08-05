@@ -66,6 +66,16 @@ Use **Logs** when something fails. The page has drawer sections for live logs, c
 
 Use **Settings** to manage Steam API sync, backend restart, cache cleanup, and runtime maintenance.
 
+### Controller Input Shims
+
+The sidebar has a **Controller** selector (Off / X / D) near the theme picker:
+
+- **Off** (default) — no input shims are deployed.
+- **X** — XInput shims (`xinput1_1.dll` … `xinput1_4.dll`, `xinput9_1_0.dll`) are copied into the game folder on launch and into the Steam prefix (`system32` + `syswow64`).
+- **D** — DInput shims (`dinput.dll`, `dinput8.dll`) are deployed the same way.
+
+Switching between X and D removes the previously deployed set before deploying the new one; switching to Off removes both. Files that already existed (for example a game's own `xinput1_3.dll`) are backed up and restored when the mode is switched off.
+
 ### Uninstall
 
 Settings includes a **Danger Zone** section at the bottom with an **Uninstall MetalSharp** button. This removes all Wine prefixes, bottles, Steam, runtime, caches, and settings, then moves the app to Trash.
