@@ -555,6 +555,12 @@ fn run_migration() {
     restore_user_data(&ms_dir, &preserved, &mut report);
     write_migration_report(&report);
 
+    // M12 backend reconciliation: the vkd3d-proton stack is the default, but
+    // an older graphics bundle may lack the lanes. When they did not stage,
+    // fall back to DXMT so existing users keep working — never leave the
+    // default pointing at a missing runtime.
+    reconcile_m12_backend(&home);
+
     if !install_ok {
         write_migrate_progress(
             "error",
@@ -658,6 +664,32 @@ fn verify_migration_ready(ms_dir: &Path, marker: Option<&PostUpdateMigrationMark
     }
 
     Ok(())
+}
+
+/// Decide the M12 backend after a migration: keep the vkd3d-proton default
+/// when its runtime lanes staged, otherwise fall back to DXMT in config so
+/// the default never points at a missing runtime. Returns the decision.
+fn reconcile_m12_backend(home: &Path) -> String {
+    if crate::installer::vkd3d_proton_runtime_current_for_home(home)
+        && crate::installer::moltenvk_vkmt_runtime_ready_for_home(home)
+        && crate::installer::dxvk_runtime_ready_for_home(home)
+    {
+        log_to_file("Migration: vkd3d-proton M12 lanes present; keeping vkd3d-proton default");
+        "vkd3d-proton".to_string()
+    } else {
+        let mut body = serde_json::Map::new();
+        body.insert("m12Backend".into(), json!("dxmt"));
+        match crate::launch::set_config_for_home(home, &body) {
+            Ok(_) => {
+                log_to_file("Migration: vkd3d-proton lanes missing — M12 fell back to DXMT backend");
+                "dxmt".to_string()
+            },
+            Err(e) => {
+                log_to_file(&format!("Migration: failed to fall back to DXMT backend: {}", e));
+                "unknown".to_string()
+            },
+        }
+    }
 }
 
 fn repair_runtime_for_migration_verify(ms_dir: &Path) -> Result<bool, String> {
@@ -3709,5 +3741,44 @@ mod tests {
             }
         }
         false
+    }
+
+    #[test]
+    fn reconcile_m12_backend_keeps_vkd3d_default_when_lanes_present() {
+        let home = test_dir("reconcile-vkd3d");
+        crate::installer::write_vkd3d_proton_expected_test_files(&crate::installer::vkd3d_proton_runtime_dir_for_home(
+            &home,
+        ));
+        let mvk = crate::installer::moltenvk_vkmt_runtime_dir_for_home(&home);
+        fs::create_dir_all(&mvk).expect("mvk dir");
+        fs::write(mvk.join("libMoltenVK.dylib"), b"dylib").expect("write dylib");
+        fs::write(mvk.join("MoltenVK_icd.json"), b"{}").expect("write icd");
+        let dxvk = crate::installer::dxvk_runtime_dir_for_home(&home).join("x86_64-windows");
+        fs::create_dir_all(&dxvk).expect("dxvk dir");
+        for dll in ["dxgi.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll"] {
+            fs::write(dxvk.join(dll), dll.as_bytes()).expect("write dll");
+        }
+
+        let decision = reconcile_m12_backend(&home);
+        assert_eq!(decision, "vkd3d-proton");
+
+        // No config written, default stays vkd3d-proton.
+        let configs = home.join(".metalsharp").join("configs");
+        assert!(!configs.join("config.json").exists());
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn reconcile_m12_backend_falls_back_to_dxmt_when_lanes_missing() {
+        let home = test_dir("reconcile-dxmt-fallback");
+
+        let decision = reconcile_m12_backend(&home);
+        assert_eq!(decision, "dxmt");
+
+        // Config now pins dxmt so the default never points at a missing runtime.
+        let configs = home.join(".metalsharp").join("configs");
+        let contents = fs::read_to_string(configs.join("config.json")).expect("config written");
+        assert!(contents.contains("\"m12Backend\": \"dxmt\""), "config must pin dxmt: {}", contents);
+        let _ = fs::remove_dir_all(home);
     }
 }

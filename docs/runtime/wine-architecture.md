@@ -57,7 +57,7 @@ User/runtime state lives beside the runtime root:
 
 | Route | Wine use |
 |---|---|
-| M12 | Wine + DXMT D3D12/D3D11/DXGI |
+| M12 | Wine + vkd3d-proton D3D12 (default, D3D12 → Vulkan → MoltenVK); DXMT fallback via `m12Backend=dxmt` |
 | M11 | Wine + DXMT D3D11/DXGI |
 | M10 | Wine + DXMT D3D10/D3D11/DXGI |
 | M9 | Wine + D3D9 Metal under the DXMT launch family |
@@ -82,12 +82,17 @@ M10 deploys Wine's public `d3d10.dll` and `d3d10_1.dll` entrypoints for D3D10 im
 M12:
 
 ```text
-d3d12.dll
-d3d11.dll
-dxgi.dll
-d3d10core.dll
-winemetal.dll
+d3d12.dll          (vkd3d-proton forwarder)
+d3d12core.dll      (vkd3d-proton implementation)
+dxgi.dll           (DXVK, shared DXGI per vkd3d-proton design)
+nvapi64.dll        (optional stub)
+nvngx.dll          (optional stub)
 ```
+
+The vkd3d-proton stack translates D3D12 to Vulkan and runs on the VKMT-patched
+MoltenVK (Vulkan-on-Metal); `VK_ICD_FILENAMES` pins the runtime ICD. The
+legacy DXMT M12 set (winemetal.dll/d3d11/d3d10core/dxgi_dxmt) is deployed only
+when `m12Backend=dxmt` is set in `~/.metalsharp/configs/config.json`.
 
 M9:
 
