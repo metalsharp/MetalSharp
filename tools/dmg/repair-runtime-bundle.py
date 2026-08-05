@@ -34,11 +34,25 @@ def require_host_runtime(host_dir: Path) -> None:
         raise FileNotFoundError(f"missing required non-empty host runtime library; checked {names}")
 
 
+INPUT_SHIM_DLLS = [
+    "dinput.dll",
+    "dinput8.dll",
+    "xinput1_1.dll",
+    "xinput1_2.dll",
+    "xinput1_3.dll",
+    "xinput1_4.dll",
+    "xinput9_1_0.dll",
+]
+
+
 def require_metalsharp_lib(lib_dir: Path) -> None:
     require_file(
         lib_dir / "x86_64-windows" / "metalsharp_ntdll_hook.dll",
         "MetalSharp ntdll hook DLL",
     )
+    for arch in ("x86_64-windows", "i386-windows"):
+        for dll in INPUT_SHIM_DLLS:
+            require_file(lib_dir / arch / dll, f"controller input shim {dll} ({arch})")
 
 
 def copy_tree(src: Path, dst: Path) -> None:

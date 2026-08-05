@@ -359,9 +359,19 @@ fn find_mono() -> Result<String, Box<dyn std::error::Error>> {
 
 fn find_wine() -> Result<String, Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
-
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
-    let ms_wine = crate::platform::runtime_wine_binary(&ms_root);
+    find_wine_at(&ms_root)
+}
+
+/// Path-based variant for tests: resolves the runtime strictly under
+/// `home/.metalsharp` without consulting the process-global METALSHARP_HOME
+/// env var (which races under parallel test execution).
+fn find_wine_for(home: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    find_wine_at(&home.join(".metalsharp").join("runtime").join("wine"))
+}
+
+fn find_wine_at(ms_root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let ms_wine = crate::platform::runtime_wine_binary(ms_root);
     if ms_wine.exists() {
         return Ok(ms_wine.to_string_lossy().to_string());
     }
@@ -528,16 +538,6 @@ mod tests {
         assert!(ensure_steam_env_handoff_supported(false, &env).is_ok());
     }
 
-    fn with_ms_home(temp: &std::path::Path, f: impl FnOnce()) {
-        let prev = std::env::var_os("METALSHARP_HOME");
-        std::env::set_var("METALSHARP_HOME", temp);
-        f();
-        match prev {
-            Some(v) => std::env::set_var("METALSHARP_HOME", v),
-            None => std::env::remove_var("METALSHARP_HOME"),
-        }
-    }
-
     #[test]
     fn controller_input_defaults_to_off_when_unset_or_unknown() {
         let temp = std::env::temp_dir().join(format!("ms-controller-default-{}", std::process::id()));
@@ -612,13 +612,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp);
         std::fs::create_dir_all(&temp).unwrap();
 
-        with_ms_home(&temp, || {
-            let result = find_wine();
-            let err = result.expect_err("find_wine must fail when MS runtime is missing");
-            let msg = err.to_string();
-            assert!(msg.contains("run setup"), "error must direct user to setup: {}", msg);
-            assert!(!msg.contains("wine not found"), "error must not be the old generic message");
-        });
+        let result = find_wine_for(&temp);
+        let err = result.expect_err("find_wine must fail when MS runtime is missing");
+        let msg = err.to_string();
+        assert!(msg.contains("run setup"), "error must direct user to setup: {}", msg);
+        assert!(!msg.contains("wine not found"), "error must not be the old generic message");
 
         let _ = std::fs::remove_dir_all(&temp);
     }
@@ -627,7 +625,7 @@ mod tests {
     fn find_wine_returns_ms_runtime_when_present() {
         let temp = std::env::temp_dir().join(format!("ms-findwine-present-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp);
-        let bin = temp.join("runtime").join("wine").join("bin");
+        let bin = temp.join(".metalsharp").join("runtime").join("wine").join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let wrapper = bin.join("metalsharp-wine");
         std::fs::write(&wrapper, "#!/bin/sh\n").unwrap();
@@ -637,10 +635,8 @@ mod tests {
             std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
 
-        with_ms_home(&temp, || {
-            let found = find_wine().expect("find_wine must return the MS runtime wrapper");
-            assert_eq!(found, wrapper.to_string_lossy().to_string());
-        });
+        let found = find_wine_for(&temp).expect("find_wine must return the MS runtime wrapper");
+        assert_eq!(found, wrapper.to_string_lossy().to_string());
 
         let _ = std::fs::remove_dir_all(&temp);
     }
