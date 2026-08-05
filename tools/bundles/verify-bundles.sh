@@ -153,7 +153,21 @@ verify_runtime_core() {
     runtime/host/HostRuntimeABI.h \
     runtime/host/libmetalsharp_host_runtime.dylib \
     runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll \
-    runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll
+    runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll \
+    runtime/wine/lib/metalsharp/x86_64-windows/dinput.dll \
+    runtime/wine/lib/metalsharp/x86_64-windows/dinput8.dll \
+    runtime/wine/lib/metalsharp/x86_64-windows/xinput1_1.dll \
+    runtime/wine/lib/metalsharp/x86_64-windows/xinput1_2.dll \
+    runtime/wine/lib/metalsharp/x86_64-windows/xinput1_3.dll \
+    runtime/wine/lib/metalsharp/x86_64-windows/xinput1_4.dll \
+    runtime/wine/lib/metalsharp/x86_64-windows/xinput9_1_0.dll \
+    runtime/wine/lib/metalsharp/i386-windows/dinput.dll \
+    runtime/wine/lib/metalsharp/i386-windows/dinput8.dll \
+    runtime/wine/lib/metalsharp/i386-windows/xinput1_1.dll \
+    runtime/wine/lib/metalsharp/i386-windows/xinput1_2.dll \
+    runtime/wine/lib/metalsharp/i386-windows/xinput1_3.dll \
+    runtime/wine/lib/metalsharp/i386-windows/xinput1_4.dll \
+    runtime/wine/lib/metalsharp/i386-windows/xinput9_1_0.dll
 }
 
 verify_graphics_core() {
