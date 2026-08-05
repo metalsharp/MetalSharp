@@ -45,7 +45,14 @@ D3D12 application -> vkd3d-proton 3.1.0 -> Vulkan loader -> patched MoltenVK 1.4
 
 ## 3. Key architecture facts driving the implementation
 
-1. **vkd3d-proton win64-filtered does NOT ship its own dxgi** — DXGI for M12 must come from **DXVK's x86_64 dxgi.dll** (verified: no `dxgi*` under the vkd3d build libs).
+1. **vkd3d-proton does NOT ship dxgi — by design.** Verified against the
+   vkd3d-proton 3.1.0 source tree (`libs/` = d3d12, d3d12core, vkd3d,
+   vkd3d-common, vkd3d-shader — no dxgi dir) and its README: *"vkd3d-proton
+   does not supply the necessary DXGI components on its own. Instead, DXVK
+   (2.1+) and vkd3d-proton share a DXGI implementation."* So M12's DXGI
+   comes from **DXVK's x86_64 dxgi.dll** — already wired into the M12 deploy
+   list (`lib/dxvk/x86_64-windows/dxgi.dll`) and the bundle requirements.
+   No custom dxgi needs to be built.
 2. **Runtime PE layout is x86_64-windows / i386-windows** — the correct vkd3d-proton build is **build-vkmt-win64-filtered** (x86-64), NOT build-vkmt-arm64-clang (AArch64, used by VKMT's own arm64-native Wine, not MetalSharp's current x86_64-windows runtime).
 3. **VKMT MoltenVK is a universal dylib** (x86_64+arm64) — fits MetalSharp's `lib/wine/x86_64-unix` and `i386-unix` needs.
 4. **ICD JSON** ships with the package; `fix_moltenvk_icd_paths` already rewrites `library_path` — extend it to prefer the VKMT dylib lane.
