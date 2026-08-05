@@ -66,3 +66,6 @@ vkd3d-proton-reference/
 *.dmg
 *.pkg
 *.app/
+
+# Hermes local plans (not part of the repo)
+.hermes/
