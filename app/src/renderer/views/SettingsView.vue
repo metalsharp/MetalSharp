@@ -41,6 +41,7 @@ const shaderCache = ref<CacheSummary | null>(null);
 const pipelineCache = ref<CacheSummary | null>(null);
 const apiKeyInput = ref("");
 const graphicsRuntimeLogs = ref(false);
+const m12Backend = ref<"vkd3d-proton" | "dxmt">("vkd3d-proton");
 
 interface WineMonoStatus {
   latestVersion: string;
@@ -70,7 +71,14 @@ async function refreshSteamMonoStatus() {
 async function upgradeSteamMono() {
   steamMonoLoading.value = true;
   // Short timeout — the backend now returns immediately (kicks off download or launches installer).
-  const result = await api<{ ok: boolean; pid?: number; alreadyInstalled?: boolean; downloading?: boolean; error?: string; status?: WineMonoStatus }>("POST", "/wine-mono/install", { prefix: "steam" }, 30 * 1000);
+  const result = await api<{
+    ok: boolean;
+    pid?: number;
+    alreadyInstalled?: boolean;
+    downloading?: boolean;
+    error?: string;
+    status?: WineMonoStatus;
+  }>("POST", "/wine-mono/install", { prefix: "steam" }, 30 * 1000);
   steamMonoLoading.value = false;
   if (result?.ok) {
     if (result.alreadyInstalled) {
@@ -145,13 +153,18 @@ onMounted(async () => {
   void refreshSteamMonoStatus();
 });
 
-onUnmounted(() => { stopSteamMonoPoll(); });
+onUnmounted(() => {
+  stopSteamMonoPoll();
+});
 
 async function refreshConfig() {
   const result = await api<AppConfig>("GET", "/config");
   if (result?.ok) {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
+    if (result.m12Backend === "vkd3d-proton" || result.m12Backend === "dxmt") {
+      m12Backend.value = result.m12Backend;
+    }
   }
 }
 
@@ -366,7 +379,8 @@ function toggleLowPerformanceMode(enabled: boolean) {
 }
 
 async function forceKillProcesses() {
-  if (!confirm("Force kill MetalSharp Wine/runtime processes? This can stop active games, installers, and downloads.")) return;
+  if (!confirm("Force kill MetalSharp Wine/runtime processes? This can stop active games, installers, and downloads."))
+    return;
   const result = await api<{
     ok: boolean;
     terminated?: unknown[];
@@ -380,7 +394,10 @@ async function forceKillProcesses() {
   }
   const count = (result.terminated?.length ?? 0) + (result.killed?.length ?? 0);
   if (result.ok) {
-    toast.show(count > 0 ? `Force killed ${count} process${count === 1 ? "" : "es"}` : "No MetalSharp runtime processes found", "success");
+    toast.show(
+      count > 0 ? `Force killed ${count} process${count === 1 ? "" : "es"}` : "No MetalSharp runtime processes found",
+      "success",
+    );
   } else {
     toast.show(result.error ?? `Force kill completed with ${result.errors?.length ?? 0} error(s)`, "error");
   }
@@ -394,12 +411,36 @@ async function toggleGraphicsRuntimeLogs(enabled: boolean) {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
     toast.show(
-      graphicsRuntimeLogs.value ? "Graphics runtime logs enabled for future launches" : "Graphics runtime logs disabled",
+      graphicsRuntimeLogs.value
+        ? "Graphics runtime logs enabled for future launches"
+        : "Graphics runtime logs disabled",
       "success",
     );
   } else {
     graphicsRuntimeLogs.value = previous;
     toast.show("Failed to save graphics logging setting", "error");
+  }
+}
+
+async function setM12Backend(backend: "vkd3d-proton" | "dxmt") {
+  if (backend === m12Backend.value) return;
+  const previous = m12Backend.value;
+  m12Backend.value = backend;
+  const result = await api<AppConfig>("POST", "/config", { m12Backend: backend });
+  if (result?.ok) {
+    config.value = result;
+    if (result.m12Backend === "vkd3d-proton" || result.m12Backend === "dxmt") {
+      m12Backend.value = result.m12Backend;
+    }
+    toast.show(
+      m12Backend.value === "vkd3d-proton"
+        ? "M12 will use vkd3d-proton (D3D12 -> Vulkan -> MoltenVK) on next launch"
+        : "M12 will fall back to DXMT on next launch",
+      "success",
+    );
+  } else {
+    m12Backend.value = previous;
+    toast.show("Failed to save M12 backend setting", "error");
   }
 }
 
@@ -509,7 +550,9 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">Force Kill Processes</div>
-          <div class="settings-desc">Destructively stops MetalSharp Wine/runtime helper processes while keeping this app and backend alive.</div>
+          <div class="settings-desc">
+            Destructively stops MetalSharp Wine/runtime helper processes while keeping this app and backend alive.
+          </div>
         </div>
         <div class="settings-value">
           <button class="btn btn-danger btn-sm" @click="forceKillProcesses">Force Kill Processes</button>
@@ -518,7 +561,9 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">Low Performance Mode</div>
-          <div class="settings-desc">Disables blur, glass, glow, and heavy motion while preserving layout and essential progress updates.</div>
+          <div class="settings-desc">
+            Disables blur, glass, glow, and heavy motion while preserving layout and essential progress updates.
+          </div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="lowPerformanceMode ? 'badge-warn' : 'badge-ok'">
@@ -554,7 +599,8 @@ function uninstallMetalsharp() {
         <div>
           <div class="settings-label">Graphics Runtime Logs</div>
           <div class="settings-desc">
-            Opt in to DXMT graphics logs for future launches. Off by default so M12 games do not emit runtime logs unless requested.
+            Opt in to DXMT graphics logs for future launches. Off by default so M12 games do not emit runtime logs
+            unless requested.
           </div>
         </div>
         <div class="settings-value">
@@ -571,6 +617,28 @@ function uninstallMetalsharp() {
           </label>
         </div>
       </div>
+      <div v-if="developerMode" class="settings-row">
+        <div>
+          <div class="settings-label">M12 Graphics Backend</div>
+          <div class="settings-desc">
+            D3D12 pipeline backend. vkd3d-proton (default) routes D3D12 through Vulkan and the VKMT MoltenVK stack; DXMT
+            is the legacy fallback. Applies on next launch.
+          </div>
+        </div>
+        <div class="settings-value">
+          <span class="badge" :class="m12Backend === 'vkd3d-proton' ? 'badge-ok' : 'badge-warn'">
+            {{ m12Backend === "vkd3d-proton" ? "vkd3d-proton" : "DXMT" }}
+          </span>
+          <label class="settings-toggle toggle-label" aria-label="M12 Graphics Backend">
+            <input
+              type="checkbox"
+              :checked="m12Backend === 'dxmt'"
+              @change="setM12Backend(($event.target as HTMLInputElement).checked ? 'dxmt' : 'vkd3d-proton')"
+            />
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -582,7 +650,9 @@ function uninstallMetalsharp() {
             Download and install Wine Mono {{ steamMonoStatus.latestVersion }} into the Steam prefix.
             <span v-if="steamMonoStatus.installed">Installed: v{{ steamMonoStatus.installedVersion }}.</span>
             <span v-else>No Wine Mono installed.</span>
-            <span v-if="steamMonoStatus.downloadError" class="download-error">Download failed: {{ steamMonoStatus.downloadError }}.</span>
+            <span v-if="steamMonoStatus.downloadError" class="download-error"
+              >Download failed: {{ steamMonoStatus.downloadError }}.</span
+            >
             The installer runs interactively in a Wine window.
           </div>
         </div>
@@ -595,7 +665,12 @@ function uninstallMetalsharp() {
             {{ steamMonoButtonLabel() }}
           </button>
           <div v-if="steamMonoStatus.downloading && steamMonoStatus.downloadTotal > 0" class="mono-progress-bar">
-            <div class="mono-progress-fill" :style="{ width: Math.round((steamMonoStatus.downloadBytes / steamMonoStatus.downloadTotal) * 100) + '%' }"></div>
+            <div
+              class="mono-progress-fill"
+              :style="{
+                width: Math.round((steamMonoStatus.downloadBytes / steamMonoStatus.downloadTotal) * 100) + '%',
+              }"
+            ></div>
           </div>
         </div>
       </div>
@@ -715,7 +790,8 @@ function uninstallMetalsharp() {
         <div>
           <div class="settings-label">Uninstall MetalSharp</div>
           <div class="settings-desc">
-            Permanently deletes all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings. The app will close after cleanup.
+            Permanently deletes all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and
+            settings. The app will close after cleanup.
           </div>
         </div>
         <div class="settings-value">
