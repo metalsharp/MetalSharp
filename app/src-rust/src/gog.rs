@@ -572,7 +572,7 @@ fn initialize_prefix() -> Result<(), String> {
         .env("WINEPREFIX", prefix.to_string_lossy().to_string())
         .env("WINEMSYNC", "1")
         .env("WINEDEBUG", "-all")
-        .env("MS_FWD_COMPAT_GL_CTX", "1")
+        .env_remove("MS_FWD_COMPAT_GL_CTX")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     crate::platform::set_runtime_library_env(&mut command, &wine_root());
