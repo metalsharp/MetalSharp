@@ -189,9 +189,15 @@ fn spawn_and_reap(mut cmd: Command) -> Result<u32, Box<dyn std::error::Error>> {
 }
 
 pub fn get_config() -> Value {
+    get_config_for_home(&dirs::home_dir().unwrap_or_default())
+}
+
+/// Path-based variant (testable without touching the global METALSHARP_HOME).
+pub fn get_config_for_home(home: &Path) -> Value {
     let native_available = find_metalsharp_native().is_ok();
     let mono_available = find_mono().is_ok();
     let graphics_runtime_logs = graphics_runtime_logs_enabled();
+    let controller_input = controller_input_mode_for(home);
 
     json!({
         "ok": true,
@@ -199,7 +205,35 @@ pub fn get_config() -> Value {
         "mono_available": mono_available,
         "graphicsRuntimeLogs": graphics_runtime_logs,
         "graphics_runtime_logs": graphics_runtime_logs,
+        "controllerInput": controller_input,
     })
+}
+
+/// Read the persisted controller input shim mode. Valid values are
+/// `"off"`, `"x"` (XInput shims), and `"d"` (DInput shims); anything else
+/// (missing, empty, or unknown) resolves to `"off"` so the selector is
+/// off by default.
+pub fn controller_input_mode() -> String {
+    controller_input_mode_for(&dirs::home_dir().unwrap_or_default())
+}
+
+/// Path-based variant (testable without touching the global METALSHARP_HOME).
+pub fn controller_input_mode_for(home: &Path) -> String {
+    read_config_string_for_home(home, "controllerInput")
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| matches!(v.as_str(), "off" | "x" | "d"))
+        .unwrap_or_else(|| "off".to_string())
+}
+
+fn read_config_string(key: &str) -> Option<String> {
+    read_config_string_for_home(&dirs::home_dir()?, key)
+}
+
+fn read_config_string_for_home(home: &Path, key: &str) -> Option<String> {
+    let path = config_path_for_home_unenv(home);
+    let contents = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+    value.get(key).and_then(|v| v.as_str()).map(str::to_string)
 }
 
 pub fn graphics_runtime_logs_enabled() -> bool {
@@ -231,6 +265,13 @@ fn truthy(value: &str) -> bool {
 
 fn config_path_for_home(home: &Path) -> PathBuf {
     crate::platform::metalsharp_home_dir_for(home).join("configs").join("config.json")
+}
+
+/// Env-independent config path: joins `home/.metalsharp` directly instead of
+/// going through `metalsharp_home_dir_for`, which honors the global
+/// METALSHARP_HOME env var (racy under parallel tests).
+fn config_path_for_home_unenv(home: &Path) -> PathBuf {
+    home.join(".metalsharp").join("configs").join("config.json")
 }
 
 fn find_metalsharp_native() -> Result<String, Box<dyn std::error::Error>> {
@@ -373,7 +414,12 @@ pub fn ensure_wine_prefix(prefix: &PathBuf) -> Result<(), Box<dyn std::error::Er
 
 pub fn set_config(body: &Map<String, Value>) -> Result<Value, Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
-    let path = config_path_for_home(&home);
+    set_config_for_home(&home, body)
+}
+
+/// Path-based variant (testable without touching the global METALSHARP_HOME).
+pub fn set_config_for_home(home: &Path, body: &Map<String, Value>) -> Result<Value, Box<dyn std::error::Error>> {
+    let path = config_path_for_home_unenv(home);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -393,8 +439,15 @@ pub fn set_config(body: &Map<String, Value>) -> Result<Value, Box<dyn std::error
         cfg.insert("graphics_runtime_logs".into(), json!(value));
     }
 
+    if let Some(value) = body.get("controllerInput").and_then(|v| v.as_str()) {
+        let normalized = value.trim().to_ascii_lowercase();
+        if matches!(normalized.as_str(), "off" | "x" | "d") {
+            cfg.insert("controllerInput".into(), json!(normalized));
+        }
+    }
+
     std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?;
-    Ok(get_config())
+    Ok(get_config_for_home(home))
 }
 
 fn launch_via_wine(exe_path: &str) -> Result<u32, Box<dyn std::error::Error>> {
@@ -483,6 +536,71 @@ mod tests {
             Some(v) => std::env::set_var("METALSHARP_HOME", v),
             None => std::env::remove_var("METALSHARP_HOME"),
         }
+    }
+
+    #[test]
+    fn controller_input_defaults_to_off_when_unset_or_unknown() {
+        let temp = std::env::temp_dir().join(format!("ms-controller-default-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        // No config file at all -> off
+        assert_eq!(controller_input_mode_for(&temp), "off");
+
+        // Unknown / invalid value -> off
+        let configs = temp.join(".metalsharp").join("configs");
+        std::fs::create_dir_all(&configs).unwrap();
+        std::fs::write(configs.join("config.json"), r#"{"controllerInput": "bogus"}"#).unwrap();
+        assert_eq!(controller_input_mode_for(&temp), "off");
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn controller_input_accepts_x_d_off() {
+        let temp = std::env::temp_dir().join(format!("ms-controller-modes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let configs = temp.join(".metalsharp").join("configs");
+        std::fs::create_dir_all(&configs).unwrap();
+
+        for (raw, expected) in [("x", "x"), ("X", "x"), ("d", "d"), ("off", "off"), (" OFF ", "off")] {
+            std::fs::write(configs.join("config.json"), serde_json::json!({ "controllerInput": raw }).to_string())
+                .unwrap();
+            assert_eq!(controller_input_mode_for(&temp), expected, "raw={raw}");
+        }
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn set_config_persists_and_whitelists_controller_input() {
+        let temp = std::env::temp_dir().join(format!("ms-controller-set-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let mut body = serde_json::Map::new();
+        body.insert("controllerInput".into(), json!("x"));
+        let result = set_config_for_home(&temp, &body).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("x"));
+
+        // Invalid values are rejected (not persisted), stay off.
+        let mut bad = serde_json::Map::new();
+        bad.insert("controllerInput".into(), json!("hax"));
+        let result = set_config_for_home(&temp, &bad).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("x"));
+
+        // Switching to d works, then back to off.
+        let mut d = serde_json::Map::new();
+        d.insert("controllerInput".into(), json!("d"));
+        let result = set_config_for_home(&temp, &d).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("d"));
+
+        let mut off = serde_json::Map::new();
+        off.insert("controllerInput".into(), json!("off"));
+        let result = set_config_for_home(&temp, &off).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("off"));
+
+        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]

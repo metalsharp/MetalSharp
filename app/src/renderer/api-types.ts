@@ -33,6 +33,7 @@ interface AppConfig {
   mono_available?: boolean;
   graphicsRuntimeLogs?: boolean;
   graphics_runtime_logs?: boolean;
+  controllerInput?: "off" | "x" | "d";
 }
 
 interface UpdateStatus {
