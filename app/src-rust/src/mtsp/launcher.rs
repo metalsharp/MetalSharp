@@ -1017,7 +1017,13 @@ fn deploy_prefix_route_dlls(
         }
         if !matches!(
             deploy.filename.as_str(),
-            "d3d12.dll" | "dxgi.dll" | "dxgi_dxmt.dll" | "d3d11.dll" | "d3d10core.dll" | "winemetal.dll"
+            "d3d12.dll"
+                | "d3d12core.dll"
+                | "dxgi.dll"
+                | "dxgi_dxmt.dll"
+                | "d3d11.dll"
+                | "d3d10core.dll"
+                | "winemetal.dll"
         ) {
             continue;
         }
@@ -5688,6 +5694,126 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             let node = get_pipeline(pipeline_id);
             assert!(node.uses_winedllpath_routing(), "{:?} should use WINEDLLPATH routing", pipeline_id);
         }
+    }
+
+    /// End-to-end M12 vkd3d-proton evidence with the REAL VKMT binaries.
+    /// Runs only when METALSHARP_VKD3D_SOURCE points at a VKMT checkout
+    /// (skipped in CI); stages the actual win64-filtered d3d12/d3d12core,
+    /// DXVK dxgi, and VKMT MoltenVK into a temp home, then drives the real
+    /// launcher env builder + prefix route deployment and asserts the
+    /// vkd3d-proton wiring (no DXMT env, pinned Vulkan ICD, d3d12core.dll
+    /// actually copied into system32).
+    #[test]
+    fn m12_vkd3d_real_binaries_launch_env_and_prefix_route() {
+        let vkd3d_src = std::env::var("METALSHARP_VKD3D_SOURCE").unwrap_or_default();
+        let dxvk_src = std::env::var("METALSHARP_DXVK_SOURCE").unwrap_or_default();
+        let mvk_src = std::env::var("METALSHARP_MOLTENVK_SOURCE").unwrap_or_default();
+        if vkd3d_src.is_empty() || dxvk_src.is_empty() || mvk_src.is_empty() {
+            eprintln!("SKIP: METALSHARP_VKD3D_SOURCE/DXVK_SOURCE/MOLTENVK_SOURCE not set (CI has no VKMT checkout)");
+            return;
+        }
+
+        let home = test_dir("m12-vkd3d-e2e");
+        let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+        let vkd3d_dir = ms_root.join("lib").join("vkd3d-proton").join("x86_64-windows");
+        let dxvk_dir = ms_root.join("lib").join("dxvk").join("x86_64-windows");
+        let mvk_dir = ms_root.join("lib").join("moltenvk-vkmt");
+        let icd_dir = ms_root.join("etc").join("vulkan").join("icd.d");
+        std::fs::create_dir_all(&vkd3d_dir).unwrap();
+        std::fs::create_dir_all(&dxvk_dir).unwrap();
+        std::fs::create_dir_all(&mvk_dir).unwrap();
+        std::fs::create_dir_all(&icd_dir).unwrap();
+
+        // Real VKMT binaries (the exact files the graphics bundle will carry).
+        std::fs::copy(PathBuf::from(&vkd3d_src).join("x86_64-windows/d3d12.dll"), vkd3d_dir.join("d3d12.dll")).unwrap();
+        std::fs::copy(PathBuf::from(&vkd3d_src).join("x86_64-windows/d3d12core.dll"), vkd3d_dir.join("d3d12core.dll"))
+            .unwrap();
+        std::fs::copy(PathBuf::from(&dxvk_src).join("x86_64-windows/dxgi.dll"), dxvk_dir.join("dxgi.dll")).unwrap();
+        std::fs::copy(PathBuf::from(&mvk_src).join("libMoltenVK.dylib"), mvk_dir.join("libMoltenVK.dylib")).unwrap();
+        std::fs::copy(PathBuf::from(&mvk_src).join("MoltenVK_icd.json"), mvk_dir.join("MoltenVK_icd.json")).unwrap();
+
+        // The pinned-hash contract must hold for the real binaries. The
+        // production hash constants are cfg(not(test)) so the E2E test pins
+        // the documented production sha256 values directly (they match the
+        // VKMT win64-filtered builds).
+        let d3d12_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12.dll")).expect("d3d12 hash");
+        assert_eq!(
+            d3d12_hash, "15a7ad7af07120c79075dc1bc08284731c4ca53f82bb81002a14a7b5701cb535",
+            "d3d12.dll must be the pinned VKMT win64-filtered build"
+        );
+        let core_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12core.dll")).expect("d3d12core hash");
+        assert_eq!(
+            core_hash, "43b92ad53843c819443b1c5d21930c36fe3e6cc7a893df6b2b18528477259631",
+            "d3d12core.dll must be the pinned VKMT win64-filtered build"
+        );
+        assert!(crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home));
+        assert!(dxvk_dir.join("dxgi.dll").is_file(), "M12's DXVK dxgi.dll must be staged");
+
+        // Env wiring: M12 env must carry the vkd3d-proton lane, the pinned
+        // Vulkan ICD, and zero DXMT keys.
+        let node = get_pipeline(PipelineId::M12);
+        assert_eq!(node.backend, "vkd3d-proton");
+        let env = steam_pipeline_env_pairs(&home, node, 1583230);
+        let keys: std::collections::HashSet<_> = env.iter().map(|(key, _)| key.as_str()).collect();
+        assert!(keys.contains("VKD3D_SHADER_CACHE_PATH"));
+        assert!(!keys.contains("DXMT_SHADER_CACHE_PATH"));
+        assert!(!keys.contains("DXMT_CONFIG_FILE"));
+        assert!(!keys.contains("DXMT_WINEMETAL_UNIXLIB"));
+        let winedllpath = env_value(&env, "WINEDLLPATH").unwrap_or_default();
+        assert!(winedllpath.contains("vkd3d-proton/x86_64-windows"));
+        assert!(winedllpath.contains("dxvk/x86_64-windows"));
+        let overrides = env_value(&env, "WINEDLLOVERRIDES").unwrap_or_default();
+        assert!(overrides.contains("d3d12"));
+        assert!(overrides.contains("d3d12core"));
+
+        // Prefix route deployment: d3d12core.dll (the real impl the forwarder
+        // needs) must actually land in system32.
+        let game_dir = home.join("games").join("1583230");
+        let exe_dir = game_dir.join("bin");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let system32 = home.join("prefix").join("drive_c").join("windows").join("system32");
+        let recipe = recipe::LaunchRecipe {
+            appid: 1583230,
+            pipeline: PipelineId::M12,
+            pipeline_name: "M12".into(),
+            backend: "vkd3d-proton".into(),
+            game_dir: Some(game_dir.clone()),
+            exe_path: Some(exe_dir.join("Game.exe")),
+            exe_name: Some("Game.exe".into()),
+            launch_args: Vec::new(),
+            env: Vec::new(),
+            dlls: vec![
+                recipe::RecipeDll {
+                    source_subpath: "lib/vkd3d-proton/x86_64-windows".into(),
+                    filename: "d3d12.dll".into(),
+                    source_path: vkd3d_dir.join("d3d12.dll"),
+                    dest_path: exe_dir.join("d3d12.dll"),
+                    source_present: true,
+                },
+                recipe::RecipeDll {
+                    source_subpath: "lib/vkd3d-proton/x86_64-windows".into(),
+                    filename: "d3d12core.dll".into(),
+                    source_path: vkd3d_dir.join("d3d12core.dll"),
+                    dest_path: exe_dir.join("d3d12core.dll"),
+                    source_present: true,
+                },
+                recipe::RecipeDll {
+                    source_subpath: "lib/dxvk/x86_64-windows".into(),
+                    filename: "dxgi.dll".into(),
+                    source_path: dxvk_dir.join("dxgi.dll"),
+                    dest_path: exe_dir.join("dxgi.dll"),
+                    source_present: true,
+                },
+            ],
+            runtime_assets: Vec::new(),
+            warnings: Vec::new(),
+        };
+        deploy_prefix_route_dlls(&recipe, &home.join("prefix")).expect("prefix route deploy");
+        assert!(system32.join("d3d12.dll").is_file(), "system32 must receive d3d12.dll");
+        assert!(system32.join("d3d12core.dll").is_file(), "system32 must receive d3d12core.dll (vkd3d impl)");
+        assert!(system32.join("dxgi.dll").is_file(), "system32 must receive dxgi.dll");
+
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
