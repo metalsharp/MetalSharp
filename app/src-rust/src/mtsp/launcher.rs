@@ -947,11 +947,19 @@ pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Bo
     let mut manifest_dlls = Vec::new();
     for deploy in &recipe.dlls {
         if !deploy.source_present {
-            let is_optional_stub = recipe.pipeline != PipelineId::M12
-                && (deploy.filename.starts_with("nvapi")
-                    || deploy.filename.starts_with("nvngx")
-                    || deploy.filename.starts_with("atidxx"));
+            // nvapi/nvngx/atidxx are vendor-probe stubs: optional for every
+            // pipeline (M12 included) so a missing stub can never block the
+            // launch — the vkd3d-proton M12 lane shares stubs with dxmt_m12
+            // but that lane is a fallback and may be absent.
+            let is_optional_stub = deploy.filename.starts_with("nvapi")
+                || deploy.filename.starts_with("nvngx")
+                || deploy.filename.starts_with("atidxx");
             if is_optional_stub {
+                eprintln!(
+                    "mtsp: WARNING — optional vendor stub {} missing at {}; skipping",
+                    deploy.filename,
+                    deploy.source_path.display()
+                );
                 continue;
             }
             return Err(format!(
@@ -5190,6 +5198,11 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                     deploy.source_subpath, "lib/dxvk/x86_64-windows",
                     "M12 dxgi.dll must come from the DXVK lane (vkd3d-proton ships no dxgi)"
                 );
+            } else if deploy.filename == "nvapi64.dll" || deploy.filename == "nvngx.dll" {
+                assert_eq!(
+                    deploy.source_subpath, "lib/dxmt_m12/x86_64-windows",
+                    "M12 GPU vendor stubs must come from the shared dxmt_m12 lane (vkd3d-proton ships none)"
+                );
             } else {
                 assert_eq!(
                     deploy.source_subpath, "lib/vkd3d-proton/x86_64-windows",
@@ -5719,10 +5732,12 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let dxvk_dir = ms_root.join("lib").join("dxvk").join("x86_64-windows");
         let mvk_dir = ms_root.join("lib").join("moltenvk-vkmt");
         let icd_dir = ms_root.join("etc").join("vulkan").join("icd.d");
+        let dxmt_m12_dir = ms_root.join("lib").join("dxmt_m12").join("x86_64-windows");
         std::fs::create_dir_all(&vkd3d_dir).unwrap();
         std::fs::create_dir_all(&dxvk_dir).unwrap();
         std::fs::create_dir_all(&mvk_dir).unwrap();
         std::fs::create_dir_all(&icd_dir).unwrap();
+        std::fs::create_dir_all(&dxmt_m12_dir).unwrap();
 
         // Real VKMT binaries (the exact files the graphics bundle will carry).
         std::fs::copy(PathBuf::from(&vkd3d_src).join("x86_64-windows/d3d12.dll"), vkd3d_dir.join("d3d12.dll")).unwrap();
@@ -5731,6 +5746,17 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         std::fs::copy(PathBuf::from(&dxvk_src).join("x86_64-windows/dxgi.dll"), dxvk_dir.join("dxgi.dll")).unwrap();
         std::fs::copy(PathBuf::from(&mvk_src).join("libMoltenVK.dylib"), mvk_dir.join("libMoltenVK.dylib")).unwrap();
         std::fs::copy(PathBuf::from(&mvk_src).join("MoltenVK_icd.json"), mvk_dir.join("MoltenVK_icd.json")).unwrap();
+        // GPU vendor stubs ride in the shared dxmt_m12 lane (vkd3d-proton
+        // ships none); stage them so the node's full deploy list resolves.
+        for stub in ["nvapi64.dll", "nvngx.dll"] {
+            let source = crate::installer::dxmt_m12_runtime_artifact_path_for_home(
+                &dirs::home_dir().unwrap_or_default(),
+                &format!("x86_64-windows/{}", stub),
+            );
+            if source.is_file() {
+                std::fs::copy(&source, dxmt_m12_dir.join(stub)).unwrap();
+            }
+        }
 
         // The pinned-hash contract must hold for the real binaries. The
         // production hash constants are cfg(not(test)) so the E2E test pins
@@ -5765,6 +5791,11 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let overrides = env_value(&env, "WINEDLLOVERRIDES").unwrap_or_default();
         assert!(overrides.contains("d3d12"));
         assert!(overrides.contains("d3d12core"));
+        // VKD3D_SHADER_CACHE_PATH must be the absolute isolated cache dir, not
+        // a relative value from the node env_vars (which would break isolation).
+        let cache_path = env_value(&env, "VKD3D_SHADER_CACHE_PATH").unwrap_or_default();
+        assert!(cache_path.starts_with('/'), "VKD3D_SHADER_CACHE_PATH must be absolute, got {:?}", cache_path);
+        assert!(!cache_path.ends_with("/m12"), "VKD3D_SHADER_CACHE_PATH must not be the relative m12 value");
 
         // Prefix route deployment: d3d12core.dll (the real impl the forwarder
         // needs) must actually land in system32.
@@ -5772,6 +5803,30 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let exe_dir = game_dir.join("bin");
         std::fs::create_dir_all(&exe_dir).unwrap();
         let system32 = home.join("prefix").join("drive_c").join("windows").join("system32");
+
+        // Build the recipe from the NODE'S REAL deploy list (catches
+        // deploy-list rot: missing sources, wrong lanes, missing stubs).
+        let dlls = crate::mtsp::recipe::selected_deploy_dlls_for_pipeline(
+            &game_dir,
+            Some(&exe_dir.join("Game.exe")),
+            node,
+            &ms_root,
+        );
+        let filenames: Vec<&str> = dlls.iter().map(|d| d.filename.as_str()).collect();
+        assert!(filenames.contains(&"d3d12.dll"), "deploy list must carry d3d12.dll: {:?}", filenames);
+        assert!(filenames.contains(&"d3d12core.dll"), "deploy list must carry d3d12core.dll: {:?}", filenames);
+        assert!(filenames.contains(&"dxgi.dll"), "deploy list must carry dxgi.dll: {:?}", filenames);
+        // Every deploy source must resolve (staged real binaries + stubs).
+        for d in &dlls {
+            assert!(
+                d.source_present,
+                "deploy source {} must resolve for {}: {}",
+                d.filename,
+                d.source_subpath,
+                d.source_path.display()
+            );
+        }
+
         let recipe = recipe::LaunchRecipe {
             appid: 1583230,
             pipeline: PipelineId::M12,
@@ -5782,32 +5837,14 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             exe_name: Some("Game.exe".into()),
             launch_args: Vec::new(),
             env: Vec::new(),
-            dlls: vec![
-                recipe::RecipeDll {
-                    source_subpath: "lib/vkd3d-proton/x86_64-windows".into(),
-                    filename: "d3d12.dll".into(),
-                    source_path: vkd3d_dir.join("d3d12.dll"),
-                    dest_path: exe_dir.join("d3d12.dll"),
-                    source_present: true,
-                },
-                recipe::RecipeDll {
-                    source_subpath: "lib/vkd3d-proton/x86_64-windows".into(),
-                    filename: "d3d12core.dll".into(),
-                    source_path: vkd3d_dir.join("d3d12core.dll"),
-                    dest_path: exe_dir.join("d3d12core.dll"),
-                    source_present: true,
-                },
-                recipe::RecipeDll {
-                    source_subpath: "lib/dxvk/x86_64-windows".into(),
-                    filename: "dxgi.dll".into(),
-                    source_path: dxvk_dir.join("dxgi.dll"),
-                    dest_path: exe_dir.join("dxgi.dll"),
-                    source_present: true,
-                },
-            ],
+            dlls,
             runtime_assets: Vec::new(),
             warnings: Vec::new(),
         };
+        deploy_recipe_dlls(&recipe).expect("game-dir deploy (full node list)");
+        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "nvapi64.dll", "nvngx.dll"] {
+            assert!(exe_dir.join(dll).is_file(), "game dir must receive {}", dll);
+        }
         deploy_prefix_route_dlls(&recipe, &home.join("prefix")).expect("prefix route deploy");
         assert!(system32.join("d3d12.dll").is_file(), "system32 must receive d3d12.dll");
         assert!(system32.join("d3d12core.dll").is_file(), "system32 must receive d3d12core.dll (vkd3d impl)");

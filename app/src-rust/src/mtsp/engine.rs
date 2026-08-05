@@ -94,16 +94,16 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
                 dest_filename: None,
             },
             DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
-            DllDeploy {
-                source_subpath: "lib/vkd3d-proton/x86_64-windows",
-                filename: "nvapi64.dll",
-                dest_filename: None,
-            },
-            DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "nvngx.dll", dest_filename: None },
+            // GPU vendor stubs: vkd3d-proton ships none (its lane is
+            // d3d12/d3d12core only), so these come from the shared dxmt_m12
+            // lane, which is always staged (hash-pinned, DXMT fallback).
+            DllDeploy { source_subpath: "lib/dxmt_m12/x86_64-windows", filename: "nvapi64.dll", dest_filename: None },
+            DllDeploy { source_subpath: "lib/dxmt_m12/x86_64-windows", filename: "nvngx.dll", dest_filename: None },
         ],
         env_vars: vec![
             EnvVar { key: "VKD3D_LOG_LEVEL", value: "warn" },
-            EnvVar { key: "VKD3D_SHADER_CACHE_PATH", value: "m12" },
+            // VKD3D_SHADER_CACHE_PATH is set to the absolute isolated cache dir
+            // by cache_env_pairs; do not override it with a relative value here.
         ],
         launch_args: vec!["-windowed", "-ResX=1280", "-ResY=720", "-ForceRes"],
         alternatives: vec![PipelineId::M11, PipelineId::M10, PipelineId::M9, PipelineId::Steam, PipelineId::MacSteam],
@@ -789,7 +789,13 @@ mod tests {
         }
         assert!(m12_dlls.contains(&("lib/dxvk/x86_64-windows", "dxgi.dll")));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.source_subpath == "lib/dxmt/x86_64-windows"));
-        assert!(!m12.deploy_dlls.iter().any(|dll| dll.source_subpath == "lib/dxmt_m12/x86_64-windows"));
+        // The only dxmt_m12 lane usage is the GPU vendor stubs (nvapi64/nvngx),
+        // which vkd3d-proton does not ship; everything else must stay isolated.
+        assert!(m12.deploy_dlls.iter().all(|dll| {
+            dll.source_subpath != "lib/dxmt_m12/x86_64-windows"
+                || dll.filename == "nvapi64.dll"
+                || dll.filename == "nvngx.dll"
+        }));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll"));
