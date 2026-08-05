@@ -2,8 +2,9 @@ use serde_json::json;
 use std::cmp::Ordering as CmpOrdering;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 const MIGRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MIGRATE_SCHEMA_VERSION: u64 = 4;
@@ -57,6 +58,9 @@ const MIGRATION_STEAM_METADATA_DENY_NAMES: &[&str] =
     &["cache", "common", "compatdata", "crashes", "depotcache", "downloading", "logs", "shadercache", "Temp", "tmp"];
 const MIGRATION_TOTAL_STEPS: usize = 8;
 const MIGRATION_PRESERVE_TEMP_PREFIX: &str = "metalsharp-migration-preserve-";
+const WINEBOOT_TIMEOUT: Duration = Duration::from_secs(120);
+const WINE_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const WINESERVER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 static MIGRATING: AtomicBool = AtomicBool::new(false);
 
@@ -573,7 +577,12 @@ fn run_migration() {
     );
     match update_existing_wine_prefixes(&ms_dir, step) {
         Ok(updated) => log_to_file(&format!("Migration: wineboot -u completed for {} prefix(es)", updated)),
-        Err(e) => log_to_file(&format!("Migration: wineboot -u failed (non-fatal): {}", e)),
+        Err(e) => {
+            let message = format!("Wine prefix update failed: {}", e);
+            write_migrate_progress("error", step, total_steps, &message, Some(&e));
+            log_to_file(&format!("Migration stopped: {}", message));
+            return;
+        },
     }
     register_external_steam_libraries(&ms_dir);
     clear_steam_crash_marker(&ms_dir);
@@ -1030,13 +1039,16 @@ fn update_existing_wine_prefixes(ms_dir: &Path, step: usize) -> Result<usize, St
             continue;
         }
 
-        run_wineboot_update(&wine, &runtime_wine, &prefix)?;
+        let update_result = run_wineboot_update(&wine, &runtime_wine, &prefix);
 
+        // wineboot can rewrite dosdevices even when it ultimately fails.
+        // Restore the snapshot before propagating its result.
         restore_steam_library_drive_links(&prefix, &steam_library_drive_links);
         restore_prefix_dosdevice_links(&prefix, &all_dosdevice_links);
 
         // Post-check: verify critical dosdevice links survived wineboot.
         verify_prefix_dosdevices_integrity(&prefix);
+        update_result?;
 
         updated += 1;
     }
@@ -1208,7 +1220,110 @@ fn restore_gog_bottle_prefix(bottles_tmp: &Path, bottles: &Path, report: &mut Mi
     );
 }
 
+fn wait_for_child_with_timeout(
+    child: &mut Child,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<Option<ExitStatus>, String> {
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| format!("wait for process: {}", e))? {
+            return Ok(Some(status));
+        }
+
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Ok(None);
+        }
+
+        std::thread::sleep(poll_interval.min(timeout.saturating_sub(elapsed)));
+    }
+}
+
+fn terminate_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn run_wineserver_control(runtime_wine: &Path, prefix: &Path, argument: &str, timeout: Duration) -> Result<(), String> {
+    let wineserver = runtime_wine.join("bin").join("wineserver");
+    if !wineserver.exists() {
+        return Err(format!("Wine server not found at {}", wineserver.display()));
+    }
+
+    let mut command = Command::new(&wineserver);
+    command
+        .arg(argument)
+        .env("WINEPREFIX", prefix.to_string_lossy().to_string())
+        .env("WINEDEBUG", "-all")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    crate::platform::set_runtime_library_env(&mut command, runtime_wine);
+
+    let mut child = command.spawn().map_err(|e| format!("spawn {} {}: {}", wineserver.display(), argument, e))?;
+    match wait_for_child_with_timeout(&mut child, timeout, WINE_PROCESS_POLL_INTERVAL)? {
+        Some(status) if status.success() => Ok(()),
+        Some(status) => Err(format!("{} {} exited with {:?}", wineserver.display(), argument, status.code())),
+        None => {
+            terminate_child(&mut child);
+            Err(format!("{} {} timed out after {} seconds", wineserver.display(), argument, timeout.as_secs()))
+        },
+    }
+}
+
+fn stop_prefix_wine_processes(runtime_wine: &Path, prefix: &Path, timeout: Duration) -> Result<(), String> {
+    let kill_result = run_wineserver_control(runtime_wine, prefix, "-k", timeout);
+    let wait_result = run_wineserver_control(runtime_wine, prefix, "-w", timeout);
+
+    match wait_result {
+        Ok(()) => Ok(()),
+        Err(wait_error) => match kill_result {
+            Ok(()) => Err(wait_error),
+            Err(kill_error) => {
+                Err(format!("kill request failed: {}; shutdown verification failed: {}", kill_error, wait_error))
+            },
+        },
+    }
+}
+
+fn wineboot_failure_after_cleanup(
+    error: String,
+    runtime_wine: &Path,
+    prefix: &Path,
+    cleanup_timeout: Duration,
+) -> String {
+    match stop_prefix_wine_processes(runtime_wine, prefix, cleanup_timeout) {
+        Ok(()) => {
+            log_to_file(&format!("Stopped Wine processes for failed prefix update: {}", prefix.display()));
+            error
+        },
+        Err(cleanup_error) => {
+            let combined = format!("{}; prefix cleanup failed: {}", error, cleanup_error);
+            log_to_file(&combined);
+            combined
+        },
+    }
+}
+
 fn run_wineboot_update(wine: &Path, runtime_wine: &Path, prefix: &Path) -> Result<(), String> {
+    run_wineboot_update_with_timeouts(
+        wine,
+        runtime_wine,
+        prefix,
+        WINEBOOT_TIMEOUT,
+        WINE_PROCESS_POLL_INTERVAL,
+        WINESERVER_CLEANUP_TIMEOUT,
+    )
+}
+
+fn run_wineboot_update_with_timeouts(
+    wine: &Path,
+    runtime_wine: &Path,
+    prefix: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+    cleanup_timeout: Duration,
+) -> Result<(), String> {
     let mut cmd = Command::new(wine);
     cmd.env("WINEPREFIX", prefix.to_string_lossy().to_string())
         .env("WINEDEBUG", "-all")
@@ -1227,31 +1342,29 @@ fn run_wineboot_update(wine: &Path, runtime_wine: &Path, prefix: &Path) -> Resul
         format!("spawn wineboot for {}: {}", prefix.display(), e)
     })?;
 
-    for attempt in 0..240 {
-        if let Some(status) = child.try_wait().map_err(|e| {
-            log_to_file(&format!("Failed to wait for wineboot for {}: {}", prefix.display(), e));
-            format!("wait wineboot for {}: {}", prefix.display(), e)
-        })? {
-            if status.success() {
-                log_to_file(&format!("wineboot -u completed successfully for prefix: {}", prefix.display()));
-                return Ok(());
-            }
+    match wait_for_child_with_timeout(&mut child, timeout, poll_interval) {
+        Err(e) => {
+            terminate_child(&mut child);
+            let error = format!("wait wineboot for {}: {}", prefix.display(), e);
+            log_to_file(&error);
+            Err(wineboot_failure_after_cleanup(error, runtime_wine, prefix, cleanup_timeout))
+        },
+        Ok(Some(status)) if status.success() => {
+            log_to_file(&format!("wineboot -u completed successfully for prefix: {}", prefix.display()));
+            Ok(())
+        },
+        Ok(Some(status)) => {
             let error_msg = format!("wineboot -u failed for {} with exit code: {:?}", prefix.display(), status.code());
             log_to_file(&error_msg);
-            return Err(error_msg);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        if attempt == 120 {
-            log_to_file(&format!("wineboot -u still running after 60 seconds for prefix: {}", prefix.display()));
-        }
+            Err(wineboot_failure_after_cleanup(error_msg, runtime_wine, prefix, cleanup_timeout))
+        },
+        Ok(None) => {
+            let error_msg = format!("wineboot -u timed out ({} seconds) for {}", timeout.as_secs(), prefix.display());
+            log_to_file(&error_msg);
+            terminate_child(&mut child);
+            Err(wineboot_failure_after_cleanup(error_msg, runtime_wine, prefix, cleanup_timeout))
+        },
     }
-
-    let error_msg = format!("wineboot -u timed out (120 seconds) for {}", prefix.display());
-    log_to_file(&error_msg);
-    let _ = child.kill();
-    let _ = child.wait();
-    Err(error_msg)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3089,6 +3202,70 @@ mod tests {
 
         assert!(steam_update_process_alive(prefix, ps));
         assert!(!steam_update_process_alive("/tmp/missing-prefix", ps));
+    }
+
+    #[test]
+    fn timed_out_process_wait_can_be_terminated_and_reaped() {
+        let mut child = Command::new("/bin/sh").args(["-c", "while :; do :; done"]).spawn().expect("spawn busy child");
+
+        let status = wait_for_child_with_timeout(&mut child, Duration::from_millis(25), Duration::from_millis(5))
+            .expect("wait for child");
+
+        assert!(status.is_none());
+        terminate_child(&mut child);
+        assert!(child.try_wait().expect("reap child").is_some());
+    }
+
+    #[test]
+    fn wineboot_timeout_cleanup_targets_only_requested_prefix() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = test_dir("wineboot-timeout-cleanup");
+        let runtime_wine = home.join("runtime").join("wine");
+        let bin = runtime_wine.join("bin");
+        let prefix = home.join("prefix-steam");
+        let calls = home.join("wineserver-calls.txt");
+        fs::create_dir_all(&bin).expect("create Wine bin");
+        fs::create_dir_all(&prefix).expect("create prefix");
+
+        let script = format!("#!/bin/sh\nprintf '%s|%s\\n' \"$WINEPREFIX\" \"$1\" >> '{}'\nexit 0\n", calls.display());
+        let wineserver = bin.join("wineserver");
+        fs::write(&wineserver, script).expect("write fake wineserver");
+        let mut permissions = fs::metadata(&wineserver).expect("read fake wineserver metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&wineserver, permissions).expect("make fake wineserver executable");
+
+        stop_prefix_wine_processes(&runtime_wine, &prefix, Duration::from_secs(1)).expect("stop prefix Wine processes");
+
+        let calls = fs::read_to_string(calls).expect("read wineserver calls");
+        let expected_prefix = prefix.to_string_lossy();
+        assert_eq!(
+            calls.lines().collect::<Vec<_>>(),
+            [format!("{}|-k", expected_prefix), format!("{}|-w", expected_prefix)]
+        );
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn wineboot_cleanup_accepts_no_running_wineserver() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = test_dir("wineboot-no-server");
+        let runtime_wine = home.join("runtime").join("wine");
+        let bin = runtime_wine.join("bin");
+        let prefix = home.join("prefix-steam");
+        fs::create_dir_all(&bin).expect("create Wine bin");
+        fs::create_dir_all(&prefix).expect("create prefix");
+
+        let wineserver = bin.join("wineserver");
+        fs::write(&wineserver, "#!/bin/sh\n[ \"$1\" = \"-w\" ]\n").expect("write fake wineserver");
+        let mut permissions = fs::metadata(&wineserver).expect("read fake wineserver metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&wineserver, permissions).expect("make fake wineserver executable");
+
+        stop_prefix_wine_processes(&runtime_wine, &prefix, Duration::from_secs(1))
+            .expect("no running wineserver is already clean");
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]
