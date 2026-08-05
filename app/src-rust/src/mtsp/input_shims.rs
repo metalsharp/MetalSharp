@@ -48,14 +48,21 @@ pub fn dlls_for_mode(mode: &str) -> &'static [&'static str] {
     }
 }
 
-/// Source directory for the PE shims inside the Wine runtime.
-pub fn shim_source_dir(ms_root: &Path) -> PathBuf {
-    ms_root.join("lib").join("wine").join("x86_64-windows")
+/// Source directories for the PE shims, per target architecture.
+///
+/// Preferred source is the committed `lib/metalsharp/<arch>-windows/` set
+/// (bundled into `runtime/wine/lib/metalsharp/<arch>-windows/` by
+/// create-split-bundles.py, like metalsharp_ntdll_hook.dll), falling back to
+/// the Wine runtime's own PE DLL directory
+/// (`runtime/wine/lib/wine/<arch>-windows/`) for older runtime bundles.
+pub fn shim_source_dirs(ms_root: &Path, arch: &str) -> Vec<PathBuf> {
+    let bundled = ms_root.join("lib").join("metalsharp").join(arch);
+    let runtime = ms_root.join("lib").join("wine").join(arch);
+    vec![bundled, runtime]
 }
 
-fn shim_source_path(ms_root: &Path, dll: &str) -> Option<PathBuf> {
-    let path = shim_source_dir(ms_root).join(dll);
-    path.is_file().then_some(path)
+fn shim_source_path(ms_root: &Path, arch: &str, dll: &str) -> Option<PathBuf> {
+    shim_source_dirs(ms_root, arch).into_iter().map(|dir| dir.join(dll)).find(|p| p.is_file())
 }
 
 fn shim_marker(target_dir: &Path) -> PathBuf {
@@ -132,7 +139,7 @@ pub fn deploy_for_game_with_root(game_dir: &Path, ms_root: &Path, mode: &str) ->
     let originals_dir = originals_dir_for(game_dir);
     let mut deployed = Vec::new();
     for dll in dlls_for_mode(mode) {
-        let Some(source) = shim_source_path(ms_root, dll) else {
+        let Some(source) = shim_source_path(ms_root, "x86_64-windows", dll) else {
             eprintln!("input-shims: source missing for {dll} — skipping");
             continue;
         };
@@ -195,9 +202,9 @@ fn remove_from_prefix_inner(prefix: &Path) {
     let originals_dir = prefix_originals_dir(prefix);
     let targets = prefix_target_dirs(prefix);
     for dll in prefix_deployed_dlls(prefix) {
-        for target in &targets {
+        for (target, arch) in [(&targets[0], "x86_64-windows"), (&targets[1], "i386-windows")] {
             let dest = target.join(&dll);
-            let original = originals_dir.join(&dll);
+            let original = originals_dir.join(arch).join(&dll);
             if original.is_file() {
                 let _ = std::fs::copy(&original, &dest);
             } else {
@@ -233,17 +240,19 @@ pub fn deploy_for_prefix_with_root(prefix: &Path, ms_root: &Path, mode: &str) ->
     let targets = prefix_target_dirs(prefix);
     let mut deployed = Vec::new();
     for dll in dlls_for_mode(mode) {
-        let Some(source) = shim_source_path(ms_root, dll) else {
-            eprintln!("input-shims: source missing for {dll} — skipping");
-            continue;
-        };
-        for target in &targets {
+        // system32 serves 64-bit processes; syswow64 serves 32-bit ones, so
+        // each target gets the matching architecture's DLL.
+        for (target, arch) in [(&targets[0], "x86_64-windows"), (&targets[1], "i386-windows")] {
+            let Some(source) = shim_source_path(ms_root, arch, dll) else {
+                eprintln!("input-shims: source missing for {dll} ({arch}) — skipping");
+                continue;
+            };
             let _ = std::fs::create_dir_all(target);
             let dest = target.join(dll);
             if dest.is_file() {
-                let original = originals_dir.join(dll);
+                let original = originals_dir.join(arch).join(dll);
                 if !original.exists() {
-                    let _ = std::fs::create_dir_all(&originals_dir);
+                    let _ = std::fs::create_dir_all(original.parent().unwrap_or(&originals_dir));
                     let _ = std::fs::copy(&dest, &original);
                 }
             }
@@ -275,12 +284,18 @@ mod tests {
 
     fn fake_runtime(temp: &Path) -> PathBuf {
         // Returns the wine root (…/runtime/wine); shims live under
-        // lib/wine/x86_64-windows inside it.
+        // lib/metalsharp/<arch>-windows (bundled) and
+        // lib/wine/<arch>-windows (runtime fallback) inside it.
         let root = temp.join("runtime").join("wine");
-        let dir = root.join("lib").join("wine").join("x86_64-windows");
-        fs::create_dir_all(&dir).unwrap();
-        for dll in XINPUT_DLLS.iter().chain(DINPUT_DLLS.iter()) {
-            fs::write(dir.join(dll), format!("fake-{dll}")).unwrap();
+        for arch in ["x86_64-windows", "i386-windows"] {
+            let bundled = root.join("lib").join("metalsharp").join(arch);
+            let fallback = root.join("lib").join("wine").join(arch);
+            for dir in [&bundled, &fallback] {
+                fs::create_dir_all(dir).unwrap();
+                for dll in XINPUT_DLLS.iter().chain(DINPUT_DLLS.iter()) {
+                    fs::write(dir.join(dll), format!("fake-{dll}-{arch}")).unwrap();
+                }
+            }
         }
         root
     }
@@ -336,7 +351,7 @@ mod tests {
         fs::write(game.join("xinput1_3.dll"), "user-original").unwrap();
 
         deploy_for_game_with_root(&game, &ms_root, "x").unwrap();
-        assert_eq!(fs::read_to_string(game.join("xinput1_3.dll")).unwrap(), "fake-xinput1_3.dll");
+        assert_eq!(fs::read_to_string(game.join("xinput1_3.dll")).unwrap(), "fake-xinput1_3.dll-x86_64-windows");
 
         deploy_for_game_with_root(&game, &ms_root, "off").unwrap();
         // Every dll we deployed is removed...
@@ -358,15 +373,16 @@ mod tests {
         let _ = fs::remove_dir_all(&temp);
         fs::create_dir_all(&temp).unwrap();
         let ms_root = fake_runtime(&temp);
-        // Remove one xinput dll to simulate an incomplete runtime.
-        fs::remove_file(ms_root.join("lib").join("wine").join("x86_64-windows").join("xinput1_4.dll")).unwrap();
+        // Remove one bundled xinput dll to simulate an incomplete bundle;
+        // the runtime fallback still has it.
+        fs::remove_file(ms_root.join("lib").join("metalsharp").join("x86_64-windows").join("xinput1_4.dll")).unwrap();
 
         let game = temp.join("game");
         fs::create_dir_all(&game).unwrap();
         // Should not error; the remaining dlls deploy.
         deploy_for_game_with_root(&game, &ms_root, "x").unwrap();
         assert!(game.join("xinput1_3.dll").exists());
-        assert!(!game.join("xinput1_4.dll").exists());
+        assert!(game.join("xinput1_4.dll").exists()); // served by the runtime fallback
 
         let _ = fs::remove_dir_all(&temp);
     }
@@ -393,6 +409,10 @@ mod tests {
                 assert!(!target.join(dll).exists(), "{dll} must not exist in x mode");
             }
         }
+        // Arch correctness: system32 (64-bit) gets the x64 build, syswow64
+        // (32-bit) gets the i386 build.
+        assert_eq!(fs::read_to_string(system32.join("xinput1_3.dll")).unwrap(), "fake-xinput1_3.dll-x86_64-windows");
+        assert_eq!(fs::read_to_string(syswow64.join("xinput1_3.dll")).unwrap(), "fake-xinput1_3.dll-i386-windows");
 
         deploy_for_prefix_with_root(&prefix, &ms_root, "d").unwrap();
         for target in [&system32, &syswow64] {
