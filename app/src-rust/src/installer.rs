@@ -91,6 +91,32 @@ pub(crate) fn write_dxmt_m12_expected_test_files(dxmt_m12_dir: &Path) {
     }
 }
 
+/// Pinned hashes for the vkd3d-proton M12 lane (production). Sources are the
+/// VKMT win64-filtered x86-64 builds (see docs/roadmaps/m12-vkd3d-proton-migration.md).
+#[cfg(not(test))]
+const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d12.dll", "15a7ad7af07120c79075dc1bc08284731c4ca53f82bb81002a14a7b5701cb535"),
+    ("x86_64-windows/d3d12core.dll", "43b92ad53843c819443b1c5d21930c36fe3e6cc7a893df6b2b18528477259631"),
+    ("i386-windows/d3d12.dll", "52cfe58b301771dc163fd45a5c0689bf22d1bc2396133456e7f2bd94cc3b87f1"),
+    ("i386-windows/d3d12core.dll", "56abc44d741df607ccf4ae7d3cdbd801d592fba4124bccab1705661fefbeaad3"),
+];
+#[cfg(test)]
+const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d12.dll", "941484b218dec5b9467d004be71d90b6077149d94e4640e2fbf236afc62a7b72"),
+    ("x86_64-windows/d3d12core.dll", "a27e3a5b3043019702ef34749742ff75cb1e8c08d63f67155ed7ad6bc46dc8fc"),
+    ("i386-windows/d3d12.dll", "c3d61a53c10aaabd4cc30dc0894f4e6bd6989443d1f3ad530f1fd873818c2074"),
+    ("i386-windows/d3d12core.dll", "3615937283c780116908fca55aad9015a3f6ee0dbd51f90a9a1a4e88f01417c9"),
+];
+#[cfg(test)]
+pub(crate) fn write_vkd3d_proton_expected_test_files(vkd3d_dir: &Path) {
+    for (rel, _) in VKD3D_PROTON_EXPECTED_HASHES {
+        let path = vkd3d_dir.join(rel);
+        fs::create_dir_all(path.parent().expect("vkd3d test fixture parent"))
+            .expect("create vkd3d test fixture parent");
+        fs::write(path, format!("test-vkd3d:{rel}")).expect("write vkd3d test fixture payload");
+    }
+}
+
 const RUNTIME_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "runtime/wine/bin/metalsharp-wine",
     "runtime/metalsharp-backend",
@@ -142,6 +168,23 @@ const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "Graphics/dll/dxmt-m12/x86_64-windows/nvapi64.dll",
     "Graphics/dll/dxmt-m12/x86_64-windows/nvngx.dll",
     "Graphics/dll/dxmt-m12/x86_64-windows/winemetal.dll",
+    // vkd3d-proton lane (M12 default backend): D3D12 -> Vulkan -> MoltenVK.
+    "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll",
+    "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll",
+    "Graphics/dll/vkd3d-proton/i386-windows/d3d12.dll",
+    "Graphics/dll/vkd3d-proton/i386-windows/d3d12core.dll",
+    // DXVK lane: dxgi/d3d11/d3d10/d3d9 surfaces (M12 uses dxgi; M9-M11 use d3d11+).
+    "Graphics/dll/dxvk/x86_64-windows/dxgi.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d11.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d10core.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d9.dll",
+    "Graphics/dll/dxvk/i386-windows/dxgi.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d11.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d10core.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d9.dll",
+    // VKMT MoltenVK lane: patched Vulkan-on-Metal for the vkd3d-proton stack.
+    "Graphics/dll/moltenvk-vkmt/libMoltenVK.dylib",
+    "Graphics/dll/moltenvk-vkmt/MoltenVK_icd.json",
 ];
 const ASSETS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "assets/fna-kickstart/kick.bin.osx",
@@ -701,8 +744,24 @@ pub fn moltenvk_ready(wine_dir: &Path) -> bool {
     wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib").is_file()
 }
 
+/// True when the VKMT-patched MoltenVK lane is installed (preferred for the
+/// vkd3d-proton M12 stack). Falls back to the stock runtime dylib.
+pub fn moltenvk_vkmt_ready(wine_dir: &Path) -> bool {
+    wine_dir.join("lib").join("moltenvk-vkmt").join("libMoltenVK.dylib").is_file()
+}
+
+/// Resolve the MoltenVK dylib to prefer: VKMT lane first, then the stock
+/// runtime location.
+fn moltenvk_library_path(wine_dir: &Path) -> PathBuf {
+    let vkmt = wine_dir.join("lib").join("moltenvk-vkmt").join("libMoltenVK.dylib");
+    if vkmt.is_file() {
+        return vkmt;
+    }
+    wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib")
+}
+
 fn fix_moltenvk_icd_paths(wine_dir: &Path) {
-    let actual_lib = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
+    let actual_lib = moltenvk_library_path(wine_dir);
     if !actual_lib.exists() {
         eprintln!("moltenvk: libMoltenVK.dylib not found in runtime — skipping ICD fix");
         return;
@@ -712,6 +771,16 @@ fn fix_moltenvk_icd_paths(wine_dir: &Path) {
     if !icd_dir.is_dir() {
         eprintln!("moltenvk: ICD directory not found — skipping");
         return;
+    }
+
+    // The VKMT package ships its own ICD json; stage it into the runtime
+    // icd.d so the Vulkan loader resolves the patched dylib.
+    let vkmt_icd = wine_dir.join("lib").join("moltenvk-vkmt").join("MoltenVK_icd.json");
+    if vkmt_icd.is_file() {
+        let target = icd_dir.join("MoltenVK_icd.json");
+        if let Ok(data) = fs::read_to_string(&vkmt_icd) {
+            let _ = fs::write(&target, data);
+        }
     }
 
     let correct_path = format!("{}", actual_lib.to_string_lossy());
@@ -1178,6 +1247,13 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     changed |= install_dxmt_runtime(&home_buf)?;
     changed |= install_dxmt_m12_runtime(&home_buf)?;
 
+    // Stage the vkd3d-proton M12 stack (vkd3d-proton + dxvk + VKMT MoltenVK)
+    // from the graphics bundle. Best-effort: if the bundle does not yet carry
+    // the new lanes, DXMT remains the M12 fallback and setup still succeeds.
+    if let Err(err) = ensure_vkd3d_proton_runtime_ready(home) {
+        eprintln!("setup: vkd3d-proton lanes not staged (DXMT fallback remains active): {}", err);
+    }
+
     if dxmt_runtime_current_for_dir(&dxmt_dir) && dxmt_m12_runtime_current_for_dir(&dxmt_m12_dir) {
         Ok(changed)
     } else {
@@ -1330,8 +1406,91 @@ pub fn dxmt_m12_runtime_artifact_valid_for_home(home: &Path, rel: &str) -> bool 
     crate::diagnostics::file_sha256(&dxmt_m12_runtime_dir_for_home(home).join(rel)).as_deref() == Some(*expected)
 }
 
+/// Stage the vkd3d-proton M12 stack from the graphics bundle:
+/// `Graphics/dll/{vkd3d-proton,dxvk,moltenvk-vkmt}` -> the runtime wine lib
+/// lanes. Installs when the bundle carries the lanes; returns Ok(true) when
+/// the lanes are present and hash-valid afterwards.
+pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
+    let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+    let vkd3d_dir = wine_dir.join("lib").join("vkd3d-proton");
+    let dxvk_dir = wine_dir.join("lib").join("dxvk");
+    let moltenvk_dir = wine_dir.join("lib").join("moltenvk-vkmt");
+
+    if let Some(archive) = find_bundled_archive(GRAPHICS_DLL_BUNDLE) {
+        let tmp = std::env::temp_dir().join("metalsharp-vkd3d-extract");
+        let _ = fs::remove_dir_all(&tmp);
+        let _ = fs::create_dir_all(&tmp);
+        extract_zst(&archive, &tmp, GRAPHICS_DLL_BUNDLE)?;
+
+        let dll_root = tmp.join("Graphics").join("dll");
+        for (bundle_surface, dst) in
+            [("vkd3d-proton", &vkd3d_dir), ("dxvk", &dxvk_dir), ("moltenvk-vkmt", &moltenvk_dir)]
+        {
+            let src = dll_root.join(bundle_surface);
+            if src.exists() {
+                let _ = fs::remove_dir_all(dst);
+                copy_dir_recursive(&src, dst)?;
+            }
+        }
+        let _ = fs::remove_dir_all(&tmp);
+        mark_split_bundle_installed(home, GRAPHICS_DLL_BUNDLE, &archive);
+    }
+
+    if vkd3d_proton_runtime_current_for_home(home)
+        && moltenvk_vkmt_runtime_ready_for_home(home)
+        && dxvk_runtime_ready_for_home(home)
+    {
+        Ok(true)
+    } else {
+        Err("vkd3d-proton M12 runtime lanes not installed — refresh the metalsharp-graphics-dll bundle".into())
+    }
+}
+
 pub fn dxmt_m12_runtime_artifact_path_for_home(home: &Path, rel: &str) -> PathBuf {
     dxmt_m12_runtime_dir_for_home(home).join(rel)
+}
+
+pub fn vkd3d_proton_runtime_dir_for_home(home: &Path) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine").join("lib").join("vkd3d-proton")
+}
+
+pub fn moltenvk_vkmt_runtime_dir_for_home(home: &Path) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine").join("lib").join("moltenvk-vkmt")
+}
+
+pub fn dxvk_runtime_dir_for_home(home: &Path) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine").join("lib").join("dxvk")
+}
+
+/// vkd3d-proton lane is current when every pinned artifact matches its hash.
+pub fn vkd3d_proton_runtime_current_for_home(home: &Path) -> bool {
+    let dir = vkd3d_proton_runtime_dir_for_home(home);
+    VKD3D_PROTON_EXPECTED_HASHES
+        .iter()
+        .all(|(rel, expected)| crate::diagnostics::file_sha256(&dir.join(rel)).as_deref() == Some(*expected))
+}
+
+pub fn vkd3d_proton_runtime_artifact_valid_for_home(home: &Path, rel: &str) -> bool {
+    let Some((_, expected)) = VKD3D_PROTON_EXPECTED_HASHES.iter().find(|(candidate, _)| *candidate == rel) else {
+        return false;
+    };
+    crate::diagnostics::file_sha256(&vkd3d_proton_runtime_dir_for_home(home).join(rel)).as_deref() == Some(*expected)
+}
+
+pub fn vkd3d_proton_runtime_artifact_path_for_home(home: &Path, rel: &str) -> PathBuf {
+    vkd3d_proton_runtime_dir_for_home(home).join(rel)
+}
+
+/// The VKMT MoltenVK lane is present when the patched dylib + ICD exist.
+pub fn moltenvk_vkmt_runtime_ready_for_home(home: &Path) -> bool {
+    let dir = moltenvk_vkmt_runtime_dir_for_home(home);
+    dir.join("libMoltenVK.dylib").is_file() && dir.join("MoltenVK_icd.json").is_file()
+}
+
+/// The DXVK lane (dxgi/d3d11/d3d10/d3d9) is present for the x86_64 surface.
+pub fn dxvk_runtime_ready_for_home(home: &Path) -> bool {
+    let dir = dxvk_runtime_dir_for_home(home).join("x86_64-windows");
+    ["dxgi.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll"].iter().all(|dll| dir.join(dll).is_file())
 }
 
 pub fn dxmt_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
@@ -2886,5 +3045,73 @@ mod tests {
 
         let _ = fs::remove_file(&archive);
         let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn vkd3d_proton_runtime_current_requires_all_pinned_hashes() {
+        let home = test_home("vkd3d-current");
+        let dir = vkd3d_proton_runtime_dir_for_home(&home);
+        write_vkd3d_proton_expected_test_files(&dir);
+
+        // All fixtures present + matching test hashes -> current.
+        assert!(vkd3d_proton_runtime_current_for_home(&home));
+
+        // Corrupt one artifact -> not current.
+        let artifact = dir.join("x86_64-windows/d3d12core.dll");
+        fs::write(&artifact, b"corrupted").expect("corrupt artifact");
+        assert!(!vkd3d_proton_runtime_current_for_home(&home));
+        assert!(!vkd3d_proton_runtime_artifact_valid_for_home(&home, "x86_64-windows/d3d12core.dll"));
+        assert!(vkd3d_proton_runtime_artifact_valid_for_home(&home, "x86_64-windows/d3d12.dll"));
+
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn vkd3d_proton_unknown_artifact_is_never_valid() {
+        let home = test_home("vkd3d-unknown");
+        assert!(!vkd3d_proton_runtime_artifact_valid_for_home(&home, "x86_64-windows/nope.dll"));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn moltenvk_vkmt_and_dxvk_lanes_ready_only_when_files_present() {
+        let home = test_home("vkmt-lanes");
+        assert!(!moltenvk_vkmt_runtime_ready_for_home(&home));
+        assert!(!dxvk_runtime_ready_for_home(&home));
+
+        let mvk = moltenvk_vkmt_runtime_dir_for_home(&home);
+        fs::create_dir_all(&mvk).expect("create moltenvk lane");
+        fs::write(mvk.join("libMoltenVK.dylib"), b"dylib").expect("write dylib");
+        assert!(!moltenvk_vkmt_runtime_ready_for_home(&home), "ICD still missing");
+        fs::write(mvk.join("MoltenVK_icd.json"), b"{}").expect("write icd");
+        assert!(moltenvk_vkmt_runtime_ready_for_home(&home));
+
+        let dxvk = dxvk_runtime_dir_for_home(&home).join("x86_64-windows");
+        fs::create_dir_all(&dxvk).expect("create dxvk lane");
+        fs::write(dxvk.join("dxgi.dll"), b"dxgi").expect("write dxgi");
+        assert!(!dxvk_runtime_ready_for_home(&home), "d3d11 still missing");
+        for dll in ["d3d11.dll", "d3d10core.dll", "d3d9.dll"] {
+            fs::write(dxvk.join(dll), dll.as_bytes()).expect("write dll");
+        }
+        assert!(dxvk_runtime_ready_for_home(&home));
+
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn moltenvk_library_path_prefers_vkmt_lane_over_stock() {
+        let wine_dir = test_home("moltenvk-preference").join("runtime").join("wine");
+        let stock = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
+        let vkmt = wine_dir.join("lib").join("moltenvk-vkmt").join("libMoltenVK.dylib");
+        fs::create_dir_all(stock.parent().unwrap()).expect("stock parent");
+        fs::create_dir_all(vkmt.parent().unwrap()).expect("vkmt parent");
+        fs::write(&stock, b"stock").expect("stock dylib");
+        assert_eq!(moltenvk_library_path(&wine_dir), stock);
+
+        fs::write(&vkmt, b"vkmt").expect("vkmt dylib");
+        assert_eq!(moltenvk_library_path(&wine_dir), vkmt);
+        assert!(moltenvk_vkmt_ready(&wine_dir));
+
+        let _ = fs::remove_dir_all(wine_dir.parent().unwrap());
     }
 }
