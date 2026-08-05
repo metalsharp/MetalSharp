@@ -85,7 +85,7 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
         requires_wine: true,
         wine_overrides: Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
         dyld_paths: vec!["lib/vkd3d-proton/x86_64-unix", "lib/wine/x86_64-unix", "lib/moltenvk-vkmt"],
-        winedllpath_dirs: vec!["lib/vkd3d-proton/x86_64-windows"],
+        winedllpath_dirs: vec!["lib/vkd3d-proton/x86_64-windows", "lib/dxvk/x86_64-windows"],
         deploy_dlls: vec![
             DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "d3d12.dll", dest_filename: None },
             DllDeploy {
