@@ -62,6 +62,55 @@ static PIPELINES: OnceLock<Vec<PipelineNode>> = OnceLock::new();
 const DXMT_70_PERCENT_UPSCALE_CONFIG: &str = "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60";
 const DXMT_M12_SAFE_CONFIG: &str = "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60";
 
+/// Cache of the effective M12 node (vkd3d-proton by default, DXMT when
+/// `m12Backend=dxmt`). Built once at first access from the config so the
+/// backend is stable for the process lifetime.
+static M12_EFFECTIVE_NODE: OnceLock<PipelineNode> = OnceLock::new();
+
+/// The M12 pipeline node for the vkd3d-proton graphics stack:
+/// D3D12 -> vkd3d-proton -> Vulkan -> MoltenVK -> Metal.
+///
+/// Deploys vkd3d-proton's `d3d12.dll` + `d3d12core.dll` plus DXVK's
+/// `dxgi.dll` (vkd3d-proton ships no dxgi of its own) into the game dir,
+/// routes D3D12/DXGI through the vkd3d-proton lane, and points the Vulkan
+/// loader at the VKMT MoltenVK ICD.
+fn m12_vkd3d_proton_node() -> PipelineNode {
+    PipelineNode {
+        id: PipelineId::M12,
+        name: "M12",
+        description: "D3D12 -> Metal via vkd3d-proton (Vulkan) + MoltenVK",
+        backend: "vkd3d-proton",
+        graphics_backend: "vkd3d-proton",
+        experimental: false,
+        requires_wine: true,
+        wine_overrides: Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
+        dyld_paths: vec!["lib/vkd3d-proton/x86_64-unix", "lib/wine/x86_64-unix", "lib/moltenvk-vkmt"],
+        winedllpath_dirs: vec!["lib/vkd3d-proton/x86_64-windows"],
+        deploy_dlls: vec![
+            DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "d3d12.dll", dest_filename: None },
+            DllDeploy {
+                source_subpath: "lib/vkd3d-proton/x86_64-windows",
+                filename: "d3d12core.dll",
+                dest_filename: None,
+            },
+            DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
+            DllDeploy {
+                source_subpath: "lib/vkd3d-proton/x86_64-windows",
+                filename: "nvapi64.dll",
+                dest_filename: None,
+            },
+            DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "nvngx.dll", dest_filename: None },
+        ],
+        env_vars: vec![
+            EnvVar { key: "VKD3D_LOG_LEVEL", value: "warn" },
+            EnvVar { key: "VKD3D_SHADER_CACHE_PATH", value: "m12" },
+        ],
+        launch_args: vec!["-windowed", "-ResX=1280", "-ResY=720", "-ForceRes"],
+        alternatives: vec![PipelineId::M11, PipelineId::M10, PipelineId::M9, PipelineId::Steam, PipelineId::MacSteam],
+        shader_cache_subdir: Some("m12"),
+    }
+}
+
 pub fn pipelines() -> &'static Vec<PipelineNode> {
     PIPELINES.get_or_init(|| {
         vec![
@@ -549,7 +598,22 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
 }
 
 pub fn get_pipeline(id: PipelineId) -> &'static PipelineNode {
+    if id == PipelineId::M12 {
+        return m12_effective_node();
+    }
     pipelines().iter().find(|p| p.id == id).expect("pipeline not found")
+}
+
+/// The M12 node selected by the `m12Backend` config: vkd3d-proton by
+/// default, legacy DXMT when the user opted back. Cached once per process.
+pub fn m12_effective_node() -> &'static PipelineNode {
+    M12_EFFECTIVE_NODE.get_or_init(|| {
+        if crate::launch::m12_backend_mode() == "dxmt" {
+            pipelines().iter().find(|p| p.id == PipelineId::M12).expect("M12 pipeline not found").clone()
+        } else {
+            m12_vkd3d_proton_node()
+        }
+    })
 }
 
 impl PipelineId {
@@ -687,59 +751,65 @@ mod tests {
     }
 
     #[test]
-    fn m12_is_primary_d3d12_dxmt_profile() {
+    fn m12_is_primary_d3d12_vkd3d_proton_profile() {
         let m12 = get_pipeline(PipelineId::M12);
         assert!(!m12.experimental);
-        assert_eq!(m12.backend, "dxmt");
+        assert_eq!(m12.backend, "vkd3d-proton");
+        assert_eq!(m12.graphics_backend, "vkd3d-proton");
         assert!(m12.launch_args.contains(&"-windowed"));
         assert!(m12.deploy_dlls.iter().any(|dll| dll.filename == "d3d12.dll"));
+        assert!(m12.deploy_dlls.iter().any(|dll| dll.filename == "d3d12core.dll"));
+        assert!(m12.deploy_dlls.iter().any(|dll| dll.filename == "dxgi.dll"));
         assert_eq!(m12.shader_cache_subdir, Some("m12"));
     }
 
     #[test]
-    fn m12_is_stronger_than_other_dxmt_d3d_paths() {
+    fn m12_vkd3d_proton_uses_isolated_lanes() {
         let m12 = get_pipeline(PipelineId::M12);
 
-        for required in ["lib/wine/x86_64-unix", "lib/dxmt_m12/x86_64-unix"] {
+        // vkd3d-proton lane + runtime wine + VKMT MoltenVK lane.
+        for required in ["lib/wine/x86_64-unix", "lib/vkd3d-proton/x86_64-unix", "lib/moltenvk-vkmt"] {
             assert!(m12.dyld_paths.contains(&required));
         }
         assert!(!m12.dyld_paths.contains(&"lib/dxmt/x86_64-unix"));
-        assert!(m12.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
+        assert!(!m12.dyld_paths.contains(&"lib/dxmt_m12/x86_64-unix"));
+        assert!(m12.winedllpath_dirs.contains(&"lib/vkd3d-proton/x86_64-windows"));
         assert!(!m12.winedllpath_dirs.contains(&"lib/dxmt/x86_64-windows"));
-        assert!(!m12.winedllpath_dirs.contains(&"lib/metalsharp/x86_64-windows"));
+        assert!(!m12.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
 
+        // Deploys vkd3d-proton d3d12/d3d12core + DXVK dxgi; never DXMT.
         let m12_dlls: std::collections::HashSet<_> =
             m12.deploy_dlls.iter().map(|dll| (dll.source_subpath, dll.filename)).collect();
-        for required in ["d3d12.dll", "d3d11.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d10core.dll", "winemetal.dll"] {
+        for required in ["d3d12.dll", "d3d12core.dll"] {
             assert!(
-                m12_dlls.contains(&("lib/dxmt_m12/x86_64-windows", required)),
-                "M12 missing isolated DXMT DLL {}",
+                m12_dlls.contains(&("lib/vkd3d-proton/x86_64-windows", required)),
+                "M12 missing vkd3d-proton DLL {}",
                 required
             );
         }
+        assert!(m12_dlls.contains(&("lib/dxvk/x86_64-windows", "dxgi.dll")));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.source_subpath == "lib/dxmt/x86_64-windows"));
+        assert!(!m12.deploy_dlls.iter().any(|dll| dll.source_subpath == "lib/dxmt_m12/x86_64-windows"));
+        assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
+        assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll"));
 
-        let m12_env: std::collections::HashSet<_> = m12.env_vars.iter().map(|env| env.key).collect();
-        assert!(m12_env.contains("DXMT_ASYNC_PIPELINE_COMPILE"));
-        assert!(m12_env.contains("DXMT_D3D12_PSO_WORKERS"));
-        assert!(m12_env.contains("DXMT_METALFX_SPATIAL_SWAPCHAIN"));
-        assert!(m12_env.contains("DXMT_METALFX_SPATIAL"));
-        assert!(m12_env.contains("DXMT_METALFX_TEMPORAL"));
-        let m12_env_values: std::collections::HashMap<_, _> =
-            m12.env_vars.iter().map(|env| (env.key, env.value)).collect();
-        assert_eq!(m12_env_values.get("DXMT_ASYNC_PIPELINE_COMPILE"), Some(&"1"));
-        assert_eq!(m12_env_values.get("DXMT_D3D12_PSO_WORKERS"), Some(&"6"));
-        assert_eq!(m12_env_values.get("DXMT_METALFX_SPATIAL_SWAPCHAIN"), Some(&"1"));
-        assert_eq!(m12_env_values.get("DXMT_METALFX_SPATIAL"), Some(&"1"));
-        assert_eq!(m12_env_values.get("DXMT_METALFX_TEMPORAL"), Some(&"1"));
-        assert_eq!(m12_env_values.get("DXMT_CONFIG"), Some(&DXMT_M12_SAFE_CONFIG));
-
-        assert_eq!(
-            m12.wine_overrides,
-            Some("winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d")
-        );
+        // Overrides route d3d12/d3d12core/dxgi to the deployed natives.
+        assert_eq!(m12.wine_overrides, Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"));
         assert!(m12.alternatives.contains(&PipelineId::M11));
+    }
+
+    #[test]
+    fn m12_dxmt_fallback_node_keeps_legacy_profile() {
+        let dxmt = m12_vkd3d_proton_node();
+        assert_eq!(dxmt.backend, "vkd3d-proton");
+
+        // The static pipelines() list still carries the legacy DXMT M12 node
+        // for the m12Backend=dxmt fallback path.
+        let legacy = pipelines().iter().find(|p| p.id == PipelineId::M12).expect("legacy M12 in list");
+        assert_eq!(legacy.backend, "dxmt");
+        assert!(legacy.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
+        assert!(legacy.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
     }
 
     #[test]
