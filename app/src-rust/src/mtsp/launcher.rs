@@ -534,7 +534,7 @@ pub fn prepare_steam_pipeline_env(
     let recipe = super::recipe::build_launch_recipe(appid, node)?;
     validate_recipe_runtime(&recipe)?;
     if node.backend == "dxmt" {
-        repair_metalsharp_wine_wrapper_env_order()?;
+        sanitize_metalsharp_wine_wrapper_env()?;
     }
     if let Some(game_dir) = recipe.game_dir.as_ref() {
         prepare_steam_api_for_game_dir(&home, game_dir, appid, pipeline_id);
@@ -1021,7 +1021,7 @@ fn wine_debug_value() -> String {
     std::env::var("METALSHARP_WINEDEBUG").unwrap_or_else(|_| "-all".to_string())
 }
 
-fn repair_metalsharp_wine_wrapper_env_order() -> Result<(), Box<dyn std::error::Error>> {
+fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
     let wrapper = crate::platform::metalsharp_home_dir_for(&home)
         .join("runtime")
@@ -1034,11 +1034,14 @@ fn repair_metalsharp_wine_wrapper_env_order() -> Result<(), Box<dyn std::error::
 
     let script = std::fs::read_to_string(&wrapper)?;
     let mut repaired = repair_metalsharp_wine_wrapper(&script);
-    let winedll_block = r#"if [ -n "${WINEDLLPATH:-}" ]; then
-  export WINEDLLPATH="$WINEDLLPATH:$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows"
-else
-  export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows"
-fi
+
+    // Isolation contract: MetalSharp's own DLL/dylib directories MUST be
+    // searched before anything the parent environment inherited. Third-party
+    // Wine launchers (CrossOver, SakuraGiri, Whisky, GPTK…) can export
+    // WINEDLLPATH / DYLD_FALLBACK_LIBRARY_PATH from a shell profile or a
+    // parent launcher; honoring those first lets a foreign Wine's DLLs be
+    // loaded into MetalSharp's prefix, which breaks Steam and game launches.
+    let winedll_block = r#"export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows${WINEDLLPATH:+:$WINEDLLPATH}"
 "#;
     if let (Some(start), Some(end)) =
         (repaired.find("export WINELOADER=\"$MS_WINE\"\n"), repaired.find("export WINEDEBUG=\"${WINEDEBUG:--all}\""))
@@ -1047,11 +1050,7 @@ fi
         repaired.replace_range(replace_start..end, winedll_block);
     }
 
-    let dyld_block = r#"if [ -n "${DYLD_FALLBACK_LIBRARY_PATH:-}" ]; then
-  export DYLD_FALLBACK_LIBRARY_PATH="$DYLD_FALLBACK_LIBRARY_PATH:$MS_LIB:$MS_LIB/wine/x86_64-unix"
-else
-  export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix"
-fi
+    let dyld_block = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
 "#;
     if let (Some(start), Some(end)) =
         (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export VK_ICD_FILENAMES="))
@@ -1059,6 +1058,18 @@ fi
         let replace_start = start + "export WINEDATADIR=\"$MS_ROOT/share\"\n".len();
         repaired.replace_range(replace_start..end, dyld_block);
     }
+
+    // Drop CrossOver's CX_ROOT emulation: a real CrossOver reading CX_ROOT
+    // could mistake a MetalSharp process for one of its own bottles.
+    repaired = repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "");
+
+    // VK_ICD_FILENAMES must never hardcode a Homebrew path (CrossOver users
+    // often have no Homebrew). Prefer the runtime-bundled MoltenVK ICD;
+    // otherwise unset and let the loader search standard locations.
+    repaired = repaired.replace(
+        "export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"",
+        "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi",
+    );
 
     if repaired != script {
         std::fs::write(&wrapper, repaired)?;
@@ -1115,7 +1126,7 @@ pub fn launch_custom_with_options(
         return Err("MetalSharp Wine not found — run setup first".into());
     }
     if node.backend == "dxmt" {
-        repair_metalsharp_wine_wrapper_env_order()?;
+        sanitize_metalsharp_wine_wrapper_env()?;
     }
 
     let mut recipe = super::recipe::build_custom_launch_recipe(launch_id, node, game_dir, Some(exe_path))?;
@@ -1528,7 +1539,7 @@ fn launch_dxmt_metal_with_context(
     if !wine.exists() {
         return Err("MetalSharp Wine not found — run setup first".into());
     }
-    repair_metalsharp_wine_wrapper_env_order()?;
+    sanitize_metalsharp_wine_wrapper_env()?;
 
     prepare_start_protected_game_for_pipeline(appid, node.id);
     let recipe = super::recipe::build_launch_recipe(appid, node)?;
@@ -5030,6 +5041,78 @@ mod tests {
         assert!(!repaired.contains("MS_FWD_COMPAT_GL_CTX"));
         assert!(repaired.contains("export WINEDATADIR=\"$MS_ROOT/share\""));
         assert!(repaired.contains("export VK_ICD_FILENAMES=foo"));
+    }
+
+    #[test]
+    fn sanitize_puts_ms_paths_first_when_ambient_wine_env_present() {
+        // Isolation contract: a foreign wine launcher (CrossOver, SakuraGiri,
+        // Whisky, GPTK) may export WINEDLLPATH / DYLD_FALLBACK_LIBRARY_PATH
+        // into the parent environment. The sanitized wrapper must search
+        // MetalSharp's own DLL/dylib dirs BEFORE any inherited foreign paths.
+        let wrapper = r#"export MS_ROOT="$MS_ROOT"
+export CX_ROOT="$MS_ROOT"
+export WINEPREFIX="${WINEPREFIX:-$HOME/.metalsharp/prefix-steam}"
+export WINESERVER="$MS_SERVER"
+export WINELOADER="$MS_WINE"
+export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows"
+export WINEDEBUG="${WINEDEBUG:--all}"
+export WINEDATADIR="$MS_ROOT/share"
+export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix"
+export MS_FWD_COMPAT_GL_CTX=1
+export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+"#;
+
+        // Replicate the full sanitize flow on the script string.
+        let mut repaired = repair_metalsharp_wine_wrapper(wrapper);
+        let winedll_block = r#"export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows${WINEDLLPATH:+:$WINEDLLPATH}"
+"#;
+        if let (Some(start), Some(end)) = (
+            repaired.find("export WINELOADER=\"$MS_WINE\"\n"),
+            repaired.find("export WINEDEBUG=\"${WINEDEBUG:--all}\""),
+        ) {
+            let replace_start = start + "export WINELOADER=\"$MS_WINE\"\n".len();
+            repaired.replace_range(replace_start..end, winedll_block);
+        }
+        let dyld_block = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+"#;
+        if let (Some(start), Some(end)) =
+            (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export VK_ICD_FILENAMES="))
+        {
+            let replace_start = start + "export WINEDATADIR=\"$MS_ROOT/share\"\n".len();
+            repaired.replace_range(replace_start..end, dyld_block);
+        }
+        repaired = repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "");
+        repaired = repaired.replace(
+            "export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"",
+            "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi",
+        );
+
+        // MS paths must come first; ambient values may only be appended after.
+        let winedll_line =
+            repaired.lines().find(|l| l.starts_with("export WINEDLLPATH=")).expect("WINEDLLPATH export present");
+        let winedll_prefix = winedll_line.split("${WINEDLLPATH").next().unwrap();
+        assert!(
+            winedll_prefix.starts_with("export WINEDLLPATH=\"$MS_LIB/"),
+            "MS DLL dirs must lead WINEDLLPATH: {}",
+            winedll_line
+        );
+
+        let dyld_line = repaired
+            .lines()
+            .find(|l| l.starts_with("export DYLD_FALLBACK_LIBRARY_PATH="))
+            .expect("DYLD_FALLBACK_LIBRARY_PATH export present");
+        let dyld_prefix = dyld_line.split("${DYLD_FALLBACK").next().unwrap();
+        assert!(
+            dyld_prefix.starts_with("export DYLD_FALLBACK_LIBRARY_PATH=\"$MS_LIB:"),
+            "MS unix lib dirs must lead DYLD_FALLBACK_LIBRARY_PATH: {}",
+            dyld_line
+        );
+
+        // CX_ROOT emulation must be gone, and the ICD must resolve inside the
+        // runtime instead of a hardcoded Homebrew path.
+        assert!(!repaired.contains("CX_ROOT"), "CX_ROOT emulation must be dropped");
+        assert!(!repaired.contains("/opt/homebrew/etc/vulkan"), "Homebrew ICD path must not remain");
+        assert!(repaired.contains("$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json"));
     }
 
     #[test]
