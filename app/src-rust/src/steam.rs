@@ -296,6 +296,15 @@ fn seed_steam_d3d12_guard(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn s
         return Err("MetalSharp Wine not found".into());
     }
 
+    // The guard only needs to be applied once per prefix: a `wine reg import`
+    // spawn is the single slowest step of the Steam launch path (a cold
+    // wineserver can take tens of seconds) and the launch response drives the
+    // frontend's "Stop Wine Steam" state — never re-pay it.
+    let marker = prefix.join("drive_c").join(".metalsharp-steam-d3d12-guard-applied");
+    if marker.exists() {
+        return Ok(());
+    }
+
     let reg_file_name = "metalsharp-steam-d3d12-guard.reg";
     let reg_file = prefix.join("drive_c").join(reg_file_name);
     std::fs::write(&reg_file, build_steam_d3d12_guard_reg())?;
@@ -312,6 +321,7 @@ fn seed_steam_d3d12_guard(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn s
     crate::platform::set_runtime_library_env(&mut cmd, ms_root);
     let status = cmd.status()?;
     if status.success() {
+        let _ = std::fs::write(&marker, b"applied");
         Ok(())
     } else {
         Err(format!("regedit exited with {}", status).into())
