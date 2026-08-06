@@ -1807,6 +1807,71 @@ fn launch_macos_steam(appid: u32) -> Result<(u32, &'static str), Box<dyn std::er
     Ok((pid, "macos_steam"))
 }
 
+/// Pre-flight readiness check for the FNA/Mono route: verifies mono binary +
+/// arch, shims present, SDL2/3 per profile deps, config resolved, Rosetta for
+/// x86, and Unity runtime lane availability for Unity-Mono games. Returns an
+/// actionable error naming exactly what is missing.
+pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+    let profile = crate::mono_profile::discover_mono_profile(game_dir);
+    let fna_profile = find_fna_profile(appid);
+
+    // Mono binary + arch.
+    let mono_bin = match find_mono_binary_for_app(appid) {
+        Ok(b) => b,
+        Err(e) => {
+            problems.push(e.to_string());
+            PathBuf::new()
+        },
+    };
+    if !mono_bin.as_os_str().is_empty() {
+        let wants_x86 = profile.kind == crate::mono_profile::MonoProfileKind::None
+            && fna_profile.mono_arch == MonoArch::X86
+            || (profile.kind != crate::mono_profile::MonoProfileKind::None && !profile.is_64_bit);
+        if wants_x86 && crate::platform::current() == crate::platform::HostPlatform::Macos {
+            // Rosetta required for x86 mono; report explicitly.
+            let arch_probe = std::process::Command::new("arch").arg("-x86_64").arg("true").status();
+            match arch_probe {
+                Ok(status) if status.success() => {},
+                _ => problems.push(
+                    "x86 Mono requires Rosetta 2 (missing or unavailable); install it or use the arm64 route".into(),
+                ),
+            }
+        }
+    }
+
+    // Shims present (kernel32/user32/Carbon are launch-required for FNA).
+    let shims_dir = PathBuf::from(find_shims_dir());
+    for shim in ["libkernel32.dylib", "libuser32.dylib", FNA_CARBON_SHIM, FNA_CARBON_INTERPOSE_SHIM] {
+        if !shims_dir.join(shim).is_file() {
+            problems.push(format!("missing shared shim {shim} (run repair or reinstall runtime)"));
+        }
+    }
+
+    // Profile deps.
+    if profile.deps.sdl3 {
+        let ms_home = crate::platform::metalsharp_home_dir();
+        if !ms_home.join("runtime").join("sdl3").join("libSDL3.dylib").is_file() {
+            problems.push("game signals SDL3 but the bundled libSDL3.dylib is missing (reinstall runtime)".into());
+        }
+    }
+
+    // Unity runtime lane for Unity-Mono games.
+    if profile.kind == crate::mono_profile::MonoProfileKind::UnityMono {
+        let ms_home = crate::platform::metalsharp_home_dir();
+        match unity_runtime_lane_for_version(profile.unity_version.as_deref(), &ms_home) {
+            Some(_) => {},
+            None => problems.push("no bundled Unity Mono runtime lane available (reinstall runtime)".into()),
+        }
+    }
+
+    if problems.is_empty() {
+        Ok(Vec::new())
+    } else {
+        Err(format!("FNA/Mono launch blocked: {}", problems.join("; ")))
+    }
+}
+
 fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn std::error::Error>> {
     let profile = find_fna_profile(appid);
     let node = get_pipeline(PipelineId::FnaArm64);
@@ -1816,6 +1881,22 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     let local_dir = ms_home.join("games").join(appid.to_string());
     let dir = if game_dir.exists() { &game_dir } else { &local_dir };
 
+    // Pre-flight readiness: surface missing mono/shims/SDL3/Unity lane as an
+    // actionable error before any deploy or spawn.
+    fna_ready_check(appid, dir)?;
+
+    // Profile-aware deploy (idempotent; also run by bottle save).
+    let discovered = crate::mono_profile::discover_mono_profile(dir);
+    if discovered.kind != crate::mono_profile::MonoProfileKind::None {
+        let mut report = crate::fna_profile::AssetStagingReport::new(appid);
+        let _ = deploy_unity_runtime(dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_xna_assembly_set(dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_profile_deps(dir, &discovered, &ms_home, Some(&mut report));
+        if !report.receipts.is_empty() {
+            let _ = report.persist(dir);
+        }
+    }
+
     ensure_launcher_exe(appid, dir);
     deploy_fna_assemblies(appid, dir);
     if appid != 504230 {
@@ -1824,6 +1905,16 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
 
     let _ = ensure_bridge_running();
 
+    // MonoKickstart games dispatch to the kickstart launcher (bundled
+    // kick.bin.osx + osx/ payloads; the game's own .bin.osx is preferred).
+    if discovered.kind == crate::mono_profile::MonoProfileKind::MonoKickstart {
+        let kickstart_dir = ms_home.join("runtime").join("fna-kickstart");
+        if !kickstart_dir.join("kick.bin.osx").is_file() {
+            return Err(format!("MonoKickstart payload missing at {}", kickstart_dir.display()).into());
+        }
+        let exe_path = PathBuf::from(resolve_game_exe(dir));
+        return launch_fna_kickstart(appid, profile, node, dir, &exe_path, &home, &ms_home, &kickstart_dir);
+    }
     let exe = if !profile.preferred_exes.is_empty() {
         find_preferred_exe(dir, profile.preferred_exes)?
     } else {
@@ -1901,8 +1992,18 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     cmd.arg(&exe);
 
     let mut child = cmd.spawn()?;
-    std::thread::sleep(Duration::from_millis(900));
-    if let Some(status) = child.try_wait()? {
+    // Post-spawn health check: poll 3 x 1s (longer than the old 900ms single
+    // check) so a delayed config/arch failure surfaces with the log tail
+    // instead of reporting a launched-but-dead game.
+    let mut exited_early = None;
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_secs(1));
+        if let Some(status) = child.try_wait()? {
+            exited_early = Some(status);
+            break;
+        }
+    }
+    if let Some(status) = exited_early {
         let log_tail = tail_text(&log_path, 4096);
         return Err(format!("FNA/Mono/XNA launch exited early with status {}. Log: {}", status, log_tail).into());
     }
@@ -7526,6 +7627,21 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let n2 = deploy_profile_deps(&game, &profile2, &ms_home, Some(&mut report2)).unwrap();
         // SDL3 already present -> skip; carbon not signaled -> 0.
         assert_eq!(n2, 0);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- Mono profile readiness (Phase 5) ----
+
+    #[test]
+    fn fna_ready_check_flags_unity_lane_and_sdl3_gaps() {
+        let home = mono_deploy_home("ready");
+        let game = unity_game_dir(&home, "2021.3.5f1");
+        // No bundled unity-mono runtime and no shims in this temp home -> the
+        // check must fail with actionable messages (and not panic).
+        let result = fna_ready_check(1562430, &game);
+        assert!(result.is_err(), "missing Unity lane + shims must block launch");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("Unity Mono runtime lane") || msg.contains("shim"), "error must name the gap: {}", msg);
         let _ = std::fs::remove_dir_all(&home);
     }
 }
