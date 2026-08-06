@@ -409,10 +409,11 @@ name = "Hollow Knight"
 [overrides.367520.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.413150]
-# Stardew Valley 1.6+ is a .NET 6 (self-contained) MonoGame build — the
-# bundled Mono runtime cannot run it (mono asserts at init on net6.0
-# assemblies). It must go through Wine.
-pipeline = "m11"
+# Stardew Valley 1.6+ is a .NET 6 (self-contained) MonoGame build. The mono/fna
+# route (fna_arm64) is the preferred path: launch_fna_arm64 detects the net6
+# runtimeconfig.json and hands execution to the game's own .NET 6 runtime via
+# Wine (M11) internally, so picking Mono/FNA launches it.
+pipeline = "fna_arm64"
 name = "Stardew Valley"
 
 [overrides.413150.diagnostics]
