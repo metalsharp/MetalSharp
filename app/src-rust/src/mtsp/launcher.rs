@@ -1140,16 +1140,32 @@ pub(crate) fn repair_mono_runtime_links() -> Result<(), Box<dyn std::error::Erro
                     .collect();
                 deps.sort();
                 deps.dedup();
+                let mut modified = false;
                 for dep in deps {
                     let base = Path::new(&dep).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                     if base.is_empty() {
                         continue;
                     }
                     let _ = std::process::Command::new("/usr/bin/install_name_tool")
-                        .args(["-change", &dep, &format!("@loader_path/{}", base)])
+                        .args(["-change", &dep, &format!("@loader_path/{base}")])
                         .arg(&path)
                         .output();
                     relinked += 1;
+                    modified = true;
+                }
+                if modified {
+                    // install_name_tool rewrites the dylib WITHOUT updating its
+                    // LC_CODE_SIGNATURE, leaving a stale signature blob. On
+                    // Apple Silicon that is a HARD KILL at dlopen time —
+                    // EXC_BAD_ACCESS / CODESIGNING Invalid Page, SIGKILL, no
+                    // managed exception (seen on libgdiplus.0.dylib after a
+                    // runtime reinstall re-ran this repair). Re-sign ad-hoc
+                    // after every rewrite. (A fully UNSIGNED dylib passes
+                    // under Rosetta; a BROKEN signature does not.)
+                    let _ = std::process::Command::new("/usr/bin/codesign")
+                        .args(["--force", "-s", "-"])
+                        .arg(&path)
+                        .output();
                 }
             }
         }
@@ -3254,19 +3270,31 @@ fn ensure_launcher_exe(appid: u32, game_dir: &PathBuf) {
     // H1-H3: launcher binaries (Terraria launcher etc.) are PREBUILT and
     // shipped in the assets bundle — never compile from a dev-machine repo
     // path at launch (silently no-ops on user machines). The bundle layout is
-    // runtime/prebuilt-launchers/<source_file basename>.
+    // runtime/prebuilt-launchers/<launcher_exe basename> (e.g.
+    // TerrariaLauncher.exe). The source basename (TerrariaLauncher.cs) is only
+    // a fallback for legacy bundles that shipped source-named artifacts.
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => return,
     };
     let ms_home = crate::platform::metalsharp_home_dir_for(&home);
-    let file_name = Path::new(source_file)
+    let launcher_file = Path::new(launcher_name)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| launcher_name.to_string());
+    let prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&launcher_file);
+    if prebuilt.is_file() {
+        let _ = std::fs::copy(&prebuilt, &launcher);
+        return;
+    }
+    // Legacy fallback: bundle artifacts named after the source file.
+    let source_file = Path::new(source_file)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| source_file.to_string());
-    let prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&file_name);
-    if prebuilt.is_file() {
-        let _ = std::fs::copy(&prebuilt, &launcher);
+    let legacy_prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&source_file);
+    if legacy_prebuilt.is_file() {
+        let _ = std::fs::copy(&legacy_prebuilt, &launcher);
     }
 }
 
