@@ -84,8 +84,10 @@ if [ "$NEED_CARGO" -eq 1 ]; then
 
     # Only run the full test suite if Rust source was changed (not just TOML).
     if printf '%s\n' "${STAGED[@]}" | grep -q '\.rs$'; then
-        log "cargo test --lib (app/src-rust)"
-        (cd app/src-rust && cargo test --lib --quiet) || fail "cargo test failed; fix the failing tests before committing."
+        log "cargo test (app/src-rust)"
+        # Bin-only crate: no [lib] target, so `cargo test --lib` always fails.
+        # Run the bin target's tests (matches what CI runs).
+        (cd app/src-rust && cargo test --quiet) || fail "cargo test failed; fix the failing tests before committing."
     fi
 fi
 
