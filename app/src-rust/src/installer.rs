@@ -1480,17 +1480,48 @@ pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
     // single main thread — an ungated run freezes the app (Steam status
     // polls, launch requests) for the whole duration. Every M12 bottle save
     // and health check hits this; with current lanes it must be a no-op.
+    let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+    let vkd3d_dir = wine_dir.join("lib").join("vkd3d-proton");
+    let dxvk_dir = wine_dir.join("lib").join("dxvk");
+    let moltenvk_dir = wine_dir.join("lib").join("moltenvk-vkmt");
+
+    // The wine tree bundles a STOCK libMoltenVK (1.4.1) in lib/wine/x86_64-unix
+    // that wine's Vulkan driver (winemac.drv -> winevulkan) loads DIRECTLY,
+    // bypassing VK_ICD_FILENAMES and the DYLD env entirely. It must be the VKMT
+    // build: the stock build lacks the robustness2 gate and newer VKMT fixes,
+    // so DXVK rejects the device ("Skipping: Device does not support required
+    // feature 'robustBufferAccess2'"). Self-heal: mirror the VKMT lane's
+    // libMoltenVK (both the unversioned and versioned names) into the wine tree
+    // whenever they differ. Cheap (size compare) and idempotent.
+    let unix_dir = wine_dir.join("lib").join("wine").join("x86_64-unix");
+    let lane_mvk = moltenvk_dir.join("libMoltenVK.dylib");
+    if lane_mvk.is_file() {
+        let lane_len = fs::metadata(&lane_mvk).map(|m| m.len()).unwrap_or(0);
+        for name in ["libMoltenVK.dylib", "libMoltenVK.1.dylib"] {
+            let target = unix_dir.join(name);
+            let needs_sync = match fs::metadata(&target) {
+                Ok(m) => m.len() != lane_len,
+                Err(_) => true,
+            };
+            if needs_sync {
+                let _ = fs::copy(&lane_mvk, &target);
+            }
+        }
+    }
+
+    // Cheap read-only currency gate: only re-extract when a shipped lane
+    // artifact is missing or hash-mismatched. The extraction below zstd-
+    // decompresses the ENTIRE graphics bundle and rm -rf + re-copies the
+    // vkd3d-proton/dxvk/moltenvk-vkmt dirs, and it runs on the backend's
+    // single main thread — an ungated run freezes the app (Steam status
+    // polls, launch requests) for the whole duration. Every M12 bottle save
+    // and health check hits this; with current lanes it must be a no-op.
     if vkd3d_proton_runtime_current_for_home(home)
         && moltenvk_vkmt_runtime_ready_for_home(home)
         && dxvk_runtime_ready_for_home(home)
     {
         return Ok(false);
     }
-
-    let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
-    let vkd3d_dir = wine_dir.join("lib").join("vkd3d-proton");
-    let dxvk_dir = wine_dir.join("lib").join("dxvk");
-    let moltenvk_dir = wine_dir.join("lib").join("moltenvk-vkmt");
 
     if let Some(archive) = find_bundled_archive(GRAPHICS_DLL_BUNDLE) {
         let tmp = std::env::temp_dir().join("metalsharp-vkd3d-extract");
