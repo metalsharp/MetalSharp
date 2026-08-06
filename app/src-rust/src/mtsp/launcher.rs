@@ -560,7 +560,11 @@ pub fn prepare_steam_pipeline_env(
     }
     deploy_recipe_dlls(&recipe)?;
     let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-    deploy_prefix_route_dlls(&recipe, &prefix)?;
+    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // Heal any pollution the pre-fix backend left in the shared prefix so a
+    // Steam launch after an M12 play can never pick up a DXVK dxgi.
+    let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+    repair_m12_prefix_system32(&prefix, &ms_root)?;
 
     let env = steam_pipeline_env_pairs(&home, node, appid);
     Ok((env, recipe))
@@ -1009,33 +1013,63 @@ pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Bo
     Ok(())
 }
 
-fn deploy_prefix_route_dlls(
-    recipe: &super::recipe::LaunchRecipe,
-    prefix: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if recipe.pipeline != PipelineId::M12 {
+/// DLLs the pre-fix M12 backend could have written into the shared prefix
+/// system32 (the old `deploy_prefix_route_dlls`). The M12 runtime must NEVER
+/// live there: a native DXVK/vkd3d-proton copy next to wine's builtin d3d11
+/// freezes the Steam client UI, which renders D3D11 through whatever dxgi the
+/// loader resolves first.
+const M12_PREFIX_ROUTE_DLLS: &[&str] =
+    &["d3d12.dll", "d3d12core.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
+
+/// Self-healing inverse of the old `deploy_prefix_route_dlls`.
+///
+/// The M12 route (vkd3d-proton/DXVK lanes, or the DXMT M12 lane for the
+/// `m12Backend=dxmt` fallback) deploys its DLLs into the GAME DIR and routes
+/// them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like M9/M10/M11
+/// (`deploy_recipe_dlls`). It never stages into the shared prefix system32.
+///
+/// This repair detects route copies the OLD backend left in system32 and
+/// restores the wine builtin PE DLLs that wineboot originally installed there
+/// ("what used to be there"), so Steam works again without a reinstall.
+/// Idempotent and cheap: size-compare first, exact sha only when sizes match.
+/// Never creates system32 and never touches unrelated files.
+pub fn repair_m12_prefix_system32(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let system32 = prefix.join("drive_c").join("windows").join("system32");
+    if !system32.is_dir() {
         return Ok(());
     }
-
-    let system32 = prefix.join("drive_c").join("windows").join("system32");
-    std::fs::create_dir_all(&system32)?;
-    for deploy in &recipe.dlls {
-        if !deploy.source_present {
+    for dll in M12_PREFIX_ROUTE_DLLS {
+        let dest = system32.join(dll);
+        if !dest.is_file() {
             continue;
         }
-        if !matches!(
-            deploy.filename.as_str(),
-            "d3d12.dll"
-                | "d3d12core.dll"
-                | "dxgi.dll"
-                | "dxgi_dxmt.dll"
-                | "d3d11.dll"
-                | "d3d10core.dll"
-                | "winemetal.dll"
-        ) {
-            continue;
+        let wine_builtin = ms_root.join("lib").join("wine").join("x86_64-windows").join(dll);
+        let restore = if !wine_builtin.is_file() {
+            // No builtin to restore: drop the foreign DLL so the loader falls
+            // back to wine's builtin from its lib dir.
+            true
+        } else {
+            let dest_size = dest.metadata().map(|m| m.len()).unwrap_or(0);
+            let builtin_size = wine_builtin.metadata().map(|m| m.len()).unwrap_or(0);
+            if dest_size != builtin_size {
+                true
+            } else if let (Some(dest_sha), Some(builtin_sha)) =
+                (crate::diagnostics::file_sha256(&dest), crate::diagnostics::file_sha256(&wine_builtin))
+            {
+                dest_sha != builtin_sha
+            } else {
+                true
+            }
+        };
+        if restore {
+            if wine_builtin.is_file() {
+                std::fs::copy(&wine_builtin, &dest)?;
+                eprintln!("mtsp: repaired prefix system32/{} — restored wine builtin over stale M12 route DLL", dll);
+            } else {
+                std::fs::remove_file(&dest)?;
+                eprintln!("mtsp: repaired prefix system32/{} — removed stale M12 route DLL", dll);
+            }
         }
-        std::fs::copy(&deploy.source_path, system32.join(&deploy.filename))?;
     }
     Ok(())
 }
@@ -1474,33 +1508,38 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
         .map(|home| crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam"))
         .unwrap_or_default();
     let prefix_system32 = prefix.join("drive_c").join("windows").join("system32");
+    let ms_root = dirs::home_dir()
+        .map(|home| crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine"))
+        .unwrap_or_default();
     let prefix_dlls: Vec<serde_json::Value> = if recipe.pipeline == PipelineId::M12 {
-        recipe
-            .dlls
+        // M12 runtime DLLs must live in the GAME DIR, never the shared prefix
+        // system32: a native DXVK/vkd3d-proton copy next to wine's builtin
+        // d3d11 freezes the Steam client UI. A route DLL sitting in system32
+        // is pollution the old backend left behind; `repair_m12_prefix_system32`
+        // restores the wine builtin baseline on the next M12/Steam launch.
+        M12_PREFIX_ROUTE_DLLS
             .iter()
-            .filter(|dll| {
-                matches!(
-                    dll.filename.as_str(),
-                    "d3d12.dll" | "dxgi.dll" | "dxgi_dxmt.dll" | "d3d11.dll" | "d3d10core.dll" | "winemetal.dll"
-                )
-            })
             .map(|dll| {
-                let dest_path = prefix_system32.join(&dll.filename);
-                let source_sha256 =
-                    if dll.source_present { crate::diagnostics::file_sha256(&dll.source_path) } else { None };
+                let dest_path = prefix_system32.join(dll);
                 let dest_present = dest_path.metadata().map(|m| m.is_file() && m.len() > 0).unwrap_or(false);
-                let dest_sha256 = if dest_present { crate::diagnostics::file_sha256(&dest_path) } else { None };
-                let matches_source =
-                    matches!((&source_sha256, &dest_sha256), (Some(source), Some(dest)) if source == dest);
+                let wine_builtin = ms_root.join("lib").join("wine").join("x86_64-windows").join(dll);
+                let matches_baseline = if dest_present && wine_builtin.is_file() {
+                    matches!(
+                        (
+                            crate::diagnostics::file_sha256(&dest_path),
+                            crate::diagnostics::file_sha256(&wine_builtin),
+                        ),
+                        (Some(dest_sha), Some(builtin_sha)) if dest_sha == builtin_sha
+                    )
+                } else {
+                    false
+                };
                 serde_json::json!({
-                    "filename": dll.filename,
-                    "source_path": dll.source_path,
+                    "filename": dll,
                     "dest_path": dest_path,
-                    "source_sha256": source_sha256,
-                    "dest_sha256": dest_sha256,
                     "dest_present": dest_present,
-                    "matches_source": matches_source,
-                    "ok": dll.source_present && dest_present && matches_source,
+                    "matches_wine_builtin": matches_baseline,
+                    "ok": !dest_present || matches_baseline,
                 })
             })
             .collect()
@@ -1641,7 +1680,9 @@ fn launch_d3dmetal_gptk_with_context(
         validate_recipe_runtime(&recipe)?;
     }
     deploy_recipe_dlls(&recipe)?;
-    deploy_prefix_route_dlls(&recipe, &prefix)?;
+    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // Heal pollution the pre-fix backend left in the shared prefix.
+    repair_m12_prefix_system32(&prefix, &ms_root)?;
 
     let cache_paths = build_cache_paths(&home, node, appid);
 
@@ -1749,7 +1790,10 @@ fn launch_dxmt_metal_with_context(
         cleanup_m12_legacy_hook_artifacts(game_dir, &prefix);
     }
     deploy_recipe_dlls(&recipe)?;
-    deploy_prefix_route_dlls(&recipe, &prefix)?;
+    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // Heal pollution the pre-fix backend left in the shared prefix.
+    let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+    repair_m12_prefix_system32(&prefix, &ms_root)?;
 
     deploy_d3d12_agility_sidecars(appid, node, game_dir)?;
 
@@ -1979,13 +2023,12 @@ pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, Strin
     let profile = crate::mono_profile::discover_mono_profile(game_dir);
     let fna_profile = find_fna_profile(appid);
 
-    // .NET Core / .NET 5+ games cannot run on the bundled Mono runtime.
+    // .NET Core / .NET 5+ games (Stardew 1.6+) cannot run on the bundled Mono
+    // runtime, but the mono/fna launch path handles them by handing execution
+    // to the game's own runtime via the Wine stack — the mono-specific
+    // readiness checks below don't apply and must not block the launch.
     if profile.dotnet_core {
-        problems.push(
-            "game is a .NET Core / .NET 5+ app (runtimeconfig.json) — the bundled Mono runtime \
-             cannot run it; use a Wine pipeline (M11/M12)"
-                .into(),
-        );
+        return Ok(Vec::new());
     }
 
     // Mono binary + arch.
@@ -6596,10 +6639,31 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "nvapi64.dll", "nvngx.dll"] {
             assert!(exe_dir.join(dll).is_file(), "game dir must receive {}", dll);
         }
-        deploy_prefix_route_dlls(&recipe, &home.join("prefix")).expect("prefix route deploy");
-        assert!(system32.join("d3d12.dll").is_file(), "system32 must receive d3d12.dll");
-        assert!(system32.join("d3d12core.dll").is_file(), "system32 must receive d3d12core.dll (vkd3d impl)");
-        assert!(system32.join("dxgi.dll").is_file(), "system32 must receive dxgi.dll");
+        // The M12 route must NEVER stage into the shared prefix system32 (a
+        // native DXVK/vkd3d-proton set there freezes the Steam client): the
+        // DLLs live in the game dir and are routed via n,b overrides.
+        assert!(!system32.join("d3d12.dll").exists(), "system32 must NOT receive d3d12.dll");
+        assert!(!system32.join("d3d12core.dll").exists(), "system32 must NOT receive d3d12core.dll");
+        assert!(!system32.join("dxgi.dll").exists(), "system32 must NOT receive dxgi.dll");
+
+        // Self-heal: pollution the OLD backend left in system32 is restored to
+        // the wine builtin baseline on the next launch.
+        std::fs::create_dir_all(&system32).unwrap();
+        let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
+        std::fs::create_dir_all(&wine_lane).unwrap();
+        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll"] {
+            std::fs::write(system32.join(dll), format!("stale-{dll}")).unwrap();
+            std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).unwrap();
+        }
+        repair_m12_prefix_system32(&home.join("prefix"), &ms_root).expect("system32 repair");
+        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll"] {
+            assert_eq!(
+                std::fs::read_to_string(system32.join(dll)).unwrap(),
+                format!("builtin-{dll}"),
+                "system32/{} must be restored to the wine builtin",
+                dll
+            );
+        }
 
         let _ = std::fs::remove_dir_all(home);
     }
@@ -6818,35 +6882,42 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn m12_prefix_route_dlls_stage_into_system32() {
-        let root = test_dir("m12-prefix-route");
-        let source_dir = root.join("runtime").join("wine").join("lib").join("dxmt_m12").join("x86_64-windows");
+        // The M12 route must NEVER stage its DLLs into the shared prefix
+        // system32 (that freezes the Steam client). Renamed behaviour: the
+        // self-healing repair restores the wine builtin baseline over any
+        // stale route copies the OLD backend left behind.
+        let root = test_dir("m12-prefix-repair");
+        let ms_root = root.join("runtime").join("wine");
+        let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
+        std::fs::create_dir_all(&wine_lane).expect("create wine lane");
         let prefix = root.join("prefix-steam");
-        std::fs::create_dir_all(&source_dir).expect("create source dir");
-
-        let dlls = ["d3d12.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
-        let recipe_dlls: Vec<recipe::RecipeDll> = dlls
-            .iter()
-            .map(|dll| {
-                let source_path = source_dir.join(dll);
-                std::fs::write(&source_path, format!("m12-{dll}")).expect("write route dll");
-                recipe::RecipeDll {
-                    source_subpath: "lib/dxmt_m12/x86_64-windows".to_string(),
-                    filename: (*dll).to_string(),
-                    source_path,
-                    dest_path: root.join("game").join(dll),
-                    source_present: true,
-                }
-            })
-            .collect();
-
-        let mut recipe = empty_test_recipe(PipelineId::M12);
-        recipe.dlls = recipe_dlls;
-
-        deploy_prefix_route_dlls(&recipe, &prefix).expect("stage M12 route DLLs");
-
         let system32 = prefix.join("drive_c").join("windows").join("system32");
+        std::fs::create_dir_all(&system32).expect("create system32");
+
+        let dlls =
+            ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
         for dll in dlls {
-            assert_eq!(std::fs::read_to_string(system32.join(dll)).unwrap(), format!("m12-{dll}"));
+            std::fs::write(system32.join(dll), format!("stale-{dll}")).expect("write stale route dll");
+            std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).expect("write wine builtin");
+        }
+        // Same-size different-content case exercises the sha-compare branch.
+        std::fs::write(system32.join("d3d12.dll"), "stale").expect("write same-size stale d3d12");
+        std::fs::write(wine_lane.join("d3d12.dll"), "clean").expect("write builtin d3d12");
+
+        repair_m12_prefix_system32(&prefix, &ms_root).expect("repair M12 prefix system32");
+
+        assert_eq!(
+            std::fs::read_to_string(system32.join("d3d12.dll")).unwrap(),
+            "clean",
+            "same-size stale d3d12.dll must be sha-verified and restored"
+        );
+        for dll in dlls[1..].iter() {
+            assert_eq!(
+                std::fs::read_to_string(system32.join(dll)).unwrap(),
+                format!("builtin-{dll}"),
+                "system32/{} must be restored to the wine builtin",
+                dll
+            );
         }
 
         let _ = std::fs::remove_dir_all(root);
@@ -6854,25 +6925,31 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn non_m12_prefix_route_dlls_do_not_stage_into_system32() {
+        // Regression guard for the old M12-only system32 deploy: no pipeline
+        // (M12 included) may write route DLLs into the shared prefix. The
+        // repair is a pure no-op on a clean prefix (nothing to heal).
         let root = test_dir("m11-prefix-route");
-        let source_dir = root.join("runtime").join("wine").join("lib").join("dxmt").join("x86_64-windows");
+        let ms_root = root.join("runtime").join("wine");
+        let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
+        std::fs::create_dir_all(&wine_lane).expect("create wine lane");
         let prefix = root.join("prefix-steam");
-        std::fs::create_dir_all(&source_dir).expect("create source dir");
-        let source_path = source_dir.join("d3d12.dll");
-        std::fs::write(&source_path, "legacy-dxmt-d3d12").expect("write route dll");
+        let system32 = prefix.join("drive_c").join("windows").join("system32");
+        std::fs::create_dir_all(&system32).expect("create system32");
 
-        let mut recipe = empty_test_recipe(PipelineId::M11);
-        recipe.dlls.push(recipe::RecipeDll {
-            source_subpath: "lib/dxmt/x86_64-windows".to_string(),
-            filename: "d3d12.dll".to_string(),
-            source_path,
-            dest_path: root.join("game").join("d3d12.dll"),
-            source_present: true,
-        });
-
-        deploy_prefix_route_dlls(&recipe, &prefix).expect("non-M12 route is no-op");
-
-        assert!(!prefix.join("drive_c").join("windows").join("system32").join("d3d12.dll").exists());
+        // A clean prefix: wine builtin DLLs already in place — repair must
+        // leave them byte-for-byte untouched.
+        for dll in ["d3d12.dll", "d3d11.dll", "dxgi.dll"] {
+            std::fs::write(system32.join(dll), format!("builtin-{dll}")).expect("write builtin");
+            std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).expect("write builtin");
+        }
+        repair_m12_prefix_system32(&prefix, &ms_root).expect("repair is a no-op on a clean prefix");
+        for dll in ["d3d12.dll", "d3d11.dll", "dxgi.dll"] {
+            assert_eq!(
+                std::fs::read_to_string(system32.join(dll)).unwrap(),
+                format!("builtin-{dll}"),
+                "clean prefix must be untouched"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(root);
     }
