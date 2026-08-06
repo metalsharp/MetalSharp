@@ -225,13 +225,34 @@ fn detect_fna_family(managed: &[String], game_dir: &Path) -> Option<MonoProfileK
     if managed.iter().any(|n| n == "fna.dll") || has_file_ci(game_dir, "FNA.dll") {
         return Some(MonoProfileKind::Fna);
     }
-    if managed.iter().any(|n| n.starts_with("monogame") || n.contains("mg.framework")) {
+    if managed.iter().any(|n| n.starts_with("monogame") || n.contains("mg.framework"))
+        || has_root_assembly_containing(game_dir, "monogame.framework")
+    {
         return Some(MonoProfileKind::MonoGame);
     }
-    if managed.iter().any(|n| n.starts_with("microsoft.xna.framework")) {
+    if managed.iter().any(|n| n.starts_with("microsoft.xna.framework"))
+        || has_root_assembly_containing(game_dir, "microsoft.xna.framework")
+    {
         return Some(MonoProfileKind::Xna);
     }
     None
+}
+
+/// True when the game ROOT contains a .dll whose lowercased name contains
+/// `needle` — covers the classic XNA/FNA layout (Terraria, Stardew Valley,
+/// etc.) where managed assemblies sit next to the exe instead of a
+/// `<Game>_Data/Managed` dir.
+fn has_root_assembly_containing(game_dir: &Path, needle: &str) -> bool {
+    let Ok(entries) = fs::read_dir(game_dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if name.ends_with(".dll") && name.contains(needle) {
+            return true;
+        }
+    }
+    false
 }
 
 /// MonoKickstart detection: `<exe>.bin.osx` present, `osx/libmonosgen*`
@@ -540,6 +561,24 @@ mod tests {
         fs::write(dir.join("Game.bin.osx"), b"kick").unwrap();
         let profile = discover_mono_profile(&dir);
         assert_eq!(profile.kind, MonoProfileKind::MonoKickstart);
+        assert!(is_mono_route_eligible(&profile));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn terraria_shaped_dir_is_xna_via_root_assembly() {
+        // Real Terraria layout (verified 2026-08-06 on the user's install):
+        // root-level XNA assemblies, NO *_Data/Managed dir, NO FNA.dll.
+        // The XNA family must be detected from the root Microsoft.Xna.*.dll
+        // even though there is no Managed/ directory.
+        let dir = make_dir("terraria");
+        fs::write(dir.join("Terraria.exe"), b"mz").unwrap();
+        fs::write(dir.join("Microsoft.Xna.Framework.Content.Pipeline.dll"), b"xna-content-pipeline").unwrap();
+        fs::write(dir.join("ReLogic.Native.dll"), b"native").unwrap();
+        fs::write(dir.join("steam_api.dll"), b"steam").unwrap();
+        let profile = discover_mono_profile(&dir);
+        assert_eq!(profile.kind, MonoProfileKind::Xna);
+        assert_eq!(profile.mono_requirement, MonoRequirement::Baseline);
         assert!(is_mono_route_eligible(&profile));
         let _ = fs::remove_dir_all(&dir);
     }
