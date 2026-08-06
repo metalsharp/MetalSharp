@@ -1164,10 +1164,13 @@ pub fn launch_custom_with_options(
         cmd.env("DXMT_WINEMETAL_UNIXLIB", dxmt_winemetal_unixlib_path(&ms_root));
     }
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
+    cmd.env("WINEMSYNC", msync_env_value(&home));
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
+    // MetalFX strength is the user's choice (metalfx.overlay.json): reconcile
+    // the DXMT env after node env so the toggle is authoritative.
+    apply_metal_fx_config_cmd(&mut cmd, node, &home);
 
     cmd.arg(&exe_name);
     cmd.args(&recipe.launch_args);
@@ -1470,7 +1473,7 @@ fn launch_d3dmetal_gptk_with_context(
         .env("WINELOADER", &gptk_wine64)
         .env("DYLD_FALLBACK_LIBRARY_PATH", &dyld)
         .env("MS_GRAPHICS_BACKEND", node.graphics_backend)
-        .env("WINEMSYNC", "1");
+        .env("WINEMSYNC", msync_env_value(&home));
     apply_metalfx_home_env(&mut cmd, &home);
 
     if node.uses_winedllpath_routing() {
@@ -1592,11 +1595,13 @@ fn launch_dxmt_metal_with_context(
     }
 
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
-
+    cmd.env("WINEMSYNC", msync_env_value(&home));
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
+    // MetalFX strength is the user's choice (metalfx.overlay.json): reconcile
+    // the DXMT env after node env so the toggle is authoritative.
+    apply_metal_fx_config_cmd(&mut cmd, node, &home);
     apply_app_launch_env(&mut cmd, appid, node.id);
     for (key, value) in extra_env {
         cmd.env(key, value);
@@ -1680,7 +1685,7 @@ fn launch_wine_bare_with_context(
     let cache_paths = build_cache_paths(&home, node, appid);
     apply_cache_env(&mut cmd, node, cache_paths.as_ref(), &ms_root);
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
+    cmd.env("WINEMSYNC", msync_env_value(&home));
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
@@ -2365,7 +2370,7 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
         env.push(("DXMT_WINEMETAL_UNIXLIB".to_string(), dxmt_winemetal_unixlib_path(&ms_root)));
     }
     env.push(("MS_GRAPHICS_BACKEND".to_string(), node.graphics_backend.to_string()));
-    env.push(("WINEMSYNC".to_string(), "1".to_string()));
+    env.push(("WINEMSYNC".to_string(), msync_env_value(home)));
     env.extend(cache_env_pairs(node, cache_paths.as_ref(), &ms_root));
     env.extend(node.env_vars.iter().map(|ev| (ev.key.to_string(), ev.value.to_string())));
     env.extend(app_compat_env_pairs(appid, node.id));
@@ -2376,7 +2381,114 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
             }
         }
     }
+    // MetalFX strength is the user's choice: applied last so it overrides the
+    // node default and any game-recipe DXMT_CONFIG/DXMT_METALFX_* entries.
+    apply_metal_fx_config(&mut env, node, home);
+    // msync toggle likewise wins over recipe env.
+    apply_msync_config(&mut env, home);
     env
+}
+
+/// Wine msync toggle value (`WINEMSYNC`) for the given home. Defaults ON.
+pub(crate) fn msync_env_value(home: &Path) -> String {
+    if crate::launch::msync_enabled_for(home) {
+        "1".to_string()
+    } else {
+        "0".to_string()
+    }
+}
+
+/// Reconcile the WINEMSYNC env entry after recipe env so the sidebar msync
+/// toggle is authoritative (a game recipe could otherwise override it for
+/// non-M12 routes, where WINEMSYNC is not a reserved key).
+fn apply_msync_config(env: &mut Vec<(String, String)>, home: &Path) {
+    let value = msync_env_value(home);
+    if let Some((_, existing)) = env.iter_mut().rev().find(|(key, _)| key == "WINEMSYNC") {
+        *existing = value;
+    } else {
+        env.push(("WINEMSYNC".to_string(), value));
+    }
+}
+
+/// DXMT routes that carry MetalFX Spatial upscaling (`DXMT_METALFX_*` env +
+/// `d3d11.metalSpatialUpscaleFactor` in `DXMT_CONFIG`): M10, M10(32), M11,
+/// M11(32). M9 has no upscale key; M12 is vkd3d-proton; M13/D3DMetal/FNA use
+/// other stacks.
+fn is_metalfx_route(pipeline_id: PipelineId) -> bool {
+    matches!(pipeline_id, PipelineId::M10 | PipelineId::M10_32 | PipelineId::M11 | PipelineId::M11_32)
+}
+
+/// Apply the MetalFX Spatial upscale strength to the DXMT env, overriding
+/// whatever the pipeline node or a game recipe set. The single source of
+/// truth is the metalfx overlay state (`etc/metalfx.overlay.json`, written by
+/// `/metalfx/toggle` — the sidebar toggle drives that endpoint). This
+/// reconciliation also fixes the node env's hardcoded `metalSpatialUpscaleFactor`
+/// (1.43) shadowing the overlay's dxmt.conf factor: DXMT parses DXMT_CONFIG env
+/// AFTER the conf file, so the env wins unless we rewrite it here.
+/// `off` disables MetalFX the same way the app-compat path does
+/// (`DXMT_METALFX_SPATIAL_SWAPCHAIN=0` + no upscale factor); enabled strengths
+/// keep the swapchain integration and set the factor. Only DXMT routes
+/// (M10/M10(32)/M11/M11(32)) are touched.
+fn apply_metal_fx_config(env: &mut Vec<(String, String)>, node: &PipelineNode, home: &Path) {
+    if !is_metalfx_route(node.id) {
+        return;
+    }
+    let (enabled, factor) = crate::metalfx::effective_state_for(home);
+    let factor_str = if (factor - 1.75).abs() < f32::EPSILON { "1.75" } else { "1.50" };
+
+    // Rewrite the LAST DXMT_CONFIG entry in place.
+    if let Some((_, config)) = env.iter_mut().rev().find(|(key, _)| key == "DXMT_CONFIG") {
+        *config = metal_fx_config_with_upscale(config, enabled.then_some(factor_str));
+    }
+
+    // MetalFX swapchain integration: on for strengths, off for "off" (matches
+    // DXMT's own disable semantics used for M9 stuck-loading titles).
+    let swapchain_value = if enabled { "1" } else { "0" };
+    if let Some((_, value)) = env.iter_mut().rev().find(|(key, _)| key == "DXMT_METALFX_SPATIAL_SWAPCHAIN") {
+        *value = swapchain_value.to_string();
+    } else {
+        env.push(("DXMT_METALFX_SPATIAL_SWAPCHAIN".to_string(), swapchain_value.to_string()));
+    }
+}
+
+/// Command-wrapper variant for the direct launch paths (they apply
+/// `node.env_vars` straight onto the Command, so we reconcile via the same
+/// pair-rewrite logic then push the overrides back).
+fn apply_metal_fx_config_cmd(cmd: &mut std::process::Command, node: &PipelineNode, home: &Path) {
+    let mut env: Vec<(String, String)> = Vec::new();
+    for ev in &node.env_vars {
+        env.push((ev.key.to_string(), ev.value.to_string()));
+    }
+    apply_metal_fx_config(&mut env, node, home);
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+}
+
+/// Rebuild a `DXMT_CONFIG` value with the MetalFX upscale pair set to
+/// `factor` (or removed entirely when `None`, i.e. MetalFX off). All other
+/// pairs (e.g. `d3d11.preferredMaxFrameRate=60`) are preserved.
+fn metal_fx_config_with_upscale(config: &str, factor: Option<&str>) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut inserted = false;
+    for pair in config.split(';') {
+        let Some((key, value)) = pair.split_once('=') else { continue };
+        if key == "d3d11.metalSpatialUpscaleFactor" {
+            if let Some(f) = factor {
+                out.push(format!("d3d11.metalSpatialUpscaleFactor={}", f));
+                inserted = true;
+            }
+            // None -> drop the pair entirely.
+        } else {
+            out.push(format!("{}={}", key, value));
+        }
+    }
+    if let Some(f) = factor {
+        if !inserted {
+            out.push(format!("d3d11.metalSpatialUpscaleFactor={}", f));
+        }
+    }
+    out.join(";")
 }
 
 fn is_reserved_route_env_key(pipeline_id: PipelineId, key: &str) -> bool {
@@ -5373,8 +5485,14 @@ mod tests {
     }
 
     #[test]
-    fn dxmt_family_env_uses_seventy_percent_upscale_and_cache_paths() {
-        for pipeline_id in [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12] {
+
+    fn dxmt_family_env_uses_metalfx_upscale_and_cache_paths() {
+        // M12 now runs vkd3d-proton; the DXMT_CONFIG contract applies to the
+        // legacy DXMT family (M9/M10/M11) only. MetalFX default strength is
+        // 1.50 (metalfx.overlay.json default), reconciled into the env at
+        // launch; M9 has no upscale pair (no MetalFX on D3D9).
+        for pipeline_id in [PipelineId::M10, PipelineId::M11] {
+
             let home = test_dir(&format!("dxmt-env-{:?}", pipeline_id));
             let node = get_pipeline(pipeline_id);
 
@@ -5383,7 +5501,7 @@ mod tests {
             let summary =
                 env.iter().find(|(key, _)| key == "METALSHARP_CACHE_SUMMARY").map(|(_, value)| value.as_str());
 
-            assert!(config.unwrap_or_default().contains("d3d11.metalSpatialUpscaleFactor=1.43"));
+            assert!(config.unwrap_or_default().contains("d3d11.metalSpatialUpscaleFactor=1.50"));
             assert!(config.unwrap_or_default().contains("d3d11.preferredMaxFrameRate=60"));
             assert!(summary.unwrap_or_default().contains("/shader-cache/"));
             assert!(summary.unwrap_or_default().contains("/pipeline-cache/"));
@@ -6539,6 +6657,205 @@ mod tests {
         let cache = goldberg_cache_dir_for(&home, 990044);
         assert!(cache.join("steam_api64.dll").is_file(), "cache must persist across OFF");
 
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- MetalFX sidebar toggle: env reconciliation from metalfx.overlay.json ----
+
+    fn metalfx_home() -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("ms-metalfx-env-{}-{}", std::process::id(), unique_suffix()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn write_metalfx_state(home: &std::path::Path, enabled: bool, factor: f32) {
+        let path = home.join("etc").join("metalfx.overlay.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, serde_json::json!({ "enabled": enabled, "factor": factor, "ts": 1 }).to_string())
+            .unwrap();
+    }
+
+    fn dxmt_env_with_node(pipeline_id: PipelineId) -> Vec<(String, String)> {
+        let node = get_pipeline(pipeline_id);
+        let mut env: Vec<(String, String)> = Vec::new();
+        env.extend(node.env_vars.iter().map(|ev| (ev.key.to_string(), ev.value.to_string())));
+        env
+    }
+
+    #[test]
+    fn metalfx_env_reconciles_all_four_dxmt_routes() {
+        let home = metalfx_home();
+        for pipeline_id in [PipelineId::M10, PipelineId::M10_32, PipelineId::M11, PipelineId::M11_32] {
+            let node = get_pipeline(pipeline_id);
+
+            // Default (no state file): enabled at 1.50.
+            let _ = std::fs::remove_file(home.join("etc").join("metalfx.overlay.json"));
+            let mut env = dxmt_env_with_node(pipeline_id);
+            apply_metal_fx_config(&mut env, node, &home);
+            let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+            assert!(
+                config.contains("d3d11.metalSpatialUpscaleFactor=1.50"),
+                "{:?} default config must carry 1.50: {}",
+                pipeline_id,
+                config
+            );
+            assert_eq!(last_env_value(&env, "DXMT_METALFX_SPATIAL_SWAPCHAIN"), Some("1"));
+
+            // 1.75
+            write_metalfx_state(&home, true, 1.75);
+            let mut env = dxmt_env_with_node(pipeline_id);
+            apply_metal_fx_config(&mut env, node, &home);
+            let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+            assert!(
+                config.contains("d3d11.metalSpatialUpscaleFactor=1.75"),
+                "{:?} must carry 1.75: {}",
+                pipeline_id,
+                config
+            );
+            assert_eq!(last_env_value(&env, "DXMT_METALFX_SPATIAL_SWAPCHAIN"), Some("1"));
+
+            // OFF: no upscale pair, swapchain integration off.
+            write_metalfx_state(&home, false, 1.75);
+            let mut env = dxmt_env_with_node(pipeline_id);
+            apply_metal_fx_config(&mut env, node, &home);
+            let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+            assert!(
+                !config.contains("metalSpatialUpscaleFactor"),
+                "{:?} OFF must strip the upscale pair: {}",
+                pipeline_id,
+                config
+            );
+            assert!(config.contains("d3d11.preferredMaxFrameRate=60"), "OFF keeps other pairs: {}", config);
+            assert_eq!(last_env_value(&env, "DXMT_METALFX_SPATIAL_SWAPCHAIN"), Some("0"));
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn metalfx_env_untouched_for_non_dxmt_routes() {
+        let home = metalfx_home();
+        write_metalfx_state(&home, false, 1.75); // would strip if applied
+        for pipeline_id in [PipelineId::M9, PipelineId::M12, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare] {
+            let node = get_pipeline(pipeline_id);
+            let mut env = dxmt_env_with_node(pipeline_id);
+            let before = env.clone();
+            apply_metal_fx_config(&mut env, node, &home);
+            assert_eq!(env, before, "{:?} env must be untouched by the MetalFX toggle", pipeline_id);
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn metalfx_env_beats_node_default_and_recipe_env() {
+        let home = metalfx_home();
+        // Recipe env sets a DXMT_CONFIG with the old hardcoded 1.43; the toggle
+        // (1.50 default) must win.
+        let node = get_pipeline(PipelineId::M11);
+        let mut env = dxmt_env_with_node(PipelineId::M11);
+        env.push((
+            "DXMT_CONFIG".to_string(),
+            "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60".into(),
+        ));
+        apply_metal_fx_config(&mut env, node, &home);
+        let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+        assert!(
+            config.contains("d3d11.metalSpatialUpscaleFactor=1.50"),
+            "toggle (1.50 default) must beat recipe 1.43: {}",
+            config
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn metalfx_env_cycling_is_stable() {
+        let home = metalfx_home();
+        let node = get_pipeline(PipelineId::M10);
+        // off -> 1.50 -> 1.75 -> off -> 1.75 ... repeated; each rewrite must
+        // converge and never accumulate duplicate pairs.
+        for (i, (enabled, factor, expect)) in [
+            (false, 1.5, "!metalSpatialUpscaleFactor"),
+            (true, 1.5, "metalSpatialUpscaleFactor=1.50"),
+            (true, 1.75, "metalSpatialUpscaleFactor=1.75"),
+            (false, 1.75, "!metalSpatialUpscaleFactor"),
+            (true, 1.75, "metalSpatialUpscaleFactor=1.75"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            write_metalfx_state(&home, *enabled, *factor);
+            let mut env = dxmt_env_with_node(PipelineId::M10);
+            // Run twice like two launch cycles.
+            apply_metal_fx_config(&mut env, node, &home);
+            let env2 = env.clone();
+            apply_metal_fx_config(&mut env, node, &home);
+            assert_eq!(env, env2, "cycle {i}: idempotent");
+            let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+            let upscale_count = config.matches("metalSpatialUpscaleFactor").count();
+            assert!(upscale_count <= 1, "cycle {i}: exactly one upscale pair, got {config}");
+            if expect.starts_with('!') {
+                assert!(!config.contains("metalSpatialUpscaleFactor"), "cycle {i}: {config}");
+            } else {
+                assert!(config.contains(expect), "cycle {i}: {config}");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- Wine msync toggle: WINEMSYNC env from config ----
+
+    fn write_msync_config(home: &std::path::Path, enabled: bool) {
+        let path = home.join(".metalsharp").join("configs").join("config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, serde_json::json!({ "msync": enabled }).to_string()).unwrap();
+    }
+
+    #[test]
+    fn msync_env_reflects_config_on_all_routes() {
+        let home = metalfx_home();
+        // Default: no config -> WINEMSYNC=1.
+        for pipeline_id in
+            [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
+        {
+            let node = get_pipeline(pipeline_id);
+            let env = steam_pipeline_env_pairs(&home, node, 42);
+            assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("1"), "{:?} default ON", pipeline_id);
+        }
+
+        // OFF: all routes get WINEMSYNC=0.
+        write_msync_config(&home, false);
+        for pipeline_id in
+            [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
+        {
+            let node = get_pipeline(pipeline_id);
+            let env = steam_pipeline_env_pairs(&home, node, 42);
+            assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "{:?} OFF must disable msync", pipeline_id);
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn msync_env_value_helper_matches_config() {
+        let home = metalfx_home();
+        assert_eq!(msync_env_value(&home), "1", "default ON");
+        write_msync_config(&home, false);
+        assert_eq!(msync_env_value(&home), "0", "OFF");
+        write_msync_config(&home, true);
+        assert_eq!(msync_env_value(&home), "1", "back ON");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn msync_toggle_beats_recipe_env() {
+        let home = metalfx_home();
+        write_msync_config(&home, false);
+        let node = get_pipeline(PipelineId::M11);
+        // Simulate a game recipe forcing WINEMSYNC=1 (M11 is not a reserved
+        // route, so the recipe env would win without the reconcile).
+        let mut env = steam_pipeline_env_pairs(&home, node, 42);
+        env.push(("WINEMSYNC".to_string(), "1".to_string()));
+        apply_msync_config(&mut env, &home);
+        assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "sidebar msync toggle must beat recipe env");
         let _ = std::fs::remove_dir_all(&home);
     }
 }

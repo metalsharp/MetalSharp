@@ -104,6 +104,16 @@ fn gog_prefix() -> PathBuf {
     crate::bottles::bottle_dir(GOG_PREFIX_BOTTLE_ID).join("prefix")
 }
 
+/// Wine msync toggle for the GOG prefix (honors the sidebar msync config;
+/// defaults ON like every other launch path).
+fn msync_env_value_for_gog() -> &'static str {
+    if crate::launch::msync_enabled() {
+        "1"
+    } else {
+        "0"
+    }
+}
+
 fn wine_root() -> PathBuf {
     ms_home().join("runtime").join("wine")
 }
@@ -570,7 +580,7 @@ fn initialize_prefix() -> Result<(), String> {
         .arg("wineboot")
         .arg("-u")
         .env("WINEPREFIX", prefix.to_string_lossy().to_string())
-        .env("WINEMSYNC", "1")
+        .env("WINEMSYNC", msync_env_value_for_gog())
         .env("WINEDEBUG", "-all")
         .env("MS_FWD_COMPAT_GL_CTX", "1")
         .stdout(Stdio::null())
