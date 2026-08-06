@@ -286,10 +286,32 @@ verify_assets_core() {
     assets/goldberg/x64/steam_api64.dll \
     assets/goldberg/x86/steam_api.dll \
     assets/mono-arm64/bin/mono-sgen \
-    assets/shims/libsteam_api.dylib &&
+    assets/shims/libsteam_api.dylib \
+    assets/xna/Microsoft.Xna.Framework.dll \
+    assets/xna/Microsoft.Xna.Framework.Game.dll \
+    assets/xna/Microsoft.Xna.Framework.Graphics.dll \
+    assets/xna/Microsoft.Xna.Framework.Audio.dll \
+    assets/xna/Microsoft.Xna.Framework.Input.dll \
+    assets/xna/Microsoft.Xna.Framework.Media.dll \
+    assets/xna/Microsoft.Xna.Framework.Storage.dll \
+    assets/unity-mono/2021.3/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/2021.3/mono-sgen \
+    assets/unity-mono/2021.3/MonoBleedingEdge.version \
+    assets/unity-mono/2022.3/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/2022.3/mono-sgen \
+    assets/unity-mono/2022.3/MonoBleedingEdge.version \
+    assets/unity-mono/2020.3/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/2020.3/mono-sgen \
+    assets/unity-mono/2020.3/MonoBleedingEdge.version \
+    assets/unity-mono/6000.0/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/6000.0/mono-sgen \
+    assets/unity-mono/6000.0/MonoBleedingEdge.version \
+    assets/unity-mono/manifest.json \
+    assets/sdl3/libSDL3.dylib &&
     archive_not_contains "$path" '^assets/eac-toggle/' &&
     verify_fna_payloads "$path" "ASSETS" assets/fnalibs &&
-    verify_fna_kickstart_payloads "$path" "ASSETS" assets/fna-kickstart/osx
+    verify_fna_kickstart_payloads "$path" "ASSETS" assets/fna-kickstart/osx &&
+    verify_hash_manifest "$path" "FNA-UNITY" "assets" "$SCRIPT_DIR/fna-unity-hashes.tsv"
 }
 
 verify_fnalibs_core() {
