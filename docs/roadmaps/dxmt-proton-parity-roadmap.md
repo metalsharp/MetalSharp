@@ -3,16 +3,26 @@
 Created: 2026-05-29
 Status: Proposed
 
+> **Status note (2026-08-05):** This roadmap's core premise has been
+> superseded. MetalSharp now ships **vkd3d-proton as the default M12 backend**
+> (D3D12 → Vulkan → VKMT MoltenVK → Metal, PR #377), which resolves the
+> "why not pivot" question (lines 10-15) in-tree: VKMT's patched MoltenVK
+> provides the Vulkan extensions vkd3d-proton needs, and the double-translation
+> tax is accepted for D3D12 while the DXMT routes (M9/M10/M11) keep the direct
+> D3D→Metal path. The DXIL→MSL converter work below now only serves the
+> `m12Backend=dxmt` rollback lane. Keep this roadmap for its runtime-discipline
+> patterns; treat the "VKD3D-Proton cannot run on macOS" premise as resolved.
+
 This roadmap doubles down on MetalSharp's direct D3D→Metal architecture (the correct path for macOS) while systematically adopting Proton's proven runtime discipline patterns. Every item is grounded in current codebase analysis.
 
 ## Why Not Pivot to Proton/Linux
 
 Proton runs Windows PE binaries through Wine on Linux with D3D→Vulkan translation. MetalSharp runs Windows PE binaries through Wine on macOS with D3D→Metal translation. These are the same architectural pattern on different platforms. Proton cannot run on macOS because:
-- VKD3D-Proton requires Vulkan extensions MoltenVK doesn't provide
+- VKD3D-Proton requires Vulkan extensions MoltenVK doesn't provide — **resolved in-tree (2026-08-05): VKMT's patched MoltenVK supplies the required extensions; vkd3d-proton is the default M12 backend**
 - Proton's Wine fork has no macdrv backend
 - Steam Linux Runtime uses Linux namespaces (no macOS equivalent)
 
-MetalSharp's direct D3D→Metal path avoids the double-translation tax (D3D→Vulkan→Metal) and doesn't depend on Apple's closed-source D3DMetal. This is the right architecture. The play is to accelerate DXMT's coverage and mine Proton's ecosystem for patterns.
+MetalSharp's direct D3D→Metal path avoids the double-translation tax (D3D→Vulkan→Metal) and doesn't depend on Apple's closed-source D3DMetal. This is the right architecture for the D3D9/D3D10/D3D11 routes; for D3D12 the default is now the vkd3d-proton → Vulkan → MoltenVK route, with the DXMT direct path retained as rollback. The play is to accelerate DXMT's coverage and mine Proton's ecosystem for patterns.
 
 ---
 
