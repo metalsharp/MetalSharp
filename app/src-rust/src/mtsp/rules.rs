@@ -160,11 +160,20 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
     if let Some(ref dir) = game_dir {
         if dir.exists() {
             // Mono-profile discovery first: Unity-Mono / FNA / MonoGame /
-            // XNA / MonoKickstart games route to the FNA lane; IL2CPP (native
-            // GameAssembly.dll) is NOT mono-runnable and goes to Wine/DXMT.
+            // XNA / MonoKickstart games route to the FNA lane. IL2CPP games
+            // (native GameAssembly.dll) are NOT mono-runnable — route through
+            // PE analysis so 32-bit IL2CPP still lands on M11_32, falling
+            // back to the 64-bit Wine/DXMT lane.
             let profile = crate::mono_profile::discover_mono_profile(dir);
             match profile.kind {
-                crate::mono_profile::MonoProfileKind::Il2Cpp => return PipelineId::M11,
+                crate::mono_profile::MonoProfileKind::Il2Cpp => {
+                    if let Some(pe_info) = super::pe::analyze_game_exe(dir) {
+                        if let Some(pipeline) = pe_info_to_pipeline(&pe_info) {
+                            return pipeline;
+                        }
+                    }
+                    return PipelineId::M11;
+                },
                 crate::mono_profile::MonoProfileKind::BareDotnet => {
                     // Weakest signal: a game with managed assemblies but no
                     // FNA/XNA/MonoGame/Unity markers. Keep the historical

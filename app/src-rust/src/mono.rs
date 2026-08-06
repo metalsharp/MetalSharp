@@ -141,7 +141,19 @@ fn read_download_state() -> (bool, u64, u64, Option<String>) {
 fn mutate_download_state<F: Fn(&mut MonoInstallState)>(f: F) {
     if let Ok(mut states) = install_states().lock() {
         // Apply to every known prefix state so both status views agree; a
-        // fresh prefix state gets the update on first access.
+        // fresh prefix state gets the update on first access. With an EMPTY
+        // map (first install click before any status poll created an entry)
+        // insert a default entry so the `downloading` guard in
+        // spawn_msi_download actually engages — otherwise two rapid install
+        // clicks spawn two concurrent MSI downloads of the same cache file.
+        if states.per_prefix.is_empty() {
+            let entry = states.per_prefix.entry("_shared".to_string()).or_insert_with(|| MonoInstallState {
+                target_version: WINE_MONO_LATEST_VERSION.to_string(),
+                ..Default::default()
+            });
+            f(entry);
+            return;
+        }
         for state in states.per_prefix.values_mut() {
             f(state);
         }
@@ -912,6 +924,23 @@ mod tests {
         assert_eq!(state_b.pid, None);
         let _ = std::fs::remove_dir_all(&a);
         let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn download_state_applies_to_empty_map() {
+        // W3 regression: mutate_download_state must engage even with an empty
+        // per-prefix map (first install click before any status poll), or the
+        // `downloading` guard in spawn_msi_download never engages and two
+        // rapid clicks spawn concurrent MSI downloads.
+        install_states().lock().map(|mut s| s.per_prefix.clear()).unwrap();
+        let (before, _, _, _) = read_download_state();
+        assert!(!before);
+        mutate_download_state(|s| {
+            s.downloading = true;
+        });
+        let (after, _, _, _) = read_download_state();
+        assert!(after, "download state must be set on an empty map");
+        install_states().lock().map(|mut s| s.per_prefix.clear()).unwrap();
     }
 
     #[test]
