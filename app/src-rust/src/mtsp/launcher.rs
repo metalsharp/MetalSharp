@@ -1825,9 +1825,13 @@ pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, Strin
         },
     };
     if !mono_bin.as_os_str().is_empty() {
-        let wants_x86 = profile.kind == crate::mono_profile::MonoProfileKind::None
-            && fna_profile.mono_arch == MonoArch::X86
-            || (profile.kind != crate::mono_profile::MonoProfileKind::None && !profile.is_64_bit);
+        // Arch must match the LAUNCH path exactly (launch_fna_arm64 wraps
+        // mono in `arch -x86_64` iff fna_profile.mono_arch == X86): a
+        // discovered x86 game still launches through the profile's mono_arch,
+        // so the Rosetta probe keys off the same signal. Default profiles are
+        // MonoArch::X86 (launcher.rs DEFAULT_FNA_PROFILE), so unproven games
+        // get the Rosetta check; a profile pinned to Native does not.
+        let wants_x86 = fna_profile.mono_arch == MonoArch::X86;
         if wants_x86 && crate::platform::current() == crate::platform::HostPlatform::Macos {
             // Rosetta required for x86 mono; report explicitly.
             let arch_probe = std::process::Command::new("arch").arg("-x86_64").arg("true").status();
