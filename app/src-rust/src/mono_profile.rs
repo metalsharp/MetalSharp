@@ -279,7 +279,7 @@ pub fn discover_mono_profile(game_dir: &Path) -> MonoProfile {
     }
 
     let mut evidence = Vec::new();
-    let is_unity = has_file_ci(game_dir, "UnityPlayer.dll") || has_file_ci(game_dir, "unityplayer.dll");
+    let is_unity = has_file_ci(game_dir, "UnityPlayer.dll");
     let unity_backend = if is_unity { detect_unity_backend(game_dir) } else { None };
     let managed = collect_managed_assembly_names(game_dir);
     let fna_family = detect_fna_family(&managed, game_dir);
