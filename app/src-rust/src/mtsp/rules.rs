@@ -223,6 +223,11 @@ fn resolve_dxmt_alias(appid: u32, pipeline: PipelineId) -> PipelineId {
 
 fn detect_dxmt_pipeline(appid: u32) -> Option<PipelineId> {
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid))?;
+    // .NET Core / .NET 5+ apps (runtimeconfig.json) cannot run on the bundled
+    // Mono runtime — send them to the Wine lane instead of the mono route.
+    if crate::mono_profile::is_dotnet_core_game(&game_dir) {
+        return Some(PipelineId::M11);
+    }
     if crate::setup::detect_dotnet_game(&game_dir) {
         return Some(PipelineId::FnaArm64);
     }
