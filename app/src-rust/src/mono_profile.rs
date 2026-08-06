@@ -23,7 +23,7 @@ use std::fs;
 use std::path::Path;
 
 /// The mono-adjacent family a game dir belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MonoProfileKind {
     /// Unity engine with the Mono scripting backend (MonoBleedingEdge).
@@ -45,7 +45,7 @@ pub enum MonoProfileKind {
 }
 
 /// Mono runtime requirement tier for the game.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MonoRequirement {
     /// Works with the baseline bundled Mono (classic XNA-era, mono 2.0-compatible).
@@ -54,8 +54,8 @@ pub enum MonoRequirement {
     Modern,
 }
 
-/// Native/managed dependency signals the game carries.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+/// Dependency signals the game carries.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct MonoDeps {
     pub sdl2: bool,
     pub sdl3: bool,
@@ -68,7 +68,7 @@ pub struct MonoDeps {
 }
 
 /// The full discovered profile for a game dir.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct MonoProfile {
     pub kind: MonoProfileKind,
     /// Unity version string (e.g. "2021.3.5f1") when kind == UnityMono.
@@ -408,6 +408,20 @@ pub fn is_mono_route_eligible(profile: &MonoProfile) -> bool {
     )
 }
 
+/// Human-readable label for the mono requirement tier (for UI/status).
+pub fn mono_requirement_label(requirement: MonoRequirement) -> &'static str {
+    match requirement {
+        MonoRequirement::Baseline => "baseline",
+        MonoRequirement::Modern => "modern",
+    }
+}
+
+/// True when the profile needs the modern Mono upgrade (11.2.0) rather than
+/// the baseline runtime that ships with the app.
+pub fn requires_mono_upgrade(profile: &MonoProfile) -> bool {
+    profile.mono_requirement == MonoRequirement::Modern
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +573,18 @@ mod tests {
         assert_eq!(profile.kind, MonoProfileKind::Fna);
         assert!(profile.deps.sdl3);
         assert_eq!(profile.mono_requirement, MonoRequirement::Modern);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mono_requirement_labels_and_upgrade_helpers() {
+        let dir = make_dir("req");
+        write_unity_layout(&dir, "2021.3.5f1", false, false);
+        let profile = discover_mono_profile(&dir);
+        assert_eq!(profile.mono_requirement, MonoRequirement::Modern);
+        assert!(requires_mono_upgrade(&profile));
+        assert_eq!(mono_requirement_label(MonoRequirement::Modern), "modern");
+        assert_eq!(mono_requirement_label(MonoRequirement::Baseline), "baseline");
         let _ = fs::remove_dir_all(&dir);
     }
 }
