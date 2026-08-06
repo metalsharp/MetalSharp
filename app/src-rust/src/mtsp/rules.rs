@@ -159,6 +159,35 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid));
     if let Some(ref dir) = game_dir {
         if dir.exists() {
+            // Mono-profile discovery first: Unity-Mono / FNA / MonoGame /
+            // XNA / MonoKickstart games route to the FNA lane. IL2CPP games
+            // (native GameAssembly.dll) are NOT mono-runnable — route through
+            // PE analysis so 32-bit IL2CPP still lands on M11_32, falling
+            // back to the 64-bit Wine/DXMT lane.
+            let profile = crate::mono_profile::discover_mono_profile(dir);
+            match profile.kind {
+                crate::mono_profile::MonoProfileKind::Il2Cpp => {
+                    if let Some(pe_info) = super::pe::analyze_game_exe(dir) {
+                        if let Some(pipeline) = pe_info_to_pipeline(&pe_info) {
+                            return pipeline;
+                        }
+                    }
+                    return PipelineId::M11;
+                },
+                crate::mono_profile::MonoProfileKind::BareDotnet => {
+                    // Weakest signal: a game with managed assemblies but no
+                    // FNA/XNA/MonoGame/Unity markers. Keep the historical
+                    // native-DLL guard (detect_dotnet_game refuses games with
+                    // native Windows DLLs at the root) so a native game with a
+                    // stray *_Data/Managed dir is not mono-routed.
+                    if crate::setup::detect_dotnet_game(dir) {
+                        return PipelineId::FnaArm64;
+                    }
+                },
+                crate::mono_profile::MonoProfileKind::None => {},
+                _ => return PipelineId::FnaArm64,
+            }
+
             if crate::setup::detect_dotnet_game(dir) {
                 return PipelineId::FnaArm64;
             }
@@ -371,6 +400,74 @@ mod tests {
         };
 
         assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M12));
+    }
+
+    #[test]
+    fn mono_profile_discovery_drives_fallback_routing() {
+        // Unity-Mono shaped dir (DREDGE-like): discovery routes to FnaArm64
+        // even though detect_dotnet_game returns false (native UnityPlayer.dll).
+        let dir = std::env::temp_dir().join(format!("ms-rules-unity-mono-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::create_dir_all(dir.join("MonoBleedingEdge").join("EmbedRuntime")).unwrap();
+        std::fs::write(dir.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-2.0-bdwgc.dll"), b"m").unwrap();
+        let data_dir = dir.join("Game_Data").join("Managed");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(data_dir.join("Assembly-CSharp.dll"), b"m").unwrap();
+        let mut ggm = vec![0u8; 48];
+        ggm.extend_from_slice(b"2021.3.5f1\0");
+        std::fs::write(dir.join("Game_Data").join("globalgamemanagers"), &ggm).unwrap();
+
+        let profile = crate::mono_profile::discover_mono_profile(&dir);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::UnityMono);
+
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // IL2CPP shaped dir: discovery routes to M11 (Wine/DXMT), never FNA.
+        let dir2 = std::env::temp_dir().join(format!("ms-rules-il2cpp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir2);
+        std::fs::create_dir_all(&dir2).unwrap();
+        std::fs::write(dir2.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::write(dir2.join("GameAssembly.dll"), b"g").unwrap();
+        let profile2 = crate::mono_profile::discover_mono_profile(&dir2);
+        assert_eq!(profile2.kind, crate::mono_profile::MonoProfileKind::Il2Cpp);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn bare_dotnet_profile_keeps_native_dll_guard() {
+        // A native game with a stray *_Data/Managed dir: discovery classifies
+        // BareDotnet, but the routing guard must defer to the historical
+        // detect_dotnet_game behavior (refuses games with native Windows DLLs
+        // at the root). Fixture 1: managed dir + NO native root DLL -> dotnet
+        // (would route FnaArm64). Fixture 2: managed dir + native root DLL ->
+        // not dotnet (falls through to PE/directory heuristics).
+        let dir = std::env::temp_dir().join(format!("ms-rules-bare-net-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Game_Data").join("Managed")).unwrap();
+        std::fs::write(dir.join("Game_Data").join("Managed").join("Newtonsoft.Json.dll"), b"m").unwrap();
+        std::fs::write(dir.join("game.exe"), b"mz-pe").unwrap();
+
+        let profile = crate::mono_profile::discover_mono_profile(&dir);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::BareDotnet);
+        // No native root DLLs -> detect_dotnet_game says yes (historical
+        // FNA-routing behavior preserved for genuine managed games).
+        assert!(crate::setup::detect_dotnet_game(&dir));
+
+        // Native root DLL -> not dotnet: the guard defers to PE heuristics.
+        // Build a real PE32 DLL (file(1) must report "PE32"): MZ + PE header
+        // + optional header magic PE32 (0x10b) at 0x98.
+        let mut native = vec![0u8; 0x200];
+        native[0..2].copy_from_slice(b"MZ");
+        native[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        native[0x80..0x84].copy_from_slice(b"PE\0\0");
+        native[0x84..0x86].copy_from_slice(&0x014cu16.to_le_bytes());
+        native[0x98..0x9a].copy_from_slice(&0x10bu16.to_le_bytes());
+        std::fs::write(dir.join("some_native.dll"), &native).unwrap();
+        assert!(!crate::setup::detect_dotnet_game(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

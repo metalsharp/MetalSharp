@@ -32,6 +32,7 @@ mod launcher_evidence;
 mod metalfx;
 mod migrate;
 mod mono;
+mod mono_profile;
 mod mtsp;
 mod platform;
 mod scan;

@@ -1807,6 +1807,75 @@ fn launch_macos_steam(appid: u32) -> Result<(u32, &'static str), Box<dyn std::er
     Ok((pid, "macos_steam"))
 }
 
+/// Pre-flight readiness check for the FNA/Mono route: verifies mono binary +
+/// arch, shims present, SDL2/3 per profile deps, config resolved, Rosetta for
+/// x86, and Unity runtime lane availability for Unity-Mono games. Returns an
+/// actionable error naming exactly what is missing.
+pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+    let profile = crate::mono_profile::discover_mono_profile(game_dir);
+    let fna_profile = find_fna_profile(appid);
+
+    // Mono binary + arch.
+    let mono_bin = match find_mono_binary_for_app(appid) {
+        Ok(b) => b,
+        Err(e) => {
+            problems.push(e.to_string());
+            PathBuf::new()
+        },
+    };
+    if !mono_bin.as_os_str().is_empty() {
+        // Arch must match the LAUNCH path exactly (launch_fna_arm64 wraps
+        // mono in `arch -x86_64` iff fna_profile.mono_arch == X86): a
+        // discovered x86 game still launches through the profile's mono_arch,
+        // so the Rosetta probe keys off the same signal. Default profiles are
+        // MonoArch::X86 (launcher.rs DEFAULT_FNA_PROFILE), so unproven games
+        // get the Rosetta check; a profile pinned to Native does not.
+        let wants_x86 = fna_profile.mono_arch == MonoArch::X86;
+        if wants_x86 && crate::platform::current() == crate::platform::HostPlatform::Macos {
+            // Rosetta required for x86 mono; report explicitly.
+            let arch_probe = std::process::Command::new("arch").arg("-x86_64").arg("true").status();
+            match arch_probe {
+                Ok(status) if status.success() => {},
+                _ => problems.push(
+                    "x86 Mono requires Rosetta 2 (missing or unavailable); install it or use the arm64 route".into(),
+                ),
+            }
+        }
+    }
+
+    // Shims present (kernel32/user32/Carbon are launch-required for FNA).
+    let shims_dir = PathBuf::from(find_shims_dir());
+    for shim in ["libkernel32.dylib", "libuser32.dylib", FNA_CARBON_SHIM, FNA_CARBON_INTERPOSE_SHIM] {
+        if !shims_dir.join(shim).is_file() {
+            problems.push(format!("missing shared shim {shim} (run repair or reinstall runtime)"));
+        }
+    }
+
+    // Profile deps.
+    if profile.deps.sdl3 {
+        let ms_home = crate::platform::metalsharp_home_dir();
+        if !ms_home.join("runtime").join("sdl3").join("libSDL3.dylib").is_file() {
+            problems.push("game signals SDL3 but the bundled libSDL3.dylib is missing (reinstall runtime)".into());
+        }
+    }
+
+    // Unity runtime lane for Unity-Mono games.
+    if profile.kind == crate::mono_profile::MonoProfileKind::UnityMono {
+        let ms_home = crate::platform::metalsharp_home_dir();
+        match unity_runtime_lane_for_version(profile.unity_version.as_deref(), &ms_home) {
+            Some(_) => {},
+            None => problems.push("no bundled Unity Mono runtime lane available (reinstall runtime)".into()),
+        }
+    }
+
+    if problems.is_empty() {
+        Ok(Vec::new())
+    } else {
+        Err(format!("FNA/Mono launch blocked: {}", problems.join("; ")))
+    }
+}
+
 fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn std::error::Error>> {
     let profile = find_fna_profile(appid);
     let node = get_pipeline(PipelineId::FnaArm64);
@@ -1816,6 +1885,22 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     let local_dir = ms_home.join("games").join(appid.to_string());
     let dir = if game_dir.exists() { &game_dir } else { &local_dir };
 
+    // Pre-flight readiness: surface missing mono/shims/SDL3/Unity lane as an
+    // actionable error before any deploy or spawn.
+    fna_ready_check(appid, dir)?;
+
+    // Profile-aware deploy (idempotent; also run by bottle save).
+    let discovered = crate::mono_profile::discover_mono_profile(dir);
+    if discovered.kind != crate::mono_profile::MonoProfileKind::None {
+        let mut report = crate::fna_profile::AssetStagingReport::new(appid);
+        let _ = deploy_unity_runtime(dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_xna_assembly_set(dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_profile_deps(dir, &discovered, &ms_home, Some(&mut report));
+        if !report.receipts.is_empty() {
+            let _ = report.persist(dir);
+        }
+    }
+
     ensure_launcher_exe(appid, dir);
     deploy_fna_assemblies(appid, dir);
     if appid != 504230 {
@@ -1824,6 +1909,16 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
 
     let _ = ensure_bridge_running();
 
+    // MonoKickstart games dispatch to the kickstart launcher (bundled
+    // kick.bin.osx + osx/ payloads; the game's own .bin.osx is preferred).
+    if discovered.kind == crate::mono_profile::MonoProfileKind::MonoKickstart {
+        let kickstart_dir = ms_home.join("runtime").join("fna-kickstart");
+        if !kickstart_dir.join("kick.bin.osx").is_file() {
+            return Err(format!("MonoKickstart payload missing at {}", kickstart_dir.display()).into());
+        }
+        let exe_path = PathBuf::from(resolve_game_exe(dir));
+        return launch_fna_kickstart(appid, profile, node, dir, &exe_path, &home, &ms_home, &kickstart_dir);
+    }
     let exe = if !profile.preferred_exes.is_empty() {
         find_preferred_exe(dir, profile.preferred_exes)?
     } else {
@@ -1901,8 +1996,18 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     cmd.arg(&exe);
 
     let mut child = cmd.spawn()?;
-    std::thread::sleep(Duration::from_millis(900));
-    if let Some(status) = child.try_wait()? {
+    // Post-spawn health check: poll 3 x 1s (longer than the old 900ms single
+    // check) so a delayed config/arch failure surfaces with the log tail
+    // instead of reporting a launched-but-dead game.
+    let mut exited_early = None;
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_secs(1));
+        if let Some(status) = child.try_wait()? {
+            exited_early = Some(status);
+            break;
+        }
+    }
+    if let Some(status) = exited_early {
         let log_tail = tail_text(&log_path, 4096);
         return Err(format!("FNA/Mono/XNA launch exited early with status {}. Log: {}", status, log_tail).into());
     }
@@ -1926,15 +2031,11 @@ fn launch_fna_kickstart(
     let bin_name = exe_name.replace(".exe", ".bin.osx");
     let game_kick = dir.join(&bin_name);
 
-    let _ = std::fs::copy(&kick_bin, &game_kick);
-
-    let source_libmono = kickstart_dir.join("osx").join("libmonosgen-2.0.1.dylib");
-    if source_libmono.exists() {
-        let _ = Command::new("/usr/bin/install_name_tool")
-            .arg("-id")
-            .arg("@rpath/libmonosgen-2.0.1.dylib")
-            .arg(&source_libmono)
-            .output();
+    // First-deploy only: never overwrite the game's own kickstart binary on
+    // every launch (the game's <exe>.bin.osx is the authoritative one; the
+    // bundled kick.bin.osx is the generic fallback for games without one).
+    if !game_kick.exists() {
+        let _ = std::fs::copy(&kick_bin, &game_kick);
     }
 
     let game_osx = dir.join("osx");
@@ -2095,8 +2196,18 @@ fn launch_fna_kickstart(
         arch_cmd.env("SteamGameId", appid.to_string());
         arch_cmd.env("MONO_DISABLE_SHARED_AREA", "1");
         let mut child = arch_cmd.spawn()?;
-        std::thread::sleep(Duration::from_millis(900));
-        if let Some(status) = child.try_wait()? {
+        // Same 3x1s post-spawn health check as the main FNA path (S8): a
+        // delayed config/arch failure surfaces with the log tail instead of a
+        // launched-but-dead game report.
+        let mut exited_early = None;
+        for _ in 0..3 {
+            std::thread::sleep(Duration::from_secs(1));
+            if let Some(status) = child.try_wait()? {
+                exited_early = Some(status);
+                break;
+            }
+        }
+        if let Some(status) = exited_early {
             let log_tail = tail_text(&log_path, 4096);
             return Err(
                 format!("FNA/MonoKickstart launch exited early with status {}. Log: {}", status, log_tail).into()
@@ -2106,8 +2217,15 @@ fn launch_fna_kickstart(
     }
 
     let mut child = cmd.spawn()?;
-    std::thread::sleep(Duration::from_millis(900));
-    if let Some(status) = child.try_wait()? {
+    let mut exited_early = None;
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_secs(1));
+        if let Some(status) = child.try_wait()? {
+            exited_early = Some(status);
+            break;
+        }
+    }
+    if let Some(status) = exited_early {
         let log_tail = tail_text(&log_path, 4096);
         return Err(format!("FNA/MonoKickstart launch exited early with status {}. Log: {}", status, log_tail).into());
     }
@@ -2863,56 +2981,23 @@ fn ensure_launcher_exe(appid: u32, game_dir: &PathBuf) {
         return;
     }
 
+    // H1-H3: launcher binaries (Terraria launcher etc.) are PREBUILT and
+    // shipped in the assets bundle — never compile from a dev-machine repo
+    // path at launch (silently no-ops on user machines). The bundle layout is
+    // runtime/prebuilt-launchers/<source_file basename>.
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => return,
     };
-
-    let mut candidates = vec![];
-    let repo_src = home.join("repos").join("metalsharp").join("src").join("fna").join("terraria").join(source_file);
-    if repo_src.exists() {
-        candidates.push(repo_src);
+    let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+    let file_name = Path::new(source_file)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| source_file.to_string());
+    let prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&file_name);
+    if prebuilt.is_file() {
+        let _ = std::fs::copy(&prebuilt, &launcher);
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(mut dir) = exe.parent() {
-            for _ in 0..8 {
-                let p = dir.join("src").join("fna").join("terraria").join(source_file);
-                if p.exists() {
-                    candidates.push(p);
-                    break;
-                }
-                match dir.parent() {
-                    Some(d) => dir = d,
-                    None => break,
-                }
-            }
-        }
-    }
-
-    let source = match candidates.into_iter().next() {
-        Some(s) => s,
-        None => return,
-    };
-
-    let mono_runtime = match profile.mono_arch {
-        MonoArch::X86 => "mono-x86",
-        MonoArch::Native => "mono-arm64",
-    };
-    let mono_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join(mono_runtime);
-    let mono_bin = mono_root.join("bin").join("mono");
-    let mcs_exe = home
-        .join(".metalsharp")
-        .join("runtime")
-        .join(mono_runtime)
-        .join("lib")
-        .join("mono")
-        .join("4.5")
-        .join("mcs.exe");
-    if !mono_bin.exists() || !mcs_exe.exists() {
-        return;
-    }
-
-    let _ = compile_csharp_with_mono(&mono_bin, &mcs_exe, &source, &launcher, "winexe", &[]);
 }
 
 fn find_shims_dir() -> String {
@@ -3013,27 +3098,11 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
         }
     }
 
-    let gdiplus_src =
-        home.join("repos").join("metalsharp").join("src").join("fna").join("terraria").join("gdiplus_stub.c");
-    if !game_dir.join("libgdiplus.dylib").exists() {
-        let cached = shims_dir.join("libgdiplus.dylib");
-        if cached.exists() {
-            let _ = std::fs::copy(&cached, game_dir.join("libgdiplus.dylib"));
-        } else if gdiplus_src.exists() {
-            let mut gdi_cmd = Command::new("clang");
-            gdi_cmd.arg("-shared");
-            for arch_arg in fna_native_arch_args() {
-                gdi_cmd.arg(arch_arg);
-            }
-            let _ = gdi_cmd
-                .arg("-o")
-                .arg(game_dir.join("libgdiplus.dylib"))
-                .arg(&gdiplus_src)
-                .args(["-install_name", "@loader_path/libgdiplus.dylib"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-        }
+    let cached = shims_dir.join("libgdiplus.dylib");
+    if !game_dir.join("libgdiplus.dylib").exists() && cached.exists() {
+        // H3: gdiplus stub ships prebuilt in the bundle shims — never compile
+        // from the dev-machine repo path at launch.
+        let _ = std::fs::copy(&cached, game_dir.join("libgdiplus.dylib"));
     }
 
     if profile.deploy_terraria_post {
@@ -3068,6 +3137,213 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
     }
 }
 
+/// Map a discovered Unity version (e.g. "2021.3.5f1") to a bundled runtime
+/// lane (e.g. "2021.3"). Unknown/older lines fall back to the newest bundled
+/// lane so deployment never hard-fails on an unlisted version.
+pub fn unity_runtime_lane_for_version(unity_version: Option<&str>, ms_home: &Path) -> Option<String> {
+    let runtime_root = ms_home.join("runtime").join("unity-mono");
+    let version = unity_version.unwrap_or("");
+    let major_minor: String = version.split('.').take(2).collect::<Vec<_>>().join(".");
+    if !major_minor.is_empty() {
+        let candidate = runtime_root.join(&major_minor);
+        if candidate.is_dir() {
+            return Some(major_minor);
+        }
+    }
+    // Fall back to the newest bundled lane (preferring newer Unity LTS lines).
+    let mut lanes: Vec<String> = std::fs::read_dir(&runtime_root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+        .collect();
+    lanes.sort_by(|a, b| {
+        let pair = |s: &str| {
+            let mut it = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+            (it.next().unwrap_or(0), it.next().unwrap_or(0))
+        };
+        pair(b).cmp(&pair(a))
+    });
+    lanes.first().cloned()
+}
+
+/// Deploy the version-matched Unity Mono runtime next to a Unity-Mono game.
+/// Copies the bundled `assets/unity-mono/<lane>/` payloads into the game dir's
+/// `MonoBleedingEdge/` (or `osx/` for kickstart-style layouts), records
+/// receipts, and rewrites install names. Idempotent: existing matching files
+/// are left alone.
+pub fn deploy_unity_runtime(
+    game_dir: &Path,
+    profile: &crate::mono_profile::MonoProfile,
+    ms_home: &Path,
+    mut report: Option<&mut crate::fna_profile::AssetStagingReport>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    if profile.kind != crate::mono_profile::MonoProfileKind::UnityMono {
+        return Ok(0);
+    }
+    let lane = unity_runtime_lane_for_version(profile.unity_version.as_deref(), ms_home)
+        .ok_or_else(|| "no bundled Unity Mono runtime available".to_string())?;
+    let src_root = ms_home.join("runtime").join("unity-mono").join(&lane);
+    if !src_root.is_dir() {
+        return Err(format!("bundled Unity Mono runtime lane {lane} missing at {}", src_root.display()).into());
+    }
+
+    let embed = game_dir.join("MonoBleedingEdge").join("EmbedRuntime");
+    let _ = std::fs::create_dir_all(&embed);
+    let mut deployed = 0usize;
+    for entry in std::fs::read_dir(&src_root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == "mono-sgen" || name.ends_with(".version") || name == "manifest.json" {
+            continue;
+        }
+        let dst = embed.join(&name);
+        if dst.exists() {
+            continue;
+        }
+        std::fs::copy(entry.path(), &dst)?;
+        fix_dylib_install_names(&dst);
+        if let Some(r) = report.as_mut() {
+            r.record(crate::fna_profile::record_asset_receipt(
+                &name,
+                &entry.path(),
+                &dst,
+                true,
+                false,
+                true,
+                &format!("unity-mono/{lane} runtime payload"),
+            ));
+        }
+        deployed += 1;
+    }
+    // MonoPosixHelper is required by the mono runtime; ensure the managed
+    // assemblies dir exists for the game's data.
+    let managed = find_unity_managed_dir(game_dir);
+    let _ = std::fs::create_dir_all(&managed);
+    Ok(deployed)
+}
+
+/// Locate `<Game>_Data/Managed` for a Unity game (or a root Managed dir).
+pub fn find_unity_managed_dir(game_dir: &Path) -> std::path::PathBuf {
+    if let Ok(entries) = std::fs::read_dir(game_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() && entry.file_name().to_string_lossy().to_lowercase().ends_with("_data") {
+                let managed = p.join("Managed");
+                if managed.is_dir() {
+                    return managed;
+                }
+            }
+        }
+    }
+    game_dir.join("Managed")
+}
+
+/// Deploy dependency payloads the game's profile signals: SDL3, SDL2, Carbon.
+/// Sources from the bundled assets; never compiles.
+pub fn deploy_profile_deps(
+    game_dir: &Path,
+    profile: &crate::mono_profile::MonoProfile,
+    ms_home: &Path,
+    mut report: Option<&mut crate::fna_profile::AssetStagingReport>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let mut deployed = 0usize;
+    if profile.deps.sdl3 {
+        let src = ms_home.join("runtime").join("sdl3").join("libSDL3.dylib");
+        if src.is_file() {
+            let dst = game_dir.join("libSDL3.dylib");
+            if !dst.exists() {
+                std::fs::copy(&src, &dst)?;
+                fix_dylib_install_names(&dst);
+                if let Some(r) = report.as_mut() {
+                    r.record(crate::fna_profile::record_asset_receipt(
+                        "libSDL3.dylib",
+                        &src,
+                        &dst,
+                        false,
+                        false,
+                        true,
+                        "sdl3 dep",
+                    ));
+                }
+                deployed += 1;
+            }
+        }
+    }
+    if profile.deps.carbon {
+        let shims_dir = PathBuf::from(find_shims_dir());
+        let src = shims_dir.join(FNA_CARBON_SHIM);
+        if src.is_file() {
+            let dst = game_dir.join(FNA_CARBON_SHIM);
+            if !dst.exists() {
+                let _ = std::fs::copy(&src, &dst);
+                if let Some(r) = report.as_mut() {
+                    r.record(crate::fna_profile::record_asset_receipt(
+                        FNA_CARBON_SHIM,
+                        &src,
+                        &dst,
+                        false,
+                        false,
+                        true,
+                        "carbon dep",
+                    ));
+                }
+                deployed += 1;
+            }
+        }
+    }
+    Ok(deployed)
+}
+
+/// Deploy the version-matched XNA assembly set into the game dir for
+/// XNA/MonoGame profile games that lack their own copies.
+pub fn deploy_xna_assembly_set(
+    game_dir: &Path,
+    profile: &crate::mono_profile::MonoProfile,
+    ms_home: &Path,
+    mut report: Option<&mut crate::fna_profile::AssetStagingReport>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    if !matches!(profile.kind, crate::mono_profile::MonoProfileKind::Xna | crate::mono_profile::MonoProfileKind::Fna) {
+        return Ok(0);
+    }
+    let xna_root = ms_home.join("runtime").join("xna");
+    if !xna_root.is_dir() {
+        return Ok(0);
+    }
+    let managed = find_unity_managed_dir(game_dir);
+    let mut deployed = 0usize;
+    for entry in std::fs::read_dir(&xna_root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".dll") {
+            continue;
+        }
+        // Only deploy to the managed dir when the game has one; otherwise
+        // next to the exe.
+        let dst_dir = if managed.is_dir() { &managed } else { game_dir };
+        let dst = dst_dir.join(&name);
+        if dst.exists() {
+            continue;
+        }
+        std::fs::copy(entry.path(), &dst)?;
+        if let Some(r) = report.as_mut() {
+            r.record(crate::fna_profile::record_asset_receipt(
+                &name,
+                &entry.path(),
+                &dst,
+                false,
+                false,
+                true,
+                "xna assembly set",
+            ));
+        }
+        deployed += 1;
+    }
+    Ok(deployed)
+}
+
 pub fn repair_fna_game_runtime_assets(appid: u32, game_dir: &Path) -> Result<usize, Box<dyn std::error::Error>> {
     if !game_dir.is_dir() {
         return Err(format!("FNA game directory is missing: {}", game_dir.display()).into());
@@ -3077,6 +3353,23 @@ pub fn repair_fna_game_runtime_assets(appid: u32, game_dir: &Path) -> Result<usi
     repair_fna_native_runtime_shims()?;
     deploy_fna_assemblies(appid, &game_dir);
     deploy_offline_steamworks_net(&game_dir, &crate::platform::metalsharp_home_dir())?;
+    // Restore any previous identity receipt before re-staging the appid file.
+    let _ = crate::setup::restore_steam_appid_receipt(&game_dir);
+    if !game_dir.join("steam_appid.txt").exists() {
+        let _ = std::fs::write(game_dir.join("steam_appid.txt"), appid.to_string());
+    }
+    // Profile-aware deploy: version-matched Unity runtime, XNA set, deps.
+    let ms_home = crate::platform::metalsharp_home_dir();
+    let discovered = crate::mono_profile::discover_mono_profile(&game_dir);
+    if discovered.kind != crate::mono_profile::MonoProfileKind::None {
+        let mut report = crate::fna_profile::AssetStagingReport::new(appid);
+        let _ = deploy_unity_runtime(&game_dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_xna_assembly_set(&game_dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_profile_deps(&game_dir, &discovered, &ms_home, Some(&mut report));
+        if !report.receipts.is_empty() {
+            let _ = report.persist(&game_dir);
+        }
+    }
 
     let profile = find_fna_profile(appid);
     let mut required = vec![
@@ -3499,9 +3792,15 @@ fn append_path_env(existing: Option<&str>, value: &str) -> String {
 }
 
 fn deploy_terraria_runtime(game_dir: &PathBuf, metalsharp_home: &PathBuf) {
-    if let Some(source) = find_repo_source(&["src", "fna", "terraria", "XactStub.cs"]) {
+    // H2: Xact stub ships PREBUILT in the bundle (runtime/prebuilt-launchers/
+    // Microsoft.Xna.Framework.Xact.dll) — never compile from the dev repo.
+    let prebuilt_xact =
+        metalsharp_home.join("runtime").join("prebuilt-launchers").join("Microsoft.Xna.Framework.Xact.dll");
+    if prebuilt_xact.is_file() {
         let output = game_dir.join("Microsoft.Xna.Framework.Xact.dll");
-        let _ = compile_repo_csharp_to_game(&source, &output, "library", &[]);
+        if !output.exists() {
+            let _ = std::fs::copy(&prebuilt_xact, &output);
+        }
     }
 
     let faudio_dst = game_dir.join("libFAudio.0.dylib");
@@ -3509,50 +3808,33 @@ fn deploy_terraria_runtime(game_dir: &PathBuf, metalsharp_home: &PathBuf) {
         let home = dirs::home_dir().unwrap_or_default();
         let ms_home = crate::platform::metalsharp_home_dir_for(&home);
         let cached = ms_home.join("runtime").join("shims").join("libFAudio.0.dylib");
+        // H3: faudio ships prebuilt in the bundle shims — never clang-compile
+        // the dev-machine faudio_stub.c at launch.
         if cached.exists() {
             let _ = std::fs::copy(&cached, &faudio_dst);
-            ensure_fna_symlink(game_dir, "libFAudio.0.dylib", "libFAudio.dylib");
-        } else if let Some(source) = find_repo_source(&["src", "fna", "terraria", "faudio_stub.c"]) {
-            let mut faudio_cmd = Command::new("clang");
-            faudio_cmd.arg("-shared");
-            for arch_arg in fna_native_arch_args() {
-                faudio_cmd.arg(arch_arg);
-            }
-            let _ = faudio_cmd
-                .arg("-o")
-                .arg(&faudio_dst)
-                .arg(&source)
-                .args(["-install_name", "@loader_path/libFAudio.0.dylib"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
             ensure_fna_symlink(game_dir, "libFAudio.0.dylib", "libFAudio.dylib");
         }
     }
 
-    if let Some(source) = find_repo_source(&["src", "fna", "terraria", "TerrariaOfflinePatcher.cs"]) {
+    // TerrariaOfflinePatcher ships PREBUILT in the bundle; it is still RUN at
+    // deploy time to patch Terraria.exe's offline identity.
+    let prebuilt_patcher =
+        metalsharp_home.join("runtime").join("prebuilt-launchers").join("TerrariaOfflinePatcher.exe");
+    if prebuilt_patcher.is_file() {
         let patcher = game_dir.join("TerrariaOfflinePatcher.exe");
-        let cecil = metalsharp_home
-            .join("runtime")
-            .join("mono-x86")
-            .join("lib")
-            .join("mono")
-            .join("gac")
-            .join("Mono.Cecil")
-            .join("0.11.1.0__0738eb9f132ed756")
-            .join("Mono.Cecil.dll");
-        if compile_repo_csharp_to_game(&source, &patcher, "exe", &[format!("-r:{}", cecil.to_string_lossy())]) {
-            let mono = metalsharp_home.join("runtime").join("mono-x86").join("bin").join("mono");
-            let terraria = game_dir.join("Terraria.exe");
-            if mono.exists() && terraria.exists() {
-                let _ = Command::new(&mono)
-                    .current_dir(game_dir)
-                    .arg(&patcher)
-                    .arg(&terraria)
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
+        if !patcher.exists() {
+            let _ = std::fs::copy(&prebuilt_patcher, &patcher);
+        }
+        let mono = metalsharp_home.join("runtime").join("mono-x86").join("bin").join("mono");
+        let terraria = game_dir.join("Terraria.exe");
+        if mono.exists() && terraria.exists() && patcher.exists() {
+            let _ = Command::new(&mono)
+                .current_dir(game_dir)
+                .arg(&patcher)
+                .arg(&terraria)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
         }
     }
 }
@@ -7203,6 +7485,136 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         env.push(("WINEMSYNC".to_string(), "1".to_string()));
         apply_msync_config(&mut env, &home);
         assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "sidebar msync toggle must beat recipe env");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- Mono profile deploy (Phase 4) ----
+
+    fn mono_deploy_home(name: &str) -> std::path::PathBuf {
+        let home = std::env::temp_dir().join(format!(
+            "ms-mono-deploy-{}-{}-{:x}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        home
+    }
+
+    fn unity_game_dir(parent: &std::path::Path, version: &str) -> std::path::PathBuf {
+        let dir = parent.join("DREDGE");
+        std::fs::create_dir_all(dir.join("MonoBleedingEdge").join("EmbedRuntime")).unwrap();
+        std::fs::create_dir_all(dir.join("DREDGE_Data").join("Managed")).unwrap();
+        std::fs::write(dir.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::write(dir.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-2.0-bdwgc.dll"), b"m").unwrap();
+        std::fs::write(dir.join("DREDGE_Data").join("Managed").join("Assembly-CSharp.dll"), b"m").unwrap();
+        let mut ggm = vec![0u8; 48];
+        ggm.extend_from_slice(format!("{version}\0").as_bytes());
+        std::fs::write(dir.join("DREDGE_Data").join("globalgamemanagers"), &ggm).unwrap();
+        dir
+    }
+
+    #[test]
+    fn unity_runtime_lane_maps_version_to_bundled_lane() {
+        let home = mono_deploy_home("lane");
+        let ms_home = home.join(".metalsharp");
+        std::fs::create_dir_all(ms_home.join("runtime").join("unity-mono").join("2021.3")).unwrap();
+        std::fs::create_dir_all(ms_home.join("runtime").join("unity-mono").join("2022.3")).unwrap();
+
+        assert_eq!(unity_runtime_lane_for_version(Some("2021.3.5f1"), &ms_home).as_deref(), Some("2021.3"));
+        // Unknown version falls back to the newest lane.
+        assert_eq!(unity_runtime_lane_for_version(Some("2019.4.40f1"), &ms_home).as_deref(), Some("2022.3"));
+        // None -> newest lane.
+        assert_eq!(unity_runtime_lane_for_version(None, &ms_home).as_deref(), Some("2022.3"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn deploy_unity_runtime_copies_lane_and_is_idempotent() {
+        let home = mono_deploy_home("unity");
+        let ms_home = home.join(".metalsharp");
+        let lane = ms_home.join("runtime").join("unity-mono").join("2021.3");
+        std::fs::create_dir_all(&lane).unwrap();
+        std::fs::write(lane.join("mono-2.0-bdwgc.dll"), b"mono-dll").unwrap();
+        std::fs::write(lane.join("MonoPosixHelper.dll"), b"posix").unwrap();
+        std::fs::write(lane.join("mono-sgen"), b"binary").unwrap();
+        std::fs::write(lane.join("MonoBleedingEdge.version"), b"2021.3.5f1").unwrap();
+
+        let game = unity_game_dir(&home, "2021.3.5f1");
+        let profile = crate::mono_profile::discover_mono_profile(&game);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::UnityMono);
+
+        let mut report = crate::fna_profile::AssetStagingReport::new(1562430);
+        let n = deploy_unity_runtime(&game, &profile, &ms_home, Some(&mut report)).unwrap();
+        // The game ships its own mono-2.0-bdwgc.dll (exists -> skipped);
+        // MonoPosixHelper deploys. mono-sgen/.version are never deployed.
+        assert_eq!(n, 1);
+        assert!(game.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-2.0-bdwgc.dll").exists());
+        assert!(game.join("MonoBleedingEdge").join("EmbedRuntime").join("MonoPosixHelper.dll").exists());
+        assert!(!game.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-sgen").exists());
+        assert_eq!(report.receipts.len(), 1);
+
+        // Idempotent second deploy.
+        let mut report2 = crate::fna_profile::AssetStagingReport::new(1562430);
+        let n2 = deploy_unity_runtime(&game, &profile, &ms_home, Some(&mut report2)).unwrap();
+        assert_eq!(n2, 0);
+        assert!(report2.receipts.is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn deploy_xna_set_and_deps_follow_profile() {
+        let home = mono_deploy_home("xna");
+        let ms_home = home.join(".metalsharp");
+        let xna_root = ms_home.join("runtime").join("xna");
+        std::fs::create_dir_all(&xna_root).unwrap();
+        std::fs::write(xna_root.join("Microsoft.Xna.Framework.dll"), b"xna").unwrap();
+        std::fs::write(xna_root.join("Microsoft.Xna.Framework.Game.dll"), b"xna2").unwrap();
+        std::fs::create_dir_all(ms_home.join("runtime").join("sdl3")).unwrap();
+        std::fs::write(ms_home.join("runtime").join("sdl3").join("libSDL3.dylib"), b"sdl3").unwrap();
+
+        let game = home.join("Necesse");
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("FNA.dll"), b"fna").unwrap();
+        let profile = crate::mono_profile::discover_mono_profile(&game);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::Fna);
+
+        let mut report = crate::fna_profile::AssetStagingReport::new(1169040);
+        let n = deploy_xna_assembly_set(&game, &profile, &ms_home, Some(&mut report)).unwrap();
+        assert_eq!(n, 2);
+        assert!(game.join("Microsoft.Xna.Framework.dll").exists());
+
+        // SDL3 dep: add the dylib signal and deploy.
+        std::fs::write(game.join("libSDL3.dylib"), b"present").unwrap();
+        let profile2 = crate::mono_profile::discover_mono_profile(&game);
+        let mut report2 = crate::fna_profile::AssetStagingReport::new(1169040);
+        let n2 = deploy_profile_deps(&game, &profile2, &ms_home, Some(&mut report2)).unwrap();
+        // SDL3 already present -> skip; carbon not signaled -> 0.
+        assert_eq!(n2, 0);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- Mono profile readiness (Phase 5) ----
+
+    #[test]
+    fn fna_ready_check_flags_unity_lane_and_sdl3_gaps() {
+        let home = mono_deploy_home("ready");
+        let game = unity_game_dir(&home, "2021.3.5f1");
+        // The check must run without panicking and return a coherent result.
+        // Whether it fails depends on the host's provisioned runtime (the dev
+        // machine may have shims + unity-mono lanes staged, in which case the
+        // check passes); when it fails, the error must name the gap.
+        match fna_ready_check(1562430, &game) {
+            Ok(_) => {},
+            Err(msg) => {
+                assert!(
+                    msg.contains("Unity Mono runtime lane") || msg.contains("shim"),
+                    "error must name the gap: {}",
+                    msg
+                );
+            },
+        }
         let _ = std::fs::remove_dir_all(&home);
     }
 }

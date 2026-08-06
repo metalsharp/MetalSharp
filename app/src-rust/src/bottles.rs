@@ -355,6 +355,10 @@ pub struct BottleManifest {
     pub last_launch_finished_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Discovered mono profile for FNA/XNA/Unity-Mono bottles (schema 1):
+    /// kind + unity version + arch + deps. Serialized from mono_profile.rs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mono_profile: Option<crate::mono_profile::MonoProfile>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
@@ -775,6 +779,7 @@ pub fn save_bottle(manifest: &BottleManifest) -> Result<(), Box<dyn std::error::
     let mut persisted = manifest.clone();
     refresh_mono_fna_components_before_save(&mut persisted);
     refresh_dxmt_runtime_before_save(&mut persisted);
+    refresh_mono_profile_before_save(&mut persisted);
     let dir = bottle_dir(&manifest.id);
     fs::create_dir_all(dir.join("prefix"))?;
     fs::create_dir_all(dir.join("installers"))?;
@@ -907,6 +912,52 @@ fn refresh_mono_fna_components_before_save(manifest: &mut BottleManifest) {
 
     manifest.health =
         if components_ready(&manifest.installed_components) { BottleHealth::Ready } else { BottleHealth::NeedsRepair };
+}
+
+/// Deploy version-matched mono payloads (Unity runtime, XNA set, SDL3/Carbon
+/// deps) for FNA/XNA/Unity-Mono bottles, driven by the discovered profile.
+/// Never compiles; sources only from the bundled assets.
+fn refresh_mono_profile_before_save(manifest: &mut BottleManifest) {
+    if !matches!(manifest.runtime_profile, RuntimeProfile::FnaArm64 | RuntimeProfile::FnaX86) {
+        return;
+    }
+    let (Some(appid), Some(game_dir)) = (manifest.steam_app_id, manifest.game_install_path.as_deref()) else {
+        return;
+    };
+    let game_dir = PathBuf::from(game_dir);
+    if !game_dir.is_dir() {
+        return;
+    }
+
+    let home = dirs::home_dir().unwrap_or_default();
+    let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+    let mut report = crate::fna_profile::AssetStagingReport::new(appid);
+    let mut deployed = 0usize;
+
+    // Fresh discovery (covers the first save and re-saves after a game update).
+    let profile = crate::mono_profile::discover_mono_profile(&game_dir);
+    if profile.kind != crate::mono_profile::MonoProfileKind::None {
+        manifest.mono_profile = Some(profile.clone());
+    }
+    let profile_ref = manifest.mono_profile.as_ref().unwrap_or(&profile);
+
+    match crate::mtsp::launcher::deploy_unity_runtime(&game_dir, profile_ref, &ms_home, Some(&mut report)) {
+        Ok(n) => deployed += n,
+        Err(e) => eprintln!("bottle: unity-mono deploy failed before save: {}", e),
+    }
+    match crate::mtsp::launcher::deploy_xna_assembly_set(&game_dir, profile_ref, &ms_home, Some(&mut report)) {
+        Ok(n) => deployed += n,
+        Err(e) => eprintln!("bottle: xna assembly deploy failed before save: {}", e),
+    }
+    match crate::mtsp::launcher::deploy_profile_deps(&game_dir, profile_ref, &ms_home, Some(&mut report)) {
+        Ok(n) => deployed += n,
+        Err(e) => eprintln!("bottle: profile dep deploy failed before save: {}", e),
+    }
+
+    if deployed > 0 {
+        let _ = report.persist(&game_dir);
+        eprintln!("bottle: deployed {} mono-route payload(s) for appid {}", deployed, appid);
+    }
 }
 
 fn manifest_preferred_pipeline(manifest: &BottleManifest) -> Option<crate::mtsp::engine::PipelineId> {
@@ -1176,6 +1227,7 @@ fn ensure_installer_bottle_with_id(
         last_launch_pid: None,
         last_launch_status: None,
         last_launch_finished_at: None,
+        mono_profile: None,
         created_at: now.clone(),
         updated_at: now.clone(),
     });
@@ -1247,6 +1299,7 @@ fn ensure_steam_game_bottle_inner(
         last_launch_pid: None,
         last_launch_status: None,
         last_launch_finished_at: None,
+        mono_profile: None,
         created_at: now.clone(),
         updated_at: now.clone(),
     });
@@ -6391,6 +6444,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6427,6 +6481,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6467,6 +6522,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6509,6 +6565,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6556,6 +6613,7 @@ mod tests {
                 last_launch_pid: None,
                 last_launch_status: None,
                 last_launch_finished_at: None,
+                mono_profile: None,
                 created_at: timestamp_secs(),
                 updated_at: timestamp_secs(),
             };
@@ -7031,6 +7089,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -7088,6 +7147,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7135,6 +7195,7 @@ mod tests {
             last_launch_finished_at: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
+            mono_profile: None,
         };
 
         let installer = resolve_game_runtime_asset_installer(&manifest, "xna").expect("resolve game xna installer");
@@ -7319,6 +7380,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7357,6 +7419,7 @@ mod tests {
             last_launch_finished_at: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
+            mono_profile: None,
         };
 
         let record = steam_compatdata_record(&manifest, crate::mtsp::engine::PipelineId::M9);
@@ -7399,6 +7462,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7434,6 +7498,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7757,6 +7822,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
