@@ -2027,7 +2027,12 @@ fn launch_fna_kickstart(
     let bin_name = exe_name.replace(".exe", ".bin.osx");
     let game_kick = dir.join(&bin_name);
 
-    let _ = std::fs::copy(&kick_bin, &game_kick);
+    // First-deploy only: never overwrite the game's own kickstart binary on
+    // every launch (the game's <exe>.bin.osx is the authoritative one; the
+    // bundled kick.bin.osx is the generic fallback for games without one).
+    if !game_kick.exists() {
+        let _ = std::fs::copy(&kick_bin, &game_kick);
+    }
 
     let source_libmono = kickstart_dir.join("osx").join("libmonosgen-2.0.1.dylib");
     if source_libmono.exists() {
