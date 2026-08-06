@@ -1193,7 +1193,7 @@ pub fn launch_custom_with_options(
         cmd.env("DXMT_WINEMETAL_UNIXLIB", dxmt_winemetal_unixlib_path(&ms_root));
     }
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
+    cmd.env("WINEMSYNC", msync_env_value(&home));
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
@@ -1502,7 +1502,7 @@ fn launch_d3dmetal_gptk_with_context(
         .env("WINELOADER", &gptk_wine64)
         .env("DYLD_FALLBACK_LIBRARY_PATH", &dyld)
         .env("MS_GRAPHICS_BACKEND", node.graphics_backend)
-        .env("WINEMSYNC", "1");
+        .env("WINEMSYNC", msync_env_value(&home));
     apply_metalfx_home_env(&mut cmd, &home);
 
     if node.uses_winedllpath_routing() {
@@ -1624,8 +1624,7 @@ fn launch_dxmt_metal_with_context(
     }
 
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
-
+    cmd.env("WINEMSYNC", msync_env_value(&home));
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
@@ -1715,7 +1714,7 @@ fn launch_wine_bare_with_context(
     let cache_paths = build_cache_paths(&home, node, appid);
     apply_cache_env(&mut cmd, node, cache_paths.as_ref(), &ms_root);
     cmd.env("MS_GRAPHICS_BACKEND", node.graphics_backend);
-    cmd.env("WINEMSYNC", "1");
+    cmd.env("WINEMSYNC", msync_env_value(&home));
     for ev in &node.env_vars {
         cmd.env(ev.key, ev.value);
     }
@@ -2400,7 +2399,7 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
         env.push(("DXMT_WINEMETAL_UNIXLIB".to_string(), dxmt_winemetal_unixlib_path(&ms_root)));
     }
     env.push(("MS_GRAPHICS_BACKEND".to_string(), node.graphics_backend.to_string()));
-    env.push(("WINEMSYNC".to_string(), "1".to_string()));
+    env.push(("WINEMSYNC".to_string(), msync_env_value(home)));
     env.extend(cache_env_pairs(node, cache_paths.as_ref(), &ms_root));
     env.extend(node.env_vars.iter().map(|ev| (ev.key.to_string(), ev.value.to_string())));
     env.extend(app_compat_env_pairs(appid, node.id));
@@ -2414,7 +2413,30 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
     // MetalFX strength is the user's choice: applied last so it overrides the
     // node default and any game-recipe DXMT_CONFIG/DXMT_METALFX_* entries.
     apply_metal_fx_config(&mut env, node, home);
+    // msync toggle likewise wins over recipe env.
+    apply_msync_config(&mut env, home);
     env
+}
+
+/// Wine msync toggle value (`WINEMSYNC`) for the given home. Defaults ON.
+pub(crate) fn msync_env_value(home: &Path) -> String {
+    if crate::launch::msync_enabled_for(home) {
+        "1".to_string()
+    } else {
+        "0".to_string()
+    }
+}
+
+/// Reconcile the WINEMSYNC env entry after recipe env so the sidebar msync
+/// toggle is authoritative (a game recipe could otherwise override it for
+/// non-M12 routes, where WINEMSYNC is not a reserved key).
+fn apply_msync_config(env: &mut Vec<(String, String)>, home: &Path) {
+    let value = msync_env_value(home);
+    if let Some((_, existing)) = env.iter_mut().rev().find(|(key, _)| key == "WINEMSYNC") {
+        *existing = value;
+    } else {
+        env.push(("WINEMSYNC".to_string(), value));
+    }
 }
 
 /// DXMT routes that carry MetalFX Spatial upscaling (`DXMT_METALFX_*` env +
@@ -7066,6 +7088,63 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                 assert!(config.contains(expect), "cycle {i}: {config}");
             }
         }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- Wine msync toggle: WINEMSYNC env from config ----
+
+    fn write_msync_config(home: &std::path::Path, enabled: bool) {
+        let path = home.join(".metalsharp").join("configs").join("config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, serde_json::json!({ "msync": enabled }).to_string()).unwrap();
+    }
+
+    #[test]
+    fn msync_env_reflects_config_on_all_routes() {
+        let home = metalfx_home();
+        // Default: no config -> WINEMSYNC=1.
+        for pipeline_id in
+            [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
+        {
+            let node = get_pipeline(pipeline_id);
+            let env = steam_pipeline_env_pairs(&home, node, 42);
+            assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("1"), "{:?} default ON", pipeline_id);
+        }
+
+        // OFF: all routes get WINEMSYNC=0.
+        write_msync_config(&home, false);
+        for pipeline_id in
+            [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
+        {
+            let node = get_pipeline(pipeline_id);
+            let env = steam_pipeline_env_pairs(&home, node, 42);
+            assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "{:?} OFF must disable msync", pipeline_id);
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn msync_env_value_helper_matches_config() {
+        let home = metalfx_home();
+        assert_eq!(msync_env_value(&home), "1", "default ON");
+        write_msync_config(&home, false);
+        assert_eq!(msync_env_value(&home), "0", "OFF");
+        write_msync_config(&home, true);
+        assert_eq!(msync_env_value(&home), "1", "back ON");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn msync_toggle_beats_recipe_env() {
+        let home = metalfx_home();
+        write_msync_config(&home, false);
+        let node = get_pipeline(PipelineId::M11);
+        // Simulate a game recipe forcing WINEMSYNC=1 (M11 is not a reserved
+        // route, so the recipe env would win without the reconcile).
+        let mut env = steam_pipeline_env_pairs(&home, node, 42);
+        env.push(("WINEMSYNC".to_string(), "1".to_string()));
+        apply_msync_config(&mut env, &home);
+        assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "sidebar msync toggle must beat recipe env");
         let _ = std::fs::remove_dir_all(&home);
     }
 }
