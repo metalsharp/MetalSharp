@@ -767,10 +767,14 @@ fn m12_runtime_component_detail(component_id: &str) -> String {
 
 pub fn save_bottle(manifest: &BottleManifest) -> Result<(), Box<dyn std::error::Error>> {
     validate_bottle_id(&manifest.id)?;
+    // Hold the lock across the whole read-modify-write cycle: refresh can
+    // re-stage/verify runtimes and merge components, and callers load the
+    // manifest, mutate it, then save. Serializing only the final write
+    // allowed concurrent saves to clobber each other's refresh results.
+    let _guard = BOTTLE_SAVE_LOCK.lock().map_err(|_| "bottle save lock poisoned")?;
     let mut persisted = manifest.clone();
     refresh_mono_fna_components_before_save(&mut persisted);
     refresh_dxmt_runtime_before_save(&mut persisted);
-    let _guard = BOTTLE_SAVE_LOCK.lock().map_err(|_| "bottle save lock poisoned")?;
     let dir = bottle_dir(&manifest.id);
     fs::create_dir_all(dir.join("prefix"))?;
     fs::create_dir_all(dir.join("installers"))?;
@@ -796,6 +800,17 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
 
     manifest.installed_components =
         merge_components(manifest.installed_components.clone(), default_components_for(manifest.runtime_profile));
+
+    // Prune components belonging to the inactive M12 lane: merge_components is
+    // adds-only, so a backend switch (vkd3d-proton <-> dxmt) would otherwise
+    // leave the other lane's ids in installed_components, where they inspect
+    // as Missing and permanently block components_ready.
+    if let RuntimeProfile::M12 = manifest.runtime_profile {
+        let active = m12_runtime_component_ids(&backend);
+        manifest
+            .installed_components
+            .retain(|component| !is_m12_runtime_component(&component.id) || active.contains(&component.id.as_str()));
+    }
 
     #[cfg(not(test))]
     let runtime_ready = match manifest.runtime_profile {
@@ -1098,6 +1113,10 @@ pub fn list_bottles() -> Result<Vec<BottleManifest>, Box<dyn std::error::Error>>
         }
         if let Ok(data) = fs::read_to_string(path) {
             if let Ok(mut manifest) = serde_json::from_str::<BottleManifest>(&data) {
+                // Normalize the loaded runtime profile (backend-aware component
+                // set) before listing or persisting: a raw manifest can carry
+                // the other M12 lane's components after an m12Backend switch.
+                normalize_loaded_runtime_profile_components(&mut manifest);
                 if refresh_manifest_launch_state(&mut manifest) {
                     manifest.updated_at = timestamp_secs();
                     let _ = save_bottle(&manifest);
@@ -3066,6 +3085,11 @@ pub fn set_windows_version(id: &str, version: &str) -> Result<ComponentRepairRep
     fs::create_dir_all(bottle_logs_dir(id))?;
     let log_path = bottle_logs_dir(id).join(format!("windows-version-{}-{}.log", version, timestamp_secs()));
     let pid = run_wine_reg_set_windows_version(&prefix, version, &log_path)?;
+    // Only one windows-version component may exist: the previous version's
+    // component would inspect as Missing after the switch and leave the
+    // bottle stuck in NeedsRepair forever (components_ready requires all
+    // installed components healthy).
+    manifest.installed_components.retain(|c| !c.id.starts_with("windows_version_"));
     mark_component_state(&mut manifest, &windows_version_component_id(version), ComponentState::NeedsRepair);
     mark_manifest_launch_started(&mut manifest, pid, &log_path);
     manifest.health = BottleHealth::NeedsRepair;
@@ -7697,6 +7721,79 @@ mod tests {
         let dxmt_ids = m12_runtime_component_ids("dxmt");
         assert!(dxmt_ids.contains(&"m12_winemetal"));
         assert!(!dxmt_ids.contains(&"m12_d3d12core"));
+    }
+
+    #[test]
+    fn m12_save_prunes_inactive_lane_components() {
+        // A manifest saved under the DXMT backend, then switched to
+        // vkd3d-proton, must drop the DXMT-only ids on save (otherwise they
+        // inspect as Missing and block components_ready forever).
+        let home = test_dir("m12-prune-lanes");
+        let configs = home.join(".metalsharp").join("configs");
+        fs::create_dir_all(&configs).expect("create configs");
+        // Pin vkd3d-proton backend for this home.
+        let mut body = serde_json::Map::new();
+        body.insert("m12Backend".into(), json!("vkd3d-proton"));
+        crate::launch::set_config_for_home(&home, &body).expect("set backend");
+
+        let mut manifest = BottleManifest {
+            id: "steam_999999".into(),
+            name: "M12 Prune Fixture".into(),
+            custom_name: None,
+            bottle_type: BottleType::Steam,
+            steam_app_id: Some(999999),
+            prefix_path: bottle_dir("steam_999999").join("prefix").to_string_lossy().to_string(),
+            arch: BottleArch::Win64,
+            runtime_profile: RuntimeProfile::M12,
+            preferred_pipeline: None,
+            installed_components: default_components_for(RuntimeProfile::M12),
+            source_installer_path: None,
+            installer_kind: None,
+            game_install_path: None,
+            runtime_assets: Vec::new(),
+            installed_app_detections: Vec::new(),
+            health: BottleHealth::New,
+            last_launch_log: None,
+            last_launch_pid: None,
+            last_launch_status: None,
+            last_launch_finished_at: None,
+            created_at: timestamp_secs(),
+            updated_at: timestamp_secs(),
+        };
+        // Simulate a stale DXMT-lane save: include DXMT-only ids as Installed.
+        for id in ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal"] {
+            manifest
+                .installed_components
+                .push(RuntimeComponent { id: id.to_string(), state: ComponentState::Installed });
+        }
+
+        // Manually run the save-time refresh + prune (save_bottle itself calls
+        // wine in non-test builds; the prune is a pure function of the
+        // manifest + backend).
+        let mut refreshed = manifest.clone();
+        let backend = m12_backend_for_home(&home);
+        assert_eq!(backend, "vkd3d-proton");
+        refreshed.installed_components =
+            merge_components(refreshed.installed_components.clone(), default_components_for(RuntimeProfile::M12));
+        refreshed.installed_components.retain(|component| {
+            !is_m12_runtime_component(&component.id)
+                || m12_runtime_component_ids(&backend).contains(&component.id.as_str())
+        });
+
+        assert!(
+            !refreshed.installed_components.iter().any(|c| c.id == "m12_winemetal"),
+            "DXMT-only m12_winemetal must be pruned under vkd3d-proton backend"
+        );
+        assert!(
+            !refreshed.installed_components.iter().any(|c| c.id == "m12_dxgi_dxmt"),
+            "DXMT-only m12_dxgi_dxmt must be pruned under vkd3d-proton backend"
+        );
+        assert!(
+            refreshed.installed_components.iter().any(|c| c.id == "m12_d3d12core"),
+            "active vkd3d lane ids must remain"
+        );
+
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]

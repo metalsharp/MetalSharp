@@ -407,6 +407,10 @@ fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> R
             "WINEDLLOVERRIDES",
             "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b;gameoverlayrenderer,gameoverlayrenderer64=d",
         )
+        // Sidebar msync toggle: the Steam client + steam://run games must see
+        // the same WINEMSYNC as mtsp-launched games (config default ON; a
+        // parent WINEMSYNC env overrides, matching the other launch paths).
+        .env("WINEMSYNC", if crate::launch::msync_enabled() { "1" } else { "0" })
         .arg(&exe)
         .args(args)
         .stdout(std::process::Stdio::null());
