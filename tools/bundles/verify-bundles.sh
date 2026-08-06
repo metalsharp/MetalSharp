@@ -209,13 +209,25 @@ verify_graphics_core() {
 
 # The vkd3d-proton M12 stack is optional in the graphics bundle (DXMT remains
 # the fallback when absent). When the lanes ARE present, verify their layout.
+# The required set must match the installer's GRAPHICS_REQUIRED_ARCHIVE_FILES
+# (app/src-rust/src/installer.rs) so a bundle can never pass CI yet fail
+# installer validation.
 verify_vkd3d_graphics_core() {
   local path="$1"
   local missing=0
   for rel in \
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll \
+    Graphics/dll/vkd3d-proton/i386-windows/d3d12.dll \
+    Graphics/dll/vkd3d-proton/i386-windows/d3d12core.dll \
     Graphics/dll/dxvk/x86_64-windows/dxgi.dll \
+    Graphics/dll/dxvk/x86_64-windows/d3d11.dll \
+    Graphics/dll/dxvk/x86_64-windows/d3d10core.dll \
+    Graphics/dll/dxvk/x86_64-windows/d3d9.dll \
+    Graphics/dll/dxvk/i386-windows/dxgi.dll \
+    Graphics/dll/dxvk/i386-windows/d3d11.dll \
+    Graphics/dll/dxvk/i386-windows/d3d10core.dll \
+    Graphics/dll/dxvk/i386-windows/d3d9.dll \
     Graphics/dll/moltenvk-vkmt/libMoltenVK.dylib \
     Graphics/dll/moltenvk-vkmt/MoltenVK_icd.json
   do

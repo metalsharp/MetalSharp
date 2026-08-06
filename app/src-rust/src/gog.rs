@@ -392,20 +392,35 @@ fn log_path(label: &str, product_id: &str) -> PathBuf {
 }
 
 fn spawn_gogdl_logged(label: &str, product_id: &str, args: &[String]) -> Result<(u32, PathBuf), String> {
+    spawn_gogdl_logged_with_env(label, product_id, args, &[])
+}
+
+/// `spawn_gogdl_logged` with extra process env pairs (routing overrides).
+/// gogdl inherits the parent env, so `WINEMSYNC`/runtime lib env applied here
+/// reach the game Wine process spawned by gogdl.
+fn spawn_gogdl_logged_with_env(
+    label: &str,
+    product_id: &str,
+    args: &[String],
+    extra_env: &[(&str, String)],
+) -> Result<(u32, PathBuf), String> {
     let path = log_path(label, product_id);
     ensure_parent(&path)?;
     let mut log = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-        .map_err(|error| format!("failed to open GOG log: {}", error))?;
-    let log_err = log.try_clone().map_err(|error| format!("failed to clone GOG log: {}", error))?;
+        .map_err(|error| format!("failed to open GOG log: {error}"))?;
+    let log_err = log.try_clone().map_err(|error| format!("failed to clone GOG log: {error}"))?;
     writeln!(&mut log, "gogdl {} started at {}", label, now_secs()).ok();
     writeln!(&mut log, "args={:?}", args).ok();
 
     let mut command = gogdl_command()?;
     command.args(args).stdout(Stdio::from(log)).stderr(Stdio::from(log_err));
-    let mut child = command.spawn().map_err(|error| format!("failed to spawn gogdl: {}", error))?;
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().map_err(|error| format!("failed to spawn gogdl: {error}"))?;
     let pid = child.id();
     let wait_path = path.clone();
     thread::spawn(move || {
@@ -1077,7 +1092,17 @@ pub fn handle_play(body: &Value) -> Value {
         "--wine-prefix".to_string(),
         gog_prefix().to_string_lossy().to_string(),
     ];
-    match spawn_gogdl_logged("launch", &product_id, &args) {
+    // Route the game Wine process like the prefix init does: msync toggle
+    // from config, runtime lib env, and no legacy GL-compat shim. gogdl
+    // inherits these and passes them to the spawned game process.
+    let mut routing_env: Vec<(&str, String)> =
+        vec![("WINEMSYNC", msync_env_value_for_gog().to_string()), ("WINEDEBUG", "-all".to_string())];
+    let mut cmd = std::process::Command::new(wine_binary());
+    crate::platform::set_runtime_library_env(&mut cmd, &wine_root());
+    for (key, value) in cmd.get_envs().filter_map(|(k, v)| v.map(|v| (k, v))) {
+        routing_env.push((key.to_str().unwrap_or_default(), value.to_string_lossy().to_string()));
+    }
+    match spawn_gogdl_logged_with_env("launch", &product_id, &args, &routing_env) {
         Ok((pid, log)) => match update_cached_game(&product_id, |mut game| {
             game.last_launch_pid = Some(pid);
             game.last_log_path = Some(log.to_string_lossy().to_string());
