@@ -355,6 +355,10 @@ pub struct BottleManifest {
     pub last_launch_finished_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Discovered mono profile for FNA/XNA/Unity-Mono bottles (schema 1):
+    /// kind + unity version + arch + deps. Serialized from mono_profile.rs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mono_profile: Option<crate::mono_profile::MonoProfile>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
@@ -1176,6 +1180,7 @@ fn ensure_installer_bottle_with_id(
         last_launch_pid: None,
         last_launch_status: None,
         last_launch_finished_at: None,
+        mono_profile: None,
         created_at: now.clone(),
         updated_at: now.clone(),
     });
@@ -1247,6 +1252,7 @@ fn ensure_steam_game_bottle_inner(
         last_launch_pid: None,
         last_launch_status: None,
         last_launch_finished_at: None,
+        mono_profile: None,
         created_at: now.clone(),
         updated_at: now.clone(),
     });
@@ -6391,6 +6397,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6427,6 +6434,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6467,6 +6475,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6509,6 +6518,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -6556,6 +6566,7 @@ mod tests {
                 last_launch_pid: None,
                 last_launch_status: None,
                 last_launch_finished_at: None,
+                mono_profile: None,
                 created_at: timestamp_secs(),
                 updated_at: timestamp_secs(),
             };
@@ -7031,6 +7042,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: "0".into(),
             updated_at: "0".into(),
         };
@@ -7088,6 +7100,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7135,6 +7148,7 @@ mod tests {
             last_launch_finished_at: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
+            mono_profile: None,
         };
 
         let installer = resolve_game_runtime_asset_installer(&manifest, "xna").expect("resolve game xna installer");
@@ -7319,6 +7333,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7357,6 +7372,7 @@ mod tests {
             last_launch_finished_at: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
+            mono_profile: None,
         };
 
         let record = steam_compatdata_record(&manifest, crate::mtsp::engine::PipelineId::M9);
@@ -7399,6 +7415,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7434,6 +7451,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
@@ -7757,6 +7775,7 @@ mod tests {
             last_launch_pid: None,
             last_launch_status: None,
             last_launch_finished_at: None,
+            mono_profile: None,
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
