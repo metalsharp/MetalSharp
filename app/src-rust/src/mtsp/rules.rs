@@ -900,4 +900,15 @@ mod tests {
             panic!("{summary}\n  {}", errors.join("\n  "));
         }
     }
+
+    /// Stardew Valley (1.6+, net6 MonoGame) must default to the mono/fna
+    /// route — the shipped config regression-guards the fna_arm64 rule.
+    #[test]
+    fn shipped_rules_route_stardew_to_fna_arm64() {
+        const SOURCE: &str = include_str!("../../../../configs/mtsp-rules.toml");
+        let (_, recipes) = parse_rules_full(SOURCE);
+        let recipe = recipes.get(&413150).expect("shipped rules must contain a Stardew Valley override (appid 413150)");
+        assert_eq!(recipe.pipeline, PipelineId::FnaArm64);
+        assert_eq!(recipe.name, "Stardew Valley");
+    }
 }
