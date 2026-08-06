@@ -2038,15 +2038,6 @@ fn launch_fna_kickstart(
         let _ = std::fs::copy(&kick_bin, &game_kick);
     }
 
-    let source_libmono = kickstart_dir.join("osx").join("libmonosgen-2.0.1.dylib");
-    if source_libmono.exists() {
-        let _ = Command::new("/usr/bin/install_name_tool")
-            .arg("-id")
-            .arg("@rpath/libmonosgen-2.0.1.dylib")
-            .arg(&source_libmono)
-            .output();
-    }
-
     let game_osx = dir.join("osx");
     let _ = std::fs::create_dir_all(&game_osx);
 
@@ -2205,8 +2196,18 @@ fn launch_fna_kickstart(
         arch_cmd.env("SteamGameId", appid.to_string());
         arch_cmd.env("MONO_DISABLE_SHARED_AREA", "1");
         let mut child = arch_cmd.spawn()?;
-        std::thread::sleep(Duration::from_millis(900));
-        if let Some(status) = child.try_wait()? {
+        // Same 3x1s post-spawn health check as the main FNA path (S8): a
+        // delayed config/arch failure surfaces with the log tail instead of a
+        // launched-but-dead game report.
+        let mut exited_early = None;
+        for _ in 0..3 {
+            std::thread::sleep(Duration::from_secs(1));
+            if let Some(status) = child.try_wait()? {
+                exited_early = Some(status);
+                break;
+            }
+        }
+        if let Some(status) = exited_early {
             let log_tail = tail_text(&log_path, 4096);
             return Err(
                 format!("FNA/MonoKickstart launch exited early with status {}. Log: {}", status, log_tail).into()
@@ -2216,8 +2217,15 @@ fn launch_fna_kickstart(
     }
 
     let mut child = cmd.spawn()?;
-    std::thread::sleep(Duration::from_millis(900));
-    if let Some(status) = child.try_wait()? {
+    let mut exited_early = None;
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_secs(1));
+        if let Some(status) = child.try_wait()? {
+            exited_early = Some(status);
+            break;
+        }
+    }
+    if let Some(status) = exited_early {
         let log_tail = tail_text(&log_path, 4096);
         return Err(format!("FNA/MonoKickstart launch exited early with status {}. Log: {}", status, log_tail).into());
     }
@@ -3152,8 +3160,11 @@ pub fn unity_runtime_lane_for_version(unity_version: Option<&str>, ms_home: &Pat
         .filter_map(|e| e.file_name().to_str().map(str::to_string))
         .collect();
     lanes.sort_by(|a, b| {
-        let num = |s: &str| s.split('.').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
-        num(b).cmp(&num(a))
+        let pair = |s: &str| {
+            let mut it = s.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+            (it.next().unwrap_or(0), it.next().unwrap_or(0))
+        };
+        pair(b).cmp(&pair(a))
     });
     lanes.first().cloned()
 }
