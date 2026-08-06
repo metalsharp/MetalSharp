@@ -2964,56 +2964,23 @@ fn ensure_launcher_exe(appid: u32, game_dir: &PathBuf) {
         return;
     }
 
+    // H1-H3: launcher binaries (Terraria launcher etc.) are PREBUILT and
+    // shipped in the assets bundle — never compile from a dev-machine repo
+    // path at launch (silently no-ops on user machines). The bundle layout is
+    // runtime/prebuilt-launchers/<source_file basename>.
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => return,
     };
-
-    let mut candidates = vec![];
-    let repo_src = home.join("repos").join("metalsharp").join("src").join("fna").join("terraria").join(source_file);
-    if repo_src.exists() {
-        candidates.push(repo_src);
+    let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+    let file_name = Path::new(source_file)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| source_file.to_string());
+    let prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&file_name);
+    if prebuilt.is_file() {
+        let _ = std::fs::copy(&prebuilt, &launcher);
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(mut dir) = exe.parent() {
-            for _ in 0..8 {
-                let p = dir.join("src").join("fna").join("terraria").join(source_file);
-                if p.exists() {
-                    candidates.push(p);
-                    break;
-                }
-                match dir.parent() {
-                    Some(d) => dir = d,
-                    None => break,
-                }
-            }
-        }
-    }
-
-    let source = match candidates.into_iter().next() {
-        Some(s) => s,
-        None => return,
-    };
-
-    let mono_runtime = match profile.mono_arch {
-        MonoArch::X86 => "mono-x86",
-        MonoArch::Native => "mono-arm64",
-    };
-    let mono_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join(mono_runtime);
-    let mono_bin = mono_root.join("bin").join("mono");
-    let mcs_exe = home
-        .join(".metalsharp")
-        .join("runtime")
-        .join(mono_runtime)
-        .join("lib")
-        .join("mono")
-        .join("4.5")
-        .join("mcs.exe");
-    if !mono_bin.exists() || !mcs_exe.exists() {
-        return;
-    }
-
-    let _ = compile_csharp_with_mono(&mono_bin, &mcs_exe, &source, &launcher, "winexe", &[]);
 }
 
 fn find_shims_dir() -> String {
@@ -3114,27 +3081,11 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
         }
     }
 
-    let gdiplus_src =
-        home.join("repos").join("metalsharp").join("src").join("fna").join("terraria").join("gdiplus_stub.c");
-    if !game_dir.join("libgdiplus.dylib").exists() {
-        let cached = shims_dir.join("libgdiplus.dylib");
-        if cached.exists() {
-            let _ = std::fs::copy(&cached, game_dir.join("libgdiplus.dylib"));
-        } else if gdiplus_src.exists() {
-            let mut gdi_cmd = Command::new("clang");
-            gdi_cmd.arg("-shared");
-            for arch_arg in fna_native_arch_args() {
-                gdi_cmd.arg(arch_arg);
-            }
-            let _ = gdi_cmd
-                .arg("-o")
-                .arg(game_dir.join("libgdiplus.dylib"))
-                .arg(&gdiplus_src)
-                .args(["-install_name", "@loader_path/libgdiplus.dylib"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-        }
+    let cached = shims_dir.join("libgdiplus.dylib");
+    if !game_dir.join("libgdiplus.dylib").exists() && cached.exists() {
+        // H3: gdiplus stub ships prebuilt in the bundle shims — never compile
+        // from the dev-machine repo path at launch.
+        let _ = std::fs::copy(&cached, game_dir.join("libgdiplus.dylib"));
     }
 
     if profile.deploy_terraria_post {
@@ -3382,6 +3333,11 @@ pub fn repair_fna_game_runtime_assets(appid: u32, game_dir: &Path) -> Result<usi
     repair_fna_native_runtime_shims()?;
     deploy_fna_assemblies(appid, &game_dir);
     deploy_offline_steamworks_net(&game_dir, &crate::platform::metalsharp_home_dir())?;
+    // Restore any previous identity receipt before re-staging the appid file.
+    let _ = crate::setup::restore_steam_appid_receipt(&game_dir);
+    if !game_dir.join("steam_appid.txt").exists() {
+        let _ = std::fs::write(game_dir.join("steam_appid.txt"), appid.to_string());
+    }
     // Profile-aware deploy: version-matched Unity runtime, XNA set, deps.
     let ms_home = crate::platform::metalsharp_home_dir();
     let discovered = crate::mono_profile::discover_mono_profile(&game_dir);
@@ -3816,9 +3772,15 @@ fn append_path_env(existing: Option<&str>, value: &str) -> String {
 }
 
 fn deploy_terraria_runtime(game_dir: &PathBuf, metalsharp_home: &PathBuf) {
-    if let Some(source) = find_repo_source(&["src", "fna", "terraria", "XactStub.cs"]) {
+    // H2: Xact stub ships PREBUILT in the bundle (runtime/prebuilt-launchers/
+    // Microsoft.Xna.Framework.Xact.dll) — never compile from the dev repo.
+    let prebuilt_xact =
+        metalsharp_home.join("runtime").join("prebuilt-launchers").join("Microsoft.Xna.Framework.Xact.dll");
+    if prebuilt_xact.is_file() {
         let output = game_dir.join("Microsoft.Xna.Framework.Xact.dll");
-        let _ = compile_repo_csharp_to_game(&source, &output, "library", &[]);
+        if !output.exists() {
+            let _ = std::fs::copy(&prebuilt_xact, &output);
+        }
     }
 
     let faudio_dst = game_dir.join("libFAudio.0.dylib");
@@ -3826,50 +3788,33 @@ fn deploy_terraria_runtime(game_dir: &PathBuf, metalsharp_home: &PathBuf) {
         let home = dirs::home_dir().unwrap_or_default();
         let ms_home = crate::platform::metalsharp_home_dir_for(&home);
         let cached = ms_home.join("runtime").join("shims").join("libFAudio.0.dylib");
+        // H3: faudio ships prebuilt in the bundle shims — never clang-compile
+        // the dev-machine faudio_stub.c at launch.
         if cached.exists() {
             let _ = std::fs::copy(&cached, &faudio_dst);
-            ensure_fna_symlink(game_dir, "libFAudio.0.dylib", "libFAudio.dylib");
-        } else if let Some(source) = find_repo_source(&["src", "fna", "terraria", "faudio_stub.c"]) {
-            let mut faudio_cmd = Command::new("clang");
-            faudio_cmd.arg("-shared");
-            for arch_arg in fna_native_arch_args() {
-                faudio_cmd.arg(arch_arg);
-            }
-            let _ = faudio_cmd
-                .arg("-o")
-                .arg(&faudio_dst)
-                .arg(&source)
-                .args(["-install_name", "@loader_path/libFAudio.0.dylib"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
             ensure_fna_symlink(game_dir, "libFAudio.0.dylib", "libFAudio.dylib");
         }
     }
 
-    if let Some(source) = find_repo_source(&["src", "fna", "terraria", "TerrariaOfflinePatcher.cs"]) {
+    // TerrariaOfflinePatcher ships PREBUILT in the bundle; it is still RUN at
+    // deploy time to patch Terraria.exe's offline identity.
+    let prebuilt_patcher =
+        metalsharp_home.join("runtime").join("prebuilt-launchers").join("TerrariaOfflinePatcher.exe");
+    if prebuilt_patcher.is_file() {
         let patcher = game_dir.join("TerrariaOfflinePatcher.exe");
-        let cecil = metalsharp_home
-            .join("runtime")
-            .join("mono-x86")
-            .join("lib")
-            .join("mono")
-            .join("gac")
-            .join("Mono.Cecil")
-            .join("0.11.1.0__0738eb9f132ed756")
-            .join("Mono.Cecil.dll");
-        if compile_repo_csharp_to_game(&source, &patcher, "exe", &[format!("-r:{}", cecil.to_string_lossy())]) {
-            let mono = metalsharp_home.join("runtime").join("mono-x86").join("bin").join("mono");
-            let terraria = game_dir.join("Terraria.exe");
-            if mono.exists() && terraria.exists() {
-                let _ = Command::new(&mono)
-                    .current_dir(game_dir)
-                    .arg(&patcher)
-                    .arg(&terraria)
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
+        if !patcher.exists() {
+            let _ = std::fs::copy(&prebuilt_patcher, &patcher);
+        }
+        let mono = metalsharp_home.join("runtime").join("mono-x86").join("bin").join("mono");
+        let terraria = game_dir.join("Terraria.exe");
+        if mono.exists() && terraria.exists() && patcher.exists() {
+            let _ = Command::new(&mono)
+                .current_dir(game_dir)
+                .arg(&patcher)
+                .arg(&terraria)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
         }
     }
 }

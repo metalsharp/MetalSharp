@@ -17,7 +17,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$ROOT_DIR/tools/bundles/fna-unity-hashes.tsv"
 STAGING="${1:?usage: update-fna-unity-hashes.sh <assets-staging-root>}"
 
-for sub in unity-mono xna sdl3; do
+for sub in unity-mono xna sdl3 prebuilt-launchers; do
   if [ ! -d "$STAGING/$sub" ]; then
     echo "error: $STAGING/$sub not found; stage the payloads first" >&2
     exit 1
@@ -29,7 +29,7 @@ tmp="$(mktemp)"
   echo "# Regenerated $(date -u +%Y-%m-%dT%H:%M:%SZ) by ${0##*/} — do not edit by hand."
   echo "# Paths are relative to the assets bundle root (assets/<sub>/...)."
   echo "path	sha256"
-  find "$STAGING/unity-mono" "$STAGING/xna" "$STAGING/sdl3" -type f | sort | while read -r f; do
+  find "$STAGING/unity-mono" "$STAGING/xna" "$STAGING/sdl3" "$STAGING/prebuilt-launchers" -type f | sort | while read -r f; do
     rel="${f#"$STAGING"/}"
     printf '%s\t%s\n' "$rel" "$(shasum -a 256 "$f" | awk '{print $1}')"
   done

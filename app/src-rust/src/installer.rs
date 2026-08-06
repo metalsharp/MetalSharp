@@ -229,6 +229,14 @@ const ASSETS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "assets/unity-mono/6000.0/MonoBleedingEdge.version",
     // SDL3 (modern FNA/MonoGame/Unity native dependency).
     "assets/sdl3/libSDL3.dylib",
+    // Prebuilt launcher/patcher binaries (Terraria launcher, offline patcher,
+    // Xact stub) — shipped compiled; the app never compiles at launch.
+    "assets/prebuilt-launchers/TerrariaLauncher.exe",
+    "assets/prebuilt-launchers/TerrariaOfflinePatcher.exe",
+    "assets/prebuilt-launchers/Microsoft.Xna.Framework.Xact.dll",
+    // Prebuilt gdiplus/faudio stubs (Terraria lane) — never clang-compiled.
+    "assets/shims/libgdiplus.dylib",
+    "assets/shims/libFAudio.0.dylib",
 ];
 const FNALIBS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "fnalibs/libFNA3D.0.dylib",

@@ -325,6 +325,9 @@ def build_staging(tmp: Path) -> dict[str, Path]:
         "xna.tar.zst": ("xna", "xna"),
         # SDL3 native dependency (modern FNA/MonoGame/Unity games).
         "sdl3.tar.zst": ("sdl3", "sdl3"),
+        # Prebuilt launcher/patcher binaries (Terraria launcher, offline
+        # patcher, Xact stub) — the app never compiles at launch.
+        "prebuilt-launchers.tar.zst": ("prebuilt-launchers", "prebuilt-launchers"),
     }
     for archive_name, (extract_name, target_name) in optional_archives.items():
         archive = SOURCE_BUNDLES / archive_name
