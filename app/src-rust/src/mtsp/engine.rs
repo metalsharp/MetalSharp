@@ -87,8 +87,11 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
         // vkd3d-proton ships Windows DLLs only (lib/vkd3d-proton/x86_64-windows
         // in WINEDLLPATH below); there is no vkd3d-proton unix sidecar. The
         // unix library path for the Vulkan hop is wine's own x86_64-unix lane
-        // plus the VKMT MoltenVK dylib directory.
-        dyld_paths: vec!["lib/wine/x86_64-unix", "lib/moltenvk-vkmt"],
+        // plus the VKMT MoltenVK dylib directory. The VKMT lane MUST precede
+        // lib/wine/x86_64-unix: the wine tree bundles a stock libMoltenVK.dylib
+        // (1.4.1) in x86_64-unix, and any @rpath/loader resolution would
+        // shadow the custom VKMT build (1.4.2) otherwise.
+        dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
         winedllpath_dirs: vec!["lib/vkd3d-proton/x86_64-windows", "lib/dxvk/x86_64-windows"],
         deploy_dlls: vec![
             DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "d3d12.dll", dest_filename: None },

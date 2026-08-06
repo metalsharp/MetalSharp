@@ -1227,12 +1227,15 @@ fn sanitize_metalsharp_wine_wrapper_script(script: &str) -> String {
     }
 
     // DYLD_FALLBACK_LIBRARY_PATH must lead with MetalSharp's unix lib dirs.
+    // The VKMT MoltenVK lane comes FIRST: the wine tree bundles a stock
+    // libMoltenVK.dylib (1.4.1) in lib/wine/x86_64-unix that would otherwise
+    // shadow the custom VKMT build (1.4.2) for any @rpath resolution.
     // Line-based surgery: replace the existing export line when present, or
     // insert it right after WINEDATADIR. NEVER a range replace — the old
     // range logic anchored on the next `export VK_ICD_FILENAMES=` line and
     // swallowed the `if` line of the ICD guard, leaving an orphaned
     // `else`/`fi` that made every wine spawn die with a bash syntax error.
-    let dyld_line = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}""#;
+    let dyld_line = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB/moltenvk-vkmt:$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}""#;
     repaired = replace_or_insert_export_line(
         &repaired,
         "export DYLD_FALLBACK_LIBRARY_PATH=",
@@ -5920,8 +5923,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             .expect("DYLD_FALLBACK_LIBRARY_PATH export present");
         let dyld_prefix = dyld_line.split("${DYLD_FALLBACK").next().unwrap();
         assert!(
-            dyld_prefix.starts_with("export DYLD_FALLBACK_LIBRARY_PATH=\"$MS_LIB:"),
-            "MS unix lib dirs must lead DYLD_FALLBACK_LIBRARY_PATH: {}",
+            dyld_prefix.starts_with("export DYLD_FALLBACK_LIBRARY_PATH=\"$MS_LIB/moltenvk-vkmt:"),
+            "the VKMT MoltenVK lane must lead DYLD_FALLBACK_LIBRARY_PATH (it shadows the wine tree's stock libMoltenVK otherwise): {}",
             dyld_line
         );
 
