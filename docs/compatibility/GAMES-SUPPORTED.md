@@ -129,7 +129,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 |---|---:|---|
 | Celeste | 504230 | FNA/XNA assets, FMOD shims, Steamworks shim. x86_64 Mono |
 | Necesse | 1169040 | Classic FNA (root FNA.dll + XNA names), baseline Mono |
-| Terraria | 105600 | XNA lane, gdiplus/faudio stubs, prebuilt launcher + offline patcher |
+| Terraria | 105600 | XNA lane (root-level XNA assemblies, no `_data/Managed` — classic layout), gdiplus/faudio stubs, prebuilt launcher + offline patcher |
 | DREDGE | 1562430 | Unity-Mono (Unity 2021.3.5f1, MonoBleedingEdge, x86 PE32), version-matched Unity Mono runtime deployed on save; dual SDKs (Steamworks.NET + Galaxy) |
 
 ### Discovery & routing
