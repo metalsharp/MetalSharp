@@ -764,15 +764,38 @@ fn preferred_exe_names(appid: u32) -> &'static [&'static str] {
 
 pub fn find_case_insensitive(dir: &Path, name: &str) -> Option<PathBuf> {
     let target = name.to_lowercase();
+    // Rules may pin a nested path (e.g. "x86/Hades.exe"). Match the basename
+    // case-insensitively so the rule still resolves when the layout differs,
+    // but prefer an exact case-insensitive full-path match, then a match whose
+    // relative path carries the rule's directory hint, then the first basename
+    // match in walk order.
+    let target_base = Path::new(name).file_name()?.to_string_lossy().to_lowercase();
+    let target_dir = Path::new(name).parent().filter(|p| !p.as_os_str().is_empty());
+    let mut hinted_match: Option<PathBuf> = None;
+    let mut basename_match: Option<PathBuf> = None;
     for entry in WalkDir::new(dir).max_depth(5).into_iter().flatten() {
         if !entry.path().is_file() {
             continue;
         }
-        if entry.file_name().to_string_lossy().to_lowercase() == target {
-            return Some(entry.path().to_path_buf());
+        let entry_path = entry.path().to_path_buf();
+        let entry_lower = entry_path.to_string_lossy().to_lowercase();
+        if entry_lower == target {
+            return Some(entry_path);
+        }
+        if entry.file_name().to_string_lossy().to_lowercase() == target_base {
+            // A hint-bearing target prefers a match under that directory.
+            if let Some(hint) = target_dir {
+                if hinted_match.is_none() && entry_lower.contains(&hint.to_string_lossy().to_lowercase()) {
+                    hinted_match = Some(entry_path);
+                    continue;
+                }
+            }
+            if basename_match.is_none() {
+                basename_match = Some(entry_path);
+            }
         }
     }
-    None
+    hinted_match.or(basename_match)
 }
 
 fn is_valid_game_exe(name: &str) -> bool {
@@ -1742,5 +1765,33 @@ mod tests {
         data[0x94..0x96].copy_from_slice(&(0xf0_u16).to_le_bytes());
         data[0x98..0x9a].copy_from_slice(&optional_magic.to_le_bytes());
         std::fs::write(path, data).expect("write test PE");
+    }
+
+    #[test]
+    fn find_case_insensitive_matches_nested_rule_paths_by_basename() {
+        let dir = test_dir("find-case-insensitive-nested");
+        std::fs::create_dir_all(dir.join("x86")).unwrap();
+        std::fs::create_dir_all(dir.join("x64Vk")).unwrap();
+        std::fs::write(dir.join("x86").join("Hades.exe"), b"MZ").unwrap();
+        std::fs::write(dir.join("x64Vk").join("Hades.exe"), b"MZ").unwrap();
+
+        // Nested rule path ("x86/Hades.exe"): must resolve the 32-bit exe.
+        let nested = find_case_insensitive(&dir, "x86/Hades.exe").expect("nested rule path must resolve");
+        assert_eq!(
+            nested.file_name().unwrap().to_string_lossy(),
+            "Hades.exe",
+            "basename match must resolve the nested rule path"
+        );
+        assert!(nested.to_string_lossy().contains("x86"), "prefer the path hint when present: {}", nested.display());
+
+        // Flat basename still works for the exact-path form.
+        let flat = find_case_insensitive(&dir, "Hades.exe").expect("flat basename must resolve");
+        assert_eq!(flat.file_name().unwrap().to_string_lossy(), "Hades.exe");
+
+        // Case-insensitivity: rules written as "hades.EXE" still resolve.
+        let mixed = find_case_insensitive(&dir, "x86/hades.EXE").expect("case-insensitive nested match");
+        assert_eq!(mixed.file_name().unwrap().to_string_lossy(), "Hades.exe");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
