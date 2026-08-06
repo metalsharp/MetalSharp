@@ -470,6 +470,16 @@ pub fn launch_wine_steam_with_env(extra_env: &[(String, String)]) -> Result<Valu
     // Repair it before every spawn so a Steam launch can never fail on it.
     crate::mtsp::launcher::sanitize_metalsharp_wine_wrapper_env()?;
 
+    // The pre-fix M12 backend staged vkd3d-proton/DXVK DLLs into the shared
+    // prefix system32, which freezes the Steam client UI (a native DXVK dxgi
+    // next to wine's builtin d3d11). Restore the wine builtin baseline before
+    // every Steam spawn so a polluted prefix heals without a reinstall.
+    // Best-effort: Steam must still launch if the repair hits an I/O error.
+    let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
+    if let Err(err) = crate::mtsp::launcher::repair_m12_prefix_system32(&steam_prefix(), &ms_root) {
+        eprintln!("steam: WARNING — prefix system32 M12 pollution repair failed: {}", err);
+    }
+
     let steam_dir = resolve_steam_dir();
     let exe = steam_dir.join("Steam.exe");
 
