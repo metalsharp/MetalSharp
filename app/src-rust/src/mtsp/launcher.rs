@@ -1044,6 +1044,98 @@ fn wine_debug_value() -> String {
     std::env::var("METALSHARP_WINEDEBUG").unwrap_or_else(|_| "-all".to_string())
 }
 
+/// Repair the bundled mono runtime libraries so they load on any machine:
+/// the mono bundle is built against /Library/Frameworks/Mono.framework and
+/// every dylib carries absolute build-machine dependencies (libgdiplus ->
+/// libglib-2.0.0.dylib etc.) that do not exist on user machines, which made
+/// System.Drawing/WinForms fail with DllNotFoundException. Rewrite those
+/// dependencies to @loader_path (all libs share one directory). Also restore
+/// the libmono-native.dylib symlink the x86 bundle omits (the 4.5 profile's
+/// System.IO native shim). Runs once per runtime, before any mono launch.
+pub(crate) fn repair_mono_runtime_links() -> Result<(), Box<dyn std::error::Error>> {
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+    let runtime = ms_home.join("runtime");
+    for arch in ["mono-x86", "mono-arm64"] {
+        let lib_dir = runtime.join(arch).join("lib");
+        if !lib_dir.is_dir() {
+            continue;
+        }
+        let marker = lib_dir.join(".metalsharp_relink_done");
+        let needs_run = if marker.exists() {
+            // Re-run if the runtime was updated after the marker was written.
+            let marker_mtime = std::fs::metadata(&marker).and_then(|m| m.modified()).ok();
+            let newest_lib = std::fs::read_dir(&lib_dir).ok().and_then(|e| {
+                e.flatten()
+                    .filter(|p| p.path().extension().map(|x| x == "dylib").unwrap_or(false))
+                    .filter_map(|p| p.metadata().ok())
+                    .filter_map(|m| m.modified().ok())
+                    .max()
+            });
+            match (marker_mtime, newest_lib) {
+                (Some(marker), Some(lib)) => lib > marker,
+                _ => false,
+            }
+        } else {
+            true
+        };
+        if !needs_run {
+            continue;
+        }
+        let mut relinked = 0_u32;
+        if let Ok(entries) = std::fs::read_dir(&lib_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e != "dylib").unwrap_or(true) {
+                    continue;
+                }
+                let Ok(out) = std::process::Command::new("/usr/bin/otool").arg("-L").arg(&path).output() else {
+                    continue;
+                };
+                let text = String::from_utf8_lossy(&out.stdout);
+                let mut deps: Vec<String> = text
+                    .lines()
+                    .filter_map(|line| {
+                        let t = line.trim();
+                        if t.starts_with("/Library/Frameworks/Mono.framework/") {
+                            t.split_whitespace().next().map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                deps.sort();
+                deps.dedup();
+                for dep in deps {
+                    let base = Path::new(&dep).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    if base.is_empty() {
+                        continue;
+                    }
+                    let _ = std::process::Command::new("/usr/bin/install_name_tool")
+                        .args(["-change", &dep, &format!("@loader_path/{}", base)])
+                        .arg(&path)
+                        .output();
+                    relinked += 1;
+                }
+            }
+        }
+        // libmono-native.dylib: the x86 bundle ships the -unified/-compat
+        // variants but not the plain name the mono config maps System.Native
+        // to — System.IO then fails with DllNotFoundException at startup.
+        let plain = lib_dir.join("libmono-native.dylib");
+        if !plain.exists() {
+            for candidate in ["libmono-native-unified.0.dylib", "libmono-native.0.dylib"] {
+                if lib_dir.join(candidate).exists() {
+                    let _ = std::os::unix::fs::symlink(candidate, &plain);
+                    break;
+                }
+            }
+        }
+        let _ = std::fs::write(&marker, format!("relinked {} deps", relinked));
+    }
+    Ok(())
+}
+
 pub(crate) fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
     let wrapper = crate::platform::metalsharp_home_dir_for(&home)
@@ -1990,6 +2082,12 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
              (runtimeconfig.json) and cannot run on the bundled Mono runtime. \
              Use a Wine pipeline (M11/M12) instead."
             .into());
+    }
+
+    // The bundled mono's libraries carry build-machine absolute dependencies
+    // (gdiplus -> glib etc.) — relink once so System.Drawing/WinForms load.
+    if let Err(err) = repair_mono_runtime_links() {
+        eprintln!("fna: mono runtime relink skipped: {}", err);
     }
     if discovered.kind != crate::mono_profile::MonoProfileKind::None {
         let mut report = crate::fna_profile::AssetStagingReport::new(appid);
@@ -3133,6 +3231,27 @@ fn find_shims_dir() -> String {
     crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("shims").to_string_lossy().to_string()
 }
 
+/// Embedded prebuilt Terraria mono shims: a minimal inert System.Windows.Forms
+/// (Terraria's window-chrome code uses WinForms via Control.FromHandle; mono's
+/// real WinForms hangs in its Quartz window creation) and the ReLogic.Native
+/// IME stub (ImeUi_* — the game ships a Windows PE, mono cannot dlopen it).
+/// Built from src/fna/terraria/* and embedded so no bundle/repo lookup is
+/// needed at launch.
+const TERRARIA_WINFORMS_STUB: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../src/fna/terraria/System.Windows.Forms.Stub/System.Windows.Forms.dll"
+));
+const TERRARIA_RELOGIC_NATIVE_STUB: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/fna/terraria/libReLogic.Native.dylib"));
+
+/// Write an embedded mono stub into the game dir if absent or stale.
+fn stage_embedded_mono_stub(game_dir: &Path, name: &str, bytes: &[u8]) {
+    let dst = game_dir.join(name);
+    if !dst.exists() || std::fs::metadata(&dst).map(|m| m.len() != bytes.len() as u64).unwrap_or(true) {
+        let _ = std::fs::write(&dst, bytes);
+    }
+}
+
 fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -3238,6 +3357,10 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
 
     if profile.deploy_terraria_post {
         deploy_terraria_runtime(game_dir, &metalsharp_home);
+        // Terraria's managed code needs the WinForms + IME native surface
+        // that mono cannot provide on macOS (see stubs above).
+        stage_embedded_mono_stub(game_dir, "System.Windows.Forms.dll", TERRARIA_WINFORMS_STUB);
+        stage_embedded_mono_stub(game_dir, "libReLogic.Native.dylib", TERRARIA_RELOGIC_NATIVE_STUB);
     }
 
     let xna_assemblies = [
@@ -4153,6 +4276,29 @@ fn deploy_offline_steamworks_net(game_dir: &PathBuf, metalsharp_home: &PathBuf) 
     if !steamworks.exists() {
         return Ok(());
     }
+
+    // .NET Core / .NET 5+ games (runtimeconfig.json — e.g. Stardew Valley
+    // 1.6+) ship their OWN net6 Steamworks.NET.dll and their runtime host
+    // cannot load the .NET Framework offline stub: the game dies with
+    // "Could not load file or assembly 'Steamworks.NET'". Restore the
+    // original if a stub was previously deployed and skip these games.
+    let is_dotnet_core = game_dir
+        .read_dir()
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                name.ends_with(".runtimeconfig.json")
+            })
+        })
+        .unwrap_or(false);
+    if is_dotnet_core {
+        let backup = game_dir.join("Steamworks.NET.dll.metalsharp-original");
+        if backup.exists() {
+            let _ = std::fs::copy(&backup, &steamworks);
+        }
+        return Ok(());
+    }
+
     let backup = game_dir.join("Steamworks.NET.dll.metalsharp-original");
     if !backup.exists() {
         std::fs::copy(&steamworks, &backup)
