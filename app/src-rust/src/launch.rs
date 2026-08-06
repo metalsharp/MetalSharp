@@ -206,6 +206,7 @@ pub fn get_config_for_home(home: &Path) -> Value {
         "graphicsRuntimeLogs": graphics_runtime_logs,
         "graphics_runtime_logs": graphics_runtime_logs,
         "controllerInput": controller_input,
+        "msync": msync_enabled_for(home),
     })
 }
 
@@ -223,6 +224,26 @@ pub fn controller_input_mode_for(home: &Path) -> String {
         .map(|v| v.trim().to_ascii_lowercase())
         .filter(|v| matches!(v.as_str(), "off" | "x" | "d"))
         .unwrap_or_else(|| "off".to_string())
+}
+
+/// Whether Wine msync (Mach-synchronized Wine sync primitives) is enabled.
+/// Default ON, matching the historical `WINEMSYNC=1` launch behavior.
+pub fn msync_enabled() -> bool {
+    if let Ok(value) = std::env::var("WINEMSYNC") {
+        return truthy(&value);
+    }
+    msync_enabled_for(&dirs::home_dir().unwrap_or_default())
+}
+
+pub fn msync_enabled_for(home: &Path) -> bool {
+    read_config_bool_for_home(home, "msync").unwrap_or(true)
+}
+
+fn read_config_bool_for_home(home: &Path, key: &str) -> Option<bool> {
+    let path = config_path_for_home_unenv(home);
+    let contents = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+    value.get(key).and_then(json_bool)
 }
 
 fn read_config_string(key: &str) -> Option<String> {
@@ -454,6 +475,10 @@ pub fn set_config_for_home(home: &Path, body: &Map<String, Value>) -> Result<Val
         if matches!(normalized.as_str(), "off" | "x" | "d") {
             cfg.insert("controllerInput".into(), json!(normalized));
         }
+    }
+
+    if let Some(value) = body.get("msync").and_then(|v| v.as_bool()) {
+        cfg.insert("msync".into(), json!(value));
     }
 
     std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?;
