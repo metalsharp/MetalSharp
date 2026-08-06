@@ -21,7 +21,7 @@ The `pre-commit` hook runs these checks only when the relevant files are staged:
 |--------------|-------|---------------------------|
 | `*.rs`, `*.toml` under `app/` | `cargo fmt --check` | **FAIL** — no silent skip |
 | `*.rs`, `*.toml` under `app/` | `cargo clippy --all-targets -- -D warnings` | **FAIL** — no silent skip |
-| `*.rs` (Rust source) under `app/` | `cargo test --lib` | **FAIL** — no silent skip |
+| `*.rs` (Rust source) under `app/` | `cargo test` (bin-only crate; `--lib` has no target) | **FAIL** — no silent skip |
 | `*.c`, `*.cpp`, `*.h`, `*.hpp`, `*.mm`, `*.m` | `clang-format --dry-run --Werror` | **FAIL** — no silent skip |
 | `app/**/*.tsx?` | `tsc --noEmit` | **FAIL** — no silent skip |
 | `app/src/{renderer,main,shared}/**/*.{ts,tsx,js,jsx}` | `biome ci` | **FAIL** — no silent skip |
