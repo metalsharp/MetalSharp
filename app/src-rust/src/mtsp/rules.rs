@@ -159,6 +159,16 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid));
     if let Some(ref dir) = game_dir {
         if dir.exists() {
+            // Mono-profile discovery first: Unity-Mono / FNA / MonoGame /
+            // XNA / MonoKickstart games route to the FNA lane; IL2CPP (native
+            // GameAssembly.dll) is NOT mono-runnable and goes to Wine/DXMT.
+            let profile = crate::mono_profile::discover_mono_profile(dir);
+            match profile.kind {
+                crate::mono_profile::MonoProfileKind::Il2Cpp => return PipelineId::M11,
+                crate::mono_profile::MonoProfileKind::None => {},
+                _ => return PipelineId::FnaArm64,
+            }
+
             if crate::setup::detect_dotnet_game(dir) {
                 return PipelineId::FnaArm64;
             }
@@ -371,6 +381,39 @@ mod tests {
         };
 
         assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M12));
+    }
+
+    #[test]
+    fn mono_profile_discovery_drives_fallback_routing() {
+        // Unity-Mono shaped dir (DREDGE-like): discovery routes to FnaArm64
+        // even though detect_dotnet_game returns false (native UnityPlayer.dll).
+        let dir = std::env::temp_dir().join(format!("ms-rules-unity-mono-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::create_dir_all(dir.join("MonoBleedingEdge").join("EmbedRuntime")).unwrap();
+        std::fs::write(dir.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-2.0-bdwgc.dll"), b"m").unwrap();
+        let data_dir = dir.join("Game_Data").join("Managed");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(data_dir.join("Assembly-CSharp.dll"), b"m").unwrap();
+        let mut ggm = vec![0u8; 48];
+        ggm.extend_from_slice(b"2021.3.5f1\0");
+        std::fs::write(dir.join("Game_Data").join("globalgamemanagers"), &ggm).unwrap();
+
+        let profile = crate::mono_profile::discover_mono_profile(&dir);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::UnityMono);
+
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // IL2CPP shaped dir: discovery routes to M11 (Wine/DXMT), never FNA.
+        let dir2 = std::env::temp_dir().join(format!("ms-rules-il2cpp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir2);
+        std::fs::create_dir_all(&dir2).unwrap();
+        std::fs::write(dir2.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::write(dir2.join("GameAssembly.dll"), b"g").unwrap();
+        let profile2 = crate::mono_profile::discover_mono_profile(&dir2);
+        assert_eq!(profile2.kind, crate::mono_profile::MonoProfileKind::Il2Cpp);
+        let _ = std::fs::remove_dir_all(&dir2);
     }
 
     #[test]
