@@ -318,6 +318,16 @@ def build_staging(tmp: Path) -> dict[str, Path]:
         "mono-x86.tar.zst": ("mono-x86", "mono-x86"),
         "fnalibs.tar.zst": ("fnalibs", "fnalibs"),
         "fna-kickstart.tar.zst": ("fna-kickstart", "fna-kickstart"),
+        # Unity Mono runtimes (arm64, per Unity LTS line) for version-matched
+        # deployment to Unity-Mono games (DREDGE 2021.3 etc.).
+        "unity-mono.tar.zst": ("unity-mono", "unity-mono"),
+        # Improved XNA 4.0 managed assembly set.
+        "xna.tar.zst": ("xna", "xna"),
+        # SDL3 native dependency (modern FNA/MonoGame/Unity games).
+        "sdl3.tar.zst": ("sdl3", "sdl3"),
+        # Prebuilt launcher/patcher binaries (Terraria launcher, offline
+        # patcher, Xact stub) — the app never compiles at launch.
+        "prebuilt-launchers.tar.zst": ("prebuilt-launchers", "prebuilt-launchers"),
     }
     for archive_name, (extract_name, target_name) in optional_archives.items():
         archive = SOURCE_BUNDLES / archive_name

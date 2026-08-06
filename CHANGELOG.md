@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.59.0 — 2026-08-06
+
+### Added
+
+- **Mono/FNA/XNA route strengthening** — profile discovery (`mono_profile.rs`) classifies Unity-Mono (Unity version from `globalgamemanagers`), IL2CPP, FNA, MonoGame, XNA, MonoKickstart, and bare .NET games — including classic **root-level layouts** (Terraria, Stardew Valley: no `*_Data/Managed`, assemblies next to the exe) and root-scanned Steamworks.NET/Galaxy dependency signals; version-matched Unity Mono runtime lanes + XNA 4.0 assembly set + SDL3 ship in the assets bundle and deploy on bottle save (with receipts); launch runs a pre-flight readiness check (incl. explicit Rosetta for x86) and dispatches MonoKickstart games; mono orphan sweep is prefix-scoped, corrupt MSI caches re-download, install state is per-prefix, `steam_appid.txt` writes are reversible, and Terraria/gdiplus/faudio/Xact artifacts ship prebuilt (no launch-time compiles).
+
 ## v0.58.0 — 2026-08-04
 
 ### Added

@@ -123,11 +123,34 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## Mono/FNA — XNA/FNA/MonoGame
+## Mono/FNA — XNA/FNA/MonoGame/Unity-Mono
 
 | Game | AppID | Notes |
 |---|---:|---|
 | Celeste | 504230 | FNA/XNA assets, FMOD shims, Steamworks shim. x86_64 Mono |
+| Necesse | 1169040 | Classic FNA (root FNA.dll + XNA names), baseline Mono |
+| Terraria | 105600 | XNA lane (root-level XNA assemblies, no `_data/Managed` — classic layout), gdiplus/faudio stubs, prebuilt launcher + offline patcher |
+| Stardew Valley | 413150 | MonoGame (root-level MonoGame.Framework.dll, net6.0, no `_data/Managed`), GOG Galaxy + Steamworks deps detected; modern Mono requirement |
+| DREDGE | 1562430 | Unity-Mono (Unity 2021.3.5f1, MonoBleedingEdge, x86 PE32), version-matched Unity Mono runtime deployed on save; dual SDKs (Steamworks.NET + Galaxy) |
+
+### Discovery & routing
+
+The mono route classifies each installed game by evidence (`mono_profile.rs`):
+Unity-Mono (`UnityPlayer.dll` + `MonoBleedingEdge` + `*_Data/Managed`, Unity
+version read from `globalgamemanagers`), Unity IL2CPP (`GameAssembly.dll` —
+routed to Wine/DXMT, never mono), FNA, MonoGame, XNA, MonoKickstart
+(`<exe>.bin.osx` / `osx/libmonosgen`), and bare .NET. Bottle save deploys the
+version-matched payloads (Unity Mono runtime lane, XNA assembly set, SDL3,
+Carbon per profile) and records receipts; launch runs a pre-flight readiness
+check (mono arch incl. Rosetta for x86, shims, SDL3, Unity lane) and
+dispatches MonoKickstart games to the kickstart launcher.
+
+### Mono runtime versions
+
+The app installs baseline Wine Mono with the program; the in-app Mono button
+upgrades to 11.2.0. Per-game requirement (baseline vs modern) is surfaced in
+the profile explainer: Unity 2021+/SDL3/MonoGame titles need the modern
+runtime.
 
 ---
 
