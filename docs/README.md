@@ -33,10 +33,10 @@ Use this page as the repo map before changing launch/runtime code.
 ## Architecture
 
 - [Launch Architecture](architecture/launch-architecture.md) - pipeline selection and launch ownership.
-- [D3D12 Pipeline Map](architecture/m12-pipeline-map.md) - current M12 D3D12/DXMT path.
+- [D3D12 Pipeline Map](architecture/m12-pipeline-map.md) - current M12 D3D12 path (vkd3d-proton default, DXMT rollback).
 - [D3D10 Pipeline Map](architecture/m10-pipeline-map.md) - current M10 D3D10/DXMT path.
 - [D3D9 Pipeline Map](architecture/m9-pipeline-map.md) - current M9 D3D9 route.
-- [DXMT and Vulkan Architecture](architecture/dxmt-vulkan-architecture.md) - DXMT/M9-M12 boundaries and Vulkan fallback boundaries.
+- [DXMT and Vulkan Architecture](architecture/dxmt-vulkan-architecture.md) - DXMT/M9-M11 boundaries and Vulkan fallback boundaries.
 - [D3D12 Developer Runtime Package](../tools/d3d12-metal-sdk/docs/developer-runtime.md) - self-contained developer SDK tarball layout and publish flow.
 
 ## Historical Roadmaps

@@ -3,6 +3,18 @@
 Date: 2026-06-29  
 Scope: PR #230 continuation / MetalSharp M12 release runtime update
 
+> **Status note (2026-08-05):** Most of this roadmap's "current state" claims
+> are now resolved differently than planned. M12's shipped shape is the
+> **vkd3d-proton default** (PR #377): M12 uses `lib/vkd3d-proton` +
+> `lib/dxvk` (dxgi) + `lib/moltenvk-vkmt` by default; `lib/dxmt_m12` is the
+> `m12Backend=dxmt` rollback lane (still supplying the shared nvapi/nvngx
+> stubs). EAC ("Offline EAC Mode") is removed from setup; compatdata
+> preserve/restore is gone from migration (still written at launch);
+> `DXMT_LOG_PATH` is dev-gated only. The release bundle carries five graphics
+> lanes (dxmt, dxmt_m12, vkd3d-proton, dxvk, moltenvk-vkmt), and
+> `WINEMSYNC` is config-driven (msync toggle). Treat requirements below as
+> the historical DXMT-shape plan; the vkd3d-proton shape supersedes them.
+
 ## Purpose
 
 Make the next MetalSharp update correctly ship the isolated PR #230 M12 DXMT runtime shape for new installs and update migrations, while keeping M11 and M12 separated, removing stale compatdata and current anti-cheat/EAC behavior, and ensuring every M12 game uses the updated PR #230 launch/prepare contract.
@@ -10,7 +22,7 @@ Make the next MetalSharp update correctly ship the isolated PR #230 M12 DXMT run
 ## Non-negotiable requirements
 
 - M11 must use `runtime/wine/lib/dxmt`.
-- M12 must use `runtime/wine/lib/dxmt_m12`.
+- M12 must use `runtime/wine/lib/dxmt_m12`. — **superseded:** default M12 uses `lib/vkd3d-proton` + `lib/dxvk` + `lib/moltenvk-vkmt`; `dxmt_m12` is the DXMT rollback lane.
 - M12 must use the PR #230/Elden-proven launch shape globally, not one-off per-game hacks.
 - Bottle saves/switches between M11 and M12 must prepare and verify the selected runtime lane.
 - New installs and migration wizard flows must install/update all required runtime material.
