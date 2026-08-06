@@ -2078,10 +2078,20 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     // Profile-aware deploy (idempotent; also run by bottle save).
     let discovered = crate::mono_profile::discover_mono_profile(dir);
     if discovered.dotnet_core {
-        return Err("FNA/Mono/XNA route unavailable: this game is a .NET Core / .NET 5+ app \
-             (runtimeconfig.json) and cannot run on the bundled Mono runtime. \
-             Use a Wine pipeline (M11/M12) instead."
-            .into());
+        // .NET Core / .NET 5+ games (Stardew 1.6+) ship their OWN runtime
+        // (runtimeconfig.json + self-contained host) and the bundled Mono
+        // cannot execute net6.0 assemblies — but the game's own runtime runs
+        // perfectly under the Wine stack. The mono/fna route stays the launch
+        // path for the game; it hands the actual execution to the game's own
+        // runtime via the Wine pipeline so the game WORKS instead of blocking.
+        eprintln!("fna: appid {} is a .NET Core game — launching via its own runtime (Wine stack)", appid);
+        let (pid, method) = launch_with_pipeline(appid, super::engine::PipelineId::M11)?;
+        let log_path = crate::platform::metalsharp_home_dir_for(&dirs::home_dir().unwrap_or_default())
+            .join("bottles")
+            .join(format!("steam_{}", appid))
+            .join("logs")
+            .join("fna-netcore-fallback.log");
+        return Ok((pid, method, log_path));
     }
 
     // The bundled mono's libraries carry build-machine absolute dependencies
