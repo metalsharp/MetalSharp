@@ -131,6 +131,46 @@ fn main() {
             Err(_) => break,
         };
 
+        // Local-API origin guard (H9): the Electron renderer talks to this
+        // backend through the preload bridge, which sends no Origin header
+        // (Node http.request). Any request carrying a browser Origin must be
+        // from a trusted local origin (dev server / file://). Everything else
+        // is a cross-origin webpage trying to reach the local API (DNS
+        // rebinding / CSRF) and gets 403 before any route logic runs.
+        let origin = request
+            .headers()
+            .iter()
+            .find(|h| h.field.equiv("Origin"))
+            .map(|h| h.value.as_str().trim())
+            .filter(|o| !o.is_empty());
+        if let Some(origin) = origin {
+            if !is_trusted_local_origin(origin) {
+                eprintln!("rejected cross-origin request from {origin}");
+                let resp = Response::from_data(br#"{"ok":false,"error":"cross-origin request rejected"}"#.to_vec())
+                    .with_header(json_header.clone())
+                    .with_status_code(403);
+                let _ = request.respond(resp);
+                continue;
+            }
+            // Trusted browser origin: echo it back (never the wildcard), so
+            // responses are readable only by the page that owns that origin.
+            if let Ok(echo) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], origin.as_bytes()) {
+                let resp = match route(&mut request) {
+                    RouteResponse::Json(code, body) => Response::from_data(body)
+                        .with_header(echo)
+                        .with_header(json_header.clone())
+                        .with_status_code(code),
+                    RouteResponse::Raw(code, data, mime) => {
+                        let content_header = Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
+                            .unwrap_or_else(|_| json_header.clone());
+                        Response::from_data(data).with_header(echo).with_header(content_header).with_status_code(code)
+                    },
+                };
+                let _ = request.respond(resp);
+                continue;
+            }
+        }
+
         let route_resp = route(&mut request);
         match route_resp {
             RouteResponse::Json(code, body) => {
@@ -151,6 +191,28 @@ fn main() {
             },
         }
     }
+}
+
+/// True when a browser `Origin` header is allowed to call the local API:
+/// the Electron dev server (Vite) and the packaged `file://` surface. All
+/// other origins (any https/http web page, or a `localhost.attacker.com`
+/// lookalike) are rejected.
+fn is_trusted_local_origin(origin: &str) -> bool {
+    if origin == "file://" || origin == "null" {
+        return true;
+    }
+    let lower = origin.to_ascii_lowercase();
+    for prefix in ["http://localhost:", "http://127.0.0.1:"] {
+        if let Some(port) = lower.strip_prefix(prefix) {
+            // Port must be 1-5 ASCII digits and a valid TCP port (<= 65535):
+            // no path, no host trick, no overflow.
+            if port.is_empty() || port.len() > 5 || !port.bytes().all(|b| b.is_ascii_digit()) {
+                return false;
+            }
+            return port.parse::<u32>().map(|p| p <= 65535).unwrap_or(false);
+        }
+    }
+    false
 }
 
 fn route(req: &mut tiny_http::Request) -> RouteResponse {
@@ -2944,6 +3006,28 @@ fn persist_crash_log(source: &str, path: &std::path::Path, timestamp: &str, size
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_origin_guard_accepts_only_trusted_local_origins() {
+        // Trusted: dev server, packaged surface, and no-origin (Electron
+        // bridge sends none; CLI/curl send none).
+        assert!(is_trusted_local_origin("http://localhost:5173"));
+        assert!(is_trusted_local_origin("http://localhost:9274"));
+        assert!(is_trusted_local_origin("http://127.0.0.1:5173"));
+        assert!(is_trusted_local_origin("file://"));
+        assert!(is_trusted_local_origin("null"));
+
+        // Rejected: any real web page, and host/port tricks.
+        assert!(!is_trusted_local_origin("https://evil.example"));
+        assert!(!is_trusted_local_origin("http://evil.example"));
+        assert!(!is_trusted_local_origin("http://localhost.evil.example"));
+        assert!(!is_trusted_local_origin("http://localhost:5173.evil.example"));
+        assert!(!is_trusted_local_origin("http://localhost:5173/path"));
+        assert!(!is_trusted_local_origin("http://localhost:"));
+        assert!(!is_trusted_local_origin("http://localhost:99999"));
+        assert!(!is_trusted_local_origin("http://localhost:5173a"));
+        assert!(!is_trusted_local_origin("https://localhost:5173"));
+    }
 
     #[test]
     fn force_kill_targets_metalsharp_wine_helpers_but_not_app_processes() {

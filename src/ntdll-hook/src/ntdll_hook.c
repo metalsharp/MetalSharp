@@ -1,4 +1,5 @@
 #include "ntdll_hook.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -211,6 +212,14 @@ static NTSTATUS ipc_call(UINT16 op, const void* req, UINT32 req_size, void* out_
             copy_len = out_data_cap;
         if (copy_len > sizeof(resp_buf) - 8)
             copy_len = (UINT32)sizeof(resp_buf) - 8;
+        if (copy_len < ipc_return_len) {
+            /* Truncated: report the required length and fail the call like
+             * the real Nt* API would, so the caller can retry with a larger
+             * buffer instead of misparsing a partial response. */
+            if (out_return_length)
+                *out_return_length = ipc_return_len;
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
         memcpy(out_data, resp_buf + 8, copy_len);
     }
 
@@ -661,7 +670,16 @@ NTSTATUS ms_hook_nt_device_io_control_file(HANDLE FileHandle, HANDLE Event, PVOI
             .output_buffer_length = OutputBufferLength,
         };
 
-        UINT32 total_req = sizeof(req) + InputBufferLength;
+        /* Reject sizes that would overflow the u32 arithmetic or exceed a
+         * sane cap: a hostile/huge length must not wrap total_req/total_resp
+         * into an undersized HeapAlloc followed by an oversized memcpy. */
+        if (InputBufferLength > (UINT32_MAX - sizeof(MS_IPC_NT_DEVICE_IO_CONTROL_REQ)) ||
+            OutputBufferLength > (UINT32_MAX - sizeof(MS_IPC_NT_DEVICE_IO_CONTROL_RESP)) ||
+            InputBufferLength > 16 * 1024 * 1024 || OutputBufferLength > 16 * 1024 * 1024)
+            return real_NtDeviceIoControlFile(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, IoControlCode,
+                                              InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
+
+        UINT32 total_req = sizeof(MS_IPC_NT_DEVICE_IO_CONTROL_REQ) + InputBufferLength;
         UINT8* req_buf = (UINT8*)HeapAlloc(GetProcessHeap(), 0, total_req);
         if (req_buf) {
             memcpy(req_buf, &req, sizeof(req));
@@ -681,8 +699,12 @@ NTSTATUS ms_hook_nt_device_io_control_file(HANDLE FileHandle, HANDLE Event, PVOI
                             IoStatusBlock->Information = (ULONG_PTR)dev_resp->bytes_returned;
                         }
                         if (OutputBuffer && dev_resp->output_buffer_length > 0) {
-                            memcpy(OutputBuffer, resp_buf + sizeof(MS_IPC_NT_DEVICE_IO_CONTROL_RESP),
-                                   dev_resp->output_buffer_length);
+                            /* The response length is not trusted: never copy
+                             * more than the caller's buffer can hold. */
+                            UINT32 out_len = dev_resp->output_buffer_length;
+                            if (out_len > OutputBufferLength)
+                                out_len = OutputBufferLength;
+                            memcpy(OutputBuffer, resp_buf + sizeof(MS_IPC_NT_DEVICE_IO_CONTROL_RESP), out_len);
                         }
                         HeapFree(GetProcessHeap(), 0, resp_buf);
                         HeapFree(GetProcessHeap(), 0, req_buf);
@@ -820,6 +842,11 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
         }
         break;
     case DLL_PROCESS_DETACH:
+        /* Stop the MetalFX poller before tearing down IPC: it may be inside
+         * CreateFileW/GetEnvironmentVariableW while ntdll unloads. Signal the
+         * flag and let it observe it on its next iteration (500ms); we cannot
+         * WaitForSingleObject from DllMain (loader lock deadlock risk). */
+        g_metalfx_stop = 1;
         ms_ipc_disconnect();
         DeleteCriticalSection(&g_ctx.lock);
         break;
