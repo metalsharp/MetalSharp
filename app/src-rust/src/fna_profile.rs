@@ -324,6 +324,9 @@ pub struct ProfileExplanation {
     pub mono_config: String,
     pub signals: FnaFlavorSignals,
     pub rationale: Vec<String>,
+    /// Mono runtime tier the game needs (baseline vs modern/11.2.0 upgrade).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mono_requirement: Option<String>,
 }
 
 /// Explain the FNA/XNA profile selection for an appid + game dir. For pinned
@@ -339,6 +342,17 @@ pub fn explain_profile(appid: u32, game_dir: &Path) -> ProfileExplanation {
         crate::mtsp::launcher::MonoArch::Native => "native".to_string(),
         crate::mtsp::launcher::MonoArch::X86 => "x86".to_string(),
     };
+
+    // Mono runtime tier from discovery (baseline vs modern/11.2.0 upgrade).
+    let discovered = crate::mono_profile::discover_mono_profile(game_dir);
+    let mono_requirement = if discovered.kind != crate::mono_profile::MonoProfileKind::None {
+        Some(crate::mono_profile::mono_requirement_label(discovered.mono_requirement).to_string())
+    } else {
+        None
+    };
+    if mono_requirement.as_deref() == Some("modern") {
+        rationale.push("needs the modern Mono runtime (11.2.0 upgrade via the Mono button)".into());
+    }
 
     if pinned {
         rationale.push(format!(
@@ -362,6 +376,7 @@ pub fn explain_profile(appid: u32, game_dir: &Path) -> ProfileExplanation {
         mono_config: profile.mono_config.to_string(),
         signals,
         rationale,
+        mono_requirement,
     }
 }
 
