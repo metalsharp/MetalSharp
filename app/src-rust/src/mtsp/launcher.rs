@@ -1044,7 +1044,7 @@ fn wine_debug_value() -> String {
     std::env::var("METALSHARP_WINEDEBUG").unwrap_or_else(|_| "-all".to_string())
 }
 
-fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
     let wrapper = crate::platform::metalsharp_home_dir_for(&home)
         .join("runtime")
@@ -1056,7 +1056,18 @@ fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Erro
     }
 
     let script = std::fs::read_to_string(&wrapper)?;
-    let mut repaired = repair_metalsharp_wine_wrapper(&script);
+    let repaired = sanitize_metalsharp_wine_wrapper_script(&script);
+
+    if repaired != script {
+        std::fs::write(&wrapper, repaired)?;
+    }
+    Ok(())
+}
+
+/// Pure string surgery for the `metalsharp-wine` wrapper. Idempotent; the
+/// deployed wrapper must ALWAYS be a valid bash script after this runs.
+fn sanitize_metalsharp_wine_wrapper_script(script: &str) -> String {
+    let mut repaired = repair_metalsharp_wine_wrapper(script);
 
     // Isolation contract: MetalSharp's own DLL/dylib directories MUST be
     // searched before anything the parent environment inherited. Third-party
@@ -1073,31 +1084,91 @@ fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Erro
         repaired.replace_range(replace_start..end, winedll_block);
     }
 
-    let dyld_block = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
-"#;
-    if let (Some(start), Some(end)) =
-        (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export VK_ICD_FILENAMES="))
-    {
-        let replace_start = start + "export WINEDATADIR=\"$MS_ROOT/share\"\n".len();
-        repaired.replace_range(replace_start..end, dyld_block);
-    }
+    // DYLD_FALLBACK_LIBRARY_PATH must lead with MetalSharp's unix lib dirs.
+    // Line-based surgery: replace the existing export line when present, or
+    // insert it right after WINEDATADIR. NEVER a range replace — the old
+    // range logic anchored on the next `export VK_ICD_FILENAMES=` line and
+    // swallowed the `if` line of the ICD guard, leaving an orphaned
+    // `else`/`fi` that made every wine spawn die with a bash syntax error.
+    let dyld_line = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}""#;
+    repaired = replace_or_insert_export_line(
+        &repaired,
+        "export DYLD_FALLBACK_LIBRARY_PATH=",
+        dyld_line,
+        "export WINEDATADIR=",
+    );
+
+    // VK_ICD_FILENAMES must resolve inside the runtime (never a hardcoded
+    // Homebrew path) and the if/else guard must stay intact and syntactically
+    // valid. Idempotent: a correct guard is left untouched; a bare export or
+    // the previously-mangled orphaned-else/fi state is normalized into it.
+    repaired = normalize_vk_icd_block(&repaired);
 
     // Drop CrossOver's CX_ROOT emulation: a real CrossOver reading CX_ROOT
     // could mistake a MetalSharp process for one of its own bottles.
-    repaired = repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "");
+    repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "")
+}
 
-    // VK_ICD_FILENAMES must never hardcode a Homebrew path (CrossOver users
-    // often have no Homebrew). Prefer the runtime-bundled MoltenVK ICD;
-    // otherwise unset and let the loader search standard locations.
-    repaired = repaired.replace(
-        "export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"",
-        "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi",
-    );
-
-    if repaired != script {
-        std::fs::write(&wrapper, repaired)?;
+/// Replace the line starting with `prefix` with `replacement`. When no such
+/// line exists, insert `replacement` directly after the line starting with
+/// `anchor` (or append at the end when the anchor is missing too).
+fn replace_or_insert_export_line(script: &str, prefix: &str, replacement: &str, anchor: &str) -> String {
+    let lines: Vec<&str> = script.lines().collect();
+    if let Some(idx) = lines.iter().position(|line| line.starts_with(prefix)) {
+        let mut out = lines.clone();
+        out[idx] = replacement;
+        return out.join("\n");
     }
-    Ok(())
+    let mut result = String::new();
+    let mut inserted = false;
+    for line in &lines {
+        result.push_str(line);
+        result.push('\n');
+        if line.starts_with(anchor) && !inserted {
+            result.push_str(replacement);
+            result.push('\n');
+            inserted = true;
+        }
+    }
+    if !inserted {
+        result.push_str(replacement);
+        result.push('\n');
+    }
+    result
+}
+
+const VK_ICD_IF_LINE: &str = "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then";
+const VK_ICD_BLOCK: &str = "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi";
+
+/// Normalize the VK_ICD_FILENAMES handling in the wine wrapper:
+/// - a correct if/else guard is left untouched (idempotent);
+/// - a bare `export VK_ICD_FILENAMES="<anything>"` (Homebrew or MS root) is
+///   replaced with the guard;
+/// - the previously-mangled state (`export` immediately followed by an
+///   orphaned `else`/`unset`/`fi`) is rewritten into the guard.
+fn normalize_vk_icd_block(script: &str) -> String {
+    if script.contains(VK_ICD_IF_LINE) {
+        return script.to_string();
+    }
+    let lines: Vec<&str> = script.lines().collect();
+    let Some(idx) = lines.iter().position(|line| line.trim_start().starts_with("export VK_ICD_FILENAMES=")) else {
+        return script.to_string();
+    };
+    // Drop the export line plus any orphaned else/unset/fi lines that follow
+    // it (the mangled state leaves `else`/`fi` with no matching `if`).
+    let mut end = idx + 1;
+    while end < lines.len() {
+        let trimmed = lines[end].trim();
+        if trimmed == "else" || trimmed.starts_with("unset VK_ICD_FILENAMES") || trimmed == "fi" {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    let mut out: Vec<&str> = lines[..idx].to_vec();
+    out.push(VK_ICD_BLOCK);
+    out.extend_from_slice(&lines[end..]);
+    out.join("\n")
 }
 
 fn repair_metalsharp_wine_wrapper(script: &str) -> String {
@@ -1816,6 +1887,15 @@ pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, Strin
     let profile = crate::mono_profile::discover_mono_profile(game_dir);
     let fna_profile = find_fna_profile(appid);
 
+    // .NET Core / .NET 5+ games cannot run on the bundled Mono runtime.
+    if profile.dotnet_core {
+        problems.push(
+            "game is a .NET Core / .NET 5+ app (runtimeconfig.json) — the bundled Mono runtime \
+             cannot run it; use a Wine pipeline (M11/M12)"
+                .into(),
+        );
+    }
+
     // Mono binary + arch.
     let mono_bin = match find_mono_binary_for_app(appid) {
         Ok(b) => b,
@@ -1849,6 +1929,20 @@ pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, Strin
     for shim in ["libkernel32.dylib", "libuser32.dylib", FNA_CARBON_SHIM, FNA_CARBON_INTERPOSE_SHIM] {
         if !shims_dir.join(shim).is_file() {
             problems.push(format!("missing shared shim {shim} (run repair or reinstall runtime)"));
+        }
+    }
+
+    // A staged arm64-only gdiplus stub must never shadow the real x86_64
+    // libgdiplus on the mono-x86 dyld path for Rosetta (x86) launches
+    // (Terraria: DllNotFoundException libgdiplus.dylib).
+    if fna_profile.mono_arch == MonoArch::X86 {
+        let staged = game_dir.join("libgdiplus.dylib");
+        if staged.is_file() && !dylib_has_x86_64(&staged) {
+            problems.push(
+                "staged libgdiplus.dylib in the game dir is arm64-only and shadows the x86_64 \
+                 libgdiplus on the mono-x86 library path — re-save the bottle to re-stage it"
+                    .into(),
+            );
         }
     }
 
@@ -1891,6 +1985,12 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
 
     // Profile-aware deploy (idempotent; also run by bottle save).
     let discovered = crate::mono_profile::discover_mono_profile(dir);
+    if discovered.dotnet_core {
+        return Err("FNA/Mono/XNA route unavailable: this game is a .NET Core / .NET 5+ app \
+             (runtimeconfig.json) and cannot run on the bundled Mono runtime. \
+             Use a Wine pipeline (M11/M12) instead."
+            .into());
+    }
     if discovered.kind != crate::mono_profile::MonoProfileKind::None {
         let mut report = crate::fna_profile::AssetStagingReport::new(appid);
         let _ = deploy_unity_runtime(dir, &discovered, &ms_home, Some(&mut report));
@@ -1924,6 +2024,25 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     } else {
         resolve_game_exe(dir).into()
     };
+
+    // The mono runtime can only execute managed (CIL) assemblies. Native
+    // executables — notably the Unity player exe of Unity-Mono games
+    // (DREDGE) — have no managed entry point and fail with "File does not
+    // contain a valid CIL image". Refuse up front with an actionable message
+    // instead of spawning mono against a native binary.
+    if !exe_is_cil_assembly(&exe) {
+        let hint = match discovered.kind {
+            crate::mono_profile::MonoProfileKind::UnityMono => {
+                "Unity engine games cannot run under the bundled Mono runtime: the Windows build's \
+                 executable is the native Unity player (no managed entry point). Use a Wine pipeline \
+                 (M11/M12) or the native macOS Steam build."
+            },
+            _ => "the resolved executable is not a .NET assembly; use a Wine pipeline (M11/M12)",
+        };
+        return Err(
+            format!("FNA/Mono/XNA route unavailable for appid {}: {}. Target: {}", appid, hint, exe.display()).into()
+        );
+    }
 
     let mono_bin = find_mono_binary_for_app(appid)?;
     let mono_config = rewrite_config_with_absolute_paths(profile.mono_config, dir)?;
@@ -3099,10 +3218,22 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
     }
 
     let cached = shims_dir.join("libgdiplus.dylib");
-    if !game_dir.join("libgdiplus.dylib").exists() && cached.exists() {
+    let wants_x86 = find_fna_profile(appid).mono_arch == MonoArch::X86;
+    let gdiplus_dst = game_dir.join("libgdiplus.dylib");
+    if wants_x86 {
+        // Rosetta (x86) launches resolve libgdiplus through the dyld path,
+        // where mono-x86/lib ships the real i386+x86_64 libgdiplus. An
+        // arm64-only staged stub in the game dir would shadow it and make
+        // GDI+ fail to load (Terraria: DllNotFoundException libgdiplus.dylib).
+        // Drop a wrong-arch stub so the correct library is found.
+        if gdiplus_dst.exists() && !dylib_has_x86_64(&gdiplus_dst) {
+            eprintln!("fna: removing arm64-only staged libgdiplus stub for x86 game (appid {})", appid);
+            let _ = std::fs::remove_file(&gdiplus_dst);
+        }
+    } else if !gdiplus_dst.exists() && cached.exists() {
         // H3: gdiplus stub ships prebuilt in the bundle shims — never compile
         // from the dev-machine repo path at launch.
-        let _ = std::fs::copy(&cached, game_dir.join("libgdiplus.dylib"));
+        let _ = std::fs::copy(&cached, &gdiplus_dst);
     }
 
     if profile.deploy_terraria_post {
@@ -3135,6 +3266,26 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
     if let Err(err) = deploy_offline_steamworks_net(game_dir, &metalsharp_home) {
         eprintln!("fna: offline Steamworks deploy failed: {}", err);
     }
+}
+
+/// True when the dylib at `path` contains an x86_64 slice. Universal binaries
+/// report both architectures; the prebuilt shims stub is arm64-only. Unknown
+/// files default to compatible so a game's own library is never touched.
+fn dylib_has_x86_64(path: &Path) -> bool {
+    let Ok(output) = std::process::Command::new("file").arg("-b").arg(path).output() else {
+        return true;
+    };
+    let desc = String::from_utf8_lossy(&output.stdout);
+    desc.contains("x86_64")
+}
+
+/// True when `path` is a managed (.NET / CIL) assembly that the Mono runtime
+/// can execute. Native PEs (Unity player exes etc.) return false.
+fn exe_is_cil_assembly(path: &Path) -> bool {
+    let Ok(data) = std::fs::read(path) else {
+        return false;
+    };
+    crate::mtsp::pe::is_dotnet_assembly(&data)
 }
 
 /// Map a discovered Unity version (e.g. "2021.3.5f1") to a bundled runtime
@@ -5505,30 +5656,7 @@ export MS_FWD_COMPAT_GL_CTX=1
 export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 "#;
 
-        // Replicate the full sanitize flow on the script string.
-        let mut repaired = repair_metalsharp_wine_wrapper(wrapper);
-        let winedll_block = r#"export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows${WINEDLLPATH:+:$WINEDLLPATH}"
-"#;
-        if let (Some(start), Some(end)) = (
-            repaired.find("export WINELOADER=\"$MS_WINE\"\n"),
-            repaired.find("export WINEDEBUG=\"${WINEDEBUG:--all}\""),
-        ) {
-            let replace_start = start + "export WINELOADER=\"$MS_WINE\"\n".len();
-            repaired.replace_range(replace_start..end, winedll_block);
-        }
-        let dyld_block = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
-"#;
-        if let (Some(start), Some(end)) =
-            (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export VK_ICD_FILENAMES="))
-        {
-            let replace_start = start + "export WINEDATADIR=\"$MS_ROOT/share\"\n".len();
-            repaired.replace_range(replace_start..end, dyld_block);
-        }
-        repaired = repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "");
-        repaired = repaired.replace(
-            "export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"",
-            "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi",
-        );
+        let repaired = sanitize_metalsharp_wine_wrapper_script(wrapper);
 
         // MS paths must come first; ambient values may only be appended after.
         let winedll_line =
@@ -5556,6 +5684,55 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert!(!repaired.contains("CX_ROOT"), "CX_ROOT emulation must be dropped");
         assert!(!repaired.contains("/opt/homebrew/etc/vulkan"), "Homebrew ICD path must not remain");
         assert!(repaired.contains("$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json"));
+        assert!(repaired.contains("if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then"));
+    }
+
+    #[test]
+    fn sanitize_repairs_mangled_vk_icd_guard_and_is_idempotent() {
+        // The pre-fix sanitize range-replace deleted the `if` line of the
+        // ICD guard, leaving an orphaned else/fi. The sanitizer must restore
+        // a valid guard from that exact mangled state.
+        let mangled = r#"export WINEDATADIR="$MS_ROOT/share"
+export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+export VK_ICD_FILENAMES="$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json"
+else
+  unset VK_ICD_FILENAMES
+fi
+export MVK_PRESENT_MODE="1"
+"#;
+
+        let repaired = sanitize_metalsharp_wine_wrapper_script(mangled);
+        let repaired_again = sanitize_metalsharp_wine_wrapper_script(&repaired);
+
+        assert_eq!(repaired, repaired_again, "sanitize must be idempotent");
+        assert!(repaired.contains("if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then"));
+        assert!(repaired.contains("else\n  unset VK_ICD_FILENAMES\nfi"));
+        assert!(repaired.contains("export MVK_PRESENT_MODE=\"1\""), "unrelated lines must survive");
+        // Balanced if/fi: the guard must be syntactically complete.
+        let if_count = repaired.lines().filter(|l| l.trim_start().starts_with("if ")).count();
+        let fi_count = repaired.lines().filter(|l| l.trim() == "fi").count();
+        assert_eq!(if_count, fi_count, "if/fi must balance:\n{}", repaired);
+        // And the whole script must be valid bash.
+        let mut status =
+            std::process::Command::new("bash").arg("-n").stdin(std::process::Stdio::piped()).spawn().unwrap();
+        {
+            use std::io::Write;
+            let mut stdin = status.stdin.take().expect("bash stdin");
+            stdin.write_all(repaired.as_bytes()).unwrap();
+        }
+        assert!(status.wait().unwrap().success(), "sanitized wrapper must pass bash -n");
+    }
+
+    #[test]
+    fn sanitize_converts_bare_vk_icd_export_to_guard() {
+        let bare = r#"export WINEDATADIR="$MS_ROOT/share"
+export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+"#;
+        let repaired = sanitize_metalsharp_wine_wrapper_script(bare);
+        assert!(repaired.contains("if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then"));
+        assert!(!repaired.contains("/opt/homebrew/etc/vulkan"));
+        // Idempotent on the second pass.
+        assert_eq!(repaired, sanitize_metalsharp_wine_wrapper_script(&repaired));
     }
 
     #[test]
@@ -6056,8 +6233,15 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert!(winedllpath.contains("vkd3d-proton/x86_64-windows"));
         assert!(!winedllpath.contains("lib/metalsharp"));
         assert!(!winedllpath.contains("dxmt_m12"));
-        assert!(env_value(&env, "DYLD_LIBRARY_PATH").unwrap_or_default().contains("vkd3d-proton/x86_64-unix"));
-        assert!(env_value(&env, "DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default().contains("vkd3d-proton/x86_64-unix"));
+        // vkd3d-proton has NO unix sidecar: the dyld lanes are wine's unix
+        // lane + the VKMT MoltenVK directory, never a vkd3d-proton unix path.
+        let dyld = env_value(&env, "DYLD_LIBRARY_PATH").unwrap_or_default();
+        assert!(dyld.contains("wine/x86_64-unix"));
+        assert!(dyld.contains("moltenvk-vkmt"));
+        assert!(!dyld.contains("vkd3d-proton/x86_64-unix"));
+        let dyld_fallback = env_value(&env, "DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default();
+        assert!(dyld_fallback.contains("moltenvk-vkmt"));
+        assert!(!dyld_fallback.contains("vkd3d-proton/x86_64-unix"));
         let _ = std::fs::remove_dir_all(home);
     }
 

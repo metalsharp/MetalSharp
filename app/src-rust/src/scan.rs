@@ -268,22 +268,41 @@ fn parse_vdf_path(line: &str, key: &str) -> Option<String> {
 
 pub fn resolve_wine_path(path: &str) -> String {
     let p = path.replace('\\', "/");
-    if let Some(rest) = p.strip_prefix("Z:/").or_else(|| p.strip_prefix("z:/")) {
-        return rest.to_string();
+    let resolved = if let Some(rest) = p.strip_prefix("Z:/").or_else(|| p.strip_prefix("z:/")) {
+        rest.to_string()
+    } else if let Some(rest) = p.strip_prefix("Z:").or_else(|| p.strip_prefix("z:")) {
+        rest.to_string()
+    } else if let Some(resolved) = resolve_wine_drive_letter(&p) {
+        resolved
+    } else if let Some(rest) = p.strip_prefix("C:/").or_else(|| p.strip_prefix("c:/")) {
+        format!("/{}", rest)
+    } else if p.eq_ignore_ascii_case("C:") || p.eq_ignore_ascii_case("C:/") {
+        "/".to_string()
+    } else {
+        p
+    };
+    // Normalize doubled separators: a libraryfolders.vdf written with
+    // over-escaped backslashes (Z:\\Volumes\\AverySSD\\SteamLibrary) resolves
+    // to "/Volumes//AverySSD//SteamLibrary". Collapse repeated slashes so
+    // bottle manifests carry canonical paths.
+    collapse_duplicate_slashes(&resolved)
+}
+
+fn collapse_duplicate_slashes(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut prev_slash = false;
+    for ch in path.chars() {
+        if ch == '/' {
+            if prev_slash {
+                continue;
+            }
+            prev_slash = true;
+        } else {
+            prev_slash = false;
+        }
+        out.push(ch);
     }
-    if let Some(rest) = p.strip_prefix("Z:").or_else(|| p.strip_prefix("z:")) {
-        return rest.to_string();
-    }
-    if let Some(resolved) = resolve_wine_drive_letter(&p) {
-        return resolved;
-    }
-    if let Some(rest) = p.strip_prefix("C:/").or_else(|| p.strip_prefix("c:/")) {
-        return format!("/{}", rest);
-    }
-    if p.eq_ignore_ascii_case("C:") || p.eq_ignore_ascii_case("C:/") {
-        return "/".to_string();
-    }
-    p
+    out
 }
 
 fn resolve_wine_drive_letter(path: &str) -> Option<String> {

@@ -455,6 +455,11 @@ pub fn launch_wine_steam_with_env(extra_env: &[(String, String)]) -> Result<Valu
         return Err("MetalSharp Wine not found".into());
     }
 
+    // The bundled wrapper can be left in a syntactically broken state by
+    // older sanitize passes (orphaned else/fi around VK_ICD_FILENAMES).
+    // Repair it before every spawn so a Steam launch can never fail on it.
+    crate::mtsp::launcher::sanitize_metalsharp_wine_wrapper_env()?;
+
     let steam_dir = resolve_steam_dir();
     let exe = steam_dir.join("Steam.exe");
 

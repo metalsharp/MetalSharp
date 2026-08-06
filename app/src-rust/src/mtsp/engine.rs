@@ -84,7 +84,11 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
         experimental: false,
         requires_wine: true,
         wine_overrides: Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
-        dyld_paths: vec!["lib/vkd3d-proton/x86_64-unix", "lib/wine/x86_64-unix", "lib/moltenvk-vkmt"],
+        // vkd3d-proton ships Windows DLLs only (lib/vkd3d-proton/x86_64-windows
+        // in WINEDLLPATH below); there is no vkd3d-proton unix sidecar. The
+        // unix library path for the Vulkan hop is wine's own x86_64-unix lane
+        // plus the VKMT MoltenVK dylib directory.
+        dyld_paths: vec!["lib/wine/x86_64-unix", "lib/moltenvk-vkmt"],
         winedllpath_dirs: vec!["lib/vkd3d-proton/x86_64-windows", "lib/dxvk/x86_64-windows"],
         deploy_dlls: vec![
             DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "d3d12.dll", dest_filename: None },
@@ -767,10 +771,14 @@ mod tests {
     fn m12_vkd3d_proton_uses_isolated_lanes() {
         let m12 = get_pipeline(PipelineId::M12);
 
-        // vkd3d-proton lane + runtime wine + VKMT MoltenVK lane.
-        for required in ["lib/wine/x86_64-unix", "lib/vkd3d-proton/x86_64-unix", "lib/moltenvk-vkmt"] {
+        // Runtime wine unix lane + VKMT MoltenVK lane. vkd3d-proton itself
+        // has NO unix sidecar — its DLLs live in the windows lane only, so a
+        // vkd3d-proton/x86_64-unix dyld path must never be required (it does
+        // not exist in the runtime and failed every M12 bottle save).
+        for required in ["lib/wine/x86_64-unix", "lib/moltenvk-vkmt"] {
             assert!(m12.dyld_paths.contains(&required));
         }
+        assert!(!m12.dyld_paths.contains(&"lib/vkd3d-proton/x86_64-unix"));
         assert!(!m12.dyld_paths.contains(&"lib/dxmt/x86_64-unix"));
         assert!(!m12.dyld_paths.contains(&"lib/dxmt_m12/x86_64-unix"));
         assert!(m12.winedllpath_dirs.contains(&"lib/vkd3d-proton/x86_64-windows"));
