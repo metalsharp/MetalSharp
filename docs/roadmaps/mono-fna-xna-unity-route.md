@@ -15,6 +15,11 @@ per-game, version-matched payloads instead of relying on a hardcoded table.
   offset 48 on DREDGE 2021.3.5f1; scanned over the first 128 bytes).
 - Arch from the game exe PE machine type; dependency signals (SDL2/3, Carbon,
   FAudio, FMOD, Steamworks.NET, Galaxy, BepInEx tolerated).
+- **Classic root-level layouts**: XNA/MonoGame/FNA assemblies and
+  Steamworks.NET/Galaxy deps are also scanned at the game ROOT (no
+  `*_Data/Managed`), covering Terraria and Stardew Valley — both verified
+  against real installs (Terraria: root `Microsoft.Xna.Framework.*.dll`;
+  Stardew Valley: root `MonoGame.Framework.dll` + net6.0 runtimeconfig).
 - Mono requirement tier per game: **Baseline** (classic XNA/FNA) vs **Modern**
   (Unity 2021+, SDL3, MonoGame) — drives the mono version story.
 
