@@ -15,7 +15,7 @@ Current split bundle roots:
 | Asset | Why it is guarded |
 |---|---|
 | `metalsharp-electron.tar.zst` | Contains `electron/`, the built Electron application payload. |
-| `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the legacy DXMT D3D9/D3D10/D3D11 surface and the isolated M12 D3D12 surface. |
+| `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the DXMT surfaces (legacy `dxmt` for M9/M10/M11 + `dxmt-m12` M12 rollback) and the vkd3d-proton M12 stack lanes (`vkd3d-proton`, `dxvk`, `moltenvk-vkmt`). |
 | `metalsharp-runtime.tar.zst` | Contains `runtime/`, the Wine runtime, host ABI, and backend executable. |
 | `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, GPTK, DXVK, Goldberg, EAC toggle, shims, and runtime support assets. |
 | `metalsharp-scripts-tools.tar.zst` | Contains `scripts/tools/`, updater scripts, configs, native tools, and CEF helpers. |
@@ -32,13 +32,17 @@ tools/bundles/verify-developer-sdk.sh app/bundles/metalsharp-d3d12-developer-sdk
 
 ## Installer Acceptance Rules
 
-The installer consumes the split runtime tarballs by root name. `metalsharp-graphics-dll.tar.zst` is the only source for the active DXMT runtime payloads used by M9-M12.
+The installer consumes the split runtime tarballs by root name. `metalsharp-graphics-dll.tar.zst` is the only source for the active graphics runtime payloads used by M9-M12.
 
-The graphics bundle has two runtime surfaces:
+The graphics bundle has five runtime surfaces:
 
 ```text
-Graphics/dll/dxmt/      -> legacy DXMT payload for M9, M10, and M11
-Graphics/dll/dxmt-m12/  -> updated D3D12/DXGI/winemetal payload for M12 only
+Graphics/dll/dxmt/           -> legacy DXMT payload for M9, M10, and M11
+Graphics/dll/dxmt-m12/       -> DXMT M12 rollback payload (also supplies the
+                               shared nvapi64/nvngx GPU vendor stubs)
+Graphics/dll/vkd3d-proton/   -> default M12 D3D12 stack (d3d12.dll + d3d12core.dll)
+Graphics/dll/dxvk/           -> shared D3D9/D3D10/D3D11/DXGI surface; dxgi.dll for M12
+Graphics/dll/moltenvk-vkmt/  -> VKMT patched MoltenVK (libMoltenVK.dylib + ICD)
 ```
 
 After install those surfaces live under:
@@ -46,6 +50,9 @@ After install those surfaces live under:
 ```text
 ~/.metalsharp/runtime/wine/lib/dxmt/
 ~/.metalsharp/runtime/wine/lib/dxmt-m12/
+~/.metalsharp/runtime/wine/lib/vkd3d-proton/
+~/.metalsharp/runtime/wine/lib/dxvk/
+~/.metalsharp/runtime/wine/lib/moltenvk-vkmt/
 ```
 
 Installed DXMT runtime state is recorded in:
@@ -54,7 +61,7 @@ Installed DXMT runtime state is recorded in:
 ~/.metalsharp/runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json
 ```
 
-Do not trust a runtime by version string alone. Check the manifest, required DLLs, the `dxmt-m12` sidecars, and source archive hash when diagnosing deployment drift.
+Do not trust a runtime by version string alone. Check the manifest, required DLLs, the vkd3d-proton/DXVK/MoltenVK lane artifacts (for the default M12 backend) or the `dxmt-m12` sidecars (for the DXMT rollback), and source archive hash when diagnosing deployment drift.
 
 ## Steam Launch Route
 

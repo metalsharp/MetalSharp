@@ -11,7 +11,7 @@ MetalSharp has two graphics translation families:
 
 | Public route | Translation |
 |---|---|
-| **M12** | D3D12 -> DXMT -> Metal |
+| **M12** | D3D12 -> vkd3d-proton -> Vulkan -> MoltenVK -> Metal (DXMT rollback via `m12Backend=dxmt`) |
 | **M11** | D3D11 -> DXMT -> Metal |
 | **M10** | D3D10 -> DXMT -> Metal |
 | **M9** | D3D9 -> MetalSharp D3D9 -> DXMT launch family -> Metal |
@@ -20,7 +20,8 @@ MetalSharp has two graphics translation families:
 
 ## DXMT
 
-The DXMT launch family is used by M12, M11, M10, and M9.
+The DXMT launch family is used by M11, M10, and M9, and by M12 only when the
+`m12Backend=dxmt` rollback is selected.
 
 M10 is the D3D10 DXMT path. It deploys Wine's public `d3d10.dll` and `d3d10_1.dll` entrypoints for imported D3D10 APIs, then routes the core handoff through DXMT's `d3d10core.dll` and the shared D3D11/DXGI/winemetal stack.
 

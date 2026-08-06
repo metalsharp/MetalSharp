@@ -27,6 +27,10 @@ It is used by the public Wine-backed routes M12, M11, M10, and M9. Internal fall
 │   ├── dxmt/
 │   │   ├── x86_64-unix/
 │   │   └── x86_64-windows/
+│   ├── dxmt-m12/                    (DXMT M12 rollback lane)
+│   ├── vkd3d-proton/                (default M12 D3D12 stack)
+│   ├── dxvk/                        (shared DXGI; dxgi.dll for M12)
+│   └── moltenvk-vkmt/               (VKMT patched MoltenVK)
 └── etc/
     ├── dxmt.conf
     └── vulkan/icd.d/MoltenVK_icd.json
@@ -128,10 +132,13 @@ run the game executable directly through the selected MTSP pipeline with this pr
 |---|---|
 | `WINEPREFIX` | Prefix location |
 | `WINEDLLPATH` | Wine PE DLL lookup |
-| `DYLD_FALLBACK_LIBRARY_PATH` | Unix library lookup for Wine and DXMT |
+| `DYLD_FALLBACK_LIBRARY_PATH` | Unix library lookup for Wine, DXMT, and MoltenVK |
 | `WINEDLLOVERRIDES` | Selects injected/native DLL behavior |
-| `DXMT_SHADER_CACHE_PATH` | DXMT shader cache |
-| `DXMT_CONFIG_FILE` | DXMT config file |
+| `WINEMSYNC` | Wine msync toggle (config-driven, default `1`) |
+| `DXMT_SHADER_CACHE_PATH` | DXMT shader cache (DXMT routes) |
+| `DXMT_CONFIG_FILE` | DXMT config file (DXMT routes) |
+| `VKD3D_SHADER_CACHE_PATH` / `DXVK_STATE_CACHE_PATH` | vkd3d-proton/DXVK caches (default M12 route) |
+| `VK_ICD_FILENAMES` | Pins the runtime-bundled VKMT `MoltenVK_icd.json` (default M12 route) |
 | `SteamAppId` / `SteamGameId` | Steam identity for direct Steam-bottle game launches |
 
 ### Isolation Contract (read before changing any launch code)

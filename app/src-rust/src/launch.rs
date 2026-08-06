@@ -207,6 +207,7 @@ pub fn get_config_for_home(home: &Path) -> Value {
         "graphics_runtime_logs": graphics_runtime_logs,
         "controllerInput": controller_input,
         "m12Backend": m12_backend_mode_for(home),
+        "msync": msync_enabled_for(home),
     })
 }
 
@@ -257,6 +258,29 @@ pub fn graphics_runtime_logs_enabled() -> bool {
         return truthy(&value);
     }
     read_config_bool("graphicsRuntimeLogs").or_else(|| read_config_bool("graphics_runtime_logs")).unwrap_or(false)
+}
+
+/// Whether Wine msync (Mach-synchronized Wine sync primitives) is enabled.
+/// Default ON (matches the historical `WINEMSYNC=1` the launcher always set).
+/// An explicit `WINEMSYNC` env var in the parent process overrides the config
+/// so devs/games can force a per-launch value.
+pub fn msync_enabled() -> bool {
+    if let Ok(value) = std::env::var("WINEMSYNC") {
+        return truthy(&value);
+    }
+    msync_enabled_for(&dirs::home_dir().unwrap_or_default())
+}
+
+/// Path-based variant (testable without touching the global METALSHARP_HOME).
+pub fn msync_enabled_for(home: &Path) -> bool {
+    read_config_bool_for_home(home, "msync").unwrap_or(true)
+}
+
+fn read_config_bool_for_home(home: &Path, key: &str) -> Option<bool> {
+    let path = config_path_for_home_unenv(home);
+    let contents = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+    value.get(key).and_then(json_bool)
 }
 
 fn read_config_bool(key: &str) -> Option<bool> {
@@ -477,6 +501,10 @@ pub fn set_config_for_home(home: &Path, body: &Map<String, Value>) -> Result<Val
         if matches!(normalized.as_str(), "vkd3d-proton" | "dxmt") {
             cfg.insert("m12Backend".into(), json!(normalized));
         }
+    }
+
+    if let Some(value) = body.get("msync").and_then(|v| v.as_bool()) {
+        cfg.insert("msync".into(), json!(value));
     }
 
     std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?;
@@ -721,6 +749,38 @@ mod tests {
         vk.insert("m12Backend".into(), json!("vkd3d-proton"));
         let result = set_config_for_home(&temp, &vk).expect("set_config");
         assert_eq!(result.get("m12Backend").and_then(|v| v.as_str()), Some("vkd3d-proton"));
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn msync_defaults_on_and_persists_off() {
+        let temp = std::env::temp_dir().join(format!("ms-msync-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        // No config -> ON (matches historical WINEMSYNC=1).
+        assert!(msync_enabled_for(&temp));
+
+        // OFF persists.
+        let mut off = serde_json::Map::new();
+        off.insert("msync".into(), json!(false));
+        let result = set_config_for_home(&temp, &off).expect("set_config");
+        assert_eq!(result.get("msync").and_then(|v| v.as_bool()), Some(false));
+        assert!(!msync_enabled_for(&temp));
+
+        // Back ON.
+        let mut on = serde_json::Map::new();
+        on.insert("msync".into(), json!(true));
+        let result = set_config_for_home(&temp, &on).expect("set_config");
+        assert_eq!(result.get("msync").and_then(|v| v.as_bool()), Some(true));
+        assert!(msync_enabled_for(&temp));
+
+        // Garbage value is rejected, keeps current.
+        let mut bad = serde_json::Map::new();
+        bad.insert("msync".into(), json!("banana"));
+        let result = set_config_for_home(&temp, &bad).expect("set_config");
+        assert_eq!(result.get("msync").and_then(|v| v.as_bool()), Some(true));
 
         let _ = std::fs::remove_dir_all(&temp);
     }

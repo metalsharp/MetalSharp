@@ -21,7 +21,7 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 ## Arm64-FEX Build For Devs Out Now
 
-[0.60.0 Dependancies Release](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.57.0 Remains The Current Working Version. 
+[0.60.0 Dependancies Release](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.58.0 Remains The Current Working Version. 
 
 ## Quick Start
 
@@ -41,7 +41,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 | Route | Engine | How To Use |
 |---|---|---|
-| **M12** | D3D12 to Metal (experimental DXMT) | In Development |  
+| **M12** | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK); DXMT rollback via the `m12Backend` setting | Save 'M12' Bottle, Hit Play |
 | **M11** | D3D11 to Metal (DXMT) | Save 'M11' Bottle, Hit Play |
 | **M11(32)** | D3D11 i386 to Metal (DXMT) - 32Bit D3D11 | Save 'M11(32)' Bottle, Hit Play |
 | **M10** | D3D10 to Metal (DXMT) | Save 'M10' Bottle, Hit Play |
@@ -59,7 +59,8 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 | **Runtime Bottles** - Select your launch method, repair missing assets, and switch between bottle runtimes | Good For Running Games |
 | **MTSP Routing** - Automatic pipeline selection based on game compatibility data and developer testing | Default Rules for Tested Games |
 | **Steam Integration** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates | |
-| **System Overlay** - Cmd + p opens an overlay where you can toggle MetalFX, Force Close Processes, and View System Load | |
+| **System Overlay** - Cmd + p opens an overlay where you can toggle MetalFX (on/off + factor), Force Close Processes, and View System Load | |
+| **Sidebar Toggles** - MetalFX (1.75 / 1.50 / OFF, default 1.50), msync (ON/OFF, default ON), and Controller input shims (Off / XInput / DInput) | Applied on next launch |
 
 ## Requirements
 
