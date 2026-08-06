@@ -791,6 +791,22 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(error) => resp(400, json!({"ok": false, "error": error})),
             }
         },
+        // Open a launch log / report in the default macOS viewer. Path must
+        // resolve under the MetalSharp home (mirrors crash_report_preview's
+        // containment check) so the local API can't be used to open arbitrary
+        // files.
+        (Method::Post, "/diagnostics/open") => {
+            let body = read_body(req);
+            let Some(path) = body.get("path").and_then(|value| value.as_str()) else {
+                return resp(400, json!({"ok": false, "error": "path required"}));
+            };
+            let home = dirs::home_dir().unwrap_or_default();
+            let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+            match open_path_under_home(&ms_home, std::path::Path::new(path)) {
+                Ok(()) => resp(200, json!({"ok": true, "path": path})),
+                Err(error) => resp(400, json!({"ok": false, "error": error})),
+            }
+        },
         (Method::Get, "/config") => resp(200, launch::get_config()),
         (Method::Post, "/config") => {
             let body = read_body(req);
@@ -2833,6 +2849,26 @@ fn scan_crash_files(
                 scan_crash_files(&path, &sub_source, pipeline, reports, depth + 1);
             }
         }
+    }
+}
+
+/// Open a path (launch log, report) in the default macOS viewer. The path
+/// must resolve under the MetalSharp home so the local API cannot open
+/// arbitrary files.
+fn open_path_under_home(ms_home: &std::path::Path, file: &std::path::Path) -> Result<(), String> {
+    let home = ms_home.canonicalize().map_err(|error| format!("MetalSharp home unavailable: {error}"))?;
+    let file = file.canonicalize().map_err(|error| format!("File unavailable: {error}"))?;
+    if !file.starts_with(&home) || !file.is_file() {
+        return Err("Path is outside the MetalSharp runtime".into());
+    }
+    let status = std::process::Command::new("open")
+        .arg(&file)
+        .status()
+        .map_err(|error| format!("Failed to launch open(1): {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("open(1) exited with {}", status.code().unwrap_or(-1)))
     }
 }
 
