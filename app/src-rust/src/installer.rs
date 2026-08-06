@@ -205,6 +205,30 @@ const ASSETS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "assets/goldberg/x86/steam_api.dll",
     "assets/mono-arm64/bin/mono-sgen",
     "assets/shims/libsteam_api.dylib",
+    // XNA 4.0 managed assembly set (improved FNA-compatible payloads).
+    "assets/xna/Microsoft.Xna.Framework.dll",
+    "assets/xna/Microsoft.Xna.Framework.Game.dll",
+    "assets/xna/Microsoft.Xna.Framework.Graphics.dll",
+    "assets/xna/Microsoft.Xna.Framework.Audio.dll",
+    "assets/xna/Microsoft.Xna.Framework.Input.dll",
+    "assets/xna/Microsoft.Xna.Framework.Media.dll",
+    "assets/xna/Microsoft.Xna.Framework.Storage.dll",
+    // Version-matched Unity Mono runtimes (arm64, per Unity LTS line).
+    "assets/unity-mono/manifest.json",
+    "assets/unity-mono/2020.3/libmonosgen-2.0.1.dylib",
+    "assets/unity-mono/2020.3/mono-sgen",
+    "assets/unity-mono/2020.3/MonoBleedingEdge.version",
+    "assets/unity-mono/2021.3/libmonosgen-2.0.1.dylib",
+    "assets/unity-mono/2021.3/mono-sgen",
+    "assets/unity-mono/2021.3/MonoBleedingEdge.version",
+    "assets/unity-mono/2022.3/libmonosgen-2.0.1.dylib",
+    "assets/unity-mono/2022.3/mono-sgen",
+    "assets/unity-mono/2022.3/MonoBleedingEdge.version",
+    "assets/unity-mono/6000.0/libmonosgen-2.0.1.dylib",
+    "assets/unity-mono/6000.0/mono-sgen",
+    "assets/unity-mono/6000.0/MonoBleedingEdge.version",
+    // SDL3 (modern FNA/MonoGame/Unity native dependency).
+    "assets/sdl3/libSDL3.dylib",
 ];
 const FNALIBS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "fnalibs/libFNA3D.0.dylib",
@@ -2653,6 +2677,30 @@ fn extract_zst(archive: &PathBuf, dest: &PathBuf, name: &str) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assets_required_files_cover_fna_unity_payloads() {
+        // Phase: the mono route's version-matched payloads must be required by
+        // the installer so a bundle without them is rejected before a game
+        // tries to deploy a missing runtime.
+        for rel in [
+            "assets/xna/Microsoft.Xna.Framework.dll",
+            "assets/xna/Microsoft.Xna.Framework.Game.dll",
+            "assets/xna/Microsoft.Xna.Framework.Graphics.dll",
+            "assets/xna/Microsoft.Xna.Framework.Audio.dll",
+            "assets/xna/Microsoft.Xna.Framework.Input.dll",
+            "assets/xna/Microsoft.Xna.Framework.Media.dll",
+            "assets/xna/Microsoft.Xna.Framework.Storage.dll",
+            "assets/unity-mono/manifest.json",
+            "assets/unity-mono/2020.3/libmonosgen-2.0.1.dylib",
+            "assets/unity-mono/2021.3/libmonosgen-2.0.1.dylib",
+            "assets/unity-mono/2022.3/libmonosgen-2.0.1.dylib",
+            "assets/unity-mono/6000.0/libmonosgen-2.0.1.dylib",
+            "assets/sdl3/libSDL3.dylib",
+        ] {
+            assert!(ASSETS_REQUIRED_ARCHIVE_FILES.contains(&rel), "ASSETS_REQUIRED_ARCHIVE_FILES must require {rel}");
+        }
+    }
 
     #[test]
     fn missing_m12_sidecars_lists_each_absent_file_by_name() {
