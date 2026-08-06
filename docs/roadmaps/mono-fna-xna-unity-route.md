@@ -1,7 +1,7 @@
 # Mono / FNA / XNA / Unity-Mono Route — Status & Roadmap
 Updated: 2026-08-06
 
-**Status: strengthened (v0.58.x).** The mono route now discovers and deploys
+**Status: strengthened (v0.59.x).** The mono route now discovers and deploys
 per-game, version-matched payloads instead of relying on a hardcoded table.
 
 ## What landed

@@ -1,10 +1,15 @@
 # Changelog
 
-## v0.58.0 — 2026-08-04
+## v0.59.0 — 2026-08-06
 
 ### Added
 
 - **Mono/FNA/XNA route strengthening** — profile discovery (`mono_profile.rs`) classifies Unity-Mono (Unity version from `globalgamemanagers`), IL2CPP, FNA, MonoGame, XNA, MonoKickstart, and bare .NET games — including classic **root-level layouts** (Terraria, Stardew Valley: no `*_Data/Managed`, assemblies next to the exe) and root-scanned Steamworks.NET/Galaxy dependency signals; version-matched Unity Mono runtime lanes + XNA 4.0 assembly set + SDL3 ship in the assets bundle and deploy on bottle save (with receipts); launch runs a pre-flight readiness check (incl. explicit Rosetta for x86) and dispatches MonoKickstart games; mono orphan sweep is prefix-scoped, corrupt MSI caches re-download, install state is per-prefix, `steam_appid.txt` writes are reversible, and Terraria/gdiplus/faudio/Xact artifacts ship prebuilt (no launch-time compiles).
+
+## v0.58.0 — 2026-08-04
+
+### Added
+
 - **M12 moves to vkd3d-proton by default** — the D3D12 route now runs on the VKMT stack: `d3d12.dll` forwarder + `d3d12core.dll` (VKMT win64-filtered build), DXVK's `dxgi.dll`, and VKMT's patched MoltenVK (`lib/moltenvk-vkmt` lane, `VK_ICD_FILENAMES` pinned to the runtime ICD). The legacy DXMT M12 stack remains as an instant rollback via the `m12Backend` setting (`vkd3d-proton` default / `dxmt`). Bundle lanes added: `vkd3d-proton`, `dxvk`, `moltenvk-vkmt`; M12 bottle saves, repair, and diagnostics are backend-aware; 22 shipped M12 game rules re-pointed to the vkd3d-deployed DLL set.
 - **Sidebar MetalFX toggle** — 1.75 | 1.50 | OFF (default **1.50**, enabled). DXMT MetalFX Spatial upscaling for the DXMT routes (M10, M10(32), M11, M11(32)); drives the existing `/metalfx/toggle` overlay (state file + dxmt.conf + in-game live swapchain toggle), and the launcher now reconciles the DXMT env from that state at launch — fixing the node's hardcoded 1.43 factor shadowing the overlay choice.
 - **Sidebar msync toggle** — ON/OFF (default ON). `WINEMSYNC` is now config-driven across all launch paths (was hardcoded to `1`), including GOG prefix init.
