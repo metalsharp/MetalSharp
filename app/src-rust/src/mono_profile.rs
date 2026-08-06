@@ -286,8 +286,8 @@ fn detect_deps(game_dir: &Path, managed: &[String]) -> MonoDeps {
         carbon: has_file_containing(game_dir, "libcarbon") || contains("carbon"),
         faudio: has_file_containing(game_dir, "libfaudio") || contains("faudio"),
         fmod: has_file_containing(game_dir, "libfmod") || contains("fmod"),
-        steamworks_net: contains("steamworks.net"),
-        galaxy: contains("galaxy"),
+        steamworks_net: contains("steamworks.net") || has_root_assembly_containing(game_dir, "steamworks.net"),
+        galaxy: contains("galaxy") || has_root_assembly_containing(game_dir, "galaxy"),
         bepinex: has_dir_ci(game_dir, "BepInEx"),
     }
 }
@@ -591,6 +591,30 @@ mod tests {
         let profile = discover_mono_profile(&dir);
         assert_eq!(profile.kind, MonoProfileKind::UnityMono);
         assert!(profile.deps.bepinex);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stardew_shaped_dir_is_monogame_via_root_assembly() {
+        // Real Stardew Valley layout (verified 2026-08-06 on the user's
+        // install): root-level MonoGame.Framework.dll + net6.0
+        // runtimeconfig, NO *_Data/Managed dir. The MonoGame family must be
+        // detected from the root assembly (classic root-layout coverage).
+        let dir = make_dir("stardew");
+        fs::write(dir.join("Stardew Valley.exe"), b"mz").unwrap();
+        fs::write(dir.join("Stardew Valley.dll"), b"managed").unwrap();
+        fs::write(dir.join("MonoGame.Framework.dll"), b"monogame").unwrap();
+        fs::write(dir.join("Galaxy64.dll"), b"galaxy").unwrap();
+        fs::write(dir.join("GalaxyCSharp.dll"), b"galaxy-cs").unwrap();
+        fs::write(dir.join("SDL2.dll"), b"sdl2").unwrap();
+        fs::write(dir.join("Stardew Valley.runtimeconfig.json"), b"{\"runtimeOptions\":{\"tfm\":\"net6.0\"}}").unwrap();
+        let profile = discover_mono_profile(&dir);
+        assert_eq!(profile.kind, MonoProfileKind::MonoGame);
+        assert!(profile.deps.galaxy, "GalaxyCSharp must be a detected dep");
+        assert!(profile.deps.sdl2, "SDL2.dll must be a detected dep");
+        // net6.0 MonoGame -> modern mono requirement.
+        assert_eq!(profile.mono_requirement, MonoRequirement::Modern);
+        assert!(is_mono_route_eligible(&profile));
         let _ = fs::remove_dir_all(&dir);
     }
 
