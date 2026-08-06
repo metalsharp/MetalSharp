@@ -1092,6 +1092,12 @@ fn install_split_assets_bundle(home: &PathBuf) -> Result<bool, String> {
         ("shims", runtime_dir.join("shims")),
         ("fnalibs", runtime_dir.join("fnalibs")),
         ("fna-kickstart", runtime_dir.join("fna-kickstart")),
+        // Mono-route payloads (Phase 3): version-matched Unity Mono runtimes,
+        // XNA 4.0 assembly set, SDL3, prebuilt launcher/patcher binaries.
+        ("xna", runtime_dir.join("xna")),
+        ("unity-mono", runtime_dir.join("unity-mono")),
+        ("sdl3", runtime_dir.join("sdl3")),
+        ("prebuilt-launchers", runtime_dir.join("prebuilt-launchers")),
     ] {
         let src = assets.join(src_name);
         if src.exists() {
@@ -2705,6 +2711,11 @@ mod tests {
             "assets/unity-mono/2022.3/libmonosgen-2.0.1.dylib",
             "assets/unity-mono/6000.0/libmonosgen-2.0.1.dylib",
             "assets/sdl3/libSDL3.dylib",
+            "assets/prebuilt-launchers/TerrariaLauncher.exe",
+            "assets/prebuilt-launchers/TerrariaOfflinePatcher.exe",
+            "assets/prebuilt-launchers/Microsoft.Xna.Framework.Xact.dll",
+            "assets/shims/libgdiplus.dylib",
+            "assets/shims/libFAudio.0.dylib",
         ] {
             assert!(ASSETS_REQUIRED_ARCHIVE_FILES.contains(&rel), "ASSETS_REQUIRED_ARCHIVE_FILES must require {rel}");
         }
