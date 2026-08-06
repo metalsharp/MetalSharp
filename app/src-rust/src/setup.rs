@@ -363,6 +363,42 @@ pub fn resolve_native_game_dir(appid: u32) -> Option<PathBuf> {
     crate::scan::resolve_dual_game_dir(appid).macos_dir
 }
 
+/// Write `steam_appid.txt` into the game dir with a reversible receipt: the
+/// original file (if any) is preserved as `steam_appid.txt.metalsharp-original`
+/// so uninstall/repair can restore the game's real identity. Writing the appid
+/// into Steam-tracked directories is a side effect we must be able to undo.
+fn write_steam_appid_with_receipt(game_dir: &Path, appid: u32) {
+    let target = game_dir.join("steam_appid.txt");
+    let receipt = game_dir.join("steam_appid.txt.metalsharp-original");
+    if target.exists() && !receipt.exists() {
+        let _ = std::fs::copy(&target, &receipt);
+    }
+    let _ = std::fs::write(&target, appid.to_string());
+}
+
+/// Restore a game's original steam_appid.txt from the receipt, removing the
+/// MetalSharp-written file when there was no original. Returns the path of
+/// the restored file (or the removed one) for diagnostics.
+pub fn restore_steam_appid_receipt(game_dir: &Path) -> Option<std::path::PathBuf> {
+    let target = game_dir.join("steam_appid.txt");
+    let receipt = game_dir.join("steam_appid.txt.metalsharp-original");
+    if receipt.exists() {
+        let _ = std::fs::rename(&receipt, &target);
+        Some(target)
+    } else if target.exists() {
+        // Only remove files we plausibly wrote (a bare numeric appid).
+        let content = std::fs::read_to_string(&target).ok()?;
+        if content.trim().chars().all(|c| c.is_ascii_digit()) && !content.trim().is_empty() {
+            let _ = std::fs::remove_file(&target);
+            Some(target)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
 pub fn prepare_game(appid: u32) -> Result<Value, Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
     let game_dir = resolve_game_dir(appid).ok_or_else(|| format!("game directory not found for appid {}", appid))?;
@@ -386,7 +422,7 @@ pub fn prepare_game(appid: u32) -> Result<Value, Box<dyn std::error::Error>> {
     };
 
     if !marker.exists() {
-        let _ = std::fs::write(game_dir.join("steam_appid.txt"), appid.to_string());
+        write_steam_appid_with_receipt(&game_dir, appid);
     }
 
     match appid {
@@ -2181,5 +2217,33 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(home);
         let _ = std::fs::remove_dir_all(game_dir);
+    }
+
+    #[test]
+    fn steam_appid_receipt_preserves_and_restores_original() {
+        let dir = test_dir("steam-appid");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Original file present -> backed up, then written appid.
+        std::fs::write(dir.join("steam_appid.txt"), "123456\n").unwrap();
+        write_steam_appid_with_receipt(&dir, 105600);
+        assert_eq!(std::fs::read_to_string(dir.join("steam_appid.txt")).unwrap(), "105600");
+        assert!(dir.join("steam_appid.txt.metalsharp-original").exists());
+
+        // Restore brings back the original content and drops the receipt.
+        let restored = restore_steam_appid_receipt(&dir).expect("restore");
+        assert_eq!(std::fs::read_to_string(&restored).unwrap(), "123456\n");
+        assert!(!dir.join("steam_appid.txt.metalsharp-original").exists());
+
+        // No original: a bare numeric appid file is removed on restore.
+        let dir2 = test_dir("steam-appid-clean");
+        std::fs::create_dir_all(&dir2).unwrap();
+        write_steam_appid_with_receipt(&dir2, 620);
+        assert!(!dir2.join("steam_appid.txt.metalsharp-original").exists());
+        let removed = restore_steam_appid_receipt(&dir2).expect("remove written appid");
+        assert!(!removed.exists());
+        let _ = std::fs::remove_dir_all(&dir2);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -307,7 +307,12 @@ verify_assets_core() {
     assets/unity-mono/6000.0/mono-sgen \
     assets/unity-mono/6000.0/MonoBleedingEdge.version \
     assets/unity-mono/manifest.json \
-    assets/sdl3/libSDL3.dylib &&
+    assets/sdl3/libSDL3.dylib \
+    assets/prebuilt-launchers/TerrariaLauncher.exe \
+    assets/prebuilt-launchers/TerrariaOfflinePatcher.exe \
+    assets/prebuilt-launchers/Microsoft.Xna.Framework.Xact.dll \
+    assets/shims/libgdiplus.dylib \
+    assets/shims/libFAudio.0.dylib &&
     archive_not_contains "$path" '^assets/eac-toggle/' &&
     verify_fna_payloads "$path" "ASSETS" assets/fnalibs &&
     verify_fna_kickstart_payloads "$path" "ASSETS" assets/fna-kickstart/osx &&
