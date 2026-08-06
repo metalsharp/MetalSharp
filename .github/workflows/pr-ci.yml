@@ -171,7 +171,7 @@ jobs:
           submodules: recursive
 
       - name: Install clang-format
-        run: brew install clang-format zstd
+        run: brew install clang-format zstd mingw-w64
 
       - name: D3D12 Metal SDK contracts
         run: |
@@ -214,7 +214,23 @@ jobs:
           fi
 
       - name: Format check
-        run: find src include tests tools \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.mm' \) -not -path '*/vendor/*' -not -path '*/wine/*' -print0 | xargs -0 clang-format --dry-run --Werror
+        run: tools/ci/check-clang-format.sh
+
+      - name: ntdll-hook compile gate
+        # The MetalSharp ntdll hook ships as a pinned DLL (no workflow ever
+        # rebuilt it), so syntax regressions in ntdll_hook.c went unverified.
+        # Compile both arches with mingw (-c only: no winebuild/link needed,
+        # which requires the staged Wine runtime). Catches typos, missing
+        # symbols at compile time, and arch-specific breakage.
+        run: |
+          mkdir -p /tmp/ntdll-hook-gate
+          x86_64-w64-mingw32-gcc -Wall -Wextra -c src/ntdll-hook/src/ntdll_hook.c \
+            -Isrc/ntdll-hook/src -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE \
+            -o /tmp/ntdll-hook-gate/x64.o
+          i686-w64-mingw32-gcc -Wall -Wextra -c src/ntdll-hook/src/ntdll_hook.c \
+            -Isrc/ntdll-hook/src -D_WIN32_WINNT=0x0A00 -DUNICODE -D_UNICODE \
+            -o /tmp/ntdll-hook-gate/i386.o
+          echo "ntdll-hook compiles clean for x86_64 + i386"
 
       - name: Configure
         run: cmake -S . -B build-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
