@@ -2419,7 +2419,19 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
 }
 
 /// Wine msync toggle value (`WINEMSYNC`) for the given home. Defaults ON.
+/// A `WINEMSYNC` env var in the parent process overrides the config (same
+/// semantics as `msync_enabled()`), so the documented dev override works on
+/// every launch path, not just the GOG prefix init.
 pub(crate) fn msync_env_value(home: &Path) -> String {
+    msync_env_value_from(home, std::env::var("WINEMSYNC").ok())
+}
+
+/// Pure core of `msync_env_value` (testable without mutating the process
+/// env): `parent_env` carries the optional parent `WINEMSYNC` value.
+fn msync_env_value_from(home: &Path, parent_env: Option<String>) -> String {
+    if let Some(value) = parent_env {
+        return if crate::launch::truthy(&value) { "1".to_string() } else { "0".to_string() };
+    }
     if crate::launch::msync_enabled_for(home) {
         "1".to_string()
     } else {
@@ -7159,6 +7171,24 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert_eq!(msync_env_value(&home), "0", "OFF");
         write_msync_config(&home, true);
         assert_eq!(msync_env_value(&home), "1", "back ON");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn msync_parent_env_overrides_config_on_mtsp_path() {
+        let home = metalfx_home();
+        write_msync_config(&home, true);
+
+        // Parent WINEMSYNC=0 overrides the config ON.
+        assert_eq!(msync_env_value_from(&home, Some("0".into())), "0", "parent WINEMSYNC=0 must win over config ON");
+
+        // Parent WINEMSYNC=1 overrides the config OFF.
+        write_msync_config(&home, false);
+        assert_eq!(msync_env_value_from(&home, Some("1".into())), "1", "parent WINEMSYNC=1 must win over config OFF");
+
+        // No parent env -> config applies.
+        assert_eq!(msync_env_value_from(&home, None), "0", "config OFF applies without parent env");
+
         let _ = std::fs::remove_dir_all(&home);
     }
 

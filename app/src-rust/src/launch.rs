@@ -299,7 +299,7 @@ fn json_bool(value: &Value) -> Option<bool> {
     }
 }
 
-fn truthy(value: &str) -> bool {
+pub(crate) fn truthy(value: &str) -> bool {
     matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
 }
 
