@@ -3278,24 +3278,32 @@ fn ensure_launcher_exe(appid: u32, game_dir: &PathBuf) {
         None => return,
     };
     let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+    for prebuilt in prebuilt_launcher_candidates(&ms_home, launcher_name, source_file) {
+        if prebuilt.is_file() {
+            let _ = std::fs::copy(&prebuilt, &launcher);
+            return;
+        }
+    }
+}
+
+/// Prebuilt-launcher lookup order: the BINARY name (`launcher_exe`, e.g.
+/// `TerrariaLauncher.exe`) first — the bundle ships binaries — then the
+/// source basename (`TerrariaLauncher.cs`) as a legacy fallback. Regressed
+/// 2026-08: the lookup used the source basename only, so the prebuilt binary
+/// was never found and the launch silently ran the game exe raw.
+fn prebuilt_launcher_candidates(ms_home: &Path, launcher_name: &str, source_file: &str) -> Vec<PathBuf> {
     let launcher_file = Path::new(launcher_name)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| launcher_name.to_string());
-    let prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&launcher_file);
-    if prebuilt.is_file() {
-        let _ = std::fs::copy(&prebuilt, &launcher);
-        return;
-    }
-    // Legacy fallback: bundle artifacts named after the source file.
-    let source_file = Path::new(source_file)
+    let source_basename = Path::new(source_file)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| source_file.to_string());
-    let legacy_prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&source_file);
-    if legacy_prebuilt.is_file() {
-        let _ = std::fs::copy(&legacy_prebuilt, &launcher);
-    }
+    vec![
+        ms_home.join("runtime").join("prebuilt-launchers").join(&launcher_file),
+        ms_home.join("runtime").join("prebuilt-launchers").join(&source_basename),
+    ]
 }
 
 fn find_shims_dir() -> String {
@@ -5851,6 +5859,17 @@ fn spawn_metalshaderconverter_sidecar(appid: u32, home: &Path, cache_paths: Opti
 mod tests {
     use super::*;
     use crate::mtsp::recipe;
+
+    #[test]
+    fn prebuilt_launcher_candidates_prefer_binary_name_over_source_basename() {
+        let ms_home = std::path::PathBuf::from("/ms-home");
+        let candidates = prebuilt_launcher_candidates(&ms_home, "TerrariaLauncher.exe", "TerrariaLauncher.cs");
+        // The bundle ships the BINARY; the source basename is only a legacy
+        // fallback. Regression: the lookup used the source basename first, so
+        // the prebuilt was never found and the launch ran the game exe raw.
+        assert_eq!(candidates[0], ms_home.join("runtime").join("prebuilt-launchers").join("TerrariaLauncher.exe"));
+        assert_eq!(candidates[1], ms_home.join("runtime").join("prebuilt-launchers").join("TerrariaLauncher.cs"));
+    }
 
     #[test]
     fn wine_wrapper_does_not_force_forward_compatible_opengl() {
