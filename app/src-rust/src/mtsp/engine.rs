@@ -109,6 +109,17 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
         ],
         env_vars: vec![
             EnvVar { key: "VKD3D_LOG_LEVEL", value: "warn" },
+            // DXVK 3.x hard-requires the VK_EXT_robustness2 feature; the VKMT
+            // fork gates robustBufferAccess2 behind this config (Metal does not
+            // bounds-check shader buffer accesses — the fork reports it false by
+            // default as a truthfulness measure). The M12 stack must advertise
+            // it: vkd3d-proton supplies the shader-level bounds behaviour the
+            // feature relies on in practice.
+            EnvVar { key: "MVK_CONFIG_ADVERTISE_ROBUST_BUFFER_ACCESS_2", value: "1" },
+            // vkd3d-proton (VKMT fork) reports Metal's stricter linear-texture
+            // alignment and refuses device init unless this VKMT opt-in is
+            // set; the fork's own diagnostic route (no texel buffers) uses it.
+            EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
             // VKD3D_SHADER_CACHE_PATH is set to the absolute isolated cache dir
             // by cache_env_pairs; do not override it with a relative value here.
         ],
