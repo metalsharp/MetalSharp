@@ -1,19 +1,29 @@
 # M12 Fresh Proof Game Harness Roadmap
-**Updated:** 2026-07-08
+**Updated:** 2026-08-05
 
+> **Status note (2026-08-05):** M12's default backend is now **vkd3d-proton**
+> (D3D12 → Vulkan → VKMT MoltenVK → Metal, PR #377); the DXMT stack is the
+> `m12Backend=dxmt` rollback. Update the harness target list below
+> accordingly: the default M12 route deploys `d3d12.dll` + `d3d12core.dll`
+> (vkd3d-proton lane), `dxgi.dll` (DXVK lane), and the `nvapi64.dll`/`nvngx.dll`
+> stubs (shared dxmt_m12 lane) — the DXMT-only files (`dxgi_dxmt.dll`,
+> `winemetal.dll`, `winemetal.so`) belong to the rollback lane only.
 
 This roadmap is the first artifact for a new PR branch. It deliberately does not rely on prior probe results, prior proof directories, prior cached shader artifacts, or previous PR evidence. Every pass/fail claim for this PR must be produced again from fresh source inputs, fresh logs, and fresh machine-readable result files.
 
 ## Non-negotiable scope
 
-Build a fresh Windows `game.exe`-style proof harness that runs through MetalSharp Wine 11.5 with the real M12 route:
+Build a fresh Windows `game.exe`-style proof harness that runs through MetalSharp Wine 11.5 with the real M12 route (default vkd3d-proton backend):
 
-- `d3d12.dll`
-- `dxgi.dll`
-- `dxgi_dxmt.dll`
-- `winemetal.dll`
-- `winemetal.so`
+- `d3d12.dll` (vkd3d-proton forwarder)
+- `d3d12core.dll` (vkd3d-proton implementation)
+- `dxgi.dll` (DXVK lane)
+- `nvapi64.dll` / `nvngx.dll` (GPU vendor stubs, shared dxmt_m12 lane)
+- the VKMT MoltenVK runtime (`lib/moltenvk-vkmt`, `VK_ICD_FILENAMES` pinned)
 - the selected Wine prefix and runtime layout used by normal games
+
+(The DXMT rollback set — `dxgi_dxmt.dll`, `winemetal.dll`, `winemetal.so` from
+`lib/dxmt-m12` — applies only when the harness targets `m12Backend=dxmt`.)
 
 The harness must render an actual loading/game window and must prove, with structured logs and result JSON, that the D3D12/M12 pipeline is correct without hidden skips, fallbacks, stale caches, or incorrect DLL routing. It must exercise hundreds of shaders and hundreds of textures when source material is available; one-shader/one-texture smoke coverage is not sufficient for final acceptance because the executable must behave like a real game workload.
 

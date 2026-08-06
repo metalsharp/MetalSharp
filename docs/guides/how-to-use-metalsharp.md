@@ -26,7 +26,7 @@ Click **Play** from the Library page. Use the launch mode dropdown when you want
 
 | Mode | Use |
 |---|---|
-| M12 | D3D12 to Metal |
+| M12 | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK). DXMT rollback available via the `m12Backend` setting (Settings) |
 | M11 | D3D11 to Metal |
 | M10 | D3D10 to Metal |
 | M9 | D3D9 through the DXMT launch/cache family |
@@ -64,7 +64,15 @@ MoonScraper Chart Editor's Inno Setup bootstrapper is handled without its Window
 
 Use **Logs** when something fails. The page has drawer sections for live logs, crash reports, and recent log files.
 
-Use **Settings** to manage Steam API sync, backend restart, cache cleanup, and runtime maintenance.
+Use **Settings** to manage Steam API sync, backend restart, cache cleanup, runtime maintenance, and the **M12 graphics backend** (vkd3d-proton default / DXMT fallback).
+
+### Sidebar Toggles
+
+The sidebar (near the theme picker) has three runtime toggles, applied on next launch:
+
+- **MetalFX** — DXMT MetalFX Spatial upscaling strength for the DXMT routes (M10, M10(32), M11, M11(32)): **1.75** / **1.50** / **OFF** (default **1.50**, enabled). M12 (vkd3d-proton) and other routes are unaffected.
+- **msync** — Wine msync (Mach-synchronized sync primitives): **ON** (default) / **OFF**.
+- **Controller** — input shims: Off / X / D (see below).
 
 ### Controller Input Shims
 

@@ -40,7 +40,7 @@ D3DMetal is an explicit GPTK lane rather than a generic bottle repair path. Savi
 
 | Public route | Backend | Launch path |
 |---|---|---|
-| **M12** | DXMT | Direct Wine launch with isolated `dxmt-m12` D3D12/D3D11/DXGI/winemetal DLLs |
+| **M12** | vkd3d-proton (default) / DXMT (`m12Backend` setting) | Direct Wine launch; default uses isolated vkd3d-proton D3D12/DXVK dxgi/VKMT MoltenVK DLLs; DXMT rollback uses `dxmt-m12` |
 | **M11** | DXMT | Direct Wine launch with legacy `dxmt` D3D11/DXGI DLLs |
 | **M10** | DXMT | Direct Wine launch with legacy `dxmt` D3D10/D3D11/DXGI DLLs |
 | **M9** | DXMT launch family | Direct Wine launch with bundled `d3d9.dll` and DXMT-family cache/env |
@@ -85,7 +85,16 @@ M11/M10/M9 read from the legacy runtime surface:
 ~/.metalsharp/runtime/wine/lib/dxmt
 ```
 
-M12 reads from the isolated D3D12 surface:
+M12 reads from its default vkd3d-proton/DXVK/MoltenVK surface:
+
+```text
+~/.metalsharp/runtime/wine/lib/vkd3d-proton   (d3d12.dll + d3d12core.dll)
+~/.metalsharp/runtime/wine/lib/dxvk           (dxgi.dll)
+~/.metalsharp/runtime/wine/lib/moltenvk-vkmt  (VKMT MoltenVK)
+```
+
+With the `m12Backend=dxmt` rollback, M12 reads from the isolated DXMT surface
+instead:
 
 ```text
 ~/.metalsharp/runtime/wine/lib/dxmt-m12
@@ -100,11 +109,14 @@ M11/M10 copy:
 
 M10 is selected by 64-bit `d3d10.dll`, `d3d10_1.dll`, or `d3d10core.dll` imports. It deploys Wine's public `d3d10.dll` and `d3d10_1.dll` entrypoints plus DXMT's `d3d10core.dll`, so public D3D10 imports and the DXMT core handoff are both owned by the x86_64 M10 runtime contract.
 
-M12 also copies:
+M12 (default backend) copies:
 
 - `d3d12.dll`
+- `d3d12core.dll`
+- `dxgi.dll` (DXVK lane)
+- `nvapi64.dll` / `nvngx.dll` (GPU vendor stubs, shared `dxmt_m12` lane)
 
-M12 also adds the `dxmt-m12` unix library directory to the fallback library path so `winemetal.so` and its bundled C++ sidecars are resolved from the same surface as the PE DLLs.
+M12 also adds the route's unix library directories to the fallback library path: the default backend resolves `lib/vkd3d-proton/x86_64-unix` and `lib/moltenvk-vkmt` (Vulkan -> MoltenVK presentation, `VK_ICD_FILENAMES` pinned to the runtime ICD); the DXMT rollback resolves `lib/dxmt-m12/x86_64-unix` so `winemetal.so` and its bundled C++ sidecars are found.
 
 M9 copies:
 

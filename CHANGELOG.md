@@ -1,10 +1,21 @@
 # Changelog
 
-## Unreleased
+## v0.58.0 — 2026-08-04
+
+### Added
+
+- **M12 moves to vkd3d-proton by default** — the D3D12 route now runs on the VKMT stack: `d3d12.dll` forwarder + `d3d12core.dll` (VKMT win64-filtered build), DXVK's `dxgi.dll`, and VKMT's patched MoltenVK (`lib/moltenvk-vkmt` lane, `VK_ICD_FILENAMES` pinned to the runtime ICD). The legacy DXMT M12 stack remains as an instant rollback via the `m12Backend` setting (`vkd3d-proton` default / `dxmt`). Bundle lanes added: `vkd3d-proton`, `dxvk`, `moltenvk-vkmt`; M12 bottle saves, repair, and diagnostics are backend-aware; 22 shipped M12 game rules re-pointed to the vkd3d-deployed DLL set.
+- **Sidebar MetalFX toggle** — 1.75 | 1.50 | OFF (default **1.50**, enabled). DXMT MetalFX Spatial upscaling for the DXMT routes (M10, M10(32), M11, M11(32)); drives the existing `/metalfx/toggle` overlay (state file + dxmt.conf + in-game live swapchain toggle), and the launcher now reconciles the DXMT env from that state at launch — fixing the node's hardcoded 1.43 factor shadowing the overlay choice.
+- **Sidebar msync toggle** — ON/OFF (default ON). `WINEMSYNC` is now config-driven across all launch paths (was hardcoded to `1`), including GOG prefix init.
+- **Sidebar Controller input selector** — Off / X (XInput) / D (DInput) shims, shipped in `lib/metalsharp` (#375).
+- **Wine runtime isolation** — MetalSharp's Wine runtime is isolated from foreign launchers (CrossOver / SakuraGiri) (#372).
 
 ### Fixed
 
-- **Legacy OpenGL games under Wine** — stop forcing `MS_FWD_COMPAT_GL_CTX=1` globally for Steam, GOG prefix initialization, and the Wine wrapper. Games now receive compatibility-profile semantics by default, while route-specific environments can still opt into forward-compatible contexts. Steam also disables Wine tracing by default instead of logging every OpenGL call; `METALSHARP_WINEDEBUG` remains available for explicit diagnostics. This fixes black output and unstable frame pacing in games such as The Binding of Isaac: Repentance.
+- **Legacy OpenGL games under Wine** — stop forcing `MS_FWD_COMPAT_GL_CTX=1` globally for Steam, GOG prefix initialization, and the Wine wrapper. Games now receive compatibility-profile semantics by default, while route-specific environments can still opt into forward-compatible contexts. Steam also disables Wine tracing by default instead of logging every OpenGL call; `METALSHARP_WINEDEBUG` remains available for explicit diagnostics. This fixes black output and unstable frame pacing in games such as The Binding of Isaac: Repentance (#371).
+- **Failed Wine prefix migrations** — clean up broken prefix state instead of leaving stale artifacts (#374).
+- **Virtual memory self-queries** — the IPC test now queries mapped addresses reliably (#376).
+- **Dependabot security alerts** — batched dependency updates (7 PRs → 1, #373); undici patched to resolve alerts (#367).
 
 ## v0.54.5 — 2026-07-09
 

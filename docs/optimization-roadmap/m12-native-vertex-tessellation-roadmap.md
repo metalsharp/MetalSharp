@@ -1,6 +1,14 @@
 # M12 Native Vertex/Tessellation GPU Roadmap
-**Updated:** 2026-07-08
+**Updated:** 2026-08-05
 
+> **Status note (2026-08-05):** M12's default backend is now **vkd3d-proton**
+> (D3D12 → Vulkan → VKMT MoltenVK → Metal, PR #377). The DXMT-internal
+> vertex/tessellation path this roadmap describes ("inside DXMT/M12") now
+> applies only to the `m12Backend=dxmt` **rollback** lane — the default
+> vkd3d-proton route has no in-house IA/tessellation code (vkd3d-proton + DXVK
+> handle it). Treat all `vendor/dxmt/...` implementation points below as
+> rollback-lane work unless the roadmap is explicitly re-scoped to the
+> vkd3d-proton stack.
 
 Status: final source-backed roadmap for PR #230 follow-up work
 Branch/worktree: `feat/m12-fresh-proof-game-harness` at `/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-m12-fresh-proof-pr`
