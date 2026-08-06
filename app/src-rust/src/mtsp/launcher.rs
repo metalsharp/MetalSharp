@@ -3068,6 +3068,210 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
     }
 }
 
+/// Map a discovered Unity version (e.g. "2021.3.5f1") to a bundled runtime
+/// lane (e.g. "2021.3"). Unknown/older lines fall back to the newest bundled
+/// lane so deployment never hard-fails on an unlisted version.
+pub fn unity_runtime_lane_for_version(unity_version: Option<&str>, ms_home: &Path) -> Option<String> {
+    let runtime_root = ms_home.join("runtime").join("unity-mono");
+    let version = unity_version.unwrap_or("");
+    let major_minor: String = version.split('.').take(2).collect::<Vec<_>>().join(".");
+    if !major_minor.is_empty() {
+        let candidate = runtime_root.join(&major_minor);
+        if candidate.is_dir() {
+            return Some(major_minor);
+        }
+    }
+    // Fall back to the newest bundled lane (preferring newer Unity LTS lines).
+    let mut lanes: Vec<String> = std::fs::read_dir(&runtime_root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+        .collect();
+    lanes.sort_by(|a, b| {
+        let num = |s: &str| s.split('.').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+        num(b).cmp(&num(a))
+    });
+    lanes.first().cloned()
+}
+
+/// Deploy the version-matched Unity Mono runtime next to a Unity-Mono game.
+/// Copies the bundled `assets/unity-mono/<lane>/` payloads into the game dir's
+/// `MonoBleedingEdge/` (or `osx/` for kickstart-style layouts), records
+/// receipts, and rewrites install names. Idempotent: existing matching files
+/// are left alone.
+pub fn deploy_unity_runtime(
+    game_dir: &Path,
+    profile: &crate::mono_profile::MonoProfile,
+    ms_home: &Path,
+    mut report: Option<&mut crate::fna_profile::AssetStagingReport>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    if profile.kind != crate::mono_profile::MonoProfileKind::UnityMono {
+        return Ok(0);
+    }
+    let lane = unity_runtime_lane_for_version(profile.unity_version.as_deref(), ms_home)
+        .ok_or_else(|| "no bundled Unity Mono runtime available".to_string())?;
+    let src_root = ms_home.join("runtime").join("unity-mono").join(&lane);
+    if !src_root.is_dir() {
+        return Err(format!("bundled Unity Mono runtime lane {lane} missing at {}", src_root.display()).into());
+    }
+
+    let embed = game_dir.join("MonoBleedingEdge").join("EmbedRuntime");
+    let _ = std::fs::create_dir_all(&embed);
+    let mut deployed = 0usize;
+    for entry in std::fs::read_dir(&src_root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == "mono-sgen" || name.ends_with(".version") || name == "manifest.json" {
+            continue;
+        }
+        let dst = embed.join(&name);
+        if dst.exists() {
+            continue;
+        }
+        std::fs::copy(entry.path(), &dst)?;
+        fix_dylib_install_names(&dst);
+        if let Some(r) = report.as_mut() {
+            r.record(crate::fna_profile::record_asset_receipt(
+                &name,
+                &entry.path(),
+                &dst,
+                true,
+                false,
+                true,
+                &format!("unity-mono/{lane} runtime payload"),
+            ));
+        }
+        deployed += 1;
+    }
+    // MonoPosixHelper is required by the mono runtime; ensure the managed
+    // assemblies dir exists for the game's data.
+    let managed = find_unity_managed_dir(game_dir);
+    let _ = std::fs::create_dir_all(&managed);
+    Ok(deployed)
+}
+
+/// Locate `<Game>_Data/Managed` for a Unity game (or a root Managed dir).
+pub fn find_unity_managed_dir(game_dir: &Path) -> std::path::PathBuf {
+    if let Ok(entries) = std::fs::read_dir(game_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() && entry.file_name().to_string_lossy().to_lowercase().ends_with("_data") {
+                let managed = p.join("Managed");
+                if managed.is_dir() {
+                    return managed;
+                }
+            }
+        }
+    }
+    game_dir.join("Managed")
+}
+
+/// Deploy dependency payloads the game's profile signals: SDL3, SDL2, Carbon.
+/// Sources from the bundled assets; never compiles.
+pub fn deploy_profile_deps(
+    game_dir: &Path,
+    profile: &crate::mono_profile::MonoProfile,
+    ms_home: &Path,
+    mut report: Option<&mut crate::fna_profile::AssetStagingReport>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let mut deployed = 0usize;
+    if profile.deps.sdl3 {
+        let src = ms_home.join("runtime").join("sdl3").join("libSDL3.dylib");
+        if src.is_file() {
+            let dst = game_dir.join("libSDL3.dylib");
+            if !dst.exists() {
+                std::fs::copy(&src, &dst)?;
+                fix_dylib_install_names(&dst);
+                if let Some(r) = report.as_mut() {
+                    r.record(crate::fna_profile::record_asset_receipt(
+                        "libSDL3.dylib",
+                        &src,
+                        &dst,
+                        false,
+                        false,
+                        true,
+                        "sdl3 dep",
+                    ));
+                }
+                deployed += 1;
+            }
+        }
+    }
+    if profile.deps.carbon {
+        let shims_dir = PathBuf::from(find_shims_dir());
+        let src = shims_dir.join(FNA_CARBON_SHIM);
+        if src.is_file() {
+            let dst = game_dir.join(FNA_CARBON_SHIM);
+            if !dst.exists() {
+                let _ = std::fs::copy(&src, &dst);
+                if let Some(r) = report.as_mut() {
+                    r.record(crate::fna_profile::record_asset_receipt(
+                        FNA_CARBON_SHIM,
+                        &src,
+                        &dst,
+                        false,
+                        false,
+                        true,
+                        "carbon dep",
+                    ));
+                }
+                deployed += 1;
+            }
+        }
+    }
+    Ok(deployed)
+}
+
+/// Deploy the version-matched XNA assembly set into the game dir for
+/// XNA/MonoGame profile games that lack their own copies.
+pub fn deploy_xna_assembly_set(
+    game_dir: &Path,
+    profile: &crate::mono_profile::MonoProfile,
+    ms_home: &Path,
+    mut report: Option<&mut crate::fna_profile::AssetStagingReport>,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    if !matches!(profile.kind, crate::mono_profile::MonoProfileKind::Xna | crate::mono_profile::MonoProfileKind::Fna) {
+        return Ok(0);
+    }
+    let xna_root = ms_home.join("runtime").join("xna");
+    if !xna_root.is_dir() {
+        return Ok(0);
+    }
+    let managed = find_unity_managed_dir(game_dir);
+    let mut deployed = 0usize;
+    for entry in std::fs::read_dir(&xna_root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".dll") {
+            continue;
+        }
+        // Only deploy to the managed dir when the game has one; otherwise
+        // next to the exe.
+        let dst_dir = if managed.is_dir() { &managed } else { game_dir };
+        let dst = dst_dir.join(&name);
+        if dst.exists() {
+            continue;
+        }
+        std::fs::copy(entry.path(), &dst)?;
+        if let Some(r) = report.as_mut() {
+            r.record(crate::fna_profile::record_asset_receipt(
+                &name,
+                &entry.path(),
+                &dst,
+                false,
+                false,
+                true,
+                "xna assembly set",
+            ));
+        }
+        deployed += 1;
+    }
+    Ok(deployed)
+}
+
 pub fn repair_fna_game_runtime_assets(appid: u32, game_dir: &Path) -> Result<usize, Box<dyn std::error::Error>> {
     if !game_dir.is_dir() {
         return Err(format!("FNA game directory is missing: {}", game_dir.display()).into());
@@ -3077,6 +3281,18 @@ pub fn repair_fna_game_runtime_assets(appid: u32, game_dir: &Path) -> Result<usi
     repair_fna_native_runtime_shims()?;
     deploy_fna_assemblies(appid, &game_dir);
     deploy_offline_steamworks_net(&game_dir, &crate::platform::metalsharp_home_dir())?;
+    // Profile-aware deploy: version-matched Unity runtime, XNA set, deps.
+    let ms_home = crate::platform::metalsharp_home_dir();
+    let discovered = crate::mono_profile::discover_mono_profile(&game_dir);
+    if discovered.kind != crate::mono_profile::MonoProfileKind::None {
+        let mut report = crate::fna_profile::AssetStagingReport::new(appid);
+        let _ = deploy_unity_runtime(&game_dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_xna_assembly_set(&game_dir, &discovered, &ms_home, Some(&mut report));
+        let _ = deploy_profile_deps(&game_dir, &discovered, &ms_home, Some(&mut report));
+        if !report.receipts.is_empty() {
+            let _ = report.persist(&game_dir);
+        }
+    }
 
     let profile = find_fna_profile(appid);
     let mut required = vec![
@@ -7203,6 +7419,113 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         env.push(("WINEMSYNC".to_string(), "1".to_string()));
         apply_msync_config(&mut env, &home);
         assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "sidebar msync toggle must beat recipe env");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // ---- Mono profile deploy (Phase 4) ----
+
+    fn mono_deploy_home(name: &str) -> std::path::PathBuf {
+        let home = std::env::temp_dir().join(format!(
+            "ms-mono-deploy-{}-{}-{:x}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        home
+    }
+
+    fn unity_game_dir(parent: &std::path::Path, version: &str) -> std::path::PathBuf {
+        let dir = parent.join("DREDGE");
+        std::fs::create_dir_all(dir.join("MonoBleedingEdge").join("EmbedRuntime")).unwrap();
+        std::fs::create_dir_all(dir.join("DREDGE_Data").join("Managed")).unwrap();
+        std::fs::write(dir.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::write(dir.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-2.0-bdwgc.dll"), b"m").unwrap();
+        std::fs::write(dir.join("DREDGE_Data").join("Managed").join("Assembly-CSharp.dll"), b"m").unwrap();
+        let mut ggm = vec![0u8; 48];
+        ggm.extend_from_slice(format!("{version}\0").as_bytes());
+        std::fs::write(dir.join("DREDGE_Data").join("globalgamemanagers"), &ggm).unwrap();
+        dir
+    }
+
+    #[test]
+    fn unity_runtime_lane_maps_version_to_bundled_lane() {
+        let home = mono_deploy_home("lane");
+        let ms_home = home.join(".metalsharp");
+        std::fs::create_dir_all(ms_home.join("runtime").join("unity-mono").join("2021.3")).unwrap();
+        std::fs::create_dir_all(ms_home.join("runtime").join("unity-mono").join("2022.3")).unwrap();
+
+        assert_eq!(unity_runtime_lane_for_version(Some("2021.3.5f1"), &ms_home).as_deref(), Some("2021.3"));
+        // Unknown version falls back to the newest lane.
+        assert_eq!(unity_runtime_lane_for_version(Some("2019.4.40f1"), &ms_home).as_deref(), Some("2022.3"));
+        // None -> newest lane.
+        assert_eq!(unity_runtime_lane_for_version(None, &ms_home).as_deref(), Some("2022.3"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn deploy_unity_runtime_copies_lane_and_is_idempotent() {
+        let home = mono_deploy_home("unity");
+        let ms_home = home.join(".metalsharp");
+        let lane = ms_home.join("runtime").join("unity-mono").join("2021.3");
+        std::fs::create_dir_all(&lane).unwrap();
+        std::fs::write(lane.join("mono-2.0-bdwgc.dll"), b"mono-dll").unwrap();
+        std::fs::write(lane.join("MonoPosixHelper.dll"), b"posix").unwrap();
+        std::fs::write(lane.join("mono-sgen"), b"binary").unwrap();
+        std::fs::write(lane.join("MonoBleedingEdge.version"), b"2021.3.5f1").unwrap();
+
+        let game = unity_game_dir(&home, "2021.3.5f1");
+        let profile = crate::mono_profile::discover_mono_profile(&game);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::UnityMono);
+
+        let mut report = crate::fna_profile::AssetStagingReport::new(1562430);
+        let n = deploy_unity_runtime(&game, &profile, &ms_home, Some(&mut report)).unwrap();
+        // The game ships its own mono-2.0-bdwgc.dll (exists -> skipped);
+        // MonoPosixHelper deploys. mono-sgen/.version are never deployed.
+        assert_eq!(n, 1);
+        assert!(game.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-2.0-bdwgc.dll").exists());
+        assert!(game.join("MonoBleedingEdge").join("EmbedRuntime").join("MonoPosixHelper.dll").exists());
+        assert!(!game.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-sgen").exists());
+        assert_eq!(report.receipts.len(), 1);
+
+        // Idempotent second deploy.
+        let mut report2 = crate::fna_profile::AssetStagingReport::new(1562430);
+        let n2 = deploy_unity_runtime(&game, &profile, &ms_home, Some(&mut report2)).unwrap();
+        assert_eq!(n2, 0);
+        assert!(report2.receipts.is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn deploy_xna_set_and_deps_follow_profile() {
+        let home = mono_deploy_home("xna");
+        let ms_home = home.join(".metalsharp");
+        let xna_root = ms_home.join("runtime").join("xna");
+        std::fs::create_dir_all(&xna_root).unwrap();
+        std::fs::write(xna_root.join("Microsoft.Xna.Framework.dll"), b"xna").unwrap();
+        std::fs::write(xna_root.join("Microsoft.Xna.Framework.Game.dll"), b"xna2").unwrap();
+        std::fs::create_dir_all(ms_home.join("runtime").join("sdl3")).unwrap();
+        std::fs::write(ms_home.join("runtime").join("sdl3").join("libSDL3.dylib"), b"sdl3").unwrap();
+
+        let game = home.join("Necesse");
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("FNA.dll"), b"fna").unwrap();
+        let profile = crate::mono_profile::discover_mono_profile(&game);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::Fna);
+
+        let mut report = crate::fna_profile::AssetStagingReport::new(1169040);
+        let n = deploy_xna_assembly_set(&game, &profile, &ms_home, Some(&mut report)).unwrap();
+        assert_eq!(n, 2);
+        assert!(game.join("Microsoft.Xna.Framework.dll").exists());
+
+        // SDL3 dep: add the dylib signal and deploy.
+        std::fs::write(game.join("libSDL3.dylib"), b"present").unwrap();
+        let profile2 = crate::mono_profile::discover_mono_profile(&game);
+        let mut report2 = crate::fna_profile::AssetStagingReport::new(1169040);
+        let n2 = deploy_profile_deps(&game, &profile2, &ms_home, Some(&mut report2)).unwrap();
+        // SDL3 already present -> skip; carbon not signaled -> 0.
+        assert_eq!(n2, 0);
         let _ = std::fs::remove_dir_all(&home);
     }
 }
