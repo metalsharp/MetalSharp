@@ -366,7 +366,31 @@ fn run_install_all() {
         std::thread::sleep(Duration::from_millis(200));
     }
 
+    // Fresh install: the default m12Backend is vkd3d-proton, but if the
+    // vkd3d/DXVK/MoltenVK lanes failed to stage (old bundle, offline, hash
+    // mismatch) the default must fall back to DXMT in config so it never
+    // points at a missing runtime. Migration does this in reconcile_m12_backend;
+    // install needs the same guard.
+    reconcile_m12_backend_for_home(&home);
+
     write_progress(total, total, "Complete", "complete", "All assets installed!", None);
+}
+
+/// Keep the M12 backend pointing at a real runtime after a fresh install:
+/// leave the vkd3d-proton default when its lanes staged, otherwise pin DXMT in
+/// config. Mirrors migrate.rs `reconcile_m12_backend` for the install path.
+pub fn reconcile_m12_backend_for_home(home: &Path) {
+    if vkd3d_proton_runtime_current_for_home(home)
+        && moltenvk_vkmt_runtime_ready_for_home(home)
+        && dxvk_runtime_ready_for_home(home)
+    {
+        return;
+    }
+    let mut body = serde_json::Map::new();
+    body.insert("m12Backend".into(), json!("dxmt"));
+    if crate::launch::set_config_for_home(home, &body).is_ok() {
+        eprintln!("M12 vkd3d-proton lanes missing after install — fell back to DXMT backend");
+    }
 }
 
 type InstallStep = (&'static str, Box<dyn Fn(&PathBuf) -> Result<bool, String>>);
@@ -3113,5 +3137,43 @@ mod tests {
         assert!(moltenvk_vkmt_ready(&wine_dir));
 
         let _ = fs::remove_dir_all(wine_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn install_reconcile_keeps_vkd3d_default_when_lanes_present() {
+        let home = test_home("install-reconcile-vkd3d");
+        write_vkd3d_proton_expected_test_files(&vkd3d_proton_runtime_dir_for_home(&home));
+        let mvk = moltenvk_vkmt_runtime_dir_for_home(&home);
+        fs::create_dir_all(&mvk).expect("mvk dir");
+        fs::write(mvk.join("libMoltenVK.dylib"), b"mvk").expect("mvk dylib");
+        fs::write(mvk.join("MoltenVK_icd.json"), b"icd").expect("mvk icd");
+        let dxvk = dxvk_runtime_dir_for_home(&home).join("x86_64-windows");
+        fs::create_dir_all(&dxvk).expect("dxvk dir");
+        for dll in ["dxgi.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll"] {
+            fs::write(dxvk.join(dll), dll.as_bytes()).expect("write dxvk dll");
+        }
+
+        reconcile_m12_backend_for_home(&home);
+
+        // Lanes present -> default stays vkd3d-proton, no config pin written.
+        let configs = home.join(".metalsharp").join("configs");
+        assert!(
+            !configs.join("config.json").exists(),
+            "vkd3d-proton default must not be pinned to config when lanes are present"
+        );
+        assert_eq!(crate::launch::m12_backend_mode_for(&home), "vkd3d-proton");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn install_reconcile_pins_dxmt_when_lanes_missing() {
+        let home = test_home("install-reconcile-dxmt-fallback");
+
+        // Empty home: no vkd3d/MoltenVK/DXVK lanes staged -> must pin DXMT so
+        // the default never points at a missing runtime.
+        reconcile_m12_backend_for_home(&home);
+
+        assert_eq!(crate::launch::m12_backend_mode_for(&home), "dxmt");
+        let _ = fs::remove_dir_all(home);
     }
 }

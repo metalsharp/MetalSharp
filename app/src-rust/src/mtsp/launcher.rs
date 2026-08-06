@@ -2463,11 +2463,14 @@ fn apply_metal_fx_config(env: &mut Vec<(String, String)>, node: &PipelineNode, h
         return;
     }
     let (enabled, factor) = crate::metalfx::effective_state_for(home);
-    let factor_str = if (factor - 1.75).abs() < f32::EPSILON { "1.75" } else { "1.50" };
+    // Pass the actual overlay factor through (formatted to 2 decimals) so a
+    // value like 2.0 chosen in the ProcessManager overlay is honored at launch
+    // instead of being quantized to the sidebar's 1.50/1.75 pair.
+    let factor_str = format!("{:.2}", factor);
 
     // Rewrite the LAST DXMT_CONFIG entry in place.
     if let Some((_, config)) = env.iter_mut().rev().find(|(key, _)| key == "DXMT_CONFIG") {
-        *config = metal_fx_config_with_upscale(config, enabled.then_some(factor_str));
+        *config = metal_fx_config_with_upscale(config, enabled.then_some(factor_str.as_str()));
     }
 
     // MetalFX swapchain integration: on for strengths, off for "off" (matches
@@ -7088,6 +7091,31 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                 assert!(config.contains(expect), "cycle {i}: {config}");
             }
         }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn metalfx_env_passes_overlay_factor_through_unquantized() {
+        let home = metalfx_home();
+        let node = get_pipeline(PipelineId::M11);
+        // The ProcessManager overlay offers 2.0 (metalfx.rs accepts 1.0..=3.0).
+        // The launch env must honor it, not quantize to the sidebar's pair.
+        write_metalfx_state(&home, true, 2.0);
+        let mut env = dxmt_env_with_node(PipelineId::M11);
+        apply_metal_fx_config(&mut env, node, &home);
+        let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+        assert!(
+            config.contains("d3d11.metalSpatialUpscaleFactor=2.00"),
+            "2.0 factor must pass through at launch: {}",
+            config
+        );
+
+        // A fractional value (e.g. 1.60) also passes through.
+        write_metalfx_state(&home, true, 1.6);
+        let mut env = dxmt_env_with_node(PipelineId::M11);
+        apply_metal_fx_config(&mut env, node, &home);
+        let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+        assert!(config.contains("d3d11.metalSpatialUpscaleFactor=1.60"), "1.6 factor must pass through: {}", config);
         let _ = std::fs::remove_dir_all(&home);
     }
 

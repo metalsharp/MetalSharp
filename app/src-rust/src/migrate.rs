@@ -834,6 +834,7 @@ enum SteamUpdateWaitAction {
 struct PreservedData {
     setup_json: Option<Vec<u8>>,
     steam_config_json: Option<Vec<u8>>,
+    config_json: Option<Vec<u8>>,
     prefix_steam_tmp: PathBuf,
     prefix_gptk_tmp: PathBuf,
     sharp_prefix_tmp: PathBuf,
@@ -885,6 +886,25 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
             "no steam config with API key found"
         },
     );
+
+    // Preserve the app config (m12Backend, msync, controllerInput,
+    // graphicsRuntimeLogs). remove_old_runtime deletes configs/, so without
+    // this every migration silently resets the user's runtime toggles.
+    let config_json_path = ms_dir.join("configs").join("config.json");
+    let config_json = if config_json_path.exists() {
+        let loaded = fs::read(&config_json_path).ok();
+        report.record(
+            "preserve",
+            if loaded.is_some() { "preserved" } else { "skipped" },
+            "config.json",
+            Some(config_json_path.to_string_lossy().to_string()),
+            if loaded.is_some() { "config.json present" } else { "config.json present but unreadable" },
+        );
+        loaded
+    } else {
+        report.record("preserve", "skipped", "config.json", None, "config.json absent");
+        None
+    };
 
     write_migrate_progress("running", 2, MIGRATION_TOTAL_STEPS, "Preserving user data (cache metadata)...", None);
     let cache_tmp = tmp.join("cache");
@@ -1024,6 +1044,7 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
         PreservedData {
             setup_json,
             steam_config_json,
+            config_json,
             prefix_steam_tmp,
             prefix_gptk_tmp,
             sharp_prefix_tmp,
@@ -2393,6 +2414,13 @@ fn restore_user_data(ms_dir: &PathBuf, preserved: &PreservedData, report: &mut M
         report.record("restore", "skipped", "setup.json", None, "no preserved setup.json");
     }
 
+    if let Some(ref data) = preserved.config_json {
+        restore_config_json(ms_dir, data);
+        report.record("restore", "restored", "config.json", None, "config.json restored (user toggles preserved)");
+    } else {
+        report.record("restore", "skipped", "config.json", None, "no preserved config.json");
+    }
+
     if let Some(ref data) = steam_config_json {
         restore_steam_config(ms_dir, data);
         report.record("restore", "restored", "steam_config", None, "steam config restored");
@@ -2464,6 +2492,32 @@ fn restore_setup_json(ms_dir: &Path, data: &[u8], steam_api_key_restored: bool) 
         }
     }
     let _ = fs::write(ms_dir.join("setup.json"), data);
+}
+
+/// Restore the app config.json after migration, merging the preserved user
+/// keys over whatever the fresh install wrote. Only the known user-toggle keys
+/// are copied from the preserved file, so a future version's new keys (or
+/// defaults written during install) are never clobbered.
+fn restore_config_json(ms_dir: &Path, data: &[u8]) {
+    const PRESERVED_KEYS: &[&str] = &["m12Backend", "msync", "controllerInput", "graphicsRuntimeLogs"];
+    let configs_dir = ms_dir.join("configs");
+    let _ = fs::create_dir_all(&configs_dir);
+    let path = configs_dir.join("config.json");
+
+    let Ok(preserved) = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(data) else {
+        // Unparseable preserved config: keep whatever the new version wrote.
+        return;
+    };
+    let mut merged: serde_json::Map<String, serde_json::Value> =
+        fs::read_to_string(&path).ok().and_then(|txt| serde_json::from_str(&txt).ok()).unwrap_or_default();
+    for key in PRESERVED_KEYS {
+        if let Some(value) = preserved.get(*key) {
+            merged.insert((*key).into(), value.clone());
+        }
+    }
+    if let Ok(serialized) = serde_json::to_vec_pretty(&merged) {
+        let _ = fs::write(&path, serialized);
+    }
 }
 
 fn restore_steam_config(ms_dir: &Path, data: &[u8]) {
@@ -2805,6 +2859,42 @@ mod tests {
             r#"{"id":"steam_620"}"#
         );
         assert!(!ms_dir.join("bottles").join(GOG_PREFIX_BOTTLE_ID).exists());
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn migration_preserves_config_json_user_toggles() {
+        let home = test_dir("preserve-config-json");
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        let configs = ms_dir.join("configs");
+        fs::create_dir_all(&configs).expect("create configs dir");
+        // User toggles from the sidebar/Settings, plus an unknown future key
+        // that a fresh install would write.
+        fs::write(
+            configs.join("config.json"),
+            r#"{"m12Backend":"dxmt","msync":false,"controllerInput":"x","graphicsRuntimeLogs":true,"futureKey":"keep"}"#,
+        )
+        .expect("write config.json");
+
+        let (preserved, mut report) = preserve_user_data(&ms_dir);
+        assert!(preserved.config_json.is_some(), "config.json must be preserved");
+
+        // Simulate the migration: configs/ is wiped, then the fresh install
+        // writes a default config.json (vkd3d-proton default + a new-version key).
+        remove_old_runtime(&ms_dir);
+        fs::create_dir_all(&configs).expect("recreate configs dir");
+        fs::write(configs.join("config.json"), r#"{"m12Backend":"vkd3d-proton","newVersionKey":"fresh"}"#)
+            .expect("write fresh config");
+
+        restore_user_data(&ms_dir, &preserved, &mut report);
+        let restored: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(configs.join("config.json")).unwrap()).unwrap();
+        assert_eq!(restored["m12Backend"], "dxmt", "user's backend choice must survive migration");
+        assert_eq!(restored["msync"], false, "msync toggle must survive migration");
+        assert_eq!(restored["controllerInput"], "x", "controller input mode must survive migration");
+        assert_eq!(restored["graphicsRuntimeLogs"], true, "graphics logs toggle must survive migration");
+        assert_eq!(restored["newVersionKey"], "fresh", "fresh-install keys must not be clobbered by restore");
+
         let _ = fs::remove_dir_all(home);
     }
 
