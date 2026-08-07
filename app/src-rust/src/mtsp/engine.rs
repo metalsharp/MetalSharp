@@ -60,7 +60,6 @@ impl PipelineNode {
 
 static PIPELINES: OnceLock<Vec<PipelineNode>> = OnceLock::new();
 const DXMT_70_PERCENT_UPSCALE_CONFIG: &str = "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60";
-const DXMT_M12_SAFE_CONFIG: &str = "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60";
 
 /// Cache of the effective M12 node (vkd3d-proton by default, DXMT when
 /// `m12Backend=dxmt`). Built once at first access from the config so the
@@ -83,45 +82,31 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
         graphics_backend: "vkd3d-proton",
         experimental: false,
         requires_wine: true,
-        wine_overrides: Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
-        // vkd3d-proton ships Windows DLLs only (lib/vkd3d-proton/x86_64-windows
-        // in WINEDLLPATH below); there is no vkd3d-proton unix sidecar. The
-        // unix library path for the Vulkan hop is wine's own x86_64-unix lane
-        // plus the VKMT MoltenVK dylib directory. The VKMT lane MUST precede
-        // lib/wine/x86_64-unix: the wine tree bundles a stock libMoltenVK.dylib
-        // (1.4.1) in x86_64-unix, and any @rpath/loader resolution would
-        // shadow the custom VKMT build (1.4.2) otherwise.
+        wine_overrides: Some(
+            "d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+        ),
         dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
-        winedllpath_dirs: vec!["lib/vkd3d-proton/x86_64-windows", "lib/dxvk/x86_64-windows"],
+        winedllpath_dirs: vec![],
         deploy_dlls: vec![
-            DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "d3d12.dll", dest_filename: None },
+            DllDeploy {
+                source_subpath: "lib/vkd3d-proton/x86_64-windows",
+                filename: "d3d12.dll",
+                dest_filename: None,
+            },
             DllDeploy {
                 source_subpath: "lib/vkd3d-proton/x86_64-windows",
                 filename: "d3d12core.dll",
                 dest_filename: None,
             },
-            DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
-            // GPU vendor stubs: vkd3d-proton ships none (its lane is
-            // d3d12/d3d12core only), so these come from the shared dxmt_m12
-            // lane, which is always staged (hash-pinned, DXMT fallback).
-            DllDeploy { source_subpath: "lib/dxmt_m12/x86_64-windows", filename: "nvapi64.dll", dest_filename: None },
-            DllDeploy { source_subpath: "lib/dxmt_m12/x86_64-windows", filename: "nvngx.dll", dest_filename: None },
+            DllDeploy {
+                source_subpath: "lib/dxvk/x86_64-windows",
+                filename: "dxgi.dll",
+                dest_filename: None,
+            },
         ],
         env_vars: vec![
-            EnvVar { key: "VKD3D_LOG_LEVEL", value: "warn" },
-            // DXVK 3.x hard-requires the VK_EXT_robustness2 feature; the VKMT
-            // fork gates robustBufferAccess2 behind this config (Metal does not
-            // bounds-check shader buffer accesses — the fork reports it false by
-            // default as a truthfulness measure). The M12 stack must advertise
-            // it: vkd3d-proton supplies the shader-level bounds behaviour the
-            // feature relies on in practice.
-            EnvVar { key: "MVK_CONFIG_ADVERTISE_ROBUST_BUFFER_ACCESS_2", value: "1" },
-            // vkd3d-proton (VKMT fork) reports Metal's stricter linear-texture
-            // alignment and refuses device init unless this VKMT opt-in is
-            // set; the fork's own diagnostic route (no texel buffers) uses it.
+            EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
             EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
-            // VKD3D_SHADER_CACHE_PATH is set to the absolute isolated cache dir
-            // by cache_env_pairs; do not override it with a relative value here.
         ],
         launch_args: vec!["-windowed", "-ResX=1280", "-ResY=720", "-ForceRes"],
         alternatives: vec![PipelineId::M11, PipelineId::M10, PipelineId::M9, PipelineId::Steam, PipelineId::MacSteam],
@@ -152,66 +137,36 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
             PipelineNode {
                 id: PipelineId::M12,
                 name: "M12",
-                description: "D3D12 -> Metal via DXMT",
-                backend: "dxmt",
-                graphics_backend: "dxmt",
+                description: "D3D12 -> Metal via vkd3d-proton (MoltenVK)",
+                backend: "vkd3d-proton",
+                graphics_backend: "vkd3d-proton",
                 experimental: false,
                 requires_wine: true,
                 wine_overrides: Some(
-                    "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+                    "d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
                 ),
-                dyld_paths: vec!["lib/dxmt_m12/x86_64-unix", "lib/wine/x86_64-unix"],
-                winedllpath_dirs: vec!["lib/dxmt_m12/x86_64-windows"],
+                dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
+                winedllpath_dirs: vec![],
                 deploy_dlls: vec![
                     DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
+                        source_subpath: "lib/vkd3d-proton/x86_64-windows",
                         filename: "d3d12.dll",
                         dest_filename: None,
                     },
                     DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
-                        filename: "d3d11.dll",
+                        source_subpath: "lib/vkd3d-proton/x86_64-windows",
+                        filename: "d3d12core.dll",
                         dest_filename: None,
                     },
                     DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
+                        source_subpath: "lib/dxvk/x86_64-windows",
                         filename: "dxgi.dll",
-                        dest_filename: None,
-                    },
-                    DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
-                        filename: "dxgi_dxmt.dll",
-                        dest_filename: None,
-                    },
-                    DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
-                        filename: "d3d10core.dll",
-                        dest_filename: None,
-                    },
-                    DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
-                        filename: "winemetal.dll",
-                        dest_filename: None,
-                    },
-                    DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
-                        filename: "nvapi64.dll",
-                        dest_filename: None,
-                    },
-                    DllDeploy {
-                        source_subpath: "lib/dxmt_m12/x86_64-windows",
-                        filename: "nvngx.dll",
                         dest_filename: None,
                     },
                 ],
                 env_vars: vec![
-                    EnvVar { key: "DXMT_METALFX_SPATIAL_SWAPCHAIN", value: "1" },
-                    EnvVar { key: "DXMT_METALFX_SPATIAL", value: "1" },
-                    EnvVar { key: "DXMT_METALFX_TEMPORAL", value: "1" },
-                    EnvVar { key: "DXMT_ASYNC_PIPELINE_COMPILE", value: "1" },
-                    EnvVar { key: "DXMT_D3D12_UE_SM6_COMPAT", value: "1" },
-                    EnvVar { key: "DXMT_D3D12_PSO_WORKERS", value: "6" },
-                    EnvVar { key: "DXMT_CONFIG", value: DXMT_M12_SAFE_CONFIG },
+                    EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
+                    EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
                 ],
                 launch_args: vec!["-windowed", "-ResX=1280", "-ResY=720", "-ForceRes"],
                 alternatives: vec![
@@ -769,11 +724,10 @@ mod tests {
     }
 
     #[test]
-    fn m12_is_primary_d3d12_vkd3d_proton_profile() {
+    fn m12_is_primary_d3d12_vkd3d_profile() {
         let m12 = get_pipeline(PipelineId::M12);
         assert!(!m12.experimental);
         assert_eq!(m12.backend, "vkd3d-proton");
-        assert_eq!(m12.graphics_backend, "vkd3d-proton");
         assert!(m12.launch_args.contains(&"-windowed"));
         assert!(m12.deploy_dlls.iter().any(|dll| dll.filename == "d3d12.dll"));
         assert!(m12.deploy_dlls.iter().any(|dll| dll.filename == "d3d12core.dll"));
@@ -785,59 +739,57 @@ mod tests {
     fn m12_vkd3d_proton_uses_isolated_lanes() {
         let m12 = get_pipeline(PipelineId::M12);
 
-        // Runtime wine unix lane + VKMT MoltenVK lane. vkd3d-proton itself
-        // has NO unix sidecar — its DLLs live in the windows lane only, so a
-        // vkd3d-proton/x86_64-unix dyld path must never be required (it does
-        // not exist in the runtime and failed every M12 bottle save).
-        for required in ["lib/wine/x86_64-unix", "lib/moltenvk-vkmt"] {
+        for required in ["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"] {
             assert!(m12.dyld_paths.contains(&required));
         }
         assert!(!m12.dyld_paths.contains(&"lib/vkd3d-proton/x86_64-unix"));
         assert!(!m12.dyld_paths.contains(&"lib/dxmt/x86_64-unix"));
         assert!(!m12.dyld_paths.contains(&"lib/dxmt_m12/x86_64-unix"));
-        assert!(m12.winedllpath_dirs.contains(&"lib/vkd3d-proton/x86_64-windows"));
+        assert!(m12.winedllpath_dirs.is_empty());
         assert!(!m12.winedllpath_dirs.contains(&"lib/dxmt/x86_64-windows"));
         assert!(!m12.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
 
         // Deploys vkd3d-proton d3d12/d3d12core + DXVK dxgi; never DXMT.
         let m12_dlls: std::collections::HashSet<_> =
             m12.deploy_dlls.iter().map(|dll| (dll.source_subpath, dll.filename)).collect();
-        for required in ["d3d12.dll", "d3d12core.dll"] {
-            assert!(
-                m12_dlls.contains(&("lib/vkd3d-proton/x86_64-windows", required)),
-                "M12 missing vkd3d-proton DLL {}",
-                required
-            );
+        for required in [
+            ("lib/vkd3d-proton/x86_64-windows", "d3d12.dll"),
+            ("lib/vkd3d-proton/x86_64-windows", "d3d12core.dll"),
+            ("lib/dxvk/x86_64-windows", "dxgi.dll"),
+        ] {
+            assert!(m12_dlls.contains(&required), "M12 missing vkd3d DLL {:?}", required);
         }
-        assert!(m12_dlls.contains(&("lib/dxvk/x86_64-windows", "dxgi.dll")));
-        assert!(!m12.deploy_dlls.iter().any(|dll| dll.source_subpath == "lib/dxmt/x86_64-windows"));
-        // The only dxmt_m12 lane usage is the GPU vendor stubs (nvapi64/nvngx),
-        // which vkd3d-proton does not ship; everything else must stay isolated.
-        assert!(m12.deploy_dlls.iter().all(|dll| {
-            dll.source_subpath != "lib/dxmt_m12/x86_64-windows"
-                || dll.filename == "nvapi64.dll"
-                || dll.filename == "nvngx.dll"
-        }));
+        assert!(!m12.deploy_dlls.iter().any(|dll| dll.source_subpath.starts_with("lib/dxmt")));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll"));
 
-        // Overrides route d3d12/d3d12core/dxgi to the deployed natives.
-        assert_eq!(m12.wine_overrides, Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"));
+        let m12_env: std::collections::HashSet<_> = m12.env_vars.iter().map(|env| env.key).collect();
+        assert!(m12_env.contains("MVK_PRESENT_MODE"));
+        assert!(m12_env.contains("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT"));
+        assert!(!m12_env.iter().any(|key| key.starts_with("DXMT_")));
+        let m12_env_values: std::collections::HashMap<_, _> =
+            m12.env_vars.iter().map(|env| (env.key, env.value)).collect();
+        assert_eq!(m12_env_values.get("MVK_PRESENT_MODE"), Some(&"1"));
+        assert_eq!(m12_env_values.get("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT"), Some(&"1"));
+
+        assert_eq!(
+            m12.wine_overrides,
+            Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d")
+        );
         assert!(m12.alternatives.contains(&PipelineId::M11));
     }
 
     #[test]
-    fn m12_dxmt_fallback_node_keeps_legacy_profile() {
-        let dxmt = m12_vkd3d_proton_node();
-        assert_eq!(dxmt.backend, "vkd3d-proton");
-
-        // The static pipelines() list still carries the legacy DXMT M12 node
-        // for the m12Backend=dxmt fallback path.
-        let legacy = pipelines().iter().find(|p| p.id == PipelineId::M12).expect("legacy M12 in list");
-        assert_eq!(legacy.backend, "dxmt");
-        assert!(legacy.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
-        assert!(legacy.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
+    fn m12_pipelines_list_has_no_legacy_dxmt_fallback() {
+        // M12 is vkd3d-proton only (no DXMT fallback): the pipelines() list
+        // must expose exactly the vkd3d-proton node shape.
+        let node = pipelines().iter().find(|p| p.id == PipelineId::M12).expect("M12 in list");
+        assert_eq!(node.backend, "vkd3d-proton");
+        assert_eq!(node.graphics_backend, "vkd3d-proton");
+        assert!(!node.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
+        assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
+        assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
     }
 
     #[test]

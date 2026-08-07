@@ -149,13 +149,71 @@ fn parse_rules(toml_str: &str) -> HashMap<u32, PipelineId> {
     parse_rules_full(toml_str).0
 }
 
+/// Update an appid's pipeline rule in the mutable `mtsp-rules.toml` (the same
+/// file `load_rules` resolves first). Preserves all other content: rewrites
+/// the `pipeline` line of an existing `[overrides.<appid>]` section, or
+/// appends a new section. Returns the path written.
+pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let current_exe = std::env::current_exe().ok();
+    let path = rule_candidates(&home, current_exe.as_deref())
+        .into_iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| "mtsp-rules.toml not found; nothing to update".to_string())?;
+    let pipeline_id = pipeline
+        .user_selectable_id()
+        .ok_or_else(|| format!("pipeline {:?} has no rule id", pipeline))?;
+    let header = format!("[overrides.{}]", appid);
+    let contents = std::fs::read_to_string(&path).map_err(|e| format!("read mtsp-rules.toml: {}", e))?;
+    let mut lines: Vec<String> = contents.lines().map(str::to_string).collect();
+
+    let section_idx = lines.iter().position(|l| l.trim() == header);
+    let mut replaced = false;
+    match section_idx {
+        Some(start) => {
+            // The section runs until the next `[header]` (sub-sections such as
+            // `[overrides.<appid>.dependencies]` belong to this section but
+            // never carry the `pipeline` key, so stopping at the first header
+            // is safe).
+            let end = lines[start + 1..]
+                .iter()
+                .position(|l| l.trim().starts_with('[') && l.trim().ends_with(']'))
+                .map(|i| start + 1 + i)
+                .unwrap_or(lines.len());
+            match lines[start + 1..end].iter().position(|l| l.trim_start().starts_with("pipeline")) {
+                Some(rel) => {
+                    lines[start + 1 + rel] = format!("pipeline = \"{}\"", pipeline_id);
+                    replaced = true;
+                }
+                None => {
+                    lines.insert(start + 1, format!("pipeline = \"{}\"", pipeline_id));
+                    replaced = true;
+                }
+            }
+        }
+        None => {
+            if !contents.ends_with('\n') {
+                lines.push(String::new());
+            }
+            lines.push(header);
+            lines.push(format!("pipeline = \"{}\"", pipeline_id));
+            replaced = true;
+        }
+    }
+
+    if replaced {
+        let new_contents = lines.join("\n") + "\n";
+        std::fs::write(&path, new_contents).map_err(|e| format!("write mtsp-rules.toml: {}", e))?;
+    }
+    Ok(path)
+}
+
 pub fn resolve_pipeline(appid: u32) -> PipelineId {
     let rules = load_rules();
 
     if let Some(&pipeline) = rules.get(&appid) {
         return resolve_dxmt_alias(appid, pipeline);
     }
-
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid));
     if let Some(ref dir) = game_dir {
         if dir.exists() {

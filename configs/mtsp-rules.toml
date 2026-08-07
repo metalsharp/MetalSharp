@@ -276,11 +276,11 @@ components = ["gecko", "webview2", "dotnet48", "vcrun2019_x64", "vcrun2019_x86",
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]
 
 [overrides.870780]
-pipeline = "m11"
+pipeline = "m12"
 name = "CONTROL Ultimate Edition"
 
 [overrides.870780.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
 [overrides.1196590]
 pipeline = "m12"
 name = "Resident Evil Village"
@@ -289,7 +289,7 @@ name = "Resident Evil Village"
 components = ["vcrun2019", "directx_jun2010", "gpu_vendor_stubs"]
 
 [overrides.1196590.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "nvapi64.dll", "nvngx.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
 
 [overrides.1236300]
 pipeline = "m12"
