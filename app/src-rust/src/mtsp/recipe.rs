@@ -185,10 +185,6 @@ fn append_app_launch_args(appid: u32, pipeline: PipelineId, launch_args: &mut Ve
         append_unique_launch_arg(launch_args, "-secure");
     }
 
-    if appid == 1962700 && pipeline == PipelineId::M12 {
-        launch_args.retain(|arg| !arg.eq_ignore_ascii_case("-steam"));
-    }
-
     match (appid, pipeline) {
         (1196590 | 1623730 | 1928870 | 2358720 | 2456740, PipelineId::M12) => {
             append_unique_launch_arg(launch_args, "-dx12");
@@ -231,6 +227,14 @@ pub(crate) fn requires_steam_launch_args(appid: u32) -> bool {
 }
 
 pub(crate) fn uses_steam_launch_model(appid: u32, pipeline: PipelineId) -> bool {
+    // M12 ALWAYS uses the real Steam model: the game is launched directly
+    // (never steam://run) with the real Steam user files deployed into the
+    // game folder (steamclient64.dll, GameOverlayRenderer*, steam_api64) so
+    // the game talks to the real Steam client running in the background.
+    // `-steam` is passed so UE/Unity titles enable Steam integration.
+    if pipeline == PipelineId::M12 {
+        return true;
+    }
     requires_steam_launch_args(appid) && !matches!(pipeline, PipelineId::M13 | PipelineId::D3DMetal)
 }
 
@@ -1307,10 +1311,12 @@ mod tests {
     }
 
     #[test]
-    fn subnautica_m12_launches_without_steam_arg() {
+    fn subnautica_m12_uses_steam_arg_on_vkd3d_shape() {
+        // Subnautica 2 is on the vkd3d-proton M12 shape now (no DXMT), so it
+        // gets the global M12 real-Steam model: -steam is passed.
         let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
 
-        assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
+        assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
     }
 
     #[test]
@@ -1393,6 +1399,22 @@ mod tests {
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")), "pipeline {pipeline:?}");
             assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-secure")), "pipeline {pipeline:?}");
+        }
+    }
+
+    #[test]
+    fn every_m12_game_gets_steam_arg_globally() {
+        // The real Steam model is GLOBAL for M12 (not an appid allowlist):
+        // any game switched to m12 launches directly with -steam and the real
+        // Steam user files deployed. Sample a mix of games — Control (UE),
+        // MECCA CHAMELEON (UE5/EOS), PEAK — none of which are in the legacy
+        // requires_steam_launch_args allowlist.
+        for appid in [870780u32, 4704690, 1583230] {
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M12));
+            assert!(
+                args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")),
+                "appid {appid}: M12 must pass -steam globally"
+            );
         }
     }
 

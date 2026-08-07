@@ -675,7 +675,7 @@ mod tests {
             (2302640, PipelineId::M11),
             (291550, PipelineId::M11),
             (599140, PipelineId::M11),
-            (4704690, PipelineId::M11),
+            (4704690, PipelineId::M12),
         ] {
             assert_eq!(rules.get(&appid), Some(&pipeline), "appid {appid}");
         }
