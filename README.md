@@ -41,7 +41,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 | Route | Engine | How To Use |
 |---|---|---|
-| **M12** | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK); DXMT rollback via the `m12Backend` setting | Save 'M12' Bottle, Hit Play |
+| **M12** | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK); DXMT rollback via the `m12Backend` setting | In Progress |
 | **M11** | D3D11 to Metal (DXMT) | Save 'M11' Bottle, Hit Play |
 | **M11(32)** | D3D11 i386 to Metal (DXMT) - 32Bit D3D11 | Save 'M11(32)' Bottle, Hit Play |
 | **M10** | D3D10 to Metal (DXMT) | Save 'M10' Bottle, Hit Play |
