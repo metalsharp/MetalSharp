@@ -1715,12 +1715,15 @@ fn stage_m12_dlls_for_saved_steam_bottle(
         return Ok(None);
     }
 
-    let home = dirs::home_dir().ok_or("no home dir")?;
-    crate::installer::ensure_dxmt_m12_runtime_ready(&home)
-        .map_err(|e| format!("M12 runtime setup failed while saving bottle: {}", e))?;
-
     let (_env, recipe) = crate::mtsp::launcher::prepare_steam_pipeline_env(appid, crate::mtsp::engine::PipelineId::M12)
         .map_err(|e| format!("M12 DLL deployment failed while saving bottle: {}", e))?;
+
+    // The M12 route rule is mutable: persist the explicit M12 pipeline for
+    // this appid so the default rule matches the deployed state.
+    if let Err(e) = crate::mtsp::rules::set_pipeline_rule(appid, crate::mtsp::engine::PipelineId::M12) {
+        eprintln!("bottle: failed to update M12 rule for appid {}: {}", appid, e);
+    }
+
     Ok(recipe.game_dir)
 }
 
