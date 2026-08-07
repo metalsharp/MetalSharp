@@ -296,6 +296,15 @@ fn seed_steam_d3d12_guard(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn s
         return Err("MetalSharp Wine not found".into());
     }
 
+    // The guard only needs to be applied once per prefix: a `wine reg import`
+    // spawn is the single slowest step of the Steam launch path (a cold
+    // wineserver can take tens of seconds) and the launch response drives the
+    // frontend's "Stop Wine Steam" state — never re-pay it.
+    let marker = prefix.join("drive_c").join(".metalsharp-steam-d3d12-guard-applied");
+    if marker.exists() {
+        return Ok(());
+    }
+
     let reg_file_name = "metalsharp-steam-d3d12-guard.reg";
     let reg_file = prefix.join("drive_c").join(reg_file_name);
     std::fs::write(&reg_file, build_steam_d3d12_guard_reg())?;
@@ -312,6 +321,7 @@ fn seed_steam_d3d12_guard(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn s
     crate::platform::set_runtime_library_env(&mut cmd, ms_root);
     let status = cmd.status()?;
     if status.success() {
+        let _ = std::fs::write(&marker, b"applied");
         Ok(())
     } else {
         Err(format!("regedit exited with {}", status).into())
@@ -453,6 +463,21 @@ pub fn launch_wine_steam_with_env(extra_env: &[(String, String)]) -> Result<Valu
     let wine = ms_wine();
     if !wine.exists() {
         return Err("MetalSharp Wine not found".into());
+    }
+
+    // The bundled wrapper can be left in a syntactically broken state by
+    // older sanitize passes (orphaned else/fi around VK_ICD_FILENAMES).
+    // Repair it before every spawn so a Steam launch can never fail on it.
+    crate::mtsp::launcher::sanitize_metalsharp_wine_wrapper_env()?;
+
+    // The pre-fix M12 backend staged vkd3d-proton/DXVK DLLs into the shared
+    // prefix system32, which freezes the Steam client UI (a native DXVK dxgi
+    // next to wine's builtin d3d11). Restore the wine builtin baseline before
+    // every Steam spawn so a polluted prefix heals without a reinstall.
+    // Best-effort: Steam must still launch if the repair hits an I/O error.
+    let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
+    if let Err(err) = crate::mtsp::launcher::repair_m12_prefix_system32(&steam_prefix(), &ms_root) {
+        eprintln!("steam: WARNING — prefix system32 M12 pollution repair failed: {}", err);
     }
 
     let steam_dir = resolve_steam_dir();

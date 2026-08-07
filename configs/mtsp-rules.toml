@@ -80,17 +80,17 @@ name = "Subnautica 2"
 offline_capable = true
 
 [overrides.1962700.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.3164500]
-pipeline = "m11"
+pipeline = "m12"
 name = "Schedule I"
 
 [overrides.3164500.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.3164500.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 [overrides.508440]
 pipeline = "m11"
 name = "Totally Accurate Battle Simulator"
@@ -144,7 +144,7 @@ offline_capable = true
 components = ["vcrun2019", "vcrun2013", "directx_jun2010"]
 
 [overrides.1245620.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.814380]
 pipeline = "m11"
@@ -168,14 +168,14 @@ offline_capable = true
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.2050650.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1583230]
 pipeline = "m12"
 name = "High On Life"
 
 [overrides.1583230.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.397540]
 pipeline = "m11"
@@ -208,7 +208,7 @@ offline_capable = true
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1091500.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1868140]
 pipeline = "m11"
@@ -230,7 +230,7 @@ offline_capable = true
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1551360.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1716740]
 pipeline = "m12"
@@ -240,7 +240,7 @@ name = "Starfield"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1716740.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1203620]
 pipeline = "wine_bare"
@@ -251,7 +251,7 @@ pipeline = "m12"
 name = "REMNANT II"
 
 [overrides.1282100.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.750920]
 pipeline = "m11"
@@ -260,11 +260,11 @@ name = "Shadow of the Tomb Raider: Definitive Edition"
 [overrides.750920.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1172380]
-pipeline = "m11"
+pipeline = "m12"
 name = "STAR WARS Jedi: Fallen Order"
 
 [overrides.1172380.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 [overrides.271590]
 pipeline = "m11"
 name = "Grand Theft Auto V Legacy"
@@ -276,11 +276,11 @@ components = ["gecko", "webview2", "dotnet48", "vcrun2019_x64", "vcrun2019_x86",
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]
 
 [overrides.870780]
-pipeline = "m11"
+pipeline = "m12"
 name = "CONTROL Ultimate Edition"
 
 [overrides.870780.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 [overrides.1196590]
 pipeline = "m12"
 name = "Resident Evil Village"
@@ -289,14 +289,14 @@ name = "Resident Evil Village"
 components = ["vcrun2019", "directx_jun2010", "gpu_vendor_stubs"]
 
 [overrides.1196590.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "nvapi64.dll", "nvngx.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1236300]
 pipeline = "m12"
 name = "Resident Evil Re:Verse"
 
 [overrides.1236300.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1888160]
 pipeline = "m12"
@@ -307,7 +307,7 @@ offline_capable = true
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1888160.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.976310]
 pipeline = "m11"
@@ -323,7 +323,7 @@ name = "Marvel Rivals"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.2767030.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.292030]
 pipeline = "m11"
@@ -339,7 +339,7 @@ name = "Hogwarts Legacy"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.990080.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1172470]
 pipeline = "m11"
@@ -352,7 +352,7 @@ pipeline = "m12"
 name = "Riders Republic"
 
 [overrides.2290180.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.548430]
 pipeline = "m11"
@@ -380,7 +380,7 @@ name = "Palworld"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1623730.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1928870]
 pipeline = "m12"
@@ -390,7 +390,7 @@ name = "Minecraft Legends"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1928870.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.553850]
 pipeline = "m12"
@@ -400,7 +400,7 @@ name = "HELLDIVERS 2"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.553850.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.367520]
 pipeline = "m11"
@@ -409,8 +409,15 @@ name = "Hollow Knight"
 [overrides.367520.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.413150]
+# Stardew Valley 1.6+ is a .NET 6 (self-contained) MonoGame build. The mono/fna
+# route (fna_arm64) is the preferred path: launch_fna_arm64 detects the net6
+# runtimeconfig.json and hands execution to the game's own .NET 6 runtime via
+# Wine (M11) internally, so picking Mono/FNA launches it.
 pipeline = "fna_arm64"
 name = "Stardew Valley"
+
+[overrides.413150.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.1145360]
 pipeline = "m11_32"
@@ -491,7 +498,7 @@ name = "inZOI"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.2456740.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.275850]
 pipeline = "wine_bare"
@@ -505,7 +512,7 @@ name = "S.T.A.L.K.E.R. 2: Heart of Chornobyl"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1643320.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.379720]
 pipeline = "wine_bare"
@@ -529,7 +536,7 @@ name = "PEAK"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.3527290.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1147560]
 pipeline = "m11"
@@ -617,7 +624,7 @@ name = "Hollow Knight: Silksong"
 offline_capable = true
 
 [overrides.1030300.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.222880]
 pipeline = "m11"
@@ -676,11 +683,11 @@ name = "Graveyard Keeper"
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.4704690]
-pipeline = "m11"
+pipeline = "m12"
 name = "MECCHA CHAMELEON"
 
 [overrides.4704690.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 # Auto-generated MTSP rules for 675 Steam AppIDs
 # Pipeline choice is best-effort based on Steam store research
 # Verify DX version on PCGamingWiki if a default is wrong
@@ -5791,7 +5798,7 @@ name = "Diablo IV"
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1894810.diagnostics]
-check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 
 [overrides.1895880]
 pipeline = "m11"

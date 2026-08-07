@@ -2221,22 +2221,26 @@ fn resolve_unix_path_to_windows(unix_path: &Path, dosdevices: &Path) -> Option<S
                 Err(_) => continue,
             };
             let rest_str = rest.to_string_lossy();
-            let windows_rest: String = rest_str.replace('/', "\\\\");
+            // VDF paths use SINGLE backslashes ("Y:\SteamLibrary"). Doubling
+            // them (the old `\\\\`) made resolve_wine_path turn every
+            // separator into "//" and leaked `/Volumes//AverySSD//` style
+            // paths into bottle manifests.
+            let windows_rest: String = rest_str.replace('/', "\\");
             if windows_rest.is_empty() {
-                return Some(format!("{}:\\\\", drive.to_uppercase()));
+                return Some(format!("{}:\\", drive.to_uppercase()));
             } else {
-                return Some(format!("{}:\\\\{}", drive.to_uppercase(), windows_rest.trim_start_matches('\\')));
+                return Some(format!("{}:\\{}", drive.to_uppercase(), windows_rest.trim_start_matches('\\')));
             }
         }
     }
 
     // Fallback: use Z: drive (Wine's standard mapping of Z: -> /).
     // External volumes like /Volumes/AverySSD/SteamLibrary become
-    // Z:\\Volumes\\AverySSD\\SteamLibrary in Wine.
+    // Z:\Volumes\AverySSD\SteamLibrary in Wine.
     ensure_z_drive(dosdevices);
     let unix_str = unix_path.to_string_lossy();
     if unix_str.starts_with('/') {
-        let windows_path = format!("Z:{}", unix_str.replace('/', "\\\\"));
+        let windows_path = format!("Z:{}", unix_str.replace('/', "\\"));
         log_to_file(&format!("Migration: resolved external library to Z: path: {}", windows_path));
         return Some(windows_path);
     }
@@ -3804,12 +3808,13 @@ mod tests {
         std::os::unix::fs::symlink(&external, dosdevices.join("e:")).expect("create e drive");
 
         let result = resolve_unix_path_to_windows(&external, &dosdevices);
-        assert_eq!(result, Some("E:\\\\".to_string()));
+        // VDF paths use single backslashes (E:\ExternalSteam).
+        assert_eq!(result, Some("E:\\".to_string()));
 
         let sub = external.join("SteamLibrary");
         fs::create_dir_all(&sub).expect("create sub");
         let result2 = resolve_unix_path_to_windows(&sub, &dosdevices);
-        assert_eq!(result2, Some("E:\\\\SteamLibrary".to_string()));
+        assert_eq!(result2, Some("E:\\SteamLibrary".to_string()));
 
         let _ = fs::remove_dir_all(home);
     }

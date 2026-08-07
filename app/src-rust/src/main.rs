@@ -116,6 +116,21 @@ fn main() {
     })
     .unwrap_or_else(|e| eprintln!("ctrlc handler warning: {}", e));
 
+    // Log panics from ANY thread into the app log so a crash is diagnosable
+    // even though stderr is invisible from a Finder-launched app.
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("metalsharp-backend panic: {}", info);
+        let msg = info.to_string();
+        let _ = std::fs::create_dir_all(logs_dir());
+        let log_path = logs_dir().join(format!("{}.log", chrono_date()));
+        let line = format!("[{}] backend panic: {}\n", chrono_now(), msg);
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+    }));
+
     eprintln!("metalsharp-backend listening on {}", addr);
     app_log(&format!("MetalSharp v{} backend started on {}", env!("CARGO_PKG_VERSION"), addr));
 
@@ -132,65 +147,98 @@ fn main() {
             Err(_) => break,
         };
 
-        // Local-API origin guard (H9): the Electron renderer talks to this
-        // backend through the preload bridge, which sends no Origin header
-        // (Node http.request). Any request carrying a browser Origin must be
-        // from a trusted local origin (dev server / file://). Everything else
-        // is a cross-origin webpage trying to reach the local API (DNS
-        // rebinding / CSRF) and gets 403 before any route logic runs.
-        let origin = request
-            .headers()
-            .iter()
-            .find(|h| h.field.equiv("Origin"))
-            .map(|h| h.value.as_str().trim())
-            .filter(|o| !o.is_empty());
-        if let Some(origin) = origin {
-            if !is_trusted_local_origin(origin) {
-                eprintln!("rejected cross-origin request from {origin}");
-                let resp = Response::from_data(br#"{"ok":false,"error":"cross-origin request rejected"}"#.to_vec())
-                    .with_header(json_header.clone())
-                    .with_status_code(403);
-                let _ = request.respond(resp);
-                continue;
-            }
-            // Trusted browser origin: echo it back (never the wildcard), so
-            // responses are readable only by the page that owns that origin.
-            if let Ok(echo) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], origin.as_bytes()) {
-                let resp = match route(&mut request) {
+        // Handlers run synchronously on the main thread (tiny_http), so a
+        // panic in ANY handler previously terminated the whole backend.
+        // Catch panics per-request: a single bad request must never take the
+        // process down (the app has no live-session supervisor).
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Response<std::io::Cursor<Vec<u8>>>> {
+                // Local-API origin guard (H9): the Electron renderer talks to this
+                // backend through the preload bridge, which sends no Origin header
+                // (Node http.request). Any request carrying a browser Origin must be
+                // from a trusted local origin (dev server / file://). Everything else
+                // is a cross-origin webpage trying to reach the local API (DNS
+                // rebinding / CSRF) and gets 403 before any route logic runs.
+                let origin = request
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("Origin"))
+                    .map(|h| h.value.as_str().trim())
+                    .filter(|o| !o.is_empty());
+                if let Some(origin) = origin {
+                    if !is_trusted_local_origin(origin) {
+                        eprintln!("rejected cross-origin request from {origin}");
+                        return Some(
+                            Response::from_data(br#"{"ok":false,"error":"cross-origin request rejected"}"#.to_vec())
+                                .with_header(json_header.clone())
+                                .with_status_code(403),
+                        );
+                    }
+                    // Trusted browser origin: echo it back (never the wildcard), so
+                    // responses are readable only by the page that owns that origin.
+                    if let Ok(echo) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], origin.as_bytes()) {
+                        let resp = match route(&mut request) {
+                            RouteResponse::Json(code, body) => Response::from_data(body)
+                                .with_header(echo)
+                                .with_header(json_header.clone())
+                                .with_status_code(code),
+                            RouteResponse::Raw(code, data, mime) => {
+                                let content_header = Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
+                                    .unwrap_or_else(|_| json_header.clone());
+                                Response::from_data(data)
+                                    .with_header(echo)
+                                    .with_header(content_header)
+                                    .with_status_code(code)
+                            },
+                        };
+                        return Some(resp);
+                    }
+                }
+
+                let route_resp = route(&mut request);
+                Some(match route_resp {
                     RouteResponse::Json(code, body) => Response::from_data(body)
-                        .with_header(echo)
+                        .with_header(cors_header.clone())
                         .with_header(json_header.clone())
                         .with_status_code(code),
                     RouteResponse::Raw(code, data, mime) => {
                         let content_header = Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
                             .unwrap_or_else(|_| json_header.clone());
-                        Response::from_data(data).with_header(echo).with_header(content_header).with_status_code(code)
+                        Response::from_data(data)
+                            .with_header(cors_header.clone())
+                            .with_header(content_header)
+                            .with_status_code(code)
                     },
-                };
+                })
+            }));
+        match outcome {
+            Ok(Some(resp)) => {
                 let _ = request.respond(resp);
-                continue;
-            }
-        }
-
-        let route_resp = route(&mut request);
-        match route_resp {
-            RouteResponse::Json(code, body) => {
-                let resp = Response::from_data(body)
+            },
+            Ok(None) => {},
+            Err(payload) => {
+                let msg = panic_payload_message(&payload);
+                eprintln!("metalsharp-backend: request handler panicked: {}", msg);
+                app_log(&format!("request handler panicked: {}", msg));
+                let safe = msg.replace('"', "'").replace('\\', "/");
+                let body = format!(r#"{{"ok":false,"error":"internal handler panic: {}"}}"#, safe);
+                let resp = Response::from_data(body.into_bytes())
                     .with_header(cors_header.clone())
                     .with_header(json_header.clone())
-                    .with_status_code(code);
-                let _ = request.respond(resp);
-            },
-            RouteResponse::Raw(code, data, mime) => {
-                let content_header =
-                    Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap_or_else(|_| json_header.clone());
-                let resp = Response::from_data(data)
-                    .with_header(cors_header.clone())
-                    .with_header(content_header)
-                    .with_status_code(code);
+                    .with_status_code(500);
                 let _ = request.respond(resp);
             },
         }
+    }
+}
+
+fn panic_payload_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic payload".to_string()
     }
 }
 
@@ -613,6 +661,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                                 env.push(("METALSHARP_OFFLINE_MODE".to_string(), "1".to_string()));
                             }
                             let is_gptk_direct = matches!(pipeline, mtsp::engine::PipelineId::D3DMetal);
+                            // All MTSP routes launch the game directly (never
+                            // steam://run). The game process gets the route env
+                            // applied to it and talks to the real Steam client
+                            // running in the background; the real Steam user
+                            // files (steamclient64.dll, steam_api64,
+                            // GameOverlayRenderer*) are deployed into the game
+                            // folder by prepare_steam_pipeline_env for the
+                            // routes that use the real Steam model (M12 always).
                             let steam_started = if is_gptk_direct {
                                 false
                             } else {

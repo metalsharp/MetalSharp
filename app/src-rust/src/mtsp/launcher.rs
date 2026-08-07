@@ -560,7 +560,11 @@ pub fn prepare_steam_pipeline_env(
     }
     deploy_recipe_dlls(&recipe)?;
     let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-    deploy_prefix_route_dlls(&recipe, &prefix)?;
+    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // Heal any pollution the pre-fix backend left in the shared prefix so a
+    // Steam launch after an M12 play can never pick up a DXVK dxgi.
+    let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+    repair_m12_prefix_system32(&prefix, &ms_root)?;
 
     let env = steam_pipeline_env_pairs(&home, node, appid);
     Ok((env, recipe))
@@ -1009,33 +1013,63 @@ pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Bo
     Ok(())
 }
 
-fn deploy_prefix_route_dlls(
-    recipe: &super::recipe::LaunchRecipe,
-    prefix: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if recipe.pipeline != PipelineId::M12 {
+/// DLLs the pre-fix M12 backend could have written into the shared prefix
+/// system32 (the old `deploy_prefix_route_dlls`). The M12 runtime must NEVER
+/// live there: a native DXVK/vkd3d-proton copy next to wine's builtin d3d11
+/// freezes the Steam client UI, which renders D3D11 through whatever dxgi the
+/// loader resolves first.
+const M12_PREFIX_ROUTE_DLLS: &[&str] =
+    &["d3d12.dll", "d3d12core.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
+
+/// Self-healing inverse of the old `deploy_prefix_route_dlls`.
+///
+/// The M12 route (vkd3d-proton/DXVK lanes, or the DXMT M12 lane for the
+/// `m12Backend=dxmt` fallback) deploys its DLLs into the GAME DIR and routes
+/// them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like M9/M10/M11
+/// (`deploy_recipe_dlls`). It never stages into the shared prefix system32.
+///
+/// This repair detects route copies the OLD backend left in system32 and
+/// restores the wine builtin PE DLLs that wineboot originally installed there
+/// ("what used to be there"), so Steam works again without a reinstall.
+/// Idempotent and cheap: size-compare first, exact sha only when sizes match.
+/// Never creates system32 and never touches unrelated files.
+pub fn repair_m12_prefix_system32(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let system32 = prefix.join("drive_c").join("windows").join("system32");
+    if !system32.is_dir() {
         return Ok(());
     }
-
-    let system32 = prefix.join("drive_c").join("windows").join("system32");
-    std::fs::create_dir_all(&system32)?;
-    for deploy in &recipe.dlls {
-        if !deploy.source_present {
+    for dll in M12_PREFIX_ROUTE_DLLS {
+        let dest = system32.join(dll);
+        if !dest.is_file() {
             continue;
         }
-        if !matches!(
-            deploy.filename.as_str(),
-            "d3d12.dll"
-                | "d3d12core.dll"
-                | "dxgi.dll"
-                | "dxgi_dxmt.dll"
-                | "d3d11.dll"
-                | "d3d10core.dll"
-                | "winemetal.dll"
-        ) {
-            continue;
+        let wine_builtin = ms_root.join("lib").join("wine").join("x86_64-windows").join(dll);
+        let restore = if !wine_builtin.is_file() {
+            // No builtin to restore: drop the foreign DLL so the loader falls
+            // back to wine's builtin from its lib dir.
+            true
+        } else {
+            let dest_size = dest.metadata().map(|m| m.len()).unwrap_or(0);
+            let builtin_size = wine_builtin.metadata().map(|m| m.len()).unwrap_or(0);
+            if dest_size != builtin_size {
+                true
+            } else if let (Some(dest_sha), Some(builtin_sha)) =
+                (crate::diagnostics::file_sha256(&dest), crate::diagnostics::file_sha256(&wine_builtin))
+            {
+                dest_sha != builtin_sha
+            } else {
+                true
+            }
+        };
+        if restore {
+            if wine_builtin.is_file() {
+                std::fs::copy(&wine_builtin, &dest)?;
+                eprintln!("mtsp: repaired prefix system32/{} — restored wine builtin over stale M12 route DLL", dll);
+            } else {
+                std::fs::remove_file(&dest)?;
+                eprintln!("mtsp: repaired prefix system32/{} — removed stale M12 route DLL", dll);
+            }
         }
-        std::fs::copy(&deploy.source_path, system32.join(&deploy.filename))?;
     }
     Ok(())
 }
@@ -1044,7 +1078,115 @@ fn wine_debug_value() -> String {
     std::env::var("METALSHARP_WINEDEBUG").unwrap_or_else(|_| "-all".to_string())
 }
 
-fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Error>> {
+/// Repair the bundled mono runtime libraries so they load on any machine:
+/// the mono bundle is built against /Library/Frameworks/Mono.framework and
+/// every dylib carries absolute build-machine dependencies (libgdiplus ->
+/// libglib-2.0.0.dylib etc.) that do not exist on user machines, which made
+/// System.Drawing/WinForms fail with DllNotFoundException. Rewrite those
+/// dependencies to @loader_path (all libs share one directory). Also restore
+/// the libmono-native.dylib symlink the x86 bundle omits (the 4.5 profile's
+/// System.IO native shim). Runs once per runtime, before any mono launch.
+pub(crate) fn repair_mono_runtime_links() -> Result<(), Box<dyn std::error::Error>> {
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+    let runtime = ms_home.join("runtime");
+    for arch in ["mono-x86", "mono-arm64"] {
+        let lib_dir = runtime.join(arch).join("lib");
+        if !lib_dir.is_dir() {
+            continue;
+        }
+        let marker = lib_dir.join(".metalsharp_relink_done");
+        let needs_run = if marker.exists() {
+            // Re-run if the runtime was updated after the marker was written.
+            let marker_mtime = std::fs::metadata(&marker).and_then(|m| m.modified()).ok();
+            let newest_lib = std::fs::read_dir(&lib_dir).ok().and_then(|e| {
+                e.flatten()
+                    .filter(|p| p.path().extension().map(|x| x == "dylib").unwrap_or(false))
+                    .filter_map(|p| p.metadata().ok())
+                    .filter_map(|m| m.modified().ok())
+                    .max()
+            });
+            match (marker_mtime, newest_lib) {
+                (Some(marker), Some(lib)) => lib > marker,
+                _ => false,
+            }
+        } else {
+            true
+        };
+        if !needs_run {
+            continue;
+        }
+        let mut relinked = 0_u32;
+        if let Ok(entries) = std::fs::read_dir(&lib_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e != "dylib").unwrap_or(true) {
+                    continue;
+                }
+                let Ok(out) = std::process::Command::new("/usr/bin/otool").arg("-L").arg(&path).output() else {
+                    continue;
+                };
+                let text = String::from_utf8_lossy(&out.stdout);
+                let mut deps: Vec<String> = text
+                    .lines()
+                    .filter_map(|line| {
+                        let t = line.trim();
+                        if t.starts_with("/Library/Frameworks/Mono.framework/") {
+                            t.split_whitespace().next().map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                deps.sort();
+                deps.dedup();
+                let mut modified = false;
+                for dep in deps {
+                    let base = Path::new(&dep).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    if base.is_empty() {
+                        continue;
+                    }
+                    let _ = std::process::Command::new("/usr/bin/install_name_tool")
+                        .args(["-change", &dep, &format!("@loader_path/{base}")])
+                        .arg(&path)
+                        .output();
+                    relinked += 1;
+                    modified = true;
+                }
+                if modified {
+                    // install_name_tool rewrites the dylib WITHOUT updating its
+                    // LC_CODE_SIGNATURE, leaving a stale signature blob. On
+                    // Apple Silicon that is a HARD KILL at dlopen time —
+                    // EXC_BAD_ACCESS / CODESIGNING Invalid Page, SIGKILL, no
+                    // managed exception (seen on libgdiplus.0.dylib after a
+                    // runtime reinstall re-ran this repair). Re-sign ad-hoc
+                    // after every rewrite. (A fully UNSIGNED dylib passes
+                    // under Rosetta; a BROKEN signature does not.)
+                    let _ = std::process::Command::new("/usr/bin/codesign")
+                        .args(["--force", "-s", "-"])
+                        .arg(&path)
+                        .output();
+                }
+            }
+        }
+        // libmono-native.dylib: the x86 bundle ships the -unified/-compat
+        // variants but not the plain name the mono config maps System.Native
+        // to — System.IO then fails with DllNotFoundException at startup.
+        let plain = lib_dir.join("libmono-native.dylib");
+        if !plain.exists() {
+            for candidate in ["libmono-native-unified.0.dylib", "libmono-native.0.dylib"] {
+                if lib_dir.join(candidate).exists() {
+                    let _ = std::os::unix::fs::symlink(candidate, &plain);
+                    break;
+                }
+            }
+        }
+        let _ = std::fs::write(&marker, format!("relinked {} deps", relinked));
+    }
+    Ok(())
+}
+
+pub(crate) fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
     let wrapper = crate::platform::metalsharp_home_dir_for(&home)
         .join("runtime")
@@ -1056,7 +1198,18 @@ fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Erro
     }
 
     let script = std::fs::read_to_string(&wrapper)?;
-    let mut repaired = repair_metalsharp_wine_wrapper(&script);
+    let repaired = sanitize_metalsharp_wine_wrapper_script(&script);
+
+    if repaired != script {
+        std::fs::write(&wrapper, repaired)?;
+    }
+    Ok(())
+}
+
+/// Pure string surgery for the `metalsharp-wine` wrapper. Idempotent; the
+/// deployed wrapper must ALWAYS be a valid bash script after this runs.
+fn sanitize_metalsharp_wine_wrapper_script(script: &str) -> String {
+    let mut repaired = repair_metalsharp_wine_wrapper(script);
 
     // Isolation contract: MetalSharp's own DLL/dylib directories MUST be
     // searched before anything the parent environment inherited. Third-party
@@ -1073,31 +1226,115 @@ fn sanitize_metalsharp_wine_wrapper_env() -> Result<(), Box<dyn std::error::Erro
         repaired.replace_range(replace_start..end, winedll_block);
     }
 
-    let dyld_block = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
-"#;
-    if let (Some(start), Some(end)) =
-        (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export VK_ICD_FILENAMES="))
-    {
-        let replace_start = start + "export WINEDATADIR=\"$MS_ROOT/share\"\n".len();
-        repaired.replace_range(replace_start..end, dyld_block);
-    }
+    // DYLD_FALLBACK_LIBRARY_PATH must lead with MetalSharp's unix lib dirs.
+    // The VKMT MoltenVK lane comes FIRST: the wine tree bundles a stock
+    // libMoltenVK.dylib (1.4.1) in lib/wine/x86_64-unix that would otherwise
+    // shadow the custom VKMT build (1.4.2) for any @rpath resolution.
+    // Line-based surgery: replace the existing export line when present, or
+    // insert it right after WINEDATADIR. NEVER a range replace — the old
+    // range logic anchored on the next `export VK_ICD_FILENAMES=` line and
+    // swallowed the `if` line of the ICD guard, leaving an orphaned
+    // `else`/`fi` that made every wine spawn die with a bash syntax error.
+    let dyld_line = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB/moltenvk-vkmt:$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}""#;
+    repaired = replace_or_insert_export_line(
+        &repaired,
+        "export DYLD_FALLBACK_LIBRARY_PATH=",
+        dyld_line,
+        "export WINEDATADIR=",
+    );
+
+    // VK_ICD_FILENAMES must resolve inside the runtime (never a hardcoded
+    // Homebrew path) and the if/else guard must stay intact and syntactically
+    // valid. Idempotent: a correct guard is left untouched; a bare export or
+    // the previously-mangled orphaned-else/fi state is normalized into it.
+    repaired = normalize_vk_icd_block(&repaired);
+
+    // VKMT texturing toggle must reach EVERY wine process, including games
+    // Steam CreateProcess-spawns (which inherit Steam's env, not the route
+    // env the backend set on the Steam command). MVK_PRESENT_MODE already
+    // rides globally in the wrapper; the VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT
+    // toggle must too, or Steam-spawned M12 games render with broken texturing
+    // (PEAK: launched but graphics shitting out). Only the per-route
+    // WINEDLLOVERRIDES stays route-specific.
+    repaired = replace_or_insert_export_line(
+        &repaired,
+        "export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=",
+        r#"export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT="1""#,
+        "export MVK_PRESENT_MODE=",
+    );
 
     // Drop CrossOver's CX_ROOT emulation: a real CrossOver reading CX_ROOT
     // could mistake a MetalSharp process for one of its own bottles.
-    repaired = repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "");
+    repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "")
+}
 
-    // VK_ICD_FILENAMES must never hardcode a Homebrew path (CrossOver users
-    // often have no Homebrew). Prefer the runtime-bundled MoltenVK ICD;
-    // otherwise unset and let the loader search standard locations.
-    repaired = repaired.replace(
-        "export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"",
-        "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi",
-    );
-
-    if repaired != script {
-        std::fs::write(&wrapper, repaired)?;
+/// Replace the line starting with `prefix` with `replacement`. When no such
+/// line exists, insert `replacement` directly after the line starting with
+/// `anchor` (or append at the end when the anchor is missing too).
+fn replace_or_insert_export_line(script: &str, prefix: &str, replacement: &str, anchor: &str) -> String {
+    let lines: Vec<&str> = script.lines().collect();
+    if let Some(idx) = lines.iter().position(|line| line.starts_with(prefix)) {
+        let mut out = lines.clone();
+        out[idx] = replacement;
+        let mut joined = out.join("\n");
+        // Preserve the input's trailing newline so a second sanitize pass is
+        // byte-identical (idempotence): the insert path below keeps the
+        // trailing '\n', so the replace path must too.
+        if script.ends_with('\n') {
+            joined.push('\n');
+        }
+        return joined;
     }
-    Ok(())
+    let mut result = String::new();
+    let mut inserted = false;
+    for line in &lines {
+        result.push_str(line);
+        result.push('\n');
+        if line.starts_with(anchor) && !inserted {
+            result.push_str(replacement);
+            result.push('\n');
+            inserted = true;
+        }
+    }
+    if !inserted {
+        result.push_str(replacement);
+        result.push('\n');
+    }
+    result
+}
+
+const VK_ICD_IF_LINE: &str = "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then";
+const VK_ICD_BLOCK: &str = "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi";
+
+/// Normalize the VK_ICD_FILENAMES handling in the wine wrapper:
+/// - a correct if/else guard is left untouched (idempotent);
+/// - a bare `export VK_ICD_FILENAMES="<anything>"` (Homebrew or MS root) is
+///   replaced with the guard;
+/// - the previously-mangled state (`export` immediately followed by an
+///   orphaned `else`/`unset`/`fi`) is rewritten into the guard.
+fn normalize_vk_icd_block(script: &str) -> String {
+    if script.contains(VK_ICD_IF_LINE) {
+        return script.to_string();
+    }
+    let lines: Vec<&str> = script.lines().collect();
+    let Some(idx) = lines.iter().position(|line| line.trim_start().starts_with("export VK_ICD_FILENAMES=")) else {
+        return script.to_string();
+    };
+    // Drop the export line plus any orphaned else/unset/fi lines that follow
+    // it (the mangled state leaves `else`/`fi` with no matching `if`).
+    let mut end = idx + 1;
+    while end < lines.len() {
+        let trimmed = lines[end].trim();
+        if trimmed == "else" || trimmed.starts_with("unset VK_ICD_FILENAMES") || trimmed == "fi" {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    let mut out: Vec<&str> = lines[..idx].to_vec();
+    out.push(VK_ICD_BLOCK);
+    out.extend_from_slice(&lines[end..]);
+    out.join("\n")
 }
 
 fn repair_metalsharp_wine_wrapper(script: &str) -> String {
@@ -1311,33 +1548,38 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
         .map(|home| crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam"))
         .unwrap_or_default();
     let prefix_system32 = prefix.join("drive_c").join("windows").join("system32");
+    let ms_root = dirs::home_dir()
+        .map(|home| crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine"))
+        .unwrap_or_default();
     let prefix_dlls: Vec<serde_json::Value> = if recipe.pipeline == PipelineId::M12 {
-        recipe
-            .dlls
+        // M12 runtime DLLs must live in the GAME DIR, never the shared prefix
+        // system32: a native DXVK/vkd3d-proton copy next to wine's builtin
+        // d3d11 freezes the Steam client UI. A route DLL sitting in system32
+        // is pollution the old backend left behind; `repair_m12_prefix_system32`
+        // restores the wine builtin baseline on the next M12/Steam launch.
+        M12_PREFIX_ROUTE_DLLS
             .iter()
-            .filter(|dll| {
-                matches!(
-                    dll.filename.as_str(),
-                    "d3d12.dll" | "dxgi.dll" | "dxgi_dxmt.dll" | "d3d11.dll" | "d3d10core.dll" | "winemetal.dll"
-                )
-            })
             .map(|dll| {
-                let dest_path = prefix_system32.join(&dll.filename);
-                let source_sha256 =
-                    if dll.source_present { crate::diagnostics::file_sha256(&dll.source_path) } else { None };
+                let dest_path = prefix_system32.join(dll);
                 let dest_present = dest_path.metadata().map(|m| m.is_file() && m.len() > 0).unwrap_or(false);
-                let dest_sha256 = if dest_present { crate::diagnostics::file_sha256(&dest_path) } else { None };
-                let matches_source =
-                    matches!((&source_sha256, &dest_sha256), (Some(source), Some(dest)) if source == dest);
+                let wine_builtin = ms_root.join("lib").join("wine").join("x86_64-windows").join(dll);
+                let matches_baseline = if dest_present && wine_builtin.is_file() {
+                    matches!(
+                        (
+                            crate::diagnostics::file_sha256(&dest_path),
+                            crate::diagnostics::file_sha256(&wine_builtin),
+                        ),
+                        (Some(dest_sha), Some(builtin_sha)) if dest_sha == builtin_sha
+                    )
+                } else {
+                    false
+                };
                 serde_json::json!({
-                    "filename": dll.filename,
-                    "source_path": dll.source_path,
+                    "filename": dll,
                     "dest_path": dest_path,
-                    "source_sha256": source_sha256,
-                    "dest_sha256": dest_sha256,
                     "dest_present": dest_present,
-                    "matches_source": matches_source,
-                    "ok": dll.source_present && dest_present && matches_source,
+                    "matches_wine_builtin": matches_baseline,
+                    "ok": !dest_present || matches_baseline,
                 })
             })
             .collect()
@@ -1478,7 +1720,9 @@ fn launch_d3dmetal_gptk_with_context(
         validate_recipe_runtime(&recipe)?;
     }
     deploy_recipe_dlls(&recipe)?;
-    deploy_prefix_route_dlls(&recipe, &prefix)?;
+    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // Heal pollution the pre-fix backend left in the shared prefix.
+    repair_m12_prefix_system32(&prefix, &ms_root)?;
 
     let cache_paths = build_cache_paths(&home, node, appid);
 
@@ -1586,7 +1830,10 @@ fn launch_dxmt_metal_with_context(
         cleanup_m12_legacy_hook_artifacts(game_dir, &prefix);
     }
     deploy_recipe_dlls(&recipe)?;
-    deploy_prefix_route_dlls(&recipe, &prefix)?;
+    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // Heal pollution the pre-fix backend left in the shared prefix.
+    let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+    repair_m12_prefix_system32(&prefix, &ms_root)?;
 
     deploy_d3d12_agility_sidecars(appid, node, game_dir)?;
 
@@ -1816,6 +2063,14 @@ pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, Strin
     let profile = crate::mono_profile::discover_mono_profile(game_dir);
     let fna_profile = find_fna_profile(appid);
 
+    // .NET Core / .NET 5+ games (Stardew 1.6+) cannot run on the bundled Mono
+    // runtime, but the mono/fna launch path handles them by handing execution
+    // to the game's own runtime via the Wine stack — the mono-specific
+    // readiness checks below don't apply and must not block the launch.
+    if profile.dotnet_core {
+        return Ok(Vec::new());
+    }
+
     // Mono binary + arch.
     let mono_bin = match find_mono_binary_for_app(appid) {
         Ok(b) => b,
@@ -1849,6 +2104,20 @@ pub fn fna_ready_check(appid: u32, game_dir: &Path) -> Result<Vec<String>, Strin
     for shim in ["libkernel32.dylib", "libuser32.dylib", FNA_CARBON_SHIM, FNA_CARBON_INTERPOSE_SHIM] {
         if !shims_dir.join(shim).is_file() {
             problems.push(format!("missing shared shim {shim} (run repair or reinstall runtime)"));
+        }
+    }
+
+    // A staged arm64-only gdiplus stub must never shadow the real x86_64
+    // libgdiplus on the mono-x86 dyld path for Rosetta (x86) launches
+    // (Terraria: DllNotFoundException libgdiplus.dylib).
+    if fna_profile.mono_arch == MonoArch::X86 {
+        let staged = game_dir.join("libgdiplus.dylib");
+        if staged.is_file() && !dylib_has_x86_64(&staged) {
+            problems.push(
+                "staged libgdiplus.dylib in the game dir is arm64-only and shadows the x86_64 \
+                 libgdiplus on the mono-x86 library path — re-save the bottle to re-stage it"
+                    .into(),
+            );
         }
     }
 
@@ -1891,6 +2160,28 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
 
     // Profile-aware deploy (idempotent; also run by bottle save).
     let discovered = crate::mono_profile::discover_mono_profile(dir);
+    if discovered.dotnet_core {
+        // .NET Core / .NET 5+ games (Stardew 1.6+) ship their OWN runtime
+        // (runtimeconfig.json + self-contained host) and the bundled Mono
+        // cannot execute net6.0 assemblies — but the game's own runtime runs
+        // perfectly under the Wine stack. The mono/fna route stays the launch
+        // path for the game; it hands the actual execution to the game's own
+        // runtime via the Wine pipeline so the game WORKS instead of blocking.
+        eprintln!("fna: appid {} is a .NET Core game — launching via its own runtime (Wine stack)", appid);
+        let (pid, method) = launch_with_pipeline(appid, super::engine::PipelineId::M11)?;
+        let log_path = crate::platform::metalsharp_home_dir_for(&dirs::home_dir().unwrap_or_default())
+            .join("bottles")
+            .join(format!("steam_{}", appid))
+            .join("logs")
+            .join("fna-netcore-fallback.log");
+        return Ok((pid, method, log_path));
+    }
+
+    // The bundled mono's libraries carry build-machine absolute dependencies
+    // (gdiplus -> glib etc.) — relink once so System.Drawing/WinForms load.
+    if let Err(err) = repair_mono_runtime_links() {
+        eprintln!("fna: mono runtime relink skipped: {}", err);
+    }
     if discovered.kind != crate::mono_profile::MonoProfileKind::None {
         let mut report = crate::fna_profile::AssetStagingReport::new(appid);
         let _ = deploy_unity_runtime(dir, &discovered, &ms_home, Some(&mut report));
@@ -1924,6 +2215,25 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     } else {
         resolve_game_exe(dir).into()
     };
+
+    // The mono runtime can only execute managed (CIL) assemblies. Native
+    // executables — notably the Unity player exe of Unity-Mono games
+    // (DREDGE) — have no managed entry point and fail with "File does not
+    // contain a valid CIL image". Refuse up front with an actionable message
+    // instead of spawning mono against a native binary.
+    if !exe_is_cil_assembly(&exe) {
+        let hint = match discovered.kind {
+            crate::mono_profile::MonoProfileKind::UnityMono => {
+                "Unity engine games cannot run under the bundled Mono runtime: the Windows build's \
+                 executable is the native Unity player (no managed entry point). Use a Wine pipeline \
+                 (M11/M12) or the native macOS Steam build."
+            },
+            _ => "the resolved executable is not a .NET assembly; use a Wine pipeline (M11/M12)",
+        };
+        return Err(
+            format!("FNA/Mono/XNA route unavailable for appid {}: {}. Target: {}", appid, hint, exe.display()).into()
+        );
+    }
 
     let mono_bin = find_mono_binary_for_app(appid)?;
     let mono_config = rewrite_config_with_absolute_paths(profile.mono_config, dir)?;
@@ -2815,9 +3125,11 @@ fn cache_env_pairs_with_logs(
                 env.push(("DXMT_LOG_PATH".to_string(), log_dir));
             }
         },
-        "dxvk" => {
+        "dxvk" | "vkd3d-proton" => {
             env.push(("DXVK_STATE_CACHE_PATH".to_string(), shader_dir));
-            env.push(("DXVK_LOG_PATH".to_string(), cache.pipeline.clone()));
+            if graphics_runtime_logs {
+                env.push(("DXVK_LOG_PATH".to_string(), log_dir));
+            }
             let moltenvk_icd = ms_root.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
             if moltenvk_icd.exists() {
                 env.push(("VK_ICD_FILENAMES".to_string(), moltenvk_icd.to_string_lossy().to_string()));
@@ -2984,20 +3296,40 @@ fn ensure_launcher_exe(appid: u32, game_dir: &PathBuf) {
     // H1-H3: launcher binaries (Terraria launcher etc.) are PREBUILT and
     // shipped in the assets bundle — never compile from a dev-machine repo
     // path at launch (silently no-ops on user machines). The bundle layout is
-    // runtime/prebuilt-launchers/<source_file basename>.
+    // runtime/prebuilt-launchers/<launcher_exe basename> (e.g.
+    // TerrariaLauncher.exe). The source basename (TerrariaLauncher.cs) is only
+    // a fallback for legacy bundles that shipped source-named artifacts.
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => return,
     };
     let ms_home = crate::platform::metalsharp_home_dir_for(&home);
-    let file_name = Path::new(source_file)
+    for prebuilt in prebuilt_launcher_candidates(&ms_home, launcher_name, source_file) {
+        if prebuilt.is_file() {
+            let _ = std::fs::copy(&prebuilt, &launcher);
+            return;
+        }
+    }
+}
+
+/// Prebuilt-launcher lookup order: the BINARY name (`launcher_exe`, e.g.
+/// `TerrariaLauncher.exe`) first — the bundle ships binaries — then the
+/// source basename (`TerrariaLauncher.cs`) as a legacy fallback. Regressed
+/// 2026-08: the lookup used the source basename only, so the prebuilt binary
+/// was never found and the launch silently ran the game exe raw.
+fn prebuilt_launcher_candidates(ms_home: &Path, launcher_name: &str, source_file: &str) -> Vec<PathBuf> {
+    let launcher_file = Path::new(launcher_name)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| launcher_name.to_string());
+    let source_basename = Path::new(source_file)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| source_file.to_string());
-    let prebuilt = ms_home.join("runtime").join("prebuilt-launchers").join(&file_name);
-    if prebuilt.is_file() {
-        let _ = std::fs::copy(&prebuilt, &launcher);
-    }
+    vec![
+        ms_home.join("runtime").join("prebuilt-launchers").join(&launcher_file),
+        ms_home.join("runtime").join("prebuilt-launchers").join(&source_basename),
+    ]
 }
 
 fn find_shims_dir() -> String {
@@ -3012,6 +3344,27 @@ fn find_shims_dir() -> String {
         }
     }
     crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("shims").to_string_lossy().to_string()
+}
+
+/// Embedded prebuilt Terraria mono shims: a minimal inert System.Windows.Forms
+/// (Terraria's window-chrome code uses WinForms via Control.FromHandle; mono's
+/// real WinForms hangs in its Quartz window creation) and the ReLogic.Native
+/// IME stub (ImeUi_* — the game ships a Windows PE, mono cannot dlopen it).
+/// Built from src/fna/terraria/* and embedded so no bundle/repo lookup is
+/// needed at launch.
+const TERRARIA_WINFORMS_STUB: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../src/fna/terraria/System.Windows.Forms.Stub/System.Windows.Forms.dll"
+));
+const TERRARIA_RELOGIC_NATIVE_STUB: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/fna/terraria/libReLogic.Native.dylib"));
+
+/// Write an embedded mono stub into the game dir if absent or stale.
+fn stage_embedded_mono_stub(game_dir: &Path, name: &str, bytes: &[u8]) {
+    let dst = game_dir.join(name);
+    if !dst.exists() || std::fs::metadata(&dst).map(|m| m.len() != bytes.len() as u64).unwrap_or(true) {
+        let _ = std::fs::write(&dst, bytes);
+    }
 }
 
 fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
@@ -3099,14 +3452,30 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
     }
 
     let cached = shims_dir.join("libgdiplus.dylib");
-    if !game_dir.join("libgdiplus.dylib").exists() && cached.exists() {
+    let wants_x86 = find_fna_profile(appid).mono_arch == MonoArch::X86;
+    let gdiplus_dst = game_dir.join("libgdiplus.dylib");
+    if wants_x86 {
+        // Rosetta (x86) launches resolve libgdiplus through the dyld path,
+        // where mono-x86/lib ships the real i386+x86_64 libgdiplus. An
+        // arm64-only staged stub in the game dir would shadow it and make
+        // GDI+ fail to load (Terraria: DllNotFoundException libgdiplus.dylib).
+        // Drop a wrong-arch stub so the correct library is found.
+        if gdiplus_dst.exists() && !dylib_has_x86_64(&gdiplus_dst) {
+            eprintln!("fna: removing arm64-only staged libgdiplus stub for x86 game (appid {})", appid);
+            let _ = std::fs::remove_file(&gdiplus_dst);
+        }
+    } else if !gdiplus_dst.exists() && cached.exists() {
         // H3: gdiplus stub ships prebuilt in the bundle shims — never compile
         // from the dev-machine repo path at launch.
-        let _ = std::fs::copy(&cached, game_dir.join("libgdiplus.dylib"));
+        let _ = std::fs::copy(&cached, &gdiplus_dst);
     }
 
     if profile.deploy_terraria_post {
         deploy_terraria_runtime(game_dir, &metalsharp_home);
+        // Terraria's managed code needs the WinForms + IME native surface
+        // that mono cannot provide on macOS (see stubs above).
+        stage_embedded_mono_stub(game_dir, "System.Windows.Forms.dll", TERRARIA_WINFORMS_STUB);
+        stage_embedded_mono_stub(game_dir, "libReLogic.Native.dylib", TERRARIA_RELOGIC_NATIVE_STUB);
     }
 
     let xna_assemblies = [
@@ -3135,6 +3504,26 @@ fn deploy_fna_assemblies(appid: u32, game_dir: &PathBuf) {
     if let Err(err) = deploy_offline_steamworks_net(game_dir, &metalsharp_home) {
         eprintln!("fna: offline Steamworks deploy failed: {}", err);
     }
+}
+
+/// True when the dylib at `path` contains an x86_64 slice. Universal binaries
+/// report both architectures; the prebuilt shims stub is arm64-only. Unknown
+/// files default to compatible so a game's own library is never touched.
+fn dylib_has_x86_64(path: &Path) -> bool {
+    let Ok(output) = std::process::Command::new("file").arg("-b").arg(path).output() else {
+        return true;
+    };
+    let desc = String::from_utf8_lossy(&output.stdout);
+    desc.contains("x86_64")
+}
+
+/// True when `path` is a managed (.NET / CIL) assembly that the Mono runtime
+/// can execute. Native PEs (Unity player exes etc.) return false.
+fn exe_is_cil_assembly(path: &Path) -> bool {
+    let Ok(data) = std::fs::read(path) else {
+        return false;
+    };
+    crate::mtsp::pe::is_dotnet_assembly(&data)
 }
 
 /// Map a discovered Unity version (e.g. "2021.3.5f1") to a bundled runtime
@@ -4002,6 +4391,29 @@ fn deploy_offline_steamworks_net(game_dir: &PathBuf, metalsharp_home: &PathBuf) 
     if !steamworks.exists() {
         return Ok(());
     }
+
+    // .NET Core / .NET 5+ games (runtimeconfig.json — e.g. Stardew Valley
+    // 1.6+) ship their OWN net6 Steamworks.NET.dll and their runtime host
+    // cannot load the .NET Framework offline stub: the game dies with
+    // "Could not load file or assembly 'Steamworks.NET'". Restore the
+    // original if a stub was previously deployed and skip these games.
+    let is_dotnet_core = game_dir
+        .read_dir()
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                name.ends_with(".runtimeconfig.json")
+            })
+        })
+        .unwrap_or(false);
+    if is_dotnet_core {
+        let backup = game_dir.join("Steamworks.NET.dll.metalsharp-original");
+        if backup.exists() {
+            let _ = std::fs::copy(&backup, &steamworks);
+        }
+        return Ok(());
+    }
+
     let backup = game_dir.join("Steamworks.NET.dll.metalsharp-original");
     if !backup.exists() {
         std::fs::copy(&steamworks, &backup)
@@ -5475,6 +5887,17 @@ mod tests {
     use crate::mtsp::recipe;
 
     #[test]
+    fn prebuilt_launcher_candidates_prefer_binary_name_over_source_basename() {
+        let ms_home = std::path::PathBuf::from("/ms-home");
+        let candidates = prebuilt_launcher_candidates(&ms_home, "TerrariaLauncher.exe", "TerrariaLauncher.cs");
+        // The bundle ships the BINARY; the source basename is only a legacy
+        // fallback. Regression: the lookup used the source basename first, so
+        // the prebuilt was never found and the launch ran the game exe raw.
+        assert_eq!(candidates[0], ms_home.join("runtime").join("prebuilt-launchers").join("TerrariaLauncher.exe"));
+        assert_eq!(candidates[1], ms_home.join("runtime").join("prebuilt-launchers").join("TerrariaLauncher.cs"));
+    }
+
+    #[test]
     fn wine_wrapper_does_not_force_forward_compatible_opengl() {
         let wrapper =
             "export WINEDATADIR=\"$MS_ROOT/share\"\nexport MS_FWD_COMPAT_GL_CTX=1\nexport VK_ICD_FILENAMES=foo\n";
@@ -5505,30 +5928,7 @@ export MS_FWD_COMPAT_GL_CTX=1
 export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 "#;
 
-        // Replicate the full sanitize flow on the script string.
-        let mut repaired = repair_metalsharp_wine_wrapper(wrapper);
-        let winedll_block = r#"export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows${WINEDLLPATH:+:$WINEDLLPATH}"
-"#;
-        if let (Some(start), Some(end)) = (
-            repaired.find("export WINELOADER=\"$MS_WINE\"\n"),
-            repaired.find("export WINEDEBUG=\"${WINEDEBUG:--all}\""),
-        ) {
-            let replace_start = start + "export WINELOADER=\"$MS_WINE\"\n".len();
-            repaired.replace_range(replace_start..end, winedll_block);
-        }
-        let dyld_block = r#"export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
-"#;
-        if let (Some(start), Some(end)) =
-            (repaired.find("export WINEDATADIR=\"$MS_ROOT/share\"\n"), repaired.find("export VK_ICD_FILENAMES="))
-        {
-            let replace_start = start + "export WINEDATADIR=\"$MS_ROOT/share\"\n".len();
-            repaired.replace_range(replace_start..end, dyld_block);
-        }
-        repaired = repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "");
-        repaired = repaired.replace(
-            "export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"",
-            "if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then\n  export VK_ICD_FILENAMES=\"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\"\nelse\n  unset VK_ICD_FILENAMES\nfi",
-        );
+        let repaired = sanitize_metalsharp_wine_wrapper_script(wrapper);
 
         // MS paths must come first; ambient values may only be appended after.
         let winedll_line =
@@ -5546,8 +5946,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             .expect("DYLD_FALLBACK_LIBRARY_PATH export present");
         let dyld_prefix = dyld_line.split("${DYLD_FALLBACK").next().unwrap();
         assert!(
-            dyld_prefix.starts_with("export DYLD_FALLBACK_LIBRARY_PATH=\"$MS_LIB:"),
-            "MS unix lib dirs must lead DYLD_FALLBACK_LIBRARY_PATH: {}",
+            dyld_prefix.starts_with("export DYLD_FALLBACK_LIBRARY_PATH=\"$MS_LIB/moltenvk-vkmt:"),
+            "the VKMT MoltenVK lane must lead DYLD_FALLBACK_LIBRARY_PATH (it shadows the wine tree's stock libMoltenVK otherwise): {}",
             dyld_line
         );
 
@@ -5556,6 +5956,55 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert!(!repaired.contains("CX_ROOT"), "CX_ROOT emulation must be dropped");
         assert!(!repaired.contains("/opt/homebrew/etc/vulkan"), "Homebrew ICD path must not remain");
         assert!(repaired.contains("$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json"));
+        assert!(repaired.contains("if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then"));
+    }
+
+    #[test]
+    fn sanitize_repairs_mangled_vk_icd_guard_and_is_idempotent() {
+        // The pre-fix sanitize range-replace deleted the `if` line of the
+        // ICD guard, leaving an orphaned else/fi. The sanitizer must restore
+        // a valid guard from that exact mangled state.
+        let mangled = r#"export WINEDATADIR="$MS_ROOT/share"
+export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+export VK_ICD_FILENAMES="$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json"
+else
+  unset VK_ICD_FILENAMES
+fi
+export MVK_PRESENT_MODE="1"
+"#;
+
+        let repaired = sanitize_metalsharp_wine_wrapper_script(mangled);
+        let repaired_again = sanitize_metalsharp_wine_wrapper_script(&repaired);
+
+        assert_eq!(repaired, repaired_again, "sanitize must be idempotent");
+        assert!(repaired.contains("if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then"));
+        assert!(repaired.contains("else\n  unset VK_ICD_FILENAMES\nfi"));
+        assert!(repaired.contains("export MVK_PRESENT_MODE=\"1\""), "unrelated lines must survive");
+        // Balanced if/fi: the guard must be syntactically complete.
+        let if_count = repaired.lines().filter(|l| l.trim_start().starts_with("if ")).count();
+        let fi_count = repaired.lines().filter(|l| l.trim() == "fi").count();
+        assert_eq!(if_count, fi_count, "if/fi must balance:\n{}", repaired);
+        // And the whole script must be valid bash.
+        let mut status =
+            std::process::Command::new("bash").arg("-n").stdin(std::process::Stdio::piped()).spawn().unwrap();
+        {
+            use std::io::Write;
+            let mut stdin = status.stdin.take().expect("bash stdin");
+            stdin.write_all(repaired.as_bytes()).unwrap();
+        }
+        assert!(status.wait().unwrap().success(), "sanitized wrapper must pass bash -n");
+    }
+
+    #[test]
+    fn sanitize_converts_bare_vk_icd_export_to_guard() {
+        let bare = r#"export WINEDATADIR="$MS_ROOT/share"
+export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+"#;
+        let repaired = sanitize_metalsharp_wine_wrapper_script(bare);
+        assert!(repaired.contains("if [ -f \"$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json\" ]; then"));
+        assert!(!repaired.contains("/opt/homebrew/etc/vulkan"));
+        // Idempotent on the second pass.
+        assert_eq!(repaired, sanitize_metalsharp_wine_wrapper_script(&repaired));
     }
 
     #[test]
@@ -5591,34 +6040,25 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_pipeline_deploy_list_includes_d3d12_and_uses_isolated_vkd3d_proton_surface() {
-        // Phase 3 contract: M12 must deploy d3d12.dll + d3d12core.dll from the
-        // isolated lib/vkd3d-proton surface plus DXVK's dxgi.dll — never DXMT.
+    fn m12_pipeline_deploy_list_includes_d3d12_and_uses_vkd3d_surface() {
+        // Phase 3 contract: M12 must deploy the vkd3d-proton stack (d3d12,
+        // d3d12core, dxgi) — no DXMT artifacts at all.
         let node = get_pipeline(PipelineId::M12);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
-        let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "nvapi64.dll", "nvngx.dll"];
-        assert_eq!(filenames.len(), required.len(), "M12 deploy list must be the vkd3d-proton 5 DLL set");
+        let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"];
+        assert_eq!(filenames.len(), required.len(), "M12 deploy list must be the vkd3d 4-DLL set");
         for required in required {
             assert!(filenames.contains(&required), "M12 deploy list must include {} (got {:?})", required, filenames);
         }
+        assert!(!filenames.iter().any(|f| *f == "winemetal.dll"), "M12 must not deploy winemetal.dll");
+        assert!(!filenames.iter().any(|f| *f == "dxgi_dxmt.dll"), "M12 must not deploy dxgi_dxmt.dll");
         for deploy in &node.deploy_dlls {
-            if deploy.filename == "dxgi.dll" {
-                assert_eq!(
-                    deploy.source_subpath, "lib/dxvk/x86_64-windows",
-                    "M12 dxgi.dll must come from the DXVK lane (vkd3d-proton ships no dxgi)"
-                );
-            } else if deploy.filename == "nvapi64.dll" || deploy.filename == "nvngx.dll" {
-                assert_eq!(
-                    deploy.source_subpath, "lib/dxmt_m12/x86_64-windows",
-                    "M12 GPU vendor stubs must come from the shared dxmt_m12 lane (vkd3d-proton ships none)"
-                );
-            } else {
-                assert_eq!(
-                    deploy.source_subpath, "lib/vkd3d-proton/x86_64-windows",
-                    "M12 DLL {} must come from the isolated vkd3d-proton runtime surface",
-                    deploy.filename
-                );
-            }
+            assert!(
+                deploy.source_subpath.starts_with("lib/vkd3d-proton/")
+                    || deploy.source_subpath.starts_with("lib/dxvk/"),
+                "M12 DLL {} must come from the vkd3d-proton/dxvk runtime surface",
+                deploy.filename
+            );
         }
         assert!(!filenames.contains(&"winemetal.dll"), "M12 must never deploy winemetal.dll (got {:?})", filenames);
         assert!(!filenames.contains(&"dxgi_dxmt.dll"), "M12 must never deploy dxgi_dxmt.dll (got {:?})", filenames);
@@ -5855,15 +6295,23 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     #[test]
     fn m12_pipeline_env_vars_set_vkd3d_overrides_and_shader_cache() {
         // Phase 3 contract: the M12 env builder must set the vkd3d-proton
-        // WINEDLLOVERRIDES, route the wine DLL path to the vkd3d-proton lane,
-        // and point the shader cache at the isolated m12 lane.
+        // WINEDLLOVERRIDES (d3d12/d3d12core/dxgi native-first), carry the
+        // MoltenVK + VKMT launch env, and point the shader cache at the
+        // isolated m12 lane. The M12 route no longer uses DXMT at all.
         let node = get_pipeline(PipelineId::M12);
-        assert!(node.wine_overrides.unwrap_or("").contains("d3d12core"));
-        assert!(node.wine_overrides.unwrap_or("").contains("d3d12"));
+        assert!(node.wine_overrides.unwrap_or("").contains("d3d12,d3d12core,dxgi,d3d11=n,b"));
         assert!(!node.wine_overrides.unwrap_or("").contains("winemetal"));
         assert!(
-            node.winedllpath_dirs.iter().any(|d| d.starts_with("lib/vkd3d-proton")),
-            "M12 winedllpath must route to vkd3d-proton"
+            node.env_vars.iter().any(|ev| ev.key == "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT" && ev.value == "1"),
+            "M12 must set VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=1"
+        );
+        assert!(
+            node.env_vars.iter().any(|ev| ev.key == "MVK_PRESENT_MODE" && ev.value == "1"),
+            "M12 must set MVK_PRESENT_MODE=1"
+        );
+        assert!(
+            !node.env_vars.iter().any(|ev| ev.key.starts_with("DXMT_")),
+            "M12 must not carry DXMT env vars"
         );
         assert_eq!(node.shader_cache_subdir, Some("m12"), "M12 shader cache must be isolated under m12");
     }
@@ -5893,7 +6341,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_vkd3d_log_path_uses_shared_logs_folder_when_developer_logs_enabled() {
+    fn m12_log_path_uses_shared_logs_folder_when_developer_logs_enabled() {
         let home = test_dir("m12-log-path");
         let node = get_pipeline(PipelineId::M12);
         assert_eq!(node.backend, "vkd3d-proton");
@@ -5905,8 +6353,11 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             &crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine"),
             true,
         );
-        // vkd3d-proton does not use DXMT_LOG_PATH; cache env stays DXMT-free.
-        assert!(!env.iter().any(|(key, _)| key == "DXMT_LOG_PATH"));
+        let dxmt_log_path =
+            env.iter().find(|(key, _)| key == "DXVK_LOG_PATH").map(|(_, value)| value.as_str()).unwrap_or_default();
+
+        assert!(dxmt_log_path.contains("/logs/m12-pipeline/1583230/"));
+        assert!(!dxmt_log_path.contains("/pipeline-cache/"));
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -6025,18 +6476,19 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let keys: std::collections::HashSet<_> = env.iter().map(|(key, _)| key.as_str()).collect();
 
         assert!(keys.contains("WINEDLLOVERRIDES"));
+        assert!(keys.contains("MVK_PRESENT_MODE"));
+        assert!(keys.contains("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT"));
         assert!(keys.contains("SteamAppId"));
         assert!(keys.contains("SteamGameId"));
         assert!(keys.contains("SteamOverlayGameId"));
-        // vkd3d-proton lane: shader cache + pinned MoltenVK ICD.
-        assert!(keys.contains("VKD3D_SHADER_CACHE_PATH"));
         assert!(keys.contains("DXVK_STATE_CACHE_PATH"));
-        assert!(!keys.contains("DXMT_SHADER_CACHE_PATH"), "vkd3d-proton must not set DXMT cache env");
-        assert!(!keys.contains("DXMT_CONFIG_FILE"), "vkd3d-proton must not set DXMT_CONFIG_FILE");
-        assert!(!keys.contains("DXMT_WINEMETAL_UNIXLIB"));
+        assert!(!keys.contains("DXMT_LOG_PATH"));
         assert!(keys.contains("METALSHARP_CACHE_SUMMARY"));
-        assert!(keys.contains("MS_GRAPHICS_BACKEND"));
-        assert_eq!(env_value(&env, "MS_GRAPHICS_BACKEND"), Some("vkd3d-proton"));
+        assert!(!keys.contains("DXMT_CONFIG"));
+        assert!(!keys.contains("DXMT_CONFIG_FILE"));
+        assert!(!keys.contains("DXMT_WINEMETAL_UNIXLIB"));
+        assert!(!keys.contains("DXMT_ASYNC_PIPELINE_COMPILE"));
+        assert!(!keys.iter().any(|k| k.starts_with("DXMT_")));
         assert_eq!(env.iter().find(|(key, _)| key == "SteamAppId").map(|(_, value)| value.as_str()), Some("1583230"));
         assert_eq!(env.iter().find(|(key, _)| key == "SteamGameId").map(|(_, value)| value.as_str()), Some("1583230"));
         assert_eq!(
@@ -6044,8 +6496,9 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             Some("1583230")
         );
         let overrides = env.iter().find(|(key, _)| key == "WINEDLLOVERRIDES").map(|(_, value)| value).unwrap();
-        assert!(overrides.contains("d3d12"));
-        assert!(overrides.contains("d3d12core"));
+        assert!(overrides.contains("d3d12,d3d12core,dxgi,d3d11=n,b"));
+        assert!(!overrides.contains("dxgi_dxmt"));
+        assert!(!overrides.contains("winemetal"));
         assert!(overrides.contains("gameoverlayrenderer,gameoverlayrenderer64=d"));
         assert!(!keys.contains("CX_ROOT"));
         assert!(!keys.contains("WINESERVER"));
@@ -6053,11 +6506,10 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert!(!keys.contains("WINEDATADIR"));
         assert!(!keys.contains("MS_ROOT"));
         let winedllpath = env_value(&env, "WINEDLLPATH").unwrap_or_default();
-        assert!(winedllpath.contains("vkd3d-proton/x86_64-windows"));
-        assert!(!winedllpath.contains("lib/metalsharp"));
         assert!(!winedllpath.contains("dxmt_m12"));
-        assert!(env_value(&env, "DYLD_LIBRARY_PATH").unwrap_or_default().contains("vkd3d-proton/x86_64-unix"));
-        assert!(env_value(&env, "DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default().contains("vkd3d-proton/x86_64-unix"));
+        assert!(!winedllpath.contains("lib/metalsharp"));
+        assert!(env_value(&env, "DYLD_LIBRARY_PATH").unwrap_or_default().contains("lib/moltenvk-vkmt"));
+        assert!(env_value(&env, "DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default().contains("lib/moltenvk-vkmt"));
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -6074,6 +6526,33 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
+    fn sanitize_keeps_vkmt_toggle_global_in_wrapper() {
+        // The VKMT texturing toggle must survive wrapper regeneration AND be
+        // present for every wine process (Steam CreateProcess children inherit
+        // Steam's env, not the route env — so the toggle must ride in the
+        // wrapper's global exports next to MVK_PRESENT_MODE).
+        let script = r#"#!/bin/bash
+export MS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export MVK_PRESENT_MODE="1"
+export DXVK_STATE_CACHE_PATH="$HOME/.metalsharp/dxvk-cache"
+export WINEDEBUG="${WINEDEBUG:--all}"
+"#;
+        let repaired = sanitize_metalsharp_wine_wrapper_script(script);
+        assert!(
+            repaired.contains("export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\""),
+            "wrapper must export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=1 globally"
+        );
+        // Idempotent: running the sanitizer again keeps the toggle.
+        let repaired_again = sanitize_metalsharp_wine_wrapper_script(&repaired);
+        assert!(repaired_again.contains("export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\""));
+        // And a script that already has it is left with exactly one occurrence.
+        assert_eq!(
+            repaired_again.matches("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\"").count(),
+            1
+        );
+    }
+
+    #[test]
     fn m12_launch_uses_normal_metalsharp_wine_binary() {
         let home = test_dir("m12-normal-wine");
         let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
@@ -6087,7 +6566,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert_eq!(crate::platform::runtime_wine_binary(&ms_root), bin.join("metalsharp-wine"));
         assert_eq!(m12.requires_wine, m11.requires_wine);
         assert_eq!(m12.backend, "vkd3d-proton");
-        assert!(m12.winedllpath_dirs.iter().any(|path| path.contains("vkd3d-proton")));
+        assert!(m12.winedllpath_dirs.is_empty());
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -6114,7 +6593,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn dxmt_pipelines_use_winedllpath_routing() {
-        for pipeline_id in [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12] {
+        for pipeline_id in [PipelineId::M9, PipelineId::M10, PipelineId::M11] {
             let node = get_pipeline(pipeline_id);
             assert!(node.uses_winedllpath_routing(), "{:?} should use WINEDLLPATH routing", pipeline_id);
         }
@@ -6253,13 +6732,34 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             warnings: Vec::new(),
         };
         deploy_recipe_dlls(&recipe).expect("game-dir deploy (full node list)");
-        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "nvapi64.dll", "nvngx.dll"] {
+        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
             assert!(exe_dir.join(dll).is_file(), "game dir must receive {}", dll);
         }
-        deploy_prefix_route_dlls(&recipe, &home.join("prefix")).expect("prefix route deploy");
-        assert!(system32.join("d3d12.dll").is_file(), "system32 must receive d3d12.dll");
-        assert!(system32.join("d3d12core.dll").is_file(), "system32 must receive d3d12core.dll (vkd3d impl)");
-        assert!(system32.join("dxgi.dll").is_file(), "system32 must receive dxgi.dll");
+        // The M12 route must NEVER stage into the shared prefix system32 (a
+        // native DXVK/vkd3d-proton set there freezes the Steam client): the
+        // DLLs live in the game dir and are routed via n,b overrides.
+        assert!(!system32.join("d3d12.dll").exists(), "system32 must NOT receive d3d12.dll");
+        assert!(!system32.join("d3d12core.dll").exists(), "system32 must NOT receive d3d12core.dll");
+        assert!(!system32.join("dxgi.dll").exists(), "system32 must NOT receive dxgi.dll");
+
+        // Self-heal: pollution the OLD backend left in system32 is restored to
+        // the wine builtin baseline on the next launch.
+        std::fs::create_dir_all(&system32).unwrap();
+        let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
+        std::fs::create_dir_all(&wine_lane).unwrap();
+        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll"] {
+            std::fs::write(system32.join(dll), format!("stale-{dll}")).unwrap();
+            std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).unwrap();
+        }
+        repair_m12_prefix_system32(&home.join("prefix"), &ms_root).expect("system32 repair");
+        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll"] {
+            assert_eq!(
+                std::fs::read_to_string(system32.join(dll)).unwrap(),
+                format!("builtin-{dll}"),
+                "system32/{} must be restored to the wine builtin",
+                dll
+            );
+        }
 
         let _ = std::fs::remove_dir_all(home);
     }
@@ -6458,12 +6958,15 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             let _ = std::fs::remove_dir_all(&home);
         }
 
-        // M12 routes WINEDLLPATH through the vkd3d-proton lane.
+        // M12 deploys the vkd3d-proton/DXVK set to the game dir and routes via
+        // WINEDLLOVERRIDES=n,b — no WINEDLLPATH lane (installed-backend shape).
         let home = test_dir("winedllpath-env-M12");
         let node = get_pipeline(PipelineId::M12);
         let env = steam_pipeline_env_pairs(&home, node, 42);
-        let winedllpath = env.iter().find(|(key, _)| key == "WINEDLLPATH").expect("M12 WINEDLLPATH");
-        assert!(winedllpath.1.contains("vkd3d-proton"), "M12 should use vkd3d-proton DLL path: {}", winedllpath.1);
+        assert!(
+            !env.iter().any(|(key, _)| key == "WINEDLLPATH"),
+            "M12 must not set WINEDLLPATH (game-dir deploy + WINEDLLOVERRIDES route)"
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -6478,35 +6981,42 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn m12_prefix_route_dlls_stage_into_system32() {
-        let root = test_dir("m12-prefix-route");
-        let source_dir = root.join("runtime").join("wine").join("lib").join("dxmt_m12").join("x86_64-windows");
+        // The M12 route must NEVER stage its DLLs into the shared prefix
+        // system32 (that freezes the Steam client). Renamed behaviour: the
+        // self-healing repair restores the wine builtin baseline over any
+        // stale route copies the OLD backend left behind.
+        let root = test_dir("m12-prefix-repair");
+        let ms_root = root.join("runtime").join("wine");
+        let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
+        std::fs::create_dir_all(&wine_lane).expect("create wine lane");
         let prefix = root.join("prefix-steam");
-        std::fs::create_dir_all(&source_dir).expect("create source dir");
-
-        let dlls = ["d3d12.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
-        let recipe_dlls: Vec<recipe::RecipeDll> = dlls
-            .iter()
-            .map(|dll| {
-                let source_path = source_dir.join(dll);
-                std::fs::write(&source_path, format!("m12-{dll}")).expect("write route dll");
-                recipe::RecipeDll {
-                    source_subpath: "lib/dxmt_m12/x86_64-windows".to_string(),
-                    filename: (*dll).to_string(),
-                    source_path,
-                    dest_path: root.join("game").join(dll),
-                    source_present: true,
-                }
-            })
-            .collect();
-
-        let mut recipe = empty_test_recipe(PipelineId::M12);
-        recipe.dlls = recipe_dlls;
-
-        deploy_prefix_route_dlls(&recipe, &prefix).expect("stage M12 route DLLs");
-
         let system32 = prefix.join("drive_c").join("windows").join("system32");
+        std::fs::create_dir_all(&system32).expect("create system32");
+
+        let dlls =
+            ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
         for dll in dlls {
-            assert_eq!(std::fs::read_to_string(system32.join(dll)).unwrap(), format!("m12-{dll}"));
+            std::fs::write(system32.join(dll), format!("stale-{dll}")).expect("write stale route dll");
+            std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).expect("write wine builtin");
+        }
+        // Same-size different-content case exercises the sha-compare branch.
+        std::fs::write(system32.join("d3d12.dll"), "stale").expect("write same-size stale d3d12");
+        std::fs::write(wine_lane.join("d3d12.dll"), "clean").expect("write builtin d3d12");
+
+        repair_m12_prefix_system32(&prefix, &ms_root).expect("repair M12 prefix system32");
+
+        assert_eq!(
+            std::fs::read_to_string(system32.join("d3d12.dll")).unwrap(),
+            "clean",
+            "same-size stale d3d12.dll must be sha-verified and restored"
+        );
+        for dll in dlls[1..].iter() {
+            assert_eq!(
+                std::fs::read_to_string(system32.join(dll)).unwrap(),
+                format!("builtin-{dll}"),
+                "system32/{} must be restored to the wine builtin",
+                dll
+            );
         }
 
         let _ = std::fs::remove_dir_all(root);
@@ -6514,25 +7024,31 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn non_m12_prefix_route_dlls_do_not_stage_into_system32() {
+        // Regression guard for the old M12-only system32 deploy: no pipeline
+        // (M12 included) may write route DLLs into the shared prefix. The
+        // repair is a pure no-op on a clean prefix (nothing to heal).
         let root = test_dir("m11-prefix-route");
-        let source_dir = root.join("runtime").join("wine").join("lib").join("dxmt").join("x86_64-windows");
+        let ms_root = root.join("runtime").join("wine");
+        let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
+        std::fs::create_dir_all(&wine_lane).expect("create wine lane");
         let prefix = root.join("prefix-steam");
-        std::fs::create_dir_all(&source_dir).expect("create source dir");
-        let source_path = source_dir.join("d3d12.dll");
-        std::fs::write(&source_path, "legacy-dxmt-d3d12").expect("write route dll");
+        let system32 = prefix.join("drive_c").join("windows").join("system32");
+        std::fs::create_dir_all(&system32).expect("create system32");
 
-        let mut recipe = empty_test_recipe(PipelineId::M11);
-        recipe.dlls.push(recipe::RecipeDll {
-            source_subpath: "lib/dxmt/x86_64-windows".to_string(),
-            filename: "d3d12.dll".to_string(),
-            source_path,
-            dest_path: root.join("game").join("d3d12.dll"),
-            source_present: true,
-        });
-
-        deploy_prefix_route_dlls(&recipe, &prefix).expect("non-M12 route is no-op");
-
-        assert!(!prefix.join("drive_c").join("windows").join("system32").join("d3d12.dll").exists());
+        // A clean prefix: wine builtin DLLs already in place — repair must
+        // leave them byte-for-byte untouched.
+        for dll in ["d3d12.dll", "d3d11.dll", "dxgi.dll"] {
+            std::fs::write(system32.join(dll), format!("builtin-{dll}")).expect("write builtin");
+            std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).expect("write builtin");
+        }
+        repair_m12_prefix_system32(&prefix, &ms_root).expect("repair is a no-op on a clean prefix");
+        for dll in ["d3d12.dll", "d3d11.dll", "dxgi.dll"] {
+            assert_eq!(
+                std::fs::read_to_string(system32.join(dll)).unwrap(),
+                format!("builtin-{dll}"),
+                "clean prefix must be untouched"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(root);
     }

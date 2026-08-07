@@ -999,7 +999,11 @@ async function repairBottleComponent(id: string, component: string) {
     if (repair.status === "started" || repair.status === "seeding") {
       await pollRepairDone(id, component);
     } else {
+      // Release the spinner before the slow doctor refresh (same pattern as
+      // GameCard — the doctor re-check kept the row spinning after the toast).
+      bottleLoading.value[id] = false;
       await doctorBottle(id);
+      return;
     }
   } else {
     toast.show(result?.error ?? "Failed to repair component", "error");
@@ -1026,11 +1030,13 @@ async function pollRepairDone(id: string, component: string) {
     const status = poll.repair.status;
     if (status === "already_installed") {
       toast.show(`${component}: ready`, "success");
+      if (bottleLoading.value[id]) bottleLoading.value[id] = false;
       await doctorBottle(id);
       return;
     }
     if (["asset_missing", "failed", "install_failed"].includes(status)) {
       toast.show(poll.repair.detail || `${component}: ${status}`, "error");
+      if (bottleLoading.value[id]) bottleLoading.value[id] = false;
       await doctorBottle(id);
       return;
     }

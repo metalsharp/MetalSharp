@@ -77,6 +77,11 @@ pub struct MonoProfile {
     pub is_64_bit: bool,
     pub deps: MonoDeps,
     pub mono_requirement: MonoRequirement,
+    /// True when the game is a .NET Core / .NET 5+ app (ships a
+    /// `<exe>.runtimeconfig.json`). Such games CANNOT run on the bundled Mono
+    /// runtime — they need a .NET runtime — so they must never take the mono
+    /// route (Stardew Valley 1.6+ is net6.0 and crashed mono at init).
+    pub dotnet_core: bool,
     /// File names / signals that drove the classification (for diagnostics).
     pub evidence: Vec<String>,
 }
@@ -89,6 +94,7 @@ impl MonoProfile {
             is_64_bit: true,
             deps: MonoDeps::default(),
             mono_requirement: MonoRequirement::Baseline,
+            dotnet_core: false,
             evidence: Vec::new(),
         }
     }
@@ -310,6 +316,15 @@ pub fn discover_mono_profile(game_dir: &Path) -> MonoProfile {
     // 64-bit from the game exe PE machine type (first exe found).
     let is_64_bit = exe_is_64_bit(game_dir);
 
+    // .NET Core / .NET 5+ detection: a `<exe>.runtimeconfig.json` at the game
+    // root marks a self-contained or framework-dependent .NET app that the
+    // bundled Mono runtime cannot execute (mono asserts at init on the
+    // net6.0 mscorlib surface, e.g. Stardew Valley 1.6+).
+    let dotnet_core = is_dotnet_core_game(game_dir);
+    if dotnet_core {
+        evidence.push("runtimeconfig.json (.NET Core app)".into());
+    }
+
     let kind = if is_unity {
         evidence.push("UnityPlayer.dll".into());
         match unity_backend {
@@ -394,7 +409,31 @@ pub fn discover_mono_profile(game_dir: &Path) -> MonoProfile {
         MonoRequirement::Baseline
     };
 
-    MonoProfile { kind, unity_version, is_64_bit, deps, mono_requirement, evidence }
+    MonoProfile { kind, unity_version, is_64_bit, deps, mono_requirement, dotnet_core, evidence }
+}
+
+/// True when the game root ships a `<something>.runtimeconfig.json` — the
+/// signature of a .NET Core / .NET 5+ application. The bundled Mono runtime
+/// cannot run these (a mono 4.5 profile asserts on net6.0 assemblies during
+/// runtime init), so they must route to a Wine pipeline instead.
+pub fn is_dotnet_core_game(game_dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(game_dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if name.ends_with(".runtimeconfig.json") && entry.path().is_file() {
+            // Confirm the payload actually targets .NET Core/5+ (a stray file
+            // named *.runtimeconfig.json without a tfm is not a .NET app).
+            if let Ok(data) = fs::read(entry.path()) {
+                let text = String::from_utf8_lossy(&data);
+                if text.contains("\"tfm\"") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// 64-bit determination from the first `.exe` in the game dir (PE machine
@@ -418,6 +457,11 @@ fn exe_is_64_bit(game_dir: &Path) -> bool {
 
 /// Shorthand: is this game eligible for the FNA/Mono route?
 pub fn is_mono_route_eligible(profile: &MonoProfile) -> bool {
+    // .NET Core / .NET 5+ apps (runtimeconfig.json) cannot run on the
+    // bundled Mono runtime — never offer the mono route for them.
+    if profile.dotnet_core {
+        return false;
+    }
     matches!(
         profile.kind,
         MonoProfileKind::UnityMono
@@ -612,8 +656,25 @@ mod tests {
         assert_eq!(profile.kind, MonoProfileKind::MonoGame);
         assert!(profile.deps.galaxy, "GalaxyCSharp must be a detected dep");
         assert!(profile.deps.sdl2, "SDL2.dll must be a detected dep");
-        // net6.0 MonoGame -> modern mono requirement.
+        // net6.0 MonoGame -> modern mono requirement, BUT the runtimeconfig
+        // marks it a .NET Core app that the bundled Mono cannot run — it must
+        // NOT be mono-route-eligible (Stardew 1.6+ regression guard).
         assert_eq!(profile.mono_requirement, MonoRequirement::Modern);
+        assert!(profile.dotnet_core, "net6.0 runtimeconfig must be detected");
+        assert!(!is_mono_route_eligible(&profile), "a .NET Core app must never take the mono route");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dotnet_core_detection_ignores_netframework_app_config() {
+        // .NET Framework games ship app.config (or nothing), never a
+        // *.runtimeconfig.json — they must stay mono-route-eligible.
+        let dir = make_dir("netfx");
+        fs::write(dir.join("Terraria.exe"), b"mz").unwrap();
+        fs::write(dir.join("Microsoft.Xna.Framework.dll"), b"xna").unwrap();
+        fs::write(dir.join("Terraria.exe.config"), b"<configuration/>").unwrap();
+        let profile = discover_mono_profile(&dir);
+        assert!(!profile.dotnet_core);
         assert!(is_mono_route_eligible(&profile));
         let _ = fs::remove_dir_all(&dir);
     }

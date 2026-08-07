@@ -149,13 +149,71 @@ fn parse_rules(toml_str: &str) -> HashMap<u32, PipelineId> {
     parse_rules_full(toml_str).0
 }
 
+/// Update an appid's pipeline rule in the mutable `mtsp-rules.toml` (the same
+/// file `load_rules` resolves first). Preserves all other content: rewrites
+/// the `pipeline` line of an existing `[overrides.<appid>]` section, or
+/// appends a new section. Returns the path written.
+pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let current_exe = std::env::current_exe().ok();
+    let path = rule_candidates(&home, current_exe.as_deref())
+        .into_iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| "mtsp-rules.toml not found; nothing to update".to_string())?;
+    let pipeline_id = pipeline
+        .user_selectable_id()
+        .ok_or_else(|| format!("pipeline {:?} has no rule id", pipeline))?;
+    let header = format!("[overrides.{}]", appid);
+    let contents = std::fs::read_to_string(&path).map_err(|e| format!("read mtsp-rules.toml: {}", e))?;
+    let mut lines: Vec<String> = contents.lines().map(str::to_string).collect();
+
+    let section_idx = lines.iter().position(|l| l.trim() == header);
+    let mut replaced = false;
+    match section_idx {
+        Some(start) => {
+            // The section runs until the next `[header]` (sub-sections such as
+            // `[overrides.<appid>.dependencies]` belong to this section but
+            // never carry the `pipeline` key, so stopping at the first header
+            // is safe).
+            let end = lines[start + 1..]
+                .iter()
+                .position(|l| l.trim().starts_with('[') && l.trim().ends_with(']'))
+                .map(|i| start + 1 + i)
+                .unwrap_or(lines.len());
+            match lines[start + 1..end].iter().position(|l| l.trim_start().starts_with("pipeline")) {
+                Some(rel) => {
+                    lines[start + 1 + rel] = format!("pipeline = \"{}\"", pipeline_id);
+                    replaced = true;
+                }
+                None => {
+                    lines.insert(start + 1, format!("pipeline = \"{}\"", pipeline_id));
+                    replaced = true;
+                }
+            }
+        }
+        None => {
+            if !contents.ends_with('\n') {
+                lines.push(String::new());
+            }
+            lines.push(header);
+            lines.push(format!("pipeline = \"{}\"", pipeline_id));
+            replaced = true;
+        }
+    }
+
+    if replaced {
+        let new_contents = lines.join("\n") + "\n";
+        std::fs::write(&path, new_contents).map_err(|e| format!("write mtsp-rules.toml: {}", e))?;
+    }
+    Ok(path)
+}
+
 pub fn resolve_pipeline(appid: u32) -> PipelineId {
     let rules = load_rules();
 
     if let Some(&pipeline) = rules.get(&appid) {
         return resolve_dxmt_alias(appid, pipeline);
     }
-
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid));
     if let Some(ref dir) = game_dir {
         if dir.exists() {
@@ -223,6 +281,11 @@ fn resolve_dxmt_alias(appid: u32, pipeline: PipelineId) -> PipelineId {
 
 fn detect_dxmt_pipeline(appid: u32) -> Option<PipelineId> {
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid))?;
+    // .NET Core / .NET 5+ apps (runtimeconfig.json) cannot run on the bundled
+    // Mono runtime — send them to the Wine lane instead of the mono route.
+    if crate::mono_profile::is_dotnet_core_game(&game_dir) {
+        return Some(PipelineId::M11);
+    }
     if crate::setup::detect_dotnet_game(&game_dir) {
         return Some(PipelineId::FnaArm64);
     }
@@ -600,7 +663,7 @@ mod tests {
             (284160, PipelineId::M11),
             (1326470, PipelineId::M11),
             (1583230, PipelineId::M12),
-            (3164500, PipelineId::M11),
+            (3164500, PipelineId::M12),
             (3527290, PipelineId::M12),
             (22380, PipelineId::M9),
             (1030300, PipelineId::M12),
@@ -612,7 +675,7 @@ mod tests {
             (2302640, PipelineId::M11),
             (291550, PipelineId::M11),
             (599140, PipelineId::M11),
-            (4704690, PipelineId::M11),
+            (4704690, PipelineId::M12),
         ] {
             assert_eq!(rules.get(&appid), Some(&pipeline), "appid {appid}");
         }
@@ -653,8 +716,9 @@ mod tests {
         let (_, recipes) = parse_rules_full(shipped_rules);
 
         // M12 runs vkd3d-proton by default: the deployed check set is the
-        // vkd3d forwarder + implementation + DXVK dxgi (no DXMT DLLs).
-        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
+        // vkd3d forwarder + implementation + the full DXVK set (dxgi + d3d11,
+        // so D3D11 games switched to M12 get a working render path). No DXMT.
+        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"];
         let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
         let required_by_pipeline =
             [(PipelineId::M12, m12_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
@@ -674,7 +738,7 @@ mod tests {
                     );
                 }
                 if pipeline == PipelineId::M12 {
-                    for stale in ["dxgi_dxmt.dll", "winemetal.dll", "d3d11.dll"] {
+                    for stale in ["dxgi_dxmt.dll", "winemetal.dll"] {
                         assert!(
                             !recipe.check_dlls.iter().any(|value| value == stale),
                             "appid {} M12 diagnostics must not require DXMT-only {} (got {:?})",
@@ -894,5 +958,16 @@ mod tests {
             let summary = format!("{} shipped-rules TOML validation error(s):", errors.len());
             panic!("{summary}\n  {}", errors.join("\n  "));
         }
+    }
+
+    /// Stardew Valley (1.6+, net6 MonoGame) must default to the mono/fna
+    /// route — the shipped config regression-guards the fna_arm64 rule.
+    #[test]
+    fn shipped_rules_route_stardew_to_fna_arm64() {
+        const SOURCE: &str = include_str!("../../../../configs/mtsp-rules.toml");
+        let (_, recipes) = parse_rules_full(SOURCE);
+        let recipe = recipes.get(&413150).expect("shipped rules must contain a Stardew Valley override (appid 413150)");
+        assert_eq!(recipe.pipeline, PipelineId::FnaArm64);
+        assert_eq!(recipe.name, "Stardew Valley");
     }
 }
