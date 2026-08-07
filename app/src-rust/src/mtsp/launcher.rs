@@ -1249,6 +1249,20 @@ fn sanitize_metalsharp_wine_wrapper_script(script: &str) -> String {
     // the previously-mangled orphaned-else/fi state is normalized into it.
     repaired = normalize_vk_icd_block(&repaired);
 
+    // VKMT texturing toggle must reach EVERY wine process, including games
+    // Steam CreateProcess-spawns (which inherit Steam's env, not the route
+    // env the backend set on the Steam command). MVK_PRESENT_MODE already
+    // rides globally in the wrapper; the VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT
+    // toggle must too, or Steam-spawned M12 games render with broken texturing
+    // (PEAK: launched but graphics shitting out). Only the per-route
+    // WINEDLLOVERRIDES stays route-specific.
+    repaired = replace_or_insert_export_line(
+        &repaired,
+        "export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=",
+        r#"export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT="1""#,
+        "export MVK_PRESENT_MODE=",
+    );
+
     // Drop CrossOver's CX_ROOT emulation: a real CrossOver reading CX_ROOT
     // could mistake a MetalSharp process for one of its own bottles.
     repaired.replace("export CX_ROOT=\"$MS_ROOT\"\n", "")
@@ -1262,7 +1276,14 @@ fn replace_or_insert_export_line(script: &str, prefix: &str, replacement: &str, 
     if let Some(idx) = lines.iter().position(|line| line.starts_with(prefix)) {
         let mut out = lines.clone();
         out[idx] = replacement;
-        return out.join("\n");
+        let mut joined = out.join("\n");
+        // Preserve the input's trailing newline so a second sanitize pass is
+        // byte-identical (idempotence): the insert path below keeps the
+        // trailing '\n', so the replace path must too.
+        if script.ends_with('\n') {
+            joined.push('\n');
+        }
+        return joined;
     }
     let mut result = String::new();
     let mut inserted = false;
@@ -6502,6 +6523,33 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let log_env = app_compat_env_pairs_with_logs(1962700, PipelineId::M12, true);
         assert!(log_env.iter().any(|(key, value)| key == "DXMT_D3D12_TRACE" && value == "1"));
         assert!(log_env.iter().any(|(key, value)| key == "DXMT_DUMP_MSL" && value == "1"));
+    }
+
+    #[test]
+    fn sanitize_keeps_vkmt_toggle_global_in_wrapper() {
+        // The VKMT texturing toggle must survive wrapper regeneration AND be
+        // present for every wine process (Steam CreateProcess children inherit
+        // Steam's env, not the route env — so the toggle must ride in the
+        // wrapper's global exports next to MVK_PRESENT_MODE).
+        let script = r#"#!/bin/bash
+export MS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export MVK_PRESENT_MODE="1"
+export DXVK_STATE_CACHE_PATH="$HOME/.metalsharp/dxvk-cache"
+export WINEDEBUG="${WINEDEBUG:--all}"
+"#;
+        let repaired = sanitize_metalsharp_wine_wrapper_script(script);
+        assert!(
+            repaired.contains("export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\""),
+            "wrapper must export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=1 globally"
+        );
+        // Idempotent: running the sanitizer again keeps the toggle.
+        let repaired_again = sanitize_metalsharp_wine_wrapper_script(&repaired);
+        assert!(repaired_again.contains("export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\""));
+        // And a script that already has it is left with exactly one occurrence.
+        assert_eq!(
+            repaired_again.matches("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\"").count(),
+            1
+        );
     }
 
     #[test]

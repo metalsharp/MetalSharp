@@ -661,6 +661,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                                 env.push(("METALSHARP_OFFLINE_MODE".to_string(), "1".to_string()));
                             }
                             let is_gptk_direct = matches!(pipeline, mtsp::engine::PipelineId::D3DMetal);
+                            // All MTSP routes launch the game directly (never
+                            // steam://run). The game process gets the route env
+                            // applied to it and talks to the real Steam client
+                            // running in the background; the real Steam user
+                            // files (steamclient64.dll, steam_api64,
+                            // GameOverlayRenderer*) are deployed into the game
+                            // folder by prepare_steam_pipeline_env for the
+                            // routes that use the real Steam model (M12 always).
                             let steam_started = if is_gptk_direct {
                                 false
                             } else {

@@ -264,7 +264,7 @@ pipeline = "m12"
 name = "STAR WARS Jedi: Fallen Order"
 
 [overrides.1172380.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 [overrides.271590]
 pipeline = "m11"
 name = "Grand Theft Auto V Legacy"
@@ -683,11 +683,11 @@ name = "Graveyard Keeper"
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.4704690]
-pipeline = "m11"
+pipeline = "m12"
 name = "MECCHA CHAMELEON"
 
 [overrides.4704690.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 # Auto-generated MTSP rules for 675 Steam AppIDs
 # Pipeline choice is best-effort based on Steam store research
 # Verify DX version on PCGamingWiki if a default is wrong
