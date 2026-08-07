@@ -83,7 +83,7 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
         experimental: false,
         requires_wine: true,
         wine_overrides: Some(
-            "d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+            "d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
         ),
         dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
         winedllpath_dirs: vec![],
@@ -101,6 +101,15 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
             DllDeploy {
                 source_subpath: "lib/dxvk/x86_64-windows",
                 filename: "dxgi.dll",
+                dest_filename: None,
+            },
+            // DXVK d3d11 rides along so D3D11 games switched to the
+            // M12 route get a working render path (vkd3d-proton serves
+            // D3D12 only; a D3D11 game without native D3D11 falls to
+            // wine builtin d3d11 -> "Not a DXMT adapter").
+            DllDeploy {
+                source_subpath: "lib/dxvk/x86_64-windows",
+                filename: "d3d11.dll",
                 dest_filename: None,
             },
         ],
@@ -143,7 +152,7 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                 experimental: false,
                 requires_wine: true,
                 wine_overrides: Some(
-                    "d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+                    "d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
                 ),
                 dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
                 winedllpath_dirs: vec![],
@@ -161,6 +170,15 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                     DllDeploy {
                         source_subpath: "lib/dxvk/x86_64-windows",
                         filename: "dxgi.dll",
+                        dest_filename: None,
+                    },
+                    // DXVK d3d11 rides along so D3D11 games switched to the
+                    // M12 route get a working render path (vkd3d-proton serves
+                    // D3D12 only; a D3D11 game without native D3D11 falls to
+                    // wine builtin d3d11 -> "Not a DXMT adapter").
+                    DllDeploy {
+                        source_subpath: "lib/dxvk/x86_64-windows",
+                        filename: "d3d11.dll",
                         dest_filename: None,
                     },
                 ],
@@ -775,7 +793,7 @@ mod tests {
 
         assert_eq!(
             m12.wine_overrides,
-            Some("d3d12,d3d12core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d")
+            Some("d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d")
         );
         assert!(m12.alternatives.contains(&PipelineId::M11));
     }
