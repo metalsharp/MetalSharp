@@ -663,7 +663,7 @@ mod tests {
             (284160, PipelineId::M11),
             (1326470, PipelineId::M11),
             (1583230, PipelineId::M12),
-            (3164500, PipelineId::M11),
+            (3164500, PipelineId::M12),
             (3527290, PipelineId::M12),
             (22380, PipelineId::M9),
             (1030300, PipelineId::M12),
@@ -716,8 +716,9 @@ mod tests {
         let (_, recipes) = parse_rules_full(shipped_rules);
 
         // M12 runs vkd3d-proton by default: the deployed check set is the
-        // vkd3d forwarder + implementation + DXVK dxgi (no DXMT DLLs).
-        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
+        // vkd3d forwarder + implementation + the full DXVK set (dxgi + d3d11,
+        // so D3D11 games switched to M12 get a working render path). No DXMT.
+        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"];
         let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
         let required_by_pipeline =
             [(PipelineId::M12, m12_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
@@ -737,7 +738,7 @@ mod tests {
                     );
                 }
                 if pipeline == PipelineId::M12 {
-                    for stale in ["dxgi_dxmt.dll", "winemetal.dll", "d3d11.dll"] {
+                    for stale in ["dxgi_dxmt.dll", "winemetal.dll"] {
                         assert!(
                             !recipe.check_dlls.iter().any(|value| value == stale),
                             "appid {} M12 diagnostics must not require DXMT-only {} (got {:?})",

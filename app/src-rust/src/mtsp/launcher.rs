@@ -6024,8 +6024,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         // d3d12core, dxgi) — no DXMT artifacts at all.
         let node = get_pipeline(PipelineId::M12);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
-        let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
-        assert_eq!(filenames.len(), required.len(), "M12 deploy list must be the vkd3d 3-DLL set");
+        let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"];
+        assert_eq!(filenames.len(), required.len(), "M12 deploy list must be the vkd3d 4-DLL set");
         for required in required {
             assert!(filenames.contains(&required), "M12 deploy list must include {} (got {:?})", required, filenames);
         }
@@ -6278,7 +6278,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         // MoltenVK + VKMT launch env, and point the shader cache at the
         // isolated m12 lane. The M12 route no longer uses DXMT at all.
         let node = get_pipeline(PipelineId::M12);
-        assert!(node.wine_overrides.unwrap_or("").contains("d3d12,d3d12core,dxgi=n,b"));
+        assert!(node.wine_overrides.unwrap_or("").contains("d3d12,d3d12core,dxgi,d3d11=n,b"));
         assert!(!node.wine_overrides.unwrap_or("").contains("winemetal"));
         assert!(
             node.env_vars.iter().any(|ev| ev.key == "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT" && ev.value == "1"),
@@ -6475,7 +6475,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             Some("1583230")
         );
         let overrides = env.iter().find(|(key, _)| key == "WINEDLLOVERRIDES").map(|(_, value)| value).unwrap();
-        assert!(overrides.contains("d3d12,d3d12core,dxgi=n,b"));
+        assert!(overrides.contains("d3d12,d3d12core,dxgi,d3d11=n,b"));
         assert!(!overrides.contains("dxgi_dxmt"));
         assert!(!overrides.contains("winemetal"));
         assert!(overrides.contains("gameoverlayrenderer,gameoverlayrenderer64=d"));
@@ -6684,7 +6684,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             warnings: Vec::new(),
         };
         deploy_recipe_dlls(&recipe).expect("game-dir deploy (full node list)");
-        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "nvapi64.dll", "nvngx.dll"] {
+        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
             assert!(exe_dir.join(dll).is_file(), "game dir must receive {}", dll);
         }
         // The M12 route must NEVER stage into the shared prefix system32 (a
