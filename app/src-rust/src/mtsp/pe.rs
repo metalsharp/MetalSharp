@@ -26,6 +26,32 @@ pub struct AgilityExports {
 const MACHINE_I386: u16 = 0x014c;
 const MACHINE_AMD64: u16 = 0x8664;
 
+/// True when the PE image carries a COM descriptor data directory — the
+/// signature of a managed (.NET / CIL) assembly. Native executables (Unity
+/// player exes, plain PE binaries) have no COM descriptor and CANNOT be
+/// executed by the Mono runtime ("File does not contain a valid CIL image").
+pub fn is_dotnet_assembly(data: &[u8]) -> bool {
+    let Some(view) = PeView::parse(data) else {
+        return false;
+    };
+    // Data directories start after the optional header's fixed fields:
+    //   PE32  (magic 0x10b): optional + 0x60
+    //   PE32+ (magic 0x20b): optional + 0x70
+    // The COM descriptor is directory index 14 (14 * 8 bytes per entry).
+    let optional = view.pe_offset + 24;
+    let dirs_start = match view.optional_magic {
+        0x10b => optional + 0x60,
+        0x20b => optional + 0x70,
+        _ => return false,
+    };
+    let com_entry = dirs_start + 14 * 8;
+    if com_entry + 4 > data.len() {
+        return false;
+    }
+    let rva = u32::from_le_bytes([data[com_entry], data[com_entry + 1], data[com_entry + 2], data[com_entry + 3]]);
+    rva != 0
+}
+
 pub fn parse_pe_imports(data: &[u8]) -> Option<PeInfo> {
     let view = PeView::parse(data)?;
     let machine = view.machine;
@@ -299,6 +325,36 @@ mod tests {
     #[test]
     fn d3d12_import_takes_priority_over_d3d10_compat_imports() {
         assert_eq!(detect_d3d_api(&["d3d10core.dll".into(), "d3d12.dll".into()]), D3dApi::D3D12);
+    }
+
+    #[test]
+    fn distinguishes_dotnet_assemblies_from_native_pe() {
+        // Build a synthetic PE32+ with a nonzero COM descriptor (index 14).
+        let mut managed = vec![0_u8; 0x200];
+        managed[0..2].copy_from_slice(b"MZ");
+        managed[0x3c..0x40].copy_from_slice(&(0x80_u32).to_le_bytes());
+        managed[0x80..0x84].copy_from_slice(b"PE\0\0");
+        managed[0x84..0x86].copy_from_slice(&MACHINE_AMD64.to_le_bytes());
+        managed[0x98..0x9a].copy_from_slice(&(0x20b_u16).to_le_bytes());
+        // Data directories start at pe_offset+24+0x70; COM descriptor index 14.
+        let com_entry = 0x80 + 24 + 0x70 + 14 * 8;
+        managed[com_entry..com_entry + 4].copy_from_slice(&(0x1000_u32).to_le_bytes());
+        assert!(is_dotnet_assembly(&managed), "PE with COM descriptor must classify as .NET");
+
+        // Same image with a zeroed COM descriptor = native executable.
+        managed[com_entry..com_entry + 4].copy_from_slice(&0_u32.to_le_bytes());
+        assert!(!is_dotnet_assembly(&managed), "native PE must not classify as .NET");
+
+        // Native PE32 (x86 Unity player style, DREDGE.exe) — no COM descriptor.
+        let mut native = vec![0_u8; 0x200];
+        native[0..2].copy_from_slice(b"MZ");
+        native[0x3c..0x40].copy_from_slice(&(0x80_u32).to_le_bytes());
+        native[0x80..0x84].copy_from_slice(b"PE\0\0");
+        native[0x84..0x86].copy_from_slice(&MACHINE_I386.to_le_bytes());
+        native[0x98..0x9a].copy_from_slice(&(0x10b_u16).to_le_bytes());
+        assert!(!is_dotnet_assembly(&native));
+
+        assert!(!is_dotnet_assembly(b"not a pe at all"));
     }
 
     #[test]

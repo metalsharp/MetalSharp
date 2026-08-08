@@ -28,9 +28,10 @@ explicitly a release PR.
 - [ ] `GET /diagnostics/runtime-artifacts` reports `ok: true` (every required
       M11 `lib/dxmt`, M12 `lib/vkd3d-proton` + `lib/dxvk` + `lib/moltenvk-vkmt`
       (default backend) or `lib/dxmt-m12` (rollback) file present with a sha256).
-- [ ] M12 default-backend sidecars present: `lib/vkd3d-proton/x86_64-unix`,
-      `lib/moltenvk-vkmt/libMoltenVK.dylib` + `MoltenVK_icd.json`, and the
-      `d3d12.dll`/`d3d12core.dll` (win64) + DXVK `dxgi.dll` PE set.
+- [ ] M12 default-backend sidecars present: `lib/moltenvk-vkmt/libMoltenVK.dylib`
+      + `MoltenVK_icd.json`, the `lib/vkd3d-proton/x86_64-windows`
+      `d3d12.dll`/`d3d12core.dll` (win64) + DXVK `dxgi.dll` PE set. (vkd3d-proton
+      ships Windows DLLs only — there is NO vkd3d-proton unix sidecar.)
 - [ ] M12 rollback sidecars present (only when `m12Backend=dxmt` is kept in the
       bundle): `winemetal.so`, `libc++.1.dylib`, `libc++abi.1.dylib`,
       `libunwind.1.dylib` under `lib/dxmt-m12/x86_64-unix/`.

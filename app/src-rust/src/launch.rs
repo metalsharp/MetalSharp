@@ -18,6 +18,10 @@ pub fn launch_via_steam(appid: u32) -> Result<u32, Box<dyn std::error::Error>> {
         return Err("MetalSharp Wine not found".into());
     }
 
+    // Repair a mangled wrapper (orphaned else/fi around VK_ICD_FILENAMES)
+    // before spawning; a broken wrapper kills every wine-based launch.
+    crate::mtsp::launcher::sanitize_metalsharp_wine_wrapper_env()?;
+
     let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
     let prefix_str = prefix.to_string_lossy().to_string();
 

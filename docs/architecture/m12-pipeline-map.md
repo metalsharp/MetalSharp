@@ -39,8 +39,8 @@ M12 uses for Wine-launched games.
 5. M12 sets `WINEDLLOVERRIDES` so Wine prefers the deployed native DLLs
    (`d3d12,d3d12core,dxgi=n,b`).
 6. M12 adds the route's unix library paths to `DYLD_FALLBACK_LIBRARY_PATH`
-   (default: `lib/vkd3d-proton/x86_64-unix`, `lib/wine/x86_64-unix`,
-   `lib/moltenvk-vkmt`).
+   (default: `lib/wine/x86_64-unix`, `lib/moltenvk-vkmt`; vkd3d-proton itself
+   has no unix sidecar — its DLLs live in the windows lane only).
 7. M12 sets shader/pipeline cache paths under the MetalSharp cache root and —
    for the default backend — pins `VK_ICD_FILENAMES` to the runtime-bundled
    VKMT `MoltenVK_icd.json`.

@@ -116,7 +116,7 @@ M12 (default backend) copies:
 - `dxgi.dll` (DXVK lane)
 - `nvapi64.dll` / `nvngx.dll` (GPU vendor stubs, shared `dxmt_m12` lane)
 
-M12 also adds the route's unix library directories to the fallback library path: the default backend resolves `lib/vkd3d-proton/x86_64-unix` and `lib/moltenvk-vkmt` (Vulkan -> MoltenVK presentation, `VK_ICD_FILENAMES` pinned to the runtime ICD); the DXMT rollback resolves `lib/dxmt-m12/x86_64-unix` so `winemetal.so` and its bundled C++ sidecars are found.
+M12 also adds the route's unix library directories to the fallback library path: the default backend resolves `lib/wine/x86_64-unix` and `lib/moltenvk-vkmt` (Vulkan -> MoltenVK presentation, `VK_ICD_FILENAMES` pinned to the runtime ICD); the DXMT rollback resolves `lib/dxmt-m12/x86_64-unix` so `winemetal.so` and its bundled C++ sidecars are found. vkd3d-proton ships Windows DLLs only and has no unix sidecar.
 
 M9 copies:
 

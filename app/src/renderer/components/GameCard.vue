@@ -436,7 +436,18 @@ function syncD3DMetalRuntimeReport() {
 }
 
 function effectivePlayLaunchMode() {
-  if (selectedLaunchMode.value !== "auto") return selectedLaunchMode.value;
+  // The bottle's real runtime profile (from the backend report or the game
+  // record) is the source of truth: a stale per-game "d3dmetal" selection
+  // from localStorage must never hijack a bottle that was saved on a Wine
+  // route (M12/M11/...) — it made M12 bottles show "D3DMetal bottle is not
+  // ready" instead of launching with the saved route.
+  const bottleProfile = runtimeReport.value?.runtime_profile ?? props.game.preferred_pipeline;
+  if (selectedLaunchMode.value !== "auto") {
+    if (selectedLaunchMode.value === "d3dmetal" && bottleProfile && bottleProfile !== "d3dmetal") {
+      return bottleProfile;
+    }
+    return selectedLaunchMode.value;
+  }
   return hasSavedD3DMetalRoute() ? "d3dmetal" : "auto";
 }
 
@@ -751,8 +762,12 @@ async function repairRuntimeComponent(component: string) {
     if (result.repair.status === "started" || result.repair.status === "seeding") {
       await pollRuntimeRepairDone(runtimeReport.value.bottle_id, component);
     } else {
-      await runRuntimeDoctor();
+      // Release the spinner BEFORE the doctor refresh: the full bottle doctor
+      // re-check (components + D3DMetal + launch readiness) is slow and kept
+      // the card spinning 15-20s after the success toast. The panel updates
+      // itself when the background doctor completes.
       runtimeLoading.value = false;
+      await runRuntimeDoctor();
     }
   } else {
     toast.show(result?.error ?? "Runtime repair failed", "error");
@@ -779,14 +794,14 @@ async function pollRuntimeRepairDone(bottleId: string, component: string) {
     const status = poll.repair.status;
     if (status === "already_installed") {
       toast.show(`${component}: ready`, "success");
-      await runRuntimeDoctor();
       runtimeLoading.value = false;
+      await runRuntimeDoctor();
       return;
     }
     if (["asset_missing", "failed", "install_failed"].includes(status)) {
       toast.show(poll.repair.detail || `${component}: ${status}`, "error");
-      await runRuntimeDoctor();
       runtimeLoading.value = false;
+      await runRuntimeDoctor();
       return;
     }
   }
@@ -865,9 +880,10 @@ async function saveBottleEdit() {
   if (result?.ok && result.bottle) {
     // Saving an M12 bottle must execute the same read-only M12 diagnostic
     // that launch uses. It validates the isolated DLL lane, Unix sidecars,
-    // and M12 environment without deploying or spawning the game.
+    // and M12 environment without deploying or spawning the game. The save
+    // toast fires FIRST so the UI never hangs on the (slow) dry run; a
+    // failing dry run surfaces as an error toast right after.
     const isM12 = bottlePreferredMode.value === "m12";
-    const m12DryRun = isM12 ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`) : null;
     bottleName.value = result.bottle.name;
     bottlePreferredMode.value =
       result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
@@ -880,18 +896,22 @@ async function saveBottleEdit() {
       runtimeReport.value.bottle_name = result.bottle.name;
       runtimeReport.value.preferred_pipeline = result.bottle.preferred_pipeline || null;
     }
-    if (isM12 && m12DryRun?.ok === false) {
-      const missing = m12DryRun.missing
-        ?.map((entry) => entry.filename)
-        .filter(Boolean)
-        .join(", ");
-      toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
-    } else if (isM12 && !m12DryRun) {
-      toast.show("M12 bottle saved, but its dry run could not be completed", "error");
-    } else if (result.preflight?.ok === false) {
+    if (result.preflight?.ok === false) {
       toast.show(result.preflight.error ?? "Bottle saved; runtime doctor needs attention", "error");
     } else {
       toast.show("Bottle settings saved", "success");
+    }
+    if (isM12) {
+      const m12DryRun = await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`);
+      if (m12DryRun?.ok === false) {
+        const missing = m12DryRun.missing
+          ?.map((entry) => entry.filename)
+          .filter(Boolean)
+          .join(", ");
+        toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
+      } else if (!m12DryRun) {
+        toast.show("M12 bottle saved, but its dry run could not be completed", "error");
+      }
     }
     await refreshPipelineMetadata();
     await runRuntimeDoctor();
