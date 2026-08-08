@@ -2161,6 +2161,7 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
     // Profile-aware deploy (idempotent; also run by bottle save).
     let discovered = crate::mono_profile::discover_mono_profile(dir);
     if discovered.dotnet_core {
+        restore_dotnet_core_steamworks_net(dir)?;
         // .NET Core / .NET 5+ games (Stardew 1.6+) ship their OWN runtime
         // (runtimeconfig.json + self-contained host) and the bundled Mono
         // cannot execute net6.0 assemblies — but the game's own runtime runs
@@ -4396,6 +4397,23 @@ fn ensure_fna_symlink(game_dir: &PathBuf, lib: &str, sym: &str) {
     }
 }
 
+/// Restore a real Steamworks.NET assembly before a .NET Core game takes the
+/// Wine handoff. Returns whether the game is .NET Core, so callers can skip
+/// the incompatible offline .NET Framework shim for that route.
+fn restore_dotnet_core_steamworks_net(game_dir: &Path) -> Result<bool, String> {
+    if !crate::mono_profile::is_dotnet_core_game(game_dir) {
+        return Ok(false);
+    }
+
+    let steamworks = game_dir.join("Steamworks.NET.dll");
+    let backup = game_dir.join("Steamworks.NET.dll.metalsharp-original");
+    if backup.is_file() {
+        std::fs::copy(&backup, &steamworks)
+            .map_err(|e| format!("restore .NET Core Steamworks.NET.dll for {}: {}", game_dir.display(), e))?;
+    }
+    Ok(true)
+}
+
 fn deploy_offline_steamworks_net(game_dir: &PathBuf, metalsharp_home: &PathBuf) -> Result<(), String> {
     let steamworks = game_dir.join("Steamworks.NET.dll");
     if !steamworks.exists() {
@@ -4407,20 +4425,7 @@ fn deploy_offline_steamworks_net(game_dir: &PathBuf, metalsharp_home: &PathBuf) 
     // cannot load the .NET Framework offline stub: the game dies with
     // "Could not load file or assembly 'Steamworks.NET'". Restore the
     // original if a stub was previously deployed and skip these games.
-    let is_dotnet_core = game_dir
-        .read_dir()
-        .map(|entries| {
-            entries.flatten().any(|entry| {
-                let name = entry.file_name().to_string_lossy().to_string();
-                name.ends_with(".runtimeconfig.json")
-            })
-        })
-        .unwrap_or(false);
-    if is_dotnet_core {
-        let backup = game_dir.join("Steamworks.NET.dll.metalsharp-original");
-        if backup.exists() {
-            let _ = std::fs::copy(&backup, &steamworks);
-        }
+    if restore_dotnet_core_steamworks_net(game_dir)? {
         return Ok(());
     }
 
@@ -8141,6 +8146,23 @@ export WINEDEBUG="${WINEDEBUG:--all}"
                 );
             },
         }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn dotnet_core_handoff_restores_original_steamworks_assembly() {
+        let home = mono_deploy_home("dotnet-core-steamworks-handoff");
+        let game = home.join("Stardew Valley");
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("Stardew Valley.runtimeconfig.json"), b"{\"runtimeOptions\":{\"tfm\":\"net6.0\"}}")
+            .unwrap();
+        let original = b"real-net6-steamworks";
+        std::fs::write(game.join("Steamworks.NET.dll"), b"offline-netframework-stub").unwrap();
+        std::fs::write(game.join("Steamworks.NET.dll.metalsharp-original"), original).unwrap();
+
+        assert!(restore_dotnet_core_steamworks_net(&game).expect("prepare .NET Core Steamworks assembly"));
+        assert_eq!(std::fs::read(game.join("Steamworks.NET.dll")).unwrap(), original);
+
         let _ = std::fs::remove_dir_all(&home);
     }
 
