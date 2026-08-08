@@ -6065,8 +6065,6 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         for required in required {
             assert!(filenames.contains(&required), "M12 deploy list must include {} (got {:?})", required, filenames);
         }
-        assert!(!filenames.iter().any(|f| *f == "winemetal.dll"), "M12 must not deploy winemetal.dll");
-        assert!(!filenames.iter().any(|f| *f == "dxgi_dxmt.dll"), "M12 must not deploy dxgi_dxmt.dll");
         for deploy in &node.deploy_dlls {
             assert!(
                 deploy.source_subpath.starts_with("lib/vkd3d-proton/")

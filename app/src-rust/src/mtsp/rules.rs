@@ -166,7 +166,6 @@ pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, St
     let mut lines: Vec<String> = contents.lines().map(str::to_string).collect();
 
     let section_idx = lines.iter().position(|l| l.trim() == header);
-    let mut replaced = false;
     match section_idx {
         Some(start) => {
             // The section runs until the next `[header]` (sub-sections such as
@@ -181,11 +180,9 @@ pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, St
             match lines[start + 1..end].iter().position(|l| l.trim_start().starts_with("pipeline")) {
                 Some(rel) => {
                     lines[start + 1 + rel] = format!("pipeline = \"{}\"", pipeline_id);
-                    replaced = true;
                 },
                 None => {
                     lines.insert(start + 1, format!("pipeline = \"{}\"", pipeline_id));
-                    replaced = true;
                 },
             }
         },
@@ -195,14 +192,11 @@ pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, St
             }
             lines.push(header);
             lines.push(format!("pipeline = \"{}\"", pipeline_id));
-            replaced = true;
         },
     }
 
-    if replaced {
-        let new_contents = lines.join("\n") + "\n";
-        std::fs::write(&path, new_contents).map_err(|e| format!("write mtsp-rules.toml: {}", e))?;
-    }
+    let new_contents = lines.join("\n") + "\n";
+    std::fs::write(&path, new_contents).map_err(|e| format!("write mtsp-rules.toml: {}", e))?;
     Ok(path)
 }
 
