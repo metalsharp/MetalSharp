@@ -95,8 +95,8 @@ pub(crate) fn write_dxmt_m12_expected_test_files(dxmt_m12_dir: &Path) {
 /// VKMT win64-filtered x86-64 builds (see docs/roadmaps/m12-vkd3d-proton-migration.md).
 #[cfg(not(test))]
 const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
-    ("x86_64-windows/d3d12.dll", "15a7ad7af07120c79075dc1bc08284731c4ca53f82bb81002a14a7b5701cb535"),
-    ("x86_64-windows/d3d12core.dll", "43b92ad53843c819443b1c5d21930c36fe3e6cc7a893df6b2b18528477259631"),
+    ("x86_64-windows/d3d12.dll", "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93"),
+    ("x86_64-windows/d3d12core.dll", "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4"),
     ("i386-windows/d3d12.dll", "52cfe58b301771dc163fd45a5c0689bf22d1bc2396133456e7f2bd94cc3b87f1"),
     ("i386-windows/d3d12core.dll", "56abc44d741df607ccf4ae7d3cdbd801d592fba4124bccab1705661fefbeaad3"),
 ];
@@ -1473,10 +1473,55 @@ pub fn dxmt_m12_runtime_artifact_valid_for_home(home: &Path, rel: &str) -> bool 
 /// lanes. Installs when the bundle carries the lanes; returns Ok(true) when
 /// the lanes are present and hash-valid afterwards.
 pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
+    // Cheap read-only currency gate: only re-extract when a shipped lane
+    // artifact is missing or hash-mismatched. The extraction below zstd-
+    // decompresses the ENTIRE graphics bundle and rm -rf + re-copies the
+    // vkd3d-proton/dxvk/moltenvk-vkmt dirs, and it runs on the backend's
+    // single main thread — an ungated run freezes the app (Steam status
+    // polls, launch requests) for the whole duration. Every M12 bottle save
+    // and health check hits this; with current lanes it must be a no-op.
     let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let vkd3d_dir = wine_dir.join("lib").join("vkd3d-proton");
     let dxvk_dir = wine_dir.join("lib").join("dxvk");
     let moltenvk_dir = wine_dir.join("lib").join("moltenvk-vkmt");
+
+    // The wine tree bundles a STOCK libMoltenVK (1.4.1) in lib/wine/x86_64-unix
+    // that wine's Vulkan driver (winemac.drv -> winevulkan) loads DIRECTLY,
+    // bypassing VK_ICD_FILENAMES and the DYLD env entirely. It must be the VKMT
+    // build: the stock build lacks the robustness2 gate and newer VKMT fixes,
+    // so DXVK rejects the device ("Skipping: Device does not support required
+    // feature 'robustBufferAccess2'"). Self-heal: mirror the VKMT lane's
+    // libMoltenVK (both the unversioned and versioned names) into the wine tree
+    // whenever they differ. Cheap (size compare) and idempotent.
+    let unix_dir = wine_dir.join("lib").join("wine").join("x86_64-unix");
+    let lane_mvk = moltenvk_dir.join("libMoltenVK.dylib");
+    if lane_mvk.is_file() {
+        let lane_len = fs::metadata(&lane_mvk).map(|m| m.len()).unwrap_or(0);
+        for name in ["libMoltenVK.dylib", "libMoltenVK.1.dylib"] {
+            let target = unix_dir.join(name);
+            let needs_sync = match fs::metadata(&target) {
+                Ok(m) => m.len() != lane_len,
+                Err(_) => true,
+            };
+            if needs_sync {
+                let _ = fs::copy(&lane_mvk, &target);
+            }
+        }
+    }
+
+    // Cheap read-only currency gate: only re-extract when a shipped lane
+    // artifact is missing or hash-mismatched. The extraction below zstd-
+    // decompresses the ENTIRE graphics bundle and rm -rf + re-copies the
+    // vkd3d-proton/dxvk/moltenvk-vkmt dirs, and it runs on the backend's
+    // single main thread — an ungated run freezes the app (Steam status
+    // polls, launch requests) for the whole duration. Every M12 bottle save
+    // and health check hits this; with current lanes it must be a no-op.
+    if vkd3d_proton_runtime_current_for_home(home)
+        && moltenvk_vkmt_runtime_ready_for_home(home)
+        && dxvk_runtime_ready_for_home(home)
+    {
+        return Ok(false);
+    }
 
     if let Some(archive) = find_bundled_archive(GRAPHICS_DLL_BUNDLE) {
         let tmp = std::env::temp_dir().join("metalsharp-vkd3d-extract");
@@ -1524,11 +1569,17 @@ pub fn dxvk_runtime_dir_for_home(home: &Path) -> PathBuf {
     crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine").join("lib").join("dxvk")
 }
 
-/// vkd3d-proton lane is current when every pinned artifact matches its hash.
+/// vkd3d-proton lane is current when every SHIPPED pinned artifact matches
+/// its hash. Only the x86_64-windows surface is verified: the pinned i386
+/// entries are aspirational (the vkd3d-proton bundle ships Windows DLLs for
+/// x86_64-windows only — no i386, no unix sidecar), so requiring them would
+/// make "current" permanently false and force an ungated full-bundle
+/// re-extraction on every M12 bottle save.
 pub fn vkd3d_proton_runtime_current_for_home(home: &Path) -> bool {
     let dir = vkd3d_proton_runtime_dir_for_home(home);
     VKD3D_PROTON_EXPECTED_HASHES
         .iter()
+        .filter(|(rel, _)| rel.starts_with("x86_64-windows/"))
         .all(|(rel, expected)| crate::diagnostics::file_sha256(&dir.join(rel)).as_deref() == Some(*expected))
 }
 
@@ -3139,13 +3190,20 @@ mod tests {
     }
 
     #[test]
-    fn vkd3d_proton_runtime_current_requires_all_pinned_hashes() {
+    fn vkd3d_proton_runtime_current_requires_shipped_x86_64_hashes() {
         let home = test_home("vkd3d-current");
         let dir = vkd3d_proton_runtime_dir_for_home(&home);
         write_vkd3d_proton_expected_test_files(&dir);
 
         // All fixtures present + matching test hashes -> current.
         assert!(vkd3d_proton_runtime_current_for_home(&home));
+
+        // The bundle ships x86_64-windows only: missing i386 lanes are
+        // phantom pins and must NOT block currency — requiring them would
+        // keep "current" permanently false and force a full-bundle zstd
+        // re-extraction on every M12 bottle save (backend freeze).
+        fs::remove_dir_all(dir.join("i386-windows")).expect("remove i386 fixture");
+        assert!(vkd3d_proton_runtime_current_for_home(&home), "phantom i386 lanes must not block currency");
 
         // Corrupt one artifact -> not current.
         let artifact = dir.join("x86_64-windows/d3d12core.dll");
