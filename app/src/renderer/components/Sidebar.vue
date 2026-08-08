@@ -196,7 +196,7 @@ const navItems = computed<NavItem[]>(() => [
       </button>
     </div>
 
-    <div class="sidebar-bottom">
+    <div class="sidebar-center-controls">
       <div class="sidebar-input-selector" :title="collapsed ? 'msync' : undefined">
         <div v-if="!collapsed" class="sidebar-input-label">
           <IconActivity class="sidebar-input-icon" width="14" height="14" />
@@ -301,6 +301,8 @@ const navItems = computed<NavItem[]>(() => [
           </button>
         </div>
       </div>
+    </div>
+    <div class="sidebar-bottom">
       <button
         class="sidebar-nav-item sidebar-theme-toggle"
         @click="themePickerOpen = !themePickerOpen"
@@ -509,13 +511,20 @@ const navItems = computed<NavItem[]>(() => [
 }
 
 .sidebar-nav {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   padding: 10px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  overflow-y: auto;
+}
+
+.sidebar-center-controls {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .sidebar-nav-item {
