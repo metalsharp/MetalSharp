@@ -95,8 +95,8 @@ pub(crate) fn write_dxmt_m12_expected_test_files(dxmt_m12_dir: &Path) {
 /// VKMT win64-filtered x86-64 builds (see docs/roadmaps/m12-vkd3d-proton-migration.md).
 #[cfg(not(test))]
 const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
-    ("x86_64-windows/d3d12.dll", "15a7ad7af07120c79075dc1bc08284731c4ca53f82bb81002a14a7b5701cb535"),
-    ("x86_64-windows/d3d12core.dll", "43b92ad53843c819443b1c5d21930c36fe3e6cc7a893df6b2b18528477259631"),
+    ("x86_64-windows/d3d12.dll", "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93"),
+    ("x86_64-windows/d3d12core.dll", "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4"),
     ("i386-windows/d3d12.dll", "52cfe58b301771dc163fd45a5c0689bf22d1bc2396133456e7f2bd94cc3b87f1"),
     ("i386-windows/d3d12core.dll", "56abc44d741df607ccf4ae7d3cdbd801d592fba4124bccab1705661fefbeaad3"),
 ];

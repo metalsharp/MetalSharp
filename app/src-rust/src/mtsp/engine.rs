@@ -82,40 +82,27 @@ fn m12_vkd3d_proton_node() -> PipelineNode {
         graphics_backend: "vkd3d-proton",
         experimental: false,
         requires_wine: true,
-        wine_overrides: Some(
-            "d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
-        ),
+        wine_overrides: Some("d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
         dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
         winedllpath_dirs: vec![],
         deploy_dlls: vec![
-            DllDeploy {
-                source_subpath: "lib/vkd3d-proton/x86_64-windows",
-                filename: "d3d12.dll",
-                dest_filename: None,
-            },
+            DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "d3d12.dll", dest_filename: None },
             DllDeploy {
                 source_subpath: "lib/vkd3d-proton/x86_64-windows",
                 filename: "d3d12core.dll",
                 dest_filename: None,
             },
-            DllDeploy {
-                source_subpath: "lib/dxvk/x86_64-windows",
-                filename: "dxgi.dll",
-                dest_filename: None,
-            },
+            DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
             // DXVK d3d11 rides along so D3D11 games switched to the
             // M12 route get a working render path (vkd3d-proton serves
             // D3D12 only; a D3D11 game without native D3D11 falls to
             // wine builtin d3d11 -> "Not a DXMT adapter").
-            DllDeploy {
-                source_subpath: "lib/dxvk/x86_64-windows",
-                filename: "d3d11.dll",
-                dest_filename: None,
-            },
+            DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d11.dll", dest_filename: None },
         ],
         env_vars: vec![
             EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
             EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
+            EnvVar { key: "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS", value: "1" },
         ],
         launch_args: vec!["-windowed", "-ResX=1280", "-ResY=720", "-ForceRes"],
         alternatives: vec![PipelineId::M11, PipelineId::M10, PipelineId::M9, PipelineId::Steam, PipelineId::MacSteam],
@@ -151,9 +138,7 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                 graphics_backend: "vkd3d-proton",
                 experimental: false,
                 requires_wine: true,
-                wine_overrides: Some(
-                    "d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
-                ),
+                wine_overrides: Some("d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
                 dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
                 winedllpath_dirs: vec![],
                 deploy_dlls: vec![
@@ -167,24 +152,17 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                         filename: "d3d12core.dll",
                         dest_filename: None,
                     },
-                    DllDeploy {
-                        source_subpath: "lib/dxvk/x86_64-windows",
-                        filename: "dxgi.dll",
-                        dest_filename: None,
-                    },
+                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
                     // DXVK d3d11 rides along so D3D11 games switched to the
                     // M12 route get a working render path (vkd3d-proton serves
                     // D3D12 only; a D3D11 game without native D3D11 falls to
                     // wine builtin d3d11 -> "Not a DXMT adapter").
-                    DllDeploy {
-                        source_subpath: "lib/dxvk/x86_64-windows",
-                        filename: "d3d11.dll",
-                        dest_filename: None,
-                    },
+                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d11.dll", dest_filename: None },
                 ],
                 env_vars: vec![
                     EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
                     EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
+                    EnvVar { key: "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS", value: "1" },
                 ],
                 launch_args: vec!["-windowed", "-ResX=1280", "-ResY=720", "-ForceRes"],
                 alternatives: vec![

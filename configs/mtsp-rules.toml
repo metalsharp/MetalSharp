@@ -569,11 +569,11 @@ name = "Rust"
 [overrides.252490.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.284160]
-pipeline = "m11"
+pipeline = "m12"
 name = "BeamNG.drive"
 
 [overrides.284160.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 [overrides.220]
 pipeline = "m9"
 name = "Half-Life 2"
@@ -6779,3 +6779,16 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 
 [overrides.4498220.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+[overrides.3241660]
+pipeline = "m12"
+name = "R.E.P.O."
+
+[overrides.3241660.diagnostics]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
+
+[overrides.673130]
+pipeline = "m12"
+name = "AMID EVIL"
+
+[overrides.673130.diagnostics]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]

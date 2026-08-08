@@ -21,8 +21,8 @@ D3D12 application -> vkd3d-proton 3.1.0 -> Vulkan loader -> patched MoltenVK 1.4
 ### vkd3d-proton — D3D12 implementation (M12's new core)
 | File | Arch | sha256 | Size |
 |---|---|---|---|
-| `build-vkmt-win64-filtered/libs/d3d12/d3d12.dll` | x86-64 PE32+ | `15a7ad7af07120c79075dc1bc08284731c4ca53f82bb81002a14a7b5701cb535` | 143 KB (loader/forwarder) |
-| `build-vkmt-win64-filtered/libs/d3d12core/d3d12core.dll` | x86-64 PE32+ | `43b92ad53843c819443b1c5d21930c36fe3e6cc7a893df6b2b18528477259631` | 5.5 MB (real impl) |
+| `build-vkmt-win64-filtered/libs/d3d12/d3d12.dll` | x86-64 PE32+ | `7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93` | 446,464 bytes (loader/forwarder) |
+| `build-vkmt-win64-filtered/libs/d3d12core/d3d12core.dll` | x86-64 PE32+ | `8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4` | 6,434,816 bytes (real impl) |
 | `build-vkmt-i386-clang/libs/d3d12/d3d12.dll` | i386 PE32 | `52cfe58b301771dc163fd45a5c0689bf22d1bc2396133456e7f2bd94cc3b87f1` | 32-bit lane (syswow64; not wired into M12 — M12 is 64-bit only) |
 | `build-vkmt-i386-clang/libs/d3d12core/d3d12core.dll` | i386 PE32 | `56abc44d741df607ccf4ae7d3cdbd801d592fba4124bccab1705661fefbeaad3` | 32-bit lane |
 
