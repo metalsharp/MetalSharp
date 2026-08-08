@@ -160,9 +160,7 @@ pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, St
         .into_iter()
         .find(|p| p.exists())
         .ok_or_else(|| "mtsp-rules.toml not found; nothing to update".to_string())?;
-    let pipeline_id = pipeline
-        .user_selectable_id()
-        .ok_or_else(|| format!("pipeline {:?} has no rule id", pipeline))?;
+    let pipeline_id = pipeline.user_selectable_id().ok_or_else(|| format!("pipeline {:?} has no rule id", pipeline))?;
     let header = format!("[overrides.{}]", appid);
     let contents = std::fs::read_to_string(&path).map_err(|e| format!("read mtsp-rules.toml: {}", e))?;
     let mut lines: Vec<String> = contents.lines().map(str::to_string).collect();
@@ -184,13 +182,13 @@ pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, St
                 Some(rel) => {
                     lines[start + 1 + rel] = format!("pipeline = \"{}\"", pipeline_id);
                     replaced = true;
-                }
+                },
                 None => {
                     lines.insert(start + 1, format!("pipeline = \"{}\"", pipeline_id));
                     replaced = true;
-                }
+                },
             }
-        }
+        },
         None => {
             if !contents.ends_with('\n') {
                 lines.push(String::new());
@@ -198,7 +196,7 @@ pub fn set_pipeline_rule(appid: u32, pipeline: PipelineId) -> Result<PathBuf, St
             lines.push(header);
             lines.push(format!("pipeline = \"{}\"", pipeline_id));
             replaced = true;
-        }
+        },
     }
 
     if replaced {
@@ -660,7 +658,7 @@ mod tests {
             (2358720, PipelineId::M11),
             (2456740, PipelineId::M12),
             (275850, PipelineId::WineBare),
-            (284160, PipelineId::M11),
+            (284160, PipelineId::M12),
             (1326470, PipelineId::M11),
             (1583230, PipelineId::M12),
             (3164500, PipelineId::M12),
@@ -674,7 +672,9 @@ mod tests {
             (1966720, PipelineId::M11),
             (2302640, PipelineId::M11),
             (291550, PipelineId::M11),
+            (673130, PipelineId::M12),
             (599140, PipelineId::M11),
+            (3241660, PipelineId::M12),
             (4704690, PipelineId::M12),
         ] {
             assert_eq!(rules.get(&appid), Some(&pipeline), "appid {appid}");

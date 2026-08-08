@@ -3000,6 +3000,13 @@ fn app_compat_env_pairs_with_logs(
         ];
     }
 
+    if appid == 870780 && pipeline_id == PipelineId::M12 {
+        // Windows Steam launch options are not inherited by MetalSharp's direct
+        // M12 game process. Preserve the user-selected MoltenVK debug mode here
+        // so Metal exposes command-buffer encoder failure information.
+        return vec![("MVK_CONFIG_DEBUG".to_string(), "1".to_string())];
+    }
+
     if appid == 1962700 && pipeline_id == PipelineId::M12 {
         let mut env = vec![
             ("DXMT_D3D12_ENABLE_GEOMETRY_MESH".to_string(), "1".to_string()),
@@ -3125,7 +3132,7 @@ fn cache_env_pairs_with_logs(
                 env.push(("DXMT_LOG_PATH".to_string(), log_dir));
             }
         },
-        "dxvk" | "vkd3d-proton" => {
+        "dxvk" => {
             env.push(("DXVK_STATE_CACHE_PATH".to_string(), shader_dir));
             if graphics_runtime_logs {
                 env.push(("DXVK_LOG_PATH".to_string(), log_dir));
@@ -3137,10 +3144,13 @@ fn cache_env_pairs_with_logs(
         },
         "vkd3d-proton" => {
             // D3D12 -> vkd3d-proton -> Vulkan -> MoltenVK -> Metal.
-            // vkd3d-proton uses the Vulkan loader, so the VKMT MoltenVK ICD
-            // must be pinned; state/cache routing mirrors the dxvk lane.
+            // vkd3d-proton owns vkd3d-proton.cache; DXVK still owns dxgi/d3d11
+            // state cache on this M12 route, so both providers need a path.
             env.push(("DXVK_STATE_CACHE_PATH".to_string(), shader_dir.clone()));
             env.push(("VKD3D_SHADER_CACHE_PATH".to_string(), shader_dir));
+            if graphics_runtime_logs {
+                env.push(("DXVK_LOG_PATH".to_string(), log_dir));
+            }
             let moltenvk_icd = ms_root.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
             if moltenvk_icd.exists() {
                 env.push(("VK_ICD_FILENAMES".to_string(), moltenvk_icd.to_string_lossy().to_string()));
@@ -6310,9 +6320,10 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             "M12 must set MVK_PRESENT_MODE=1"
         );
         assert!(
-            !node.env_vars.iter().any(|ev| ev.key.starts_with("DXMT_")),
-            "M12 must not carry DXMT env vars"
+            node.env_vars.iter().any(|ev| ev.key == "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS" && ev.value == "1"),
+            "M12 must globally force retained Metal command-buffer references for this diagnostic"
         );
+        assert!(!node.env_vars.iter().any(|ev| ev.key.starts_with("DXMT_")), "M12 must not carry DXMT env vars");
         assert_eq!(node.shader_cache_subdir, Some("m12"), "M12 shader cache must be isolated under m12");
     }
 
@@ -6396,6 +6407,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert!(!keys.contains("DXMT_CONFIG"), "M12 must not set DXMT_CONFIG (vkd3d-proton backend)");
         assert!(!keys.contains("DXMT_CONFIG_FILE"), "M12 must not set DXMT_CONFIG_FILE");
         assert!(!keys.contains("DXMT_SHADER_CACHE_PATH"), "M12 must not set DXMT_SHADER_CACHE_PATH");
+        assert!(keys.contains("DXVK_STATE_CACHE_PATH"), "M12 must route DXVK state cache");
+        assert!(keys.contains("VKD3D_SHADER_CACHE_PATH"), "M12 must route vkd3d-proton's shader cache");
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -6546,10 +6559,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let repaired_again = sanitize_metalsharp_wine_wrapper_script(&repaired);
         assert!(repaired_again.contains("export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\""));
         // And a script that already has it is left with exactly one occurrence.
-        assert_eq!(
-            repaired_again.matches("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\"").count(),
-            1
-        );
+        assert_eq!(repaired_again.matches("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\"").count(), 1);
     }
 
     #[test]
@@ -6654,12 +6664,12 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         // VKMT win64-filtered builds).
         let d3d12_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12.dll")).expect("d3d12 hash");
         assert_eq!(
-            d3d12_hash, "15a7ad7af07120c79075dc1bc08284731c4ca53f82bb81002a14a7b5701cb535",
+            d3d12_hash, "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93",
             "d3d12.dll must be the pinned VKMT win64-filtered build"
         );
         let core_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12core.dll")).expect("d3d12core hash");
         assert_eq!(
-            core_hash, "43b92ad53843c819443b1c5d21930c36fe3e6cc7a893df6b2b18528477259631",
+            core_hash, "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4",
             "d3d12core.dll must be the pinned VKMT win64-filtered build"
         );
         assert!(crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home));
@@ -8132,5 +8142,15 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             },
         }
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn m12_retained_command_buffer_diagnostic_is_global_to_m12_only() {
+        let control = app_compat_env_pairs(870780, PipelineId::M12);
+        assert!(control.iter().any(|(key, value)| key == "MVK_CONFIG_DEBUG" && value == "1"));
+        assert!(!control.iter().any(|(key, _)| key == "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS"));
+        assert!(!app_compat_env_pairs(870780, PipelineId::M11)
+            .iter()
+            .any(|(key, _)| key == "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS"));
     }
 }
