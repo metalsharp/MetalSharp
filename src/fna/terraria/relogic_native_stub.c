@@ -8,8 +8,8 @@
 /// exports the full ImeUi_* surface as inert no-ops: the IME is optional, and
 /// returning "no IME" lets Terraria run without it (previously the game died
 /// at Main.Initialize with DllNotFoundException: ReLogic.Native.dll).
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef void* HWND;
 typedef int32_t BOOL;
