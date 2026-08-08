@@ -85,6 +85,18 @@ M11/M10/M9 read from the legacy runtime surface:
 ~/.metalsharp/runtime/wine/lib/dxmt
 ```
 
+### DXMT shader Metal version
+
+For DXMT shader-compiling routes M10, M10(32), M11, and M11(32), the backend reads the host product version through `sw_vers -productVersion` at launch and writes a final `DXMT_CONFIG` overlay. This overlay has precedence over `DXMT_CONFIG_FILE` while preserving unrelated DXMT options:
+
+| macOS major version | DXMT overlay | Rationale |
+|---|---|---|
+| 14 | `dxmt.shaderMetalVersion=310` | Metal 3.1 |
+| 15 through 25 | `dxmt.shaderMetalVersion=320` | Metal 3.2 |
+| 26 or newer | no shader-version overlay | DXMT automatically selects Metal 4 |
+
+Malformed or unavailable version output fails open: no shader-version overlay is set, so DXMT keeps its own supported-host detection. The policy is applied after game recipe and caller configuration on direct/bottle paths, preventing stale per-game shader-version values from overriding the host capability.
+
 M12 reads from its default vkd3d-proton/DXVK/MoltenVK surface:
 
 ```text
