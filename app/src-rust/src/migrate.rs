@@ -3882,8 +3882,8 @@ mod tests {
         ));
         let mvk = crate::installer::moltenvk_vkmt_runtime_dir_for_home(&home);
         fs::create_dir_all(&mvk).expect("mvk dir");
-        fs::write(mvk.join("libMoltenVK.dylib"), b"dylib").expect("write dylib");
-        fs::write(mvk.join("libMoltenVK.1.dylib"), b"dylib").expect("write versioned dylib alias");
+        crate::installer::write_moltenvk_vkmt_expected_test_files(&mvk);
+        fs::copy(mvk.join("libMoltenVK.dylib"), mvk.join("libMoltenVK.1.dylib")).expect("write versioned dylib alias");
         fs::write(mvk.join("MoltenVK_icd.json"), b"{}").expect("write icd");
         let dxvk = crate::installer::dxvk_runtime_dir_for_home(&home).join("x86_64-windows");
         fs::create_dir_all(&dxvk).expect("dxvk dir");

@@ -7068,6 +7068,11 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             core_hash, "844b044e570a37028236b1328a12a8efbe606385a007ac0bac402c683d882746",
             "d3d12core.dll must be the pinned VKMT win64-filtered build"
         );
+        let moltenvk_hash = crate::diagnostics::file_sha256(&mvk_dir.join("libMoltenVK.dylib")).expect("MoltenVK hash");
+        assert_eq!(
+            moltenvk_hash, "fe9b0ec34f7cefd0497e741d83d919ad5a6b912b1e9abea9c4ef1d1531c9392d",
+            "libMoltenVK.dylib must be the pinned VKMT-tested build"
+        );
         assert!(crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home));
         assert!(dxvk_dir.join("dxgi.dll").is_file(), "M12's DXVK dxgi.dll must be staged");
 
