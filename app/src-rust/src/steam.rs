@@ -5,9 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static STEAM_INSTALLING: AtomicBool = AtomicBool::new(false);
 const STEAMWEBHELPER_WRAPPER_MAX_BYTES: u64 = 100_000;
-const STEAMWEBHELPER_WRAPPER_SHA256: &str = "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9";
+const STEAMWEBHELPER_WRAPPER_SHA256: &str = "3f33958020f6c987b94cc1a7790222b1efc2e3775e3cddd711cdff99143bc182";
 const STEAM_D3D12_GUARD_APPS: &[&str] = &["Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"];
 const STEAM_D3D12_GUARD_DLLS: &[&str] = &["d3d12", "d3d12core", "d3d12SDKLayers", "dxcore"];
+const STEAM_LAUNCH_ARGS: &[&str] = &["-no-cef-sandbox", "-noverifyfiles", "-no-dwrite"];
 
 fn ms_wine() -> PathBuf {
     let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
@@ -504,10 +505,7 @@ pub fn launch_wine_steam_with_env(extra_env: &[(String, String)]) -> Result<Valu
 
     let _ = crate::kernel_translation::ipc_bridge::start_ipc_listener();
 
-    let pid = spawn_wine_steam_with_env(
-        &["-no-cef-sandbox", "-cef-single-process", "-noverifyfiles", "-no-dwrite"],
-        extra_env,
-    )?;
+    let pid = spawn_wine_steam_with_env(STEAM_LAUNCH_ARGS, extra_env)?;
 
     Ok(json!({"ok": true, "pid": pid}))
 }
@@ -1196,12 +1194,10 @@ pub fn api_key_sync_state() -> Value {
     })
 }
 
-pub fn get_steam_id() -> Option<String> {
-    let home = dirs::home_dir()?;
-
+pub fn get_steam_id_for_home(home: &Path) -> Option<String> {
     let paths = vec![
         home.join("Library/Application Support/Steam/config/loginusers.vdf"),
-        crate::platform::metalsharp_home_dir_for(&home)
+        crate::platform::metalsharp_home_dir_for(home)
             .join("prefix-steam/drive_c/Program Files (x86)/Steam/config/loginusers.vdf"),
     ];
 
@@ -1220,6 +1216,10 @@ pub fn get_steam_id() -> Option<String> {
     }
 
     None
+}
+
+pub fn get_steam_id() -> Option<String> {
+    get_steam_id_for_home(&dirs::home_dir()?)
 }
 
 pub fn library() -> Value {
@@ -1711,6 +1711,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn steam_id_detection_reads_the_wine_prefix_for_the_requested_home() {
+        let suffix =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system time").as_nanos();
+        let home = std::env::temp_dir().join(format!("metalsharp-steam-id-{}-{suffix}", std::process::id()));
+        let loginusers = crate::platform::metalsharp_home_dir_for(&home)
+            .join("prefix-steam/drive_c/Program Files (x86)/Steam/config/loginusers.vdf");
+        std::fs::create_dir_all(loginusers.parent().unwrap()).unwrap();
+        std::fs::write(
+            &loginusers,
+            "\"users\"\n{\n    \"76561198152725565\"\n    {\n        \"PersonaName\" \"Player\"\n    }\n}\n",
+        )
+        .unwrap();
+
+        assert_eq!(get_steam_id_for_home(&home).as_deref(), Some("76561198152725565"));
+
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
     fn steam_defaults_to_legacy_compatible_opengl_contexts() {
         let mut command = Command::new("wine");
         command.env("MS_FWD_COMPAT_GL_CTX", "1");
@@ -1741,6 +1760,12 @@ mod tests {
     #[test]
     fn steam_accepts_explicit_wine_debug_override() {
         assert_eq!(steam_wine_debug_value(Some("+opengl".to_string())), "+opengl");
+    }
+
+    #[test]
+    fn steam_launch_avoids_unsupported_cef_single_process_mode() {
+        assert!(STEAM_LAUNCH_ARGS.contains(&"-no-cef-sandbox"));
+        assert!(!STEAM_LAUNCH_ARGS.contains(&"-cef-single-process"));
     }
 
     #[test]

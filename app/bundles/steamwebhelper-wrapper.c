@@ -13,9 +13,9 @@ int WINAPI WinMain(HINSTANCE h, HINSTANCE p, LPSTR cmd, int show) {
     if (GetFileAttributesA(re) == INVALID_FILE_ATTRIBUTES) return 1;
     char cl[8192];
     if (strlen(cmd) > 0)
-        snprintf(cl, sizeof(cl), "\"%s\" %s --in-process-gpu --disable-gpu", re, cmd);
+        snprintf(cl, sizeof(cl), "\"%s\" %s --disable-gpu", re, cmd);
     else
-        snprintf(cl, sizeof(cl), "\"%s\" --in-process-gpu --disable-gpu", re);
+        snprintf(cl, sizeof(cl), "\"%s\" --disable-gpu", re);
     STARTUPINFOA si = {sizeof(si)};
     PROCESS_INFORMATION pi = {0};
     if (!CreateProcessA(re, cl, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
