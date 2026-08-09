@@ -21,15 +21,15 @@ D3D12 application -> vkd3d-proton 3.1.0 -> Vulkan loader -> patched MoltenVK 1.4
 ### vkd3d-proton — D3D12 implementation (M12's new core)
 | File | Arch | sha256 | Size |
 |---|---|---|---|
-| `runtime/wine/lib/vkd3d-proton/x86_64-windows/d3d12.dll` | x86-64 PE32+ | `9b9be3098f45ec3921ed316e7c7bc421790d28a31795722153dc3e532d18aedc` | 446,464 bytes (loader/forwarder) |
-| `runtime/wine/lib/vkd3d-proton/x86_64-windows/d3d12core.dll` | x86-64 PE32+ | `844b044e570a37028236b1328a12a8efbe606385a007ac0bac402c683d882746` | 6,438,912 bytes (real impl) |
+| `runtime/wine/lib/vkd3d-proton/x86_64-windows/d3d12.dll` | x86-64 PE32+ | `7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93` | 446,464 bytes (loader/forwarder) |
+| `runtime/wine/lib/vkd3d-proton/x86_64-windows/d3d12core.dll` | x86-64 PE32+ | `8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4` | 6,434,816 bytes (real impl) |
 | `build-vkmt-i386-clang/libs/d3d12/d3d12.dll` | i386 PE32 | `52cfe58b301771dc163fd45a5c0689bf22d1bc2396133456e7f2bd94cc3b87f1` | 32-bit lane (syswow64; not wired into M12 — M12 is 64-bit only) |
 | `build-vkmt-i386-clang/libs/d3d12core/d3d12core.dll` | i386 PE32 | `56abc44d741df607ccf4ae7d3cdbd801d592fba4124bccab1705661fefbeaad3` | 32-bit lane |
 
 ### MoltenVK — Vulkan-on-Metal (M12's new GPU backend)
 | File | Arch | sha256 |
 |---|---|---|
-| `runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib` | Mach-O universal (x86_64 + arm64) | `fe9b0ec34f7cefd0497e741d83d919ad5a6b912b1e9abea9c4ef1d1531c9392d` |
+| `runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib` | Mach-O universal (x86_64 + arm64) | `50e41de23ce85260870c24cec11ac29b225704c6cb0366ce555dcd9ac03417f3` |
 | `…/macOS/MoltenVK_icd.json` | — | `library_path: "./libMoltenVK.dylib"`, `api_version 1.4.0`, `is_portability_driver: true` |
 
 ### DXVK — d3d11/dxgi/d3d10/d3d9 surfaces (M12 DXGI + fallback pipelines)
@@ -99,10 +99,13 @@ Runtime refresh now preserves every graphics-owned surface:
 
 `runtime_bundle_refresh_preserves_every_graphics_surface` covers that contract.
 The production app was restarted after the migration repair; it reported
-schema 4/version 0.59.1 as up to date, retained all five directories, and
-retained the hashes listed above. The release graphics bundle must be
-republished with those pinned vkd3d-proton and MoltenVK payloads; the previous
-bundle correctly falls M12 back to DXMT because its hashes no longer match.
+schema 4/version 0.59.1 as up to date. A canonical `bundles` release download
+was then extracted and compared with the deployed M12 lane: the three hashes
+in the inventory above are the actual bytes in both locations. The prior
+recorded `9b9be309…`, `844b044e…`, and `fe9b0ec3…` values did not match any
+local deployed or release payload and were corrected. The graphics archive is
+republished from these verified sources and its manifest is updated atomically;
+M12 rejects any archive or installed lane whose hashes do not match.
 
 The backend suite passed 749 tests after adding asynchronous child reaping for
 direct Wine launches. The process-level regression test requires a completed
