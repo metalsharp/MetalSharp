@@ -1286,7 +1286,17 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
         && dxmt_m12_runtime_current_for_dir(&dxmt_m12_dir)
         && !graphics_bundle_has_update(home)
     {
-        return Ok(false);
+        // Legacy DXMT currency alone is insufficient: older installations can
+        // have a current graphics marker yet lack the later vkd3d/DXVK/VKMT
+        // M12 lanes. Run the M12 ensure on the fast path so it also repairs
+        // Wine's direct-load MoltenVK mirror without re-staging healthy lanes.
+        return match ensure_vkd3d_proton_runtime_ready(home) {
+            Ok(changed) => Ok(changed),
+            Err(err) => {
+                eprintln!("setup: vkd3d-proton lanes not staged (DXMT fallback remains active): {}", err);
+                Ok(false)
+            },
+        };
     }
 
     let home_buf = home.to_path_buf();
@@ -1468,6 +1478,33 @@ pub fn dxmt_m12_runtime_artifact_valid_for_home(home: &Path, rel: &str) -> bool 
     crate::diagnostics::file_sha256(&dxmt_m12_runtime_dir_for_home(home).join(rel)).as_deref() == Some(*expected)
 }
 
+/// Mirror the VKMT MoltenVK lane into Wine's direct-load location. Wine's
+/// Vulkan driver bypasses the route ICD/DYLD configuration and loads these
+/// names from `lib/wine/x86_64-unix`, so they must be byte-identical to the
+/// selected VKMT lane after both a fresh install and an upgrade.
+fn sync_vkmt_moltenvk_into_wine_tree(wine_dir: &Path) -> Result<bool, String> {
+    let source = wine_dir.join("lib").join("moltenvk-vkmt").join("libMoltenVK.dylib");
+    if !source.is_file() {
+        return Ok(false);
+    }
+    let source_bytes = fs::read(&source).map_err(|e| format!("read VKMT MoltenVK {}: {}", source.display(), e))?;
+    let unix_dir = wine_dir.join("lib").join("wine").join("x86_64-unix");
+    fs::create_dir_all(&unix_dir)
+        .map_err(|e| format!("create Wine MoltenVK directory {}: {}", unix_dir.display(), e))?;
+
+    let mut changed = false;
+    for name in ["libMoltenVK.dylib", "libMoltenVK.1.dylib"] {
+        let target = unix_dir.join(name);
+        let matches_source = fs::read(&target).map(|bytes| bytes == source_bytes).unwrap_or(false);
+        if !matches_source {
+            fs::write(&target, &source_bytes)
+                .map_err(|e| format!("sync VKMT MoltenVK {} -> {}: {}", source.display(), target.display(), e))?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
 /// Stage the vkd3d-proton M12 stack from the graphics bundle:
 /// `Graphics/dll/{vkd3d-proton,dxvk,moltenvk-vkmt}` -> the runtime wine lib
 /// lanes. Installs when the bundle carries the lanes; returns Ok(true) when
@@ -1485,29 +1522,10 @@ pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
     let dxvk_dir = wine_dir.join("lib").join("dxvk");
     let moltenvk_dir = wine_dir.join("lib").join("moltenvk-vkmt");
 
-    // The wine tree bundles a STOCK libMoltenVK (1.4.1) in lib/wine/x86_64-unix
-    // that wine's Vulkan driver (winemac.drv -> winevulkan) loads DIRECTLY,
-    // bypassing VK_ICD_FILENAMES and the DYLD env entirely. It must be the VKMT
-    // build: the stock build lacks the robustness2 gate and newer VKMT fixes,
-    // so DXVK rejects the device ("Skipping: Device does not support required
-    // feature 'robustBufferAccess2'"). Self-heal: mirror the VKMT lane's
-    // libMoltenVK (both the unversioned and versioned names) into the wine tree
-    // whenever they differ. Cheap (size compare) and idempotent.
-    let unix_dir = wine_dir.join("lib").join("wine").join("x86_64-unix");
-    let lane_mvk = moltenvk_dir.join("libMoltenVK.dylib");
-    if lane_mvk.is_file() {
-        let lane_len = fs::metadata(&lane_mvk).map(|m| m.len()).unwrap_or(0);
-        for name in ["libMoltenVK.dylib", "libMoltenVK.1.dylib"] {
-            let target = unix_dir.join(name);
-            let needs_sync = match fs::metadata(&target) {
-                Ok(m) => m.len() != lane_len,
-                Err(_) => true,
-            };
-            if needs_sync {
-                let _ = fs::copy(&lane_mvk, &target);
-            }
-        }
-    }
+    // Wine's Vulkan driver bypasses the route ICD/DYLD configuration, so heal
+    // any stale direct-load MoltenVK copy before checking whether the VKMT
+    // lanes are current. This is content-based rather than size-based.
+    sync_vkmt_moltenvk_into_wine_tree(&wine_dir)?;
 
     // Cheap read-only currency gate: only re-extract when a shipped lane
     // artifact is missing or hash-mismatched. The extraction below zstd-
@@ -1540,6 +1558,10 @@ pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
             }
         }
         let _ = fs::remove_dir_all(&tmp);
+        // Fresh installs and upgrades only have the new VKMT lane after the
+        // copy above; synchronize again so Wine's direct-load path cannot
+        // retain the old bundled MoltenVK.
+        sync_vkmt_moltenvk_into_wine_tree(&wine_dir)?;
         mark_split_bundle_installed(home, GRAPHICS_DLL_BUNDLE, &archive);
     }
 
@@ -3219,6 +3241,28 @@ mod tests {
     fn vkd3d_proton_unknown_artifact_is_never_valid() {
         let home = test_home("vkd3d-unknown");
         assert!(!vkd3d_proton_runtime_artifact_valid_for_home(&home, "x86_64-windows/nope.dll"));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn vkmt_moltenvk_sync_replaces_equal_size_stale_wine_direct_load_copies() {
+        let home = test_home("vkmt-moltenvk-sync");
+        let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+        let lane = wine_dir.join("lib").join("moltenvk-vkmt");
+        let unix = wine_dir.join("lib").join("wine").join("x86_64-unix");
+        fs::create_dir_all(&lane).expect("create VKMT lane");
+        fs::create_dir_all(&unix).expect("create Wine unix lane");
+        fs::write(lane.join("libMoltenVK.dylib"), b"vkmt-new-1.4.2").expect("write VKMT MoltenVK");
+        for name in ["libMoltenVK.dylib", "libMoltenVK.1.dylib"] {
+            fs::write(unix.join(name), b"stock-old-1.4.").expect("write stale stock MoltenVK");
+        }
+
+        assert!(sync_vkmt_moltenvk_into_wine_tree(&wine_dir).expect("synchronize VKMT MoltenVK"));
+        for name in ["libMoltenVK.dylib", "libMoltenVK.1.dylib"] {
+            assert_eq!(fs::read(unix.join(name)).unwrap(), b"vkmt-new-1.4.2", "{name} must match VKMT lane");
+        }
+        assert!(!sync_vkmt_moltenvk_into_wine_tree(&wine_dir).expect("idempotent synchronization"));
+
         let _ = fs::remove_dir_all(home);
     }
 
