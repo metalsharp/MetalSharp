@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, inject, onMounted, onUnmounted, watch, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
-import { api } from "../composables/useApi";
+import { api, getAPI } from "../composables/useApi";
 import { themedNavIcon } from "../composables/useTheme";
 import GameCard from "../components/GameCard.vue";
 import IconBattery from "~icons/lucide/battery";
@@ -62,6 +62,15 @@ const GRID_MIN_COLUMN = 300;
 const gameGridEl = ref<HTMLElement | null>(null);
 const columnCount = ref(1);
 let gridResizeObserver: ResizeObserver | null = null;
+let removeGameStoppedListener: (() => void) | null = null;
+
+function handleGameStopped(appids: number[]) {
+  if (runningAppId.value === null || !appids.includes(runningAppId.value)) return;
+  const game = library.value?.games.find((candidate) => candidate.appid === runningAppId.value);
+  runningPid.value = null;
+  runningAppId.value = null;
+  toast.show(`Stopped ${game?.name ?? "game"}`);
+}
 
 function updateColumnCount() {
   const width = gameGridEl.value?.clientWidth ?? 0;
@@ -310,6 +319,7 @@ async function uninstallGame(game: SteamGame) {
 }
 
 onMounted(() => {
+  removeGameStoppedListener = getAPI().onGameStopped(handleGameStopped);
   applyFilter();
   gridResizeObserver = new ResizeObserver(updateColumnCount);
   if (gameGridEl.value) gridResizeObserver.observe(gameGridEl.value);
@@ -317,6 +327,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  removeGameStoppedListener?.();
+  removeGameStoppedListener = null;
   if (gridResizeObserver) {
     gridResizeObserver.disconnect();
     gridResizeObserver = null;
@@ -397,19 +409,19 @@ watch([library, search, filter], () => {
       <div v-else ref="gameGridEl" class="game-grid">
         <div v-for="(column, columnIndex) in gameColumns" :key="columnIndex" class="game-grid-column">
           <div v-for="game in column" :key="game.appid" class="game-grid-item">
-          <GameCard
-            :game="game"
-            :running="runningAppId === game.appid"
-            :launching="launchingAppId === game.appid"
-            :steam-installed="wineSteamInstalled"
-            :developer-mode="developerMode"
-            @play="launchGame(game, $event)"
-            @d3dmetal-launched="markD3DMetalLaunched(game, $event)"
-            @stop="stopGame(game)"
-            @install="installGame(game)"
-            @uninstall="uninstallGame(game)"
-            @artwork-missing="requestArtworkRetry"
-          />
+            <GameCard
+              :game="game"
+              :running="runningAppId === game.appid"
+              :launching="launchingAppId === game.appid"
+              :steam-installed="wineSteamInstalled"
+              :developer-mode="developerMode"
+              @play="launchGame(game, $event)"
+              @d3dmetal-launched="markD3DMetalLaunched(game, $event)"
+              @stop="stopGame(game)"
+              @install="installGame(game)"
+              @uninstall="uninstallGame(game)"
+              @artwork-missing="requestArtworkRetry"
+            />
           </div>
         </div>
       </div>
