@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-08-05
+Updated: 2026-08-08
 
 Tested and working games organized by pipeline. Only games confirmed playable are listed.
 
@@ -59,6 +59,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 | Subnautica | 264710 | |
 | Subnautica: Below Zero | 848450 | |
 | Rain World | 312520 | |
+| Reminiscence | 1675140 | |
 | Hollow Knight | 367520 | |
 | Party Animals | 1260320 | Save M11 bottle, launch direct with Steam. |
 | Dave the Diver | 1868140 | |

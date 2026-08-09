@@ -526,7 +526,7 @@ async function createProcessManagerWindow(): Promise<BrowserWindow> {
     processManagerWindow = null;
   });
   await processManagerWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
-    query: { overlay: "process-manager", theme: "dark" },
+    query: { overlay: "process-manager" },
   });
   return processManagerWindow;
 }
@@ -556,6 +556,34 @@ function registerProcessManagerShortcut(): void {
     console.warn(
       "MetalSharp Process Manager Cmd+P shortcut unavailable; overlay can still be opened from IPC/dev launch.",
     );
+  }
+}
+
+async function stopActiveGameFromShortcut(): Promise<void> {
+  const result = (await requestBackend("POST", "/games/stop-active", undefined, 15000)) as {
+    ok?: boolean;
+    active?: boolean;
+    stopped?: Array<{ appid?: number }>;
+  };
+  if (!result?.active) {
+    app.quit();
+    return;
+  }
+
+  const appids = (result.stopped ?? [])
+    .map((game) => game.appid)
+    .filter((appid): appid is number => typeof appid === "number");
+  if (appids.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("game:stopped", appids);
+  }
+  if (!result.ok) console.warn("MetalSharp Cmd+Q could not stop every active game");
+}
+
+function registerGameStopShortcut(): void {
+  const accelerator = process.platform === "darwin" ? "Command+Q" : "CommandOrControl+Q";
+  const ok = globalShortcut.register(accelerator, () => void stopActiveGameFromShortcut());
+  if (!ok && !globalShortcut.isRegistered(accelerator)) {
+    console.warn(`MetalSharp game-stop shortcut was not registered: ${accelerator}`);
   }
 }
 
@@ -608,7 +636,8 @@ async function createWindow(migrating = false) {
     },
   });
 
-  const query: Record<string, string> = uiOnly ? { theme: "dark" } : {};
+  // The renderer resolves a saved user choice; a first launch defaults to dark.
+  const query: Record<string, string> = {};
   if (process.env.METALSHARP_DEV_LIBRARY === "1") query["skip-to"] = "library";
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
     query,
@@ -712,6 +741,7 @@ app.whenReady().then(async () => {
 
   registerIpc();
   registerProcessManagerShortcut();
+  registerGameStopShortcut();
 
   await createWindow(needsMigration);
 

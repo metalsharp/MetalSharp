@@ -42,6 +42,14 @@ components = ["vcrun2019", "directx_jun2010"]
 [overrides.312520.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
+# Reminiscence (Steam 1675140) is a verified D3D11 title.
+[overrides.1675140]
+pipeline = "m11"
+name = "Reminiscence"
+
+[overrides.1675140.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
 [overrides.375520]
 pipeline = "m9"
 name = "Taimumari: Definitive Edition"

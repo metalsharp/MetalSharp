@@ -2503,7 +2503,8 @@ fn restore_setup_json(ms_dir: &Path, data: &[u8], steam_api_key_restored: bool) 
 /// are copied from the preserved file, so a future version's new keys (or
 /// defaults written during install) are never clobbered.
 fn restore_config_json(ms_dir: &Path, data: &[u8]) {
-    const PRESERVED_KEYS: &[&str] = &["m12Backend", "msync", "controllerInput", "graphicsRuntimeLogs"];
+    const PRESERVED_KEYS: &[&str] =
+        &["m12Backend", "msync", "controllerInput", "graphicsRuntimeLogs", "developerTelemetry"];
     let configs_dir = ms_dir.join("configs");
     let _ = fs::create_dir_all(&configs_dir);
     let path = configs_dir.join("config.json");
@@ -2876,7 +2877,7 @@ mod tests {
         // that a fresh install would write.
         fs::write(
             configs.join("config.json"),
-            r#"{"m12Backend":"dxmt","msync":false,"controllerInput":"x","graphicsRuntimeLogs":true,"futureKey":"keep"}"#,
+            r#"{"m12Backend":"dxmt","msync":false,"controllerInput":"x","graphicsRuntimeLogs":true,"developerTelemetry":false,"futureKey":"keep"}"#,
         )
         .expect("write config.json");
 
@@ -2897,6 +2898,7 @@ mod tests {
         assert_eq!(restored["msync"], false, "msync toggle must survive migration");
         assert_eq!(restored["controllerInput"], "x", "controller input mode must survive migration");
         assert_eq!(restored["graphicsRuntimeLogs"], true, "graphics logs toggle must survive migration");
+        assert_eq!(restored["developerTelemetry"], false, "developer telemetry opt-out must survive migration");
         assert_eq!(restored["newVersionKey"], "fresh", "fresh-install keys must not be clobbered by restore");
 
         let _ = fs::remove_dir_all(home);

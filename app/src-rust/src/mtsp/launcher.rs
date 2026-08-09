@@ -917,6 +917,7 @@ fn is_metalsharp_route_dll_conflict(path: &Path) -> bool {
             | "d3d10core.dll"
             | "d3d11.dll"
             | "d3d12.dll"
+            | "d3d12core.dll"
             | "dxgi.dll"
             | "dxgi_dxmt.dll"
             | "nvapi64.dll"
@@ -928,6 +929,17 @@ fn is_metalsharp_route_dll_conflict(path: &Path) -> bool {
 }
 
 pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Box<dyn std::error::Error>> {
+    // This is the mandatory deployment boundary for every game-local graphics
+    // route. Remove the other runtime family's copies before writing the
+    // selected route so direct launch paths cannot retain stale DXVK/vkd3d or
+    // DXMT DLLs after a pipeline change.
+    let quarantined = quarantine_route_conflicts_for_recipe(recipe)?;
+    if quarantined > 0 {
+        eprintln!(
+            "mtsp: removed {} stale route DLL conflict(s) before deploying {}",
+            quarantined, recipe.pipeline_name
+        );
+    }
     validate_recipe_runtime(recipe)?;
 
     // Controller input shims ([x]/[d] selector) ride along with every
@@ -6206,6 +6218,135 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                 deploy.filename,
                 deploy.source_subpath
             );
+        }
+    }
+
+    #[test]
+    fn deploy_recipe_dlls_strictly_isolates_m12_and_dxmt_route_families() {
+        let root = test_dir("strict-route-family-switch");
+        let game_dir = root.join("game");
+        let exe_dir = game_dir.join("Binaries").join("Win64");
+        let m12_source = root.join("runtime").join("wine").join("lib").join("vkd3d-proton").join("x86_64-windows");
+        let dxvk_source = root.join("runtime").join("wine").join("lib").join("dxvk").join("x86_64-windows");
+        let dxmt_source = root.join("runtime").join("wine").join("lib").join("dxmt").join("x86_64-windows");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::create_dir_all(&m12_source).unwrap();
+        std::fs::create_dir_all(&dxvk_source).unwrap();
+        std::fs::create_dir_all(&dxmt_source).unwrap();
+        std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
+
+        for dll in ["d3d12.dll", "d3d12core.dll"] {
+            std::fs::write(m12_source.join(dll), format!("m12-vkd3d-{dll}")).unwrap();
+        }
+        for dll in ["dxgi.dll", "d3d11.dll"] {
+            std::fs::write(dxvk_source.join(dll), format!("m12-dxvk-{dll}")).unwrap();
+        }
+        for dll in ["dxgi.dll", "d3d11.dll", "winemetal.dll"] {
+            std::fs::write(dxmt_source.join(dll), format!("dxmt-{dll}")).unwrap();
+        }
+
+        let make_recipe =
+            |pipeline: PipelineId, backend: &str, sources: Vec<(&Path, &str, &str)>| recipe::LaunchRecipe {
+                appid: 42,
+                pipeline,
+                pipeline_name: pipeline.to_legacy_method().into(),
+                backend: backend.into(),
+                game_dir: Some(game_dir.clone()),
+                exe_path: Some(exe_dir.join("Game.exe")),
+                exe_name: Some("Game.exe".into()),
+                launch_args: Vec::new(),
+                env: Vec::new(),
+                dlls: sources
+                    .into_iter()
+                    .map(|(source_dir, source_subpath, filename)| recipe::RecipeDll {
+                        source_subpath: source_subpath.into(),
+                        filename: filename.into(),
+                        source_path: source_dir.join(filename),
+                        dest_path: exe_dir.join(filename),
+                        source_present: true,
+                    })
+                    .collect(),
+                runtime_assets: Vec::new(),
+                warnings: Vec::new(),
+            };
+
+        let m12 = make_recipe(
+            PipelineId::M12,
+            "vkd3d-proton",
+            vec![
+                (&m12_source, "lib/vkd3d-proton/x86_64-windows", "d3d12.dll"),
+                (&m12_source, "lib/vkd3d-proton/x86_64-windows", "d3d12core.dll"),
+                (&dxvk_source, "lib/dxvk/x86_64-windows", "dxgi.dll"),
+                (&dxvk_source, "lib/dxvk/x86_64-windows", "d3d11.dll"),
+            ],
+        );
+        deploy_recipe_dlls(&m12).expect("deploy M12");
+        assert_eq!(std::fs::read_to_string(exe_dir.join("dxgi.dll")).unwrap(), "m12-dxvk-dxgi.dll");
+        assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "m12-dxvk-d3d11.dll");
+
+        let m11 = make_recipe(
+            PipelineId::M11,
+            "dxmt",
+            vec![
+                (&dxmt_source, "lib/dxmt/x86_64-windows", "dxgi.dll"),
+                (&dxmt_source, "lib/dxmt/x86_64-windows", "d3d11.dll"),
+                (&dxmt_source, "lib/dxmt/x86_64-windows", "winemetal.dll"),
+            ],
+        );
+        deploy_recipe_dlls(&m11).expect("switch M12 to M11");
+        for dll in ["d3d12.dll", "d3d12core.dll"] {
+            assert!(!exe_dir.join(dll).exists(), "DXMT route must remove stale M12 {dll}");
+        }
+        assert_eq!(std::fs::read_to_string(exe_dir.join("dxgi.dll")).unwrap(), "dxmt-dxgi.dll");
+        assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "dxmt-d3d11.dll");
+
+        deploy_recipe_dlls(&m12).expect("switch M11 to M12");
+        assert!(!exe_dir.join("winemetal.dll").exists(), "M12 route must remove stale DXMT winemetal.dll");
+        for (dll, contents) in [
+            ("d3d12.dll", "m12-vkd3d-d3d12.dll"),
+            ("d3d12core.dll", "m12-vkd3d-d3d12core.dll"),
+            ("dxgi.dll", "m12-dxvk-dxgi.dll"),
+            ("d3d11.dll", "m12-dxvk-d3d11.dll"),
+        ] {
+            assert_eq!(std::fs::read_to_string(exe_dir.join(dll)).unwrap(), contents, "M12 route must own {dll}");
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn every_dxmt_route_quarantines_the_m12_ownership_set() {
+        for pipeline in [PipelineId::M11, PipelineId::M11_32, PipelineId::M10, PipelineId::M10_32] {
+            let root = test_dir(&format!("dxmt-route-quarantine-{pipeline:?}"));
+            let game_dir = root.join("game");
+            let exe_dir = game_dir.join("bin");
+            std::fs::create_dir_all(&exe_dir).unwrap();
+            std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
+            for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
+                std::fs::write(exe_dir.join(dll), format!("stale-m12-{dll}")).unwrap();
+            }
+
+            let recipe = recipe::LaunchRecipe {
+                appid: 42,
+                pipeline,
+                pipeline_name: format!("{pipeline:?}"),
+                backend: "dxmt".into(),
+                game_dir: Some(game_dir.clone()),
+                exe_path: Some(exe_dir.join("Game.exe")),
+                exe_name: Some("Game.exe".into()),
+                launch_args: Vec::new(),
+                env: Vec::new(),
+                dlls: Vec::new(),
+                runtime_assets: Vec::new(),
+                warnings: Vec::new(),
+            };
+
+            let removed = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine M12 route files");
+            assert_eq!(removed, 4, "{pipeline:?} must evict every M12-owned D3D12/DXVK DLL");
+            for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
+                assert!(!exe_dir.join(dll).exists(), "{pipeline:?} must remove stale M12 {dll}");
+            }
+            let _ = std::fs::remove_dir_all(root);
         }
     }
 
