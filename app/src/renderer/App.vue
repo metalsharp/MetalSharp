@@ -12,6 +12,7 @@ import SettingsView from "./views/SettingsView.vue";
 import { useTheme } from "./composables/useTheme";
 import { useToast } from "./composables/useToast";
 import { getAPI, api } from "./composables/useApi";
+import { captureTelemetry, configureTelemetry } from "./composables/useTelemetry";
 import type { AppConfig, UpdateStatus, SteamStatus } from "./api-types";
 
 interface SteamGame {
@@ -289,8 +290,13 @@ function startHealthPolling() {
     } else {
       backendVersion.value = null;
     }
-    if (prev && !backendConnected.value) toast.show("Backend connection lost", "error");
-    else if (!prev && backendConnected.value) toast.show("Backend connected", "success");
+    if (prev && !backendConnected.value) {
+      captureTelemetry("backend_connection_lost");
+      toast.show("Backend connection lost", "error");
+    } else if (!prev && backendConnected.value) {
+      captureTelemetry("backend_recovered");
+      toast.show("Backend connected", "success");
+    }
   }, 120000);
 }
 
@@ -319,6 +325,16 @@ watch(lowPerformanceMode, (enabled) => {
 onMounted(async () => {
   applyLowPerformanceMode(lowPerformanceMode.value);
   await checkBackend();
+  const startupConfig = await api<AppConfig>("GET", "/config");
+  if (startupConfig?.ok) config.value = startupConfig;
+  const telemetryConfigured = await configureTelemetry(startupConfig?.developerTelemetry ?? true);
+  if (telemetryConfigured) {
+    const firstReady = localStorage.getItem("metalsharp-backend-ready-reported") !== "true";
+    captureTelemetry(backendConnected.value ? "backend_ready" : "backend_unavailable", {
+      first_observed_ready: firstReady,
+    });
+    if (backendConnected.value) localStorage.setItem("metalsharp-backend-ready-reported", "true");
+  }
   if (new URLSearchParams(window.location.search).get("skip-to") === "library") {
     // The dev backend may still be starting (first-run bottle scan); wait for
     // it before loading the library instead of racing a dead window.

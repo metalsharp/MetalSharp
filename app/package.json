@@ -27,7 +27,8 @@
     "dmg": "npm run dist -- --mac dmg"
   },
   "dependencies": {
-    "electron-store": "^10.0.0"
+    "electron-store": "^10.0.0",
+    "posthog-js": "^1.414.0"
   },
   "overrides": {
     "form-data": "4.0.6",
