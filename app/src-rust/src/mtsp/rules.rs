@@ -954,6 +954,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn shipped_rules_route_reminiscence_to_m11() {
+        const SOURCE: &str = include_str!("../../../../configs/mtsp-rules.toml");
+        let (_, recipes) = parse_rules_full(SOURCE);
+        let recipe = recipes.get(&1675140).expect("shipped rules must contain a Reminiscence override (appid 1675140)");
+        assert_eq!(recipe.pipeline, PipelineId::M11);
+        assert_eq!(recipe.name, "Reminiscence");
+    }
+
     /// Stardew Valley (1.6+, net6 MonoGame) must default to the mono/fna
     /// route — the shipped config regression-guards the fna_arm64 rule.
     #[test]
