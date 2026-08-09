@@ -1,7 +1,7 @@
 {
   "name": "metalsharp",
-  "version": "0.59.0",
-  "description": "MetalSharp \u2014 D3D\u2192Metal translation layer frontend",
+  "version": "0.59.1",
+  "description": "MetalSharp — D3D→Metal translation layer frontend",
   "author": "MetalSharp",
   "repository": {
     "type": "git",
@@ -27,7 +27,8 @@
     "dmg": "npm run dist -- --mac dmg"
   },
   "dependencies": {
-    "electron-store": "^10.0.0"
+    "electron-store": "^10.0.0",
+    "posthog-js": "^1.414.0"
   },
   "overrides": {
     "form-data": "4.0.6",
@@ -54,7 +55,7 @@
   "build": {
     "appId": "com.metalsharp.app",
     "productName": "MetalSharp",
-    "copyright": "Copyright \u00a9 2026 MetalSharp",
+    "copyright": "Copyright © 2026 MetalSharp",
     "afterPack": "build/adhoc-deep-sign.cjs",
     "afterSign": "build/notarize.cjs",
     "mac": {

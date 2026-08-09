@@ -77,6 +77,46 @@ fn prune_inactive_game_pids() {
     }
 }
 
+/// Return only live, MetalSharp-registered game process roots. This is the
+/// trust boundary for global game-stop actions: arbitrary system PIDs must never
+/// be accepted here.
+fn active_game_targets(games: &HashMap<u32, i32>) -> Vec<(u32, i32)> {
+    let mut targets: Vec<_> = games.iter().filter_map(|(&appid, &pid)| (pid > 0).then_some((appid, pid))).collect();
+    targets.sort_unstable_by_key(|(appid, _)| *appid);
+    targets
+}
+
+fn stop_active_games() -> Value {
+    prune_inactive_game_pids();
+    let targets = running_games().lock().map(|games| active_game_targets(&games)).unwrap_or_default();
+    let mut stopped = Vec::new();
+    let mut errors = Vec::new();
+
+    for (appid, pid) in targets {
+        match launch::kill_game_with_pid(appid, pid) {
+            Ok(_) => {
+                unregister_game_pid(appid);
+                app_log(&format!("[STOPPED] appid {} | pid {} | source global-shortcut", appid, pid));
+                stopped.push(json!({ "appid": appid, "pid": pid }));
+            },
+            Err(error) => {
+                app_log(&format!(
+                    "[STOP FAILED] appid {} | pid {} | source global-shortcut | error: {}",
+                    appid, pid, error
+                ));
+                errors.push(json!({ "appid": appid, "pid": pid }));
+            },
+        }
+    }
+
+    json!({
+        "ok": errors.is_empty(),
+        "active": !stopped.is_empty() || !errors.is_empty(),
+        "stopped": stopped,
+        "errors": errors,
+    })
+}
+
 enum RouteResponse {
     Json(u16, Vec<u8>),
     Raw(u16, Vec<u8>, String),
@@ -2250,6 +2290,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             )
         },
         (Method::Post, "/processes/force-kill") => resp(200, force_kill_metalsharp_processes()),
+        (Method::Post, "/games/stop-active") => resp(200, stop_active_games()),
         (Method::Post, "/kill") => {
             let body = read_body(req);
             let pid_param = body.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
@@ -3084,6 +3125,13 @@ mod tests {
         assert!(!is_trusted_local_origin("http://localhost:99999"));
         assert!(!is_trusted_local_origin("http://localhost:5173a"));
         assert!(!is_trusted_local_origin("https://localhost:5173"));
+    }
+
+    #[test]
+    fn active_game_targets_include_only_registered_positive_pids() {
+        let targets = active_game_targets(&HashMap::from([(620, 4242), (4000, 0), (1260320, -1)]));
+
+        assert_eq!(targets, vec![(620, 4242)]);
     }
 
     #[test]
