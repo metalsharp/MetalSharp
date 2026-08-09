@@ -95,8 +95,8 @@ pub(crate) fn write_dxmt_m12_expected_test_files(dxmt_m12_dir: &Path) {
 /// VKMT win64-filtered x86-64 builds (see docs/roadmaps/m12-vkd3d-proton-migration.md).
 #[cfg(not(test))]
 const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
-    ("x86_64-windows/d3d12.dll", "9b9be3098f45ec3921ed316e7c7bc421790d28a31795722153dc3e532d18aedc"),
-    ("x86_64-windows/d3d12core.dll", "844b044e570a37028236b1328a12a8efbe606385a007ac0bac402c683d882746"),
+    ("x86_64-windows/d3d12.dll", "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93"),
+    ("x86_64-windows/d3d12core.dll", "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4"),
 ];
 #[cfg(test)]
 const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
@@ -116,7 +116,7 @@ pub(crate) fn write_vkd3d_proton_expected_test_files(vkd3d_dir: &Path) {
 /// Pinned hash for the VKMT-patched MoltenVK dylib used by M12.
 #[cfg(not(test))]
 const MOLTENVK_VKMT_EXPECTED_HASHES: &[(&str, &str)] =
-    &[("libMoltenVK.dylib", "fe9b0ec34f7cefd0497e741d83d919ad5a6b912b1e9abea9c4ef1d1531c9392d")];
+    &[("libMoltenVK.dylib", "50e41de23ce85260870c24cec11ac29b225704c6cb0366ce555dcd9ac03417f3")];
 #[cfg(test)]
 const MOLTENVK_VKMT_EXPECTED_HASHES: &[(&str, &str)] =
     &[("libMoltenVK.dylib", "c0ee2baa9eee1b262c93f30588760835d4262f9bae9d205dce5bc71bcf658b8c")];

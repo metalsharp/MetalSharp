@@ -100,14 +100,21 @@ def main() -> int:
             else:
                 shutil.copytree(root, lane_dst, dirs_exist_ok=True)
 
-        # Rebuild: copy original entries, then append new lanes.
+        # Rebuild all unchanged entries, replacing (not appending) the lanes supplied
+        # by the caller. Appending the same path makes BSD tar's effective result
+        # depend on member order and bloats every subsequent republish.
+        replaced_prefixes = tuple(
+            f"Graphics/dll/{lane}" for lane, (root_arg, _) in LANES.items() if getattr(args, root_arg)
+        )
         out_tar = tmp_path / "graphics.tar"
         with tarfile.open(out_tar, "w") as tar:
             for member in sorted(extracted.rglob("*")):
                 if member.is_dir() and not member.is_symlink():
                     continue
-                arcname = member.relative_to(extracted)
-                info = tar.gettarinfo(str(member), arcname=str(arcname))
+                arcname = str(member.relative_to(extracted))
+                if any(arcname == prefix or arcname.startswith(f"{prefix}/") for prefix in replaced_prefixes):
+                    continue
+                info = tar.gettarinfo(str(member), arcname=arcname)
                 info.uid = 0
                 info.gid = 0
                 info.uname = ""
