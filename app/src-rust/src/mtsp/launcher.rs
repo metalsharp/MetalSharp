@@ -280,6 +280,7 @@ struct CachePaths {
     shader: String,
     pipeline: String,
     log: String,
+    vkd3d_shader: Option<String>,
 }
 
 struct LaunchLogContext<'a> {
@@ -353,7 +354,7 @@ pub fn ensure_bridge_running() -> Result<(), Box<dyn std::error::Error>> {
         .stderr(std::process::Stdio::null());
     crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
 
-    let _child = cmd.spawn()?;
+    spawn_and_reap(&mut cmd)?;
 
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(250));
@@ -1473,8 +1474,8 @@ pub fn launch_custom_with_options(
         let stdout = log.try_clone()?;
         cmd.stdout(Stdio::from(stdout)).stderr(Stdio::from(log));
     }
-    let child = cmd.spawn()?;
-    Ok((child.id(), node.id.to_legacy_method(), recipe))
+    let pid = spawn_and_reap(&mut cmd)?;
+    Ok((pid, node.id.to_legacy_method(), recipe))
 }
 
 fn backup_name_for(game_dir: &std::path::Path, dest_path: &std::path::Path) -> String {
@@ -1605,12 +1606,22 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
     let winedllpath = env_value("WINEDLLPATH").unwrap_or_default();
     let dyld_library_path = env_value("DYLD_LIBRARY_PATH").unwrap_or_default();
     let dyld_fallback_library_path = env_value("DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default();
+    let route_dyld_path = env_value("METALSHARP_ROUTE_DYLD_PATH").unwrap_or_default();
     let winemetal_unixlib = env_value("DXMT_WINEMETAL_UNIXLIB").unwrap_or_default();
-    let m12_env_ok = recipe.pipeline != PipelineId::M12
-        || (winedllpath.contains("dxmt_m12/x86_64-windows")
+    let vk_icd_filenames = env_value("VK_ICD_FILENAMES").unwrap_or_default();
+    let m12_env_ok = if recipe.pipeline != PipelineId::M12 {
+        true
+    } else if recipe.backend == "vkd3d-proton" {
+        [dyld_library_path, dyld_fallback_library_path, route_dyld_path]
+            .iter()
+            .any(|path| path.contains("moltenvk-vkmt"))
+            && vk_icd_filenames.contains("MoltenVK_icd.json")
+    } else {
+        winedllpath.contains("dxmt_m12/x86_64-windows")
             && (dyld_library_path.contains("dxmt_m12/x86_64-unix")
                 || dyld_fallback_library_path.contains("dxmt_m12/x86_64-unix"))
-            && winemetal_unixlib == "winemetal.so");
+            && winemetal_unixlib == "winemetal.so"
+    };
 
     let ok = runtime_assets_ok && dlls_ok && prefix_dlls_ok && m12_env_ok;
     serde_json::json!({
@@ -1626,10 +1637,22 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
             "WINEDLLPATH": winedllpath,
             "DYLD_LIBRARY_PATH": dyld_library_path,
             "DYLD_FALLBACK_LIBRARY_PATH": dyld_fallback_library_path,
+            "METALSHARP_ROUTE_DYLD_PATH": route_dyld_path,
+            "VK_ICD_FILENAMES": vk_icd_filenames,
             "WINEDLLOVERRIDES": env_value("WINEDLLOVERRIDES"),
             "DXMT_WINEMETAL_UNIXLIB": winemetal_unixlib,
-            "requires_dxmt_m12_windows": recipe.pipeline == PipelineId::M12,
-            "requires_dxmt_m12_unix": recipe.pipeline == PipelineId::M12,
+            "requires_vkd3d_proton_windows": recipe.pipeline == PipelineId::M12
+                && recipe.backend == "vkd3d-proton",
+            "requires_dxvk_windows": recipe.pipeline == PipelineId::M12
+                && recipe.backend == "vkd3d-proton",
+            "requires_moltenvk_vkmt": recipe.pipeline == PipelineId::M12
+                && recipe.backend == "vkd3d-proton",
+            "requires_vulkan_icd": recipe.pipeline == PipelineId::M12
+                && recipe.backend == "vkd3d-proton",
+            "requires_dxmt_m12_windows": recipe.pipeline == PipelineId::M12
+                && recipe.backend != "vkd3d-proton",
+            "requires_dxmt_m12_unix": recipe.pipeline == PipelineId::M12
+                && recipe.backend != "vkd3d-proton",
         },
     })
 }
@@ -1708,7 +1731,7 @@ fn launch_d3dmetal_gptk_with_context(
     let exe_dir = launch_working_dir(game_dir, exe_path);
     let exe_name = exe_path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
-    apply_start_protected_game_bypass(appid, game_dir);
+    restore_start_protected_game_bypass(appid, game_dir);
 
     let prefix = gptk_prefix;
     let prefix_str = prefix.to_string_lossy().to_string();
@@ -1792,8 +1815,8 @@ fn launch_d3dmetal_gptk_with_context(
             cache_paths: cache_paths.as_ref(),
         },
     )?;
-    let child = cmd.spawn()?;
-    Ok((child.id(), node.id.to_legacy_method()))
+    let pid = spawn_and_reap(&mut cmd)?;
+    Ok((pid, node.id.to_legacy_method()))
 }
 
 fn launch_dxmt_metal(appid: u32, node: &PipelineNode) -> Result<(u32, &'static str), Box<dyn std::error::Error>> {
@@ -1914,8 +1937,8 @@ fn launch_dxmt_metal_with_context(
             cache_paths: cache_paths.as_ref(),
         },
     )?;
-    let child = cmd.spawn()?;
-    Ok((child.id(), node.id.to_legacy_method()))
+    let pid = spawn_and_reap(&mut cmd)?;
+    Ok((pid, node.id.to_legacy_method()))
 }
 
 fn deploy_d3d12_agility_sidecars(
@@ -2001,8 +2024,21 @@ fn launch_wine_bare_with_context(
             cache_paths: cache_paths.as_ref(),
         },
     )?;
+    let pid = spawn_and_reap(&mut cmd)?;
+    Ok((pid, node.id.to_legacy_method()))
+}
+
+fn spawn_and_reap(cmd: &mut Command) -> Result<u32, Box<dyn std::error::Error>> {
     let child = cmd.spawn()?;
-    Ok((child.id(), node.id.to_legacy_method()))
+    let pid = child.id();
+    hand_off_child_reaper(child);
+    Ok(pid)
+}
+
+fn hand_off_child_reaper(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 fn attach_launch_log(
@@ -2338,8 +2374,10 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
         let log_tail = tail_text(&log_path, 4096);
         return Err(format!("FNA/Mono/XNA launch exited early with status {}. Log: {}", status, log_tail).into());
     }
+    let pid = child.id();
+    hand_off_child_reaper(child);
     let method = profile.method_label;
-    Ok((child.id(), method, log_path))
+    Ok((pid, method, log_path))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2540,7 +2578,9 @@ fn launch_fna_kickstart(
                 format!("FNA/MonoKickstart launch exited early with status {}. Log: {}", status, log_tail).into()
             );
         }
-        return Ok((child.id(), profile.method_label, log_path));
+        let pid = child.id();
+        hand_off_child_reaper(child);
+        return Ok((pid, profile.method_label, log_path));
     }
 
     let mut child = cmd.spawn()?;
@@ -2556,7 +2596,9 @@ fn launch_fna_kickstart(
         let log_tail = tail_text(&log_path, 4096);
         return Err(format!("FNA/MonoKickstart launch exited early with status {}. Log: {}", status, log_tail).into());
     }
-    Ok((child.id(), profile.method_label, log_path))
+    let pid = child.id();
+    hand_off_child_reaper(child);
+    Ok((pid, profile.method_label, log_path))
 }
 
 fn find_mono_binary_for_app(appid: u32) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -2618,7 +2660,11 @@ fn route_library_env_pairs(ms_root: &PathBuf, paths: &[&str]) -> Vec<(String, St
 
     let path = build_dyld(ms_root, paths);
     if crate::platform::current() == crate::platform::HostPlatform::Macos {
-        vec![("DYLD_LIBRARY_PATH".to_string(), path.clone()), ("DYLD_FALLBACK_LIBRARY_PATH".to_string(), path)]
+        vec![
+            ("METALSHARP_ROUTE_DYLD_PATH".to_string(), path.clone()),
+            ("DYLD_LIBRARY_PATH".to_string(), path.clone()),
+            ("DYLD_FALLBACK_LIBRARY_PATH".to_string(), path),
+        ]
     } else {
         let key = crate::platform::runtime_library_env(ms_root).map(|(key, _)| key).unwrap_or("LD_LIBRARY_PATH");
         vec![(key.to_string(), path)]
@@ -2781,11 +2827,20 @@ fn build_cache_paths(home: &PathBuf, node: &PipelineNode, appid: u32) -> Option<
     let _ = std::fs::create_dir_all(&shader_base);
     let _ = std::fs::create_dir_all(&pipeline_base);
     let _ = std::fs::create_dir_all(&log_base);
+    let vkd3d_shader = if node.backend == "vkd3d-proton" {
+        let wine_cache =
+            ms_home.join("prefix-steam").join("drive_c").join("metalsharp-cache").join(subdir).join(appid.to_string());
+        let _ = std::fs::create_dir_all(&wine_cache);
+        Some(format!(r"C:\metalsharp-cache\{}\{}", subdir, appid))
+    } else {
+        None
+    };
     super::shader_cache::deploy_preset_cache(home, subdir, appid);
     Some(CachePaths {
         shader: shader_base.to_string_lossy().to_string(),
         pipeline: pipeline_base.to_string_lossy().to_string(),
         log: log_base.to_string_lossy().to_string(),
+        vkd3d_shader,
     })
 }
 
@@ -3101,6 +3156,7 @@ fn is_reserved_route_env_key(pipeline_id: PipelineId, key: &str) -> bool {
             | "WINEDLLPATH"
             | "DYLD_LIBRARY_PATH"
             | "DYLD_FALLBACK_LIBRARY_PATH"
+            | "METALSHARP_ROUTE_DYLD_PATH"
             | "DXMT_WINEMETAL_UNIXLIB"
             | "DXMT_CONFIG_FILE"
             | "MS_GRAPHICS_BACKEND"
@@ -3133,6 +3189,10 @@ fn app_compat_env_pairs_with_logs(
         // M12 game process. Preserve the user-selected MoltenVK debug mode here
         // so Metal exposes command-buffer encoder failure information.
         return vec![("MVK_CONFIG_DEBUG".to_string(), "1".to_string())];
+    }
+
+    if appid == 1245620 && pipeline_id == PipelineId::M12 {
+        return vec![("VKD3D_FEATURE_LEVEL".to_string(), "12_0".to_string())];
     }
 
     if appid == 1962700 && pipeline_id == PipelineId::M12 {
@@ -3275,7 +3335,7 @@ fn cache_env_pairs_with_logs(
             // vkd3d-proton owns vkd3d-proton.cache; DXVK still owns dxgi/d3d11
             // state cache on this M12 route, so both providers need a path.
             env.push(("DXVK_STATE_CACHE_PATH".to_string(), shader_dir.clone()));
-            env.push(("VKD3D_SHADER_CACHE_PATH".to_string(), shader_dir));
+            env.push(("VKD3D_SHADER_CACHE_PATH".to_string(), cache.vkd3d_shader.clone().unwrap_or(shader_dir)));
             if graphics_runtime_logs {
                 env.push(("DXVK_LOG_PATH".to_string(), log_dir));
             }
@@ -5153,13 +5213,49 @@ pub fn metadata_says_active_for(home_root: &Path, appid: u32) -> bool {
     read_goldberg_metadata_for(home_root, appid).map(|m| m.active).unwrap_or(false)
 }
 
-fn goldberg_deploy_settings(steam_settings: &Path, appid: u32) {
+const GOLDBERG_FALLBACK_STEAM_ID: &str = "76561198000000000";
+
+fn valid_steam_id(steam_id: &str) -> bool {
+    steam_id.len() == 17 && steam_id.starts_with("7656") && steam_id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn goldberg_deploy_settings(steam_settings: &Path, appid: u32, steam_id: Option<&str>) {
     if !steam_settings.exists() {
         let _ = std::fs::create_dir_all(steam_settings);
     }
+    let steam_id = steam_id.filter(|id| valid_steam_id(id)).unwrap_or(GOLDBERG_FALLBACK_STEAM_ID);
     let _ = std::fs::write(steam_settings.join("force_steam_appid.txt"), appid.to_string());
     let _ = std::fs::write(steam_settings.join("account_name.txt"), "Player\n");
-    let _ = std::fs::write(steam_settings.join("user_steam_id.txt"), "76561198000000000\n");
+    let _ = std::fs::write(steam_settings.join("user_steam_id.txt"), format!("{steam_id}\n"));
+    let modern_config =
+        format!("[user::general]\naccount_name=Player\naccount_steamid={steam_id}\nlanguage=english\nip_country=US\n");
+    let _ = std::fs::write(steam_settings.join("configs.user.ini"), modern_config);
+    let _ = std::fs::write(steam_settings.join("configs.app.ini"), "[app::dlcs]\nunlock_all=0\n");
+}
+
+fn deploy_goldberg_dll(source: &Path, destination: &Path) -> bool {
+    if !source.is_file() {
+        return false;
+    }
+    let Some(filename) = destination.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let original = destination.with_file_name(format!("{filename}.orig"));
+    if original.is_file() {
+        return false;
+    }
+
+    let moved_original = destination.is_file();
+    if moved_original && std::fs::rename(destination, &original).is_err() {
+        return false;
+    }
+    if std::fs::copy(source, destination).is_ok() {
+        return true;
+    }
+    if moved_original {
+        let _ = std::fs::rename(&original, destination);
+    }
+    false
 }
 
 pub fn deploy_goldberg_internal(home: &PathBuf, game_dir: &PathBuf, appid: u32) {
@@ -5170,6 +5266,7 @@ pub fn deploy_goldberg_internal(home: &PathBuf, game_dir: &PathBuf, appid: u32) 
     }
 
     let targets = goldberg_deploy_targets(game_dir);
+    let steam_id = crate::steam::get_steam_id_for_home(home);
 
     // **Before** we overwrite any Steam DLL, snapshot the originals into the
     // per-app cache so we can restore them later even if the in-game
@@ -5186,42 +5283,20 @@ pub fn deploy_goldberg_internal(home: &PathBuf, game_dir: &PathBuf, appid: u32) 
 
         let x86_src = emu_dir.join("x86").join("steam_api.dll");
         let x86_dst = target.join("steam_api.dll");
-        if x86_src.exists() && !x86_dst.with_extension("orig").exists() {
-            if x86_dst.exists() {
-                let _ = std::fs::rename(&x86_dst, target.join("steam_api.dll.orig"));
-            }
-            let _ = std::fs::copy(&x86_src, &x86_dst);
-            deployed_any = true;
-        }
+        deployed_any |= deploy_goldberg_dll(&x86_src, &x86_dst);
 
         let x64_src = emu_dir.join("x64").join("steam_api64.dll");
         let x64_dst = target.join("steam_api64.dll");
-        if x64_src.exists() && !x64_dst.with_extension("orig").exists() {
-            if x64_dst.exists() {
-                let _ = std::fs::rename(&x64_dst, target.join("steam_api64.dll.orig"));
-            }
-            let _ = std::fs::copy(&x64_src, &x64_dst);
-            deployed_any = true;
-        }
+        deployed_any |= deploy_goldberg_dll(&x64_src, &x64_dst);
 
         if steamclient_dir.is_dir() {
             let sc64_src = steamclient_dir.join("steamclient64.dll");
             let sc64_dst = target.join("steamclient64.dll");
-            if sc64_src.exists() && !sc64_dst.with_extension("orig").exists() {
-                if sc64_dst.exists() {
-                    let _ = std::fs::rename(&sc64_dst, target.join("steamclient64.dll.orig"));
-                }
-                let _ = std::fs::copy(&sc64_src, &sc64_dst);
-            }
+            deployed_any |= deploy_goldberg_dll(&sc64_src, &sc64_dst);
 
             let sc32_src = steamclient_dir.join("steamclient.dll");
             let sc32_dst = target.join("steamclient.dll");
-            if sc32_src.exists() && !sc32_dst.with_extension("orig").exists() {
-                if sc32_dst.exists() {
-                    let _ = std::fs::rename(&sc32_dst, target.join("steamclient.dll.orig"));
-                }
-                let _ = std::fs::copy(&sc32_src, &sc32_dst);
-            }
+            deployed_any |= deploy_goldberg_dll(&sc32_src, &sc32_dst);
 
             let ov64_src = steamclient_dir.join("GameOverlayRenderer64.dll");
             let ov64_dst = target.join("GameOverlayRenderer64.dll");
@@ -5241,7 +5316,7 @@ pub fn deploy_goldberg_internal(home: &PathBuf, game_dir: &PathBuf, appid: u32) 
         eprintln!("goldberg: no new DLLs deployed (all targets already have .orig backups or no source DLLs)");
     }
 
-    goldberg_deploy_settings(&game_dir.join("steam_settings"), appid);
+    goldberg_deploy_settings(&game_dir.join("steam_settings"), appid, steam_id.as_deref());
 
     for target in &targets {
         if target == game_dir {
@@ -5250,7 +5325,7 @@ pub fn deploy_goldberg_internal(home: &PathBuf, game_dir: &PathBuf, appid: u32) 
         if !target.join("steam_api64.dll.orig").exists() && !target.join("steam_api.dll.orig").exists() {
             continue;
         }
-        goldberg_deploy_settings(&target.join("steam_settings"), appid);
+        goldberg_deploy_settings(&target.join("steam_settings"), appid, steam_id.as_deref());
     }
 
     // Always regenerate interfaces after deployment — the DLLs must be in place first.
@@ -5326,6 +5401,8 @@ pub fn cleanup_goldberg(game_dir: &Path, appid: u32) {
             let _ = std::fs::remove_file(ss.join("force_steam_appid.txt"));
             let _ = std::fs::remove_file(ss.join("account_name.txt"));
             let _ = std::fs::remove_file(ss.join("user_steam_id.txt"));
+            let _ = std::fs::remove_file(ss.join("configs.user.ini"));
+            let _ = std::fs::remove_file(ss.join("configs.app.ini"));
             let _ = std::fs::remove_file(ss.join("steam_interfaces.txt"));
             if std::fs::read_dir(&ss).map(|d| d.count()).unwrap_or(1) == 0 {
                 let _ = std::fs::remove_dir(&ss);
@@ -5338,6 +5415,8 @@ pub fn cleanup_goldberg(game_dir: &Path, appid: u32) {
         let _ = std::fs::remove_file(steam_settings.join("force_steam_appid.txt"));
         let _ = std::fs::remove_file(steam_settings.join("account_name.txt"));
         let _ = std::fs::remove_file(steam_settings.join("user_steam_id.txt"));
+        let _ = std::fs::remove_file(steam_settings.join("configs.user.ini"));
+        let _ = std::fs::remove_file(steam_settings.join("configs.app.ini"));
         let _ = std::fs::remove_file(steam_settings.join("steam_interfaces.txt"));
         if std::fs::read_dir(&steam_settings).map(|d| d.count()).unwrap_or(1) == 0 {
             let _ = std::fs::remove_dir(&steam_settings);
@@ -5550,6 +5629,8 @@ fn ensure_real_steam_dlls(home: &Path, game_dir: &Path, appid: u32, deploy_steam
             let _ = std::fs::remove_file(steam_settings.join("force_steam_appid.txt"));
             let _ = std::fs::remove_file(steam_settings.join("account_name.txt"));
             let _ = std::fs::remove_file(steam_settings.join("user_steam_id.txt"));
+            let _ = std::fs::remove_file(steam_settings.join("configs.user.ini"));
+            let _ = std::fs::remove_file(steam_settings.join("configs.app.ini"));
             let _ = std::fs::remove_file(steam_settings.join("steam_interfaces.txt"));
             if std::fs::read_dir(&steam_settings).map(|d| d.count()).unwrap_or(1) == 0 {
                 let _ = std::fs::remove_dir(&steam_settings);
@@ -5642,20 +5723,34 @@ fn prepare_start_protected_game_for_pipeline(appid: u32, pipeline_id: PipelineId
     let Some(game_dir) = crate::setup::resolve_windows_game_dir(appid) else {
         return;
     };
-    apply_start_protected_game_bypass(appid, &game_dir);
+    restore_start_protected_game_bypass(appid, &game_dir);
 }
 
-fn apply_start_protected_game_bypass(appid: u32, game_dir: &Path) {
+fn restore_start_protected_game_bypass(appid: u32, game_dir: &Path) {
     let spg = match super::recipe::find_case_insensitive(game_dir, "start_protected_game.exe") {
         Some(path) => path,
-        None => return,
+        None => {
+            let Some(old) = super::recipe::find_case_insensitive(game_dir, "start_protected_game.old") else {
+                return;
+            };
+            let restored = old.with_file_name("start_protected_game.exe");
+            if let Err(err) = std::fs::rename(&old, &restored) {
+                eprintln!(
+                    "start_protected_game: failed to restore {} to {}: {}",
+                    old.display(),
+                    restored.display(),
+                    err
+                );
+            }
+            return;
+        },
     };
     let spg_dir = match spg.parent() {
         Some(dir) => dir,
         None => return,
     };
-
-    if spg_dir.join("start_protected_game.old").exists() {
+    let old = spg_dir.join("start_protected_game.old");
+    if !old.is_file() {
         return;
     }
 
@@ -5663,16 +5758,15 @@ fn apply_start_protected_game_bypass(appid: u32, game_dir: &Path) {
         Some(path) => path,
         None => return,
     };
-
-    let old = spg_dir.join("start_protected_game.old");
-    if let Err(err) = std::fs::rename(&spg, &old) {
-        eprintln!("start_protected_game: failed to rename {} to {}: {}", spg.display(), old.display(), err);
+    if !files_match(&spg, &real_exe) {
         return;
     }
-    if let Err(err) = std::fs::copy(&real_exe, &spg) {
-        eprintln!("start_protected_game: failed to copy {} to {}: {}", real_exe.display(), spg.display(), err);
-        let _ = std::fs::rename(&old, &spg);
+
+    if let Err(err) = std::fs::copy(&old, &spg) {
+        eprintln!("start_protected_game: failed to restore {} to {}: {}", old.display(), spg.display(), err);
+        return;
     }
+    let _ = std::fs::remove_file(&old);
 }
 
 fn find_start_protected_real_exe(appid: u32, game_dir: &Path, spg_dir: &Path) -> Option<PathBuf> {
@@ -6068,6 +6162,7 @@ export WINEDATADIR="$MS_ROOT/share"
 export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix"
 export MS_FWD_COMPAT_GL_CTX=1
 export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+export MVK_PRESENT_MODE="1"
 "#;
 
         let repaired = sanitize_metalsharp_wine_wrapper_script(wrapper);
@@ -6593,6 +6688,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             shader: "/tmp/m9-shaders".into(),
             pipeline: "/tmp/m9-pipelines".into(),
             log: "/tmp/m9-logs".into(),
+            vkd3d_shader: None,
         };
 
         let env = cache_env_pairs(node, Some(&cache), &PathBuf::from("/tmp/metalsharp-runtime"));
@@ -6672,6 +6768,38 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
+    fn elden_ring_m12_advertises_required_d3d_feature_level() {
+        let env = app_compat_env_pairs(1245620, PipelineId::M12);
+
+        assert_eq!(env_value(&env, "VKD3D_FEATURE_LEVEL"), Some("12_0"));
+        assert!(app_compat_env_pairs(1245620, PipelineId::M11).is_empty());
+        assert!(app_compat_env_pairs(814380, PipelineId::M12).is_empty());
+    }
+
+    #[test]
+    fn m12_vkd3d_readiness_validates_vulkan_route_instead_of_dxmt() {
+        let mut recipe = empty_test_recipe(PipelineId::M12);
+        recipe.backend = "vkd3d-proton".into();
+        let env = vec![
+            ("WINEDLLPATH".into(), "/runtime/lib/vkd3d-proton/x86_64-windows:/runtime/lib/dxvk/x86_64-windows".into()),
+            ("DYLD_FALLBACK_LIBRARY_PATH".into(), "/runtime/lib/moltenvk-vkmt".into()),
+            ("VK_ICD_FILENAMES".into(), "/runtime/etc/vulkan/icd.d/MoltenVK_icd.json".into()),
+        ];
+
+        let ready = prepare_readiness_report(&recipe, &env);
+        assert_eq!(ready.get("m12_env_ok").and_then(|value| value.as_bool()), Some(true));
+        let checks = ready.get("env_checks").expect("env checks");
+        assert_eq!(checks.get("requires_vkd3d_proton_windows").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(checks.get("requires_moltenvk_vkmt").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(checks.get("requires_dxmt_m12_windows").and_then(|value| value.as_bool()), Some(false));
+
+        let missing_icd: Vec<_> = env.into_iter().filter(|(key, _)| key != "VK_ICD_FILENAMES").collect();
+        let not_ready = prepare_readiness_report(&recipe, &missing_icd);
+        assert_eq!(not_ready.get("m12_env_ok").and_then(|value| value.as_bool()), Some(false));
+        assert_eq!(not_ready.get("ok").and_then(|value| value.as_bool()), Some(false));
+    }
+
+    #[test]
     fn m9_stuck_loading_titles_disable_async_loading_features() {
         for appid in [774361, 17410, 49520] {
             let env = app_compat_env_pairs(appid, PipelineId::M9);
@@ -6726,6 +6854,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             "WINEDLLPATH",
             "DYLD_LIBRARY_PATH",
             "DYLD_FALLBACK_LIBRARY_PATH",
+            "METALSHARP_ROUTE_DYLD_PATH",
             "DXMT_WINEMETAL_UNIXLIB",
             "DXMT_CONFIG_FILE",
             "MS_GRAPHICS_BACKEND",
@@ -6780,8 +6909,15 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let winedllpath = env_value(&env, "WINEDLLPATH").unwrap_or_default();
         assert!(!winedllpath.contains("dxmt_m12"));
         assert!(!winedllpath.contains("lib/metalsharp"));
-        assert!(env_value(&env, "DYLD_LIBRARY_PATH").unwrap_or_default().contains("lib/moltenvk-vkmt"));
-        assert!(env_value(&env, "DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default().contains("lib/moltenvk-vkmt"));
+        assert!(!winedllpath.contains("vkd3d-proton"));
+        assert!(!winedllpath.contains("dxvk"));
+        for key in ["METALSHARP_ROUTE_DYLD_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
+            let value = env_value(&env, key).unwrap_or_default();
+            assert!(
+                value.starts_with(&format!("{}/.metalsharp/runtime/wine/lib/moltenvk-vkmt", home.to_string_lossy()))
+            );
+            assert!(!value.contains("vkd3d-proton/x86_64-unix"));
+        }
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -6904,6 +7040,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             .unwrap();
         std::fs::copy(PathBuf::from(&dxvk_src).join("x86_64-windows/dxgi.dll"), dxvk_dir.join("dxgi.dll")).unwrap();
         std::fs::copy(PathBuf::from(&mvk_src).join("libMoltenVK.dylib"), mvk_dir.join("libMoltenVK.dylib")).unwrap();
+        std::fs::copy(PathBuf::from(&mvk_src).join("libMoltenVK.dylib"), mvk_dir.join("libMoltenVK.1.dylib")).unwrap();
         std::fs::copy(PathBuf::from(&mvk_src).join("MoltenVK_icd.json"), mvk_dir.join("MoltenVK_icd.json")).unwrap();
         // GPU vendor stubs ride in the shared dxmt_m12 lane (vkd3d-proton
         // ships none); stage them so the node's full deploy list resolves.
@@ -6924,12 +7061,17 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let d3d12_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12.dll")).expect("d3d12 hash");
         assert_eq!(
             d3d12_hash, "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93",
-            "d3d12.dll must be the pinned VKMT win64-filtered build"
+            "d3d12.dll must be the pinned deployed M12 build"
         );
         let core_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12core.dll")).expect("d3d12core hash");
         assert_eq!(
             core_hash, "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4",
-            "d3d12core.dll must be the pinned VKMT win64-filtered build"
+            "d3d12core.dll must be the pinned deployed M12 build"
+        );
+        let moltenvk_hash = crate::diagnostics::file_sha256(&mvk_dir.join("libMoltenVK.dylib")).expect("MoltenVK hash");
+        assert_eq!(
+            moltenvk_hash, "50e41de23ce85260870c24cec11ac29b225704c6cb0366ce555dcd9ac03417f3",
+            "libMoltenVK.dylib must be the pinned deployed M12 build"
         );
         assert!(crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home));
         assert!(dxvk_dir.join("dxgi.dll").is_file(), "M12's DXVK dxgi.dll must be staged");
@@ -6950,11 +7092,10 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let overrides = env_value(&env, "WINEDLLOVERRIDES").unwrap_or_default();
         assert!(overrides.contains("d3d12"));
         assert!(overrides.contains("d3d12core"));
-        // VKD3D_SHADER_CACHE_PATH must be the absolute isolated cache dir, not
-        // a relative value from the node env_vars (which would break isolation).
+        // Keep the vkd3d cache on Wine's C: drive. Exclusive file creation on
+        // a Z:-mapped Unix path fails under the M12 Wine runtime.
         let cache_path = env_value(&env, "VKD3D_SHADER_CACHE_PATH").unwrap_or_default();
-        assert!(cache_path.starts_with('/'), "VKD3D_SHADER_CACHE_PATH must be absolute, got {:?}", cache_path);
-        assert!(!cache_path.ends_with("/m12"), "VKD3D_SHADER_CACHE_PATH must not be the relative m12 value");
+        assert_eq!(cache_path, r"C:\metalsharp-cache\m12\1583230");
 
         // Prefix route deployment: d3d12core.dll (the real impl the forwarder
         // needs) must actually land in system32.
@@ -7656,24 +7797,24 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn start_protected_game_bypass_renames_and_copies_real_exe() {
-        let home = test_dir("spg-bypass");
+    fn start_protected_game_bypass_restores_original_launcher() {
+        let home = test_dir("spg-restore");
         let game_dir = home.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write stub");
+        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
+        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME").expect("write bypass copy");
         std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
 
-        apply_start_protected_game_bypass(1245620, &home);
+        restore_start_protected_game_bypass(1245620, &home);
 
-        assert!(game_dir.join("start_protected_game.old").exists());
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"PROTECTED_STUB");
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME");
+        assert!(!game_dir.join("start_protected_game.old").exists());
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
 
         let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
-    fn start_protected_game_bypass_skips_if_old_already_exists() {
+    fn start_protected_game_bypass_preserves_unrecognized_current_launcher() {
         let home = test_dir("spg-skip-old");
         let game_dir = home.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
@@ -7681,7 +7822,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME_ALREADY").expect("write current");
         std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
 
-        apply_start_protected_game_bypass(1245620, &home);
+        restore_start_protected_game_bypass(1245620, &home);
 
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME_ALREADY");
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"PREVIOUS_STUB");
@@ -7690,33 +7831,35 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn start_protected_game_bypass_handles_armored_core_vi() {
+    fn start_protected_game_bypass_restores_armored_core_vi_launcher() {
         let home = test_dir("spg-ac6");
         let game_dir = home.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write stub");
+        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
+        std::fs::write(game_dir.join("start_protected_game.exe"), b"AC6_REAL_GAME").expect("write bypass copy");
         std::fs::write(game_dir.join("armoredcore6.exe"), b"AC6_REAL_GAME").expect("write real exe");
 
-        apply_start_protected_game_bypass(1888160, &home);
+        restore_start_protected_game_bypass(1888160, &home);
 
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"PROTECTED_STUB");
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"AC6_REAL_GAME");
+        assert!(!game_dir.join("start_protected_game.old").exists());
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
 
         let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
-    fn start_protected_game_bypass_can_infer_single_sibling_real_exe() {
+    fn start_protected_game_bypass_can_restore_with_single_sibling_real_exe() {
         let home = test_dir("spg-generic");
         let game_dir = home.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write stub");
+        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
+        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME").expect("write bypass copy");
         std::fs::write(game_dir.join("realgame.exe"), b"REAL_GAME").expect("write real exe");
 
-        apply_start_protected_game_bypass(99999, &home);
+        restore_start_protected_game_bypass(99999, &home);
 
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"PROTECTED_STUB");
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME");
+        assert!(!game_dir.join("start_protected_game.old").exists());
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
 
         let _ = std::fs::remove_dir_all(home);
     }
@@ -7730,7 +7873,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         std::fs::write(game_dir.join("first.exe"), b"FIRST").expect("write first exe");
         std::fs::write(game_dir.join("second.exe"), b"SECOND").expect("write second exe");
 
-        apply_start_protected_game_bypass(99999, &home);
+        restore_start_protected_game_bypass(99999, &home);
 
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
         assert!(!game_dir.join("start_protected_game.old").exists());
@@ -7747,7 +7890,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         std::fs::write(game_dir.join("first.exe"), b"FIRST").expect("write first exe");
         std::fs::write(game_dir.join("second.exe"), b"SECOND").expect("write second exe");
 
-        apply_start_protected_game_bypass(99999, &home);
+        restore_start_protected_game_bypass(99999, &home);
 
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
         assert!(!game_dir.join("start_protected_game.old").exists());
@@ -7866,6 +8009,61 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         std::fs::write(game_dir.join("steamclient64.dll"), &steam).unwrap();
         std::fs::write(game_dir.join("steamclient.dll"), &steam).unwrap();
         (root, game_dir)
+    }
+
+    #[test]
+    fn goldberg_settings_support_modern_and_legacy_user_identity() {
+        let root = test_dir("goldberg-user-settings");
+        let steam_settings = root.join("steam_settings");
+        let steam_id = "76561198152725565";
+
+        goldberg_deploy_settings(&steam_settings, 1245620, Some(steam_id));
+
+        assert_eq!(std::fs::read_to_string(steam_settings.join("force_steam_appid.txt")).unwrap(), "1245620");
+        assert_eq!(std::fs::read_to_string(steam_settings.join("user_steam_id.txt")).unwrap(), format!("{steam_id}\n"));
+        let modern = std::fs::read_to_string(steam_settings.join("configs.user.ini")).unwrap();
+        assert!(modern.contains("[user::general]"));
+        assert!(modern.contains(&format!("account_steamid={steam_id}")));
+        assert_eq!(
+            std::fs::read_to_string(steam_settings.join("configs.app.ini")).unwrap(),
+            "[app::dlcs]\nunlock_all=0\n"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn goldberg_settings_reject_invalid_user_identity() {
+        let root = test_dir("goldberg-invalid-user-settings");
+        let steam_settings = root.join("steam_settings");
+
+        goldberg_deploy_settings(&steam_settings, 1245620, Some("not-a-steam-id"));
+
+        let modern = std::fs::read_to_string(steam_settings.join("configs.user.ini")).unwrap();
+        assert!(modern.contains(&format!("account_steamid={GOLDBERG_FALLBACK_STEAM_ID}")));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn goldberg_reenable_preserves_existing_dot_dll_orig_backup() {
+        let root = test_dir("goldberg-preserve-dot-dll-orig");
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("goldberg-steam-api64.dll");
+        let destination = root.join("steam_api64.dll");
+        let original = root.join("steam_api64.dll.orig");
+        let goldberg = goldberg_test_bytes(b'G');
+        let official = steam_test_bytes();
+        std::fs::write(&source, &goldberg).unwrap();
+        std::fs::write(&destination, &goldberg).unwrap();
+        std::fs::write(&original, &official).unwrap();
+
+        assert!(!deploy_goldberg_dll(&source, &destination));
+        assert_eq!(std::fs::read(&destination).unwrap(), goldberg);
+        assert_eq!(std::fs::read(&original).unwrap(), official);
+        assert!(!root.join("steam_api64.orig").exists(), "the backup suffix must append to the full DLL name");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn persist_goldberg_toggle_on_for(
@@ -8366,6 +8564,27 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         apply_msync_config(&mut env, &home);
         assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "sidebar msync toggle must beat recipe env");
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn detached_launch_children_are_reaped_after_exit() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "exit 0"]);
+        let pid = spawn_and_reap(&mut cmd).expect("spawn short-lived child");
+
+        for _ in 0..100 {
+            let present = Command::new("ps")
+                .args(["-p", &pid.to_string(), "-o", "stat="])
+                .output()
+                .map(|output| output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty())
+                .unwrap_or(false);
+            if !present {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        panic!("child {pid} remained in the process table after exit");
     }
 
     // ---- Mono profile deploy (Phase 4) ----

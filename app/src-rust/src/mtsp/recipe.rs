@@ -320,9 +320,11 @@ fn resolve_game_exe_for_pipeline(
         }
     }
 
-    if matches!(pipeline, Some(PipelineId::Dxmt | PipelineId::M12)) {
-        if let Some(path) = prepared_start_protected_game_exe(game_dir) {
-            return Ok(path);
+    if matches!(pipeline, Some(PipelineId::Dxmt | PipelineId::M12 | PipelineId::D3DMetal | PipelineId::M13)) {
+        for preferred in d3dmetal_direct_exe_names(appid) {
+            if let Some(path) = find_case_insensitive(game_dir, preferred) {
+                return Ok(path);
+            }
         }
     }
 
@@ -376,16 +378,6 @@ fn resolve_game_exe_for_pipeline(
         .next()
         .map(|c| c.path)
         .ok_or_else(|| format!("no launchable .exe found in {}", game_dir.display()).into())
-}
-
-fn prepared_start_protected_game_exe(game_dir: &Path) -> Option<PathBuf> {
-    let spg = find_case_insensitive(game_dir, "start_protected_game.exe")?;
-    let spg_dir = spg.parent()?;
-    if spg_dir.join("start_protected_game.old").is_file() {
-        Some(spg)
-    } else {
-        None
-    }
 }
 
 pub fn selected_deploy_dlls_for_pipeline(
@@ -1163,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn m12_selects_prepared_start_protected_game_exe() {
+    fn m12_selects_real_protected_game_exe() {
         let dir = test_dir("spg-prepared");
         let game_dir = dir.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
@@ -1172,9 +1164,9 @@ mod tests {
         std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
 
         let selected =
-            resolve_game_exe_for_pipeline(1245620, &dir, Some(PipelineId::M12)).expect("select prepared protected exe");
+            resolve_game_exe_for_pipeline(1245620, &dir, Some(PipelineId::M12)).expect("select real game exe");
 
-        assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("start_protected_game.exe"));
+        assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("eldenring.exe"));
 
         let _ = std::fs::remove_dir_all(dir);
     }
