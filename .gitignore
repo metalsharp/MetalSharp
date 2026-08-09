@@ -66,6 +66,10 @@ vkd3d-proton-reference/
 /app/out/
 /app/release/
 
+# Local PostHog project configuration and wizard state (NEVER commit credentials or account artifacts)
+/app/.env
+/app/.posthog-wizard-cache/
+
 # macOS app bundles (regeneratable)
 *.dmg
 *.pkg

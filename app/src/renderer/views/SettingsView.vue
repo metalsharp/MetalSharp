@@ -2,6 +2,7 @@
 import { ref, inject, onMounted, onUnmounted, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
+import { configureTelemetry, submitDeveloperFeedback } from "../composables/useTelemetry";
 import type { AppConfig, UpdateStatus } from "../api-types";
 import IconTrash2 from "~icons/lucide/trash-2";
 
@@ -41,6 +42,8 @@ const shaderCache = ref<CacheSummary | null>(null);
 const pipelineCache = ref<CacheSummary | null>(null);
 const apiKeyInput = ref("");
 const graphicsRuntimeLogs = ref(false);
+const developerTelemetry = ref(true);
+const developerFeedback = ref("");
 const m12Backend = ref<"vkd3d-proton" | "dxmt">("vkd3d-proton");
 
 interface WineMonoStatus {
@@ -162,6 +165,7 @@ async function refreshConfig() {
   if (result?.ok) {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
+    developerTelemetry.value = result.developerTelemetry ?? true;
     if (result.m12Backend === "vkd3d-proton" || result.m12Backend === "dxmt") {
       m12Backend.value = result.m12Backend;
     }
@@ -444,6 +448,34 @@ async function setM12Backend(backend: "vkd3d-proton" | "dxmt") {
   }
 }
 
+async function toggleDeveloperTelemetry(enabled: boolean) {
+  const previous = developerTelemetry.value;
+  developerTelemetry.value = enabled;
+  const result = await api<AppConfig>("POST", "/config", { developerTelemetry: enabled });
+  if (!result?.ok) {
+    developerTelemetry.value = previous;
+    toast.show("Failed to save developer diagnostics setting", "error");
+    return;
+  }
+  config.value = result;
+  developerTelemetry.value = result.developerTelemetry ?? true;
+  await configureTelemetry(developerTelemetry.value);
+  toast.show(developerTelemetry.value ? "Developer diagnostics enabled" : "Developer diagnostics disabled", "success");
+}
+
+function sendDeveloperFeedback() {
+  if (!developerTelemetry.value) {
+    toast.show("Enable developer diagnostics before sending feedback", "error");
+    return;
+  }
+  if (!submitDeveloperFeedback(developerFeedback.value)) {
+    toast.show("Enter feedback before submitting", "error");
+    return;
+  }
+  developerFeedback.value = "";
+  toast.show("Feedback sent to MetalSharp developers", "success");
+}
+
 function uninstallMetalsharp() {
   getAPI().uninstallApp();
 }
@@ -637,6 +669,59 @@ function uninstallMetalsharp() {
             />
             <span class="toggle-switch"></span>
           </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h2>Developer Diagnostics</h2>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Allow developers to receive logs, errors, and crash reports</div>
+          <div class="settings-desc">
+            Enabled by default. Shares sanitized backend lifecycle events, renderer errors, and masked session
+            recordings. Turning this off stops future diagnostics and recordings.
+          </div>
+        </div>
+        <div class="settings-value">
+          <span class="badge" :class="developerTelemetry ? 'badge-ok' : 'badge-warn'">
+            {{ developerTelemetry ? "Enabled" : "Disabled" }}
+          </span>
+          <label
+            class="settings-toggle toggle-label"
+            aria-label="Allow developers to receive logs, errors, and crash reports"
+          >
+            <input
+              type="checkbox"
+              :checked="developerTelemetry"
+              @change="toggleDeveloperTelemetry(($event.target as HTMLInputElement).checked)"
+            />
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Send feedback</div>
+          <div class="settings-desc">
+            Submit a message directly to the developers. Do not include Steam keys, passwords, or other secrets.
+          </div>
+        </div>
+        <div class="settings-value feedback-value">
+          <textarea
+            v-model="developerFeedback"
+            class="control-input feedback-input"
+            :disabled="!developerTelemetry"
+            maxlength="4000"
+            placeholder="Describe what happened or what you would like improved..."
+          ></textarea>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="!developerTelemetry || !developerFeedback.trim()"
+            @click="sendDeveloperFeedback"
+          >
+            Send Feedback
+          </button>
         </div>
       </div>
     </div>
@@ -868,6 +953,16 @@ function uninstallMetalsharp() {
 }
 .settings-input-row input {
   width: 280px;
+}
+.feedback-value {
+  align-items: flex-end;
+  max-width: 420px;
+}
+.feedback-input {
+  width: 320px;
+  min-height: 74px;
+  resize: vertical;
+  font: inherit;
 }
 .settings-version {
   font-size: 12px;

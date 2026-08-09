@@ -202,6 +202,7 @@ pub fn get_config_for_home(home: &Path) -> Value {
     let mono_available = find_mono().is_ok();
     let graphics_runtime_logs = graphics_runtime_logs_enabled();
     let controller_input = controller_input_mode_for(home);
+    let developer_telemetry = developer_telemetry_enabled_for(home);
 
     json!({
         "ok": true,
@@ -212,6 +213,7 @@ pub fn get_config_for_home(home: &Path) -> Value {
         "controllerInput": controller_input,
         "m12Backend": m12_backend_mode_for(home),
         "msync": msync_enabled_for(home),
+        "developerTelemetry": developer_telemetry,
     })
 }
 
@@ -278,6 +280,12 @@ pub fn msync_enabled() -> bool {
 /// Path-based variant (testable without touching the global METALSHARP_HOME).
 pub fn msync_enabled_for(home: &Path) -> bool {
     read_config_bool_for_home(home, "msync").unwrap_or(true)
+}
+
+/// Whether developers may receive app diagnostics and session recordings.
+/// Enabled by default; users can opt out in Settings.
+pub fn developer_telemetry_enabled_for(home: &Path) -> bool {
+    read_config_bool_for_home(home, "developerTelemetry").unwrap_or(true)
 }
 
 fn read_config_bool_for_home(home: &Path, key: &str) -> Option<bool> {
@@ -509,6 +517,10 @@ pub fn set_config_for_home(home: &Path, body: &Map<String, Value>) -> Result<Val
 
     if let Some(value) = body.get("msync").and_then(|v| v.as_bool()) {
         cfg.insert("msync".into(), json!(value));
+    }
+
+    if let Some(value) = body.get("developerTelemetry").and_then(json_bool) {
+        cfg.insert("developerTelemetry".into(), json!(value));
     }
 
     std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?;
@@ -785,6 +797,27 @@ mod tests {
         bad.insert("msync".into(), json!("banana"));
         let result = set_config_for_home(&temp, &bad).expect("set_config");
         assert_eq!(result.get("msync").and_then(|v| v.as_bool()), Some(true));
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn developer_telemetry_defaults_on_and_persists_opt_out() {
+        let temp = std::env::temp_dir().join(format!("ms-developer-telemetry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        // New installs share diagnostics by default; users can explicitly opt out.
+        assert!(developer_telemetry_enabled_for(&temp));
+
+        let mut off = serde_json::Map::new();
+        off.insert("developerTelemetry".into(), json!(false));
+        let result = set_config_for_home(&temp, &off).expect("set_config");
+        assert_eq!(result.get("developerTelemetry").and_then(|v| v.as_bool()), Some(false));
+        assert!(!developer_telemetry_enabled_for(&temp));
+
+        let persisted = std::fs::read_to_string(temp.join(".metalsharp/configs/config.json")).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&persisted).unwrap()["developerTelemetry"], false);
 
         let _ = std::fs::remove_dir_all(&temp);
     }

@@ -36,6 +36,7 @@ interface AppConfig {
   controllerInput?: "off" | "x" | "d";
   m12Backend?: "vkd3d-proton" | "dxmt";
   msync?: boolean;
+  developerTelemetry?: boolean;
 }
 
 interface UpdateStatus {
