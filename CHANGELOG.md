@@ -11,6 +11,7 @@
 ### Fixed
 
 - **M12/DXMT pipeline switches** — game-folder graphics deployment now strictly removes the conflicting prior route before staging the selected one. M12 owns VKD3D-Proton `d3d12.dll`/`d3d12core.dll` and DXVK `dxgi.dll`/`d3d11.dll`; DXMT transitions evict that full set, and M12 transitions remove DXMT-specific files first.
+- **VKMT MoltenVK installation and upgrades** — fresh installs and existing installations now synchronize Wine’s direct-load MoltenVK copies from the staged VKMT lane after graphics extraction, with byte-level stale-copy detection; the legacy DXMT fast path also verifies and repairs missing M12 lanes.
 - **Saved application theme** — auxiliary and process-manager windows now respect an explicitly saved theme; first launch remains dark.
 - **`js-yaml` security update** — updated to 4.3.1.
 
