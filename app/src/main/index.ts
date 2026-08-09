@@ -526,7 +526,7 @@ async function createProcessManagerWindow(): Promise<BrowserWindow> {
     processManagerWindow = null;
   });
   await processManagerWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
-    query: { overlay: "process-manager", theme: "dark" },
+    query: { overlay: "process-manager" },
   });
   return processManagerWindow;
 }
@@ -608,7 +608,8 @@ async function createWindow(migrating = false) {
     },
   });
 
-  const query: Record<string, string> = uiOnly ? { theme: "dark" } : {};
+  // The renderer resolves a saved user choice; a first launch defaults to dark.
+  const query: Record<string, string> = {};
   if (process.env.METALSHARP_DEV_LIBRARY === "1") query["skip-to"] = "library";
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
     query,
