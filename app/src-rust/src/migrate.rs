@@ -56,6 +56,22 @@ const MIGRATION_STEAM_METADATA_EXTENSIONS: &[&str] =
     &["acf", "cfg", "conf", "dll", "ini", "json", "manifest", "plist", "reg", "toml", "vdf"];
 const MIGRATION_STEAM_METADATA_DENY_NAMES: &[&str] =
     &["cache", "common", "compatdata", "crashes", "depotcache", "downloading", "logs", "shadercache", "Temp", "tmp"];
+const MIGRATION_WINDOWS_ROUTE_DLLS: &[&str] = &[
+    "d3d9.dll",
+    "d3d10.dll",
+    "d3d10_1.dll",
+    "d3d10core.dll",
+    "d3d11.dll",
+    "d3d12.dll",
+    "d3d12core.dll",
+    "dxgi.dll",
+    "dxgi_dxmt.dll",
+    "metalsharp_ntdll_hook.dll",
+    "nvapi64.dll",
+    "nvngx.dll",
+    "nvngx-on-metalfx.dll",
+    "winemetal.dll",
+];
 const MIGRATION_TOTAL_STEPS: usize = 8;
 const MIGRATION_PRESERVE_TEMP_PREFIX: &str = "metalsharp-migration-preserve-";
 const WINEBOOT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -940,7 +956,7 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
             "preserved",
             "prefix-steam",
             Some(prefix_steam.to_string_lossy().to_string()),
-            "Steam prefix metadata, manifests, and DLLs preserved (game payloads excluded)",
+            "Steam prefix metadata, manifests, and route DLLs preserved (game payloads excluded)",
         );
     } else {
         report.record("preserve", "skipped", "prefix-steam", None, "prefix-steam directory absent");
@@ -1894,6 +1910,14 @@ fn migration_steam_metadata_denies_name(name: &str) -> bool {
 fn migration_preserve_allows_steam_metadata_file(path: &Path) -> bool {
     if migration_preserve_allows_file(path) {
         return true;
+    }
+    if path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("dll"))
+        && path.components().any(|component| component.as_os_str().eq_ignore_ascii_case("windows"))
+    {
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            return false;
+        };
+        return MIGRATION_WINDOWS_ROUTE_DLLS.iter().any(|allowed| name.eq_ignore_ascii_case(allowed));
     }
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -2977,6 +3001,9 @@ mod tests {
         let staged_dll = ms_dir.join("prefix-steam").join("drive_c").join("windows").join("system32").join("dxgi.dll");
         fs::create_dir_all(staged_dll.parent().unwrap()).expect("create staged DLL dir");
         fs::write(&staged_dll, b"dll").expect("write staged DLL");
+        let system_dll =
+            ms_dir.join("prefix-steam").join("drive_c").join("windows").join("system32").join("kernelbase.dll");
+        fs::write(&system_dll, b"system dll").expect("write system DLL");
         fs::write(ms_dir.join("prefix-steam").join("user.reg"), b"settings").expect("write prefix settings");
 
         let (preserved, mut report) = preserve_user_data(&ms_dir);
@@ -2990,6 +3017,13 @@ mod tests {
             .join("appmanifest_620.acf")
             .exists());
         assert!(preserved.prefix_steam_tmp.join("drive_c").join("windows").join("system32").join("dxgi.dll").exists());
+        assert!(!preserved
+            .prefix_steam_tmp
+            .join("drive_c")
+            .join("windows")
+            .join("system32")
+            .join("kernelbase.dll")
+            .exists());
         assert!(!find_descendant_named(&preserved.prefix_steam_tmp, "common"));
         assert!(!find_descendant_named(&preserved.prefix_steam_tmp, "portal2.exe"));
 
@@ -3849,6 +3883,7 @@ mod tests {
         let mvk = crate::installer::moltenvk_vkmt_runtime_dir_for_home(&home);
         fs::create_dir_all(&mvk).expect("mvk dir");
         fs::write(mvk.join("libMoltenVK.dylib"), b"dylib").expect("write dylib");
+        fs::write(mvk.join("libMoltenVK.1.dylib"), b"dylib").expect("write versioned dylib alias");
         fs::write(mvk.join("MoltenVK_icd.json"), b"{}").expect("write icd");
         let dxvk = crate::installer::dxvk_runtime_dir_for_home(&home).join("x86_64-windows");
         fs::create_dir_all(&dxvk).expect("dxvk dir");

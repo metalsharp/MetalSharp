@@ -738,6 +738,7 @@ mod tests {
         for required in ["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"] {
             assert!(m12.dyld_paths.contains(&required));
         }
+        assert_eq!(m12.dyld_paths.first(), Some(&"lib/moltenvk-vkmt"));
         assert!(!m12.dyld_paths.contains(&"lib/vkd3d-proton/x86_64-unix"));
         assert!(!m12.dyld_paths.contains(&"lib/dxmt/x86_64-unix"));
         assert!(!m12.dyld_paths.contains(&"lib/dxmt_m12/x86_64-unix"));
