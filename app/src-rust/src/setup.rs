@@ -1716,8 +1716,12 @@ fn deploy_goldberg_to_dir(
     if x86_dst.exists() && !target_dir.join("steam_api.dll.orig").exists() {
         let _ = std::fs::rename(&x86_dst, target_dir.join("steam_api.dll.orig"));
     }
-    if x64_dst.exists() && !x64_dst.with_extension("orig").exists() {
-        let _ = std::fs::rename(&x64_dst, x64_dst.with_extension("orig"));
+    let x64_orig = x64_dst.with_file_name(format!(
+        "{}.orig",
+        x64_dst.file_name().and_then(|name| name.to_str()).unwrap_or("steam_api64.dll")
+    ));
+    if x64_dst.exists() && !x64_orig.exists() {
+        let _ = std::fs::rename(&x64_dst, x64_orig);
     }
 
     std::fs::copy(&goldberg_x86, &x86_dst)?;
