@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.59.1 — 2026-08-08
+
+### Added
+
+- **Developer diagnostics and feedback** — PostHog US Cloud operational diagnostics are enabled by default with a persisted Settings opt-out, privacy-minimized renderer lifecycle/error events, fully masked session recordings, and explicit Settings feedback submission. No Steam/account data, paths, game-library metadata, command lines, raw logs, backend responses, exception details, credentials, or secrets are collected automatically.
+- **Emergency active-game stop shortcut** — `Cmd+Q` invokes MetalSharp's existing PID-scoped Stop path while a tracked game is active, including when the game owns focus; with no active game, it retains normal application quit behavior.
+- **Reminiscence default route** — Steam AppID 1675140 now defaults to the M11 pipeline and is listed in the supported-games matrix.
+
+### Fixed
+
+- **M12/DXMT pipeline switches** — game-folder graphics deployment now strictly removes the conflicting prior route before staging the selected one. M12 owns VKD3D-Proton `d3d12.dll`/`d3d12core.dll` and DXVK `dxgi.dll`/`d3d11.dll`; DXMT transitions evict that full set, and M12 transitions remove DXMT-specific files first.
+- **Saved application theme** — auxiliary and process-manager windows now respect an explicitly saved theme; first launch remains dark.
+- **`js-yaml` security update** — updated to 4.3.1.
+
 ## v0.59.0 — 2026-08-06
 
 ### Added
