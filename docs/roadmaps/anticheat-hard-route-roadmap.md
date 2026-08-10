@@ -182,8 +182,9 @@ start an anti-cheat process automatically.
 accepts the external Steam-library game directory explicitly, refuses a Wine
 binary outside the selected `.metalsharp/runtime/wine/bin/wine` tree, starts
 only `Start_protected_game.exe`, enforces a thirty-second maximum, runs
-`wineserver -k`, and kills residual Wine helper processes. It does not start
-Steam or `eldenring.exe`.
+`wineserver -k`, and kills all Windows-shaped Wine helpers that remain,
+including truncated `comm` names such as `steamwebhelper.exe` and
+`winedevice.exe`. It does not start Steam or `eldenring.exe`.
 
 The CMake substrate target also generates the MetalSharp-owned ET_DYN symbol
 image `app/native/metalsharp_eac_libc.so.6` from
@@ -209,8 +210,9 @@ installed MetalSharp Wine runtime. The resulting evidence (`schema`:
   applied the ELF `PT_LOAD` protections, and resolved the launcher's real
   `a`, `b`, `c`, and `d` exports.
 - The real EAC export `a` returned `1` through the Darwin TSD/ELF substrate.
-- Cleanup left no Wine, winedbg, wineserver, conhost, or explorer process from
-  the proof run. The launcher is intentionally terminated at the thirty-second
+- Cleanup left no Windows-shaped Wine process from the proof run, including
+  Wine services, winedbg, wineserver, conhost, explorer, and detached Steam
+  web helpers. The launcher is intentionally terminated at the thirty-second
   bound because the standalone probe does not provide the game transition.
 
 This is a real protected-module load/relocation/constructor/export proof, not a
