@@ -296,6 +296,55 @@ add_custom_command(TARGET metalsharp_native POST_BUILD
     COMMENT "Copying $<TARGET_FILE_NAME:metalsharp_native> to app/native/"
 )
 
+# Linux user-space compatibility substrate for the protected EAC launcher.
+# This is built for the same x86_64/Rosetta lane as Wine 11.5 and is inserted
+# into that already-built Wine process only by the explicit EAC proof/launch
+# path.  It is not a second Wine runtime, a graphics backend, or a vendor
+# module shim: the source implements the Linux ELF/syscall/TSD boundary on
+# Darwin and maps the real downloaded EAC module without modifying it.
+add_library(metalsharp_eac_substrate SHARED
+    src/anticheat/linux_substrate.c
+)
+target_include_directories(metalsharp_eac_substrate PRIVATE include)
+target_compile_options(metalsharp_eac_substrate PRIVATE -Wno-deprecated-declarations)
+target_link_options(metalsharp_eac_substrate PRIVATE "-Wl,-undefined,dynamic_lookup")
+set_target_properties(metalsharp_eac_substrate PROPERTIES
+    OUTPUT_NAME "metalsharp_eac_substrate"
+    PREFIX ""
+)
+metalsharp_wine_target(metalsharp_eac_substrate)
+
+# The Linux loader reads a real ET_DYN symbol image from its procfs view; it
+# never asks dyld to load Linux libc.  Generate that MetalSharp-owned image
+# beside the substrate so packaged/runtime proofs do not depend on a machine's
+# /tmp state.  It contains no vendor or protected-module bytes.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    set(METALSHARP_EAC_SYMBOL_IMAGE
+        "${CMAKE_SOURCE_DIR}/app/native/metalsharp_eac_libc.so.6")
+    add_custom_command(
+        OUTPUT "${METALSHARP_EAC_SYMBOL_IMAGE}"
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tools/anticheat/generate_linux_libc_elf.py"
+            "${METALSHARP_EAC_SYMBOL_IMAGE}"
+        DEPENDS "${CMAKE_SOURCE_DIR}/tools/anticheat/generate_linux_libc_elf.py"
+        COMMENT "Generating MetalSharp EAC Linux symbol image"
+        VERBATIM
+    )
+    add_custom_target(metalsharp_eac_symbol_image
+        DEPENDS "${METALSHARP_EAC_SYMBOL_IMAGE}"
+    )
+    add_dependencies(metalsharp_eac_substrate metalsharp_eac_symbol_image)
+else()
+    message(WARNING "MetalSharp EAC substrate symbol image requires Python 3")
+endif()
+add_custom_command(TARGET metalsharp_eac_substrate POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:metalsharp_eac_substrate>"
+        "${CMAKE_SOURCE_DIR}/app/native/$<TARGET_FILE_NAME:metalsharp_eac_substrate>"
+    COMMENT "Copying metalsharp_eac_substrate.dylib to app/native/"
+)
+
 # OpenGL 2.1-4.6 bridge. Delegates GL 2.1 to macOS native OpenGL framework.
 # GL 3.x+ shader translation via SPIRV-Cross is scaffolded for Phase 4c.
 add_library(metalsharp_opengl32 SHARED

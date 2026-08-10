@@ -249,6 +249,7 @@ def build_staging(tmp: Path) -> dict[str, Path]:
         "xinput1_4.dylib",
         "opengl32.dylib",
     ]
+    eac_native_dylibs = ["metalsharp_eac_substrate.dylib"]
     native_so = [
         "d3d11.so",
         "d3d12.so",
@@ -259,7 +260,7 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     native_dll = [name.replace(".so", ".dll") for name in native_so]
     native_binaries = ["metalsharp", "metalsharp_launcher"]
     if sys.platform == "darwin":
-        platform_shlibs = native_dylibs
+        platform_shlibs = native_dylibs + eac_native_dylibs
     elif sys.platform.startswith("linux"):
         platform_shlibs = native_so
     elif sys.platform in ("win32", "cygwin", "msys"):
@@ -268,6 +269,11 @@ def build_staging(tmp: Path) -> dict[str, Path]:
         platform_shlibs = native_dylibs + native_so
     for name in platform_shlibs + native_binaries:
         require_file(APP_DIR / "native" / name, f"native shim {name}")
+    if sys.platform == "darwin":
+        require_file(
+            APP_DIR / "native" / "metalsharp_eac_libc.so.6",
+            "MetalSharp EAC Linux symbol image",
+        )
     require_file(
         PROJECT_ROOT / "lib" / "metalsharp" / "x86_64-windows" / "metalsharp_ntdll_hook.dll",
         "MetalSharp ntdll hook DLL",

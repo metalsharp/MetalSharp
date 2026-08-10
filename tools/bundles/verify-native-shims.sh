@@ -16,8 +16,10 @@ NATIVE_DIR="${1:-${METALSHARP_NATIVE_DIR:-app/native}}"
 
 required_dylibs=(
     d3d11.dylib d3d12.dylib dxgi.dylib xaudio2_9.dylib xinput1_4.dylib opengl32.dylib
+    metalsharp_eac_substrate.dylib
 )
 required_bins=(metalsharp metalsharp_launcher)
+required_elf=(metalsharp_eac_libc.so.6)
 
 errors=0
 for f in "${required_dylibs[@]}" "${required_bins[@]}"; do
@@ -46,6 +48,22 @@ for f in "${required_dylibs[@]}" "${required_bins[@]}"; do
                 done
             fi
         fi
+    fi
+done
+
+for f in "${required_elf[@]}"; do
+    path="$NATIVE_DIR/$f"
+    if [ ! -f "$path" ]; then
+        echo "ERROR: missing EAC Linux symbol image: $path"
+        errors=$((errors + 1))
+    elif [ ! -s "$path" ]; then
+        echo "ERROR: zero-byte EAC Linux symbol image: $path"
+        errors=$((errors + 1))
+    elif ! file "$path" | grep -q "ELF 64-bit.*x86-64"; then
+        echo "ERROR: $path is not an ELF64 x86-64 symbol image"
+        errors=$((errors + 1))
+    else
+        echo "OK: $path ($(wc -c < "$path") bytes)"
     fi
 done
 
