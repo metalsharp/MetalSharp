@@ -78,6 +78,7 @@ fn catalog_entry(appid: u32, recipe: &GameRecipe) -> Value {
         "default_pipeline_name": node.name,
         "custom_exe_fix": has_custom_exe_fix(recipe),
         "exe_names": recipe.exe_names,
+        "eac_exe_names": recipe.eac_exe_names,
         "offline_capable": recipe.offline_capable,
         "components": recipe.components,
         "check_dlls": recipe.check_dlls,

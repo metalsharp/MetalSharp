@@ -146,6 +146,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1245620]
 pipeline = "m12"
 name = "ELDEN RING"
+exe_names = ["eldenring.exe"]
+eac_exe_names = ["start_protected_game.exe"]
 offline_capable = true
 
 [overrides.1245620.dependencies]
@@ -309,6 +311,8 @@ check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 [overrides.1888160]
 pipeline = "m12"
 name = "ARMORED CORE VI FIRES OF RUBICON"
+exe_names = ["armoredcore6.exe"]
+eac_exe_names = ["Game/start_protected_game.exe"]
 offline_capable = true
 
 [overrides.1888160.dependencies]
@@ -352,6 +356,8 @@ check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
 [overrides.1172470]
 pipeline = "m11"
 name = "Apex Legends"
+exe_names = ["r5apex.exe"]
+eac_exe_names = ["start_protected_game.exe"]
 
 [overrides.1172470.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
@@ -561,6 +567,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.252950]
 pipeline = "m11"
 name = "Rocket League"
+exe_names = ["Binaries/Win64/RocketLeague.exe"]
+eac_exe_names = ["Binaries/Win64/RocketLeague_EAC.exe"]
 
 [overrides.252950.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
@@ -573,6 +581,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.252490]
 pipeline = "m11"
 name = "Rust"
+exe_names = ["rust.exe"]
+eac_exe_names = ["rust.exe"]
 
 [overrides.252490.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
@@ -2131,6 +2141,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.251570]
 pipeline = "m11"
 name = "7 Days to Die"
+exe_names = ["7dLauncher.exe"]
+eac_exe_names = ["7dLauncher.exe"]
 
 [overrides.251570.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
@@ -2781,6 +2793,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.393380]
 pipeline = "m11"
 name = "Squad"
+exe_names = ["Squad.exe"]
+eac_exe_names = ["Squad.exe"]
 
 [overrides.393380.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
@@ -3331,6 +3345,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.594650]
 pipeline = "m11"
 name = "Hunt: Showdown 1896"
+exe_names = ["hunt.exe"]
+eac_exe_names = ["hunt.exe"]
 
 [overrides.594650.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
@@ -4871,6 +4887,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1240440]
 pipeline = "m11"
 name = "Halo Infinite"
+exe_names = ["HaloInfinite.exe"]
+eac_exe_names = ["HaloInfinite.exe"]
 
 [overrides.1240440.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
@@ -5381,6 +5399,8 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1517290]
 pipeline = "m11"
 name = "Battlefield 2042"
+exe_names = ["bf2042.exe"]
+eac_exe_names = ["BF2042_launcher.exe"]
 
 [overrides.1517290.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
@@ -6800,3 +6820,331 @@ name = "AMID EVIL"
 
 [overrides.673130.diagnostics]
 check_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"]
+
+# Opt-in EAC coverage.  These are default M11 rules; the EAC launcher list is
+# used only while the per-game EAC toggle is enabled.  With the toggle off the
+# normal executable list is used and no EAC substrate environment is added.
+
+[overrides.1304930]
+pipeline = "m11"
+name = "The Outlast Trials"
+exe_names = ["TOTClient.exe"]
+eac_exe_names = ["start_protected_game.exe"]
+
+[overrides.1304930.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1304930.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.976730]
+pipeline = "m11"
+name = "Halo: The Master Chief Collection"
+exe_names = ["mcc/binaries/win64/mcc-win64-shipping.exe"]
+eac_exe_names = ["mcclauncher.exe"]
+
+[overrides.976730.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.976730.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1172620]
+pipeline = "m11"
+name = "Sea of Thieves"
+exe_names = ["SeaOfThieves.exe"]
+eac_exe_names = ["SeaOfThieves.exe"]
+
+[overrides.1172620.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1172620.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.555160]
+pipeline = "m11"
+name = "Pavlov VR"
+exe_names = ["Pavlov.exe"]
+eac_exe_names = ["Pavlov.exe"]
+
+[overrides.555160.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.555160.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.552500]
+pipeline = "m11"
+name = "Warhammer: Vermintide 2"
+exe_names = ["binaries/vermintide2.exe"]
+eac_exe_names = ["start_protected_game.exe"]
+
+[overrides.552500.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.552500.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.447040]
+pipeline = "m11"
+name = "Watch_Dogs 2"
+exe_names = ["bin/WatchDogs2.exe"]
+eac_exe_names = ["bin/WatchDogs2.exe"]
+
+[overrides.447040.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.447040.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1097150]
+pipeline = "m11"
+name = "Fall Guys"
+exe_names = ["FallGuys_client.exe"]
+eac_exe_names = ["FallGuys_client.exe"]
+
+[overrides.1097150.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1097150.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.438740]
+pipeline = "m11"
+name = "Friday the 13th: The Game"
+exe_names = ["EAC_Launcher.exe"]
+eac_exe_names = ["EAC_Launcher.exe"]
+
+[overrides.438740.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.438740.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.438100]
+pipeline = "m11"
+name = "VRChat"
+exe_names = ["launch.exe"]
+eac_exe_names = ["launch.exe"]
+
+[overrides.438100.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.438100.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.872200]
+pipeline = "m11"
+name = "Rogue Company"
+exe_names = ["RogueCompany.exe"]
+eac_exe_names = ["RogueCompany.exe"]
+
+[overrides.872200.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.872200.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1121710]
+pipeline = "m11"
+name = "Total Lockdown"
+exe_names = ["start.exe"]
+eac_exe_names = ["start.exe"]
+
+[overrides.1121710.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1121710.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1599340]
+pipeline = "m11"
+name = "Lost Ark"
+exe_names = ["Binaries/Win64/start_protected_game.exe"]
+eac_exe_names = ["Binaries/Win64/start_protected_game.exe"]
+
+[overrides.1599340.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1599340.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1097840]
+pipeline = "m11"
+name = "Gears 5"
+exe_names = ["GearGame/Binaries/Steam/Gears5_EAC.exe"]
+eac_exe_names = ["GearGame/Binaries/Steam/Gears5_EAC.exe"]
+
+[overrides.1097840.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1097840.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.304390]
+pipeline = "m11"
+name = "FOR HONOR"
+exe_names = ["forhonor.exe"]
+eac_exe_names = ["forhonor.exe"]
+
+[overrides.304390.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.304390.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.2138720]
+pipeline = "m11"
+name = "REMATCH"
+exe_names = ["start_protected_game.exe"]
+eac_exe_names = ["start_protected_game.exe"]
+
+[overrides.2138720.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.2138720.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1180380]
+pipeline = "m11"
+name = "Stay Out"
+exe_names = ["game/x64/start_protected_game.exe"]
+eac_exe_names = ["game/x64/start_protected_game.exe"]
+
+[overrides.1180380.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1180380.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.924970]
+pipeline = "m11"
+name = "Back 4 Blood"
+exe_names = ["Gobi/Binaries/Win64/Gobi-Win64-Shipping.exe"]
+eac_exe_names = ["Gobi/Binaries/Win64/Gobi-Win64-Shipping.exe"]
+
+[overrides.924970.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.924970.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1501750]
+pipeline = "m11"
+name = "Lords of the Fallen"
+exe_names = ["LOTF2.exe"]
+eac_exe_names = ["LOTF2.exe"]
+
+[overrides.1501750.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1501750.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.2429640]
+pipeline = "m11"
+name = "Throne and Liberty"
+exe_names = ["TL/Binaries/Win64/TL-Win64-Shipping.exe"]
+eac_exe_names = ["start_protected_game.exe"]
+
+[overrides.2429640.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.2429640.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1222730]
+pipeline = "m11"
+name = "STAR WARS: Squadrons"
+exe_names = ["starwarssquadrons.exe"]
+eac_exe_names = ["starwarssquadrons_launcher.exe"]
+
+[overrides.1222730.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1222730.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.3472040]
+pipeline = "m11"
+name = "NBA 2K26"
+exe_names = ["NBA2K26.exe"]
+eac_exe_names = ["start_protected_game.exe"]
+
+[overrides.3472040.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.3472040.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.519190]
+pipeline = "m11"
+name = "Next Day: Survival"
+exe_names = ["nextday.exe"]
+eac_exe_names = ["nextday.exe"]
+
+[overrides.519190.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.519190.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.315210]
+pipeline = "m11"
+name = "Suicide Squad: Kill the Justice League"
+exe_names = ["SuicideSquad.exe"]
+eac_exe_names = ["start_protected_game.exe"]
+
+[overrides.315210.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.315210.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.4088120]
+pipeline = "m11"
+name = "SCP: ReEnter"
+exe_names = ["SCPReEnter.exe"]
+eac_exe_names = ["SCPReEnter_Launcher.exe"]
+
+[overrides.4088120.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.4088120.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1430190]
+pipeline = "m11"
+name = "Killing Floor 3"
+exe_names = ["Nightfall/Binaries/Win64/NightfallClient-Win64-Shipping.exe"]
+eac_exe_names = ["start_protected_game.exe"]
+
+[overrides.1430190.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1430190.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1808500]
+pipeline = "m11"
+name = "ARC Raiders"
+exe_names = ["PioneerGame.exe"]
+eac_exe_names = ["PioneerGame.exe"]
+
+[overrides.1808500.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1808500.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1818750]
+pipeline = "m11"
+name = "MultiVersus"
+exe_names = ["MultiVersus.exe"]
+eac_exe_names = ["MultiVersus.exe"]
+
+[overrides.1818750.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1818750.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]

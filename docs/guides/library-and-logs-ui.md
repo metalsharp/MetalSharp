@@ -12,10 +12,28 @@ enables it only when the packaged MetalSharp substrate and Linux symbol image
 are available on macOS; enabling it persists per-app state under
 `~/.metalsharp/sharp-library/eac/` and applies the substrate environment only
 to the next MetalSharp Wine launch. It never starts a game automatically. An
-opted-in Steam or GPTK selection is routed to the already-installed M12
-MetalSharp Wine 11.5 lane so the substrate is not sent through GPTK, another
-Wine build, or macOS Steam. Per-app substrate logs and module dumps are kept
-under `~/.metalsharp/logs/eac/<appid>/`.
+opted-in non-Wine selection is routed to the already-installed M12 MetalSharp
+Wine 11.5 lane so the substrate is not sent through GPTK, another Wine build,
+or macOS Steam. An explicit M11 selection remains M11. Per-app substrate logs
+and module dumps are kept under `~/.metalsharp/logs/eac/<appid>/`.
+
+The shipped MTSP rules include protected-launcher metadata (`eac_exe_names`)
+and normal executable metadata (`exe_names`) for all requested EAC cards:
+Elden Ring, ARMORED CORE VI, Rocket League, The Outlast Trials, Halo MCC,
+Sea of Thieves, Pavlov, Rust, 7 Days to Die, Vermintide 2, Watch Dogs 2,
+Fall Guys, Friday the 13th, VRChat, Rogue Company, Hunt: Showdown 1896,
+Total Lockdown, Lost Ark, Gears 5, Halo Infinite, For Honor, REMATCH, Stay
+Out, Back 4 Blood, Apex Legends, Lords of the Fallen, Throne and Liberty,
+Star Wars: Squadrons, NBA 2K26, Next Day: Survival, Suicide Squad, SCP:
+ReEnter, Killing Floor 3, Battlefield 2042, Squad, ARC Raiders, and
+MultiVersus. New defaults use M11; the existing Elden Ring and AC6 M12 rules
+remain unchanged. Fires of Rubicon is launched through its real
+`Game/start_protected_game.exe` when enabled; no executable rename or `.old`
+swap is performed.
+
+Turning EAC off removes the per-process substrate environment and leaves the
+game files untouched. The card remains available for every installed Steam
+game; rule metadata controls the executable selected when the toggle is on.
 
 ### EAC substrate installation lifecycle
 
