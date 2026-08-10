@@ -53,6 +53,14 @@ MUST_BUILD_HOST_RUNTIME=(
   libmetalsharp_host_runtime
 )
 
+# The opt-in EAC card is only supported on the macOS/Rosetta lane. These two
+# artifacts are part of the native package contract and must be built before a
+# DMG is assembled; they are never replaced with placeholders.
+MUST_BUILD_EAC=(
+  metalsharp_eac_substrate.dylib
+  metalsharp_eac_libc.so.6
+)
+
 # Files that come from external sources or are otherwise optional. We keep the
 # legacy stub behavior so downstream tools that expect these to exist (even as
 # placeholders) continue to work.
@@ -113,6 +121,15 @@ validate_must_build() {
       errors=$((errors + 1))
     fi
   done
+
+  if [ "$PLATFORM_SHLIB_EXT" = "dylib" ]; then
+    for file in "${MUST_BUILD_EAC[@]}"; do
+      if [ ! -s "$NATIVE_DIR/$file" ]; then
+        echo "ERROR: required EAC substrate artifact missing or empty: $NATIVE_DIR/$file" >&2
+        errors=$((errors + 1))
+      fi
+    done
+  fi
 
   return "$errors"
 }

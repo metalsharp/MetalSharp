@@ -31,11 +31,17 @@ RESOURCES="$APP_DIR/Contents/Resources"
 BACKEND="$RESOURCES/runtime/metalsharp-backend"
 HOST="$RESOURCES/runtime/host"
 BUNDLES="$RESOURCES/bundles"
+NATIVE="$RESOURCES/scripts/tools/native"
+# The two explicit bundle paths below are the installed EAC substrate contract:
+# Contents/Resources/scripts/tools/native/metalsharp_eac_substrate.dylib
+# Contents/Resources/scripts/tools/native/metalsharp_eac_libc.so.6
 
 for required in \
   "$BACKEND" \
   "$HOST/manifest.json" \
   "$HOST/HostRuntimeABI.h" \
+  "$NATIVE/metalsharp_eac_substrate.dylib" \
+  "$NATIVE/metalsharp_eac_libc.so.6" \
   "$RESOURCES/scripts/tools/updater/update.py" \
   "$RESOURCES/scripts/tools/updater/update.sh" \
   "$BUNDLES/metalsharp-electron.tar.zst" \
@@ -52,6 +58,19 @@ do
     exit 1
   fi
 done
+
+if ! file "$NATIVE/metalsharp_eac_substrate.dylib" | grep -q "Mach-O"; then
+  echo "DMG EAC substrate is not a Mach-O dylib" >&2
+  exit 1
+fi
+if ! file "$NATIVE/metalsharp_eac_substrate.dylib" | grep -q "x86_64"; then
+  echo "DMG EAC substrate does not contain the x86_64 Wine/Rosetta slice" >&2
+  exit 1
+fi
+if ! file "$NATIVE/metalsharp_eac_libc.so.6" | grep -q "ELF 64-bit.*x86-64"; then
+  echo "DMG EAC symbol image is not an ELF64 x86-64 image" >&2
+  exit 1
+fi
 
 if [ ! -s "$HOST/libmetalsharp_host_runtime.dylib" ] \
   && [ ! -s "$HOST/libmetalsharp_host_runtime.so" ] \

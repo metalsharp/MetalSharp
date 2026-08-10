@@ -17,6 +17,7 @@
     unused_variables
 )]
 
+mod anticheat;
 mod binding_contract;
 mod bottles;
 mod command_contract;
@@ -670,13 +671,25 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                         .or_else(|| body.get("pipeline"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("steam");
-                    let route_pipeline = match mtsp::engine::PipelineId::from_str_flexible(launch_method) {
+                    let requested_route_pipeline = match mtsp::engine::PipelineId::from_str_flexible(launch_method) {
                         Some(mtsp::engine::PipelineId::Steam) => None,
                         Some(pipeline) => Some(bottles::resolve_steam_pipeline_for_request(id, Some(pipeline))),
                         None if launch_method.eq_ignore_ascii_case("steam") => None,
                         None => Some(bottles::resolve_steam_pipeline_for_request(id, None)),
                     };
-                    app_log(&format!("Launching game via Wine Steam: appid {}, route {}", id, launch_method));
+                    let eac_enabled = anticheat::eac_enabled(id);
+                    let route_pipeline = match requested_route_pipeline {
+                        Some(pipeline) => Some(anticheat::eac_pipeline_for_request(id, pipeline)),
+                        None if eac_enabled => Some(anticheat::eac_pipeline_for_request(
+                            id,
+                            bottles::resolve_steam_pipeline_for_request(id, None),
+                        )),
+                        None => None,
+                    };
+                    app_log(&format!(
+                        "Launching game via Wine Steam: appid {}, route {}, eac_substrate={}",
+                        id, launch_method, eac_enabled
+                    ));
                     let launch_result = match route_pipeline {
                         Some(pipeline) => {
                             let bottle = match bottles::prepare_steam_game_launch(id, pipeline) {
@@ -738,6 +751,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                                         "steam_started": steam_started,
                                         "steam_runtime": if offline_direct { "offline" } else { "background" },
                                         "offline_mode": offline_direct,
+                                        "eac_substrate": eac_enabled,
                                         "env_applied_to": "game_process",
                                         "env_handoff": env.iter().map(|(k, _)| k).collect::<Vec<_>>(),
                                     })
@@ -1134,6 +1148,34 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                     "pipeline": pipeline_id,
                 }),
             )
+        },
+        (Method::Get, "/eac/status") => {
+            let appid = req
+                .url()
+                .split("appid=")
+                .nth(1)
+                .and_then(|value| value.split('&').next())
+                .and_then(|value| value.parse::<u32>().ok());
+            match appid {
+                Some(id) if id > 0 => resp(200, anticheat::handle_eac_status_for_appid(id)),
+                _ => resp(400, json!({"ok": false, "error": "appid required"})),
+            }
+        },
+        (Method::Post, "/eac/toggle") => {
+            let body = read_body(req);
+            let enabled = body.get("enable").and_then(|value| value.as_bool()).unwrap_or(true);
+            let appid = body.get("appid").and_then(|value| value.as_u64()).unwrap_or(0);
+            app_log(&format!(
+                "[EAC] {} per-game substrate for appid {}",
+                if enabled { "enabled" } else { "disabled" },
+                appid
+            ));
+            let result = anticheat::handle_eac_toggle(&body);
+            if result.get("ok").and_then(Value::as_bool) == Some(true) {
+                resp(200, result)
+            } else {
+                resp(400, result)
+            }
         },
         (Method::Post, "/goldberg/toggle") => {
             let body = read_body(req);
@@ -1537,6 +1579,30 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/steam/compatdata") => {
             let body = read_body(req);
             resp(200, bottles::handle_steam_compatdata(&body))
+        },
+        // Anti-cheat evidence and host-contract probes are intentionally
+        // observational: they report the protected launcher/module boundary
+        // without changing vendor binaries, identity exports, or launch
+        // policy.
+        (Method::Post, "/steam/anticheat-evidence") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_evidence(&body))
+        },
+        (Method::Post, "/steam/anticheat-probe") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_probe(&body))
+        },
+        (Method::Post, "/steam/anticheat-delta-audit") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_delta_audit(&body))
+        },
+        (Method::Post, "/steam/anticheat-substrate-decision") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_substrate_decision(&body))
+        },
+        (Method::Post, "/steam/anticheat-contract-probe") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_contract_probe(&body))
         },
         (Method::Post, "/kernel-translation/probe") => {
             let body = read_body(req);
@@ -2215,7 +2281,8 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                     let resolved_pipeline = Some(crate::mtsp::rules::resolve_requested_pipeline(
                         id as u32,
                         crate::mtsp::engine::PipelineId::from_str_flexible(launch_method),
-                    ));
+                    ))
+                    .map(|pipeline| anticheat::eac_pipeline_for_request(id as u32, pipeline));
                     let engine_desc = resolved_pipeline
                         .map(|p| crate::mtsp::engine::get_pipeline(p).description)
                         .unwrap_or("Unknown");
@@ -2240,7 +2307,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                             app_log(&format!("[LAUNCHED] appid {} | pid {} | engine: {}", id, pid, game_type));
                             resp(
                                 200,
-                                json!({"ok": true, "pid": pid, "gameType": game_type, "appid": id, "engine": engine_desc}),
+                                json!({
+                                    "ok": true,
+                                    "pid": pid,
+                                    "gameType": game_type,
+                                    "appid": id,
+                                    "engine": engine_desc,
+                                    "eac_substrate": anticheat::eac_enabled(id as u32),
+                                }),
                             )
                         },
                         Err(e) => {

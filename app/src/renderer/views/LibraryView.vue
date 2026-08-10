@@ -118,6 +118,7 @@ function isWineSteamRouteId(launchMethod: string) {
     "d3d10",
     "d3d11",
     "d3d12",
+    "m13",
     "d3dmetal",
     "d3d9_metal",
     "dxmt_metal",
@@ -139,11 +140,14 @@ function isWineSteamRouteLaunch(game: SteamGame, launchMethod: string) {
   return isWineSteamRouteId(method);
 }
 
-const directEacAppIds = new Set([1245620, 1888160]);
-
-function effectiveLaunchMethod(game: SteamGame, launchMethod: string) {
+function effectiveLaunchMethod(launchMethod: string, eacEnabled = false) {
   const method = launchMethod.toLowerCase();
-  if (directEacAppIds.has(game.appid) && ["auto", "steam", "wine_steam"].includes(method)) return "m12";
+  if (
+    eacEnabled &&
+    ["mac_steam", "macos_steam", "native_steam"].includes(method)
+  ) {
+    return "m12";
+  }
   return launchMethod;
 }
 
@@ -229,7 +233,14 @@ async function toggleMacSteam() {
 }
 
 async function launchGame(game: SteamGame, launchMethod = "auto") {
-  const selectedLaunchMethod = effectiveLaunchMethod(game, launchMethod);
+  const eacStatus = await api<{
+    ok: boolean;
+    eac_enabled?: boolean;
+    enabled?: boolean;
+    error?: string;
+  }>("GET", `/eac/status?appid=${game.appid}`);
+  const eacEnabled = eacStatus?.ok === true && (eacStatus.eac_enabled === true || eacStatus.enabled === true);
+  const selectedLaunchMethod = effectiveLaunchMethod(launchMethod, eacEnabled);
   if (isMacSteamLaunch(selectedLaunchMethod) && wineSteamRunning.value) {
     if (!confirm(`Stop Wine Steam and launch ${game.name} through MacOS Steam?`)) return;
     const stopResult = await api<{ ok: boolean; running?: boolean; error?: string }>("POST", "/steam/stop");
@@ -242,7 +253,7 @@ async function launchGame(game: SteamGame, launchMethod = "auto") {
   }
 
   launchingAppId.value = game.appid;
-  const useWineSteamRoute = isWineSteamRouteLaunch(game, selectedLaunchMethod);
+  const useWineSteamRoute = eacEnabled || isWineSteamRouteLaunch(game, selectedLaunchMethod);
   const launchEndpoint = useWineSteamRoute ? "/steam/launch-game" : "/game/launch-auto";
   const launchResult = await api<{
     ok: boolean;

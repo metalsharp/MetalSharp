@@ -104,7 +104,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
         | PipelineId::FnaArm64
         | PipelineId::WineBare => {
             let dir = game_dir.as_ref().ok_or_else(|| format!("game directory not found for appid {}", appid))?;
-            Some(resolve_game_exe_for_pipeline(appid, dir, Some(node.id))?)
+            Some(resolve_launch_exe_for_pipeline(appid, dir, Some(node.id))?)
         },
         _ => None,
     };
@@ -268,7 +268,7 @@ pub fn build_custom_launch_recipe(
         | PipelineId::M32
         | PipelineId::WineBare => Some(match exe_path {
             Some(path) => path.to_path_buf(),
-            None => resolve_game_exe_for_pipeline(appid, game_dir, Some(node.id))?,
+            None => resolve_launch_exe_for_pipeline(appid, game_dir, Some(node.id))?,
         }),
         _ => None,
     };
@@ -311,9 +311,45 @@ fn resolve_game_exe_for_pipeline(
     game_dir: &Path,
     pipeline: Option<PipelineId>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    resolve_game_exe_for_pipeline_with_eac(appid, game_dir, pipeline, false)
+}
+
+fn resolve_launch_exe_for_pipeline(
+    appid: u32,
+    game_dir: &Path,
+    pipeline: Option<PipelineId>,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    resolve_game_exe_for_pipeline_with_eac(appid, game_dir, pipeline, crate::anticheat::eac_enabled(appid))
+}
+
+fn resolve_game_exe_for_pipeline_with_eac(
+    appid: u32,
+    game_dir: &Path,
+    pipeline: Option<PipelineId>,
+    eac_enabled: bool,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // The EAC toggle changes only which existing executable is launched.  It
+    // never renames, copies, patches, or replaces a game executable.  Prefer
+    // the rule's protected launcher while enabled; when disabled this branch
+    // is skipped and the normal game executable resolution below is used.
+    if eac_enabled {
+        if let Some(recipe) = super::rules::get_game_recipe(appid) {
+            for preferred in &recipe.eac_exe_names {
+                if let Some(path) = find_case_insensitive(game_dir, preferred) {
+                    return Ok(path);
+                }
+            }
+        }
+        // Steam's conventional EAC launcher name is useful for newly added
+        // games before a per-game executable rule is published.
+        if let Some(path) = find_case_insensitive(game_dir, "start_protected_game.exe") {
+            return Ok(path);
+        }
+    }
+
     // Subnautica 2's M12 route must invoke the real game executable directly.
-    // Do not let a prepared start_protected_game.exe shim or Steam launch args
-    // take precedence over Subnautica2.exe for this path.
+    // Do not let a protected launcher take precedence over Subnautica2.exe
+    // when the EAC toggle is off for this path.
     if appid == 1962700 && matches!(pipeline, Some(PipelineId::M12)) {
         if let Some(path) = find_case_insensitive(game_dir, "Subnautica2.exe") {
             return Ok(path);
@@ -737,8 +773,8 @@ fn preferred_exe_names(appid: u32) -> &'static [&'static str] {
         1196590 => &["re8.exe"],
         2358720 => &["b1-Win64-Shipping.exe", "b1.exe"],
         305620 => &["tld.exe"],
-        1245620 => &["start_protected_game.exe", "eldenring.exe"],
-        1888160 => &["start_protected_game.exe", "armoredcore6.exe"],
+        1245620 => &["eldenring.exe"],
+        1888160 => &["armoredcore6.exe"],
         1962700 => &["Subnautica2.exe"],
         220 => &["hl2.exe"],
         440 => &["tf/win32/tf.exe", "tf.exe"],
@@ -1155,11 +1191,11 @@ mod tests {
     }
 
     #[test]
-    fn m12_selects_real_protected_game_exe() {
+    fn m12_uses_direct_game_exe_when_eac_is_off() {
         let dir = test_dir("spg-prepared");
         let game_dir = dir.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old");
+        std::fs::write(game_dir.join("start_protected_game.marker"), b"PROTECTED_STUB").expect("write marker");
         std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME_COPY").expect("write protected copy");
         std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
 
@@ -1167,21 +1203,30 @@ mod tests {
             resolve_game_exe_for_pipeline(1245620, &dir, Some(PipelineId::M12)).expect("select real game exe");
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("eldenring.exe"));
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME_COPY");
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.marker")).unwrap(), b"PROTECTED_STUB");
 
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn armored_core_vi_prefers_start_protected_game_exe() {
+    fn armored_core_vi_eac_selection_is_opt_in_and_does_not_mutate_executables() {
         let dir = test_dir("ac6-preferred");
         let game_dir = dir.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
+        std::fs::write(game_dir.join("start_protected_game.marker"), b"PROTECTED_MARKER").expect("write marker");
         std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write protected exe");
         std::fs::write(game_dir.join("armoredcore6.exe"), b"REAL_GAME").expect("write real exe");
 
-        let selected = resolve_game_exe(1888160, &dir).expect("select AC6 protected exe");
+        let selected = resolve_game_exe(1888160, &dir).expect("select AC6 game exe with EAC off");
 
-        assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("start_protected_game.exe"));
+        assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("armoredcore6.exe"));
+
+        let protected = resolve_game_exe_for_pipeline_with_eac(1888160, &dir, Some(PipelineId::M12), true)
+            .expect("select AC6 protected launcher");
+        assert_eq!(protected.file_name().and_then(|name| name.to_str()), Some("start_protected_game.exe"));
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
+        assert!(game_dir.join("start_protected_game.marker").exists());
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1316,7 +1361,6 @@ mod tests {
         let dir = test_dir("subnautica2-direct-exe");
         std::fs::create_dir_all(&dir).expect("create test dir");
         std::fs::write(dir.join("start_protected_game.exe"), b"not pe").expect("write protected launcher");
-        std::fs::write(dir.join("start_protected_game.old"), b"not pe").expect("write prepared marker");
         std::fs::write(dir.join("Subnautica2.exe"), b"not pe").expect("write direct exe");
 
         let selected = resolve_game_exe_for_pipeline(1962700, &dir, Some(PipelineId::M12)).expect("select direct exe");

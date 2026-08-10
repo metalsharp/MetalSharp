@@ -53,6 +53,7 @@ def check_package_resources(assets: list[str]) -> None:
     required_pairs = {
         ("src-rust/target/release/metalsharp-backend", "runtime/metalsharp-backend"),
         ("native/host", "runtime/host"),
+        ("native", "scripts/tools/native"),
         ("updater", "scripts/tools/updater"),
     }
     required_pairs.update((f"bundles/{asset}", f"bundles/{asset}") for asset in assets)
@@ -60,6 +61,19 @@ def check_package_resources(assets: list[str]) -> None:
     missing = sorted(required_pairs - pairs)
     if missing:
         fail(f"app/package.json missing extraResources entries: {missing}")
+
+    native_entries = [
+        entry
+        for entry in resources
+        if isinstance(entry, dict) and entry.get("from") == "native" and entry.get("to") == "scripts/tools/native"
+    ]
+    if len(native_entries) != 1:
+        fail("app/package.json must have exactly one native-to-scripts/tools/native resource entry")
+    native_filter = native_entries[0].get("filter", [])
+    if not isinstance(native_filter, list) or "**/*" not in native_filter:
+        fail("native extraResources must include the complete native tree so the EAC pair is packaged")
+    if any(isinstance(pattern, str) and pattern.startswith("!") and "metalsharp_eac_" in pattern for pattern in native_filter):
+        fail("native extraResources must not exclude the EAC substrate artifacts")
 
     if build.get("afterPack") != "build/adhoc-deep-sign.cjs":
         fail("app/package.json must keep afterPack=build/adhoc-deep-sign.cjs")
@@ -73,6 +87,8 @@ def check_dmg_verifier(assets: list[str]) -> None:
         "Contents/Resources",
         "runtime/metalsharp-backend",
         "runtime/host",
+        "scripts/tools/native/metalsharp_eac_substrate.dylib",
+        "scripts/tools/native/metalsharp_eac_libc.so.6",
         "scripts/tools/updater/update.py",
         "scripts/tools/updater/update.sh",
         "tools/bundles/verify-bundles.sh",
@@ -126,6 +142,9 @@ def check_workflows() -> None:
     for required in ["Shell CI", "Metal CI", "Vue CI", "Rust CI", "Electron CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
         if required not in main:
             fail(f"main CI missing validation job: {required}")
+    for workflow, label in [(pr, "PR"), (main, "main")]:
+        if "tools/bundles/verify-native-shims.sh --eac-only app/native" not in workflow:
+            fail(f"{label} CI must validate the generated EAC native pair after the CMake build")
     for forbidden in [
         "Verify Developer SDK Bundle",
         "Build DMG",
