@@ -63,6 +63,13 @@ def require_file(src: Path, description: str) -> None:
         raise FileNotFoundError(f"missing required {description}: {src}")
 
 
+def require_file_type(src: Path, description: str, *needles: str) -> None:
+    require_file(src, description)
+    result = subprocess.run(["file", "-b", str(src)], capture_output=True, text=True, check=False)
+    if result.returncode != 0 or any(needle not in result.stdout for needle in needles):
+        raise RuntimeError(f"invalid {description}: {src} ({result.stdout.strip()})")
+
+
 def require_host_runtime(host_dir: Path) -> None:
     require_file(host_dir / "manifest.json", "host runtime manifest")
     require_file(host_dir / "HostRuntimeABI.h", "host runtime ABI header")
@@ -270,9 +277,17 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     for name in platform_shlibs + native_binaries:
         require_file(APP_DIR / "native" / name, f"native shim {name}")
     if sys.platform == "darwin":
-        require_file(
+        require_file_type(
+            APP_DIR / "native" / "metalsharp_eac_substrate.dylib",
+            "MetalSharp EAC x86_64 Mach-O substrate",
+            "Mach-O",
+            "x86_64",
+        )
+        require_file_type(
             APP_DIR / "native" / "metalsharp_eac_libc.so.6",
             "MetalSharp EAC Linux symbol image",
+            "ELF 64-bit",
+            "x86-64",
         )
     require_file(
         PROJECT_ROOT / "lib" / "metalsharp" / "x86_64-windows" / "metalsharp_ntdll_hook.dll",

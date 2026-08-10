@@ -318,26 +318,22 @@ metalsharp_wine_target(metalsharp_eac_substrate)
 # never asks dyld to load Linux libc.  Generate that MetalSharp-owned image
 # beside the substrate so packaged/runtime proofs do not depend on a machine's
 # /tmp state.  It contains no vendor or protected-module bytes.
-find_package(Python3 COMPONENTS Interpreter QUIET)
-if(Python3_Interpreter_FOUND)
-    set(METALSHARP_EAC_SYMBOL_IMAGE
-        "${CMAKE_SOURCE_DIR}/app/native/metalsharp_eac_libc.so.6")
-    add_custom_command(
-        OUTPUT "${METALSHARP_EAC_SYMBOL_IMAGE}"
-        COMMAND ${Python3_EXECUTABLE}
-            "${CMAKE_SOURCE_DIR}/tools/anticheat/generate_linux_libc_elf.py"
-            "${METALSHARP_EAC_SYMBOL_IMAGE}"
-        DEPENDS "${CMAKE_SOURCE_DIR}/tools/anticheat/generate_linux_libc_elf.py"
-        COMMENT "Generating MetalSharp EAC Linux symbol image"
-        VERBATIM
-    )
-    add_custom_target(metalsharp_eac_symbol_image
-        DEPENDS "${METALSHARP_EAC_SYMBOL_IMAGE}"
-    )
-    add_dependencies(metalsharp_eac_substrate metalsharp_eac_symbol_image)
-else()
-    message(WARNING "MetalSharp EAC substrate symbol image requires Python 3")
-endif()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(METALSHARP_EAC_SYMBOL_IMAGE
+    "${CMAKE_SOURCE_DIR}/app/native/metalsharp_eac_libc.so.6")
+add_custom_command(
+    OUTPUT "${METALSHARP_EAC_SYMBOL_IMAGE}"
+    COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tools/anticheat/generate_linux_libc_elf.py"
+        "${METALSHARP_EAC_SYMBOL_IMAGE}"
+    DEPENDS "${CMAKE_SOURCE_DIR}/tools/anticheat/generate_linux_libc_elf.py"
+    COMMENT "Generating MetalSharp EAC Linux symbol image"
+    VERBATIM
+)
+add_custom_target(metalsharp_eac_symbol_image
+    DEPENDS "${METALSHARP_EAC_SYMBOL_IMAGE}"
+)
+add_dependencies(metalsharp_eac_substrate metalsharp_eac_symbol_image)
 add_custom_command(TARGET metalsharp_eac_substrate POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:metalsharp_eac_substrate>"

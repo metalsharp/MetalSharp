@@ -12,8 +12,8 @@ const ARTIFACT_TAIL_LINES: usize = 80;
 const MAX_ARTIFACT_READ_BYTES: u64 = 1024 * 1024;
 const WALK_MAX_DEPTH: usize = 10;
 const MODULE_ASSET_MAX_DEPTH: usize = 8;
-const EAC_SUBSTRATE_FILENAME: &str = "metalsharp_eac_substrate.dylib";
-const EAC_SYMBOL_IMAGE_FILENAME: &str = "metalsharp_eac_libc.so.6";
+pub(crate) const EAC_SUBSTRATE_FILENAME: &str = "metalsharp_eac_substrate.dylib";
+pub(crate) const EAC_SYMBOL_IMAGE_FILENAME: &str = "metalsharp_eac_libc.so.6";
 
 #[derive(Debug, Clone)]
 struct EacRuntimeAssets {
@@ -25,15 +25,15 @@ fn eac_toggle_path_for(home: &Path, appid: u32) -> PathBuf {
     crate::platform::metalsharp_home_dir_for(home).join("sharp-library").join("eac").join(format!("{}.json", appid))
 }
 
-fn eac_asset_candidates(filename: &str) -> Vec<PathBuf> {
+fn eac_packaged_asset_candidates(filename: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("native").join(filename));
-        candidates.push(cwd.join("app").join("native").join(filename));
-    }
     if let Some(resources) = crate::platform::app_resources_dir() {
         candidates.push(resources.join("scripts").join("tools").join("native").join(filename));
         candidates.push(resources.join("native").join(filename));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("native").join(filename));
+        candidates.push(cwd.join("app").join("native").join(filename));
     }
     if let Ok(exe) = std::env::current_exe() {
         for ancestor in exe.ancestors() {
@@ -41,7 +41,33 @@ fn eac_asset_candidates(filename: &str) -> Vec<PathBuf> {
             candidates.push(ancestor.join("app").join("native").join(filename));
         }
     }
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(
+            crate::platform::metalsharp_home_dir_for(&home).join("scripts").join("tools").join("native").join(filename),
+        );
+    }
 
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if !unique.iter().any(|existing: &PathBuf| existing == &candidate) {
+            unique.push(candidate);
+        }
+    }
+    unique
+}
+
+pub(crate) fn eac_packaged_asset_path(filename: &str) -> Option<PathBuf> {
+    eac_packaged_asset_candidates(filename)
+        .into_iter()
+        .find(|path| path.is_file() && fs::metadata(path).map(|metadata| metadata.len() > 0).unwrap_or(false))
+}
+
+fn eac_asset_candidates(filename: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("eac").join(filename));
+    }
+    candidates.extend(eac_packaged_asset_candidates(filename));
     let mut unique = Vec::new();
     for candidate in candidates {
         if !unique.iter().any(|existing: &PathBuf| existing == &candidate) {

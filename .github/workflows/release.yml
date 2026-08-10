@@ -133,6 +133,7 @@ jobs:
           cp libd3d11.dylib libd3d12.dylib libdxgi.dylib libxaudio2_9.dylib libxinput1_4.dylib libopengl32.dylib ../app/native/ 2>/dev/null || true
           cp metalsharp metalsharp_launcher MetalSharpMigrator ../app/native/ 2>/dev/null || true
           cd ..
+          tools/bundles/verify-native-shims.sh app/native
           METALSHARP_BUILD_DIR="$PWD/build" tools/package/create-host-runtime.sh
 
       - name: Install Electron deps

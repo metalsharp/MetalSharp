@@ -38,6 +38,10 @@ for f in "${required_dylibs[@]}" "${required_bins[@]}"; do
                 echo "ERROR: $path is not a Mach-O binary"
                 errors=$((errors + 1))
             fi
+            if [[ "$f" == "metalsharp_eac_substrate.dylib" ]] && ! file "$path" | grep -q "x86_64"; then
+                echo "ERROR: $path does not contain the x86_64 Wine/Rosetta slice"
+                errors=$((errors + 1))
+            fi
             # Verify key symbols are exported
             if [[ "$f" == "xinput1_4.dylib" ]]; then
                 for sym in XInputGetState XInputSetState XInputGetCapabilities; do
