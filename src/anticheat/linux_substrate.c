@@ -3750,15 +3750,23 @@ static bool map_linux_libc_image(void) {
     ms_log("mapped ELF libc image path=%s base=0x%llx size=0x%zx", g_elf_path, (unsigned long long)(uintptr_t)mapping,
            map_length);
 
-    int maps_fd = ms_raw_open("/tmp/metalsharp-eac-maps", O_RDWR | O_CREAT | O_TRUNC, 0600);
+    const char* configured_maps = getenv("METALSHARP_EAC_SUBSTRATE_MAPS");
+    if (configured_maps != NULL && configured_maps[0] != '\0') {
+        snprintf(g_maps_path, sizeof(g_maps_path), "%s", configured_maps);
+    } else {
+        snprintf(g_maps_path, sizeof(g_maps_path), "/tmp/metalsharp-eac-maps");
+    }
+    int maps_fd = ms_raw_open(g_maps_path, O_RDWR | O_CREAT | O_TRUNC, 0600);
     if (maps_fd >= 0) {
         int maps_length =
             dprintf(maps_fd, "%016llx-%016llx r-xp 00000000 00:00 0 %s\n", (unsigned long long)(uintptr_t)mapping,
                     (unsigned long long)((uintptr_t)mapping + map_length), g_elf_path);
-        if (maps_length > 0) {
-            snprintf(g_maps_path, sizeof(g_maps_path), "/tmp/metalsharp-eac-maps");
+        if (maps_length <= 0) {
+            g_maps_path[0] = '\0';
         }
         close(maps_fd);
+    } else {
+        g_maps_path[0] = '\0';
     }
 
     MsElfHeader* header = (MsElfHeader*)mapping;

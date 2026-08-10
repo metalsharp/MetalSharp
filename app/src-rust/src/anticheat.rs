@@ -5,13 +5,231 @@ use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(unix)]
 use std::os::fd::FromRawFd;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 const ARTIFACT_TAIL_LINES: usize = 80;
 const MAX_ARTIFACT_READ_BYTES: u64 = 1024 * 1024;
 const WALK_MAX_DEPTH: usize = 10;
 const MODULE_ASSET_MAX_DEPTH: usize = 8;
+const EAC_SUBSTRATE_FILENAME: &str = "metalsharp_eac_substrate.dylib";
+const EAC_SYMBOL_IMAGE_FILENAME: &str = "metalsharp_eac_libc.so.6";
+
+#[derive(Debug, Clone)]
+struct EacRuntimeAssets {
+    substrate: Option<PathBuf>,
+    symbol_image: Option<PathBuf>,
+}
+
+fn eac_toggle_path_for(home: &Path, appid: u32) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(home).join("sharp-library").join("eac").join(format!("{}.json", appid))
+}
+
+fn eac_asset_candidates(filename: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("native").join(filename));
+        candidates.push(cwd.join("app").join("native").join(filename));
+    }
+    if let Some(resources) = crate::platform::app_resources_dir() {
+        candidates.push(resources.join("scripts").join("tools").join("native").join(filename));
+        candidates.push(resources.join("native").join(filename));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        for ancestor in exe.ancestors() {
+            candidates.push(ancestor.join("native").join(filename));
+            candidates.push(ancestor.join("app").join("native").join(filename));
+        }
+    }
+
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if !unique.iter().any(|existing: &PathBuf| existing == &candidate) {
+            unique.push(candidate);
+        }
+    }
+    unique
+}
+
+fn eac_asset_path(filename: &str) -> Option<PathBuf> {
+    eac_asset_candidates(filename)
+        .into_iter()
+        .find(|path| path.is_file() && fs::metadata(path).map(|metadata| metadata.len() > 0).unwrap_or(false))
+}
+
+fn eac_runtime_assets() -> EacRuntimeAssets {
+    EacRuntimeAssets {
+        substrate: eac_asset_path(EAC_SUBSTRATE_FILENAME),
+        symbol_image: eac_asset_path(EAC_SYMBOL_IMAGE_FILENAME),
+    }
+}
+
+pub fn eac_enabled_for(home: &Path, appid: u32) -> bool {
+    fs::read_to_string(eac_toggle_path_for(home, appid))
+        .ok()
+        .and_then(|contents| serde_json::from_str::<Value>(&contents).ok())
+        .and_then(|value| value.get("enabled").and_then(Value::as_bool))
+        .unwrap_or(false)
+}
+
+pub fn eac_enabled(appid: u32) -> bool {
+    dirs::home_dir().map(|home| eac_enabled_for(&home, appid)).unwrap_or(false)
+}
+
+/// EAC is only opt-in on a MetalSharp Wine route.  A selected Steam or GPTK
+/// route must never silently receive the substrate: redirect those requests
+/// to the already-built M12 Wine 11.5 lane instead.  Existing MTSP Wine lanes
+/// stay selectable so the card toggle does not overwrite a user's explicit
+/// M9/M10/M11/M12 choice.
+pub fn eac_pipeline_for_request(
+    appid: u32,
+    requested: crate::mtsp::engine::PipelineId,
+) -> crate::mtsp::engine::PipelineId {
+    eac_pipeline_for_enabled(eac_enabled(appid), requested)
+}
+
+fn eac_pipeline_for_enabled(
+    enabled: bool,
+    requested: crate::mtsp::engine::PipelineId,
+) -> crate::mtsp::engine::PipelineId {
+    use crate::mtsp::engine::PipelineId;
+
+    if !enabled {
+        return requested;
+    }
+
+    match requested {
+        PipelineId::D3DMetal | PipelineId::M13 | PipelineId::FnaArm64 | PipelineId::Steam | PipelineId::MacSteam => {
+            PipelineId::M12
+        },
+        pipeline => pipeline,
+    }
+}
+
+fn eac_asset_record(name: &str, path: Option<&Path>) -> Value {
+    let present = path.is_some_and(|candidate| candidate.is_file());
+    json!({
+        "name": name,
+        "path": path.map(|candidate| candidate.to_string_lossy().to_string()),
+        "present": present,
+        "bytes": path.and_then(|candidate| fs::metadata(candidate).ok()).map(|metadata| metadata.len()),
+        "sha256": path.filter(|candidate| present).and_then(crate::diagnostics::file_sha256),
+    })
+}
+
+fn eac_runtime_status(appid: u32, home: &Path) -> Value {
+    let assets = eac_runtime_assets();
+    let host_supported = cfg!(target_os = "macos");
+    let assets_available = assets.substrate.is_some() && assets.symbol_image.is_some();
+    let available = host_supported && assets_available;
+    let enabled = eac_enabled_for(home, appid);
+    let error = if !host_supported {
+        Some("The MetalSharp EAC substrate is currently supported only on macOS.".to_string())
+    } else if !assets_available {
+        Some("The packaged MetalSharp EAC substrate or Linux symbol image is missing.".to_string())
+    } else {
+        None
+    };
+
+    json!({
+        "ok": true,
+        "appid": appid,
+        "enabled": enabled,
+        "eac_enabled": enabled,
+        "active": enabled && available,
+        "available": available,
+        "hostSupported": host_supported,
+        "launchPolicy": "opt_in_per_game",
+        "substrate": eac_asset_record(EAC_SUBSTRATE_FILENAME, assets.substrate.as_deref()),
+        "symbolImage": eac_asset_record(EAC_SYMBOL_IMAGE_FILENAME, assets.symbol_image.as_deref()),
+        "error": error,
+    })
+}
+
+pub fn handle_eac_status_for_appid(appid: u32) -> Value {
+    match dirs::home_dir() {
+        Some(home) => eac_runtime_status(appid, &home),
+        None => json!({"ok": false, "appid": appid, "error": "no home dir"}),
+    }
+}
+
+fn write_eac_toggle(home: &Path, appid: u32, enabled: bool) -> Result<(), String> {
+    let path = eac_toggle_path_for(home, appid);
+    let parent = path.parent().ok_or_else(|| "EAC toggle path has no parent".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| format!("create EAC toggle directory: {}", error))?;
+    let temporary = path.with_extension("json.tmp");
+    let payload = json!({
+        "appid": appid,
+        "enabled": enabled,
+        "updatedAtEpoch": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+    });
+    fs::write(&temporary, serde_json::to_vec_pretty(&payload).map_err(|error| error.to_string())?)
+        .map_err(|error| format!("write EAC toggle: {}", error))?;
+    fs::rename(&temporary, &path).map_err(|error| format!("commit EAC toggle: {}", error))
+}
+
+pub fn handle_eac_toggle(body: &Map<String, Value>) -> Value {
+    let Some(appid) = body.get("appid").and_then(Value::as_u64).filter(|id| *id > 0 && *id <= u32::MAX as u64) else {
+        return json!({"ok": false, "error": "appid required"});
+    };
+    let appid = appid as u32;
+    let enabled = body.get("enable").and_then(Value::as_bool).unwrap_or(true);
+    let Some(home) = dirs::home_dir() else {
+        return json!({"ok": false, "appid": appid, "error": "no home dir"});
+    };
+
+    if enabled {
+        let assets = eac_runtime_assets();
+        if !cfg!(target_os = "macos") {
+            return json!({"ok": false, "appid": appid, "error": "EAC substrate requires macOS"});
+        }
+        if assets.substrate.is_none() || assets.symbol_image.is_none() {
+            return json!({
+                "ok": false,
+                "appid": appid,
+                "error": "MetalSharp EAC substrate assets are unavailable; rebuild or reinstall the native bundle",
+            });
+        }
+    }
+
+    match write_eac_toggle(&home, appid, enabled) {
+        Ok(()) => eac_runtime_status(appid, &home),
+        Err(error) => json!({"ok": false, "appid": appid, "error": error}),
+    }
+}
+
+/// Build the opt-in host environment for a real MetalSharp Wine game launch.
+/// Enabling the card toggle changes only this per-process environment; it does
+/// not copy, patch, or replace any game or EAC file.
+pub fn eac_launch_env_for_home(home: &Path, appid: u32) -> Result<Vec<(String, String)>, String> {
+    if !eac_enabled_for(home, appid) {
+        return Ok(Vec::new());
+    }
+    if !cfg!(target_os = "macos") {
+        return Err("EAC substrate requires macOS".to_string());
+    }
+    let assets = eac_runtime_assets();
+    let (Some(substrate), Some(symbol_image)) = (assets.substrate, assets.symbol_image) else {
+        return Err(
+            "MetalSharp EAC substrate assets are unavailable; rebuild or reinstall the native bundle".to_string()
+        );
+    };
+
+    let log_dir = crate::platform::metalsharp_home_dir_for(home).join("logs").join("eac").join(appid.to_string());
+    fs::create_dir_all(&log_dir).map_err(|error| format!("create EAC log directory: {}", error))?;
+    Ok(vec![
+        ("DYLD_INSERT_LIBRARIES".to_string(), substrate.to_string_lossy().to_string()),
+        ("METALSHARP_EAC_SUBSTRATE_LIBC".to_string(), symbol_image.to_string_lossy().to_string()),
+        ("METALSHARP_EAC_SUBSTRATE_LOG".to_string(), log_dir.join("substrate.log").to_string_lossy().to_string()),
+        ("METALSHARP_EAC_SUBSTRATE_MAPS".to_string(), log_dir.join("maps").to_string_lossy().to_string()),
+        ("METALSHARP_EAC_MODULE_DUMP".to_string(), log_dir.join("module.bin").to_string_lossy().to_string()),
+    ])
+}
+
+pub fn eac_launch_env(appid: u32) -> Result<Vec<(String, String)>, String> {
+    let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
+    eac_launch_env_for_home(&home, appid)
+}
 
 #[derive(Debug, Default)]
 struct EacSummary {
@@ -1374,5 +1592,23 @@ mod tests {
     fn substrate_decision_requires_linux_substrate_for_linux_module_on_macos() {
         let eac = EacSummary { module_target: Some("linux64".to_string()), ..Default::default() };
         assert_eq!(substrate_decision("macos", &eac, &[]), "requires_linux_user_space_substrate_or_vendor_macos_asset");
+    }
+
+    #[test]
+    fn eac_pipeline_policy_is_opt_in_and_never_selects_gptk() {
+        use crate::mtsp::engine::PipelineId;
+
+        assert_eq!(eac_pipeline_for_enabled(false, PipelineId::D3DMetal), PipelineId::D3DMetal);
+        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::D3DMetal), PipelineId::M12);
+        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::M11), PipelineId::M11);
+        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::Steam), PipelineId::M12);
+    }
+
+    #[test]
+    fn eac_launch_env_is_empty_until_per_game_state_is_enabled() {
+        let home = std::env::temp_dir().join(format!("metalsharp-eac-card-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        assert!(eac_launch_env_for_home(&home, 1).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&home);
     }
 }

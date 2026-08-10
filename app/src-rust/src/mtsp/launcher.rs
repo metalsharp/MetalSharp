@@ -393,6 +393,7 @@ pub fn launch_with_pipeline(
     pipeline_id: PipelineId,
 ) -> Result<(u32, &'static str), Box<dyn std::error::Error>> {
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, Some(pipeline_id));
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
 
     prepare_steam_api_for_pipeline(appid, pipeline_id);
@@ -421,6 +422,7 @@ pub fn launch_steam_bottle_with_pipeline(
     extra_env: &[(String, String)],
 ) -> Result<(u32, &'static str, PathBuf), Box<dyn std::error::Error>> {
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, Some(pipeline_id));
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
     let log_path = crate::bottles::steam_compatdata_launch_log_path(appid);
 
@@ -464,6 +466,7 @@ pub fn prepare_pipeline_with_request(
     let mut timing = crate::diagnostics::LaunchTiming::start();
     timing.mark("pipeline_resolution_start");
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, requested);
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
     timing.mark("pipeline_resolution_done");
 
@@ -507,6 +510,7 @@ pub fn prepare_steam_pipeline_env(
     pipeline_id: PipelineId,
 ) -> Result<(Vec<(String, String)>, super::recipe::LaunchRecipe), Box<dyn std::error::Error>> {
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, Some(pipeline_id));
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
     match pipeline_id {
         PipelineId::Dxmt
@@ -596,6 +600,7 @@ pub fn m12_verify_dry_run(appid: u32) -> serde_json::Value {
 pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineId>) -> serde_json::Value {
     let home = home.to_path_buf();
     let pipeline = super::rules::resolve_requested_pipeline(appid, requested);
+    let pipeline = crate::anticheat::eac_pipeline_for_request(appid, pipeline);
     let node = get_pipeline(pipeline);
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
 
@@ -690,6 +695,8 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
             "DYLD_FALLBACK_LIBRARY_PATH": env_keys.contains("DYLD_FALLBACK_LIBRARY_PATH") || env_keys.contains("LD_LIBRARY_PATH"),
             "SteamAppId": env_keys.contains("SteamAppId"),
             "DXMT_WINEMETAL_UNIXLIB": env_keys.contains("DXMT_WINEMETAL_UNIXLIB"),
+            "EAC_SUBSTRATE": env_keys.contains("DYLD_INSERT_LIBRARIES")
+                && env_keys.contains("METALSHARP_EAC_SUBSTRATE_LIBC"),
         },
         "missing": missing,
     })
@@ -1374,6 +1381,7 @@ pub fn launch_custom_with_options(
 ) -> Result<(u32, &'static str, super::recipe::LaunchRecipe), Box<dyn std::error::Error>> {
     let pipeline_id =
         if pipeline_id == PipelineId::Dxmt { super::rules::resolve_pipeline(launch_id) } else { pipeline_id };
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(launch_id, pipeline_id);
     let node = get_pipeline(pipeline_id);
     match pipeline_id {
         PipelineId::Dxmt
@@ -1451,6 +1459,7 @@ pub fn launch_custom_with_options(
     // the DXMT env after node env so the toggle is authoritative.
     apply_metal_fx_config_cmd(&mut cmd, node, &home);
     apply_dxmt_shader_metal_version_config_cmd(&mut cmd, node);
+    apply_eac_launch_env(&mut cmd, &home, launch_id)?;
 
     cmd.arg(&exe_name);
     cmd.args(&recipe.launch_args);
@@ -1921,6 +1930,7 @@ fn launch_dxmt_metal_with_context(
     // Reconcile after game recipe and caller-provided environment so the host
     // Metal shader dialect remains authoritative on direct launch paths.
     apply_dxmt_shader_metal_version_config_cmd(&mut cmd, node);
+    apply_eac_launch_env(&mut cmd, &home, appid)?;
 
     cmd.arg(&exe_name);
     cmd.args(&recipe.launch_args);
@@ -2008,6 +2018,7 @@ fn launch_wine_bare_with_context(
     for (key, value) in extra_env {
         cmd.env(key, value);
     }
+    apply_eac_launch_env(&mut cmd, &home, appid)?;
 
     cmd.arg(&exe_name);
     cmd.args(&recipe.launch_args);
@@ -2918,7 +2929,53 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
     apply_dxmt_shader_metal_version_config(&mut env, node);
     // msync toggle likewise wins over recipe env.
     apply_msync_config(&mut env, home);
+    apply_eac_env_pairs(&mut env, home, appid);
     env
+}
+
+fn set_env_pair(env: &mut Vec<(String, String)>, key: &str, value: String) {
+    if let Some((_, existing)) = env.iter_mut().rev().find(|(candidate, _)| candidate == key) {
+        *existing = value;
+    } else {
+        env.push((key.to_string(), value));
+    }
+}
+
+fn apply_eac_env_pairs(env: &mut Vec<(String, String)>, home: &Path, appid: u32) {
+    let Ok(eac_env) = crate::anticheat::eac_launch_env_for_home(home, appid) else {
+        return;
+    };
+    for (key, value) in eac_env {
+        if key == "DYLD_INSERT_LIBRARIES" {
+            let inherited = env
+                .iter()
+                .rev()
+                .find(|(candidate, _)| candidate == &key)
+                .map(|(_, existing)| existing.clone())
+                .or_else(|| std::env::var("DYLD_INSERT_LIBRARIES").ok());
+            let merged = append_path_env(inherited.as_deref(), &value);
+            set_env_pair(env, &key, merged);
+        } else {
+            set_env_pair(env, &key, value);
+        }
+    }
+}
+
+fn apply_eac_launch_env(cmd: &mut Command, home: &Path, appid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    let eac_env = crate::anticheat::eac_launch_env_for_home(home, appid).map_err(std::io::Error::other)?;
+    for (key, value) in eac_env {
+        if key == "DYLD_INSERT_LIBRARIES" {
+            let inherited = cmd
+                .get_envs()
+                .find(|(candidate, _)| candidate.to_string_lossy() == key)
+                .and_then(|(_, existing)| existing.and_then(|value| value.to_str()).map(str::to_string))
+                .or_else(|| std::env::var("DYLD_INSERT_LIBRARIES").ok());
+            cmd.env(key, append_path_env(inherited.as_deref(), &value));
+        } else {
+            cmd.env(key, value);
+        }
+    }
+    Ok(())
 }
 
 /// Wine msync toggle value (`WINEMSYNC`) for the given home. Defaults ON.
