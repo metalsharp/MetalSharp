@@ -159,6 +159,10 @@ const toast = useToast();
 const goldbergActive = ref(false);
 const goldbergBackedUpAt = ref<number | null>(null);
 const goldbergCacheOk = ref(true);
+const eacEnabled = ref(false);
+const eacAvailable = ref(false);
+const eacLoading = ref(false);
+const eacStatusError = ref<string | null>(null);
 const pipelineName = ref("Auto");
 const pipelineResolvedLocally = ref(false);
 const selectedLaunchMode = ref("auto");
@@ -478,6 +482,7 @@ onMounted(async () => {
       }
       goldbergCacheOk.value = gs.cache_files_ok === true;
     }
+    await refreshEacStatus();
   }
 });
 
@@ -569,6 +574,58 @@ async function toggleGoldberg(enable: boolean) {
     }
   } else {
     toast.show("Failed to toggle Steam Emu", "error");
+  }
+}
+
+async function refreshEacStatus() {
+  const result = await api<{
+    ok: boolean;
+    enabled?: boolean;
+    eac_enabled?: boolean;
+    available?: boolean;
+    error?: string | null;
+  }>("GET", `/eac/status?appid=${props.game.appid}`);
+  if (result?.ok) {
+    eacEnabled.value = result.eac_enabled === true || result.enabled === true;
+    eacAvailable.value = result.available === true;
+    eacStatusError.value = result.error ?? null;
+  } else {
+    eacEnabled.value = false;
+    eacAvailable.value = false;
+    eacStatusError.value = result?.error ?? "EAC substrate status is unavailable";
+  }
+}
+
+async function toggleEac(enable: boolean) {
+  if (enable && !eacAvailable.value) {
+    toast.show(eacStatusError.value ?? "EAC substrate is unavailable on this MetalSharp installation", "error");
+    return;
+  }
+  eacLoading.value = true;
+  const result = await api<{
+    ok: boolean;
+    enabled?: boolean;
+    eac_enabled?: boolean;
+    available?: boolean;
+    error?: string;
+  }>("POST", "/eac/toggle", {
+    appid: props.game.appid,
+    enable,
+  });
+  eacLoading.value = false;
+  if (result?.ok) {
+    eacEnabled.value = result.eac_enabled === true || result.enabled === true;
+    eacAvailable.value = result.available === true;
+    eacStatusError.value = result.error ?? null;
+    toast.show(
+      enable
+        ? "EAC substrate enabled; it will apply on the next MetalSharp Wine launch"
+        : "EAC substrate disabled for this game",
+      "success",
+    );
+  } else {
+    await refreshEacStatus();
+    toast.show(result?.error ?? "Failed to toggle EAC substrate", "error");
   }
 }
 
@@ -972,6 +1029,25 @@ function formatBytes(bytes: number): string {
           />
           <span class="toggle-switch"></span>
           <span class="toggle-text">Steam Emu</span>
+        </label>
+        <label
+          v-if="game.installed"
+          class="tool-chip toggle-label eac-toggle"
+          :class="{ 'eac-toggle-unavailable': !eacAvailable }"
+          :title="
+            eacAvailable
+              ? 'Enable the verified MetalSharp EAC substrate for the next Wine launch'
+              : eacStatusError || 'EAC substrate is unavailable on this MetalSharp installation'
+          "
+        >
+          <input
+            type="checkbox"
+            :checked="eacEnabled"
+            :disabled="eacLoading || !eacAvailable"
+            @change="toggleEac(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="toggle-switch"></span>
+          <span class="toggle-text">EAC</span>
         </label>
         <span
           v-if="game.installed && goldbergActive"
@@ -1377,6 +1453,19 @@ function formatBytes(bytes: number): string {
   min-height: 22px;
   vertical-align: middle;
 }
+.eac-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 6px;
+  min-height: 22px;
+  vertical-align: middle;
+}
+.eac-toggle-unavailable {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
 .steam-emu-cache {
   font-size: 10px;
   padding: 2px 6px;
@@ -1507,6 +1596,7 @@ function formatBytes(bytes: number): string {
   .route-chip,
   .bottle-chip,
   .steam-emu-toggle,
+  .eac-toggle,
   .game-card-size {
     font-size: 10px;
   }

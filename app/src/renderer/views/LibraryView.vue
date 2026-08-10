@@ -141,8 +141,14 @@ function isWineSteamRouteLaunch(game: SteamGame, launchMethod: string) {
 
 const directEacAppIds = new Set([1245620, 1888160]);
 
-function effectiveLaunchMethod(game: SteamGame, launchMethod: string) {
+function effectiveLaunchMethod(game: SteamGame, launchMethod: string, eacEnabled = false) {
   const method = launchMethod.toLowerCase();
+  if (
+    eacEnabled &&
+    ["auto", "steam", "wine_steam", "d3dmetal", "m13", "mac_steam", "macos_steam", "native_steam"].includes(method)
+  ) {
+    return "m12";
+  }
   if (directEacAppIds.has(game.appid) && ["auto", "steam", "wine_steam"].includes(method)) return "m12";
   return launchMethod;
 }
@@ -229,7 +235,14 @@ async function toggleMacSteam() {
 }
 
 async function launchGame(game: SteamGame, launchMethod = "auto") {
-  const selectedLaunchMethod = effectiveLaunchMethod(game, launchMethod);
+  const eacStatus = await api<{
+    ok: boolean;
+    eac_enabled?: boolean;
+    enabled?: boolean;
+    error?: string;
+  }>("GET", `/eac/status?appid=${game.appid}`);
+  const eacEnabled = eacStatus?.ok === true && (eacStatus.eac_enabled === true || eacStatus.enabled === true);
+  const selectedLaunchMethod = effectiveLaunchMethod(game, launchMethod, eacEnabled);
   if (isMacSteamLaunch(selectedLaunchMethod) && wineSteamRunning.value) {
     if (!confirm(`Stop Wine Steam and launch ${game.name} through MacOS Steam?`)) return;
     const stopResult = await api<{ ok: boolean; running?: boolean; error?: string }>("POST", "/steam/stop");
@@ -242,7 +255,7 @@ async function launchGame(game: SteamGame, launchMethod = "auto") {
   }
 
   launchingAppId.value = game.appid;
-  const useWineSteamRoute = isWineSteamRouteLaunch(game, selectedLaunchMethod);
+  const useWineSteamRoute = eacEnabled || isWineSteamRouteLaunch(game, selectedLaunchMethod);
   const launchEndpoint = useWineSteamRoute ? "/steam/launch-game" : "/game/launch-auto";
   const launchResult = await api<{
     ok: boolean;
