@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+#[cfg(target_os = "macos")]
+use walkdir::WalkDir;
 
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 
@@ -26,6 +28,7 @@ pub const DXMT_BUNDLED_RUNTIME_VERSION: &str = concat!(env!("CARGO_PKG_VERSION")
 const DXMT_RUNTIME_MANIFEST: &str = "metalsharp-dxmt-runtime.json";
 const DXMT_RUNTIME_SCHEMA: &str = "metalsharp.dxmt-runtime.v1";
 const RUNTIME_BUNDLE: &str = "metalsharp-runtime";
+const WINE_PACKAGED_DEPENDENCY_ROOT: &str = "/tmp/metalsharp-wine-deps/lib/";
 const GRAPHICS_DLL_BUNDLE: &str = "metalsharp-graphics-dll";
 const ASSETS_BUNDLE: &str = "metalsharp-assets";
 const FNALIBS_BUNDLE: &str = "fnalibs";
@@ -653,7 +656,11 @@ fn install_metalsharp_bundle(home: &PathBuf) -> Result<bool, String> {
         && metalsharp_runtime_lib_ready(&runtime_dir.join("wine"))
         && bundle.as_ref().is_some_and(|archive| split_bundle_current(home, RUNTIME_BUNDLE, archive))
     {
-        return Ok(false);
+        // Older runtime bundles were published with build-machine absolute
+        // GnuTLS install names.  Repair this even on the currency fast path;
+        // otherwise an already-current bundle can keep failing HTTPS during
+        // protected-launch module download forever.
+        return repair_wine_packaged_dependencies(&runtime_dir.join("wine"));
     }
 
     if let Some(archive) = bundle {
@@ -700,6 +707,7 @@ fn install_metalsharp_bundle(home: &PathBuf) -> Result<bool, String> {
             match wine_check {
                 Ok(o) if o.status.success() => {
                     fix_moltenvk_icd_paths(&runtime_dir.join("wine"));
+                    repair_wine_packaged_dependencies(&runtime_dir.join("wine"))?;
                     mark_split_bundle_installed(home, RUNTIME_BUNDLE, &archive);
                     return Ok(true);
                 },
@@ -715,6 +723,120 @@ fn install_metalsharp_bundle(home: &PathBuf) -> Result<bool, String> {
     }
 
     Err("MetalSharp runtime not found — no bundled metalsharp-runtime.tar.zst available".into())
+}
+
+/// Rewrite build-machine absolute dylib names in the Wine bundle to paths
+/// relative to the loading dylib.  The macOS Wine bundle carries GnuTLS and
+/// its crypto closure in a `lib/wine/*-unix` tree; older bundle builds
+/// retained `/tmp/metalsharp-wine-deps/...` from the staging machine, so dyld
+/// could not load Schannel even though the files were present.
+///
+/// This deliberately changes only that exact private staging prefix.  System
+/// frameworks, SDK libraries, and vendor/runtime assets keep their original
+/// install names.  The operation is idempotent and re-signs only binaries it
+/// actually changes.
+fn repair_wine_packaged_dependencies(wine_dir: &Path) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let wine_lib_root = wine_dir.join("lib").join("wine");
+        if !wine_lib_root.is_dir() {
+            return Ok(false);
+        }
+
+        let mut changed = false;
+        for entry in WalkDir::new(&wine_lib_root).follow_links(false).into_iter().filter_map(Result::ok) {
+            let path = entry.path();
+            let is_macho_candidate =
+                matches!(path.extension().and_then(|ext| ext.to_str()), Some("dylib") | Some("so"));
+            if !is_macho_candidate || !entry.file_type().is_file() {
+                continue;
+            }
+
+            let output = Command::new("/usr/bin/otool")
+                .arg("-L")
+                .arg(path)
+                .output()
+                .map_err(|e| format!("inspect Wine dylib {}: {}", path.display(), e))?;
+            if !output.status.success() {
+                // The runtime tree can contain a non-Mach-O file with a
+                // dylib suffix from a third-party payload.  It is not part of
+                // this repair surface; let Wine's normal validation report it.
+                continue;
+            }
+
+            let dependencies = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .skip(1)
+                .filter_map(|line| line.split_whitespace().next())
+                .filter_map(packaged_dependency_target)
+                .collect::<Vec<_>>();
+            let current_id = Command::new("/usr/bin/otool").arg("-D").arg(path).output().ok().and_then(|id| {
+                if !id.status.success() {
+                    return None;
+                }
+                String::from_utf8_lossy(&id.stdout).lines().nth(1).map(str::trim).map(str::to_string)
+            });
+            let id_target = current_id.as_deref().and_then(packaged_dependency_target);
+
+            let mut file_changed = false;
+            for target in dependencies {
+                let old = format!("{}{}", WINE_PACKAGED_DEPENDENCY_ROOT, target.trim_start_matches("@loader_path/"));
+                run_install_name_tool(&["-change", &old, &target], path)?;
+                file_changed = true;
+            }
+            if let Some(target) = id_target {
+                run_install_name_tool(&["-id", &target], path)?;
+                file_changed = true;
+            }
+
+            if file_changed {
+                let sign = Command::new("/usr/bin/codesign")
+                    .args(["--force", "--sign", "-"])
+                    .arg(path)
+                    .output()
+                    .map_err(|e| format!("ad-hoc sign repaired Wine dylib {}: {}", path.display(), e))?;
+                if !sign.status.success() {
+                    return Err(format!(
+                        "ad-hoc sign repaired Wine dylib {} failed: {}",
+                        path.display(),
+                        String::from_utf8_lossy(&sign.stderr).trim()
+                    ));
+                }
+                changed = true;
+            }
+        }
+
+        Ok(changed)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = wine_dir;
+        Ok(false)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn packaged_dependency_target(path: &str) -> Option<String> {
+    let basename = path.strip_prefix(WINE_PACKAGED_DEPENDENCY_ROOT)?;
+    if basename.is_empty() || basename.contains('/') {
+        return None;
+    }
+    Some(format!("@loader_path/{}", basename))
+}
+
+#[cfg(target_os = "macos")]
+fn run_install_name_tool(args: &[&str], path: &Path) -> Result<(), String> {
+    let output = Command::new("/usr/bin/install_name_tool")
+        .args(args)
+        .arg(path)
+        .output()
+        .map_err(|e| format!("rewrite Wine dylib {}: {}", path.display(), e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("rewrite Wine dylib {} failed: {}", path.display(), String::from_utf8_lossy(&output.stderr).trim()))
+    }
 }
 
 const GRAPHICS_RUNTIME_SURFACES: &[&str] = &["dxmt", "dxmt_m12", "vkd3d-proton", "dxvk", "moltenvk-vkmt"];
@@ -2813,6 +2935,22 @@ fn extract_zst(archive: &PathBuf, dest: &PathBuf, name: &str) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn wine_dependency_repair_only_rewrites_the_private_staging_prefix() {
+        assert_eq!(
+            packaged_dependency_target("/tmp/metalsharp-wine-deps/lib/libgnutls.30.dylib"),
+            Some("@loader_path/libgnutls.30.dylib".to_string())
+        );
+        assert_eq!(
+            packaged_dependency_target("/tmp/metalsharp-wine-deps/lib/libgmp.10.dylib"),
+            Some("@loader_path/libgmp.10.dylib".to_string())
+        );
+        assert_eq!(packaged_dependency_target("/opt/homebrew/lib/libgnutls.30.dylib"), None);
+        assert_eq!(packaged_dependency_target("/tmp/metalsharp-wine-deps/lib/nested/libfoo.dylib"), None);
+        assert_eq!(packaged_dependency_target("@loader_path/libgnutls.30.dylib"), None);
+    }
 
     #[test]
     fn assets_required_files_cover_fna_unity_payloads() {

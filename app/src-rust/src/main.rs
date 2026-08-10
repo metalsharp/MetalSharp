@@ -17,6 +17,7 @@
     unused_variables
 )]
 
+mod anticheat;
 mod binding_contract;
 mod bottles;
 mod command_contract;
@@ -1537,6 +1538,30 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/steam/compatdata") => {
             let body = read_body(req);
             resp(200, bottles::handle_steam_compatdata(&body))
+        },
+        // Anti-cheat evidence and host-contract probes are intentionally
+        // observational: they report the protected launcher/module boundary
+        // without changing vendor binaries, identity exports, or launch
+        // policy.
+        (Method::Post, "/steam/anticheat-evidence") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_evidence(&body))
+        },
+        (Method::Post, "/steam/anticheat-probe") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_probe(&body))
+        },
+        (Method::Post, "/steam/anticheat-delta-audit") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_delta_audit(&body))
+        },
+        (Method::Post, "/steam/anticheat-substrate-decision") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_substrate_decision(&body))
+        },
+        (Method::Post, "/steam/anticheat-contract-probe") => {
+            let body = read_body(req);
+            resp(200, anticheat::handle_steam_anticheat_contract_probe(&body))
         },
         (Method::Post, "/kernel-translation/probe") => {
             let body = read_body(req);
