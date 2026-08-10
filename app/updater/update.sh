@@ -142,12 +142,23 @@ verify_app_bundle() {
         "$app_path/Contents/Info.plist" \
         "$app_path/Contents/MacOS/MetalSharp" \
         "$app_path/Contents/Resources/runtime/metalsharp-backend" \
+        "$app_path/Contents/Resources/scripts/tools/native/metalsharp_eac_substrate.dylib" \
+        "$app_path/Contents/Resources/scripts/tools/native/metalsharp_eac_libc.so.6" \
         "$app_path/Contents/Resources/scripts/tools/updater/update.sh"
     do
         if [ ! -s "$required" ]; then
             return 1
         fi
     done
+    if ! file "$app_path/Contents/Resources/scripts/tools/native/metalsharp_eac_substrate.dylib" | grep -q "Mach-O"; then
+        return 1
+    fi
+    if ! file "$app_path/Contents/Resources/scripts/tools/native/metalsharp_eac_substrate.dylib" | grep -q "x86_64"; then
+        return 1
+    fi
+    if ! file "$app_path/Contents/Resources/scripts/tools/native/metalsharp_eac_libc.so.6" | grep -q "ELF 64-bit.*x86-64"; then
+        return 1
+    fi
     return 0
 }
 

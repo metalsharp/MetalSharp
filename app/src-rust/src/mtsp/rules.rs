@@ -16,6 +16,11 @@ pub struct GameRecipe {
     pub check_dlls: Vec<String>,
     pub offline_capable: bool,
     pub exe_names: Vec<String>,
+    /// Executable(s) that must be selected while the opt-in EAC substrate is
+    /// enabled.  These are kept separate from `exe_names`: when EAC is off we
+    /// launch the game binary directly, but an EAC launcher is required for
+    /// the protected path.
+    pub eac_exe_names: Vec<String>,
 }
 
 impl Default for GameRecipe {
@@ -28,6 +33,7 @@ impl Default for GameRecipe {
             check_dlls: Vec::new(),
             offline_capable: false,
             exe_names: Vec::new(),
+            eac_exe_names: Vec::new(),
         }
     }
 }
@@ -139,7 +145,15 @@ fn parse_rules_full(toml_str: &str) -> (HashMap<u32, PipelineId>, HashMap<u32, G
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default();
-        recipes.insert(appid, GameRecipe { pipeline, name, components, env, check_dlls, offline_capable, exe_names });
+        let eac_exe_names = entry
+            .get("eac_exe_names")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        recipes.insert(
+            appid,
+            GameRecipe { pipeline, name, components, env, check_dlls, offline_capable, exe_names, eac_exe_names },
+        );
     }
 
     (pipelines, recipes)
@@ -742,6 +756,66 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn requested_eac_games_have_m11_defaults_and_protected_executable_rules() {
+        let shipped_rules = include_str!("../../../../configs/mtsp-rules.toml");
+        let (_, recipes) = parse_rules_full(shipped_rules);
+        let requested = [
+            (1888160, "ARMORED CORE VI FIRES OF RUBICON", "m12"),
+            (252950, "Rocket League", "m11"),
+            (1304930, "The Outlast Trials", "m11"),
+            (976730, "Halo: The Master Chief Collection", "m11"),
+            (1172620, "Sea of Thieves", "m11"),
+            (555160, "Pavlov VR", "m11"),
+            (252490, "Rust", "m11"),
+            (251570, "7 Days to Die", "m11"),
+            (552500, "Warhammer: Vermintide 2", "m11"),
+            (447040, "Watch_Dogs 2", "m11"),
+            (1097150, "Fall Guys", "m11"),
+            (438740, "Friday the 13th: The Game", "m11"),
+            (438100, "VRChat", "m11"),
+            (872200, "Rogue Company", "m11"),
+            (594650, "Hunt: Showdown 1896", "m11"),
+            (1121710, "Total Lockdown", "m11"),
+            (1599340, "Lost Ark", "m11"),
+            (1097840, "Gears 5", "m11"),
+            (1240440, "Halo Infinite", "m11"),
+            (304390, "FOR HONOR", "m11"),
+            (2138720, "REMATCH", "m11"),
+            (1180380, "Stay Out", "m11"),
+            (924970, "Back 4 Blood", "m11"),
+            (1172470, "Apex Legends", "m11"),
+            (1501750, "Lords of the Fallen", "m11"),
+            (2429640, "Throne and Liberty", "m11"),
+            (1222730, "STAR WARS: Squadrons", "m11"),
+            (3472040, "NBA 2K26", "m11"),
+            (519190, "Next Day: Survival", "m11"),
+            (315210, "Suicide Squad: Kill the Justice League", "m11"),
+            (4088120, "SCP: ReEnter", "m11"),
+            (1430190, "Killing Floor 3", "m11"),
+            (1517290, "Battlefield 2042", "m11"),
+            (393380, "Squad", "m11"),
+            (1808500, "ARC Raiders", "m11"),
+            (1818750, "MultiVersus", "m11"),
+        ];
+
+        for (appid, name, pipeline) in requested {
+            let recipe = recipes.get(&appid).unwrap_or_else(|| panic!("missing EAC rule for {appid} ({name})"));
+            assert_eq!(recipe.name, name, "appid {appid} name");
+            assert_eq!(recipe.pipeline.user_selectable_id().unwrap_or("auto"), pipeline, "appid {appid} pipeline");
+            assert!(!recipe.exe_names.is_empty(), "appid {appid} needs a normal executable rule");
+            assert!(!recipe.eac_exe_names.is_empty(), "appid {appid} needs an EAC executable rule");
+            let required_dlls = if pipeline == "m12" {
+                ["d3d12.dll", "dxgi.dll", "d3d11.dll"]
+            } else {
+                ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+            };
+            for dll in required_dlls {
+                assert!(recipe.check_dlls.iter().any(|value| value == dll), "appid {appid} missing {dll}");
             }
         }
     }

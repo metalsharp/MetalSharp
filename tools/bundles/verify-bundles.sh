@@ -410,7 +410,36 @@ verify_scripts_tools_core() {
   verify_required_files "$1" "SCRIPTS TOOLS" \
     scripts/tools/configs/mtsp-rules.toml \
     scripts/tools/updater/update.py \
-    scripts/tools/updater/update.sh
+    scripts/tools/updater/update.sh \
+    scripts/tools/native/metalsharp_eac_substrate.dylib \
+    scripts/tools/native/metalsharp_eac_libc.so.6 &&
+    verify_eac_native_assets "$1"
+}
+
+verify_eac_native_assets() {
+  local path="$1"
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-eac-bundle.XXXXXX")"
+  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" \
+    scripts/tools/native/metalsharp_eac_substrate.dylib \
+    scripts/tools/native/metalsharp_eac_libc.so.6; then
+    echo "SCRIPTS TOOLS INVALID: $path is missing EAC native assets" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  local failed=0
+  if ! file "$tmp/scripts/tools/native/metalsharp_eac_substrate.dylib" | grep -q "Mach-O" \
+    || ! file "$tmp/scripts/tools/native/metalsharp_eac_substrate.dylib" | grep -q "x86_64"; then
+    echo "SCRIPTS TOOLS INVALID: EAC substrate is not an x86_64 Mach-O dylib" >&2
+    failed=1
+  fi
+  if ! file "$tmp/scripts/tools/native/metalsharp_eac_libc.so.6" | grep -q "ELF 64-bit.*x86-64"; then
+    echo "SCRIPTS TOOLS INVALID: EAC symbol image is not an x86-64 ELF image" >&2
+    failed=1
+  fi
+  rm -rf "$tmp"
+  return "$failed"
 }
 
 verify_steam_core() {

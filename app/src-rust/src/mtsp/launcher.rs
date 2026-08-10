@@ -6,7 +6,6 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use walkdir::WalkDir;
 
 const DEFAULT_BRIDGE_PORT: u16 = 18733;
 const FNA_CARBON_SHIM: &str = "libCarbon.dylib";
@@ -393,6 +392,7 @@ pub fn launch_with_pipeline(
     pipeline_id: PipelineId,
 ) -> Result<(u32, &'static str), Box<dyn std::error::Error>> {
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, Some(pipeline_id));
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
 
     prepare_steam_api_for_pipeline(appid, pipeline_id);
@@ -421,6 +421,7 @@ pub fn launch_steam_bottle_with_pipeline(
     extra_env: &[(String, String)],
 ) -> Result<(u32, &'static str, PathBuf), Box<dyn std::error::Error>> {
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, Some(pipeline_id));
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
     let log_path = crate::bottles::steam_compatdata_launch_log_path(appid);
 
@@ -464,6 +465,7 @@ pub fn prepare_pipeline_with_request(
     let mut timing = crate::diagnostics::LaunchTiming::start();
     timing.mark("pipeline_resolution_start");
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, requested);
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
     timing.mark("pipeline_resolution_done");
 
@@ -507,6 +509,7 @@ pub fn prepare_steam_pipeline_env(
     pipeline_id: PipelineId,
 ) -> Result<(Vec<(String, String)>, super::recipe::LaunchRecipe), Box<dyn std::error::Error>> {
     let pipeline_id = super::rules::resolve_requested_pipeline(appid, Some(pipeline_id));
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(appid, pipeline_id);
     let node = get_pipeline(pipeline_id);
     match pipeline_id {
         PipelineId::Dxmt
@@ -531,7 +534,6 @@ pub fn prepare_steam_pipeline_env(
     }
 
     let home = dirs::home_dir().ok_or("no home dir")?;
-    prepare_start_protected_game_for_pipeline(appid, pipeline_id);
     let recipe = super::recipe::build_launch_recipe(appid, node)?;
     validate_recipe_runtime(&recipe)?;
     if node.backend == "dxmt" {
@@ -539,7 +541,6 @@ pub fn prepare_steam_pipeline_env(
     }
     if let Some(game_dir) = recipe.game_dir.as_ref() {
         prepare_steam_api_for_game_dir(&home, game_dir, appid, pipeline_id);
-        cleanup_legacy_eac_toggle_artifacts(game_dir);
         cleanup_legacy_injections(game_dir)?;
         if matches!(pipeline_id, PipelineId::M12 | PipelineId::M13) {
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
@@ -596,6 +597,7 @@ pub fn m12_verify_dry_run(appid: u32) -> serde_json::Value {
 pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineId>) -> serde_json::Value {
     let home = home.to_path_buf();
     let pipeline = super::rules::resolve_requested_pipeline(appid, requested);
+    let pipeline = crate::anticheat::eac_pipeline_for_request(appid, pipeline);
     let node = get_pipeline(pipeline);
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
 
@@ -690,6 +692,8 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
             "DYLD_FALLBACK_LIBRARY_PATH": env_keys.contains("DYLD_FALLBACK_LIBRARY_PATH") || env_keys.contains("LD_LIBRARY_PATH"),
             "SteamAppId": env_keys.contains("SteamAppId"),
             "DXMT_WINEMETAL_UNIXLIB": env_keys.contains("DXMT_WINEMETAL_UNIXLIB"),
+            "EAC_SUBSTRATE": env_keys.contains("DYLD_INSERT_LIBRARIES")
+                && env_keys.contains("METALSHARP_EAC_SUBSTRATE_LIBC"),
         },
         "missing": missing,
     })
@@ -1374,6 +1378,7 @@ pub fn launch_custom_with_options(
 ) -> Result<(u32, &'static str, super::recipe::LaunchRecipe), Box<dyn std::error::Error>> {
     let pipeline_id =
         if pipeline_id == PipelineId::Dxmt { super::rules::resolve_pipeline(launch_id) } else { pipeline_id };
+    let pipeline_id = crate::anticheat::eac_pipeline_for_request(launch_id, pipeline_id);
     let node = get_pipeline(pipeline_id);
     match pipeline_id {
         PipelineId::Dxmt
@@ -1451,6 +1456,7 @@ pub fn launch_custom_with_options(
     // the DXMT env after node env so the toggle is authoritative.
     apply_metal_fx_config_cmd(&mut cmd, node, &home);
     apply_dxmt_shader_metal_version_config_cmd(&mut cmd, node);
+    apply_eac_launch_env(&mut cmd, &home, launch_id)?;
 
     cmd.arg(&exe_name);
     cmd.args(&recipe.launch_args);
@@ -1731,8 +1737,6 @@ fn launch_d3dmetal_gptk_with_context(
     let exe_dir = launch_working_dir(game_dir, exe_path);
     let exe_name = exe_path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
-    restore_start_protected_game_bypass(appid, game_dir);
-
     let prefix = gptk_prefix;
     let prefix_str = prefix.to_string_lossy().to_string();
     let offline_mode = extra_env.iter().any(|(key, value)| key == "METALSHARP_OFFLINE_MODE" && value == "1");
@@ -1847,7 +1851,6 @@ fn launch_dxmt_metal_with_context(
     }
     sanitize_metalsharp_wine_wrapper_env()?;
 
-    prepare_start_protected_game_for_pipeline(appid, node.id);
     let recipe = super::recipe::build_launch_recipe(appid, node)?;
     let game_dir = recipe.game_dir.as_ref().ok_or("game dir not found")?;
     let exe_path = recipe.exe_path.as_ref().ok_or("game exe not found")?;
@@ -1921,6 +1924,7 @@ fn launch_dxmt_metal_with_context(
     // Reconcile after game recipe and caller-provided environment so the host
     // Metal shader dialect remains authoritative on direct launch paths.
     apply_dxmt_shader_metal_version_config_cmd(&mut cmd, node);
+    apply_eac_launch_env(&mut cmd, &home, appid)?;
 
     cmd.arg(&exe_name);
     cmd.args(&recipe.launch_args);
@@ -2008,6 +2012,7 @@ fn launch_wine_bare_with_context(
     for (key, value) in extra_env {
         cmd.env(key, value);
     }
+    apply_eac_launch_env(&mut cmd, &home, appid)?;
 
     cmd.arg(&exe_name);
     cmd.args(&recipe.launch_args);
@@ -2718,30 +2723,6 @@ fn cleanup_m12_legacy_hook_artifacts(game_dir: &Path, prefix: &Path) {
     }
 }
 
-fn cleanup_legacy_eac_toggle_artifacts(game_dir: &Path) {
-    let targets = [
-        game_dir.to_path_buf(),
-        game_dir.join("Game"),
-        game_dir.join("bin"),
-        game_dir.join("Binaries").join("Win64"),
-        game_dir.join("win64"),
-    ];
-
-    for target in targets {
-        if !target.exists() {
-            continue;
-        }
-        let config = target.join("anti_cheat_toggler_config.ini");
-        let mod_list = target.join("anti_cheat_toggler_mod_list.txt");
-        let has_legacy_toggle_marker = config.exists() || mod_list.exists();
-        let _ = std::fs::remove_file(&config);
-        let _ = std::fs::remove_file(&mod_list);
-        if has_legacy_toggle_marker {
-            let _ = std::fs::remove_file(target.join("_winhttp.dll"));
-        }
-    }
-}
-
 fn build_winedllpath(ms_root: &PathBuf, dirs: &[&str]) -> String {
     dirs.iter().map(|d| ms_root.join(d).to_string_lossy().to_string()).collect::<Vec<_>>().join(":")
 }
@@ -2918,7 +2899,53 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
     apply_dxmt_shader_metal_version_config(&mut env, node);
     // msync toggle likewise wins over recipe env.
     apply_msync_config(&mut env, home);
+    apply_eac_env_pairs(&mut env, home, appid);
     env
+}
+
+fn set_env_pair(env: &mut Vec<(String, String)>, key: &str, value: String) {
+    if let Some((_, existing)) = env.iter_mut().rev().find(|(candidate, _)| candidate == key) {
+        *existing = value;
+    } else {
+        env.push((key.to_string(), value));
+    }
+}
+
+fn apply_eac_env_pairs(env: &mut Vec<(String, String)>, home: &Path, appid: u32) {
+    let Ok(eac_env) = crate::anticheat::eac_launch_env_for_home(home, appid) else {
+        return;
+    };
+    for (key, value) in eac_env {
+        if key == "DYLD_INSERT_LIBRARIES" {
+            let inherited = env
+                .iter()
+                .rev()
+                .find(|(candidate, _)| candidate == &key)
+                .map(|(_, existing)| existing.clone())
+                .or_else(|| std::env::var("DYLD_INSERT_LIBRARIES").ok());
+            let merged = append_path_env(inherited.as_deref(), &value);
+            set_env_pair(env, &key, merged);
+        } else {
+            set_env_pair(env, &key, value);
+        }
+    }
+}
+
+fn apply_eac_launch_env(cmd: &mut Command, home: &Path, appid: u32) -> Result<(), Box<dyn std::error::Error>> {
+    let eac_env = crate::anticheat::eac_launch_env_for_home(home, appid).map_err(std::io::Error::other)?;
+    for (key, value) in eac_env {
+        if key == "DYLD_INSERT_LIBRARIES" {
+            let inherited = cmd
+                .get_envs()
+                .find(|(candidate, _)| candidate.to_string_lossy() == key)
+                .and_then(|(_, existing)| existing.and_then(|value| value.to_str()).map(str::to_string))
+                .or_else(|| std::env::var("DYLD_INSERT_LIBRARIES").ok());
+            cmd.env(key, append_path_env(inherited.as_deref(), &value));
+        } else {
+            cmd.env(key, value);
+        }
+    }
+    Ok(())
 }
 
 /// Wine msync toggle value (`WINEMSYNC`) for the given home. Defaults ON.
@@ -5708,112 +5735,6 @@ fn deploy_real_steam_component(wine_steam_dir: &Path, targets: &[PathBuf], filen
     }
 }
 
-fn start_protected_game_real_exe_names(appid: u32) -> &'static [&'static str] {
-    match appid {
-        1245620 => &["eldenring.exe"],
-        1888160 => &["armoredcore6.exe"],
-        _ => &[],
-    }
-}
-
-fn prepare_start_protected_game_for_pipeline(appid: u32, pipeline_id: PipelineId) {
-    if !matches!(pipeline_id, PipelineId::Dxmt | PipelineId::M12) {
-        return;
-    }
-    let Some(game_dir) = crate::setup::resolve_windows_game_dir(appid) else {
-        return;
-    };
-    restore_start_protected_game_bypass(appid, &game_dir);
-}
-
-fn restore_start_protected_game_bypass(appid: u32, game_dir: &Path) {
-    let spg = match super::recipe::find_case_insensitive(game_dir, "start_protected_game.exe") {
-        Some(path) => path,
-        None => {
-            let Some(old) = super::recipe::find_case_insensitive(game_dir, "start_protected_game.old") else {
-                return;
-            };
-            let restored = old.with_file_name("start_protected_game.exe");
-            if let Err(err) = std::fs::rename(&old, &restored) {
-                eprintln!(
-                    "start_protected_game: failed to restore {} to {}: {}",
-                    old.display(),
-                    restored.display(),
-                    err
-                );
-            }
-            return;
-        },
-    };
-    let spg_dir = match spg.parent() {
-        Some(dir) => dir,
-        None => return,
-    };
-    let old = spg_dir.join("start_protected_game.old");
-    if !old.is_file() {
-        return;
-    }
-
-    let real_exe = match find_start_protected_real_exe(appid, game_dir, spg_dir) {
-        Some(path) => path,
-        None => return,
-    };
-    if !files_match(&spg, &real_exe) {
-        return;
-    }
-
-    if let Err(err) = std::fs::copy(&old, &spg) {
-        eprintln!("start_protected_game: failed to restore {} to {}: {}", old.display(), spg.display(), err);
-        return;
-    }
-    let _ = std::fs::remove_file(&old);
-}
-
-fn find_start_protected_real_exe(appid: u32, game_dir: &Path, spg_dir: &Path) -> Option<PathBuf> {
-    for real_exe_name in start_protected_game_real_exe_names(appid) {
-        if let Some(path) = super::recipe::find_case_insensitive(game_dir, real_exe_name) {
-            return Some(path);
-        }
-    }
-
-    let candidates = WalkDir::new(spg_dir)
-        .max_depth(1)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_file() {
-                return None;
-            }
-            let name = path.file_name()?.to_string_lossy().to_string();
-            if is_start_protected_real_exe_candidate(&name) {
-                Some(path.to_path_buf())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    if candidates.len() == 1 {
-        candidates.into_iter().next()
-    } else {
-        None
-    }
-}
-
-fn is_start_protected_real_exe_candidate(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.ends_with(".exe")
-        && lower != "start_protected_game.exe"
-        && !lower.contains("easyanticheat")
-        && !lower.contains("setup")
-        && !lower.contains("redist")
-        && !lower.contains("installer")
-        && !lower.contains("uninstall")
-        && !lower.contains("crash")
-        && !lower.contains("launcher")
-}
-
 fn generate_steam_interfaces(game_dir: &Path) {
     let steam_settings = game_dir.join("steam_settings");
     let interfaces_file = steam_settings.join("steam_interfaces.txt");
@@ -7794,130 +7715,6 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         assert!(text.contains("bottle_manifest="));
         assert!(text.contains("bottle_logs="));
         assert!(text.contains("steam_identity_mode=wine_steam_background"));
-    }
-
-    #[test]
-    fn start_protected_game_bypass_restores_original_launcher() {
-        let home = test_dir("spg-restore");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME").expect("write bypass copy");
-        std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(1245620, &home);
-
-        assert!(!game_dir.join("start_protected_game.old").exists());
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_preserves_unrecognized_current_launcher() {
-        let home = test_dir("spg-skip-old");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PREVIOUS_STUB").expect("write old");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME_ALREADY").expect("write current");
-        std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(1245620, &home);
-
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME_ALREADY");
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"PREVIOUS_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_restores_armored_core_vi_launcher() {
-        let home = test_dir("spg-ac6");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"AC6_REAL_GAME").expect("write bypass copy");
-        std::fs::write(game_dir.join("armoredcore6.exe"), b"AC6_REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(1888160, &home);
-
-        assert!(!game_dir.join("start_protected_game.old").exists());
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_can_restore_with_single_sibling_real_exe() {
-        let home = test_dir("spg-generic");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME").expect("write bypass copy");
-        std::fs::write(game_dir.join("realgame.exe"), b"REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(99999, &home);
-
-        assert!(!game_dir.join("start_protected_game.old").exists());
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_skips_ambiguous_generic_siblings() {
-        let home = test_dir("spg-ambiguous");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write stub");
-        std::fs::write(game_dir.join("first.exe"), b"FIRST").expect("write first exe");
-        std::fs::write(game_dir.join("second.exe"), b"SECOND").expect("write second exe");
-
-        restore_start_protected_game_bypass(99999, &home);
-
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-        assert!(!game_dir.join("start_protected_game.old").exists());
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_skips_unknown_appid() {
-        let home = test_dir("spg-skip");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write stub");
-        std::fs::write(game_dir.join("first.exe"), b"FIRST").expect("write first exe");
-        std::fs::write(game_dir.join("second.exe"), b"SECOND").expect("write second exe");
-
-        restore_start_protected_game_bypass(99999, &home);
-
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-        assert!(!game_dir.join("start_protected_game.old").exists());
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn legacy_eac_toggle_cleanup_removes_marked_files_only() {
-        let home = test_dir("legacy-eac-toggle-cleanup");
-        let marked = home.join("Binaries").join("Win64");
-        let unmarked = home.join("bin");
-        std::fs::create_dir_all(&marked).expect("create marked dir");
-        std::fs::create_dir_all(&unmarked).expect("create unmarked dir");
-        std::fs::write(marked.join("_winhttp.dll"), b"OLD_TOGGLE").expect("write toggle dll");
-        std::fs::write(marked.join("anti_cheat_toggler_config.ini"), b"config").expect("write toggle config");
-        std::fs::write(marked.join("anti_cheat_toggler_mod_list.txt"), b"mods").expect("write toggle mods");
-        std::fs::write(unmarked.join("_winhttp.dll"), b"OTHER").expect("write unrelated dll");
-
-        cleanup_legacy_eac_toggle_artifacts(&home);
-
-        assert!(!marked.join("_winhttp.dll").exists());
-        assert!(!marked.join("anti_cheat_toggler_config.ini").exists());
-        assert!(!marked.join("anti_cheat_toggler_mod_list.txt").exists());
-        assert_eq!(std::fs::read(unmarked.join("_winhttp.dll")).unwrap(), b"OTHER");
-
-        let _ = std::fs::remove_dir_all(home);
     }
 
     fn test_dir(name: &str) -> PathBuf {
