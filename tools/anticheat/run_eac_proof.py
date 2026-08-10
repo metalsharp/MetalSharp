@@ -39,6 +39,13 @@ EAC_PROCESS_NAMES = {
     "conhost",
     "explorer",
 }
+# On macOS, Wine's Windows processes often expose a truncated Mach `comm`
+# value (for example `C:\\windows\\syste`) instead of `winedevice` or
+# `services.exe`.  Their command line still contains the Windows drive path.
+# Treat that path as the authoritative process-shape marker during teardown;
+# leaving a detached `steamwebhelper.exe`, `explorer.exe`, or `winedbg.exe`
+# behind defeats the bounded proof and can keep a Wine window alive.
+WINE_COMMAND_MARKERS = ("C:\\", "Z:\\", "winedbg", "wineserver", "wine-preloader")
 REQUIRED_LOG_MARKERS = (
     "Linux ABI substrate initialized; virtual /proc maps is active",
     "validated EAC Linux ELF",
@@ -191,12 +198,18 @@ def process_rows() -> list[tuple[int, str, str]]:
 def wine_rows(wine_root: Path, prefix: Path) -> list[tuple[int, str, str]]:
     root_text = str(wine_root)
     prefix_text = str(prefix)
-    return [
-        (pid, name, command)
-        for pid, name, command in process_rows()
-        if Path(name).name in EAC_PROCESS_NAMES
-        and (root_text in command or prefix_text in command or name == "wineserver")
-    ]
+    rows = []
+    for pid, name, command in process_rows():
+        process_name = Path(name).name.lower()
+        command_lower = command.lower()
+        known_name = process_name in EAC_PROCESS_NAMES
+        windows_command = any(marker.lower() in command_lower for marker in WINE_COMMAND_MARKERS)
+        selected_runtime = root_text in command or prefix_text in command
+        if (known_name or windows_command) and (
+            selected_runtime or windows_command or process_name == "wineserver"
+        ):
+            rows.append((pid, name, command))
+    return rows
 
 
 def terminate_group(process: subprocess.Popen[bytes], wine_root: Path, prefix: Path, wineserver: Path) -> None:
