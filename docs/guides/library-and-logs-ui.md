@@ -17,6 +17,22 @@ MetalSharp Wine 11.5 lane so the substrate is not sent through GPTK, another
 Wine build, or macOS Steam. Per-app substrate logs and module dumps are kept
 under `~/.metalsharp/logs/eac/<appid>/`.
 
+### EAC substrate installation lifecycle
+
+The DMG and split scripts/tools bundle must contain both native boundary
+artifacts: `metalsharp_eac_substrate.dylib` (x86_64 Mach-O) and
+`metalsharp_eac_libc.so.6` (x86-64 ELF). First-run setup installs the verified
+pair into `~/.metalsharp/runtime/eac/` after the scripts/tools bundle. The pair
+is staged and committed together, so a failed refresh cannot leave one new
+artifact beside one old artifact.
+
+An app update verifies those files before replacing the installed app and then
+sets the post-update migration marker. Migration schema 5 treats a missing or
+invalid durable pair as runtime repair: it reinstalls the substrate, verifies
+both files, and only then marks the migration complete. Per-game EAC toggle
+JSON under `sharp-library` is preserved; the toggle remains opt-in and does
+not launch a game during installation, update, or migration.
+
 ## Sharp Library
 
 Use the **Library source** menu to switch between installed Windows applications and GOG games. The installer view keeps its primary actions focused on installing and refreshing applications; redistributable source controls are not shown in this header.

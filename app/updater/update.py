@@ -236,11 +236,91 @@ def find_app_in_mount(mount_point):
     return None
 
 
+def verify_app_bundle(app_path):
+    required = [
+        os.path.join(app_path, "Contents", "Info.plist"),
+        os.path.join(app_path, "Contents", "MacOS", "MetalSharp"),
+        os.path.join(app_path, "Contents", "Resources", "runtime", "metalsharp-backend"),
+        os.path.join(
+            app_path,
+            "Contents",
+            "Resources",
+            "scripts",
+            "tools",
+            "native",
+            "metalsharp_eac_substrate.dylib",
+        ),
+        os.path.join(
+            app_path,
+            "Contents",
+            "Resources",
+            "scripts",
+            "tools",
+            "native",
+            "metalsharp_eac_libc.so.6",
+        ),
+        os.path.join(app_path, "Contents", "Resources", "scripts", "tools", "updater", "update.sh"),
+    ]
+    if not all(os.path.isfile(path) and os.path.getsize(path) > 0 for path in required):
+        return False
+
+    substrate = os.path.join(
+        app_path,
+        "Contents",
+        "Resources",
+        "scripts",
+        "tools",
+        "native",
+        "metalsharp_eac_substrate.dylib",
+    )
+    symbol_image = os.path.join(
+        app_path,
+        "Contents",
+        "Resources",
+        "scripts",
+        "tools",
+        "native",
+        "metalsharp_eac_libc.so.6",
+    )
+    try:
+        with open(substrate, "rb") as handle:
+            substrate_magic = handle.read(4)
+        with open(symbol_image, "rb") as handle:
+            symbol_magic = handle.read(4)
+    except OSError:
+        return False
+    if substrate_magic not in {
+        b"\xcf\xfa\xed\xfe",
+        b"\xfe\xed\xfa\xcf",
+        b"\xca\xfe\xba\xbe",
+    } or symbol_magic != b"\x7fELF":
+        return False
+    try:
+        substrate_type = subprocess.run(
+            ["file", "-b", substrate], capture_output=True, text=True, timeout=10, check=False
+        ).stdout
+        symbol_type = subprocess.run(
+            ["file", "-b", symbol_image], capture_output=True, text=True, timeout=10, check=False
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "Mach-O" in substrate_type and "x86_64" in substrate_type and "ELF 64-bit" in symbol_type and "x86-64" in symbol_type
+
+
 def admin_rm_rf(path):
     r = run(["rm", "-rf", path])
     if r.returncode == 0:
         return True
     apple = 'do shell script "rm -rf \\"' + path + '\\"" with administrator privileges'
+    r = run(["osascript", "-e", apple])
+    return r.returncode == 0
+
+
+def admin_mv(src, dst):
+    r = run(["mv", src, dst])
+    if r.returncode == 0:
+        return True
+    apple = 'do shell script "mv \\\"' + src + '\\\" \\\"' + dst + '\\\"" with administrator privileges'
     r = run(["osascript", "-e", apple])
     return r.returncode == 0
 
@@ -366,16 +446,41 @@ def main():
             new_version=tv,
         )
         sys.exit(1)
+    if not verify_app_bundle(app_source):
+        detach_mount(mount_point)
+        write_status(
+            sf,
+            "error",
+            50,
+            "MetalSharp.app is missing required runtime or EAC substrate assets.",
+            error="app_bundle_invalid",
+            new_version=tv,
+        )
+        sys.exit(1)
 
-    if os.path.exists(APP_PATH):
-        if not admin_rm_rf(APP_PATH):
+    backup_app_path = APP_PATH + ".previous." + str(os.getpid())
+    if not admin_rm_rf(backup_app_path):
+        detach_mount(mount_point)
+        write_status(
+            sf,
+            "error",
+            55,
+            "Failed to remove a stale update backup.",
+            error="backup_cleanup_failed",
+            new_version=tv,
+        )
+        sys.exit(1)
+
+    had_previous_app = os.path.exists(APP_PATH)
+    if had_previous_app:
+        if not admin_mv(APP_PATH, backup_app_path):
             detach_mount(mount_point)
             write_status(
                 sf,
                 "error",
                 55,
-                "Failed to remove old app.",
-                error="remove_failed",
+                "Failed to stage the old app for rollback.",
+                error="backup_stage_failed",
                 new_version=tv,
             )
             sys.exit(1)
@@ -384,6 +489,7 @@ def main():
         sf, "installing", 60, "Copying new version to Applications...", new_version=tv
     )
     if not admin_cp_r(app_source, APP_PATH):
+        admin_mv(backup_app_path, APP_PATH) if had_previous_app else None
         detach_mount(mount_point)
         write_status(
             sf,
@@ -391,6 +497,30 @@ def main():
             65,
             "Failed to copy new version.",
             error="copy_failed",
+            new_version=tv,
+        )
+        sys.exit(1)
+
+    if not verify_app_bundle(APP_PATH):
+        admin_rm_rf(APP_PATH)
+        admin_mv(backup_app_path, APP_PATH) if had_previous_app else None
+        write_status(
+            sf,
+            "error",
+            75,
+            "Installed MetalSharp.app is missing required EAC substrate assets.",
+            error="installed_bundle_invalid",
+            new_version=tv,
+        )
+        sys.exit(1)
+
+    if not admin_rm_rf(backup_app_path):
+        write_status(
+            sf,
+            "error",
+            78,
+            "New version installed, but the previous app backup could not be removed.",
+            error="backup_cleanup_failed",
             new_version=tv,
         )
         sys.exit(1)

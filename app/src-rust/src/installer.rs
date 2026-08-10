@@ -34,6 +34,7 @@ const ASSETS_BUNDLE: &str = "metalsharp-assets";
 const FNALIBS_BUNDLE: &str = "fnalibs";
 const SCRIPTS_TOOLS_BUNDLE: &str = "metalsharp-scripts-tools";
 const STEAM_BUNDLE: &str = "metalsharp-steam";
+const EAC_RUNTIME_SUBDIR: &str = "eac";
 const METALSHARP_NTDLL_HOOK_DLL: &str = "metalsharp_ntdll_hook.dll";
 const DXMT_REQUIRED_PE: &[&str] = &[
     "d3d10core.dll",
@@ -261,8 +262,12 @@ const FNALIBS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "fnalibs/fmod/libfmod.dylib",
     "fnalibs/fmod/libfmodstudio.dylib",
 ];
-const SCRIPTS_TOOLS_REQUIRED_ARCHIVE_FILES: &[&str] =
-    &["scripts/tools/configs/mtsp-rules.toml", "scripts/tools/updater/update.sh"];
+const SCRIPTS_TOOLS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
+    "scripts/tools/configs/mtsp-rules.toml",
+    "scripts/tools/updater/update.sh",
+    "scripts/tools/native/metalsharp_eac_substrate.dylib",
+    "scripts/tools/native/metalsharp_eac_libc.so.6",
+];
 const STEAM_REQUIRED_ARCHIVE_FILES: &[&str] =
     &["steam/SteamSetup.exe", "steam/steamwebhelper.exe", "steam/steamwebhelper-wrapper.c"];
 
@@ -452,6 +457,7 @@ fn install_steps() -> Vec<InstallStep> {
         ("Host Runtime ABI", Box::new(install_host_runtime)),
         ("Support Assets", Box::new(install_split_assets_bundle)),
         ("Scripts and Tools", Box::new(install_scripts_tools_bundle)),
+        ("EAC Substrate", Box::new(ensure_eac_substrate_runtime_ready)),
         ("DXMT Graphics Runtimes", Box::new(|home| ensure_graphics_runtimes_ready(home))),
         ("Goldberg Steam Emulator", Box::new(install_goldberg)),
         ("Steam Bridge Shim", Box::new(install_steam_bridge)),
@@ -1286,6 +1292,183 @@ fn install_scripts_tools_bundle(home: &PathBuf) -> Result<bool, String> {
     let _ = fs::remove_dir_all(&tmp);
     mark_split_bundle_installed(home, SCRIPTS_TOOLS_BUNDLE, &archive);
     Ok(true)
+}
+
+fn eac_substrate_file_valid(path: &Path, elf: bool) -> bool {
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    if bytes.is_empty() {
+        return false;
+    }
+    if elf {
+        bytes.len() >= 4 && bytes.starts_with(b"\x7fELF")
+    } else {
+        macho_contains_x86_64(&bytes)
+    }
+}
+
+fn macho_contains_x86_64(bytes: &[u8]) -> bool {
+    if bytes.len() < 8 {
+        return false;
+    }
+
+    match bytes[..4] {
+        // MH_MAGIC_64: little-endian x86_64 thin Mach-O.
+        [0xcf, 0xfa, 0xed, 0xfe] => bytes[4..8] == [0x07, 0x00, 0x00, 0x01],
+        // MH_CIGAM_64: big-endian x86_64 thin Mach-O.
+        [0xfe, 0xed, 0xfa, 0xcf] => bytes[4..8] == [0x01, 0x00, 0x00, 0x07],
+        // FAT_MAGIC / FAT_CIGAM.  Each fat_arch starts with cputype.
+        [0xca, 0xfe, 0xba, 0xbe] => fat_macho_contains_x86_64(bytes, false),
+        [0xbe, 0xba, 0xfe, 0xca] => fat_macho_contains_x86_64(bytes, true),
+        _ => false,
+    }
+}
+
+fn fat_macho_contains_x86_64(bytes: &[u8], little_endian: bool) -> bool {
+    let read_u32 = |offset: usize| -> Option<u32> {
+        let field = bytes.get(offset..offset.checked_add(4)?)?;
+        Some(if little_endian {
+            u32::from_le_bytes(field.try_into().ok()?)
+        } else {
+            u32::from_be_bytes(field.try_into().ok()?)
+        })
+    };
+    let Some(architecture_count) = read_u32(4) else {
+        return false;
+    };
+    let max_architectures = (bytes.len().saturating_sub(8) / 20) as u32;
+    if architecture_count > max_architectures {
+        return false;
+    }
+    (0..architecture_count).any(|index| read_u32(8 + index as usize * 20) == Some(0x0100_0007))
+}
+
+pub(crate) fn eac_substrate_runtime_ready_for_ms_dir(ms_dir: &Path) -> bool {
+    let eac_dir = ms_dir.join("runtime").join(EAC_RUNTIME_SUBDIR);
+    eac_substrate_file_valid(&eac_dir.join(crate::anticheat::EAC_SUBSTRATE_FILENAME), false)
+        && eac_substrate_file_valid(&eac_dir.join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME), true)
+}
+
+pub(crate) fn eac_substrate_runtime_ready_for_home(home: &Path) -> bool {
+    eac_substrate_runtime_ready_for_ms_dir(&crate::platform::metalsharp_home_dir_for(home))
+}
+
+fn eac_path_exists(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+
+fn remove_eac_path(path: &Path) {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if metadata.file_type().is_symlink() || metadata.is_file() {
+        let _ = fs::remove_file(path);
+    } else if metadata.is_dir() {
+        let _ = fs::remove_dir_all(path);
+    }
+}
+
+fn install_eac_substrate_from_sources(
+    home: &Path,
+    substrate_source: &Path,
+    symbol_source: &Path,
+) -> Result<bool, String> {
+    if !eac_substrate_file_valid(substrate_source, false) {
+        return Err(format!("invalid MetalSharp EAC substrate dylib: {}", substrate_source.display()));
+    }
+    if !eac_substrate_file_valid(symbol_source, true) {
+        return Err(format!("invalid MetalSharp EAC Linux symbol image: {}", symbol_source.display()));
+    }
+
+    let ms_dir = crate::platform::metalsharp_home_dir_for(home);
+    let runtime_dir = ms_dir.join("runtime");
+    let eac_dir = runtime_dir.join(EAC_RUNTIME_SUBDIR);
+    let substrate_dest = eac_dir.join(crate::anticheat::EAC_SUBSTRATE_FILENAME);
+    let symbol_dest = eac_dir.join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME);
+    let sources_match = crate::diagnostics::file_sha256(substrate_source)
+        .zip(crate::diagnostics::file_sha256(symbol_source))
+        .zip(crate::diagnostics::file_sha256(&substrate_dest).zip(crate::diagnostics::file_sha256(&symbol_dest)))
+        .is_some_and(|((source_substrate, source_symbol), (dest_substrate, dest_symbol))| {
+            source_substrate == dest_substrate && source_symbol == dest_symbol
+        });
+    if eac_substrate_runtime_ready_for_ms_dir(&ms_dir) && sources_match {
+        return Ok(false);
+    }
+
+    fs::create_dir_all(&runtime_dir).map_err(|error| format!("create EAC runtime parent: {}", error))?;
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let staging_dir = runtime_dir.join(format!(".eac-staging-{}-{}", std::process::id(), unique));
+    let backup_dir = runtime_dir.join(format!(".eac-backup-{}-{}", std::process::id(), unique));
+    remove_eac_path(&staging_dir);
+    remove_eac_path(&backup_dir);
+    fs::create_dir_all(&staging_dir).map_err(|error| format!("create EAC staging directory: {}", error))?;
+
+    let staging_substrate = staging_dir.join(crate::anticheat::EAC_SUBSTRATE_FILENAME);
+    let staging_symbol = staging_dir.join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME);
+    let stage_result = (|| {
+        fs::copy(substrate_source, &staging_substrate).map_err(|error| format!("stage EAC substrate: {}", error))?;
+        fs::copy(symbol_source, &staging_symbol).map_err(|error| format!("stage EAC symbol image: {}", error))?;
+        if !eac_substrate_file_valid(&staging_substrate, false) || !eac_substrate_file_valid(&staging_symbol, true) {
+            return Err("staged EAC substrate artifacts failed validation".to_string());
+        }
+        Ok(())
+    })();
+    if let Err(error) = stage_result {
+        remove_eac_path(&staging_dir);
+        return Err(error);
+    }
+
+    // Replace the pair as one directory.  Migration removes the whole runtime
+    // tree, and an update can refresh one or both files; keeping the old
+    // directory until the complete staged pair is ready prevents a half-new,
+    // half-old EAC surface if either copy or validation fails.
+    let had_previous = eac_path_exists(&eac_dir);
+    if had_previous {
+        if let Err(error) = fs::rename(&eac_dir, &backup_dir) {
+            remove_eac_path(&staging_dir);
+            return Err(format!("stage existing EAC runtime for replacement: {}", error));
+        }
+    }
+    if let Err(error) = fs::rename(&staging_dir, &eac_dir) {
+        if had_previous {
+            let _ = fs::rename(&backup_dir, &eac_dir);
+        }
+        remove_eac_path(&staging_dir);
+        return Err(format!("commit EAC runtime directory: {}", error));
+    }
+
+    if !eac_substrate_runtime_ready_for_ms_dir(&ms_dir) {
+        remove_eac_path(&eac_dir);
+        if had_previous {
+            let _ = fs::rename(&backup_dir, &eac_dir);
+        }
+        return Err("EAC substrate installation completed but the durable artifacts are incomplete".to_string());
+    }
+    if had_previous {
+        remove_eac_path(&backup_dir);
+    }
+    Ok(true)
+}
+
+/// Stage the two MetalSharp-owned EAC boundary artifacts into the durable
+/// runtime tree.  The packaged app also carries them in Resources, but a
+/// runtime copy makes first install, DMG replacement, and migration converge
+/// on the same asset layout and lets the backend survive a missing resource
+/// lookup after an update.
+pub(crate) fn ensure_eac_substrate_runtime_ready(home: &PathBuf) -> Result<bool, String> {
+    if !cfg!(target_os = "macos") {
+        return Ok(false);
+    }
+
+    let substrate_source = crate::anticheat::eac_packaged_asset_path(crate::anticheat::EAC_SUBSTRATE_FILENAME)
+        .ok_or_else(|| "MetalSharp EAC substrate dylib is missing from the packaged native assets".to_string())?;
+    let symbol_source = crate::anticheat::eac_packaged_asset_path(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME)
+        .ok_or_else(|| "MetalSharp EAC Linux symbol image is missing from the packaged native assets".to_string())?;
+    install_eac_substrate_from_sources(home, &substrate_source, &symbol_source)
 }
 
 fn install_mono_x86_fallback(home: &PathBuf) -> Result<bool, String> {
@@ -3090,16 +3273,96 @@ mod tests {
     }
 
     #[test]
-    fn install_steps_use_split_graphics_runtime_and_do_not_install_eac_toggle_or_gptk() {
+    fn install_steps_include_eac_substrate_without_installing_eac_toggle_or_gptk() {
         let names: Vec<&str> = install_steps().into_iter().map(|(name, _)| name).collect();
 
         assert!(names.contains(&"DXMT Graphics Runtimes"));
+        let scripts_idx = names.iter().position(|name| *name == "Scripts and Tools").expect("scripts/tools step");
+        let eac_idx = names.iter().position(|name| *name == "EAC Substrate").expect("EAC substrate step");
+        assert!(scripts_idx < eac_idx, "the EAC step must consume the installed scripts/tools bundle");
         assert!(!names.contains(&"Offline EAC Mode"));
         assert!(
             names.iter().all(|name| !name.to_ascii_lowercase().contains("gptk")),
             "first-time setup must not install GPTK; D3DMetal bottles own Homebrew GPTK setup: {:?}",
             names
         );
+    }
+
+    #[test]
+    fn scripts_tools_bundle_requires_both_eac_native_assets() {
+        assert!(SCRIPTS_TOOLS_REQUIRED_ARCHIVE_FILES.contains(&"scripts/tools/native/metalsharp_eac_substrate.dylib"));
+        assert!(SCRIPTS_TOOLS_REQUIRED_ARCHIVE_FILES.contains(&"scripts/tools/native/metalsharp_eac_libc.so.6"));
+    }
+
+    #[test]
+    fn eac_macho_validation_requires_the_wine_architecture() {
+        assert!(macho_contains_x86_64(&[0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01]));
+        assert!(!macho_contains_x86_64(&[0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]));
+
+        let mut universal = vec![0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x01];
+        universal.extend_from_slice(&[0x01, 0x00, 0x00, 0x07]);
+        universal.extend_from_slice(&[0; 16]);
+        assert!(macho_contains_x86_64(&universal));
+    }
+
+    #[test]
+    fn eac_runtime_readiness_requires_a_macho_and_an_elf_image() {
+        let home = test_home("eac-readiness");
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        let eac_dir = ms_dir.join("runtime").join(EAC_RUNTIME_SUBDIR);
+        fs::create_dir_all(&eac_dir).expect("create EAC runtime dir");
+
+        fs::write(
+            eac_dir.join(crate::anticheat::EAC_SUBSTRATE_FILENAME),
+            [0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01],
+        )
+        .expect("write Mach-O fixture");
+        assert!(!eac_substrate_runtime_ready_for_home(&home));
+
+        fs::write(eac_dir.join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME), b"\x7fELF\x02\x01")
+            .expect("write ELF fixture");
+        assert!(eac_substrate_runtime_ready_for_home(&home));
+
+        fs::write(eac_dir.join(crate::anticheat::EAC_SUBSTRATE_FILENAME), b"not a Mach-O").expect("poison Mach-O");
+        assert!(!eac_substrate_runtime_ready_for_home(&home));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn eac_runtime_install_is_idempotent_and_refreshes_as_a_pair() {
+        let home = test_home("eac-install");
+        let source_dir = test_home("eac-install-source");
+        fs::create_dir_all(&source_dir).expect("create source dir");
+        let substrate_source = source_dir.join(crate::anticheat::EAC_SUBSTRATE_FILENAME);
+        let symbol_source = source_dir.join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME);
+        fs::write(&substrate_source, [0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01]).expect("write substrate source");
+        fs::write(&symbol_source, b"\x7fELF\x02\x01-v1").expect("write symbol source");
+
+        assert_eq!(install_eac_substrate_from_sources(&home, &substrate_source, &symbol_source), Ok(true));
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        assert!(eac_substrate_runtime_ready_for_ms_dir(&ms_dir));
+        assert_eq!(
+            install_eac_substrate_from_sources(&home, &substrate_source, &symbol_source),
+            Ok(false),
+            "an unchanged update must not rewrite the durable EAC pair"
+        );
+
+        fs::write(&substrate_source, [0xfe, 0xed, 0xfa, 0xcf, 0x01, 0x00, 0x00, 0x07, 0x02])
+            .expect("refresh substrate source");
+        fs::write(&symbol_source, b"\x7fELF\x02\x01-v2").expect("refresh symbol source");
+        assert_eq!(install_eac_substrate_from_sources(&home, &substrate_source, &symbol_source), Ok(true));
+        assert_eq!(
+            fs::read(ms_dir.join("runtime").join(EAC_RUNTIME_SUBDIR).join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME))
+                .expect("read installed symbol image"),
+            b"\x7fELF\x02\x01-v2"
+        );
+
+        fs::write(&substrate_source, b"invalid substrate").expect("poison source");
+        assert!(install_eac_substrate_from_sources(&home, &substrate_source, &symbol_source).is_err());
+        assert!(eac_substrate_runtime_ready_for_ms_dir(&ms_dir), "a failed update must retain the previous pair");
+
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(source_dir);
     }
 
     #[test]

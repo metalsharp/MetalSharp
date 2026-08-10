@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const MIGRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MIGRATE_SCHEMA_VERSION: u64 = 4;
+const MIGRATE_SCHEMA_VERSION: u64 = 5;
 const GOG_PREFIX_BOTTLE_ID: &str = "gog-prefix";
 const MIGRATION_PAYLOAD_DENY_NAMES: &[&str] = &[
     "steamapps",
@@ -344,7 +344,8 @@ pub fn needs_migration() -> serde_json::Value {
 
 fn runtime_needs_repair(home: &Path, setup_completed: bool) -> bool {
     let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
-    if runtime_core_ready(&ms_dir) {
+    let eac_ready = !cfg!(target_os = "macos") || crate::installer::eac_substrate_runtime_ready_for_ms_dir(&ms_dir);
+    if runtime_core_ready(&ms_dir) && eac_ready {
         return false;
     }
 
@@ -499,7 +500,8 @@ fn run_migration() {
     }
 
     let marker_requested = post_update_marker.as_ref().map(|marker| marker.needed).unwrap_or(false);
-    if runtime_core_ready(&ms_dir) && !marker_requested {
+    let eac_ready = !cfg!(target_os = "macos") || crate::installer::eac_substrate_runtime_ready_for_ms_dir(&ms_dir);
+    if runtime_core_ready(&ms_dir) && eac_ready && !marker_requested {
         update_migration_metadata(&ms_dir);
         let marker = post_update_marker_path(&ms_dir);
         let _ = fs::remove_file(&marker);
@@ -677,6 +679,10 @@ fn verify_migration_ready(ms_dir: &Path, marker: Option<&PostUpdateMigrationMark
 
     if !runtime_core_ready(ms_dir) {
         return Err("runtime bundle is still incomplete after install".into());
+    }
+
+    if cfg!(target_os = "macos") && !crate::installer::eac_substrate_runtime_ready_for_ms_dir(ms_dir) {
+        return Err("EAC substrate runtime assets are still incomplete after install".into());
     }
 
     Ok(())
@@ -2759,7 +2765,39 @@ mod tests {
         write_runtime_core(&ms_dir);
 
         assert!(runtime_core_ready(&ms_dir));
+        assert!(!cfg!(target_os = "macos") || crate::installer::eac_substrate_runtime_ready_for_ms_dir(&ms_dir));
         assert!(!runtime_needs_repair(&home, true));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn missing_eac_runtime_requests_migration_repair() {
+        let home = test_dir("missing-eac-runtime");
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        write_runtime_core(&ms_dir);
+        fs::remove_file(ms_dir.join("runtime").join("eac").join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME))
+            .expect("remove EAC symbol image");
+
+        assert!(runtime_core_ready(&ms_dir));
+        assert!(!crate::installer::eac_substrate_runtime_ready_for_ms_dir(&ms_dir));
+        assert!(runtime_needs_repair(&home, true));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migration_readiness_rejects_a_missing_eac_pair() {
+        let home = test_dir("verify-ready-eac");
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        write_runtime_core(&ms_dir);
+        fs::remove_file(ms_dir.join("runtime").join("eac").join(crate::anticheat::EAC_SUBSTRATE_FILENAME))
+            .expect("remove EAC substrate");
+
+        assert_eq!(
+            verify_migration_ready(&ms_dir, None).unwrap_err(),
+            "EAC substrate runtime assets are still incomplete after install"
+        );
         let _ = fs::remove_dir_all(home);
     }
 
@@ -2925,6 +2963,25 @@ mod tests {
         assert_eq!(restored["developerTelemetry"], false, "developer telemetry opt-out must survive migration");
         assert_eq!(restored["newVersionKey"], "fresh", "fresh-install keys must not be clobbered by restore");
 
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn migration_preserves_eac_toggle_state_across_runtime_cleanup() {
+        let home = test_dir("preserve-eac-toggle");
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        let toggle = ms_dir.join("sharp-library").join("eac").join("1245620.json");
+        fs::create_dir_all(toggle.parent().unwrap()).expect("create EAC toggle dir");
+        fs::write(&toggle, br#"{"appid":1245620,"enabled":true}"#).expect("write EAC toggle");
+
+        let (preserved, mut report) = preserve_user_data(&ms_dir);
+        fs::remove_dir_all(ms_dir.join("sharp-library")).expect("remove library during migration cleanup");
+        restore_user_data(&ms_dir, &preserved, &mut report);
+
+        assert_eq!(
+            fs::read_to_string(toggle).expect("read restored EAC toggle"),
+            r#"{"appid":1245620,"enabled":true}"#
+        );
         let _ = fs::remove_dir_all(home);
     }
 
@@ -3520,6 +3577,16 @@ mod tests {
         fs::create_dir_all(wine.parent().unwrap()).expect("create wine bin");
         fs::write(&wine, b"#!/bin/sh\n").expect("write wine");
         write_host_runtime(ms_dir);
+
+        let eac_dir = ms_dir.join("runtime").join("eac");
+        fs::create_dir_all(&eac_dir).expect("create EAC runtime");
+        fs::write(
+            eac_dir.join(crate::anticheat::EAC_SUBSTRATE_FILENAME),
+            [0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01],
+        )
+        .expect("write EAC substrate");
+        fs::write(eac_dir.join(crate::anticheat::EAC_SYMBOL_IMAGE_FILENAME), b"\x7fELF\x02\x01")
+            .expect("write EAC symbol image");
 
         for path in [
             runtime_wine.join("lib").join("wine").join("x86_64-unix").join(".keep"),
