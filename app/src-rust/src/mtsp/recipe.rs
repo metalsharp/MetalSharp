@@ -1195,7 +1195,7 @@ mod tests {
         let dir = test_dir("spg-prepared");
         let game_dir = dir.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old");
+        std::fs::write(game_dir.join("start_protected_game.marker"), b"PROTECTED_STUB").expect("write marker");
         std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME_COPY").expect("write protected copy");
         std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
 
@@ -1204,7 +1204,7 @@ mod tests {
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("eldenring.exe"));
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME_COPY");
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"PROTECTED_STUB");
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.marker")).unwrap(), b"PROTECTED_STUB");
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1214,6 +1214,7 @@ mod tests {
         let dir = test_dir("ac6-preferred");
         let game_dir = dir.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
+        std::fs::write(game_dir.join("start_protected_game.marker"), b"PROTECTED_MARKER").expect("write marker");
         std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write protected exe");
         std::fs::write(game_dir.join("armoredcore6.exe"), b"REAL_GAME").expect("write real exe");
 
@@ -1225,7 +1226,7 @@ mod tests {
             .expect("select AC6 protected launcher");
         assert_eq!(protected.file_name().and_then(|name| name.to_str()), Some("start_protected_game.exe"));
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-        assert!(!game_dir.join("start_protected_game.old").exists());
+        assert!(game_dir.join("start_protected_game.marker").exists());
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1360,7 +1361,6 @@ mod tests {
         let dir = test_dir("subnautica2-direct-exe");
         std::fs::create_dir_all(&dir).expect("create test dir");
         std::fs::write(dir.join("start_protected_game.exe"), b"not pe").expect("write protected launcher");
-        std::fs::write(dir.join("start_protected_game.old"), b"not pe").expect("write prepared marker");
         std::fs::write(dir.join("Subnautica2.exe"), b"not pe").expect("write direct exe");
 
         let selected = resolve_game_exe_for_pipeline(1962700, &dir, Some(PipelineId::M12)).expect("select direct exe");
