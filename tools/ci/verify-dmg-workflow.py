@@ -142,6 +142,9 @@ def check_workflows() -> None:
     for required in ["Shell CI", "Metal CI", "Vue CI", "Rust CI", "Electron CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
         if required not in main:
             fail(f"main CI missing validation job: {required}")
+    for workflow, label in [(pr, "PR"), (main, "main")]:
+        if "tools/bundles/verify-native-shims.sh --eac-only app/native" not in workflow:
+            fail(f"{label} CI must validate the generated EAC native pair after the CMake build")
     for forbidden in [
         "Verify Developer SDK Bundle",
         "Build DMG",

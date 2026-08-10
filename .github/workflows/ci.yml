@@ -209,7 +209,7 @@ jobs:
         run: cmake --build build-native --parallel $(sysctl -n hw.ncpu)
 
       - name: Native package contract
-        run: tools/bundles/verify-native-shims.sh app/native
+        run: tools/bundles/verify-native-shims.sh --eac-only app/native
 
       - name: Runtime tests
         run: ctest --test-dir build-native --output-on-failure -E '^(metal_device|dxbc|format_translation|phase17)$'

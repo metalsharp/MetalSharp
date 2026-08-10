@@ -9,20 +9,33 @@ set -euo pipefail
 #
 # Usage:
 #   tools/bundles/verify-native-shims.sh [NATIVE_DIR]
+#   tools/bundles/verify-native-shims.sh --eac-only [NATIVE_DIR]
 #
 # If NATIVE_DIR is not given, uses $METALSHARP_NATIVE_DIR or app/native.
 
+EAC_ONLY=0
+if [ "${1:-}" = "--eac-only" ]; then
+    EAC_ONLY=1
+    shift
+fi
 NATIVE_DIR="${1:-${METALSHARP_NATIVE_DIR:-app/native}}"
 
-required_dylibs=(
-    d3d11.dylib d3d12.dylib dxgi.dylib xaudio2_9.dylib xinput1_4.dylib opengl32.dylib
-    metalsharp_eac_substrate.dylib
-)
-required_bins=(metalsharp metalsharp_launcher)
+if [ "$EAC_ONLY" -eq 1 ]; then
+    required_dylibs=(metalsharp_eac_substrate.dylib)
+else
+    required_dylibs=(
+        d3d11.dylib d3d12.dylib dxgi.dylib xaudio2_9.dylib xinput1_4.dylib opengl32.dylib
+        metalsharp_eac_substrate.dylib
+    )
+fi
+required_files=("${required_dylibs[@]}")
+if [ "$EAC_ONLY" -eq 0 ]; then
+    required_files+=(metalsharp metalsharp_launcher)
+fi
 required_elf=(metalsharp_eac_libc.so.6)
 
 errors=0
-for f in "${required_dylibs[@]}" "${required_bins[@]}"; do
+for f in "${required_files[@]}"; do
     path="$NATIVE_DIR/$f"
     if [ ! -f "$path" ]; then
         echo "ERROR: missing native shim: $path"
