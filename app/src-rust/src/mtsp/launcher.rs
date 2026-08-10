@@ -6,7 +6,6 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use walkdir::WalkDir;
 
 const DEFAULT_BRIDGE_PORT: u16 = 18733;
 const FNA_CARBON_SHIM: &str = "libCarbon.dylib";
@@ -535,7 +534,6 @@ pub fn prepare_steam_pipeline_env(
     }
 
     let home = dirs::home_dir().ok_or("no home dir")?;
-    prepare_start_protected_game_for_pipeline(appid, pipeline_id);
     let recipe = super::recipe::build_launch_recipe(appid, node)?;
     validate_recipe_runtime(&recipe)?;
     if node.backend == "dxmt" {
@@ -543,7 +541,6 @@ pub fn prepare_steam_pipeline_env(
     }
     if let Some(game_dir) = recipe.game_dir.as_ref() {
         prepare_steam_api_for_game_dir(&home, game_dir, appid, pipeline_id);
-        cleanup_legacy_eac_toggle_artifacts(game_dir);
         cleanup_legacy_injections(game_dir)?;
         if matches!(pipeline_id, PipelineId::M12 | PipelineId::M13) {
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
@@ -1740,8 +1737,6 @@ fn launch_d3dmetal_gptk_with_context(
     let exe_dir = launch_working_dir(game_dir, exe_path);
     let exe_name = exe_path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
-    restore_start_protected_game_bypass(appid, game_dir);
-
     let prefix = gptk_prefix;
     let prefix_str = prefix.to_string_lossy().to_string();
     let offline_mode = extra_env.iter().any(|(key, value)| key == "METALSHARP_OFFLINE_MODE" && value == "1");
@@ -1856,7 +1851,6 @@ fn launch_dxmt_metal_with_context(
     }
     sanitize_metalsharp_wine_wrapper_env()?;
 
-    prepare_start_protected_game_for_pipeline(appid, node.id);
     let recipe = super::recipe::build_launch_recipe(appid, node)?;
     let game_dir = recipe.game_dir.as_ref().ok_or("game dir not found")?;
     let exe_path = recipe.exe_path.as_ref().ok_or("game exe not found")?;
@@ -2726,30 +2720,6 @@ fn cleanup_m12_legacy_hook_artifacts(game_dir: &Path, prefix: &Path) {
     let windows = prefix.join("drive_c").join("windows");
     for system_dir in ["system32", "syswow64"] {
         let _ = std::fs::remove_file(windows.join(system_dir).join("metalsharp_ntdll_hook.dll"));
-    }
-}
-
-fn cleanup_legacy_eac_toggle_artifacts(game_dir: &Path) {
-    let targets = [
-        game_dir.to_path_buf(),
-        game_dir.join("Game"),
-        game_dir.join("bin"),
-        game_dir.join("Binaries").join("Win64"),
-        game_dir.join("win64"),
-    ];
-
-    for target in targets {
-        if !target.exists() {
-            continue;
-        }
-        let config = target.join("anti_cheat_toggler_config.ini");
-        let mod_list = target.join("anti_cheat_toggler_mod_list.txt");
-        let has_legacy_toggle_marker = config.exists() || mod_list.exists();
-        let _ = std::fs::remove_file(&config);
-        let _ = std::fs::remove_file(&mod_list);
-        if has_legacy_toggle_marker {
-            let _ = std::fs::remove_file(target.join("_winhttp.dll"));
-        }
     }
 }
 
@@ -5765,112 +5735,6 @@ fn deploy_real_steam_component(wine_steam_dir: &Path, targets: &[PathBuf], filen
     }
 }
 
-fn start_protected_game_real_exe_names(appid: u32) -> &'static [&'static str] {
-    match appid {
-        1245620 => &["eldenring.exe"],
-        1888160 => &["armoredcore6.exe"],
-        _ => &[],
-    }
-}
-
-fn prepare_start_protected_game_for_pipeline(appid: u32, pipeline_id: PipelineId) {
-    if !matches!(pipeline_id, PipelineId::Dxmt | PipelineId::M12) {
-        return;
-    }
-    let Some(game_dir) = crate::setup::resolve_windows_game_dir(appid) else {
-        return;
-    };
-    restore_start_protected_game_bypass(appid, &game_dir);
-}
-
-fn restore_start_protected_game_bypass(appid: u32, game_dir: &Path) {
-    let spg = match super::recipe::find_case_insensitive(game_dir, "start_protected_game.exe") {
-        Some(path) => path,
-        None => {
-            let Some(old) = super::recipe::find_case_insensitive(game_dir, "start_protected_game.old") else {
-                return;
-            };
-            let restored = old.with_file_name("start_protected_game.exe");
-            if let Err(err) = std::fs::rename(&old, &restored) {
-                eprintln!(
-                    "start_protected_game: failed to restore {} to {}: {}",
-                    old.display(),
-                    restored.display(),
-                    err
-                );
-            }
-            return;
-        },
-    };
-    let spg_dir = match spg.parent() {
-        Some(dir) => dir,
-        None => return,
-    };
-    let old = spg_dir.join("start_protected_game.old");
-    if !old.is_file() {
-        return;
-    }
-
-    let real_exe = match find_start_protected_real_exe(appid, game_dir, spg_dir) {
-        Some(path) => path,
-        None => return,
-    };
-    if !files_match(&spg, &real_exe) {
-        return;
-    }
-
-    if let Err(err) = std::fs::copy(&old, &spg) {
-        eprintln!("start_protected_game: failed to restore {} to {}: {}", old.display(), spg.display(), err);
-        return;
-    }
-    let _ = std::fs::remove_file(&old);
-}
-
-fn find_start_protected_real_exe(appid: u32, game_dir: &Path, spg_dir: &Path) -> Option<PathBuf> {
-    for real_exe_name in start_protected_game_real_exe_names(appid) {
-        if let Some(path) = super::recipe::find_case_insensitive(game_dir, real_exe_name) {
-            return Some(path);
-        }
-    }
-
-    let candidates = WalkDir::new(spg_dir)
-        .max_depth(1)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_file() {
-                return None;
-            }
-            let name = path.file_name()?.to_string_lossy().to_string();
-            if is_start_protected_real_exe_candidate(&name) {
-                Some(path.to_path_buf())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    if candidates.len() == 1 {
-        candidates.into_iter().next()
-    } else {
-        None
-    }
-}
-
-fn is_start_protected_real_exe_candidate(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.ends_with(".exe")
-        && lower != "start_protected_game.exe"
-        && !lower.contains("easyanticheat")
-        && !lower.contains("setup")
-        && !lower.contains("redist")
-        && !lower.contains("installer")
-        && !lower.contains("uninstall")
-        && !lower.contains("crash")
-        && !lower.contains("launcher")
-}
-
 fn generate_steam_interfaces(game_dir: &Path) {
     let steam_settings = game_dir.join("steam_settings");
     let interfaces_file = steam_settings.join("steam_interfaces.txt");
@@ -7851,130 +7715,6 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         assert!(text.contains("bottle_manifest="));
         assert!(text.contains("bottle_logs="));
         assert!(text.contains("steam_identity_mode=wine_steam_background"));
-    }
-
-    #[test]
-    fn start_protected_game_bypass_restores_original_launcher() {
-        let home = test_dir("spg-restore");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME").expect("write bypass copy");
-        std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(1245620, &home);
-
-        assert!(!game_dir.join("start_protected_game.old").exists());
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_preserves_unrecognized_current_launcher() {
-        let home = test_dir("spg-skip-old");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PREVIOUS_STUB").expect("write old");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME_ALREADY").expect("write current");
-        std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(1245620, &home);
-
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME_ALREADY");
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"PREVIOUS_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_restores_armored_core_vi_launcher() {
-        let home = test_dir("spg-ac6");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"AC6_REAL_GAME").expect("write bypass copy");
-        std::fs::write(game_dir.join("armoredcore6.exe"), b"AC6_REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(1888160, &home);
-
-        assert!(!game_dir.join("start_protected_game.old").exists());
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_can_restore_with_single_sibling_real_exe() {
-        let home = test_dir("spg-generic");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.old"), b"PROTECTED_STUB").expect("write old stub");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"REAL_GAME").expect("write bypass copy");
-        std::fs::write(game_dir.join("realgame.exe"), b"REAL_GAME").expect("write real exe");
-
-        restore_start_protected_game_bypass(99999, &home);
-
-        assert!(!game_dir.join("start_protected_game.old").exists());
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_skips_ambiguous_generic_siblings() {
-        let home = test_dir("spg-ambiguous");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write stub");
-        std::fs::write(game_dir.join("first.exe"), b"FIRST").expect("write first exe");
-        std::fs::write(game_dir.join("second.exe"), b"SECOND").expect("write second exe");
-
-        restore_start_protected_game_bypass(99999, &home);
-
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-        assert!(!game_dir.join("start_protected_game.old").exists());
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn start_protected_game_bypass_skips_unknown_appid() {
-        let home = test_dir("spg-skip");
-        let game_dir = home.join("Game");
-        std::fs::create_dir_all(&game_dir).expect("create game dir");
-        std::fs::write(game_dir.join("start_protected_game.exe"), b"PROTECTED_STUB").expect("write stub");
-        std::fs::write(game_dir.join("first.exe"), b"FIRST").expect("write first exe");
-        std::fs::write(game_dir.join("second.exe"), b"SECOND").expect("write second exe");
-
-        restore_start_protected_game_bypass(99999, &home);
-
-        assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
-        assert!(!game_dir.join("start_protected_game.old").exists());
-
-        let _ = std::fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn legacy_eac_toggle_cleanup_removes_marked_files_only() {
-        let home = test_dir("legacy-eac-toggle-cleanup");
-        let marked = home.join("Binaries").join("Win64");
-        let unmarked = home.join("bin");
-        std::fs::create_dir_all(&marked).expect("create marked dir");
-        std::fs::create_dir_all(&unmarked).expect("create unmarked dir");
-        std::fs::write(marked.join("_winhttp.dll"), b"OLD_TOGGLE").expect("write toggle dll");
-        std::fs::write(marked.join("anti_cheat_toggler_config.ini"), b"config").expect("write toggle config");
-        std::fs::write(marked.join("anti_cheat_toggler_mod_list.txt"), b"mods").expect("write toggle mods");
-        std::fs::write(unmarked.join("_winhttp.dll"), b"OTHER").expect("write unrelated dll");
-
-        cleanup_legacy_eac_toggle_artifacts(&home);
-
-        assert!(!marked.join("_winhttp.dll").exists());
-        assert!(!marked.join("anti_cheat_toggler_config.ini").exists());
-        assert!(!marked.join("anti_cheat_toggler_mod_list.txt").exists());
-        assert_eq!(std::fs::read(unmarked.join("_winhttp.dll")).unwrap(), b"OTHER");
-
-        let _ = std::fs::remove_dir_all(home);
     }
 
     fn test_dir(name: &str) -> PathBuf {

@@ -1637,4 +1637,19 @@ mod tests {
         assert!(eac_launch_env_for_home(&home, 1).unwrap().is_empty());
         let _ = fs::remove_dir_all(&home);
     }
+
+    #[test]
+    fn eac_launch_env_stays_empty_when_a_card_is_explicitly_disabled() {
+        let home = std::env::temp_dir().join(format!("metalsharp-eac-card-off-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        let toggle = eac_toggle_path_for(&home, 1888160);
+        fs::create_dir_all(toggle.parent().expect("toggle parent")).expect("create toggle directory");
+        fs::write(&toggle, r#"{"appid":1888160,"enabled":false}"#).expect("write disabled toggle");
+
+        assert!(!eac_enabled_for(&home, 1888160));
+        assert!(eac_launch_env_for_home(&home, 1888160).unwrap().is_empty());
+        assert!(!crate::platform::metalsharp_home_dir_for(&home).join("logs").join("eac").exists());
+
+        let _ = fs::remove_dir_all(&home);
+    }
 }
