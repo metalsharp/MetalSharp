@@ -220,3 +220,15 @@ add_executable(test_phase5_error_ext
 )
 target_link_libraries(test_phase5_error_ext PRIVATE metalsharp_opengl32 metalsharp_core)
 add_test(NAME phase5_error_ext COMMAND test_phase5_error_ext)
+
+# Mach-port lifecycle regression test for the Linux EAC substrate
+# (metalsharp/MetalSharp#442). The substrate is x86_64/Rosetta-only; the
+# project default (Wine) architecture matches, as in CI.
+add_executable(test_eac_substrate
+    test_eac_substrate.c
+)
+target_compile_options(test_eac_substrate PRIVATE -Wno-deprecated-declarations)
+# The substrate links the Wine-only ntdll_get_unix_file_name via weak
+# dynamic lookup; keep the same link contract as metalsharp_eac_substrate.
+target_link_options(test_eac_substrate PRIVATE "-Wl,-undefined,dynamic_lookup")
+add_test(NAME eac_substrate COMMAND test_eac_substrate)
