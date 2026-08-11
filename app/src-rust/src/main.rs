@@ -1692,12 +1692,11 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .and_then(|v| v.split('&').next())
                 .map(|s| url_decode(s))
                 .unwrap_or_default();
-            let path = std::path::PathBuf::from(&game_dir);
-            if path.is_dir() {
-                resp(200, serde_json::to_value(fna_profile::detect_fna_signals(&path)).unwrap())
-            } else {
-                resp(400, json!({ "ok": false, "error": "gameDir is not a directory", "gameDir": game_dir }))
-            }
+            let path = match resolve_fna_game_dir(&game_dir) {
+                Ok(path) => path,
+                Err(error) => return resp(400, json!({ "ok": false, "error": error })),
+            };
+            resp(200, serde_json::to_value(fna_profile::detect_fna_signals(&path)).unwrap())
         },
         (Method::Get, "/diagnostics/fna/explain") => {
             let url_str = req.url().to_string();
@@ -1713,7 +1712,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .and_then(|v| v.split('&').next())
                 .map(|s| url_decode(s))
                 .unwrap_or_default();
-            let path = std::path::PathBuf::from(&game_dir);
+            let path = match resolve_fna_game_dir(&game_dir) {
+                Ok(path) => path,
+                Err(error) => return resp(400, json!({ "ok": false, "error": error })),
+            };
             resp(200, serde_json::to_value(fna_profile::explain_profile(appid, &path)).unwrap())
         },
         (Method::Get, "/diagnostics/fna/classify") => {
@@ -1730,7 +1732,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .and_then(|v| v.split('&').next())
                 .map(|s| url_decode(s))
                 .unwrap_or_default();
-            let path = std::path::PathBuf::from(&game_dir);
+            let path = match resolve_fna_game_dir(&game_dir) {
+                Ok(path) => path,
+                Err(error) => return resp(400, json!({ "ok": false, "error": error })),
+            };
             resp(200, serde_json::to_value(fna_profile::classify_unproven_fna_game(appid, &path)).unwrap())
         },
         (Method::Post, "/steam/compatdata") => {
@@ -2706,6 +2711,40 @@ fn query_param(url: &str, key: &str) -> Option<String> {
     None
 }
 
+fn fna_allowed_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = vec![crate::platform::metalsharp_home_dir()];
+    roots.extend(
+        crate::scan::macos_steam_library_paths()
+            .into_iter()
+            .chain(crate::scan::wine_steam_library_paths())
+            .map(|steamapps| steamapps.join("common")),
+    );
+    roots
+}
+
+fn resolve_existing_dir_under_roots(
+    path: &std::path::Path,
+    roots: &[std::path::PathBuf],
+) -> Result<std::path::PathBuf, String> {
+    let resolved = path.canonicalize().map_err(|_| "gameDir is unavailable".to_string())?;
+    if !resolved.is_dir() {
+        return Err("gameDir is not a directory".into());
+    }
+
+    if roots.iter().filter_map(|root| root.canonicalize().ok()).any(|root| resolved.starts_with(&root)) {
+        Ok(resolved)
+    } else {
+        Err("gameDir must be under the MetalSharp home or a Steam library".into())
+    }
+}
+
+fn resolve_fna_game_dir(raw: &str) -> Result<std::path::PathBuf, String> {
+    if raw.trim().is_empty() {
+        return Err("gameDir is required".into());
+    }
+    resolve_existing_dir_under_roots(std::path::Path::new(raw), &fna_allowed_roots())
+}
+
 fn force_kill_metalsharp_processes() -> Value {
     let this_pid = std::process::id();
     let home = crate::platform::metalsharp_home_dir();
@@ -3626,6 +3665,42 @@ mod tests {
         assert!(is_public_health_request(&Method::Get, "/health?probe=1"));
         assert!(!is_public_health_request(&Method::Get, "/status"));
         assert!(!is_public_health_request(&Method::Post, "/health"));
+    }
+
+    #[test]
+    fn fna_game_dir_resolution_canonicalizes_and_enforces_allowed_roots() {
+        let base = std::env::temp_dir().join(format!("metalsharp-fna-containment-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let metalsharp_root = base.join("metalsharp");
+        let steam_root = base.join("steam-common");
+        let outside = base.join("outside");
+        let sibling = base.join("metalsharp-sibling");
+        let metalsharp_game = metalsharp_root.join("games").join("fna-game");
+        let steam_game = steam_root.join("fna-game");
+
+        std::fs::create_dir_all(&metalsharp_game).unwrap();
+        std::fs::create_dir_all(&steam_game).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(sibling.join("fna-game")).unwrap();
+
+        let roots = vec![metalsharp_root.clone(), steam_root.clone()];
+        assert_eq!(
+            resolve_existing_dir_under_roots(&metalsharp_game, &roots).unwrap(),
+            metalsharp_game.canonicalize().unwrap()
+        );
+        assert!(resolve_existing_dir_under_roots(&steam_game, &roots).is_ok());
+        assert!(resolve_existing_dir_under_roots(&outside, &roots).is_err());
+        assert!(resolve_existing_dir_under_roots(&sibling.join("fna-game"), &roots).is_err());
+        assert!(resolve_existing_dir_under_roots(&metalsharp_root.join("missing"), &roots).is_err());
+
+        #[cfg(unix)]
+        {
+            let symlink = metalsharp_root.join("linked-outside");
+            std::os::unix::fs::symlink(&outside, &symlink).unwrap();
+            assert!(resolve_existing_dir_under_roots(&symlink, &roots).is_err());
+        }
+
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
