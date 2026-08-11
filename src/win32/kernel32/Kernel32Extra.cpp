@@ -1951,6 +1951,7 @@ static void* MSABI shim_RtlCaptureStackBackTrace(DWORD FramesToSkip, DWORD Frame
 }
 static uint32_t s_fakeRuntimeFunc[3] = {0, 0, 0};
 static uint8_t s_fakeUnwindInfo[8] = {1, 0, 0, 0, 0, 0, 0, 0};
+static std::mutex s_fakeRuntimeFuncMutex;
 
 static void* MSABI shim_RtlLookupFunctionEntry(uint64_t ControlPoint, uint64_t* ImageBase, void* HistoryTable) {
     MS_INFO("TRACE: RtlLookupFunctionEntry(0x%llX)", (unsigned long long)ControlPoint);
@@ -1961,14 +1962,17 @@ static void* MSABI shim_RtlLookupFunctionEntry(uint64_t ControlPoint, uint64_t* 
     void* result = PELoader::instance()->lookupFunctionEntry(ControlPoint, ImageBase);
     if (!result) {
         MS_INFO("TRACE: RtlLookupFunctionEntry -> returning fake entry");
-        s_fakeRuntimeFunc[0] = 0;
-        s_fakeRuntimeFunc[1] = 0x1000;
-        auto* base = reinterpret_cast<uint8_t*>(*ImageBase);
+        auto* base = ImageBase ? reinterpret_cast<uint8_t*>(*ImageBase) : nullptr;
         if (!base)
             base = reinterpret_cast<uint8_t*>(PELoader::instance()->getMainModule()->base);
-        s_fakeRuntimeFunc[2] =
-            static_cast<uint32_t>(reinterpret_cast<uintptr_t>(s_fakeUnwindInfo) - reinterpret_cast<uintptr_t>(base));
-        result = s_fakeRuntimeFunc;
+        {
+            std::lock_guard<std::mutex> lock(s_fakeRuntimeFuncMutex);
+            s_fakeRuntimeFunc[0] = 0;
+            s_fakeRuntimeFunc[1] = 0x1000;
+            s_fakeRuntimeFunc[2] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(s_fakeUnwindInfo) -
+                                                         reinterpret_cast<uintptr_t>(base));
+            result = s_fakeRuntimeFunc;
+        }
     }
     return result;
 }

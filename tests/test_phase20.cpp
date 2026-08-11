@@ -1,13 +1,19 @@
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <metalsharp/AntiCheatDB.h>
 #include <metalsharp/ExtraShims.h>
+#include <metalsharp/Kernel32Shim.h>
+#include <metalsharp/Logger.h>
+#include <metalsharp/PELoader.h>
 #include <metalsharp/Win32Types.h>
+#include <thread>
 #include <vector>
 
 using namespace metalsharp::win32;
+using metalsharp::PELoader;
 
 struct AdapterAddressesLayout {
     uint32_t Length;
@@ -185,6 +191,48 @@ static bool test_veh_chain_registration() {
     return true;
 }
 
+static bool test_rtl_lookup_function_entry_allows_null_image_base() {
+    PELoader loader;
+    auto kernel32 = Kernel32Shim::create();
+    addMissingKernel32(kernel32);
+
+    auto function = kernel32.functions.find("RtlLookupFunctionEntry");
+    if (function == kernel32.functions.end())
+        return false;
+
+    using LookupFunctionEntry = void*(MSABI*)(uint64_t, uint64_t*, void*);
+    auto lookup = reinterpret_cast<LookupFunctionEntry>(function->second());
+    if (!lookup)
+        return false;
+
+    metalsharp::Logger::setLevel(metalsharp::LogLevel::Error);
+    void* result = lookup(0, nullptr, nullptr);
+    if (!result)
+        return false;
+
+    auto* runtimeFunction = static_cast<const uint32_t*>(result);
+    if (runtimeFunction[0] != 0 || runtimeFunction[1] != 0x1000)
+        return false;
+
+    std::atomic<bool> allCallsReturned{true};
+    std::vector<std::thread> callers;
+    callers.reserve(8);
+    for (int i = 0; i < 8; ++i) {
+        callers.emplace_back([&] {
+            for (int call = 0; call < 100; ++call) {
+                if (!lookup(0, nullptr, nullptr)) {
+                    allCallsReturned = false;
+                    return;
+                }
+            }
+        });
+    }
+    for (auto& caller : callers)
+        caller.join();
+
+    return allCallsReturned;
+}
+
 int main() {
     printf("=== Phase 20: Anti-Cheat & DRM Compatibility ===\n\n");
 
@@ -210,6 +258,7 @@ int main() {
     TEST(ki_user_exception_dispatcher);
     TEST(rtl_raise_exception);
     TEST(veh_chain_registration);
+    TEST(rtl_lookup_function_entry_allows_null_image_base);
 
     printf("\n--- 20.4 Timing & Hardware Fingerprinting ---\n");
     TEST(local_time);
