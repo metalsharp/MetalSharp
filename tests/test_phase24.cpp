@@ -292,6 +292,26 @@ static bool version_comparison() {
     return true;
 }
 
+static bool version_prerelease_comparison() {
+    auto stable = metalsharp::Version::parse("1.0.1");
+    auto releaseCandidate = metalsharp::Version::parse("1.0.1-rc1");
+    assert(stable > releaseCandidate);
+    assert(!(releaseCandidate > stable));
+    assert(!(stable == releaseCandidate));
+
+    assert(metalsharp::Version::parse("1.0.0-alpha.1") > metalsharp::Version::parse("1.0.0-alpha"));
+    assert(metalsharp::Version::parse("1.0.0-alpha.beta") > metalsharp::Version::parse("1.0.0-alpha.1"));
+    assert(metalsharp::Version::parse("1.0.0-beta") > metalsharp::Version::parse("1.0.0-alpha.beta"));
+    assert(metalsharp::Version::parse("1.0.0-beta.2") > metalsharp::Version::parse("1.0.0-beta.1"));
+    assert(metalsharp::Version::parse("1.0.0-beta.11") > metalsharp::Version::parse("1.0.0-beta.2"));
+    assert(metalsharp::Version::parse("1.0.0-rc.1") > metalsharp::Version::parse("1.0.0-beta.11"));
+    assert(stable > metalsharp::Version::parse("1.0.1-rc.1"));
+
+    assert(metalsharp::Version::parse("1.0.0+build.1") == metalsharp::Version::parse("1.0.0"));
+    assert(metalsharp::Version::parse("1.0.0-alpha+build.1") == metalsharp::Version::parse("1.0.0-alpha"));
+    return true;
+}
+
 static bool version_to_string() {
     auto v = metalsharp::Version::parse("1.2.3");
     assert(v.toString() == "1.2.3");
@@ -318,7 +338,7 @@ static bool update_checker_user_agent() {
 
 static bool update_checker_parse_release() {
     std::string json =
-        R"({"tag_name":"v0.2.0","html_url":"https://github.com/test/repo/releases/tag/v0.2.0","zipball_url":"https://github.com/test/repo/zipball/v0.2.0","body":"Release notes here"})";
+        R"({"tag_name":"v0.2.0","html_url":"https://github.com/test/repo/releases/tag/v0.2.0","zipball_url":"https://github.com/test/repo/zipball/v0.2.0","body":"Release notes with a \"quoted\" line\n"})";
 
     auto current = metalsharp::Version::parse("0.1.0");
     auto info = metalsharp::UpdateChecker::parseGitHubRelease(json, current);
@@ -328,7 +348,7 @@ static bool update_checker_parse_release() {
     assert(info.latestVersion.minor == 2);
     assert(info.latestVersion.patch == 0);
     assert(info.currentVersion == "0.1.0");
-    assert(info.releaseNotes == "Release notes here");
+    assert(info.releaseNotes == "Release notes with a \"quoted\" line\n");
     assert(!info.downloadUrl.empty());
     assert(!info.htmlUrl.empty());
     return true;
@@ -343,6 +363,13 @@ static bool update_checker_no_update() {
 
     assert(!info.available);
     assert(info.latestVersion == current);
+    return true;
+}
+
+static bool update_checker_rejects_invalid_repo() {
+    auto info = metalsharp::UpdateChecker::checkForUpdates("not a repository");
+    assert(!info.available);
+    assert(info.currentVersion == metalsharp::UpdateChecker::getCurrentVersion().toString());
     return true;
 }
 
@@ -515,11 +542,13 @@ int main() {
     printf("\n--- 24.3 Update Checker ---\n");
     TEST(version_parse);
     TEST(version_comparison);
+    TEST(version_prerelease_comparison);
     TEST(version_to_string);
     TEST(update_checker_current_version);
     TEST(update_checker_user_agent);
     TEST(update_checker_parse_release);
     TEST(update_checker_no_update);
+    TEST(update_checker_rejects_invalid_repo);
 
     printf("\n--- 24.4 Settings Manager ---\n");
     TEST(settings_manager_defaults);
