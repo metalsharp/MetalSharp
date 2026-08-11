@@ -299,18 +299,14 @@ static HANDLE MSABI shim_CreateThread(void* lpThreadAttributes, SIZE_T dwStackSi
     (void)dwStackSize;
     (void)dwCreationFlags;
 
-    pthread_t thread;
-    int result = pthread_create(&thread, nullptr, reinterpret_cast<void* (*)(void*)>(lpStartAddress), lpParameter);
-    if (result != 0) {
-        t_lastError = result;
+    int errorCode = 0;
+    HANDLE h = SyncContext::instance().createThread(lpStartAddress, lpParameter, lpThreadId, &errorCode);
+    if (!h) {
+        t_lastError = errorCode;
         return nullptr;
     }
 
-    if (lpThreadId)
-        *lpThreadId = static_cast<DWORD>(reinterpret_cast<uintptr_t>(thread));
-
-    HANDLE h = SyncContext::instance().createThread(thread);
-    MS_INFO("TRACE: CreateThread -> handle %p (pthread %p)", h, (void*)thread);
+    MS_INFO("TRACE: CreateThread -> handle %p", h);
     return h;
 }
 

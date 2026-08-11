@@ -72,7 +72,7 @@ class SyncContext {
     void* createSemaphore(int32_t initialCount, int32_t maxCount, const std::string& name);
     bool releaseSemaphore(void* handle, int32_t releaseCount, int32_t* prevCount);
 
-    void* createThread(pthread_t thread);
+    void* createThread(void* startAddress, void* parameter, DWORD* threadId, int* errorCode);
     SyncThreadState* getThreadState(void* handle);
 
     uint32_t waitForSingleObject(void* handle, uint32_t milliseconds);
