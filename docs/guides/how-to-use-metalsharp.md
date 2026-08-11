@@ -1,5 +1,5 @@
 # How to Use MetalSharp
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 ## Install
@@ -86,7 +86,7 @@ Switching between X and D removes the previously deployed set before deploying t
 
 ### Uninstall
 
-Settings includes a **Danger Zone** section at the bottom with an **Uninstall MetalSharp** button. This removes all Wine prefixes, bottles, Steam, runtime, caches, and settings, then moves the app to Trash.
+Settings includes a **Danger Zone** section at the bottom with an **Uninstall MetalSharp** button. The confirmation dialog shows the resolved MetalSharp data path before removal. For safety, uninstall only removes a marked MetalSharp data directory below the user's home directory; if `METALSHARP_HOME` points at the home directory, the filesystem root, an external/shared location, or an unmarked directory, MetalSharp refuses the uninstall without deleting data. A permitted uninstall removes all Wine prefixes, bottles, Steam, runtime, caches, and settings, then moves the app to Trash.
 
 ## Useful Docs
 
