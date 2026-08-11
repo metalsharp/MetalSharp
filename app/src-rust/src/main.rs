@@ -50,6 +50,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tiny_http::{Header, Method, Response, Server};
 
 static RUNNING_GAMES: OnceLock<Mutex<HashMap<u32, i32>>> = OnceLock::new();
+static RUNNING_SHARP_APPS: OnceLock<Mutex<HashMap<String, i32>>> = OnceLock::new();
 static ISSUE_LOG_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const API_TOKEN_ENV: &str = "METALSHARP_API_TOKEN";
@@ -57,6 +58,10 @@ const TRUSTED_DEV_ORIGINS: [&str; 2] = ["http://localhost:5173", "http://127.0.0
 
 fn running_games() -> &'static Mutex<HashMap<u32, i32>> {
     RUNNING_GAMES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn running_sharp_apps() -> &'static Mutex<HashMap<String, i32>> {
+    RUNNING_SHARP_APPS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub(crate) fn register_game_pid(appid: u32, pid: u32) {
@@ -71,8 +76,39 @@ fn unregister_game_pid(appid: u32) {
     }
 }
 
+fn registered_game_pid(games: &HashMap<u32, i32>, appid: u32) -> Option<i32> {
+    games.get(&appid).copied().filter(|pid| *pid > 0)
+}
+
+fn registered_game_appid_for_pid(games: &HashMap<u32, i32>, pid: i32) -> Option<u32> {
+    games.iter().find_map(|(&appid, &registered_pid)| (registered_pid == pid).then_some(appid))
+}
+
 fn get_game_pid(appid: u32) -> Option<i32> {
-    running_games().lock().ok()?.get(&appid).copied()
+    running_games().lock().ok().and_then(|games| registered_game_pid(&games, appid))
+}
+
+fn get_game_appid_for_pid(pid: i32) -> Option<u32> {
+    running_games().lock().ok().and_then(|games| registered_game_appid_for_pid(&games, pid))
+}
+
+fn register_sharp_pid(app_id: &str, pid: u32) {
+    if pid == 0 || app_id.is_empty() {
+        return;
+    }
+    if let Ok(mut map) = running_sharp_apps().lock() {
+        map.insert(app_id.to_string(), pid as i32);
+    }
+}
+
+fn unregister_sharp_pid(app_id: &str) {
+    if let Ok(mut map) = running_sharp_apps().lock() {
+        map.remove(app_id);
+    }
+}
+
+fn get_sharp_pid(app_id: &str) -> Option<i32> {
+    running_sharp_apps().lock().ok()?.get(app_id).copied().filter(|pid| *pid > 0)
 }
 
 fn prune_inactive_game_pids() {
@@ -97,6 +133,14 @@ fn stop_active_games() -> Value {
     let mut errors = Vec::new();
 
     for (appid, pid) in targets {
+        if !is_metalsharp_owned_process(pid) {
+            app_log(&format!(
+                "[STOP FAILED] appid {} | pid {} | source global-shortcut | process ownership check failed",
+                appid, pid
+            ));
+            errors.push(json!({"appid": appid, "pid": pid}));
+            continue;
+        }
         match launch::kill_game_with_pid(appid, pid) {
             Ok(_) => {
                 unregister_game_pid(appid);
@@ -119,6 +163,18 @@ fn stop_active_games() -> Value {
         "stopped": stopped,
         "errors": errors,
     })
+}
+
+fn stop_registered_sharp_app(app_id: &str) -> Result<i32, String> {
+    let pid = get_sharp_pid(app_id).ok_or_else(|| "Sharp app is not registered as running".to_string())?;
+    if !is_metalsharp_owned_process(pid) {
+        unregister_sharp_pid(app_id);
+        return Err("registered Sharp app process is no longer a MetalSharp-owned target".to_string());
+    }
+
+    launch::kill_process_tree(pid).map_err(|error| error.to_string())?;
+    unregister_sharp_pid(app_id);
+    Ok(pid)
 }
 
 enum RouteResponse {
@@ -153,7 +209,11 @@ fn main() {
         if let Ok(map) = running_games().lock() {
             for (&appid, &pid) in map.iter() {
                 app_log(&format!("Killing game appid={} pid={}", appid, pid));
-                let _ = launch::kill_process_tree(pid);
+                if is_metalsharp_owned_process(pid) {
+                    let _ = launch::kill_process_tree(pid);
+                } else {
+                    app_log(&format!("Skipping unowned game pid={} during shutdown", pid));
+                }
             }
         }
         std::process::exit(0);
@@ -823,7 +883,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                         },
                     };
                     match launch_result {
-                        Ok(v) => resp(200, v),
+                        Ok(v) => {
+                            if let Some(pid) =
+                                v.get("pid").and_then(|value| value.as_u64()).and_then(|pid| u32::try_from(pid).ok())
+                            {
+                                register_game_pid(id, pid);
+                            }
+                            resp(200, v)
+                        },
                         Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
                     }
                 },
@@ -889,21 +956,24 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                     ));
 
                     match launch_result {
-                        Ok((pid, game_type, log_path)) => resp(
-                            200,
-                            json!({
-                                "ok": true,
-                                "pid": pid,
-                                "appid": id,
-                                "gameType": game_type,
-                                "bottle_id": bottle.id,
-                                "bottle_prefix": bottle.prefix_path,
-                                "launch_log": log_path.to_string_lossy().to_string(),
-                                "pipeline": pipeline,
-                                "graphics_backend": node.graphics_backend,
-                                "offline_mode": true,
-                            }),
-                        ),
+                        Ok((pid, game_type, log_path)) => {
+                            register_game_pid(id, pid);
+                            resp(
+                                200,
+                                json!({
+                                    "ok": true,
+                                    "pid": pid,
+                                    "appid": id,
+                                    "gameType": game_type,
+                                    "bottle_id": bottle.id,
+                                    "bottle_prefix": bottle.prefix_path,
+                                    "launch_log": log_path.to_string_lossy().to_string(),
+                                    "pipeline": pipeline,
+                                    "graphics_backend": node.graphics_backend,
+                                    "offline_mode": true,
+                                }),
+                            )
+                        },
                         Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
                     }
                 },
@@ -2222,6 +2292,9 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             app_log(&format!("[SHARP-LIB] launch: {} engine: {}", id, engine));
             let result = sharp_library::handle_launch(&body);
             if result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if let Some(pid) = result.get("pid").and_then(|v| v.as_u64()).and_then(|pid| u32::try_from(pid).ok()) {
+                    register_sharp_pid(id, pid);
+                }
                 app_log(&format!(
                     "[SHARP-LIB] launched pid {}",
                     result.get("pid").and_then(|v| v.as_u64()).unwrap_or(0)
@@ -2231,6 +2304,23 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 app_issue_log("sharp-launch", id, error, &[format!("engine={}", engine), format!("request_id={}", id)]);
             }
             resp(200, result)
+        },
+        (Method::Post, "/sharp-library/stop") => {
+            let body = read_body(req);
+            let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if id.is_empty() {
+                return resp(400, json!({"ok": false, "error": "id required"}));
+            }
+            match stop_registered_sharp_app(id) {
+                Ok(pid) => {
+                    app_log(&format!("[SHARP-LIB] stopped {} pid {}", id, pid));
+                    resp(200, json!({"ok": true, "pid": pid}))
+                },
+                Err(error) => {
+                    app_issue_log("sharp-stop", id, &error, &[]);
+                    resp(409, json!({"ok": false, "error": error}))
+                },
+            }
         },
         (Method::Post, "/sharp-library/doctor") => {
             let body = read_body(req);
@@ -2414,48 +2504,93 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/games/stop-active") => resp(200, stop_active_games()),
         (Method::Post, "/kill") => {
             let body = read_body(req);
-            let pid_param = body.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
-            let appid = body.get("appid").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let appid = match body.get("appid") {
+                None => None,
+                Some(value) => match value
+                    .as_u64()
+                    .and_then(|value| u32::try_from(value).ok())
+                    .filter(|value| *value > 0)
+                {
+                    Some(appid) => Some(appid),
+                    None => {
+                        return resp(400, json!({"ok": false, "error": "appid must be a positive numeric Steam appid"}))
+                    },
+                },
+            };
 
-            let target_pid = if let Some(aid) = appid {
-                let registered = get_game_pid(aid);
-                let pid = registered.unwrap_or(pid_param);
-                app_log(&format!("[STOP] appid {} | registered pid {:?} | param pid {}", aid, registered, pid_param));
+            if let Some(aid) = appid {
+                // The appid is only an identifier. The PID must come from the
+                // backend's registration made at launch; never fall back to a
+                // caller-supplied PID when the app is not registered.
+                prune_inactive_game_pids();
+                let Some(target_pid) = get_game_pid(aid) else {
+                    app_log(&format!("[STOP REJECTED] appid {} is not registered", aid));
+                    return resp(409, json!({"ok": false, "error": "game is not registered as running"}));
+                };
 
-                match launch::kill_game_with_pid(aid, pid) {
+                if !is_metalsharp_owned_process(target_pid) {
+                    app_log(&format!(
+                        "[STOP REJECTED] appid {} pid {} is not a MetalSharp-owned process",
+                        aid, target_pid
+                    ));
+                    return resp(
+                        403,
+                        json!({"ok": false, "error": "registered process is not a MetalSharp-owned target"}),
+                    );
+                }
+
+                match launch::kill_game_with_pid(aid, target_pid) {
                     Ok(_) => {
                         unregister_game_pid(aid);
-                        app_log(&format!("[STOPPED] appid {} | pid {}", aid, pid));
-                        return resp(200, json!({"ok": true, "pid": pid}));
+                        app_log(&format!("[STOPPED] appid {} | pid {}", aid, target_pid));
+                        resp(200, json!({"ok": true, "pid": target_pid}))
                     },
-                    Err(e) => {
-                        app_log(&format!("[STOP FAILED] appid {} | error: {}", aid, e));
-                        app_issue_log(
-                            "stop",
-                            &aid.to_string(),
-                            &e.to_string(),
-                            &[format!("registered_pid={:?}", registered), format!("requested_pid={}", pid_param)],
-                        );
-                        return resp(500, json!({"ok": false, "error": e.to_string()}));
+                    Err(error) => {
+                        app_log(&format!("[STOP FAILED] appid {} | error: {}", aid, error));
+                        app_issue_log("stop", &aid.to_string(), &error.to_string(), &[]);
+                        resp(500, json!({"ok": false, "error": error.to_string()}))
                     },
                 }
             } else {
-                pid_param
-            };
+                let Some(target_pid) =
+                    body.get("pid").and_then(|value| value.as_u64()).and_then(|value| i32::try_from(value).ok())
+                else {
+                    return resp(400, json!({"ok": false, "error": "pid required"}));
+                };
+                if target_pid <= 0 {
+                    return resp(400, json!({"ok": false, "error": "pid required"}));
+                }
 
-            if target_pid <= 0 {
-                return resp(400, json!({"ok": false, "error": "pid required"}));
-            }
+                // PID-only calls are retained only for registered game roots.
+                // In particular, a browser cannot turn an arbitrary PID into a
+                // kill target by posting to this legacy endpoint.
+                prune_inactive_game_pids();
+                let Some(aid) = get_game_appid_for_pid(target_pid) else {
+                    app_log(&format!("[STOP REJECTED] pid {} is not a registered game", target_pid));
+                    return resp(403, json!({"ok": false, "error": "pid is not a registered MetalSharp game"}));
+                };
+                if !is_metalsharp_owned_process(target_pid) {
+                    app_log(&format!(
+                        "[STOP REJECTED] appid {} pid {} is not a MetalSharp-owned process",
+                        aid, target_pid
+                    ));
+                    return resp(
+                        403,
+                        json!({"ok": false, "error": "registered process is not a MetalSharp-owned target"}),
+                    );
+                }
 
-            match launch::kill_process_tree(target_pid) {
-                Ok(_) => {
-                    app_log(&format!("[STOPPED] pid {}", target_pid));
-                    resp(200, json!({"ok": true, "pid": target_pid}))
-                },
-                Err(e) => {
-                    app_issue_log("stop", &target_pid.to_string(), &e.to_string(), &[]);
-                    resp(500, json!({"ok": false, "error": e.to_string()}))
-                },
+                match launch::kill_process_tree(target_pid) {
+                    Ok(_) => {
+                        unregister_game_pid(aid);
+                        app_log(&format!("[STOPPED] appid {} | pid {}", aid, target_pid));
+                        resp(200, json!({"ok": true, "pid": target_pid}))
+                    },
+                    Err(error) => {
+                        app_issue_log("stop", &target_pid.to_string(), &error.to_string(), &[]);
+                        resp(500, json!({"ok": false, "error": error.to_string()}))
+                    },
+                }
             }
         },
         (Method::Post, "/steam/uninstall-game") => {
@@ -2620,12 +2755,43 @@ fn process_lines() -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn process_command_from_lines(lines: &[String], pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    lines
+        .iter()
+        .filter_map(|line| parse_process_line_owned(line))
+        .find_map(|(candidate_pid, command)| (candidate_pid == pid as u32).then_some(command))
+}
+
+fn process_command_for_pid(pid: i32) -> Option<String> {
+    process_command_from_lines(&process_lines(), pid)
+}
+
 fn parse_process_line_owned(line: &str) -> Option<(u32, String)> {
     let line = line.trim_start();
     let mut parts = line.splitn(2, char::is_whitespace);
     let pid = parts.next()?.parse::<u32>().ok()?;
     let command = parts.next().unwrap_or("").trim_start().to_string();
     Some((pid, command))
+}
+
+fn is_metalsharp_game_command(command: &str, home: &std::path::Path) -> bool {
+    if is_force_kill_target(command, home) {
+        return true;
+    }
+
+    // D3DMetal's optional GPTK lane uses Apple's Wine binary rather than the
+    // MetalSharp Wine wrapper. It is still safe here because this matcher is
+    // only used after the PID has been registered for a Steam appid.
+    let lower = command.to_ascii_lowercase();
+    lower.contains("game porting toolkit.app") && lower.contains(".exe")
+}
+
+fn is_metalsharp_owned_process(pid: i32) -> bool {
+    let home = crate::platform::metalsharp_home_dir();
+    process_command_for_pid(pid).map(|command| is_metalsharp_game_command(&command, &home)).unwrap_or(false)
 }
 
 fn is_force_kill_target(command: &str, home: &std::path::Path) -> bool {
@@ -3269,6 +3435,47 @@ mod tests {
         let targets = active_game_targets(&HashMap::from([(620, 4242), (4000, 0), (1260320, -1)]));
 
         assert_eq!(targets, vec![(620, 4242)]);
+    }
+
+    #[test]
+    fn kill_authorization_never_falls_back_to_requested_pid() {
+        let games = HashMap::from([(620, 4242), (4000, 0)]);
+
+        assert_eq!(registered_game_pid(&games, 620), Some(4242));
+        assert_eq!(registered_game_pid(&games, 4000), None);
+        assert_eq!(registered_game_pid(&games, 730), None);
+        assert_eq!(registered_game_appid_for_pid(&games, 4242), Some(620));
+        assert_eq!(registered_game_appid_for_pid(&games, 9999), None);
+    }
+
+    #[test]
+    fn process_command_lookup_is_limited_to_requested_pid() {
+        let lines = vec![
+            "  4242 /Users/test/.metalsharp/runtime/wine/bin/metalsharp-wine game.exe".to_string(),
+            "  9999 /Applications/Steam.app/Contents/MacOS/steam_osx".to_string(),
+        ];
+
+        assert_eq!(
+            process_command_from_lines(&lines, 4242),
+            Some("/Users/test/.metalsharp/runtime/wine/bin/metalsharp-wine game.exe".to_string())
+        );
+        assert_eq!(process_command_from_lines(&lines, 1234), None);
+    }
+
+    #[test]
+    fn game_process_ownership_allows_metalsharp_and_registered_gptk_commands_only() {
+        let home = std::path::Path::new("/Users/test/.metalsharp");
+
+        assert!(is_metalsharp_game_command("/Users/test/.metalsharp/runtime/wine/bin/metalsharp-wine game.exe", home));
+        assert!(is_metalsharp_game_command(
+            "/Applications/Game Porting Toolkit.app/Contents/Resources/wine/bin/wine64 game.exe",
+            home
+        ));
+        assert!(!is_metalsharp_game_command(
+            "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine64 game.exe",
+            home
+        ));
+        assert!(!is_metalsharp_game_command("/Applications/Steam.app/Contents/MacOS/steam_osx", home));
     }
 
     #[test]

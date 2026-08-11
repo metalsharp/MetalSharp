@@ -1246,9 +1246,17 @@ async function launchApp(id: string, engine: string) {
 async function stopSharpApp(app: SharpApp) {
   const pid = runningSharpPids.value[app.id];
   if (!pid) return;
-  await api("POST", "/kill", { pid });
-  delete runningSharpPids.value[app.id];
-  toast.show(`Closed ${app.name}`);
+  const bottle = app.bottle_id ? bottles.value.find((item) => item.id === app.bottle_id) : undefined;
+  const isD3DMetalLaunch = app.engine === "d3dmetal" && bottle?.steam_app_id;
+  const result = isD3DMetalLaunch
+    ? await api<{ ok: boolean; error?: string }>("POST", "/kill", { appid: bottle.steam_app_id })
+    : await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/stop", { id: app.id });
+  if (result?.ok) {
+    delete runningSharpPids.value[app.id];
+    toast.show(`Closed ${app.name}`);
+  } else {
+    toast.show(result?.error ?? `Failed to close ${app.name}`, "error");
+  }
 }
 
 async function updateEngine(id: string, engine: string) {

@@ -157,7 +157,11 @@ When a title uses the Steam launch model and Goldberg is disabled, the launcher 
 ## Process Lifecycle
 
 - Running games are tracked by the backend.
-- Stop/kill actions terminate the registered process and child processes.
+- Stop/kill actions terminate only backend-registered process roots and their
+  child processes. Game stops resolve the PID from the registered `appid` (or
+  the legacy PID-only route accepts only a registered game root); caller-
+  supplied PIDs are never used as a fallback. Sharp Library apps use an
+  app-id-scoped stop route with command-line ownership validation.
 - Steam process management lives in `steam.rs`.
 - Launching a Steam game keeps Wine Steam alive for Steam connectivity. Env-dependent routes apply route-specific
   environment to the spawned game process rather than trying to make an already-running Steam client inherit it.
