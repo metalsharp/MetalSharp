@@ -32,6 +32,7 @@ Use this page as the repo map before changing launch/runtime code.
 
 ## Architecture
 
+- [macOS Artifact Matrix](architecture/macos-artifact-matrix.md) - native host and Wine/Rosetta artifact boundaries.
 - [Launch Architecture](architecture/launch-architecture.md) - pipeline selection and launch ownership.
 - [Backend HTTP Request Contract](architecture/backend-http-contract.md) - bounded JSON request bodies and client error responses.
 - [Electron IPC Security Contract](architecture/electron-ipc-security.md) - renderer trust boundary, backend allowlist, dependency actions, and updater validation.

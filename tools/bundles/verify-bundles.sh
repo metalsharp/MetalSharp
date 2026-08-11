@@ -171,7 +171,25 @@ verify_runtime_core() {
     runtime/wine/lib/metalsharp/i386-windows/xinput1_2.dll \
     runtime/wine/lib/metalsharp/i386-windows/xinput1_3.dll \
     runtime/wine/lib/metalsharp/i386-windows/xinput1_4.dll \
-    runtime/wine/lib/metalsharp/i386-windows/xinput9_1_0.dll
+    runtime/wine/lib/metalsharp/i386-windows/xinput9_1_0.dll &&
+    verify_runtime_host_architecture "$1"
+}
+
+verify_runtime_host_architecture() {
+  local path="$1"
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-runtime-arch.XXXXXX")"
+  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" runtime/host/libmetalsharp_host_runtime.dylib; then
+    echo "RUNTIME INVALID: $path cannot extract the host runtime library" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  if ! "$PROJECT_ROOT/tools/package/verify-macos-architecture.sh" arm64 \
+    "$tmp/runtime/host/libmetalsharp_host_runtime.dylib"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$tmp"
 }
 
 verify_graphics_core() {
@@ -432,6 +450,10 @@ verify_eac_native_assets() {
   if ! file "$tmp/scripts/tools/native/metalsharp_eac_substrate.dylib" | grep -q "Mach-O" \
     || ! file "$tmp/scripts/tools/native/metalsharp_eac_substrate.dylib" | grep -q "x86_64"; then
     echo "SCRIPTS TOOLS INVALID: EAC substrate is not an x86_64 Mach-O dylib" >&2
+    failed=1
+  fi
+  if ! "$PROJECT_ROOT/tools/package/verify-macos-architecture.sh" x86_64 \
+    "$tmp/scripts/tools/native/metalsharp_eac_substrate.dylib"; then
     failed=1
   fi
   if ! file "$tmp/scripts/tools/native/metalsharp_eac_libc.so.6" | grep -q "ELF 64-bit.*x86-64"; then

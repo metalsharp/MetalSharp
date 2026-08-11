@@ -32,6 +32,7 @@ BACKEND="$RESOURCES/runtime/metalsharp-backend"
 HOST="$RESOURCES/runtime/host"
 BUNDLES="$RESOURCES/bundles"
 NATIVE="$RESOURCES/scripts/tools/native"
+ARCH_CHECK="$PROJECT_ROOT/tools/package/verify-macos-architecture.sh"
 # The two explicit bundle paths below are the installed EAC substrate contract:
 # Contents/Resources/scripts/tools/native/metalsharp_eac_substrate.dylib
 # Contents/Resources/scripts/tools/native/metalsharp_eac_libc.so.6
@@ -78,6 +79,10 @@ if [ ! -s "$HOST/libmetalsharp_host_runtime.dylib" ] \
   echo "DMG host runtime has no non-empty shared library" >&2
   exit 1
 fi
+
+"$ARCH_CHECK" arm64 "$HOST/libmetalsharp_host_runtime.dylib"
+"$ARCH_CHECK" arm64 "$NATIVE/metalsharp_launcher"
+"$ARCH_CHECK" x86_64 "$NATIVE/metalsharp"
 
 cp "$BUNDLES"/*.tar.zst "$LIST_DIR"/
 "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$LIST_DIR" --require mac
