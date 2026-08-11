@@ -12,6 +12,7 @@ const MANIFEST_FILE: &str = "library.json";
 const DEFAULT_EPIC_COVER: &str = "default-cover-epic-games-launcher.svg";
 const DEFAULT_ROCKSTAR_COVER: &str = "default-cover-rockstar-games-launcher.svg";
 const DEFAULT_UBISOFT_COVER: &str = "default-cover-ubisoft-connect.svg";
+const SUPPORTED_COVER_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "svg"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StoreLauncherKind {
@@ -1491,29 +1492,62 @@ fn combined_launch_args(app: &SharpApp) -> Vec<String> {
     app.launch_args.iter().chain(app.user_launch_args.iter()).cloned().collect()
 }
 
-pub fn set_cover(id: &str, cover_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let src = PathBuf::from(cover_path);
+fn normalized_cover_extension(src: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    src.extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .filter(|extension| SUPPORTED_COVER_EXTENSIONS.contains(&extension.as_str()))
+        .ok_or("Cover image must use png, jpg, jpeg, webp, or svg extension".into())
+}
+
+fn set_cover_in_library(
+    id: &str,
+    src: &Path,
+    destination_dir: &Path,
+    library: &mut [SharpApp],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !is_safe_library_id(id) {
+        return Err("Invalid app id".into());
+    }
+    let app_index = library.iter().position(|app| app.id == id).ok_or("App not found")?;
+
+    let ext = normalized_cover_extension(src)?;
+
     if !src.exists() {
         return Err("Cover image not found".into());
     }
 
-    let metadata = fs::metadata(&src)?;
+    let metadata = fs::metadata(src)?;
     if metadata.len() > 5 * 1024 * 1024 {
         return Err("Cover image must be under 5MB".into());
     }
 
-    let ext = src.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_else(|| "jpg".to_string());
-
     let cover_filename = format!("{}.{}", id, ext);
-    let dst = base_dir().join(&cover_filename);
-    fs::copy(&src, &dst)?;
+    let dst = destination_dir.join(&cover_filename);
+    match dst.symlink_metadata() {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("Refusing to replace a symlinked cover".into());
+        },
+        Ok(_) => {},
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+        Err(error) => return Err(error.into()),
+    }
+    fs::copy(src, &dst)?;
 
-    let mut library = load_library()?;
-    if let Some(app) = library.iter_mut().find(|a| a.id == id) {
-        app.cover = Some(cover_filename);
-        save_library(&library)?;
+    library[app_index].cover = Some(cover_filename);
+    Ok(())
+}
+
+pub fn set_cover(id: &str, cover_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if !is_safe_library_id(id) {
+        return Err("Invalid app id".into());
     }
 
+    let mut library = load_library()?;
+    let src = PathBuf::from(cover_path);
+    let destination_dir = base_dir();
+    set_cover_in_library(id, &src, &destination_dir, &mut library)?;
+    save_library(&library)?;
     Ok(())
 }
 
@@ -2056,6 +2090,99 @@ mod tests {
         assert!(!is_safe_library_id("../runtime"));
         assert!(!is_safe_library_id("nested/game"));
         assert!(!is_safe_library_id("/tmp/game"));
+    }
+
+    #[test]
+    fn set_cover_accepts_only_supported_image_extensions() {
+        for extension in SUPPORTED_COVER_EXTENSIONS {
+            let path = PathBuf::from(format!("cover.{}", extension.to_uppercase()));
+            assert_eq!(normalized_cover_extension(&path).unwrap(), *extension);
+        }
+
+        assert!(normalized_cover_extension(Path::new("cover.gif")).is_err());
+        assert!(normalized_cover_extension(Path::new("cover")).is_err());
+    }
+
+    #[test]
+    fn set_cover_rejects_path_like_ids_before_copying() {
+        let root = test_dir("cover-invalid-id");
+        fs::create_dir_all(&root).expect("create test dir");
+        let source = root.join("cover.jpg");
+        fs::write(&source, b"cover data").expect("write source cover");
+        let outside = root.parent().expect("test dir parent").join(format!("cover-outside-{}.jpg", unique_suffix()));
+        fs::write(&outside, b"original data").expect("write outside sentinel");
+
+        let mut library = vec![test_app("Game", "Game.exe", "/tmp/Game")];
+        let error = set_cover_in_library("../cover-outside", &source, &root, &mut library).unwrap_err();
+
+        assert_eq!(error.to_string(), "Invalid app id");
+        assert_eq!(fs::read(&outside).expect("read outside sentinel"), b"original data");
+        assert!(library[0].cover.is_none());
+
+        let _ = fs::remove_file(outside);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn set_cover_requires_an_existing_app_before_copying() {
+        let root = test_dir("cover-missing-app");
+        fs::create_dir_all(&root).expect("create test dir");
+        let source = root.join("cover.jpg");
+        fs::write(&source, b"cover data").expect("write source cover");
+        let mut library = vec![test_app("Game", "Game.exe", "/tmp/Game")];
+
+        let error = set_cover_in_library("missing-app", &source, &root, &mut library).unwrap_err();
+
+        assert_eq!(error.to_string(), "App not found");
+        assert!(!root.join("missing-app.jpg").exists());
+        assert!(library[0].cover.is_none());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_cover_refuses_a_symlinked_destination() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_dir("cover-symlink");
+        fs::create_dir_all(&root).expect("create test dir");
+        let source = root.join("cover.jpg");
+        fs::write(&source, b"cover data").expect("write source cover");
+        let outside = root.join("outside.jpg");
+        fs::write(&outside, b"original data").expect("write outside sentinel");
+        let app = test_app("Game", "Game.exe", "/tmp/Game");
+        let id = app.id.clone();
+        let destination = root.join(format!("{}.jpg", id));
+        symlink(&outside, &destination).expect("create destination symlink");
+        let mut library = vec![app];
+
+        let error = set_cover_in_library(&id, &source, &root, &mut library).unwrap_err();
+
+        assert_eq!(error.to_string(), "Refusing to replace a symlinked cover");
+        assert_eq!(fs::read(&outside).expect("read outside sentinel"), b"original data");
+        assert!(library[0].cover.is_none());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn set_cover_copies_supported_cover_and_updates_app() {
+        let root = test_dir("cover-success");
+        fs::create_dir_all(&root).expect("create test dir");
+        let source = root.join("cover.JPEG");
+        fs::write(&source, b"cover data").expect("write source cover");
+        let app = test_app("Game", "Game.exe", "/tmp/Game");
+        let id = app.id.clone();
+        let mut library = vec![app];
+
+        set_cover_in_library(&id, &source, &root, &mut library).expect("set cover");
+
+        let expected_filename = format!("{}.jpeg", id);
+        assert_eq!(library[0].cover.as_deref(), Some(expected_filename.as_str()));
+        assert_eq!(fs::read(root.join(expected_filename)).expect("read copied cover"), b"cover data");
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
