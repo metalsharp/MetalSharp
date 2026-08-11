@@ -224,6 +224,42 @@ static bool test_x3daudio_calculate() {
     return output.emitterToListenerDistance > 0 && output.dopplerFactor > 0;
 }
 
+static bool test_x3daudio_surround_matrix_bounds() {
+    auto& engine = X3DAudioEngine::instance();
+    engine.init(0x3);
+
+    Audio3DListener listener = {{0, 0, 0}, {0, 0, -1}, {0, 1, 0}, {0, 0, 0}, 1, 1, 0};
+    Audio3DEmitter emitter = {{0, 0, -10}, {0, 0, -1}, {0, 1, 0}, {0, 0, 0}, 0, 0, 18, 1, 1, 1};
+
+    struct GuardedOutput {
+        Audio3DOutput output;
+        uint32_t guard[32];
+    } guarded = {};
+    for (auto& value : guarded.guard)
+        value = 0xA5A5A5A5;
+
+    engine.calculate(listener, emitter, 0, 8, guarded.output);
+
+    bool guardIntact = true;
+    for (auto value : guarded.guard) {
+        if (value != 0xA5A5A5A5) {
+            guardIntact = false;
+            break;
+        }
+    }
+
+    bool matrixInitialized = true;
+    for (float coefficient : guarded.output.matrixCoefficients) {
+        if (!std::isfinite(coefficient) || coefficient <= 0.0f) {
+            matrixInitialized = false;
+            break;
+        }
+    }
+
+    engine.shutdown();
+    return guardIntact && matrixInitialized;
+}
+
 // 22.3 DirectSound
 static bool test_directsound_init() {
     auto& ds = DirectSoundBackend::instance();
@@ -297,6 +333,7 @@ int main() {
     TEST(x3daudio_pan);
     TEST(x3daudio_doppler);
     TEST(x3daudio_calculate);
+    TEST(x3daudio_surround_matrix_bounds);
 
     printf("\n--- 22.3 DirectSound Fallback ---\n");
     TEST(directsound_init);
