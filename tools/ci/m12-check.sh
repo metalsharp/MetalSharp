@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUNDLE_DIR="$ROOT_DIR/app/bundles"
+M12_BUNDLE_HASH_MANIFEST="$ROOT_DIR/tools/ci/m12-bundle-hashes.tsv"
 DEFAULT_WINE_ROOT="$HOME/.metalsharp/tmp/m12_check_runtime/wine"
 WINE_ROOT="${METALSHARP_WINE_ROOT:-$DEFAULT_WINE_ROOT}"
 M12_DXMT_ROOT="${METALSHARP_M12_DXMT_ROOT:-$WINE_ROOT/lib/dxmt_m12}"
@@ -29,10 +30,13 @@ trap cleanup EXIT
 download_bundle() {
   local asset="$1"
   local target="$BUNDLE_DIR/$asset"
-  if [[ -s "$target" ]]; then
-    return
+  if [[ ! -s "$target" ]]; then
+    curl -fsSL --retry 3 -o "$target" "https://github.com/aaf2tbz/metalsharp/releases/download/bundles/$asset"
   fi
-  curl -fsSL -o "$target" "https://github.com/aaf2tbz/metalsharp/releases/download/bundles/$asset"
+  if ! "$ROOT_DIR/tools/ci/verify-bundle-sha256.sh" "$M12_BUNDLE_HASH_MANIFEST" "$asset" "$target"; then
+    rm -f "$target"
+    exit 1
+  fi
 }
 
 prepare_runtime() {

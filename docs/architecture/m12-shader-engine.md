@@ -176,6 +176,11 @@ tools/bundles/verify-bundles.sh --bundle-dir app/bundles --require mac
 tools/bundles/verify-developer-sdk.sh app/bundles/metalsharp-d3d12-developer-sdk.tar.zst
 ```
 
+`m12-check.sh` verifies the downloaded runtime/graphics archives against the
+pinned digests in `tools/ci/m12-bundle-hashes.tsv` (via
+`tools/ci/verify-bundle-sha256.sh`) before staging them, so the gate can never
+silently execute tampered bundle material.
+
 ## Contract Authority
 
 The machine-readable source of truth is

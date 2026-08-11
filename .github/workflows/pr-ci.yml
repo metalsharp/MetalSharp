@@ -162,6 +162,15 @@ jobs:
       - name: Verify DMG workflow contract
         run: python3 tools/ci/verify-dmg-workflow.py
 
+  tooling-tests:
+    name: Tooling Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Bundle checksum verifier regression tests
+        run: python3 tools/ci/test-verify-bundle-sha256.py
+
   native:
     name: C/C++/Obj-C CI
     runs-on: macos-14

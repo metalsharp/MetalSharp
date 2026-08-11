@@ -1,5 +1,5 @@
 # Runtime Bundles and Steam Routing
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 This is the operational contract for bundle provenance and Wine Steam launch routing.
@@ -7,6 +7,8 @@ This is the operational contract for bundle provenance and Wine Steam launch rou
 ## Bundle Provenance
 
 Runtime assets are downloaded from the `bundles` GitHub release into `app/bundles/` during app packaging and into `~/.metalsharp/cache/bundles/` during installer fallback downloads.
+
+Every archive is published with its SHA-256 in the `metalsharp-bundle-manifest.tsv` asset of the `bundles` release. Consumers that execute bundle payloads pin those digests rather than trusting the download channel: the production installer (`scripts/install-metalsharp-wine-runtime.sh`) pins its archive digests inline, and the CI M12 gate (`tools/ci/m12-check.sh`) verifies each downloaded bundle against the pinned manifest `tools/ci/m12-bundle-hashes.tsv` via `tools/ci/verify-bundle-sha256.sh`, failing the gate on any mismatch. Update that manifest in the same change that rotates the `bundles` release.
 
 The manifest-tracked assets are listed in `tools/bundles/asset-manifest.tsv`. The verifier checks that each tarball exists and contains the expected baby-named root.
 
