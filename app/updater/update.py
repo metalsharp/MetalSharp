@@ -24,15 +24,29 @@ import tempfile
 import time
 import urllib.request
 
-try:
-    os.setsid()
-except OSError:
-    pass
-
 APP_PATH = "/Applications/MetalSharp.app"
 BACKEND_PORT = 9274
 BACKEND_TOKEN_FILE = ".backend-token"
 UPDATE_DMG_PATH = None
+
+PRIVILEGED_APPLESCRIPT = """
+on run argv
+    set commandPath to item 1 of argv
+    set commandArgs to rest of argv
+    set shellCommand to quoted form of commandPath
+    repeat with commandArg in commandArgs
+        set shellCommand to shellCommand & " " & quoted form of (commandArg as text)
+    end repeat
+    do shell script shellCommand with administrator privileges
+end run
+"""
+
+PRIVILEGED_COMMANDS = {
+    "cp": "/bin/cp",
+    "hdiutil": "/usr/bin/hdiutil",
+    "mv": "/bin/mv",
+    "rm": "/bin/rm",
+}
 
 
 def write_status(status_file, phase, percent, message, error=None, new_version=None):
@@ -62,6 +76,15 @@ def read_status(status_file):
 
 def run(cmd, **kwargs):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kwargs)
+
+
+def run_privileged(command, *args):
+    command_path = PRIVILEGED_COMMANDS.get(command)
+    if command_path is None:
+        raise ValueError("unsupported privileged command: {}".format(command))
+    return run(
+        ["osascript", "-e", PRIVILEGED_APPLESCRIPT, "--", command_path, *args]
+    )
 
 
 def is_pid_alive(pid):
@@ -179,13 +202,9 @@ def mount_dmg(dmg_path):
     if r.returncode == 0 and os.path.isdir(mount_dir) and os.listdir(mount_dir):
         return mount_dir
 
-    apple = (
-        'do shell script "hdiutil attach -nobrowse -quiet -mountpoint '
-        '\\"' + mount_dir + '\\" '
-        '\\"' + dmg_path + '\\""'
-        " with administrator privileges"
+    r = run_privileged(
+        "hdiutil", "attach", "-nobrowse", "-quiet", "-mountpoint", mount_dir, dmg_path
     )
-    r = run(["osascript", "-e", apple])
     if r.returncode == 0:
         time.sleep(2)
         if os.path.isdir(mount_dir) and os.listdir(mount_dir):
@@ -240,6 +259,15 @@ def find_app_in_mount(mount_point):
 
 
 def verify_app_bundle(app_path):
+    app_name = os.path.basename(os.path.normpath(app_path))
+    # The mounted DMG is untrusted input.  The bundle source is later passed
+    # to a privileged file operation, so reject shell-significant and control
+    # characters before inspecting or staging it.  Staging names use the same
+    # conservative character set by design.
+    safe_name_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+    if not app_name or any(char not in safe_name_chars for char in app_name):
+        return False
+
     required = [
         os.path.join(app_path, "Contents", "Info.plist"),
         os.path.join(app_path, "Contents", "MacOS", "MetalSharp"),
@@ -336,8 +364,7 @@ def admin_rm_rf(path):
     r = run(["rm", "-rf", path])
     if r.returncode == 0:
         return True
-    apple = 'do shell script "rm -rf \\"' + path + '\\"" with administrator privileges'
-    r = run(["osascript", "-e", apple])
+    r = run_privileged("rm", "-rf", path)
     return r.returncode == 0
 
 
@@ -345,8 +372,7 @@ def admin_mv(src, dst):
     r = run(["mv", src, dst])
     if r.returncode == 0:
         return True
-    apple = 'do shell script "mv \\\"' + src + '\\\" \\\"' + dst + '\\\"" with administrator privileges'
-    r = run(["osascript", "-e", apple])
+    r = run_privileged("mv", src, dst)
     return r.returncode == 0
 
 
@@ -354,14 +380,7 @@ def admin_cp_r(src, dst):
     r = run(["cp", "-R", src, dst])
     if r.returncode == 0:
         return True
-    apple = (
-        'do shell script "cp -R \\"'
-        + src
-        + '\\" \\"'
-        + dst
-        + '\\"" with administrator privileges'
-    )
-    r = run(["osascript", "-e", apple])
+    r = run_privileged("cp", "-R", src, dst)
     return r.returncode == 0
 
 
@@ -422,6 +441,11 @@ def report_update_result(status_file, version, target_version):
 
 
 def main():
+    try:
+        os.setsid()
+    except OSError:
+        pass
+
     parser = argparse.ArgumentParser(description="MetalSharp Updater")
     parser.add_argument("--dmg", required=True)
     parser.add_argument("--dmg-size", required=True, type=int)
