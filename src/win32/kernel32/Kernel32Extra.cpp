@@ -28,8 +28,8 @@
 ///
 /// Environment & Debug
 /// ===================
-///   shim_GetEnvironmentVariableA/W — Reads from real environment
-///   shim_SetEnvironmentVariableA/W — Sets in real environment
+///   shim_GetEnvironmentVariableA/W — Case-insensitive Windows-side environment lookup
+///   shim_SetEnvironmentVariableA/W — Updates the Windows-side environment map
 ///   shim_GetCommandLineA/W — Returns stored command line from launcher
 ///   shim_OutputDebugStringA — Forwards to MS_INFO log
 ///   shim_IsDebuggerPresent — Returns FALSE
@@ -45,6 +45,7 @@
 ///
 /// Status: ~70% of commonly-used kernel32 exports implemented. Games that call
 /// obscure kernel32 functions will log "MISSING" in the import resolver.
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -54,6 +55,7 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <metalsharp/Kernel32Shim.h>
 #include <metalsharp/Logger.h>
 #include <metalsharp/NetworkContext.h>
 #include <metalsharp/PEHeader.h>
@@ -64,17 +66,23 @@
 #include <metalsharp/Win32Types.h>
 #include <mutex>
 #include <pthread.h>
+#include <string_view>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <unordered_set>
+
+#if defined(__APPLE__)
+#include <crt_externs.h>
+#else
+extern char** environ;
+#endif
 
 namespace metalsharp {
 namespace win32 {
-
-static thread_local DWORD t_lastError = 0;
 
 static std::atomic<int> g_callCount{0};
 static thread_local int t_callDepth = 0;
@@ -267,14 +275,60 @@ static wchar_t* MSABI shim_GetCommandLineW() {
 }
 
 static std::unordered_map<std::string, std::string> s_envStore;
+static std::unordered_set<std::string> s_envHidden;
 static bool s_envInitialized = false;
+
+static std::string canonicalEnvironmentName(std::string_view name) {
+    std::string canonical;
+    canonical.reserve(name.size());
+    for (char character : name) {
+        canonical.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(character))));
+    }
+    return canonical;
+}
+
+static std::string narrowEnvironmentString(const wchar_t* value) {
+    std::string result;
+    if (!value)
+        return result;
+
+    for (size_t i = 0; value[i]; i++)
+        result.push_back(static_cast<char>(value[i] & 0x7F));
+    return result;
+}
+
+static char** hostEnvironment() {
+#if defined(__APPLE__)
+    return *_NSGetEnviron();
+#else
+    return environ;
+#endif
+}
+
+// macOS keeps environment names case-sensitive even though Windows does not.
+// Walk the process environment rather than calling getenv(name), so a PE
+// lookup cannot miss a host variable solely because its spelling differs.
+static const char* findHostEnvironmentValue(const std::string& canonicalName) {
+    char** environment = hostEnvironment();
+    if (!environment)
+        return nullptr;
+
+    for (char** entry = environment; *entry; entry++) {
+        const char* separator = strchr(*entry, '=');
+        if (!separator)
+            continue;
+
+        std::string entryName(*entry, static_cast<size_t>(separator - *entry));
+        if (canonicalEnvironmentName(entryName) == canonicalName)
+            return separator + 1;
+    }
+    return nullptr;
+}
 
 static void ensureEnvInit() {
     if (s_envInitialized)
         return;
     s_envInitialized = true;
-    const char* home = getenv("HOME");
-    std::string homeDir = home ? home : "/tmp";
     s_envStore["PATH"] = "C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem";
     s_envStore["APPDATA"] = "C:\\Users\\user\\AppData\\Roaming";
     s_envStore["USERPROFILE"] = "C:\\Users\\user";
@@ -308,95 +362,120 @@ static void ensureEnvInit() {
     s_envStore["FPS_BROWSER_APP_PROFILE"] = "chrome";
 }
 
+static const std::string* findEnvironmentValue(const std::string& canonicalName) {
+    auto cached = s_envStore.find(canonicalName);
+    if (cached != s_envStore.end())
+        return &cached->second;
+
+    // A Windows-side deletion must mask an inherited host variable without
+    // calling unsetenv(), which would mutate the launcher's POSIX namespace.
+    if (s_envHidden.find(canonicalName) != s_envHidden.end())
+        return nullptr;
+
+    const char* hostValue = findHostEnvironmentValue(canonicalName);
+    if (!hostValue)
+        return nullptr;
+
+    auto [inserted, unused] = s_envStore.emplace(canonicalName, hostValue);
+    (void)unused;
+    return &inserted->second;
+}
+
+static BOOL setEnvironmentValue(const std::string& name, const std::string* value) {
+    const std::string canonicalName = canonicalEnvironmentName(name);
+    if (canonicalName.empty()) {
+        setKernel32LastError(ERROR_INVALID_PARAMETER);
+        return 0;
+    }
+
+    if (value) {
+        s_envStore[canonicalName] = *value;
+        s_envHidden.erase(canonicalName);
+    } else {
+        s_envStore.erase(canonicalName);
+        s_envHidden.insert(canonicalName);
+    }
+    return 1;
+}
+
 static DWORD MSABI shim_GetEnvironmentVariableW(const wchar_t* lpName, wchar_t* lpBuffer, DWORD nSize) {
     ensureEnvInit();
-    if (!lpName)
+    if (!lpName) {
+        setKernel32LastError(ERROR_INVALID_PARAMETER);
         return 0;
-    char name[256];
-    int j = 0;
-    for (int i = 0; lpName[i] && j < 255; i++)
-        name[j++] = (char)(lpName[i] & 0x7F);
-    name[j] = 0;
-
-    std::string upper;
-    for (auto c : std::string(name))
-        upper += toupper(c);
-
-    auto it = s_envStore.find(upper);
-    if (it == s_envStore.end()) {
-        const char* env = getenv(name);
-        if (env)
-            it = s_envStore.insert({upper, env}).first;
-        else
-            return 0;
     }
 
-    const std::string& val = it->second;
-    DWORD needed = static_cast<DWORD>(val.size());
+    const std::string canonicalName = canonicalEnvironmentName(narrowEnvironmentString(lpName));
+    const std::string* value = findEnvironmentValue(canonicalName);
+    if (!value) {
+        setKernel32LastError(ERROR_ENVVAR_NOT_FOUND);
+        return 0;
+    }
+
+    const std::string& val = *value;
+    DWORD needed = static_cast<DWORD>(val.size() + 1);
     if (nSize == 0)
-        return needed + 1;
-    if (lpBuffer && nSize > needed) {
-        for (size_t i = 0; i <= needed; i++)
-            lpBuffer[i] = (wchar_t)(unsigned char)val[i];
+        return needed;
+    if (!lpBuffer || nSize < needed) {
+        setKernel32LastError(ERROR_BUFFER_OVERFLOW);
+        return 0;
     }
-    return needed;
+    if (lpBuffer) {
+        for (size_t i = 0; i < val.size(); i++)
+            lpBuffer[i] = (wchar_t)(unsigned char)val[i];
+        lpBuffer[val.size()] = L'\0';
+    }
+    return needed - 1;
 }
 
 static DWORD MSABI shim_GetEnvironmentVariableA(const char* lpName, char* lpBuffer, DWORD nSize) {
     ensureEnvInit();
-    if (!lpName)
+    if (!lpName) {
+        setKernel32LastError(ERROR_INVALID_PARAMETER);
         return 0;
-
-    std::string upper;
-    for (auto c : std::string(lpName))
-        upper += tolower(c);
-
-    auto it = s_envStore.find(upper);
-    if (it == s_envStore.end()) {
-        const char* env = getenv(lpName);
-        if (env)
-            it = s_envStore.insert({upper, env}).first;
-        else
-            return 0;
     }
 
-    const std::string& val = it->second;
-    DWORD needed = static_cast<DWORD>(val.size());
+    const std::string canonicalName = canonicalEnvironmentName(lpName);
+    const std::string* value = findEnvironmentValue(canonicalName);
+    if (!value) {
+        setKernel32LastError(ERROR_ENVVAR_NOT_FOUND);
+        return 0;
+    }
+
+    const std::string& val = *value;
+    DWORD needed = static_cast<DWORD>(val.size() + 1);
     if (nSize == 0)
-        return needed + 1;
-    if (lpBuffer && nSize > needed) {
-        memcpy(lpBuffer, val.c_str(), needed + 1);
+        return needed;
+    if (!lpBuffer || nSize < needed) {
+        setKernel32LastError(ERROR_BUFFER_OVERFLOW);
+        return 0;
     }
-    return needed;
+    if (lpBuffer) {
+        memcpy(lpBuffer, val.c_str(), needed);
+    }
+    return needed - 1;
 }
 
 static BOOL MSABI shim_SetEnvironmentVariableW(const wchar_t* lpName, const wchar_t* lpValue) {
     ensureEnvInit();
-    if (!lpName)
+    if (!lpName) {
+        setKernel32LastError(ERROR_INVALID_PARAMETER);
         return 0;
-    char name[256];
-    int j = 0;
-    for (int i = 0; lpName[i] && j < 255; i++)
-        name[j++] = (char)(lpName[i] & 0x7F);
-    name[j] = 0;
-
-    std::string upper;
-    for (auto c : std::string(name))
-        upper += toupper(c);
-
-    if (lpValue) {
-        char val[1024];
-        int k = 0;
-        for (int i = 0; lpValue[i] && k < 1023; i++)
-            val[k++] = (char)(lpValue[i] & 0x7F);
-        val[k] = 0;
-        s_envStore[upper] = val;
-        setenv(upper.c_str(), val, 1);
-    } else {
-        s_envStore.erase(upper);
-        unsetenv(upper.c_str());
     }
-    return 1;
+
+    std::string value = narrowEnvironmentString(lpValue);
+    return setEnvironmentValue(narrowEnvironmentString(lpName), lpValue ? &value : nullptr);
+}
+
+static BOOL MSABI shim_SetEnvironmentVariableA(const char* lpName, const char* lpValue) {
+    ensureEnvInit();
+    if (!lpName) {
+        setKernel32LastError(ERROR_INVALID_PARAMETER);
+        return 0;
+    }
+
+    std::string value = lpValue ? lpValue : "";
+    return setEnvironmentValue(lpName, lpValue ? &value : nullptr);
 }
 
 static DWORD MSABI shim_ExpandEnvironmentStringsW(const wchar_t* lpSrc, wchar_t* lpDst, DWORD nSize) {
@@ -415,19 +494,12 @@ static DWORD MSABI shim_ExpandEnvironmentStringsW(const wchar_t* lpSrc, wchar_t*
             size_t end = src.find('%', pos + 1);
             if (end != std::string::npos) {
                 std::string varName = src.substr(pos + 1, end - pos - 1);
-                std::string upper;
-                for (auto c : varName)
-                    upper += toupper(c);
-                auto it = s_envStore.find(upper);
-                if (it != s_envStore.end()) {
-                    result += it->second;
-                } else {
-                    const char* env = getenv(varName.c_str());
-                    if (env)
-                        result += env;
-                    else
-                        result += src.substr(pos, end - pos + 1);
-                }
+                const std::string canonicalName = canonicalEnvironmentName(varName);
+                const std::string* value = findEnvironmentValue(canonicalName);
+                if (value)
+                    result += *value;
+                else
+                    result += src.substr(pos, end - pos + 1);
                 pos = end + 1;
             } else {
                 result += src[pos++];
@@ -2065,6 +2137,7 @@ void addMissingKernel32(ShimLibrary& lib) {
     lib.functions["GetEnvironmentVariableW"] = fn((void*)shim_GetEnvironmentVariableW);
     lib.functions["GetEnvironmentVariableA"] = fn((void*)shim_GetEnvironmentVariableA);
     lib.functions["SetEnvironmentVariableW"] = fn((void*)shim_SetEnvironmentVariableW);
+    lib.functions["SetEnvironmentVariableA"] = fn((void*)shim_SetEnvironmentVariableA);
     lib.functions["ExpandEnvironmentStringsA"] = fn((void*)stub_zero_dword);
     lib.functions["ExpandEnvironmentStringsW"] = fn((void*)shim_ExpandEnvironmentStringsW);
     lib.functions["GetStartupInfoW"] = fn((void*)shim_GetStartupInfoW);

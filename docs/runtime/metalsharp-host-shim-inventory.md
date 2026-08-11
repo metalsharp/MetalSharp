@@ -1,6 +1,7 @@
 # MetalSharp Host Shim Inventory
 
 Created: 2026-05-19
+Updated: 2026-08-11
 
 Purpose: Phase 0 inventory of existing C, C++, and Objective-C host shims that can seed a formal MetalSharp Host Runtime ABI.
 
@@ -34,6 +35,28 @@ Purpose: Phase 0 inventory of existing C, C++, and Objective-C host shims that c
 | Offline EAC mode naming | `app/src-rust/src/installer.rs`, `app/src-rust/src/main.rs` | Installer/UI text now avoids bypass wording, but endpoint names still expose the legacy `eac-toggle` route. | legacy-risk | Audit behavior, keep naming explicit if legitimate compatibility flag, remove if bypass-like. |
 | Controller input shims (PR #375) | `tools/bundles/update-lib-metalsharp.py` (xinput/dinput PE shims), deployed per `controllerInput` config (`off`/`x`/`d`) | XInput shims (`xinput1_1.dll`…`xinput1_4.dll`, `xinput9_1_0.dll`) and DInput shims (`dinput.dll`, `dinput8.dll`) shipped in `lib/metalsharp` and copied into the game folder + Steam prefix `system32`/`syswow64` on launch; previous set removed on switch, pre-existing game files backed up/restored. | stable | Keep the shim set per-mode; extend the manifest pattern below to versioned selection. |
 | Runtime deploy glue | `app/src-rust/src/mtsp/launcher.rs`, `app/src-rust/src/setup.rs` | Copies shims into runtime/game folders and assembles launch env. The Mono/FNA launcher now has a native shim manifest for kernel32/user32/Carbon interpose plus bundled CoreAudio/GameController dylibs. | prototype | Extend the manifest pattern into versioned Host Runtime ABI asset selection and self-tests. |
+
+## Native-loader Environment Contract
+
+The C++ kernel32 environment exports in `src/win32/kernel32/Kernel32Extra.cpp`
+model the Windows environment block separately from the macOS process
+environment:
+
+- variable names are canonicalized to uppercase for both the A and W exports;
+- inherited macOS variables are discovered by a case-insensitive scan of the
+  host environment, rather than by the case-sensitive `getenv(name)` lookup;
+- `GetEnvironmentVariableA/W(name, nullptr, 0)` returns the required character
+  count including the terminator;
+- a non-zero-size buffer that cannot hold the value returns zero, sets
+  `ERROR_BUFFER_OVERFLOW`, and is left untouched; and
+- `SetEnvironmentVariableA/W` updates the Windows-side map without calling
+  `setenv` or `unsetenv`, so a PE mutation cannot leak a synthetic uppercase
+  variable into the launcher's POSIX namespace. A Windows-side deletion masks
+  an inherited host variable for subsequent PE lookups.
+
+The shared kernel32 last-error state is used by both the core exports and these
+extended exports, so callers observe buffer and missing-variable errors through
+the normal `GetLastError` path.
 
 ## Strongest Existing Pattern
 
