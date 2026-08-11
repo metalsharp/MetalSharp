@@ -467,7 +467,16 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Get, "/update/progress") => resp(200, updater::read_update_progress()),
         (Method::Get, "/update/dmg-path") => match updater::get_downloaded_dmg() {
-            Some((path, version)) => resp(200, json!({"ok": true, "path": path, "version": version})),
+            Some(download) => resp(
+                200,
+                json!({
+                    "ok": true,
+                    "path": download.path,
+                    "version": download.version,
+                    "size": download.size,
+                    "sha256": download.sha256,
+                }),
+            ),
             None => resp(200, json!({"ok": false, "error": "no downloaded DMG"})),
         },
         (Method::Post, "/update/cleanup") => resp(200, updater::cleanup_downloaded_dmgs()),

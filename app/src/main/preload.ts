@@ -26,8 +26,13 @@ contextBridge.exposeInMainWorld("metalsharp", {
   restartBackend: () => ipcRenderer.invoke("backend:restart"),
   isBackendAlive: () => ipcRenderer.invoke("backend:is-alive"),
   updaterEnsureReady: () => ipcRenderer.invoke("updater:ensure-ready"),
-  updaterSpawnInstall: (dmgPath: string, backendPid: number, targetVersion: string) =>
-    ipcRenderer.invoke("updater:spawn-install", dmgPath, backendPid, targetVersion),
+  updaterSpawnInstall: (
+    dmgPath: string,
+    backendPid: number,
+    targetVersion: string,
+    dmgSize: number,
+    dmgSha256: string,
+  ) => ipcRenderer.invoke("updater:spawn-install", dmgPath, backendPid, targetVersion, dmgSize, dmgSha256),
   updaterInstallStatus: () => ipcRenderer.invoke("updater:install-status"),
   updaterClearStatus: () => ipcRenderer.invoke("updater:clear-status"),
   backendGetPid: () => ipcRenderer.invoke("backend:get-pid"),

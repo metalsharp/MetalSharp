@@ -20,6 +20,7 @@
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -35,10 +36,39 @@ const TIMING_LATEST_NAME: &str = "launch-timing-latest.json";
 /// Returns `None` if the file cannot be read. This is intentional: the
 /// diagnostic reports presence/absence explicitly rather than panicking.
 pub fn file_sha256(path: &Path) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
+    let mut file = fs::File::open(path).ok()?;
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let bytes_read = file.read(&mut buffer).ok()?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
     Some(bytes_to_hex(&hasher.finalize()))
+}
+
+/// True when a regular file has exactly the expected non-zero size and
+/// SHA-256. Callers use this for downloaded artifacts before staging or
+/// executing them; a missing size or malformed hash fails closed.
+pub fn file_matches_sha256(path: &Path, expected_size: u64, expected_sha256: &str) -> bool {
+    let expected_sha256 = expected_sha256.trim();
+    if expected_size == 0
+        || expected_sha256.len() != 64
+        || !expected_sha256.chars().all(|character| character.is_ascii_hexdigit())
+    {
+        return false;
+    }
+
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() != expected_size {
+        return false;
+    }
+
+    file_sha256(path).is_some_and(|actual| actual.eq_ignore_ascii_case(expected_sha256))
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {
@@ -432,6 +462,24 @@ mod tests {
         let path = std::env::temp_dir().join("ms-diag-sha-missing-nope.bin");
         let _ = fs::remove_file(&path);
         assert_eq!(file_sha256(&path), None);
+    }
+
+    #[test]
+    fn file_matches_sha256_requires_size_and_hash() {
+        let dir = std::env::temp_dir().join("ms-diag-sha-verify-test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("blob.bin");
+        fs::write(&path, b"abc").unwrap();
+        let known = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+        assert!(file_matches_sha256(&path, 3, known));
+        assert!(!file_matches_sha256(&path, 0, known));
+        assert!(!file_matches_sha256(&path, 3, "not-a-sha256"));
+        assert!(!file_matches_sha256(&path, 4, known));
+        assert!(!file_matches_sha256(&path, 3, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

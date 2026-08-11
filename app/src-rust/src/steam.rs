@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static STEAM_INSTALLING: AtomicBool = AtomicBool::new(false);
 const STEAMWEBHELPER_WRAPPER_MAX_BYTES: u64 = 100_000;
 const STEAMWEBHELPER_WRAPPER_SHA256: &str = "3f33958020f6c987b94cc1a7790222b1efc2e3775e3cddd711cdff99143bc182";
+const STEAMSETUP_SIZE: u64 = 2_380_800;
+const STEAMSETUP_SHA256: &str = "7d3654531c32d941b8cae81c4137fc542172bfa9635f169cb392f245a0a12bcb";
+const STEAM_BUNDLE_ARCHIVE_SIZE: u64 = 2_327_667;
+const STEAM_BUNDLE_ARCHIVE_SHA256: &str = "5090e08bdd2edbf7e550726e79c9c9b12c2fdaa501776024fe6d0cb18d2a983e";
 const STEAM_D3D12_GUARD_APPS: &[&str] = &["Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"];
 const STEAM_D3D12_GUARD_DLLS: &[&str] = &["d3d12", "d3d12core", "d3d12SDKLayers", "dxcore"];
 const STEAM_LAUNCH_ARGS: &[&str] = &["-no-cef-sandbox", "-noverifyfiles", "-no-dwrite"];
@@ -843,11 +847,27 @@ fn find_bundled_steamwebhelper_wrapper() -> Option<PathBuf> {
     find_bundled_steam_asset("steamwebhelper.exe").filter(|path| steamwebhelper_wrapper_valid(path))
 }
 
+fn steam_setup_valid(path: &Path) -> bool {
+    crate::diagnostics::file_matches_sha256(path, STEAMSETUP_SIZE, STEAMSETUP_SHA256)
+}
+
+fn steam_bundle_archive_valid(path: &Path) -> bool {
+    crate::diagnostics::file_matches_sha256(path, STEAM_BUNDLE_ARCHIVE_SIZE, STEAM_BUNDLE_ARCHIVE_SHA256)
+}
+
+fn steam_asset_valid(filename: &str, path: &Path) -> bool {
+    match filename {
+        "SteamSetup.exe" => steam_setup_valid(path),
+        "steamwebhelper.exe" => steamwebhelper_wrapper_valid(path),
+        _ => path.is_file() && path.metadata().map(|metadata| metadata.len() > 0).unwrap_or(false),
+    }
+}
+
 fn find_bundled_steam_asset(filename: &str) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let cache_dir = crate::platform::metalsharp_home_dir_for(&home).join("cache").join("steam");
     let cached = cache_dir.join(filename);
-    if cached.exists() {
+    if cached.exists() && steam_asset_valid(filename, &cached) {
         return Some(cached);
     }
 
@@ -876,19 +896,19 @@ fn find_bundled_steam_asset(filename: &str) -> Option<PathBuf> {
     }
     let _ = std::fs::remove_dir_all(&tmp);
 
-    cached.exists().then_some(cached)
+    steam_asset_valid(filename, &cached).then_some(cached)
 }
 
 fn find_steam_bundle_archive() -> Option<PathBuf> {
     let filename = "metalsharp-steam.tar.zst";
     if let Some(resources) = crate::platform::app_resources_dir() {
         let archive = resources.join("bundles").join(filename);
-        if archive.exists() {
+        if steam_bundle_archive_valid(&archive) {
             return Some(archive);
         }
     }
     let dev = PathBuf::from("app/bundles").join(filename);
-    if dev.exists() {
+    if steam_bundle_archive_valid(&dev) {
         return Some(dev);
     }
 
@@ -896,19 +916,27 @@ fn find_steam_bundle_archive() -> Option<PathBuf> {
     let cache_dir = crate::platform::metalsharp_home_dir_for(&home).join("cache").join("bundles");
     let _ = std::fs::create_dir_all(&cache_dir);
     let cached = cache_dir.join(filename);
-    if cached.exists() {
+    if steam_bundle_archive_valid(&cached) {
         return Some(cached);
     }
+    let _ = std::fs::remove_file(&cached);
 
     let url = format!("https://github.com/aaf2tbz/metalsharp/releases/download/bundles/{}", filename);
     let tmp = cached.with_extension("download");
-    let output = Command::new("curl")
+    let _ = std::fs::remove_file(&tmp);
+    let output = match Command::new("curl")
         .args(["--fail", "--location", "--silent", "--show-error", "--retry", "3", "-o"])
         .arg(&tmp)
         .arg(url)
         .output()
-        .ok()?;
-    if output.status.success() && tmp.exists() && std::fs::rename(&tmp, &cached).is_ok() {
+    {
+        Ok(output) => output,
+        Err(_) => {
+            let _ = std::fs::remove_file(&tmp);
+            return None;
+        },
+    };
+    if output.status.success() && steam_bundle_archive_valid(&tmp) && std::fs::rename(&tmp, &cached).is_ok() {
         return Some(cached);
     }
     let _ = std::fs::remove_file(&tmp);
@@ -994,29 +1022,24 @@ fn copy_dir_recursive_steam(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 fn steamwebhelper_wrapper_valid(path: &Path) -> bool {
-    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    if size == 0 || size > STEAMWEBHELPER_WRAPPER_MAX_BYTES {
-        return false;
-    }
-
-    file_sha256(path).as_deref() == Some(STEAMWEBHELPER_WRAPPER_SHA256)
+    let size = std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0);
+    size > 0
+        && size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES
+        && crate::diagnostics::file_sha256(path).as_deref() == Some(STEAMWEBHELPER_WRAPPER_SHA256)
 }
 
-fn file_sha256(path: &Path) -> Option<String> {
-    for (program, args) in [("shasum", vec!["-a", "256"]), ("sha256sum", Vec::new())] {
-        let Ok(output) = Command::new(program).args(args).arg(path).output() else {
-            continue;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let stdout = String::from_utf8(output.stdout).ok()?;
-        let hash = stdout.split_whitespace().next()?.to_string();
-        if hash.len() == 64 {
-            return Some(hash);
-        }
+pub(crate) fn stage_verified_steam_setup(destination: &Path) -> Result<(), String> {
+    let source = find_bundled_steam_asset("SteamSetup.exe")
+        .ok_or_else(|| "no verified SteamSetup.exe bundle is available".to_string())?;
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| format!("create Steam installer directory: {}", error))?;
     }
-    None
+    std::fs::copy(&source, destination).map_err(|error| format!("stage verified SteamSetup.exe: {}", error))?;
+    if !steam_setup_valid(destination) {
+        let _ = std::fs::remove_file(destination);
+        return Err("staged SteamSetup.exe failed size/SHA-256 verification".to_string());
+    }
+    Ok(())
 }
 
 pub fn get_game_name_from_manifest(appid: u32) -> Option<String> {
@@ -1548,21 +1571,13 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
 
     let steam_dir = steam_prefix().join("drive_c").join("Program Files (x86)").join("Steam");
 
-    let _ = std::fs::remove_dir_all(steam_prefix());
-
     let installer = metalsharp_dir.join("SteamSetup.exe");
     let _ = std::fs::remove_file(&installer);
+    stage_verified_steam_setup(&installer).map_err(|error| format!("Failed to stage Steam installer: {}", error))?;
 
-    let url = "https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe";
-    let output = Command::new("curl").args(["-sL", "-o", &installer.to_string_lossy(), url]).status()?;
-    if !output.success() {
-        if let Some(bundled) = find_bundled_steam_asset("SteamSetup.exe") {
-            let _ = std::fs::copy(&bundled, &installer);
-        }
-    }
-    if !installer.exists() {
-        return Err("Failed to download Steam installer".into());
-    }
+    // Do not destroy an existing prefix until the installer has been obtained
+    // and verified against the pinned Steam bundle artifact.
+    let _ = std::fs::remove_dir_all(steam_prefix());
 
     let wine = ms_wine();
     if !wine.exists() {
@@ -1608,6 +1623,11 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
 
     let seed_log = prefix.join("drive_c").join("metalsharp-post-wineboot.log");
     let _ = crate::bottles::seed_post_wineboot_config(&prefix, &seed_log);
+
+    // Re-stage and re-verify immediately before Wine opens the installer so
+    // a replacement of the user-writable cache file cannot reach msiexec.
+    stage_verified_steam_setup(&installer)
+        .map_err(|error| format!("Steam installer changed before launch: {}", error))?;
 
     let mut install_cmd = Command::new(&wine);
     install_cmd
@@ -1885,6 +1905,16 @@ mod tests {
         let fields: Vec<&str> = steam_row.split('\t').collect();
 
         assert_eq!(fields.get(1).copied(), Some("steam"));
+        assert_eq!(STEAMSETUP_SHA256.len(), 64);
+        assert_eq!(STEAM_BUNDLE_ARCHIVE_SHA256.len(), 64);
         assert_eq!(STEAMWEBHELPER_WRAPPER_SHA256.len(), 64);
+    }
+
+    #[test]
+    fn steam_setup_validation_rejects_size_only_cache_entries() {
+        let path = std::env::temp_dir().join(format!("metalsharp-steam-setup-{}", std::process::id()));
+        std::fs::write(&path, b"crafted installer").unwrap();
+        assert!(!steam_setup_valid(&path));
+        let _ = std::fs::remove_file(path);
     }
 }
