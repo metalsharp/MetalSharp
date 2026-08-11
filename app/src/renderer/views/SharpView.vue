@@ -187,6 +187,7 @@ const headerSubtitle = computed(() =>
     : "Install and manage Windows applications outside Steam.",
 );
 const apps = ref<SharpApp[]>([]);
+const coverUrls = ref<Record<string, string>>({});
 const cardToolsOpen = ref<Record<string, boolean>>({});
 const bottles = ref<BottleManifest[]>([]);
 const runtimeProfiles = ref<RuntimeProfileDefinition[]>([]);
@@ -488,6 +489,19 @@ function sharpAppNameSort(a: SharpApp, b: SharpApp) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
+async function loadCovers() {
+  const loaded: Record<string, string> = {};
+  await Promise.all(
+    apps.value
+      .filter((app) => app.cover)
+      .map(async (app) => {
+        const url = await getAPI().getCover(app.id);
+        if (url) loaded[app.id] = url;
+      }),
+  );
+  coverUrls.value = loaded;
+}
+
 async function load() {
   const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
     api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
@@ -498,6 +512,7 @@ async function load() {
   ]);
   if (result?.ok) {
     apps.value = [...result.apps].sort(sharpAppNameSort);
+    await loadCovers();
   }
   if (bottleResult?.ok) {
     bottles.value = bottleResult.bottles;
@@ -1566,7 +1581,7 @@ onUnmounted(stopGogMonoPoll);
             <div class="sharp-card-banner">
               <img
                 v-if="app.cover"
-                :src="`http://127.0.0.1:9274/sharp-library/cover?id=${app.id}`"
+                :src="coverUrls[app.id] ?? sharpLogoUrl"
                 :alt="app.name"
                 :style="{ objectPosition: coverPosition(app) }"
               />

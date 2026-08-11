@@ -93,6 +93,10 @@ static NSDictionary *fetchJSON(NSString *urlString, NSString *method) {
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = method ?: @"GET";
     req.timeoutInterval = 5.0;
+    NSString *apiToken = [[[NSProcessInfo processInfo] environment] objectForKey:@"METALSHARP_API_TOKEN"];
+    if (apiToken.length > 0) {
+        [req setValue:[NSString stringWithFormat:@"Bearer %@", apiToken] forHTTPHeaderField:@"Authorization"];
+    }
 
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __block NSDictionary *result = nil;

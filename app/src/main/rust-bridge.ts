@@ -1,4 +1,5 @@
-import { type ChildProcess, spawn } from "child_process";
+import { type ChildProcess, execFile, spawn } from "child_process";
+import { randomBytes } from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
@@ -34,6 +35,7 @@ export class RustBridge {
   private startPromise: Promise<{ ok: boolean; error?: string }> | null = null;
   private devMode: boolean;
   private metalsharpHome?: string;
+  private readonly apiToken: string;
 
   constructor(options: RustBridgeOptions = {}) {
     this.devMode = options.devMode === true || process.env.METALSHARP_DEV === "1";
@@ -41,10 +43,15 @@ export class RustBridge {
     const defaultPort = this.devMode ? "9276" : "9274";
     this.port = parseInt(process.env.METALSHARP_PORT || defaultPort, 10);
     this.base = `http://127.0.0.1:${this.port}`;
+    this.apiToken = randomBytes(32).toString("hex");
   }
 
   getPort(): number {
     return this.port;
+  }
+
+  getApiToken(): string {
+    return this.apiToken;
   }
 
   async start(): Promise<{ ok: boolean; error?: string }> {
@@ -133,7 +140,7 @@ export class RustBridge {
     this.proc = null;
 
     // Also find and kill any backend still listening on our port.
-    const pid = await this.getBackendPid();
+    const pid = (await this.getBackendPid()) ?? (await this.getListeningBackendPid());
     if (pid) {
       try {
         process.kill(pid, "SIGTERM");
@@ -164,9 +171,9 @@ export class RustBridge {
 
   async isAlive(): Promise<boolean> {
     return new Promise((resolve) => {
-      const req = http.get(`http://127.0.0.1:${this.port}/status`, (res) => {
+      const req = http.get(`http://127.0.0.1:${this.port}/status`, { headers: this.authHeaders() }, (res) => {
         res.resume();
-        resolve(true);
+        resolve(res.statusCode === 200);
       });
       req.on("error", () => resolve(false));
       // Dev backends can be busy with a first-run bottle scan; don't treat a
@@ -180,13 +187,18 @@ export class RustBridge {
 
   async getBackendPid(): Promise<number | null> {
     return new Promise((resolve) => {
-      const req = http.get(`http://127.0.0.1:${this.port}/status`, (res) => {
+      const req = http.get(`http://127.0.0.1:${this.port}/status`, { headers: this.authHeaders() }, (res) => {
         const chunks: Buffer[] = [];
         res.on("data", (c) => chunks.push(c));
         res.on("end", () => {
+          if (res.statusCode !== 200) {
+            resolve(null);
+            return;
+          }
           try {
             const data = JSON.parse(Buffer.concat(chunks).toString());
-            resolve(data.pid ?? null);
+            const pid = Number(data.pid);
+            resolve(Number.isInteger(pid) && pid > 0 ? pid : null);
           } catch {
             resolve(null);
           }
@@ -211,6 +223,7 @@ export class RustBridge {
         headers: {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
+          ...this.authHeaders(),
         },
         timeout: timeoutMs ?? 30000,
       };
@@ -238,6 +251,64 @@ export class RustBridge {
     });
   }
 
+  async requestImage(url: string, timeoutMs = 10000): Promise<string | null> {
+    return new Promise((resolve) => {
+      const opts: http.RequestOptions = {
+        hostname: "127.0.0.1",
+        port: this.port,
+        path: url,
+        method: "GET",
+        headers: this.authHeaders(),
+        timeout: timeoutMs,
+      };
+      let settled = false;
+      const finish = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      const req = http.request(opts, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          finish(null);
+          return;
+        }
+
+        const contentType = res.headers["content-type"];
+        const mime = typeof contentType === "string" ? contentType.split(";", 1)[0].trim() : "";
+        if (!/^image\/[a-z0-9.+-]+$/i.test(mime)) {
+          res.resume();
+          finish(null);
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        let total = 0;
+        res.on("data", (chunk: Buffer) => {
+          total += chunk.length;
+          if (total > 8 * 1024 * 1024) {
+            req.destroy();
+            finish(null);
+            return;
+          }
+          chunks.push(chunk);
+        });
+        res.on("end", () => {
+          if (!settled) finish(`data:${mime};base64,${Buffer.concat(chunks).toString("base64")}`);
+        });
+        res.on("error", () => finish(null));
+      });
+
+      req.on("error", () => finish(null));
+      req.on("timeout", () => {
+        req.destroy();
+        finish(null);
+      });
+      req.end();
+    });
+  }
+
   private spawnBackend(binPath: string) {
     this.proc = spawn(binPath, [], {
       env: {
@@ -245,6 +316,7 @@ export class RustBridge {
         PATH: shellPath,
         METALSHARP_PORT: String(this.port),
         ...(this.metalsharpHome ? { METALSHARP_HOME: this.metalsharpHome } : {}),
+        METALSHARP_API_TOKEN: this.apiToken,
         ...(this.devMode ? { METALSHARP_DEV: "1" } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -320,10 +392,14 @@ export class RustBridge {
 
   private async getBackendVersion(): Promise<string | null> {
     return new Promise((resolve) => {
-      const req = http.get(`http://127.0.0.1:${this.port}/status`, (res) => {
+      const req = http.get(`http://127.0.0.1:${this.port}/status`, { headers: this.authHeaders() }, (res) => {
         const chunks: Buffer[] = [];
         res.on("data", (c) => chunks.push(c));
         res.on("end", () => {
+          if (res.statusCode !== 200) {
+            resolve(null);
+            return;
+          }
           try {
             const data = JSON.parse(Buffer.concat(chunks).toString());
             resolve(data.version ?? null);
@@ -343,8 +419,7 @@ export class RustBridge {
   private async getProcessPath(pid: number): Promise<string | null> {
     if (!Number.isInteger(pid) || pid <= 0) return null;
     return new Promise((resolve) => {
-      const { exec } = require("child_process");
-      exec(`ps -o comm= -p ${Math.floor(pid)} 2>/dev/null`, (err: Error | null, stdout: string) => {
+      execFile("ps", ["-o", "comm=", "-p", String(Math.floor(pid))], (err, stdout) => {
         if (err || !stdout.trim()) {
           resolve(null);
         } else {
@@ -386,8 +461,14 @@ export class RustBridge {
           return;
         }
         let settled = false;
-        const req = http.get(`http://127.0.0.1:${this.port}/status`, (res) => {
+        const req = http.get(`http://127.0.0.1:${this.port}/status`, { headers: this.authHeaders() }, (res) => {
           if (settled) return;
+          if (res.statusCode !== 200) {
+            settled = true;
+            res.resume();
+            setTimeout(check, 200);
+            return;
+          }
           settled = true;
           res.resume();
           resolve();
@@ -406,5 +487,32 @@ export class RustBridge {
       };
       setTimeout(check, 300);
     });
+  }
+
+  private authHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${this.apiToken}` };
+  }
+
+  private async getListeningBackendPid(): Promise<number | null> {
+    const pids = await new Promise<number[]>((resolve) => {
+      execFile("lsof", ["-nP", `-tiTCP:${this.port}`, "-sTCP:LISTEN"], (err, stdout) => {
+        if (err) {
+          resolve([]);
+          return;
+        }
+        resolve(
+          stdout
+            .split(/\s+/)
+            .map((value) => Number.parseInt(value, 10))
+            .filter((pid) => Number.isInteger(pid) && pid > 0),
+        );
+      });
+    });
+
+    for (const pid of pids) {
+      const processPath = await this.getProcessPath(pid);
+      if (processPath?.endsWith("metalsharp-backend")) return pid;
+    }
+    return null;
   }
 }

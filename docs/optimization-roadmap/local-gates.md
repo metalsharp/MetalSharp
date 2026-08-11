@@ -72,7 +72,10 @@ python3 tools/d3d12-metal-sdk/scripts/preflight-runtime-layout.py --profile meta
 ## Backend diagnostic routes (Phase 1–8)
 
 These read-only diagnostic routes are available from a running backend
-(`127.0.0.1:9274`) and are the local gates for the optimization roadmap:
+(`127.0.0.1:9274`) and are the local gates for the optimization roadmap. A
+direct request must include `Authorization: Bearer $METALSHARP_API_TOKEN`;
+the Electron bridge attaches the per-session token automatically. Only
+`GET /health` is public.
 
 | Route | Phase | What it proves |
 |-------|-------|----------------|

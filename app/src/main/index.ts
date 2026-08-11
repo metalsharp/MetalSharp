@@ -1,7 +1,6 @@
 import { execFile, execFileSync, spawn } from "child_process";
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from "electron";
 import * as fs from "fs";
-import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 import { ejectDmgVolume } from "./dmg-eject";
@@ -591,27 +590,17 @@ function registerGameStopShortcut(): void {
 
 async function checkNeedsMigration(): Promise<boolean> {
   const marker = hasPostUpdateMigrationMarker();
-  return new Promise((resolve) => {
-    const req = http.get("http://127.0.0.1:9274/update/migrate/check", (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => {
-        try {
-          const data = JSON.parse(Buffer.concat(chunks).toString());
-          const needed = data.ok && data.needed === true;
-          if (!needed && !marker.needed) clearPostUpdateMigrationMarker();
-          resolve(needed);
-        } catch {
-          resolve(marker.needed);
-        }
-      });
-    });
-    req.on("error", () => resolve(marker.needed));
-    req.setTimeout(3000, () => {
-      req.destroy();
-      resolve(marker.needed);
-    });
-  });
+  try {
+    const data = (await bridge.request("GET", "/update/migrate/check", undefined, 3000)) as {
+      ok?: boolean;
+      needed?: boolean;
+    };
+    const needed = data.ok === true && data.needed === true;
+    if (!needed && !marker.needed) clearPostUpdateMigrationMarker();
+    return needed;
+  } catch {
+    return marker.needed;
+  }
 }
 
 async function createWindow(migrating = false) {
@@ -716,7 +705,7 @@ app.whenReady().then(async () => {
   if (isDevRuntime()) process.env.METALSHARP_DEV = "1";
   ensureMetalsharpDirs();
   bridge = new RustBridge({ devMode: isDevRuntime(), metalsharpHome: getMetalsharpDir() });
-  updaterBridge = new UpdaterBridge(bridge.getPort());
+  updaterBridge = new UpdaterBridge(bridge.getPort(), bridge.getApiToken());
   const backendStart = await bridge.start();
   if (!backendStart.ok) {
     console.warn(`MetalSharp backend did not start during app launch: ${backendStart.error}`);
@@ -831,6 +820,21 @@ function registerIpc() {
       return requestBackend(method, url, body, timeoutMs);
     },
   );
+  ipcMain.handle("backend:cover", async (_e, id: string) => {
+    if (
+      isUiOnlyRuntime() ||
+      isProcessManagerOnlyRuntime() ||
+      !bridge ||
+      typeof id !== "string" ||
+      id.length === 0 ||
+      id.length > 256
+    ) {
+      return null;
+    }
+    const ready = await bridge.ensureRunning();
+    if (!ready.ok) return null;
+    return bridge.requestImage(`/sharp-library/cover?id=${encodeURIComponent(id)}`);
+  });
 
   ipcMain.handle("app:is-first-launch", () => {
     if (isUiOnlyRuntime() || isDevPreviewRuntime()) return false;

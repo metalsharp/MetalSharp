@@ -71,6 +71,13 @@ GPTK/D3DMetal is not bundled in MetalSharp release assets. When you save a D3DMe
 cd app && npx electron .
 ```
 
+The Electron main process starts the Rust backend with a fresh per-session
+bearer token and attaches it to every backend request. Run the application
+through Electron rather than exposing `metalsharp-backend` directly; requests
+without that token are rejected before route handling. The backend binds only
+to loopback, and browser-origin requests are limited to the Vite development
+origins used by this checkout.
+
 ## Build a Signed App
 
 For an ad-hoc signed `.app` (no Apple Developer account needed):
