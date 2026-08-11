@@ -202,6 +202,7 @@ type MetalsharpAPI = {
     body?: Record<string, unknown>,
     timeoutMs?: number,
   ) => Promise<BackendResponse>;
+  getCover: (id: string) => Promise<string | null>;
   isFirstLaunch: () => Promise<boolean>;
   isMigrationMode: () => Promise<boolean>;
   restartAfterMigration: () => Promise<{

@@ -4,6 +4,7 @@ import type { ProcessManagerAction } from "./process-manager-types";
 contextBridge.exposeInMainWorld("metalsharp", {
   request: (method: string, url: string, body?: Record<string, unknown>, timeoutMs?: number) =>
     ipcRenderer.invoke("backend:request", method, url, body, timeoutMs),
+  getCover: (id: string) => ipcRenderer.invoke("backend:cover", id),
   isFirstLaunch: () => ipcRenderer.invoke("app:is-first-launch"),
   isMigrationMode: () => ipcRenderer.invoke("app:is-migration-mode"),
   restartAfterMigration: () => ipcRenderer.invoke("app:restart-after-migration"),

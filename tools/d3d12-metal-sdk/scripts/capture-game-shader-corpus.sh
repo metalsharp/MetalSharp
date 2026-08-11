@@ -8,6 +8,10 @@ LAUNCH_METHOD="dxmt_metal12"
 SECONDS_TO_RUN="20"
 RESULTS_DIR="$SDK_DIR/results"
 BACKEND_URL="${METALSHARP_BACKEND_URL:-http://127.0.0.1:9274}"
+BACKEND_AUTH_ARGS=()
+if [[ -n "${METALSHARP_API_TOKEN:-}" ]]; then
+  BACKEND_AUTH_ARGS=(-H "Authorization: Bearer ${METALSHARP_API_TOKEN}")
+fi
 GAME_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/Subnautica2/Binaries/Win64"
 CORPUS_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/m12/1962700"
 START_STEAM=0
@@ -106,24 +110,28 @@ trap cleanup EXIT
 find "$CORPUS_DIR" -type f \( -name '*.dxbc' -o -name 'pso-*.json' \) 2>/dev/null | sort > "$before_file" || true
 
 curl -fsS -X POST "$BACKEND_URL/kill" \
+  "${BACKEND_AUTH_ARGS[@]}" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"pid\":0}" >/dev/null || true
 pkill -9 -f '[S]ubnautica2-Win64-Shipping.exe|[S]ubnautica2|[C]rashReportClient.exe|[c]rashpad_handler.exe' || true
 
 if [[ "$START_STEAM" == "1" ]]; then
   curl -fsS -X POST "$BACKEND_URL/steam/launch" \
+    "${BACKEND_AUTH_ARGS[@]}" \
     -H 'Content-Type: application/json' \
     -d '{}' >/dev/null
   sleep 15
 fi
 
 curl -fsS -X POST "$BACKEND_URL/steam/launch-game" \
+  "${BACKEND_AUTH_ARGS[@]}" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"launchMethod\":\"$LAUNCH_METHOD\"}" > "$launch_file"
 
 sleep "$SECONDS_TO_RUN"
 
 curl -fsS -X POST "$BACKEND_URL/kill" \
+  "${BACKEND_AUTH_ARGS[@]}" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"pid\":0}" >/dev/null || true
 pkill -9 -f '[S]ubnautica2-Win64-Shipping.exe|[S]ubnautica2|[C]rashReportClient.exe|[c]rashpad_handler.exe' || true

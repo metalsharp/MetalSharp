@@ -135,6 +135,14 @@ The backend is a bin-only `tiny_http` server listening on
 dispatch and the trust boundary for registered running-game PIDs; do not make
 global stop endpoints accept arbitrary system PIDs.
 
+The Electron main process supplies a fresh per-session `METALSHARP_API_TOKEN`
+to the backend and attaches it to every API request. The backend rejects
+missing or invalid bearer tokens before dispatching routes; `/health` is the
+only unauthenticated endpoint and returns version/readiness information only.
+Browser origins are defense-in-depth and are limited to the fixed Vite origins
+(`http://localhost:5173` and `http://127.0.0.1:5173`); packaged Electron UI
+requests use the main-process bridge rather than direct browser CORS.
+
 The backend's important layers are:
 
 - `mtsp/engine.rs` defines public and internal pipeline nodes.
@@ -402,6 +410,10 @@ With a backend running on `127.0.0.1:9274`, these are the preferred diagnostic
 checks before and after route/runtime work. Dry-run/artifact endpoints are
 read-only; doctor and preparation endpoints may stage files, run probes, or
 write logs, so use an isolated `METALSHARP_HOME`/prefix when appropriate:
+
+Direct diagnostic requests must include `Authorization: Bearer
+$METALSHARP_API_TOKEN`; the Electron bridge adds this header automatically.
+Only `GET /health` is intentionally public for updater/readiness checks.
 
 | Endpoint | Purpose |
 |---|---|
