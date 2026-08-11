@@ -32,12 +32,14 @@ use std::process::{Child, Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-/// Pinned "latest" Wine Mono release. Bumping this (version + msi filename +
-/// expected install dir) is the only change needed to ship a new mono.
+/// Pinned "latest" Wine Mono release. Bump the version, MSI filename,
+/// install directory, expected size, and SHA-256 together for a new release.
 pub const WINE_MONO_LATEST_VERSION: &str = "11.2.0";
 const WINE_MONO_LATEST_MSI_FILENAME: &str = "wine-mono-11.2.0-x86.msi";
 const WINE_MONO_RELEASE_TAG: &str = "wine-mono-11.2.0";
 const WINE_MONO_INSTALL_DIR_NAME: &str = "wine-mono-11.2.0";
+const WINE_MONO_LATEST_MSI_SIZE: u64 = 83_324_416;
+const WINE_MONO_LATEST_MSI_SHA256: &str = "b4525679e7da30d4658ceb85739cbc55c771791054abbb4b3152fe96ded0b897";
 
 fn wine_mono_msi_url() -> &'static str {
     "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-11.2.0/wine-mono-11.2.0-x86.msi"
@@ -55,6 +57,10 @@ fn mono_cache_dir() -> PathBuf {
 
 fn mono_cache_msi_path() -> PathBuf {
     mono_cache_dir().join(WINE_MONO_LATEST_MSI_FILENAME)
+}
+
+fn mono_cache_msi_part_path() -> PathBuf {
+    mono_cache_msi_path().with_extension("msi.part")
 }
 
 /// In-flight install state so the renderer can poll a single status endpoint
@@ -336,27 +342,36 @@ fn download_msi_to_cache(url: &str, cache_dir: &Path, cache_path: &Path) -> Resu
     });
 
     let tmp = cache_path.with_extension("msi.part");
-    let mut file = fs::File::create(&tmp).map_err(|e| format!("create wine-mono msi: {}", e))?;
-    let mut reader = response.into_body().into_reader();
-    let mut buf = [0u8; 65536];
-    let mut downloaded: u64 = 0;
-    loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("wine-mono read: {}", e))?;
-        if n == 0 {
-            break;
+    let result = (|| {
+        let mut file = fs::File::create(&tmp).map_err(|e| format!("create wine-mono msi: {}", e))?;
+        let mut reader = response.into_body().into_reader();
+        let mut buf = [0u8; 65536];
+        let mut downloaded: u64 = 0;
+        loop {
+            let n = reader.read(&mut buf).map_err(|e| format!("wine-mono read: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n]).map_err(|e| format!("wine-mono write: {}", e))?;
+            downloaded += n as u64;
+            mutate_download_state(|s| {
+                s.download_bytes = downloaded;
+            });
+            if total > 0 && downloaded >= total {
+                break;
+            }
         }
-        file.write_all(&buf[..n]).map_err(|e| format!("wine-mono write: {}", e))?;
-        downloaded += n as u64;
-        mutate_download_state(|s| {
-            s.download_bytes = downloaded;
-        });
-        if total > 0 && downloaded >= total {
-            break;
+        drop(file);
+        if !crate::diagnostics::file_matches_sha256(&tmp, WINE_MONO_LATEST_MSI_SIZE, WINE_MONO_LATEST_MSI_SHA256) {
+            return Err("downloaded Wine Mono MSI failed size/SHA-256 verification".to_string());
         }
+        fs::rename(&tmp, cache_path).map_err(|e| format!("finalize wine-mono msi: {}", e))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    drop(file);
-    fs::rename(&tmp, cache_path).map_err(|e| format!("finalize wine-mono msi: {}", e))?;
-    Ok(())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -497,12 +512,14 @@ fn cleanup_prefix_for_mono_install(prefix: &Path) {
     // REINSTALLMODE=vomus below handles it without external cleanup).
 }
 
-/// True when the cached MSI exists and is plausibly intact (the real
-/// wine-mono x86 MSI is ~60MB; anything under 1MB is a truncated/partial
-/// download). Corrupt caches are deleted so the next install re-downloads.
+/// True when the cached MSI matches the pinned Wine Mono release size and
+/// SHA-256. Corrupt caches are deleted so the next install re-downloads.
 pub fn cached_msi_is_valid() -> bool {
-    let path = mono_cache_msi_path();
-    path.is_file() && path.metadata().map(|m| m.len() >= 1_000_000).unwrap_or(false)
+    cached_msi_path_is_valid(&mono_cache_msi_path())
+}
+
+fn cached_msi_path_is_valid(path: &Path) -> bool {
+    crate::diagnostics::file_matches_sha256(path, WINE_MONO_LATEST_MSI_SIZE, WINE_MONO_LATEST_MSI_SHA256)
 }
 
 pub fn install_wine_mono_latest(prefix: &Path, prefix_kind: &str) -> Result<u32, String> {
@@ -524,14 +541,19 @@ pub fn install_wine_mono_latest(prefix: &Path, prefix_kind: &str) -> Result<u32,
 
     // 3. Verify the cached MSI is present and intact.
     if !cached_msi_is_valid() {
-        // Corrupt (<1MB) or missing: delete the stale file so the next
+        // Corrupt or missing: delete the stale file so the next
         // handle_install call re-downloads instead of erroring forever.
         let _ = fs::remove_file(mono_cache_msi_path());
+        let _ = fs::remove_file(mono_cache_msi_part_path());
         return Err("Wine Mono MSI not downloaded yet or corrupt — re-downloading".to_string());
     }
 
     // 4. Re-stage the MSI into the prefix (each install gets a fresh copy).
     let staged_msi = stage_msi_into_prefix(&mono_cache_msi_path(), prefix)?;
+    if !crate::diagnostics::file_matches_sha256(&staged_msi, WINE_MONO_LATEST_MSI_SIZE, WINE_MONO_LATEST_MSI_SHA256) {
+        let _ = fs::remove_file(&staged_msi);
+        return Err("staged Wine Mono MSI failed size/SHA-256 verification".to_string());
+    }
 
     // 5. Log setup — single open, clone handle for stdout (match sharp)
     let log_dir = crate::platform::metalsharp_home_dir_for(&home).join("logs");
@@ -731,6 +753,7 @@ pub fn handle_install(prefix_kind: &str) -> Value {
     // download.
     if !cached_msi_is_valid() {
         let _ = fs::remove_file(mono_cache_msi_path());
+        let _ = fs::remove_file(mono_cache_msi_part_path());
         spawn_msi_download();
         return json!({
             "ok": true,
@@ -812,6 +835,7 @@ mod tests {
         assert!(WINE_MONO_LATEST_VERSION.contains('.'));
         assert!(WINE_MONO_LATEST_MSI_FILENAME.contains(WINE_MONO_LATEST_VERSION));
         assert!(WINE_MONO_INSTALL_DIR_NAME.contains(WINE_MONO_LATEST_VERSION));
+        assert_eq!(WINE_MONO_LATEST_MSI_SHA256.len(), 64);
         assert!(wine_mono_msi_url().contains(WINE_MONO_RELEASE_TAG));
         assert!(wine_mono_msi_url().ends_with(WINE_MONO_LATEST_MSI_FILENAME));
     }
@@ -898,14 +922,11 @@ mod tests {
     }
 
     #[test]
-    fn cached_msi_validity_requires_plausible_size() {
-        // The cache path is fixed under the user home; use the helper's
-        // predicate logic against a temp file by testing the threshold rule
-        // directly through a fake: write a small file and confirm the real
-        // cache path check returns false when no MSI is cached.
-        assert!(
-            !cached_msi_is_valid() || mono_cache_msi_path().metadata().map(|m| m.len() >= 1_000_000).unwrap_or(false)
-        );
+    fn cached_msi_validation_rejects_partial_files() {
+        let path = std::env::temp_dir().join(format!("ms-mono-partial-{}", std::process::id()));
+        std::fs::write(&path, b"partial MSI").unwrap();
+        assert!(!cached_msi_path_is_valid(&path));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

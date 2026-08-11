@@ -65,6 +65,26 @@ Installed DXMT runtime state is recorded in:
 
 Do not trust a runtime by version string alone. Check the manifest, required DLLs, the vkd3d-proton/DXVK/MoltenVK lane artifacts (for the default M12 backend) or the `dxmt-m12` sidecars (for the DXMT rollback), and source archive hash when diagnosing deployment drift.
 
+## Downloaded Installer Artifact Integrity
+
+Every downloaded installer that can reach an install or privileged update path
+must have a non-zero expected size and a SHA-256 digest before it is accepted:
+
+- Update DMGs use the GitHub release asset digest and URL/size/hash sidecar in
+  `~/.metalsharp/cache/updates/`. A cache entry is usable only when the
+  sidecar exactly matches the current release metadata and the DMG is hashed
+  again.
+- Wine Mono 11.2.0 uses the pinned MSI size and SHA-256 in
+  `app/src-rust/src/mono.rs`. Partial or mismatched `.msi.part` files are
+  removed before retrying.
+- SteamSetup.exe is staged only from the verified `metalsharp-steam` bundle;
+  the bundle archive and extracted installer are both pinned by size and
+  SHA-256 in `app/src-rust/src/steam.rs`.
+
+The detached updater receives the DMG size and digest from the backend and
+rechecks them immediately before mounting. `hdiutil verify` remains an
+additional structural check, not a replacement for the content hash.
+
 ## Steam Launch Route
 
 The app launches Wine Steam through:
