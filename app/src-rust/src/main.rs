@@ -2419,9 +2419,16 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Ok(appid) => appid,
                 Err(error) => return resp(400, json!({"ok": false, "error": error})),
             };
+            let ms_home = crate::platform::metalsharp_home_dir_for(&dirs::home_dir().unwrap_or_default());
             let resolved = if let Some(sid) = steam_app_id {
                 if !exe.contains(".exe") {
-                    resolve_game_exe(sid)
+                    match resolve_game_exe(&ms_home, sid) {
+                        Ok(path) => path,
+                        Err(e) => {
+                            app_log(&format!("Launch rejected: {}", e));
+                            return resp(404, json!({"ok": false, "error": e}));
+                        },
+                    }
                 } else {
                     exe.to_string()
                 }
@@ -2432,11 +2439,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
 
             let mut game_type = "native";
             if let Some(sid) = steam_app_id {
-                let home = dirs::home_dir().unwrap_or_default();
-                let marker = crate::platform::metalsharp_home_dir_for(&home)
-                    .join("games")
-                    .join(sid.to_string())
-                    .join(".metalsharp_prepared");
+                let marker = ms_home.join("games").join(sid.to_string()).join(".metalsharp_prepared");
                 if let Ok(content) = std::fs::read_to_string(&marker) {
                     if content.contains("is_dotnet=true") {
                         app_log("Detected XNA/FNA game — using mono runtime");
@@ -3161,9 +3164,8 @@ fn cache_summary(path: &std::path::Path) -> serde_json::Value {
     })
 }
 
-fn resolve_game_exe(appid: u32) -> String {
-    let home = dirs::home_dir().unwrap_or_default();
-    let game_dir = crate::platform::metalsharp_home_dir_for(&home).join("games").join(appid.to_string());
+fn resolve_game_exe(ms_home: &std::path::Path, appid: u32) -> Result<String, String> {
+    let game_dir = ms_home.join("games").join(appid.to_string());
 
     for entry in walkdir::WalkDir::new(&game_dir).max_depth(3).into_iter().flatten() {
         if let Some(ext) = entry.path().extension() {
@@ -3180,7 +3182,7 @@ fn resolve_game_exe(appid: u32) -> String {
                         && !name_lower.contains("vcredist")
                         && !name_lower.contains("crashhandler")
                 {
-                    return entry.path().to_string_lossy().to_string();
+                    return Ok(entry.path().to_string_lossy().to_string());
                 }
             }
         }
@@ -3199,13 +3201,13 @@ fn resolve_game_exe(appid: u32) -> String {
                     && !name.contains("server")
                     && !name.contains("crashhandler")
                 {
-                    return entry.path().to_string_lossy().to_string();
+                    return Ok(entry.path().to_string_lossy().to_string());
                 }
             }
         }
     }
 
-    game_dir.to_string_lossy().to_string()
+    Err(format!("no game executable found for appid {} (searched {})", appid, game_dir.display()))
 }
 
 fn read_body(req: &mut tiny_http::Request) -> Result<serde_json::Map<String, serde_json::Value>, RequestBodyError> {
@@ -3876,5 +3878,56 @@ mod tests {
 
         body.insert("steamAppId".into(), json!(u64::from(u32::MAX) + 1));
         assert_eq!(parse_optional_request_steam_appid(&body), Err("steamAppId out of range"));
+    }
+
+    fn test_dir(name: &str) -> std::path::PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "metalsharp-main-{}-{}-{}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system time").as_nanos()
+        ));
+        dir
+    }
+
+    #[test]
+    fn resolve_game_exe_prefers_playable_exe_over_installers() {
+        let home = test_dir("resolve-exe-found");
+        let game_dir = home.join("games").join("424242");
+        std::fs::create_dir_all(&game_dir).expect("create game dir");
+        std::fs::write(game_dir.join("setup.exe"), b"x").expect("write setup");
+        std::fs::write(game_dir.join("game.exe"), b"x").expect("write game");
+
+        let resolved = resolve_game_exe(&home, 424242).expect("playable exe must resolve");
+        assert!(resolved.ends_with("game.exe"), "game.exe preferred over setup.exe: {}", resolved);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn resolve_game_exe_rejects_dirs_with_only_installer_files() {
+        let home = test_dir("resolve-exe-installer-only");
+        let game_dir = home.join("games").join("424243");
+        std::fs::create_dir_all(&game_dir).expect("create game dir");
+        std::fs::write(game_dir.join("setup.exe"), b"x").expect("write setup");
+        std::fs::write(game_dir.join("vcredist_x86.exe"), b"x").expect("write redist");
+
+        let err = resolve_game_exe(&home, 424243).expect_err("installer-only dir must not resolve");
+        assert!(err.contains("no game executable found for appid 424243"), "clear error: {}", err);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn resolve_game_exe_fails_instead_of_returning_the_game_dir() {
+        // Regression for #409: an empty game dir previously fell back to the
+        // directory path, which /launch then handed to wine (obscure failure
+        // instead of a clear "no executable found" error).
+        let home = test_dir("resolve-exe-empty");
+        let game_dir = home.join("games").join("424244");
+        std::fs::create_dir_all(&game_dir).expect("create game dir");
+
+        let err = resolve_game_exe(&home, 424244).expect_err("empty game dir must fail resolution");
+        assert!(err.contains("no game executable found for appid 424244"), "clear error: {}", err);
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
