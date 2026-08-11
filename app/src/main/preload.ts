@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { InstallDepsAction } from "./dependency-actions";
 import type { ProcessManagerAction } from "./process-manager-types";
 
 contextBridge.exposeInMainWorld("metalsharp", {
@@ -10,7 +11,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   isMigrationMode: () => ipcRenderer.invoke("app:is-migration-mode"),
   restartAfterMigration: () => ipcRenderer.invoke("app:restart-after-migration"),
   ejectDmg: () => ipcRenderer.invoke("app:eject-dmg"),
-  installDeps: (command: string) => ipcRenderer.invoke("app:install-deps", command),
+  installDeps: (action: InstallDepsAction) => ipcRenderer.invoke("app:install-deps", action),
   installHomebrew: () => ipcRenderer.invoke("app:install-homebrew"),
   homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
@@ -27,16 +28,9 @@ contextBridge.exposeInMainWorld("metalsharp", {
   restartBackend: () => ipcRenderer.invoke("backend:restart"),
   isBackendAlive: () => ipcRenderer.invoke("backend:is-alive"),
   updaterEnsureReady: () => ipcRenderer.invoke("updater:ensure-ready"),
-  updaterSpawnInstall: (
-    dmgPath: string,
-    backendPid: number,
-    targetVersion: string,
-    dmgSize: number,
-    dmgSha256: string,
-  ) => ipcRenderer.invoke("updater:spawn-install", dmgPath, backendPid, targetVersion, dmgSize, dmgSha256),
+  updaterSpawnInstall: () => ipcRenderer.invoke("updater:spawn-install"),
   updaterInstallStatus: () => ipcRenderer.invoke("updater:install-status"),
   updaterClearStatus: () => ipcRenderer.invoke("updater:clear-status"),
-  backendGetPid: () => ipcRenderer.invoke("backend:get-pid"),
   migrateCheck: () => ipcRenderer.invoke("migrate:check"),
   migrateStart: () => ipcRenderer.invoke("migrate:start"),
   migrateProgress: () => ipcRenderer.invoke("migrate:progress"),

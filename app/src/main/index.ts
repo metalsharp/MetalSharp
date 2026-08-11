@@ -11,6 +11,13 @@ import {
   type ProcessRow,
   stopMetalSharpWineProcesses,
 } from "./process-manager";
+import { dependencyScriptFileName, parseInstallDepsAction } from "./dependency-actions";
+import {
+  type BackendMethod,
+  type BackendRequestSource,
+  isBackendRequestBody,
+  validateBackendRequest,
+} from "./ipc-security";
 import type { ProcessManagerAction, ProcessManagerActionResult, ProcessManagerSample } from "./process-manager-types";
 import { RustBridge } from "./rust-bridge";
 import { validateUninstallTarget } from "./uninstall-safety";
@@ -282,9 +289,17 @@ function deleteInstalledUpdateDmg(): string | null {
 
   const msDir = path.resolve(getMetalsharpDir());
   const updatesDir = path.join(msDir, "cache", "updates");
-  const allowed =
-    dmgPath.startsWith(updatesDir + path.sep) || path.basename(dmgPath).toLowerCase().startsWith("metalsharp-");
-  if (!allowed) return null;
+  if (!dmgPath.startsWith(path.resolve(updatesDir) + path.sep)) return null;
+  try {
+    if (
+      fs.lstatSync(dmgPath).isSymbolicLink() ||
+      !fs.realpathSync(dmgPath).startsWith(path.resolve(updatesDir) + path.sep)
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
 
   fs.rmSync(dmgPath, { force: true });
   return dmgPath;
@@ -553,7 +568,7 @@ function registerProcessManagerShortcut(): void {
 }
 
 async function stopActiveGameFromShortcut(): Promise<void> {
-  const result = (await requestBackend("POST", "/games/stop-active", undefined, 15000)) as {
+  const result = (await requestBackend("POST", "/games/stop-active", undefined, 15000, "main")) as {
     ok?: boolean;
     active?: boolean;
     stopped?: Array<{ appid?: number }>;
@@ -583,7 +598,7 @@ function registerGameStopShortcut(): void {
 async function checkNeedsMigration(): Promise<boolean> {
   const marker = hasPostUpdateMigrationMarker();
   try {
-    const data = (await requestBackend("GET", "/update/migrate/check", undefined, 3000)) as {
+    const data = (await requestBackend("GET", "/update/migrate/check", undefined, 3000, "main")) as {
       ok?: boolean;
       needed?: boolean;
     };
@@ -754,13 +769,24 @@ function backendErrorMessage(error: unknown): string {
 }
 
 async function requestBackend(
-  method: string,
-  url: string,
-  body?: Record<string, unknown>,
-  timeoutMs?: number,
+  method: unknown,
+  url: unknown,
+  body?: unknown,
+  timeoutMs?: unknown,
+  source: BackendRequestSource = "renderer",
 ): Promise<unknown> {
+  const validation = validateBackendRequest(method, url, source);
+  if (!validation.ok) return { ok: false, error: validation.error };
+  if (!isBackendRequestBody(body)) return { ok: false, error: "Backend request body is not allowed" };
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10 * 60 * 1000)
+  ) {
+    return { ok: false, error: "Backend request timeout is not allowed" };
+  }
+
   if (isUiOnlyRuntime()) {
-    return uiOnlyBackendResponse(method, url);
+    return uiOnlyBackendResponse(validation.method, validation.url);
   }
 
   const ready = await bridge.ensureRunning();
@@ -769,7 +795,7 @@ async function requestBackend(
   }
 
   try {
-    return await bridge.request(method, url, body, timeoutMs);
+    return await bridge.request(validation.method, validation.url, body, timeoutMs as number | undefined);
   } catch (e) {
     return { ok: false, error: backendErrorMessage(e) };
   }
@@ -793,7 +819,7 @@ async function requestBackendAsset(url: string, timeoutMs?: number): Promise<unk
 }
 
 async function requestMigrationBackend(
-  method: string,
+  method: BackendMethod,
   url: string,
   body?: Record<string, unknown>,
   timeoutMs?: number,
@@ -806,7 +832,7 @@ async function requestMigrationBackend(
     };
   }
 
-  return requestBackend(method, url, body, timeoutMs);
+  return requestBackend(method, url, body, timeoutMs, "main");
 }
 
 async function showUninstallBlocked(window: BrowserWindow, targetPath: string, reason: string): Promise<void> {
@@ -824,12 +850,9 @@ async function showUninstallBlocked(window: BrowserWindow, targetPath: string, r
 }
 
 function registerIpc() {
-  ipcMain.handle(
-    "backend:request",
-    async (_e, method: string, url: string, body?: Record<string, unknown>, timeoutMs?: number) => {
-      return requestBackend(method, url, body, timeoutMs);
-    },
-  );
+  ipcMain.handle("backend:request", async (_e, method: unknown, url: unknown, body?: unknown, timeoutMs?: unknown) => {
+    return requestBackend(method, url, body, timeoutMs);
+  });
   ipcMain.handle("backend:cover", async (_e, id: string) => {
     if (
       isUiOnlyRuntime() ||
@@ -996,21 +1019,15 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle("app:install-deps", async (_e, command: string) => {
-    return new Promise((resolve) => {
-      const { spawn } = require("child_process");
-      const env = { ...process.env, PATH: ensureShellPath() };
-      const brewPath = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find((p) => {
-        try {
-          fs.accessSync(p);
-          return true;
-        } catch {
-          return false;
-        }
-      });
+  ipcMain.handle("app:install-deps", async (_e, input: unknown) => {
+    const action = parseInstallDepsAction(input);
+    if (!action) return { ok: false, error: "Unsupported dependency install action" };
 
-      let proc;
-      if (command.startsWith("brew ")) {
+    return new Promise((resolve) => {
+      const env = { ...process.env, PATH: ensureShellPath() };
+      let proc: ReturnType<typeof spawn>;
+      if (action.kind === "brew") {
+        const brewPath = findHomebrew();
         if (!brewPath) {
           resolve({
             ok: false,
@@ -1018,24 +1035,22 @@ function registerIpc() {
           });
           return;
         }
-        const args = command.split(/\s+/).slice(1);
-        proc = spawn(brewPath, args, { env });
-      } else if (command.startsWith("script:")) {
-        const scriptName = command.slice(7);
-        const candidates = [
-          path.join(path.dirname(app.getPath("exe")), "..", "scripts", scriptName),
-          path.join(getMetalsharpDir(), "scripts", scriptName),
-          path.join(__dirname, "..", "..", "..", "scripts", scriptName),
-        ];
-        const resolved = candidates.find((p) => fs.existsSync(p)) ?? null;
-        if (!resolved) {
-          resolve({ ok: false, error: `Script not found: ${scriptName}` });
+        proc = spawn(brewPath, ["install", action.package], { env });
+      } else {
+        const scriptsDir = app.isPackaged
+          ? path.join(process.resourcesPath, "scripts")
+          : path.resolve(__dirname, "..", "..", "..", "scripts");
+        const scriptPath = path.join(scriptsDir, dependencyScriptFileName(action.name));
+        try {
+          if (!fs.statSync(scriptPath).isFile()) {
+            resolve({ ok: false, error: `Dependency script is not available: ${action.name}` });
+            return;
+          }
+        } catch {
+          resolve({ ok: false, error: `Dependency script is not available: ${action.name}` });
           return;
         }
-        proc = spawn("/bin/bash", [resolved], { env });
-      } else {
-        const parts = command.split(/\s+/);
-        proc = spawn(parts[0], parts.slice(1), { env });
+        proc = spawn("/bin/bash", [scriptPath], { env });
       }
 
       let stdout = "";
@@ -1056,8 +1071,8 @@ function registerIpc() {
         10 * 60 * 1000,
       );
 
-      proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-      proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+      proc.stdout?.on("data", (d: Buffer) => (stdout += d.toString()));
+      proc.stderr?.on("data", (d: Buffer) => (stderr += d.toString()));
       proc.on("error", (err: Error) => {
         if (!settled) {
           settled = true;
@@ -1065,10 +1080,10 @@ function registerIpc() {
         }
         resolve({
           ok: false,
-          error: `Failed to run "${command}": ${err.message}`,
+          error: `Dependency installation failed: ${err.message}`,
         });
       });
-      proc.on("close", (code: number) => {
+      proc.on("close", (code: number | null) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -1187,13 +1202,10 @@ function registerIpc() {
     return updaterBridge.ensureReady();
   });
 
-  ipcMain.handle(
-    "updater:spawn-install",
-    async (_e, dmgPath: string, backendPid: number, targetVersion: string, dmgSize: number, dmgSha256: string) => {
-      if (isUiOnlyRuntime()) return { ok: false, error: "Updater is disabled in UI-only preview mode." };
-      return updaterBridge.spawnInstallUpdater(dmgPath, backendPid, targetVersion, dmgSize, dmgSha256);
-    },
-  );
+  ipcMain.handle("updater:spawn-install", async () => {
+    if (isUiOnlyRuntime()) return { ok: false, error: "Updater is disabled in UI-only preview mode." };
+    return updaterBridge.spawnInstallUpdater();
+  });
 
   ipcMain.handle("updater:install-status", async () => {
     if (isUiOnlyRuntime()) return null;
@@ -1203,11 +1215,6 @@ function registerIpc() {
   ipcMain.handle("updater:clear-status", async () => {
     if (isUiOnlyRuntime()) return;
     updaterBridge.clearInstallStatus();
-  });
-
-  ipcMain.handle("backend:get-pid", async () => {
-    if (isUiOnlyRuntime()) return null;
-    return bridge.getBackendPid();
   });
 
   ipcMain.handle("migrate:check", async () => {

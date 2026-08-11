@@ -4,12 +4,17 @@ import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 import { BACKEND_TOKEN_HEADER } from "./rust-bridge";
+import { type VerifiedUpdateArtifact, validateDownloadedDmg } from "./updater-security";
 
 function getMetalsharpDir(): string {
   if (process.env.METALSHARP_HOME?.trim()) {
     return path.resolve(process.env.METALSHARP_HOME);
   }
   return path.join(os.homedir(), ".metalsharp");
+}
+
+function getUpdatesDir(): string {
+  return path.join(getMetalsharpDir(), "cache", "updates");
 }
 
 function getStatusFile(): string {
@@ -121,42 +126,59 @@ export class UpdaterBridge {
     });
   }
 
-  spawnInstallUpdater(
-    dmgPath: string,
-    backendPid: number,
-    targetVersion: string,
-    dmgSize: number,
-    dmgSha256: string,
-  ): { ok: boolean; error?: string } {
+  private async getDownloadedDmg(): Promise<
+    { ok: true; artifact: VerifiedUpdateArtifact } | { ok: false; error: string }
+  > {
+    return new Promise((resolve) => {
+      const token = this.authTokenProvider();
+      if (!token) {
+        resolve({ ok: false, error: "Could not authenticate with the MetalSharp backend" });
+        return;
+      }
+      const req = http.get(
+        {
+          hostname: "127.0.0.1",
+          port: this.backendPort,
+          path: "/update/dmg-path",
+          headers: { [BACKEND_TOKEN_HEADER]: token },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk) => chunks.push(chunk));
+          res.on("end", () => {
+            if (res.statusCode !== 200) {
+              resolve({ ok: false, error: "Backend did not provide a downloaded update" });
+              return;
+            }
+            try {
+              const data = JSON.parse(Buffer.concat(chunks).toString());
+              const validation = validateDownloadedDmg(data, getUpdatesDir());
+              resolve(validation);
+            } catch {
+              resolve({ ok: false, error: "Backend returned an invalid update artifact" });
+            }
+          });
+        },
+      );
+      req.on("error", () => resolve({ ok: false, error: "Could not verify the downloaded update with the backend" }));
+      req.setTimeout(1500, () => {
+        req.destroy();
+        resolve({ ok: false, error: "Timed out while verifying the downloaded update" });
+      });
+    });
+  }
+
+  async spawnInstallUpdater(): Promise<{ ok: boolean; error?: string }> {
     if (!this.scriptPath) {
       return { ok: false, error: "Updater not ready — update.sh missing" };
     }
 
-    if (typeof dmgPath !== "string" || typeof dmgSha256 !== "string") {
-      return { ok: false, error: "DMG path or integrity metadata is invalid" };
-    }
-    const updatesDir = path.resolve(getMetalsharpDir(), "cache", "updates");
-    const resolvedDmgPath = path.resolve(dmgPath);
-    if (!resolvedDmgPath.startsWith(`${updatesDir}${path.sep}`) || !fs.existsSync(resolvedDmgPath)) {
-      return { ok: false, error: `DMG file not found: ${dmgPath}` };
-    }
-    let realDmgPath: string;
-    try {
-      realDmgPath = fs.realpathSync(resolvedDmgPath);
-    } catch {
-      return { ok: false, error: `DMG file cannot be resolved: ${dmgPath}` };
-    }
-    let realUpdatesDir: string;
-    try {
-      realUpdatesDir = fs.realpathSync(updatesDir);
-    } catch {
-      return { ok: false, error: "MetalSharp update cache cannot be resolved" };
-    }
-    if (!realDmgPath.startsWith(`${realUpdatesDir}${path.sep}`)) {
-      return { ok: false, error: "DMG path must remain inside the MetalSharp update cache" };
-    }
-    if (!Number.isSafeInteger(dmgSize) || dmgSize <= 0 || !/^[0-9a-fA-F]{64}$/.test(dmgSha256)) {
-      return { ok: false, error: "DMG integrity metadata is missing or invalid" };
+    const downloaded = await this.getDownloadedDmg();
+    if (!downloaded.ok) return downloaded;
+
+    const backendPid = await this.getBackendPid();
+    if (!backendPid) {
+      return { ok: false, error: "Could not verify the MetalSharp backend process" };
     }
 
     fs.mkdirSync(getMetalsharpDir(), { recursive: true });
@@ -166,15 +188,15 @@ export class UpdaterBridge {
       [
         this.scriptPath,
         "--dmg",
-        resolvedDmgPath,
+        downloaded.artifact.path,
         "--dmg-size",
-        String(dmgSize),
+        String(downloaded.artifact.size),
         "--dmg-sha256",
-        dmgSha256,
+        downloaded.artifact.sha256,
         "--backend-pid",
         String(backendPid),
         "--target-version",
-        targetVersion,
+        downloaded.artifact.version,
         "--status-file",
         getStatusFile(),
         "--metalsharp-home",
@@ -195,7 +217,7 @@ export class UpdaterBridge {
 
     child.unref();
 
-    console.log(`Updater: spawned install script (pid=${child.pid}) for v${targetVersion}`);
+    console.log(`Updater: spawned install script (pid=${child.pid}) for v${downloaded.artifact.version}`);
 
     return { ok: true };
   }
@@ -233,7 +255,8 @@ export class UpdaterBridge {
 
   private static validateStatusPath(): boolean {
     const resolved = path.resolve(getStatusFile());
-    return resolved.startsWith(path.resolve(getMetalsharpDir()));
+    const root = path.resolve(getMetalsharpDir());
+    return resolved.startsWith(`${root}${path.sep}`);
   }
 
   readInstallStatus(): InstallStatus | null {
