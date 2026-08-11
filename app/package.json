@@ -10,7 +10,7 @@
   "main": "dist/main/index.js",
   "scripts": {
     "build": "tsc && vite build && cp src/renderer/icon.png src/renderer/pressstart2p.ttf dist/renderer/",
-    "test": "tsc && node --test test/dmg-eject.test.js",
+    "test": "npm run build && node --test test/dmg-eject.test.js tests/process-manager.test.js",
     "start": "npm run build && electron .",
     "dev": "tsc -w & vite build --watch & electron .",
     "dev:vite": "vite",
