@@ -63,6 +63,16 @@ add_executable(test_thread_completion
 )
 target_link_libraries(test_thread_completion PRIVATE metalsharp_loader metalsharp_core)
 
+add_library(test_kernel32_shim_plugin SHARED
+    test_kernel32_shim_plugin.c
+)
+
+add_executable(test_kernel32_shim
+    test_kernel32_shim.c
+    ../src/fna/shims/kernel32_shim.c
+)
+add_dependencies(test_kernel32_shim test_kernel32_shim_plugin)
+
 add_executable(test_host_runtime_abi
     test_host_runtime_abi.cpp
 )
@@ -127,6 +137,7 @@ add_test(NAME d3d12_entrypoint COMMAND test_d3d12_entrypoint)
 add_test(NAME runtime COMMAND test_runtime)
 add_test(NAME fna_kernel32_shim COMMAND test_fna_kernel32_shim)
 add_test(NAME thread_completion COMMAND test_thread_completion)
+add_test(NAME kernel32_shim COMMAND test_kernel32_shim $<TARGET_FILE:test_kernel32_shim_plugin>)
 add_test(NAME host_runtime_abi COMMAND test_host_runtime_abi)
 add_test(NAME mscoree_path_safety COMMAND test_mscoree_path_safety)
 add_test(NAME darwin_sync_map COMMAND test_darwin_sync_map)
@@ -137,16 +148,6 @@ add_test(NAME input COMMAND test_input)
 add_test(NAME network_context COMMAND test_network_context)
 add_test(NAME phase5 COMMAND test_phase5)
 add_test(NAME tiled_resources COMMAND test_tiled_resources)
-# Regression test for #441: the FNA kernel32 shim is macOS-only (it uses
-# mach headers) and ships as a dylib compiled from src/fna/shims, so build
-# it the same way and exercise GetModuleFileNameA through dlopen.
-if(APPLE)
-    add_library(kernel32_shim_testlib SHARED ../src/fna/shims/kernel32_shim.c)
-    add_executable(test_kernel32_shim test_kernel32_shim.c)
-    target_link_libraries(test_kernel32_shim PRIVATE ${CMAKE_DL_LIBS})
-    add_test(NAME kernel32_shim COMMAND test_kernel32_shim $<TARGET_FILE:kernel32_shim_testlib>)
-endif()
-
 # Regression test for #427: the ws2_32 event-object shim (WSAWaitForMultipleEvents
 # and friends) must wait on the real event handles/sockets, not poll stdin.
 add_executable(test_ws2_32_events test_ws2_32_events.cpp)
