@@ -186,6 +186,12 @@ target_compile_options(test_pe_loader PRIVATE -fobjc-arc)
 
 add_test(NAME pe_loader COMMAND test_pe_loader)
 
+add_executable(test_pe_import_bounds
+    test_pe_import_bounds.cpp
+)
+target_link_libraries(test_pe_import_bounds PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME pe_import_bounds COMMAND test_pe_import_bounds)
+
 add_executable(test_phase21
     test_phase21.cpp
 )
