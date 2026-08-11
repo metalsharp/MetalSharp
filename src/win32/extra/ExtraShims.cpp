@@ -665,9 +665,18 @@ static int MSABI ws2_32_select(int nfds, void* readfds, void* writefds, void* ex
     struct timeval tv;
     struct timeval* ptv = nullptr;
     if (timeout) {
-        auto* wt = reinterpret_cast<const uint32_t*>(timeout);
-        tv.tv_sec = wt[0] / 1000000;
-        tv.tv_usec = wt[0] % 1000000;
+        /* Winsock TIMEVAL is {LONG tv_sec; LONG tv_usec} — two 32-bit
+         * fields, not a single microsecond count.  Read both fields and
+         * normalize an out-of-range usec into tv_sec so sub-second
+         * timeouts such as {0, 500000} actually wait 500 ms instead of
+         * returning immediately. */
+        auto* wt = static_cast<const LONG*>(timeout);
+        tv.tv_sec = wt[0];
+        tv.tv_usec = wt[1];
+        if (tv.tv_usec >= 1000000) {
+            tv.tv_sec += tv.tv_usec / 1000000;
+            tv.tv_usec %= 1000000;
+        }
         ptv = &tv;
     }
 
