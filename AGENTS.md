@@ -387,11 +387,14 @@ tools/ci/shellcheck.sh
 python3 tools/ci/validate-rules-toml.py
 python3 tools/ci/check-doc-freshness.py
 python3 tools/ci/verify-dmg-workflow.py
+python3 tools/ci/test-verify-bundle-sha256.py
 ```
 
 Run rules validation when `configs/mtsp-rules.toml` or DLL maps change; run
-DMG workflow validation when release/bundle tooling changes. Do not build a
-DMG merely to validate a documentation change.
+DMG workflow validation when release/bundle tooling changes; run the bundle
+checksum verifier regression tests when `tools/ci/m12-bundle-hashes.tsv`,
+`tools/ci/verify-bundle-sha256.sh`, or `tools/ci/m12-check.sh` change. Do not
+build a DMG merely to validate a documentation change.
 
 ## Backend Diagnostic Gates
 
