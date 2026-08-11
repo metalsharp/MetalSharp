@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="${METALSHARP_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 NATIVE_DIR="$PROJECT_ROOT/app/native"
 HOST_DIR="$NATIVE_DIR/host"
 
@@ -73,8 +73,9 @@ warn_missing() {
   local path="$1"
   local kind="$2"
   if [ ! -e "$path" ]; then
-    echo "WARNING: must-build $kind missing: $path (will not create empty stub)" >&2
-    return 0
+    echo "ERROR: must-build $kind missing: $path" >&2
+    echo "  Run tools/package/prepare-native.sh before packaging." >&2
+    return 1
   fi
   if [ ! -s "$path" ]; then
     echo "ERROR: must-build $kind is zero bytes: $path" >&2
@@ -147,8 +148,8 @@ done
 # copy commands in CMakeLists.txt. The validation below enforces that policy.
 
 if ! validate_must_build; then
-  echo "FAILED: app/native contains zero-byte must-build artifacts." >&2
-  echo "  Run \`cmake --build build/<preset>\` before invoking this script." >&2
+  echo "FAILED: app/native is missing or contains zero-byte must-build artifacts." >&2
+  echo "  Run tools/package/prepare-native.sh before invoking this script." >&2
   exit 1
 fi
 

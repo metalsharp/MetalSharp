@@ -125,16 +125,12 @@ jobs:
         run: cd app/src-rust && cargo build --release
 
       - name: Build C++ engine
+        # prepare-native.sh configures+builds the CMake tree, stages every
+        # must-build shim/executable into app/native/ via the CMake POST_BUILD
+        # staging commands, and stages the host runtime + validation.
         run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
-          cmake --build . --parallel $(sysctl -n hw.ncpu)
-          mkdir -p ../app/native
-          cp libd3d11.dylib libd3d12.dylib libdxgi.dylib libxaudio2_9.dylib libxinput1_4.dylib libopengl32.dylib ../app/native/ 2>/dev/null || true
-          cp metalsharp metalsharp_launcher MetalSharpMigrator ../app/native/ 2>/dev/null || true
-          cd ..
+          tools/package/prepare-native.sh
           tools/bundles/verify-native-shims.sh app/native
-          METALSHARP_BUILD_DIR="$PWD/build" tools/package/create-host-runtime.sh
 
       - name: Install Electron deps
         run: cd app && npm ci
