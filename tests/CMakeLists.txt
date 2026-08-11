@@ -347,3 +347,23 @@ add_executable(test_kernel32_wide
 )
 target_link_libraries(test_kernel32_wide PRIVATE metalsharp_loader metalsharp_core)
 add_test(NAME kernel32_wide COMMAND test_kernel32_wide)
+
+# The mscoree PE shim is built for Wine's x86_64 lane outside the host-native
+# targets above. Exercise its host-side unixlib contract here with a small
+# fake Mono dylib: the regression must use the PE-provided executable path and
+# copy Mono's result back into the shared launch-parameter structure.
+add_library(test_mscoree_mono SHARED
+    test_mscoree_mono.c
+)
+
+add_executable(test_mscoree_unix
+    test_mscoree_unix.c
+    ${CMAKE_SOURCE_DIR}/src/wine/mscoree_unix.c
+)
+target_include_directories(test_mscoree_unix PRIVATE ${CMAKE_SOURCE_DIR}/src/wine)
+target_link_libraries(test_mscoree_unix PRIVATE ${CMAKE_DL_LIBS})
+add_dependencies(test_mscoree_unix test_mscoree_mono)
+add_test(NAME mscoree_unix COMMAND test_mscoree_unix)
+set_tests_properties(mscoree_unix PROPERTIES
+    ENVIRONMENT "METALSHARP_MONO_LIB=$<TARGET_FILE:test_mscoree_mono>"
+)
