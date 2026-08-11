@@ -1,5 +1,5 @@
 # MetalSharp Steam Compatibility Tool Surface
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 Status: Phase 7 foundation
@@ -26,6 +26,21 @@ POST /steam/launch-game {"appid":<appid>,"launchMethod":"<pipeline>"}
 ```
 
 That keeps the contract honest. The current supported path is still MetalSharp launching the game process while Wine Steam remains alive in the background for Steamworks connectivity.
+
+## Steam App ID Input Contract
+
+Backend routes that accept a JSON `appid` use the same boundary validation:
+
+- the value must be a JSON number in the positive `u32` range (`1..=4,294,967,295`);
+- missing, string, zero, negative, fractional, or out-of-range values receive a
+  `400` response; and
+- the value is validated before pipeline resolution, preparation, launch,
+  diagnostics, game edits, or uninstall work begins.
+
+This prevents a `u64` request value from silently truncating into another Steam
+game's `u32` app ID. The compatibility `/game/prepare` route, canonical
+`/mtsp/prepare`, `/mtsp/recipe`, `/mtsp/doctor`, and `/game/launch-auto` routes
+share this contract with the other Steam game operations.
 
 ## Why Not Fake Proton
 
