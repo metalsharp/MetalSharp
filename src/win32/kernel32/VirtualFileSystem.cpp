@@ -420,9 +420,14 @@ static void fillWin32FindData(void* lpFindFileData, const char* name, bool isDir
     uint64_t fsize = static_cast<uint64_t>(fileSize);
     memcpy(data + 28, &fsize, 8);
 
-    memset(data + 36, 0, 14 * 2);
-    for (int i = 0; name[i] && i < 13; i++) {
-        reinterpret_cast<uint16_t*>(data + 36)[i] = static_cast<uint16_t>(static_cast<unsigned char>(name[i]));
+    // WIN32_FIND_DATAW places cFileName after dwReserved0 and dwReserved1 at byte 44.
+    // Leave those reserved fields untouched and initialize the complete file-name field.
+    constexpr size_t cFileNameOffset = 44;
+    constexpr size_t cFileNameCapacity = 260;
+    memset(data + cFileNameOffset, 0, cFileNameCapacity * sizeof(uint16_t));
+    for (size_t i = 0; name[i] && i + 1 < cFileNameCapacity; i++) {
+        uint16_t codeUnit = static_cast<uint16_t>(static_cast<unsigned char>(name[i]));
+        memcpy(data + cFileNameOffset + i * sizeof(codeUnit), &codeUnit, sizeof(codeUnit));
     }
 }
 
