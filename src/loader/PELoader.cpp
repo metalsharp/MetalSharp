@@ -71,12 +71,39 @@
 ///   is set in the constructor and cleared in the destructor.
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <metalsharp/Logger.h>
 #include <metalsharp/PEHeader.h>
 #include <metalsharp/PELoader.h>
 #include <sys/mman.h>
 
 namespace metalsharp {
+
+namespace {
+
+constexpr std::streamoff kMaxPEFileSize = 512 * 1024 * 1024;
+
+bool readPEFile(const std::string& path, std::vector<uint8_t>& data) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file.is_open())
+        return false;
+
+    const std::streamoff fileSize = file.tellg();
+    if (fileSize <= 0 || fileSize >= kMaxPEFileSize)
+        return false;
+    if (!file.seekg(0, std::ios::beg))
+        return false;
+
+    data.resize(static_cast<size_t>(fileSize));
+    return static_cast<bool>(
+        file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size())));
+}
+
+bool rangeWithin(size_t offset, size_t length, size_t total) {
+    return offset <= total && length <= total - offset;
+}
+
+} // namespace
 
 PELoader* PELoader::s_instance = nullptr;
 
@@ -111,20 +138,12 @@ bool PELoader::load(const std::string& path) {
 
     m_mainModule.name = path;
 
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        MS_INFO("PELoader: failed to open %s", path.c_str());
-        return false;
-    }
-
-    size_t fileSize = file.tellg();
-    file.seekg(0);
-
-    std::vector<uint8_t> data(fileSize);
-    if (!file.read(reinterpret_cast<char*>(data.data()), fileSize)) {
+    std::vector<uint8_t> data;
+    if (!readPEFile(path, data)) {
         MS_INFO("PELoader: failed to read %s", path.c_str());
         return false;
     }
+    const size_t fileSize = data.size();
 
     if (!parsePE(m_mainModule, data.data(), fileSize))
         return false;
@@ -159,7 +178,7 @@ bool PELoader::loadFromMemory(const uint8_t* data, size_t size) {
 }
 
 bool PELoader::parsePE(LoadedModule& module, const uint8_t* rawData, size_t rawSize) {
-    if (rawSize < sizeof(IMAGE_DOS_HEADER)) {
+    if (!rawData || rawSize < sizeof(IMAGE_DOS_HEADER)) {
         MS_INFO("PELoader: file too small for DOS header");
         return false;
     }
@@ -170,7 +189,12 @@ bool PELoader::parsePE(LoadedModule& module, const uint8_t* rawData, size_t rawS
         return false;
     }
 
-    if (dos->e_lfanew < 0 || (size_t)dos->e_lfanew + 4 + sizeof(IMAGE_FILE_HEADER) > rawSize) {
+    const auto headerRangeWithin = [rawSize](size_t offset, size_t length) {
+        return rangeWithin(offset, length, rawSize);
+    };
+
+    if (dos->e_lfanew < 0 ||
+        !headerRangeWithin(static_cast<size_t>(dos->e_lfanew), sizeof(uint32_t) + sizeof(IMAGE_FILE_HEADER))) {
         MS_INFO("PELoader: invalid e_lfanew offset");
         return false;
     }
@@ -193,11 +217,36 @@ bool PELoader::parsePE(LoadedModule& module, const uint8_t* rawData, size_t rawS
         return false;
     }
 
+    const size_t optionalHeaderOffset =
+        static_cast<size_t>(dos->e_lfanew) + sizeof(uint32_t) + sizeof(IMAGE_FILE_HEADER);
+    if (!headerRangeWithin(optionalHeaderOffset, fileHeader->SizeOfOptionalHeader)) {
+        MS_INFO("PELoader: optional header extends past end of file");
+        return false;
+    }
+
+    const size_t sectionTableOffset = optionalHeaderOffset + fileHeader->SizeOfOptionalHeader;
+    const size_t sectionTableSize = static_cast<size_t>(fileHeader->NumberOfSections) * sizeof(IMAGE_SECTION_HEADER);
+    if (!headerRangeWithin(sectionTableOffset, sectionTableSize)) {
+        MS_INFO("PELoader: section table extends past end of file");
+        return false;
+    }
+
     auto* optHeader =
         reinterpret_cast<const IMAGE_OPTIONAL_HEADER64*>(rawData + dos->e_lfanew + 4 + sizeof(IMAGE_FILE_HEADER));
 
     if (optHeader->Magic != IMAGE_OPTIONAL_MAGIC_PE32PLUS) {
         MS_INFO("PELoader: not PE32+ (magic: 0x%04X)", optHeader->Magic);
+        return false;
+    }
+
+    if (optHeader->SectionAlignment == 0 || optHeader->FileAlignment == 0) {
+        MS_INFO("PELoader: invalid section or file alignment");
+        return false;
+    }
+
+    const size_t sectionTableEnd = sectionTableOffset + sectionTableSize;
+    if (optHeader->SizeOfHeaders < sectionTableEnd || optHeader->SizeOfHeaders > rawSize) {
+        MS_INFO("PELoader: headers extend past declared or actual file bounds");
         return false;
     }
 
@@ -222,7 +271,12 @@ bool PELoader::mapSections(LoadedModule& module, const uint8_t* rawData, size_t 
     auto* sections = reinterpret_cast<const IMAGE_SECTION_HEADER*>(
         rawData + dos->e_lfanew + 4 + sizeof(IMAGE_FILE_HEADER) + fileHeader->SizeOfOptionalHeader);
 
-    uint32_t imageSize = alignUp(optHeader->SizeOfImage, 0x1000);
+    const uint64_t imageSize64 = alignUp(optHeader->SizeOfImage, 0x1000);
+    if (imageSize64 == 0 || imageSize64 > std::numeric_limits<size_t>::max()) {
+        MS_INFO("PELoader: invalid image size");
+        return false;
+    }
+    const size_t imageSize = static_cast<size_t>(imageSize64);
 
 #ifdef __APPLE__
     int mmapFlags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_JIT;
@@ -234,16 +288,19 @@ bool PELoader::mapSections(LoadedModule& module, const uint8_t* rawData, size_t 
         reinterpret_cast<uint8_t*>(mmap(nullptr, imageSize, PROT_READ | PROT_WRITE | PROT_EXEC, mmapFlags, -1, 0));
 
     if (mem == MAP_FAILED) {
-        MS_INFO("PELoader: mmap failed for image (%u bytes), errno=%d", imageSize, errno);
+        MS_INFO("PELoader: mmap failed for image (%zu bytes), errno=%d", imageSize, errno);
         return false;
     }
 
     memset(mem, 0, imageSize);
 
-    uint32_t headerSize = alignUp(optHeader->SizeOfHeaders, m_fileAlignment);
-    if (headerSize > rawSize)
-        headerSize = rawSize;
-    memcpy(mem, rawData, headerSize);
+    const uint64_t headerSize64 = alignUp(optHeader->SizeOfHeaders, m_fileAlignment);
+    if (headerSize64 > imageSize || headerSize64 > rawSize) {
+        MS_INFO("PELoader: header copy exceeds image or file bounds");
+        munmap(mem, imageSize);
+        return false;
+    }
+    memcpy(mem, rawData, static_cast<size_t>(headerSize64));
 
     for (uint16_t i = 0; i < fileHeader->NumberOfSections; i++) {
         const auto& sec = sections[i];
@@ -254,11 +311,17 @@ bool PELoader::mapSections(LoadedModule& module, const uint8_t* rawData, size_t 
         uint32_t srcOffset = sec.PointerToRawData;
         uint32_t copySize = sec.SizeOfRawData;
 
-        if (srcOffset + copySize > rawSize) {
-            copySize = rawSize - srcOffset;
+        if (static_cast<size_t>(srcOffset) > rawSize ||
+            static_cast<size_t>(copySize) > rawSize - static_cast<size_t>(srcOffset)) {
+            MS_INFO("PELoader: section raw data exceeds file bounds");
+            munmap(mem, imageSize);
+            return false;
         }
-        if (dstOffset + copySize > imageSize) {
-            copySize = imageSize - dstOffset;
+        if (static_cast<size_t>(dstOffset) > imageSize ||
+            static_cast<size_t>(copySize) > imageSize - static_cast<size_t>(dstOffset)) {
+            MS_INFO("PELoader: section virtual data exceeds image bounds");
+            munmap(mem, imageSize);
+            return false;
         }
 
         if (copySize > 0) {
@@ -880,15 +943,10 @@ void* PELoader::getProcAddress(HMODULE hModule, const std::string& funcName) {
 bool PELoader::loadDLL(const std::string& path, const std::string& dllName) {
     MS_INFO("PELoader: loading DLL %s from %s", dllName.c_str(), path.c_str());
 
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open())
+    std::vector<uint8_t> data;
+    if (!readPEFile(path, data))
         return false;
-
-    size_t fileSize = file.tellg();
-    file.seekg(0);
-    std::vector<uint8_t> data(fileSize);
-    if (!file.read(reinterpret_cast<char*>(data.data()), fileSize))
-        return false;
+    const size_t fileSize = data.size();
 
     LoadedModule mod;
     mod.name = dllName;

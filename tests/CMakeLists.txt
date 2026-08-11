@@ -172,6 +172,14 @@ target_compile_options(test_resource_bounds PRIVATE -fobjc-arc)
 
 add_test(NAME resource_bounds COMMAND test_resource_bounds)
 
+add_executable(test_pe_loader
+    test_pe_loader.cpp
+)
+target_link_libraries(test_pe_loader PRIVATE metalsharp_loader metalsharp_core)
+target_compile_options(test_pe_loader PRIVATE -fobjc-arc)
+
+add_test(NAME pe_loader COMMAND test_pe_loader)
+
 add_executable(test_phase21
     test_phase21.cpp
 )
