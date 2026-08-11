@@ -5,11 +5,14 @@
 /// creation with WAVEFORMAT, write cursor management, play/stop control, and per-buffer
 /// volume. Each DSBuffer wraps a std::vector ring buffer that feeds into CoreAudioBackend.
 /// Used by the dsound.dll shim to service games that use DirectSound for audio output.
+/// All public operations are serialized, and only buffers created by this backend are
+/// released by destroyBuffer; repeated or foreign destroy requests are ignored.
 
 #pragma once
 
 #include <cstdint>
 #include <metalsharp/Platform.h>
+#include <mutex>
 #include <vector>
 
 namespace metalsharp {
@@ -69,6 +72,7 @@ class DirectSoundBackend {
 
     std::vector<DSBuffer*> m_buffers;
     bool m_initialized = false;
+    mutable std::mutex m_mutex;
 };
 
 } // namespace metalsharp
