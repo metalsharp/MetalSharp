@@ -2800,6 +2800,78 @@ fn parse_process_line_owned(line: &str) -> Option<(u32, String)> {
     Some((pid, command))
 }
 
+const METALSHARP_WINE_EXECUTABLES: &[&str] = &[
+    "metalsharp-wine",
+    "wine",
+    "wine64",
+    "wine32",
+    "wineserver",
+    "wineboot",
+    "wineboot.exe",
+    "wineloader",
+    "wine-preloader",
+    "wine64-preloader",
+    "wine32-preloader",
+    "winedevice",
+    "winedevice.exe",
+    "winedbg",
+];
+
+const METALSHARP_RUNTIME_HELPERS: &[&str] = &["gogdl", "heroic_gogdl", "heroic-gogdl"];
+
+fn command_executable(command: &str) -> &str {
+    let command = command.trim_start();
+    for quote in ['"', '\''] {
+        if let Some(quoted) = command.strip_prefix(quote) {
+            return quoted.split(quote).next().unwrap_or("");
+        }
+    }
+    command.split_whitespace().next().unwrap_or("")
+}
+
+fn is_metalsharp_wine_executable(command: &str, home: &std::path::Path) -> bool {
+    let executable = std::path::Path::new(command_executable(command));
+    let runtime_bin = home.join("runtime").join("wine").join("bin");
+    if !executable.starts_with(&runtime_bin) {
+        return false;
+    }
+
+    let name = executable.file_name().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase());
+    name.as_deref().is_some_and(|name| METALSHARP_WINE_EXECUTABLES.contains(&name))
+}
+
+fn is_metalsharp_runtime_helper(command: &str, home: &std::path::Path) -> bool {
+    let executable = std::path::Path::new(command_executable(command));
+    let runtime_root = home.join("runtime");
+    let tools_root = home.join("tools");
+    let owned_helper_path =
+        executable.parent() == Some(runtime_root.as_path()) || executable.parent() == Some(tools_root.as_path());
+    if !owned_helper_path {
+        return false;
+    }
+
+    let name = executable.file_name().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase());
+    name.as_deref().is_some_and(|name| METALSHARP_RUNTIME_HELPERS.contains(&name))
+}
+
+fn is_metalsharp_owned_prefix_executable(command: &str, home: &std::path::Path) -> bool {
+    let executable = std::path::Path::new(command_executable(command));
+    let Ok(relative) = executable.strip_prefix(home) else {
+        return false;
+    };
+    let Some(root) = relative.components().next() else {
+        return false;
+    };
+    let root = root.as_os_str().to_string_lossy();
+
+    root == "bottles"
+        || root == "games"
+        || root == "prefix-gptk"
+        || root == "prefix-steam"
+        || root == "sharp-prefix"
+        || root.starts_with("prefix-")
+}
+
 fn is_metalsharp_game_command(command: &str, home: &std::path::Path) -> bool {
     if is_force_kill_target(command, home) {
         return true;
@@ -2832,41 +2904,14 @@ fn is_force_kill_target(command: &str, home: &std::path::Path) -> bool {
         return false;
     }
 
-    let home_text = home.to_string_lossy();
-    let under_metalsharp_home = !home_text.is_empty() && command.contains(home_text.as_ref());
-    let wine_process = lower.contains("metalsharp-wine")
-        || lower.contains("wineserver")
-        || lower.contains("wineloader")
-        || lower.contains("wineboot")
-        || lower.contains("wine64")
-        || lower.contains("winedevice.exe")
-        || lower.contains("steamwebhelper")
-        || lower.contains("c:\\windows\\")
-        || lower.contains(".exe");
-
-    // Isolation contract: MetalSharp must only ever kill processes it owns.
-    // A bare `wine`/`wineserver`/`wineloader` match is NOT enough — that
-    // would kill a foreign Wine (CrossOver, SakuraGiri, Whisky, GPTK) that
-    // happens to be running. Ownership is proven by the process command
-    // referencing the MetalSharp home, an MS prefix/bottle path, or the
-    // metalsharp-wine wrapper itself.
-    if wine_process {
-        let owned = under_metalsharp_home
-            || command.contains("metalsharp-wine")
-            || lower.contains("prefix-steam")
-            || lower.contains("sharp-prefix")
-            || lower.contains("/bottles/")
-            || lower.contains("gogdl")
-            || lower.contains("heroic_gogdl");
-        return owned;
-    }
-
-    under_metalsharp_home
-        && (lower.contains("/runtime/")
-            || lower.contains("/bottles/")
-            || lower.contains("/prefix-steam/")
-            || lower.contains("gogdl")
-            || lower.contains("heroic_gogdl"))
+    // `ps` returns the executable followed by its arguments. Only the
+    // executable may establish ownership; paths in arguments are untrusted.
+    // This prevents commands such as `open <home>/runtime/.../some.exe` or
+    // `vim <home>/games/.../game.exe` from becoming kill targets merely by
+    // mentioning a MetalSharp path or a `.exe` suffix.
+    is_metalsharp_wine_executable(command, home)
+        || is_metalsharp_runtime_helper(command, home)
+        || is_metalsharp_owned_prefix_executable(command, home)
 }
 
 /// Minimal percent-decoding for URL query values (e.g. gameDir paths with
@@ -3502,17 +3547,30 @@ mod tests {
     }
 
     #[test]
-    fn force_kill_targets_metalsharp_wine_helpers_but_not_app_processes() {
-        let home = std::path::Path::new("/Users/test/.metalsharp");
+    fn force_kill_targets_owned_executables_but_not_path_arguments() {
+        let home = std::env::temp_dir().join("metalsharp-force-kill-test");
+        let runtime = |name: &str| home.join("runtime/wine/bin").join(name).to_string_lossy().into_owned();
+        let game = || home.join("games/620/game.exe").to_string_lossy().into_owned();
 
-        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/wineserver", home));
+        assert!(is_force_kill_target(&runtime("wineserver"), &home));
+        assert!(is_force_kill_target(&format!(r#"{} C:\windows\system32\wineboot.exe"#, runtime("wine64")), &home));
+        assert!(is_force_kill_target(&format!("{} Steam.exe", runtime("wine")), &home));
         assert!(is_force_kill_target(
-            "/Users/test/.metalsharp/runtime/wine/bin/wine64 C:\\windows\\system32\\wineboot.exe",
-            home
+            &home.join("prefix-steam/drive_c/Program Files (x86)/Steam/bin/steamwebhelper.exe").to_string_lossy(),
+            &home
         ));
-        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/wine Steam.exe", home));
-        assert!(!is_force_kill_target("/Applications/MetalSharp.app/Contents/MacOS/MetalSharp", home));
-        assert!(!is_force_kill_target("/Applications/Steam.app/Contents/MacOS/steam_osx", home));
+        assert!(is_force_kill_target(&game(), &home));
+        assert!(is_force_kill_target(&format!("{} --version", home.join("tools/gogdl").display()), &home));
+        assert!(!is_force_kill_target(&runtime("other.exe"), &home));
+        assert!(!is_force_kill_target(&format!("{}-evil/runtime/wine/bin/wine64", home.display()), &home));
+
+        // A path in an argument does not identify the executable that would
+        // be terminated. These are the false positives from issue #404.
+        assert!(!is_force_kill_target(&format!("vim {}.metalsharp-original", game()), &home));
+        assert!(!is_force_kill_target(&format!("open {}", runtime("some.exe")), &home));
+        assert!(!is_force_kill_target(&format!("/usr/local/bin/wine64 {}", game()), &home));
+        assert!(!is_force_kill_target("/Applications/MetalSharp.app/Contents/MacOS/MetalSharp", &home));
+        assert!(!is_force_kill_target("/Applications/Steam.app/Contents/MacOS/steam_osx", &home));
     }
 
     #[test]
@@ -3520,26 +3578,34 @@ mod tests {
         // Isolation contract: a foreign Wine launcher (CrossOver, SakuraGiri,
         // Whisky, GPTK) must never be killed by MetalSharp cleanup, even when
         // its command line contains wine/wineserver/wineloader tokens.
-        let home = std::path::Path::new("/Users/test/.metalsharp");
+        let home = std::env::temp_dir().join("metalsharp-force-kill-test");
+        let runtime = |name: &str| home.join("runtime/wine/bin").join(name).to_string_lossy().into_owned();
 
         assert!(!is_force_kill_target(
             "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineserver -f",
-            home
+            &home
         ));
         assert!(!is_force_kill_target(
             "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine64 C:\\windows\\system32\\wineboot.exe",
-            home
+            &home
         ));
         assert!(!is_force_kill_target(
-            "/Users/test/Library/Application Support/SakuraGiri/engine/wine/bin/wineloader",
-            home
+            "/Applications/SakuraGiri.app/Contents/Resources/engine/wine/bin/wineloader",
+            &home
         ));
-        assert!(!is_force_kill_target("/opt/homebrew/bin/wineserver", home));
-        assert!(!is_force_kill_target("/usr/local/bin/wine", home));
+        assert!(!is_force_kill_target("/opt/homebrew/bin/wineserver", &home));
+        assert!(!is_force_kill_target("/usr/local/bin/wine", &home));
+        assert!(!is_force_kill_target(
+            &format!(
+                "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine64 {}",
+                home.join("games/620/game.exe").display()
+            ),
+            &home
+        ));
 
         // MS-owned processes must still be targeted.
-        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/wineserver -f", home));
-        assert!(is_force_kill_target("/Users/test/.metalsharp/runtime/wine/bin/metalsharp-wine Steam.exe", home));
+        assert!(is_force_kill_target(&format!("{} -f", runtime("wineserver")), &home));
+        assert!(is_force_kill_target(&format!("{} Steam.exe", runtime("metalsharp-wine")), &home));
     }
 
     #[test]
