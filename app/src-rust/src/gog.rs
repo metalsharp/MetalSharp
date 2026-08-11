@@ -613,6 +613,13 @@ pub fn handle_auth_code(body: &Value) -> Value {
     let Some(code) = body_string(body, "code") else {
         return json!({"ok": false, "error": "missing authorization code", "status": status_value()});
     };
+    // The code is forwarded to gogdl as `--code <code>`. A value beginning
+    // with '-' would be parsed by gogdl as a CLI flag (flag injection, e.g.
+    // "--version"). GOG authorization codes are base64url material and never
+    // start with '-', so reject flag-like codes before they reach gogdl.
+    if code.starts_with('-') {
+        return json!({"ok": false, "error": "invalid authorization code", "status": status_value()});
+    }
     let output = match run_gogdl(&["auth".to_string(), "--code".to_string(), code]) {
         Ok(output) => output,
         Err(error) => return json!({"ok": false, "error": error, "status": status_value()}),
@@ -1226,6 +1233,24 @@ mod tests {
         assert!(valid_token("1876546888"));
         assert!(!valid_token("../bad"));
         assert!(!valid_token("bad/path"));
+    }
+
+    #[test]
+    fn handle_auth_code_rejects_flag_like_codes() {
+        // Regression for issue #410: a code beginning with '-' must never be
+        // forwarded to gogdl as a CLI argument (flag injection).
+        let response = handle_auth_code(&json!({ "code": "--version" }));
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"], "invalid authorization code");
+
+        let response = handle_auth_code(&json!({ "code": "-x" }));
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"], "invalid authorization code");
+
+        // A missing code still reports the original error.
+        let response = handle_auth_code(&json!({}));
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"], "missing authorization code");
     }
 
     #[test]
