@@ -8,11 +8,13 @@ Communication: writes JSON status to ~/.metalsharp/update_install_status.json
 The new MetalSharp instance reads this file on launch to show success/failure.
 
 Usage:
-    python3 update.py --dmg <path> --backend-pid <pid> --target-version <ver> \
+    python3 update.py --dmg <path> --dmg-size <bytes> --dmg-sha256 <sha256> \
+                      --backend-pid <pid> --target-version <ver> \
                       [--status-file <path>] [--python <path>]
 """
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -307,6 +309,28 @@ def verify_app_bundle(app_path):
     return "Mach-O" in substrate_type and "x86_64" in substrate_type and "ELF 64-bit" in symbol_type and "x86-64" in symbol_type
 
 
+def verify_dmg_integrity(dmg_path, expected_size, expected_sha256):
+    try:
+        expected_size = int(expected_size)
+    except (TypeError, ValueError):
+        return False
+    if expected_size <= 0 or not isinstance(expected_sha256, str):
+        return False
+    expected_sha256 = expected_sha256.strip().lower()
+    if len(expected_sha256) != 64 or any(c not in "0123456789abcdef" for c in expected_sha256):
+        return False
+    try:
+        if not os.path.isfile(dmg_path) or os.path.getsize(dmg_path) != expected_size:
+            return False
+        digest = hashlib.sha256()
+        with open(dmg_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest() == expected_sha256
+    except (OSError, IOError):
+        return False
+
+
 def admin_rm_rf(path):
     r = run(["rm", "-rf", path])
     if r.returncode == 0:
@@ -382,6 +406,8 @@ def report_update_result(status_file, version, target_version):
 def main():
     parser = argparse.ArgumentParser(description="MetalSharp Updater")
     parser.add_argument("--dmg", required=True)
+    parser.add_argument("--dmg-size", required=True, type=int)
+    parser.add_argument("--dmg-sha256", required=True)
     parser.add_argument("--backend-pid", required=True, type=int)
     parser.add_argument("--target-version", required=True)
     parser.add_argument(
@@ -396,11 +422,24 @@ def main():
     tv = args.target_version
     global UPDATE_DMG_PATH
     dmg = args.dmg
+    dmg_size = args.dmg_size
+    dmg_sha256 = args.dmg_sha256
     UPDATE_DMG_PATH = dmg
     bpid = args.backend_pid
     app_pid = args.app_pid
 
     write_status(sf, "starting", 0, "Starting update...", new_version=tv)
+
+    if not verify_dmg_integrity(dmg, dmg_size, dmg_sha256):
+        write_status(
+            sf,
+            "error",
+            0,
+            "Downloaded DMG failed size/SHA-256 verification",
+            error="dmg_integrity_failed",
+            new_version=tv,
+        )
+        sys.exit(1)
 
     # ── 1. Force-stop old app/backend before touching the update image ───────
     force_stop_old_runtime(sf, bpid, app_pid, tv)
@@ -425,13 +464,13 @@ def main():
     )
 
     # ── 3. Verify DMG exists ─────────────────────────────────────────
-    if not os.path.exists(dmg):
+    if not verify_dmg_integrity(dmg, dmg_size, dmg_sha256):
         write_status(
             sf,
             "error",
             20,
-            "DMG not found: {}".format(dmg),
-            error="dmg_not_found",
+            "Downloaded DMG failed size/SHA-256 verification",
+            error="dmg_integrity_failed",
             new_version=tv,
         )
         sys.exit(1)

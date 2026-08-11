@@ -234,6 +234,8 @@ type MetalsharpAPI = {
     dmgPath: string,
     backendPid: number,
     targetVersion: string,
+    dmgSize: number,
+    dmgSha256: string,
   ) => Promise<{ ok: boolean; error?: string }>;
   updaterInstallStatus: () => Promise<InstallStatus | null>;
   updaterClearStatus: () => Promise<void>;

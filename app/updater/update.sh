@@ -2,6 +2,8 @@
 set -euo pipefail
 
 DMG_PATH=""
+DMG_SIZE=""
+DMG_SHA256=""
 BACKEND_PID=""
 TARGET_VERSION=""
 STATUS_FILE=""
@@ -95,6 +97,8 @@ force_stop_old_runtime() {
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dmg) shift; DMG_PATH="${1:-}"; shift ;;
+        --dmg-size) shift; DMG_SIZE="${1:-}"; shift ;;
+        --dmg-sha256) shift; DMG_SHA256="${1:-}"; shift ;;
         --backend-pid) shift; BACKEND_PID="${1:-}"; shift ;;
         --target-version) shift; TARGET_VERSION="${1:-}"; shift ;;
         --status-file) shift; STATUS_FILE="${1:-}"; shift ;;
@@ -108,6 +112,8 @@ done
 MS_DIR="${METALSHARP_HOME_ARG:-${METALSHARP_HOME:-$HOME/.metalsharp}}"
 STATUS_FILE="${STATUS_FILE:-$MS_DIR/update_install_status.json}"
 DMG_PATH="${DMG_PATH:?--dmg required}"
+DMG_SIZE="${DMG_SIZE:?--dmg-size required}"
+DMG_SHA256="${DMG_SHA256:?--dmg-sha256 required}"
 BACKEND_PID="${BACKEND_PID:?--backend-pid required}"
 TARGET_VERSION="${TARGET_VERSION:?--target-version required}"
 APP_PATH="/Applications/MetalSharp.app"
@@ -160,6 +166,19 @@ verify_app_bundle() {
         return 1
     fi
     return 0
+}
+
+verify_dmg_integrity() {
+    if [ ! -f "$DMG_PATH" ] || [[ ! "$DMG_SIZE" =~ ^[1-9][0-9]*$ ]] || [[ ! "$DMG_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        return 1
+    fi
+
+    local actual_size actual_sha256 expected_sha256
+    actual_size="$(wc -c < "$DMG_PATH" | tr -d '[:space:]')"
+    [ "$actual_size" = "$DMG_SIZE" ] || return 1
+    actual_sha256="$(shasum -a 256 "$DMG_PATH" | awk '{print tolower($1)}')" || return 1
+    expected_sha256="$(printf '%s' "$DMG_SHA256" | tr '[:upper:]' '[:lower:]')"
+    [ "$actual_sha256" = "$expected_sha256" ]
 }
 
 normalize_version() {
@@ -226,6 +245,11 @@ fi
 
 write_status "starting" 0 "Starting update..."
 
+if ! verify_dmg_integrity; then
+    write_status "error" 0 "Downloaded DMG failed size/SHA-256 verification" "dmg_integrity_failed"
+    exit 1
+fi
+
 force_stop_old_runtime
 
 write_status "killing_steam" 15 "Stopping Steam and Wine processes..."
@@ -246,8 +270,8 @@ sleep 1
 force_stop_old_runtime
 
 write_status "verifying_dmg" 30 "Verifying DMG..."
-if [ ! -f "$DMG_PATH" ]; then
-    write_status "error" 30 "DMG not found: $DMG_PATH" "dmg_not_found"
+if ! verify_dmg_integrity; then
+    write_status "error" 30 "Downloaded DMG failed size/SHA-256 verification" "dmg_integrity_failed"
     exit 1
 fi
 if ! hdiutil verify "$DMG_PATH" >/dev/null 2>&1; then

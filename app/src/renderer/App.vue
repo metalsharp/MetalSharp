@@ -203,14 +203,28 @@ async function startUpdateDownload() {
     if (progress.status === "downloaded" || progress.status === "complete") {
       if (updatePollTimer) clearInterval(updatePollTimer);
       updatePollTimer = null;
-      const dmgResult = await api<{ ok: boolean; path?: string; version?: string }>("GET", "/update/dmg-path");
+      const dmgResult = await api<{ ok: boolean; path?: string; version?: string; size?: number; sha256?: string }>(
+        "GET",
+        "/update/dmg-path",
+      );
       if (!dmgResult?.path) {
         toast.show("Download complete but DMG not found", "error");
         updateDownloading.value = false;
         return;
       }
+      if (!dmgResult.size || !dmgResult.sha256) {
+        toast.show("Download completed without integrity metadata", "error");
+        updateDownloading.value = false;
+        return;
+      }
       const installVersion = dmgResult.version ?? targetVersion;
-      const spawnResult = await backend.updaterSpawnInstall(dmgResult.path, pid, installVersion);
+      const spawnResult = await backend.updaterSpawnInstall(
+        dmgResult.path,
+        pid,
+        installVersion,
+        dmgResult.size,
+        dmgResult.sha256,
+      );
       if (!spawnResult?.ok) {
         toast.show(spawnResult?.error ?? "Failed to start installer", "error");
         updateDownloading.value = false;

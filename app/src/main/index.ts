@@ -1169,10 +1169,13 @@ function registerIpc() {
     return updaterBridge.ensureReady();
   });
 
-  ipcMain.handle("updater:spawn-install", async (_e, dmgPath: string, backendPid: number, targetVersion: string) => {
-    if (isUiOnlyRuntime()) return { ok: false, error: "Updater is disabled in UI-only preview mode." };
-    return updaterBridge.spawnInstallUpdater(dmgPath, backendPid, targetVersion);
-  });
+  ipcMain.handle(
+    "updater:spawn-install",
+    async (_e, dmgPath: string, backendPid: number, targetVersion: string, dmgSize: number, dmgSha256: string) => {
+      if (isUiOnlyRuntime()) return { ok: false, error: "Updater is disabled in UI-only preview mode." };
+      return updaterBridge.spawnInstallUpdater(dmgPath, backendPid, targetVersion, dmgSize, dmgSha256);
+    },
+  );
 
   ipcMain.handle("updater:install-status", async () => {
     if (isUiOnlyRuntime()) return null;

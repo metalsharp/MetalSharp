@@ -109,6 +109,9 @@ def check_updater_handoff() -> None:
         for needle in ["hdiutil", "attach", "-mountpoint", "metalsharp-update-mount", "detach_mount(mount_point" if path.endswith(".py") else "detach_mount"]:
             if needle not in updater:
                 fail(f"{path} no longer mounts the downloaded DMG on a private update mount point before install")
+        for needle in ["verify_dmg_integrity", "dmg-sha256", "dmg-size"]:
+            if needle not in updater:
+                fail(f"{path} must require DMG size and SHA-256 verification before installation")
 
 
 def check_create_dmg_version() -> None:
