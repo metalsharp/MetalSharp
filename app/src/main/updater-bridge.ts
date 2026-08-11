@@ -100,13 +100,42 @@ export class UpdaterBridge {
     });
   }
 
-  spawnInstallUpdater(dmgPath: string, backendPid: number, targetVersion: string): { ok: boolean; error?: string } {
+  spawnInstallUpdater(
+    dmgPath: string,
+    backendPid: number,
+    targetVersion: string,
+    dmgSize: number,
+    dmgSha256: string,
+  ): { ok: boolean; error?: string } {
     if (!this.scriptPath) {
       return { ok: false, error: "Updater not ready — update.sh missing" };
     }
 
-    if (!fs.existsSync(dmgPath)) {
+    if (typeof dmgPath !== "string" || typeof dmgSha256 !== "string") {
+      return { ok: false, error: "DMG path or integrity metadata is invalid" };
+    }
+    const updatesDir = path.resolve(getMetalsharpDir(), "cache", "updates");
+    const resolvedDmgPath = path.resolve(dmgPath);
+    if (!resolvedDmgPath.startsWith(`${updatesDir}${path.sep}`) || !fs.existsSync(resolvedDmgPath)) {
       return { ok: false, error: `DMG file not found: ${dmgPath}` };
+    }
+    let realDmgPath: string;
+    try {
+      realDmgPath = fs.realpathSync(resolvedDmgPath);
+    } catch {
+      return { ok: false, error: `DMG file cannot be resolved: ${dmgPath}` };
+    }
+    let realUpdatesDir: string;
+    try {
+      realUpdatesDir = fs.realpathSync(updatesDir);
+    } catch {
+      return { ok: false, error: "MetalSharp update cache cannot be resolved" };
+    }
+    if (!realDmgPath.startsWith(`${realUpdatesDir}${path.sep}`)) {
+      return { ok: false, error: "DMG path must remain inside the MetalSharp update cache" };
+    }
+    if (!Number.isSafeInteger(dmgSize) || dmgSize <= 0 || !/^[0-9a-fA-F]{64}$/.test(dmgSha256)) {
+      return { ok: false, error: "DMG integrity metadata is missing or invalid" };
     }
 
     fs.mkdirSync(getMetalsharpDir(), { recursive: true });
@@ -116,7 +145,11 @@ export class UpdaterBridge {
       [
         this.scriptPath,
         "--dmg",
-        dmgPath,
+        resolvedDmgPath,
+        "--dmg-size",
+        String(dmgSize),
+        "--dmg-sha256",
+        dmgSha256,
         "--backend-pid",
         String(backendPid),
         "--target-version",

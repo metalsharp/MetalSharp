@@ -2480,22 +2480,7 @@ fn install_windows_steam(home: &PathBuf) -> Result<bool, String> {
     let installer = crate::platform::metalsharp_home_dir_for(&home).join("SteamSetup.exe");
 
     let _ = fs::remove_file(&installer);
-
-    let output = mac_cmd("curl")
-        .args(["-sL", "-o"])
-        .arg(&installer)
-        .arg("https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe")
-        .output()
-        .map_err(|e| format!("curl failed: {}", e))?;
-    if !output.status.success() {
-        let bundled = find_bundled_file("SteamSetup.exe");
-        if let Some(bundled) = bundled {
-            let _ = fs::copy(&bundled, &installer);
-        }
-        if !installer.exists() {
-            return Err("failed to download SteamSetup.exe and no bundled fallback".into());
-        }
-    }
+    crate::steam::stage_verified_steam_setup(&installer)?;
 
     let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
     let _ = fs::create_dir_all(&prefix);
@@ -2512,6 +2497,7 @@ fn install_windows_steam(home: &PathBuf) -> Result<bool, String> {
         .stderr(std::process::Stdio::null());
     crate::platform::set_runtime_library_env(&mut wineboot_cmd, &ms_root);
     let _ = wineboot_cmd.status();
+    crate::steam::stage_verified_steam_setup(&installer)?;
 
     let mut install_cmd = Command::new(&ms_wine);
     install_cmd
@@ -2783,22 +2769,6 @@ fn download_bundled_file(name: &str) -> Option<PathBuf> {
     }
 
     None
-}
-
-fn find_bundled_file(name: &str) -> Option<PathBuf> {
-    if let Some(resources) = crate::platform::app_resources_dir() {
-        let file = resources.join(format!("bundles/{}", name));
-        if file.exists() && bundled_artifact_valid(name, &file) {
-            return Some(file);
-        }
-    }
-
-    let dev = PathBuf::from(format!("app/bundles/{}", name));
-    if dev.exists() && bundled_artifact_valid(name, &dev) {
-        return Some(dev);
-    }
-
-    download_bundled_file(name)
 }
 
 fn download_from_github_release(filename: &str) -> Option<PathBuf> {

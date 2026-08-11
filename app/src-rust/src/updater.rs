@@ -58,10 +58,60 @@ struct GithubAsset {
     name: String,
     browser_download_url: String,
     size: u64,
+    digest: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DmgMetadata {
+    version: String,
+    source_url: String,
+    size: u64,
+    sha256: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct DmgCacheManifest {
+    version: String,
+    source_url: String,
+    expected_size: u64,
+    sha256: String,
+}
+
+pub struct DownloadedDmg {
+    pub path: String,
+    pub version: String,
+    pub size: u64,
+    pub sha256: String,
 }
 
 fn find_dmg_asset(assets: &[GithubAsset]) -> Option<&GithubAsset> {
     assets.iter().find(|a| a.name.ends_with("-arm64.dmg") || a.name.ends_with(".dmg"))
+}
+
+fn normalize_sha256(value: &str) -> Option<String> {
+    let value = value.trim().strip_prefix("sha256:").unwrap_or(value.trim());
+    (value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit()))
+        .then(|| value.to_ascii_lowercase())
+}
+
+fn dmg_metadata(asset: &GithubAsset, version: &str) -> Result<DmgMetadata, String> {
+    if asset.size == 0 {
+        return Err("release DMG has no non-zero size".to_string());
+    }
+    let sha256 = asset
+        .digest
+        .as_deref()
+        .and_then(normalize_sha256)
+        .ok_or_else(|| "release DMG has no valid SHA-256 digest".to_string())?;
+    if asset.browser_download_url.is_empty() {
+        return Err("release DMG has no download URL".to_string());
+    }
+    Ok(DmgMetadata {
+        version: version.to_string(),
+        source_url: asset.browser_download_url.clone(),
+        size: asset.size,
+        sha256,
+    })
 }
 
 pub fn check_for_update() -> serde_json::Value {
@@ -95,8 +145,26 @@ pub fn check_for_update() -> serde_json::Value {
     let current = CURRENT_VERSION.to_string();
     let available = semver_gt(&latest, &current);
 
-    let download_url = find_dmg_asset(&release.assets).map(|a| a.browser_download_url.clone()).unwrap_or_default();
-    let download_size = find_dmg_asset(&release.assets).map(|a| a.size).unwrap_or(0);
+    let dmg_asset = match find_dmg_asset(&release.assets) {
+        Some(asset) => asset,
+        None => {
+            return json!({
+                "ok": false,
+                "error": "latest release has no DMG asset",
+                "current_version": CURRENT_VERSION,
+            })
+        },
+    };
+    let metadata = match dmg_metadata(dmg_asset, &latest) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return json!({
+                "ok": false,
+                "error": format!("latest release DMG failed integrity metadata validation: {}", error),
+                "current_version": CURRENT_VERSION,
+            })
+        },
+    };
 
     let release_notes = release.body.unwrap_or_default();
     let release_name = release.name.unwrap_or_else(|| release.tag_name.clone());
@@ -111,8 +179,9 @@ pub fn check_for_update() -> serde_json::Value {
         "current_version": current,
         "latest_version": latest,
         "available": available,
-        "download_url": download_url,
-        "download_size": download_size,
+        "download_url": metadata.source_url,
+        "download_size": metadata.size,
+        "download_sha256": metadata.sha256,
         "release_notes": release_notes,
         "release_name": release_name,
     })
@@ -166,7 +235,26 @@ fn run_download() {
     };
 
     let latest_version = update_info.get("latest_version").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    let expected_size = update_info.get("download_size").and_then(|v| v.as_u64()).unwrap_or(0);
+    let expected_size = match update_info.get("download_size").and_then(|v| v.as_u64()) {
+        Some(size) if size > 0 => size,
+        _ => {
+            write_update_progress("error", 0, "Release DMG has no expected size", Some("dmg_size_missing"));
+            return;
+        },
+    };
+    let expected_sha256 = match update_info.get("download_sha256").and_then(|v| v.as_str()).and_then(normalize_sha256) {
+        Some(sha256) => sha256,
+        None => {
+            write_update_progress("error", 0, "Release DMG has no valid SHA-256", Some("dmg_hash_missing"));
+            return;
+        },
+    };
+    let metadata = DmgMetadata {
+        version: latest_version.clone(),
+        source_url: download_url.clone(),
+        size: expected_size,
+        sha256: expected_sha256,
+    };
 
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -180,24 +268,29 @@ fn run_download() {
     let _ = fs::create_dir_all(&cache_dir);
     let dmg_path = cache_dir.join(format!("MetalSharp-{}.dmg", latest_version));
 
-    if cached_dmg_ready(&dmg_path, expected_size) {
+    if cached_dmg_ready(&dmg_path, &metadata) {
         app_log(&format!("Using cached DMG: {}", dmg_path.display()));
     } else {
-        let _ = fs::remove_file(&dmg_path);
+        remove_cached_dmg(&dmg_path);
         write_update_progress("downloading", 10, &format!("Downloading v{}...", latest_version), None);
         if let Err(e) = download_with_progress(&download_url, &dmg_path) {
             write_update_progress("error", 0, &format!("Download failed: {}", e), Some(&e.to_string()));
-            let _ = fs::remove_file(&dmg_path);
+            remove_cached_dmg(&dmg_path);
             return;
         }
-        if !cached_dmg_ready(&dmg_path, expected_size) {
+        if !crate::diagnostics::file_matches_sha256(&dmg_path, metadata.size, &metadata.sha256) {
             write_update_progress(
                 "error",
                 0,
-                "Downloaded DMG size did not match the latest release asset",
-                Some("dmg_size_mismatch"),
+                "Downloaded DMG did not match the latest release size and SHA-256",
+                Some("dmg_integrity_mismatch"),
             );
-            let _ = fs::remove_file(&dmg_path);
+            remove_cached_dmg(&dmg_path);
+            return;
+        }
+        if let Err(error) = write_dmg_cache_manifest(&dmg_path, &metadata) {
+            write_update_progress("error", 0, "Could not record DMG provenance", Some(&error));
+            remove_cached_dmg(&dmg_path);
             return;
         }
     }
@@ -205,14 +298,51 @@ fn run_download() {
     write_update_progress("downloaded", 80, &format!("Download complete — ready to install v{}", latest_version), None);
 }
 
-fn cached_dmg_ready(path: &PathBuf, expected_size: u64) -> bool {
-    let Ok(meta) = fs::metadata(path) else {
+fn dmg_cache_manifest_path(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.json", path.display()))
+}
+
+fn remove_cached_dmg(path: &Path) {
+    let _ = fs::remove_file(path);
+    let _ = fs::remove_file(dmg_cache_manifest_path(path));
+    let _ = fs::remove_file(path.with_extension("dmg.tmp"));
+    let _ = fs::remove_file(path.with_extension("dmg.json.tmp"));
+}
+
+fn cached_dmg_ready(path: &Path, expected: &DmgMetadata) -> bool {
+    let Ok(manifest_contents) = fs::read_to_string(dmg_cache_manifest_path(path)) else {
         return false;
     };
-    if !meta.is_file() || meta.len() == 0 {
+    let Ok(manifest) = serde_json::from_str::<DmgCacheManifest>(&manifest_contents) else {
+        return false;
+    };
+    if manifest.version != expected.version
+        || manifest.source_url != expected.source_url
+        || manifest.expected_size != expected.size
+        || manifest.sha256 != expected.sha256
+    {
         return false;
     }
-    expected_size == 0 || meta.len() == expected_size
+    crate::diagnostics::file_matches_sha256(path, expected.size, &expected.sha256)
+}
+
+fn write_dmg_cache_manifest(dmg_path: &Path, metadata: &DmgMetadata) -> Result<(), String> {
+    let manifest = DmgCacheManifest {
+        version: metadata.version.clone(),
+        source_url: metadata.source_url.clone(),
+        expected_size: metadata.size,
+        sha256: metadata.sha256.clone(),
+    };
+    let manifest_path = dmg_cache_manifest_path(dmg_path);
+    let tmp = dmg_path.with_extension("dmg.json.tmp");
+    let contents =
+        serde_json::to_vec_pretty(&manifest).map_err(|error| format!("serialize DMG manifest: {}", error))?;
+    fs::write(&tmp, contents).map_err(|error| format!("write DMG manifest: {}", error))?;
+    fs::rename(&tmp, manifest_path).map_err(|error| {
+        let _ = fs::remove_file(&tmp);
+        format!("finalize DMG manifest: {}", error)
+    })?;
+    Ok(())
 }
 
 fn download_with_progress(url: &str, dest: &PathBuf) -> Result<(), String> {
@@ -229,36 +359,41 @@ fn download_with_progress(url: &str, dest: &PathBuf) -> Result<(), String> {
         .unwrap_or(0);
 
     let tmp_path = dest.with_extension("dmg.tmp");
-    let mut file = fs::File::create(&tmp_path).map_err(|e| format!("create file: {}", e))?;
+    let result = (|| {
+        let mut file = fs::File::create(&tmp_path).map_err(|e| format!("create file: {}", e))?;
 
-    let mut reader = resp.into_body().into_reader();
-    let mut buf = [0u8; 65536];
-    let mut downloaded: u64 = 0;
-    let mut last_percent: u32 = 10;
+        let mut reader = resp.into_body().into_reader();
+        let mut buf = [0u8; 65536];
+        let mut downloaded: u64 = 0;
+        let mut last_percent: u32 = 10;
 
-    loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("read error: {}", e))?;
-        if n == 0 {
-            break;
-        }
-        use std::io::Write;
-        file.write_all(&buf[..n]).map_err(|e| format!("write error: {}", e))?;
-        downloaded += n as u64;
+        loop {
+            let n = reader.read(&mut buf).map_err(|e| format!("read error: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            use std::io::Write;
+            file.write_all(&buf[..n]).map_err(|e| format!("write error: {}", e))?;
+            downloaded += n as u64;
 
-        if total_size > 0 {
-            let pct = 10 + ((downloaded as f64 / total_size as f64) * 70.0) as u32;
-            if pct > last_percent {
-                last_percent = pct;
-                DOWNLOAD_PERCENT.store(pct, Ordering::SeqCst);
-                write_update_progress("downloading", pct, &format!("Downloading... {}%", pct), None);
+            if total_size > 0 {
+                let pct = 10 + ((downloaded as f64 / total_size as f64) * 70.0) as u32;
+                if pct > last_percent {
+                    last_percent = pct;
+                    DOWNLOAD_PERCENT.store(pct, Ordering::SeqCst);
+                    write_update_progress("downloading", pct, &format!("Downloading... {}%", pct), None);
+                }
             }
         }
+
+        drop(file);
+        fs::rename(&tmp_path, dest).map_err(|e| format!("rename: {}", e))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
     }
-
-    drop(file);
-    fs::rename(&tmp_path, dest).map_err(|e| format!("rename: {}", e))?;
-
-    Ok(())
+    result
 }
 
 pub fn cleanup_downloaded_dmgs() -> serde_json::Value {
@@ -278,11 +413,24 @@ pub fn cleanup_downloaded_dmgs() -> serde_json::Value {
     if let Ok(entries) = fs::read_dir(&cache_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map(|e| e == "dmg").unwrap_or(false) {
+            let is_dmg = path.extension().map(|e| e == "dmg").unwrap_or(false);
+            let is_manifest = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.ends_with(".dmg.json"))
+                .unwrap_or(false);
+            let is_partial = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.ends_with(".dmg.tmp") || name.ends_with(".dmg.json.tmp"))
+                .unwrap_or(false);
+            if is_dmg || is_manifest || is_partial {
                 let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 if fs::remove_file(&path).is_ok() {
                     bytes_freed += size;
-                    removed += 1;
+                    if is_dmg {
+                        removed += 1;
+                    }
                 }
             }
         }
@@ -295,52 +443,36 @@ pub fn cleanup_downloaded_dmgs() -> serde_json::Value {
     json!({"ok": true, "removed": removed, "bytes_freed": bytes_freed})
 }
 
-pub fn get_downloaded_dmg() -> Option<(String, String)> {
+pub fn get_downloaded_dmg() -> Option<DownloadedDmg> {
     let update_info = check_for_update();
     let latest_version = update_info.get("latest_version").and_then(|v| v.as_str())?;
+    let source_url = update_info.get("download_url").and_then(|v| v.as_str())?;
+    let size = update_info.get("download_size").and_then(|v| v.as_u64()).filter(|size| *size > 0)?;
+    let sha256 = update_info.get("download_sha256").and_then(|v| v.as_str()).and_then(normalize_sha256)?;
+    let metadata = DmgMetadata {
+        version: latest_version.to_string(),
+        source_url: source_url.to_string(),
+        size,
+        sha256: sha256.clone(),
+    };
     let home = dirs::home_dir()?;
     let cache_dir = crate::platform::metalsharp_home_dir_for(&home).join("cache").join("updates");
     let dmg_path = cache_dir.join(format!("MetalSharp-{}.dmg", latest_version));
 
-    let expected_size = update_info.get("download_size").and_then(|v| v.as_u64()).unwrap_or(0);
-
-    if cached_dmg_ready(&dmg_path, expected_size) {
-        Some((dmg_path.to_string_lossy().to_string(), latest_version.to_string()))
+    if cached_dmg_ready(&dmg_path, &metadata) {
+        Some(DownloadedDmg {
+            path: dmg_path.to_string_lossy().to_string(),
+            version: latest_version.to_string(),
+            size,
+            sha256,
+        })
     } else {
-        newest_cached_update_dmg(&cache_dir, CURRENT_VERSION)
-            .map(|(version, path)| (path.to_string_lossy().to_string(), version))
+        None
     }
 }
 
 pub fn get_downloaded_dmg_path() -> Option<String> {
-    get_downloaded_dmg().map(|(path, _version)| path)
-}
-
-fn newest_cached_update_dmg(cache_dir: &Path, current_version: &str) -> Option<(String, PathBuf)> {
-    let mut candidates = Vec::new();
-    for entry in fs::read_dir(cache_dir).ok()?.flatten() {
-        let path = entry.path();
-        if !cached_dmg_ready(&path, 0) {
-            continue;
-        }
-        let Some(version) = dmg_filename_version(&path) else {
-            continue;
-        };
-        if semver_gt(&version, current_version) {
-            candidates.push((version, path));
-        }
-    }
-
-    candidates.sort_by(|(left, _), (right, _)| compare_versions(left, right));
-    candidates.pop()
-}
-
-fn dmg_filename_version(path: &Path) -> Option<String> {
-    let name = path.file_name()?.to_str()?;
-    let raw = name.strip_prefix("MetalSharp-")?.strip_suffix(".dmg")?;
-    let raw = raw.strip_suffix("-arm64").unwrap_or(raw);
-    let version = clean_version(raw);
-    (!version.is_empty()).then_some(version)
+    get_downloaded_dmg().map(|download| download.path)
 }
 
 fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
@@ -417,48 +549,50 @@ mod tests {
     }
 
     #[test]
-    fn cached_dmg_requires_nonempty_expected_size_match() {
+    fn cached_dmg_requires_manifest_size_and_sha256_match() {
         let home = test_home("cached-dmg-size");
         fs::create_dir_all(&home).expect("create test dir");
         let dmg = home.join("MetalSharp-0.1.0.dmg");
+        let metadata = DmgMetadata {
+            version: "0.1.0".to_string(),
+            source_url: "https://github.com/metalsharp/MetalSharp/releases/download/v0.1.0/MetalSharp-0.1.0-arm64.dmg"
+                .to_string(),
+            size: 4,
+            sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".to_string(),
+        };
 
-        assert!(!cached_dmg_ready(&dmg, 4));
+        assert!(!cached_dmg_ready(&dmg, &metadata));
 
         fs::write(&dmg, b"test").expect("write dmg");
+        assert!(!cached_dmg_ready(&dmg, &metadata), "a DMG without provenance is not installable");
+        write_dmg_cache_manifest(&dmg, &metadata).expect("write manifest");
+        assert!(cached_dmg_ready(&dmg, &metadata));
 
-        assert!(cached_dmg_ready(&dmg, 0));
-        assert!(cached_dmg_ready(&dmg, 4));
-        assert!(!cached_dmg_ready(&dmg, 5));
+        let mut wrong_size = metadata.clone();
+        wrong_size.size = 0;
+        assert!(!cached_dmg_ready(&dmg, &wrong_size));
+
+        let mut wrong_hash = metadata.clone();
+        wrong_hash.sha256 = "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        assert!(!cached_dmg_ready(&dmg, &wrong_hash));
+
+        fs::write(&dmg, b"evil").expect("replace cached dmg");
+        assert!(!cached_dmg_ready(&dmg, &metadata), "tampered cached DMG must be rejected");
 
         let _ = fs::remove_dir_all(home);
     }
 
     #[test]
-    fn cached_update_selection_requires_newer_versioned_dmg() {
-        let home = test_home("cached-dmg-version");
-        fs::create_dir_all(&home).expect("create test dir");
-        fs::write(home.join("MetalSharp-0.37.0.dmg"), b"old").expect("write old dmg");
-        fs::write(home.join("MetalSharp-0.37.1.dmg"), b"same").expect("write same dmg");
-        fs::write(home.join("MetalSharp-0.37.2.dmg"), b"new").expect("write new dmg");
-        fs::write(home.join("MetalSharp-0.37.3-arm64.dmg"), b"newer").expect("write newer dmg");
-        fs::write(home.join("MetalSharp-not-a-version.dmg"), b"junk").expect("write junk dmg");
-
-        let (version, selected) = newest_cached_update_dmg(&home, "0.37.1").expect("newer dmg selected");
-
-        assert_eq!(version, "0.37.3");
-        assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("MetalSharp-0.37.3-arm64.dmg"));
-        let _ = fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn cached_update_selection_rejects_old_or_current_dmgs() {
-        let home = test_home("cached-dmg-no-newer");
-        fs::create_dir_all(&home).expect("create test dir");
-        fs::write(home.join("MetalSharp-0.36.9.dmg"), b"old").expect("write old dmg");
-        fs::write(home.join("MetalSharp-0.37.1.dmg"), b"same").expect("write same dmg");
-
-        assert!(newest_cached_update_dmg(&home, "0.37.1").is_none());
-        let _ = fs::remove_dir_all(home);
+    fn release_dmg_metadata_requires_a_digest() {
+        let asset = GithubAsset {
+            name: "MetalSharp-0.1.0-arm64.dmg".to_string(),
+            browser_download_url:
+                "https://github.com/metalsharp/MetalSharp/releases/download/v0.1.0/MetalSharp-0.1.0-arm64.dmg"
+                    .to_string(),
+            size: 4,
+            digest: None,
+        };
+        assert!(dmg_metadata(&asset, "0.1.0").is_err());
     }
 
     fn test_home(name: &str) -> PathBuf {
