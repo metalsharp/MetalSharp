@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
+import { ejectDmgVolume } from "./dmg-eject";
 import type { ProcessManagerAction, ProcessManagerActionResult, ProcessManagerSample } from "./process-manager-types";
 import { RustBridge } from "./rust-bridge";
 import { UpdaterBridge } from "./updater-bridge";
@@ -936,10 +937,8 @@ function registerIpc() {
     const dmgMatch = exePath.match(/\/Volumes\/([^/]+)/);
     if (dmgMatch) {
       const vol = dmgMatch[1];
-      shell.openExternal("");
-      const { execSync } = require("child_process");
       try {
-        execSync(`hdiutil detach "/Volumes/${vol}" -quiet`);
+        await ejectDmgVolume(vol);
         dialog.showMessageBox({
           type: "info",
           title: "MetalSharp",
