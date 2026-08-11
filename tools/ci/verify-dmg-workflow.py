@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -110,6 +111,25 @@ def check_updater_handoff() -> None:
                 fail(f"{path} no longer mounts the downloaded DMG on a private update mount point before install")
 
 
+def check_create_dmg_version() -> None:
+    """create-dmg.sh must derive its artifact version from app/package.json.
+
+    A hardcoded version regressed the DMG name/output to 0.1.1 while the
+    project was at 0.59.1 (issue #454); keep the derivation contract so the
+    artifact name can never drift from the packaged version again.
+    """
+    script = read("tools/dmg/create-dmg.sh")
+    if re.search(r'DMG_NAME="MetalSharp-[0-9]', script):
+        fail("create-dmg.sh hardcodes a version into DMG_NAME; derive it from app/package.json")
+    for needle in [
+        'grep \'"version"\' "$APP_DIR/package.json"',
+        'DMG_NAME="MetalSharp-$VER"',
+        'DMG_OUTPUT="$PROJECT_DIR/dist/MetalSharp-$VER.dmg"',
+    ]:
+        if needle not in script:
+            fail(f"create-dmg.sh no longer derives its artifact version from app/package.json: {needle}")
+
+
 def check_bundle_scripts() -> None:
     create_bundles = read("tools/dmg/create-bundles.sh")
     for needle in [
@@ -205,6 +225,7 @@ def main() -> int:
     check_dmg_verifier(assets)
     check_updater_handoff()
     check_bundle_scripts()
+    check_create_dmg_version()
     check_workflows()
     print(f"DMG workflow contract verified ({len(assets)} mac bundle assets).")
     return 0
