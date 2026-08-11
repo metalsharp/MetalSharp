@@ -2565,7 +2565,13 @@ static MsLinuxSpecificSlot g_linux_specific_slots[MS_LINUX_SPECIFIC_SLOTS];
 static volatile int g_linux_thread_slot_lock;
 
 static uint32_t metalsharp_eac_thread_token(void) {
-    return (uint32_t)mach_thread_self();
+    mach_port_t thread = mach_thread_self();
+    /* Each mach_thread_self() call creates a fresh send right.  This runs on
+     * every guest errno/pthread/mutex operation, so release the right
+     * immediately; the port name stays valid as a thread identifier while
+     * the thread lives (the kernel holds the thread's self port). */
+    mach_port_deallocate(mach_task_self(), thread);
+    return (uint32_t)thread;
 }
 
 static int* metalsharp_eac_linux_errno_location(void) {
@@ -2771,7 +2777,7 @@ static int metalsharp_eac_pthread_mutex_lock(void* guest) {
     if (entry == NULL) {
         return ENOMEM;
     }
-    uint32_t owner = (uint32_t)mach_thread_self();
+    uint32_t owner = metalsharp_eac_thread_token();
     if (entry->recursive && entry->owner == owner && entry->state != 0) {
         entry->recursion++;
         return 0;
@@ -2806,7 +2812,7 @@ static int metalsharp_eac_pthread_mutex_trylock(void* guest) {
     if (entry == NULL) {
         return ENOMEM;
     }
-    uint32_t owner = (uint32_t)mach_thread_self();
+    uint32_t owner = metalsharp_eac_thread_token();
     if (entry->recursive && entry->owner == owner && entry->state != 0) {
         entry->recursion++;
         return 0;
