@@ -131,7 +131,6 @@ add_test(NAME input COMMAND test_input)
 add_test(NAME network_context COMMAND test_network_context)
 add_test(NAME phase5 COMMAND test_phase5)
 add_test(NAME tiled_resources COMMAND test_tiled_resources)
-
 # Regression test for #441: the FNA kernel32 shim is macOS-only (it uses
 # mach headers) and ships as a dylib compiled from src/fna/shims, so build
 # it the same way and exercise GetModuleFileNameA through dlopen.
