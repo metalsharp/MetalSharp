@@ -132,8 +132,11 @@ git clone --recurse-submodules https://github.com/metalsharp/MetalSharp.git
 The backend is a bin-only `tiny_http` server listening on
 `127.0.0.1:9274`. Set `METALSHARP_PORT` to override the port and
 `METALSHARP_HOME` to override the data root. `main.rs` owns the HTTP
-dispatch and the trust boundary for registered running-game PIDs; do not make
-global stop endpoints accept arbitrary system PIDs.
+dispatch, requires the per-process token in
+`$METALSHARP_HOME/.backend-token` on every request, and owns the trust boundary
+for registered running-game PIDs; do not make global stop endpoints accept
+arbitrary system PIDs. Trusted diagnostics should read that file and send the
+value as `X-MetalSharp-Token`; never put the token in source, logs, or URLs.
 
 The Electron main process supplies a fresh per-session `METALSHARP_API_TOKEN`
 to the backend and attaches it to every API request. The backend rejects

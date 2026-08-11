@@ -109,6 +109,12 @@ interface BackendResponse {
   mapped?: number;
 }
 
+interface BackendAssetResponse {
+  ok: boolean;
+  dataUrl?: string;
+  error?: string;
+}
+
 interface SetupState {
   ok: boolean;
   completed: boolean;
@@ -203,6 +209,7 @@ type MetalsharpAPI = {
     timeoutMs?: number,
   ) => Promise<BackendResponse>;
   getCover: (id: string) => Promise<string | null>;
+  requestAsset: (url: string, timeoutMs?: number) => Promise<BackendAssetResponse>;
   isFirstLaunch: () => Promise<boolean>;
   isMigrationMode: () => Promise<boolean>;
   restartAfterMigration: () => Promise<{

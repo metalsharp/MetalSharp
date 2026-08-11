@@ -18,6 +18,7 @@
 )]
 
 mod anticheat;
+mod backend_auth;
 mod binding_contract;
 mod bottles;
 mod command_contract;
@@ -185,6 +186,13 @@ enum RouteResponse {
 fn main() {
     let port = std::env::var("METALSHARP_PORT").unwrap_or_else(|_| "9274".into());
     let addr = format!("127.0.0.1:{}", port);
+    let backend_auth = match backend_auth::BackendAuth::create(&crate::platform::metalsharp_home_dir()) {
+        Ok(auth) => Arc::new(auth),
+        Err(error) => {
+            eprintln!("failed to initialize backend authentication: {error}");
+            std::process::exit(1);
+        },
+    };
     let server = Arc::new({
         let mut attempts = 0u32;
         let max_attempts = 30u32;
@@ -261,7 +269,13 @@ fn main() {
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Response<std::io::Cursor<Vec<u8>>>> {
                 let is_public_health_check = is_public_health_request(request.method(), request.url());
-                if !is_public_health_check && !is_authorized_request(&request, api_token.as_deref()) {
+                // Accept the current-process bearer token for compatibility with
+                // existing clients, while requiring the persisted token for the
+                // new updater and migration clients.
+                if !is_public_health_check
+                    && !is_authorized_request(&request, api_token.as_deref())
+                    && !backend_auth.is_authorized(&request)
+                {
                     return Some(
                         Response::from_data(br#"{"ok":false,"error":"unauthorized"}"#.to_vec())
                             .with_header(json_header.clone())

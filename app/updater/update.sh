@@ -111,6 +111,7 @@ done
 
 MS_DIR="${METALSHARP_HOME_ARG:-${METALSHARP_HOME:-$HOME/.metalsharp}}"
 STATUS_FILE="${STATUS_FILE:-$MS_DIR/update_install_status.json}"
+BACKEND_TOKEN_FILE="$MS_DIR/.backend-token"
 DMG_PATH="${DMG_PATH:?--dmg required}"
 DMG_SIZE="${DMG_SIZE:?--dmg-size required}"
 DMG_SHA256="${DMG_SHA256:?--dmg-sha256 required}"
@@ -120,6 +121,15 @@ APP_PATH="/Applications/MetalSharp.app"
 TMP_APP_PATH="/Applications/.MetalSharp.app.update.$$"
 BACKUP_APP_PATH="/Applications/.MetalSharp.app.previous.$$"
 MOUNT_POINT=""
+
+backend_curl() {
+    local token
+    token="$(cat "$BACKEND_TOKEN_FILE" 2>/dev/null || true)"
+    if [[ ! "$token" =~ ^[0-9a-f]{64}$ ]]; then
+        return 1
+    fi
+    printf 'header = "X-MetalSharp-Token: %s"\n' "$token" | curl --config - "$@"
+}
 
 detach_mount() {
     if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT" ]; then
@@ -378,7 +388,7 @@ sleep 5
 BACKEND_VERSION=""
 deadline=$((SECONDS + 45))
 while [ $SECONDS -lt $deadline ]; do
-    RAW=$(curl -sf "http://127.0.0.1:9274/health" 2>/dev/null) || true
+    RAW=$(backend_curl -sf "http://127.0.0.1:9274/status" 2>/dev/null) || true
     BACKEND_VERSION=$(echo "$RAW" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
     [ -n "$BACKEND_VERSION" ] && break
     sleep 1

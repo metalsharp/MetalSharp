@@ -16,6 +16,20 @@ static NSTimer *gPollTimer;
 static BOOL gMigrationComplete = NO;
 static NSTimeInterval gStartTime = 0;
 
+static NSString *backendToken(void) {
+    NSString *home = [[[NSProcessInfo processInfo] environment] objectForKey:@"METALSHARP_HOME"];
+    if (home.length == 0) home = [NSHomeDirectory() stringByAppendingPathComponent:@".metalsharp"];
+    NSString *path = [home stringByAppendingPathComponent:@".backend-token"];
+    NSString *token = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    token = [token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (token.length != 64) return nil;
+    NSCharacterSet *hex = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"];
+    for (NSUInteger index = 0; index < token.length; index++) {
+        if (![hex characterIsMember:[token characterAtIndex:index]]) return nil;
+    }
+    return token;
+}
+
 @interface MigrationView : NSView
 @end
 
@@ -93,9 +107,14 @@ static NSDictionary *fetchJSON(NSString *urlString, NSString *method) {
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = method ?: @"GET";
     req.timeoutInterval = 5.0;
-    NSString *apiToken = [[[NSProcessInfo processInfo] environment] objectForKey:@"METALSHARP_API_TOKEN"];
-    if (apiToken.length > 0) {
-        [req setValue:[NSString stringWithFormat:@"Bearer %@", apiToken] forHTTPHeaderField:@"Authorization"];
+    NSString *token = backendToken();
+    if (token) {
+        [req setValue:token forHTTPHeaderField:@"X-MetalSharp-Token"];
+    } else {
+        NSString *apiToken = [[[NSProcessInfo processInfo] environment] objectForKey:@"METALSHARP_API_TOKEN"];
+        if (apiToken.length > 0) {
+            [req setValue:[NSString stringWithFormat:@"Bearer %@", apiToken] forHTTPHeaderField:@"Authorization"];
+        }
     }
 
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
