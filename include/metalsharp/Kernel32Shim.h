@@ -11,6 +11,7 @@
 
 #include "PELoader.h"
 #include <functional>
+#include <metalsharp/Win32Types.h>
 #include <string>
 #include <unordered_map>
 
@@ -18,6 +19,13 @@ namespace metalsharp {
 namespace win32 {
 
 void setExePath(const char* path);
+
+// GetLastError/SetLastError and the extended kernel32 shims share this
+// thread-local state. Keep the accessors outside the individual shim
+// translation units so an extra export can report an error through the
+// kernel32 GetLastError export.
+DWORD getKernel32LastError();
+void setKernel32LastError(DWORD error);
 
 class Kernel32Shim {
   public:

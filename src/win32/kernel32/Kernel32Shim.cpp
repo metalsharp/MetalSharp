@@ -60,14 +60,22 @@ uintptr_t Kernel32Shim::s_nextHandle = 0x00010000;
 
 static thread_local DWORD t_lastError = 0;
 
-static DWORD MSABI shim_GetLastError() {
-    MS_INFO("TRACE: GetLastError() -> %u", t_lastError);
+DWORD getKernel32LastError() {
     return t_lastError;
+}
+
+void setKernel32LastError(DWORD error) {
+    t_lastError = error;
+}
+
+static DWORD MSABI shim_GetLastError() {
+    MS_INFO("TRACE: GetLastError() -> %u", getKernel32LastError());
+    return getKernel32LastError();
 }
 
 static void MSABI shim_SetLastError(DWORD dwErrCode) {
     MS_INFO("TRACE: SetLastError(%u)", dwErrCode);
-    t_lastError = dwErrCode;
+    setKernel32LastError(dwErrCode);
 }
 
 static void* MSABI shim_VirtualAlloc(void* lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect) {
