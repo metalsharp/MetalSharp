@@ -147,6 +147,9 @@ jobs:
       - name: TypeScript
         run: npx tsc --noEmit
 
+      - name: Main-process tests
+        run: npm test
+
       - name: Biome
         run: npx @biomejs/biome ci src/main src/shared
 
