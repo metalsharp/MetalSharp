@@ -1584,7 +1584,7 @@ fn steam_installer_looks_valid(path: &Path) -> bool {
     if file.read_exact(&mut magic).is_err() {
         return false;
     }
-    magic == [b'M', b'Z']
+    magic == *b"MZ"
 }
 
 /// Unique staging directory for a fresh Steam prefix, created next to the live
