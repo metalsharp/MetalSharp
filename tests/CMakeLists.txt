@@ -308,3 +308,9 @@ add_executable(test_kernel32_environment
 )
 target_link_libraries(test_kernel32_environment PRIVATE metalsharp_loader metalsharp_core)
 add_test(NAME kernel32_environment COMMAND test_kernel32_environment)
+
+add_executable(test_kernel32
+    test_kernel32.cpp
+)
+target_link_libraries(test_kernel32 PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME kernel32 COMMAND test_kernel32)
