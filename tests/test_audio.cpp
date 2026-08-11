@@ -106,6 +106,38 @@ int main() {
     }
 
     {
+        printf("\n--- CoreAudioBackend Channel Contract ---\n");
+        metalsharp::CoreAudioBackend backend;
+        backend.init();
+
+        metalsharp::XAudio2WaveFormat fmt{};
+        fmt.formatTag = 1;
+        fmt.channels = 4;
+        fmt.samplesPerSec = 44100;
+        fmt.bitsPerSample = 16;
+        fmt.blockAlign = 8;
+        fmt.avgBytesPerSec = 44100 * 8;
+
+        uint16_t samples[8] = {};
+        CHECK(!backend.submitBuffer(samples, sizeof(samples), fmt), "Rejects non-stereo buffer formats");
+        CHECK(backend.queuedBufferCount() == 0, "Rejected channel format does not queue audio");
+
+        fmt.channels = 1;
+        fmt.blockAlign = 2;
+        fmt.avgBytesPerSec = 44100 * 2;
+        CHECK(!backend.submitBuffer(samples, sizeof(samples), fmt), "Rejects mono buffer formats");
+        CHECK(backend.queuedBufferCount() == 0, "Rejected mono format does not queue audio");
+
+        fmt.channels = 2;
+        fmt.blockAlign = 4;
+        fmt.avgBytesPerSec = 44100 * 4;
+        CHECK(backend.submitBuffer(samples, sizeof(samples), fmt), "Accepts stereo after rejected formats");
+        CHECK(backend.queuedBufferCount() == 1, "Stereo buffer is queued once");
+
+        backend.shutdown();
+    }
+
+    {
         printf("\n--- CoreAudioBackend Volume ---\n");
         metalsharp::CoreAudioBackend backend;
         backend.init();
