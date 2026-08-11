@@ -5,7 +5,9 @@
 /// distance rolloff, and Doppler pitch shifts from listener/emitter positions and
 /// velocities. Outputs matrix coefficients for up to 18 source channels × 2 output
 /// channels, plus reverb/LFE levels and low-pass filter coefficients. Used by games
-/// that position audio sources in 3D space via X3DAudio.
+/// that position audio sources in 3D space via X3DAudio. The fixed output
+/// matrix supports up to two destination channels; larger requests are
+/// represented using that same two-channel layout.
 
 #pragma once
 

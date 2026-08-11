@@ -3,6 +3,7 @@
 ///
 /// Implements X3DAudioCalculate for 3D positional audio: distance attenuation, Doppler pitch shift, panning, and LF/RF
 /// matrix calculations. Used by games to place sound sources in 3D space relative to the listener.
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <metalsharp/Logger.h>
@@ -98,9 +99,10 @@ void X3DAudioEngine::calculate(const Audio3DListener& listener, const Audio3DEmi
     output.dopplerFactor = computeDoppler(listener, emitter);
     output.lpFDirectCoefficient = attenuation;
 
-    for (uint32_t ch = 0; ch < dstChannelCount && ch < 2; ch++) {
+    const uint32_t matrixDestinationChannelCount = std::min(dstChannelCount, 2u);
+    for (uint32_t ch = 0; ch < matrixDestinationChannelCount; ch++) {
         float channelGain = attenuation;
-        if (dstChannelCount == 2) {
+        if (matrixDestinationChannelCount == 2) {
             if (ch == 0) {
                 channelGain *= std::cos(pan * 0.5f * 3.14159f);
             } else {
@@ -108,7 +110,7 @@ void X3DAudioEngine::calculate(const Audio3DListener& listener, const Audio3DEmi
             }
         }
         for (uint32_t src = 0; src < emitter.channelCount && src < 18; src++) {
-            output.matrixCoefficients[src * dstChannelCount + ch] = channelGain;
+            output.matrixCoefficients[src * matrixDestinationChannelCount + ch] = channelGain;
         }
     }
 }
