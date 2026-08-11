@@ -6,6 +6,7 @@ import * as os from "os";
 import * as path from "path";
 import type { ProcessManagerAction, ProcessManagerActionResult, ProcessManagerSample } from "./process-manager-types";
 import { RustBridge } from "./rust-bridge";
+import { validateUninstallTarget } from "./uninstall-safety";
 import { UpdaterBridge } from "./updater-bridge";
 
 let shellPath: string | undefined;
@@ -808,6 +809,20 @@ async function requestMigrationBackend(
   return requestBackend(method, url, body, timeoutMs);
 }
 
+async function showUninstallBlocked(window: BrowserWindow, targetPath: string, reason: string): Promise<void> {
+  if (window.isDestroyed()) return;
+  await dialog.showMessageBox(window, {
+    type: "error",
+    title: "Uninstall blocked",
+    message: "MetalSharp data was not removed.",
+    detail:
+      `For safety, MetalSharp will not recursively delete this resolved data path:\n${targetPath}\n\n` + `${reason}`,
+    buttons: ["OK"],
+    defaultId: 0,
+    noLink: true,
+  });
+}
+
 function registerIpc() {
   ipcMain.handle(
     "backend:request",
@@ -1194,15 +1209,25 @@ function registerIpc() {
     app.quit();
   });
 
-  ipcMain.on("app:uninstall", async () => {
-    if (!mainWindow) return;
-    const choice = await dialog.showMessageBox(mainWindow, {
+  ipcMain.on("app:uninstall", async (event) => {
+    const window = mainWindow;
+    if (!window || window.isDestroyed() || event.sender !== window.webContents) return;
+
+    const initialTarget = validateUninstallTarget(getMetalsharpDir());
+    if (!initialTarget.ok) {
+      await showUninstallBlocked(window, initialTarget.path, initialTarget.reason);
+      return;
+    }
+
+    const msDir = initialTarget.path;
+    const choice = await dialog.showMessageBox(window, {
       type: "warning",
       title: "Uninstall MetalSharp",
       message: "Are you sure you want to uninstall MetalSharp?",
       detail:
         "This will permanently delete all Wine prefixes, bottles, game data, " +
         "Steam installation, Wine runtime, shader caches, and all settings. " +
+        `\n\nResolved MetalSharp data path:\n${msDir}\n\n` +
         "MetalSharp will also be removed from Applications and moved to Trash. " +
         "This action cannot be undone.",
       buttons: ["Cancel", "Uninstall"],
@@ -1214,13 +1239,30 @@ function registerIpc() {
 
     await cleanup();
 
-    const msDir = getMetalsharpDir();
-    let dataRemoved = false;
+    const deletionTarget = validateUninstallTarget(msDir);
+    if (!deletionTarget.ok) {
+      await showUninstallBlocked(window, deletionTarget.path, deletionTarget.reason);
+      return;
+    }
+
     try {
-      fs.rmSync(msDir, { recursive: true, force: true });
-      dataRemoved = true;
+      fs.rmSync(deletionTarget.path, { recursive: true, force: true });
     } catch (e) {
       console.error("Failed to remove MetalSharp data:", e);
+      if (!window.isDestroyed()) {
+        await dialog.showMessageBox(window, {
+          type: "error",
+          title: "Uninstall incomplete",
+          message: "MetalSharp data could not be removed.",
+          detail:
+            `The application was not moved to the Trash.\n\nResolved MetalSharp data path:\n${msDir}\n\n` +
+            `Error: ${e instanceof Error ? e.message : String(e)}`,
+          buttons: ["OK"],
+          defaultId: 0,
+          noLink: true,
+        });
+      }
+      return;
     }
 
     // Spawn a detached shell that waits for this process to exit, then
@@ -1238,8 +1280,8 @@ function registerIpc() {
     }
 
     // Show success dialog — user must close the app to finish.
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      await dialog.showMessageBox(mainWindow, {
+    if (!window.isDestroyed()) {
+      await dialog.showMessageBox(window, {
         type: "info",
         title: "MetalSharp Uninstalled",
         message: "MetalSharp data has been removed successfully.",
