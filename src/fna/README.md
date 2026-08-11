@@ -29,6 +29,15 @@ builds, so these stubs allow the game to run silently without audio.
 
 Build: `./build_fmod_stubs.sh` (outputs `libfmod.dylib`, `libfmodstudio.dylib`)
 
+### Kernel32 Shim Handle Ownership (`kernel32_shim.c`)
+
+`GetStdHandle` exposes the host process's standard POSIX descriptors as
+borrowed handles. `CloseHandle` does not close arbitrary numeric descriptor
+values: this shim has no fd-backed handle creator to establish ownership, so
+closing an untracked handle is intentionally a no-op. This prevents a game
+from closing the process's real stdin/stdout/stderr or another library's
+descriptor by passing its number to `CloseHandle`.
+
 ## Game Setup (Celeste example)
 
 1. Install the game through Windows Steam in MetalSharp.
