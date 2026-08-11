@@ -27,10 +27,13 @@ struct CoreAudioBackend::Impl {
     std::atomic<float> volume{1.0f};
     std::atomic<float> frequencyRatio{1.0f};
 
-    uint32_t bytesPerSample = 2;
-    uint32_t channels = 2;
-    uint32_t sampleRate = 44100;
-    bool formatFrozen = false;
+    // Format state is initialized by the game thread and consumed by the
+    // real-time render thread. Keep the individual values atomic because the
+    // first buffer can be submitted while the callback is starting up.
+    std::atomic<uint32_t> bytesPerSample{2};
+    std::atomic<uint32_t> channels{2};
+    std::atomic<uint32_t> sampleRate{44100};
+    std::atomic<bool> formatFrozen{false};
     XAudio2WaveFormat format = {};
 
     alignas(64) uint8_t ringBuffer[RING_BUFFER_BYTES] = {};
@@ -40,13 +43,14 @@ struct CoreAudioBackend::Impl {
     alignas(64) std::atomic<uint32_t> queuedCount{0};
     alignas(64) std::atomic<uint32_t> underrunCount{0};
     std::atomic<uint32_t> fadeOutRemaining{0};
-    float fadeOutGain = 1.0f;
+    std::atomic<float> fadeOutGain{1.0f};
 
     uint32_t ringFramesAvailable() const {
         uint32_t w = writePos.load(std::memory_order_acquire);
         uint32_t r = readPos.load(std::memory_order_acquire);
         uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        uint32_t frameBytes = static_cast<uint32_t>(channels * sizeof(float));
+        uint32_t channelCount = channels.load(std::memory_order_acquire);
+        uint32_t frameBytes = static_cast<uint32_t>(channelCount * sizeof(float));
         return frameBytes > 0 ? ((w + total - r) % total) / frameBytes : 0;
     }
 
@@ -54,13 +58,15 @@ struct CoreAudioBackend::Impl {
         uint32_t w = writePos.load(std::memory_order_acquire);
         uint32_t r = readPos.load(std::memory_order_acquire);
         uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        uint32_t frameBytes = channels * sizeof(float);
+        uint32_t channelCount = channels.load(std::memory_order_acquire);
+        uint32_t frameBytes = static_cast<uint32_t>(channelCount * sizeof(float));
         return frameBytes > 0 ? ((r + total - w - 1) % total) / frameBytes : 0;
     }
 
     uint32_t ringRead(float* out, uint32_t frames) {
         uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        size_t frameBytes = static_cast<size_t>(frames) * channels * sizeof(float);
+        uint32_t channelCount = channels.load(std::memory_order_acquire);
+        size_t frameBytes = static_cast<size_t>(frames) * channelCount * sizeof(float);
         uint32_t r = readPos.load(std::memory_order_acquire);
         size_t first = std::min(frameBytes, static_cast<size_t>(total - r));
         memcpy(out, ringBuffer + r, first);
@@ -73,7 +79,8 @@ struct CoreAudioBackend::Impl {
 
     uint32_t ringWrite(const float* in, uint32_t frames) {
         uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        size_t frameBytes = static_cast<size_t>(frames) * channels * sizeof(float);
+        uint32_t channelCount = channels.load(std::memory_order_acquire);
+        size_t frameBytes = static_cast<size_t>(frames) * channelCount * sizeof(float);
         uint32_t w = writePos.load(std::memory_order_acquire);
         size_t first = std::min(frameBytes, static_cast<size_t>(total - w));
         memcpy(ringBuffer + w, reinterpret_cast<const uint8_t*>(in), first);
@@ -147,6 +154,8 @@ static OSStatus audioRenderCallback(void* inRefCon, AudioUnitRenderActionFlags*,
     float vol = impl->volume.load(std::memory_order_acquire);
     bool applyVolume = vol < 0.999f;
     bool applyFadeOut = impl->fadeOutRemaining.load(std::memory_order_acquire) > 0;
+    uint32_t channelCount = impl->channels.load(std::memory_order_acquire);
+    float fadeOutGain = impl->fadeOutGain.load(std::memory_order_acquire);
 
     for (UInt32 bufIdx = 0; bufIdx < ioData->mNumberBuffers; bufIdx++) {
         auto& outBuf = ioData->mBuffers[bufIdx];
@@ -159,8 +168,7 @@ static OSStatus audioRenderCallback(void* inRefCon, AudioUnitRenderActionFlags*,
         } else if (available > 0) {
             impl->ringRead(outPtr, available);
             uint32_t remaining = framesNeeded - available;
-            memset(outPtr + available * impl->channels, 0,
-                   static_cast<size_t>(remaining) * impl->channels * sizeof(float));
+            memset(outPtr + available * channelCount, 0, static_cast<size_t>(remaining) * channelCount * sizeof(float));
             if (impl->fadeOutRemaining.load(std::memory_order_acquire) == 0) {
                 impl->underrunCount.fetch_add(1, std::memory_order_relaxed);
             }
@@ -176,15 +184,15 @@ static OSStatus audioRenderCallback(void* inRefCon, AudioUnitRenderActionFlags*,
             uint32_t toFade = std::min(remaining, framesNeeded);
             for (uint32_t f = 0; f < toFade; f++) {
                 float t = static_cast<float>(f) / static_cast<float>(FADE_OUT_FRAMES);
-                float gain = 1.0f - t * impl->fadeOutGain;
-                for (uint32_t c = 0; c < impl->channels; c++) {
-                    outPtr[f * impl->channels + c] *= gain;
+                float gain = 1.0f - t * fadeOutGain;
+                for (uint32_t c = 0; c < channelCount; c++) {
+                    outPtr[f * channelCount + c] *= gain;
                 }
             }
             uint32_t newRemaining = remaining - toFade;
             impl->fadeOutRemaining.store(newRemaining, std::memory_order_release);
             if (newRemaining == 0) {
-                impl->fadeOutGain = 1.0f;
+                impl->fadeOutGain.store(1.0f, std::memory_order_release);
             }
         }
 
@@ -212,16 +220,16 @@ bool CoreAudioBackend::init() {
     m_impl->preBuffering.store(false, std::memory_order_release);
     m_impl->volume.store(1.0f, std::memory_order_release);
     m_impl->frequencyRatio.store(1.0f, std::memory_order_release);
-    m_impl->channels = 2;
-    m_impl->sampleRate = 44100;
-    m_impl->bytesPerSample = 2;
-    m_impl->formatFrozen = false;
+    m_impl->channels.store(2, std::memory_order_release);
+    m_impl->sampleRate.store(44100, std::memory_order_release);
+    m_impl->bytesPerSample.store(2, std::memory_order_release);
+    m_impl->formatFrozen.store(false, std::memory_order_release);
     m_impl->writePos.store(0, std::memory_order_release);
     m_impl->readPos.store(0, std::memory_order_release);
     m_impl->queuedCount.store(0, std::memory_order_release);
     m_impl->underrunCount.store(0, std::memory_order_release);
-    m_impl->fadeOutRemaining = 0;
-    m_impl->fadeOutGain = 1.0f;
+    m_impl->fadeOutRemaining.store(0, std::memory_order_release);
+    m_impl->fadeOutGain.store(1.0f, std::memory_order_release);
     memset(m_impl->ringBuffer, 0, RING_BUFFER_BYTES);
 
     XAudio2WaveFormat defaultFmt = {};
@@ -324,28 +332,31 @@ bool CoreAudioBackend::submitBuffer(const void* data, uint32_t size, const XAudi
     if (!data || size == 0)
         return false;
 
-    if (!m_impl->formatFrozen) {
+    if (!m_impl->formatFrozen.load(std::memory_order_acquire)) {
         m_impl->format = format;
-        m_impl->channels = format.channels;
-        m_impl->sampleRate = format.samplesPerSec;
-        m_impl->bytesPerSample = format.bitsPerSample == 8    ? 1
-                                 : format.bitsPerSample == 16 ? 2
-                                 : format.bitsPerSample == 24 ? 3
-                                 : format.bitsPerSample == 32 ? 4
-                                                              : 2;
-        m_impl->formatFrozen = true;
+        m_impl->channels.store(format.channels, std::memory_order_release);
+        m_impl->sampleRate.store(format.samplesPerSec, std::memory_order_release);
+        m_impl->bytesPerSample.store(format.bitsPerSample == 8    ? 1
+                                     : format.bitsPerSample == 16 ? 2
+                                     : format.bitsPerSample == 24 ? 3
+                                     : format.bitsPerSample == 32 ? 4
+                                                                  : 2,
+                                     std::memory_order_release);
+        m_impl->formatFrozen.store(true, std::memory_order_release);
     }
 
-    uint32_t totalSamples = size / m_impl->bytesPerSample;
+    uint32_t bytesPerSample = m_impl->bytesPerSample.load(std::memory_order_acquire);
+    uint32_t channelCount = m_impl->channels.load(std::memory_order_acquire);
+    uint32_t totalSamples = size / bytesPerSample;
     uint32_t totalFloatSamples = totalSamples;
-    uint32_t frames = totalSamples / m_impl->channels;
+    uint32_t frames = totalSamples / channelCount;
 
     uint32_t freeFrames = m_impl->ringFramesFree();
     if (frames > freeFrames) {
         frames = freeFrames;
-        totalFloatSamples = frames * m_impl->channels;
+        totalFloatSamples = frames * channelCount;
         MS_TRACE("CoreAudioBackend: ring buffer near-full, dropping %u frames",
-                 (size / m_impl->bytesPerSample / m_impl->channels) - frames);
+                 (size / bytesPerSample / channelCount) - frames);
     }
 
     if (frames == 0)
@@ -355,7 +366,7 @@ bool CoreAudioBackend::submitBuffer(const void* data, uint32_t size, const XAudi
 
     const uint8_t* src = static_cast<const uint8_t*>(data);
 
-    switch (m_impl->bytesPerSample) {
+    switch (bytesPerSample) {
     case 1:
         convertUInt8ToFloat(src, floatBuf, totalFloatSamples);
         break;
@@ -396,7 +407,7 @@ float CoreAudioBackend::volume() const {
 }
 
 void CoreAudioBackend::play() {
-    m_impl->fadeOutRemaining = 0;
+    m_impl->fadeOutRemaining.store(0, std::memory_order_release);
     m_impl->preBuffering.store(true, std::memory_order_release);
     m_impl->playing.store(true, std::memory_order_release);
     if (m_impl->audioUnit) {
@@ -407,7 +418,7 @@ void CoreAudioBackend::play() {
 
 void CoreAudioBackend::stop() {
     if (m_impl->playing.load(std::memory_order_acquire)) {
-        m_impl->fadeOutGain = 1.0f;
+        m_impl->fadeOutGain.store(1.0f, std::memory_order_release);
         m_impl->fadeOutRemaining.store(FADE_OUT_FRAMES, std::memory_order_release);
 
         uint32_t waited = 0;
@@ -431,7 +442,7 @@ void CoreAudioBackend::stop() {
 
 void CoreAudioBackend::pause() {
     if (m_impl->playing.load(std::memory_order_acquire)) {
-        m_impl->fadeOutGain = 0.5f;
+        m_impl->fadeOutGain.store(0.5f, std::memory_order_release);
         m_impl->fadeOutRemaining.store(FADE_OUT_FRAMES, std::memory_order_release);
 
         uint32_t waited = 0;

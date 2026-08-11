@@ -3,6 +3,7 @@
 #include <metalsharp/CoreAudioBackend.h>
 #include <metalsharp/Platform.h>
 #include <metalsharp/XAudio2Engine.h>
+#include <thread>
 
 static int passed = 0;
 static int failed = 0;
@@ -17,6 +18,44 @@ static int failed = 0;
             failed++;                                                                                                  \
         }                                                                                                              \
     } while (0)
+
+static bool test_coreaudio_render_thread_state() {
+    metalsharp::CoreAudioBackend backend;
+    if (!backend.init())
+        return false;
+
+    metalsharp::XAudio2WaveFormat fmt{};
+    fmt.formatTag = 1;
+    fmt.channels = 2;
+    fmt.samplesPerSec = 44100;
+    fmt.bitsPerSample = 16;
+    fmt.blockAlign = 4;
+    fmt.avgBytesPerSec = 44100 * 4;
+
+    int16_t sampleData[1024] = {};
+    bool submitsOk = true;
+
+    // Keep the game-thread path active while AudioUnit runs the render
+    // callback. This is also the focused regression harness for the shared
+    // format and fade state; run it under ThreadSanitizer to diagnose any
+    // accidental reintroduction of non-atomic accesses.
+    backend.play();
+    std::thread gameThread([&]() {
+        for (int i = 0; i < 32; i++) {
+            if (!backend.submitBuffer(sampleData, sizeof(sampleData), fmt))
+                submitsOk = false;
+            if (i == 8 || i == 20) {
+                backend.pause();
+                backend.play();
+            }
+        }
+    });
+    gameThread.join();
+
+    backend.stop();
+    backend.shutdown();
+    return submitsOk;
+}
 
 int main() {
     printf("=== Audio Tests ===\n\n");
@@ -81,6 +120,11 @@ int main() {
         CHECK(true, "Volume 0.75 accepted");
 
         backend.shutdown();
+    }
+
+    {
+        printf("\n--- CoreAudioBackend Render Thread State ---\n");
+        CHECK(test_coreaudio_render_thread_state(), "Game-thread audio state remains valid during rendering");
     }
 
     {
