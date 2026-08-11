@@ -1523,6 +1523,7 @@ fn set_cover_in_library(
     }
 
     let cover_filename = format!("{}.{}", id, ext);
+    fs::create_dir_all(destination_dir)?;
     let dst = destination_dir.join(&cover_filename);
     match dst.symlink_metadata() {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -2182,6 +2183,24 @@ mod tests {
         assert_eq!(library[0].cover.as_deref(), Some(expected_filename.as_str()));
         assert_eq!(fs::read(root.join(expected_filename)).expect("read copied cover"), b"cover data");
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn set_cover_creates_a_missing_destination_directory() {
+        let root = test_dir("cover-create-destination");
+        let destination = root.join("library");
+        fs::create_dir_all(&root).expect("create test root");
+        let source = root.join("cover.png");
+        fs::write(&source, b"cover data").expect("write source cover");
+        let app = test_app("Game", "Game.exe", "/tmp/Game");
+        let id = app.id.clone();
+        let mut library = vec![app];
+
+        set_cover_in_library(&id, &source, &destination, &mut library).expect("set cover");
+
+        let filename = library[0].cover.clone().expect("cover filename");
+        assert_eq!(fs::read(destination.join(filename)).expect("read copied cover"), b"cover data");
         let _ = fs::remove_dir_all(root);
     }
 
