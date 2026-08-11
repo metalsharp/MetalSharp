@@ -230,6 +230,12 @@ target_link_libraries(test_virtual_file_system PRIVATE metalsharp_loader metalsh
 
 add_test(NAME virtual_file_system COMMAND test_virtual_file_system)
 
+add_executable(test_win32_sync
+    test_win32_sync.cpp
+)
+target_link_libraries(test_win32_sync PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME win32_sync COMMAND test_win32_sync)
+
 add_executable(test_phase21
     test_phase21.cpp
 )
