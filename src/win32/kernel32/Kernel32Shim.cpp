@@ -362,12 +362,15 @@ static int MSABI shim_MultiByteToWideChar(UINT CodePage, DWORD dwFlags, const ch
                                           wchar_t* lpWideCharStr, int cchWideChar) {
     (void)CodePage;
     (void)dwFlags;
-    if (!lpMultiByteStr)
+    if (!lpMultiByteStr || cbMultiByte == 0 || cbMultiByte < -1 || cchWideChar < 0)
         return 0;
 
-    int len = cbMultiByte > 0 ? cbMultiByte : static_cast<int>(strlen(lpMultiByteStr));
+    const bool includeNull = cbMultiByte == -1;
+    int len = includeNull ? static_cast<int>(strlen(lpMultiByteStr)) + 1 : cbMultiByte;
     if (cchWideChar == 0)
         return len;
+    if (!lpWideCharStr)
+        return 0;
 
     int copyLen = len < cchWideChar ? len : cchWideChar;
     for (int i = 0; i < copyLen; i++) {
@@ -382,13 +385,17 @@ static int MSABI shim_WideCharToMultiByte(UINT CodePage, DWORD dwFlags, const wc
     (void)CodePage;
     (void)dwFlags;
     (void)lpDefaultChar;
-    (void)lpUsedDefaultChar;
-    if (!lpWideCharStr)
+    if (lpUsedDefaultChar)
+        *lpUsedDefaultChar = 0;
+    if (!lpWideCharStr || cchWideChar == 0 || cchWideChar < -1 || cbMultiByte < 0)
         return 0;
 
-    int len = cchWideChar > 0 ? cchWideChar : static_cast<int>(wcslen(lpWideCharStr));
+    const bool includeNull = cchWideChar == -1;
+    int len = includeNull ? static_cast<int>(wcslen(lpWideCharStr)) + 1 : cchWideChar;
     if (cbMultiByte == 0)
         return len;
+    if (!lpMultiByteStr)
+        return 0;
 
     int copyLen = len < cbMultiByte ? len : cbMultiByte;
     for (int i = 0; i < copyLen; i++) {
