@@ -134,6 +134,14 @@ target_compile_options(test_phase20 PRIVATE -fobjc-arc)
 
 add_test(NAME phase20 COMMAND test_phase20)
 
+# Winsock TIMEVAL regression test for the ws2_32 select shim
+# (metalsharp/MetalSharp#423).
+add_executable(test_ws2_select
+    test_ws2_select.cpp
+)
+target_link_libraries(test_ws2_select PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME ws2_select COMMAND test_ws2_select)
+
 add_executable(test_phase21
     test_phase21.cpp
 )
