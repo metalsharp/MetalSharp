@@ -52,6 +52,9 @@ use tiny_http::{Header, Method, Response, Server};
 static RUNNING_GAMES: OnceLock<Mutex<HashMap<u32, i32>>> = OnceLock::new();
 static ISSUE_LOG_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+const API_TOKEN_ENV: &str = "METALSHARP_API_TOKEN";
+const TRUSTED_DEV_ORIGINS: [&str; 2] = ["http://localhost:5173", "http://127.0.0.1:5173"];
+
 fn running_games() -> &'static Mutex<HashMap<u32, i32>> {
     RUNNING_GAMES.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -179,8 +182,11 @@ fn main() {
         let _ = kernel_translation::ipc_bridge::start_ipc_listener();
     }
 
-    let cors_header = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
     let json_header = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+    let api_token = configured_api_token();
+    if api_token.is_none() {
+        eprintln!("{API_TOKEN_ENV} is missing or invalid; refusing backend requests");
+    }
 
     loop {
         let mut request = match server.recv() {
@@ -194,19 +200,27 @@ fn main() {
         // process down (the app has no live-session supervisor).
         let outcome =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Response<std::io::Cursor<Vec<u8>>>> {
-                // Local-API origin guard (H9): the Electron renderer talks to this
-                // backend through the preload bridge, which sends no Origin header
-                // (Node http.request). Any request carrying a browser Origin must be
-                // from a trusted local origin (dev server / file://). Everything else
-                // is a cross-origin webpage trying to reach the local API (DNS
-                // rebinding / CSRF) and gets 403 before any route logic runs.
+                let is_public_health_check = is_public_health_request(request.method(), request.url());
+                if !is_public_health_check && !is_authorized_request(&request, api_token.as_deref()) {
+                    return Some(
+                        Response::from_data(br#"{"ok":false,"error":"unauthorized"}"#.to_vec())
+                            .with_header(json_header.clone())
+                            .with_status_code(401),
+                    );
+                }
+
+                // Local-API origin guard (H9): Electron reaches the backend
+                // through the main-process bridge and sends no Origin header.
+                // If a browser client is used during development, only the
+                // fixed Vite origins are accepted. `null`, `file://`, arbitrary
+                // localhost ports, and attacker-controlled origins are rejected.
                 let origin = request
                     .headers()
                     .iter()
                     .find(|h| h.field.equiv("Origin"))
-                    .map(|h| h.value.as_str().trim())
+                    .map(|h| h.value.as_str().trim().to_string())
                     .filter(|o| !o.is_empty());
-                if let Some(origin) = origin {
+                if let Some(origin) = origin.as_deref() {
                     if !is_trusted_local_origin(origin) {
                         eprintln!("rejected cross-origin request from {origin}");
                         return Some(
@@ -215,42 +229,9 @@ fn main() {
                                 .with_status_code(403),
                         );
                     }
-                    // Trusted browser origin: echo it back (never the wildcard), so
-                    // responses are readable only by the page that owns that origin.
-                    if let Ok(echo) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], origin.as_bytes()) {
-                        let resp = match route(&mut request) {
-                            RouteResponse::Json(code, body) => Response::from_data(body)
-                                .with_header(echo)
-                                .with_header(json_header.clone())
-                                .with_status_code(code),
-                            RouteResponse::Raw(code, data, mime) => {
-                                let content_header = Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
-                                    .unwrap_or_else(|_| json_header.clone());
-                                Response::from_data(data)
-                                    .with_header(echo)
-                                    .with_header(content_header)
-                                    .with_status_code(code)
-                            },
-                        };
-                        return Some(resp);
-                    }
                 }
 
-                let route_resp = route(&mut request);
-                Some(match route_resp {
-                    RouteResponse::Json(code, body) => Response::from_data(body)
-                        .with_header(cors_header.clone())
-                        .with_header(json_header.clone())
-                        .with_status_code(code),
-                    RouteResponse::Raw(code, data, mime) => {
-                        let content_header = Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
-                            .unwrap_or_else(|_| json_header.clone());
-                        Response::from_data(data)
-                            .with_header(cors_header.clone())
-                            .with_header(content_header)
-                            .with_status_code(code)
-                    },
-                })
+                Some(response_for_route(route(&mut request), &json_header, origin.as_deref()))
             }));
         match outcome {
             Ok(Some(resp)) => {
@@ -263,10 +244,8 @@ fn main() {
                 app_log(&format!("request handler panicked: {}", msg));
                 let safe = msg.replace('"', "'").replace('\\', "/");
                 let body = format!(r#"{{"ok":false,"error":"internal handler panic: {}"}}"#, safe);
-                let resp = Response::from_data(body.into_bytes())
-                    .with_header(cors_header.clone())
-                    .with_header(json_header.clone())
-                    .with_status_code(500);
+                let resp =
+                    Response::from_data(body.into_bytes()).with_header(json_header.clone()).with_status_code(500);
                 let _ = request.respond(resp);
             },
         }
@@ -283,26 +262,93 @@ fn panic_payload_message(payload: &Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
-/// True when a browser `Origin` header is allowed to call the local API:
-/// the Electron dev server (Vite) and the packaged `file://` surface. All
-/// other origins (any https/http web page, or a `localhost.attacker.com`
-/// lookalike) are rejected.
-fn is_trusted_local_origin(origin: &str) -> bool {
-    if origin == "file://" || origin == "null" {
-        return true;
+fn configured_api_token() -> Option<String> {
+    let token = std::env::var(API_TOKEN_ENV).ok()?;
+    if token.len() < 32 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
     }
-    let lower = origin.to_ascii_lowercase();
-    for prefix in ["http://localhost:", "http://127.0.0.1:"] {
-        if let Some(port) = lower.strip_prefix(prefix) {
-            // Port must be 1-5 ASCII digits and a valid TCP port (<= 65535):
-            // no path, no host trick, no overflow.
-            if port.is_empty() || port.len() > 5 || !port.bytes().all(|b| b.is_ascii_digit()) {
-                return false;
-            }
-            return port.parse::<u32>().map(|p| p <= 65535).unwrap_or(false);
+    Some(token)
+}
+
+fn request_authorization(request: &tiny_http::Request) -> Option<&str> {
+    request
+        .headers()
+        .iter()
+        .find(|header| header.field.equiv("Authorization"))
+        .map(|header| header.value.as_str().trim())
+}
+
+fn constant_time_token_eq(expected: &str, provided: &str) -> bool {
+    let expected_bytes = expected.as_bytes();
+    let provided_bytes = provided.as_bytes();
+    let max_len = expected_bytes.len().max(provided_bytes.len());
+    let mut difference = expected_bytes.len() ^ provided_bytes.len();
+    for index in 0..max_len {
+        let left = expected_bytes.get(index).copied().unwrap_or(0);
+        let right = provided_bytes.get(index).copied().unwrap_or(0);
+        difference |= usize::from(left ^ right);
+    }
+    difference == 0
+}
+
+fn is_authorized_bearer(authorization: Option<&str>, expected_token: Option<&str>) -> bool {
+    let Some(expected_token) = expected_token else {
+        return false;
+    };
+    let Some(authorization) = authorization else {
+        return false;
+    };
+    let Some(provided_token) = authorization.strip_prefix("Bearer ") else {
+        return false;
+    };
+    constant_time_token_eq(expected_token, provided_token)
+}
+
+fn is_authorized_request(request: &tiny_http::Request, expected_token: Option<&str>) -> bool {
+    is_authorized_bearer(request_authorization(request), expected_token)
+}
+
+fn is_public_health_request(method: &Method, url: &str) -> bool {
+    method == &Method::Get && url.split('?').next().unwrap_or(url) == "/health"
+}
+
+fn response_with_trusted_origin(
+    response: Response<std::io::Cursor<Vec<u8>>>,
+    origin: Option<&str>,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    if let Some(origin) = origin.filter(|origin| is_trusted_local_origin(origin)) {
+        if let Ok(header) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], origin.as_bytes()) {
+            return response.with_header(header);
         }
     }
-    false
+    response
+}
+
+fn response_for_route(
+    route_response: RouteResponse,
+    json_header: &Header,
+    origin: Option<&str>,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    match route_response {
+        RouteResponse::Json(code, body) => response_with_trusted_origin(
+            Response::from_data(body).with_header(json_header.clone()).with_status_code(code),
+            origin,
+        ),
+        RouteResponse::Raw(code, data, mime) => {
+            let content_header =
+                Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap_or_else(|_| json_header.clone());
+            response_with_trusted_origin(
+                Response::from_data(data).with_header(content_header).with_status_code(code),
+                origin,
+            )
+        },
+    }
+}
+
+/// True only for the fixed Vite development origins. Packaged Electron
+/// requests use the main-process bridge and intentionally carry no Origin.
+fn is_trusted_local_origin(origin: &str) -> bool {
+    TRUSTED_DEV_ORIGINS.iter().any(|trusted| origin.eq_ignore_ascii_case(trusted))
 }
 
 fn route(req: &mut tiny_http::Request) -> RouteResponse {
@@ -311,6 +357,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
     let path = url.split('?').next().unwrap_or(&url);
 
     match (method, path) {
+        (Method::Get, "/health") => resp(200, json!({"ok": true, "version": env!("CARGO_PKG_VERSION")})),
         (Method::Get, "/status") => {
             app_log("Backend status checked");
             resp(
@@ -3180,25 +3227,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_origin_guard_accepts_only_trusted_local_origins() {
-        // Trusted: dev server, packaged surface, and no-origin (Electron
-        // bridge sends none; CLI/curl send none).
+    fn local_origin_guard_accepts_only_pinned_vite_origins() {
+        // Browser access is limited to the actual Vite development server.
         assert!(is_trusted_local_origin("http://localhost:5173"));
-        assert!(is_trusted_local_origin("http://localhost:9274"));
         assert!(is_trusted_local_origin("http://127.0.0.1:5173"));
-        assert!(is_trusted_local_origin("file://"));
-        assert!(is_trusted_local_origin("null"));
 
-        // Rejected: any real web page, and host/port tricks.
+        // Rejected: opaque/file origins, arbitrary localhost ports, and host tricks.
+        assert!(!is_trusted_local_origin("file://"));
+        assert!(!is_trusted_local_origin("null"));
+        assert!(!is_trusted_local_origin("http://localhost:9274"));
+        assert!(!is_trusted_local_origin("http://localhost:5174"));
         assert!(!is_trusted_local_origin("https://evil.example"));
         assert!(!is_trusted_local_origin("http://evil.example"));
         assert!(!is_trusted_local_origin("http://localhost.evil.example"));
         assert!(!is_trusted_local_origin("http://localhost:5173.evil.example"));
         assert!(!is_trusted_local_origin("http://localhost:5173/path"));
-        assert!(!is_trusted_local_origin("http://localhost:"));
-        assert!(!is_trusted_local_origin("http://localhost:99999"));
-        assert!(!is_trusted_local_origin("http://localhost:5173a"));
         assert!(!is_trusted_local_origin("https://localhost:5173"));
+    }
+
+    #[test]
+    fn api_requires_the_current_session_bearer_token() {
+        let token = "0123456789abcdef0123456789abcdef";
+        assert!(is_authorized_bearer(Some("Bearer 0123456789abcdef0123456789abcdef"), Some(token)));
+        assert!(!is_authorized_bearer(None, Some(token)));
+        assert!(!is_authorized_bearer(Some("Bearer wrong"), Some(token)));
+        assert!(!is_authorized_bearer(Some("Basic 0123456789abcdef0123456789abcdef"), Some(token)));
+        assert!(!is_authorized_bearer(Some("bearer 0123456789abcdef0123456789abcdef"), Some(token)));
+        assert!(!is_authorized_bearer(Some("Bearer 0123456789abcdef0123456789abcdef"), None));
+    }
+
+    #[test]
+    fn only_read_only_health_check_is_public() {
+        assert!(is_public_health_request(&Method::Get, "/health"));
+        assert!(is_public_health_request(&Method::Get, "/health?probe=1"));
+        assert!(!is_public_health_request(&Method::Get, "/status"));
+        assert!(!is_public_health_request(&Method::Post, "/health"));
     }
 
     #[test]
