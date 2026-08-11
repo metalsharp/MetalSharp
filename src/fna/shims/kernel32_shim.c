@@ -2,6 +2,10 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include <mach/mach_time.h>
 #include <pthread.h>
 #include <signal.h>
@@ -356,13 +360,40 @@ void* GetModuleHandleA(LPCSTR lpModuleName) {
 
 DWORD GetModuleFileNameA(void* hModule, LPSTR lpFilename, DWORD nSize) {
     (void)hModule;
-    if (nSize > 0) {
-        ssize_t len = readlink("/proc/self/exe", lpFilename, nSize - 1);
-        if (len <= 0) {
-            char* cwd = getcwd(lpFilename, nSize);
-            (void)cwd;
-        }
-        lpFilename[nSize - 1] = '\0';
+    if (!lpFilename || nSize == 0)
+        return 0;
+#if defined(__linux__)
+    ssize_t len = readlink("/proc/self/exe", lpFilename, nSize - 1);
+    if (len > 0) {
+        lpFilename[len] = '\0';
+        return (DWORD)len;
     }
+    // readlink failed (e.g. /proc unavailable); fall back to the cwd below.
+#elif defined(__APPLE__)
+    // _NSGetExecutablePath() returns the main executable's launch path but
+    // does not resolve symlinks. Canonicalize with realpath() so callers see
+    // the actual on-disk binary (e.g. the one inside a .app bundle).
+    uint32_t bufSize = nSize - 1;
+    if (_NSGetExecutablePath(lpFilename, &bufSize) == 0) {
+        char resolved[PATH_MAX];
+        if (realpath(lpFilename, resolved) != NULL) {
+            size_t rlen = strlen(resolved);
+            if (rlen <= nSize - 1) {
+                memcpy(lpFilename, resolved, rlen + 1);
+                return (DWORD)rlen;
+            }
+        }
+        // realpath() failed or the resolved path does not fit; the launch
+        // path returned by _NSGetExecutablePath() is still the executable.
+        return (DWORD)strlen(lpFilename);
+    }
+    // Buffer too small: _NSGetExecutablePath() stored the required size in
+    // bufSize. Match the Win32 contract of returning nSize on truncation.
+    lpFilename[0] = '\0';
+    return nSize;
+#endif
+    // Fallback (Linux /proc failure or unsupported platform): cwd.
+    (void)getcwd(lpFilename, nSize);
+    lpFilename[nSize - 1] = '\0';
     return (DWORD)strlen(lpFilename);
 }
