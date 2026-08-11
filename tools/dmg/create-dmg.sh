@@ -3,10 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+APP_DIR="$PROJECT_DIR/app"
 BUILD_DIR="$PROJECT_DIR/build"
-DMG_NAME="MetalSharp-0.1.1"
-DMG_DIR="$PROJECT_DIR/dist/$DMG_NAME"
-DMG_OUTPUT="$PROJECT_DIR/dist/MetalSharp-0.1.1.dmg"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -17,6 +15,17 @@ NC='\033[0m'
 info() { echo -e "${CYAN}[dmg]${NC} $*"; }
 ok()   { echo -e "${GREEN}[ok]${NC} $*"; }
 fail() { echo -e "${RED}[fail]${NC} $*"; exit 1; }
+
+if [[ ! -f "$APP_DIR/package.json" ]]; then
+    fail "app/package.json not found; cannot determine version"
+fi
+VER="$(grep '"version"' "$APP_DIR/package.json" | head -1 | sed 's/.*: *"//;s/".*//')"
+if [[ -z "$VER" ]]; then
+    fail "could not determine version from app/package.json"
+fi
+DMG_NAME="MetalSharp-$VER"
+DMG_DIR="$PROJECT_DIR/dist/$DMG_NAME"
+DMG_OUTPUT="$PROJECT_DIR/dist/MetalSharp-$VER.dmg"
 
 if [[ "$(uname)" != "Darwin" ]]; then
     fail "DMG creation requires macOS"
@@ -72,8 +81,8 @@ WRAPPER
 chmod +x "$DMG_DIR/metalsharp.sh"
 
 info "Writing install notes..."
-cat > "$DMG_DIR/INSTALL.txt" << 'NOTES'
-MetalSharp 0.1.1 — D3D to Metal Translation Layer
+cat > "$DMG_DIR/INSTALL.txt" << NOTES
+MetalSharp ${VER} — D3D to Metal Translation Layer
 
 Quick Install:
   1. Open Terminal
