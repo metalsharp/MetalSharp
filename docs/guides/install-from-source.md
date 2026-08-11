@@ -1,5 +1,5 @@
 # Install from Source
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 Build MetalSharp from source without using the DMG. Requires macOS 14+ on Apple Silicon.
@@ -40,6 +40,21 @@ cd app/src-rust && cargo build --release && cd ../..
 cd app && npm install && npm run build && cd ..
 ```
 
+## Prepare the Native Package Tree
+
+`npm run pack` / `npm run dist` (and the release workflow) run
+`npm run prepare:native` automatically. For a standalone one-shot native
+preparation — CMake configure+build, staging of every shim/executable into
+`app/native/` via the CMake POST_BUILD commands, host runtime, and must-build
+validation — run:
+
+```bash
+tools/package/prepare-native.sh
+```
+
+The script fails if any must-build artifact is missing, so a fresh checkout
+can never be packaged without the native surface.
+
 ## Fetch Runtime Bundles
 
 Downloads MetalSharp-owned runtime assets from the GitHub release: Wine, graphics DLLs (DXMT for M9/M10/M11, vkd3d-proton + DXVK + VKMT MoltenVK for the M12 route, plus the DXMT M12 rollback lane), Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
@@ -61,7 +76,7 @@ cd app && npx electron .
 For an ad-hoc signed `.app` (no Apple Developer account needed):
 
 ```bash
-cd app && npx electron-builder --dir --mac --arm64
+cd app && npm run pack
 codesign --force --deep --sign - ../dist/electron/mac-arm64/MetalSharp.app
 open ../dist/electron/mac-arm64/MetalSharp.app
 ```

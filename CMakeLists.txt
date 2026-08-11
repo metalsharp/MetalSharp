@@ -17,6 +17,21 @@ function(metalsharp_host_target target)
     set_target_properties(${target} PROPERTIES OSX_ARCHITECTURES "${METALSHARP_HOST_ARCH}")
 endfunction()
 
+# Stage a native build artifact into app/native/ after it is built, so that
+# `cmake --build` alone produces the complete packaged native tree
+# (electron-builder extraResources consumes app/native). This is the only
+# producer of the must-build shims/executables that
+# tools/package/prepare-native-placeholders.sh validates; never replace them
+# with zero-byte placeholders.
+function(metalsharp_stage_to_app_native target)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:${target}>"
+            "${CMAKE_SOURCE_DIR}/app/native/$<TARGET_FILE_NAME:${target}>"
+        COMMENT "Copying $<TARGET_FILE_NAME:${target}> to app/native/"
+    )
+endfunction()
+
 find_library(METAL_FRAMEWORK Metal REQUIRED)
 find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
@@ -173,6 +188,7 @@ add_library(metalsharp_d3d11 SHARED
 target_link_libraries(metalsharp_d3d11 PRIVATE metalsharp_core metalsharp_dxgi)
 target_compile_options(metalsharp_d3d11 PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_d3d11 PROPERTIES OUTPUT_NAME "d3d11" PREFIX "")
+metalsharp_stage_to_app_native(metalsharp_d3d11)
 
 add_library(metalsharp_d3d12 SHARED
     src/d3d/d3d12/D3D12Device.cpp
@@ -189,6 +205,7 @@ add_library(metalsharp_d3d12 SHARED
 target_link_libraries(metalsharp_d3d12 PRIVATE metalsharp_core)
 target_compile_options(metalsharp_d3d12 PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_d3d12 PROPERTIES OUTPUT_NAME "d3d12" PREFIX "")
+metalsharp_stage_to_app_native(metalsharp_d3d12)
 
 add_library(metalsharp_dxgi SHARED
     src/dxgi/DXGIFactory.cpp
@@ -200,6 +217,7 @@ add_library(metalsharp_dxgi SHARED
 target_link_libraries(metalsharp_dxgi PRIVATE metalsharp_core)
 target_compile_options(metalsharp_dxgi PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_dxgi PROPERTIES OUTPUT_NAME "dxgi" PREFIX "")
+metalsharp_stage_to_app_native(metalsharp_dxgi)
 
 add_library(metalsharp_audio SHARED
     src/audio/XAudio2Engine.cpp
@@ -212,6 +230,7 @@ add_library(metalsharp_audio SHARED
 )
 target_link_libraries(metalsharp_audio PRIVATE metalsharp_core ${AUDIOUNIT_FRAMEWORK})
 set_target_properties(metalsharp_audio PROPERTIES OUTPUT_NAME "xaudio2_9" PREFIX "")
+metalsharp_stage_to_app_native(metalsharp_audio)
 
 add_library(metalsharp_input SHARED
     src/input/XInputEngine.cpp
@@ -221,6 +240,7 @@ add_library(metalsharp_input SHARED
 target_link_libraries(metalsharp_input PRIVATE metalsharp_core ${GAMECONTROLLER_FRAMEWORK})
 target_compile_options(metalsharp_input PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_input PROPERTIES OUTPUT_NAME "xinput1_4" PREFIX "")
+metalsharp_stage_to_app_native(metalsharp_input)
 
 add_executable(metalsharp_launcher
     tools/launcher/main.cpp
@@ -230,6 +250,7 @@ add_executable(metalsharp_launcher
     tools/launcher/SteamIntegration.cpp
 )
 target_link_libraries(metalsharp_launcher PRIVATE metalsharp_core ${FOUNDATION_FRAMEWORK})
+metalsharp_stage_to_app_native(metalsharp_launcher)
 
 add_library(metalsharp_loader STATIC
     src/loader/PELoader.cpp
@@ -289,12 +310,7 @@ add_executable(metalsharp_native
 target_link_libraries(metalsharp_native PRIVATE metalsharp_loader metalsharp_core)
 set_target_properties(metalsharp_native PROPERTIES OUTPUT_NAME "metalsharp")
 metalsharp_wine_target(metalsharp_native)
-add_custom_command(TARGET metalsharp_native POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:metalsharp_native>"
-        "${CMAKE_SOURCE_DIR}/app/native/$<TARGET_FILE_NAME:metalsharp_native>"
-    COMMENT "Copying $<TARGET_FILE_NAME:metalsharp_native> to app/native/"
-)
+metalsharp_stage_to_app_native(metalsharp_native)
 
 # Linux user-space compatibility substrate for the protected EAC launcher.
 # This is built for the same x86_64/Rosetta lane as Wine 11.5 and is inserted
@@ -313,6 +329,7 @@ set_target_properties(metalsharp_eac_substrate PROPERTIES
     PREFIX ""
 )
 metalsharp_wine_target(metalsharp_eac_substrate)
+metalsharp_stage_to_app_native(metalsharp_eac_substrate)
 
 # The Linux loader reads a real ET_DYN symbol image from its procfs view; it
 # never asks dyld to load Linux libc.  Generate that MetalSharp-owned image
@@ -370,18 +387,14 @@ target_link_libraries(metalsharp_opengl32 PRIVATE
 target_compile_options(metalsharp_opengl32 PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_opengl32 PROPERTIES OUTPUT_NAME "opengl32" PREFIX "")
 metalsharp_wine_target(metalsharp_opengl32)
-add_custom_command(TARGET metalsharp_opengl32 POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:metalsharp_opengl32>"
-        "${CMAKE_SOURCE_DIR}/app/native/$<TARGET_FILE_NAME:metalsharp_opengl32>"
-    COMMENT "Copying opengl32.dylib to app/native/"
-)
+metalsharp_stage_to_app_native(metalsharp_opengl32)
 
 add_executable(metalsharp_migrator
     tools/migrator/main.m
 )
 target_link_libraries(metalsharp_migrator PRIVATE ${APPKIT_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
 set_target_properties(metalsharp_migrator PROPERTIES OUTPUT_NAME "MetalSharpMigrator")
+metalsharp_stage_to_app_native(metalsharp_migrator)
 
 if(BUILD_TESTS)
     enable_testing()
