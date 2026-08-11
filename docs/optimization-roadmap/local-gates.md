@@ -1,5 +1,5 @@
 # Local Gates
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 The canonical local gates a PR must pass before merge. CI runs a subset of
@@ -95,3 +95,8 @@ the Electron bridge attaches the per-session token automatically. Only
 | `GET /diagnostics/fna/signals?gameDir=` | 8 | FNA/XNA flavor + dependency signals |
 | `GET /diagnostics/fna/explain?appid=&gameDir=` | 8 | profile selection explanation |
 | `GET /diagnostics/fna/classify?appid=&gameDir=` | 8 | conservative unproven-game classification |
+
+The FNA routes require `gameDir` to resolve to an existing directory under
+`METALSHARP_HOME` or a discovered Steam library's `steamapps/common` root.
+Canonicalization rejects traversal and symlink escapes; paths outside those
+roots return HTTP 400 without running detection.
