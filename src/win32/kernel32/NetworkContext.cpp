@@ -22,6 +22,22 @@
 namespace metalsharp {
 namespace win32 {
 
+namespace {
+// Recursively create a directory path (mkdir -p). Mirrors the helper in
+// VirtualFileSystem.cpp; needed here because the pipe base directory lives
+// under ~/.metalsharp/prefix, which may not exist on a fresh install.
+bool mkdirRecursive(const std::string& path) {
+    size_t pos = path.rfind('/');
+    if (pos != std::string::npos && pos > 0) {
+        std::string parent = path.substr(0, pos);
+        struct stat st;
+        if (stat(parent.c_str(), &st) != 0)
+            mkdirRecursive(parent);
+    }
+    return mkdir(path.c_str(), 0755) == 0 || errno == EEXIST;
+}
+} // namespace
+
 thread_local uint32_t NetworkContext::t_wsaError = 0;
 
 NetworkContext& NetworkContext::instance() {
@@ -148,7 +164,8 @@ bool NetworkContext::allocPipePair(const std::string& name, bool server, int out
 
     const char* home = getenv("HOME");
     std::string baseDir = home ? std::string(home) + "/.metalsharp/prefix/pipe" : "/tmp/metalsharp/pipe";
-    mkdir(baseDir.c_str(), 0755);
+    if (!mkdirRecursive(baseDir))
+        return false;
 
     std::string pipePath = baseDir + "/" + name;
     for (auto& c : pipePath) {
