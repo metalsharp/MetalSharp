@@ -78,6 +78,47 @@
 #include <sys/mman.h>
 
 namespace metalsharp {
+namespace {
+
+/// Bounds-checked view into a mapped PE image.  Returns a pointer into the
+/// image when [rva, rva + len) lies fully inside module.size, otherwise
+/// nullptr.  Every descriptor/thunk/name access goes through this so a
+/// malformed or truncated image cannot drive reads or writes outside the
+/// mapping (metalsharp#413).
+uint8_t* imagePtr(const LoadedModule& module, uint64_t rva, size_t len) {
+    if (!module.base || len > module.size || rva > module.size - len)
+        return nullptr;
+    return module.base + rva;
+}
+
+template <typename T> T* imagePtr(const LoadedModule& module, uint64_t rva) {
+    return reinterpret_cast<T*>(imagePtr(module, rva, sizeof(T)));
+}
+
+/// Copies a NUL-terminated string from inside the image into a fixed
+/// buffer, never reading past the image.  Returns the number of bytes
+/// copied (excluding the NUL), or 0 when rva is outside the image, the
+/// string is empty, or outSize is zero.
+size_t imageString(const LoadedModule& module, uint64_t rva, char* out, size_t outSize) {
+    if (outSize == 0)
+        return 0;
+    out[0] = '\0';
+    if (!module.base || rva >= module.size)
+        return 0;
+    size_t maxLen = module.size - (size_t)rva;
+    if (maxLen > outSize - 1)
+        maxLen = outSize - 1;
+    const char* src = reinterpret_cast<const char*>(module.base + rva);
+    size_t n = 0;
+    while (n < maxLen && src[n] != '\0') {
+        out[n] = src[n];
+        n++;
+    }
+    out[n] = '\0';
+    return n;
+}
+
+} // namespace
 
 namespace {
 
@@ -460,26 +501,49 @@ bool PELoader::resolveImports(LoadedModule& module) {
     }
 
     uint32_t importRVA = optHeader->DataDirectory[DIRECTORY_IMPORT].VirtualAddress;
-    auto* importDesc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(module.base + importRVA);
+    uint32_t importSize = optHeader->DataDirectory[DIRECTORY_IMPORT].Size;
 
-    while (importDesc->Name && importDesc->FirstThunk) {
-        const char* dllName = reinterpret_cast<const char*>(module.base + importDesc->Name);
+    /* Bound the descriptor walk by the import directory size instead of
+     * trusting a zero terminator that malformed images may never provide. */
+    size_t descCount = importSize / sizeof(IMAGE_IMPORT_DESCRIPTOR);
+    for (size_t d = 0; d < descCount; d++) {
+        auto* importDesc =
+            imagePtr<IMAGE_IMPORT_DESCRIPTOR>(module, (uint64_t)importRVA + d * sizeof(IMAGE_IMPORT_DESCRIPTOR));
+        if (!importDesc)
+            break;
+        if (importDesc->Name == 0 || importDesc->FirstThunk == 0)
+            break;
 
-        MS_INFO("PELoader: resolving imports from %s", dllName);
+        char dllBuf[128];
+        if (imageString(module, importDesc->Name, dllBuf, sizeof(dllBuf)) == 0) {
+            MS_INFO("PELoader: skipping import descriptor %zu with invalid Name RVA 0x%X", d, importDesc->Name);
+            continue;
+        }
+        std::string dllName(dllBuf);
+        MS_INFO("PELoader: resolving imports from %s", dllName.c_str());
 
-        auto* iat = reinterpret_cast<uint64_t*>(module.base + importDesc->FirstThunk);
-
-        uint32_t thunkRVA = importDesc->OriginalFirstThunk ? importDesc->OriginalFirstThunk : importDesc->FirstThunk;
-
-        auto* thunk = reinterpret_cast<uint64_t*>(module.base + thunkRVA);
+        uint64_t thunkRVA = importDesc->OriginalFirstThunk ? importDesc->OriginalFirstThunk : importDesc->FirstThunk;
+        uint64_t iatRVA = importDesc->FirstThunk;
 
         int resolved = 0;
         int failed = 0;
 
-        while (*thunk) {
+        /* Walk the INT and patch the IAT only while both stay inside the
+         * image; a malformed entry or a missing terminator ends the walk
+         * instead of reading or writing past the mapping. */
+        while (true) {
+            uint64_t* thunk = imagePtr<uint64_t>(module, thunkRVA);
+            if (!thunk)
+                break;
             uint64_t entry = *thunk;
+            if (entry == 0)
+                break;
+            uint64_t* iat = imagePtr<uint64_t>(module, iatRVA);
+            if (!iat)
+                break;
+
             void* funcPtr = nullptr;
-            const char* missingName = "";
+            std::string missingName;
             uint16_t missingOrdinal = 0;
             bool isOrdinal = false;
 
@@ -489,9 +553,15 @@ bool PELoader::resolveImports(LoadedModule& module) {
                 isOrdinal = true;
                 funcPtr = resolveImport(dllName, "", ordinal);
             } else {
-                auto* ibn = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(module.base + (entry & 0x7FFFFFFF));
-                missingName = reinterpret_cast<const char*>(ibn->Name);
-                funcPtr = resolveImport(dllName, missingName, 0xFFFF);
+                uint64_t nameRVA = entry & 0x7FFFFFFF;
+                if (imagePtr(module, nameRVA, offsetof(IMAGE_IMPORT_BY_NAME, Name)) != nullptr) {
+                    char funcBuf[256];
+                    if (imageString(module, nameRVA + offsetof(IMAGE_IMPORT_BY_NAME, Name), funcBuf, sizeof(funcBuf)) !=
+                        0) {
+                        missingName = funcBuf;
+                        funcPtr = resolveImport(dllName, missingName, 0xFFFF);
+                    }
+                }
             }
 
             if (funcPtr) {
@@ -499,20 +569,19 @@ bool PELoader::resolveImports(LoadedModule& module) {
                 resolved++;
             } else {
                 if (!isOrdinal) {
-                    MS_INFO("PELoader:   MISSING %s!%s", dllName, missingName);
+                    MS_INFO("PELoader:   MISSING %s!%s", dllName.c_str(), missingName.c_str());
                 } else {
-                    MS_INFO("PELoader:   MISSING %s!ordinal_%u", dllName, missingOrdinal);
+                    MS_INFO("PELoader:   MISSING %s!ordinal_%u", dllName.c_str(), missingOrdinal);
                 }
                 failed++;
                 *iat = 0;
             }
 
-            thunk++;
-            iat++;
+            thunkRVA += sizeof(uint64_t);
+            iatRVA += sizeof(uint64_t);
         }
 
-        MS_INFO("PELoader: %s — %d resolved, %d failed", dllName, resolved, failed);
-        importDesc++;
+        MS_INFO("PELoader: %s — %d resolved, %d failed", dllName.c_str(), resolved, failed);
     }
 
     return true;
@@ -567,20 +636,40 @@ void* PELoader::getExportAddress(LoadedModule& module, const std::string& funcNa
 
     uint32_t exportRVA = optHeader->DataDirectory[DIRECTORY_EXPORT].VirtualAddress;
     uint32_t exportSize = optHeader->DataDirectory[DIRECTORY_EXPORT].Size;
-    auto* exportDir = reinterpret_cast<IMAGE_EXPORT_DIRECTORY*>(module.base + exportRVA);
+    auto* exportDir = imagePtr<IMAGE_EXPORT_DIRECTORY>(module, exportRVA);
+    if (!exportDir)
+        return nullptr;
 
-    auto* names = reinterpret_cast<uint32_t*>(module.base + exportDir->AddressOfNames);
-    auto* functions = reinterpret_cast<uint32_t*>(module.base + exportDir->AddressOfFunctions);
-    auto* ordinals = reinterpret_cast<uint16_t*>(module.base + exportDir->AddressOfNameOrdinals);
+    /* The three parallel export arrays must fit inside the image before any
+     * element is dereferenced; otherwise every lookup below would read an
+     * unchecked RVA. */
+    uint64_t namesRVA = exportDir->AddressOfNames;
+    uint64_t funcsRVA = exportDir->AddressOfFunctions;
+    uint64_t ordsRVA = exportDir->AddressOfNameOrdinals;
+    uint64_t nameBytes = (uint64_t)exportDir->NumberOfNames * sizeof(uint32_t);
+    uint64_t funcBytes = (uint64_t)exportDir->NumberOfFunctions * sizeof(uint32_t);
+    uint64_t ordBytes = (uint64_t)exportDir->NumberOfNames * sizeof(uint16_t);
+    if (!imagePtr(module, namesRVA, nameBytes) || !imagePtr(module, funcsRVA, funcBytes) ||
+        !imagePtr(module, ordsRVA, ordBytes)) {
+        return nullptr;
+    }
+
+    auto* names = reinterpret_cast<uint32_t*>(module.base + namesRVA);
+    auto* functions = reinterpret_cast<uint32_t*>(module.base + funcsRVA);
+    auto* ordinals = reinterpret_cast<uint16_t*>(module.base + ordsRVA);
 
     uint32_t funcRVA = 0;
 
     if (!funcName.empty()) {
         for (uint32_t i = 0; i < exportDir->NumberOfNames; i++) {
-            const char* name = reinterpret_cast<const char*>(module.base + names[i]);
-            if (strcmp(name, funcName.c_str()) == 0) {
+            char nameBuf[256];
+            if (imageString(module, names[i], nameBuf, sizeof(nameBuf)) == 0)
+                continue;
+            if (strcmp(nameBuf, funcName.c_str()) == 0) {
                 uint16_t idx = ordinals[i];
-                funcRVA = functions[idx];
+                if (idx < exportDir->NumberOfFunctions) {
+                    funcRVA = functions[idx];
+                }
                 break;
             }
         }
@@ -596,10 +685,15 @@ void* PELoader::getExportAddress(LoadedModule& module, const std::string& funcNa
     if (funcRVA == 0)
         return nullptr;
 
-    if (funcRVA >= exportRVA && funcRVA < exportRVA + exportSize) {
-        const char* fwdStr = reinterpret_cast<const char*>(module.base + funcRVA);
-        return resolveForwardedExport(fwdStr);
+    if (funcRVA >= exportRVA && funcRVA < (uint64_t)exportRVA + exportSize) {
+        char fwdBuf[256];
+        if (imageString(module, funcRVA, fwdBuf, sizeof(fwdBuf)) == 0)
+            return nullptr;
+        return resolveForwardedExport(fwdBuf);
     }
+
+    if (funcRVA >= module.size)
+        return nullptr;
 
     return module.base + funcRVA;
 }
@@ -687,40 +781,63 @@ bool PELoader::resolveDelayImports(LoadedModule& module) {
 
     uint32_t delayRVA = optHeader->DataDirectory[DIRECTORY_DELAY_IMPORT].VirtualAddress;
     uint32_t delaySize = optHeader->DataDirectory[DIRECTORY_DELAY_IMPORT].Size;
-    auto* desc = reinterpret_cast<IMAGE_DELAY_IMPORT_DESCRIPTOR*>(module.base + delayRVA);
 
     size_t count = delaySize / sizeof(IMAGE_DELAY_IMPORT_DESCRIPTOR);
     for (size_t i = 0; i < count; i++) {
-        if (desc[i].rvaDLLName == 0)
+        auto* desc = imagePtr<IMAGE_DELAY_IMPORT_DESCRIPTOR>(module, (uint64_t)delayRVA +
+                                                                         i * sizeof(IMAGE_DELAY_IMPORT_DESCRIPTOR));
+        if (!desc)
+            break;
+        if (desc->rvaDLLName == 0)
             break;
 
-        const char* dllNameStr = reinterpret_cast<const char*>(module.base + desc[i].rvaDLLName);
-        if (!dllNameStr || !dllNameStr[0])
+        char dllBuf[128];
+        if (imageString(module, desc->rvaDLLName, dllBuf, sizeof(dllBuf)) == 0)
             break;
+        std::string dllNameStr(dllBuf);
+        MS_INFO("PELoader: resolving delay-load import: %s", dllNameStr.c_str());
 
-        MS_INFO("PELoader: resolving delay-load import: %s", dllNameStr);
+        /* Walk the delay INT and patch the IAT only while both stay inside
+         * the image; a malformed entry or a missing terminator ends the
+         * walk instead of reading or writing past the mapping. */
+        uint64_t intRVA = desc->rvaINT;
+        uint64_t iatRVA = desc->rvaIAT;
+        while (true) {
+            uint64_t* entryPtr = imagePtr<uint64_t>(module, intRVA);
+            if (!entryPtr)
+                break;
+            uint64_t entry = *entryPtr;
+            if (entry == 0)
+                break;
+            uint64_t* iatSlot = imagePtr<uint64_t>(module, iatRVA);
+            if (!iatSlot)
+                break;
 
-        auto* intPtr = reinterpret_cast<uint64_t*>(module.base + desc[i].rvaINT);
-        auto* iatPtr = reinterpret_cast<uint64_t*>(module.base + desc[i].rvaIAT);
-
-        for (int j = 0; intPtr[j] != 0; j++) {
             void* funcPtr = nullptr;
-
-            if (intPtr[j] & (1ULL << 63)) {
-                uint16_t ordinal = static_cast<uint16_t>(intPtr[j] & 0xFFFF);
+            if (entry & (1ULL << 63)) {
+                uint16_t ordinal = static_cast<uint16_t>(entry & 0xFFFF);
                 funcPtr = resolveImport(dllNameStr, "", ordinal);
             } else {
-                auto* ibn = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(module.base + intPtr[j]);
-                std::string name = reinterpret_cast<const char*>(ibn->Name);
-                funcPtr = resolveImport(dllNameStr, name, 0xFFFF);
+                uint64_t nameRVA = entry & 0x7FFFFFFF;
+                if (imagePtr(module, nameRVA, offsetof(IMAGE_IMPORT_BY_NAME, Name)) != nullptr) {
+                    char funcBuf[256];
+                    if (imageString(module, nameRVA + offsetof(IMAGE_IMPORT_BY_NAME, Name), funcBuf, sizeof(funcBuf)) !=
+                        0) {
+                        funcPtr = resolveImport(dllNameStr, funcBuf, 0xFFFF);
+                    }
+                }
             }
 
-            iatPtr[j] = reinterpret_cast<uint64_t>(funcPtr);
+            *iatSlot = reinterpret_cast<uint64_t>(funcPtr);
+            intRVA += sizeof(uint64_t);
+            iatRVA += sizeof(uint64_t);
         }
 
         HMODULE hMod = loadLibrary(dllNameStr);
-        if (hMod && desc[i].rvaHmod) {
-            *reinterpret_cast<HMODULE*>(module.base + desc[i].rvaHmod) = hMod;
+        if (hMod && desc->rvaHmod) {
+            if (auto* hmodSlot = imagePtr<HMODULE>(module, desc->rvaHmod)) {
+                *hmodSlot = hMod;
+            }
         }
     }
 
