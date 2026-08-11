@@ -332,3 +332,12 @@ add_executable(test_kernel32
 )
 target_link_libraries(test_kernel32 PRIVATE metalsharp_loader metalsharp_core)
 add_test(NAME kernel32 COMMAND test_kernel32)
+
+# Regression coverage for #418: kernel32 wide-char entry points must convert
+# UTF-16 arguments instead of reading them as ANSI (Kernel32Shim.cpp). The
+# loader library contains the kernel32 shims (Kernel32Shim + Kernel32Extra).
+add_executable(test_kernel32_wide
+    test_kernel32_wide.cpp
+)
+target_link_libraries(test_kernel32_wide PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME kernel32_wide COMMAND test_kernel32_wide)
