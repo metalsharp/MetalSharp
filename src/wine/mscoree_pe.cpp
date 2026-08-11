@@ -15,6 +15,7 @@ typedef NTSTATUS(WINAPI* unix_call_dispatcher_t)(unixlib_handle_t, unsigned int,
 #define STATUS_SUCCESS ((NTSTATUS)0)
 #endif
 
+#include "mscoree_path.h"
 #include "mscoree_unix.h"
 
 static unixlib_handle_t g_unixlib_handle = 0;
@@ -160,7 +161,8 @@ static int launch_embedded_mono(void) {
     char exe_path[1024] = {0};
     char exe_dir[1024] = {0};
     GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
-    strncpy(exe_dir, exe_path, sizeof(exe_dir) - 1);
+    mscoree_terminate_path(exe_path, sizeof(exe_path));
+    mscoree_copy_path(exe_dir, sizeof(exe_dir), exe_path);
     char* last_slash = strrchr(exe_dir, '\\');
     if (last_slash)
         *last_slash = 0;
@@ -213,8 +215,10 @@ static int launch_embedded_mono(void) {
     fprintf(stderr, "[mscoree] mono runtime initialized\n");
 
     char config_file[1024];
-    strcpy(config_file, exe_path);
-    strcat(config_file, ".config");
+    if (!mscoree_build_config_path(config_file, sizeof(config_file), exe_path)) {
+        fprintf(stderr, "[mscoree] executable path is too long for its config path\n");
+        return -1;
+    }
     fprintf(stderr, "[mscoree] mono_domain_set_config...\n");
     p_mono_domain_set_config(domain, unix_dir, config_file);
 
@@ -268,7 +272,8 @@ void WINAPI _CorExeMain(void) {
     char exe_path[1024] = {0};
     char exe_dir[1024] = {0};
     GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
-    strncpy(exe_dir, exe_path, sizeof(exe_dir) - 1);
+    mscoree_terminate_path(exe_path, sizeof(exe_path));
+    mscoree_copy_path(exe_dir, sizeof(exe_dir), exe_path);
     char* last_slash = strrchr(exe_dir, '\\');
     if (last_slash)
         *last_slash = 0;
