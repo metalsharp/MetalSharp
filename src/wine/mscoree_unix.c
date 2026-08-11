@@ -182,42 +182,31 @@ static int do_init(void* args) {
 }
 
 static int do_cor_exe_main(void* args) {
-    (void)args;
     fprintf(stderr, "[mscoree-unix] do_cor_exe_main ENTRY\n");
     fflush(stderr);
+
+    struct mscoree_cor_exe_main_params* params = (struct mscoree_cor_exe_main_params*)args;
+    if (!params) {
+        fprintf(stderr, "[mscoree-unix] _CorExeMain requires launch parameters\n");
+        return -1;
+    }
+
+    // The PE side owns this structure and consumes the result after the call.
+    // Start in the failure state so every early return is reported as an error
+    // instead of silently becoming a successful process exit.
+    params->exit_code = 1;
 
     if (load_mono() < 0) {
         fprintf(stderr, "[mscoree-unix] mono not loaded\n");
         return -1;
     }
 
-    extern char** environ;
-    char exe_path[1024] = {0};
-    int found = 0;
-
-    for (int i = 0; environ[i]; i++) {
-        if (strncmp(environ[i], "WINELOADERNOEXEC=", 17) == 0)
-            continue;
+    if (!params->exe_path[0]) {
+        fprintf(stderr, "[mscoree-unix] _CorExeMain received an empty exe path\n");
+        return -1;
     }
 
-    for (char** env = environ; *env; env++) {
-        if (strncmp(*env, "_=", 2) == 0) {
-            strncpy(exe_path, *env + 2, sizeof(exe_path) - 1);
-            found = 1;
-            break;
-        }
-    }
-
-    if (!found) {
-        char* path = getenv("PATH");
-        (void)path;
-        FILE* f = fopen("/proc/self/cmdline", "r");
-        if (f) {
-            fgets(exe_path, sizeof(exe_path), f);
-            fclose(f);
-            found = 1;
-        }
-    }
+    fprintf(stderr, "[mscoree-unix] using PE launch parameters: exe=%s dir=%s\n", params->exe_path, params->exe_dir);
 
     fprintf(stderr, "[mscoree-unix] about to call mono_jit_init_version...\n");
     fflush(stderr);
@@ -252,14 +241,8 @@ static int do_cor_exe_main(void* args) {
 
     MonoImageOpenStatus status;
 
-    const char* exe_to_load = found ? exe_path : getenv("_");
-    if (!exe_to_load || !exe_to_load[0]) {
-        fprintf(stderr, "[mscoree-unix] no exe path found\n");
-        return -1;
-    }
-
     char unix_path[1024];
-    const char* src = exe_to_load;
+    const char* src = params->exe_path;
     char* dst = unix_path;
     while (*src && dst < unix_path + sizeof(unix_path) - 1) {
         *dst++ = (*src == '\\') ? '/' : *src;
@@ -284,6 +267,7 @@ static int do_cor_exe_main(void* args) {
     g_mono_initialized = 1;
     char* argv[] = {unix_path, NULL};
     int exit_code = p_mono_jit_exec(domain, assembly, 1, argv);
+    params->exit_code = exit_code;
     fprintf(stderr, "[mscoree-unix] mono_jit_exec returned %d\n", exit_code);
 
     p_mono_thread_manage();
