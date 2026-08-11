@@ -1,14 +1,19 @@
+#include "metalsharp/CrashDiagnostics.h"
 #include "metalsharp/CrashReporter.h"
 #include "metalsharp/GameDetector.h"
 #include "metalsharp/SettingsManager.h"
 #include "metalsharp/UpdateChecker.h"
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -96,6 +101,7 @@ static bool crash_reporter_generate_id() {
 static bool crash_reporter_format_timestamp() {
     std::string ts = metalsharp::CrashReporter::formatTimestamp(0);
     assert(!ts.empty());
+    assert(metalsharp::CrashReporter::formatTimestamp(std::numeric_limits<int64_t>::max()).empty());
     return true;
 }
 
@@ -105,6 +111,102 @@ static bool crash_reporter_collect_system_info() {
     assert(!info.empty());
     assert(info.find("Platform:") != std::string::npos);
     assert(info.find("Architecture:") != std::string::npos);
+    assert(info.find("Home: [redacted]") != std::string::npos);
+    const char* home = std::getenv("HOME");
+    if (home && *home)
+        assert(info.find(home) == std::string::npos);
+    return true;
+}
+
+static bool private_mode(const fs::path& path, mode_t expected) {
+    struct stat st{};
+    return stat(path.c_str(), &st) == 0 && (st.st_mode & 0777) == expected;
+}
+
+static bool crash_reporter_private_storage() {
+    auto& cr = metalsharp::CrashReporter::instance();
+    const char* previousHome = std::getenv("HOME");
+    const bool hadHome = previousHome != nullptr;
+    const std::string previousHomeValue = previousHome ? previousHome : "";
+    const fs::path tempHome = fs::temp_directory_path() / ("metalsharp-crash-reporter-" + std::to_string(getpid()));
+    fs::remove_all(tempHome);
+
+    if (setenv("HOME", tempHome.c_str(), 1) != 0)
+        return false;
+
+    metalsharp::CrashReport report;
+    report.id = "private-storage";
+    report.systemInfo = "test\n";
+    const bool saved = cr.saveReport(report);
+    const fs::path dataDir = tempHome / ".metalsharp";
+    const fs::path reportsDir = dataDir / "crashes";
+    const fs::path reportPath = reportsDir / "private-storage.crash";
+    const bool privateStorage =
+        saved && private_mode(dataDir, 0700) && private_mode(reportsDir, 0700) && private_mode(reportPath, 0600);
+
+    cr.deleteReport(report.id);
+    fs::remove_all(tempHome);
+    if (hadHome)
+        setenv("HOME", previousHomeValue.c_str(), 1);
+    else
+        unsetenv("HOME");
+    return privateStorage;
+}
+
+static bool crash_reporter_home_fallback() {
+    auto& cr = metalsharp::CrashReporter::instance();
+    const char* previousHome = std::getenv("HOME");
+    const bool hadHome = previousHome != nullptr;
+    const std::string previousHomeValue = previousHome ? previousHome : "";
+
+    unsetenv("HOME");
+    const std::string reportsDir = cr.getReportsDir();
+    if (hadHome)
+        setenv("HOME", previousHomeValue.c_str(), 1);
+    else
+        unsetenv("HOME");
+
+    return reportsDir.find("/tmp/") == std::string::npos && reportsDir.ends_with("/crashes");
+}
+
+static bool crash_diagnostics_private_storage() {
+    const fs::path diagDir = fs::temp_directory_path() / ("metalsharp-crash-diagnostics-" + std::to_string(getpid()));
+    fs::remove_all(diagDir);
+
+    auto& diagnostics = metalsharp::CrashDiagnostics::instance();
+    diagnostics.init(diagDir.string());
+    const bool privateDirectories = private_mode(diagDir, 0700) && private_mode(diagDir / "crashes", 0700);
+
+    if (!privateDirectories) {
+        diagnostics.shutdown();
+        fs::remove_all(diagDir);
+        return false;
+    }
+
+    metalsharp::CrashInfo info;
+    info.signal = 11;
+    diagnostics.setGameId("test-game");
+    diagnostics.setModuleInfo(0x1000, 0x1000, "/path/to/game.exe");
+    diagnostics.writeCrashDump(info);
+    diagnostics.writeDiagnosticsBundle();
+
+    bool privateFiles = private_mode(diagDir / "diagnostics.txt", 0600);
+    bool foundCrashDump = false;
+    for (const auto& entry : fs::directory_iterator(diagDir / "crashes")) {
+        if (entry.path().extension() == ".txt") {
+            foundCrashDump = true;
+            privateFiles = privateFiles && private_mode(entry.path(), 0600);
+        }
+    }
+
+    diagnostics.shutdown();
+    fs::remove_all(diagDir);
+    return privateDirectories && privateFiles && foundCrashDump;
+}
+
+static bool crash_diagnostics_format_timestamp() {
+    assert(!metalsharp::CrashDiagnostics::formatTimestamp(0).empty());
+    assert(metalsharp::CrashDiagnostics::formatTimestamp(std::numeric_limits<uint64_t>::max() / 2).empty());
     return true;
 }
 
@@ -345,8 +447,14 @@ int main() {
     TEST(crash_reporter_generate_id);
     TEST(crash_reporter_format_timestamp);
     TEST(crash_reporter_collect_system_info);
+    TEST(crash_reporter_private_storage);
+    TEST(crash_reporter_home_fallback);
     TEST(crash_reporter_save_and_load);
     TEST(crash_reporter_reports_dir);
+
+    printf("\n--- 24.2a Crash Diagnostics ---\n");
+    TEST(crash_diagnostics_private_storage);
+    TEST(crash_diagnostics_format_timestamp);
 
     printf("\n--- 24.3 Update Checker ---\n");
     TEST(version_parse);

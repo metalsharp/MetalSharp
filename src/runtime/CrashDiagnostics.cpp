@@ -5,12 +5,12 @@
 /// flags, and instruction pointer — and formats them into a human-readable dump
 /// file. Complements CrashReporter with lower-level diagnostic detail.
 
+#include "PrivateStorage.h"
 #include <ctime>
 #include <fstream>
 #include <metalsharp/CrashDiagnostics.h>
 #include <metalsharp/Logger.h>
 #include <sstream>
-#include <sys/stat.h>
 
 namespace metalsharp {
 
@@ -21,11 +21,14 @@ CrashDiagnostics& CrashDiagnostics::instance() {
 
 void CrashDiagnostics::init(const std::string& diagDir) {
     m_diagDir = diagDir;
-    mkdir(m_diagDir.c_str(), 0755);
-    mkdir((m_diagDir + "/crashes").c_str(), 0755);
-    m_initialized = true;
+    const bool ready = runtime_detail::ensurePrivateDirectory(m_diagDir) &&
+                       runtime_detail::ensurePrivateDirectory(m_diagDir + "/crashes");
+    m_initialized = ready;
     m_crashCount = 0;
-    MS_INFO("CrashDiagnostics initialized: %s", m_diagDir.c_str());
+    if (m_initialized)
+        MS_INFO("CrashDiagnostics initialized: %s", m_diagDir.c_str());
+    else
+        MS_ERROR("CrashDiagnostics failed to initialize private directory: %s", m_diagDir.c_str());
 }
 
 void CrashDiagnostics::shutdown() {
@@ -44,10 +47,10 @@ void CrashDiagnostics::setGameId(const std::string& gameId) {
 
 std::string CrashDiagnostics::formatTimestamp(uint64_t epoch) {
     time_t t = static_cast<time_t>(epoch);
-    struct tm tm_buf;
-    localtime_r(&t, &tm_buf);
-    char buf[64];
-    strftime(buf, sizeof(buf), "%Y-%m-%d_%H-%M-%S", &tm_buf);
+    struct tm tm_buf{};
+    char buf[64] = {};
+    if (!localtime_r(&t, &tm_buf) || strftime(buf, sizeof(buf), "%Y-%m-%d_%H-%M-%S", &tm_buf) == 0)
+        return {};
     return buf;
 }
 
@@ -61,8 +64,8 @@ void CrashDiagnostics::writeCrashDump(const CrashInfo& info) {
     std::string ts = formatTimestamp(now);
     std::string filename = crashDir() + "/crash_" + ts + ".txt";
 
-    std::ofstream file(filename);
-    if (!file.is_open()) {
+    std::ofstream file;
+    if (!runtime_detail::openPrivateFile(file, filename)) {
         MS_ERROR("CrashDiagnostics: failed to write crash dump to %s", filename.c_str());
         return;
     }
@@ -125,8 +128,8 @@ void CrashDiagnostics::writeDiagnosticsBundle() {
         return;
 
     std::string bundlePath = m_diagDir + "/diagnostics.txt";
-    std::ofstream file(bundlePath);
-    if (!file.is_open())
+    std::ofstream file;
+    if (!runtime_detail::openPrivateFile(file, bundlePath))
         return;
 
     file << "=== MetalSharp Diagnostics Bundle ===\n";
