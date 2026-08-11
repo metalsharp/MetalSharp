@@ -354,7 +354,7 @@ sleep 5
 BACKEND_VERSION=""
 deadline=$((SECONDS + 45))
 while [ $SECONDS -lt $deadline ]; do
-    RAW=$(curl -sf "http://127.0.0.1:9274/status" 2>/dev/null) || true
+    RAW=$(curl -sf "http://127.0.0.1:9274/health" 2>/dev/null) || true
     BACKEND_VERSION=$(echo "$RAW" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
     [ -n "$BACKEND_VERSION" ] && break
     sleep 1

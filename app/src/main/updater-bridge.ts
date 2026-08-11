@@ -35,9 +35,11 @@ export interface UpdaterReadyResult {
 export class UpdaterBridge {
   private scriptPath: string | null = null;
   private backendPort: number;
+  private apiToken: string;
 
-  constructor(port: number = 9274) {
+  constructor(port: number = 9274, apiToken = "") {
     this.backendPort = port;
+    this.apiToken = apiToken;
   }
 
   async ensureReady(): Promise<UpdaterReadyResult> {
@@ -80,18 +82,27 @@ export class UpdaterBridge {
 
   async getBackendPid(): Promise<number | null> {
     return new Promise((resolve) => {
-      const req = http.get(`http://127.0.0.1:${this.backendPort}/status`, (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () => {
-          try {
-            const data = JSON.parse(Buffer.concat(chunks).toString());
-            resolve(data.pid ?? null);
-          } catch {
-            resolve(null);
-          }
-        });
-      });
+      const req = http.get(
+        `http://127.0.0.1:${this.backendPort}/status`,
+        { headers: { Authorization: `Bearer ${this.apiToken}` } },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            if (res.statusCode !== 200) {
+              resolve(null);
+              return;
+            }
+            try {
+              const data = JSON.parse(Buffer.concat(chunks).toString());
+              const pid = Number(data.pid);
+              resolve(Number.isInteger(pid) && pid > 0 ? pid : null);
+            } catch {
+              resolve(null);
+            }
+          });
+        },
+      );
       req.on("error", () => resolve(null));
       req.setTimeout(1500, () => {
         req.destroy();

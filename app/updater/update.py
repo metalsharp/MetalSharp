@@ -345,7 +345,7 @@ def wait_for_backend(timeout=45):
     while time.time() < deadline:
         try:
             req = urllib.request.Request(
-                "http://127.0.0.1:" + str(BACKEND_PORT) + "/status"
+                "http://127.0.0.1:" + str(BACKEND_PORT) + "/health"
             )
             with urllib.request.urlopen(req, timeout=3) as resp:
                 data = json.loads(resp.read())
