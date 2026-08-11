@@ -12,9 +12,23 @@ BACKEND_AUTH_ARGS=()
 if [[ -n "${METALSHARP_API_TOKEN:-}" ]]; then
   BACKEND_AUTH_ARGS=(-H "Authorization: Bearer ${METALSHARP_API_TOKEN}")
 fi
+BACKEND_TOKEN_FILE="${METALSHARP_BACKEND_TOKEN_FILE:-${METALSHARP_HOME:-$HOME/.metalsharp}/.backend-token}"
 GAME_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/Subnautica2/Binaries/Win64"
 CORPUS_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/m12/1962700"
 START_STEAM=0
+
+backend_curl() {
+  local token
+  token="$(cat "$BACKEND_TOKEN_FILE" 2>/dev/null || true)"
+  if [[ "$token" =~ ^[0-9a-f]{64}$ ]]; then
+    curl -fsS -H "X-MetalSharp-Token: $token" "$@"
+  elif ((${#BACKEND_AUTH_ARGS[@]} > 0)); then
+    curl -fsS "${BACKEND_AUTH_ARGS[@]}" "$@"
+  else
+    echo "MetalSharp backend token not found at $BACKEND_TOKEN_FILE" >&2
+    return 1
+  fi
+}
 
 usage() {
   cat <<'USAGE'
@@ -109,29 +123,25 @@ trap cleanup EXIT
 
 find "$CORPUS_DIR" -type f \( -name '*.dxbc' -o -name 'pso-*.json' \) 2>/dev/null | sort > "$before_file" || true
 
-curl -fsS -X POST "$BACKEND_URL/kill" \
-  "${BACKEND_AUTH_ARGS[@]}" \
+backend_curl -X POST "$BACKEND_URL/kill" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"pid\":0}" >/dev/null || true
 pkill -9 -f '[S]ubnautica2-Win64-Shipping.exe|[S]ubnautica2|[C]rashReportClient.exe|[c]rashpad_handler.exe' || true
 
 if [[ "$START_STEAM" == "1" ]]; then
-  curl -fsS -X POST "$BACKEND_URL/steam/launch" \
-    "${BACKEND_AUTH_ARGS[@]}" \
+  backend_curl -X POST "$BACKEND_URL/steam/launch" \
     -H 'Content-Type: application/json' \
     -d '{}' >/dev/null
   sleep 15
 fi
 
-curl -fsS -X POST "$BACKEND_URL/steam/launch-game" \
-  "${BACKEND_AUTH_ARGS[@]}" \
+backend_curl -X POST "$BACKEND_URL/steam/launch-game" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"launchMethod\":\"$LAUNCH_METHOD\"}" > "$launch_file"
 
 sleep "$SECONDS_TO_RUN"
 
-curl -fsS -X POST "$BACKEND_URL/kill" \
-  "${BACKEND_AUTH_ARGS[@]}" \
+backend_curl -X POST "$BACKEND_URL/kill" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"pid\":0}" >/dev/null || true
 pkill -9 -f '[S]ubnautica2-Win64-Shipping.exe|[S]ubnautica2|[C]rashReportClient.exe|[c]rashpad_handler.exe' || true

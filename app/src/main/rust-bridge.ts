@@ -2,7 +2,19 @@ import { type ChildProcess, execFile, spawn } from "child_process";
 import { randomBytes } from "crypto";
 import * as fs from "fs";
 import * as http from "http";
+import * as os from "os";
 import * as path from "path";
+
+export const BACKEND_TOKEN_FILE = ".backend-token";
+export const BACKEND_TOKEN_HEADER = "X-MetalSharp-Token";
+
+const BACKEND_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
+
+export interface BackendAssetResponse {
+  ok: boolean;
+  dataUrl?: string;
+  error?: string;
+}
 
 function getShellPath(): string {
   const home = process.env.HOME || "";
@@ -52,6 +64,10 @@ export class RustBridge {
 
   getApiToken(): string {
     return this.apiToken;
+  }
+
+  getAuthToken(): string | null {
+    return this.readAuthToken();
   }
 
   async start(): Promise<{ ok: boolean; error?: string }> {
@@ -140,6 +156,9 @@ export class RustBridge {
     this.proc = null;
 
     // Also find and kill any backend still listening on our port.
+    // A backend from before token authentication cannot answer /status with a
+    // PID. Fall back to the process listening on our loopback port so an app
+    // upgrade can replace that process cleanly.
     const pid = (await this.getBackendPid()) ?? (await this.getListeningBackendPid());
     if (pid) {
       try {
@@ -309,6 +328,62 @@ export class RustBridge {
     });
   }
 
+  async requestAsset(url: string, timeoutMs?: number): Promise<BackendAssetResponse> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url, this.base);
+    } catch {
+      return { ok: false, error: "Invalid backend asset URL" };
+    }
+
+    if (
+      parsed.origin !== this.base ||
+      parsed.pathname !== "/sharp-library/cover" ||
+      !parsed.searchParams.has("id") ||
+      parsed.hash
+    ) {
+      return { ok: false, error: "Unsupported backend asset" };
+    }
+
+    return new Promise((resolve) => {
+      const req = http.get(
+        {
+          hostname: "127.0.0.1",
+          port: this.port,
+          path: `${parsed.pathname}${parsed.search}`,
+          headers: this.authHeaders(),
+          timeout: timeoutMs ?? 30000,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk) => chunks.push(chunk));
+          res.on("end", () => {
+            if (res.statusCode !== 200) {
+              resolve({ ok: false, error: `Backend asset request failed (${res.statusCode ?? 0})` });
+              return;
+            }
+
+            const contentTypeHeader = res.headers["content-type"];
+            const contentType = (Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader)
+              ?.split(";", 1)[0]
+              .trim();
+            const mediaType =
+              contentType && /^(image\/(?:png|jpeg|webp)|image\/svg\+xml)$/.test(contentType)
+                ? contentType
+                : "application/octet-stream";
+            const data = Buffer.concat(chunks);
+            resolve({ ok: true, dataUrl: `data:${mediaType};base64,${data.toString("base64")}` });
+          });
+        },
+      );
+      req.on("error", () => resolve({ ok: false, error: "Backend asset request failed" }));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve({ ok: false, error: "Backend asset request timeout" });
+      });
+    });
+  }
+
   private spawnBackend(binPath: string) {
     this.proc = spawn(binPath, [], {
       env: {
@@ -429,6 +504,26 @@ export class RustBridge {
     });
   }
 
+  private async getListeningBackendPid(): Promise<number | null> {
+    return new Promise((resolve) => {
+      execFile("lsof", ["-nP", `-tiTCP:${this.port}`, "-sTCP:LISTEN"], { timeout: 1500 }, (error, stdout) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
+        const pid = Number.parseInt(stdout.trim().split(/\s+/)[0] ?? "", 10);
+        if (!Number.isInteger(pid) || pid <= 0) {
+          resolve(null);
+          return;
+        }
+        void this.getProcessPath(pid).then((processPath) => {
+          const processName = processPath ? path.basename(processPath) : "";
+          resolve(processName === "metalsharp-backend" ? pid : null);
+        });
+      });
+    });
+  }
+
   private findBinary(): string | null {
     const devCandidates = [
       path.join(__dirname, "..", "..", "src-rust", "target", "debug", "metalsharp-backend"),
@@ -490,7 +585,10 @@ export class RustBridge {
   }
 
   private authHeaders(): Record<string, string> {
-    return { Authorization: `Bearer ${this.apiToken}` };
+    const headers: Record<string, string> = { Authorization: `Bearer ${this.apiToken}` };
+    const token = this.readAuthToken();
+    if (token) headers[BACKEND_TOKEN_HEADER] = token;
+    return headers;
   }
 
   private async getListeningBackendPid(): Promise<number | null> {
@@ -514,5 +612,15 @@ export class RustBridge {
       if (processPath?.endsWith("metalsharp-backend")) return pid;
     }
     return null;
+  }
+
+  private readAuthToken(): string | null {
+    const home = this.metalsharpHome || process.env.METALSHARP_HOME || path.join(os.homedir(), ".metalsharp");
+    try {
+      const token = fs.readFileSync(path.join(home, BACKEND_TOKEN_FILE), "utf8").trim();
+      return BACKEND_TOKEN_PATTERN.test(token) ? token : null;
+    } catch {
+      return null;
+    }
   }
 }

@@ -591,11 +591,12 @@ function registerGameStopShortcut(): void {
 async function checkNeedsMigration(): Promise<boolean> {
   const marker = hasPostUpdateMigrationMarker();
   try {
-    const data = (await bridge.request("GET", "/update/migrate/check", undefined, 3000)) as {
+    const data = (await requestBackend("GET", "/update/migrate/check", undefined, 3000)) as {
       ok?: boolean;
       needed?: boolean;
     };
-    const needed = data.ok === true && data.needed === true;
+    if (data?.ok !== true) return marker.needed;
+    const needed = data?.ok === true && data.needed === true;
     if (!needed && !marker.needed) clearPostUpdateMigrationMarker();
     return needed;
   } catch {
@@ -705,7 +706,7 @@ app.whenReady().then(async () => {
   if (isDevRuntime()) process.env.METALSHARP_DEV = "1";
   ensureMetalsharpDirs();
   bridge = new RustBridge({ devMode: isDevRuntime(), metalsharpHome: getMetalsharpDir() });
-  updaterBridge = new UpdaterBridge(bridge.getPort(), bridge.getApiToken());
+  updaterBridge = new UpdaterBridge(bridge.getPort(), () => bridge.getAuthToken());
   const backendStart = await bridge.start();
   if (!backendStart.ok) {
     console.warn(`MetalSharp backend did not start during app launch: ${backendStart.error}`);
@@ -782,6 +783,23 @@ async function requestBackend(
   }
 }
 
+async function requestBackendAsset(url: string, timeoutMs?: number): Promise<unknown> {
+  if (isUiOnlyRuntime()) {
+    return { ok: false, error: "Backend assets are unavailable in UI-only preview mode" };
+  }
+
+  const ready = await bridge.ensureRunning();
+  if (!ready.ok) {
+    return { ok: false, error: ready.error ?? "Backend is not available" };
+  }
+
+  try {
+    return await bridge.requestAsset(url, timeoutMs);
+  } catch (e) {
+    return { ok: false, error: backendErrorMessage(e) };
+  }
+}
+
 async function requestMigrationBackend(
   method: string,
   url: string,
@@ -834,6 +852,10 @@ function registerIpc() {
     const ready = await bridge.ensureRunning();
     if (!ready.ok) return null;
     return bridge.requestImage(`/sharp-library/cover?id=${encodeURIComponent(id)}`);
+  });
+
+  ipcMain.handle("backend:asset", async (_e, url: string, timeoutMs?: number) => {
+    return requestBackendAsset(url, timeoutMs);
   });
 
   ipcMain.handle("app:is-first-launch", () => {
