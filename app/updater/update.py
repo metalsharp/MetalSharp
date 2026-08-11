@@ -356,6 +356,29 @@ def wait_for_backend(timeout=45):
     return None, None
 
 
+def report_update_result(status_file, version, target_version):
+    if version == target_version:
+        write_status(
+            status_file,
+            "complete",
+            100,
+            "Update installed. Opening migration wizard...",
+            new_version=target_version,
+        )
+        return
+
+    write_status(
+        status_file,
+        "error",
+        95,
+        "Update installed, but backend reported v{} instead of v{}".format(
+            version or "?", target_version
+        ),
+        error="backend_version_mismatch",
+        new_version=target_version,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="MetalSharp Updater")
     parser.add_argument("--dmg", required=True)
@@ -567,22 +590,7 @@ def main():
         version, new_pid = wait_for_backend(timeout=30)
 
     # ── 10. Report result ────────────────────────────────────────────
-    if version == tv:
-        write_status(
-            sf,
-            "complete",
-            100,
-            "Update installed. Opening migration wizard...",
-            new_version=tv,
-        )
-    else:
-        write_status(
-            sf,
-            "complete",
-            100,
-            "Update installed. Backend: v{} (expected v{})".format(version or "?", tv),
-            new_version=tv,
-        )
+    report_update_result(sf, version, tv)
 
 
 if __name__ == "__main__":
