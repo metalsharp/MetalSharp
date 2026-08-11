@@ -142,7 +142,7 @@ uint32_t NetworkContext::getSocketEventMask(int handle) const {
     return it != m_sockets.end() ? it->second.eventMask : 0;
 }
 
-int* NetworkContext::allocPipePair(const std::string& name, bool server) {
+bool NetworkContext::allocPipePair(const std::string& name, bool server, int outHandles[2]) {
     std::lock_guard<std::mutex> lock(m_mutex);
     int handle = m_nextPipe++;
 
@@ -160,7 +160,7 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
         unlink(pipePath.c_str());
         int listenFd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (listenFd < 0)
-            return nullptr;
+            return false;
 
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -169,7 +169,7 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
 
         if (bind(listenFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
             close(listenFd);
-            return nullptr;
+            return false;
         }
         listen(listenFd, 1);
 
@@ -181,14 +181,13 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
         pi.fds[1] = -1;
         m_pipes[handle] = pi;
 
-        static int returnHandles[2];
-        returnHandles[0] = handle;
-        returnHandles[1] = -1;
-        return returnHandles;
+        outHandles[0] = handle;
+        outHandles[1] = -1;
+        return true;
     } else {
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0)
-            return nullptr;
+            return false;
 
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -197,7 +196,7 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
 
         if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
             close(fd);
-            return nullptr;
+            return false;
         }
 
         PipeInstance pi;
@@ -208,11 +207,25 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
         pi.fds[1] = fd;
         m_pipes[handle] = pi;
 
-        static int returnHandles[2];
-        returnHandles[0] = handle;
-        returnHandles[1] = handle;
-        return returnHandles;
+        outHandles[0] = handle;
+        outHandles[1] = handle;
+        return true;
     }
+}
+
+bool NetworkContext::connectPipe(int handle, int clientFd) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_pipes.find(handle);
+    if (it == m_pipes.end() || it->second.connected) {
+        close(clientFd);
+        return false;
+    }
+    if (it->second.fds[0] >= 0)
+        close(it->second.fds[0]); // the listen socket has served its purpose
+    it->second.fds[0] = clientFd;
+    it->second.fds[1] = clientFd;
+    it->second.connected = true;
+    return true;
 }
 
 int NetworkContext::getPipeReadFd(int handle) const {
