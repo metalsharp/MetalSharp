@@ -3,7 +3,9 @@
 ///
 /// Spoofs volume serial numbers, MAC addresses, and system timing to bypass DRM checks that validate hardware
 /// fingerprints. Also provides anti-debug detection shims to hide the Wine environment from copy protection.
+#include <cassert>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -25,6 +27,45 @@ namespace win32 {
 
 static const uint8_t STABLE_MAC[6] = {0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x5E};
 static const uint32_t STABLE_DISK_SERIAL = 0xABCDEF12;
+static char STABLE_ADAPTER_NAME[] = "eth0";
+static uint16_t STABLE_ADAPTER_DESCRIPTION[] = {
+    'M', 'e', 't', 'a', 'l', 'S', 'h', 'a', 'r', 'p', ' ', 'V', 'i', 'r',
+    't', 'u', 'a', 'l', ' ', 'E', 't', 'h', 'e', 'r', 'n', 'e', 't', 0,
+};
+
+// IP_ADAPTER_ADDRESSES_LH's x86_64 prefix through Ipv6IfIndex.  Keep this
+// layout explicit because the guest reads these fields through Windows ABI
+// pointers, not as an inline buffer.  The remaining linked-list fields are
+// intentionally null for this single synthetic adapter.
+struct IP_ADAPTER_ADDRESSES_LAYOUT {
+    uint32_t Length;
+    uint32_t IfIndex;
+    void* Next;
+    char* AdapterName;
+    void* FirstUnicastAddress;
+    void* FirstAnycastAddress;
+    void* FirstMulticastAddress;
+    void* FirstDnsServerAddress;
+    uint16_t* DnsSuffix;
+    uint16_t* Description;
+    uint16_t* FriendlyName;
+    uint8_t PhysicalAddress[8];
+    uint32_t PhysicalAddressLength;
+    uint32_t Flags;
+    uint32_t Mtu;
+    uint32_t IfType;
+    uint32_t OperStatus;
+    uint32_t Ipv6IfIndex;
+};
+
+static_assert(sizeof(IP_ADAPTER_ADDRESSES_LAYOUT) == 112);
+static_assert(offsetof(IP_ADAPTER_ADDRESSES_LAYOUT, AdapterName) == 16);
+static_assert(offsetof(IP_ADAPTER_ADDRESSES_LAYOUT, PhysicalAddress) == 80);
+static_assert(offsetof(IP_ADAPTER_ADDRESSES_LAYOUT, PhysicalAddressLength) == 88);
+static_assert(offsetof(IP_ADAPTER_ADDRESSES_LAYOUT, IfType) == 100);
+static_assert(offsetof(IP_ADAPTER_ADDRESSES_LAYOUT, OperStatus) == 104);
+static_assert(offsetof(IP_ADAPTER_ADDRESSES_LAYOUT, OperStatus) + sizeof(uint32_t) <=
+              sizeof(IP_ADAPTER_ADDRESSES_LAYOUT));
 
 static BOOL MSABI shim_GetSystemFirmwareTable(DWORD FirmwareTableProviderSignature, DWORD FirmwareTableID,
                                               void* pFirmwareTableBuffer, DWORD BufferSize) {
@@ -123,40 +164,34 @@ static uint32_t MSABI shim_GetAdaptersInfo(void* pAdapterInfo, uint32_t* pOutBuf
 
 static uint32_t MSABI shim_GetAdaptersAddresses(uint32_t Family, uint32_t Flags, void* Reserved,
                                                 void* pAdapterAddresses, uint32_t* pOutBufLen) {
+    (void)Family;
+    (void)Flags;
+
     if (!pOutBufLen)
         return 111;
     if (Reserved)
         return 87;
 
-    uint32_t needed = 256;
+    constexpr uint32_t needed = static_cast<uint32_t>(sizeof(IP_ADAPTER_ADDRESSES_LAYOUT));
     if (!pAdapterAddresses || *pOutBufLen < needed) {
         *pOutBufLen = needed;
         return 111;
     }
 
-    memset(pAdapterAddresses, 0, *pOutBufLen);
-    auto* out = static_cast<uint8_t*>(pAdapterAddresses);
+    assert(needed <= *pOutBufLen);
+    memset(pAdapterAddresses, 0, needed);
+    auto* adapter = static_cast<IP_ADAPTER_ADDRESSES_LAYOUT*>(pAdapterAddresses);
 
-    auto** pNext = reinterpret_cast<void**>(out);
-    *pNext = nullptr;
-
-    uint32_t* pComboIndex = reinterpret_cast<uint32_t*>(out + 8);
-    *pComboIndex = 0;
-
-    char* name = reinterpret_cast<char*>(out + 12);
-    memcpy(name, "eth0\0", 5);
-
-    uint32_t* pPhysAddrLen = reinterpret_cast<uint32_t*>(out + 280);
-    *pPhysAddrLen = 6;
-
-    uint8_t* physAddr = out + 284;
-    memcpy(physAddr, STABLE_MAC, 6);
-
-    uint32_t* pIfType = reinterpret_cast<uint32_t*>(out + 296);
-    *pIfType = 6;
-
-    uint32_t* pOperStatus = reinterpret_cast<uint32_t*>(out + 300);
-    *pOperStatus = 1;
+    adapter->Length = needed;
+    adapter->IfIndex = 1;
+    adapter->AdapterName = STABLE_ADAPTER_NAME;
+    adapter->Description = STABLE_ADAPTER_DESCRIPTION;
+    adapter->FriendlyName = STABLE_ADAPTER_DESCRIPTION;
+    memcpy(adapter->PhysicalAddress, STABLE_MAC, sizeof(STABLE_MAC));
+    adapter->PhysicalAddressLength = sizeof(STABLE_MAC);
+    adapter->Mtu = 1500;
+    adapter->IfType = 6;
+    adapter->OperStatus = 1;
 
     return 0;
 }

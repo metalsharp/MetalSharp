@@ -1,9 +1,42 @@
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <metalsharp/AntiCheatDB.h>
+#include <metalsharp/ExtraShims.h>
+#include <metalsharp/Win32Types.h>
+#include <vector>
 
 using namespace metalsharp::win32;
+
+struct AdapterAddressesLayout {
+    uint32_t Length;
+    uint32_t IfIndex;
+    void* Next;
+    char* AdapterName;
+    void* FirstUnicastAddress;
+    void* FirstAnycastAddress;
+    void* FirstMulticastAddress;
+    void* FirstDnsServerAddress;
+    uint16_t* DnsSuffix;
+    uint16_t* Description;
+    uint16_t* FriendlyName;
+    uint8_t PhysicalAddress[8];
+    uint32_t PhysicalAddressLength;
+    uint32_t Flags;
+    uint32_t Mtu;
+    uint32_t IfType;
+    uint32_t OperStatus;
+    uint32_t Ipv6IfIndex;
+};
+
+using GetAdaptersAddressesFn = uint32_t(MSABI*)(uint32_t, uint32_t, void*, void*, uint32_t*);
+
+static_assert(sizeof(AdapterAddressesLayout) == 112);
+static_assert(offsetof(AdapterAddressesLayout, AdapterName) == 16);
+static_assert(offsetof(AdapterAddressesLayout, PhysicalAddressLength) == 88);
+static_assert(offsetof(AdapterAddressesLayout, IfType) == 100);
+static_assert(offsetof(AdapterAddressesLayout, OperStatus) == 104);
 
 static int testsPassed = 0;
 static int testsFailed = 0;
@@ -77,6 +110,49 @@ static bool test_mac_address_stable() {
     return true;
 }
 
+static bool test_adapters_addresses_layout() {
+    metalsharp::ShimLibrary kernel32;
+    metalsharp::ShimLibrary winmm;
+    addDRMShims(kernel32, winmm);
+
+    auto it = kernel32.functions.find("GetAdaptersAddresses");
+    if (it == kernel32.functions.end())
+        return false;
+
+    auto getAdaptersAddresses = reinterpret_cast<GetAdaptersAddressesFn>(it->second());
+    uint32_t needed = 0;
+    if (getAdaptersAddresses(0, 0, nullptr, nullptr, &needed) != 111)
+        return false;
+    if (needed != sizeof(AdapterAddressesLayout))
+        return false;
+
+    std::vector<uint8_t> tooSmall(needed - 1, 0xCD);
+    uint32_t tooSmallLength = needed - 1;
+    if (getAdaptersAddresses(0, 0, nullptr, tooSmall.data(), &tooSmallLength) != 111 || tooSmallLength != needed)
+        return false;
+    for (uint8_t byte : tooSmall) {
+        if (byte != 0xCD)
+            return false;
+    }
+
+    constexpr size_t kCanarySize = 32;
+    std::vector<uint8_t> buffer(needed + kCanarySize, 0xCD);
+    uint32_t bufferLength = needed;
+    if (getAdaptersAddresses(0, 0, nullptr, buffer.data(), &bufferLength) != 0)
+        return false;
+    for (size_t i = needed; i < buffer.size(); ++i) {
+        if (buffer[i] != 0xCD)
+            return false;
+    }
+
+    auto* adapter = reinterpret_cast<const AdapterAddressesLayout*>(buffer.data());
+    return adapter->Length == sizeof(AdapterAddressesLayout) && adapter->IfIndex == 1 && adapter->Next == nullptr &&
+           adapter->AdapterName != nullptr && strcmp(adapter->AdapterName, "eth0") == 0 &&
+           adapter->PhysicalAddressLength == 6 &&
+           memcmp(adapter->PhysicalAddress, "\x00\x1A\x2B\x3C\x4D\x5E", 6) == 0 && adapter->Mtu == 1500 &&
+           adapter->IfType == 6 && adapter->OperStatus == 1 && adapter->Ipv6IfIndex == 0;
+}
+
 static bool test_local_time() {
     return true;
 }
@@ -126,6 +202,7 @@ int main() {
     printf("\n--- 20.2 DRM Shims (Firmware, MAC, Disk) ---\n");
     TEST(smbios_firmware_table);
     TEST(mac_address_stable);
+    TEST(adapters_addresses_layout);
     TEST(device_io_control_disk);
 
     printf("\n--- 20.3 SEH & Exception Hardening ---\n");
