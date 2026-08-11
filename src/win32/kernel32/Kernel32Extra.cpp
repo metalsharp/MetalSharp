@@ -63,6 +63,7 @@
 #include <metalsharp/Registry.h>
 #include <metalsharp/SyncContext.h>
 #include <metalsharp/VirtualFileSystem.h>
+#include <metalsharp/Win32Error.h>
 #include <metalsharp/Win32Types.h>
 #include <mutex>
 #include <pthread.h>
@@ -554,10 +555,15 @@ static BOOL MSABI shim_FreeLibrary(HMODULE hLibModule) {
 static HMODULE MSABI shim_LoadLibraryExA(const char* lpLibFileName, HANDLE hFile, DWORD dwFlags) {
     (void)hFile;
     (void)dwFlags;
-    if (!lpLibFileName)
+    if (!lpLibFileName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return nullptr;
+    }
     MS_INFO("PELoader: LoadLibraryExA(\"%s\")", lpLibFileName);
-    return PELoader::instance()->loadLibrary(std::string(lpLibFileName));
+    HMODULE result = PELoader::instance()->loadLibrary(std::string(lpLibFileName));
+    if (!result)
+        setLastErrorCode(ERROR_MOD_NOT_FOUND);
+    return result;
 }
 
 static HMODULE MSABI shim_LoadLibraryExW(const wchar_t* lpLibFileName, HANDLE hFile, DWORD dwFlags) {
@@ -575,9 +581,14 @@ static HMODULE MSABI shim_LoadLibraryExW(const wchar_t* lpLibFileName, HANDLE hF
     }
     narrow[j] = 0;
     MS_INFO("PELoader: LoadLibraryExW(\"%s\")", narrow);
-    if (j == 0)
+    if (j == 0) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return nullptr;
-    return PELoader::instance()->loadLibrary(std::string(narrow));
+    }
+    HMODULE result = PELoader::instance()->loadLibrary(std::string(narrow));
+    if (!result)
+        setLastErrorCode(ERROR_MOD_NOT_FOUND);
+    return result;
 }
 
 static HMODULE MSABI shim_GetModuleHandleExA(DWORD dwFlags, const char* lpModuleName, HMODULE* phModule) {
@@ -613,8 +624,10 @@ static BOOL MSABI shim_SetEvent(HANDLE hEvent) {
 static HANDLE MSABI shim_OpenEventA(DWORD dwDesiredAccess, BOOL bInheritHandle, const char* lpName) {
     (void)dwDesiredAccess;
     (void)bInheritHandle;
-    if (!lpName)
+    if (!lpName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return nullptr;
+    }
     return SyncContext::instance().createEvent(true, false, lpName);
 }
 
@@ -1233,8 +1246,10 @@ static BOOL MSABI shim_CopyFileExW(const wchar_t* lpExistingFileName, const wcha
     (void)lpData;
     (void)pbCancel;
     (void)dwCopyFlags;
-    if (!lpExistingFileName || !lpNewFileName)
+    if (!lpExistingFileName || !lpNewFileName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
 
     char srcW[1024], dstW[1024];
     for (int i = 0; lpExistingFileName[i] && i < 1023; i++)
@@ -1248,8 +1263,10 @@ static BOOL MSABI shim_CopyFileExW(const wchar_t* lpExistingFileName, const wcha
     std::string dst = VirtualFileSystem::instance().winToHost(dstW);
 
     FILE* fin = fopen(src.c_str(), "rb");
-    if (!fin)
+    if (!fin) {
+        setLastErrorFromErrno();
         return 0;
+    }
     {
         size_t pos = dst.rfind('/');
         if (pos != std::string::npos) {
@@ -1268,6 +1285,7 @@ static BOOL MSABI shim_CopyFileExW(const wchar_t* lpExistingFileName, const wcha
     FILE* fout = fopen(dst.c_str(), "wb");
     if (!fout) {
         fclose(fin);
+        setLastErrorFromErrno();
         return 0;
     }
 
@@ -1287,25 +1305,37 @@ static BOOL MSABI shim_CreateDirectoryW(const wchar_t* lpPathName, void* lpSecur
     for (int i = 0; lpPathName[i] && i < 1023; i++)
         path[i] = (char)(lpPathName[i] & 0xFF);
     path[1023] = 0;
-    return mkdir(path, 0755) == 0 ? 1 : 0;
+    if (mkdir(path, 0755) == 0)
+        return 1;
+    setLastErrorFromErrno();
+    return 0;
 }
 
 static BOOL MSABI shim_RemoveDirectoryA(const char* lpPathName) {
-    return rmdir(lpPathName) == 0 ? 1 : 0;
+    if (rmdir(lpPathName) == 0)
+        return 1;
+    setLastErrorFromErrno();
+    return 0;
 }
 static BOOL MSABI shim_RemoveDirectoryW(const wchar_t* lpPathName) {
     char path[1024];
     for (int i = 0; lpPathName[i] && i < 1023; i++)
         path[i] = (char)(lpPathName[i] & 0xFF);
     path[1023] = 0;
-    return rmdir(path) == 0 ? 1 : 0;
+    if (rmdir(path) == 0)
+        return 1;
+    setLastErrorFromErrno();
+    return 0;
 }
 static BOOL MSABI shim_DeleteFileW(const wchar_t* lpFileName) {
     char path[1024];
     for (int i = 0; lpFileName[i] && i < 1023; i++)
         path[i] = (char)(lpFileName[i] & 0xFF);
     path[1023] = 0;
-    return unlink(path) == 0 ? 1 : 0;
+    if (unlink(path) == 0)
+        return 1;
+    setLastErrorFromErrno();
+    return 0;
 }
 static BOOL MSABI shim_MoveFileExW(const wchar_t* lpExistingFileName, const wchar_t* lpNewFileName, DWORD dwFlags) {
     (void)dwFlags;
@@ -1316,7 +1346,10 @@ static BOOL MSABI shim_MoveFileExW(const wchar_t* lpExistingFileName, const wcha
     for (int i = 0; lpNewFileName[i] && i < 1023; i++)
         dst[i] = (char)(lpNewFileName[i] & 0xFF);
     dst[1023] = 0;
-    return rename(src, dst) == 0 ? 1 : 0;
+    if (rename(src, dst) == 0)
+        return 1;
+    setLastErrorFromErrno();
+    return 0;
 }
 static BOOL MSABI shim_ReplaceFileW(const wchar_t* lpReplacedFileName, const wchar_t* lpReplacementFileName,
                                     const wchar_t* lpBackupFileName, DWORD dwReplaceFlags, void* lpExclude,
@@ -1327,6 +1360,7 @@ static BOOL MSABI shim_ReplaceFileW(const wchar_t* lpReplacedFileName, const wch
     (void)dwReplaceFlags;
     (void)lpExclude;
     (void)lpReserved;
+    setLastErrorCode(ERROR_CALL_NOT_IMPLEMENTED);
     return 0;
 }
 static BOOL MSABI shim_CreateSymbolicLinkW(const wchar_t* lpSymlinkFileName, const wchar_t* lpTargetFileName,
@@ -1334,6 +1368,7 @@ static BOOL MSABI shim_CreateSymbolicLinkW(const wchar_t* lpSymlinkFileName, con
     (void)lpSymlinkFileName;
     (void)lpTargetFileName;
     (void)dwFlags;
+    setLastErrorCode(ERROR_CALL_NOT_IMPLEMENTED);
     return 0;
 }
 static BOOL MSABI shim_SetFileAttributesW(const wchar_t* lpFileName, DWORD dwFileAttributes) {
@@ -1346,13 +1381,18 @@ static BOOL MSABI shim_SetCurrentDirectoryW(const wchar_t* lpPathName) {
     for (int i = 0; lpPathName[i] && i < 1023; i++)
         path[i] = (char)(lpPathName[i] & 0xFF);
     path[1023] = 0;
-    return chdir(path) == 0 ? 1 : 0;
+    if (chdir(path) == 0)
+        return 1;
+    setLastErrorFromErrno();
+    return 0;
 }
 
 static DWORD MSABI shim_GetFullPathNameW(const wchar_t* lpFileName, DWORD nBufferLength, wchar_t* lpBuffer,
                                          wchar_t** lpFilePart) {
-    if (!lpFileName)
+    if (!lpFileName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
     char narrow[1024];
     int j = 0;
     for (int i = 0; lpFileName[i] && j < 1023; i++)
@@ -1457,7 +1497,11 @@ static BOOL MSABI shim_CreateProcessW(const wchar_t* lpApplicationName, const wc
         return 1;
     }
 
-    return pid > 0 ? 1 : 0;
+    if (pid < 0) {
+        setLastErrorFromErrno();
+        return 0;
+    }
+    return 1;
 }
 
 static BOOL MSABI shim_FindFirstFileExW(const wchar_t* lpFileName, DWORD fInfoLevelId, void* lpFindFileData,
@@ -1472,8 +1516,10 @@ static BOOL MSABI shim_FindFirstFileExW(const wchar_t* lpFileName, DWORD fInfoLe
 }
 
 static void* MSABI shim_FindFirstFileW(const wchar_t* lpFileName, void* lpFindFileData) {
-    if (!lpFileName)
+    if (!lpFileName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return INVALID_HANDLE_VALUE;
+    }
     char narrow[1024];
     int j = 0;
     for (int i = 0; lpFileName[i] && j < 1023; i++)
@@ -1487,8 +1533,10 @@ static BOOL MSABI shim_FindNextFileW(void* hFindFile, void* lpFindFileData) {
 }
 
 static BOOL MSABI shim_GetFileAttributesExW(const wchar_t* lpFileName, DWORD fInfoLevelId, void* lpFileInformation) {
-    if (!lpFileName)
+    if (!lpFileName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
     char narrow[1024];
     int j = 0;
     for (int i = 0; lpFileName[i] && j < 1023; i++)
@@ -1498,8 +1546,10 @@ static BOOL MSABI shim_GetFileAttributesExW(const wchar_t* lpFileName, DWORD fIn
 }
 
 static DWORD MSABI shim_GetFileAttributesW(const wchar_t* lpFileName) {
-    if (!lpFileName)
+    if (!lpFileName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0xFFFFFFFF;
+    }
     char narrow[1024];
     int j = 0;
     for (int i = 0; lpFileName[i] && j < 1023; i++)
@@ -1514,12 +1564,16 @@ static BOOL MSABI shim_GetFileInformationByHandle(HANDLE hFile, void* lpFileInfo
 
 static BOOL MSABI shim_GetFileTime(HANDLE hFile, void* lpCreationTime, void* lpLastAccessTime, void* lpLastWriteTime) {
     auto* entry = VirtualFileSystem::instance().getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
     auto* fs = static_cast<FileState*>(entry->data);
     struct stat st;
-    if (fstat(fs->fd, &st) != 0)
+    if (fstat(fs->fd, &st) != 0) {
+        setLastErrorFromErrno();
         return 0;
+    }
     uint64_t ctime = static_cast<uint64_t>(st.st_ctime) * 10000000ULL + 116444736000000000ULL;
     uint64_t atime = static_cast<uint64_t>(st.st_atime) * 10000000ULL + 116444736000000000ULL;
     uint64_t mtime = static_cast<uint64_t>(st.st_mtime) * 10000000ULL + 116444736000000000ULL;
@@ -1581,14 +1635,20 @@ static BOOL MSABI shim_FlushFileBuffers(HANDLE hFile) {
 }
 static BOOL MSABI shim_SetEndOfFile(HANDLE hFile) {
     auto* entry = VirtualFileSystem::instance().getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
     auto* fs = static_cast<FileState*>(entry->data);
     off_t pos = lseek(fs->fd, 0, SEEK_CUR);
-    if (pos == (off_t)-1)
+    if (pos == (off_t)-1) {
+        setLastErrorFromErrno();
         return 0;
-    if (ftruncate(fs->fd, pos) != 0)
+    }
+    if (ftruncate(fs->fd, pos) != 0) {
+        setLastErrorFromErrno();
         return 0;
+    }
     return 1;
 }
 static BOOL MSABI shim_SetHandleInformation(HANDLE hObject, DWORD dwMask, DWORD dwFlags) {
@@ -1980,8 +2040,10 @@ static void* MSABI shim_CreateNamedPipeW(const wchar_t* lpName, DWORD dwOpenMode
     (void)nInBufferSize;
     (void)nDefaultTimeOut;
     (void)lpSecurityAttributes;
-    if (!lpName)
+    if (!lpName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return INVALID_HANDLE_VALUE;
+    }
 
     char nameA[256] = {0};
     for (int i = 0; lpName[i] && i < 255; i++)
@@ -1993,8 +2055,10 @@ static void* MSABI shim_CreateNamedPipeW(const wchar_t* lpName, DWORD dwOpenMode
         pipeName = pipeName.substr(pipePos + 5);
 
     int handles[2];
-    if (!NetworkContext::instance().allocPipePair(pipeName, true, handles))
+    if (!NetworkContext::instance().allocPipePair(pipeName, true, handles)) {
+        setLastErrorFromErrno();
         return INVALID_HANDLE_VALUE;
+    }
 
     MS_INFO("TRACE: CreateNamedPipeW(\"%s\") -> handle %d", nameA, handles[0]);
     return reinterpret_cast<void*>(static_cast<intptr_t>(handles[0]));
@@ -2004,12 +2068,16 @@ static BOOL MSABI shim_ConnectNamedPipe(void* hNamedPipe, void* lpOverlapped) {
     (void)lpOverlapped;
     int handle = (int)(intptr_t)hNamedPipe;
     int listenFd = NetworkContext::instance().getPipeReadFd(handle);
-    if (listenFd < 0)
+    if (listenFd < 0) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     int clientFd = accept(listenFd, nullptr, nullptr);
-    if (clientFd < 0)
+    if (clientFd < 0) {
+        setLastErrorFromErrno();
         return 0;
+    }
 
     fcntl(clientFd, F_SETFL, O_NONBLOCK);
     MS_INFO("TRACE: ConnectNamedPipe(%d) -> client fd %d", handle, clientFd);
@@ -2023,8 +2091,10 @@ static BOOL MSABI shim_ConnectNamedPipe(void* hNamedPipe, void* lpOverlapped) {
 
 static BOOL MSABI shim_WaitNamedPipeW(const wchar_t* lpNamedPipeName, DWORD nTimeOut) {
     (void)nTimeOut;
-    if (!lpNamedPipeName)
+    if (!lpNamedPipeName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
     return 1;
 }
 
@@ -2045,8 +2115,10 @@ static BOOL MSABI shim_CreatePipe(void* hReadPipe, void* hWritePipe, void* lpPip
     (void)lpPipeAttributes;
     (void)nSize;
     int fds[2];
-    if (pipe(fds) < 0)
+    if (pipe(fds) < 0) {
+        setLastErrorFromErrno();
         return 0;
+    }
 
     auto& vfs = VirtualFileSystem::instance();
     *(reinterpret_cast<HANDLE*>(hReadPipe)) = vfs.registerPipeFd(fds[0]);
