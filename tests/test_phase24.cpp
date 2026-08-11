@@ -3,7 +3,9 @@
 #include "metalsharp/GameDetector.h"
 #include "metalsharp/SettingsManager.h"
 #include "metalsharp/UpdateChecker.h"
+#include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,6 +16,9 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <iterator>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -343,7 +348,7 @@ static bool update_checker_no_update() {
 
 static bool settings_manager_defaults() {
     auto& sm = metalsharp::SettingsManager::instance();
-    auto& s = sm.state();
+    const auto s = sm.state();
     assert(s.render.renderWidth == 1920);
     assert(s.render.renderHeight == 1080);
     assert(s.render.windowMode == metalsharp::WindowMode::Fullscreen);
@@ -384,44 +389,95 @@ static bool settings_manager_string_conversions() {
 
 static bool settings_manager_save_load() {
     auto& sm = metalsharp::SettingsManager::instance();
-    auto& s = sm.state();
+    auto s = sm.state();
     s.render.renderWidth = 2560;
     s.render.renderHeight = 1440;
     s.render.windowMode = metalsharp::WindowMode::Borderless;
     s.render.upscaling = metalsharp::UpscalingQuality::High;
     s.render.vsync = false;
     s.launchMode = "wine";
+    sm.setState(s);
 
-    std::string testPath = "/tmp/metalsharp_test_settings.json";
-    bool saved = sm.save(testPath);
+    const auto testPath = fs::temp_directory_path() / "metalsharp_test_settings.json";
+    bool saved = sm.save(testPath.string());
     assert(saved);
-    assert(fs::exists(testPath));
+    const bool fileExists = fs::exists(testPath);
+    if (!saved || !fileExists) {
+        fs::remove(testPath);
+        sm.setState({});
+        return false;
+    }
 
-    s.render.renderWidth = 1920;
-    s.render.renderHeight = 1080;
-    s.render.windowMode = metalsharp::WindowMode::Fullscreen;
-    s.render.upscaling = metalsharp::UpscalingQuality::Off;
-    s.render.vsync = true;
-    s.launchMode = "native";
-
-    bool loaded = sm.load(testPath);
+    bool loaded = sm.load(testPath.string());
     assert(loaded);
-    assert(s.render.renderWidth == 2560);
-    assert(s.render.renderHeight == 1440);
-    assert(s.render.windowMode == metalsharp::WindowMode::Borderless);
-    assert(s.render.upscaling == metalsharp::UpscalingQuality::High);
-    assert(s.render.vsync == false);
-    assert(s.launchMode == "wine");
+    const auto loadedState = sm.state();
+    const bool valuesMatch = loadedState.render.renderWidth == 2560 && loadedState.render.renderHeight == 1440 &&
+                             loadedState.render.windowMode == metalsharp::WindowMode::Borderless &&
+                             loadedState.render.upscaling == metalsharp::UpscalingQuality::High &&
+                             !loadedState.render.vsync && loadedState.launchMode == "wine";
 
     fs::remove(testPath);
 
-    s.render.renderWidth = 1920;
-    s.render.renderHeight = 1080;
-    s.render.windowMode = metalsharp::WindowMode::Fullscreen;
-    s.render.upscaling = metalsharp::UpscalingQuality::Off;
-    s.render.vsync = true;
-    s.launchMode = "native";
-    return true;
+    sm.setState({});
+    return loaded && valuesMatch;
+}
+
+static bool settings_manager_concurrent_access() {
+    auto& sm = metalsharp::SettingsManager::instance();
+    const auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto testDir = fs::temp_directory_path() / ("metalsharp_settings_" + std::to_string(uniqueSuffix));
+    const auto testPath = testDir / "settings.json";
+
+    auto initial = sm.state();
+    initial.render.renderWidth = 1920;
+    initial.render.renderHeight = 1080;
+    sm.setState(initial);
+    if (!sm.save(testPath.string())) {
+        fs::remove_all(testDir);
+        return false;
+    }
+
+    std::atomic<bool> failed{false};
+    std::vector<std::thread> workers;
+    for (int worker = 0; worker < 4; ++worker) {
+        workers.emplace_back([&, worker] {
+            for (int iteration = 0; iteration < 25 && !failed.load(); ++iteration) {
+                if (worker == 0) {
+                    if (!sm.load(testPath.string())) {
+                        failed.store(true);
+                        return;
+                    }
+                    continue;
+                }
+
+                auto snapshot = sm.state();
+                snapshot.render.renderWidth = 1280 + static_cast<uint32_t>(worker * 100 + iteration);
+                snapshot.render.renderHeight = 720 + static_cast<uint32_t>(iteration);
+                snapshot.launchMode = "worker-" + std::to_string(worker);
+                sm.setState(std::move(snapshot));
+                if (!sm.save(testPath.string())) {
+                    failed.store(true);
+                    return;
+                }
+                if (iteration % 5 == 0 && !sm.load(testPath.string())) {
+                    failed.store(true);
+                    return;
+                }
+            }
+        });
+    }
+
+    for (auto& worker : workers)
+        worker.join();
+
+    std::ifstream savedFile(testPath);
+    std::string savedJson((std::istreambuf_iterator<char>(savedFile)), std::istreambuf_iterator<char>());
+    const bool validFile = !savedJson.empty() && savedJson.front() == '{' && savedJson.back() == '\n';
+    savedFile.close();
+    const auto finalState = sm.state();
+    fs::remove_all(testDir);
+    sm.setState({});
+    return !failed.load() && validFile && finalState.render.renderWidth >= 1280;
 }
 
 static bool settings_manager_default_path() {
@@ -469,6 +525,7 @@ int main() {
     TEST(settings_manager_defaults);
     TEST(settings_manager_string_conversions);
     TEST(settings_manager_save_load);
+    TEST(settings_manager_concurrent_access);
     TEST(settings_manager_default_path);
 
     printf("\n%d/%d passed (%d FAILED)\n\n", g_pass, g_pass + g_fail, g_fail);
