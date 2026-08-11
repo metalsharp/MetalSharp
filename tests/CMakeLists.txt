@@ -102,6 +102,16 @@ add_test(NAME input COMMAND test_input)
 add_test(NAME phase5 COMMAND test_phase5)
 add_test(NAME tiled_resources COMMAND test_tiled_resources)
 
+# Regression test for #441: the FNA kernel32 shim is macOS-only (it uses
+# mach headers) and ships as a dylib compiled from src/fna/shims, so build
+# it the same way and exercise GetModuleFileNameA through dlopen.
+if(APPLE)
+    add_library(kernel32_shim_testlib SHARED ../src/fna/shims/kernel32_shim.c)
+    add_executable(test_kernel32_shim test_kernel32_shim.c)
+    target_link_libraries(test_kernel32_shim PRIVATE ${CMAKE_DL_LIBS})
+    add_test(NAME kernel32_shim COMMAND test_kernel32_shim $<TARGET_FILE:kernel32_shim_testlib>)
+endif()
+
 add_executable(test_phase17
     test_phase17.cpp
 )
