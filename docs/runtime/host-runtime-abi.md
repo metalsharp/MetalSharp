@@ -76,6 +76,9 @@ Future bottle manifests should map directly to ABI structs:
 ## Packaging
 
 The shared host runtime target is `metalsharp_host_runtime`. macOS builds produce `libmetalsharp_host_runtime.dylib`.
+On Apple Silicon it is an arm64 host artifact; it is not part of the
+x86_64 Wine/Rosetta shim lane. See the [macOS artifact architecture
+matrix](../architecture/macos-artifact-matrix.md) for the complete boundary.
 
 `tools/package/create-host-runtime.sh` stages the package into `app/native/host/`:
 

@@ -28,7 +28,8 @@ cd metalsharp
 ## Build
 
 ```bash
-# Native engine (C++ D3D/Metal layer) - x86_64 for Rosetta 2 PE translation
+# Wine-facing native engine (C++ D3D/Metal layer) - x86_64 for Rosetta 2 PE translation
+# Host helpers, host runtime, and the update migrator are built arm64 for the app.
 mkdir -p build
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
 cmake --build build --parallel $(sysctl -n hw.ncpu)
