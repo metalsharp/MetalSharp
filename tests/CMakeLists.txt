@@ -192,6 +192,12 @@ add_executable(test_pe_import_bounds
 target_link_libraries(test_pe_import_bounds PRIVATE metalsharp_loader metalsharp_core)
 add_test(NAME pe_import_bounds COMMAND test_pe_import_bounds)
 
+add_executable(test_pe_loader_relocations
+    test_pe_loader_relocations.cpp
+)
+target_link_libraries(test_pe_loader_relocations PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME pe_loader_relocations COMMAND test_pe_loader_relocations)
+
 add_executable(test_phase21
     test_phase21.cpp
 )
