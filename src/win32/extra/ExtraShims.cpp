@@ -34,9 +34,12 @@
 ///   only implemented where games actually depend on it.
 ///
 ///   Priority: prevent crashes > correct behavior > full API coverage.
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -56,6 +59,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <vector>
 
 #if __has_include(<openssl/rand.h>)
 #include <openssl/rand.h>
@@ -494,18 +498,21 @@ static int MSABI ws2_32_closesocket(void* s) {
 }
 
 static int MSABI ws2_32_connect(void* s, const void* addr, int len) {
-    int fd = NetworkContext::instance().getFd((int)(intptr_t)s);
+    auto& ctx = NetworkContext::instance();
+    int handle = (int)(intptr_t)s;
+    int fd = ctx.getFd(handle);
     if (fd < 0) {
-        NetworkContext::instance().setWsaError(WSAENOTSOCK);
+        ctx.setWsaError(WSAENOTSOCK);
         return -1;
     }
     int ret = ::connect(fd, (const sockaddr*)addr, (socklen_t)len);
     if (ret < 0) {
         if (errno == EINPROGRESS) {
-            NetworkContext::instance().setWsaError(WSAEWOULDBLOCK);
+            ctx.setWsaError(WSAEWOULDBLOCK);
+            ctx.markSocketConnecting(handle, true);
             return -1;
         }
-        NetworkContext::instance().setWsaError(NetworkContext::instance().mapErrnoToWsa(errno));
+        ctx.setWsaError(ctx.mapErrnoToWsa(errno));
     }
     return ret;
 }
@@ -935,6 +942,28 @@ static int MSABI ws2_32_WSASendTo(void* s, void* lpBuffers, DWORD dwBufferCount,
     return 0;
 }
 
+// Winsock network-event constants (winsock2.h). FD_MAX_EVENTS is the size of
+// the WSANETWORKEVENTS::iErrorCode array.
+constexpr int WSA_FD_MAX_EVENTS = 10;
+constexpr int WSA_INVALID_EVENT = 0; // WSACreateEvent failure value (NULL)
+
+// Maps a WSAEventSelect FD_* mask to the poll(2) events that can satisfy it.
+static short wsaEventMaskToPoll(uint32_t mask) {
+    short events = 0;
+    if (mask & (FD_READ | FD_ACCEPT))
+        events |= POLLIN;
+    if (mask & (FD_WRITE | FD_CONNECT))
+        events |= POLLOUT;
+    return events;
+}
+
+// True when the socket is a listening socket (SO_ACCEPTCONN).
+static bool socketIsListening(int fd) {
+    int acceptConn = 0;
+    socklen_t acceptLen = sizeof(acceptConn);
+    return getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &acceptConn, &acceptLen) == 0 && acceptConn;
+}
+
 static int MSABI ws2_32_WSAEventSelect(void* s, void* hEventObject, uint32_t lNetworkEvents) {
     auto& ctx = NetworkContext::instance();
     int handle = (int)(intptr_t)s;
@@ -944,11 +973,22 @@ static int MSABI ws2_32_WSAEventSelect(void* s, void* hEventObject, uint32_t lNe
         return -1;
     }
 
-    ctx.setSocketEventMask(handle, lNetworkEvents, hEventObject);
-
+    int eventId = (int)(intptr_t)hEventObject;
     if (lNetworkEvents != 0) {
+        ctx.setSocketEventMask(handle, lNetworkEvents, hEventObject);
+        // Associate the socket with its event object so waits can watch it,
+        // and start a fresh recording period for the edge-triggered events.
+        if (ctx.isValidEvent(eventId)) {
+            ctx.associateSocketWithEvent(handle, eventId);
+            ctx.resetSocketEventTracking(handle);
+        }
         int flags = fcntl(fd, F_GETFL, 0);
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    } else {
+        // A zero mask ends network-event recording and disassociates the
+        // socket from its event object.
+        ctx.setSocketEventMask(handle, 0, nullptr);
+        ctx.unassociateSocketFromEvent(handle);
     }
     return 0;
 }
@@ -983,45 +1023,237 @@ static int MSABI ws2_32_WSAGetOverlappedResult(void* s, void* lpOverlapped, DWOR
     return 1;
 }
 
-static int MSABI ws2_32_WSACreateEvent(void** lpEvent) {
-    if (lpEvent)
-        *lpEvent = reinterpret_cast<void*>(0xEE00);
-    return 0;
+static void* MSABI ws2_32_WSACreateEvent() {
+    int eventId = NetworkContext::instance().allocEvent();
+    if (eventId < 0)
+        return reinterpret_cast<void*>(static_cast<intptr_t>(WSA_INVALID_EVENT));
+    return reinterpret_cast<void*>(static_cast<intptr_t>(eventId));
 }
 
 static int MSABI ws2_32_WSACloseEvent(void* hEvent) {
-    (void)hEvent;
+    auto& ctx = NetworkContext::instance();
+    int eventId = (int)(intptr_t)hEvent;
+    if (!ctx.isValidEvent(eventId)) {
+        ctx.setWsaError(WSA_INVALID_HANDLE);
+        return 0;
+    }
+    ctx.closeEvent(eventId);
+    return 1;
+}
+
+static int MSABI ws2_32_WSASetEvent(void* hEvent) {
+    auto& ctx = NetworkContext::instance();
+    int eventId = (int)(intptr_t)hEvent;
+    if (!ctx.isValidEvent(eventId)) {
+        ctx.setWsaError(WSA_INVALID_HANDLE);
+        return 0;
+    }
+    ctx.setEventSignaled(eventId, true);
+    return 1;
+}
+
+static int MSABI ws2_32_WSAResetEvent(void* hEvent) {
+    auto& ctx = NetworkContext::instance();
+    int eventId = (int)(intptr_t)hEvent;
+    if (!ctx.isValidEvent(eventId)) {
+        ctx.setWsaError(WSA_INVALID_HANDLE);
+        return 0;
+    }
+    ctx.setEventSignaled(eventId, false);
     return 1;
 }
 
 static int MSABI ws2_32_WSAWaitForMultipleEvents(DWORD cEvents, void** lphEvents, BOOL fWaitAll, DWORD dwTimeout,
                                                  BOOL fAlertable) {
-    (void)fWaitAll;
     (void)fAlertable;
-    if (cEvents == 0)
-        return -1;
-    if (dwTimeout == 0xFFFFFFFF) {
-        pollfd pfd;
-        pfd.fd = 0;
-        pfd.events = POLLIN;
-        poll(&pfd, 1, -1);
-    } else {
-        pollfd pfd;
-        pfd.fd = 0;
-        pfd.events = POLLIN;
-        poll(&pfd, 1, (int)dwTimeout);
+    auto& ctx = NetworkContext::instance();
+    if (!lphEvents || cEvents == 0 || cEvents > WSA_MAXIMUM_WAIT_EVENTS) {
+        ctx.setWsaError(WSA_INVALID_PARAMETER);
+        return (int)WSA_WAIT_FAILED;
     }
-    return 0;
+    for (DWORD i = 0; i < cEvents; i++) {
+        if (!ctx.isValidEvent((int)(intptr_t)lphEvents[i])) {
+            ctx.setWsaError(WSA_INVALID_HANDLE);
+            return (int)WSA_WAIT_FAILED;
+        }
+    }
+
+    const bool infinite = dwTimeout == WSA_INFINITE;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(dwTimeout);
+
+    std::vector<pollfd> pfds;
+    std::vector<DWORD> pfdEventIndex;         // pfds[i] -> index into lphEvents
+    std::vector<int> pfdSocketHandle;         // pfds[i] -> shim socket handle
+    const int wakeFd = ctx.eventWakeReadFd(); // cross-thread WSASetEvent wake
+    size_t wakePfdIndex = SIZE_MAX;
+    bool everPolled = false;
+
+    for (;;) {
+        // 1. Already-signaled event objects satisfy the wait immediately.
+        bool anySignaled = false;
+        bool allSignaled = true;
+        DWORD firstSignaled = 0;
+        for (DWORD i = 0; i < cEvents; i++) {
+            if (ctx.isEventSignaled((int)(intptr_t)lphEvents[i])) {
+                if (!anySignaled)
+                    firstSignaled = i;
+                anySignaled = true;
+            } else {
+                allSignaled = false;
+            }
+        }
+        if (fWaitAll) {
+            if (allSignaled)
+                return (int)WSA_WAIT_OBJECT_0;
+        } else if (anySignaled) {
+            return (int)(WSA_WAIT_OBJECT_0 + firstSignaled);
+        }
+
+        // 2. Nothing satisfied yet: poll the sockets behind the remaining
+        //    events, honoring the remaining timeout. A zero timeout still
+        //    polls once (dwTimeout == 0 tests the current state, like
+        //    Windows); afterwards the deadline check takes over.
+        int timeoutMs = -1;
+        if (!infinite) {
+            const auto now = std::chrono::steady_clock::now();
+            const int64_t remainMs = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+            if (remainMs <= 0) {
+                if (everPolled)
+                    return (int)WSA_WAIT_TIMEOUT;
+                timeoutMs = 0;
+            } else {
+                timeoutMs = (int)std::min<int64_t>(remainMs, INT32_MAX);
+            }
+        }
+
+        pfds.clear();
+        pfdEventIndex.clear();
+        pfdSocketHandle.clear();
+        wakePfdIndex = SIZE_MAX;
+        for (DWORD i = 0; i < cEvents; i++) {
+            if (fWaitAll && ctx.isEventSignaled((int)(intptr_t)lphEvents[i]))
+                continue; // already satisfied; only the rest are outstanding
+            for (int socketHandle : ctx.socketsForEvent((int)(intptr_t)lphEvents[i])) {
+                int fd = ctx.getFd(socketHandle);
+                if (fd < 0 || ctx.socketHasReportedClose(socketHandle))
+                    continue; // closed sockets cannot fire again (FD_CLOSE is edge-triggered)
+                short pollEvents = wsaEventMaskToPoll(ctx.getSocketEventMask(socketHandle));
+                if (pollEvents == 0)
+                    continue;
+                pfds.push_back(pollfd{fd, pollEvents, 0});
+                pfdEventIndex.push_back(i);
+                pfdSocketHandle.push_back(socketHandle);
+            }
+        }
+        if (wakeFd >= 0) {
+            wakePfdIndex = pfds.size();
+            pfds.push_back(pollfd{wakeFd, POLLIN, 0});
+            pfdEventIndex.push_back(0);
+            pfdSocketHandle.push_back(-1);
+        }
+
+        if (pfds.empty()) {
+            // No watchable sockets and no wake pipe: only WSASetEvent (possibly
+            // from another thread) can satisfy the wait. Sleep and re-check.
+            if (!infinite && std::chrono::steady_clock::now() >= deadline)
+                return (int)WSA_WAIT_TIMEOUT;
+            usleep(1000);
+            continue;
+        }
+
+        int rc = ::poll(pfds.data(), static_cast<nfds_t>(pfds.size()), timeoutMs);
+        everPolled = true;
+        if (rc == 0)
+            return (int)WSA_WAIT_TIMEOUT;
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            ctx.setWsaError(ctx.mapErrnoToWsa(errno));
+            return (int)WSA_WAIT_FAILED;
+        }
+
+        // 3. Classify the poll results against each socket's event mask and
+        //    signal the owning event objects.
+        bool firedAny = false;
+        bool wakeFired = false;
+        for (size_t k = 0; k < pfds.size(); k++) {
+            if (pfds[k].revents == 0)
+                continue;
+            if (k == wakePfdIndex) {
+                // Cross-thread WSASetEvent wrote a byte; drain it and let the
+                // signaled-state check at the top of the loop decide.
+                char byte;
+                while (::read(wakeFd, &byte, 1) > 0) {
+                }
+                wakeFired = true;
+                continue;
+            }
+            bool listening = socketIsListening(pfds[k].fd);
+            uint32_t firedEvents = ctx.applySocketPollResult(pfdSocketHandle[k], pfds[k].revents, listening);
+            if (firedEvents != 0) {
+                ctx.recordSocketEvents(pfdSocketHandle[k], firedEvents);
+                ctx.setEventSignaled((int)(intptr_t)lphEvents[pfdEventIndex[k]], true);
+                firedAny = true;
+            }
+        }
+        if (!firedAny && !wakeFired) {
+            // Ready fds that produced no fire (undeliverable POLLERR when no
+            // FD_CLOSE/FD_CONNECT is nominated, or data consumed between poll
+            // and classification) must not busy-loop the wait.
+            usleep(1000);
+        }
+        // Loop back: re-evaluate the signaled state (cheap when nothing fired).
+    }
 }
 
 static int MSABI ws2_32_WSAEnumNetworkEvents(void* s, void* hEvent, void* lpNetworkEvents) {
-    (void)s;
-    (void)hEvent;
-    if (lpNetworkEvents) {
-        auto* ne = reinterpret_cast<uint32_t*>(lpNetworkEvents);
-        ne[0] = FD_READ | FD_WRITE | FD_ACCEPT | FD_CONNECT;
-        ne[1] = 0;
+    auto& ctx = NetworkContext::instance();
+    int handle = (int)(intptr_t)s;
+    int fd = ctx.getFd(handle);
+    if (fd < 0) {
+        ctx.setWsaError(WSAENOTSOCK);
+        return -1;
     }
+    if (!lpNetworkEvents) {
+        ctx.setWsaError(WSAEFAULT);
+        return -1;
+    }
+
+    struct WsaNetworkEvents {
+        int32_t lNetworkEvents;
+        int32_t iErrorCode[WSA_FD_MAX_EVENTS];
+    };
+    auto* ne = reinterpret_cast<WsaNetworkEvents*>(lpNetworkEvents);
+    ne->lNetworkEvents = 0;
+
+    pollfd pfd{};
+    pfd.fd = fd;
+    pfd.events = wsaEventMaskToPoll(ctx.getSocketEventMask(handle));
+    ::poll(&pfd, 1, 0);
+
+    uint32_t events = ctx.takeSocketEvents(handle);
+    events |= ctx.applySocketPollResult(handle, pfd.revents, socketIsListening(fd));
+    ne->lNetworkEvents = static_cast<int32_t>(events);
+
+    if (events & FD_CONNECT) {
+        int err = 0;
+        socklen_t errLen = sizeof(err);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errLen) == 0)
+            ne->iErrorCode[FD_CONNECT_BIT] = err == 0 ? 0 : (int)ctx.mapErrnoToWsa(err);
+    }
+    if (events & FD_CLOSE) {
+        int err = 0;
+        socklen_t errLen = sizeof(err);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errLen) == 0)
+            ne->iErrorCode[FD_CLOSE_BIT] = err == 0 ? 0 : (int)ctx.mapErrnoToWsa(err);
+    }
+    // Remaining iErrorCode entries are left untouched, matching the documented
+    // behavior (only entries for set bits are modified).
+
+    // WSAEnumNetworkEvents resets the associated event object after copying
+    // and clearing the network event record.
+    if (hEvent && ctx.isValidEvent((int)(intptr_t)hEvent))
+        ctx.setEventSignaled((int)(intptr_t)hEvent, false);
     return 0;
 }
 
@@ -1162,6 +1394,8 @@ ShimLibrary createWs2_32Shim() {
     lib.functions["WSAGetOverlappedResult"] = fn((void*)ws2_32_WSAGetOverlappedResult);
     lib.functions["WSACreateEvent"] = fn((void*)ws2_32_WSACreateEvent);
     lib.functions["WSACloseEvent"] = fn((void*)ws2_32_WSACloseEvent);
+    lib.functions["WSASetEvent"] = fn((void*)ws2_32_WSASetEvent);
+    lib.functions["WSAResetEvent"] = fn((void*)ws2_32_WSAResetEvent);
     lib.functions["WSAWaitForMultipleEvents"] = fn((void*)ws2_32_WSAWaitForMultipleEvents);
     lib.functions["WSAEnumNetworkEvents"] = fn((void*)ws2_32_WSAEnumNetworkEvents);
     lib.functions["recvfrom"] = fn((void*)ws2_32_recvfrom);

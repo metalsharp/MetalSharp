@@ -147,6 +147,12 @@ if(APPLE)
     add_test(NAME kernel32_shim COMMAND test_kernel32_shim $<TARGET_FILE:kernel32_shim_testlib>)
 endif()
 
+# Regression test for #427: the ws2_32 event-object shim (WSAWaitForMultipleEvents
+# and friends) must wait on the real event handles/sockets, not poll stdin.
+add_executable(test_ws2_32_events test_ws2_32_events.cpp)
+target_link_libraries(test_ws2_32_events PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME ws2_32_events COMMAND test_ws2_32_events)
+
 add_executable(test_phase17
     test_phase17.cpp
 )
