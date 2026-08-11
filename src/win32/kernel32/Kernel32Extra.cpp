@@ -1530,78 +1530,182 @@ static DWORD MSABI shim_SetErrorMode(DWORD uMode) {
     return 0;
 }
 
-static void* findResourceEntry(uint8_t* base, IMAGE_RESOURCE_DIRECTORY* dir, uint32_t id) {
-    auto* entries = reinterpret_cast<IMAGE_RESOURCE_DIRECTORY_ENTRY*>(dir + 1);
-    uint16_t count = dir->NumberOfNamedEntries + dir->NumberOfIdEntries;
+static bool resourceImageRangeValid(const LoadedModule& module, uint32_t rva, size_t length) {
+    if (!module.base || rva > module.size)
+        return false;
+    return length <= static_cast<size_t>(module.size - rva);
+}
 
-    for (uint16_t i = 0; i < count; i++) {
-        if (entries[i].Name == id) {
-            if (entries[i].OffsetToData & 0x80000000) {
-                uint32_t dirRVA = entries[i].OffsetToData & 0x7FFFFFFF;
-                return base + dirRVA;
-            }
-            return base + entries[i].OffsetToData;
-        }
+static bool resourcePointerRangeValid(const LoadedModule& module, const void* pointer, size_t length) {
+    if (!module.base || !pointer)
+        return false;
+
+    uintptr_t imageBase = reinterpret_cast<uintptr_t>(module.base);
+    uintptr_t address = reinterpret_cast<uintptr_t>(pointer);
+    if (address < imageBase)
+        return false;
+
+    uintptr_t rva = address - imageBase;
+    return rva <= module.size && length <= static_cast<size_t>(module.size - rva);
+}
+
+static bool resourceRangeValid(const LoadedModule& module, uint32_t resourceRVA, uint32_t resourceSize, uint32_t offset,
+                               size_t length) {
+    if (!resourceImageRangeValid(module, resourceRVA, resourceSize) || offset > resourceSize)
+        return false;
+    return length <= static_cast<size_t>(resourceSize - offset);
+}
+
+static uint8_t* resourcePtr(const LoadedModule& module, uint32_t resourceRVA, uint32_t resourceSize, uint32_t offset,
+                            size_t length) {
+    if (!resourceRangeValid(module, resourceRVA, resourceSize, offset, length))
+        return nullptr;
+    return module.base + static_cast<size_t>(resourceRVA) + offset;
+}
+
+// Directory-entry offsets are relative to the resource data directory; the
+// OffsetToData in a leaf IMAGE_RESOURCE_DATA_ENTRY is an image RVA.
+static const IMAGE_RESOURCE_DATA_ENTRY* validatedResourceDataEntry(const LoadedModule& module,
+                                                                   const void* resourceHandle) {
+    if (!resourcePointerRangeValid(module, resourceHandle, sizeof(IMAGE_RESOURCE_DATA_ENTRY)))
+        return nullptr;
+
+    auto* dataEntry = static_cast<const IMAGE_RESOURCE_DATA_ENTRY*>(resourceHandle);
+    if (dataEntry->OffsetToData >= module.size ||
+        !resourceImageRangeValid(module, dataEntry->OffsetToData, dataEntry->Size))
+        return nullptr;
+
+    return dataEntry;
+}
+
+static void* findResourceEntry(const LoadedModule& module, uint32_t resourceRVA, uint32_t resourceSize,
+                               uint32_t directoryOffset, uint32_t id, bool expectDirectory, uint32_t* targetOffset) {
+    auto* dir = reinterpret_cast<const IMAGE_RESOURCE_DIRECTORY*>(
+        resourcePtr(module, resourceRVA, resourceSize, directoryOffset, sizeof(IMAGE_RESOURCE_DIRECTORY)));
+    if (!dir)
+        return nullptr;
+
+    uint32_t count = static_cast<uint32_t>(dir->NumberOfNamedEntries) + dir->NumberOfIdEntries;
+    size_t entriesSize = static_cast<size_t>(count) * sizeof(IMAGE_RESOURCE_DIRECTORY_ENTRY);
+    if (!resourceRangeValid(module, resourceRVA, resourceSize, directoryOffset,
+                            sizeof(IMAGE_RESOURCE_DIRECTORY) + entriesSize))
+        return nullptr;
+
+    auto* entries = reinterpret_cast<const IMAGE_RESOURCE_DIRECTORY_ENTRY*>(reinterpret_cast<const uint8_t*>(dir) +
+                                                                            sizeof(IMAGE_RESOURCE_DIRECTORY));
+    for (uint32_t i = 0; i < count; i++) {
+        if (entries[i].Name != id)
+            continue;
+
+        uint32_t entryOffset = entries[i].OffsetToData & 0x7FFFFFFF;
+        bool isDirectory = (entries[i].OffsetToData & 0x80000000) != 0;
+        if (isDirectory != expectDirectory)
+            return nullptr;
+
+        size_t targetSize = expectDirectory ? sizeof(IMAGE_RESOURCE_DIRECTORY) : sizeof(IMAGE_RESOURCE_DATA_ENTRY);
+        void* entry = resourcePtr(module, resourceRVA, resourceSize, entryOffset, targetSize);
+        if (!entry)
+            return nullptr;
+
+        if (!expectDirectory && !validatedResourceDataEntry(module, entry))
+            return nullptr;
+
+        if (targetOffset)
+            *targetOffset = entryOffset;
+        return entry;
     }
     return nullptr;
 }
 
 static void* MSABI shim_FindResourceA(HMODULE hModule, const char* lpName, const char* lpType) {
-    auto* mod = PELoader::instance()->getMainModule();
-    if (!mod || !mod->base)
+    (void)hModule;
+
+    auto* loader = PELoader::instance();
+    if (!loader)
+        return nullptr;
+    auto* mod = loader->getMainModule();
+    if (!mod || !resourceImageRangeValid(*mod, 0, sizeof(IMAGE_DOS_HEADER)))
         return nullptr;
 
-    uint8_t* base = mod->base;
+    auto* base = mod->base;
     auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    auto* opt = reinterpret_cast<const IMAGE_OPTIONAL_HEADER64*>(base + dos->e_lfanew + 4 + sizeof(IMAGE_FILE_HEADER));
-
-    if (opt->DataDirectory[DIRECTORY_RESOURCE].Size == 0)
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < 0)
         return nullptr;
 
-    uint32_t rsrcRVA = opt->DataDirectory[DIRECTORY_RESOURCE].VirtualAddress;
-    auto* rsrcDir = reinterpret_cast<IMAGE_RESOURCE_DIRECTORY*>(base + rsrcRVA);
+    uint64_t ntHeaderRVA = static_cast<uint32_t>(dos->e_lfanew);
+    if (ntHeaderRVA > UINT32_MAX || !resourceImageRangeValid(*mod, static_cast<uint32_t>(ntHeaderRVA),
+                                                             sizeof(uint32_t) + sizeof(IMAGE_FILE_HEADER)))
+        return nullptr;
+
+    auto* peSignature = reinterpret_cast<const uint32_t*>(base + ntHeaderRVA);
+    if (*peSignature != IMAGE_PE_SIGNATURE)
+        return nullptr;
+
+    auto* fileHeader = reinterpret_cast<const IMAGE_FILE_HEADER*>(peSignature + 1);
+    if (fileHeader->SizeOfOptionalHeader < sizeof(IMAGE_OPTIONAL_HEADER64))
+        return nullptr;
+
+    uint64_t optionalHeaderRVA = ntHeaderRVA + sizeof(uint32_t) + sizeof(IMAGE_FILE_HEADER);
+    if (optionalHeaderRVA > UINT32_MAX ||
+        !resourceImageRangeValid(*mod, static_cast<uint32_t>(optionalHeaderRVA), sizeof(IMAGE_OPTIONAL_HEADER64)))
+        return nullptr;
+
+    auto* opt = reinterpret_cast<const IMAGE_OPTIONAL_HEADER64*>(base + optionalHeaderRVA);
+    if (opt->Magic != IMAGE_OPTIONAL_MAGIC_PE32PLUS || opt->NumberOfRvaAndSizes <= DIRECTORY_RESOURCE)
+        return nullptr;
+
+    const auto& resourceDirectory = opt->DataDirectory[DIRECTORY_RESOURCE];
+    if (!resourceDirectory.VirtualAddress || !resourceDirectory.Size ||
+        !resourceImageRangeValid(*mod, resourceDirectory.VirtualAddress, resourceDirectory.Size))
+        return nullptr;
 
     uint32_t typeId = (reinterpret_cast<uintptr_t>(lpType) >= 0x10000)
                           ? 0
                           : static_cast<uint32_t>(reinterpret_cast<uintptr_t>(lpType));
-
-    auto* typeDir = reinterpret_cast<IMAGE_RESOURCE_DIRECTORY*>(findResourceEntry(base, rsrcDir, typeId));
-    if (!typeDir)
+    uint32_t typeOffset = 0;
+    if (!findResourceEntry(*mod, resourceDirectory.VirtualAddress, resourceDirectory.Size, 0, typeId, true,
+                           &typeOffset))
         return nullptr;
 
     uint32_t nameId = (reinterpret_cast<uintptr_t>(lpName) >= 0x10000)
                           ? 0
                           : static_cast<uint32_t>(reinterpret_cast<uintptr_t>(lpName));
-
-    auto* nameDir = reinterpret_cast<IMAGE_RESOURCE_DIRECTORY*>(findResourceEntry(base, typeDir, nameId));
-    if (!nameDir)
+    uint32_t nameOffset = 0;
+    if (!findResourceEntry(*mod, resourceDirectory.VirtualAddress, resourceDirectory.Size, typeOffset, nameId, true,
+                           &nameOffset))
         return nullptr;
 
-    auto* langEntry = reinterpret_cast<IMAGE_RESOURCE_DATA_ENTRY*>(findResourceEntry(base, nameDir, 0));
-    if (!langEntry)
-        return nullptr;
-
-    return langEntry;
+    return findResourceEntry(*mod, resourceDirectory.VirtualAddress, resourceDirectory.Size, nameOffset, 0, false,
+                             nullptr);
 }
+
 static void* MSABI shim_LoadResource(HMODULE hModule, void* hResInfo) {
     (void)hModule;
+
+    auto* loader = PELoader::instance();
+    if (!loader || !validatedResourceDataEntry(*loader->getMainModule(), hResInfo))
+        return nullptr;
     return hResInfo;
 }
 static void* MSABI shim_LockResource(void* hResData) {
-    if (!hResData)
+    auto* loader = PELoader::instance();
+    if (!loader)
         return nullptr;
-    auto* dataEntry = static_cast<IMAGE_RESOURCE_DATA_ENTRY*>(hResData);
-    auto* mod = PELoader::instance()->getMainModule();
-    if (!mod || !mod->base)
+
+    auto* mod = loader->getMainModule();
+    auto* dataEntry = validatedResourceDataEntry(*mod, hResData);
+    if (!dataEntry)
         return nullptr;
     return mod->base + dataEntry->OffsetToData;
 }
 static DWORD MSABI shim_SizeofResource(HMODULE hModule, void* hResInfo) {
     (void)hModule;
-    if (!hResInfo)
+
+    auto* loader = PELoader::instance();
+    if (!loader)
         return 0;
-    auto* dataEntry = static_cast<IMAGE_RESOURCE_DATA_ENTRY*>(hResInfo);
-    return dataEntry->Size;
+    auto* dataEntry = validatedResourceDataEntry(*loader->getMainModule(), hResInfo);
+    return dataEntry ? dataEntry->Size : 0;
 }
 
 static int MSABI shim_MulDiv(int nNumber, int nNumerator, int nDenominator) {
