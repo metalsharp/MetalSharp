@@ -43,6 +43,10 @@
 ///   shim_GetSystemTime/AsFileTime — Real clock via gettimeofday
 ///   shim_Sleep — usleep wrapper
 ///
+/// Synchronization
+/// ===============
+///   SRW locks and condition variables — Guest-address keyed host pthread state
+///
 /// Status: ~70% of commonly-used kernel32 exports implemented. Games that call
 /// obscure kernel32 functions will log "MISSING" in the import resolver.
 #include <cctype>
@@ -64,6 +68,7 @@
 #include <metalsharp/SyncContext.h>
 #include <metalsharp/VirtualFileSystem.h>
 #include <metalsharp/Win32Error.h>
+#include <metalsharp/Win32SyncContext.h>
 #include <metalsharp/Win32Types.h>
 #include <mutex>
 #include <pthread.h>
@@ -755,52 +760,51 @@ static void* MSABI shim_InterlockedPushEntrySList(void* ListHead, void* ListEntr
     return nullptr;
 }
 
+static void MSABI shim_InitializeSRWLock(void* SRWLock) {
+    Win32SyncContext::instance().initializeSrwLock(SRWLock);
+}
+
 static void MSABI shim_AcquireSRWLockExclusive(void* SRWLock) {
-    auto* mtx = static_cast<pthread_mutex_t*>(SRWLock);
-    pthread_mutex_lock(mtx);
+    (void)Win32SyncContext::instance().acquireSrwLockExclusive(SRWLock);
 }
 
 static void MSABI shim_ReleaseSRWLockExclusive(void* SRWLock) {
-    auto* mtx = static_cast<pthread_mutex_t*>(SRWLock);
-    pthread_mutex_unlock(mtx);
+    (void)Win32SyncContext::instance().releaseSrwLockExclusive(SRWLock);
 }
 
 static BOOL MSABI shim_TryAcquireSRWLockExclusive(void* SRWLock) {
-    (void)SRWLock;
-    return 1;
+    return Win32SyncContext::instance().tryAcquireSrwLockExclusive(SRWLock) ? 1 : 0;
+}
+
+static void MSABI shim_AcquireSRWLockShared(void* SRWLock) {
+    (void)Win32SyncContext::instance().acquireSrwLockShared(SRWLock);
+}
+
+static void MSABI shim_ReleaseSRWLockShared(void* SRWLock) {
+    (void)Win32SyncContext::instance().releaseSrwLockShared(SRWLock);
+}
+
+static BOOL MSABI shim_TryAcquireSRWLockShared(void* SRWLock) {
+    return Win32SyncContext::instance().tryAcquireSrwLockShared(SRWLock) ? 1 : 0;
+}
+
+static void MSABI shim_InitializeConditionVariable(void* ConditionVariable) {
+    Win32SyncContext::instance().initializeConditionVariable(ConditionVariable);
 }
 
 static BOOL MSABI shim_SleepConditionVariableSRW(void* ConditionVariable, void* SRWLock, DWORD dwMilliseconds,
                                                  ULONG Flags) {
-    (void)Flags;
-    auto* cond = static_cast<pthread_cond_t*>(ConditionVariable);
-    auto* mtx = static_cast<pthread_mutex_t*>(SRWLock);
-
-    if (dwMilliseconds == 0xFFFFFFFF) {
-        pthread_cond_wait(cond, mtx);
-        return 1;
-    }
-
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += dwMilliseconds / 1000;
-    ts.tv_nsec += (dwMilliseconds % 1000) * 1000000L;
-    if (ts.tv_nsec >= 1000000000L) {
-        ts.tv_sec++;
-        ts.tv_nsec -= 1000000000L;
-    }
-    pthread_cond_timedwait(cond, mtx, &ts);
-    return 1;
+    return Win32SyncContext::instance().sleepConditionVariableSrw(ConditionVariable, SRWLock, dwMilliseconds, Flags)
+               ? 1
+               : 0;
 }
 
 static void MSABI shim_WakeAllConditionVariable(void* ConditionVariable) {
-    auto* cond = static_cast<pthread_cond_t*>(ConditionVariable);
-    pthread_cond_broadcast(cond);
+    (void)Win32SyncContext::instance().wakeAllConditionVariable(ConditionVariable);
 }
 
 static void MSABI shim_WakeConditionVariable(void* ConditionVariable) {
-    auto* cond = static_cast<pthread_cond_t*>(ConditionVariable);
-    pthread_cond_signal(cond);
+    (void)Win32SyncContext::instance().wakeConditionVariable(ConditionVariable);
 }
 
 static void MSABI shim_InitializeCriticalSectionAndSpinCount(void* lpCriticalSection, DWORD dwSpinCount) {
@@ -2251,9 +2255,14 @@ void addMissingKernel32(ShimLibrary& lib) {
     lib.functions["SwitchToThread"] = fn((void*)shim_SwitchToThread);
     lib.functions["InitializeSListHead"] = fn((void*)shim_InitializeSListHead);
     lib.functions["InterlockedPushEntrySList"] = fn((void*)shim_InterlockedPushEntrySList);
+    lib.functions["InitializeSRWLock"] = fn((void*)shim_InitializeSRWLock);
     lib.functions["AcquireSRWLockExclusive"] = fn((void*)shim_AcquireSRWLockExclusive);
     lib.functions["ReleaseSRWLockExclusive"] = fn((void*)shim_ReleaseSRWLockExclusive);
     lib.functions["TryAcquireSRWLockExclusive"] = fn((void*)shim_TryAcquireSRWLockExclusive);
+    lib.functions["AcquireSRWLockShared"] = fn((void*)shim_AcquireSRWLockShared);
+    lib.functions["ReleaseSRWLockShared"] = fn((void*)shim_ReleaseSRWLockShared);
+    lib.functions["TryAcquireSRWLockShared"] = fn((void*)shim_TryAcquireSRWLockShared);
+    lib.functions["InitializeConditionVariable"] = fn((void*)shim_InitializeConditionVariable);
     lib.functions["SleepConditionVariableSRW"] = fn((void*)shim_SleepConditionVariableSRW);
     lib.functions["WakeAllConditionVariable"] = fn((void*)shim_WakeAllConditionVariable);
     lib.functions["WakeConditionVariable"] = fn((void*)shim_WakeConditionVariable);
