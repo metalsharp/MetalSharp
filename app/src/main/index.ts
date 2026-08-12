@@ -746,44 +746,12 @@ app.whenReady().then(async () => {
 
   if (!needsMigration) {
     startSteamappsWatcher();
-    startRunningGamesWatcher();
   }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(false);
   });
 });
-
-/**
- * Poll the backend's live game registry and broadcast `game:stopped` when a
- * game that was running is no longer tracked — the game quit on its own
- * (from inside the game, via Steam, or the process died). The renderer uses
- * the event to revert the card from the "stop" state back to "play".
- */
-function startRunningGamesWatcher(): void {
-  let trackedRunning = new Set<number>();
-  setInterval(async () => {
-    try {
-      const result = (await requestBackend("GET", "/game/running", undefined, 3000, "main")) as {
-        ok?: boolean;
-        running?: Array<{ appid?: number }>;
-      };
-      if (!result?.ok) return;
-      const current = new Set(
-        (result.running ?? [])
-          .map((game) => game.appid)
-          .filter((appid): appid is number => typeof appid === "number"),
-      );
-      const stopped = [...trackedRunning].filter((appid) => !current.has(appid));
-      if (stopped.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("game:stopped", stopped);
-      }
-      trackedRunning = current;
-    } catch {
-      // Backend briefly unavailable; keep the last known set.
-    }
-  }, 5000);
-}
 
 app.on("window-all-closed", async () => {
   await cleanup();

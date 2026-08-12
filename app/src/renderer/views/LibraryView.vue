@@ -63,6 +63,7 @@ const gameGridEl = ref<HTMLElement | null>(null);
 const columnCount = ref(1);
 let gridResizeObserver: ResizeObserver | null = null;
 let removeGameStoppedListener: (() => void) | null = null;
+let gameExitPollTimer: ReturnType<typeof setInterval> | null = null;
 
 function handleGameStopped(appids: number[]) {
   if (runningAppId.value === null || !appids.includes(runningAppId.value)) return;
@@ -70,6 +71,27 @@ function handleGameStopped(appids: number[]) {
   runningPid.value = null;
   runningAppId.value = null;
   toast.show(`Stopped ${game?.name ?? "game"}`);
+}
+
+// The stop button binds to the registered game PID; poll the same registry
+// so a game that quits on its own (from inside the game) reverts the card
+// from "stop" back to "play" within a few seconds.
+async function pollRegisteredGameExit() {
+  if (runningAppId.value === null) return;
+  try {
+    const res = await api<{ ok?: boolean; running?: Array<{ appid?: number }> }>("GET", "/game/running");
+    if (res?.ok !== true) return;
+    const running = new Set(
+      (res.running ?? []).map((game) => game.appid).filter((appid): appid is number => typeof appid === "number"),
+    );
+    if (running.has(runningAppId.value)) return;
+    const game = library.value?.games.find((candidate) => candidate.appid === runningAppId.value);
+    runningPid.value = null;
+    runningAppId.value = null;
+    toast.show(`${game?.name ?? "Game"} exited`);
+  } catch {
+    // Backend briefly unavailable; keep the current state.
+  }
 }
 
 function updateColumnCount() {
@@ -327,6 +349,7 @@ async function uninstallGame(game: SteamGame) {
 
 onMounted(() => {
   removeGameStoppedListener = getAPI().onGameStopped(handleGameStopped);
+  gameExitPollTimer = setInterval(pollRegisteredGameExit, 5000);
   applyFilter();
   gridResizeObserver = new ResizeObserver(updateColumnCount);
   if (gameGridEl.value) gridResizeObserver.observe(gameGridEl.value);
@@ -336,6 +359,10 @@ onMounted(() => {
 onUnmounted(() => {
   removeGameStoppedListener?.();
   removeGameStoppedListener = null;
+  if (gameExitPollTimer !== null) {
+    window.clearInterval(gameExitPollTimer);
+    gameExitPollTimer = null;
+  }
   if (gridResizeObserver) {
     gridResizeObserver.disconnect();
     gridResizeObserver = null;
