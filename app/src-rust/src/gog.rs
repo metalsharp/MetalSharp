@@ -290,6 +290,10 @@ fn write_gogdl_wrapper() -> Result<(), String> {
     Ok(())
 }
 
+fn venv_has_pip(venv: &Path) -> bool {
+    venv.join("bin").join("pip").is_file() || venv.join("bin").join("pip3").is_file()
+}
+
 fn ensure_gogdl_available() -> Result<(), String> {
     if gogdl_binary().is_some() {
         // Even with gogdl already in place, make sure the OAuth helper is
@@ -309,11 +313,24 @@ fn ensure_gogdl_available() -> Result<(), String> {
     let git = git_binary().ok_or_else(|| "git is required to prepare GOG support".to_string())?;
     let venv = gogdl_venv_dir();
     let venv_python = venv.join("bin").join("python");
-    if !venv_python.is_file() {
+    if !venv_python.is_file() || !venv_has_pip(&venv) {
+        // A bootstrap under a polluted Python env (ambient PYTHONPATH /
+        // VIRTUAL_ENV) can leave a pip-less venv behind, which makes
+        // `python -m pip` fail with "No module named pip". Rebuild the venv
+        // in a clean environment so its own pip is installed.
+        if venv.exists() {
+            fs::remove_dir_all(&venv).map_err(|error| format!("failed to reset GOG support venv: {error}"))?;
+        }
         let mut command = Command::new(&python);
         sanitize_python_env(&mut command);
         command.arg("-m").arg("venv").arg(&venv);
         run_bootstrap_command(&mut command, "GOG support environment setup")?;
+        if !venv_has_pip(&venv) {
+            let mut command = Command::new(&venv_python);
+            sanitize_python_env(&mut command);
+            command.arg("-m").arg("ensurepip").arg("--upgrade");
+            run_bootstrap_command(&mut command, "GOG support pip setup")?;
+        }
     }
 
     let source = gogdl_source_dir();
