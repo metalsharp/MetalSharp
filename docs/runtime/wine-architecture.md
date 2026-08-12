@@ -1,5 +1,5 @@
 # Wine Architecture
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 MetalSharp ships a self-contained Wine runtime at:
@@ -177,6 +177,22 @@ Rules:
 5. **Vulkan ICD**: `VK_ICD_FILENAMES` must resolve inside the runtime
    (`$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json`) or be unset — never a
    hardcoded Homebrew path, which is absent on CrossOver-only machines.
+
+### Process Manager stop behavior
+
+The Process Manager's **Quit Game** action follows the same ownership boundary
+as the rest of the Wine lifecycle. It considers only non-Steam Wine rows whose
+command line references the resolved MetalSharp data root or the managed
+`prefix-steam` prefix. A bare `wine`, `wineserver`, `wineboot`, or
+`drive_c/` match is never enough to stop a process from CrossOver, Whisky,
+GPTK, or another Wine installation.
+
+When the shared Steam prefix is not active, the action first invokes
+MetalSharp's bundled `runtime/wine/bin/wineserver -k` with `WINEPREFIX` set to
+the managed prefix. If the prefix is shared with Wine Steam, or the bundled
+server is unavailable, it falls back to SIGKILL only for the already-scoped
+MetalSharp game PIDs. This preserves the live Wine Steam client while keeping
+foreign Wine games outside the kill scope.
 
 The GPTK lane is the working model for isolation: it owns its prefix
 (`prefix-gptk`), its DYLD paths (`gptk_seed_dyld`), and its route DLLs. The

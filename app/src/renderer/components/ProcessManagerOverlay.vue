@@ -71,8 +71,8 @@ const fpsLabel = computed(() => (sample.value?.fps == null ? "WAIT" : Math.round
 const tempLabel = computed(() => {
   const s = sample.value;
   if (s?.gpu_mem_used_bytes != null && s.gpu_mem_used_bytes > 0) {
-    const gb = s.gpu_mem_used_bytes / (1024*1024*1024);
-    return gb >= 1 ? `${gb.toFixed(1)}GB` : `${Math.round(s.gpu_mem_used_bytes/(1024*1024))}MB`;
+    const gb = s.gpu_mem_used_bytes / (1024 * 1024 * 1024);
+    return gb >= 1 ? `${gb.toFixed(1)}GB` : `${Math.round(s.gpu_mem_used_bytes / (1024 * 1024))}MB`;
   }
   return s?.cpu_temp_c != null ? `${Math.round(s.cpu_temp_c)}°C` : "VRAM";
 });
@@ -124,7 +124,7 @@ async function runAction(action: ProcessManagerAction): Promise<void> {
     gpuAccelArmed.value = !gpuAccelArmed.value;
     status.value = `GPU acceleration visual surface ${gpuAccelArmed.value ? "armed" : "parked"}; runtime hook pending`;
   } else if (action === "quit-game") {
-    status.value = "Force-killing non-Steam Wine game PIDs...";
+    status.value = "Stopping MetalSharp-owned Wine game processes...";
   } else {
     status.value = "Bringing Steam forward...";
   }
@@ -137,7 +137,12 @@ async function runAction(action: ProcessManagerAction): Promise<void> {
   }
   if (result?.ok) {
     if (action === "quit-game") {
-      status.value = "Non-Steam Wine game kill signal sent";
+      status.value =
+        result.mode === "wineserver"
+          ? "MetalSharp Wine game stopped via its managed wineserver"
+          : result.killed?.length
+            ? `Stopped ${result.killed.length} MetalSharp-owned Wine process${result.killed.length === 1 ? "" : "es"}`
+            : "No MetalSharp-owned non-Steam Wine game processes found";
       await refresh();
     }
   } else {
@@ -185,13 +190,19 @@ onBeforeUnmount(() => {
           <span class="pm-label">Active FPS</span>
           <strong>{{ fpsLabel }}</strong>
           <small>{{
-            sample?.fps == null ? "waiting for non-Steam Wine FPS" : sample?.fps_source ?? "frames/sec"
+            sample?.fps == null ? "waiting for non-Steam Wine FPS" : (sample?.fps_source ?? "frames/sec")
           }}</small>
         </article>
         <article class="pm-stat">
           <span class="pm-label">GPU Memory</span>
           <strong>{{ tempLabel }}</strong>
-          <small>{{ sample?.gpu_mem_used_bytes ? "allocated VRAM" : sample?.cpu_temp_c == null ? "unavailable" : sample?.cpu_temp_source ?? "PMU sensor" }}</small>
+          <small>{{
+            sample?.gpu_mem_used_bytes
+              ? "allocated VRAM"
+              : sample?.cpu_temp_c == null
+                ? "unavailable"
+                : (sample?.cpu_temp_source ?? "PMU sensor")
+          }}</small>
         </article>
         <article class="pm-stat">
           <span class="pm-label">Cores Used</span>
@@ -246,8 +257,8 @@ onBeforeUnmount(() => {
         </div>
         <button class="pm-action danger" type="button" @click="runAction('quit-game')">
           <span>Quit Game</span>
-          <strong>Force Kill</strong>
-          <small>non-Steam Wine PIDs</small>
+          <strong>Stop</strong>
+          <small>MetalSharp-owned Wine game</small>
         </button>
         <button
           class="pm-action"
@@ -299,8 +310,7 @@ onBeforeUnmount(() => {
   height: 100vh;
   color: var(--text-primary);
   background:
-    radial-gradient(circle at 18% 0, #ff2ef738, #0000 36%),
-    radial-gradient(circle at 88% 14%, #00f5ff2e, #0000 34%),
+    radial-gradient(circle at 18% 0, #ff2ef738, #0000 36%), radial-gradient(circle at 88% 14%, #00f5ff2e, #0000 34%),
     radial-gradient(circle at 50% 100%, #b9ff4d21, #0000 42%);
   justify-content: center;
   align-items: center;
@@ -315,7 +325,10 @@ onBeforeUnmount(() => {
   width: min(720px, 100vw - 18px);
   max-height: calc(100vh - 18px);
   overflow: auto;
-  box-shadow: inset 0 0 0 1px #ffffff0d, 0 0 42px #b9ff4d1f, 0 30px 90px #00000094;
+  box-shadow:
+    inset 0 0 0 1px #ffffff0d,
+    0 0 42px #b9ff4d1f,
+    0 30px 90px #00000094;
 }
 .pm-header {
   -webkit-app-region: drag;
