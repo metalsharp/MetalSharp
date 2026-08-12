@@ -211,8 +211,8 @@ pub fn shader_cache_dirs(home: &Path, pipeline: crate::mtsp::engine::PipelineId,
 
     let subdirs: &[&str] = match pipeline {
         PipelineId::M9 => &["m9", "dxmt-metal"],
-        PipelineId::M10 => &["m10", "dxmt-metal"],
-        PipelineId::M11 => &["m11", "dxmt-metal"],
+        PipelineId::Dxmt => &["dxmt", "dxmt-metal"],
+        PipelineId::Dxmt32 => &["dxmt_32", "dxmt-metal"],
         PipelineId::M12 => &["m12", "dxmt-metal12"],
         PipelineId::M13 => &["m13", "dxmt-metal12"],
         _ => &[],
@@ -515,9 +515,9 @@ mod tests {
     fn shader_cache_dirs_include_dxmt_metal_family_for_legacy_pipelines() {
         let home = std::env::temp_dir().join("ms-diag-cache-test");
         let _ = fs::remove_dir_all(&home);
-        let dirs = shader_cache_dirs(&home, crate::mtsp::engine::PipelineId::M11, 42);
+        let dirs = shader_cache_dirs(&home, crate::mtsp::engine::PipelineId::Dxmt, 42);
         let names: Vec<String> = dirs.iter().map(|d| d.to_string_lossy().to_string()).collect();
-        assert!(names.iter().any(|n| n.contains("shader-cache/m11/42")), "got {:?}", names);
+        assert!(names.iter().any(|n| n.contains("shader-cache/dxmt/42")), "got {:?}", names);
         assert!(names.iter().any(|n| n.contains("shader-cache/dxmt-metal/42")), "got {:?}", names);
         let _ = fs::remove_dir_all(&home);
     }

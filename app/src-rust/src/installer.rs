@@ -47,12 +47,12 @@ const DXMT_REQUIRED_PE: &[&str] = &[
     "nvngx.dll",
 ];
 const DXMT_REQUIRED_UNIX: &[&str] = &["winemetal.so"];
-/// 32-bit (i386) PE DLLs the DXMT bundle ships for M11(32)/M10(32). These stage
+/// 32-bit (i386) PE DLLs the DXMT bundle ships for DXMT(32). These stage
 /// into `lib/dxmt/i386-windows/` and are surfaced in the runtime manifest so a
 /// migration that pulls a newer graphics bundle re-extracts and applies them.
 const DXMT_REQUIRED_I386_PE: &[&str] = &["d3d11.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d10core.dll", "winemetal.dll"];
 /// 32-bit (i386) unix sidecar shipped beside the PE set. Stages into
-/// `lib/dxmt/i386-unix/`; M11(32)/M10(32) launch sets
+/// `lib/dxmt/i386-unix/`; DXMT(32) launch sets
 /// `DXMT_WINEMETAL_UNIXLIB=winemetal.so` and adds this dir to dyld fallbacks.
 const DXMT_REQUIRED_I386_UNIX: &[&str] = &["winemetal.so"];
 const DXMT_M12_REQUIRED_UNIX: &[&str] = &["winemetal.so", "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"];
@@ -189,7 +189,7 @@ const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     // M12 is x86_64-only; i386 vkd3d-proton remains future scope.
     "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll",
     "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll",
-    // DXVK lane: dxgi/d3d11/d3d10/d3d9 surfaces (M12 uses dxgi; M9-M11 use d3d11+).
+    // DXVK lane: dxgi/d3d11/d3d10/d3d9 surfaces (M12 uses dxgi; M9/DXMT use d3d11+).
     "Graphics/dll/dxvk/x86_64-windows/dxgi.dll",
     "Graphics/dll/dxvk/x86_64-windows/d3d11.dll",
     "Graphics/dll/dxvk/x86_64-windows/d3d10core.dll",
@@ -1598,7 +1598,7 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     // Skip only when BOTH staged surfaces are current AND the bundled
     // metalsharp-graphics-dll.tar.zst has not changed since the last stage.
     // If the bundle carries new infrastructure (e.g. the i386 DXMT lanes for
-    // M11(32)/M10(32)) the staged surface can look "current" by version alone
+    // DXMT(32)) the staged surface can look "current" by version alone
     // while still missing the new lanes, so we must re-extract (zst) and
     // re-stage to apply it during a migration update.
     if dxmt_runtime_current_for_dir(&dxmt_dir)
@@ -2144,14 +2144,14 @@ pub fn runtime_artifact_report() -> Value {
 pub fn runtime_artifact_report_for(home: &Path) -> Value {
     let dxmt_dir = dxmt_runtime_dir_for_home(home);
     let dxmt_m12_dir = dxmt_m12_runtime_dir_for_home(home);
-    let m11 = verify_required_files("dxmt", &dxmt_dir, DXMT_REQUIRED_UNIX, DXMT_REQUIRED_PE);
+    let dxmt = verify_required_files("dxmt", &dxmt_dir, DXMT_REQUIRED_UNIX, DXMT_REQUIRED_PE);
     let m12 = verify_required_files_with_unix("dxmt_m12", &dxmt_m12_dir, DXMT_M12_REQUIRED_UNIX, DXMT_REQUIRED_PE);
-    let ok = m11.get("all_present").and_then(|v| v.as_bool()).unwrap_or(false)
+    let ok = dxmt.get("all_present").and_then(|v| v.as_bool()).unwrap_or(false)
         && m12.get("all_present").and_then(|v| v.as_bool()).unwrap_or(false);
     json!({
         "ok": ok,
         "schema_version": 1,
-        "dxmt": m11,
+        "dxmt": dxmt,
         "dxmt_m12": m12,
     })
 }

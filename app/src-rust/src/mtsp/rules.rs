@@ -218,7 +218,7 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
     let rules = load_rules();
 
     if let Some(&pipeline) = rules.get(&appid) {
-        return resolve_dxmt_alias(appid, pipeline);
+        return pipeline;
     }
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid));
     if let Some(ref dir) = game_dir {
@@ -226,7 +226,7 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
             // Mono-profile discovery first: Unity-Mono / FNA / MonoGame /
             // XNA / MonoKickstart games route to the FNA lane. IL2CPP games
             // (native GameAssembly.dll) are NOT mono-runnable — route through
-            // PE analysis so 32-bit IL2CPP still lands on M11_32, falling
+            // PE analysis so 32-bit IL2CPP still lands on DXMT(32), falling
             // back to the 64-bit Wine/DXMT lane.
             let profile = crate::mono_profile::discover_mono_profile(dir);
             match profile.kind {
@@ -236,7 +236,7 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
                             return pipeline;
                         }
                     }
-                    return PipelineId::M11;
+                    return PipelineId::Dxmt;
                 },
                 crate::mono_profile::MonoProfileKind::BareDotnet => {
                     // Weakest signal: a game with managed assemblies but no
@@ -273,34 +273,9 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
 
 pub fn resolve_requested_pipeline(appid: u32, requested: Option<PipelineId>) -> PipelineId {
     match requested {
-        Some(PipelineId::Dxmt) | None => resolve_pipeline(appid),
         Some(pipeline) => pipeline,
+        None => resolve_pipeline(appid),
     }
-}
-
-fn resolve_dxmt_alias(appid: u32, pipeline: PipelineId) -> PipelineId {
-    if pipeline == PipelineId::Dxmt {
-        return detect_dxmt_pipeline(appid).unwrap_or_else(default_pipeline);
-    }
-    pipeline
-}
-
-fn detect_dxmt_pipeline(appid: u32) -> Option<PipelineId> {
-    let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid))?;
-    // .NET Core / .NET 5+ apps (runtimeconfig.json) cannot run on the bundled
-    // Mono runtime — send them to the Wine lane instead of the mono route.
-    if crate::mono_profile::is_dotnet_core_game(&game_dir) {
-        return Some(PipelineId::M11);
-    }
-    if crate::setup::detect_dotnet_game(&game_dir) {
-        return Some(PipelineId::FnaArm64);
-    }
-    if let Some(pe_info) = super::pe::analyze_game_exe(&game_dir) {
-        if let Some(pipeline) = pe_info_to_pipeline(&pe_info) {
-            return Some(pipeline);
-        }
-    }
-    detect_from_directory(&game_dir)
 }
 
 pub fn get_game_recipe(appid: u32) -> Option<GameRecipe> {
@@ -408,27 +383,27 @@ fn detect_from_directory(dir: &PathBuf) -> Option<PipelineId> {
     };
 
     if has_file_ci("unityplayer.dll") || has_file_ci("gameassembly.dll") {
-        return Some(PipelineId::M11);
+        return Some(PipelineId::Dxmt);
     }
 
     if has_dir_ci("engine") && has_dir_ci("binaries") {
-        return Some(PipelineId::M11);
+        return Some(PipelineId::Dxmt);
     }
 
     if has_glob(".pak") {
-        return Some(PipelineId::M11);
+        return Some(PipelineId::Dxmt);
     }
 
     if has_dir_ci("engine") && has_dir_ci("content") {
-        return Some(PipelineId::M11);
+        return Some(PipelineId::Dxmt);
     }
 
     if has_glob(".bdt") || has_glob(".bhd") {
-        return Some(PipelineId::M11);
+        return Some(PipelineId::Dxmt);
     }
 
     if has_glob("re_chunk_") || has_file_ci("re2_config.ini") || has_file_ci("re8_config.ini") {
-        return Some(PipelineId::M11);
+        return Some(PipelineId::Dxmt);
     }
 
     if has_file_ci("d3dx9_43.dll") {
@@ -436,7 +411,7 @@ fn detect_from_directory(dir: &PathBuf) -> Option<PipelineId> {
     }
 
     if has_file_ci("steam_api64.dll") || has_file_ci("steam_api.dll") {
-        return Some(PipelineId::M11);
+        return Some(PipelineId::Dxmt);
     }
 
     None
@@ -448,8 +423,7 @@ fn pe_info_to_pipeline(pe: &PeInfo) -> Option<PipelineId> {
     }
     match pe.detected_api {
         D3dApi::D3D12 => Some(PipelineId::M12),
-        D3dApi::D3D11 => Some(PipelineId::M11),
-        D3dApi::D3D10 => Some(PipelineId::M10),
+        D3dApi::D3D11 | D3dApi::D3D10 => Some(PipelineId::Dxmt),
         D3dApi::D3D9 => Some(PipelineId::M9),
         D3dApi::Unknown => None,
     }
@@ -493,7 +467,7 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
 
-        // IL2CPP shaped dir: discovery routes to M11 (Wine/DXMT), never FNA.
+        // IL2CPP shaped dir: discovery routes to DXMT (Wine/DXMT), never FNA.
         let dir2 = std::env::temp_dir().join(format!("ms-rules-il2cpp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir2);
         std::fs::create_dir_all(&dir2).unwrap();
@@ -557,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn d3d10_pe_maps_to_m10() {
+    fn d3d10_pe_maps_to_dxmt() {
         let pe = PeInfo {
             machine_type: 0x8664,
             is_64_bit: true,
@@ -565,11 +539,11 @@ mod tests {
             detected_api: D3dApi::D3D10,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M10));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Dxmt));
     }
 
     #[test]
-    fn d3d10_pe_mapping_is_not_demoted_to_m11_by_heuristics() {
+    fn d3d10_pe_mapping_is_not_demoted_by_heuristics() {
         let pe = PeInfo {
             machine_type: 0x8664,
             is_64_bit: true,
@@ -577,7 +551,7 @@ mod tests {
             detected_api: D3dApi::D3D10,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M10));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Dxmt));
     }
 
     #[test]
@@ -629,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn d3d9_pe_mapping_is_not_demoted_to_m11_by_heuristics() {
+    fn d3d9_pe_mapping_is_not_demoted_to_dxmt_by_heuristics() {
         let pe = PeInfo {
             machine_type: 0x8664,
             is_64_bit: true,
@@ -646,42 +620,42 @@ mod tests {
 
         for (appid, pipeline) in [
             (17410, PipelineId::M9),
-            (250900, PipelineId::M11_32),
-            (312520, PipelineId::M11),
-            (387290, PipelineId::M11),
-            (475150, PipelineId::M11_32),
+            (250900, PipelineId::Dxmt32),
+            (312520, PipelineId::Dxmt),
+            (387290, PipelineId::Dxmt),
+            (475150, PipelineId::Dxmt32),
             (504230, PipelineId::FnaArm64),
             (49520, PipelineId::M9),
-            (508440, PipelineId::M11),
+            (508440, PipelineId::Dxmt),
             (535520, PipelineId::M9),
             (774361, PipelineId::M9),
             (1169040, PipelineId::WineBare),
-            (1237320, PipelineId::M11),
+            (1237320, PipelineId::Dxmt),
             (1245620, PipelineId::M12),
             (1562430, PipelineId::FnaArm64),
             (1623730, PipelineId::M12),
-            (1868140, PipelineId::M11),
+            (1868140, PipelineId::Dxmt),
             (1928870, PipelineId::M12),
             (1962700, PipelineId::M12),
-            (2358720, PipelineId::M11),
+            (2358720, PipelineId::Dxmt),
             (2456740, PipelineId::M12),
             (275850, PipelineId::WineBare),
             (284160, PipelineId::M12),
-            (1326470, PipelineId::M11),
+            (1326470, PipelineId::Dxmt),
             (1583230, PipelineId::M12),
             (3164500, PipelineId::M12),
             (3527290, PipelineId::M12),
             (22380, PipelineId::M9),
             (1030300, PipelineId::M12),
-            (222880, PipelineId::M11),
-            (305620, PipelineId::M11),
-            (1260320, PipelineId::M11),
-            (1782210, PipelineId::M11),
-            (1966720, PipelineId::M11),
-            (2302640, PipelineId::M11),
-            (291550, PipelineId::M11),
+            (222880, PipelineId::Dxmt),
+            (305620, PipelineId::Dxmt),
+            (1260320, PipelineId::Dxmt),
+            (1782210, PipelineId::Dxmt),
+            (1966720, PipelineId::Dxmt),
+            (2302640, PipelineId::Dxmt),
+            (291550, PipelineId::Dxmt),
             (673130, PipelineId::M12),
-            (599140, PipelineId::M11),
+            (599140, PipelineId::Dxmt),
             (3241660, PipelineId::M12),
             (4704690, PipelineId::M12),
         ] {
@@ -718,7 +692,7 @@ mod tests {
     }
 
     #[test]
-    fn shipped_m11_m12_rules_have_no_anticheat_and_include_route_diagnostics() {
+    fn shipped_dxmt_m12_rules_have_no_anticheat_and_include_route_diagnostics() {
         let shipped_rules = include_str!("../../../../configs/mtsp-rules.toml");
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
@@ -727,9 +701,9 @@ mod tests {
         // vkd3d forwarder + implementation + the full DXVK set (dxgi + d3d11,
         // so D3D11 games switched to M12 get a working render path). No DXMT.
         let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"];
-        let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
+        let dxmt_required = ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"];
         let required_by_pipeline =
-            [(PipelineId::M12, m12_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
+            [(PipelineId::M12, m12_required.as_slice()), (PipelineId::Dxmt, dxmt_required.as_slice())];
 
         for (pipeline, required) in required_by_pipeline {
             let matching_recipes = recipes.iter().filter(|(_, recipe)| recipe.pipeline == pipeline).collect::<Vec<_>>();
@@ -761,46 +735,46 @@ mod tests {
     }
 
     #[test]
-    fn requested_eac_games_have_m11_defaults_and_protected_executable_rules() {
+    fn requested_eac_games_have_dxmt_defaults_and_protected_executable_rules() {
         let shipped_rules = include_str!("../../../../configs/mtsp-rules.toml");
         let (_, recipes) = parse_rules_full(shipped_rules);
         let requested = [
             (1888160, "ARMORED CORE VI FIRES OF RUBICON", "m12"),
-            (252950, "Rocket League", "m11"),
-            (1304930, "The Outlast Trials", "m11"),
-            (976730, "Halo: The Master Chief Collection", "m11"),
-            (1172620, "Sea of Thieves", "m11"),
-            (555160, "Pavlov VR", "m11"),
-            (252490, "Rust", "m11"),
-            (251570, "7 Days to Die", "m11"),
-            (552500, "Warhammer: Vermintide 2", "m11"),
-            (447040, "Watch_Dogs 2", "m11"),
-            (1097150, "Fall Guys", "m11"),
-            (438740, "Friday the 13th: The Game", "m11"),
-            (438100, "VRChat", "m11"),
-            (872200, "Rogue Company", "m11"),
-            (594650, "Hunt: Showdown 1896", "m11"),
-            (1121710, "Total Lockdown", "m11"),
-            (1599340, "Lost Ark", "m11"),
-            (1097840, "Gears 5", "m11"),
-            (1240440, "Halo Infinite", "m11"),
-            (304390, "FOR HONOR", "m11"),
-            (2138720, "REMATCH", "m11"),
-            (1180380, "Stay Out", "m11"),
-            (924970, "Back 4 Blood", "m11"),
-            (1172470, "Apex Legends", "m11"),
-            (1501750, "Lords of the Fallen", "m11"),
-            (2429640, "Throne and Liberty", "m11"),
-            (1222730, "STAR WARS: Squadrons", "m11"),
-            (3472040, "NBA 2K26", "m11"),
-            (519190, "Next Day: Survival", "m11"),
-            (315210, "Suicide Squad: Kill the Justice League", "m11"),
-            (4088120, "SCP: ReEnter", "m11"),
-            (1430190, "Killing Floor 3", "m11"),
-            (1517290, "Battlefield 2042", "m11"),
-            (393380, "Squad", "m11"),
-            (1808500, "ARC Raiders", "m11"),
-            (1818750, "MultiVersus", "m11"),
+            (252950, "Rocket League", "dxmt"),
+            (1304930, "The Outlast Trials", "dxmt"),
+            (976730, "Halo: The Master Chief Collection", "dxmt"),
+            (1172620, "Sea of Thieves", "dxmt"),
+            (555160, "Pavlov VR", "dxmt"),
+            (252490, "Rust", "dxmt"),
+            (251570, "7 Days to Die", "dxmt"),
+            (552500, "Warhammer: Vermintide 2", "dxmt"),
+            (447040, "Watch_Dogs 2", "dxmt"),
+            (1097150, "Fall Guys", "dxmt"),
+            (438740, "Friday the 13th: The Game", "dxmt"),
+            (438100, "VRChat", "dxmt"),
+            (872200, "Rogue Company", "dxmt"),
+            (594650, "Hunt: Showdown 1896", "dxmt"),
+            (1121710, "Total Lockdown", "dxmt"),
+            (1599340, "Lost Ark", "dxmt"),
+            (1097840, "Gears 5", "dxmt"),
+            (1240440, "Halo Infinite", "dxmt"),
+            (304390, "FOR HONOR", "dxmt"),
+            (2138720, "REMATCH", "dxmt"),
+            (1180380, "Stay Out", "dxmt"),
+            (924970, "Back 4 Blood", "dxmt"),
+            (1172470, "Apex Legends", "dxmt"),
+            (1501750, "Lords of the Fallen", "dxmt"),
+            (2429640, "Throne and Liberty", "dxmt"),
+            (1222730, "STAR WARS: Squadrons", "dxmt"),
+            (3472040, "NBA 2K26", "dxmt"),
+            (519190, "Next Day: Survival", "dxmt"),
+            (315210, "Suicide Squad: Kill the Justice League", "dxmt"),
+            (4088120, "SCP: ReEnter", "dxmt"),
+            (1430190, "Killing Floor 3", "dxmt"),
+            (1517290, "Battlefield 2042", "dxmt"),
+            (393380, "Squad", "dxmt"),
+            (1808500, "ARC Raiders", "dxmt"),
+            (1818750, "MultiVersus", "dxmt"),
         ];
 
         for (appid, name, pipeline) in requested {
@@ -809,10 +783,10 @@ mod tests {
             assert_eq!(recipe.pipeline.user_selectable_id().unwrap_or("auto"), pipeline, "appid {appid} pipeline");
             assert!(!recipe.exe_names.is_empty(), "appid {appid} needs a normal executable rule");
             assert!(!recipe.eac_exe_names.is_empty(), "appid {appid} needs an EAC executable rule");
-            let required_dlls = if pipeline == "m12" {
-                ["d3d12.dll", "dxgi.dll", "d3d11.dll"]
+            let required_dlls: &[&str] = if pipeline == "m12" {
+                &["d3d12.dll", "dxgi.dll", "d3d11.dll"]
             } else {
-                ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+                &["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"]
             };
             for dll in required_dlls {
                 assert!(recipe.check_dlls.iter().any(|value| value == dll), "appid {appid} missing {dll}");
@@ -837,16 +811,16 @@ mod tests {
     }
 
     #[test]
-    fn game_recipes_parse_titan_quest_m11_32_bit_route() {
+    fn game_recipes_parse_titan_quest_dxmt32_route() {
         let (_, recipes) = parse_rules_full(include_str!("../../../../configs/mtsp-rules.toml"));
         let titan_quest = recipes.get(&475150).expect("titan quest recipe");
-        assert_eq!(titan_quest.pipeline, PipelineId::M11_32);
+        assert_eq!(titan_quest.pipeline, PipelineId::Dxmt32);
         assert_eq!(titan_quest.name, "Titan Quest Anniversary Edition");
-        // M11(32) ships its own WINEDLLOVERRIDES via the pipeline node; the
+        // DXMT(32) ships its own WINEDLLOVERRIDES via the pipeline node; the
         // recipe must not carry a stale d3d9 override that would clobber it.
         assert!(
             !titan_quest.env.contains_key("WINEDLLOVERRIDES"),
-            "titan quest M11(32) recipe must not override the route's WINEDLLOVERRIDES"
+            "titan quest DXMT(32) recipe must not override the route's WINEDLLOVERRIDES"
         );
         assert!(titan_quest.check_dlls.contains(&"d3d11.dll".to_string()));
         assert!(titan_quest.check_dlls.contains(&"dxgi.dll".to_string()));
@@ -856,10 +830,10 @@ mod tests {
     }
 
     #[test]
-    fn game_recipes_parse_hades_m11_32_exe_override() {
+    fn game_recipes_parse_hades_dxmt32_exe_override() {
         let (_, recipes) = parse_rules_full(include_str!("../../../../configs/mtsp-rules.toml"));
         let hades = recipes.get(&1145360).expect("hades recipe");
-        assert_eq!(hades.pipeline, PipelineId::M11_32);
+        assert_eq!(hades.pipeline, PipelineId::Dxmt32);
         assert_eq!(hades.name, "Hades");
         assert_eq!(hades.exe_names, vec!["x86/Hades.exe".to_string()]);
         assert!(hades.check_dlls.contains(&"d3d11.dll".to_string()));
@@ -868,10 +842,10 @@ mod tests {
     }
 
     #[test]
-    fn game_recipes_parse_ori_m11_exe_override() {
+    fn game_recipes_parse_ori_dxmt_exe_override() {
         let (_, recipes) = parse_rules_full(include_str!("../../../../configs/mtsp-rules.toml"));
         let ori = recipes.get(&387290).expect("ori recipe");
-        assert_eq!(ori.pipeline, PipelineId::M11);
+        assert_eq!(ori.pipeline, PipelineId::Dxmt);
         assert_eq!(ori.name, "Ori and the Blind Forest: Definitive Edition");
         assert_eq!(ori.exe_names, vec!["oriDE.exe".to_string()]);
         assert!(ori.check_dlls.contains(&"d3d11.dll".to_string()));
@@ -893,7 +867,7 @@ mod tests {
     fn game_recipes_parse_gta_v_rockstar_runtime() {
         let (_, recipes) = parse_rules_full(include_str!("../../../../configs/mtsp-rules.toml"));
         let gta = recipes.get(&271590).expect("gta v recipe");
-        assert_eq!(gta.pipeline, PipelineId::M11);
+        assert_eq!(gta.pipeline, PipelineId::Dxmt);
         assert_eq!(gta.name, "Grand Theft Auto V Legacy");
         assert!(gta.components.contains(&"gecko".to_string()));
         assert!(gta.components.contains(&"webview2".to_string()));
@@ -1029,11 +1003,11 @@ mod tests {
     }
 
     #[test]
-    fn shipped_rules_route_reminiscence_to_m11() {
+    fn shipped_rules_route_reminiscence_to_dxmt() {
         const SOURCE: &str = include_str!("../../../../configs/mtsp-rules.toml");
         let (_, recipes) = parse_rules_full(SOURCE);
         let recipe = recipes.get(&1675140).expect("shipped rules must contain a Reminiscence override (appid 1675140)");
-        assert_eq!(recipe.pipeline, PipelineId::M11);
+        assert_eq!(recipe.pipeline, PipelineId::Dxmt);
         assert_eq!(recipe.name, "Reminiscence");
     }
 

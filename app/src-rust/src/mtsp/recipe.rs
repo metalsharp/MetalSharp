@@ -72,11 +72,8 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
     let direct_wine_pipeline = matches!(
         node.id,
         PipelineId::Dxmt
+            | PipelineId::Dxmt32
             | PipelineId::M9
-            | PipelineId::M10
-            | PipelineId::M10_32
-            | PipelineId::M11
-            | PipelineId::M11_32
             | PipelineId::M12
             | PipelineId::M13
             | PipelineId::D3DMetal
@@ -92,11 +89,8 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
 
     let exe_path = match node.id {
         PipelineId::Dxmt
+        | PipelineId::Dxmt32
         | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
         | PipelineId::M12
         | PipelineId::M13
         | PipelineId::D3DMetal
@@ -190,7 +184,7 @@ fn append_app_launch_args(appid: u32, pipeline: PipelineId, launch_args: &mut Ve
             append_unique_launch_arg(launch_args, "-dx12");
             append_unique_launch_arg(launch_args, "-d3d12");
         },
-        (1623730 | 2358720, PipelineId::M11) => {
+        (1623730 | 2358720, PipelineId::Dxmt) => {
             append_unique_launch_arg(launch_args, "-dx11");
             append_unique_launch_arg(launch_args, "-d3d11");
         },
@@ -212,8 +206,8 @@ fn database_default_launch_args(appid: u32, pipeline: PipelineId) -> &'static [&
         400 | 620 | 4000 if pipeline == PipelineId::M9 => &["-dxlevel", "90", "-novid"],
         240 | 500 | 550 if pipeline == PipelineId::M9 => &["-dxlevel", "90"],
         7670 if pipeline == PipelineId::M9 => &["-dx9"],
-        12210 if pipeline == PipelineId::M10 => &["-d3d10"],
-        17300 if pipeline == PipelineId::M10 => &["-dx10"],
+        12210 if pipeline == PipelineId::Dxmt => &["-d3d10"],
+        17300 if pipeline == PipelineId::Dxmt => &["-dx10"],
         _ => &[],
     }
 }
@@ -258,11 +252,8 @@ pub fn build_custom_launch_recipe(
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let exe_path = match node.id {
         PipelineId::Dxmt
+        | PipelineId::Dxmt32
         | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
         | PipelineId::M12
         | PipelineId::M13
         | PipelineId::M32
@@ -502,11 +493,8 @@ pub fn diagnose_recipe(recipe: LaunchRecipe) -> LaunchDoctorReport {
     let direct_wine_pipeline = matches!(
         recipe.pipeline,
         PipelineId::Dxmt
+            | PipelineId::Dxmt32
             | PipelineId::M9
-            | PipelineId::M10
-            | PipelineId::M10_32
-            | PipelineId::M11
-            | PipelineId::M11_32
             | PipelineId::M12
             | PipelineId::M13
             | PipelineId::M32
@@ -678,9 +666,7 @@ fn inspect_exe_route_compatibility(
     let api = d3d_api_label(pe.detected_api);
     let detail = format!("{} executable, imports {}", arch, api);
 
-    if !pe.is_64_bit
-        && matches!(recipe.pipeline, PipelineId::Dxmt | PipelineId::M10 | PipelineId::M11 | PipelineId::M12)
-    {
+    if !pe.is_64_bit && matches!(recipe.pipeline, PipelineId::Dxmt | PipelineId::M12) {
         let message = format!(
             "{} route requires a 64-bit Windows executable, but {} is 32-bit",
             recipe.pipeline_name,
@@ -725,10 +711,9 @@ fn route_api_mismatch(pipeline: PipelineId, api: super::pe::D3dApi) -> bool {
         (pipeline, api),
         (_, super::pe::D3dApi::Unknown)
             | (PipelineId::Dxmt, _)
+            | (PipelineId::Dxmt32, _)
             | (PipelineId::WineBare, _)
             | (PipelineId::M9, super::pe::D3dApi::D3D9)
-            | (PipelineId::M10, super::pe::D3dApi::D3D10)
-            | (PipelineId::M11, super::pe::D3dApi::D3D11)
             | (PipelineId::M12, super::pe::D3dApi::D3D12)
             | (PipelineId::M13, super::pe::D3dApi::D3D12)
             | (PipelineId::M32, _)
@@ -965,7 +950,7 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
                 });
             }
         },
-        PipelineId::M11 => {
+        PipelineId::Dxmt => {
             let path = ms_root.join("lib").join("dxmt").join("x86_64-unix").join("winemetal.so");
             assets.push(RuntimeAsset {
                 name: "lib/dxmt/x86_64-unix/winemetal.so".into(),
@@ -974,7 +959,7 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
                 required: true,
             });
         },
-        PipelineId::M11_32 | PipelineId::M10_32 => {
+        PipelineId::Dxmt32 => {
             let path = ms_root.join("lib").join("dxmt").join("i386-unix").join("winemetal.so");
             assets.push(RuntimeAsset {
                 name: "lib/dxmt/i386-unix/winemetal.so".into(),
@@ -1048,14 +1033,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn m11_validates_legacy_winemetal_so_without_changing_m12_sidecars() {
+    fn dxmt_validates_legacy_winemetal_so_without_changing_m12_sidecars() {
         let ms_root = test_dir("runtime-assets-winemetal-lanes");
-        let m11 = super::super::engine::get_pipeline(PipelineId::M11);
+        let dxmt = super::super::engine::get_pipeline(PipelineId::Dxmt);
         let m12 = super::super::engine::get_pipeline(PipelineId::M12);
 
-        let m11_assets = runtime_assets_for_node(m11, &ms_root);
-        assert!(m11_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
-        assert!(!m11_assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/x86_64-unix/")));
+        let dxmt_assets = runtime_assets_for_node(dxmt, &ms_root);
+        assert!(dxmt_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        assert!(!dxmt_assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/x86_64-unix/")));
 
         let m12_assets = runtime_assets_for_node(m12, &ms_root);
         assert!(m12_assets.iter().any(|asset| asset.name == "lib/dxmt_m12/x86_64-unix/winemetal.so"));
@@ -1066,21 +1051,18 @@ mod tests {
     }
 
     #[test]
-    fn m11_32_and_m10_32_validate_i386_winemetal_so_sidecar() {
+    fn dxmt32_validates_i386_winemetal_so_sidecar() {
         let ms_root = test_dir("runtime-assets-i386-winemetal-lanes");
-        for id in [PipelineId::M11_32, PipelineId::M10_32] {
-            let node = super::super::engine::get_pipeline(id);
-            let assets = runtime_assets_for_node(node, &ms_root);
-            // doctor must surface the i386 unix sidecar as a required runtime asset
-            assert!(
-                assets.iter().any(|asset| asset.name == "lib/dxmt/i386-unix/winemetal.so"),
-                "{:?} missing i386-unix/winemetal.so runtime asset",
-                id
-            );
-            // and must not pull the x86_64-only M11/M12 sidecars
-            assert!(!assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
-            assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/")));
-        }
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
+        let assets = runtime_assets_for_node(node, &ms_root);
+        // doctor must surface the i386 unix sidecar as a required runtime asset
+        assert!(
+            assets.iter().any(|asset| asset.name == "lib/dxmt/i386-unix/winemetal.so"),
+            "DXMT(32) missing i386-unix/winemetal.so runtime asset"
+        );
+        // and must not pull the x86_64-only DXMT/M12 sidecars
+        assert!(!assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/")));
         let _ = std::fs::remove_dir_all(ms_root);
     }
 
@@ -1104,30 +1086,28 @@ mod tests {
     }
 
     #[test]
-    fn m11_32_pipeline_resolves_exe_and_deploys_next_to_it() {
-        // Hades ships x64, x64Vk (Vulkan), and x86 builds. The M11(32) route
+    fn dxmt32_pipeline_resolves_exe_and_deploys_next_to_it() {
+        // Hades ships x64, x64Vk (Vulkan), and x86 builds. The DXMT(32) route
         // must (a) accept a resolved 32-bit exe instead of forcing exe_path to
-        // None (the pre-fix `direct_wine_pipeline` match arm omitted M11_32),
-        // and (b) deploy the i386 DXMT DLLs next to that binary in x86/ rather
-        // than the game root. The exe_names rule itself is asserted in
-        // rules::tests::game_recipes_parse_hades_m11_32_exe_override.
-        let dir = test_dir("m11-32-exe-resolve");
+        // None, and (b) deploy the i386 DXMT DLLs next to that binary in x86/
+        // rather than the game root.
+        let dir = test_dir("dxmt-32-exe-resolve");
         std::fs::create_dir_all(dir.join("x86")).expect("create x86 dir");
         std::fs::write(dir.join("x86/Hades.exe"), b"not pe").expect("write x86 exe");
         std::fs::create_dir_all(dir.join("x64Vk")).expect("create x64Vk dir");
         std::fs::write(dir.join("x64Vk/Hades.exe"), b"not pe").expect("write x64vk exe");
 
-        let node = super::super::engine::get_pipeline(PipelineId::M11_32);
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
         let exe = dir.join("x86/Hades.exe");
-        let recipe = build_custom_launch_recipe(1145360, node, &dir, Some(&exe)).expect("build m11(32) recipe");
+        let recipe = build_custom_launch_recipe(1145360, node, &dir, Some(&exe)).expect("build dxmt(32) recipe");
 
-        let resolved = recipe.exe_path.as_ref().expect("m11(32) kept the resolved exe");
-        assert_eq!(resolved, &exe, "M11(32) should retain the provided 32-bit exe");
-        assert!(!recipe.dlls.is_empty(), "M11(32) should deploy route DLLs");
+        let resolved = recipe.exe_path.as_ref().expect("dxmt(32) kept the resolved exe");
+        assert_eq!(resolved, &exe, "DXMT(32) should retain the provided 32-bit exe");
+        assert!(!recipe.dlls.is_empty(), "DXMT(32) should deploy route DLLs");
         for dll in &recipe.dlls {
             assert!(
                 dll.dest_path.starts_with(dir.join("x86")),
-                "M11(32) DLL {} should target x86/, got {}",
+                "DXMT(32) DLL {} should target x86/, got {}",
                 dll.filename,
                 dll.dest_path.display()
             );
@@ -1136,22 +1116,22 @@ mod tests {
     }
 
     #[test]
-    fn m10_32_pipeline_resolves_exe_and_deploys_next_to_it() {
-        let dir = test_dir("m10-32-exe-resolve");
+    fn dxmt32_pipeline_resolves_exe_and_deploys_next_to_game_binary() {
+        let dir = test_dir("dxmt-32-exe-auto-resolve");
         std::fs::create_dir_all(dir.join("bin")).expect("create bin dir");
         std::fs::write(dir.join("bin/game.exe"), b"not pe").expect("write game exe");
 
-        let node = super::super::engine::get_pipeline(PipelineId::M10_32);
-        let recipe = build_custom_launch_recipe(0, node, &dir, None).expect("build m10(32) recipe");
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
+        let recipe = build_custom_launch_recipe(0, node, &dir, None).expect("build dxmt(32) recipe");
 
-        let exe = recipe.exe_path.as_ref().expect("m10(32) resolved an exe");
-        assert!(exe.ends_with("bin/game.exe"), "M10(32) should resolve bin/game.exe, got {}", exe.display());
+        let exe = recipe.exe_path.as_ref().expect("dxmt(32) resolved an exe");
+        assert!(exe.ends_with("bin/game.exe"), "DXMT(32) should resolve bin/game.exe, got {}", exe.display());
         let primary = exe.parent().expect("exe parent");
         for dll in &recipe.dlls {
             assert_eq!(
                 dll.dest_path.parent().map(|p| p == primary).unwrap_or(false),
                 true,
-                "M10(32) DLL {} should target the exe dir, got {}",
+                "DXMT(32) DLL {} should target the exe dir, got {}",
                 dll.filename,
                 dll.dest_path.display()
             );
@@ -1160,33 +1140,33 @@ mod tests {
     }
 
     #[test]
-    fn titan_quest_m11_32_resolves_tq_exe_via_preferred_names() {
+    fn titan_quest_dxmt32_resolves_tq_exe_via_preferred_names() {
         // Titan Quest has no exe_names in its rule; preferred_exe_names(475150)
-        // pins TQ.exe. Under M11(32) the resolver must still pick it (proving
-        // the (32) pipeline reaches resolve_game_exe_for_pipeline at all).
-        let dir = test_dir("tq-m11-32-exe");
+        // pins TQ.exe. Under DXMT(32) the resolver must still pick it (proving
+        // the 32-bit pipeline reaches resolve_game_exe_for_pipeline at all).
+        let dir = test_dir("tq-dxmt-32-exe");
         std::fs::create_dir_all(&dir).expect("create test dir");
         std::fs::write(dir.join("TQ.exe"), b"not pe").expect("write tq exe");
         std::fs::write(dir.join("Setup.exe"), b"not pe").expect("write setup exe");
 
-        let exe = resolve_game_exe_for_pipeline(475150, &dir, Some(PipelineId::M11_32)).expect("resolve tq exe");
+        let exe = resolve_game_exe_for_pipeline(475150, &dir, Some(PipelineId::Dxmt32)).expect("resolve tq exe");
         assert_eq!(exe.file_name().unwrap().to_string_lossy(), "TQ.exe");
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn m11_32_diagnose_reports_exe_check_instead_of_not_required() {
-        let dir = test_dir("m11-32-diagnose");
+    fn dxmt32_diagnose_reports_exe_check_instead_of_not_required() {
+        let dir = test_dir("dxmt-32-diagnose");
         std::fs::create_dir_all(dir.join("x86")).expect("create x86 dir");
         std::fs::write(dir.join("x86/Hades.exe"), b"not pe").expect("write x86 exe");
 
-        let node = super::super::engine::get_pipeline(PipelineId::M11_32);
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
         let recipe = build_custom_launch_recipe(1145360, node, &dir, None).expect("build recipe");
         let report = diagnose_recipe(recipe);
         let exe_check = report.checks.iter().find(|c| c.id == "exe").expect("exe check present");
-        assert!(exe_check.detail != "Not required for this pipeline", "M11(32) must not skip the exe check");
+        assert!(exe_check.detail != "Not required for this pipeline", "DXMT(32) must not skip the exe check");
         let route_check = report.checks.iter().find(|c| c.id == "exe_route");
-        assert!(route_check.is_some(), "M11(32) must run route compatibility inspection");
+        assert!(route_check.is_some(), "DXMT(32) must run route compatibility inspection");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1381,9 +1361,9 @@ mod tests {
     }
 
     #[test]
-    fn dual_renderer_half_working_titles_get_dx11_args_on_m11() {
+    fn dual_renderer_half_working_titles_get_dx11_args_on_dxmt() {
         for appid in [1623730, 2358720] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M11));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Dxmt));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dx11")), "appid {appid}");
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d11")), "appid {appid}");
@@ -1402,7 +1382,7 @@ mod tests {
 
     #[test]
     fn source_style_titles_get_steam_secure_launch_args() {
-        for pipeline in [PipelineId::M11, PipelineId::M12] {
+        for pipeline in [PipelineId::Dxmt, PipelineId::M12] {
             for appid in [440, 730, 252490, 271590, 284160, 292030, 1172380, 3241660] {
                 let args = effective_launch_args(appid, super::super::engine::get_pipeline(pipeline));
 
@@ -1429,8 +1409,8 @@ mod tests {
     }
 
     #[test]
-    fn party_animals_m11_and_m12_use_steam_without_secure() {
-        for pipeline in [PipelineId::M11, PipelineId::M12] {
+    fn party_animals_dxmt_and_m12_use_steam_without_secure() {
+        for pipeline in [PipelineId::Dxmt, PipelineId::M12] {
             let args = effective_launch_args(1260320, super::super::engine::get_pipeline(pipeline));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")), "pipeline {pipeline:?}");
@@ -1525,7 +1505,7 @@ mod tests {
             (949230, vec!["-force-vulkan"]),
             (1174180, vec!["-api", "Vulkan"]),
         ] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M11));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Dxmt));
 
             for expected in expected_args {
                 assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case(expected)), "appid {appid} missing {expected}");
@@ -1561,16 +1541,16 @@ mod tests {
     fn database_pipeline_specific_renderer_args_stay_on_matching_routes() {
         let bioshock_m9 = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::M9));
         assert!(bioshock_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
-        let bioshock_m10 = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::M10));
-        assert!(!bioshock_m10.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
+        let bioshock_dxmt = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::Dxmt));
+        assert!(!bioshock_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
 
-        let gta_iv_m10 = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::M10));
-        assert!(gta_iv_m10.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
+        let gta_iv_dxmt = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::Dxmt));
+        assert!(gta_iv_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
         let gta_iv_m9 = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::M9));
         assert!(!gta_iv_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
 
-        let crysis_m10 = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::M10));
-        assert!(crysis_m10.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
+        let crysis_dxmt = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::Dxmt));
+        assert!(crysis_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
         let crysis_m9 = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::M9));
         assert!(!crysis_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
     }
@@ -1587,7 +1567,7 @@ mod tests {
         let dlls = selected_deploy_dlls_for_pipeline(
             &game_dir,
             Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M11),
+            super::super::engine::get_pipeline(PipelineId::Dxmt),
             &runtime,
         );
 
@@ -1680,8 +1660,8 @@ mod tests {
 
         let report = diagnose_recipe(LaunchRecipe {
             appid: 1,
-            pipeline: PipelineId::M11,
-            pipeline_name: "M11".into(),
+            pipeline: PipelineId::Dxmt,
+            pipeline_name: "DXMT".into(),
             backend: "dxmt".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe),
@@ -1738,15 +1718,15 @@ mod tests {
 
     #[test]
     fn doctor_blocks_32_bit_exe_on_64_bit_dxmt_route() {
-        let game_dir = test_dir("doctor-32-on-m11");
+        let game_dir = test_dir("doctor-32-on-dxmt");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
         let exe = game_dir.join("LegacyGame.exe");
         write_test_pe(&exe, 0x014c, 0x10b);
 
         let report = diagnose_recipe(LaunchRecipe {
             appid: 1,
-            pipeline: PipelineId::M11,
-            pipeline_name: "M11".into(),
+            pipeline: PipelineId::Dxmt,
+            pipeline_name: "DXMT".into(),
             backend: "dxmt".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe),
@@ -1794,7 +1774,7 @@ mod tests {
 
     #[test]
     fn doctor_request_reports_recipe_build_failures_as_blockers() {
-        let report = diagnose_launch_request(4_000_000_000, super::super::engine::get_pipeline(PipelineId::M11));
+        let report = diagnose_launch_request(4_000_000_000, super::super::engine::get_pipeline(PipelineId::Dxmt));
 
         assert!(!report.ready);
         assert!(report.summary.contains("Blocked"));

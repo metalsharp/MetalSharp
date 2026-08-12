@@ -1166,9 +1166,12 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             let appid: u32 = query_param(url, "appid").and_then(|v| v.parse().ok()).unwrap_or(0);
             let pipeline_str = query_param(url, "pipeline").unwrap_or_else(|| "auto".to_string());
             let pipeline = if pipeline_str.eq_ignore_ascii_case("auto") {
-                mtsp::engine::PipelineId::Dxmt
+                None
             } else {
-                mtsp::engine::PipelineId::from_str_flexible(&pipeline_str).unwrap_or(mtsp::engine::PipelineId::Dxmt)
+                Some(
+                    mtsp::engine::PipelineId::from_str_flexible(&pipeline_str)
+                        .unwrap_or(mtsp::engine::PipelineId::Dxmt),
+                )
             };
             resp(200, mtsp::default_rules::handle_launch_shape(appid, pipeline))
         },
@@ -3278,7 +3281,8 @@ fn parse_optional_request_steam_appid(
 fn pipeline_label_for(pipeline: crate::mtsp::engine::PipelineId) -> &'static str {
     match pipeline {
         crate::mtsp::engine::PipelineId::M12 => "M12",
-        crate::mtsp::engine::PipelineId::M11 => "M11",
+        crate::mtsp::engine::PipelineId::Dxmt => "DXMT",
+        crate::mtsp::engine::PipelineId::Dxmt32 => "DXMT(32)",
         crate::mtsp::engine::PipelineId::M9 => "M9",
         crate::mtsp::engine::PipelineId::FnaArm64 => "FNA/Mono",
         _ => "Other",
@@ -3297,7 +3301,7 @@ fn collect_crash_reports(ms_home: &std::path::Path) -> Vec<serde_json::Value> {
                 let pipeline = if appid > 0 {
                     crate::bottles::resolve_steam_pipeline_for_request(appid, None)
                 } else {
-                    crate::mtsp::engine::PipelineId::M11
+                    crate::mtsp::engine::PipelineId::Dxmt
                 };
                 let pipeline_label = pipeline_label_for(pipeline);
                 scan_crash_files(&entry.path(), &appid_str, pipeline_label, &mut reports, 0);
@@ -3317,7 +3321,7 @@ fn collect_crash_reports(ms_home: &std::path::Path) -> Vec<serde_json::Value> {
             let pipeline = if appid > 0 {
                 crate::bottles::resolve_steam_pipeline_for_request(appid, None)
             } else {
-                crate::mtsp::engine::PipelineId::M11
+                crate::mtsp::engine::PipelineId::Dxmt
             };
             let pipeline_label = pipeline_label_for(pipeline);
             scan_crash_files(&logs_dir, &bottle_id, pipeline_label, &mut reports, 0);
