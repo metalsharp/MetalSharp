@@ -1245,13 +1245,13 @@ pub fn get_steam_id() -> Option<String> {
     get_steam_id_for_home(&dirs::home_dir()?)
 }
 
-pub fn library() -> Value {
+pub fn library(force_refresh: bool) -> Value {
     let installed_appids = get_installed_appids();
     let downloaded_appids = get_downloaded_appids();
     let wine_steam_appids = get_wine_steam_installed_games();
     let sync = api_key_sync_state();
 
-    let owned: Vec<(u32, String)> = match fetch_owned_games(get_steam_id().as_deref()) {
+    let owned: Vec<(u32, String)> = match fetch_owned_games(get_steam_id().as_deref(), force_refresh) {
         Ok(games) if !games.is_empty() => games,
         _ => {
             let mut fallback: Vec<(u32, String)> = Vec::new();
@@ -1279,6 +1279,16 @@ pub fn library() -> Value {
     for &appid in &downloaded_appids {
         if !all_games.iter().any(|(id, _)| *id == appid) {
             all_games.push((appid, format!("Game {}", appid)));
+        }
+    }
+    // Installed manifests from every scanned library (including a shared
+    // external Steam library that may be classified as the macOS library)
+    // must surface even when the owned-games API cache is stale or the game
+    // was purchased after the last sync.
+    for &appid in &installed_appids {
+        if !all_games.iter().any(|(id, _)| *id == appid) {
+            let name = get_game_name_from_manifest(appid).unwrap_or_else(|| format!("Game {}", appid));
+            all_games.push((appid, name));
         }
     }
 
@@ -1387,7 +1397,10 @@ fn read_steam_config() -> (Option<String>, Option<String>) {
     (None, get_steam_id())
 }
 
-fn fetch_owned_games(_steam_id: Option<&str>) -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>> {
+fn fetch_owned_games(
+    _steam_id: Option<&str>,
+    force_refresh: bool,
+) -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>> {
     let (api_key, steam_id) = read_steam_config();
     let key = api_key.as_deref().unwrap_or("");
     let sid = steam_id.as_deref().or(_steam_id).unwrap_or("");
@@ -1398,7 +1411,7 @@ fn fetch_owned_games(_steam_id: Option<&str>) -> Result<Vec<(u32, String)>, Box<
 
     let cache_path = crate::platform::metalsharp_home_dir().join("cache/owned_games.json");
 
-    if cache_path.exists() {
+    if !force_refresh && cache_path.exists() {
         if let Ok(contents) = std::fs::read_to_string(&cache_path) {
             if let Ok(cached) = serde_json::from_str::<serde_json::Map<String, Value>>(&contents) {
                 if let Some(ts) = cached.get("timestamp").and_then(|t| t.as_u64()) {

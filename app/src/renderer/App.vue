@@ -124,8 +124,8 @@ async function refreshSteamStatus() {
   }
 }
 
-async function loadLibrary() {
-  const lib = await api<SteamLibrary>("GET", "/steam/library");
+async function loadLibrary(force = false) {
+  const lib = await api<SteamLibrary>("GET", `/steam/library${force ? "?refresh=1" : ""}`);
   if (lib && Array.isArray(lib.games)) {
     library.value = lib;
   }
@@ -258,7 +258,9 @@ function startHealthPolling() {
   setInterval(async () => {
     const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps");
     if (result?.new_appids && result.new_appids.length > 0) {
-      await loadLibrary();
+      // Force-refresh so a freshly installed game (possibly purchased after
+      // the last owned-games sync) actually surfaces in the library.
+      await loadLibrary(true);
     }
   }, 30000);
 

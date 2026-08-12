@@ -702,7 +702,8 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             let mut timing = diagnostics::LaunchTiming::start();
             app_log("Loading Steam library...");
             timing.mark("library_load_start");
-            let result = steam::library();
+            let force_refresh = query_param(&url, "refresh").as_deref() == Some("1");
+            let result = steam::library(force_refresh);
             timing.mark("library_load_done");
             if let Some(home) = dirs::home_dir() {
                 diagnostics::record_scan_timing(&home, "steam_library", &timing);
@@ -717,7 +718,9 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             app_log("Steam API key saved");
             match steam::save_api_key(key) {
                 Ok(_) => {
-                    let library = steam::library();
+                    // A freshly saved API key must refetch the owned list —
+                    // the cached one predates the key and would be stale.
+                    let library = steam::library(true);
                     let total = library.get("total").and_then(|t| t.as_u64()).unwrap_or(0);
                     app_log(&format!("Steam API key sync loaded {} games", total));
                     resp(
