@@ -400,37 +400,66 @@ bool PELoader::processRelocations(LoadedModule& module) {
 
     uint32_t relocRVA = optHeader->DataDirectory[DIRECTORY_BASERELOC].VirtualAddress;
     uint32_t relocSize = optHeader->DataDirectory[DIRECTORY_BASERELOC].Size;
+    uint64_t relocEndRVA = static_cast<uint64_t>(relocRVA) + relocSize;
 
-    auto* reloc = reinterpret_cast<IMAGE_BASE_RELOCATION*>(module.base + relocRVA);
-    auto* relocEnd = reinterpret_cast<IMAGE_BASE_RELOCATION*>(module.base + relocRVA + relocSize);
+    if (relocRVA >= module.size || relocEndRVA > module.size || relocSize < sizeof(IMAGE_BASE_RELOCATION)) {
+        MS_INFO("PELoader: invalid relocation directory at RVA 0x%X (size 0x%X, image size 0x%X)", relocRVA, relocSize,
+                module.size);
+        return false;
+    }
 
-    int relocCount = 0;
+    auto* reloc = module.base + relocRVA;
+    auto* relocEnd = module.base + relocEndRVA;
 
-    while (reloc < relocEnd && reloc->SizeOfBlock > 0) {
-        uint32_t pageRVA = reloc->VirtualAddress;
-        uint32_t numEntries = (reloc->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(uint16_t);
-        auto* entries = reinterpret_cast<uint16_t*>(reloc + 1);
+    size_t relocCount = 0;
+
+    while (reloc < relocEnd) {
+        size_t remaining = static_cast<size_t>(relocEnd - reloc);
+        if (remaining < sizeof(IMAGE_BASE_RELOCATION)) {
+            MS_INFO("PELoader: truncated relocation block header");
+            return false;
+        }
+
+        auto* block = reinterpret_cast<const IMAGE_BASE_RELOCATION*>(reloc);
+        uint32_t blockSize = block->SizeOfBlock;
+        if (blockSize < sizeof(IMAGE_BASE_RELOCATION) || blockSize > remaining || blockSize % 4 != 0) {
+            MS_INFO("PELoader: invalid relocation block size 0x%X (remaining 0x%zX)", blockSize, remaining);
+            return false;
+        }
+
+        uint32_t numEntries = (blockSize - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(uint16_t);
+        const auto* entries = reloc + sizeof(IMAGE_BASE_RELOCATION);
 
         for (uint32_t i = 0; i < numEntries; i++) {
-            uint16_t entry = entries[i];
+            uint16_t entry;
+            memcpy(&entry, entries + i * sizeof(entry), sizeof(entry));
             uint32_t type = entry >> 12;
             uint32_t offset = entry & 0xFFF;
 
             if (type == IMAGE_REL_BASED_DIR64) {
-                uint64_t* target = reinterpret_cast<uint64_t*>(module.base + pageRVA + offset);
-                *target += m_delta;
+                uint64_t targetRVA = static_cast<uint64_t>(block->VirtualAddress) + offset;
+                if (targetRVA + sizeof(uint64_t) > module.size) {
+                    MS_INFO("PELoader: relocation target outside image at RVA 0x%llX", (unsigned long long)targetRVA);
+                    return false;
+                }
+
+                uint64_t targetValue;
+                memcpy(&targetValue, module.base + targetRVA, sizeof(targetValue));
+                targetValue += m_delta;
+                memcpy(module.base + targetRVA, &targetValue, sizeof(targetValue));
                 relocCount++;
             } else if (type == IMAGE_REL_BASED_ABSOLUTE) {
                 // skip
             } else {
-                MS_INFO("PELoader: unsupported relocation type %u at 0x%X", type, pageRVA + offset);
+                MS_INFO("PELoader: unsupported relocation type %u at 0x%llX", type,
+                        (unsigned long long)(static_cast<uint64_t>(block->VirtualAddress) + offset));
             }
         }
 
-        reloc = reinterpret_cast<IMAGE_BASE_RELOCATION*>(reinterpret_cast<uint8_t*>(reloc) + reloc->SizeOfBlock);
+        reloc += blockSize;
     }
 
-    MS_INFO("PELoader: processed %d relocations (delta 0x%llX)", relocCount, (unsigned long long)m_delta);
+    MS_INFO("PELoader: processed %zu relocations (delta 0x%llX)", relocCount, (unsigned long long)m_delta);
 
     if (!initCFG(module))
         return false;
