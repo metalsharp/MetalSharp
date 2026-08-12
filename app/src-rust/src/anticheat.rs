@@ -106,7 +106,7 @@ pub fn eac_enabled(appid: u32) -> bool {
 /// route must never silently receive the substrate: redirect those requests
 /// to the already-built M12 Wine 11.5 lane instead.  Existing MTSP Wine lanes
 /// stay selectable so the card toggle does not overwrite a user's explicit
-/// M9/M10/M11/M12 choice.
+/// M9/DXMT/DXMT(32)/M12 choice.
 pub fn eac_pipeline_for_request(
     appid: u32,
     requested: crate::mtsp::engine::PipelineId,
@@ -1626,7 +1626,7 @@ mod tests {
 
         assert_eq!(eac_pipeline_for_enabled(false, PipelineId::D3DMetal), PipelineId::D3DMetal);
         assert_eq!(eac_pipeline_for_enabled(true, PipelineId::D3DMetal), PipelineId::M12);
-        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::M11), PipelineId::M11);
+        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::Dxmt), PipelineId::Dxmt);
         assert_eq!(eac_pipeline_for_enabled(true, PipelineId::Steam), PipelineId::M12);
     }
 

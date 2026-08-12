@@ -398,13 +398,7 @@ pub fn launch_with_pipeline(
     prepare_steam_api_for_pipeline(appid, pipeline_id);
 
     match pipeline_id {
-        PipelineId::Dxmt
-        | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
-        | PipelineId::M12 => launch_dxmt_metal(appid, node),
+        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::M12 => launch_dxmt_metal(appid, node),
         PipelineId::M13 | PipelineId::D3DMetal => launch_d3dmetal_gptk(appid, node),
         PipelineId::M32 => launch_wine_bare(appid, node),
         PipelineId::FnaArm64 => launch_fna_arm64(appid).map(|(pid, method, _)| (pid, method)),
@@ -428,14 +422,10 @@ pub fn launch_steam_bottle_with_pipeline(
     prepare_steam_api_for_pipeline(appid, pipeline_id);
 
     match pipeline_id {
-        PipelineId::Dxmt
-        | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
-        | PipelineId::M12 => launch_dxmt_metal_with_context(appid, node, Some(prefix_path), extra_env, Some(&log_path))
-            .map(|(pid, method)| (pid, method, log_path)),
+        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::M12 => {
+            launch_dxmt_metal_with_context(appid, node, Some(prefix_path), extra_env, Some(&log_path))
+                .map(|(pid, method)| (pid, method, log_path))
+        },
         PipelineId::M13 | PipelineId::D3DMetal => {
             launch_d3dmetal_gptk_with_context(appid, node, Some(prefix_path), extra_env, Some(&log_path))
                 .map(|(pid, method)| (pid, method, log_path))
@@ -514,10 +504,7 @@ pub fn prepare_steam_pipeline_env(
     match pipeline_id {
         PipelineId::Dxmt
         | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
+        | PipelineId::Dxmt32
         | PipelineId::M12
         | PipelineId::M13
         | PipelineId::D3DMetal
@@ -702,10 +689,7 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
 fn quarantine_route_conflicts_for_recipe(
     recipe: &super::recipe::LaunchRecipe,
 ) -> Result<usize, Box<dyn std::error::Error>> {
-    if !matches!(
-        recipe.pipeline,
-        PipelineId::M9 | PipelineId::M10 | PipelineId::M10_32 | PipelineId::M11 | PipelineId::M11_32 | PipelineId::M12
-    ) {
+    if !matches!(recipe.pipeline, PipelineId::M9 | PipelineId::Dxmt | PipelineId::Dxmt32 | PipelineId::M12) {
         return Ok(0);
     }
 
@@ -872,10 +856,8 @@ fn unique_quarantine_target(path: &Path) -> PathBuf {
 fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
     match pipeline {
         PipelineId::M9 => "m9",
-        PipelineId::M10 => "m10",
-        PipelineId::M10_32 => "m10_32",
-        PipelineId::M11 => "m11",
-        PipelineId::M11_32 => "m11_32",
+        PipelineId::Dxmt => "dxmt",
+        PipelineId::Dxmt32 => "dxmt_32",
         PipelineId::M12 => "m12",
         PipelineId::D3DMetal => "d3dmetal",
         _ => "route",
@@ -894,7 +876,7 @@ fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
 fn runtime_source_for_dll(dll_path: &Path, ms_root: &Path) -> Option<PathBuf> {
     let filename = dll_path.file_name()?.to_string_lossy().to_ascii_lowercase();
     // Known deploy-from source roots, derived from the PipelineNode deploy_dlls
-    // source_subpath values across M9/M10/M10_32/M11/M11_32/M12.
+    // source_subpath values across M9/DXMT/DXMT(32)/M12.
     const SOURCE_ROOTS: &[&str] = &[
         "lib/dxmt/x86_64-windows",
         "lib/dxmt/i386-windows",
@@ -1042,7 +1024,7 @@ const M12_PREFIX_ROUTE_DLLS: &[&str] =
 ///
 /// The M12 route (vkd3d-proton/DXVK lanes, or the DXMT M12 lane for the
 /// `m12Backend=dxmt` fallback) deploys its DLLs into the GAME DIR and routes
-/// them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like M9/M10/M11
+/// them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like M9/DXMT
 /// (`deploy_recipe_dlls`). It never stages into the shared prefix system32.
 ///
 /// This repair detects route copies the OLD backend left in system32 and
@@ -1383,17 +1365,14 @@ pub fn launch_custom_with_options(
     match pipeline_id {
         PipelineId::Dxmt
         | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
+        | PipelineId::Dxmt32
         | PipelineId::M12
         | PipelineId::M13
         | PipelineId::D3DMetal
         | PipelineId::M32
         | PipelineId::WineBare => {},
         PipelineId::FnaArm64 | PipelineId::Steam | PipelineId::MacSteam => {
-            return Err("Sharp Library apps must use Auto, Wine, M9, M10, M11, M12, M13, D3DMetal, or M32".into());
+            return Err("Sharp Library apps must use Auto, Wine, M9, DXMT, DXMT(32), M12, M13, D3DMetal, or M32".into());
         },
     }
 
@@ -2230,7 +2209,7 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
         // path for the game; it hands the actual execution to the game's own
         // runtime via the Wine pipeline so the game WORKS instead of blocking.
         eprintln!("fna: appid {} is a .NET Core game — launching via its own runtime (Wine stack)", appid);
-        let (pid, method) = launch_with_pipeline(appid, super::engine::PipelineId::M11)?;
+        let (pid, method) = launch_with_pipeline(appid, super::engine::PipelineId::Dxmt)?;
         let log_path = crate::platform::metalsharp_home_dir_for(&dirs::home_dir().unwrap_or_default())
             .join("bottles")
             .join(format!("steam_{}", appid))
@@ -2288,9 +2267,9 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
             crate::mono_profile::MonoProfileKind::UnityMono => {
                 "Unity engine games cannot run under the bundled Mono runtime: the Windows build's \
                  executable is the native Unity player (no managed entry point). Use a Wine pipeline \
-                 (M11/M12) or the native macOS Steam build."
+                 (DXMT/M12) or the native macOS Steam build."
             },
-            _ => "the resolved executable is not a .NET assembly; use a Wine pipeline (M11/M12)",
+            _ => "the resolved executable is not a .NET assembly; use a Wine pipeline (DXMT/M12)",
         };
         return Err(
             format!("FNA/Mono/XNA route unavailable for appid {}: {}. Target: {}", appid, hint, exe.display()).into()
@@ -2990,11 +2969,11 @@ fn apply_msync_config(env: &mut Vec<(String, String)>, home: &Path) {
 }
 
 /// DXMT routes that carry MetalFX Spatial upscaling (`DXMT_METALFX_*` env +
-/// `d3d11.metalSpatialUpscaleFactor` in `DXMT_CONFIG`): M10, M10(32), M11,
-/// M11(32). M9 has no upscale key; M12 is vkd3d-proton; M13/D3DMetal/FNA use
+/// `d3d11.metalSpatialUpscaleFactor` in `DXMT_CONFIG`): DXMT and DXMT(32).
+/// M9 has no upscale key; M12 is vkd3d-proton; M13/D3DMetal/FNA use
 /// other stacks.
 fn is_metalfx_route(pipeline_id: PipelineId) -> bool {
-    matches!(pipeline_id, PipelineId::M10 | PipelineId::M10_32 | PipelineId::M11 | PipelineId::M11_32)
+    matches!(pipeline_id, PipelineId::Dxmt | PipelineId::Dxmt32)
 }
 
 /// Apply the MetalFX Spatial upscale strength to the DXMT env, overriding
@@ -3007,7 +2986,7 @@ fn is_metalfx_route(pipeline_id: PipelineId) -> bool {
 /// `off` disables MetalFX the same way the app-compat path does
 /// (`DXMT_METALFX_SPATIAL_SWAPCHAIN=0` + no upscale factor); enabled strengths
 /// keep the swapchain integration and set the factor. Only DXMT routes
-/// (M10/M10(32)/M11/M11(32)) are touched.
+/// (DXMT/DXMT(32)) are touched.
 fn apply_metal_fx_config(env: &mut Vec<(String, String)>, node: &PipelineNode, home: &Path) {
     if !is_metalfx_route(node.id) {
         return;
@@ -3050,7 +3029,7 @@ fn apply_metal_fx_config_cmd(cmd: &mut std::process::Command, node: &PipelineNod
 /// DXMT routes that compile D3D10/11 shaders and require an explicit Metal
 /// shader language version on macOS 14 and 15 through 25.
 fn is_dxmt_shader_metal_version_route(pipeline_id: PipelineId) -> bool {
-    matches!(pipeline_id, PipelineId::M10 | PipelineId::M10_32 | PipelineId::M11 | PipelineId::M11_32)
+    matches!(pipeline_id, PipelineId::Dxmt | PipelineId::Dxmt32)
 }
 
 /// Map a macOS ProductVersion to the DXMT Metal shader language override.
@@ -6307,16 +6286,16 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m11_pipeline_deploy_list_does_not_include_d3d12_and_uses_legacy_dxmt_surface() {
-        // Phase 3 contract: M11 must NOT deploy d3d12.dll and must point at the
+    fn dxmt_pipeline_deploy_list_does_not_include_d3d12_and_uses_legacy_dxmt_surface() {
+        // Phase 3 contract: DXMT must NOT deploy d3d12.dll and must point at the
         // legacy lib/dxmt surface, never lib/dxmt_m12.
-        let node = get_pipeline(PipelineId::M11);
+        let node = get_pipeline(PipelineId::Dxmt);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
-        assert!(!filenames.contains(&"d3d12.dll"), "M11 deploy list must NOT include d3d12.dll (got {:?})", filenames);
+        assert!(!filenames.contains(&"d3d12.dll"), "DXMT deploy list must NOT include d3d12.dll (got {:?})", filenames);
         for deploy in &node.deploy_dlls {
             assert!(
                 !deploy.source_subpath.starts_with("lib/dxmt_m12/"),
-                "M11 DLL {} must not come from lib/dxmt_m12 (got {})",
+                "DXMT DLL {} must not come from lib/dxmt_m12 (got {})",
                 deploy.filename,
                 deploy.source_subpath
             );
@@ -6386,8 +6365,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert_eq!(std::fs::read_to_string(exe_dir.join("dxgi.dll")).unwrap(), "m12-dxvk-dxgi.dll");
         assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "m12-dxvk-d3d11.dll");
 
-        let m11 = make_recipe(
-            PipelineId::M11,
+        let dxmt = make_recipe(
+            PipelineId::Dxmt,
             "dxmt",
             vec![
                 (&dxmt_source, "lib/dxmt/x86_64-windows", "dxgi.dll"),
@@ -6395,14 +6374,14 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                 (&dxmt_source, "lib/dxmt/x86_64-windows", "winemetal.dll"),
             ],
         );
-        deploy_recipe_dlls(&m11).expect("switch M12 to M11");
+        deploy_recipe_dlls(&dxmt).expect("switch M12 to DXMT");
         for dll in ["d3d12.dll", "d3d12core.dll"] {
             assert!(!exe_dir.join(dll).exists(), "DXMT route must remove stale M12 {dll}");
         }
         assert_eq!(std::fs::read_to_string(exe_dir.join("dxgi.dll")).unwrap(), "dxmt-dxgi.dll");
         assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "dxmt-d3d11.dll");
 
-        deploy_recipe_dlls(&m12).expect("switch M11 to M12");
+        deploy_recipe_dlls(&m12).expect("switch DXMT to M12");
         assert!(!exe_dir.join("winemetal.dll").exists(), "M12 route must remove stale DXMT winemetal.dll");
         for (dll, contents) in [
             ("d3d12.dll", "m12-vkd3d-d3d12.dll"),
@@ -6418,7 +6397,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn every_dxmt_route_quarantines_the_m12_ownership_set() {
-        for pipeline in [PipelineId::M11, PipelineId::M11_32, PipelineId::M10, PipelineId::M10_32] {
+        for pipeline in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let root = test_dir(&format!("dxmt-route-quarantine-{pipeline:?}"));
             let game_dir = root.join("game");
             let exe_dir = game_dir.join("bin");
@@ -6453,8 +6432,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m11_quarantines_stale_route_dlls_before_deploying_legacy_dxmt() {
-        let root = test_dir("m11-route-quarantine");
+    fn dxmt_quarantines_stale_route_dlls_before_deploying_legacy_dxmt() {
+        let root = test_dir("dxmt-route-quarantine");
         let game_dir = root.join("game");
         let exe_dir = game_dir.join("Binaries").join("Win64");
         let source_dir = root.join("runtime").join("wine").join("lib").join("dxmt").join("x86_64-windows");
@@ -6469,8 +6448,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
         let recipe = recipe::LaunchRecipe {
             appid: 42,
-            pipeline: PipelineId::M11,
-            pipeline_name: "M11".into(),
+            pipeline: PipelineId::Dxmt,
+            pipeline_name: "DXMT".into(),
             backend: "dxmt".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe_dir.join("Game.exe")),
@@ -6498,10 +6477,10 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         };
 
         let moved = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine stale routes");
-        assert_eq!(moved, 3, "d3d12 plus stale d3d11/winemetal should be quarantined before M11 deploy");
-        deploy_recipe_dlls(&recipe).expect("deploy M11 legacy DXMT route");
+        assert_eq!(moved, 3, "d3d12 plus stale d3d11/winemetal should be quarantined before DXMT deploy");
+        deploy_recipe_dlls(&recipe).expect("deploy DXMT legacy DXMT route");
 
-        assert!(!exe_dir.join("d3d12.dll").exists(), "M11 save must not leave stale d3d12.dll behind");
+        assert!(!exe_dir.join("d3d12.dll").exists(), "DXMT save must not leave stale d3d12.dll behind");
         assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "legacy dxmt d3d11");
         assert_eq!(std::fs::read_to_string(exe_dir.join("winemetal.dll")).unwrap(), "legacy dxmt winemetal");
         let marker = game_dir.join(".metalsharp").join("route-quarantine").join("latest-manifest.json");
@@ -6511,7 +6490,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_quarantines_stale_m11_route_dlls_before_deploying_isolated_dxmt_m12() {
+    fn m12_quarantines_stale_dxmt_route_dlls_before_deploying_isolated_dxmt_m12() {
         let root = test_dir("m12-route-quarantine-switchback");
         let game_dir = root.join("game");
         let exe_dir = game_dir.join("Binaries").join("Win64");
@@ -6519,9 +6498,9 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         std::fs::create_dir_all(&exe_dir).unwrap();
         std::fs::create_dir_all(&source_dir).unwrap();
         std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
-        std::fs::write(exe_dir.join("d3d11.dll"), b"stale m11 d3d11").unwrap();
-        std::fs::write(exe_dir.join("dxgi.dll"), b"stale m11 dxgi").unwrap();
-        std::fs::write(exe_dir.join("winemetal.dll"), b"stale m11 winemetal").unwrap();
+        std::fs::write(exe_dir.join("d3d11.dll"), b"stale dxmt d3d11").unwrap();
+        std::fs::write(exe_dir.join("dxgi.dll"), b"stale dxmt dxgi").unwrap();
+        std::fs::write(exe_dir.join("winemetal.dll"), b"stale dxmt winemetal").unwrap();
 
         let route_dlls = ["d3d12.dll", "d3d11.dll", "dxgi.dll", "dxgi_dxmt.dll", "winemetal.dll"];
         for dll in route_dlls {
@@ -6552,7 +6531,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             warnings: Vec::new(),
         };
 
-        let moved = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine stale M11 routes");
+        let moved = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine stale DXMT routes");
         assert_eq!(moved, 3, "stale d3d11/dxgi/winemetal should be quarantined before M12 deploy");
         deploy_recipe_dlls(&recipe).expect("deploy M12 isolated DXMT route");
 
@@ -6564,22 +6543,22 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             );
         }
         let marker = game_dir.join(".metalsharp").join("route-quarantine").join("latest-manifest.json");
-        assert!(marker.is_file(), "quarantine marker should document moved M11 route DLLs");
+        assert!(marker.is_file(), "quarantine marker should document moved DXMT route DLLs");
 
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn m12_dry_run_includes_d3d12_dll_and_m11_dry_run_does_not() {
+    fn m12_dry_run_includes_d3d12_dll_and_dxmt_dry_run_does_not() {
         // Phase 3 contract: the dry-run verifier's deploy list must reflect
-        // the pipeline node. M12 dry-run includes d3d12.dll; M11 does not.
+        // the pipeline node. M12 dry-run includes d3d12.dll; DXMT does not.
         // Uses an explicit temp home so no global env is mutated.
         let home = std::env::temp_dir().join("ms-m12-dryrun-contract");
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
 
         let m12 = pipeline_dry_run_for(&home, 2379780, Some(PipelineId::M12));
-        let m11 = pipeline_dry_run_for(&home, 17300, Some(PipelineId::M11));
+        let dxmt = pipeline_dry_run_for(&home, 17300, Some(PipelineId::Dxmt));
 
         let m12_filenames: Vec<String> = m12
             .get("deploy_dlls")
@@ -6588,7 +6567,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             .iter()
             .map(|d| d.get("filename").unwrap().as_str().unwrap().to_string())
             .collect();
-        let m11_filenames: Vec<String> = m11
+        let dxmt_filenames: Vec<String> = dxmt
             .get("deploy_dlls")
             .and_then(|v| v.as_array())
             .unwrap()
@@ -6602,9 +6581,9 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             m12_filenames
         );
         assert!(
-            !m11_filenames.contains(&"d3d12.dll".to_string()),
-            "M11 dry-run must NOT include d3d12.dll: {:?}",
-            m11_filenames
+            !dxmt_filenames.contains(&"d3d12.dll".to_string()),
+            "DXMT dry-run must NOT include d3d12.dll: {:?}",
+            dxmt_filenames
         );
 
         // Both dry-runs must report the env keys the launch path sets.
@@ -6737,10 +6716,10 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     #[test]
     fn dxmt_family_env_uses_metalfx_upscale_and_cache_paths() {
         // M12 now runs vkd3d-proton; the DXMT_CONFIG contract applies to the
-        // legacy DXMT family (M9/M10/M11) only. MetalFX default strength is
+        // legacy DXMT family (M9/DXMT) only. MetalFX default strength is
         // 1.50 (metalfx.overlay.json default), reconciled into the env at
         // launch; M9 has no upscale pair (no MetalFX on D3D9).
-        for pipeline_id in [PipelineId::M10, PipelineId::M11] {
+        for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let home = test_dir(&format!("dxmt-env-{:?}", pipeline_id));
             let node = get_pipeline(pipeline_id);
 
@@ -6779,7 +6758,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let env = app_compat_env_pairs(1245620, PipelineId::M12);
 
         assert_eq!(env_value(&env, "VKD3D_FEATURE_LEVEL"), Some("12_0"));
-        assert!(app_compat_env_pairs(1245620, PipelineId::M11).is_empty());
+        assert!(app_compat_env_pairs(1245620, PipelineId::Dxmt).is_empty());
         assert!(app_compat_env_pairs(814380, PipelineId::M12).is_empty());
     }
 
@@ -6819,7 +6798,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         }
 
         assert!(app_compat_env_pairs(123456, PipelineId::M9).is_empty());
-        assert!(app_compat_env_pairs(774361, PipelineId::M10).is_empty());
+        assert!(app_compat_env_pairs(774361, PipelineId::Dxmt).is_empty());
     }
 
     #[test]
@@ -6869,7 +6848,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             "DXMT_LOG_PATH",
         ] {
             assert!(is_reserved_route_env_key(PipelineId::M12, key), "{} must be reserved for M12", key);
-            assert!(!is_reserved_route_env_key(PipelineId::M11, key), "{} should remain overridable outside M12", key);
+            assert!(!is_reserved_route_env_key(PipelineId::Dxmt, key), "{} should remain overridable outside M12", key);
         }
         assert!(!is_reserved_route_env_key(PipelineId::M12, "DXMT_D3D12_UE_SM6_COMPAT"));
     }
@@ -6974,9 +6953,9 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         std::fs::write(bin.join("wine"), b"#!/bin/sh\n").unwrap();
 
         let m12 = get_pipeline(PipelineId::M12);
-        let m11 = get_pipeline(PipelineId::M11);
+        let dxmt = get_pipeline(PipelineId::Dxmt);
         assert_eq!(crate::platform::runtime_wine_binary(&ms_root), bin.join("metalsharp-wine"));
-        assert_eq!(m12.requires_wine, m11.requires_wine);
+        assert_eq!(m12.requires_wine, dxmt.requires_wine);
         assert_eq!(m12.backend, "vkd3d-proton");
         assert!(m12.winedllpath_dirs.is_empty());
         let _ = std::fs::remove_dir_all(home);
@@ -7005,7 +6984,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn dxmt_pipelines_use_winedllpath_routing() {
-        for pipeline_id in [PipelineId::M9, PipelineId::M10, PipelineId::M11] {
+        for pipeline_id in [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32] {
             let node = get_pipeline(pipeline_id);
             assert!(node.uses_winedllpath_routing(), "{:?} should use WINEDLLPATH routing", pipeline_id);
         }
@@ -7362,7 +7341,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn steam_pipeline_env_includes_winedllpath_for_dxmt_pipelines() {
-        for pipeline_id in [PipelineId::M9, PipelineId::M10, PipelineId::M11] {
+        for pipeline_id in [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32] {
             let home = test_dir(&format!("winedllpath-env-{:?}", pipeline_id));
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
@@ -7444,7 +7423,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         // Regression guard for the old M12-only system32 deploy: no pipeline
         // (M12 included) may write route DLLs into the shared prefix. The
         // repair is a pure no-op on a clean prefix (nothing to heal).
-        let root = test_dir("m11-prefix-route");
+        let root = test_dir("dxmt-prefix-route");
         let ms_root = root.join("runtime").join("wine");
         let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
         std::fs::create_dir_all(&wine_lane).expect("create wine lane");
@@ -7636,7 +7615,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn m12_steam_launch_models_deploy_same_real_steam_components_as_m11() {
+    fn m12_steam_launch_models_deploy_same_real_steam_components_as_dxmt() {
         for (appid, expects_secure) in [(1260320, false), (440, true)] {
             let home = test_dir(&format!("m12-real-steam-{appid}"));
             let steam_dir = crate::platform::metalsharp_home_dir_for(&home)
@@ -8136,9 +8115,9 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn metalfx_env_reconciles_all_four_dxmt_routes() {
+    fn metalfx_env_reconciles_all_dxmt_routes() {
         let home = metalfx_home();
-        for pipeline_id in [PipelineId::M10, PipelineId::M10_32, PipelineId::M11, PipelineId::M11_32] {
+        for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let node = get_pipeline(pipeline_id);
 
             // Default (no state file): enabled at 1.50.
@@ -8203,8 +8182,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let home = metalfx_home();
         // Recipe env sets a DXMT_CONFIG with the old hardcoded 1.43; the toggle
         // (1.50 default) must win.
-        let node = get_pipeline(PipelineId::M11);
-        let mut env = dxmt_env_with_node(PipelineId::M11);
+        let node = get_pipeline(PipelineId::Dxmt);
+        let mut env = dxmt_env_with_node(PipelineId::Dxmt);
         env.push((
             "DXMT_CONFIG".to_string(),
             "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60".into(),
@@ -8222,7 +8201,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     #[test]
     fn metalfx_env_cycling_is_stable() {
         let home = metalfx_home();
-        let node = get_pipeline(PipelineId::M10);
+        let node = get_pipeline(PipelineId::Dxmt);
         // off -> 1.50 -> 1.75 -> off -> 1.75 ... repeated; each rewrite must
         // converge and never accumulate duplicate pairs.
         for (i, (enabled, factor, expect)) in [
@@ -8236,7 +8215,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         .enumerate()
         {
             write_metalfx_state(&home, *enabled, *factor);
-            let mut env = dxmt_env_with_node(PipelineId::M10);
+            let mut env = dxmt_env_with_node(PipelineId::Dxmt);
             // Run twice like two launch cycles.
             apply_metal_fx_config(&mut env, node, &home);
             let env2 = env.clone();
@@ -8257,11 +8236,11 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     #[test]
     fn metalfx_env_passes_overlay_factor_through_unquantized() {
         let home = metalfx_home();
-        let node = get_pipeline(PipelineId::M11);
+        let node = get_pipeline(PipelineId::Dxmt);
         // The ProcessManager overlay offers 2.0 (metalfx.rs accepts 1.0..=3.0).
         // The launch env must honor it, not quantize to the sidebar's pair.
         write_metalfx_state(&home, true, 2.0);
-        let mut env = dxmt_env_with_node(PipelineId::M11);
+        let mut env = dxmt_env_with_node(PipelineId::Dxmt);
         apply_metal_fx_config(&mut env, node, &home);
         let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
         assert!(
@@ -8272,7 +8251,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
         // A fractional value (e.g. 1.60) also passes through.
         write_metalfx_state(&home, true, 1.6);
-        let mut env = dxmt_env_with_node(PipelineId::M11);
+        let mut env = dxmt_env_with_node(PipelineId::Dxmt);
         apply_metal_fx_config(&mut env, node, &home);
         let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
         assert!(config.contains("d3d11.metalSpatialUpscaleFactor=1.60"), "1.6 factor must pass through: {}", config);
@@ -8294,8 +8273,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn dxmt_shader_metal_version_reconciles_all_four_dxmt_routes() {
-        for pipeline_id in [PipelineId::M10, PipelineId::M10_32, PipelineId::M11, PipelineId::M11_32] {
+    fn dxmt_shader_metal_version_reconciles_all_dxmt_routes() {
+        for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let node = get_pipeline(pipeline_id);
             for (product_version, expected_shader_version) in
                 [("14.7.6", Some("310")), ("15.0", Some("320")), ("25.4.1", Some("320")), ("26.0", None)]
@@ -8336,7 +8315,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn dxmt_shader_metal_version_command_reconciliation_beats_late_env() {
-        let node = get_pipeline(PipelineId::M11);
+        let node = get_pipeline(PipelineId::Dxmt);
         for (product_version, expected_shader_version) in
             [("14.7.6", Some("310")), ("15.0", Some("320")), ("25.4.1", Some("320")), ("26.0", None)]
         {
@@ -8495,8 +8474,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn dxmt_shader_metal_version_missing_detector_output_fails_open() {
-        let node = get_pipeline(PipelineId::M11);
-        let mut env = dxmt_env_with_node(PipelineId::M11);
+        let node = get_pipeline(PipelineId::Dxmt);
+        let mut env = dxmt_env_with_node(PipelineId::Dxmt);
         env.push(("DXMT_CONFIG".to_string(), "d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310".to_string()));
         apply_dxmt_shader_metal_version_config_for_macos_version(&mut env, node, None);
 
@@ -8518,7 +8497,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let home = metalfx_home();
         // Default: no config -> WINEMSYNC=1.
         for pipeline_id in
-            [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
+            [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
         {
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
@@ -8528,7 +8507,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         // OFF: all routes get WINEMSYNC=0.
         write_msync_config(&home, false);
         for pipeline_id in
-            [PipelineId::M9, PipelineId::M10, PipelineId::M11, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
+            [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
         {
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
@@ -8570,8 +8549,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     fn msync_toggle_beats_recipe_env() {
         let home = metalfx_home();
         write_msync_config(&home, false);
-        let node = get_pipeline(PipelineId::M11);
-        // Simulate a game recipe forcing WINEMSYNC=1 (M11 is not a reserved
+        let node = get_pipeline(PipelineId::Dxmt);
+        // Simulate a game recipe forcing WINEMSYNC=1 (DXMT is not a reserved
         // route, so the recipe env would win without the reconcile).
         let mut env = steam_pipeline_env_pairs(&home, node, 42);
         env.push(("WINEMSYNC".to_string(), "1".to_string()));
@@ -8753,8 +8732,107 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let control = app_compat_env_pairs(870780, PipelineId::M12);
         assert!(control.iter().any(|(key, value)| key == "MVK_CONFIG_DEBUG" && value == "1"));
         assert!(!control.iter().any(|(key, _)| key == "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS"));
-        assert!(!app_compat_env_pairs(870780, PipelineId::M11)
+        assert!(!app_compat_env_pairs(870780, PipelineId::Dxmt)
             .iter()
             .any(|(key, _)| key == "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS"));
+    }
+
+    #[test]
+    fn deployed_dxmt_route_dlls_are_byte_identical_to_their_arch_source_artifacts() {
+        // Hash proof: DXMT must stage the x64 artifacts, DXMT(32) must stage
+        // the i386 artifacts, and neither may carry bytes from the other arch
+        // (or the M12-owned dxgi_dxmt bridge). Every staged file's SHA-256
+        // must match its declared source artifact exactly.
+        let root = test_dir("dxmt-route-hash-proof");
+        let ms_root = root.join("runtime").join("wine");
+        let game_dir = root.join("game");
+        let exe_dir = game_dir.join("bin");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
+
+        // Distinct payload bytes per architecture so a cross-arch mix-up is
+        // detectable by hash.
+        let x64 = |name: &str| format!("x64:{name}").into_bytes();
+        let i386 = |name: &str| format!("i386:{name}").into_bytes();
+
+        let x64_wine = ms_root.join("lib/wine/x86_64-windows");
+        let x64_dxmt = ms_root.join("lib/dxmt/x86_64-windows");
+        let i386_wine = ms_root.join("lib/wine/i386-windows");
+        let i386_dxmt = ms_root.join("lib/dxmt/i386-windows");
+        for dir in [&x64_wine, &x64_dxmt, &i386_wine, &i386_dxmt] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        for name in ["d3d10.dll", "d3d10_1.dll"] {
+            std::fs::write(x64_wine.join(name), x64(name)).unwrap();
+            std::fs::write(i386_wine.join(name), i386(name)).unwrap();
+        }
+        for name in ["d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"] {
+            std::fs::write(x64_dxmt.join(name), x64(name)).unwrap();
+            std::fs::write(i386_dxmt.join(name), i386(name)).unwrap();
+        }
+        // M12-owned bridge present in the source tree must never be deployed.
+        std::fs::write(x64_dxmt.join("dxgi_dxmt.dll"), b"m12-bridge").unwrap();
+        std::fs::write(i386_dxmt.join("dxgi_dxmt.dll"), b"m12-bridge").unwrap();
+
+        let sha256 = |path: &Path| crate::diagnostics::file_sha256(path).expect("read file for sha256");
+
+        for (pipeline, expect_x64) in [(PipelineId::Dxmt, true), (PipelineId::Dxmt32, false)] {
+            let node = get_pipeline(pipeline);
+            let recipe = recipe::LaunchRecipe {
+                appid: 42,
+                pipeline,
+                pipeline_name: node.name.into(),
+                backend: node.backend.into(),
+                game_dir: Some(game_dir.clone()),
+                exe_path: Some(exe_dir.join("Game.exe")),
+                exe_name: Some("Game.exe".into()),
+                launch_args: Vec::new(),
+                env: Vec::new(),
+                dlls: recipe::selected_deploy_dlls_for_pipeline(
+                    &game_dir,
+                    Some(&exe_dir.join("Game.exe")),
+                    node,
+                    &ms_root,
+                ),
+                runtime_assets: Vec::new(),
+                warnings: Vec::new(),
+            };
+            // exactly the six unified route DLLs, never the M12 bridge
+            assert_eq!(recipe.dlls.len(), 6, "{pipeline:?} must deploy exactly six route DLLs");
+            assert!(recipe.dlls.iter().all(|dll| dll.source_present), "{pipeline:?} all sources present");
+            assert!(
+                !recipe.dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"),
+                "{pipeline:?} must never deploy the M12-owned dxgi_dxmt bridge"
+            );
+
+            deploy_recipe_dlls(&recipe).expect("deploy route");
+            for dll in &recipe.dlls {
+                assert_eq!(
+                    sha256(&dll.dest_path),
+                    sha256(&dll.source_path),
+                    "{pipeline:?} {} must be byte-identical to its source artifact",
+                    dll.filename
+                );
+                let bytes = std::fs::read(&dll.dest_path).unwrap();
+                if expect_x64 {
+                    assert!(
+                        String::from_utf8_lossy(&bytes).starts_with("x64:"),
+                        "{pipeline:?} {} must carry x64 source bytes",
+                        dll.filename
+                    );
+                } else {
+                    assert!(
+                        String::from_utf8_lossy(&bytes).starts_with("i386:"),
+                        "{pipeline:?} {} must carry i386 source bytes",
+                        dll.filename
+                    );
+                }
+            }
+            // clear the deployed copies so the second route starts clean
+            for dll in &recipe.dlls {
+                let _ = std::fs::remove_file(&dll.dest_path);
+            }
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 }

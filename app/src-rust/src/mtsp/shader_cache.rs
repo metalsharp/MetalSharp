@@ -44,7 +44,7 @@ fn find_preset(home: &PathBuf, cache_subdir: &str, appid: u32) -> Option<PathBuf
 
 fn preset_lookup_subdirs(cache_subdir: &str) -> Vec<&str> {
     match cache_subdir {
-        "m9" | "m10" | "m11" => vec![cache_subdir, "dxmt-metal"],
+        "m9" | "dxmt" | "dxmt_32" => vec![cache_subdir, "dxmt-metal"],
         "m12" => vec![cache_subdir, "dxmt-metal12"],
         _ => vec![cache_subdir],
     }
@@ -181,14 +181,14 @@ fn merge_preset_into_user(preset_db: &PathBuf, user_db: &PathBuf) -> Option<u64>
 // trace flags such as DXMT_D3D12_TRACE) has a stable parsing surface, and it
 // gives the cache doctor a real, testable introspection path today.
 
-/// The shader-cache family a pipeline shares. M9/M10/M11 share the legacy
-/// `dxmt-metal` family; M12/M13 use the isolated `dxmt-metal12` family.
+/// The shader-cache family a pipeline shares. M9/DXMT/DXMT(32) share the
+/// legacy `dxmt-metal` family; M12/M13 use the isolated `dxmt-metal12` family.
 pub fn shader_cache_family(pipeline: crate::mtsp::engine::PipelineId) -> &'static [&'static str] {
     use crate::mtsp::engine::PipelineId;
     match pipeline {
         PipelineId::M9 => &["m9", "dxmt-metal"],
-        PipelineId::M10 => &["m10", "dxmt-metal"],
-        PipelineId::M11 => &["m11", "dxmt-metal"],
+        PipelineId::Dxmt => &["dxmt", "dxmt-metal"],
+        PipelineId::Dxmt32 => &["dxmt_32", "dxmt-metal"],
         PipelineId::M12 => &["m12", "dxmt-metal12"],
         PipelineId::M13 => &["m13", "dxmt-metal12"],
         _ => &[],
@@ -200,8 +200,8 @@ pub fn primary_cache_subdir(pipeline: crate::mtsp::engine::PipelineId) -> Option
     use crate::mtsp::engine::PipelineId;
     match pipeline {
         PipelineId::M9 => Some("m9"),
-        PipelineId::M10 => Some("m10"),
-        PipelineId::M11 => Some("m11"),
+        PipelineId::Dxmt => Some("dxmt"),
+        PipelineId::Dxmt32 => Some("dxmt_32"),
         PipelineId::M12 => Some("m12"),
         PipelineId::M13 => Some("m13"),
         _ => None,
@@ -382,8 +382,8 @@ fn pipeline_preference_id_str(pipeline: crate::mtsp::engine::PipelineId) -> &'st
     use crate::mtsp::engine::PipelineId;
     match pipeline {
         PipelineId::M9 => "m9",
-        PipelineId::M10 => "m10",
-        PipelineId::M11 => "m11",
+        PipelineId::Dxmt => "dxmt",
+        PipelineId::Dxmt32 => "dxmt_32",
         PipelineId::M12 => "m12",
         PipelineId::M13 => "m13",
         PipelineId::D3DMetal => "d3dmetal",
@@ -490,8 +490,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn m10_reuses_shared_dxmt_metal_preset_family() {
-        assert_eq!(preset_lookup_subdirs("m10"), vec!["m10", "dxmt-metal"]);
+    fn dxmt_reuses_shared_dxmt_metal_preset_family() {
+        assert_eq!(preset_lookup_subdirs("dxmt"), vec!["dxmt", "dxmt-metal"]);
     }
 
     #[test]
@@ -504,8 +504,8 @@ mod tests {
     #[test]
     fn shader_cache_family_keeps_legacy_and_m12_isolated() {
         use crate::mtsp::engine::PipelineId;
-        // M9/M10/M11 share the legacy dxmt-metal family.
-        assert_eq!(shader_cache_family(PipelineId::M11), &["m11", "dxmt-metal"]);
+        // M9/DXMT/DXMT(32) share the legacy dxmt-metal family.
+        assert_eq!(shader_cache_family(PipelineId::Dxmt), &["dxmt", "dxmt-metal"]);
         // M12/M13 use the isolated dxmt-metal12 family and must not mix.
         assert_eq!(shader_cache_family(PipelineId::M12), &["m12", "dxmt-metal12"]);
         assert_eq!(shader_cache_family(PipelineId::M13), &["m13", "dxmt-metal12"]);
@@ -515,8 +515,8 @@ mod tests {
     fn primary_cache_subdir_maps_each_pipeline_to_its_isolated_lane() {
         use crate::mtsp::engine::PipelineId;
         assert_eq!(primary_cache_subdir(PipelineId::M9), Some("m9"));
-        assert_eq!(primary_cache_subdir(PipelineId::M10), Some("m10"));
-        assert_eq!(primary_cache_subdir(PipelineId::M11), Some("m11"));
+        assert_eq!(primary_cache_subdir(PipelineId::Dxmt), Some("dxmt"));
+        assert_eq!(primary_cache_subdir(PipelineId::Dxmt32), Some("dxmt_32"));
         assert_eq!(primary_cache_subdir(PipelineId::M12), Some("m12"));
         assert_eq!(primary_cache_subdir(PipelineId::M13), Some("m13"));
     }
@@ -568,8 +568,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
 
-        let report = cache_doctor_for(&home, PipelineId::M11, 999);
-        assert_eq!(report.get("pipeline").and_then(|v| v.as_str()), Some("m11"));
+        let report = cache_doctor_for(&home, PipelineId::Dxmt, 999);
+        assert_eq!(report.get("pipeline").and_then(|v| v.as_str()), Some("dxmt"));
         let shader = report.get("shader_cache").unwrap();
         assert_eq!(shader.get("exists").and_then(|v| v.as_bool()), Some(false));
         assert_eq!(shader.get("total_entries").and_then(|v| v.as_u64()), Some(0));
@@ -583,11 +583,11 @@ mod tests {
         let home = std::env::temp_dir().join("ms-cache-doctor-stale");
         let _ = std::fs::remove_dir_all(&home);
         let ms_home = crate::platform::metalsharp_home_dir_for(&home);
-        let shader_dir = ms_home.join("shader-cache").join("m11").join("7");
+        let shader_dir = ms_home.join("shader-cache").join("dxmt").join("7");
         std::fs::create_dir_all(&shader_dir).unwrap();
         make_dxmt_cache_db(&shader_dir.join("shaders_7.db"), &[("cache_1", vec!["a"])]);
 
-        let report = cache_doctor_for(&home, PipelineId::M11, 7);
+        let report = cache_doctor_for(&home, PipelineId::Dxmt, 7);
         // No injections.json staged => runtime_artifact_hash is null and a
         // stale warning must be present.
         assert_eq!(report.get("runtime_artifact_hash").and_then(|v| v.as_str()), None);

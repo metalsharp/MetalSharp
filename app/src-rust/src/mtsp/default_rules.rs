@@ -97,11 +97,11 @@ pub fn handle_default_rules_catalog() -> Value {
 
 /// `GET /mtsp/launch-shape?appid=<>&pipeline=<>` — the launch shape a specific
 /// pipeline would apply to a given game, regardless of the default rule. Used
-/// by the bottle dropdown to preview a route switch (e.g. Hades M11(32) ->
-/// M11). `pipeline=auto` resolves to the default rule.
-pub fn handle_launch_shape(appid: u32, pipeline: PipelineId) -> Value {
+/// by the bottle dropdown to preview a route switch (e.g. Hades DXMT(32) ->
+/// DXMT). `pipeline=auto` resolves to the default rule.
+pub fn handle_launch_shape(appid: u32, pipeline: Option<PipelineId>) -> Value {
     let recipe = get_game_recipe(appid);
-    let resolved = if pipeline == PipelineId::Dxmt { default_pipeline_for(appid) } else { pipeline };
+    let resolved = pipeline.unwrap_or_else(|| default_pipeline_for(appid));
     let node = get_pipeline(resolved);
     let shape = deploy_shape_for_node(node);
     json!({
@@ -124,14 +124,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_includes_hades_and_titan_quest_with_m11_32_default() {
+    fn catalog_includes_hades_and_titan_quest_with_dxmt32_default() {
         let catalog = handle_default_rules_catalog();
         let rules = catalog.get("rules").and_then(|v| v.as_array()).expect("rules array");
         let hades = rules
             .iter()
             .find(|entry| entry.get("appid").and_then(|v| v.as_u64()) == Some(1145360))
             .expect("hades rule present");
-        assert_eq!(hades.get("default_pipeline").and_then(|v| v.as_str()), Some("m11_32"));
+        assert_eq!(hades.get("default_pipeline").and_then(|v| v.as_str()), Some("dxmt_32"));
         assert_eq!(hades.get("custom_exe_fix").and_then(|v| v.as_bool()), Some(true));
         let exe_names = hades.get("exe_names").and_then(|v| v.as_array()).expect("exe_names");
         assert_eq!(exe_names.len(), 1);
@@ -141,38 +141,40 @@ mod tests {
             .iter()
             .find(|entry| entry.get("appid").and_then(|v| v.as_u64()) == Some(475150))
             .expect("titan quest rule present");
-        assert_eq!(tq.get("default_pipeline").and_then(|v| v.as_str()), Some("m11_32"));
+        assert_eq!(tq.get("default_pipeline").and_then(|v| v.as_str()), Some("dxmt_32"));
         assert_eq!(tq.get("custom_exe_fix").and_then(|v| v.as_bool()), Some(false));
     }
 
     #[test]
-    fn launch_shape_for_hades_m11_reports_64_bit_dxmt_deploy_set() {
-        // Switching Hades from the M11(32) default to plain M11 must report the
-        // 64-bit DXMT deploy set (d3d11/dxgi/winemetal from lib/dxmt/x86_64-windows)
-        // and the M11 wine overrides, so the UI can show the user exactly what
-        // will be applied.
-        let shape = handle_launch_shape(1145360, PipelineId::M11);
-        assert_eq!(shape.get("pipeline").and_then(|v| v.as_str()), Some("m11"));
-        assert_eq!(shape.get("pipeline_name").and_then(|v| v.as_str()), Some("M11"));
+    fn launch_shape_for_hades_dxmt_reports_64_bit_dxmt_deploy_set() {
+        // Switching Hades from the DXMT(32) default to plain DXMT must report the
+        // 64-bit DXMT deploy set (Wine d3d10/d3d10_1 + DXMT d3d11/dxgi/d3d10core/
+        // winemetal from x86_64 lanes) and the DXMT wine overrides, so the UI
+        // can show the user exactly what will be applied.
+        let shape = handle_launch_shape(1145360, Some(PipelineId::Dxmt));
+        assert_eq!(shape.get("pipeline").and_then(|v| v.as_str()), Some("dxmt"));
+        assert_eq!(shape.get("pipeline_name").and_then(|v| v.as_str()), Some("DXMT"));
         assert_eq!(shape.get("is_default_rule").and_then(|v| v.as_bool()), Some(false));
         assert_eq!(shape.get("custom_exe_fix").and_then(|v| v.as_bool()), Some(true));
 
         let launch_shape = shape.get("launch_shape").expect("launch_shape");
         let overrides = launch_shape.get("wine_overrides").and_then(|v| v.as_str()).unwrap_or_default();
         assert!(
-            overrides.contains("d3d11")
+            overrides.contains("d3d10")
+                && overrides.contains("d3d11")
                 && overrides.contains("dxgi")
                 && overrides.contains("winemetal")
                 && overrides.contains("=n,b"),
-            "M11 route overrides must be present, got {}",
+            "DXMT route overrides must be present, got {}",
             overrides
         );
 
         let dlls = launch_shape.get("deploy_dlls").and_then(|v| v.as_array()).expect("deploy_dlls");
         let filenames: Vec<&str> = dlls.iter().filter_map(|d| d.get("filename").and_then(|v| v.as_str())).collect();
-        assert!(filenames.contains(&"d3d11.dll"));
-        assert!(filenames.contains(&"dxgi.dll"));
-        assert!(filenames.contains(&"winemetal.dll"));
+        for required in ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"] {
+            assert!(filenames.contains(&required), "DXMT deploy set missing {}", required);
+        }
+        assert!(!filenames.contains(&"dxgi_dxmt.dll"), "DXMT deploy set must not include M12-owned dxgi_dxmt.dll");
         for dll in dlls {
             assert_eq!(dll.get("arch").and_then(|v| v.as_str()), Some("64-bit"));
             assert!(dll.get("source_subpath").and_then(|v| v.as_str()).unwrap_or("").contains("x86_64-windows"));
@@ -180,15 +182,20 @@ mod tests {
     }
 
     #[test]
-    fn launch_shape_for_hades_m11_32_reports_32_bit_dxmt_deploy_set() {
-        let shape = handle_launch_shape(1145360, PipelineId::M11_32);
-        assert_eq!(shape.get("pipeline").and_then(|v| v.as_str()), Some("m11_32"));
+    fn launch_shape_for_hades_dxmt32_reports_32_bit_dxmt_deploy_set() {
+        let shape = handle_launch_shape(1145360, Some(PipelineId::Dxmt32));
+        assert_eq!(shape.get("pipeline").and_then(|v| v.as_str()), Some("dxmt_32"));
         assert_eq!(shape.get("is_default_rule").and_then(|v| v.as_bool()), Some(true));
         let dlls = shape
             .get("launch_shape")
             .and_then(|v| v.get("deploy_dlls"))
             .and_then(|v| v.as_array())
             .expect("deploy_dlls");
+        let filenames: Vec<&str> = dlls.iter().filter_map(|d| d.get("filename").and_then(|v| v.as_str())).collect();
+        for required in ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"] {
+            assert!(filenames.contains(&required), "DXMT(32) deploy set missing {}", required);
+        }
+        assert!(!filenames.contains(&"dxgi_dxmt.dll"), "DXMT(32) deploy set must not include M12-owned dxgi_dxmt.dll");
         for dll in dlls {
             assert_eq!(dll.get("arch").and_then(|v| v.as_str()), Some("32-bit"));
             assert!(dll.get("source_subpath").and_then(|v| v.as_str()).unwrap_or("").contains("i386-windows"));
@@ -197,8 +204,8 @@ mod tests {
 
     #[test]
     fn launch_shape_auto_resolves_to_default_rule() {
-        let auto = handle_launch_shape(1145360, PipelineId::Dxmt);
-        assert_eq!(auto.get("pipeline").and_then(|v| v.as_str()), Some("m11_32"));
+        let auto = handle_launch_shape(1145360, None);
+        assert_eq!(auto.get("pipeline").and_then(|v| v.as_str()), Some("dxmt_32"));
         assert_eq!(auto.get("is_default_rule").and_then(|v| v.as_bool()), Some(true));
     }
 
