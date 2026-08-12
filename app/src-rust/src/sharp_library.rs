@@ -1500,6 +1500,48 @@ fn normalized_cover_extension(src: &Path) -> Result<String, Box<dyn std::error::
         .ok_or("Cover image must use png, jpg, jpeg, webp, or svg extension".into())
 }
 
+fn ensure_cover_directory(destination_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut anchor = destination_dir.to_path_buf();
+    let mut missing = Vec::new();
+    loop {
+        match fs::symlink_metadata(&anchor) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() && anchor != Path::new("/tmp") && anchor != std::env::temp_dir() {
+                    return Err("Refusing to use a symlinked cover directory".into());
+                }
+                if !metadata.is_dir() {
+                    return Err("Cover destination is not a directory".into());
+                }
+                break;
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name =
+                    anchor.file_name().ok_or("Cover destination has no existing parent directory")?.to_os_string();
+                missing.push(name);
+                anchor.pop();
+            },
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    let mut current = fs::canonicalize(&anchor)?;
+    while let Some(name) = missing.pop() {
+        current.push(name);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("Refusing to use a symlinked cover directory".into());
+            },
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err("Cover destination is not a directory".into());
+            },
+            Ok(_) => {},
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(&current)?,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
 fn set_cover_in_library(
     id: &str,
     src: &Path,
@@ -1523,7 +1565,7 @@ fn set_cover_in_library(
     }
 
     let cover_filename = format!("{}.{}", id, ext);
-    fs::create_dir_all(destination_dir)?;
+    ensure_cover_directory(destination_dir)?;
     let dst = destination_dir.join(&cover_filename);
     match dst.symlink_metadata() {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -2201,6 +2243,30 @@ mod tests {
 
         let filename = library[0].cover.clone().expect("cover filename");
         assert_eq!(fs::read(destination.join(filename)).expect("read copied cover"), b"cover data");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_cover_rejects_a_symlinked_destination_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_dir("cover-symlink-directory");
+        let outside = root.join("outside");
+        let destination = root.join("library");
+        fs::create_dir_all(&outside).expect("create outside directory");
+        let source = root.join("cover.png");
+        fs::write(&source, b"cover data").expect("write source cover");
+        symlink(&outside, &destination).expect("create directory symlink");
+        let app = test_app("Game", "Game.exe", "/tmp/Game");
+        let id = app.id.clone();
+        let mut library = vec![app];
+
+        let error = set_cover_in_library(&id, &source, &destination, &mut library).unwrap_err();
+
+        assert_eq!(error.to_string(), "Refusing to use a symlinked cover directory");
+        assert!(fs::read_dir(&outside).expect("read outside directory").next().is_none());
+        assert!(library[0].cover.is_none());
         let _ = fs::remove_dir_all(root);
     }
 
