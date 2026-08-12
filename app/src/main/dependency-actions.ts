@@ -29,11 +29,7 @@ export function parseInstallDepsAction(value: unknown): InstallDepsAction | null
     return { kind: "brew", package: value.package as BrewDependency };
   }
 
-  if (
-    value.kind === "script" &&
-    typeof value.name === "string" &&
-    Object.prototype.hasOwnProperty.call(DEPENDENCY_SCRIPTS, value.name)
-  ) {
+  if (value.kind === "script" && typeof value.name === "string" && Object.hasOwn(DEPENDENCY_SCRIPTS, value.name)) {
     if (!hasExactKeys(value, ["kind", "name"])) return null;
     return { kind: "script", name: value.name as DependencyScript };
   }

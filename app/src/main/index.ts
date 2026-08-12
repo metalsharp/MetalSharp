@@ -3,7 +3,14 @@ import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell }
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { dependencyScriptFileName, parseInstallDepsAction } from "./dependency-actions";
 import { ejectDmgVolume } from "./dmg-eject";
+import {
+  type BackendMethod,
+  type BackendRequestSource,
+  isBackendRequestBody,
+  validateBackendRequest,
+} from "./ipc-security";
 import {
   createProcessManagerScope,
   isNonSteamMetalSharpWineProcess,
@@ -11,13 +18,6 @@ import {
   type ProcessRow,
   stopMetalSharpWineProcesses,
 } from "./process-manager";
-import { dependencyScriptFileName, parseInstallDepsAction } from "./dependency-actions";
-import {
-  type BackendMethod,
-  type BackendRequestSource,
-  isBackendRequestBody,
-  validateBackendRequest,
-} from "./ipc-security";
 import type { ProcessManagerAction, ProcessManagerActionResult, ProcessManagerSample } from "./process-manager-types";
 import { RustBridge } from "./rust-bridge";
 import { validateUninstallTarget } from "./uninstall-safety";
