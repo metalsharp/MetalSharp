@@ -96,6 +96,7 @@ interface D3DMetalGptkState {
   gptk_payload: string;
   x64_redist: string;
   seed: string;
+  gptk4: string;
   play_ready: boolean;
   last_error?: string | null;
 }
@@ -113,6 +114,8 @@ interface D3DMetalGptkResponse {
   state?: D3DMetalGptkState;
   actions?: D3DMetalGptkAction[];
   launch?: D3DMetalLaunchReport;
+  gptk4_installed?: boolean;
+  gptk4_dmg_found?: boolean;
   error?: string;
 }
 
@@ -176,6 +179,10 @@ const runtimeReport = ref<SteamRuntimeReport | null>(null);
 const d3dmetalState = ref<D3DMetalGptkState | null>(null);
 const d3dmetalActions = ref<D3DMetalGptkAction[]>([]);
 const d3dmetalLoading = ref(false);
+// GPTK 4 is machine-wide: once installed it is marked done and never
+// presented again (mirrors the backend's global .gptk4-installed marker).
+const gptk4Installed = ref(false);
+const gptk4DmgFound = ref(false);
 const bottleName = ref("");
 const bottlePreferredMode = ref("auto");
 const bottleSaving = ref(false);
@@ -750,11 +757,41 @@ async function loadD3DMetalStatus() {
   if (result?.ok && result.state) {
     d3dmetalState.value = result.state;
     d3dmetalActions.value = result.actions ?? [];
+    gptk4Installed.value = result.gptk4_installed === true;
+    gptk4DmgFound.value = result.gptk4_dmg_found === true;
     syncD3DMetalRuntimeReport();
   } else {
     d3dmetalState.value = null;
     d3dmetalActions.value = [];
   }
+}
+
+async function repairGptk4() {
+  const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
+  d3dmetalLoading.value = true;
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    "/d3dmetal/bottles/repair-gptk4",
+    { appid: props.game.appid, bottleId },
+    10 * 60 * 1000,
+  );
+  d3dmetalLoading.value = false;
+  if (result?.ok) {
+    if (result.state) {
+      d3dmetalState.value = result.state;
+      d3dmetalActions.value = result.actions ?? [];
+    }
+    gptk4Installed.value = result.gptk4_installed === true;
+    gptk4DmgFound.value = result.gptk4_dmg_found === true;
+    toast.show(gptk4Installed.value ? "GPTK 4 installed" : "GPTK 4 setup complete", "success");
+  } else {
+    toast.show(
+      result?.error ??
+        "GPTK 4 repair failed — download Game Porting Toolkit 4.0 beta 2 into ~/Downloads and try again",
+      "error",
+    );
+  }
+  await loadD3DMetalStatus();
 }
 
 async function playSelectedLaunchMode() {
@@ -1242,6 +1279,21 @@ function formatBytes(bytes: number): string {
                     @click="runD3DMetalPanelAction(action)"
                   >
                     {{ d3dmetalLoading ? "Working..." : "Fix" }}
+                  </button>
+                </div>
+                <div
+                  v-if="!gptk4Installed"
+                  class="runtime-action-row compact-repair-row"
+                  title="Apple's Game Porting Toolkit 4.0 beta 2 runtime (Metal Shader Converter + Evaluation environment) overlaid onto the Homebrew GPTK install"
+                >
+                  <span>
+                    Add gptk4 (optional)
+                    <template v-if="!gptk4DmgFound"
+                      >— download Game Porting Toolkit 4.0 beta 2 from Apple Developer into ~/Downloads first</template
+                    >
+                  </span>
+                  <button class="btn btn-secondary btn-sm" :disabled="d3dmetalLoading" @click="repairGptk4">
+                    {{ d3dmetalLoading ? "Working..." : "Repair" }}
                   </button>
                 </div>
               </div>
