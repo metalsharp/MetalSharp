@@ -32,6 +32,8 @@ class CoreAudioBackend {
     void shutdown();
     bool isActive() const;
 
+    /// Submit interleaved PCM data for the fixed stereo CoreAudio output.
+    /// Non-stereo formats are rejected rather than changing the render layout.
     bool submitBuffer(const void* data, uint32_t size, const XAudio2WaveFormat& format);
     void setVolume(float volume);
     float volume() const;
