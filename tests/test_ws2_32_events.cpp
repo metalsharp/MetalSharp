@@ -30,7 +30,7 @@ using metalsharp::ShimLibrary;
 
 #ifndef FALSE
 #define FALSE 0
-#define TRUE 1
+#define TRUE  1
 #endif
 
 // --- Function-pointer types matching the shim's MSABI exports ---------------
@@ -62,12 +62,12 @@ struct WsaNetworkEvents {
 
 static int g_failures = 0;
 
-#define CHECK(cond)                                                                                                  \
-    do {                                                                                                             \
-        if (!(cond)) {                                                                                                \
-            fprintf(stderr, "FAIL: %s:%d: %s\n", __FILE__, __LINE__, #cond);                                      \
-            ++g_failures;                                                                                            \
-        }                                                                                                            \
+#define CHECK(cond)                                                                                                    \
+    do {                                                                                                               \
+        if (!(cond)) {                                                                                                 \
+            fprintf(stderr, "FAIL: %s:%d: %s\n", __FILE__, __LINE__, #cond);                                           \
+            ++g_failures;                                                                                              \
+        }                                                                                                              \
     } while (0)
 
 static void* makeLoopbackSockaddr(sockaddr_in* out, uint16_t port) {
