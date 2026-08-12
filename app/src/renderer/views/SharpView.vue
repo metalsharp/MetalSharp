@@ -1788,12 +1788,8 @@ onUnmounted(stopGogMonoPoll);
 
       <template v-else>
         <section class="gog-panel">
-          <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-            <h2>gogdl is not installed</h2>
-            <p>Install gogdl under ~/.metalsharp/tools/gogdl or set METALSHARP_GOGDL_BIN.</p>
-          </div>
-          <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
-            <h2>Initialize GOG prefix</h2>
+          <div v-if="!gogStatus?.gogdlAvailable || !gogStatus?.prefixInitialized" class="empty-state compact">
+            <h2>Initialize a gog-prefix to get started</h2>
             <p>Create the isolated Wine prefix before connecting games.</p>
           </div>
           <div v-else-if="!gogStatus?.authenticated" class="empty-state compact">
