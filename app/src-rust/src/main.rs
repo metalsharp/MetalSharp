@@ -2378,7 +2378,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             resp(200, result)
         },
         (Method::Post, "/sharp-library/stop") => {
-            let body = read_body(req);
+            let body = read_body_or_return!(req);
             let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("").trim();
             if id.is_empty() {
                 return resp(400, json!({"ok": false, "error": "id required"}));
