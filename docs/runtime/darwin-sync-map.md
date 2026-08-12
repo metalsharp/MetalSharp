@@ -1,5 +1,5 @@
 # MetalSharp Darwin Sync Map
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 Status: Phase 6 foundation
@@ -24,6 +24,8 @@ It classifies each primitive by strategy, whether a kernel/system component is r
 | Semaphore | dispatch/pthread counted semaphore | yes | Current use is covered; Mach semaphore benchmarking remains useful. |
 | Mutex | `pthread_mutex_t` | yes | Current in-process ownership semantics are covered. |
 | CriticalSection | `pthread_mutex_t` | yes | Already represented by existing kernel32/ntdll shims. |
+| SRWLock | out-of-line `pthread_rwlock_t` keyed by guest address | yes | Preserves zero/static initialization and shared/exclusive modes without writing a host pthread object into the guest's pointer-sized storage. |
+| ConditionVariable | out-of-line `pthread_cond_t` plus wait mutex keyed by guest address | yes | The wait mutex closes the release/wait race; `SleepConditionVariableSRW` reacquires the mapped SRW lock before returning. |
 | WaitAny | condition-variable wakeups over tracked handles | yes | In-process only; cross-process semantics need more work. |
 | WaitAll | coordinated wait over tracked handles | no | Needs correctness tests for mixed event/semaphore/mutex waits. |
 | Futex | Darwin `ulock` candidate | no | Research candidate only; not Linux ABI compatible. |

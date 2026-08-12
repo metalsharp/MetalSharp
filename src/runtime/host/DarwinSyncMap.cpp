@@ -37,6 +37,22 @@ constexpr DarwinSyncMapping kMappings[] = {
         "Already used by kernel32/ntdll shim coverage.",
     },
     {
+        DarwinSyncPrimitive::SrwLock,
+        DarwinSyncStrategy::PThreadRWLock,
+        "out-of-line pthread_rwlock_t keyed by guest SRWLOCK address",
+        false,
+        true,
+        "Guest SRWLOCK storage remains zero-initialized; shared and exclusive modes use the mapped host lock.",
+    },
+    {
+        DarwinSyncPrimitive::ConditionVariable,
+        DarwinSyncStrategy::PThreadCondvar,
+        "out-of-line pthread_cond_t + wait mutex keyed by guest CONDITION_VARIABLE address",
+        false,
+        true,
+        "The wait mutex closes the release/wait race before the mapped SRW lock is reacquired.",
+    },
+    {
         DarwinSyncPrimitive::WaitAny,
         DarwinSyncStrategy::PThreadCondvar,
         "poll tracked handles with condition-variable wakeups",

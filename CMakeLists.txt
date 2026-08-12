@@ -301,6 +301,7 @@ add_library(metalsharp_loader STATIC
     src/win32/kernel32/Kernel32Shim.cpp
     src/win32/kernel32/NtdllShim.cpp
     src/win32/kernel32/Kernel32Extra.cpp
+    src/win32/kernel32/Win32SyncContext.cpp
     src/win32/kernel32/DRMShims.cpp
     src/win32/kernel32/VirtualFileSystem.cpp
     src/win32/kernel32/Registry.cpp

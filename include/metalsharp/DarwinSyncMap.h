@@ -9,6 +9,8 @@ enum class DarwinSyncPrimitive {
     Semaphore,
     Mutex,
     CriticalSection,
+    SrwLock,
+    ConditionVariable,
     WaitAny,
     WaitAll,
     Futex,
@@ -18,6 +20,7 @@ enum class DarwinSyncPrimitive {
 enum class DarwinSyncStrategy {
     PThreadCondvar,
     PThreadMutex,
+    PThreadRWLock,
     MachSemaphoreCandidate,
     ULockCandidate,
     UnsupportedLinuxSpecific,
