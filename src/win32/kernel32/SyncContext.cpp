@@ -437,20 +437,29 @@ uint32_t SyncContext::waitForThread(SyncThreadState* thr, uint32_t ms) {
 }
 
 uint32_t SyncContext::waitForSingleObject(void* handle, uint32_t milliseconds) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = m_handles.find((intptr_t)handle);
-    if (it == m_handles.end())
-        return 0xFFFFFFFF;
+    // The table lock only protects lookup. Wait helpers may block on the
+    // object's own mutex/condition variable, so release m_mutex before
+    // entering them or signal/release callers cannot make progress.
+    SyncHandleType type;
+    void* data;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_handles.find((intptr_t)handle);
+        if (it == m_handles.end())
+            return 0xFFFFFFFF;
+        type = it->second.type;
+        data = it->second.data;
+    }
 
-    switch (it->second.type) {
+    switch (type) {
     case SyncHandleType::Event:
-        return waitForEvent(static_cast<SyncEventState*>(it->second.data), milliseconds);
+        return waitForEvent(static_cast<SyncEventState*>(data), milliseconds);
     case SyncHandleType::Mutex:
-        return waitForMutex(static_cast<SyncMutexState*>(it->second.data), milliseconds);
+        return waitForMutex(static_cast<SyncMutexState*>(data), milliseconds);
     case SyncHandleType::Semaphore:
-        return waitForSemaphore(static_cast<SyncSemaphoreState*>(it->second.data), milliseconds);
+        return waitForSemaphore(static_cast<SyncSemaphoreState*>(data), milliseconds);
     case SyncHandleType::Thread:
-        return waitForThread(static_cast<SyncThreadState*>(it->second.data), milliseconds);
+        return waitForThread(static_cast<SyncThreadState*>(data), milliseconds);
     default:
         return 0xFFFFFFFF;
     }
