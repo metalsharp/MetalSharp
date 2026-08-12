@@ -939,11 +939,15 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
 
     match node.id {
         PipelineId::Vkd3d => {
-            // The VKD3D stack: vkd3d-proton D3D12 pair, DXVK dxgi, VKMT MoltenVK
-            // ICD. These are the hash-gated artifacts the installer verifies.
+            // The VKD3D stack: vkd3d-proton D3D12 pair, DXVK-macOS
+            // d3d11/d3d10/d3d9/dxgi set, and the VKMT MoltenVK ICD. These are
+            // the hash-gated artifacts the installer verifies.
             for (lane, rel) in [
                 ("vkd3d-proton", "x86_64-windows/d3d12.dll"),
                 ("vkd3d-proton", "x86_64-windows/d3d12core.dll"),
+                ("dxvk", "x86_64-windows/d3d11.dll"),
+                ("dxvk", "x86_64-windows/d3d10core.dll"),
+                ("dxvk", "x86_64-windows/d3d9.dll"),
                 ("dxvk", "x86_64-windows/dxgi.dll"),
                 ("moltenvk-vkmt", "libMoltenVK.dylib"),
                 ("moltenvk-vkmt", "MoltenVK_icd.json"),
@@ -1050,11 +1054,14 @@ mod tests {
         assert!(!dxmt_assets.iter().any(|asset| asset.name.starts_with("lib/vkd3d-proton/")));
 
         let vkd3d_assets = runtime_assets_for_node(vkd3d, &ms_root);
-        // VKD3D requires the vkd3d-proton D3D12 pair, DXVK dxgi, and VKMT
-        // MoltenVK ICD — no DXMT surface.
+        // VKD3D requires the vkd3d-proton D3D12 pair, the DXVK-macOS
+        // d3d11/d3d10/d3d9/dxgi set, and the VKMT MoltenVK ICD — no DXMT surface.
         for required in [
             "lib/vkd3d-proton/x86_64-windows/d3d12.dll",
             "lib/vkd3d-proton/x86_64-windows/d3d12core.dll",
+            "lib/dxvk/x86_64-windows/d3d11.dll",
+            "lib/dxvk/x86_64-windows/d3d10core.dll",
+            "lib/dxvk/x86_64-windows/d3d9.dll",
             "lib/dxvk/x86_64-windows/dxgi.dll",
             "lib/moltenvk-vkmt/libMoltenVK.dylib",
             "lib/moltenvk-vkmt/MoltenVK_icd.json",

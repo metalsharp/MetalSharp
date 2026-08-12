@@ -115,12 +115,14 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
             PipelineNode {
                 id: PipelineId::Vkd3d,
                 name: "VKD3D",
-                description: "D3D12 -> Metal via vkd3d-proton (MoltenVK)",
+                description: "D3D9/D3D10/D3D11/D3D12 -> Vulkan -> Metal via vkd3d-proton + DXVK-macOS (MoltenVK)",
                 backend: "vkd3d-proton",
                 graphics_backend: "vkd3d-proton",
                 experimental: false,
                 requires_wine: true,
-                wine_overrides: Some("d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
+                wine_overrides: Some(
+                    "d3d12,d3d12core,d3d11,d3d10core,d3d9,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+                ),
                 dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
                 winedllpath_dirs: vec![],
                 deploy_dlls: vec![
@@ -134,6 +136,13 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                         filename: "d3d12core.dll",
                         dest_filename: None,
                     },
+                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d11.dll", dest_filename: None },
+                    DllDeploy {
+                        source_subpath: "lib/dxvk/x86_64-windows",
+                        filename: "d3d10core.dll",
+                        dest_filename: None,
+                    },
+                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d9.dll", dest_filename: None },
                     DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
                 ],
                 env_vars: vec![
@@ -504,8 +513,9 @@ mod tests {
         assert!(!vkd3d.dyld_paths.contains(&"lib/dxmt/x86_64-unix"));
         assert!(vkd3d.winedllpath_dirs.is_empty());
 
-        // Deploys exactly the vkd3d-proton D3D12 pair plus DXVK dxgi; never
-        // DXMT, never a d3d11 handoff, never a MoltenVK PE stub.
+        // Deploys the complete Vulkan set: vkd3d-proton D3D12 pair plus the
+        // DXVK-macOS d3d11/d3d10core/d3d9/dxgi; never DXMT, never a MoltenVK
+        // PE stub.
         let vkd3d_dlls: std::collections::HashSet<_> =
             vkd3d.deploy_dlls.iter().map(|dll| (dll.source_subpath, dll.filename)).collect();
         assert_eq!(
@@ -513,14 +523,16 @@ mod tests {
             [
                 ("lib/vkd3d-proton/x86_64-windows", "d3d12.dll"),
                 ("lib/vkd3d-proton/x86_64-windows", "d3d12core.dll"),
+                ("lib/dxvk/x86_64-windows", "d3d11.dll"),
+                ("lib/dxvk/x86_64-windows", "d3d10core.dll"),
+                ("lib/dxvk/x86_64-windows", "d3d9.dll"),
                 ("lib/dxvk/x86_64-windows", "dxgi.dll"),
             ]
             .into_iter()
             .collect(),
-            "VKD3D deploy set must be exactly vkd3d-proton d3d12/d3d12core + DXVK dxgi"
+            "VKD3D deploy set must be vkd3d-proton d3d12/d3d12core + DXVK-macOS d3d11/d3d10core/d3d9/dxgi"
         );
         assert!(!vkd3d.deploy_dlls.iter().any(|dll| dll.source_subpath.starts_with("lib/dxmt")));
-        assert!(!vkd3d.deploy_dlls.iter().any(|dll| dll.filename == "d3d11.dll"));
         assert!(!vkd3d.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
         assert!(!vkd3d.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
         assert!(!vkd3d.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll"));
@@ -536,7 +548,7 @@ mod tests {
 
         assert_eq!(
             vkd3d.wine_overrides,
-            Some("d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d")
+            Some("d3d12,d3d12core,d3d11,d3d10core,d3d9,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d")
         );
         assert!(vkd3d.alternatives.contains(&PipelineId::Dxmt));
     }
@@ -552,7 +564,8 @@ mod tests {
         assert!(node.dyld_paths.first() == Some(&"lib/moltenvk-vkmt"));
         assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
         assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
-        assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "d3d11.dll"));
+        assert!(node.deploy_dlls.iter().any(|dll| dll.filename == "d3d11.dll"));
+        assert!(node.deploy_dlls.iter().any(|dll| dll.filename == "d3d9.dll"));
     }
 
     #[test]

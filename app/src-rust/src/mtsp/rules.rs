@@ -697,9 +697,9 @@ mod tests {
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
 
-        // VKD3D runs the vkd3d-proton stack: the deployed check set is the
-        // vkd3d forwarder + implementation + DXVK dxgi (no d3d11 handoff).
-        let vkd3d_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
+        // VKD3D is the complete Vulkan stack: vkd3d-proton D3D12 pair plus the
+        // DXVK-macOS d3d11/d3d10core/d3d9/dxgi set (no d3d11 handoff excluded).
+        let vkd3d_required = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"];
         let dxmt_required = ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"];
         let required_by_pipeline =
             [(PipelineId::Vkd3d, vkd3d_required.as_slice()), (PipelineId::Dxmt, dxmt_required.as_slice())];
@@ -719,7 +719,7 @@ mod tests {
                     );
                 }
                 if pipeline == PipelineId::Vkd3d {
-                    for stale in ["dxgi_dxmt.dll", "winemetal.dll", "d3d11.dll"] {
+                    for stale in ["dxgi_dxmt.dll", "winemetal.dll"] {
                         assert!(
                             !recipe.check_dlls.iter().any(|value| value == stale),
                             "appid {} Vkd3d diagnostics must not require DXMT-only {} (got {:?})",
@@ -783,7 +783,7 @@ mod tests {
             assert!(!recipe.exe_names.is_empty(), "appid {appid} needs a normal executable rule");
             assert!(!recipe.eac_exe_names.is_empty(), "appid {appid} needs an EAC executable rule");
             let required_dlls: &[&str] = if pipeline == "vkd3d" {
-                &["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
+                &["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"]
             } else {
                 &["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"]
             };

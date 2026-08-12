@@ -646,11 +646,12 @@ fn normalize_loaded_runtime_profile_components(manifest: &mut BottleManifest) {
     }
 }
 
-const VKD3D_COMPONENT_IDS: &[&str] = &["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "vkd3d_moltenvk"];
+const VKD3D_COMPONENT_IDS: &[&str] =
+    &["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_d3d11", "vkd3d_d3d10", "vkd3d_d3d9", "vkd3d_dxgi", "vkd3d_moltenvk"];
 
-/// The VKD3D component set. VKD3D is the vkd3d-proton stack only
-/// (vkd3d-proton D3D12 pair + DXVK dxgi + VKMT MoltenVK); there is no
-/// DXMT-backed VKD3D lane.
+/// The VKD3D component set. VKD3D is the complete Vulkan stack: the
+/// vkd3d-proton D3D12 pair plus the DXVK-macOS d3d11/d3d10/d3d9/dxgi set and
+/// VKMT MoltenVK; there is no DXMT-backed VKD3D lane.
 fn vkd3d_runtime_component_ids() -> &'static [&'static str] {
     VKD3D_COMPONENT_IDS
 }
@@ -661,6 +662,9 @@ fn vkd3d_runtime_component_artifacts(component_id: &str) -> Option<&'static [(&'
     match component_id {
         "vkd3d_d3d12" => Some(&[("vkd3d-proton", "x86_64-windows/d3d12.dll")]),
         "vkd3d_d3d12core" => Some(&[("vkd3d-proton", "x86_64-windows/d3d12core.dll")]),
+        "vkd3d_d3d11" => Some(&[("dxvk", "x86_64-windows/d3d11.dll")]),
+        "vkd3d_d3d10" => Some(&[("dxvk", "x86_64-windows/d3d10core.dll")]),
+        "vkd3d_d3d9" => Some(&[("dxvk", "x86_64-windows/d3d9.dll")]),
         "vkd3d_dxgi" => Some(&[("dxvk", "x86_64-windows/dxgi.dll")]),
         "vkd3d_moltenvk" => Some(&[("moltenvk-vkmt", "libMoltenVK.dylib"), ("moltenvk-vkmt", "MoltenVK_icd.json")]),
         _ => None,
@@ -672,7 +676,7 @@ fn vkd3d_runtime_component_artifacts(component_id: &str) -> Option<&'static [(&'
 fn vkd3d_lane_artifact_valid_for_home(home: &Path, lane: &str, rel: &str) -> bool {
     match lane {
         "vkd3d-proton" => crate::installer::vkd3d_proton_runtime_artifact_valid_for_home(home, rel),
-        "dxvk" => crate::installer::dxvk_runtime_dir_for_home(home).join(rel).is_file(),
+        "dxvk" => crate::installer::dxvk_runtime_artifact_valid_for_home(home, rel),
         "moltenvk-vkmt" => crate::installer::moltenvk_vkmt_runtime_dir_for_home(home).join(rel).is_file(),
         _ => false,
     }
@@ -3538,7 +3542,15 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
             crate::mtsp::engine::PipelineId::Dxmt32,
         ),
         RuntimeProfile::Vkd3d => {
-            let vkd3d_components: &[&str] = &["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "vkd3d_moltenvk"];
+            let vkd3d_components: &[&str] = &[
+                "vkd3d_d3d12",
+                "vkd3d_d3d12core",
+                "vkd3d_d3d11",
+                "vkd3d_d3d10",
+                "vkd3d_d3d9",
+                "vkd3d_dxgi",
+                "vkd3d_moltenvk",
+            ];
             (
                 "D3D12 Metal",
                 BottleArch::Win64,
@@ -7602,10 +7614,18 @@ mod tests {
         let vkd3d_ids = vkd3d.iter().map(|c| c.id.as_str()).collect::<Vec<_>>();
         // VKD3D is vkd3d-proton only: vkd3d-proton D3D12 pair + DXVK dxgi +
         // VKMT MoltenVK. No DXMT lane components exist.
-        for required in ["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "vkd3d_moltenvk"] {
+        for required in [
+            "vkd3d_d3d12",
+            "vkd3d_d3d12core",
+            "vkd3d_d3d11",
+            "vkd3d_d3d10",
+            "vkd3d_d3d9",
+            "vkd3d_dxgi",
+            "vkd3d_moltenvk",
+        ] {
             assert!(vkd3d_ids.contains(&required), "VKD3D vkd3d profile should include {required}");
         }
-        for stale in ["vkd3d_d3d11", "vkd3d_d3d10core", "vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
+        for stale in ["vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
             assert!(!vkd3d_ids.contains(&stale), "VKD3D vkd3d profile must not include DXMT-only {stale}");
         }
         for required in ["vcrun2019_x64", "vcrun2019_x86", "corefonts", "d3d12_agility"] {
@@ -7632,10 +7652,18 @@ mod tests {
     #[test]
     fn vkd3d_components_are_vkd3d_proton_stack_only() {
         // vkd3d-proton stack: vkd3d/DXVK/MoltenVK lanes, no DXMT surface.
-        for id in ["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "vkd3d_moltenvk"] {
+        for id in [
+            "vkd3d_d3d12",
+            "vkd3d_d3d12core",
+            "vkd3d_d3d11",
+            "vkd3d_d3d10",
+            "vkd3d_d3d9",
+            "vkd3d_dxgi",
+            "vkd3d_moltenvk",
+        ] {
             assert!(vkd3d_runtime_component_artifacts(id).is_some(), "VKD3D stack must know {id}");
         }
-        for id in ["vkd3d_d3d11", "vkd3d_d3d10core", "vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
+        for id in ["vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
             assert!(vkd3d_runtime_component_artifacts(id).is_none(), "VKD3D stack must NOT expose {id}");
         }
         // Lane routing: d3d12 -> vkd3d-proton lane, dxgi -> dxvk lane,
@@ -7655,7 +7683,18 @@ mod tests {
     #[test]
     fn vkd3d_component_ids_are_vkd3d_proton_only() {
         let ids = vkd3d_runtime_component_ids();
-        assert_eq!(ids, &["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "vkd3d_moltenvk"]);
+        assert_eq!(
+            ids,
+            &[
+                "vkd3d_d3d12",
+                "vkd3d_d3d12core",
+                "vkd3d_d3d11",
+                "vkd3d_d3d10",
+                "vkd3d_d3d9",
+                "vkd3d_dxgi",
+                "vkd3d_moltenvk"
+            ]
+        );
         assert!(!ids.contains(&"vkd3d_winemetal"));
         assert!(!ids.contains(&"vkd3d_gpu_stubs"));
     }
@@ -7695,7 +7734,7 @@ mod tests {
             updated_at: timestamp_secs(),
         };
         // Simulate a stale DXMT-lane save: include the old DXMT-only ids.
-        for id in ["vkd3d_d3d11", "vkd3d_d3d10core", "vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
+        for id in ["vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
             manifest
                 .installed_components
                 .push(RuntimeComponent { id: id.to_string(), state: ComponentState::Installed });
@@ -7711,7 +7750,7 @@ mod tests {
             !component.id.starts_with("vkd3d_") || vkd3d_runtime_component_ids().contains(&component.id.as_str())
         });
 
-        for stale in ["vkd3d_d3d11", "vkd3d_d3d10core", "vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
+        for stale in ["vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
             assert!(
                 !refreshed.installed_components.iter().any(|c| c.id == stale),
                 "stale DXMT Vkd3d id {stale} must be pruned"
