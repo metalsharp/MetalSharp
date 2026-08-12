@@ -1,5 +1,5 @@
 # Wine Kernel Compatibility Gap Analysis
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 ## Windows NT → macOS XNU Mapping for Anti-Cheat Game Compatibility
 ### macOS 26.6 (Tahoe) / arm64 (Apple Silicon) vs Windows 10/11 (NT 10.0+)
@@ -413,8 +413,8 @@ Wine uses `fast_sync_*` (futex-like primitives) on Linux. On macOS, the mapping 
 | Mutex | os_unfair_lock / psynch_mutex |
 | Semaphore | dispatch_semaphore / semaphore_create |
 | Critical Section | pthread_mutex / os_unfair_lock |
-| SRWLock | os_unfair_lock |
-| Condition Variable | pthread_cond |
+| SRWLock | out-of-line pthread_rwlock_t keyed by guest address |
+| Condition Variable | out-of-line pthread_cond plus wait mutex keyed by guest address |
 | Timer | mk_timer_create / dispatch_after |
 
 ---
