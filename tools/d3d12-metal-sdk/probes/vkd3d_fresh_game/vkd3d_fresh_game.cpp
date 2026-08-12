@@ -707,8 +707,8 @@ static AbiSemanticStats exercise_abi_semantics(IDXGIFactory4* factory, IDXGIAdap
 static HRESULT compile_shader(D3DCompileFn compile, const char* source, const char* entry, const char* target,
                               ID3DBlob** blob) {
     ID3DBlob* errors = nullptr;
-    HRESULT hr = compile ? compile(source, std::strlen(source), "vkd3d_fresh_game_loading.hlsl", nullptr, nullptr, entry,
-                                   target, 0, 0, blob, &errors)
+    HRESULT hr = compile ? compile(source, std::strlen(source), "vkd3d_fresh_game_loading.hlsl", nullptr, nullptr,
+                                   entry, target, 0, 0, blob, &errors)
                          : E_FAIL;
     if (errors)
         errors->Release();
