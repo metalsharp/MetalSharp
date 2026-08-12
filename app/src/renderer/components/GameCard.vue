@@ -881,6 +881,9 @@ async function runD3DMetalAction(action: D3DMetalGptkAction): Promise<number | n
       d3dmetalState.value = result.state;
       d3dmetalActions.value = result.actions ?? [];
       syncD3DMetalRuntimeReport();
+      // Refresh the global gptk3 flags (not present in action responses) so
+      // the "Add gptk3 (optional)" control tracks the installed marker.
+      await loadD3DMetalStatus();
     } else {
       await loadD3DMetalStatus();
     }
@@ -999,6 +1002,10 @@ async function saveBottleEdit() {
       localStorage.setItem(launchModeStorageKey.value, "d3dmetal");
       pipelineName.value = "D3DMetal";
       pipelineResolvedLocally.value = true;
+      // The save response does not carry the global gptk3 flags; refresh the
+      // status so "Add gptk3 (optional)" disappears immediately when GPTK 3
+      // is already installed (instead of after closing/reopening the bottle).
+      await loadD3DMetalStatus();
       toast.show("D3DMetal bottle saved; seed VC runtime DLLs and seed prefix when ready", "success");
       return;
     }
