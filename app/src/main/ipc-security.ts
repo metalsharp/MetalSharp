@@ -59,6 +59,7 @@ const RENDERER_ENDPOINTS = [
   "POST /diagnostics/open",
   "POST /eac/toggle",
   "POST /game/launch-auto",
+  "GET /game/running",
   "POST /goldberg/toggle",
   "POST /kill",
   "POST /logs/crash-report",
