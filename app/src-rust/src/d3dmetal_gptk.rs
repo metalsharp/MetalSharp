@@ -35,6 +35,19 @@ const GAME_LOCAL_ROUTE_DLLS: &[&str] = &[
     "winemetal.dll",
 ];
 const GPTK_EXTERNAL_PAYLOAD_FILES: &[&str] = &["libd3dshared.dylib", "D3DMetal.framework/Versions/A/D3DMetal"];
+
+// GPTK 4.0 beta 2 (Apple Developer download). The outer DMG contains the
+// Metal Shader Converter pkg and the "Evaluation environment" DMG whose
+// redist/ tree overlays the homebrew GPTK wine root.
+const GPTK4_DMG_BASENAME: &str = "Game_Porting_Toolkit_4.0_beta_2.dmg";
+const GPTK4_INNER_DMG_NAME: &str = "Evaluation environment for Windows games 4.0 beta 2.dmg";
+const GPTK4_MSC_PKG_NAME: &str = "Metal Shader Converter 4.0 beta 2.pkg";
+/// Guard against acting on a partial download (the DMG is ~104 MB on disk).
+const GPTK4_MIN_DMG_SIZE: u64 = 100 * 1024 * 1024;
+/// The GPTK 4 redist route DLL set must stay identical to the seeded set.
+const GPTK4_ROUTE_DLLS: &[&str] = GPTK_ROUTE_DLLS;
+/// Unix sidecar twins of the route DLLs (same stems, .so).
+const GPTK4_ROUTE_UNIX: &[&str] = &["d3d10.so", "d3d11.so", "d3d12.so", "dxgi.so", "nvapi64.so", "nvngx-on-metalfx.so"];
 const GPTK_OVERRIDES: &str =
     "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
 
@@ -52,6 +65,10 @@ pub enum D3DMetalStepState {
     RepairRequired,
 }
 
+fn default_step_state() -> D3DMetalStepState {
+    D3DMetalStepState::Missing
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct D3DMetalGptkState {
     pub schema: u32,
@@ -65,6 +82,8 @@ pub struct D3DMetalGptkState {
     pub gptk_payload: D3DMetalStepState,
     pub x64_redist: D3DMetalStepState,
     pub seed: D3DMetalStepState,
+    #[serde(default = "default_step_state")]
+    pub gptk4: D3DMetalStepState,
     pub play_ready: bool,
     pub last_error: Option<String>,
     #[serde(default)]
@@ -89,7 +108,13 @@ pub fn handle_status(body: &serde_json::Map<String, Value>) -> Value {
     match state_from_request(body) {
         Ok(state) => {
             let state = refresh_status_state(state);
-            json!({"ok": true, "state": state, "actions": actions_for(&state)})
+            json!({
+                "ok": true,
+                "state": state,
+                "actions": actions_for(&state),
+                "gptk4_installed": gptk4_installed_globally(),
+                "gptk4_dmg_found": find_gptk4_dmg_in_downloads().is_some(),
+            })
         },
         Err(e) => json!({"ok": false, "error": e}),
     }
@@ -574,6 +599,7 @@ fn new_state(bottle_id: &str, appid: u32, name: &str, game_dir: &Path) -> D3DMet
         gptk_payload: D3DMetalStepState::Missing,
         x64_redist: D3DMetalStepState::Missing,
         seed: D3DMetalStepState::Missing,
+        gptk4: D3DMetalStepState::Missing,
         play_ready: false,
         last_error: None,
         last_launch_pid: None,
@@ -949,6 +975,256 @@ fn verify_prefix_route_dlls() -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("GPTK prefix route DLLs are missing or do not match Homebrew GPTK: {}", mismatched.join(", ")))
+    }
+}
+
+// ---- GPTK 4.0 beta 2 overlay ----
+
+/// Files copied by a successful GPTK 4 overlay (for the status report).
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct Gptk4OverlayReport {
+    pub windows: Vec<String>,
+    pub unix: Vec<String>,
+    pub external: Vec<String>,
+}
+
+/// Global "done once" marker: the GPTK 4 overlay is machine-wide (it replaces
+/// files inside the shared GPTK app), so once installed it is never presented
+/// again, for any bottle.
+fn gptk4_marker_path() -> PathBuf {
+    metalsharp_home().join(".gptk4-installed")
+}
+
+pub fn gptk4_installed_globally() -> bool {
+    gptk4_marker_path().is_file()
+}
+
+fn write_gptk4_marker() -> Result<(), String> {
+    fs::write(gptk4_marker_path(), format!("{}{}", GPTK4_DMG_BASENAME, "\n"))
+        .map_err(|e| format!("write GPTK4 marker: {e}"))
+}
+
+/// The user downloads the Apple Developer DMG manually; watch ~/Downloads and
+/// require a complete (>=100 MB) file so a partial download is never mounted.
+fn find_gptk4_dmg_in_downloads() -> Option<PathBuf> {
+    let downloads = dirs::download_dir().or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))?;
+    let candidate = downloads.join(GPTK4_DMG_BASENAME);
+    candidate
+        .metadata()
+        .map(|meta| meta.is_file() && meta.len() >= GPTK4_MIN_DMG_SIZE)
+        .unwrap_or(false)
+        .then_some(candidate)
+}
+
+/// Parse `hdiutil attach` stdout: lines like
+/// `/dev/disk8s2 Apple_HFS /Volumes/Name (with spaces) 1`. The mount path is
+/// everything after the device + type tokens; the first existing dir wins.
+fn parse_attach_output(stdout: &str) -> Option<PathBuf> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, char::is_whitespace);
+            let _dev = parts.next()?;
+            let _kind = parts.next()?;
+            let mount = parts.next()?.trim();
+            (!mount.is_empty()).then(|| PathBuf::from(mount))
+        })
+        .find(|mount| mount.is_dir())
+}
+
+fn attach_dmg(path: &Path) -> Result<PathBuf, String> {
+    let output = Command::new("/usr/bin/hdiutil")
+        .args(["attach", "-nobrowse", "-readonly"])
+        .arg(path)
+        .output()
+        .map_err(|e| format!("hdiutil attach failed to start: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("hdiutil attach failed: {}", command_text(&output)));
+    }
+    parse_attach_output(&String::from_utf8_lossy(&output.stdout))
+        .ok_or_else(|| format!("hdiutil attach produced no mount point: {}", command_text(&output)))
+}
+
+fn detach_dmg(mount: &Path) {
+    let _ = Command::new("/usr/bin/hdiutil").args(["detach", "-force"]).arg(mount).output();
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn msc_tool_path() -> Option<PathBuf> {
+    [
+        PathBuf::from("/usr/local/bin/metal-shaderconverter"),
+        PathBuf::from("/opt/homebrew/bin/metal-shaderconverter"),
+        PathBuf::from("/opt/metal-shaderconverter/bin/metal-shaderconverter"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+}
+
+/// Install the Metal Shader Converter pkg. The pkg is `auth="root"`, so the
+/// direct `installer` call is tried first and, if not permitted, escalated
+/// through the macOS admin-privileges prompt (osascript).
+fn install_msc_pkg(pkg_path: &Path) -> Result<(), String> {
+    let direct_ok = Command::new("/usr/sbin/installer")
+        .args(["-pkg"])
+        .arg(pkg_path)
+        .args(["-target", "/"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !direct_ok {
+        let quoted = shell_single_quote(&pkg_path.to_string_lossy());
+        let cmd = format!("installer -pkg {} -target /", quoted);
+        let script = format!("do shell script {} with administrator privileges", shell_single_quote(&cmd));
+        let output = Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| format!("Metal Shader Converter installer (osascript) failed to start: {e}"))?;
+        if !output.status.success() {
+            return Err(format!("Metal Shader Converter install failed: {}", command_text(&output)));
+        }
+    }
+    let tool = msc_tool_path()
+        .ok_or_else(|| "Metal Shader Converter installed but metal-shaderconverter was not found".to_string())?;
+    let version = Command::new(&tool).arg("--version").output();
+    if !version.map(|output| output.status.success()).unwrap_or(false) {
+        return Err("metal-shaderconverter --version failed after install".to_string());
+    }
+    Ok(())
+}
+
+/// Copy the Evaluation environment `redist/` tree into the homebrew GPTK wine
+/// root: route DLLs -> lib/wine/x86_64-windows, unix sidecars ->
+/// lib/wine/x86_64-unix, and the external payload (D3DMetal.framework +
+/// libd3dshared.dylib) -> lib/external. Every file is sha256-verified; the
+/// framework is replaced with ditto (preserves symlinks/permissions).
+fn overlay_gptk4_redist(redist_root: &Path, wine_root: &Path) -> Result<Gptk4OverlayReport, String> {
+    let mut report = Gptk4OverlayReport::default();
+
+    let src_win = redist_root.join("lib").join("wine").join("x86_64-windows");
+    let dst_win = wine_root.join("lib").join("wine").join("x86_64-windows");
+    for dll in GPTK4_ROUTE_DLLS {
+        copy_file_checked(&src_win.join(dll), &dst_win.join(dll))?;
+        report.windows.push(dll.to_string());
+    }
+
+    let src_unix = redist_root.join("lib").join("wine").join("x86_64-unix");
+    let dst_unix = wine_root.join("lib").join("wine").join("x86_64-unix");
+    for so in GPTK4_ROUTE_UNIX {
+        copy_file_checked(&src_unix.join(so), &dst_unix.join(so))?;
+        report.unix.push(so.to_string());
+    }
+
+    let src_ext = redist_root.join("lib").join("external");
+    let dst_ext = wine_root.join("lib").join("external");
+    let framework_src = src_ext.join("D3DMetal.framework");
+    let framework_dst = dst_ext.join("D3DMetal.framework");
+    if !framework_ready(&framework_src) {
+        return Err(format!("GPTK 4 redist D3DMetal.framework is incomplete: {}", framework_src.display()));
+    }
+    if framework_dst.exists() {
+        fs::remove_dir_all(&framework_dst).map_err(|e| format!("remove old D3DMetal.framework: {e}"))?;
+    }
+    let ditto = Command::new("/usr/bin/ditto")
+        .arg(&framework_src)
+        .arg(&framework_dst)
+        .output()
+        .map_err(|e| format!("ditto D3DMetal.framework failed to start: {e}"))?;
+    if !ditto.status.success() {
+        return Err(format!("ditto D3DMetal.framework failed: {}", command_text(&ditto)));
+    }
+    if !framework_ready(&framework_dst) {
+        return Err("overlaid D3DMetal.framework is incomplete".to_string());
+    }
+    report.external.push("D3DMetal.framework".to_string());
+
+    copy_file_checked(&src_ext.join("libd3dshared.dylib"), &dst_ext.join("libd3dshared.dylib"))?;
+    report.external.push("libd3dshared.dylib".to_string());
+
+    Ok(report)
+}
+
+/// Full GPTK 4 repair: locate the downloaded DMG, mount it, install the Metal
+/// Shader Converter pkg, mount the Evaluation environment DMG, overlay the
+/// redist tree, re-verify the payload, and re-seed the prefix. Mounts are
+/// always detached, even on failure.
+fn repair_gptk4(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkState, String> {
+    let mut state = state_from_request(body)?;
+    state.gptk4 = D3DMetalStepState::Installing;
+    state.play_ready = false;
+    state.last_error = None;
+    save_state(&state)?;
+
+    let result = (|| -> Result<Gptk4OverlayReport, String> {
+        let dmg = find_gptk4_dmg_in_downloads().ok_or_else(|| {
+            "Download Game Porting Toolkit 4.0 beta 2 from Apple Developer into ~/Downloads, then run Repair again"
+                .to_string()
+        })?;
+        let outer_mount = attach_dmg(&dmg)?;
+        let mut mounted = vec![outer_mount.clone()];
+        let inner = (|| -> Result<Gptk4OverlayReport, String> {
+            let msc_pkg = outer_mount.join(GPTK4_MSC_PKG_NAME);
+            if !msc_pkg.is_file() {
+                return Err(format!("Metal Shader Converter pkg not found in {}", outer_mount.display()));
+            }
+            install_msc_pkg(&msc_pkg)?;
+
+            let inner_dmg = outer_mount.join(GPTK4_INNER_DMG_NAME);
+            if !inner_dmg.is_file() {
+                return Err(format!("Evaluation environment DMG not found in {}", outer_mount.display()));
+            }
+            let inner_mount = attach_dmg(&inner_dmg)?;
+            mounted.push(inner_mount.clone());
+            let redist_root = inner_mount.join("redist");
+            if !redist_root.is_dir() {
+                return Err(format!("redist/ not found in {}", inner_mount.display()));
+            }
+            overlay_gptk4_redist(&redist_root, &homebrew_wine_root())
+        })();
+        for mount in mounted.iter().rev() {
+            detach_dmg(mount);
+        }
+        inner
+    })();
+
+    match result {
+        Ok(_report) => {
+            if let Err(e) =
+                ensure_homebrew_gptk_payload_ready().and_then(|_| seed_homebrew_gptk_route_dlls_into_prefix())
+            {
+                state.gptk4 = D3DMetalStepState::Failed;
+                state.last_error = Some(e.clone());
+                save_state(&state)?;
+                persist_d3dmetal_bottle_manifest_best_effort(&state);
+                return Err(e);
+            }
+            write_gptk4_marker()?;
+            state.gptk4 = D3DMetalStepState::Installed;
+            state.gptk_payload = D3DMetalStepState::Updated;
+            state.last_error = None;
+        },
+        Err(e) => {
+            state.gptk4 = D3DMetalStepState::Failed;
+            state.last_error = Some(e.clone());
+            save_state(&state)?;
+            persist_d3dmetal_bottle_manifest_best_effort(&state);
+            return Err(e);
+        },
+    }
+    state.updated_at = now_secs();
+    state = refresh_status_state(state);
+    save_state(&state)?;
+    persist_d3dmetal_bottle_manifest(&state)?;
+    Ok(state)
+}
+
+pub fn handle_repair_gptk4(body: &serde_json::Map<String, Value>) -> Value {
+    match repair_gptk4(body) {
+        Ok(state) => json!({"ok": true, "state": state, "actions": actions_for(&state)}),
+        Err(e) => json!({"ok": false, "error": e}),
     }
 }
 
@@ -1676,5 +1952,106 @@ mod tests {
         assert!(is_d3dmetal_route_conflict(Path::new("winemetal.dll")));
         assert!(!is_d3dmetal_route_conflict(Path::new("sl.interposer.dll")));
         assert!(!is_d3dmetal_route_conflict(Path::new("steam_api64.dll")));
+    }
+
+    #[test]
+    fn gptk4_manifests_cover_the_seeded_route_set() {
+        // The GPTK 4 redist route DLL set must stay identical to the set the
+        // seed/verify pipeline deploys, and the unix sidecars must be the
+        // same stems with the .so extension.
+        assert_eq!(GPTK4_ROUTE_DLLS, GPTK_ROUTE_DLLS);
+        assert_eq!(GPTK4_ROUTE_DLLS.len(), GPTK4_ROUTE_UNIX.len());
+        for (dll, so) in GPTK4_ROUTE_DLLS.iter().zip(GPTK4_ROUTE_UNIX.iter()) {
+            let stem = dll.trim_end_matches(".dll");
+            assert_eq!(so, &format!("{stem}.so"));
+        }
+        assert_eq!(GPTK4_MIN_DMG_SIZE, 100 * 1024 * 1024);
+    }
+
+    #[test]
+    fn parse_attach_output_handles_mount_paths_with_spaces() {
+        // hdiutil appends " 1" when the volume name collides; the mount path
+        // may contain spaces. The parser must take everything after the
+        // device + filesystem tokens.
+        let temp = std::env::temp_dir().join(format!("ms-gptk4 parse dir {}", std::process::id()));
+        std::fs::create_dir_all(&temp).expect("create fake mount");
+        let stdout =
+            format!("/dev/disk8\tApple_partition_scheme\t\n/dev/disk8s2\tApple_HFS\t{temp}\n", temp = temp.display());
+        assert_eq!(parse_attach_output(&stdout), Some(temp.clone()));
+        assert_eq!(parse_attach_output("/dev/disk8s2 Apple_HFS /nonexistent 1"), None);
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn overlay_gptk4_redist_copies_all_three_trees_and_verifies_hashes() {
+        let temp = std::env::temp_dir().join(format!("ms-gptk4-overlay-{}", std::process::id()));
+        let redist = temp.join("redist");
+        let wine_root = temp.join("wine");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-windows")).expect("redist windows");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-unix")).expect("redist unix");
+        std::fs::create_dir_all(redist.join("lib/external/D3DMetal.framework/Versions/A/Resources"))
+            .expect("redist external");
+        std::fs::create_dir_all(redist.join("lib/external/D3DMetal.framework/Resources")).expect("redist resources");
+
+        for dll in GPTK4_ROUTE_DLLS {
+            std::fs::write(redist.join("lib/wine/x86_64-windows").join(dll), format!("dll-{dll}")).unwrap();
+        }
+        for so in GPTK4_ROUTE_UNIX {
+            std::fs::write(redist.join("lib/wine/x86_64-unix").join(so), format!("so-{so}")).unwrap();
+        }
+        std::fs::write(redist.join("lib/external/D3DMetal.framework/Versions/A/D3DMetal"), b"framework-binary")
+            .unwrap();
+        std::fs::write(redist.join("lib/external/D3DMetal.framework/Versions/A/Resources/Info.plist"), b"plist")
+            .unwrap();
+        std::fs::write(
+            redist.join("lib/external/D3DMetal.framework/Versions/A/Resources/libd3dshared.dylib"),
+            b"dylib",
+        )
+        .unwrap();
+        std::fs::write(redist.join("lib/external/libd3dshared.dylib"), b"shared-dylib").unwrap();
+
+        let report = overlay_gptk4_redist(&redist, &wine_root).expect("overlay must succeed");
+        assert_eq!(report.windows.len(), GPTK4_ROUTE_DLLS.len());
+        assert_eq!(report.unix.len(), GPTK4_ROUTE_UNIX.len());
+        assert_eq!(report.external.len(), 2);
+
+        // Every copied file must hash-match its redist source.
+        for dll in GPTK4_ROUTE_DLLS {
+            assert!(same_file_hash(
+                &redist.join("lib/wine/x86_64-windows").join(dll),
+                &wine_root.join("lib/wine/x86_64-windows").join(dll)
+            ));
+        }
+        for so in GPTK4_ROUTE_UNIX {
+            assert!(same_file_hash(
+                &redist.join("lib/wine/x86_64-unix").join(so),
+                &wine_root.join("lib/wine/x86_64-unix").join(so)
+            ));
+        }
+        assert!(framework_ready(&wine_root.join("lib/external/D3DMetal.framework")));
+        assert!(same_file_hash(
+            &redist.join("lib/external/libd3dshared.dylib"),
+            &wine_root.join("lib/external/libd3dshared.dylib")
+        ));
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn overlay_gptk4_redist_rejects_a_missing_redist_file() {
+        let temp = std::env::temp_dir().join(format!("ms-gptk4-overlay-missing-{}", std::process::id()));
+        let redist = temp.join("redist");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-windows")).expect("redist windows");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-unix")).expect("redist unix");
+        for dll in GPTK4_ROUTE_DLLS {
+            std::fs::write(redist.join("lib/wine/x86_64-windows").join(dll), format!("dll-{dll}")).unwrap();
+        }
+        for so in GPTK4_ROUTE_UNIX {
+            std::fs::write(redist.join("lib/wine/x86_64-unix").join(so), format!("so-{so}")).unwrap();
+        }
+        // No D3DMetal.framework at all.
+        let err = overlay_gptk4_redist(&redist, &temp.join("wine")).expect_err("missing framework must fail");
+        assert!(err.contains("D3DMetal.framework"), "error should name the framework: {err}");
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }
