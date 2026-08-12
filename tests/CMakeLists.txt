@@ -78,6 +78,7 @@ add_executable(test_host_runtime_abi
 )
 target_include_directories(test_host_runtime_abi PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_host_runtime_abi PRIVATE metalsharp_host_runtime)
+metalsharp_host_target(test_host_runtime_abi)
 
 add_executable(test_mscoree_path_safety
     test_mscoree_path_safety.cpp
@@ -368,3 +369,26 @@ add_test(NAME mscoree_unix COMMAND test_mscoree_unix)
 set_tests_properties(mscoree_unix PROPERTIES
     ENVIRONMENT "METALSHARP_MONO_LIB=$<TARGET_FILE:test_mscoree_mono>"
 )
+
+if(APPLE)
+    add_test(
+        NAME macos_architecture_matrix
+        COMMAND ${CMAKE_COMMAND}
+            -DMETALSHARP_HOST_ARCH=${METALSHARP_HOST_ARCH}
+            -DMETALSHARP_WINE_ARCH=${METALSHARP_WINE_ARCH}
+            -DHOST_RUNTIME=$<TARGET_FILE:metalsharp_host_runtime>
+            -DHOST_RUNTIME_TEST=$<TARGET_FILE:test_host_runtime_abi>
+            -DHOST_LAUNCHER=$<TARGET_FILE:metalsharp_launcher>
+            -DHOST_MIGRATOR=$<TARGET_FILE:metalsharp_migrator>
+            -DWINE_CORE=$<TARGET_FILE:metalsharp_core>
+            -DWINE_NATIVE=$<TARGET_FILE:metalsharp_native>
+            -DWINE_D3D11=$<TARGET_FILE:metalsharp_d3d11>
+            -DWINE_D3D12=$<TARGET_FILE:metalsharp_d3d12>
+            -DWINE_DXGI=$<TARGET_FILE:metalsharp_dxgi>
+            -DWINE_AUDIO=$<TARGET_FILE:metalsharp_audio>
+            -DWINE_INPUT=$<TARGET_FILE:metalsharp_input>
+            -DWINE_LOADER=$<TARGET_FILE:metalsharp_loader>
+            -DWINE_OPENGL=$<TARGET_FILE:metalsharp_opengl32>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/verify-macos-architectures.cmake
+    )
+endif()

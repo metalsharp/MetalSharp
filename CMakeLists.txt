@@ -159,12 +159,14 @@ target_link_libraries(metalsharp_core PUBLIC
     ${APPKIT_FRAMEWORK}
 )
 target_compile_options(metalsharp_core PRIVATE -fobjc-arc)
+metalsharp_wine_target(metalsharp_core)
 
 add_library(metalsharp_host_runtime SHARED
     src/runtime/host/HostRuntimeABI.cpp
 )
 target_include_directories(metalsharp_host_runtime PUBLIC include)
 set_target_properties(metalsharp_host_runtime PROPERTIES OUTPUT_NAME "metalsharp_host_runtime")
+metalsharp_host_target(metalsharp_host_runtime)
 
 add_library(metalsharp_d3d11 SHARED
     src/d3d/d3d11/D3D11Device.cpp
@@ -188,6 +190,7 @@ add_library(metalsharp_d3d11 SHARED
 target_link_libraries(metalsharp_d3d11 PRIVATE metalsharp_core metalsharp_dxgi)
 target_compile_options(metalsharp_d3d11 PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_d3d11 PROPERTIES OUTPUT_NAME "d3d11" PREFIX "")
+metalsharp_wine_target(metalsharp_d3d11)
 metalsharp_stage_to_app_native(metalsharp_d3d11)
 
 add_library(metalsharp_d3d12 SHARED
@@ -205,6 +208,7 @@ add_library(metalsharp_d3d12 SHARED
 target_link_libraries(metalsharp_d3d12 PRIVATE metalsharp_core)
 target_compile_options(metalsharp_d3d12 PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_d3d12 PROPERTIES OUTPUT_NAME "d3d12" PREFIX "")
+metalsharp_wine_target(metalsharp_d3d12)
 metalsharp_stage_to_app_native(metalsharp_d3d12)
 
 add_library(metalsharp_dxgi SHARED
@@ -217,6 +221,7 @@ add_library(metalsharp_dxgi SHARED
 target_link_libraries(metalsharp_dxgi PRIVATE metalsharp_core)
 target_compile_options(metalsharp_dxgi PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_dxgi PROPERTIES OUTPUT_NAME "dxgi" PREFIX "")
+metalsharp_wine_target(metalsharp_dxgi)
 metalsharp_stage_to_app_native(metalsharp_dxgi)
 
 add_library(metalsharp_audio SHARED
@@ -230,6 +235,7 @@ add_library(metalsharp_audio SHARED
 )
 target_link_libraries(metalsharp_audio PRIVATE metalsharp_core ${AUDIOUNIT_FRAMEWORK})
 set_target_properties(metalsharp_audio PROPERTIES OUTPUT_NAME "xaudio2_9" PREFIX "")
+metalsharp_wine_target(metalsharp_audio)
 metalsharp_stage_to_app_native(metalsharp_audio)
 
 add_library(metalsharp_input SHARED
@@ -240,6 +246,7 @@ add_library(metalsharp_input SHARED
 target_link_libraries(metalsharp_input PRIVATE metalsharp_core ${GAMECONTROLLER_FRAMEWORK})
 target_compile_options(metalsharp_input PRIVATE -fobjc-arc)
 set_target_properties(metalsharp_input PROPERTIES OUTPUT_NAME "xinput1_4" PREFIX "")
+metalsharp_wine_target(metalsharp_input)
 metalsharp_stage_to_app_native(metalsharp_input)
 
 add_executable(metalsharp_launcher
@@ -249,7 +256,11 @@ add_executable(metalsharp_launcher
     tools/launcher/Config.cpp
     tools/launcher/SteamIntegration.cpp
 )
-target_link_libraries(metalsharp_launcher PRIVATE metalsharp_core ${FOUNDATION_FRAMEWORK})
+# The launcher is a native macOS helper that starts Wine; it does not load the
+# PE-facing core. Keeping that dependency out lets the helper use the host
+# architecture without mixing an arm64 executable with the x86_64 Wine core.
+target_link_libraries(metalsharp_launcher PRIVATE ${FOUNDATION_FRAMEWORK})
+metalsharp_host_target(metalsharp_launcher)
 metalsharp_stage_to_app_native(metalsharp_launcher)
 
 add_library(metalsharp_loader STATIC
@@ -303,6 +314,7 @@ target_include_directories(metalsharp_loader PUBLIC include)
 target_link_libraries(metalsharp_loader PRIVATE metalsharp_core ${SECURITY_FRAMEWORK})
 target_compile_options(metalsharp_loader PRIVATE -fobjc-arc)
 target_compile_definitions(metalsharp_loader PRIVATE METALSHARP_NATIVE_LOADER)
+metalsharp_wine_target(metalsharp_loader)
 
 add_executable(metalsharp_native
     tools/launcher/NativeLauncher.cpp
@@ -394,6 +406,7 @@ add_executable(metalsharp_migrator
 )
 target_link_libraries(metalsharp_migrator PRIVATE ${APPKIT_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
 set_target_properties(metalsharp_migrator PROPERTIES OUTPUT_NAME "MetalSharpMigrator")
+metalsharp_host_target(metalsharp_migrator)
 metalsharp_stage_to_app_native(metalsharp_migrator)
 
 if(BUILD_TESTS)
