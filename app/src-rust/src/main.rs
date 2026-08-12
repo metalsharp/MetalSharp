@@ -2971,11 +2971,12 @@ fn is_metalsharp_owned_process(pid: i32) -> bool {
 }
 
 /// Ownership check for a game registered under `appid`. In addition to the
-/// standard MetalSharp matcher, a process whose executable lives inside the
-/// game's resolved directory is owned: Mono/FNA launchers and native game
-/// binaries run as their own process from the game folder (which may live
-/// outside the MetalSharp home, e.g. a Steam library), and the registered-PID
-/// plus in-game-dir executable is a sufficient ownership proof.
+/// standard MetalSharp matcher, a process whose command line references the
+/// game's resolved directory is owned: Mono/FNA launchers run as native
+/// processes from the game folder, and Wine rewrites the game process argv
+/// to the Windows form (`Z:\Volumes\...\game.exe -steam`). The PID is already
+/// bound to this appid by launch registration, so the game path in argv is a
+/// sufficient ownership proof.
 fn is_metalsharp_owned_process_for_appid(pid: i32, appid: u32) -> bool {
     let home = crate::platform::metalsharp_home_dir();
     let Some(command) = process_command_for_pid(pid) else {
@@ -2989,7 +2990,16 @@ fn is_metalsharp_owned_process_for_appid(pid: i32, appid: u32) -> bool {
     else {
         return false;
     };
-    std::path::Path::new(command_executable(&command)).starts_with(&game_dir)
+    command_matches_game_dir(&command, &game_dir)
+}
+
+/// Match a process command line against a game directory in either the unix
+/// form or Wine's `Z:\` form (wine rewrites argv to Windows-style paths).
+fn command_matches_game_dir(command: &str, game_dir: &std::path::Path) -> bool {
+    let unix = game_dir.to_string_lossy().to_lowercase();
+    let windows = format!("z:{}", unix.replace('/', "\\"));
+    let lower = command.to_lowercase();
+    lower.contains(&unix) || lower.contains(&windows)
 }
 
 fn is_force_kill_target(command: &str, home: &std::path::Path) -> bool {
@@ -3979,5 +3989,31 @@ mod tests {
         let err = resolve_game_exe(&home, 424244).expect_err("empty game dir must fail resolution");
         assert!(err.contains("no game executable found for appid 424244"), "clear error: {}", err);
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn command_matches_game_dir_in_unix_and_windows_forms() {
+        // Wine rewrites the game process argv to the Windows form; the
+        // ownership matcher must accept both spellings for a registered game.
+        let dir = std::path::Path::new("/Volumes/AverySSD/SteamLibrary/steamapps/common/Amid Evil");
+        assert!(command_matches_game_dir(
+            "Z:\\Volumes\\AverySSD\\SteamLibrary\\steamapps\\common\\Amid Evil\\AmidEvil.exe -steam",
+            dir
+        ));
+        assert!(command_matches_game_dir(
+            "/Volumes/AverySSD/SteamLibrary/steamapps/common/Amid Evil/AmidEvil.exe -steam",
+            dir
+        ));
+        assert!(!command_matches_game_dir("C:\\windows\\system32\\winedevice.exe", dir));
+        assert!(!command_matches_game_dir("/bin/bash /usr/bin/definitely-not-a-game", dir));
+    }
+
+    #[test]
+    fn shell_interpreter_wrapper_resolves_script_from_first_arg() {
+        let home = std::path::PathBuf::from("/Users/test/.metalsharp");
+        let wrapper = format!("{}/runtime/wine/bin/metalsharp-wine", home.display());
+        assert!(is_metalsharp_wine_executable(&format!("/bin/bash {} game.exe -steam", wrapper), &home));
+        assert!(is_metalsharp_wine_executable(&format!("{} game.exe", wrapper), &home));
+        assert!(!is_metalsharp_wine_executable("/bin/bash /usr/bin/some-other-script game.exe", &home));
     }
 }
