@@ -1,5 +1,6 @@
 use serde_json::json;
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -108,65 +109,71 @@ fn ensure_steam_env_handoff_supported(steam_running: bool, extra_env: &[(String,
     Ok(())
 }
 
+/// Kill a launched process and only the processes descended from it.
+///
+/// Descendants are collected before the root is killed because terminating a
+/// parent can reparent its children. Command-line matching is deliberately not
+/// used here: a game path or a crash-handler name is not proof of ownership.
 pub fn kill_process_tree(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
     if pid <= 0 {
         return Ok(());
     }
 
-    let _ = Command::new("pkill")
-        .args(["-9", "-P", &pid.to_string()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    let descendants = process_descendants(pid);
+    for child in descendants.iter().rev() {
+        kill_pid(*child);
+    }
+    kill_pid(pid);
 
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    Ok(())
+}
+
+fn kill_pid(pid: i32) {
     let _ = Command::new("kill")
         .args(["-9", &pid.to_string()])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
-
-    std::thread::sleep(std::time::Duration::from_millis(300));
-
-    let _ = Command::new("pkill")
-        .args(["-9", "-f", "UnityCrashHandler"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    Ok(())
 }
 
-pub fn kill_game_with_pid(appid: u32, pid: i32) -> Result<(), Box<dyn std::error::Error>> {
-    if pid > 0 {
-        kill_process_tree(pid)?;
-    }
+fn process_descendants(pid: i32) -> Vec<i32> {
+    let mut descendants = Vec::new();
+    let mut pending = vec![pid];
+    let mut seen = HashSet::from([pid]);
 
-    let home = dirs::home_dir().ok_or("no home dir")?;
-    let game_dir = crate::platform::metalsharp_home_dir_for(&home).join("games").join(appid.to_string());
+    while let Some(parent) = pending.pop() {
+        let Ok(output) = Command::new("pgrep").args(["-P", &parent.to_string()]).output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
 
-    let resolved = crate::setup::resolve_game_dir(appid);
-    let dirs_to_check =
-        if let Some(ref rd) = resolved { vec![rd.clone(), game_dir.clone()] } else { vec![game_dir.clone()] };
-
-    for dir in &dirs_to_check {
-        if dir.exists() {
-            if let Ok(output) = Command::new("pgrep").args(["-a", "-f", &dir.to_string_lossy()]).output() {
-                for line in String::from_utf8_lossy(&output.stdout).lines() {
-                    if let Some(pid_str) = line.split_whitespace().next() {
-                        if let Ok(p) = pid_str.parse::<i32>() {
-                            if p != pid {
-                                let _ = Command::new("kill").args(["-9", &p.to_string()]).status();
-                            }
-                        }
-                    }
-                }
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let Ok(child) = line.trim().parse::<i32>() else {
+                continue;
+            };
+            if child > 0 && seen.insert(child) {
+                descendants.push(child);
+                pending.push(child);
             }
         }
     }
 
-    let _ = Command::new("pkill").args(["-9", "-f", "UnityCrashHandler"]).status();
+    descendants
+}
 
-    Ok(())
+/// Stop a game only when its launched PID is available. The app id is retained
+/// for the existing caller contract, but it is never used as a process-ownership
+/// signal; a zero PID intentionally performs no cleanup.
+pub fn kill_game_with_pid(_appid: u32, pid: i32) -> Result<(), Box<dyn std::error::Error>> {
+    if pid <= 0 {
+        return Ok(());
+    }
+
+    kill_process_tree(pid)
 }
 
 pub fn is_process_active(pid: i32) -> bool {
@@ -594,6 +601,34 @@ mod tests {
         }
 
         assert!(!is_process_active(pid as i32));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_process_tree_does_not_kill_unrelated_crash_handlers() {
+        let mut unrelated = Command::new("/bin/bash")
+            .args(["-c", "exec -a UnityCrashHandler /bin/sleep 30"])
+            .spawn()
+            .expect("spawn unrelated crash handler");
+        let mut root =
+            Command::new("/bin/bash").args(["-c", "sleep 30 & wait"]).spawn().expect("spawn process tree root");
+
+        std::thread::sleep(Duration::from_millis(50));
+        let descendants = process_descendants(root.id() as i32);
+        let has_descendants = !descendants.is_empty();
+        kill_process_tree(root.id() as i32).expect("kill process tree");
+        let _ = root.wait();
+
+        let root_stopped = !is_process_active(root.id() as i32);
+        let descendants_stopped = descendants.into_iter().all(|pid| !is_process_active(pid));
+        let unrelated_survived = is_process_active(unrelated.id() as i32);
+        kill_pid(unrelated.id() as i32);
+        let _ = unrelated.wait();
+
+        assert!(root_stopped);
+        assert!(has_descendants);
+        assert!(descendants_stopped);
+        assert!(unrelated_survived);
     }
 
     #[test]
