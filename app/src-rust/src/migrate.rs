@@ -3609,17 +3609,15 @@ mod tests {
             fs::write(path, b"test").expect("write runtime file");
         }
 
-        for lane in ["dxmt"] {
-            fs::write(
-                runtime_wine.join("lib").join(lane).join("metalsharp-dxmt-runtime.json"),
-                serde_json::to_string_pretty(&json!({
-                    "schema": "metalsharp.dxmt-runtime.v1",
-                    "version": crate::installer::DXMT_BUNDLED_RUNTIME_VERSION,
-                }))
-                .expect("serialize DXMT manifest"),
-            )
-            .expect("write DXMT manifest");
-        }
+        fs::write(
+            runtime_wine.join("lib").join("dxmt").join("metalsharp-dxmt-runtime.json"),
+            serde_json::to_string_pretty(&json!({
+                "schema": "metalsharp.dxmt-runtime.v1",
+                "version": crate::installer::DXMT_BUNDLED_RUNTIME_VERSION,
+            }))
+            .expect("serialize DXMT manifest"),
+        )
+        .expect("write DXMT manifest");
     }
 
     fn write_host_runtime(ms_dir: &Path) {
