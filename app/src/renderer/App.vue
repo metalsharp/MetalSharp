@@ -163,16 +163,6 @@ async function startUpdateDownload() {
     toast.show(ready?.error ?? "Updater not available", "error");
     return;
   }
-  const pid = await backend.backendGetPid();
-  if (!pid) {
-    toast.show("Cannot get backend PID", "error");
-    return;
-  }
-  const targetVersion = updateStatus.value?.latest_version ?? "";
-  if (!targetVersion) {
-    toast.show("Update version is unavailable", "error");
-    return;
-  }
   if (!updateStatus.value?.download_url) {
     toast.show("Update DMG asset is unavailable", "error");
     return;
@@ -203,28 +193,7 @@ async function startUpdateDownload() {
     if (progress.status === "downloaded" || progress.status === "complete") {
       if (updatePollTimer) clearInterval(updatePollTimer);
       updatePollTimer = null;
-      const dmgResult = await api<{ ok: boolean; path?: string; version?: string; size?: number; sha256?: string }>(
-        "GET",
-        "/update/dmg-path",
-      );
-      if (!dmgResult?.path) {
-        toast.show("Download complete but DMG not found", "error");
-        updateDownloading.value = false;
-        return;
-      }
-      if (!dmgResult.size || !dmgResult.sha256) {
-        toast.show("Download completed without integrity metadata", "error");
-        updateDownloading.value = false;
-        return;
-      }
-      const installVersion = dmgResult.version ?? targetVersion;
-      const spawnResult = await backend.updaterSpawnInstall(
-        dmgResult.path,
-        pid,
-        installVersion,
-        dmgResult.size,
-        dmgResult.sha256,
-      );
+      const spawnResult = await backend.updaterSpawnInstall();
       if (!spawnResult?.ok) {
         toast.show(spawnResult?.error ?? "Failed to start installer", "error");
         updateDownloading.value = false;

@@ -20,6 +20,7 @@
     "rust:build": "cd src-rust && cargo build --release",
     "rust:dev": "cd src-rust && cargo build",
     "build:all": "npm run rust:build && npm run build",
+    "test:security": "rm -rf .test-dist && trap 'rm -rf .test-dist' EXIT && tsc -p tsconfig.test.json && node --test .test-dist/main/security.test.js",
     "build:native": "bash ../scripts/tools/native/build-helper.sh",
     "pack": "npm run build:all && npm run prepare:native && electron-builder --dir",
     "prepare:native": "../tools/package/prepare-native.sh",
@@ -138,6 +139,10 @@
       {
         "from": "updater",
         "to": "scripts/tools/updater"
+      },
+      {
+        "from": "../scripts/install-metalsharp-wine-runtime.sh",
+        "to": "scripts/install-metalsharp-wine-runtime.sh"
       },
       {
         "from": "../configs",
