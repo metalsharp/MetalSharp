@@ -20,6 +20,8 @@ enum mscoree_func_id {
 };
 
 struct mscoree_cor_exe_main_params {
+    // The PE caller populates exe_path/exe_dir before MSCOREE_FUNC_COR_EXE_MAIN.
+    // The Unix handler writes the managed entry point's result to exit_code.
     char exe_path[1024];
     char exe_dir[1024];
     int argc;

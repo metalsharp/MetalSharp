@@ -307,14 +307,15 @@ void WINAPI _CorExeMain(void) {
     strncpy(params.exe_path, unix_exe, sizeof(params.exe_path) - 1);
     strncpy(params.exe_dir, unix_dir, sizeof(params.exe_dir) - 1);
     params.argc = 0;
-    params.exit_code = 0;
+    // Keep launch failures non-zero if the bridge cannot update the result.
+    params.exit_code = 1;
 
     fprintf(stderr, "[mscoree] calling unix bridge INIT...\n");
     NTSTATUS init_status = unix_call(MSCOREE_FUNC_INIT, NULL);
     fprintf(stderr, "[mscoree] INIT returned %ld\n", (long)init_status);
 
-    fprintf(stderr, "[mscoree] calling unix bridge _CorExeMain (no args)...\n");
-    NTSTATUS cor_status = unix_call(MSCOREE_FUNC_COR_EXE_MAIN, NULL);
+    fprintf(stderr, "[mscoree] calling unix bridge _CorExeMain (exe=%s)...\n", params.exe_path);
+    NTSTATUS cor_status = unix_call(MSCOREE_FUNC_COR_EXE_MAIN, &params);
     fprintf(stderr, "[mscoree] _CorExeMain returned %ld\n", (long)cor_status);
 
     ExitProcess(params.exit_code);

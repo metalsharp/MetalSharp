@@ -44,6 +44,17 @@ The initial implementation removes two brittle assumptions from the runtime:
 
 These are small changes, but they are the necessary shape: bottle manifests and installer runtime profiles can now configure shims through explicit runtime state instead of requiring patched binaries or one global machine assumption.
 
+### Managed PE/unixlib launch contract
+
+The Wine `mscoree` shim keeps the managed executable identity explicit across
+the PE/unix boundary. `_CorExeMain` fills `mscoree_cor_exe_main_params` with
+the Unix-form executable path and directory, passes that structure to
+`MSCOREE_FUNC_COR_EXE_MAIN`, and exits with the `exit_code` written by the Unix
+handler. The Unix handler must not infer the executable from `_` or
+`/proc/self/cmdline`; those are not portable on macOS. A failed bridge call
+leaves a non-zero exit code so a managed launch cannot report success without
+executing its assembly.
+
 ## Bottle Manifest Mapping
 
 Future bottle manifests should map directly to ABI structs:
