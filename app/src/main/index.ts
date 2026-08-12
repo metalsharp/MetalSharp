@@ -4,6 +4,13 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { ejectDmgVolume } from "./dmg-eject";
+import {
+  createProcessManagerScope,
+  isNonSteamMetalSharpWineProcess,
+  isSteamWineProcess,
+  type ProcessRow,
+  stopMetalSharpWineProcesses,
+} from "./process-manager";
 import type { ProcessManagerAction, ProcessManagerActionResult, ProcessManagerSample } from "./process-manager-types";
 import { RustBridge } from "./rust-bridge";
 import { validateUninstallTarget } from "./uninstall-safety";
@@ -306,8 +313,6 @@ function forceKillBackendProcesses() {
   }
 }
 
-type ProcessRow = { pid: number; comm: string; command: string };
-
 function parseProcessRows(output: string): ProcessRow[] {
   return output
     .split(/\r?\n/)
@@ -447,24 +452,6 @@ async function processManagerSample(): Promise<ProcessManagerSample> {
   return jsProcessManagerFallback();
 }
 
-function isNonSteamWineProcess(row: ProcessRow): boolean {
-  const command = row.command.toLowerCase();
-  const comm = path.basename(row.comm).toLowerCase();
-  const haystack = `${comm} ${command}`;
-  const isSteam = haystack.includes("steam");
-  const isWine =
-    comm === "wine" ||
-    comm === "wineserver" ||
-    comm.startsWith("wine") ||
-    command.includes("/wine") ||
-    command.includes("wineserver") ||
-    command.includes("wine-preloader") ||
-    command.includes("wine64-preloader") ||
-    command.includes("wineboot") ||
-    command.includes("drive_c/");
-  return row.pid > 0 && row.pid !== process.pid && isWine && !isSteam;
-}
-
 async function processManagerQuitGame(): Promise<ProcessManagerActionResult> {
   let rows: ProcessRow[] = [];
   try {
@@ -477,24 +464,29 @@ async function processManagerQuitGame(): Promise<ProcessManagerActionResult> {
       errors: [],
     };
   }
-  const targets = rows.filter(isNonSteamWineProcess);
-  const killed: number[] = [];
-  const errors: string[] = [];
-  for (const row of targets) {
-    try {
-      process.kill(row.pid, "SIGKILL");
-      killed.push(row.pid);
-    } catch (error) {
-      const code =
-        typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
-      if (code !== "ESRCH") errors.push(`${row.pid}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  const skippedSteamWinePids = rows.filter((row) => {
-    const haystack = `${path.basename(row.comm).toLowerCase()} ${row.command.toLowerCase()}`;
-    return haystack.includes("wine") && haystack.includes("steam");
-  }).length;
-  return { ok: errors.length === 0, killed, errors, skippedSteamWinePids };
+  const scope = createProcessManagerScope(getMetalsharpDir());
+  const targets = rows.filter((row) => isNonSteamMetalSharpWineProcess(row, scope, process.pid));
+  const skippedSteamWinePids = rows.filter(isSteamWineProcess).length;
+  const useGracefulStop =
+    targets.length > 0 &&
+    skippedSteamWinePids === 0 &&
+    fs.existsSync(scope.wineServer) &&
+    fs.existsSync(scope.managedPrefix);
+  const result = stopMetalSharpWineProcesses(
+    targets,
+    scope,
+    {
+      stopWithWineserver: (wineServer, prefix) => {
+        execFileSync(wineServer, ["-k"], {
+          env: { ...process.env, WINEPREFIX: prefix },
+          stdio: "ignore",
+        });
+      },
+      kill: (pid) => process.kill(pid, "SIGKILL"),
+    },
+    useGracefulStop,
+  );
+  return { ok: result.errors.length === 0, ...result, skippedSteamWinePids };
 }
 
 async function createProcessManagerWindow(): Promise<BrowserWindow> {
