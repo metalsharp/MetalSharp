@@ -6,14 +6,34 @@
 /// clearing the cache to force a re-read from disk on next access.
 
 #include "metalsharp/SettingsManager.h"
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unistd.h>
+#include <utility>
 
 namespace metalsharp {
 
 namespace fs = std::filesystem;
+
+namespace {
+
+bool writeAll(int fd, const std::string& contents) {
+    size_t offset = 0;
+    while (offset < contents.size()) {
+        ssize_t written = ::write(fd, contents.data() + offset, contents.size() - offset);
+        if (written < 0 && errno == EINTR)
+            continue;
+        if (written <= 0)
+            return false;
+        offset += static_cast<size_t>(written);
+    }
+    return true;
+}
+
+} // namespace
 
 SettingsManager& SettingsManager::instance() {
     static SettingsManager inst;
@@ -78,6 +98,8 @@ WindowMode SettingsManager::windowModeFromString(const std::string& s) {
 }
 
 bool SettingsManager::load(const std::string& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
     std::string p = path.empty() ? defaultSettingsPath() : path;
     m_path = p;
 
@@ -87,6 +109,8 @@ bool SettingsManager::load(const std::string& path) {
 
     std::ostringstream buf;
     buf << f.rdbuf();
+    if (f.bad())
+        return false;
     std::string json = buf.str();
 
     auto extractValue = [](const std::string& j, const std::string& key) -> std::string {
@@ -167,41 +191,74 @@ bool SettingsManager::load(const std::string& path) {
 }
 
 bool SettingsManager::save(const std::string& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
     std::string p = path.empty() ? (m_path.empty() ? defaultSettingsPath() : m_path) : path;
     m_path = p;
 
-    fs::create_directories(fs::path(p).parent_path());
-
-    std::ofstream f(p);
-    if (!f.is_open())
+    fs::path target(p);
+    fs::path parent = target.parent_path();
+    if (parent.empty())
+        parent = ".";
+    if (!target.has_filename())
         return false;
 
-    f << "{\n";
-    f << "  \"render_width\": " << m_state.render.renderWidth << ",\n";
-    f << "  \"render_height\": " << m_state.render.renderHeight << ",\n";
-    f << "  \"window_mode\": \"" << windowModeToString(m_state.render.windowMode) << "\",\n";
-    f << "  \"upscaling_quality\": \"" << upscalingToString(m_state.render.upscaling) << "\",\n";
-    f << "  \"vsync\": " << (m_state.render.vsync ? "true" : "false") << ",\n";
-    f << "  \"metal_validation\": " << (m_state.render.metalValidation ? "true" : "false") << ",\n";
-    f << "  \"metal_gpu_capture\": " << (m_state.render.metalgpuCapture ? "true" : "false") << ",\n";
-    f << "  \"shader_cache_max_mb\": " << m_state.render.shaderCacheMaxMB << ",\n";
-    f << "  \"shader_cache_enabled\": " << (m_state.render.shaderCacheEnabled ? "true" : "false") << ",\n";
-    f << "  \"pipeline_cache_enabled\": " << (m_state.render.pipelineCacheEnabled ? "true" : "false") << ",\n";
-    f << "  \"max_frame_rate\": " << m_state.render.maxFrameRate << ",\n";
-    f << "  \"wine_prefix\": \"" << m_state.winePrefix << "\",\n";
-    f << "  \"launch_mode\": \"" << m_state.launchMode << "\",\n";
-    f << "  \"crash_reporting\": " << (m_state.crashReporting ? "true" : "false") << ",\n";
-    f << "  \"auto_check_updates\": " << (m_state.autoCheckUpdates ? "true" : "false") << "\n";
-    f << "}\n";
+    std::error_code ec;
+    fs::create_directories(parent, ec);
+    if (ec || !fs::is_directory(parent, ec) || ec)
+        return false;
+
+    std::ostringstream output;
+    output << "{\n";
+    output << "  \"render_width\": " << m_state.render.renderWidth << ",\n";
+    output << "  \"render_height\": " << m_state.render.renderHeight << ",\n";
+    output << "  \"window_mode\": \"" << windowModeToString(m_state.render.windowMode) << "\",\n";
+    output << "  \"upscaling_quality\": \"" << upscalingToString(m_state.render.upscaling) << "\",\n";
+    output << "  \"vsync\": " << (m_state.render.vsync ? "true" : "false") << ",\n";
+    output << "  \"metal_validation\": " << (m_state.render.metalValidation ? "true" : "false") << ",\n";
+    output << "  \"metal_gpu_capture\": " << (m_state.render.metalgpuCapture ? "true" : "false") << ",\n";
+    output << "  \"shader_cache_max_mb\": " << m_state.render.shaderCacheMaxMB << ",\n";
+    output << "  \"shader_cache_enabled\": " << (m_state.render.shaderCacheEnabled ? "true" : "false") << ",\n";
+    output << "  \"pipeline_cache_enabled\": " << (m_state.render.pipelineCacheEnabled ? "true" : "false") << ",\n";
+    output << "  \"max_frame_rate\": " << m_state.render.maxFrameRate << ",\n";
+    output << "  \"wine_prefix\": \"" << m_state.winePrefix << "\",\n";
+    output << "  \"launch_mode\": \"" << m_state.launchMode << "\",\n";
+    output << "  \"crash_reporting\": " << (m_state.crashReporting ? "true" : "false") << ",\n";
+    output << "  \"auto_check_updates\": " << (m_state.autoCheckUpdates ? "true" : "false") << "\n";
+    output << "}\n";
+
+    std::string temporaryPath = (parent / (target.filename().string() + ".tmp.XXXXXX")).string();
+    int fd = ::mkstemp(temporaryPath.data());
+    if (fd == -1)
+        return false;
+
+    bool success = writeAll(fd, output.str());
+    if (success && ::fsync(fd) != 0)
+        success = false;
+    if (::close(fd) != 0)
+        success = false;
+
+    if (!success) {
+        ::unlink(temporaryPath.c_str());
+        return false;
+    }
+
+    if (::rename(temporaryPath.c_str(), p.c_str()) != 0) {
+        ::unlink(temporaryPath.c_str());
+        return false;
+    }
 
     return true;
 }
 
-SettingsState& SettingsManager::state() {
+SettingsState SettingsManager::state() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_state;
 }
-const SettingsState& SettingsManager::state() const {
-    return m_state;
+
+void SettingsManager::setState(SettingsState state) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_state = std::move(state);
 }
 
 void SettingsManager::clearShaderCache() {
