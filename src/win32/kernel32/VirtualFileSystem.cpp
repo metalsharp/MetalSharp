@@ -14,6 +14,7 @@
 #include <fnmatch.h>
 #include <metalsharp/Logger.h>
 #include <metalsharp/VirtualFileSystem.h>
+#include <metalsharp/Win32Error.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -150,8 +151,10 @@ HandleEntry* VirtualFileSystem::getHandle(HANDLE h) {
 
 bool VirtualFileSystem::closeHandle(HANDLE h) {
     auto it = m_handles.find(reinterpret_cast<uintptr_t>(h));
-    if (it == m_handles.end())
+    if (it == m_handles.end()) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return false;
+    }
 
     HandleEntry& entry = it->second;
     switch (entry.type) {
@@ -179,8 +182,10 @@ bool VirtualFileSystem::closeHandle(HANDLE h) {
 
 HANDLE VirtualFileSystem::createFile(const char* lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
                                      DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes) {
-    if (!lpFileName)
+    if (!lpFileName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return INVALID_HANDLE_VALUE;
+    }
 
     std::string hostPath = winToHost(lpFileName);
 
@@ -225,6 +230,7 @@ HANDLE VirtualFileSystem::createFile(const char* lpFileName, DWORD dwDesiredAcce
     int fd = open(hostPath.c_str(), flags, 0644);
     if (fd < 0) {
         MS_INFO("VFS: CreateFile failed: %s (errno=%d)", strerror(errno), errno);
+        setLastErrorFromErrno();
         return INVALID_HANDLE_VALUE;
     }
 
@@ -234,14 +240,17 @@ HANDLE VirtualFileSystem::createFile(const char* lpFileName, DWORD dwDesiredAcce
 
 BOOL VirtualFileSystem::readFile(HANDLE hFile, void* lpBuffer, DWORD nNumberOfBytesToRead, DWORD* lpNumberOfBytesRead) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
     ssize_t bytesRead = read(fs->fd, lpBuffer, nNumberOfBytesToRead);
     if (bytesRead < 0) {
         if (lpNumberOfBytesRead)
             *lpNumberOfBytesRead = 0;
+        setLastErrorFromErrno();
         return 0;
     }
 
@@ -254,14 +263,17 @@ BOOL VirtualFileSystem::readFile(HANDLE hFile, void* lpBuffer, DWORD nNumberOfBy
 BOOL VirtualFileSystem::writeFile(HANDLE hFile, const void* lpBuffer, DWORD nNumberOfBytesToWrite,
                                   DWORD* lpNumberOfBytesWritten) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
     ssize_t bytesWritten = write(fs->fd, lpBuffer, nNumberOfBytesToWrite);
     if (bytesWritten < 0) {
         if (lpNumberOfBytesWritten)
             *lpNumberOfBytesWritten = 0;
+        setLastErrorFromErrno();
         return 0;
     }
 
@@ -276,6 +288,7 @@ DWORD VirtualFileSystem::getFileSize(HANDLE hFile, DWORD* lpFileSizeHigh) {
     if (!entry || entry->type != HandleType::File) {
         if (lpFileSizeHigh)
             *lpFileSizeHigh = 0;
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0xFFFFFFFF;
     }
 
@@ -284,6 +297,7 @@ DWORD VirtualFileSystem::getFileSize(HANDLE hFile, DWORD* lpFileSizeHigh) {
     if (fstat(fs->fd, &st) != 0) {
         if (lpFileSizeHigh)
             *lpFileSizeHigh = 0;
+        setLastErrorFromErrno();
         return 0xFFFFFFFF;
     }
 
@@ -294,13 +308,17 @@ DWORD VirtualFileSystem::getFileSize(HANDLE hFile, DWORD* lpFileSizeHigh) {
 
 BOOL VirtualFileSystem::getFileSizeEx(HANDLE hFile, int64_t* lpFileSize) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
     struct stat st;
-    if (fstat(fs->fd, &st) != 0)
+    if (fstat(fs->fd, &st) != 0) {
+        setLastErrorFromErrno();
         return 0;
+    }
 
     if (lpFileSize)
         *lpFileSize = st.st_size;
@@ -310,8 +328,10 @@ BOOL VirtualFileSystem::getFileSizeEx(HANDLE hFile, int64_t* lpFileSize) {
 DWORD VirtualFileSystem::setFilePointer(HANDLE hFile, LONG lDistanceToMove, LONG* lpDistanceToMoveHigh,
                                         DWORD dwMoveMethod) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0xFFFFFFFF;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
     int whence;
@@ -326,6 +346,7 @@ DWORD VirtualFileSystem::setFilePointer(HANDLE hFile, LONG lDistanceToMove, LONG
         whence = SEEK_END;
         break;
     default:
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0xFFFFFFFF;
     }
 
@@ -336,8 +357,10 @@ DWORD VirtualFileSystem::setFilePointer(HANDLE hFile, LONG lDistanceToMove, LONG
     }
 
     off_t result = lseek(fs->fd, offset, whence);
-    if (result == (off_t)-1)
+    if (result == (off_t)-1) {
+        setLastErrorFromErrno();
         return 0xFFFFFFFF;
+    }
 
     fs->position = result;
     return static_cast<DWORD>(result & 0xFFFFFFFF);
@@ -346,8 +369,10 @@ DWORD VirtualFileSystem::setFilePointer(HANDLE hFile, LONG lDistanceToMove, LONG
 BOOL VirtualFileSystem::setFilePointerEx(HANDLE hFile, int64_t liDistanceToMove, int64_t* lpNewFilePointer,
                                          DWORD dwMoveMethod) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
     int whence;
@@ -362,12 +387,15 @@ BOOL VirtualFileSystem::setFilePointerEx(HANDLE hFile, int64_t liDistanceToMove,
         whence = SEEK_END;
         break;
     default:
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
     }
 
     off_t result = lseek(fs->fd, liDistanceToMove, whence);
-    if (result == (off_t)-1)
+    if (result == (off_t)-1) {
+        setLastErrorFromErrno();
         return 0;
+    }
 
     fs->position = result;
     if (lpNewFilePointer)
@@ -377,17 +405,25 @@ BOOL VirtualFileSystem::setFilePointerEx(HANDLE hFile, int64_t liDistanceToMove,
 
 BOOL VirtualFileSystem::flushFileBuffers(HANDLE hFile) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
-    return fsync(fs->fd) == 0 ? 1 : 0;
+    if (fsync(fs->fd) != 0) {
+        setLastErrorFromErrno();
+        return 0;
+    }
+    return 1;
 }
 
 DWORD VirtualFileSystem::getFileType(HANDLE hFile) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
     struct stat st;
@@ -451,6 +487,7 @@ HANDLE VirtualFileSystem::findFirstFileW(const char* pattern, void* lpFindFileDa
     DIR* d = opendir(dir.c_str());
     if (!d) {
         MS_INFO("VFS: FindFirstFile failed to open dir: %s", dir.c_str());
+        setLastErrorFromErrno();
         return INVALID_HANDLE_VALUE;
     }
 
@@ -467,12 +504,16 @@ HANDLE VirtualFileSystem::findFirstFileW(const char* pattern, void* lpFindFileDa
 
 BOOL VirtualFileSystem::findNextFileW(HANDLE hFindFile, void* lpFindFileData) {
     auto* entry = getHandle(hFindFile);
-    if (!entry || entry->type != HandleType::Find)
+    if (!entry || entry->type != HandleType::Find) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fnd = static_cast<FindState*>(entry->data);
-    if (!fnd->dir)
+    if (!fnd->dir) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     struct dirent* de;
     while ((de = readdir(fnd->dir)) != nullptr) {
@@ -490,6 +531,8 @@ BOOL VirtualFileSystem::findNextFileW(HANDLE hFindFile, void* lpFindFileData) {
         }
     }
 
+    // Listing exhausted: report the Win32 end-of-search condition.
+    setLastErrorCode(ERROR_FILE_NOT_FOUND);
     return 0;
 }
 
@@ -500,8 +543,10 @@ BOOL VirtualFileSystem::findClose(HANDLE hFindFile) {
 DWORD VirtualFileSystem::getFileAttributes(const std::string& path) {
     std::string host = winToHost(path);
     struct stat st;
-    if (stat(host.c_str(), &st) != 0)
+    if (stat(host.c_str(), &st) != 0) {
+        setLastErrorFromErrno();
         return 0xFFFFFFFF;
+    }
 
     DWORD attrs = 0x80;
     if (S_ISDIR(st.st_mode))
@@ -516,8 +561,10 @@ DWORD VirtualFileSystem::getFileAttributes(const std::string& path) {
 BOOL VirtualFileSystem::getFileAttributesEx(const std::string& path, void* lpFileInformation) {
     std::string host = winToHost(path);
     struct stat st;
-    if (stat(host.c_str(), &st) != 0)
+    if (stat(host.c_str(), &st) != 0) {
+        setLastErrorFromErrno();
         return 0;
+    }
 
     uint8_t* data = static_cast<uint8_t*>(lpFileInformation);
     DWORD attrs = 0x80;
@@ -537,13 +584,17 @@ BOOL VirtualFileSystem::getFileAttributesEx(const std::string& path, void* lpFil
 
 BOOL VirtualFileSystem::getFileInformationByHandle(HANDLE hFile, void* lpFileInformation) {
     auto* entry = getHandle(hFile);
-    if (!entry || entry->type != HandleType::File)
+    if (!entry || entry->type != HandleType::File) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
         return 0;
+    }
 
     auto* fs = static_cast<FileState*>(entry->data);
     struct stat st;
-    if (fstat(fs->fd, &st) != 0)
+    if (fstat(fs->fd, &st) != 0) {
+        setLastErrorFromErrno();
         return 0;
+    }
 
     uint8_t* data = static_cast<uint8_t*>(lpFileInformation);
     memset(data, 0, 52);

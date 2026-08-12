@@ -45,6 +45,7 @@
 #include <metalsharp/PELoader.h>
 #include <metalsharp/SyncContext.h>
 #include <metalsharp/VirtualFileSystem.h>
+#include <metalsharp/Win32Error.h>
 #include <metalsharp/Win32Types.h>
 #include <pthread.h>
 #include <sys/mman.h>
@@ -58,14 +59,12 @@ std::unordered_map<uintptr_t, size_t> Kernel32Shim::s_allocations;
 std::unordered_map<uintptr_t, std::string> Kernel32Shim::s_fileHandles;
 uintptr_t Kernel32Shim::s_nextHandle = 0x00010000;
 
-static thread_local DWORD t_lastError = 0;
-
 DWORD getKernel32LastError() {
-    return t_lastError;
+    return lastErrorCode();
 }
 
 void setKernel32LastError(DWORD error) {
-    t_lastError = error;
+    setLastErrorCode(error);
 }
 
 static DWORD MSABI shim_GetLastError() {
@@ -75,7 +74,7 @@ static DWORD MSABI shim_GetLastError() {
 
 static void MSABI shim_SetLastError(DWORD dwErrCode) {
     MS_INFO("TRACE: SetLastError(%u)", dwErrCode);
-    setKernel32LastError(dwErrCode);
+    setLastErrorCode(dwErrCode);
 }
 
 static void* MSABI shim_VirtualAlloc(void* lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect) {
@@ -88,7 +87,7 @@ static void* MSABI shim_VirtualAlloc(void* lpAddress, SIZE_T dwSize, DWORD flAll
     int flags = MAP_PRIVATE | MAP_ANONYMOUS;
     void* ptr = mmap(lpAddress, dwSize, prot, flags, -1, 0);
     if (ptr == MAP_FAILED) {
-        t_lastError = errno;
+        setLastErrorFromErrno();
         return nullptr;
     }
 
@@ -98,8 +97,10 @@ static void* MSABI shim_VirtualAlloc(void* lpAddress, SIZE_T dwSize, DWORD flAll
 
 static BOOL MSABI shim_VirtualFree(void* lpAddress, SIZE_T dwSize, DWORD dwFreeType) {
     auto it = Kernel32Shim::s_allocations.find(reinterpret_cast<uintptr_t>(lpAddress));
-    if (it == Kernel32Shim::s_allocations.end())
+    if (it == Kernel32Shim::s_allocations.end()) {
+        setLastErrorCode(ERROR_INVALID_ADDRESS);
         return 0;
+    }
 
     size_t size = it->second;
     Kernel32Shim::s_allocations.erase(it);
@@ -177,9 +178,16 @@ static BOOL MSABI shim_WriteFile(HANDLE hFile, const void* lpBuffer, DWORD nNumb
 }
 
 static BOOL MSABI shim_CloseHandle(HANDLE hObject) {
-    if (!hObject || hObject == INVALID_HANDLE_VALUE)
+    if (!hObject || hObject == INVALID_HANDLE_VALUE) {
+        setLastErrorCode(ERROR_INVALID_HANDLE);
+        return 0;
+    }
+    if (VirtualFileSystem::instance().closeHandle(hObject))
         return 1;
-    return VirtualFileSystem::instance().closeHandle(hObject) ? 1 : 1;
+    if (SyncContext::instance().destroyHandle(hObject))
+        return 1;
+    setLastErrorCode(ERROR_INVALID_HANDLE);
+    return 0;
 }
 
 static DWORD MSABI shim_GetFileSize(HANDLE hFile, DWORD* lpFileSizeHigh) {
@@ -188,16 +196,22 @@ static DWORD MSABI shim_GetFileSize(HANDLE hFile, DWORD* lpFileSizeHigh) {
 
 static DWORD MSABI shim_GetCurrentDirectoryA(DWORD nBufferLength, char* lpBuffer) {
     MS_INFO("TRACE: GetCurrentDirectoryA(%u, %p)", nBufferLength, lpBuffer);
-    if (nBufferLength == 0)
+    if (nBufferLength == 0) {
+        setLastErrorCode(ERROR_INSUFFICIENT_BUFFER);
         return 0;
+    }
     if (getcwd(lpBuffer, nBufferLength)) {
         return static_cast<DWORD>(strlen(lpBuffer));
     }
+    setLastErrorFromErrno();
     return 0;
 }
 
 static DWORD MSABI shim_SetCurrentDirectoryA(const char* lpPathName) {
-    return chdir(lpPathName) == 0 ? 1 : 0;
+    if (chdir(lpPathName) == 0)
+        return 1;
+    setLastErrorFromErrno();
+    return 0;
 }
 
 static char s_exePath[4096] = "";
@@ -233,13 +247,16 @@ static HMODULE MSABI shim_GetModuleHandleA(const char* lpModuleName) {
 }
 
 static FARPROC MSABI shim_GetProcAddress(HMODULE hModule, const char* lpProcName) {
-    if (!hModule || !lpProcName)
+    if (!hModule || !lpProcName) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return nullptr;
+    }
     if (reinterpret_cast<uintptr_t>(lpProcName) > 0xFFFF) {
         void* addr = PELoader::instance()->getProcAddress(hModule, std::string(lpProcName));
         if (addr)
             return reinterpret_cast<FARPROC>(addr);
     }
+    setLastErrorCode(ERROR_PROC_NOT_FOUND);
     return nullptr;
 }
 
@@ -302,7 +319,7 @@ static HANDLE MSABI shim_CreateThread(void* lpThreadAttributes, SIZE_T dwStackSi
     int errorCode = 0;
     HANDLE h = SyncContext::instance().createThread(lpStartAddress, lpParameter, lpThreadId, &errorCode);
     if (!h) {
-        t_lastError = errorCode;
+        setLastErrorCode(errnoToWin32(errorCode));
         return nullptr;
     }
 
@@ -312,12 +329,18 @@ static HANDLE MSABI shim_CreateThread(void* lpThreadAttributes, SIZE_T dwStackSi
 
 static DWORD MSABI shim_WaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds) {
     MS_INFO("TRACE: WaitForSingleObject(%p, %u)", hHandle, dwMilliseconds);
-    return SyncContext::instance().waitForSingleObject(hHandle, dwMilliseconds);
+    DWORD result = SyncContext::instance().waitForSingleObject(hHandle, dwMilliseconds);
+    if (result == WAIT_FAILED)
+        setLastErrorCode(ERROR_INVALID_HANDLE);
+    return result;
 }
 
 static DWORD MSABI shim_WaitForMultipleObjects(DWORD nCount, HANDLE* lpHandles, BOOL bWaitAll, DWORD dwMilliseconds) {
     MS_INFO("TRACE: WaitForForMultipleObjects(%u, %p, %d, %u)", nCount, lpHandles, bWaitAll, dwMilliseconds);
-    return SyncContext::instance().waitForMultipleObjects(nCount, lpHandles, bWaitAll != 0, dwMilliseconds);
+    DWORD result = SyncContext::instance().waitForMultipleObjects(nCount, lpHandles, bWaitAll != 0, dwMilliseconds);
+    if (result == WAIT_FAILED)
+        setLastErrorCode(nCount == 0 ? ERROR_INVALID_PARAMETER : ERROR_INVALID_HANDLE);
+    return result;
 }
 
 static void MSABI shim_Sleep(DWORD dwMilliseconds) {
@@ -362,15 +385,19 @@ static int MSABI shim_MultiByteToWideChar(UINT CodePage, DWORD dwFlags, const ch
                                           wchar_t* lpWideCharStr, int cchWideChar) {
     (void)CodePage;
     (void)dwFlags;
-    if (!lpMultiByteStr || cbMultiByte == 0 || cbMultiByte < -1 || cchWideChar < 0)
+    if (!lpMultiByteStr || cbMultiByte == 0 || cbMultiByte < -1 || cchWideChar < 0) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
 
     const bool includeNull = cbMultiByte == -1;
     int len = includeNull ? static_cast<int>(strlen(lpMultiByteStr)) + 1 : cbMultiByte;
     if (cchWideChar == 0)
         return len;
-    if (!lpWideCharStr)
+    if (!lpWideCharStr) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
 
     int copyLen = len < cchWideChar ? len : cchWideChar;
     for (int i = 0; i < copyLen; i++) {
@@ -387,15 +414,19 @@ static int MSABI shim_WideCharToMultiByte(UINT CodePage, DWORD dwFlags, const wc
     (void)lpDefaultChar;
     if (lpUsedDefaultChar)
         *lpUsedDefaultChar = 0;
-    if (!lpWideCharStr || cchWideChar == 0 || cchWideChar < -1 || cbMultiByte < 0)
+    if (!lpWideCharStr || cchWideChar == 0 || cchWideChar < -1 || cbMultiByte < 0) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
 
     const bool includeNull = cchWideChar == -1;
     int len = includeNull ? static_cast<int>(wcslen(lpWideCharStr)) + 1 : cchWideChar;
     if (cbMultiByte == 0)
         return len;
-    if (!lpMultiByteStr)
+    if (!lpMultiByteStr) {
+        setLastErrorCode(ERROR_INVALID_PARAMETER);
         return 0;
+    }
 
     int copyLen = len < cbMultiByte ? len : cbMultiByte;
     for (int i = 0; i < copyLen; i++) {
@@ -462,7 +493,10 @@ static BOOL MSABI stub_FindClose() {
 }
 
 static DWORD MSABI stub_GetFileAttributesA(const char* p) {
-    return access(p, F_OK) == 0 ? FILE_ATTRIBUTE_NORMAL : 0xFFFFFFFF;
+    if (access(p, F_OK) == 0)
+        return FILE_ATTRIBUTE_NORMAL;
+    setLastErrorFromErrno();
+    return 0xFFFFFFFF;
 }
 
 static DWORD MSABI stub_GetTempPathA(DWORD n, char* b) {
