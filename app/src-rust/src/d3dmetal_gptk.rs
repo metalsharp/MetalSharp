@@ -1019,16 +1019,27 @@ fn find_gptk4_dmg_in_downloads() -> Option<PathBuf> {
 }
 
 /// Parse `hdiutil attach` stdout: lines like
-/// `/dev/disk8s2 Apple_HFS /Volumes/Name (with spaces) 1`. The mount path is
-/// everything after the device + type tokens; the first existing dir wins.
+/// `/dev/disk8s2\t\tApple_HFS\t\t/Volumes/Name (with spaces) 1`. The mount
+/// path is everything after the device + filesystem-type tokens (whitespace
+/// runs may be tabs or spaces; the mount name itself may contain spaces).
+/// Warning lines (e.g. hdiutil deprecation notices) are skipped, and the
+/// first token group that names an existing directory wins.
 fn parse_attach_output(stdout: &str) -> Option<PathBuf> {
     stdout
         .lines()
         .filter_map(|line| {
-            let mut parts = line.splitn(3, char::is_whitespace);
-            let _dev = parts.next()?;
-            let _kind = parts.next()?;
-            let mount = parts.next()?.trim();
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("hdiutil:") || trimmed.starts_with("diskutil:") {
+                return None;
+            }
+            let mut rest = trimmed;
+            let device_end = rest.find(char::is_whitespace)?;
+            rest = &rest[device_end..];
+            let kind_start = rest.find(|c: char| !c.is_whitespace())?;
+            rest = &rest[kind_start..];
+            let kind_end = rest.find(char::is_whitespace)?;
+            rest = &rest[kind_end..];
+            let mount = rest.trim();
             (!mount.is_empty()).then(|| PathBuf::from(mount))
         })
         .find(|mount| mount.is_dir())
@@ -1972,15 +1983,19 @@ mod tests {
 
     #[test]
     fn parse_attach_output_handles_mount_paths_with_spaces() {
-        // hdiutil appends " 1" when the volume name collides; the mount path
-        // may contain spaces. The parser must take everything after the
-        // device + filesystem tokens.
+        // Real hdiutil output uses double-tab separators, may append " 1" for
+        // colliding volume names, and can carry a deprecation warning line.
+        // The mount path (which may contain spaces) must be extracted
+        // correctly.
         let temp = std::env::temp_dir().join(format!("ms-gptk4 parse dir {}", std::process::id()));
         std::fs::create_dir_all(&temp).expect("create fake mount");
-        let stdout =
-            format!("/dev/disk8\tApple_partition_scheme\t\n/dev/disk8s2\tApple_HFS\t{temp}\n", temp = temp.display());
+        let stdout = format!(
+            "/dev/disk8\tApple_partition_scheme\t\n/dev/disk8s1\tApple_partition_map\t\n/dev/disk8s2\t\tApple_HFS\t\t{temp}\nhdiutil: WARNING: 'hdiutil attach -nobrowse -readonly ...' is deprecated.\n",
+            temp = temp.display()
+        );
         assert_eq!(parse_attach_output(&stdout), Some(temp.clone()));
         assert_eq!(parse_attach_output("/dev/disk8s2 Apple_HFS /nonexistent 1"), None);
+        assert_eq!(parse_attach_output("hdiutil: WARNING: deprecated"), None);
         let _ = std::fs::remove_dir_all(&temp);
     }
 
