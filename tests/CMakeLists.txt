@@ -164,6 +164,14 @@ add_executable(test_ws2_select
 target_link_libraries(test_ws2_select PRIVATE metalsharp_loader metalsharp_core)
 add_test(NAME ws2_select COMMAND test_ws2_select)
 
+add_executable(test_resource_bounds
+    test_resource_bounds.cpp
+)
+target_link_libraries(test_resource_bounds PRIVATE metalsharp_loader metalsharp_core)
+target_compile_options(test_resource_bounds PRIVATE -fobjc-arc)
+
+add_test(NAME resource_bounds COMMAND test_resource_bounds)
+
 add_executable(test_phase21
     test_phase21.cpp
 )
