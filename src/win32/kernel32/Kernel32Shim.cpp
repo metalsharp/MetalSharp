@@ -67,6 +67,35 @@ void setKernel32LastError(DWORD error) {
     setLastErrorCode(error);
 }
 
+/// Convert a guest UTF-16 string (the PE/Windows ABI always passes UTF-16,
+/// regardless of the host wchar_t width) into a narrow char string. Mirrors
+/// the conversion used by shim_LoadLibraryExW in Kernel32Extra.cpp.
+static std::string wideToNarrow(const wchar_t* wide) {
+    std::string out;
+    if (!wide)
+        return out;
+    const auto* u16 = reinterpret_cast<const uint16_t*>(wide);
+    for (size_t i = 0; u16[i]; i++) {
+        char c = static_cast<char>(u16[i] & 0x7F);
+        if (c >= 0x20)
+            out.push_back(c);
+    }
+    return out;
+}
+
+/// Copy a narrow string into a guest UTF-16 buffer (uint16_t units).
+/// Returns the number of characters written, excluding the terminator.
+static DWORD narrowToWide(const char* narrow, wchar_t* wide, DWORD wideChars) {
+    if (!narrow || !wide || wideChars == 0)
+        return 0;
+    auto* u16 = reinterpret_cast<uint16_t*>(wide);
+    DWORD i = 0;
+    for (; narrow[i] && i + 1 < wideChars; i++)
+        u16[i] = static_cast<uint16_t>(static_cast<unsigned char>(narrow[i]));
+    u16[i] = 0;
+    return i;
+}
+
 static DWORD MSABI shim_GetLastError() {
     MS_INFO("TRACE: GetLastError() -> %u", getKernel32LastError());
     return getKernel32LastError();
@@ -165,6 +194,16 @@ static HANDLE MSABI shim_CreateFileA(const char* lpFileName, DWORD dwDesiredAcce
                                                     dwFlagsAndAttributes);
 }
 
+static HANDLE MSABI shim_CreateFileW(const wchar_t* lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
+                                     void* lpSecurityAttributes, DWORD dwCreationDisposition,
+                                     DWORD dwFlagsAndAttributes, HANDLE hTemplateFile) {
+    std::string narrow = wideToNarrow(lpFileName);
+    if (narrow.empty())
+        return INVALID_HANDLE_VALUE;
+    return shim_CreateFileA(narrow.c_str(), dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition,
+                            dwFlagsAndAttributes, hTemplateFile);
+}
+
 static BOOL MSABI shim_ReadFile(HANDLE hFile, void* lpBuffer, DWORD nNumberOfBytesToRead, DWORD* lpNumberOfBytesRead,
                                 void* lpOverlapped) {
     (void)lpOverlapped;
@@ -207,6 +246,14 @@ static DWORD MSABI shim_GetCurrentDirectoryA(DWORD nBufferLength, char* lpBuffer
     return 0;
 }
 
+static DWORD MSABI shim_GetCurrentDirectoryW(DWORD nBufferLength, wchar_t* lpBuffer) {
+    MS_INFO("TRACE: GetCurrentDirectoryW(%u, %p)", nBufferLength, lpBuffer);
+    char narrow[4096];
+    if (nBufferLength == 0 || !getcwd(narrow, sizeof(narrow)))
+        return 0;
+    return narrowToWide(narrow, lpBuffer, nBufferLength);
+}
+
 static DWORD MSABI shim_SetCurrentDirectoryA(const char* lpPathName) {
     if (chdir(lpPathName) == 0)
         return 1;
@@ -236,6 +283,13 @@ static DWORD MSABI shim_GetModuleFileNameA(HMODULE hModule, char* lpFilename, DW
     return 0;
 }
 
+static DWORD MSABI shim_GetModuleFileNameW(HMODULE hModule, wchar_t* lpFilename, DWORD nSize) {
+    MS_INFO("TRACE: GetModuleFileNameW(%p, %p, %u)", hModule, lpFilename, nSize);
+    const char* exe = s_exePath[0] ? s_exePath : "/metalsharp/game.exe";
+    (void)hModule;
+    return narrowToWide(exe, lpFilename, nSize);
+}
+
 static HMODULE MSABI shim_GetModuleHandleA(const char* lpModuleName) {
     MS_INFO("TRACE: GetModuleHandleA(\"%s\")", lpModuleName ? lpModuleName : "(null)");
     if (!lpModuleName)
@@ -244,6 +298,24 @@ static HMODULE MSABI shim_GetModuleHandleA(const char* lpModuleName) {
     if (mod)
         return reinterpret_cast<HMODULE>(mod->base);
     return PELoader::instance()->loadLibrary(lpModuleName);
+}
+
+static HMODULE MSABI shim_GetModuleHandleW(const wchar_t* lpModuleName) {
+    if (!lpModuleName)
+        return shim_GetModuleHandleA(nullptr);
+    std::string narrow = wideToNarrow(lpModuleName);
+    MS_INFO("TRACE: GetModuleHandleW(\"%s\")", narrow.c_str());
+    return shim_GetModuleHandleA(narrow.c_str());
+}
+
+static HMODULE MSABI shim_LoadLibraryW(const wchar_t* lpLibFileName) {
+    if (!lpLibFileName)
+        return nullptr;
+    std::string narrow = wideToNarrow(lpLibFileName);
+    if (narrow.empty())
+        return nullptr;
+    MS_INFO("TRACE: LoadLibraryW(\"%s\")", narrow.c_str());
+    return shim_GetModuleHandleA(narrow.c_str());
 }
 
 static FARPROC MSABI shim_GetProcAddress(HMODULE hModule, const char* lpProcName) {
@@ -536,19 +608,19 @@ ShimLibrary Kernel32Shim::create() {
     lib.functions["GlobalAlloc"] = fn((void*)shim_GlobalAlloc);
     lib.functions["GlobalFree"] = fn((void*)shim_GlobalFree);
     lib.functions["CreateFileA"] = fn((void*)shim_CreateFileA);
-    lib.functions["CreateFileW"] = fn((void*)shim_CreateFileA);
+    lib.functions["CreateFileW"] = fn((void*)shim_CreateFileW);
     lib.functions["ReadFile"] = fn((void*)shim_ReadFile);
     lib.functions["WriteFile"] = fn((void*)shim_WriteFile);
     lib.functions["CloseHandle"] = fn((void*)shim_CloseHandle);
     lib.functions["GetFileSize"] = fn((void*)shim_GetFileSize);
     lib.functions["GetFileSizeEx"] = fn((void*)nullptr);
     lib.functions["GetCurrentDirectoryA"] = fn((void*)shim_GetCurrentDirectoryA);
-    lib.functions["GetCurrentDirectoryW"] = fn((void*)shim_GetCurrentDirectoryA);
+    lib.functions["GetCurrentDirectoryW"] = fn((void*)shim_GetCurrentDirectoryW);
     lib.functions["SetCurrentDirectoryA"] = fn((void*)shim_SetCurrentDirectoryA);
     lib.functions["GetModuleFileNameA"] = fn((void*)shim_GetModuleFileNameA);
-    lib.functions["GetModuleFileNameW"] = fn((void*)shim_GetModuleFileNameA);
+    lib.functions["GetModuleFileNameW"] = fn((void*)shim_GetModuleFileNameW);
     lib.functions["GetModuleHandleA"] = fn((void*)shim_GetModuleHandleA);
-    lib.functions["GetModuleHandleW"] = fn((void*)shim_GetModuleHandleA);
+    lib.functions["GetModuleHandleW"] = fn((void*)shim_GetModuleHandleW);
     lib.functions["GetProcAddress"] = fn((void*)shim_GetProcAddress);
     lib.functions["GetCurrentProcessId"] = fn((void*)shim_GetCurrentProcessId);
     lib.functions["GetCurrentProcess"] = fn((void*)shim_GetCurrentProcess);
@@ -576,7 +648,7 @@ ShimLibrary Kernel32Shim::create() {
     lib.functions["lstrcpyA"] = fn((void*)stub_lstrcpyA);
     lib.functions["lstrlenA"] = fn((void*)stub_lstrlenA);
     lib.functions["LoadLibraryA"] = fn((void*)shim_GetModuleHandleA);
-    lib.functions["LoadLibraryW"] = fn((void*)shim_GetModuleHandleA);
+    lib.functions["LoadLibraryW"] = fn((void*)shim_LoadLibraryW);
     lib.functions["FreeLibrary"] = fn((void*)nullptr);
     lib.functions["GetCommandLineA"] = fn((void*)nullptr);
     lib.functions["GetCommandLineW"] = fn((void*)nullptr);
