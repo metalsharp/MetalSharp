@@ -766,7 +766,28 @@ async function loadD3DMetalStatus() {
   }
 }
 
+const GPTK4_DOWNLOAD_URL =
+  "https://download.developer.apple.com/Developer_Tools/Game_Porting_Toolkit_4.0_beta_1/Game_Porting_Toolkit_4.0_beta_2.dmg";
+
 async function repairGptk4() {
+  // If the DMG is not in ~/Downloads yet, open the Apple Developer download
+  // and wait for the file to appear before running the repair. When it is
+  // already downloaded, skip straight to the repair.
+  if (!gptk4DmgFound.value) {
+    toast.show("Opening the Game Porting Toolkit 4.0 beta 2 download — waiting for the DMG in ~/Downloads…", "success");
+    const opened = await getAPI().openExternalUrl(GPTK4_DOWNLOAD_URL);
+    if (!opened?.ok) toast.show("Could not open the download page", "error");
+    for (let attempt = 0; attempt < 120; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await loadD3DMetalStatus();
+      if (gptk4DmgFound.value) break;
+    }
+    if (!gptk4DmgFound.value) {
+      toast.show("DMG not in ~/Downloads yet — run Repair again once the download finishes", "error");
+      return;
+    }
+  }
+
   const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
   d3dmetalLoading.value = true;
   const result = await api<D3DMetalGptkResponse>(

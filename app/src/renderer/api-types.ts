@@ -255,6 +255,7 @@ type MetalsharpAPI = {
   pickAssetFile: () => Promise<string | null>;
   pickDirectory: (title?: string) => Promise<string | null>;
   gogOAuthLogin: (authUrl: string) => Promise<{ ok: boolean; code?: string; redirectUrl?: string; error?: string }>;
+  openExternalUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
   processManagerToggle: () => Promise<{ ok: boolean }>;
   processManagerClose: () => Promise<{ ok: boolean }>;
   processManagerSample: () => Promise<ProcessManagerSample>;

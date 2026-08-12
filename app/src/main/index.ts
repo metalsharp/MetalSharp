@@ -1327,6 +1327,19 @@ function registerIpc() {
     app.quit();
   });
 
+  ipcMain.handle("shell:open-external", async (_e, url: string) => {
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        return { ok: false, error: "Refusing to open a non-http(s) URL." };
+      }
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  });
+
   ipcMain.handle("gog:oauth-login", async (_e, authUrl: string) => {
     if (!mainWindow) return { ok: false, error: "Main window is not ready." };
     let parsed: URL;

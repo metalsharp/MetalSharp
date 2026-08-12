@@ -53,6 +53,7 @@ const RENDERER_ENDPOINTS = [
   "POST /d3dmetal/bottles/install-x64-redist",
   "POST /d3dmetal/bottles/play",
   "POST /d3dmetal/bottles/repair-gptk-payload",
+  "POST /d3dmetal/bottles/repair-gptk4",
   "POST /d3dmetal/bottles/save",
   "POST /d3dmetal/bottles/seed-prefix",
   "POST /d3dmetal/bottles/status",
