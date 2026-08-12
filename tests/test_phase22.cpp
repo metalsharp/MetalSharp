@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -5,6 +6,7 @@
 #include <metalsharp/DirectSoundBackend.h>
 #include <metalsharp/X3DAudioEngine.h>
 #include <metalsharp/XAudio2Engine.h>
+#include <thread>
 
 using namespace metalsharp;
 
@@ -313,6 +315,54 @@ static bool test_directsound_volume() {
     return std::abs(vol - 0.5f) < 0.01f;
 }
 
+static bool test_directsound_destroy_invalid_buffer() {
+    auto& ds = DirectSoundBackend::instance();
+    ds.init();
+
+    uint64_t foreignStorage = 0;
+    ds.destroyBuffer(&foreignStorage);
+
+    WAVEFORMAT fmt = {1, 2, 44100, 176400, 4, 16, 0};
+    void* buf = ds.createBuffer(1024, fmt);
+    ds.destroyBuffer(buf);
+    ds.destroyBuffer(buf);
+
+    ds.shutdown();
+    return true;
+}
+
+static bool test_directsound_concurrent_lifecycle() {
+    auto& ds = DirectSoundBackend::instance();
+    ds.init();
+
+    const WAVEFORMAT fmt = {1, 2, 44100, 176400, 4, 16, 0};
+    std::atomic<bool> ok{true};
+    auto exercise = [&]() {
+        uint8_t data[64] = {};
+        for (int i = 0; i < 64; ++i) {
+            void* buf = ds.createBuffer(256, fmt);
+            if (!buf) {
+                ok = false;
+                continue;
+            }
+
+            if (!ds.writeBuffer(buf, data, 0, sizeof(data)) || !ds.playBuffer(buf, 0) || !ds.stopBuffer(buf) ||
+                !ds.setVolume(buf, 0.5f) || std::abs(ds.getVolume(buf) - 0.5f) >= 0.01f) {
+                ok = false;
+            }
+            ds.destroyBuffer(buf);
+        }
+    };
+
+    std::thread workers[4] = {std::thread(exercise), std::thread(exercise), std::thread(exercise),
+                              std::thread(exercise)};
+    for (auto& worker : workers)
+        worker.join();
+
+    ds.shutdown();
+    return ok.load();
+}
+
 int main() {
     printf("=== Phase 22: Audio Pipeline ===\n\n");
 
@@ -340,6 +390,8 @@ int main() {
     TEST(directsound_create_buffer);
     TEST(directsound_write_play_stop);
     TEST(directsound_volume);
+    TEST(directsound_destroy_invalid_buffer);
+    TEST(directsound_concurrent_lifecycle);
 
     printf("\n%d/%d passed", testsPassed, testsPassed + testsFailed);
     if (testsFailed > 0)
