@@ -2990,7 +2990,26 @@ fn is_metalsharp_owned_process_for_appid(pid: i32, appid: u32) -> bool {
     else {
         return false;
     };
-    command_matches_game_dir(&command, &game_dir)
+    if command_matches_game_dir(&command, &game_dir) {
+        return true;
+    }
+    // Wine may invoke the game with the bare Windows executable name only
+    // (argv shows e.g. `AmidEvil-Win64-Shipping.exe` with no directory in any
+    // form). The PID is already bound to this appid by launch registration,
+    // so the resolved game executable name in argv is sufficient proof.
+    let Ok(exe) = crate::mtsp::recipe::resolve_game_exe(appid, &game_dir) else {
+        return false;
+    };
+    command_matches_game_exe(&command, &exe)
+}
+
+/// Match a process command line against the game executable's file name
+/// (Wine invokes Windows games with the bare exe name in argv).
+fn command_matches_game_exe(command: &str, exe_path: &std::path::Path) -> bool {
+    let Some(exe_name) = exe_path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    command.to_lowercase().contains(&exe_name.to_lowercase())
 }
 
 /// Match a process command line against a game directory in either the unix
@@ -4015,5 +4034,21 @@ mod tests {
         assert!(is_metalsharp_wine_executable(&format!("/bin/bash {} game.exe -steam", wrapper), &home));
         assert!(is_metalsharp_wine_executable(&format!("{} game.exe", wrapper), &home));
         assert!(!is_metalsharp_wine_executable("/bin/bash /usr/bin/some-other-script game.exe", &home));
+    }
+
+    #[test]
+    fn command_matches_game_exe_with_bare_windows_name() {
+        // Wine invokes the game with the bare exe name in argv (no path in any
+        // form), as seen live for Amid Evil (`AmidEvil-Win64-Shipping.exe`).
+        let exe = std::path::Path::new(
+            "/Volumes/AverySSD/SteamLibrary/steamapps/common/Amid Evil/AmidEvil-Win64-Shipping.exe",
+        );
+        assert!(command_matches_game_exe("AmidEvil-Win64-Shipping.exe", exe));
+        assert!(command_matches_game_exe(
+            "Z:\\Volumes\\AverySSD\\SteamLibrary\\steamapps\\common\\Amid Evil\\AmidEvil-Win64-Shipping.exe -steam",
+            exe
+        ));
+        assert!(!command_matches_game_exe("C:\\windows\\system32\\winedevice.exe", exe));
+        assert!(!command_matches_game_exe("steamwebhelper.exe -nocrashdialog", exe));
     }
 }
