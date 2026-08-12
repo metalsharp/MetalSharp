@@ -608,91 +608,80 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/game/prepare") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    let requested_pipeline =
-                        body.get("pipeline").or_else(|| body.get("launchMethod")).and_then(|v| v.as_str());
-                    let requested_pipeline = match requested_pipeline {
-                        Some(value) => match mtsp::engine::PipelineId::from_str_flexible(value) {
-                            Some(pipeline) => Some(pipeline),
-                            None => {
-                                return resp(400, json!({"ok": false, "error": format!("unknown pipeline: {}", value)}))
-                            },
-                        },
-                        None => None,
-                    };
-                    let effective_pipeline = bottles::resolve_steam_pipeline_for_request(id as u32, requested_pipeline);
-                    let mtsp_prepare_supported = !matches!(
-                        effective_pipeline,
-                        mtsp::engine::PipelineId::FnaArm64
-                            | mtsp::engine::PipelineId::Steam
-                            | mtsp::engine::PipelineId::MacSteam
-                    );
-                    if mtsp_prepare_supported {
-                        app_log(&format!(
-                            "Preparing game runtime via MTSP: appid {}, requested={:?}, effective={:?}",
-                            id, requested_pipeline, effective_pipeline
-                        ));
-                        match mtsp::launcher::prepare_pipeline_with_request(id as u32, Some(effective_pipeline)) {
-                            Ok(mut v) => {
-                                if let Some(obj) = v.as_object_mut() {
-                                    obj.insert("deprecated_endpoint".into(), json!("/game/prepare"));
-                                    obj.insert("canonical_endpoint".into(), json!("/mtsp/prepare"));
-                                }
-                                resp(200, v)
-                            },
-                            Err(e) => resp(
-                                500,
-                                json!({"ok": false, "error": e.to_string(), "canonical_endpoint": "/mtsp/prepare"}),
-                            ),
-                        }
-                    } else {
-                        app_log(&format!(
-                            "Preparing legacy game runtime: appid {}, effective={:?}",
-                            id, effective_pipeline
-                        ));
-                        match setup::prepare_game(id as u32) {
-                            Ok(mut v) => {
-                                if let Some(obj) = v.as_object_mut() {
-                                    obj.insert("legacy_prepare".into(), json!(true));
-                                    obj.insert("deprecated_endpoint".into(), json!("/game/prepare"));
-                                }
-                                resp(200, v)
-                            },
-                            Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
-                        }
-                    }
+            let id = match parse_request_appid(&body) {
+                Ok(id) => id,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            let requested_pipeline = body.get("pipeline").or_else(|| body.get("launchMethod")).and_then(|v| v.as_str());
+            let requested_pipeline = match requested_pipeline {
+                Some(value) => match mtsp::engine::PipelineId::from_str_flexible(value) {
+                    Some(pipeline) => Some(pipeline),
+                    None => return resp(400, json!({"ok": false, "error": format!("unknown pipeline: {}", value)})),
                 },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+                None => None,
+            };
+            let effective_pipeline = bottles::resolve_steam_pipeline_for_request(id, requested_pipeline);
+            let mtsp_prepare_supported = !matches!(
+                effective_pipeline,
+                mtsp::engine::PipelineId::FnaArm64
+                    | mtsp::engine::PipelineId::Steam
+                    | mtsp::engine::PipelineId::MacSteam
+            );
+            if mtsp_prepare_supported {
+                app_log(&format!(
+                    "Preparing game runtime via MTSP: appid {}, requested={:?}, effective={:?}",
+                    id, requested_pipeline, effective_pipeline
+                ));
+                match mtsp::launcher::prepare_pipeline_with_request(id, Some(effective_pipeline)) {
+                    Ok(mut v) => {
+                        if let Some(obj) = v.as_object_mut() {
+                            obj.insert("deprecated_endpoint".into(), json!("/game/prepare"));
+                            obj.insert("canonical_endpoint".into(), json!("/mtsp/prepare"));
+                        }
+                        resp(200, v)
+                    },
+                    Err(e) => {
+                        resp(500, json!({"ok": false, "error": e.to_string(), "canonical_endpoint": "/mtsp/prepare"}))
+                    },
+                }
+            } else {
+                app_log(&format!("Preparing legacy game runtime: appid {}, effective={:?}", id, effective_pipeline));
+                match setup::prepare_game(id) {
+                    Ok(mut v) => {
+                        if let Some(obj) = v.as_object_mut() {
+                            obj.insert("legacy_prepare".into(), json!(true));
+                            obj.insert("deprecated_endpoint".into(), json!("/game/prepare"));
+                        }
+                        resp(200, v)
+                    },
+                    Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
+                }
             }
         },
         (Method::Post, "/game/resolve-routing") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    let pipeline = bottles::resolve_steam_pipeline_for_request(id as u32, None);
-                    let node = mtsp::engine::get_pipeline(pipeline);
-                    let recipe = mtsp::rules::get_game_recipe(id as u32);
-                    let preferred_pipeline = bottles::preferred_pipeline_for_steam_app(id as u32);
-                    resp(
-                        200,
-                        json!({
-                            "ok": true,
-                            "appid": id,
-                            "pipeline": pipeline,
-                            "pipeline_name": node.name,
-                            "preferred_pipeline": preferred_pipeline.map(|p| p.to_legacy_method().to_string()),
-                            "graphics_backend": node.graphics_backend,
-                            "backend": node.backend,
-                            "offline_capable": recipe.as_ref().map(|r| r.offline_capable).unwrap_or(false),
-                            "recipe": recipe,
-                        }),
-                    )
-                },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
-            }
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            let pipeline = bottles::resolve_steam_pipeline_for_request(appid, None);
+            let node = mtsp::engine::get_pipeline(pipeline);
+            let recipe = mtsp::rules::get_game_recipe(appid);
+            let preferred_pipeline = bottles::preferred_pipeline_for_steam_app(appid);
+            resp(
+                200,
+                json!({
+                    "ok": true,
+                    "appid": appid,
+                    "pipeline": pipeline,
+                    "pipeline_name": node.name,
+                    "preferred_pipeline": preferred_pipeline.map(|p| p.to_legacy_method().to_string()),
+                    "graphics_backend": node.graphics_backend,
+                    "backend": node.backend,
+                    "offline_capable": recipe.as_ref().map(|r| r.offline_capable).unwrap_or(false),
+                    "recipe": recipe,
+                }),
+            )
         },
         (Method::Get, "/scan") => {
             let mut timing = diagnostics::LaunchTiming::start();
@@ -802,16 +791,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/steam/mac-launch-game") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    app_log(&format!("Launching game via macOS Steam: appid {}", id));
-                    match steam::launch_macos_steam_game(id as u32) {
-                        Ok(v) => resp(200, v),
-                        Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
-                    }
-                },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            app_log(&format!("Launching game via macOS Steam: appid {}", appid));
+            match steam::launch_macos_steam_game(appid) {
+                Ok(v) => resp(200, v),
+                Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
         (Method::Get, "/steam/is-running") => resp(200, json!({"ok": true, "running": steam::is_wine_steam_running()})),
@@ -829,16 +816,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/steam/install-game") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    app_log(&format!("Installing game via Wine Steam: appid {}", id));
-                    match steam::install_game_via_steam(id as u32) {
-                        Ok(v) => resp(200, v),
-                        Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
-                    }
-                },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            app_log(&format!("Installing game via Wine Steam: appid {}", appid));
+            match steam::install_game_via_steam(appid) {
+                Ok(v) => resp(200, v),
+                Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
         (Method::Post, "/steam/launch-game") => {
@@ -1054,16 +1039,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/steam/view-game") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    app_log(&format!("Opening game in Steam library: appid {}", id));
-                    match steam::view_game_in_steam(id as u32) {
-                        Ok(v) => resp(200, v),
-                        Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
-                    }
-                },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            app_log(&format!("Opening game in Steam library: appid {}", appid));
+            match steam::view_game_in_steam(appid) {
+                Ok(v) => resp(200, v),
+                Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
         (Method::Get, "/logs") => {
@@ -1231,63 +1214,50 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/mtsp/prepare") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    let requested_pipeline =
-                        body.get("pipeline").or_else(|| body.get("launchMethod")).and_then(|v| v.as_str());
-                    let requested_pipeline = match requested_pipeline {
-                        Some(value) => match mtsp::engine::PipelineId::from_str_flexible(value) {
-                            Some(pipeline) => Some(pipeline),
-                            None => {
-                                return resp(400, json!({"ok": false, "error": format!("unknown pipeline: {}", value)}))
-                            },
-                        },
-                        None => None,
-                    };
-                    match mtsp::launcher::prepare_pipeline_with_request(id as u32, requested_pipeline) {
-                        Ok(v) => resp(200, v),
-                        Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
-                    }
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            let requested_pipeline = body.get("pipeline").or_else(|| body.get("launchMethod")).and_then(|v| v.as_str());
+            let requested_pipeline = match requested_pipeline {
+                Some(value) => match mtsp::engine::PipelineId::from_str_flexible(value) {
+                    Some(pipeline) => Some(pipeline),
+                    None => return resp(400, json!({"ok": false, "error": format!("unknown pipeline: {}", value)})),
                 },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+                None => None,
+            };
+            match mtsp::launcher::prepare_pipeline_with_request(appid, requested_pipeline) {
+                Ok(v) => resp(200, v),
+                Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
         (Method::Post, "/mtsp/recipe") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    let method = body.get("launchMethod").and_then(|v| v.as_str()).unwrap_or("auto");
-                    let pipeline = bottles::resolve_steam_pipeline_for_request(
-                        id as u32,
-                        mtsp::engine::PipelineId::from_str_flexible(method),
-                    );
-                    let node = mtsp::engine::get_pipeline(pipeline);
-                    match mtsp::recipe::build_launch_recipe(id as u32, node) {
-                        Ok(recipe) => resp(200, json!({"ok": true, "appid": id, "recipe": recipe})),
-                        Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
-                    }
-                },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            let method = body.get("launchMethod").and_then(|v| v.as_str()).unwrap_or("auto");
+            let pipeline =
+                bottles::resolve_steam_pipeline_for_request(appid, mtsp::engine::PipelineId::from_str_flexible(method));
+            let node = mtsp::engine::get_pipeline(pipeline);
+            match mtsp::recipe::build_launch_recipe(appid, node) {
+                Ok(recipe) => resp(200, json!({"ok": true, "appid": appid, "recipe": recipe})),
+                Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
         (Method::Post, "/mtsp/doctor") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    let method = body.get("launchMethod").and_then(|v| v.as_str()).unwrap_or("auto");
-                    let pipeline = bottles::resolve_steam_pipeline_for_request(
-                        id as u32,
-                        mtsp::engine::PipelineId::from_str_flexible(method),
-                    );
-                    let node = mtsp::engine::get_pipeline(pipeline);
-                    let report = mtsp::recipe::diagnose_launch_request(id as u32, node);
-                    resp(200, json!({"ok": true, "appid": id, "report": report}))
-                },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
-            }
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            let method = body.get("launchMethod").and_then(|v| v.as_str()).unwrap_or("auto");
+            let pipeline =
+                bottles::resolve_steam_pipeline_for_request(appid, mtsp::engine::PipelineId::from_str_flexible(method));
+            let node = mtsp::engine::get_pipeline(pipeline);
+            let report = mtsp::recipe::diagnose_launch_request(appid, node);
+            resp(200, json!({"ok": true, "appid": appid, "report": report}))
         },
         (Method::Get, "/goldberg/status") => {
             let url_str = req.url().to_string();
@@ -1353,7 +1323,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/eac/toggle") => {
             let body = read_body_or_return!(req);
             let enabled = body.get("enable").and_then(|value| value.as_bool()).unwrap_or(true);
-            let appid = body.get("appid").and_then(|value| value.as_u64()).unwrap_or(0);
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
             app_log(&format!(
                 "[EAC] {} per-game substrate for appid {}",
                 if enabled { "enabled" } else { "disabled" },
@@ -1368,85 +1341,80 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/goldberg/toggle") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
             let enable = body.get("enable").and_then(|v| v.as_bool()).unwrap_or(true);
-            match appid {
-                Some(id) => {
-                    let aid = id as u32;
-                    let game_dir =
-                        crate::setup::resolve_windows_game_dir(aid).or_else(|| crate::setup::resolve_game_dir(aid));
-                    match game_dir {
-                        Some(dir) if dir.exists() => {
-                            let pipeline = bottles::resolve_steam_pipeline_for_request(aid, None);
-                            let pipeline_id =
-                                pipeline.user_selectable_id().unwrap_or_else(|| pipeline.to_legacy_method());
-                            if enable {
-                                let home = dirs::home_dir().unwrap_or_default();
-                                mtsp::launcher::deploy_goldberg_for_pipeline(&home, &dir.to_path_buf(), aid, pipeline);
-                                app_log(&format!("[STEAM_EMU] enabled for appid {}", aid));
-                                let cache_root = mtsp::launcher::goldberg_cache_dir(aid);
-                                let cache_files: Vec<String> = if cache_root.is_dir() {
-                                    std::fs::read_dir(&cache_root)
-                                        .ok()
-                                        .map(|entries| {
-                                            entries
-                                                .flatten()
-                                                .filter_map(|e| e.file_name().to_str().map(str::to_string))
-                                                .collect()
-                                        })
-                                        .unwrap_or_default()
-                                } else {
-                                    Vec::new()
-                                };
-                                let cache_files_ok = cache_files.contains(&"steam_api64.dll".to_string());
-                                let metadata = mtsp::launcher::read_goldberg_metadata(aid);
-                                let backed_up_at = metadata.as_ref().and_then(|m| m.backed_up_at);
-                                resp(
-                                    200,
-                                    json!({
-                                        "ok": true,
-                                        "goldberg_active": true,
-                                        "cache_files_ok": cache_files_ok,
-                                        "backed_up_at": backed_up_at,
-                                        "cache_files": cache_files,
-                                        "pipeline": pipeline_id,
-                                    }),
-                                )
-                            } else {
-                                let home = dirs::home_dir().unwrap_or_default();
-                                mtsp::launcher::cleanup_goldberg_for_pipeline(&home, &dir, aid, pipeline);
-                                app_log(&format!("[STEAM_EMU] disabled for appid {}", aid));
-                                let cache_root = mtsp::launcher::goldberg_cache_dir(aid);
-                                let cache_files: Vec<String> = if cache_root.is_dir() {
-                                    std::fs::read_dir(&cache_root)
-                                        .ok()
-                                        .map(|entries| {
-                                            entries
-                                                .flatten()
-                                                .filter_map(|e| e.file_name().to_str().map(str::to_string))
-                                                .collect()
-                                        })
-                                        .unwrap_or_default()
-                                } else {
-                                    Vec::new()
-                                };
-                                let cache_files_ok = cache_files.contains(&"steam_api64.dll".to_string());
-                                resp(
-                                    200,
-                                    json!({
-                                        "ok": true,
-                                        "goldberg_active": false,
-                                        "cache_files_ok": cache_files_ok,
-                                        "cache_files": cache_files,
-                                        "pipeline": pipeline_id,
-                                    }),
-                                )
-                            }
-                        },
-                        _ => resp(404, json!({"ok": false, "error": "game directory not found"})),
+            let aid = match parse_request_appid(&body) {
+                Ok(aid) => aid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            let game_dir = crate::setup::resolve_windows_game_dir(aid).or_else(|| crate::setup::resolve_game_dir(aid));
+            match game_dir {
+                Some(dir) if dir.exists() => {
+                    let pipeline = bottles::resolve_steam_pipeline_for_request(aid, None);
+                    let pipeline_id = pipeline.user_selectable_id().unwrap_or_else(|| pipeline.to_legacy_method());
+                    if enable {
+                        let home = dirs::home_dir().unwrap_or_default();
+                        mtsp::launcher::deploy_goldberg_for_pipeline(&home, &dir.to_path_buf(), aid, pipeline);
+                        app_log(&format!("[STEAM_EMU] enabled for appid {}", aid));
+                        let cache_root = mtsp::launcher::goldberg_cache_dir(aid);
+                        let cache_files: Vec<String> = if cache_root.is_dir() {
+                            std::fs::read_dir(&cache_root)
+                                .ok()
+                                .map(|entries| {
+                                    entries
+                                        .flatten()
+                                        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+                        let cache_files_ok = cache_files.contains(&"steam_api64.dll".to_string());
+                        let metadata = mtsp::launcher::read_goldberg_metadata(aid);
+                        let backed_up_at = metadata.as_ref().and_then(|m| m.backed_up_at);
+                        resp(
+                            200,
+                            json!({
+                                "ok": true,
+                                "goldberg_active": true,
+                                "cache_files_ok": cache_files_ok,
+                                "backed_up_at": backed_up_at,
+                                "cache_files": cache_files,
+                                "pipeline": pipeline_id,
+                            }),
+                        )
+                    } else {
+                        let home = dirs::home_dir().unwrap_or_default();
+                        mtsp::launcher::cleanup_goldberg_for_pipeline(&home, &dir, aid, pipeline);
+                        app_log(&format!("[STEAM_EMU] disabled for appid {}", aid));
+                        let cache_root = mtsp::launcher::goldberg_cache_dir(aid);
+                        let cache_files: Vec<String> = if cache_root.is_dir() {
+                            std::fs::read_dir(&cache_root)
+                                .ok()
+                                .map(|entries| {
+                                    entries
+                                        .flatten()
+                                        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+                        let cache_files_ok = cache_files.contains(&"steam_api64.dll".to_string());
+                        resp(
+                            200,
+                            json!({
+                                "ok": true,
+                                "goldberg_active": false,
+                                "cache_files_ok": cache_files_ok,
+                                "cache_files": cache_files,
+                                "pipeline": pipeline_id,
+                            }),
+                        )
                     }
                 },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+                _ => resp(404, json!({"ok": false, "error": "game directory not found"})),
             }
         },
         (Method::Get, "/sharp-library") => resp(200, sharp_library::handle_get_library()),
@@ -2442,10 +2410,13 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/launch") => {
             let body = read_body_or_return!(req);
             let exe = body.get("exePath").and_then(|v| v.as_str()).unwrap_or("");
-            let steam_app_id = body.get("steamAppId").and_then(|v| v.as_u64());
+            let steam_app_id = match parse_optional_request_steam_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
             let resolved = if let Some(sid) = steam_app_id {
                 if !exe.contains(".exe") {
-                    resolve_game_exe(sid as u32)
+                    resolve_game_exe(sid)
                 } else {
                     exe.to_string()
                 }
@@ -2483,62 +2454,59 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/game/launch-auto") => {
             let body = read_body_or_return!(req);
-            let appid = body.get("appid").and_then(|v| v.as_u64());
-            match appid {
-                Some(id) => {
-                    let launch_method = body.get("launchMethod").and_then(|v| v.as_str()).unwrap_or("auto");
-                    let resolved_pipeline = Some(crate::mtsp::rules::resolve_requested_pipeline(
-                        id as u32,
-                        crate::mtsp::engine::PipelineId::from_str_flexible(launch_method),
-                    ))
-                    .map(|pipeline| anticheat::eac_pipeline_for_request(id as u32, pipeline));
-                    let engine_desc = resolved_pipeline
-                        .map(|p| crate::mtsp::engine::get_pipeline(p).description)
-                        .unwrap_or("Unknown");
-                    app_log(&format!("[LAUNCH] appid {} | engine: {} | method: {}", id, engine_desc, launch_method));
-                    let pipeline = match resolved_pipeline {
-                        Some(p) => p,
-                        None => {
-                            app_log(&format!("[LAUNCH FAILED] appid {} | no pipeline resolved", id));
-                            app_issue_log(
-                                "game-launch",
-                                &id.to_string(),
-                                "no pipeline resolved",
-                                &[format!("launch_method={}", launch_method)],
-                            );
-                            return resp(500, json!({"ok": false, "error": "no pipeline resolved"}));
-                        },
-                    };
-                    let result = crate::mtsp::launcher::launch_with_pipeline(id as u32, pipeline);
-                    match result {
-                        Ok((pid, game_type)) => {
-                            register_game_pid(id as u32, pid);
-                            app_log(&format!("[LAUNCHED] appid {} | pid {} | engine: {}", id, pid, game_type));
-                            resp(
-                                200,
-                                json!({
-                                    "ok": true,
-                                    "pid": pid,
-                                    "gameType": game_type,
-                                    "appid": id,
-                                    "engine": engine_desc,
-                                    "eac_substrate": anticheat::eac_enabled(id as u32),
-                                }),
-                            )
-                        },
-                        Err(e) => {
-                            app_log(&format!("[LAUNCH FAILED] appid {} | error: {}", id, e));
-                            app_issue_log(
-                                "game-launch",
-                                &id.to_string(),
-                                &e.to_string(),
-                                &[format!("engine={}", engine_desc), format!("launch_method={}", launch_method)],
-                            );
-                            resp(500, json!({"ok": false, "error": e.to_string()}))
-                        },
-                    }
+            let id = match parse_request_appid(&body) {
+                Ok(id) => id,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            let launch_method = body.get("launchMethod").and_then(|v| v.as_str()).unwrap_or("auto");
+            let resolved_pipeline = Some(crate::mtsp::rules::resolve_requested_pipeline(
+                id,
+                crate::mtsp::engine::PipelineId::from_str_flexible(launch_method),
+            ))
+            .map(|pipeline| anticheat::eac_pipeline_for_request(id, pipeline));
+            let engine_desc =
+                resolved_pipeline.map(|p| crate::mtsp::engine::get_pipeline(p).description).unwrap_or("Unknown");
+            app_log(&format!("[LAUNCH] appid {} | engine: {} | method: {}", id, engine_desc, launch_method));
+            let pipeline = match resolved_pipeline {
+                Some(p) => p,
+                None => {
+                    app_log(&format!("[LAUNCH FAILED] appid {} | no pipeline resolved", id));
+                    app_issue_log(
+                        "game-launch",
+                        &id.to_string(),
+                        "no pipeline resolved",
+                        &[format!("launch_method={}", launch_method)],
+                    );
+                    return resp(500, json!({"ok": false, "error": "no pipeline resolved"}));
                 },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+            };
+            let result = crate::mtsp::launcher::launch_with_pipeline(id, pipeline);
+            match result {
+                Ok((pid, game_type)) => {
+                    register_game_pid(id, pid);
+                    app_log(&format!("[LAUNCHED] appid {} | pid {} | engine: {}", id, pid, game_type));
+                    resp(
+                        200,
+                        json!({
+                            "ok": true,
+                            "pid": pid,
+                            "gameType": game_type,
+                            "appid": id,
+                            "engine": engine_desc,
+                            "eac_substrate": anticheat::eac_enabled(id),
+                        }),
+                    )
+                },
+                Err(e) => {
+                    app_log(&format!("[LAUNCH FAILED] appid {} | error: {}", id, e));
+                    app_issue_log(
+                        "game-launch",
+                        &id.to_string(),
+                        &e.to_string(),
+                        &[format!("engine={}", engine_desc), format!("launch_method={}", launch_method)],
+                    );
+                    resp(500, json!({"ok": false, "error": e.to_string()}))
+                },
             }
         },
         (Method::Get, "/game/running") => {
@@ -2576,18 +2544,13 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         (Method::Post, "/games/stop-active") => resp(200, stop_active_games()),
         (Method::Post, "/kill") => {
             let body = read_body_or_return!(req);
-            let appid = match body.get("appid") {
-                None => None,
-                Some(value) => match value
-                    .as_u64()
-                    .and_then(|value| u32::try_from(value).ok())
-                    .filter(|value| *value > 0)
-                {
-                    Some(appid) => Some(appid),
-                    None => {
-                        return resp(400, json!({"ok": false, "error": "appid must be a positive numeric Steam appid"}))
-                    },
-                },
+            let appid = if body.contains_key("appid") {
+                match parse_request_appid(&body) {
+                    Ok(appid) => Some(appid),
+                    Err(error) => return resp(400, json!({"ok": false, "error": error})),
+                }
+            } else {
+                None
             };
 
             if let Some(aid) = appid {
@@ -2667,21 +2630,20 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         (Method::Post, "/steam/uninstall-game") => {
             let body = read_body_or_return!(req);
-            match body.get("appid").and_then(|v| v.as_u64()).map(|v| v as u32) {
-                Some(appid) => {
-                    if migrate::is_migrating() {
-                        return resp(
-                            409,
-                            json!({"ok": false, "error": "Migration is running. Wait for it to finish before uninstalling games."}),
-                        );
-                    }
-                    app_log(&format!("Uninstalling game: appid {}", appid));
-                    match steam::uninstall_game(appid) {
-                        Ok(r) => resp(200, r),
-                        Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
-                    }
-                },
-                None => resp(400, json!({"ok": false, "error": "appid required"})),
+            let appid = match parse_request_appid(&body) {
+                Ok(appid) => appid,
+                Err(error) => return resp(400, json!({"ok": false, "error": error})),
+            };
+            if migrate::is_migrating() {
+                return resp(
+                    409,
+                    json!({"ok": false, "error": "Migration is running. Wait for it to finish before uninstalling games."}),
+                );
+            }
+            app_log(&format!("Uninstalling game: appid {}", appid));
+            match steam::uninstall_game(appid) {
+                Ok(r) => resp(200, r),
+                Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
         (Method::Post, "/cache/clear") => {
@@ -3226,18 +3188,50 @@ fn read_body_from_reader<R: Read>(reader: R) -> Result<serde_json::Map<String, s
     serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&buf).map_err(RequestBodyError::InvalidJson)
 }
 
-fn parse_request_appid(body: &serde_json::Map<String, serde_json::Value>) -> Result<u32, &'static str> {
-    let Some(value) = body.get("appid") else {
-        return Err("appid required");
+fn parse_request_u32_value(
+    value: Option<&serde_json::Value>,
+    missing_error: &'static str,
+    invalid_error: &'static str,
+    range_error: &'static str,
+    zero_error: &'static str,
+) -> Result<u32, &'static str> {
+    let Some(value) = value else {
+        return Err(missing_error);
     };
     let Some(raw) = value.as_u64() else {
-        return Err("appid must be a positive numeric Steam appid");
+        return Err(invalid_error);
     };
-    let appid = u32::try_from(raw).map_err(|_| "appid out of range")?;
+    let appid = u32::try_from(raw).map_err(|_| range_error)?;
     if appid == 0 {
-        return Err("appid must be greater than zero");
+        return Err(zero_error);
     }
     Ok(appid)
+}
+
+fn parse_request_appid(body: &serde_json::Map<String, serde_json::Value>) -> Result<u32, &'static str> {
+    parse_request_u32_value(
+        body.get("appid"),
+        "appid required",
+        "appid must be a positive numeric Steam appid",
+        "appid out of range",
+        "appid must be greater than zero",
+    )
+}
+
+fn parse_optional_request_steam_appid(
+    body: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<u32>, &'static str> {
+    body.get("steamAppId")
+        .map(|value| {
+            parse_request_u32_value(
+                Some(value),
+                "steamAppId required",
+                "steamAppId must be a positive numeric Steam appid",
+                "steamAppId out of range",
+                "steamAppId must be greater than zero",
+            )
+        })
+        .transpose()
 }
 
 fn pipeline_label_for(pipeline: crate::mtsp::engine::PipelineId) -> &'static str {
@@ -3772,6 +3766,14 @@ mod tests {
         string_appid.insert("appid".into(), json!("620"));
         assert_eq!(parse_request_appid(&string_appid), Err("appid must be a positive numeric Steam appid"));
 
+        let mut negative_appid = serde_json::Map::new();
+        negative_appid.insert("appid".into(), json!(-1));
+        assert_eq!(parse_request_appid(&negative_appid), Err("appid must be a positive numeric Steam appid"));
+
+        let mut fractional_appid = serde_json::Map::new();
+        fractional_appid.insert("appid".into(), json!(620.5));
+        assert_eq!(parse_request_appid(&fractional_appid), Err("appid must be a positive numeric Steam appid"));
+
         let mut zero_appid = serde_json::Map::new();
         zero_appid.insert("appid".into(), json!(0));
         assert_eq!(parse_request_appid(&zero_appid), Err("appid must be greater than zero"));
@@ -3787,5 +3789,17 @@ mod tests {
         body.insert("appid".into(), json!(620));
 
         assert_eq!(parse_request_appid(&body), Ok(620));
+
+        body.insert("appid".into(), json!(u32::MAX));
+        assert_eq!(parse_request_appid(&body), Ok(u32::MAX));
+    }
+
+    #[test]
+    fn optional_steam_appid_rejects_out_of_range_values() {
+        let mut body = serde_json::Map::new();
+        assert_eq!(parse_optional_request_steam_appid(&body), Ok(None));
+
+        body.insert("steamAppId".into(), json!(u64::from(u32::MAX) + 1));
+        assert_eq!(parse_optional_request_steam_appid(&body), Err("steamAppId out of range"));
     }
 }
