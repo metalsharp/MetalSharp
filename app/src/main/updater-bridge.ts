@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
+import { BACKEND_TOKEN_HEADER } from "./rust-bridge";
 
 function getMetalsharpDir(): string {
   if (process.env.METALSHARP_HOME?.trim()) {
@@ -35,11 +36,11 @@ export interface UpdaterReadyResult {
 export class UpdaterBridge {
   private scriptPath: string | null = null;
   private backendPort: number;
-  private apiToken: string;
+  private authTokenProvider: () => string | null;
 
-  constructor(port: number = 9274, apiToken = "") {
+  constructor(port: number = 9274, authTokenProvider: () => string | null = () => null) {
     this.backendPort = port;
-    this.apiToken = apiToken;
+    this.authTokenProvider = authTokenProvider;
   }
 
   async ensureReady(): Promise<UpdaterReadyResult> {
@@ -82,9 +83,18 @@ export class UpdaterBridge {
 
   async getBackendPid(): Promise<number | null> {
     return new Promise((resolve) => {
+      const token = this.authTokenProvider();
+      if (!token) {
+        resolve(null);
+        return;
+      }
       const req = http.get(
-        `http://127.0.0.1:${this.backendPort}/status`,
-        { headers: { Authorization: `Bearer ${this.apiToken}` } },
+        {
+          hostname: "127.0.0.1",
+          port: this.backendPort,
+          path: "/status",
+          headers: { [BACKEND_TOKEN_HEADER]: token },
+        },
         (res) => {
           const chunks: Buffer[] = [];
           res.on("data", (c) => chunks.push(c));

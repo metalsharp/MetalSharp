@@ -10,7 +10,7 @@ The new MetalSharp instance reads this file on launch to show success/failure.
 Usage:
     python3 update.py --dmg <path> --dmg-size <bytes> --dmg-sha256 <sha256> \
                       --backend-pid <pid> --target-version <ver> \
-                      [--status-file <path>] [--python <path>]
+                      [--status-file <path>] [--metalsharp-home <path>] [--python <path>]
 """
 
 import argparse
@@ -31,6 +31,7 @@ except OSError:
 
 APP_PATH = "/Applications/MetalSharp.app"
 BACKEND_PORT = 9274
+BACKEND_TOKEN_FILE = ".backend-token"
 UPDATE_DMG_PATH = None
 
 
@@ -364,12 +365,29 @@ def admin_cp_r(src, dst):
     return r.returncode == 0
 
 
-def wait_for_backend(timeout=45):
+def read_backend_token(metalsharp_home):
+    try:
+        with open(os.path.join(metalsharp_home, BACKEND_TOKEN_FILE), "r") as token_file:
+            token = token_file.read().strip()
+        if len(token) == 64 and all(char in "0123456789abcdef" for char in token):
+            return token
+    except OSError:
+        pass
+    return None
+
+
+def wait_for_backend(timeout=45, metalsharp_home=None):
+    metalsharp_home = metalsharp_home or os.path.expanduser("~/.metalsharp")
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
+            token = read_backend_token(metalsharp_home)
+            if not token:
+                time.sleep(1)
+                continue
             req = urllib.request.Request(
-                "http://127.0.0.1:" + str(BACKEND_PORT) + "/health"
+                "http://127.0.0.1:" + str(BACKEND_PORT) + "/status",
+                headers={"X-MetalSharp-Token": token},
             )
             with urllib.request.urlopen(req, timeout=3) as resp:
                 data = json.loads(resp.read())
@@ -413,6 +431,10 @@ def main():
     parser.add_argument(
         "--status-file",
         default=os.path.expanduser("~/.metalsharp/update_install_status.json"),
+    )
+    parser.add_argument(
+        "--metalsharp-home",
+        default=os.environ.get("METALSHARP_HOME", os.path.expanduser("~/.metalsharp")),
     )
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--app-pid", default=0, type=int)
@@ -589,7 +611,7 @@ def main():
 
     write_status(sf, "installed", 80, "New version installed.", new_version=tv)
 
-    ms_dir = os.path.expanduser("~/.metalsharp")
+    ms_dir = args.metalsharp_home
     os.makedirs(ms_dir, exist_ok=True)
     migration_marker = os.path.join(ms_dir, ".post-update-migration")
     try:
@@ -609,7 +631,7 @@ def main():
 
     # ── 9. Verify version ────────────────────────────────────────────
     write_status(sf, "verifying", 90, "Verifying installation...", new_version=tv)
-    version, new_pid = wait_for_backend(timeout=45)
+    version, new_pid = wait_for_backend(timeout=45, metalsharp_home=args.metalsharp_home)
 
     if version and version != tv:
         write_status(
@@ -626,7 +648,7 @@ def main():
         time.sleep(1)
         run(["open", "-a", "MetalSharp"])
         time.sleep(3)
-        version, new_pid = wait_for_backend(timeout=30)
+        version, new_pid = wait_for_backend(timeout=30, metalsharp_home=args.metalsharp_home)
 
     # ── 10. Report result ────────────────────────────────────────────
     report_update_result(sf, version, tv)

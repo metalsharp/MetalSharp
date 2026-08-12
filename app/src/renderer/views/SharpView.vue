@@ -489,17 +489,29 @@ function sharpAppNameSort(a: SharpApp, b: SharpApp) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
-async function loadCovers() {
-  const loaded: Record<string, string> = {};
-  await Promise.all(
-    apps.value
-      .filter((app) => app.cover)
+let coverLoadGeneration = 0;
+
+async function loadCoverUrls(appList: SharpApp[]) {
+  const generation = ++coverLoadGeneration;
+  const covers = await Promise.all(
+    appList
+      .filter((app) => Boolean(app.cover))
       .map(async (app) => {
-        const url = await getAPI().getCover(app.id);
-        if (url) loaded[app.id] = url;
+        try {
+          const result = await getAPI().requestAsset(`/sharp-library/cover?id=${encodeURIComponent(app.id)}`);
+          return result.ok && result.dataUrl ? { id: app.id, dataUrl: result.dataUrl } : null;
+        } catch {
+          return null;
+        }
       }),
   );
-  coverUrls.value = loaded;
+
+  if (generation !== coverLoadGeneration) return;
+  coverUrls.value = Object.fromEntries(
+    covers
+      .filter((cover): cover is { id: string; dataUrl: string } => cover !== null)
+      .map((cover) => [cover.id, cover.dataUrl]),
+  );
 }
 
 async function load() {
@@ -512,7 +524,10 @@ async function load() {
   ]);
   if (result?.ok) {
     apps.value = [...result.apps].sort(sharpAppNameSort);
-    await loadCovers();
+    void loadCoverUrls(apps.value);
+  } else {
+    coverLoadGeneration += 1;
+    coverUrls.value = {};
   }
   if (bottleResult?.ok) {
     bottles.value = bottleResult.bottles;

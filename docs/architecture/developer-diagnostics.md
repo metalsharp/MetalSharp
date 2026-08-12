@@ -19,6 +19,23 @@ When enabled, the renderer captures only these operational signals:
 
 The application does not identify people or automatically send Steam API keys, passwords, local file paths, game-library names, raw log files, arbitrary backend responses, or other user-entered input values.
 
+## Local backend authentication
+
+The loopback backend requires a per-process bearer token on every request,
+including `/status` and `/steam/api-key`. At startup it generates a fresh
+random token and atomically publishes it with private permissions at
+`$METALSHARP_HOME/.backend-token` (normally `~/.metalsharp/.backend-token`).
+The Electron main process reads the token only to authenticate its Node-side
+bridge; the preload API does not expose the token to renderer JavaScript.
+Renderer image assets are fetched through that bridge rather than by direct
+loopback URLs, so sensitive credentials and backend authorization headers stay
+out of the page.
+
+Trusted diagnostic tools must read the token file and send it as the
+`X-MetalSharp-Token` header. Do not print the token, commit it, put it in
+renderer code, or pass it through a public URL. Requests without the header or
+with an old token receive `401 Unauthorized`.
+
 ## Build and release configuration
 
 The PostHog project write key is deliberately excluded from Git. For local builds, copy `app/.env.example` to ignored `app/.env` and set `VITE_POSTHOG_PROJECT_TOKEN`. Release CI receives the key from the repository secret `POSTHOG_PROJECT_TOKEN` and injects it only while building the renderer. The write key is intended for client delivery; account credentials and personal API keys must never be added to source or workflow files.
