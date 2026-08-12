@@ -229,3 +229,6 @@ jobs:
 
       - name: Verify DMG workflow contract
         run: python3 tools/ci/verify-dmg-workflow.py
+
+      - name: Updater security regression tests
+        run: python3 -m unittest -v tools/ci/test_updater_security.py

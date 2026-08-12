@@ -148,12 +148,58 @@ cleanup() {
 trap cleanup EXIT
 
 run_privileged() {
-    local command="$1"
-    osascript -e "do shell script \"${command//\"/\\\"}\" with administrator privileges" 2>/dev/null
+    local operation="${1:-}"
+    local command_path
+    [ "$#" -gt 0 ] || return 2
+    shift
+
+    # Keep the executable selection fixed and pass every path as an
+    # AppleScript argument.  `quoted form of` is evaluated by AppleScript for
+    # each argument, so a path from the mounted DMG can never become shell
+    # syntax in the privileged fallback.
+    case "$operation" in
+        ditto)
+            [ "$#" -eq 2 ] || return 2
+            command_path="/usr/bin/ditto"
+            ;;
+        mv)
+            [ "$#" -eq 2 ] || return 2
+            command_path="/bin/mv"
+            ;;
+        hdiutil-attach)
+            [ "$#" -eq 2 ] || return 2
+            command_path="/usr/bin/hdiutil"
+            set -- attach -nobrowse -quiet -mountpoint "$1" "$2"
+            ;;
+        *)
+            return 2
+            ;;
+    esac
+
+    osascript \
+        -e 'on run argv' \
+        -e 'set commandPath to item 1 of argv' \
+        -e 'set commandArgs to rest of argv' \
+        -e 'set shellCommand to quoted form of commandPath' \
+        -e 'repeat with commandArg in commandArgs' \
+        -e 'set shellCommand to shellCommand & " " & quoted form of (commandArg as text)' \
+        -e 'end repeat' \
+        -e 'do shell script shellCommand with administrator privileges' \
+        -e 'end run' \
+        -- "$command_path" "$@"
 }
 
 verify_app_bundle() {
     local app_path="$1"
+    local app_name="${app_path##*/}"
+    # Mounted DMGs are untrusted input.  The source bundle name is later
+    # handed to a privileged file operation, so reject shell-significant and
+    # control characters before any install work.  Staging names are also
+    # checked here and intentionally use the same conservative character set.
+    [ -n "$app_name" ] || return 1
+    case "$app_name" in
+        *[!A-Za-z0-9._-]*) return 1 ;;
+    esac
     for required in \
         "$app_path/Contents/Info.plist" \
         "$app_path/Contents/MacOS/MetalSharp" \
@@ -243,7 +289,7 @@ require_app_version() {
 restore_backup() {
     if [ -d "$BACKUP_APP_PATH" ] && [ ! -d "$APP_PATH" ]; then
         mv "$BACKUP_APP_PATH" "$APP_PATH" 2>/dev/null || \
-            run_privileged "mv '$BACKUP_APP_PATH' '$APP_PATH'" || true
+            run_privileged mv "$BACKUP_APP_PATH" "$APP_PATH" || true
     fi
 }
 
@@ -297,9 +343,7 @@ MOUNT_POINT="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-update-mount.XXXXXX")" || {
     exit 1
 }
 if ! hdiutil attach -nobrowse -mountpoint "$MOUNT_POINT" "$DMG_PATH" >/dev/null 2>&1; then
-    escaped_dmg="${DMG_PATH//\"/\\\"}"
-    escaped_mount="${MOUNT_POINT//\"/\\\"}"
-    osascript -e "do shell script \"hdiutil attach -nobrowse -mountpoint \\\"$escaped_mount\\\" \\\"$escaped_dmg\\\"\" with administrator privileges" >/dev/null 2>&1 || true
+    run_privileged hdiutil-attach "$MOUNT_POINT" "$DMG_PATH" >/dev/null 2>&1 || true
     sleep 2
 fi
 
@@ -311,7 +355,7 @@ fi
 
 write_status "mounted" 45 "Mounted at $MOUNT_POINT"
 
-APP_SOURCE=$(find "$MOUNT_POINT" -maxdepth 1 -name "*.app" -iname "*metalsharp*" 2>/dev/null | head -1)
+APP_SOURCE="$(find "$MOUNT_POINT" -maxdepth 1 -type d -name "*.app" -iname "*metalsharp*" -print -quit 2>/dev/null)"
 if [ -z "$APP_SOURCE" ]; then
     write_status "error" 50 "MetalSharp.app not found in update" "app_not_found"
     exit 1
@@ -333,7 +377,7 @@ fi
 write_status "installing" 50 "Staging new version..."
 rm -rf "$TMP_APP_PATH" "$BACKUP_APP_PATH" 2>/dev/null || true
 ditto "$APP_SOURCE" "$TMP_APP_PATH" 2>/dev/null || {
-    run_privileged "ditto '$APP_SOURCE' '$TMP_APP_PATH'" || true
+    run_privileged ditto "$APP_SOURCE" "$TMP_APP_PATH" || true
     sleep 1
 }
 
@@ -346,7 +390,7 @@ require_app_version "$TMP_APP_PATH" "Staged app"
 write_status "installing" 65 "Installing new version..."
 if [ -d "$APP_PATH" ]; then
     mv "$APP_PATH" "$BACKUP_APP_PATH" 2>/dev/null || {
-        run_privileged "mv '$APP_PATH' '$BACKUP_APP_PATH'" || true
+        run_privileged mv "$APP_PATH" "$BACKUP_APP_PATH" || true
         sleep 1
     }
     if [ -d "$APP_PATH" ]; then
@@ -356,7 +400,7 @@ if [ -d "$APP_PATH" ]; then
 fi
 
 mv "$TMP_APP_PATH" "$APP_PATH" 2>/dev/null || {
-    run_privileged "mv '$TMP_APP_PATH' '$APP_PATH'" || true
+    run_privileged mv "$TMP_APP_PATH" "$APP_PATH" || true
     sleep 1
 }
 
