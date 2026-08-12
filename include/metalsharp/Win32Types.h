@@ -34,6 +34,11 @@ typedef uint32_t ULONG;
 typedef uintptr_t DWORD_PTR;
 typedef int (*FARPROC)();
 
+// Error values used by the kernel32 compatibility surface.
+constexpr DWORD ERROR_INVALID_PARAMETER = 87;
+constexpr DWORD ERROR_BUFFER_OVERFLOW = 111;
+constexpr DWORD ERROR_ENVVAR_NOT_FOUND = 203;
+
 const HANDLE INVALID_HANDLE_VALUE = reinterpret_cast<HANDLE>(static_cast<intptr_t>(-1));
 constexpr DWORD DWORD_MAX_VAL = 0xFFFFFFFF;
 
