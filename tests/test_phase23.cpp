@@ -12,6 +12,10 @@ using namespace metalsharp;
 static int testsPassed = 0;
 static int testsFailed = 0;
 
+static void reset_compat_test_file(const char* path) {
+    std::remove(path);
+}
+
 #define TEST(name)                                                                                                     \
     printf("  TEST: %-55s", #name);                                                                                    \
     if (test_##name()) {                                                                                               \
@@ -43,6 +47,7 @@ static bool test_compat_status_strings() {
 }
 
 static bool test_compat_add_find_remove() {
+    reset_compat_test_file("/tmp/metalsharp_test/compat.json");
     auto& db = CompatDatabase::instance();
     db.init("/tmp/metalsharp_test/compat.json");
 
@@ -66,6 +71,7 @@ static bool test_compat_add_find_remove() {
 }
 
 static bool test_compat_query_by_status() {
+    reset_compat_test_file("/tmp/metalsharp_test/compat.json");
     auto& db = CompatDatabase::instance();
     db.init("/tmp/metalsharp_test/compat.json");
 
@@ -89,6 +95,7 @@ static bool test_compat_query_by_status() {
 }
 
 static bool test_compat_missing_imports() {
+    reset_compat_test_file("/tmp/metalsharp_test/compat.json");
     auto& db = CompatDatabase::instance();
     db.init("/tmp/metalsharp_test/compat.json");
 
@@ -111,6 +118,7 @@ static bool test_compat_missing_imports() {
 }
 
 static bool test_compat_crash_record() {
+    reset_compat_test_file("/tmp/metalsharp_test/compat.json");
     auto& db = CompatDatabase::instance();
     db.init("/tmp/metalsharp_test/compat.json");
 
@@ -130,6 +138,7 @@ static bool test_compat_crash_record() {
 }
 
 static bool test_compat_save_load() {
+    reset_compat_test_file("/tmp/metalsharp_test/compat_roundtrip.json");
     auto& db = CompatDatabase::instance();
     db.init("/tmp/metalsharp_test/compat_roundtrip.json");
 
@@ -157,6 +166,7 @@ static bool test_compat_save_load() {
 }
 
 static bool test_compat_report_generation() {
+    reset_compat_test_file("/tmp/metalsharp_test/compat.json");
     auto& db = CompatDatabase::instance();
     db.init("/tmp/metalsharp_test/compat.json");
 
