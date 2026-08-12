@@ -2613,9 +2613,9 @@ pub fn repair_component(
     if matches!(manifest.runtime_profile, RuntimeProfile::M12) && is_m12_runtime_component(component_id) {
         let home = dirs::home_dir().ok_or("no home dir")?;
         let component_ids = m12_runtime_component_ids();
-        let refresh_detail = format!(
+        let refresh_detail =
             "Refreshes the M12 vkd3d-proton runtime surface under runtime/wine/lib/vkd3d-proton (+dxvk, moltenvk-vkmt)"
-        );
+                .to_string();
         let asset_rel = "x86_64-windows/d3d12core.dll";
         let asset_path = crate::platform::metalsharp_home_dir_for(&home)
             .join("runtime")
