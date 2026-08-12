@@ -1594,6 +1594,17 @@ fn staging_steam_prefix_dir(ms_home: &Path) -> PathBuf {
     ms_home.join(format!("prefix-steam.staging-{}-{}", std::process::id(), nanos))
 }
 
+fn discard_staged_steam_prefix(staging: &Path) {
+    for _ in 0..20 {
+        match std::fs::remove_dir_all(staging) {
+            Ok(()) => return,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+    let _ = std::fs::remove_dir_all(staging);
+}
+
 /// Atomically replaces the live prefix with the staged one. The previous
 /// prefix is first moved aside and only deleted after the staged prefix is
 /// live; if the swap fails, the previous prefix is restored.
@@ -1666,11 +1677,11 @@ fn install_steam_into_prefix(
     }
 
     let seed_log = prefix.join("drive_c").join("metalsharp-post-wineboot.log");
-    let _ = crate::bottles::seed_post_wineboot_config(&prefix, &seed_log);
+    let _ = crate::bottles::seed_post_wineboot_config(prefix, &seed_log);
 
     // Re-stage and re-verify immediately before Wine opens the installer so
     // a replacement of the user-writable cache file cannot reach msiexec.
-    stage_verified_steam_setup(&installer)
+    stage_verified_steam_setup(installer)
         .map_err(|error| format!("Steam installer changed before launch: {}", error))?;
 
     let mut install_cmd = Command::new(wine);
@@ -1783,13 +1794,13 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
     match install_steam_into_prefix(&staging, &installer, &wine, &ms_root) {
         Ok(()) => {
             if let Err(error) = commit_staged_steam_prefix(&staging, &prefix) {
-                let _ = std::fs::remove_dir_all(&staging);
+                discard_staged_steam_prefix(&staging);
                 return Err(error.into());
             }
             Ok("Steam install thread complete".into())
         },
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&staging);
+            discard_staged_steam_prefix(&staging);
             Err(e)
         },
     }
@@ -2150,7 +2161,7 @@ mod tests {
         assert!(result.is_err(), "staged install must fail with a crashing installer");
 
         // run_install_steam's failure path: discard the staging directory.
-        let _ = std::fs::remove_dir_all(&staging);
+        discard_staged_steam_prefix(&staging);
 
         assert!(
             loginusers.exists() && std::fs::read_to_string(&loginusers).unwrap() == "precious-login-state",
