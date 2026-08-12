@@ -78,7 +78,9 @@ class SyncContext {
     uint32_t waitForSingleObject(void* handle, uint32_t milliseconds);
     uint32_t waitForMultipleObjects(uint32_t count, void** handles, bool waitAll, uint32_t milliseconds);
 
-    void destroyHandle(void* handle);
+    /// Destroy a synchronization handle created by this context. Returns true
+    /// when the handle was known and destroyed, false for unknown handles.
+    bool destroyHandle(void* handle);
 
     void initialize();
 

@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "Win32Error.h"
+
 namespace metalsharp {
 namespace win32 {
 
@@ -22,10 +24,6 @@ typedef int32_t LONG;
 typedef uint32_t DWORD;
 typedef uint8_t BYTE;
 typedef void* HKEY;
-
-const LONG ERROR_SUCCESS = 0;
-const LONG ERROR_FILE_NOT_FOUND = 2;
-const LONG ERROR_PATH_NOT_FOUND = 3;
 
 struct RegistryValue {
     DWORD type;

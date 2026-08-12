@@ -561,11 +561,11 @@ uint32_t SyncContext::waitForMultipleObjects(uint32_t count, void** handles, boo
     }
 }
 
-void SyncContext::destroyHandle(void* handle) {
+bool SyncContext::destroyHandle(void* handle) {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_handles.find((intptr_t)handle);
     if (it == m_handles.end())
-        return;
+        return false;
 
     switch (it->second.type) {
     case SyncHandleType::Event: {
@@ -603,6 +603,7 @@ void SyncContext::destroyHandle(void* handle) {
         m_namedHandles.erase(it->second.name);
     }
     m_handles.erase(it);
+    return true;
 }
 
 } // namespace win32

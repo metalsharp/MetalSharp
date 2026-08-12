@@ -84,6 +84,11 @@ add_executable(test_sync_context
 )
 target_link_libraries(test_sync_context PRIVATE metalsharp_core)
 
+add_executable(test_win32_last_error
+    test_win32_last_error.cpp
+)
+target_link_libraries(test_win32_last_error PRIVATE metalsharp_loader metalsharp_core)
+
 add_executable(test_audio
     test_audio.cpp
 )
@@ -126,6 +131,7 @@ add_test(NAME host_runtime_abi COMMAND test_host_runtime_abi)
 add_test(NAME mscoree_path_safety COMMAND test_mscoree_path_safety)
 add_test(NAME darwin_sync_map COMMAND test_darwin_sync_map)
 add_test(NAME sync_context COMMAND test_sync_context)
+add_test(NAME win32_last_error COMMAND test_win32_last_error)
 add_test(NAME audio COMMAND test_audio)
 add_test(NAME input COMMAND test_input)
 add_test(NAME network_context COMMAND test_network_context)
