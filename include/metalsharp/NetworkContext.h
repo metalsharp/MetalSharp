@@ -14,6 +14,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace metalsharp {
 namespace win32 {
@@ -47,6 +48,19 @@ constexpr uint32_t WSAECONNREFUSED = 10061;
 constexpr uint32_t WSAEHOSTDOWN = 10064;
 constexpr uint32_t WSAEHOSTUNREACH = 10065;
 constexpr uint32_t WSASYSCALLFAILURE = 10107;
+
+// WSA event-object wait results and limits (winsock2.h).
+constexpr uint32_t WSA_WAIT_OBJECT_0 = 0;
+constexpr uint32_t WSA_WAIT_IO_COMPLETION = 0x000000C0;
+constexpr uint32_t WSA_WAIT_TIMEOUT = 0x00000102;
+constexpr uint32_t WSA_WAIT_FAILED = 0xFFFFFFFF;
+constexpr uint32_t WSA_INFINITE = 0xFFFFFFFF;
+constexpr uint32_t WSA_MAXIMUM_WAIT_EVENTS = 64;
+
+// WSA error codes used by the event-object API (winsock2.h / winerror.h).
+constexpr uint32_t WSAEFAULT = 14;
+constexpr uint32_t WSA_INVALID_HANDLE = 6;
+constexpr uint32_t WSA_INVALID_PARAMETER = 87;
 
 constexpr uint32_t FD_READ_BIT = 0;
 constexpr uint32_t FD_WRITE_BIT = 1;
@@ -120,20 +134,69 @@ class NetworkContext {
     void setSocketEventMask(int handle, uint32_t mask, void* eventHandle);
     uint32_t getSocketEventMask(int handle) const;
 
+    // WSA event-object table (WSACreateEvent/WSACloseEvent/WSASetEvent/WSAResetEvent).
+    int allocEvent();
+    bool isValidEvent(int eventId) const;
+    void closeEvent(int eventId);
+    void setEventSignaled(int eventId, bool signaled);
+    bool isEventSignaled(int eventId) const;
+    std::vector<int> socketsForEvent(int eventId) const;
+    void associateSocketWithEvent(int socketHandle, int eventId);
+    void unassociateSocketFromEvent(int socketHandle);
+
+    // Cross-thread wake pipe: WSASetEvent writes a byte so a blocked
+    // WSAWaitForMultipleEvents poll() wakes and re-checks the signaled state.
+    int eventWakeReadFd();
+
+    // WSAEventSelect/FD_* edge tracking.
+    void markSocketConnecting(int handle, bool connecting);
+    // Starts a fresh recording period for the edge-triggered FD_CLOSE event
+    // after a new WSAEventSelect registration.
+    void resetSocketEventTracking(int handle);
+    // True once FD_CLOSE has been reported for the socket; such sockets are
+    // excluded from later waits (FD_CLOSE fires once, like Windows).
+    bool socketHasReportedClose(int handle) const;
+    // Classifies poll(2) results for a socket against its event mask, updates
+    // the FD_CONNECT/FD_CLOSE edge-tracking state, and returns the FD_* bits
+    // (masked by the socket's registered mask) that fired.
+    uint32_t applySocketPollResult(int handle, short revents, bool listening);
+    // Preserve edge-triggered notifications until WSAEnumNetworkEvents
+    // consumes the event record after WSAWaitForMultipleEvents returns.
+    void recordSocketEvents(int handle, uint32_t events);
+    uint32_t takeSocketEvents(int handle);
+
     void initialize();
 
   private:
+    // Must be called with m_mutex held.
+    void unassociateSocketFromEventLocked(int socketHandle);
     NetworkContext() = default;
 
     struct SocketEntry {
         int fd;
         uint32_t eventMask = 0;
         void* eventHandle = nullptr;
+        bool connecting = false;
+        bool closeReported = false;
+        uint32_t pendingEvents = 0;
+    };
+
+    struct EventEntry {
+        bool signaled = false;
+        std::vector<int> sockets;
     };
 
     mutable std::mutex m_mutex;
     std::unordered_map<int, SocketEntry> m_sockets;
     int m_nextHandle = 100;
+
+    std::unordered_map<int, EventEntry> m_events;
+    int m_nextEvent = 9000;
+
+    // Must be called with m_mutex held.
+    void ensureEventWakePipeLocked();
+    void wakePipeWriteLocked();
+    int m_eventWakePipe[2] = {-1, -1};
 
     std::unordered_map<int, PipeInstance> m_pipes;
     int m_nextPipe = 5000;

@@ -3,6 +3,7 @@
 ///
 /// Wraps POSIX socket operations behind Win32 SOCKET handles and implements Winsock initialization, socket creation,
 /// and named pipe pairs. Provides the networking layer that some games need for multiplayer or DRM.
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstdlib>
@@ -13,6 +14,8 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -61,6 +64,7 @@ int NetworkContext::releaseSocket(int handle) {
     auto it = m_sockets.find(handle);
     if (it == m_sockets.end())
         return -1;
+    unassociateSocketFromEventLocked(handle);
     int fd = it->second.fd;
     m_sockets.erase(it);
     return fd;
@@ -156,6 +160,198 @@ uint32_t NetworkContext::getSocketEventMask(int handle) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_sockets.find(handle);
     return it != m_sockets.end() ? it->second.eventMask : 0;
+}
+
+int NetworkContext::allocEvent() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    int eventId = m_nextEvent++;
+    m_events[eventId] = EventEntry{};
+    return eventId;
+}
+
+bool NetworkContext::isValidEvent(int eventId) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_events.find(eventId) != m_events.end();
+}
+
+void NetworkContext::closeEvent(int eventId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_events.erase(eventId);
+}
+
+void NetworkContext::setEventSignaled(int eventId, bool signaled) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_events.find(eventId);
+    if (it == m_events.end())
+        return;
+    if (signaled && !it->second.signaled)
+        wakePipeWriteLocked(); // cross-thread wake for blocked waits
+    it->second.signaled = signaled;
+}
+
+bool NetworkContext::isEventSignaled(int eventId) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_events.find(eventId);
+    return it != m_events.end() && it->second.signaled;
+}
+
+std::vector<int> NetworkContext::socketsForEvent(int eventId) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_events.find(eventId);
+    if (it == m_events.end())
+        return {};
+    return it->second.sockets;
+}
+
+void NetworkContext::associateSocketWithEvent(int socketHandle, int eventId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto ev = m_events.find(eventId);
+    if (ev == m_events.end())
+        return;
+    // A socket belongs to at most one event object at a time.
+    unassociateSocketFromEventLocked(socketHandle);
+    ev->second.sockets.push_back(socketHandle);
+}
+
+void NetworkContext::unassociateSocketFromEventLocked(int socketHandle) {
+    for (auto& pair : m_events) {
+        auto& sockets = pair.second.sockets;
+        sockets.erase(std::remove(sockets.begin(), sockets.end(), socketHandle), sockets.end());
+    }
+}
+
+void NetworkContext::unassociateSocketFromEvent(int socketHandle) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    unassociateSocketFromEventLocked(socketHandle);
+}
+
+void NetworkContext::markSocketConnecting(int handle, bool connecting) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_sockets.find(handle);
+    if (it != m_sockets.end())
+        it->second.connecting = connecting;
+}
+
+void NetworkContext::resetSocketEventTracking(int handle) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_sockets.find(handle);
+    if (it != m_sockets.end())
+        it->second.closeReported = false;
+}
+
+bool NetworkContext::socketHasReportedClose(int handle) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_sockets.find(handle);
+    return it != m_sockets.end() && it->second.closeReported;
+}
+
+int NetworkContext::eventWakeReadFd() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ensureEventWakePipeLocked();
+    return m_eventWakePipe[0];
+}
+
+void NetworkContext::ensureEventWakePipeLocked() {
+    if (m_eventWakePipe[0] >= 0)
+        return;
+    if (::pipe(m_eventWakePipe) != 0) {
+        m_eventWakePipe[0] = m_eventWakePipe[1] = -1;
+        return;
+    }
+    for (int end : {m_eventWakePipe[0], m_eventWakePipe[1]}) {
+        int flags = fcntl(end, F_GETFL, 0);
+        fcntl(end, F_SETFL, flags | O_NONBLOCK);
+    }
+}
+
+void NetworkContext::wakePipeWriteLocked() {
+    ensureEventWakePipeLocked();
+    if (m_eventWakePipe[1] < 0)
+        return;
+    char byte = 1;
+    (void)::write(m_eventWakePipe[1], &byte, 1); // EAGAIN when full: pending byte suffices
+}
+
+uint32_t NetworkContext::applySocketPollResult(int handle, short revents, bool listening) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_sockets.find(handle);
+    if (it == m_sockets.end())
+        return 0;
+    SocketEntry& entry = it->second;
+    const uint32_t mask = entry.eventMask;
+    if (mask == 0)
+        return 0;
+
+    uint32_t events = 0;
+    const bool sawPollOut = (revents & POLLOUT) != 0;
+
+    // FD_READ / FD_ACCEPT are level-triggered: report them whenever the
+    // condition still holds (data pending / connection pending).
+    if ((revents & POLLIN) && (mask & (FD_READ | FD_ACCEPT))) {
+        if (listening) {
+            if (mask & FD_ACCEPT)
+                events |= FD_ACCEPT;
+        } else if ((mask & FD_ACCEPT) && !(mask & FD_READ)) {
+            // macOS does not expose SO_ACCEPTCONN for every socket family;
+            // an FD_ACCEPT-only registration is itself an unambiguous listen
+            // request, so preserve the accept notification in that case.
+            events |= FD_ACCEPT;
+        } else {
+            int available = 0;
+            if (ioctl(entry.fd, FIONREAD, &available) == 0) {
+                if (available > 0 && (mask & FD_READ)) {
+                    events |= FD_READ;
+                } else if ((mask & FD_CLOSE) && !entry.closeReported) {
+                    // An orderly peer shutdown is reported by poll(2) as
+                    // readable EOF (POLLIN with no bytes), not necessarily
+                    // as POLLHUP. Windows surfaces that transition as
+                    // FD_CLOSE rather than a spurious FD_READ.
+                    events |= FD_CLOSE;
+                    entry.closeReported = true;
+                }
+            }
+        }
+    }
+
+    // FD_CONNECT fires once when a non-blocking connect completes (with or
+    // without error). FD_WRITE is polled level-triggered: reported whenever
+    // the socket is writable and FD_WRITE is nominated — a game's send-until-
+    // WSAEWOULDBLOCK loop makes progress, and the wait blocks once the send
+    // buffer fills (no POLLOUT).
+    if ((revents & (POLLOUT | POLLERR | POLLHUP)) && (mask & FD_CONNECT) && entry.connecting) {
+        events |= FD_CONNECT;
+        entry.connecting = false;
+    } else if (sawPollOut && (mask & FD_WRITE)) {
+        events |= FD_WRITE;
+    }
+
+    // FD_CLOSE fires once per close (edge-triggered, like Windows); the wait
+    // loop excludes sockets that already reported it, so a half-closed socket
+    // cannot keep a poll() round busy.
+    if ((revents & (POLLHUP | POLLERR)) && (mask & FD_CLOSE) && !entry.closeReported) {
+        events |= FD_CLOSE;
+        entry.closeReported = true;
+    }
+    return events;
+}
+
+void NetworkContext::recordSocketEvents(int handle, uint32_t events) {
+    if (events == 0)
+        return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_sockets.find(handle);
+    if (it != m_sockets.end())
+        it->second.pendingEvents |= events;
+}
+
+uint32_t NetworkContext::takeSocketEvents(int handle) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_sockets.find(handle);
+    if (it == m_sockets.end())
+        return 0;
+    uint32_t events = it->second.pendingEvents;
+    it->second.pendingEvents = 0;
+    return events;
 }
 
 bool NetworkContext::allocPipePair(const std::string& name, bool server, int outHandles[2]) {
