@@ -939,11 +939,18 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
 
     match node.id {
         PipelineId::M12 => {
-            let unix_dir = ms_root.join("lib").join("dxmt_m12").join("x86_64-unix");
-            for filename in ["winemetal.so", "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"] {
-                let path = unix_dir.join(filename);
+            // The M12 stack: vkd3d-proton D3D12 pair, DXVK dxgi, VKMT MoltenVK
+            // ICD. These are the hash-gated artifacts the installer verifies.
+            for (lane, rel) in [
+                ("vkd3d-proton", "x86_64-windows/d3d12.dll"),
+                ("vkd3d-proton", "x86_64-windows/d3d12core.dll"),
+                ("dxvk", "x86_64-windows/dxgi.dll"),
+                ("moltenvk-vkmt", "libMoltenVK.dylib"),
+                ("moltenvk-vkmt", "MoltenVK_icd.json"),
+            ] {
+                let path = ms_root.join("lib").join(lane).join(rel);
                 assets.push(RuntimeAsset {
-                    name: format!("lib/dxmt_m12/x86_64-unix/{filename}"),
+                    name: format!("lib/{lane}/{rel}"),
                     present: runtime_file_present(&path),
                     path,
                     required: true,
@@ -1033,18 +1040,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dxmt_validates_legacy_winemetal_so_without_changing_m12_sidecars() {
+    fn dxmt_validates_legacy_winemetal_so_without_changing_m12_stack_assets() {
         let ms_root = test_dir("runtime-assets-winemetal-lanes");
         let dxmt = super::super::engine::get_pipeline(PipelineId::Dxmt);
         let m12 = super::super::engine::get_pipeline(PipelineId::M12);
 
         let dxmt_assets = runtime_assets_for_node(dxmt, &ms_root);
         assert!(dxmt_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
-        assert!(!dxmt_assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/x86_64-unix/")));
+        assert!(!dxmt_assets.iter().any(|asset| asset.name.starts_with("lib/vkd3d-proton/")));
 
         let m12_assets = runtime_assets_for_node(m12, &ms_root);
-        assert!(m12_assets.iter().any(|asset| asset.name == "lib/dxmt_m12/x86_64-unix/winemetal.so"));
-        assert!(m12_assets.iter().any(|asset| asset.name == "lib/dxmt_m12/x86_64-unix/libc++.1.dylib"));
+        // M12 requires the vkd3d-proton D3D12 pair, DXVK dxgi, and VKMT
+        // MoltenVK ICD — no DXMT surface.
+        for required in [
+            "lib/vkd3d-proton/x86_64-windows/d3d12.dll",
+            "lib/vkd3d-proton/x86_64-windows/d3d12core.dll",
+            "lib/dxvk/x86_64-windows/dxgi.dll",
+            "lib/moltenvk-vkmt/libMoltenVK.dylib",
+            "lib/moltenvk-vkmt/MoltenVK_icd.json",
+        ] {
+            assert!(m12_assets.iter().any(|asset| asset.name == required), "M12 missing asset {required}");
+        }
         assert!(!m12_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
 
         let _ = std::fs::remove_dir_all(ms_root);
@@ -1060,9 +1076,9 @@ mod tests {
             assets.iter().any(|asset| asset.name == "lib/dxmt/i386-unix/winemetal.so"),
             "DXMT(32) missing i386-unix/winemetal.so runtime asset"
         );
-        // and must not pull the x86_64-only DXMT/M12 sidecars
+        // and must not pull the x86_64-only DXMT or M12 stack assets
         assert!(!assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
-        assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/")));
+        assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/vkd3d-proton/")));
         let _ = std::fs::remove_dir_all(ms_root);
     }
 

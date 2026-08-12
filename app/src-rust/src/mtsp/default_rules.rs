@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(dll_arch_for_source_subpath("lib/dxmt/i386-windows"), "32-bit");
         assert_eq!(dll_arch_for_source_subpath("lib/dxmt/x86_64-windows"), "64-bit");
         assert_eq!(dll_arch_for_source_subpath("lib/wine/i386-windows"), "32-bit");
-        assert_eq!(dll_arch_for_source_subpath("lib/dxmt_m12/x86_64-windows"), "64-bit");
+        assert_eq!(dll_arch_for_source_subpath("lib/vkd3d-proton/x86_64-windows"), "64-bit");
         assert_eq!(dll_arch_for_source_subpath("lib/other"), "mixed");
     }
 }

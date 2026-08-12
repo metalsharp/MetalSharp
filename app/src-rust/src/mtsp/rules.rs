@@ -697,10 +697,9 @@ mod tests {
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
 
-        // M12 runs vkd3d-proton by default: the deployed check set is the
-        // vkd3d forwarder + implementation + the full DXVK set (dxgi + d3d11,
-        // so D3D11 games switched to M12 get a working render path). No DXMT.
-        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"];
+        // M12 runs the vkd3d-proton stack: the deployed check set is the
+        // vkd3d forwarder + implementation + DXVK dxgi (no d3d11 handoff).
+        let m12_required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
         let dxmt_required = ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"];
         let required_by_pipeline =
             [(PipelineId::M12, m12_required.as_slice()), (PipelineId::Dxmt, dxmt_required.as_slice())];
@@ -720,7 +719,7 @@ mod tests {
                     );
                 }
                 if pipeline == PipelineId::M12 {
-                    for stale in ["dxgi_dxmt.dll", "winemetal.dll"] {
+                    for stale in ["dxgi_dxmt.dll", "winemetal.dll", "d3d11.dll"] {
                         assert!(
                             !recipe.check_dlls.iter().any(|value| value == stale),
                             "appid {} M12 diagnostics must not require DXMT-only {} (got {:?})",
@@ -784,7 +783,7 @@ mod tests {
             assert!(!recipe.exe_names.is_empty(), "appid {appid} needs a normal executable rule");
             assert!(!recipe.eac_exe_names.is_empty(), "appid {appid} needs an EAC executable rule");
             let required_dlls: &[&str] = if pipeline == "m12" {
-                &["d3d12.dll", "dxgi.dll", "d3d11.dll"]
+                &["d3d12.dll", "d3d12core.dll", "dxgi.dll"]
             } else {
                 &["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"]
             };

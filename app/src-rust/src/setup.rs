@@ -25,10 +25,9 @@ pub fn state() -> Value {
     let config_path = crate::platform::metalsharp_home_dir_for(&home).join("setup.json");
     let dxmt_runtime = crate::installer::dxmt_runtime_status();
     let dxmt_current = dxmt_runtime.get("current").and_then(|v| v.as_bool()).unwrap_or(false);
-    let dxmt_m12_current = dxmt_runtime.get("m12Current").and_then(|v| v.as_bool()).unwrap_or(false);
     let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let metalsharp_runtime_lib_ready = crate::installer::metalsharp_runtime_lib_ready(&wine_dir);
-    let runtime_current = dxmt_current && dxmt_m12_current && metalsharp_runtime_lib_ready;
+    let runtime_current = dxmt_current && metalsharp_runtime_lib_ready;
 
     if config_path.exists() {
         if let Ok(contents) = std::fs::read_to_string(&config_path) {
@@ -137,15 +136,8 @@ pub fn dependencies() -> Value {
         .or_else(|| dxmt_status.get("current"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let dxmt_m12_runtime = dxmt_status
-        .get("dxmt_m12")
-        .and_then(|lane| lane.get("current"))
-        .or_else(|| dxmt_status.get("m12Current"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
 
-    let all_ok =
-        homebrew && rosetta && xcode_cli && metalsharp_wine && host_runtime && dxmt_runtime && dxmt_m12_runtime;
+    let all_ok = homebrew && rosetta && xcode_cli && metalsharp_wine && host_runtime && dxmt_runtime;
 
     json!({
         "ok": true,
@@ -202,19 +194,17 @@ pub fn dependencies() -> Value {
                 "status": dxmt_status.get("dxmt").cloned().unwrap_or_else(|| dxmt_status.clone()),
             },
             {
-                "id": "dxmt_m12_runtime",
-                "name": "DXMT M12 Runtime",
-                "desc": "Isolated D3D12-to-Metal runtime staged under runtime/wine/lib/dxmt_m12 with its own DLLs and winemetal.so sidecars.",
-                "installed": dxmt_m12_runtime,
+                "id": "m12_vkd3d_runtime",
+                "name": "M12 vkd3d-proton Runtime",
+                "desc": "D3D12-to-Metal stack (vkd3d-proton + DXVK + VKMT MoltenVK) staged under runtime/wine/lib.",
+                "installed": crate::installer::vkd3d_proton_runtime_current_for_home(&home)
+                    && crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home)
+                    && crate::installer::dxvk_runtime_ready_for_home(&home),
                 "required": true,
-                "installCmd": "metalsharp-setup-dxmt-m12",
-                "status": dxmt_status.get("dxmt_m12").cloned().unwrap_or_else(|| dxmt_status.clone()),
-                "path": dxmt_status
-                    .get("dxmt_m12")
-                    .and_then(|lane| lane.get("path"))
-                    .cloned()
-                    .or_else(|| dxmt_status.get("m12Path").cloned())
-                    .unwrap_or(json!(null)),
+                "installCmd": "metalsharp-setup-vkd3d-proton",
+                "status": json!({
+                    "current": crate::installer::vkd3d_proton_runtime_current_for_home(&home),
+                }),
             },
             {
                 "id": "mono",

@@ -59,55 +59,14 @@ impl PipelineNode {
 static PIPELINES: OnceLock<Vec<PipelineNode>> = OnceLock::new();
 const DXMT_70_PERCENT_UPSCALE_CONFIG: &str = "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60";
 
-/// Cache of the effective M12 node (vkd3d-proton by default, DXMT when
-/// `m12Backend=dxmt`). Built once at first access from the config so the
-/// backend is stable for the process lifetime.
-static M12_EFFECTIVE_NODE: OnceLock<PipelineNode> = OnceLock::new();
-
 /// The M12 pipeline node for the vkd3d-proton graphics stack:
 /// D3D12 -> vkd3d-proton -> Vulkan -> MoltenVK -> Metal.
 ///
 /// Deploys vkd3d-proton's `d3d12.dll` + `d3d12core.dll` plus DXVK's
 /// `dxgi.dll` (vkd3d-proton ships no dxgi of its own) into the game dir,
 /// routes D3D12/DXGI through the vkd3d-proton lane, and points the Vulkan
-/// loader at the VKMT MoltenVK ICD.
-fn m12_vkd3d_proton_node() -> PipelineNode {
-    PipelineNode {
-        id: PipelineId::M12,
-        name: "M12",
-        description: "D3D12 -> Metal via vkd3d-proton (Vulkan) + MoltenVK",
-        backend: "vkd3d-proton",
-        graphics_backend: "vkd3d-proton",
-        experimental: false,
-        requires_wine: true,
-        wine_overrides: Some("d3d12,d3d12core,dxgi,d3d11=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"),
-        dyld_paths: vec!["lib/moltenvk-vkmt", "lib/wine/x86_64-unix"],
-        winedllpath_dirs: vec![],
-        deploy_dlls: vec![
-            DllDeploy { source_subpath: "lib/vkd3d-proton/x86_64-windows", filename: "d3d12.dll", dest_filename: None },
-            DllDeploy {
-                source_subpath: "lib/vkd3d-proton/x86_64-windows",
-                filename: "d3d12core.dll",
-                dest_filename: None,
-            },
-            DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
-            // DXVK d3d11 rides along so D3D11 games switched to the
-            // M12 route get a working render path (vkd3d-proton serves
-            // D3D12 only; a D3D11 game without native D3D11 falls to
-            // wine builtin d3d11 -> "Not a DXMT adapter").
-            DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d11.dll", dest_filename: None },
-        ],
-        env_vars: vec![
-            EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
-            EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
-            EnvVar { key: "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS", value: "1" },
-        ],
-        launch_args: vec!["-windowed", "-ResX=1280", "-ResY=720", "-ForceRes"],
-        alternatives: vec![PipelineId::Dxmt, PipelineId::M9, PipelineId::Steam, PipelineId::MacSteam],
-        shader_cache_subdir: Some("m12"),
-    }
-}
-
+/// loader at the VKMT MoltenVK ICD. M12 has no DXMT mapping: it is the
+/// vkd3d-proton stack only.
 pub fn pipelines() -> &'static Vec<PipelineNode> {
     PIPELINES.get_or_init(|| {
         vec![
@@ -176,11 +135,6 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                         dest_filename: None,
                     },
                     DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "dxgi.dll", dest_filename: None },
-                    // DXVK d3d11 rides along so D3D11 games switched to the
-                    // M12 route get a working render path (vkd3d-proton serves
-                    // D3D12 only; a D3D11 game without native D3D11 falls to
-                    // wine builtin d3d11 -> "Not a DXMT adapter").
-                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d11.dll", dest_filename: None },
                 ],
                 env_vars: vec![
                     EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
@@ -410,16 +364,10 @@ pub fn get_pipeline(id: PipelineId) -> &'static PipelineNode {
     pipelines().iter().find(|p| p.id == id).expect("pipeline not found")
 }
 
-/// The M12 node selected by the `m12Backend` config: vkd3d-proton by
-/// default, legacy DXMT when the user opted back. Cached once per process.
+/// The M12 node. M12 is the vkd3d-proton stack only (D3D12 -> vkd3d-proton
+/// -> Vulkan -> MoltenVK); there is no DXMT-backed M12 mapping.
 pub fn m12_effective_node() -> &'static PipelineNode {
-    M12_EFFECTIVE_NODE.get_or_init(|| {
-        if crate::launch::m12_backend_mode() == "dxmt" {
-            pipelines().iter().find(|p| p.id == PipelineId::M12).expect("M12 pipeline not found").clone()
-        } else {
-            m12_vkd3d_proton_node()
-        }
-    })
+    pipelines().iter().find(|p| p.id == PipelineId::M12).expect("M12 pipeline not found")
 }
 
 impl PipelineId {
@@ -554,22 +502,25 @@ mod tests {
         assert_eq!(m12.dyld_paths.first(), Some(&"lib/moltenvk-vkmt"));
         assert!(!m12.dyld_paths.contains(&"lib/vkd3d-proton/x86_64-unix"));
         assert!(!m12.dyld_paths.contains(&"lib/dxmt/x86_64-unix"));
-        assert!(!m12.dyld_paths.contains(&"lib/dxmt_m12/x86_64-unix"));
         assert!(m12.winedllpath_dirs.is_empty());
-        assert!(!m12.winedllpath_dirs.contains(&"lib/dxmt/x86_64-windows"));
-        assert!(!m12.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
 
-        // Deploys vkd3d-proton d3d12/d3d12core + DXVK dxgi; never DXMT.
+        // Deploys exactly the vkd3d-proton D3D12 pair plus DXVK dxgi; never
+        // DXMT, never a d3d11 handoff, never a MoltenVK PE stub.
         let m12_dlls: std::collections::HashSet<_> =
             m12.deploy_dlls.iter().map(|dll| (dll.source_subpath, dll.filename)).collect();
-        for required in [
-            ("lib/vkd3d-proton/x86_64-windows", "d3d12.dll"),
-            ("lib/vkd3d-proton/x86_64-windows", "d3d12core.dll"),
-            ("lib/dxvk/x86_64-windows", "dxgi.dll"),
-        ] {
-            assert!(m12_dlls.contains(&required), "M12 missing vkd3d DLL {:?}", required);
-        }
+        assert_eq!(
+            m12_dlls,
+            [
+                ("lib/vkd3d-proton/x86_64-windows", "d3d12.dll"),
+                ("lib/vkd3d-proton/x86_64-windows", "d3d12core.dll"),
+                ("lib/dxvk/x86_64-windows", "dxgi.dll"),
+            ]
+            .into_iter()
+            .collect(),
+            "M12 deploy set must be exactly vkd3d-proton d3d12/d3d12core + DXVK dxgi"
+        );
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.source_subpath.starts_with("lib/dxmt")));
+        assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "d3d11.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
         assert!(!m12.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll"));
@@ -591,15 +542,17 @@ mod tests {
     }
 
     #[test]
-    fn m12_pipelines_list_has_no_legacy_dxmt_fallback() {
-        // M12 is vkd3d-proton only (no DXMT fallback): the pipelines() list
-        // must expose exactly the vkd3d-proton node shape.
+    fn m12_pipelines_list_is_vkd3d_proton_only() {
+        // M12 is vkd3d-proton only: the pipelines() list must expose exactly
+        // the vkd3d-proton node shape with no DXMT surface.
         let node = pipelines().iter().find(|p| p.id == PipelineId::M12).expect("M12 in list");
         assert_eq!(node.backend, "vkd3d-proton");
         assert_eq!(node.graphics_backend, "vkd3d-proton");
-        assert!(!node.winedllpath_dirs.contains(&"lib/dxmt_m12/x86_64-windows"));
+        assert!(node.winedllpath_dirs.is_empty());
+        assert!(node.dyld_paths.first() == Some(&"lib/moltenvk-vkmt"));
         assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
         assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
+        assert!(!node.deploy_dlls.iter().any(|dll| dll.filename == "d3d11.dll"));
     }
 
     #[test]
@@ -615,18 +568,13 @@ mod tests {
 
         for pipeline in [dxmt, get_pipeline(PipelineId::Dxmt32), m9] {
             assert!(
-                pipeline.dyld_paths.iter().all(|path| !path.contains("dxmt_m12")),
-                "{} should not load the isolated M12 Unix surface",
+                pipeline.dyld_paths.iter().all(|path| !path.contains("moltenvk-vkmt")),
+                "{} should not load the M12 MoltenVK surface",
                 pipeline.name
             );
             assert!(
-                pipeline.winedllpath_dirs.iter().all(|path| !path.contains("dxmt_m12")),
-                "{} should not route PE DLLs through the isolated M12 surface",
-                pipeline.name
-            );
-            assert!(
-                pipeline.deploy_dlls.iter().all(|dll| !dll.source_subpath.contains("dxmt_m12")),
-                "{} should not deploy isolated M12 DLLs",
+                pipeline.deploy_dlls.iter().all(|dll| !dll.source_subpath.starts_with("lib/vkd3d-proton")),
+                "{} should not deploy vkd3d-proton DLLs",
                 pipeline.name
             );
         }
