@@ -1,15 +1,3 @@
-/*
- * Regression test for #441: GetModuleFileNameA must return the running
- * executable's path, never the current working directory.
- *
- * Before the fix, kernel32_shim.c used readlink("/proc/self/exe"), which
- * does not exist on macOS, and silently fell back to getcwd() — so games
- * resolved their own location to the working directory. The shim is
- * exercised here exactly as the FNA lane deploys it: as a dylib loaded at
- * runtime (libkernel32.dylib) from a process whose working directory
- * differs from the executable directory.
- */
-
 #include <dlfcn.h>
 #include <limits.h>
 #include <stdint.h>
@@ -18,64 +6,116 @@
 #include <string.h>
 #include <unistd.h>
 
-/* Must match the shim's own typedefs exactly (ABI). */
-typedef uint32_t DWORD;
+void* LoadLibraryA(const char* lpLibFileName);
+void* LoadLibraryW(const uint16_t* lpLibFileName);
+uint32_t GetModuleFileNameA(void* hModule, char* lpFilename, uint32_t nSize);
 
-typedef DWORD (*GetModuleFileNameA_fn)(void* hModule, char* lpFilename, DWORD nSize);
+static int failures = 0;
 
-static int fail(const char* message) {
-    fprintf(stderr, "FAIL: %s\n", message);
-    return 1;
+#define CHECK(condition, message)                                                                                      \
+    do {                                                                                                               \
+        if (condition) {                                                                                               \
+            printf("  [OK] %s\n", message);                                                                            \
+        } else {                                                                                                       \
+            printf("  [FAIL] %s\n", message);                                                                          \
+            failures++;                                                                                                \
+        }                                                                                                              \
+    } while (0)
+
+static size_t copy_ascii_to_utf16(const char* input, uint16_t* output, size_t capacity) {
+    size_t length = strlen(input);
+    if (length + 5 > capacity)
+        return 0;
+
+    for (size_t index = 0; index < length; index++) {
+        if ((unsigned char)input[index] > 0x7F)
+            return 0;
+        output[index] = (uint16_t)(unsigned char)input[index];
+    }
+
+    output[length++] = '-';
+    output[length++] = 0x4E2D;
+    output[length++] = 0xD83D;
+    output[length++] = 0xDE00;
+    output[length] = 0;
+    return length;
+}
+
+static void test_get_module_file_name(const char* executable) {
+    CHECK(chdir("/") == 0, "Changing directory away from the executable succeeds");
+
+    char away[PATH_MAX];
+    CHECK(getcwd(away, sizeof(away)) != NULL, "Working directory is readable after chdir");
+
+    char buffer[PATH_MAX * 2];
+    uint32_t length = GetModuleFileNameA(NULL, buffer, sizeof(buffer));
+    CHECK(length > 0 && length < sizeof(buffer), "GetModuleFileNameA returns a valid path length");
+    if (length == 0 || length >= sizeof(buffer))
+        return;
+
+    CHECK(buffer[0] == '/', "GetModuleFileNameA returns an absolute path");
+    CHECK(strcmp(buffer, away) != 0, "GetModuleFileNameA does not return the working directory");
+    CHECK(access(buffer, F_OK) == 0, "GetModuleFileNameA returns an existing path");
+
+    char expected[PATH_MAX];
+    if (realpath(executable, expected) != NULL) {
+        char actual[PATH_MAX];
+        CHECK(realpath(buffer, actual) != NULL && strcmp(actual, expected) == 0,
+              "GetModuleFileNameA returns the test executable path");
+    }
+
+    char small[8];
+    CHECK(GetModuleFileNameA(NULL, small, sizeof(small)) != 0,
+          "GetModuleFileNameA reports truncation for a small buffer");
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2)
-        return fail("usage: test_kernel32_shim <path to libkernel32.dylib>");
+    printf("=== kernel32 shim tests ===\n\n");
 
-    void* lib = dlopen(argv[1], RTLD_NOW);
-    if (!lib)
-        return fail(dlerror());
+    CHECK(LoadLibraryA("metalsharp-kernel32-shim-missing-440.dylib") == NULL,
+          "LoadLibraryA returns NULL when dlopen cannot load a library");
+    CHECK(LoadLibraryW(NULL) == NULL, "LoadLibraryW returns NULL for a NULL name");
 
-    GetModuleFileNameA_fn get_module_file_name_a = (GetModuleFileNameA_fn)dlsym(lib, "GetModuleFileNameA");
-    if (!get_module_file_name_a)
-        return fail("GetModuleFileNameA symbol not found in shim");
-
-    // Move away from the executable's directory so a cwd fallback would be
-    // detectable (the exact regression from #441).
-    if (chdir("/") != 0)
-        return fail("chdir");
-    char away[PATH_MAX];
-    if (!getcwd(away, sizeof(away)))
-        return fail("getcwd after chdir");
-
-    char buf[PATH_MAX * 2];
-    DWORD len = get_module_file_name_a(NULL, buf, sizeof(buf));
-    if (len == 0 || len >= sizeof(buf))
-        return fail("GetModuleFileNameA returned an invalid length");
-
-    if (buf[0] != '/')
-        return fail("GetModuleFileNameA returned a relative path");
-    if (strcmp(buf, away) == 0)
-        return fail("GetModuleFileNameA returned the working directory instead of the executable path");
-    if (access(buf, F_OK) != 0)
-        return fail("GetModuleFileNameA returned a path that does not exist");
-
-    // The returned path must be this test binary itself.
-    char exe[PATH_MAX];
-    if (realpath(argv[0], exe) != NULL) {
-        char resolved[PATH_MAX];
-        if (realpath(buf, resolved) == NULL || strcmp(resolved, exe) != 0) {
-            fprintf(stderr, "FAIL: expected executable path %s, got %s\n", exe, buf);
-            return 1;
-        }
+    if (argc != 2) {
+        printf("  [FAIL] test plugin path argument is required\n");
+        return 1;
     }
 
-    // A too-small buffer must not crash and must report truncation.
-    char small[8];
-    DWORD small_len = get_module_file_name_a(NULL, small, sizeof(small));
-    if (small_len == 0)
-        return fail("small-buffer GetModuleFileNameA returned 0");
+    char unicode_path[PATH_MAX];
+    int written = snprintf(unicode_path, sizeof(unicode_path), "%s-\xE4\xB8\xAD\xF0\x9F\x98\x80", argv[1]);
+    CHECK(written > 0 && (size_t)written < sizeof(unicode_path), "Unicode test path fits in PATH_MAX");
+    if (written <= 0 || (size_t)written >= sizeof(unicode_path))
+        return 1;
 
-    printf("PASS: GetModuleFileNameA -> %s\n", buf);
-    return 0;
+    unlink(unicode_path);
+    CHECK(symlink(argv[1], unicode_path) == 0, "Unicode test library symlink is created");
+    if (failures != 0) {
+        unlink(unicode_path);
+        return 1;
+    }
+
+    void* ansi_handle = LoadLibraryA(unicode_path);
+    CHECK(ansi_handle != NULL, "LoadLibraryA opens the Unicode-named test library");
+
+    uint16_t wide_path[PATH_MAX];
+    size_t wide_length = copy_ascii_to_utf16(argv[1], wide_path, sizeof(wide_path) / sizeof(wide_path[0]));
+    CHECK(wide_length != 0, "Test path is converted to UTF-16 with a surrogate pair");
+    if (wide_length == 0) {
+        unlink(unicode_path);
+        return 1;
+    }
+
+    void* wide_handle = LoadLibraryW(wide_path);
+    CHECK(wide_handle != NULL, "LoadLibraryW opens a UTF-16 Unicode path");
+    CHECK(wide_handle == ansi_handle, "LoadLibraryW returns the real dlopen handle, not a sentinel");
+
+    if (wide_handle != NULL && wide_handle == ansi_handle) {
+        int (*test_symbol)(void) = (int (*)(void))dlsym(wide_handle, "metalsharp_kernel32_shim_test_symbol");
+        CHECK(test_symbol != NULL && test_symbol() == 440, "UTF-16 path resolves the loaded library");
+    }
+
+    test_get_module_file_name(argv[0]);
+    unlink(unicode_path);
+    printf("\n=== Results: %d failure(s) ===\n", failures);
+    return failures == 0 ? 0 : 1;
 }

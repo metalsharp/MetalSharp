@@ -28,6 +28,7 @@ typedef void* LPVOID;
 typedef size_t SIZE_T;
 typedef long LONG;
 typedef const char* LPCSTR;
+typedef const uint16_t* LPCWSTR;
 typedef char* LPSTR;
 typedef const void* LPCVOID;
 typedef uint32_t UINT;
@@ -348,11 +349,88 @@ void* LoadLibraryA(LPCSTR lpLibFileName) {
         snprintf(buf, sizeof(buf), "@loader_path/%s", lpLibFileName);
         h = dlopen(buf, RTLD_LAZY);
     }
-    return h ? h : (void*)(intptr_t)1;
+    return h;
 }
 
-void* LoadLibraryW(const void* lpLibFileName) {
-    return LoadLibraryA((LPCSTR)lpLibFileName);
+// Windows passes LoadLibraryW names as null-terminated UTF-16. macOS dlopen
+// expects UTF-8, so decode code points instead of passing the wide bytes as a
+// narrow string (which would stop at the first embedded NUL).
+static uint32_t next_utf16_codepoint(const uint16_t* input, size_t* index) {
+    uint32_t codepoint = input[*index];
+    (*index)++;
+
+    if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
+        uint32_t low = input[*index];
+        if (low >= 0xDC00 && low <= 0xDFFF) {
+            (*index)++;
+            return 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+        }
+        return 0xFFFD;
+    }
+
+    if (codepoint >= 0xDC00 && codepoint <= 0xDFFF)
+        return 0xFFFD;
+    return codepoint;
+}
+
+static size_t utf8_codepoint_length(uint32_t codepoint) {
+    if (codepoint <= 0x7F)
+        return 1;
+    if (codepoint <= 0x7FF)
+        return 2;
+    if (codepoint <= 0xFFFF)
+        return 3;
+    return 4;
+}
+
+static char* utf16_to_utf8(const uint16_t* input) {
+    if (!input)
+        return NULL;
+
+    size_t output_length = 1;
+    for (size_t index = 0; input[index] != 0;) {
+        size_t length = utf8_codepoint_length(next_utf16_codepoint(input, &index));
+        if (output_length > SIZE_MAX - length)
+            return NULL;
+        output_length += length;
+    }
+
+    char* output = (char*)malloc(output_length);
+    if (!output)
+        return NULL;
+
+    size_t index = 0;
+    size_t output_index = 0;
+    while (input[index] != 0) {
+        uint32_t codepoint = next_utf16_codepoint(input, &index);
+        if (codepoint <= 0x7F) {
+            output[output_index++] = (char)codepoint;
+        } else if (codepoint <= 0x7FF) {
+            output[output_index++] = (char)(0xC0 | (codepoint >> 6));
+            output[output_index++] = (char)(0x80 | (codepoint & 0x3F));
+        } else if (codepoint <= 0xFFFF) {
+            output[output_index++] = (char)(0xE0 | (codepoint >> 12));
+            output[output_index++] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+            output[output_index++] = (char)(0x80 | (codepoint & 0x3F));
+        } else {
+            output[output_index++] = (char)(0xF0 | (codepoint >> 18));
+            output[output_index++] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+            output[output_index++] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+            output[output_index++] = (char)(0x80 | (codepoint & 0x3F));
+        }
+    }
+    output[output_index] = '\0';
+    return output;
+}
+
+void* LoadLibraryW(LPCWSTR lpLibFileName) {
+    char* utf8_name = utf16_to_utf8(lpLibFileName);
+    if (!utf8_name)
+        return NULL;
+
+    void* handle = LoadLibraryA(utf8_name);
+    free(utf8_name);
+    return handle;
 }
 
 BOOL FreeLibrary(void* hLibModule) {
