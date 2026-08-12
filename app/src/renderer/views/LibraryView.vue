@@ -387,7 +387,7 @@ watch([library, search, filter], () => {
           <button
             class="btn btn-secondary library-control-button refresh-button"
             title="Refresh"
-            @click="reloadLibrary()"
+            @click="reloadLibrary(true)"
           >
             <component :is="refreshIcon" class="control-icon" width="15" height="15" />
             <span class="control-label">Refresh</span>
