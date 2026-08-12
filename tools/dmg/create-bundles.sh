@@ -99,6 +99,39 @@ repair_assets_fnalibs_bundle() {
   echo "repaired assets payload: $assets_archive (fnalibs refreshed, eac-toggle removed)"
 }
 
+# The scripts-tools bundle must carry the EAC substrate pair at
+# scripts/tools/native/ (verify-bundles.sh requires both). The published
+# archive predates the EAC feature, and these artifacts are BUILD OUTPUTS —
+# they belong to the native tree, not to a hand-maintained release asset.
+# Inject the freshly-built files from app/native/ (staged by
+# tools/package/prepare-native.sh during build:native) so anything verify
+# requires is provably built by this workflow.
+repair_scripts_tools_eac_bundle() {
+  local archive="$BUNDLE_DIR/metalsharp-scripts-tools.tar.zst"
+  local substrate="$PROJECT_ROOT/app/native/metalsharp_eac_substrate.dylib"
+  local libc="$PROJECT_ROOT/app/native/metalsharp_eac_libc.so.6"
+  if [ ! -s "$archive" ] || [ ! -s "$substrate" ] || [ ! -s "$libc" ]; then
+    return 0
+  fi
+
+  local tmp root
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-scripts-tools-eac.XXXXXX")"
+  root="$tmp/root"
+  mkdir -p "$root"
+  tar --use-compress-program=unzstd -xf "$archive" -C "$root"
+  mkdir -p "$root/scripts/tools/native"
+  cp -p "$substrate" "$root/scripts/tools/native/metalsharp_eac_substrate.dylib"
+  cp -p "$libc" "$root/scripts/tools/native/metalsharp_eac_libc.so.6"
+  (
+    cd "$root"
+    tar -cf "$tmp/metalsharp-scripts-tools.tar" scripts
+  )
+  zstd -q -19 -T0 -f "$tmp/metalsharp-scripts-tools.tar" -o "$archive"
+  chmod 0644 "$archive"
+  rm -rf "$tmp"
+  echo "repaired scripts-tools payload: $archive (EAC substrate injected from app/native)"
+}
+
 while IFS=$'\t' read -r asset _root _platforms _notes; do
   case "$asset" in
     ""|\#*) continue ;;
@@ -117,6 +150,7 @@ if [ "$REPAIR_BUNDLES" = "1" ]; then
     echo "M12 dll repair disabled (METALSHARP_REPAIR_M12!=1); preserving canonical dxmt-m12 lane"
   fi
   repair_assets_fnalibs_bundle
+  repair_scripts_tools_eac_bundle
 
   "$PROJECT_ROOT/tools/dmg/repair-runtime-bundle.py" \
     --archive "$BUNDLE_DIR/metalsharp-runtime.tar.zst" \
