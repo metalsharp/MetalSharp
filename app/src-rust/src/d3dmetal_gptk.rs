@@ -42,8 +42,10 @@ const GPTK_EXTERNAL_PAYLOAD_FILES: &[&str] = &["libd3dshared.dylib", "D3DMetal.f
 const GPTK4_DMG_BASENAME: &str = "Game_Porting_Toolkit_4.0_beta_2.dmg";
 const GPTK4_INNER_DMG_NAME: &str = "Evaluation environment for Windows games 4.0 beta 2.dmg";
 const GPTK4_MSC_PKG_NAME: &str = "Metal Shader Converter 4.0 beta 2.pkg";
-/// Guard against acting on a partial download (the DMG is ~104 MB on disk).
-const GPTK4_MIN_DMG_SIZE: u64 = 100 * 1024 * 1024;
+/// Guard against acting on a partial download. The real DMG is
+/// 104,459,838 bytes (~99.6 MiB); 90 MiB is safely below it while still
+/// rejecting empty/partial downloads.
+const GPTK4_MIN_DMG_SIZE: u64 = 90 * 1024 * 1024;
 /// The GPTK 4 redist route DLL set must stay identical to the seeded set.
 const GPTK4_ROUTE_DLLS: &[&str] = GPTK_ROUTE_DLLS;
 /// Unix sidecar twins of the route DLLs (same stems, .so).
@@ -1965,7 +1967,7 @@ mod tests {
             let stem = dll.trim_end_matches(".dll");
             assert_eq!(so, &format!("{stem}.so"));
         }
-        assert_eq!(GPTK4_MIN_DMG_SIZE, 100 * 1024 * 1024);
+        assert_eq!(GPTK4_MIN_DMG_SIZE, 90 * 1024 * 1024);
     }
 
     #[test]
