@@ -504,26 +504,6 @@ export class RustBridge {
     });
   }
 
-  private async getListeningBackendPid(): Promise<number | null> {
-    return new Promise((resolve) => {
-      execFile("lsof", ["-nP", `-tiTCP:${this.port}`, "-sTCP:LISTEN"], { timeout: 1500 }, (error, stdout) => {
-        if (error) {
-          resolve(null);
-          return;
-        }
-        const pid = Number.parseInt(stdout.trim().split(/\s+/)[0] ?? "", 10);
-        if (!Number.isInteger(pid) || pid <= 0) {
-          resolve(null);
-          return;
-        }
-        void this.getProcessPath(pid).then((processPath) => {
-          const processName = processPath ? path.basename(processPath) : "";
-          resolve(processName === "metalsharp-backend" ? pid : null);
-        });
-      });
-    });
-  }
-
   private findBinary(): string | null {
     const devCandidates = [
       path.join(__dirname, "..", "..", "src-rust", "target", "debug", "metalsharp-backend"),
