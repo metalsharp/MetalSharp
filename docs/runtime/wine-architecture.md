@@ -164,11 +164,16 @@ Rules:
 3. **No foreign identity**: never export `CX_ROOT` (CrossOver's identity
    variable) or mimic another launcher's env vars.
 4. **Process ownership**: kill/cleanup logic (`stop_wine_steam`,
-   `is_force_kill_target`, `update.sh`, process-manager helper) targets only
-   processes whose command line references the MetalSharp home
-   (`~/.metalsharp/`), an MS prefix/bottle path, or `metalsharp-wine`. A bare
-   `wineserver`/`wineloader`/`wine64` name match is never sufficient — foreign
-   launchers run processes with those exact names.
+   `is_force_kill_target`, `update.sh`, process-manager helper) must prove
+   ownership from the process executable (`argv[0]`), not from arbitrary
+   command-line arguments. A target must use an allowlisted executable in
+   `~/.metalsharp/runtime/wine/bin/`, an explicitly allowlisted MetalSharp
+   runtime helper, or an executable under an MS-owned prefix, bottle, or game
+   root.
+   A MetalSharp path or `.exe` token appearing only in arguments is untrusted
+   and never establishes ownership. A bare `wineserver`/`wineloader`/`wine64`
+   name match is never sufficient — foreign launchers run processes with those
+   exact names.
 5. **Vulkan ICD**: `VK_ICD_FILENAMES` must resolve inside the runtime
    (`$MS_ROOT/etc/vulkan/icd.d/MoltenVK_icd.json`) or be unset — never a
    hardcoded Homebrew path, which is absent on CrossOver-only machines.
