@@ -1564,34 +1564,89 @@ pub fn install_steam() -> Result<String, Box<dyn std::error::Error>> {
     Ok("Steam installation started — polling /steam/status for completion".into())
 }
 
-fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
-    let home = dirs::home_dir().ok_or("no home dir")?;
-    let metalsharp_dir = crate::platform::metalsharp_home_dir_for(&home);
-    std::fs::create_dir_all(&metalsharp_dir)?;
-
-    let steam_dir = steam_prefix().join("drive_c").join("Program Files (x86)").join("Steam");
-
-    let installer = metalsharp_dir.join("SteamSetup.exe");
-    let _ = std::fs::remove_file(&installer);
-    stage_verified_steam_setup(&installer).map_err(|error| format!("Failed to stage Steam installer: {}", error))?;
-
-    // Do not destroy an existing prefix until the installer has been obtained
-    // and verified against the pinned Steam bundle artifact.
-    let _ = std::fs::remove_dir_all(steam_prefix());
-
-    let wine = ms_wine();
-    if !wine.exists() {
-        return Err("MetalSharp Wine not found".into());
+/// SteamSetup.exe sanity check: it must be a PE executable ("MZ" magic) of at
+/// least 1 MiB. The upstream installer is ~1.7 MiB and grows over time, so a
+/// pinned hash would break; this rejects truncated downloads and HTTP error
+/// pages before any prefix work begins.
+fn steam_installer_looks_valid(path: &Path) -> bool {
+    const MIN_INSTALLER_BYTES: u64 = 1024 * 1024;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if meta.len() < MIN_INSTALLER_BYTES {
+        return false;
     }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 2];
+    use std::io::Read;
+    if file.read_exact(&mut magic).is_err() {
+        return false;
+    }
+    magic == *b"MZ"
+}
 
-    let prefix = steam_prefix();
-    std::fs::create_dir_all(&prefix)?;
+/// Unique staging directory for a fresh Steam prefix, created next to the live
+/// prefix so the final swap is a same-filesystem atomic rename.
+fn staging_steam_prefix_dir(ms_home: &Path) -> PathBuf {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    ms_home.join(format!("prefix-steam.staging-{}-{}", std::process::id(), nanos))
+}
+
+fn discard_staged_steam_prefix(staging: &Path) {
+    for _ in 0..20 {
+        match std::fs::remove_dir_all(staging) {
+            Ok(()) => return,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+    let _ = std::fs::remove_dir_all(staging);
+}
+
+/// Atomically replaces the live prefix with the staged one. The previous
+/// prefix is first moved aside and only deleted after the staged prefix is
+/// live; if the swap fails, the previous prefix is restored.
+fn commit_staged_steam_prefix(staging: &Path, prefix: &Path) -> std::io::Result<()> {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let backup = prefix.parent().unwrap_or(Path::new(".")).join(format!("prefix-steam.old-{}", nanos));
+
+    let had_prefix = prefix.exists();
+    if had_prefix {
+        std::fs::rename(prefix, &backup)?;
+    }
+    match std::fs::rename(staging, prefix) {
+        Ok(()) => {
+            // The new prefix is live; only now is the previous one discarded.
+            if had_prefix {
+                let _ = std::fs::remove_dir_all(&backup);
+            }
+            Ok(())
+        },
+        Err(e) => {
+            if had_prefix {
+                let _ = std::fs::rename(&backup, prefix);
+            }
+            Err(e)
+        },
+    }
+}
+
+/// Runs wineboot and the Steam installer inside `prefix` (normally a staging
+/// directory, so a failed install cannot destroy the live prefix), waits for
+/// the client files and CEF payload, and deploys the steamwebhelper wrapper.
+fn install_steam_into_prefix(
+    prefix: &Path,
+    installer: &Path,
+    wine: &Path,
+    ms_root: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(prefix)?;
 
     let prefix_str = prefix.to_string_lossy().to_string();
 
-    let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
-
-    let mut wineboot_cmd = Command::new(&wine);
+    let mut wineboot_cmd = Command::new(wine);
     wineboot_cmd
         .env("WINEPREFIX", &prefix_str)
         .env("WINEDEBUG", "-all")
@@ -1601,7 +1656,7 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
         .arg("--init")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    crate::platform::set_runtime_library_env(&mut wineboot_cmd, &ms_root);
+    crate::platform::set_runtime_library_env(&mut wineboot_cmd, ms_root);
     let wineboot_result = wineboot_cmd.status();
 
     if wineboot_result.is_err() {
@@ -1622,27 +1677,28 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
     }
 
     let seed_log = prefix.join("drive_c").join("metalsharp-post-wineboot.log");
-    let _ = crate::bottles::seed_post_wineboot_config(&prefix, &seed_log);
+    let _ = crate::bottles::seed_post_wineboot_config(prefix, &seed_log);
 
     // Re-stage and re-verify immediately before Wine opens the installer so
     // a replacement of the user-writable cache file cannot reach msiexec.
-    stage_verified_steam_setup(&installer)
+    stage_verified_steam_setup(installer)
         .map_err(|error| format!("Steam installer changed before launch: {}", error))?;
 
-    let mut install_cmd = Command::new(&wine);
+    let mut install_cmd = Command::new(wine);
     install_cmd
         .env("WINEPREFIX", &prefix_str)
         .env("WINEDEBUG", "-all")
         .env("WINEDEBUGGER", "/usr/bin/true")
         .env("WINEDLLOVERRIDES", "winedbg=d")
-        .arg(&installer)
+        .arg(installer)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    crate::platform::set_runtime_library_env(&mut install_cmd, &ms_root);
+    crate::platform::set_runtime_library_env(&mut install_cmd, ms_root);
 
     let mut install_child = install_cmd.spawn()?;
     let install_pid = install_child.id();
 
+    let steam_dir = prefix.join("drive_c").join("Program Files (x86)").join("Steam");
     let steam_exe = steam_dir.join("Steam.exe");
     let steam_ui_dll = steam_dir.join("steamui.dll");
     let mut install_crashed = false;
@@ -1697,7 +1753,57 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
         std::thread::sleep(std::time::Duration::from_secs(2));
     }
 
-    Ok("Steam install thread complete".into())
+    Ok(())
+}
+
+fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    let metalsharp_dir = crate::platform::metalsharp_home_dir_for(&home);
+    std::fs::create_dir_all(&metalsharp_dir)?;
+
+    // Discard staging dirs left behind by a previously killed install; they are
+    // incomplete prefixes and are never the live prefix.
+    if let Ok(entries) = std::fs::read_dir(&metalsharp_dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() && entry.file_name().to_string_lossy().starts_with("prefix-steam.staging-") {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+
+    // 1. Stage and validate the installer BEFORE touching the existing prefix.
+    //    A failed download must not destroy login state or game data (#406).
+    let installer = metalsharp_dir.join("SteamSetup.exe");
+    let _ = std::fs::remove_file(&installer);
+    stage_verified_steam_setup(&installer).map_err(|error| format!("Failed to stage Steam installer: {}", error))?;
+    if !steam_installer_looks_valid(&installer) {
+        return Err("Staged Steam installer failed PE sanity validation".into());
+    }
+
+    let wine = ms_wine();
+    if !wine.exists() {
+        return Err("MetalSharp Wine not found".into());
+    }
+    let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
+
+    // 2. Install into a fresh staging prefix. The live prefix is only replaced
+    //    (atomically) once the install has fully succeeded; on any failure the
+    //    staging dir is discarded and the existing prefix stays untouched.
+    let prefix = steam_prefix();
+    let staging = staging_steam_prefix_dir(&metalsharp_dir);
+    match install_steam_into_prefix(&staging, &installer, &wine, &ms_root) {
+        Ok(()) => {
+            if let Err(error) = commit_staged_steam_prefix(&staging, &prefix) {
+                discard_staged_steam_prefix(&staging);
+                return Err(error.into());
+            }
+            Ok("Steam install thread complete".into())
+        },
+        Err(e) => {
+            discard_staged_steam_prefix(&staging);
+            Err(e)
+        },
+    }
 }
 
 pub fn watch_steamapps() -> Vec<u32> {
@@ -1916,5 +2022,153 @@ mod tests {
         std::fs::write(&path, b"crafted installer").unwrap();
         assert!(!steam_setup_valid(&path));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn steam_installer_validity_check_rejects_garbage() {
+        let home = std::env::temp_dir().join(format!(
+            "metalsharp-steam-installer-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+
+        // Missing file.
+        assert!(!steam_installer_looks_valid(&home.join("missing.exe")));
+
+        // Empty file.
+        let empty = home.join("empty.exe");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(!steam_installer_looks_valid(&empty));
+
+        // MZ magic but far too small (truncated download).
+        let tiny = home.join("tiny.exe");
+        std::fs::write(&tiny, b"MZ\0\0\0\0").unwrap();
+        assert!(!steam_installer_looks_valid(&tiny));
+
+        // Large file without the MZ magic (HTTP error page saved by curl).
+        let not_pe = home.join("notpe.exe");
+        std::fs::write(&not_pe, vec![b'X'; 2 * 1024 * 1024]).unwrap();
+        assert!(!steam_installer_looks_valid(&not_pe));
+
+        // A realistic installer: MZ magic, >= 1 MiB.
+        let valid = home.join("valid.exe");
+        let mut body = vec![b'M', b'Z'];
+        body.resize(1024 * 1024 + 1, 0u8);
+        std::fs::write(&valid, &body).unwrap();
+        assert!(steam_installer_looks_valid(&valid));
+
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn commit_staged_steam_prefix_swaps_and_discards_old_prefix_only_after_success() {
+        let home = std::env::temp_dir().join(format!(
+            "metalsharp-steam-swap-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ms = crate::platform::metalsharp_home_dir_for(&home);
+        std::fs::create_dir_all(&ms).unwrap();
+
+        let prefix = ms.join("prefix-steam");
+        std::fs::create_dir_all(&prefix).unwrap();
+        std::fs::write(prefix.join("loginusers.vdf"), "old-login-state").unwrap();
+
+        let staging = staging_steam_prefix_dir(&ms);
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("Steam.exe"), "new-client").unwrap();
+
+        commit_staged_steam_prefix(&staging, &prefix).unwrap();
+
+        // The staged prefix is live and the previous one is gone.
+        assert_eq!(std::fs::read_to_string(prefix.join("Steam.exe")).unwrap(), "new-client");
+        assert!(!prefix.join("loginusers.vdf").exists(), "old prefix content must be replaced");
+        assert!(!staging.exists(), "staging dir must be consumed by the swap");
+
+        // No backup directories may be left behind.
+        let leftovers: Vec<String> = std::fs::read_dir(&ms)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("prefix-steam.old-"))
+            .collect();
+        assert!(leftovers.is_empty(), "leftover backup dirs: {:?}", leftovers);
+
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn commit_staged_steam_prefix_without_existing_prefix() {
+        let home = std::env::temp_dir().join(format!(
+            "metalsharp-steam-swap-none-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ms = crate::platform::metalsharp_home_dir_for(&home);
+        std::fs::create_dir_all(&ms).unwrap();
+
+        let prefix = ms.join("prefix-steam");
+        let staging = staging_steam_prefix_dir(&ms);
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("Steam.exe"), "new-client").unwrap();
+
+        commit_staged_steam_prefix(&staging, &prefix).unwrap();
+        assert!(prefix.join("Steam.exe").exists());
+        assert!(!staging.exists());
+
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn failed_steam_reinstall_preserves_existing_prefix() {
+        // Regression for #406: run_install_steam removed the live prefix-steam
+        // (login state, installed games' local data) before the download even
+        // succeeded. A failed staged install must leave the existing prefix
+        // untouched and discard only the staging directory.
+        let home = std::env::temp_dir().join(format!(
+            "metalsharp-steam-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ms = crate::platform::metalsharp_home_dir_for(&home);
+        std::fs::create_dir_all(&ms).unwrap();
+
+        let prefix = ms.join("prefix-steam");
+        let loginusers = prefix.join("drive_c/Program Files (x86)/Steam/config/loginusers.vdf");
+        std::fs::create_dir_all(loginusers.parent().unwrap()).unwrap();
+        std::fs::write(&loginusers, "precious-login-state").unwrap();
+
+        // Fake Wine: wineboot "succeeds" (creates system32 so the boot poll
+        // passes), then the installer crashes immediately.
+        let fake_wine = home.join("fake-wine");
+        std::fs::write(
+            &fake_wine,
+            "#!/bin/sh\nif [ \"$1\" = \"wineboot\" ]; then\n  mkdir -p \"$WINEPREFIX/drive_c/windows/system32\"\n  exit 0\nfi\nexit 1\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake_wine, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let installer = ms.join("SteamSetup.exe");
+        std::fs::write(&installer, "dummy-installer").unwrap();
+
+        let staging = staging_steam_prefix_dir(&ms);
+        let result = install_steam_into_prefix(&staging, &installer, &fake_wine, &ms);
+        assert!(result.is_err(), "staged install must fail with a crashing installer");
+
+        // run_install_steam's failure path: discard the staging directory.
+        discard_staged_steam_prefix(&staging);
+
+        assert!(
+            loginusers.exists() && std::fs::read_to_string(&loginusers).unwrap() == "precious-login-state",
+            "live prefix must survive a failed reinstall"
+        );
+        assert!(!staging.exists(), "staging dir must be cleaned up after a failed install");
+
+        let _ = std::fs::remove_dir_all(home);
     }
 }
