@@ -1,5 +1,5 @@
 # MetalSharp Docs
-**Updated:** 2026-07-08
+**Updated:** 2026-08-11
 
 
 Use this page as the repo map before changing launch/runtime code.
@@ -33,6 +33,7 @@ Use this page as the repo map before changing launch/runtime code.
 ## Architecture
 
 - [Launch Architecture](architecture/launch-architecture.md) - pipeline selection and launch ownership.
+- [Backend HTTP Request Contract](architecture/backend-http-contract.md) - bounded JSON request bodies and client error responses.
 - [D3D12 Pipeline Map](architecture/m12-pipeline-map.md) - current M12 D3D12 path (vkd3d-proton default, DXMT rollback).
 - [D3D10 Pipeline Map](architecture/m10-pipeline-map.md) - current M10 D3D10/DXMT path.
 - [D3D9 Pipeline Map](architecture/m9-pipeline-map.md) - current M9 D3D9 route.
