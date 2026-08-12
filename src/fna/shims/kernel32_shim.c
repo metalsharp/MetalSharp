@@ -253,6 +253,8 @@ int MultiByteToWideChar(UINT CodePage, DWORD dwFlags, LPCSTR lpMultiByteStr, int
     uint16_t* out = (uint16_t*)lpWideCharStr;
     for (int i = 0; i < len && i < cchWideChar; i++)
         out[i] = (uint16_t)(unsigned char)lpMultiByteStr[i];
+    if (len >= 0 && len < cchWideChar)
+        out[len] = 0;
     return len < cchWideChar ? len : 0;
 }
 
