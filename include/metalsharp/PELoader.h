@@ -16,6 +16,9 @@
 ///   7. applySectionProtections() — Set mprotect based on section characteristics
 ///   8. processTLS()           — Run TLS callbacks for DLL_PROCESS_ATTACH
 ///
+/// File-backed loads reject empty or 512 MiB-and-larger inputs. Header and
+/// section-table extents must remain within the raw file before mapping.
+///
 /// Import resolution priority: registered shim → loaded PE DLL → load from search path.
 /// Export forwarding is handled recursively.
 /// Shims are registered via registerShim() and take priority over native loading.
