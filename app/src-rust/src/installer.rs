@@ -86,6 +86,41 @@ pub(crate) fn write_moltenvk_vkmt_expected_test_files(moltenvk_dir: &Path) {
     }
 }
 
+/// Pinned hashes for the DXVK-macOS lane (Gcenx/DXVK-macOS, dealiased-samplers
+/// PR #20 head, built locally with mingw-w64 14). These are the exact PE
+/// binaries staged into `lib/dxvk/{x86_64,i386}-windows/` and deployed by the
+/// VKD3D route (d3d11/d3d10core/d3d9/dxgi).
+#[cfg(not(test))]
+const DXVK_EXPECTED_HASHES: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d9.dll", "67f8b1f139c7b4838de535876668c44716cec5dda56a1aa88bab5b820acd72fc"),
+    ("x86_64-windows/d3d10core.dll", "d8616fc3c1e13b32562325202655d4ecba972b4043bdf8f0b7350d627b842c26"),
+    ("x86_64-windows/d3d11.dll", "e7cf78bdc3722b40f19919ada77cfb535bdb3708934eb6d4c13111f5454b8c74"),
+    ("x86_64-windows/dxgi.dll", "1568105bcbbb0a98e6f12f386725e8186483c985a3c95cfe1484cfef125ae63c"),
+    ("i386-windows/d3d9.dll", "3bbe4b5aa1445380223ab5ce98f9ea5ad91ab3599e3354b4e91943a017474dbd"),
+    ("i386-windows/d3d10core.dll", "a7010f0a1b4eaa54b892c79fbdc01c83b6030770acd6045962fff05c142dfbeb"),
+    ("i386-windows/d3d11.dll", "04a6393bff8da791eccc81f6e54012e148ec9f960d465405bf5e0c76f024f063"),
+    ("i386-windows/dxgi.dll", "ce7d7235562b534474098e77e4d26742b91807e766693a44dfdd5e50385199df"),
+];
+#[cfg(test)]
+const DXVK_EXPECTED_HASHES: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d9.dll", "7f64077a36bc484f965d4953c2d7a36fc4eccec75cc69544863726b33bd1ddbb"),
+    ("x86_64-windows/d3d10core.dll", "cb033a8d105912aa452bcf52243559c28f21b2d0ab14d77e09de4bd815fea71d"),
+    ("x86_64-windows/d3d11.dll", "9d618ea53346a6003686701a1b2311386d7a4c346a54ed7dba3b29ddc1807d08"),
+    ("x86_64-windows/dxgi.dll", "d380f0fab0f0fbb54b82de0f568a020c1f9da54dde9bb37755f86abdf9f491f9"),
+    ("i386-windows/d3d9.dll", "252253440b3448f6a0d171d5b38fd53ca70c6baade553c3f311f59a7e9a2a3a6"),
+    ("i386-windows/d3d10core.dll", "df97bf62f637e74ba7fa65cc0f50da772d6e6ac5f82a26515f7acfe27cefa22e"),
+    ("i386-windows/d3d11.dll", "62075706678f735f05ce2b47758d29243baf1cd58d79a80ff2866feb6696ff68"),
+    ("i386-windows/dxgi.dll", "b1d75e5bbc8b78619a7a11fb8388db4889f92190b4fd823ad78b41d2d872e2de"),
+];
+#[cfg(test)]
+pub(crate) fn write_dxvk_expected_test_files(dxvk_dir: &Path) {
+    for (rel, _) in DXVK_EXPECTED_HASHES {
+        let path = dxvk_dir.join(rel);
+        fs::create_dir_all(path.parent().expect("dxvk test fixture parent")).expect("create dxvk test fixture parent");
+        fs::write(path, format!("test-dxvk:{rel}")).expect("write dxvk test fixture payload");
+    }
+}
+
 const RUNTIME_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "runtime/wine/bin/metalsharp-wine",
     "runtime/metalsharp-backend",
@@ -1791,6 +1826,23 @@ pub fn vkd3d_proton_runtime_artifact_path_for_home(home: &Path, rel: &str) -> Pa
     vkd3d_proton_runtime_dir_for_home(home).join(rel)
 }
 
+/// The DXVK-macOS lane is current when every pinned PE artifact in the
+/// staged `lib/dxvk/` surface matches the exact built binaries. Both x86_64
+/// and i386 sets are verified (the bundle ships both).
+pub fn dxvk_runtime_current_for_home(home: &Path) -> bool {
+    let dir = dxvk_runtime_dir_for_home(home);
+    DXVK_EXPECTED_HASHES
+        .iter()
+        .all(|(rel, expected)| crate::diagnostics::file_sha256(&dir.join(rel)).as_deref() == Some(*expected))
+}
+
+pub fn dxvk_runtime_artifact_valid_for_home(home: &Path, rel: &str) -> bool {
+    let Some((_, expected)) = DXVK_EXPECTED_HASHES.iter().find(|(candidate, _)| *candidate == rel) else {
+        return false;
+    };
+    crate::diagnostics::file_sha256(&dxvk_runtime_dir_for_home(home).join(rel)).as_deref() == Some(*expected)
+}
+
 /// The VKMT MoltenVK lane is present when the patched dylib, Wine's versioned
 /// loader alias, and the ICD exist.
 pub fn moltenvk_vkmt_runtime_ready_for_home(home: &Path) -> bool {
@@ -1810,7 +1862,7 @@ pub fn dxvk_runtime_ready_for_home(home: &Path) -> bool {
 fn vkd3d_vulkan_runtime_ready_for_home(home: &Path) -> bool {
     vkd3d_proton_runtime_current_for_home(home)
         && moltenvk_vkmt_runtime_ready_for_home(home)
-        && dxvk_runtime_ready_for_home(home)
+        && dxvk_runtime_current_for_home(home)
 }
 
 pub fn dxmt_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
@@ -2601,8 +2653,11 @@ fn archive_vkd3d_hashes_valid(path: &Path) -> bool {
         return false;
     }
 
-    let hash_sets: &[(&str, &[(&str, &str)])] =
-        &[("vkd3d-proton", VKD3D_PROTON_EXPECTED_HASHES), ("moltenvk-vkmt", MOLTENVK_VKMT_EXPECTED_HASHES)];
+    let hash_sets: &[(&str, &[(&str, &str)])] = &[
+        ("vkd3d-proton", VKD3D_PROTON_EXPECTED_HASHES),
+        ("dxvk", DXVK_EXPECTED_HASHES),
+        ("moltenvk-vkmt", MOLTENVK_VKMT_EXPECTED_HASHES),
+    ];
     let archive_paths: Vec<String> = hash_sets
         .iter()
         .flat_map(|(lane, expected_hashes)| {
@@ -3478,6 +3533,10 @@ mod tests {
         assert!(!vkd3d_vulkan_runtime_ready_for_home(&home), "vkd3d-proton lane still missing");
 
         write_vkd3d_proton_expected_test_files(&vkd3d_proton_runtime_dir_for_home(&home));
+        // Hash-verified readiness requires the pinned DXVK-macOS bytes, not
+        // the presence-only stubs above.
+        assert!(!vkd3d_vulkan_runtime_ready_for_home(&home), "unpinned dxvk bytes must not satisfy readiness");
+        write_dxvk_expected_test_files(&dxvk_runtime_dir_for_home(&home));
         assert!(vkd3d_vulkan_runtime_ready_for_home(&home));
 
         let _ = fs::remove_dir_all(home);
@@ -3527,10 +3586,14 @@ mod tests {
         ensure_moltenvk_vkmt_loader_alias(&mvk).expect("mvk loader alias");
         fs::write(mvk.join("MoltenVK_icd.json"), b"icd").expect("mvk icd");
         let dxvk = dxvk_runtime_dir_for_home(&home).join("x86_64-windows");
-        fs::create_dir_all(&dxvk).expect("dxvk dir");
+        fs::create_dir_all(&dxvk).expect("create dxvk dir");
         for dll in ["dxgi.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll"] {
             fs::write(dxvk.join(dll), dll.as_bytes()).expect("write dxvk dll");
         }
+        // Presence alone is not enough: readiness is hash-verified against the
+        // pinned DXVK-macOS binaries.
+        assert!(!vkd3d_vulkan_runtime_ready_for_home(&home), "unpinned dxvk bytes must not satisfy readiness");
+        write_dxvk_expected_test_files(&dxvk_runtime_dir_for_home(&home));
 
         assert!(vkd3d_vulkan_runtime_ready_for_home(&home));
         let _ = fs::remove_dir_all(home);

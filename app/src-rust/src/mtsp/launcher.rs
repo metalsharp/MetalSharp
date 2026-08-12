@@ -6252,17 +6252,19 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn vkd3d_pipeline_deploy_list_includes_d3d12_and_uses_vkd3d_surface() {
-        // Phase 3 contract: VKD3D must deploy exactly the vkd3d-proton stack
-        // (d3d12, d3d12core from vkd3d-proton + dxgi from DXVK) — no DXMT
-        // artifacts and no d3d11 handoff.
+        // VKD3D is a complete Vulkan pipeline: vkd3d-proton d3d12/d3d12core
+        // plus the DXVK-macOS d3d11/d3d10core/d3d9/dxgi set — no DXMT
+        // artifacts anywhere in the deploy list.
         let node = get_pipeline(PipelineId::Vkd3d);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
-        let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
-        assert_eq!(filenames.len(), required.len(), "VKD3D deploy list must be the vkd3d 3-DLL set");
+        let required = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"];
+        assert_eq!(filenames.len(), required.len(), "VKD3D deploy list must be the 6-DLL Vulkan set");
         for required in required {
             assert!(filenames.contains(&required), "VKD3D deploy list must include {} (got {:?})", required, filenames);
         }
-        assert!(!filenames.contains(&"d3d11.dll"), "VKD3D must never deploy d3d11.dll (got {:?})", filenames);
+        assert!(node.wine_overrides.unwrap().contains("d3d9"), "VKD3D overrides must cover d3d9");
+        assert!(node.wine_overrides.unwrap().contains("d3d10core"), "VKD3D overrides must cover d3d10core");
+        assert!(node.wine_overrides.unwrap().contains("d3d11"), "VKD3D overrides must cover d3d11");
         for deploy in &node.deploy_dlls {
             assert!(
                 deploy.source_subpath.starts_with("lib/vkd3d-proton/")
@@ -6640,7 +6642,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         // MoltenVK + VKMT launch env, and point the shader cache at the
         // isolated vkd3d lane. The VKD3D route no longer uses DXMT at all.
         let node = get_pipeline(PipelineId::Vkd3d);
-        assert!(node.wine_overrides.unwrap_or("").contains("d3d12,d3d12core,dxgi,d3d11=n,b"));
+        assert!(node.wine_overrides.unwrap_or("").contains("d3d12,d3d12core,d3d11,d3d10core,d3d9,dxgi=n,b"));
         assert!(!node.wine_overrides.unwrap_or("").contains("winemetal"));
         assert!(
             node.env_vars.iter().any(|ev| ev.key == "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT" && ev.value == "1"),
@@ -6879,7 +6881,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             Some("1583230")
         );
         let overrides = env.iter().find(|(key, _)| key == "WINEDLLOVERRIDES").map(|(_, value)| value).unwrap();
-        assert!(overrides.contains("d3d12,d3d12core,dxgi,d3d11=n,b"));
+        assert!(overrides.contains("d3d12,d3d12core,d3d11,d3d10core,d3d9,dxgi=n,b"));
         assert!(!overrides.contains("dxgi_dxmt"));
         assert!(!overrides.contains("winemetal"));
         assert!(overrides.contains("gameoverlayrenderer,gameoverlayrenderer64=d"));
@@ -7111,7 +7113,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             warnings: Vec::new(),
         };
         deploy_recipe_dlls(&recipe).expect("game-dir deploy (full node list)");
-        for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
+        for dll in ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"] {
             assert!(exe_dir.join(dll).is_file(), "game dir must receive {}", dll);
         }
         // The VKD3D route must NEVER stage into the shared prefix system32 (a
@@ -8825,6 +8827,77 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             // clear the deployed copies so the second route starts clean
             for dll in &recipe.dlls {
                 let _ = std::fs::remove_file(&dll.dest_path);
+            }
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn deployed_vkd3d_route_dlls_are_byte_identical_to_their_lane_sources() {
+        // Hash proof for the complete VKD3D Vulkan set: vkd3d-proton
+        // d3d12/d3d12core must come from the vkd3d-proton lane, the DXVK-macOS
+        // d3d11/d3d10core/d3d9/dxgi from the dxvk lane, and neither may carry
+        // bytes from the other lane or any DXMT artifact.
+        let root = test_dir("vkd3d-route-hash-proof");
+        let ms_root = root.join("runtime").join("wine");
+        let game_dir = root.join("game");
+        let exe_dir = game_dir.join("bin");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
+
+        let vkd3d_lane = ms_root.join("lib/vkd3d-proton/x86_64-windows");
+        let dxvk_lane = ms_root.join("lib/dxvk/x86_64-windows");
+        std::fs::create_dir_all(&vkd3d_lane).unwrap();
+        std::fs::create_dir_all(&dxvk_lane).unwrap();
+        for name in ["d3d12.dll", "d3d12core.dll"] {
+            std::fs::write(vkd3d_lane.join(name), format!("vkd3d-proton:{name}")).unwrap();
+        }
+        for name in ["d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"] {
+            std::fs::write(dxvk_lane.join(name), format!("dxvk-macos:{name}")).unwrap();
+        }
+
+        let sha256 = |path: &Path| crate::diagnostics::file_sha256(path).expect("read file for sha256");
+        let node = get_pipeline(PipelineId::Vkd3d);
+        let recipe = recipe::LaunchRecipe {
+            appid: 42,
+            pipeline: PipelineId::Vkd3d,
+            pipeline_name: node.name.into(),
+            backend: node.backend.into(),
+            game_dir: Some(game_dir.clone()),
+            exe_path: Some(exe_dir.join("Game.exe")),
+            exe_name: Some("Game.exe".into()),
+            launch_args: Vec::new(),
+            env: Vec::new(),
+            dlls: recipe::selected_deploy_dlls_for_pipeline(&game_dir, Some(&exe_dir.join("Game.exe")), node, &ms_root),
+            runtime_assets: Vec::new(),
+            warnings: Vec::new(),
+        };
+        assert_eq!(recipe.dlls.len(), 6, "VKD3D must deploy exactly the six DLL Vulkan set");
+        assert!(recipe.dlls.iter().all(|dll| dll.source_present), "VKD3D all sources present");
+        assert!(!recipe.dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"));
+        assert!(!recipe.dlls.iter().any(|dll| dll.filename == "winemetal.dll"));
+
+        deploy_recipe_dlls(&recipe).expect("deploy VKD3D set");
+        for dll in &recipe.dlls {
+            assert_eq!(
+                sha256(&dll.dest_path),
+                sha256(&dll.source_path),
+                "VKD3D {} must be byte-identical to its lane source",
+                dll.filename
+            );
+            let bytes = std::fs::read(&dll.dest_path).unwrap();
+            if dll.filename == "d3d12.dll" || dll.filename == "d3d12core.dll" {
+                assert!(
+                    String::from_utf8_lossy(&bytes).starts_with("vkd3d-proton:"),
+                    "{} must carry vkd3d-proton bytes",
+                    dll.filename
+                );
+            } else {
+                assert!(
+                    String::from_utf8_lossy(&bytes).starts_with("dxvk-macos:"),
+                    "{} must carry DXVK-macOS bytes",
+                    dll.filename
+                );
             }
         }
         let _ = std::fs::remove_dir_all(root);
