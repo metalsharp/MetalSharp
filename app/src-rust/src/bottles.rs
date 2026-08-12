@@ -646,55 +646,23 @@ fn normalize_loaded_runtime_profile_components(manifest: &mut BottleManifest) {
     }
 }
 
-const M12_DXMT_COMPONENT_IDS: &[&str] =
-    &["m12_d3d12", "m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_dxgi", "m12_winemetal", "m12_gpu_stubs"];
-const M12_VKD3D_COMPONENT_IDS: &[&str] = &["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk", "m12_gpu_stubs"];
+const M12_COMPONENT_IDS: &[&str] = &["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk"];
 
-/// The M12 component set for the active backend: vkd3d-proton (default)
-/// tracks the vkd3d-proton/DXVK/MoltenVK lanes; dxmt tracks the DXMT lane.
-fn m12_runtime_component_ids(backend: &str) -> &'static [&'static str] {
-    if backend == "dxmt" {
-        M12_DXMT_COMPONENT_IDS
-    } else {
-        M12_VKD3D_COMPONENT_IDS
-    }
+/// The M12 component set. M12 is the vkd3d-proton stack only
+/// (vkd3d-proton D3D12 pair + DXVK dxgi + VKMT MoltenVK); there is no
+/// DXMT-backed M12 lane.
+fn m12_runtime_component_ids() -> &'static [&'static str] {
+    M12_COMPONENT_IDS
 }
 
 /// Artifacts per M12 component as `(lane, rel-path)` pairs, where `lane` is
 /// the subdir under `runtime/wine/lib/` that carries the file.
-fn m12_runtime_component_artifacts(
-    backend: &str,
-    component_id: &str,
-) -> Option<&'static [(&'static str, &'static str)]> {
-    if backend == "dxmt" {
-        return match component_id {
-            "m12_d3d12" => Some(&[("dxmt_m12", "x86_64-windows/d3d12.dll")]),
-            "m12_d3d11" => Some(&[("dxmt_m12", "x86_64-windows/d3d11.dll")]),
-            "m12_d3d10core" => Some(&[("dxmt_m12", "x86_64-windows/d3d10core.dll")]),
-            "m12_dxgi_dxmt" => Some(&[("dxmt_m12", "x86_64-windows/dxgi_dxmt.dll")]),
-            "m12_dxgi" => Some(&[("dxmt_m12", "x86_64-windows/dxgi.dll")]),
-            "m12_winemetal" => Some(&[
-                ("dxmt_m12", "x86_64-windows/winemetal.dll"),
-                ("dxmt_m12", "x86_64-unix/winemetal.so"),
-                ("dxmt_m12", "x86_64-unix/libc++.1.dylib"),
-                ("dxmt_m12", "x86_64-unix/libc++abi.1.dylib"),
-                ("dxmt_m12", "x86_64-unix/libunwind.1.dylib"),
-            ]),
-            "m12_gpu_stubs" => {
-                Some(&[("dxmt_m12", "x86_64-windows/nvapi64.dll"), ("dxmt_m12", "x86_64-windows/nvngx.dll")])
-            },
-            _ => None,
-        };
-    }
+fn m12_runtime_component_artifacts(component_id: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match component_id {
         "m12_d3d12" => Some(&[("vkd3d-proton", "x86_64-windows/d3d12.dll")]),
         "m12_d3d12core" => Some(&[("vkd3d-proton", "x86_64-windows/d3d12core.dll")]),
         "m12_dxgi" => Some(&[("dxvk", "x86_64-windows/dxgi.dll")]),
         "m12_moltenvk" => Some(&[("moltenvk-vkmt", "libMoltenVK.dylib"), ("moltenvk-vkmt", "MoltenVK_icd.json")]),
-        "m12_gpu_stubs" => {
-            // Stubs are shared with the DXMT M12 lane (vkd3d-proton ships none).
-            Some(&[("dxmt_m12", "x86_64-windows/nvapi64.dll"), ("dxmt_m12", "x86_64-windows/nvngx.dll")])
-        },
         _ => None,
     }
 }
@@ -703,7 +671,6 @@ fn m12_runtime_component_artifacts(
 /// the lane has one). `lane` is the subdir under `runtime/wine/lib/`.
 fn m12_lane_artifact_valid_for_home(home: &Path, lane: &str, rel: &str) -> bool {
     match lane {
-        "dxmt_m12" => crate::installer::dxmt_m12_runtime_artifact_valid_for_home(home, rel),
         "vkd3d-proton" => crate::installer::vkd3d_proton_runtime_artifact_valid_for_home(home, rel),
         "dxvk" => crate::installer::dxvk_runtime_dir_for_home(home).join(rel).is_file(),
         "moltenvk-vkmt" => crate::installer::moltenvk_vkmt_runtime_dir_for_home(home).join(rel).is_file(),
@@ -712,12 +679,11 @@ fn m12_lane_artifact_valid_for_home(home: &Path, lane: &str, rel: &str) -> bool 
 }
 
 fn is_m12_runtime_component(component_id: &str) -> bool {
-    m12_runtime_component_artifacts("vkd3d-proton", component_id).is_some()
-        || m12_runtime_component_artifacts("dxmt", component_id).is_some()
+    m12_runtime_component_artifacts(component_id).is_some()
 }
 
-fn inspect_m12_runtime_component(backend: &str, component_id: &str) -> Option<ComponentState> {
-    let artifacts = m12_runtime_component_artifacts(backend, component_id)?;
+fn inspect_m12_runtime_component(component_id: &str) -> Option<ComponentState> {
+    let artifacts = m12_runtime_component_artifacts(component_id)?;
     let home = dirs::home_dir()?;
     let valid_count =
         artifacts.iter().filter(|(lane, artifact)| m12_lane_artifact_valid_for_home(&home, lane, artifact)).count();
@@ -730,20 +696,13 @@ fn inspect_m12_runtime_component(backend: &str, component_id: &str) -> Option<Co
     }
 }
 
-/// The M12 component set for the active backend (reads the m12Backend config).
-fn m12_runtime_component_ids_for_home(home: &Path) -> &'static [&'static str] {
-    m12_runtime_component_ids(&crate::launch::m12_backend_mode_for(home))
-}
-
-/// Active M12 backend for bottle purposes ("vkd3d-proton" default, "dxmt"
-/// fallback), path-based for tests.
-fn m12_backend_for_home(home: &Path) -> String {
-    crate::launch::m12_backend_mode_for(home)
+/// The M12 component set (vkd3d-proton stack only).
+fn m12_runtime_component_ids_for_home(_home: &Path) -> &'static [&'static str] {
+    m12_runtime_component_ids()
 }
 
 fn m12_runtime_component_detail(component_id: &str) -> String {
-    let backend = m12_backend_for_home(&dirs::home_dir().unwrap_or_default());
-    let artifacts = m12_runtime_component_artifacts(&backend, component_id).unwrap_or(&[]);
+    let artifacts = m12_runtime_component_artifacts(component_id).unwrap_or(&[]);
     let home = dirs::home_dir().unwrap_or_default();
     let paths = artifacts
         .iter()
@@ -760,8 +719,6 @@ fn m12_runtime_component_detail(component_id: &str) -> String {
         .collect::<Vec<_>>();
     if paths.is_empty() {
         "M12 runtime artifact".to_string()
-    } else if backend == "dxmt" {
-        format!("PR230 M12 DXMT runtime artifact(s): {}", paths.join(", "))
     } else {
         format!("vkd3d-proton M12 runtime artifact(s): {}", paths.join(", "))
     }
@@ -791,13 +748,11 @@ pub fn save_bottle(manifest: &BottleManifest) -> Result<(), Box<dyn std::error::
 
 fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
     let home = dirs::home_dir().unwrap_or_default();
-    let backend = m12_backend_for_home(&home);
     let (lane, components): (&str, &[&str]) = match manifest.runtime_profile {
         RuntimeProfile::Dxmt | RuntimeProfile::Dxmt32 => {
             ("dxmt", &["d3d10", "d3d10_1", "d3d11", "dxgi", "d3d10core", "winemetal"])
         },
-        RuntimeProfile::M12 if backend == "dxmt" => ("dxmt_m12", M12_DXMT_COMPONENT_IDS),
-        RuntimeProfile::M12 => ("vkd3d-proton", M12_VKD3D_COMPONENT_IDS),
+        RuntimeProfile::M12 => ("vkd3d-proton", M12_COMPONENT_IDS),
         _ => return,
     };
 
@@ -814,14 +769,15 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
     }
 
     // Prune components belonging to the inactive M12 lane: merge_components is
-    // adds-only, so a backend switch (vkd3d-proton <-> dxmt) would otherwise
-    // leave the other lane's ids in installed_components, where they inspect
-    // as Missing and permanently block components_ready.
+    // adds-only, so ids from a previous DXMT-backed M12 surface (m12_d3d11,
+    // m12_dxgi_dxmt, m12_winemetal, ...) would otherwise linger in
+    // installed_components, where they inspect as Missing and permanently
+    // block components_ready.
     if let RuntimeProfile::M12 = manifest.runtime_profile {
-        let active = m12_runtime_component_ids(&backend);
+        let active = m12_runtime_component_ids();
         manifest
             .installed_components
-            .retain(|component| !is_m12_runtime_component(&component.id) || active.contains(&component.id.as_str()));
+            .retain(|component| !component.id.starts_with("m12_") || active.contains(&component.id.as_str()));
     }
 
     #[cfg(not(test))]
@@ -829,8 +785,6 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
         RuntimeProfile::Dxmt | RuntimeProfile::Dxmt32 => {
             crate::installer::ensure_dxmt_runtime_ready(&home).map(|_| true)
         },
-        RuntimeProfile::M12 if backend == "dxmt" => crate::installer::ensure_dxmt_m12_runtime_ready(&home)
-            .map(|_| crate::installer::dxmt_m12_runtime_current_for_home(&home)),
         RuntimeProfile::M12 => crate::installer::ensure_vkd3d_proton_runtime_ready(&home)
             .map(|_| crate::installer::vkd3d_proton_runtime_current_for_home(&home)),
         _ => Ok(false),
@@ -842,7 +796,7 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
     #[cfg(test)]
     let runtime_ready = {
         let report = crate::installer::runtime_artifact_report_for(&home);
-        if backend == "dxmt" {
+        if lane == "dxmt" {
             report.get(lane).and_then(|lane| lane.get("all_present")).and_then(|value| value.as_bool()).unwrap_or(false)
         } else {
             crate::installer::vkd3d_proton_runtime_current_for_home(&home)
@@ -1338,7 +1292,7 @@ pub fn prepare_steam_game_launch(
                     .map_err(|e| format!("DXMT runtime setup failed before Steam launch: {}", e))?;
             },
             crate::mtsp::engine::PipelineId::M12 => {
-                crate::installer::ensure_dxmt_m12_runtime_ready(&home)
+                crate::installer::ensure_vkd3d_proton_runtime_ready(&home)
                     .map_err(|e| format!("M12 runtime setup failed before Steam launch: {}", e))?;
             },
             _ => {},
@@ -2658,31 +2612,20 @@ pub fn repair_component(
 
     if matches!(manifest.runtime_profile, RuntimeProfile::M12) && is_m12_runtime_component(component_id) {
         let home = dirs::home_dir().ok_or("no home dir")?;
-        let backend = m12_backend_for_home(&home);
-        let component_ids = m12_runtime_component_ids(&backend);
-        let (ensure, lane_label): (fn(&Path) -> Result<bool, String>, &str) = if backend == "dxmt" {
-            (crate::installer::ensure_dxmt_m12_runtime_ready, "runtime/wine/lib/dxmt_m12")
-        } else {
-            (
-                crate::installer::ensure_vkd3d_proton_runtime_ready,
-                "runtime/wine/lib/vkd3d-proton (+dxvk, moltenvk-vkmt)",
-            )
-        };
+        let component_ids = m12_runtime_component_ids();
         let refresh_detail = format!(
-            "Refreshes the M12 {} runtime surface under {}",
-            if backend == "dxmt" { "DXMT" } else { "vkd3d-proton" },
-            lane_label
+            "Refreshes the M12 vkd3d-proton runtime surface under runtime/wine/lib/vkd3d-proton (+dxvk, moltenvk-vkmt)"
         );
-        let asset_rel = if backend == "dxmt" { "x86_64-windows/d3d12.dll" } else { "x86_64-windows/d3d12core.dll" };
+        let asset_rel = "x86_64-windows/d3d12core.dll";
         let asset_path = crate::platform::metalsharp_home_dir_for(&home)
             .join("runtime")
             .join("wine")
             .join("lib")
-            .join(if backend == "dxmt" { "dxmt_m12" } else { "vkd3d-proton" })
+            .join("vkd3d-proton")
             .join(asset_rel);
 
         if dry_run {
-            let state = inspect_m12_runtime_component(&backend, component_id).unwrap_or(ComponentState::Missing);
+            let state = inspect_m12_runtime_component(component_id).unwrap_or(ComponentState::Missing);
             return Ok(ComponentRepairReport {
                 id: component_id.to_string(),
                 status: if state == ComponentState::Installed {
@@ -2702,9 +2645,9 @@ pub fn repair_component(
             });
         }
 
-        ensure(&home)?;
+        crate::installer::ensure_vkd3d_proton_runtime_ready(&home)?;
         for id in component_ids {
-            let state = inspect_m12_runtime_component(&backend, id).unwrap_or(ComponentState::Missing);
+            let state = inspect_m12_runtime_component(id).unwrap_or(ComponentState::Missing);
             mark_component_state(&mut manifest, id, state);
         }
         manifest.health = if components_ready(&manifest.installed_components) {
@@ -2714,13 +2657,12 @@ pub fn repair_component(
         };
         manifest.updated_at = timestamp_secs();
         save_bottle(&manifest)?;
-        let state = inspect_m12_runtime_component(&backend, component_id).unwrap_or(ComponentState::Missing);
+        let state = inspect_m12_runtime_component(component_id).unwrap_or(ComponentState::Missing);
         return Ok(ComponentRepairReport {
             id: component_id.to_string(),
             status: if state == ComponentState::Installed { "installed" } else { "needs_repair" }.to_string(),
             detail: format!(
-                "Refreshed M12 {} runtime surface; {}",
-                if backend == "dxmt" { "DXMT" } else { "vkd3d-proton" },
+                "Refreshed M12 vkd3d-proton runtime surface; {}",
                 m12_runtime_component_detail(component_id)
             ),
             asset_path: Some(asset_path.to_string_lossy().to_string()),
@@ -3595,21 +3537,7 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
             crate::mtsp::engine::PipelineId::Dxmt32,
         ),
         RuntimeProfile::M12 => {
-            let home = dirs::home_dir().unwrap_or_default();
-            let backend = m12_backend_for_home(&home);
-            let m12_components: &[&str] = if backend == "dxmt" {
-                &[
-                    "m12_d3d12",
-                    "m12_d3d11",
-                    "m12_d3d10core",
-                    "m12_dxgi_dxmt",
-                    "m12_dxgi",
-                    "m12_winemetal",
-                    "m12_gpu_stubs",
-                ]
-            } else {
-                &["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk", "m12_gpu_stubs"]
-            };
+            let m12_components: &[&str] = &["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk"];
             (
                 "D3D12 Metal",
                 BottleArch::Win64,
@@ -4063,8 +3991,7 @@ fn inspect_components_for_manifest(
             let fallback = inspect_component_state(prefix, &component.id, component.state);
             let state =
                 if matches!(manifest.runtime_profile, RuntimeProfile::M12) && is_m12_runtime_component(&component.id) {
-                    let backend = m12_backend_for_home(&dirs::home_dir().unwrap_or_default());
-                    inspect_m12_runtime_component(&backend, &component.id).unwrap_or(fallback)
+                    inspect_m12_runtime_component(&component.id).unwrap_or(fallback)
                 } else if component.id == "d3d12_agility" {
                     inspect_d3d12_agility_component_for_manifest(manifest).unwrap_or(fallback)
                 } else if matches!(component.id.as_str(), "fna" | "xna" | "sdl2" | "fna3d" | "faudio" | "fmod") {
@@ -4165,10 +4092,7 @@ fn inspect_component_state(prefix: &Path, id: &str, fallback: ComponentState) ->
     }
 
     match id {
-        id if is_m12_runtime_component(id) => {
-            let backend = m12_backend_for_home(&dirs::home_dir().unwrap_or_default());
-            inspect_m12_runtime_component(&backend, id).unwrap_or(fallback)
-        },
+        id if is_m12_runtime_component(id) => inspect_m12_runtime_component(id).unwrap_or(fallback),
         "wine-mono" => {
             if windows.join("mono").exists() {
                 ComponentState::Installed
@@ -5388,9 +5312,8 @@ fn component_source_policies_for_manifest(manifest: &BottleManifest) -> Vec<Comp
 fn component_source_policy(id: &str, arch: BottleArch) -> ComponentSourcePolicy {
     if is_m12_runtime_component(id) {
         let home = dirs::home_dir().unwrap_or_default();
-        let backend = m12_backend_for_home(&home);
-        let state = inspect_m12_runtime_component(&backend, id).unwrap_or(ComponentState::Unknown);
-        let path = m12_runtime_component_artifacts(&backend, id).and_then(|artifacts| artifacts.first().copied()).map(
+        let state = inspect_m12_runtime_component(id).unwrap_or(ComponentState::Unknown);
+        let path = m12_runtime_component_artifacts(id).and_then(|artifacts| artifacts.first().copied()).map(
             |(lane, artifact)| {
                 crate::platform::metalsharp_home_dir_for(&home)
                     .join("runtime")
@@ -5402,11 +5325,7 @@ fn component_source_policy(id: &str, arch: BottleArch) -> ComponentSourcePolicy 
         );
         return ComponentSourcePolicy {
             id: id.to_string(),
-            source: if backend == "dxmt" {
-                "metalsharp_pr230_dxmt_m12_runtime".to_string()
-            } else {
-                "metalsharp_vkd3d_proton_m12_runtime".to_string()
-            },
+            source: "metalsharp_vkd3d_proton_m12_runtime".to_string(),
             available: state == ComponentState::Installed,
             detail: m12_runtime_component_detail(id),
             path: path.map(|p| p.to_string_lossy().to_string()),
@@ -5543,13 +5462,10 @@ fn component_action_detail(id: &str) -> String {
         "mono-arm64" => "Install MetalSharp ARM64 Mono runtime".to_string(),
         "mono-x86" => "Install MetalSharp x86_64 Mono runtime".to_string(),
         "fna" => "Install FNA/XNA compatibility assemblies and native shims".to_string(),
-        "m12_d3d12" => "Refresh PR230 M12 d3d12.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_d3d11" => "Refresh PR230 M12 d3d11.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_d3d10core" => "Refresh PR230 M12 d3d10core.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_dxgi_dxmt" => "Refresh PR230 M12 dxgi_dxmt.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_dxgi" => "Refresh PR230 M12 dxgi.dll from the bundled dxmt_m12 runtime".to_string(),
-        "m12_winemetal" => "Refresh PR230 M12 winemetal.dll, winemetal.so, and required Unix sidecars".to_string(),
-        "m12_gpu_stubs" => "Refresh PR230 M12 NVAPI/NVNGX GPU stub DLLs".to_string(),
+        "m12_d3d12" => "Refresh M12 d3d12.dll from the bundled vkd3d-proton runtime".to_string(),
+        "m12_d3d12core" => "Refresh M12 d3d12core.dll from the bundled vkd3d-proton runtime".to_string(),
+        "m12_dxgi" => "Refresh M12 dxgi.dll from the bundled DXVK runtime".to_string(),
+        "m12_moltenvk" => "Refresh M12 libMoltenVK.dylib and MoltenVK_icd.json from the VKMT runtime".to_string(),
         "d3d12_agility" => "Download and stage the D3D12 Agility SDK payload".to_string(),
         "gecko" => "Install Wine Gecko for embedded browser surfaces".to_string(),
         "dotnet40" => "Install the native .NET Framework 4.0 runtime for CLR v4 titles".to_string(),
@@ -6878,14 +6794,14 @@ mod tests {
 
         let m12_existing = vec![
             RuntimeComponent { id: "d3d12_agility".into(), state: ComponentState::Installed },
-            RuntimeComponent { id: "m12_winemetal".into(), state: ComponentState::Installed },
-            RuntimeComponent { id: "m12_gpu_stubs".into(), state: ComponentState::Installed },
+            RuntimeComponent { id: "m12_d3d12core".into(), state: ComponentState::Installed },
+            RuntimeComponent { id: "m12_moltenvk".into(), state: ComponentState::Installed },
             RuntimeComponent { id: "vcrun2019_x64".into(), state: ComponentState::NeedsRepair },
         ];
         let rebuilt_d3dmetal = rebuild_components_for_profile(&m12_existing, RuntimeProfile::D3DMetal);
         assert!(!rebuilt_d3dmetal.iter().any(|component| component.id == "d3d12_agility"));
-        assert!(!rebuilt_d3dmetal.iter().any(|component| component.id == "m12_winemetal"));
-        assert!(!rebuilt_d3dmetal.iter().any(|component| component.id == "m12_gpu_stubs"));
+        assert!(!rebuilt_d3dmetal.iter().any(|component| component.id == "m12_d3d12core"));
+        assert!(!rebuilt_d3dmetal.iter().any(|component| component.id == "m12_moltenvk"));
         assert!(rebuilt_d3dmetal.iter().any(|component| component.id == "gptk"));
         assert!(rebuilt_d3dmetal.iter().any(|component| component.id == "gptk_prefix"));
         assert_eq!(
@@ -7679,26 +7595,16 @@ mod tests {
     }
 
     #[test]
-    fn gptk_profile_splits_amd_stub_from_dxmt_vendor_stubs() {
+    fn m12_profile_tracks_vkd3d_proton_stack_only() {
         let m12 = default_components_for(RuntimeProfile::M12);
         let m12_ids = m12.iter().map(|c| c.id.as_str()).collect::<Vec<_>>();
-        // The active backend drives the M12 component set: vkd3d-proton
-        // (default in tests) tracks the vkd3d-proton/DXVK/MoltenVK lanes.
-        let backend = crate::launch::m12_backend_mode_for(&dirs::home_dir().unwrap_or_default());
-        let required_dxmt = ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal"];
-        let required_vkd3d = ["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk", "m12_gpu_stubs"];
-        if backend == "dxmt" {
-            for required in required_dxmt {
-                assert!(m12_ids.contains(&required), "M12 dxmt profile should include {required}");
-            }
-            assert!(m12_ids.contains(&"m12_d3d12"));
-        } else {
-            for required in required_vkd3d {
-                assert!(m12_ids.contains(&required), "M12 vkd3d profile should include {required}");
-            }
-            for stale in required_dxmt {
-                assert!(!m12_ids.contains(&stale), "M12 vkd3d profile must not include DXMT-only {stale}");
-            }
+        // M12 is vkd3d-proton only: vkd3d-proton D3D12 pair + DXVK dxgi +
+        // VKMT MoltenVK. No DXMT lane components exist.
+        for required in ["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk"] {
+            assert!(m12_ids.contains(&required), "M12 vkd3d profile should include {required}");
+        }
+        for stale in ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal", "m12_gpu_stubs"] {
+            assert!(!m12_ids.contains(&stale), "M12 vkd3d profile must not include DXMT-only {stale}");
         }
         for required in ["vcrun2019_x64", "vcrun2019_x86", "corefonts", "d3d12_agility"] {
             assert!(m12_ids.contains(&required), "M12 profile should include {required}");
@@ -7713,22 +7619,6 @@ mod tests {
     }
 
     #[test]
-    fn m12_winemetal_component_tracks_required_unix_sidecars() {
-        let artifacts = m12_runtime_component_artifacts("dxmt", "m12_winemetal").expect("m12 winemetal artifacts");
-        for (lane, required) in [
-            ("dxmt_m12", "x86_64-windows/winemetal.dll"),
-            ("dxmt_m12", "x86_64-unix/winemetal.so"),
-            ("dxmt_m12", "x86_64-unix/libc++.1.dylib"),
-            ("dxmt_m12", "x86_64-unix/libc++abi.1.dylib"),
-            ("dxmt_m12", "x86_64-unix/libunwind.1.dylib"),
-        ] {
-            assert!(artifacts.contains(&(lane, required)), "m12_winemetal must validate {required}");
-        }
-        // m12_winemetal is DXMT-only; the vkd3d backend has no winemetal component.
-        assert!(m12_runtime_component_artifacts("vkd3d-proton", "m12_winemetal").is_none());
-    }
-
-    #[test]
     fn redist_source_guides_cover_vcrun2013() {
         let guides = redist_source_guides();
         assert!(guides.iter().any(|g| g.id == "vcrun2010"));
@@ -7738,54 +7628,44 @@ mod tests {
     }
 
     #[test]
-    fn m12_components_are_backend_aware_vkd3d_vs_dxmt() {
-        // vkd3d-proton backend (default): vkd3d/DXVK/MoltenVK lanes, no DXMT.
-        for id in ["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk", "m12_gpu_stubs"] {
-            assert!(m12_runtime_component_artifacts("vkd3d-proton", id).is_some(), "vkd3d backend must know {id}");
+    fn m12_components_are_vkd3d_proton_stack_only() {
+        // vkd3d-proton stack: vkd3d/DXVK/MoltenVK lanes, no DXMT surface.
+        for id in ["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk"] {
+            assert!(m12_runtime_component_artifacts(id).is_some(), "M12 stack must know {id}");
         }
-        for id in ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal"] {
-            assert!(
-                m12_runtime_component_artifacts("vkd3d-proton", id).is_none(),
-                "vkd3d backend must NOT expose DXMT-only {id}"
-            );
+        for id in ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal", "m12_gpu_stubs"] {
+            assert!(m12_runtime_component_artifacts(id).is_none(), "M12 stack must NOT expose {id}");
         }
-        // dxmt backend: full PR230 set.
-        for id in
-            ["m12_d3d12", "m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_dxgi", "m12_winemetal", "m12_gpu_stubs"]
-        {
-            assert!(m12_runtime_component_artifacts("dxmt", id).is_some(), "dxmt backend must know {id}");
-        }
-        // Lane routing: vkd3d d3d12 -> vkd3d-proton lane, dxgi -> dxvk lane.
-        let vkd3d_d3d12 = m12_runtime_component_artifacts("vkd3d-proton", "m12_d3d12").unwrap();
-        assert_eq!(vkd3d_d3d12[0].0, "vkd3d-proton");
-        let vkd3d_dxgi = m12_runtime_component_artifacts("vkd3d-proton", "m12_dxgi").unwrap();
-        assert_eq!(vkd3d_dxgi[0].0, "dxvk");
-        let vkd3d_mvk = m12_runtime_component_artifacts("vkd3d-proton", "m12_moltenvk").unwrap();
-        assert_eq!(vkd3d_mvk[0].0, "moltenvk-vkmt");
+        // Lane routing: d3d12 -> vkd3d-proton lane, dxgi -> dxvk lane,
+        // moltenvk -> VKMT MoltenVK lane.
+        let d3d12 = m12_runtime_component_artifacts("m12_d3d12").unwrap();
+        assert_eq!(d3d12[0].0, "vkd3d-proton");
+        assert_eq!(d3d12[0].1, "x86_64-windows/d3d12.dll");
+        let d3d12core = m12_runtime_component_artifacts("m12_d3d12core").unwrap();
+        assert_eq!(d3d12core[0].0, "vkd3d-proton");
+        let dxgi = m12_runtime_component_artifacts("m12_dxgi").unwrap();
+        assert_eq!(dxgi[0].0, "dxvk");
+        let mvk = m12_runtime_component_artifacts("m12_moltenvk").unwrap();
+        assert_eq!(mvk[0].0, "moltenvk-vkmt");
+        assert_eq!(mvk[0].1, "libMoltenVK.dylib");
     }
 
     #[test]
-    fn m12_component_ids_follow_backend() {
-        let vkd3d_ids = m12_runtime_component_ids("vkd3d-proton");
-        assert!(vkd3d_ids.contains(&"m12_d3d12core"));
-        assert!(!vkd3d_ids.contains(&"m12_winemetal"));
-        let dxmt_ids = m12_runtime_component_ids("dxmt");
-        assert!(dxmt_ids.contains(&"m12_winemetal"));
-        assert!(!dxmt_ids.contains(&"m12_d3d12core"));
+    fn m12_component_ids_are_vkd3d_proton_only() {
+        let ids = m12_runtime_component_ids();
+        assert_eq!(ids, &["m12_d3d12", "m12_d3d12core", "m12_dxgi", "m12_moltenvk"]);
+        assert!(!ids.contains(&"m12_winemetal"));
+        assert!(!ids.contains(&"m12_gpu_stubs"));
     }
 
     #[test]
-    fn m12_save_prunes_inactive_lane_components() {
-        // A manifest saved under the DXMT backend, then switched to
-        // vkd3d-proton, must drop the DXMT-only ids on save (otherwise they
-        // inspect as Missing and block components_ready forever).
+    fn m12_save_prunes_stale_dxmt_lane_components() {
+        // A manifest carrying stale DXMT-backed M12 ids (from a pre-unification
+        // install) must drop them on save, otherwise they inspect as Missing
+        // and block components_ready forever.
         let home = test_dir("m12-prune-lanes");
         let configs = home.join(".metalsharp").join("configs");
         fs::create_dir_all(&configs).expect("create configs");
-        // Pin vkd3d-proton backend for this home.
-        let mut body = serde_json::Map::new();
-        body.insert("m12Backend".into(), json!("vkd3d-proton"));
-        crate::launch::set_config_for_home(&home, &body).expect("set backend");
 
         let mut manifest = BottleManifest {
             id: "steam_999999".into(),
@@ -7812,8 +7692,8 @@ mod tests {
             created_at: timestamp_secs(),
             updated_at: timestamp_secs(),
         };
-        // Simulate a stale DXMT-lane save: include DXMT-only ids as Installed.
-        for id in ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal"] {
+        // Simulate a stale DXMT-lane save: include the old DXMT-only ids.
+        for id in ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal", "m12_gpu_stubs"] {
             manifest
                 .installed_components
                 .push(RuntimeComponent { id: id.to_string(), state: ComponentState::Installed });
@@ -7821,29 +7701,25 @@ mod tests {
 
         // Manually run the save-time refresh + prune (save_bottle itself calls
         // wine in non-test builds; the prune is a pure function of the
-        // manifest + backend).
+        // manifest).
         let mut refreshed = manifest.clone();
-        let backend = m12_backend_for_home(&home);
-        assert_eq!(backend, "vkd3d-proton");
         refreshed.installed_components =
             merge_components(refreshed.installed_components.clone(), default_components_for(RuntimeProfile::M12));
         refreshed.installed_components.retain(|component| {
-            !is_m12_runtime_component(&component.id)
-                || m12_runtime_component_ids(&backend).contains(&component.id.as_str())
+            !component.id.starts_with("m12_") || m12_runtime_component_ids().contains(&component.id.as_str())
         });
 
-        assert!(
-            !refreshed.installed_components.iter().any(|c| c.id == "m12_winemetal"),
-            "DXMT-only m12_winemetal must be pruned under vkd3d-proton backend"
-        );
-        assert!(
-            !refreshed.installed_components.iter().any(|c| c.id == "m12_dxgi_dxmt"),
-            "DXMT-only m12_dxgi_dxmt must be pruned under vkd3d-proton backend"
-        );
+        for stale in ["m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_winemetal", "m12_gpu_stubs"] {
+            assert!(
+                !refreshed.installed_components.iter().any(|c| c.id == stale),
+                "stale DXMT M12 id {stale} must be pruned"
+            );
+        }
         assert!(
             refreshed.installed_components.iter().any(|c| c.id == "m12_d3d12core"),
             "active vkd3d lane ids must remain"
         );
+        assert!(refreshed.installed_components.iter().any(|c| c.id == "m12_moltenvk"));
 
         let _ = fs::remove_dir_all(home);
     }

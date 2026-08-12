@@ -29,7 +29,6 @@ const GAME_LOCAL_ROUTE_DLLS: &[&str] = &[
     "d3d11.dll",
     "d3d12.dll",
     "dxgi.dll",
-    "dxgi_dxmt.dll",
     "nvapi64.dll",
     "nvngx.dll",
     "nvngx-on-metalfx.dll",
@@ -1668,7 +1667,6 @@ mod tests {
     #[test]
     fn detects_app_local_d3dmetal_route_conflicts() {
         assert!(is_d3dmetal_route_conflict(Path::new("dxgi.dll")));
-        assert!(is_d3dmetal_route_conflict(Path::new("dxgi_dxmt.dll")));
         assert!(is_d3dmetal_route_conflict(Path::new("d3d12.dll")));
         assert!(is_d3dmetal_route_conflict(Path::new("d3d10core.dll")));
         assert!(!is_d3dmetal_route_conflict(Path::new("d3dcompiler_47.dll")));

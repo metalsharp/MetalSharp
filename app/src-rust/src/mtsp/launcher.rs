@@ -630,12 +630,13 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
         }
     }
 
-    // For the isolated M12/M13 lane, also verify the x86_64-unix sidecars that
-    // winemetal requires at runtime.
+    // For the M12 lane, also verify the VKMT MoltenVK unix surface that the
+    // Vulkan loader requires at runtime (the vkd3d-proton/DXVK PE files are
+    // already covered by the deploy_dlls source checks above).
     let mut unix_sidecars: Vec<serde_json::Value> = Vec::new();
     let unix_lib_dir = if pipeline == PipelineId::M12 {
-        let dir = ms_root.join("lib").join("dxmt_m12").join("x86_64-unix");
-        for sidecar in ["winemetal.so", "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"] {
+        let dir = ms_root.join("lib").join("moltenvk-vkmt");
+        for sidecar in ["libMoltenVK.dylib", "MoltenVK_icd.json"] {
             let path = dir.join(sidecar);
             let present = path.exists();
             let sha = if present { crate::diagnostics::file_sha256(&path) } else { None };
@@ -868,7 +869,7 @@ fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
 ///
 /// Route DLLs deployed into a game folder are copies of canonical source DLLs
 /// that live under the MetalSharp wine runtime (e.g. `lib/dxmt/i386-windows`,
-/// `lib/dxmt/x86_64-windows`, `lib/dxmt_m12/x86_64-windows`, `lib/wine/...`).
+/// `lib/dxmt/x86_64-windows`, `lib/vkd3d-proton/x86_64-windows`, `lib/wine/...`).
 /// These sources always retain the canonical copy, so a stale deployed copy
 /// that matches its source can be safely deleted on a route switch instead of
 /// being quarantined. Returns the first matching source path, or `None` if no
@@ -880,7 +881,8 @@ fn runtime_source_for_dll(dll_path: &Path, ms_root: &Path) -> Option<PathBuf> {
     const SOURCE_ROOTS: &[&str] = &[
         "lib/dxmt/x86_64-windows",
         "lib/dxmt/i386-windows",
-        "lib/dxmt_m12/x86_64-windows",
+        "lib/vkd3d-proton/x86_64-windows",
+        "lib/dxvk/x86_64-windows",
         "lib/wine/x86_64-windows",
         "lib/wine/i386-windows",
         "lib/metalsharp/x86_64-windows",
@@ -906,7 +908,6 @@ fn is_metalsharp_route_dll_conflict(path: &Path) -> bool {
             | "d3d12.dll"
             | "d3d12core.dll"
             | "dxgi.dll"
-            | "dxgi_dxmt.dll"
             | "nvapi64.dll"
             | "nvngx.dll"
             | "nvngx-on-metalfx.dll"
@@ -952,8 +953,7 @@ pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Bo
         if !deploy.source_present {
             // nvapi/nvngx/atidxx are vendor-probe stubs: optional for every
             // pipeline (M12 included) so a missing stub can never block the
-            // launch — the vkd3d-proton M12 lane shares stubs with dxmt_m12
-            // but that lane is a fallback and may be absent.
+            // launch.
             let is_optional_stub = deploy.filename.starts_with("nvapi")
                 || deploy.filename.starts_with("nvngx")
                 || deploy.filename.starts_with("atidxx");
@@ -1018,14 +1018,14 @@ pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Bo
 /// freezes the Steam client UI, which renders D3D11 through whatever dxgi the
 /// loader resolves first.
 const M12_PREFIX_ROUTE_DLLS: &[&str] =
-    &["d3d12.dll", "d3d12core.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
+    &["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
 
 /// Self-healing inverse of the old `deploy_prefix_route_dlls`.
 ///
-/// The M12 route (vkd3d-proton/DXVK lanes, or the DXMT M12 lane for the
-/// `m12Backend=dxmt` fallback) deploys its DLLs into the GAME DIR and routes
-/// them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like M9/DXMT
-/// (`deploy_recipe_dlls`). It never stages into the shared prefix system32.
+/// The M12 route (vkd3d-proton + DXVK lanes) deploys its DLLs into the GAME
+/// DIR and routes them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like
+/// M9/DXMT (`deploy_recipe_dlls`). It never stages into the shared prefix
+/// system32.
 ///
 /// This repair detects route copies the OLD backend left in system32 and
 /// restores the wine builtin PE DLLs that wineboot originally installed there
@@ -1594,20 +1594,16 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
     let dyld_library_path = env_value("DYLD_LIBRARY_PATH").unwrap_or_default();
     let dyld_fallback_library_path = env_value("DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default();
     let route_dyld_path = env_value("METALSHARP_ROUTE_DYLD_PATH").unwrap_or_default();
-    let winemetal_unixlib = env_value("DXMT_WINEMETAL_UNIXLIB").unwrap_or_default();
     let vk_icd_filenames = env_value("VK_ICD_FILENAMES").unwrap_or_default();
+    // M12 is the vkd3d-proton stack only: the launch env must carry the VKMT
+    // MoltenVK lane and the pinned Vulkan ICD.
     let m12_env_ok = if recipe.pipeline != PipelineId::M12 {
         true
-    } else if recipe.backend == "vkd3d-proton" {
+    } else {
         [dyld_library_path, dyld_fallback_library_path, route_dyld_path]
             .iter()
             .any(|path| path.contains("moltenvk-vkmt"))
             && vk_icd_filenames.contains("MoltenVK_icd.json")
-    } else {
-        winedllpath.contains("dxmt_m12/x86_64-windows")
-            && (dyld_library_path.contains("dxmt_m12/x86_64-unix")
-                || dyld_fallback_library_path.contains("dxmt_m12/x86_64-unix"))
-            && winemetal_unixlib == "winemetal.so"
     };
 
     let ok = runtime_assets_ok && dlls_ok && prefix_dlls_ok && m12_env_ok;
@@ -1627,19 +1623,10 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
             "METALSHARP_ROUTE_DYLD_PATH": route_dyld_path,
             "VK_ICD_FILENAMES": vk_icd_filenames,
             "WINEDLLOVERRIDES": env_value("WINEDLLOVERRIDES"),
-            "DXMT_WINEMETAL_UNIXLIB": winemetal_unixlib,
-            "requires_vkd3d_proton_windows": recipe.pipeline == PipelineId::M12
-                && recipe.backend == "vkd3d-proton",
-            "requires_dxvk_windows": recipe.pipeline == PipelineId::M12
-                && recipe.backend == "vkd3d-proton",
-            "requires_moltenvk_vkmt": recipe.pipeline == PipelineId::M12
-                && recipe.backend == "vkd3d-proton",
-            "requires_vulkan_icd": recipe.pipeline == PipelineId::M12
-                && recipe.backend == "vkd3d-proton",
-            "requires_dxmt_m12_windows": recipe.pipeline == PipelineId::M12
-                && recipe.backend != "vkd3d-proton",
-            "requires_dxmt_m12_unix": recipe.pipeline == PipelineId::M12
-                && recipe.backend != "vkd3d-proton",
+            "requires_vkd3d_proton_windows": recipe.pipeline == PipelineId::M12,
+            "requires_dxvk_windows": recipe.pipeline == PipelineId::M12,
+            "requires_moltenvk_vkmt": recipe.pipeline == PipelineId::M12,
+            "requires_vulkan_icd": recipe.pipeline == PipelineId::M12,
         },
     })
 }
@@ -2685,7 +2672,6 @@ fn cleanup_metalsharp_dlls_from_game_dir(game_dir: &Path) -> Result<(), Box<dyn 
         "nvngx.dll",
         "winemetal.dll",
         "metalsharp_ntdll_hook.dll",
-        "dxgi_dxmt.dll",
     ];
 
     for dll in &dll_names {
@@ -6264,15 +6250,17 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
     #[test]
     fn m12_pipeline_deploy_list_includes_d3d12_and_uses_vkd3d_surface() {
-        // Phase 3 contract: M12 must deploy the vkd3d-proton stack (d3d12,
-        // d3d12core, dxgi) — no DXMT artifacts at all.
+        // Phase 3 contract: M12 must deploy exactly the vkd3d-proton stack
+        // (d3d12, d3d12core from vkd3d-proton + dxgi from DXVK) — no DXMT
+        // artifacts and no d3d11 handoff.
         let node = get_pipeline(PipelineId::M12);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
-        let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"];
-        assert_eq!(filenames.len(), required.len(), "M12 deploy list must be the vkd3d 4-DLL set");
+        let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
+        assert_eq!(filenames.len(), required.len(), "M12 deploy list must be the vkd3d 3-DLL set");
         for required in required {
             assert!(filenames.contains(&required), "M12 deploy list must include {} (got {:?})", required, filenames);
         }
+        assert!(!filenames.contains(&"d3d11.dll"), "M12 must never deploy d3d11.dll (got {:?})", filenames);
         for deploy in &node.deploy_dlls {
             assert!(
                 deploy.source_subpath.starts_with("lib/vkd3d-proton/")
@@ -6288,14 +6276,14 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     #[test]
     fn dxmt_pipeline_deploy_list_does_not_include_d3d12_and_uses_legacy_dxmt_surface() {
         // Phase 3 contract: DXMT must NOT deploy d3d12.dll and must point at the
-        // legacy lib/dxmt surface, never lib/dxmt_m12.
+        // legacy lib/dxmt surface, never the M12 vkd3d-proton lane.
         let node = get_pipeline(PipelineId::Dxmt);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
         assert!(!filenames.contains(&"d3d12.dll"), "DXMT deploy list must NOT include d3d12.dll (got {:?})", filenames);
         for deploy in &node.deploy_dlls {
             assert!(
-                !deploy.source_subpath.starts_with("lib/dxmt_m12/"),
-                "DXMT DLL {} must not come from lib/dxmt_m12 (got {})",
+                !deploy.source_subpath.starts_with("lib/vkd3d-proton/"),
+                "DXMT DLL {} must not come from the M12 vkd3d-proton lane (got {})",
                 deploy.filename,
                 deploy.source_subpath
             );
@@ -6490,11 +6478,11 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_quarantines_stale_dxmt_route_dlls_before_deploying_isolated_dxmt_m12() {
+    fn m12_quarantines_stale_dxmt_route_dlls_before_deploying_vkd3d_stack() {
         let root = test_dir("m12-route-quarantine-switchback");
         let game_dir = root.join("game");
         let exe_dir = game_dir.join("Binaries").join("Win64");
-        let source_dir = root.join("runtime").join("wine").join("lib").join("dxmt_m12").join("x86_64-windows");
+        let source_dir = root.join("runtime").join("wine").join("lib").join("vkd3d-proton").join("x86_64-windows");
         std::fs::create_dir_all(&exe_dir).unwrap();
         std::fs::create_dir_all(&source_dir).unwrap();
         std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
@@ -6502,7 +6490,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         std::fs::write(exe_dir.join("dxgi.dll"), b"stale dxmt dxgi").unwrap();
         std::fs::write(exe_dir.join("winemetal.dll"), b"stale dxmt winemetal").unwrap();
 
-        let route_dlls = ["d3d12.dll", "d3d11.dll", "dxgi.dll", "dxgi_dxmt.dll", "winemetal.dll"];
+        let route_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
         for dll in route_dlls {
             std::fs::write(source_dir.join(dll), format!("isolated m12 {dll}")).unwrap();
         }
@@ -6511,7 +6499,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             appid: 42,
             pipeline: PipelineId::M12,
             pipeline_name: "M12".into(),
-            backend: "dxmt".into(),
+            backend: "vkd3d-proton".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe_dir.join("Game.exe")),
             exe_name: Some("Game.exe".into()),
@@ -6520,7 +6508,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             dlls: route_dlls
                 .iter()
                 .map(|dll| recipe::RecipeDll {
-                    source_subpath: "lib/dxmt_m12/x86_64-windows".into(),
+                    source_subpath: "lib/vkd3d-proton/x86_64-windows".into(),
                     filename: (*dll).into(),
                     source_path: source_dir.join(dll),
                     dest_path: exe_dir.join(dll),
@@ -6533,15 +6521,16 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
         let moved = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine stale DXMT routes");
         assert_eq!(moved, 3, "stale d3d11/dxgi/winemetal should be quarantined before M12 deploy");
-        deploy_recipe_dlls(&recipe).expect("deploy M12 isolated DXMT route");
+        deploy_recipe_dlls(&recipe).expect("deploy M12 vkd3d-proton stack");
 
         for dll in route_dlls {
             assert_eq!(
                 std::fs::read_to_string(exe_dir.join(dll)).unwrap(),
                 format!("isolated m12 {dll}"),
-                "M12 switch-back must deploy {dll} from dxmt_m12"
+                "M12 switch-back must deploy {dll} from vkd3d-proton"
             );
         }
+        assert!(!exe_dir.join("dxgi_dxmt.dll").exists(), "M12 must never deploy dxgi_dxmt.dll");
         let marker = game_dir.join(".metalsharp").join("route-quarantine").join("latest-manifest.json");
         assert!(marker.is_file(), "quarantine marker should document moved DXMT route DLLs");
 
@@ -6614,7 +6603,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             .iter()
             .map(|s| s.get("filename").unwrap().as_str().unwrap().to_string())
             .collect();
-        for required in ["winemetal.so", "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"] {
+        for required in ["libMoltenVK.dylib", "MoltenVK_icd.json"] {
             assert!(
                 sidecar_names.contains(&required.to_string()),
                 "M12 dry-run must verify {}: {:?}",
@@ -6776,8 +6765,9 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert_eq!(ready.get("m12_env_ok").and_then(|value| value.as_bool()), Some(true));
         let checks = ready.get("env_checks").expect("env checks");
         assert_eq!(checks.get("requires_vkd3d_proton_windows").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(checks.get("requires_dxvk_windows").and_then(|value| value.as_bool()), Some(true));
         assert_eq!(checks.get("requires_moltenvk_vkmt").and_then(|value| value.as_bool()), Some(true));
-        assert_eq!(checks.get("requires_dxmt_m12_windows").and_then(|value| value.as_bool()), Some(false));
+        assert_eq!(checks.get("requires_vulkan_icd").and_then(|value| value.as_bool()), Some(true));
 
         let missing_icd: Vec<_> = env.into_iter().filter(|(key, _)| key != "VK_ICD_FILENAMES").collect();
         let not_ready = prepare_readiness_report(&recipe, &missing_icd);
@@ -7013,12 +7003,10 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let dxvk_dir = ms_root.join("lib").join("dxvk").join("x86_64-windows");
         let mvk_dir = ms_root.join("lib").join("moltenvk-vkmt");
         let icd_dir = ms_root.join("etc").join("vulkan").join("icd.d");
-        let dxmt_m12_dir = ms_root.join("lib").join("dxmt_m12").join("x86_64-windows");
         std::fs::create_dir_all(&vkd3d_dir).unwrap();
         std::fs::create_dir_all(&dxvk_dir).unwrap();
         std::fs::create_dir_all(&mvk_dir).unwrap();
         std::fs::create_dir_all(&icd_dir).unwrap();
-        std::fs::create_dir_all(&dxmt_m12_dir).unwrap();
 
         // Real VKMT binaries (the exact files the graphics bundle will carry).
         std::fs::copy(PathBuf::from(&vkd3d_src).join("x86_64-windows/d3d12.dll"), vkd3d_dir.join("d3d12.dll")).unwrap();
@@ -7028,17 +7016,6 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         std::fs::copy(PathBuf::from(&mvk_src).join("libMoltenVK.dylib"), mvk_dir.join("libMoltenVK.dylib")).unwrap();
         std::fs::copy(PathBuf::from(&mvk_src).join("libMoltenVK.dylib"), mvk_dir.join("libMoltenVK.1.dylib")).unwrap();
         std::fs::copy(PathBuf::from(&mvk_src).join("MoltenVK_icd.json"), mvk_dir.join("MoltenVK_icd.json")).unwrap();
-        // GPU vendor stubs ride in the shared dxmt_m12 lane (vkd3d-proton
-        // ships none); stage them so the node's full deploy list resolves.
-        for stub in ["nvapi64.dll", "nvngx.dll"] {
-            let source = crate::installer::dxmt_m12_runtime_artifact_path_for_home(
-                &dirs::home_dir().unwrap_or_default(),
-                &format!("x86_64-windows/{}", stub),
-            );
-            if source.is_file() {
-                std::fs::copy(&source, dxmt_m12_dir.join(stub)).unwrap();
-            }
-        }
 
         // The pinned-hash contract must hold for the real binaries. The
         // production hash constants are cfg(not(test)) so the E2E test pins
@@ -7389,8 +7366,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let system32 = prefix.join("drive_c").join("windows").join("system32");
         std::fs::create_dir_all(&system32).expect("create system32");
 
-        let dlls =
-            ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
+        let dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
         for dll in dlls {
             std::fs::write(system32.join(dll), format!("stale-{dll}")).expect("write stale route dll");
             std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).expect("write wine builtin");

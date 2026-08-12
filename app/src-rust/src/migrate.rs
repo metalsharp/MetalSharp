@@ -65,7 +65,6 @@ const MIGRATION_WINDOWS_ROUTE_DLLS: &[&str] = &[
     "d3d12.dll",
     "d3d12core.dll",
     "dxgi.dll",
-    "dxgi_dxmt.dll",
     "metalsharp_ntdll_hook.dll",
     "nvapi64.dll",
     "nvngx.dll",
@@ -573,11 +572,9 @@ fn run_migration() {
     restore_user_data(&ms_dir, &preserved, &mut report);
     write_migration_report(&report);
 
-    // M12 backend reconciliation: the vkd3d-proton stack is the default, but
-    // an older graphics bundle may lack the lanes. When they did not stage,
-    // fall back to DXMT so existing users keep working — never leave the
-    // default pointing at a missing runtime.
-    reconcile_m12_backend(&home);
+    // M12 runs the vkd3d-proton stack only (no DXMT fallback); the runtime
+    // install above either staged the vkd3d-proton/DXVK/VKMT lanes or failed
+    // loudly. No backend reconciliation is needed.
 
     if !install_ok {
         write_migrate_progress(
@@ -686,32 +683,6 @@ fn verify_migration_ready(ms_dir: &Path, marker: Option<&PostUpdateMigrationMark
     }
 
     Ok(())
-}
-
-/// Decide the M12 backend after a migration: keep the vkd3d-proton default
-/// when its runtime lanes staged, otherwise fall back to DXMT in config so
-/// the default never points at a missing runtime. Returns the decision.
-fn reconcile_m12_backend(home: &Path) -> String {
-    if crate::installer::vkd3d_proton_runtime_current_for_home(home)
-        && crate::installer::moltenvk_vkmt_runtime_ready_for_home(home)
-        && crate::installer::dxvk_runtime_ready_for_home(home)
-    {
-        log_to_file("Migration: vkd3d-proton M12 lanes present; keeping vkd3d-proton default");
-        "vkd3d-proton".to_string()
-    } else {
-        let mut body = serde_json::Map::new();
-        body.insert("m12Backend".into(), json!("dxmt"));
-        match crate::launch::set_config_for_home(home, &body) {
-            Ok(_) => {
-                log_to_file("Migration: vkd3d-proton lanes missing — M12 fell back to DXMT backend");
-                "dxmt".to_string()
-            },
-            Err(e) => {
-                log_to_file(&format!("Migration: failed to fall back to DXMT backend: {}", e));
-                "unknown".to_string()
-            },
-        }
-    }
 }
 
 fn repair_runtime_for_migration_verify(ms_dir: &Path) -> Result<bool, String> {
@@ -3548,15 +3519,19 @@ mod tests {
         );
 
         write_runtime_core(&ms_dir);
-        fs::write(
-            ms_dir.join("runtime").join("wine").join("lib").join("dxmt_m12").join("x86_64-windows").join("d3d12.dll"),
-            b"stale-m12-d3d12",
+        // A complete runtime core passes readiness.
+        assert_eq!(verify_migration_ready(&ms_dir, None), Ok(()), "complete runtime core must pass");
+
+        // Breaking a hash-gated runtime artifact (the DXMT lane's winemetal.so)
+        // makes readiness fail again.
+        fs::remove_file(
+            ms_dir.join("runtime").join("wine").join("lib").join("dxmt").join("x86_64-unix").join("winemetal.so"),
         )
-        .expect("poison M12 hash-gated runtime file");
+        .expect("remove DXMT winemetal.so");
         assert_eq!(
             verify_migration_ready(&ms_dir, None).unwrap_err(),
             "runtime bundle is still incomplete after install",
-            "stale M12 hashes must not satisfy migration readiness"
+            "missing runtime artifacts must not satisfy migration readiness"
         );
         let _ = fs::remove_dir_all(home);
     }
@@ -3598,25 +3573,12 @@ mod tests {
             runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join("d3d11.dll"),
             runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join("d3d12.dll"),
             runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join("dxgi.dll"),
-            runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join("dxgi_dxmt.dll"),
             runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join("winemetal.dll"),
             runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join("nvapi64.dll"),
             runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join("nvngx.dll"),
             runtime_wine.join("lib").join("metalsharp").join("x86_64-windows").join("metalsharp_ntdll_hook.dll"),
             runtime_wine.join("lib").join("metalsharp").join("i386-windows").join("metalsharp_ntdll_hook.dll"),
             runtime_wine.join("lib").join("dxmt").join("x86_64-unix").join("winemetal.so"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-unix").join("winemetal.so"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-unix").join("libc++.1.dylib"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-unix").join("libc++abi.1.dylib"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-unix").join("libunwind.1.dylib"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("d3d10core.dll"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("d3d11.dll"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("d3d12.dll"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("dxgi.dll"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("dxgi_dxmt.dll"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("winemetal.dll"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("nvapi64.dll"),
-            runtime_wine.join("lib").join("dxmt_m12").join("x86_64-windows").join("nvngx.dll"),
             runtime_wine.join("lib").join("gptk").join("x86_64-windows").join("d3d10.dll"),
             runtime_wine.join("lib").join("gptk").join("x86_64-windows").join("d3d11.dll"),
             runtime_wine.join("lib").join("gptk").join("x86_64-windows").join("d3d12.dll"),
@@ -3647,9 +3609,7 @@ mod tests {
             fs::write(path, b"test").expect("write runtime file");
         }
 
-        crate::installer::write_dxmt_m12_expected_test_files(&runtime_wine.join("lib").join("dxmt_m12"));
-
-        for lane in ["dxmt", "dxmt_m12"] {
+        for lane in ["dxmt"] {
             fs::write(
                 runtime_wine.join("lib").join(lane).join("metalsharp-dxmt-runtime.json"),
                 serde_json::to_string_pretty(&json!({
@@ -3942,8 +3902,11 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_m12_backend_keeps_vkd3d_default_when_lanes_present() {
-        let home = test_dir("reconcile-vkd3d");
+    fn m12_stack_readiness_requires_all_three_lanes() {
+        let home = test_dir("m12-stack-readiness");
+        // Empty home: the vkd3d-proton M12 stack is not ready.
+        assert!(!crate::installer::vkd3d_proton_runtime_current_for_home(&home));
+
         crate::installer::write_vkd3d_proton_expected_test_files(&crate::installer::vkd3d_proton_runtime_dir_for_home(
             &home,
         ));
@@ -3958,26 +3921,9 @@ mod tests {
             fs::write(dxvk.join(dll), dll.as_bytes()).expect("write dll");
         }
 
-        let decision = reconcile_m12_backend(&home);
-        assert_eq!(decision, "vkd3d-proton");
-
-        // No config written, default stays vkd3d-proton.
-        let configs = home.join(".metalsharp").join("configs");
-        assert!(!configs.join("config.json").exists());
-        let _ = fs::remove_dir_all(home);
-    }
-
-    #[test]
-    fn reconcile_m12_backend_falls_back_to_dxmt_when_lanes_missing() {
-        let home = test_dir("reconcile-dxmt-fallback");
-
-        let decision = reconcile_m12_backend(&home);
-        assert_eq!(decision, "dxmt");
-
-        // Config now pins dxmt so the default never points at a missing runtime.
-        let configs = home.join(".metalsharp").join("configs");
-        let contents = fs::read_to_string(configs.join("config.json")).expect("config written");
-        assert!(contents.contains("\"m12Backend\": \"dxmt\""), "config must pin dxmt: {}", contents);
+        assert!(crate::installer::vkd3d_proton_runtime_current_for_home(&home));
+        assert!(crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home));
+        assert!(crate::installer::dxvk_runtime_ready_for_home(&home));
         let _ = fs::remove_dir_all(home);
     }
 }
