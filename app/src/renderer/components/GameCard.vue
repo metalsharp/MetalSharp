@@ -179,7 +179,7 @@ const runtimeReport = ref<SteamRuntimeReport | null>(null);
 const d3dmetalState = ref<D3DMetalGptkState | null>(null);
 const d3dmetalActions = ref<D3DMetalGptkAction[]>([]);
 const d3dmetalLoading = ref(false);
-// GPTK 4 is machine-wide: once installed it is marked done and never
+// GPTK 3 is machine-wide: once installed it is marked done and never
 // presented again (mirrors the backend's global .gptk3-installed marker).
 const gptk3Installed = ref(false);
 const gptk3DmgFound = ref(false);
@@ -804,7 +804,7 @@ async function repairGptk3() {
     }
     gptk3Installed.value = result.gptk3_installed === true;
     gptk3DmgFound.value = result.gptk3_dmg_found === true;
-    toast.show(gptk3Installed.value ? "GPTK 4 installed" : "GPTK 4 setup complete", "success");
+    toast.show(gptk3Installed.value ? "GPTK 3 installed" : "GPTK 3 setup complete", "success");
   } else {
     toast.show(
       result?.error ??
