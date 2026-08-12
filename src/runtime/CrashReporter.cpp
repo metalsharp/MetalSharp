@@ -6,16 +6,54 @@
 /// be safe to call from signal handlers and other constrained contexts.
 
 #include "metalsharp/CrashReporter.h"
+#include "PrivateStorage.h"
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <pwd.h>
 #include <random>
 #include <sstream>
+#include <unistd.h>
+#include <vector>
 
 namespace metalsharp {
 
 namespace fs = std::filesystem;
+
+namespace {
+
+// Launchers do not always inherit HOME. Resolve the account's home directory
+// without falling back to a shared, world-writable temporary directory.
+std::string passwdHomeDirectory() {
+    long bufferSize = sysconf(_SC_GETPW_R_SIZE_MAX);
+    if (bufferSize <= 0)
+        bufferSize = 16384;
+
+    std::vector<char> buffer(static_cast<size_t>(bufferSize));
+    struct passwd passwordEntry{};
+    struct passwd* result = nullptr;
+    if (getpwuid_r(getuid(), &passwordEntry, buffer.data(), buffer.size(), &result) == 0 && result && result->pw_dir) {
+        return result->pw_dir;
+    }
+    return {};
+}
+
+std::string applicationSupportDirectory() {
+    const std::string home = passwdHomeDirectory();
+    if (!home.empty())
+        return home + "/Library/Application Support/MetalSharp";
+    return "/Library/Application Support/MetalSharp";
+}
+
+std::string dataDirectory() {
+    const char* home = std::getenv("HOME");
+    if (home && *home)
+        return std::string(home) + "/.metalsharp";
+    return applicationSupportDirectory();
+}
+
+} // namespace
 
 CrashReporter& CrashReporter::instance() {
     static CrashReporter inst;
@@ -35,8 +73,9 @@ std::string CrashReporter::generateId() {
 std::string CrashReporter::formatTimestamp(int64_t epoch) {
     time_t t = static_cast<time_t>(epoch);
     struct tm* tm_info = localtime(&t);
-    char buf[64];
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm_info);
+    char buf[64] = {};
+    if (!tm_info || strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm_info) == 0)
+        return {};
     return std::string(buf);
 }
 
@@ -59,10 +98,7 @@ void CrashReporter::endSession(int exitCode) {
 }
 
 std::string CrashReporter::getReportsDir() {
-    const char* home = std::getenv("HOME");
-    if (!home)
-        return "/tmp/metalsharp/crashes";
-    return std::string(home) + "/.metalsharp/crashes";
+    return dataDirectory() + "/crashes";
 }
 
 std::string CrashReporter::collectSystemInfo() {
@@ -83,10 +119,7 @@ std::string CrashReporter::collectSystemInfo() {
 
     ss << "Pointer size: " << sizeof(void*) * 8 << " bit\n";
 
-    const char* home = std::getenv("HOME");
-    if (home) {
-        ss << "Home: " << home << "\n";
-    }
+    ss << "Home: [redacted]\n";
 
     return ss.str();
 }
@@ -100,8 +133,7 @@ CrashReport CrashReporter::collectReport() {
     report.systemInfo = collectSystemInfo();
     report.collected = true;
 
-    const char* home = std::getenv("HOME");
-    std::string base = home ? std::string(home) + "/.metalsharp" : "/tmp/metalsharp";
+    const std::string base = dataDirectory();
 
     auto readFileIfExists = [&](const std::string& path) -> std::string {
         std::ifstream f(path);
@@ -202,12 +234,14 @@ std::vector<CrashReport> CrashReporter::getRecentReports(int count) {
 }
 
 bool CrashReporter::saveReport(const CrashReport& report) {
-    std::string dir = getReportsDir();
-    fs::create_directories(dir);
+    const fs::path base = dataDirectory();
+    const fs::path dir = base / "crashes";
+    if (!runtime_detail::ensurePrivateDirectory(base) || !runtime_detail::ensurePrivateDirectory(dir))
+        return false;
 
-    std::string path = dir + "/" + report.id + ".crash";
-    std::ofstream f(path);
-    if (!f.is_open())
+    const fs::path path = dir / (report.id + ".crash");
+    std::ofstream f;
+    if (!runtime_detail::openPrivateFile(f, path))
         return false;
 
     f << "id: " << report.id << "\n";
