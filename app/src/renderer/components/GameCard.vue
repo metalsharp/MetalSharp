@@ -808,7 +808,7 @@ async function repairGptk3() {
   } else {
     toast.show(
       result?.error ??
-        "GPTK 4 repair failed — download Game Porting Toolkit 3.0 into ~/Downloads and try again",
+        "GPTK 3 repair failed — download Game Porting Toolkit 3.0 into ~/Downloads and try again",
       "error",
     );
   }
