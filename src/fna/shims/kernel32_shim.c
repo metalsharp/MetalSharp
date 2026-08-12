@@ -293,11 +293,16 @@ BOOL IsDebuggerPresent(void) {
 BOOL CloseHandle(HANDLE hObject) {
     if (!hObject)
         return 0;
-    int fd = (int)(intptr_t)hObject;
-    if (fd >= 0 && fd < 1024) {
-        close(fd);
-        return 1;
-    }
+
+    /*
+     * GetStdHandle returns borrowed POSIX descriptors in this shim. A file
+     * descriptor is process-global, so treating every small HANDLE value as
+     * owned would let CloseHandle(GetStdHandle(...)) close the host's stdio
+     * (or an unrelated descriptor that has since reused the same number).
+     * This shim currently has no API that creates fd-backed HANDLEs; until
+     * such an API can register its owned handles, CloseHandle must not infer
+     * ownership from the numeric value.
+     */
     return 1;
 }
 
