@@ -13,7 +13,7 @@ const RENDERER_ENDPOINTS = [
   "GET /bottles/profiles",
   "GET /cache/size",
   "GET /config",
-  "GET /diagnostics/m12/dry-run",
+  "GET /diagnostics/vkd3d/dry-run",
   "GET /eac/status",
   "GET /goldberg/status",
   "GET /logs",
@@ -131,7 +131,7 @@ const logStreamQuery: QueryValidator = (params) => {
 };
 
 const QUERY_VALIDATORS = new Map<string, QueryValidator>([
-  ["GET /diagnostics/m12/dry-run", appIdQuery],
+  ["GET /diagnostics/vkd3d/dry-run", appIdQuery],
   ["GET /eac/status", appIdQuery],
   ["GET /goldberg/status", appIdQuery],
   ["GET /logs/stream", logStreamQuery],

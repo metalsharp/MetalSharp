@@ -3,7 +3,7 @@
 
 
 Before tagging a release (`vX.Y.Z`), verify every item below. This checklist
-exists so a release cannot accidentally imply M12 proof applies to M11, or
+exists so a release cannot accidentally imply VKD3D proof applies to M11, or
 vice versa.
 
 ## Version synchronization
@@ -26,15 +26,15 @@ explicitly a release PR.
 - [ ] Runtime bundle hash recorded and matches the shipped bundle.
 - [ ] Developer SDK hash recorded.
 - [ ] `GET /diagnostics/runtime-artifacts` reports `ok: true` (every required
-      M11 `lib/dxmt`, M12 `lib/vkd3d-proton` + `lib/dxvk` + `lib/moltenvk-vkmt`
-      (default backend) or `lib/dxmt-m12` (rollback) file present with a sha256).
-- [ ] M12 default-backend sidecars present: `lib/moltenvk-vkmt/libMoltenVK.dylib`
+      M11 `lib/dxmt`, VKD3D `lib/vkd3d-proton` + `lib/dxvk` + `lib/moltenvk-vkmt`
+      (default backend) or `lib/dxmt-vkd3d` (rollback) file present with a sha256).
+- [ ] VKD3D default-backend sidecars present: `lib/moltenvk-vkmt/libMoltenVK.dylib`
       + `MoltenVK_icd.json`, the `lib/vkd3d-proton/x86_64-windows`
       `d3d12.dll`/`d3d12core.dll` (win64) + DXVK `dxgi.dll` PE set. (vkd3d-proton
       ships Windows DLLs only — there is NO vkd3d-proton unix sidecar.)
-- [ ] M12 rollback sidecars present (only when `m12Backend=dxmt` is kept in the
+- [ ] VKD3D rollback sidecars present (only when `vkd3dBackend=dxmt` is kept in the
       bundle): `winemetal.so`, `libc++.1.dylib`, `libc++abi.1.dylib`,
-      `libunwind.1.dylib` under `lib/dxmt-m12/x86_64-unix/`.
+      `libunwind.1.dylib` under `lib/dxmt-vkd3d/x86_64-unix/`.
 - [ ] Legacy DXMT surface present: `lib/dxmt/x86_64-unix/winemetal.so` and the
       `DXMT_REQUIRED_PE` set under `lib/dxmt/x86_64-windows/`.
 
@@ -51,7 +51,7 @@ explicitly a release PR.
 - [ ] `cargo test --manifest-path app/src-rust/Cargo.toml bottles::tests` passes
 - [ ] `cargo test --manifest-path app/src-rust/Cargo.toml mtsp` passes
 - [ ] `GET /bottles/route-contracts` reports every protected lane (M9, M10,
-      M11, M12, FnaArm64, WineBare, D3DMetal)
+      M11, VKD3D, FnaArm64, WineBare, D3DMetal)
 - [ ] `GET /update/migrate/report` shows the expected preserved/skipped
       categories after a migration smoke
 
@@ -64,9 +64,9 @@ explicitly a release PR.
 
 ## Strict SDK gate
 
-- [ ] `docs/architecture/m12-pipeline-map.md` is current and names the exact
+- [ ] `docs/architecture/vkd3d-pipeline-map.md` is current and names the exact
       supported route (D3D12 → vkd3d-proton → Vulkan → VKMT MoltenVK → Metal,
-      with DXMT rollback via `m12Backend=dxmt`).
+      with DXMT rollback via `vkd3dBackend=dxmt`).
 - [ ] No doc claims "D3D12 works" without naming the exact route, probes,
       feature level, and remaining gaps.
-- [ ] M9/M10/M11 docs do not inherit M12 proof claims.
+- [ ] M9/M10/M11 docs do not inherit VKD3D proof claims.

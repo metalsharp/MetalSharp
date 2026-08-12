@@ -185,7 +185,7 @@ EncodeSwapchainReadback(WMT::Device device, WMT::CommandBuffer cmdbuf,
   probe.buffer = device.newBuffer(info);
   probe.mapped = info.memory.get();
   if (!probe.buffer.handle || !probe.mapped) {
-    Logger::info(str::format("M12 swapchain readback unavailable count=",
+    Logger::info(str::format("VKD3D swapchain readback unavailable count=",
                              present_count, " fmt=", (unsigned)format));
     return {};
   }
@@ -193,7 +193,7 @@ EncodeSwapchainReadback(WMT::Device device, WMT::CommandBuffer cmdbuf,
   auto blit = cmdbuf.blitCommandEncoder();
   if (!blit.handle) {
     Logger::info(
-        str::format("M12 swapchain readback skipped: no blit encoder count=",
+        str::format("VKD3D swapchain readback skipped: no blit encoder count=",
                     present_count));
     return {};
   }
@@ -246,7 +246,7 @@ static void LogSwapchainReadback(const SwapchainReadbackProbe &probe,
   }
 
   Logger::info(str::format(
-      "M12 swapchain readback count=", probe.present_count,
+      "VKD3D swapchain readback count=", probe.present_count,
       " fmt=", (unsigned)format, " sample=", probe.width, "x", probe.height,
       " nonzero_pixels=", nonzero_pixels, " nonzero_bytes=", nonzero_bytes,
       " max_byte=", (unsigned)max_byte, " checksum=0x", std::hex, checksum));
@@ -436,7 +436,7 @@ void MTLD3D12SwapChain::ReassertWindowForHandoff(const char *reason) {
           window.top, window.right - window.left, window.bottom - window.top,
           m_fs_desc.Windowed ? 1 : 0);
   Logger::info(str::format(
-      "M12 reassert window handoff reason=", reason ? reason : "unknown",
+      "VKD3D reassert window handoff reason=", reason ? reason : "unknown",
       " hwnd=", (void *)m_hwnd, " client=", width, "x", height,
       " windowed=", m_fs_desc.Windowed ? 1 : 0));
 }
@@ -474,7 +474,7 @@ void MTLD3D12SwapChain::ConfigureLayer() {
 
   WMTLayerProps props = {};
   m_layer.getProps(props);
-  Logger::info(str::format("M12 ConfigureLayer drawable=", props.drawable_width,
+  Logger::info(str::format("VKD3D ConfigureLayer drawable=", props.drawable_width,
                            "x", props.drawable_height,
                            " src_fmt=", (unsigned)source_format,
                            " layer_fmt=", (unsigned)props.pixel_format,
@@ -682,7 +682,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::ResizeBuffers(UINT buffer_count,
             res ? (unsigned long long)res->GetMTLTexture().handle : 0ull,
             m_desc.Width, m_desc.Height, (unsigned)m_desc.Format);
     Logger::info(str::format(
-        "M12 swapchain backbuffer[", i, "] res=", (void *)res,
+        "VKD3D swapchain backbuffer[", i, "] res=", (void *)res,
         " tex=", res ? (unsigned long long)res->GetMTLTexture().handle : 0ull,
         " size=", m_desc.Width, "x", m_desc.Height,
         " fmt=", (unsigned)m_desc.Format));
@@ -814,7 +814,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::Present1(
     if (m_present_count <= 20 ||
         (m_present_count % PresentLogInterval()) == 0) {
       Logger::info(str::format(
-          "M12 present entry count=", m_present_count, " sync=",
+          "VKD3D present entry count=", m_present_count, " sync=",
           sync_interval, " flags=0x", std::hex, flags, std::dec, " idx=",
           m_current_buffer, " backbuffer=0 fmt=", (unsigned)m_desc.Format,
           " size=", m_desc.Width, "x", m_desc.Height));
@@ -836,13 +836,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::Present1(
       (m_present_count % PresentLogInterval()) == 0) {
     auto work = res->GetSwapchainQueueWork();
     Logger::info(str::format(
-        "M12 present entry count=", m_present_count, " sync=", sync_interval,
+        "VKD3D present entry count=", m_present_count, " sync=", sync_interval,
         " flags=0x", std::hex, flags, std::dec, " idx=", m_current_buffer,
         " backbuffer=", (void *)res, " src=",
         (unsigned long long)src_texture.handle, " fmt=",
         (unsigned)m_desc.Format, " size=", m_desc.Width, "x", m_desc.Height));
     Logger::info(str::format(
-        "M12 present backbuffer work count=", m_present_count, " idx=",
+        "VKD3D present backbuffer work count=", m_present_count, " idx=",
         m_current_buffer, " serial=", (unsigned long long)work.serial,
         " cmds=", work.command_count, " draws=", work.draw_count,
         " indexed=", work.indexed_draw_count,
@@ -900,7 +900,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::Present1(
       (m_present_count <= 20 ||
        (m_present_count % PresentLogInterval()) == 0)) {
     Logger::info(str::format(
-        "M12 present using presenter for non-raw-blit swapchain fmt=",
+        "VKD3D present using presenter for non-raw-blit swapchain fmt=",
         (unsigned)m_desc.Format, " count=", m_present_count));
   }
   if (force_raw_blit && m_present_count <= 20) {
@@ -931,7 +931,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::Present1(
     if (m_present_count <= 20 ||
         (m_present_count % PresentLogInterval()) == 0) {
       Logger::info(str::format(
-          "M12 present presenter count=", m_present_count, " idx=",
+          "VKD3D present presenter count=", m_present_count, " idx=",
           m_current_buffer, " src=", (unsigned long long)src_texture.handle,
           " drawable=", (unsigned long long)drawable.texture().handle,
           " size=", m_desc.Width, "x", m_desc.Height));
@@ -964,7 +964,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::Present1(
     if (m_present_count <= 20 ||
         (m_present_count % PresentLogInterval()) == 0) {
       Logger::info(str::format(
-          "M12 present blit count=", m_present_count, " idx=", m_current_buffer,
+          "VKD3D present blit count=", m_present_count, " idx=", m_current_buffer,
           " src=", (unsigned long long)src_texture.handle,
           " drawable=", (unsigned long long)dst_texture.handle,
           " size=", m_desc.Width, "x", m_desc.Height));
@@ -1025,7 +1025,7 @@ MTLD3D12SwapChain::PresentBackBufferFromQueue(MTLD3D12Resource *resource) {
   if (buffer >= m_backbuffers.size() || !m_backbuffers[buffer])
     return DXGI_ERROR_INVALID_CALL;
 
-  Logger::info(str::format("M12 autopresent swapchain backbuffer=", buffer,
+  Logger::info(str::format("VKD3D autopresent swapchain backbuffer=", buffer,
                            " res=", (void *)resource,
                            " logical_idx=", m_current_buffer));
   uint32_t logical_buffer = m_current_buffer;

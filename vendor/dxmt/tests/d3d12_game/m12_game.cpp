@@ -267,10 +267,10 @@ static bool createHarness(Harness &h) {
   WNDCLASSA wc = {};
   wc.lpfnWndProc = wndProc;
   wc.hInstance = GetModuleHandleA(nullptr);
-  wc.lpszClassName = "M12GameHarness";
+  wc.lpszClassName = "VKD3DGameHarness";
   RegisterClassA(&wc);
 
-  h.hwnd = CreateWindowA("M12GameHarness", "m12_game.exe",
+  h.hwnd = CreateWindowA("VKD3DGameHarness", "vkd3d_game.exe",
                          WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT,
                          CW_USEDEFAULT, kWidth, kHeight, nullptr, nullptr,
                          wc.hInstance, nullptr);
@@ -1197,7 +1197,7 @@ int main(int argc, char **argv) {
   if (loops < 1)
     loops = 1;
 
-  std::printf("=== m12_game.exe DX12 harness ===\n");
+  std::printf("=== vkd3d_game.exe DX12 harness ===\n");
   std::printf("[INFO] loops=%d seconds=%.2f width=%u height=%u sparse_color_slot=%u\n",
               loops, seconds, kWidth, kHeight, kSparseColorSlot);
 
@@ -1227,13 +1227,13 @@ int main(int argc, char **argv) {
   destroyHarness(h);
 
   if (fail) {
-    std::fprintf(stderr, "\n=== m12_game.exe FAIL cases=%d ===\n", fail);
+    std::fprintf(stderr, "\n=== vkd3d_game.exe FAIL cases=%d ===\n", fail);
     std::fflush(stdout);
     std::fflush(stderr);
     TerminateProcess(GetCurrentProcess(), 1);
   }
 
-  std::printf("\n=== m12_game.exe PASS ===\n");
+  std::printf("\n=== vkd3d_game.exe PASS ===\n");
   std::fflush(stdout);
   std::fflush(stderr);
   TerminateProcess(GetCurrentProcess(), 0);

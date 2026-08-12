@@ -194,8 +194,8 @@ pub fn dependencies() -> Value {
                 "status": dxmt_status.get("dxmt").cloned().unwrap_or_else(|| dxmt_status.clone()),
             },
             {
-                "id": "m12_vkd3d_runtime",
-                "name": "M12 vkd3d-proton Runtime",
+                "id": "vkd3d_vkd3d_runtime",
+                "name": "VKD3D vkd3d-proton Runtime",
                 "desc": "D3D12-to-Metal stack (vkd3d-proton + DXVK + VKMT MoltenVK) staged under runtime/wine/lib.",
                 "installed": crate::installer::vkd3d_proton_runtime_current_for_home(&home)
                     && crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home)
@@ -622,7 +622,7 @@ fn prepare_dxmt_pipeline(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let marker = game_dir.join(".metalsharp_prepared");
     stage_packaged_steam_runtime_for_game(appid, game_dir)?;
-    if pipeline == crate::mtsp::engine::PipelineId::M12 {
+    if pipeline == crate::mtsp::engine::PipelineId::Vkd3d {
         stage_agility_sdk_for_game(appid, game_dir, home)?;
     }
     if !marker.exists() {

@@ -12,9 +12,9 @@ used.
 | --- | --- | --- |
 | D3D12 DLL build | `ninja -C vendor/dxmt/build-metalsharp-x64 src/d3d12/d3d12.dll` | Pass |
 | D3D12 vertex contract | `/tmp/test_d3d12_vertex_contract` | Pass |
-| Current RE4 DXIL cache | `/tmp/test_dxil_converter /Users/alexmondello/.metalsharp/shader-cache/m12/2050650` | 442 pass, 0 fail, 0 skip |
-| Backup RE4 DXIL cache | `/tmp/test_dxil_converter /Users/alexmondello/.metalsharp/shader-cache/m12/2050650.vertexpull-backup-20260612022154` | 299 pass, 0 fail, 0 skip |
-| PSO metadata replay | `python3 vendor/dxmt/tests/dxil/replay_d3d12_pso_metadata.py --cache /Users/alexmondello/.metalsharp/shader-cache/m12/2050650 --output /tmp/replay_d3d12_pso_metadata_phase7.json` | Partial, 0 failures |
+| Current RE4 DXIL cache | `/tmp/test_dxil_converter /Users/alexmondello/.metalsharp/shader-cache/vkd3d/2050650` | 442 pass, 0 fail, 0 skip |
+| Backup RE4 DXIL cache | `/tmp/test_dxil_converter /Users/alexmondello/.metalsharp/shader-cache/vkd3d/2050650.vertexpull-backup-20260612022154` | 299 pass, 0 fail, 0 skip |
+| PSO metadata replay | `python3 vendor/dxmt/tests/dxil/replay_d3d12_pso_metadata.py --cache /Users/alexmondello/.metalsharp/shader-cache/vkd3d/2050650 --output /tmp/replay_d3d12_pso_metadata_phase7.json` | Partial, 0 failures |
 | Representative MSL compile | `xcrun -sdk macosx metal -c .../570793ee26c3a8a4.msl -o /tmp/570793ee26c3a8a4.air` | Exit 0, warning only |
 | Representative MSL compile | `xcrun -sdk macosx metal -c .../b2b7ba555e7d10dc.msl -o /tmp/b2b7ba555e7d10dc.air` | Exit 0, warning only |
 | Process residue check | `ps -axo ... | egrep -i 'wine|steam|metalsharp|...'` | No matching leftover processes |

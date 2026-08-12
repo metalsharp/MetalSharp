@@ -1,14 +1,14 @@
-# M12 D3D12 Shader Engine
+# VKD3D D3D12 Shader Engine
 **Updated:** 2026-07-08
 
 
-M12 treats shader translation as a defined engine, not as a single converter
+VKD3D treats shader translation as a defined engine, not as a single converter
 function. The engine boundary starts when a D3D12 game supplies DXBC or DXIL
 bytecode and ends when a Metal render or compute pipeline is created, cached,
 bound, and used by a draw, dispatch, or present pass.
 
 The shader engine is also a deployment contract. Install and migration must put
-known-good shader-engine material on disk, launch must seed the selected M12
+known-good shader-engine material on disk, launch must seed the selected VKD3D
 cache from that material, and diagnostics must write to logs instead of mixing
 proof output into shader or pipeline caches.
 
@@ -36,11 +36,11 @@ proof output into shader or pipeline caches.
 - **Installed corpus:** checked-in shader corpora under
   `tools/d3d12-metal-sdk/shader-corpus/` are packaged into the runtime and
   scripts/tools bundles. Install and migration validate the expected corpus
-  proof file and runtime-safe material before M12 is considered ready.
+  proof file and runtime-safe material before VKD3D is considered ready.
 
 ## Runtime Material
 
-M12 shader-engine material can be sourced from:
+VKD3D shader-engine material can be sourced from:
 
 ```text
 ~/.metalsharp/runtime/wine/share/d3d12-metal-sdk/shader-corpus/
@@ -57,13 +57,13 @@ elden-ring-present-vb-pull-20260612/proof/SHA256SUMS
 
 That proof must exist under at least one installed corpus source, and the source
 must also contain runtime-safe shader-engine material. This prevents a partial
-archive with one stray `.metallib` from passing M12 readiness.
+archive with one stray `.metallib` from passing VKD3D readiness.
 
-When a game uses the M12 cache namespace, `shader_cache.rs` copies runtime-safe
+When a game uses the VKD3D cache namespace, `shader_cache.rs` copies runtime-safe
 files into:
 
 ```text
-~/.metalsharp/shader-cache/m12/<appid>/
+~/.metalsharp/shader-cache/vkd3d/<appid>/
 ```
 
 The copied file classes are:
@@ -87,13 +87,13 @@ sidecars, not the entire developer proof tree.
 Logs are separate:
 
 ```text
-~/.metalsharp/logs/m12-pipeline/<appid>/
+~/.metalsharp/logs/vkd3d-pipeline/<appid>/
 ```
 
 Pipeline caches are also separate:
 
 ```text
-~/.metalsharp/pipeline-cache/m12/<appid>/
+~/.metalsharp/pipeline-cache/vkd3d/<appid>/
 ```
 
 This split matters. A shader fix is not proven by a stale `.metallib`, and a
@@ -133,7 +133,7 @@ The engine has separate proof layers. They are cumulative, not interchangeable.
 | Metal compile | `.air`, `.metallib`, compiler logs | Generated MSL compiles and links under Apple's Metal toolchain. |
 | Root signature | root-signature reports | Shader bindings can be matched to D3D12 root parameters and descriptor ranges. |
 | PSO manifests | `pso-render-*.json`, `pso-compute-*.json` | Render/compute pipeline descriptors have enough format, topology, shader, and binding metadata. |
-| Runtime binding | focused `m12.log` diagnostics | Command lists bind descriptors, buffers, draw args, render targets, and resources before encoding. |
+| Runtime binding | focused `vkd3d.log` diagnostics | Command lists bind descriptors, buffers, draw args, render targets, and resources before encoding. |
 | Developer probes | `tools/d3d12-metal-sdk/results/*.json` | The pipeline behavior is reproducible without a commercial game launch. |
 
 ## Required Gates
@@ -166,7 +166,7 @@ graphics PSO, and compute PSO audits before a game launch is used as evidence.
 The full SDK render proof remains:
 
 ```bash
-tools/ci/m12-check.sh
+tools/ci/vkd3d-check.sh
 ```
 
 For release-bundle proof, also run:
@@ -176,8 +176,8 @@ tools/bundles/verify-bundles.sh --bundle-dir app/bundles --require mac
 tools/bundles/verify-developer-sdk.sh app/bundles/metalsharp-d3d12-developer-sdk.tar.zst
 ```
 
-`m12-check.sh` verifies the downloaded runtime/graphics archives against the
-pinned digests in `tools/ci/m12-bundle-hashes.tsv` (via
+`vkd3d-check.sh` verifies the downloaded runtime/graphics archives against the
+pinned digests in `tools/ci/vkd3d-bundle-hashes.tsv` (via
 `tools/ci/verify-bundle-sha256.sh`) before staging them, so the gate can never
 silently execute tampered bundle material.
 
@@ -191,14 +191,14 @@ review evidence. `validate-contracts.py` includes this contract, while
 
 ## Developer Stress Executables
 
-Two Windows executables exist so M12 development does not depend on repeated
+Two Windows executables exist so VKD3D development does not depend on repeated
 commercial game launches:
 
-- `m12_game.exe`: the PR/CI cube proof built by `tools/ci/m12-check.sh`.
-- `m12_stress_game.exe`: the higher-pressure title-like scene built by
-  `tools/d3d12-metal-sdk/scripts/m12-dev.sh stress-game`.
+- `vkd3d_game.exe`: the PR/CI cube proof built by `tools/ci/vkd3d-check.sh`.
+- `vkd3d_stress_game.exe`: the higher-pressure title-like scene built by
+  `tools/d3d12-metal-sdk/scripts/vkd3d-dev.sh stress-game`.
 
-`m12_stress_game.exe` is deliberately broader than a unit probe. It starts with
+`vkd3d_stress_game.exe` is deliberately broader than a unit probe. It starts with
 a splash/movie-style pass, then renders a beach scene with water, sun, boat,
 tree geometry, text, textures, shadows, unusual vertices, and repeated presents.
 It should be used when changing the shader engine, PSO creation, vertex binding,

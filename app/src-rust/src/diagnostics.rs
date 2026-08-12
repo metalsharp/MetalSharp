@@ -213,7 +213,7 @@ pub fn shader_cache_dirs(home: &Path, pipeline: crate::mtsp::engine::PipelineId,
         PipelineId::M9 => &["m9", "dxmt-metal"],
         PipelineId::Dxmt => &["dxmt", "dxmt-metal"],
         PipelineId::Dxmt32 => &["dxmt_32", "dxmt-metal"],
-        PipelineId::M12 => &["m12", "dxmt-metal12"],
+        PipelineId::Vkd3d => &["vkd3d", "dxmt-metal12"],
         PipelineId::M13 => &["m13", "dxmt-metal12"],
         _ => &[],
     };
@@ -523,14 +523,14 @@ mod tests {
     }
 
     #[test]
-    fn shader_cache_dirs_use_m12_isolated_family() {
-        let home = std::env::temp_dir().join("ms-diag-cache-m12");
+    fn shader_cache_dirs_use_vkd3d_isolated_family() {
+        let home = std::env::temp_dir().join("ms-diag-cache-vkd3d");
         let _ = fs::remove_dir_all(&home);
-        let dirs = shader_cache_dirs(&home, crate::mtsp::engine::PipelineId::M12, 7);
+        let dirs = shader_cache_dirs(&home, crate::mtsp::engine::PipelineId::Vkd3d, 7);
         let names: Vec<String> = dirs.iter().map(|d| d.to_string_lossy().to_string()).collect();
-        assert!(names.iter().any(|n| n.contains("shader-cache/m12/7")), "got {:?}", names);
+        assert!(names.iter().any(|n| n.contains("shader-cache/vkd3d/7")), "got {:?}", names);
         assert!(names.iter().any(|n| n.contains("shader-cache/dxmt-metal12/7")), "got {:?}", names);
-        // M12 must NOT share the dxmt-metal legacy family.
+        // VKD3D must NOT share the dxmt-metal legacy family.
         assert!(!names.iter().any(|n| n.contains("shader-cache/dxmt-metal/")), "got {:?}", names);
         let _ = fs::remove_dir_all(&home);
     }
@@ -563,19 +563,19 @@ mod tests {
     #[test]
     fn build_launch_diagnostic_reports_structured_failure_when_artifacts_missing() {
         // Use an explicit empty home so no runtime artifacts exist, then request
-        // M12 which requires d3d12.dll etc. The diagnostic must report ok=false
+        // VKD3D which requires d3d12.dll etc. The diagnostic must report ok=false
         // with a missing_artifacts array, not a silent ok=true. No global env
         // mutation, so this is safe under parallel test execution.
         let home = std::env::temp_dir().join("ms-diag-empty-home");
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
 
-        let report = build_launch_diagnostic_for(&home, 999999, Some(crate::mtsp::engine::PipelineId::M12));
+        let report = build_launch_diagnostic_for(&home, 999999, Some(crate::mtsp::engine::PipelineId::Vkd3d));
 
         let _ = fs::remove_dir_all(&home);
 
         // 999999 is not a known game, so it resolves through the fallback.
-        // If it happens to resolve to M12, we get a structured failure. If it
+        // If it happens to resolve to VKD3D, we get a structured failure. If it
         // resolves to a non-DXMT route, there are no required deploy_dlls and
         // ok=true is valid. Either way, the shape must be valid: when ok=false,
         // missing_artifacts MUST be a non-empty array.
@@ -651,8 +651,8 @@ mod tests {
 
         let manifest = json!({
             "appid": 504230,
-            "pipeline": "m12",
-            "pipeline_name": "M12",
+            "pipeline": "vkd3d",
+            "pipeline_name": "VKD3D",
             "updated_at_unix": 1700000000u64,
             "dlls": [{
                 "filename": "d3d12.dll",

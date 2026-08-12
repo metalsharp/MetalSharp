@@ -141,9 +141,9 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
         cover_url: "",
         header_url: "",
         size_bytes: 48791234560,
-        launch_method: "m12",
-        launch_method_name: "M12",
-        preferred_pipeline: "m12",
+        launch_method: "vkd3d",
+        launch_method_name: "VKD3D",
+        preferred_pipeline: "vkd3d",
       },
       {
         appid: 3527290,
@@ -177,9 +177,9 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
         cover_url: "",
         header_url: "",
         size_bytes: 15032385536,
-        launch_method: "m12",
-        launch_method_name: "M12",
-        preferred_pipeline: "m12",
+        launch_method: "vkd3d",
+        launch_method_name: "VKD3D",
+        preferred_pipeline: "vkd3d",
       },
     ];
     return { ok: true, total: games.length, installed_count: 3, games };
@@ -195,7 +195,7 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
     return { ok: true, new_appids: [] };
   }
   if (url.startsWith("/mtsp/pipelines")) {
-    return { ok: true, id: "m12", name: "M12", preferred: "m12", pipelines: [] };
+    return { ok: true, id: "vkd3d", name: "VKD3D", preferred: "vkd3d", pipelines: [] };
   }
   if (method === "POST") {
     return { ok: true };

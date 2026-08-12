@@ -12,7 +12,7 @@ enables it only when the packaged MetalSharp substrate and Linux symbol image
 are available on macOS; enabling it persists per-app state under
 `~/.metalsharp/sharp-library/eac/` and applies the substrate environment only
 to the next MetalSharp Wine launch. It never starts a game automatically. An
-opted-in non-Wine selection is routed to the already-installed M12 MetalSharp
+opted-in non-Wine selection is routed to the already-installed VKD3D MetalSharp
 Wine 11.5 lane so the substrate is not sent through GPTK, another Wine build,
 or macOS Steam. An explicit M11 selection remains M11. Per-app substrate logs
 and module dumps are kept under `~/.metalsharp/logs/eac/<appid>/`.
@@ -26,7 +26,7 @@ Total Lockdown, Lost Ark, Gears 5, Halo Infinite, For Honor, REMATCH, Stay
 Out, Back 4 Blood, Apex Legends, Lords of the Fallen, Throne and Liberty,
 Star Wars: Squadrons, NBA 2K26, Next Day: Survival, Suicide Squad, SCP:
 ReEnter, Killing Floor 3, Battlefield 2042, Squad, ARC Raiders, and
-MultiVersus. New defaults use M11; the existing Elden Ring and AC6 M12 rules
+MultiVersus. New defaults use M11; the existing Elden Ring and AC6 VKD3D rules
 remain unchanged. Fires of Rubicon is launched through its real
 `Game/start_protected_game.exe` when enabled; no executable rename or `.old`
 swap is performed.

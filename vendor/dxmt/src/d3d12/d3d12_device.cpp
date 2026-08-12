@@ -1643,7 +1643,7 @@ MTLD3D12Device::MTLD3D12Device(std::unique_ptr<Device> &&device,
   g_device_this = (void *)this;
   g_device_expected_vtable = m_expected_vtable;
   g_device_expected_m_device = (uint64_t)m_device.get();
-  TRACE("M12 feature contract build=full_caps_current_pipeline_20260517");
+  TRACE("VKD3D feature contract build=full_caps_current_pipeline_20260517");
   TRACE("Device ctor: this=%p vtable=%p m_device=%p sizeof=%zu", (void *)this,
         m_expected_vtable, (void *)m_device.get(), sizeof(MTLD3D12Device));
   extern void *g_d3d12_device_addr;
@@ -1865,7 +1865,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
   if (native_tessellation_required) {
     auto metadata = InspectD3D12NativeTessellationPSO(*desc);
     auto detail = DescribeD3D12NativeTessellationPSO(metadata);
-    Logger::warn(str::format("M12 native_tessellation_required: ", detail));
+    Logger::warn(str::format("VKD3D native_tessellation_required: ", detail));
     TRACE("CreateGraphicsPSO native_tessellation_required %s", detail.c_str());
   }
 
@@ -3156,7 +3156,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
       desc->Width >= (64ull << 20)) {
     Logger::info(
-        str::format("M12 large committed buffer width=", desc->Width,
+        str::format("VKD3D large committed buffer width=", desc->Width,
                     " heap_type=", heap_properties ? heap_properties->Type : 0,
                     " flags=0x", (unsigned)heap_flags));
   }
@@ -3189,7 +3189,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateHeap(
 
   auto h = new MTLD3D12Heap(this, normalized);
   if (normalized.SizeInBytes >= (64ull << 20)) {
-    Logger::info(str::format("M12 large heap size=", normalized.SizeInBytes,
+    Logger::info(str::format("VKD3D large heap size=", normalized.SizeInBytes,
                              " alignment=", normalized.Alignment,
                              " heap_type=", normalized.Properties.Type,
                              " flags=0x", (unsigned)normalized.Flags));
@@ -3247,7 +3247,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
   if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
       desc->Width >= (64ull << 20)) {
     Logger::info(str::format(
-        "M12 large placed buffer width=", desc->Width, " heap_offset=",
+        "VKD3D large placed buffer width=", desc->Width, " heap_offset=",
         heap_offset, " heap_backing=", use_heap_backing ? 1 : 0, " heap_gpu=0x",
         (unsigned long long)(mt_heap ? mt_heap->GetGPUAddress() : 0)));
   }
@@ -3292,7 +3292,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   TRACE("CreateReservedResource sparse-compat out=%p hr=0x%lx",
         resource ? *resource : nullptr, hr);
   Logger::info(
-      str::format("M12 sparse reserved resource compat dim=", desc->Dimension,
+      str::format("VKD3D sparse reserved resource compat dim=", desc->Dimension,
                   " width=", desc->Width, " flags=0x", (unsigned)desc->Flags));
   res->Release();
   return hr;

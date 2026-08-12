@@ -1,21 +1,21 @@
 {
-  "schema": "metalsharp.d3d12.m12-pipeline.v1",
+  "schema": "metalsharp.d3d12.vkd3d-pipeline.v1",
   "summary": {
-    "name": "M12 D3D12 launch and diagnostics contract",
+    "name": "VKD3D D3D12 launch and diagnostics contract",
     "goal": "Make the D3D12 -> DXMT -> WineMetal -> Metal launch path explicit, testable, and diagnosable without requiring a live commercial game run.",
-    "log_root": "~/.metalsharp/logs/m12-pipeline/<steam_appid>/",
+    "log_root": "~/.metalsharp/logs/vkd3d-pipeline/<steam_appid>/",
     "per_component_logs": true
   },
   "required_env": [
     {
       "key": "WINEDLLOVERRIDES",
       "value_contains": "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b",
-      "proves": "Wine loads the M12 DXMT D3D12/DXGI/WineMetal surface and D3D11 fallback from the staged runtime before builtin DLLs while leaving Steam overlay renderers disabled."
+      "proves": "Wine loads the VKD3D DXMT D3D12/DXGI/WineMetal surface and D3D11 fallback from the staged runtime before builtin DLLs while leaving Steam overlay renderers disabled."
     },
     {
       "key": "WINEDLLPATH",
-      "value_contains": "lib/dxmt_m12/x86_64-windows",
-      "proves": "Game processes can find the isolated M12 Windows DLLs from the normal Steam prefix without borrowing the M11 DXMT surface."
+      "value_contains": "lib/dxmt_vkd3d/x86_64-windows",
+      "proves": "Game processes can find the isolated VKD3D Windows DLLs from the normal Steam prefix without borrowing the M11 DXMT surface."
     },
     {
       "key": "DXMT_WINEMETAL_UNIXLIB",
@@ -24,37 +24,37 @@
     },
     {
       "key": "METALSHARP_SHADER_CACHE_PATH",
-      "value_contains": "/shader-cache/m12/",
+      "value_contains": "/shader-cache/vkd3d/",
       "proves": "Shader outputs remain in the shader cache and are not conflated with logs."
     },
     {
       "key": "DXMT_PIPELINE_CACHE_PATH",
-      "value_contains": "/pipeline-cache/m12/",
+      "value_contains": "/pipeline-cache/vkd3d/",
       "proves": "PSO/pipeline cache outputs remain separate from the shared diagnostic log."
     }
   ],
   "developer_logging_env": [
     {
       "key": "DXMT_LOG_PATH",
-      "value_contains": "/.metalsharp/logs/m12-pipeline/",
-      "proves": "When developer graphics runtime logs are enabled, DXMT component logs and focused diagnostics write to the shared Open Logs M12 pipeline folder, not shader or pipeline cache directories."
+      "value_contains": "/.metalsharp/logs/vkd3d-pipeline/",
+      "proves": "When developer graphics runtime logs are enabled, DXMT component logs and focused diagnostics write to the shared Open Logs VKD3D pipeline folder, not shader or pipeline cache directories."
     }
   ],
   "pipeline_stages": [
     {
       "id": "recipe-and-route",
       "source": "app/src-rust/src/mtsp/engine.rs",
-      "flow": "M12 selects the DXMT D3D12 node, deploys D3D12/DXGI/Winemetal plus D3D11 fallback DLLs, and keeps M11/M10/M9 as fallbacks."
+      "flow": "VKD3D selects the DXMT D3D12 node, deploys D3D12/DXGI/Winemetal plus D3D11 fallback DLLs, and keeps M11/M10/M9 as fallbacks."
     },
     {
       "id": "launch-env",
       "source": "app/src-rust/src/mtsp/launcher.rs",
-      "flow": "The launcher combines Steam identity, DLL overrides, Wine DLL paths, app-local sidecars, cache env, optional developer M12 log env, and per-game compatibility env."
+      "flow": "The launcher combines Steam identity, DLL overrides, Wine DLL paths, app-local sidecars, cache env, optional developer VKD3D log env, and per-game compatibility env."
     },
     {
       "id": "runtime-logging",
       "source": "vendor/dxmt/src/util/log/log.cpp",
-      "flow": "DXMT honors DXMT_LOG_PATH so component logs and diagnostic probes write under the per-title M12 pipeline log folder."
+      "flow": "DXMT honors DXMT_LOG_PATH so component logs and diagnostic probes write under the per-title VKD3D pipeline log folder."
     },
     {
       "id": "dxgi-entry",
@@ -73,24 +73,24 @@
     },
     {
       "id": "developer-stress-exe",
-      "source": "vendor/dxmt/tests/d3d12_game/m12_stress_game.cpp",
+      "source": "vendor/dxmt/tests/d3d12_game/vkd3d_stress_game.cpp",
       "flow": "The DX12-only stress exe exercises app handoff, SM6-style pressure, textures, vertices, PSOs, draws, presents, and readback diagnostics without a commercial game."
     }
   ],
   "dev_gates": [
     {
       "id": "pipeline-contract",
-      "command": "python3 tools/d3d12-metal-sdk/scripts/validate-m12-pipeline-contract.py",
-      "pinpoints": "M12 launcher env, shared logging, native trace routing, source comments, and required dev gates."
+      "command": "python3 tools/d3d12-metal-sdk/scripts/validate-vkd3d-pipeline-contract.py",
+      "pinpoints": "VKD3D launcher env, shared logging, native trace routing, source comments, and required dev gates."
     },
     {
       "id": "rust-launch-env",
-      "command": "cargo test m12_ --manifest-path app/src-rust/Cargo.toml",
-      "pinpoints": "M12 launch env, per-title logs, app-local sidecars, runtime deployment, and compatibility knobs."
+      "command": "cargo test vkd3d_ --manifest-path app/src-rust/Cargo.toml",
+      "pinpoints": "VKD3D launch env, per-title logs, app-local sidecars, runtime deployment, and compatibility knobs."
     },
     {
       "id": "runtime-layout",
-      "command": "python3 tools/d3d12-metal-sdk/scripts/preflight-runtime-layout.py --profile local-m12-current --dxmt-runtime ~/.metalsharp/runtime/wine/lib/dxmt_m12 --wine-runtime ~/.metalsharp/runtime/wine --prefix ~/.metalsharp/prefix-steam",
+      "command": "python3 tools/d3d12-metal-sdk/scripts/preflight-runtime-layout.py --profile local-vkd3d-current --dxmt-runtime ~/.metalsharp/runtime/wine/lib/dxmt_vkd3d --wine-runtime ~/.metalsharp/runtime/wine --prefix ~/.metalsharp/prefix-steam",
       "pinpoints": "Required DLLs, Unix sidecars, WineMetal ABI, prefix placement, and manifest drift."
     },
     {
@@ -99,27 +99,27 @@
       "pinpoints": "DXIL parser/lowering, binding, PSO, corpus replay, and shader-engine evidence surfaces."
     },
     {
-      "id": "m12-check",
-      "command": "tools/ci/m12-check.sh",
-      "pinpoints": "Buildable D3D12 runtime, staged runtime files, WineMetal sidecars, m12_game.exe, and optional live cube run."
+      "id": "vkd3d-check",
+      "command": "tools/ci/vkd3d-check.sh",
+      "pinpoints": "Buildable D3D12 runtime, staged runtime files, WineMetal sidecars, vkd3d_game.exe, and optional live cube run."
     },
     {
       "id": "stress-game",
-      "command": "tools/d3d12-metal-sdk/scripts/m12-dev.sh stress-game",
+      "command": "tools/d3d12-metal-sdk/scripts/vkd3d-dev.sh stress-game",
       "pinpoints": "High-pressure DX12 app behavior through the same runtime and logging contract."
     }
   ],
   "source_comments": [
     {
       "path": "app/src-rust/src/mtsp/engine.rs",
-      "must_contain": "lib/dxmt_m12/x86_64-windows"
+      "must_contain": "lib/dxmt_vkd3d/x86_64-windows"
     },
     {
       "path": "app/src-rust/src/mtsp/launcher.rs",
-      "must_contain": "M12 should use isolated M12 DLL path"
+      "must_contain": "VKD3D should use isolated VKD3D DLL path"
     }
   ],
-  "forbidden_m12_launcher_patterns": [
+  "forbidden_vkd3d_launcher_patterns": [
     "metalsharp_ntdll_hook.dll",
     "lib/metalsharp/x86_64-windows"
   ],
@@ -127,12 +127,12 @@
     {
       "kind": "launcher-tests",
       "path": "app/src-rust/src/mtsp/launcher.rs",
-      "note": "M12 env tests assert app-local WineMetal sidecars, DXMT overrides, and per-title shared log routing."
+      "note": "VKD3D env tests assert app-local WineMetal sidecars, DXMT overrides, and per-title shared log routing."
     },
     {
       "kind": "ci-gate",
-      "path": "tools/ci/m12-check.sh",
-      "note": "PR gate stages DXMT runtime files and can run the live M12 developer cube."
+      "path": "tools/ci/vkd3d-check.sh",
+      "note": "PR gate stages DXMT runtime files and can run the live VKD3D developer cube."
     },
     {
       "kind": "shader-engine-contract",

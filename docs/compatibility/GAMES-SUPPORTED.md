@@ -13,7 +13,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Pipeline | Backend | Use |
 |---|---|---|
 | **D3DMetal** | Homebrew GPTK / Apple D3DMetal | D3D11/D3D12 via Apple's D3DMetal framework. GPTK is installed through Homebrew and is not bundled by MetalSharp. |
-| **M12** | vkd3d-proton (default) / DXMT (rollback) | D3D12 to Metal via D3D12 → Vulkan → MoltenVK |
+| **VKD3D** | vkd3d-proton (default) / DXMT (rollback) | D3D12 to Metal via D3D12 → Vulkan → MoltenVK |
 | **M11** | DXMT | D3D11 to Metal |
 | **M11 (32-bit)** | DXMT | D3D11 to Metal, 32-bit prefix route |
 | **M10** | DXMT | D3D10 to Metal |
@@ -32,7 +32,7 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 |---|---:|---|
 | Elden Ring | 1245620 | Offline play. |
 | ARMORED CORE VI FIRES OF RUBICON | 1888160 | Offline play. |
-| High On Life | 1583230 | Also works on M12. |
+| High On Life | 1583230 | Also works on VKD3D. |
 | Cyberpunk 2077 | 1091500 | Offline play. |
 | Ghostrunner | 1139900 | D3DMetal route confirmed. |
 | Control - Ultimate Edition | 870780 | |
@@ -41,9 +41,9 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 
 ---
 
-## M12 — D3D12 to Metal
+## VKD3D — D3D12 to Metal
 
-The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan → VKMT MoltenVK → Metal), with the legacy DXMT D3D12 stack available via the `m12Backend` setting. Confirmed working games are listed in the D3DMetal section where noted (e.g. High On Life "Also works on M12") and via the shipped MTSP rules for tested D3D12 titles.
+The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan → VKMT MoltenVK → Metal), with the legacy DXMT D3D12 stack available via the `vkd3dBackend` setting. Confirmed working games are listed in the D3DMetal section where noted (e.g. High On Life "Also works on VKD3D") and via the shipped MTSP rules for tested D3D12 titles.
 
 ---
 

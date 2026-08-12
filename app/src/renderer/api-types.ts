@@ -34,7 +34,7 @@ interface AppConfig {
   graphicsRuntimeLogs?: boolean;
   graphics_runtime_logs?: boolean;
   controllerInput?: "off" | "x" | "d";
-  m12Backend?: "vkd3d-proton" | "dxmt";
+  vkd3dBackend?: "vkd3d-proton" | "dxmt";
   msync?: boolean;
   developerTelemetry?: boolean;
 }

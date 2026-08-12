@@ -190,7 +190,7 @@ static bool compileShader(const char *label, const char *source, const char *ent
     return false;
   }
   releaseIf(errors);
-  if (envEnabled("M12_STRESS_DUMP_SHADER_DISASM")) {
+  if (envEnabled("VKD3D_STRESS_DUMP_SHADER_DISASM")) {
     ID3DBlob *disasm = nullptr;
     if (SUCCEEDED(D3DDisassemble((*blob)->GetBufferPointer(),
                                  (*blob)->GetBufferSize(), 0, nullptr,
@@ -221,7 +221,7 @@ static bool logLoadLibrary(const char *name, bool required) {
 }
 
 static void logRuntimePrereqs() {
-  std::printf("=== m12 prerequisite scan ===\n");
+  std::printf("=== vkd3d prerequisite scan ===\n");
   logLoadLibrary("d3d12.dll", true);
   logLoadLibrary("dxgi.dll", true);
   logLoadLibrary("d3dcompiler_47.dll", true);
@@ -690,10 +690,10 @@ static bool createHarness(Harness &h) {
   WNDCLASSA wc = {};
   wc.lpfnWndProc = wndProc;
   wc.hInstance = GetModuleHandleA(nullptr);
-  wc.lpszClassName = "M12StressHarness";
+  wc.lpszClassName = "VKD3DStressHarness";
   RegisterClassA(&wc);
 
-  h.hwnd = CreateWindowA("M12StressHarness", "m12_stress_game.exe",
+  h.hwnd = CreateWindowA("VKD3DStressHarness", "vkd3d_stress_game.exe",
                          WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT,
                          CW_USEDEFAULT, kWidth, kHeight, nullptr, nullptr,
                          wc.hInstance, nullptr);
@@ -1354,8 +1354,8 @@ static bool createGraphicsPipeline(Harness &h, bool post, ID3D12RootSignature **
   desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
   desc.SampleDesc.Count = 1;
   desc.SampleMask = UINT_MAX;
-  const bool sceneNoCull = !post && envEnabled("M12_STRESS_SCENE_NO_CULL");
-  const bool sceneNoDepth = !post && envEnabled("M12_STRESS_SCENE_NO_DEPTH");
+  const bool sceneNoCull = !post && envEnabled("VKD3D_STRESS_SCENE_NO_CULL");
+  const bool sceneNoDepth = !post && envEnabled("VKD3D_STRESS_SCENE_NO_DEPTH");
   desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
   desc.RasterizerState.CullMode =
       (post || sceneNoCull) ? D3D12_CULL_MODE_NONE : D3D12_CULL_MODE_BACK;
@@ -1709,22 +1709,22 @@ static void barrier(ID3D12GraphicsCommandList *cmd, ID3D12Resource *resource,
 }
 
 static bool runStress(Harness &h, UINT seconds) {
-  float splashSeconds = envFloat("M12_STRESS_SPLASH_SECONDS", kSplashSeconds);
-  const bool sceneOnly = envEnabled("M12_STRESS_SCENE_ONLY");
-  const bool postOnly = envEnabled("M12_STRESS_POST_ONLY");
-  const bool skipPost = envEnabled("M12_STRESS_SKIP_POST");
-  const bool brightPost = envEnabled("M12_STRESS_BRIGHT_POST");
-  const bool sceneNoDepth = envEnabled("M12_STRESS_SCENE_NO_DEPTH");
-  const bool sceneBrightPs = envEnabled("M12_STRESS_SCENE_BRIGHT_PS");
-  const bool sceneClipVs = envEnabled("M12_STRESS_SCENE_CLIP_VS");
-  const bool sceneClipCbufferVs = envEnabled("M12_STRESS_SCENE_CLIP_CBUFFER_VS");
-  const bool sceneCbufferGateVs = envEnabled("M12_STRESS_SCENE_CBUFFER_GATE_VS");
-  const bool sceneWorldVs = envEnabled("M12_STRESS_SCENE_WORLD_VS");
-  const bool sceneManualMulVs = envEnabled("M12_STRESS_SCENE_MANUAL_MUL_VS");
-  const bool sceneScalarMulVs = envEnabled("M12_STRESS_SCENE_SCALAR_MUL_VS");
-  const bool sceneHardcodedMatrixVs = envEnabled("M12_STRESS_SCENE_HARDCODED_MATRIX_VS");
-  const bool skipReadback = envEnabled("M12_STRESS_SKIP_READBACK");
-  if (envEnabled("M12_STRESS_SCENE_ONLY"))
+  float splashSeconds = envFloat("VKD3D_STRESS_SPLASH_SECONDS", kSplashSeconds);
+  const bool sceneOnly = envEnabled("VKD3D_STRESS_SCENE_ONLY");
+  const bool postOnly = envEnabled("VKD3D_STRESS_POST_ONLY");
+  const bool skipPost = envEnabled("VKD3D_STRESS_SKIP_POST");
+  const bool brightPost = envEnabled("VKD3D_STRESS_BRIGHT_POST");
+  const bool sceneNoDepth = envEnabled("VKD3D_STRESS_SCENE_NO_DEPTH");
+  const bool sceneBrightPs = envEnabled("VKD3D_STRESS_SCENE_BRIGHT_PS");
+  const bool sceneClipVs = envEnabled("VKD3D_STRESS_SCENE_CLIP_VS");
+  const bool sceneClipCbufferVs = envEnabled("VKD3D_STRESS_SCENE_CLIP_CBUFFER_VS");
+  const bool sceneCbufferGateVs = envEnabled("VKD3D_STRESS_SCENE_CBUFFER_GATE_VS");
+  const bool sceneWorldVs = envEnabled("VKD3D_STRESS_SCENE_WORLD_VS");
+  const bool sceneManualMulVs = envEnabled("VKD3D_STRESS_SCENE_MANUAL_MUL_VS");
+  const bool sceneScalarMulVs = envEnabled("VKD3D_STRESS_SCENE_SCALAR_MUL_VS");
+  const bool sceneHardcodedMatrixVs = envEnabled("VKD3D_STRESS_SCENE_HARDCODED_MATRIX_VS");
+  const bool skipReadback = envEnabled("VKD3D_STRESS_SKIP_READBACK");
+  if (envEnabled("VKD3D_STRESS_SCENE_ONLY"))
     splashSeconds = 0.0f;
   std::printf("[INFO] stress config splash_seconds=%.3f scene_only=%u post_only=%u skip_post=%u bright_post=%u scene_no_depth=%u scene_bright_ps=%u scene_clip_vs=%u scene_clip_cbuffer_vs=%u scene_cbuffer_gate_vs=%u scene_world_vs=%u scene_manual_mul_vs=%u scene_scalar_mul_vs=%u scene_hardcoded_matrix_vs=%u skip_readback=%u\n",
               splashSeconds, sceneOnly ? 1u : 0u, postOnly ? 1u : 0u,
@@ -1929,7 +1929,7 @@ static bool runStress(Harness &h, UINT seconds) {
                   perspective(65.0f * 3.1415926535f / 180.0f,
                               static_cast<float>(kWidth) / static_cast<float>(kHeight),
                               0.1f, 80.0f));
-    if (envEnabled("M12_STRESS_TRANSPOSE_VIEWPROJ"))
+    if (envEnabled("VKD3D_STRESS_TRANSPOSE_VIEWPROJ"))
       vp = transpose(vp);
     cbMapped->viewProj = vp;
     cbMapped->time = elapsed;
@@ -2051,7 +2051,7 @@ static bool runStress(Harness &h, UINT seconds) {
       break;
     ID3D12CommandList *lists[] = {h.cmd};
     h.queue->ExecuteCommandLists(1, lists);
-    if (!skipReadback && envEnabled("M12_STRESS_READBACK_BEFORE_PRESENT") && (frame % 30) == 0) {
+    if (!skipReadback && envEnabled("VKD3D_STRESS_READBACK_BEFORE_PRESENT") && (frame % 30) == 0) {
       ReadbackStats stats = analyzeReadback(readback, readbackPitch);
       std::printf("[INFO] stress pre-present frame=%u phase=%s bright=%u chroma=%u checksum=0x%016llx\n",
                   frame, inSplash ? "splash" : "scene", stats.brightPixels,
@@ -2078,7 +2078,7 @@ static bool runStress(Harness &h, UINT seconds) {
   }
 
   if (ok)
-    std::printf("[PASS] m12_stress_game frames=%u seconds=%u\n", frame, seconds);
+    std::printf("[PASS] vkd3d_stress_game frames=%u seconds=%u\n", frame, seconds);
 
   constantBuffer->Unmap(0, nullptr);
   releaseIf(readback);
@@ -2110,16 +2110,16 @@ int main(int argc, char **argv) {
     seconds = kRunSeconds;
 
   logRuntimePrereqs();
-  std::printf("=== m12_stress_game.exe start seconds=%u ===\n", seconds);
+  std::printf("=== vkd3d_stress_game.exe start seconds=%u ===\n", seconds);
   Harness h = {};
   bool ok = createHarness(h) && runStress(h, seconds);
   destroyHarness(h);
   if (ok) {
-    std::printf("=== m12_stress_game.exe PASS ===\n");
+    std::printf("=== vkd3d_stress_game.exe PASS ===\n");
     std::fflush(stdout);
     TerminateProcess(GetCurrentProcess(), 0);
   }
-  std::fprintf(stderr, "=== m12_stress_game.exe FAIL ===\n");
+  std::fprintf(stderr, "=== vkd3d_stress_game.exe FAIL ===\n");
   std::fflush(stderr);
   TerminateProcess(GetCurrentProcess(), 1);
 }

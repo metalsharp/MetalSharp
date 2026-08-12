@@ -83,8 +83,8 @@ No supervisor decision was needed.
     }
   ],
   "changedFiles": [
-    "/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-m12-fresh-proof-pr/progress.md",
-    "/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-m12-fresh-proof-pr/research/gptk-launch-practices.md"
+    "/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-vkd3d-fresh-proof-pr/progress.md",
+    "/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-vkd3d-fresh-proof-pr/research/gptk-launch-practices.md"
   ],
   "testsAddedOrUpdated": [],
   "commandsRun": [

@@ -599,20 +599,20 @@ static void emitDefaultVertexVaryingWrites(std::ostream &os,
         os << "  out.color" << i << " = float4(0.0);\n";
     if (procedural_fullscreen) {
         if (has_draw_args)
-            os << "  uint m12_draw_vcount = m12_draw_vertex_count(buf29, buf30);\n";
+            os << "  uint vkd3d_draw_vcount = vkd3d_draw_vertex_count(buf29, buf30);\n";
         else
-            os << "  uint m12_draw_vcount = 0u;\n";
-        os << "  bool m12_use_strip_quad = m12_draw_vcount == 4u;\n";
-        os << "  uint m12_strip_vid = vid & 3u;\n";
-        os << "  uint m12_tri_vid = min(vid, 2u);\n";
-        os << "  float2 m12_strip_uv = m12_strip_vid == 0u ? float2(0.0, 0.0) : (m12_strip_vid == 1u ? float2(1.0, 0.0) : (m12_strip_vid == 2u ? float2(0.0, 1.0) : float2(1.0, 1.0)));\n";
-        os << "  float2 m12_strip_pos = m12_strip_vid == 0u ? float2(-1.0, 1.0) : (m12_strip_vid == 1u ? float2(1.0, 1.0) : (m12_strip_vid == 2u ? float2(-1.0, -1.0) : float2(1.0, -1.0)));\n";
-        os << "  float2 m12_tri_uv = m12_tri_vid == 0u ? float2(0.0, 0.0) : (m12_tri_vid == 1u ? float2(0.0, 2.0) : float2(2.0, 0.0));\n";
-        os << "  float2 m12_tri_pos = m12_tri_vid == 0u ? float2(-1.0, 1.0) : (m12_tri_vid == 1u ? float2(-1.0, -3.0) : float2(3.0, 1.0));\n";
-        os << "  float2 m12_fullscreen_uv = m12_use_strip_quad ? m12_strip_uv : m12_tri_uv;\n";
-        os << "  float2 m12_fullscreen_pos = m12_use_strip_quad ? m12_strip_pos : m12_tri_pos;\n";
-        os << "  out.position = float4(m12_fullscreen_pos, 0.0, 1.0);\n";
-        os << "  out.v1 = float4(m12_fullscreen_uv, 0.0, 0.0);\n";
+            os << "  uint vkd3d_draw_vcount = 0u;\n";
+        os << "  bool vkd3d_use_strip_quad = vkd3d_draw_vcount == 4u;\n";
+        os << "  uint vkd3d_strip_vid = vid & 3u;\n";
+        os << "  uint vkd3d_tri_vid = min(vid, 2u);\n";
+        os << "  float2 vkd3d_strip_uv = vkd3d_strip_vid == 0u ? float2(0.0, 0.0) : (vkd3d_strip_vid == 1u ? float2(1.0, 0.0) : (vkd3d_strip_vid == 2u ? float2(0.0, 1.0) : float2(1.0, 1.0)));\n";
+        os << "  float2 vkd3d_strip_pos = vkd3d_strip_vid == 0u ? float2(-1.0, 1.0) : (vkd3d_strip_vid == 1u ? float2(1.0, 1.0) : (vkd3d_strip_vid == 2u ? float2(-1.0, -1.0) : float2(1.0, -1.0)));\n";
+        os << "  float2 vkd3d_tri_uv = vkd3d_tri_vid == 0u ? float2(0.0, 0.0) : (vkd3d_tri_vid == 1u ? float2(0.0, 2.0) : float2(2.0, 0.0));\n";
+        os << "  float2 vkd3d_tri_pos = vkd3d_tri_vid == 0u ? float2(-1.0, 1.0) : (vkd3d_tri_vid == 1u ? float2(-1.0, -3.0) : float2(3.0, 1.0));\n";
+        os << "  float2 vkd3d_fullscreen_uv = vkd3d_use_strip_quad ? vkd3d_strip_uv : vkd3d_tri_uv;\n";
+        os << "  float2 vkd3d_fullscreen_pos = vkd3d_use_strip_quad ? vkd3d_strip_pos : vkd3d_tri_pos;\n";
+        os << "  out.position = float4(vkd3d_fullscreen_pos, 0.0, 1.0);\n";
+        os << "  out.v1 = float4(vkd3d_fullscreen_uv, 0.0, 0.0);\n";
     }
 }
 
@@ -646,40 +646,40 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     os << "};\n\n";
 
     if (ctx.shader.kind == DxilShaderKind::Vertex) {
-        os << "struct m12_vertex_buffer_entry { ulong buffer_handle; uint stride; uint length; };\n";
-        os << "struct m12_draw_argument { uint vertexCountPerInstance; uint instanceCount; uint startVertexLocation; uint startInstanceLocation; };\n";
-        os << "struct m12_draw_indexed_argument { uint indexCountPerInstance; uint instanceCount; uint startIndexLocation; int baseVertexLocation; uint startInstanceLocation; };\n";
-        os << "static inline bool m12_is_indexed_draw(device char* draw_info_bytes) {\n";
+        os << "struct vkd3d_vertex_buffer_entry { ulong buffer_handle; uint stride; uint length; };\n";
+        os << "struct vkd3d_draw_argument { uint vertexCountPerInstance; uint instanceCount; uint startVertexLocation; uint startInstanceLocation; };\n";
+        os << "struct vkd3d_draw_indexed_argument { uint indexCountPerInstance; uint instanceCount; uint startIndexLocation; int baseVertexLocation; uint startInstanceLocation; };\n";
+        os << "static inline bool vkd3d_is_indexed_draw(device char* draw_info_bytes) {\n";
         os << "  if (draw_info_bytes == nullptr) return false;\n";
         os << "  return *reinterpret_cast<device ushort*>(draw_info_bytes) != 0;\n";
         os << "}\n";
-        os << "static inline uint m12_draw_vertex_count(device char* draw_bytes, device char* draw_info_bytes) {\n";
+        os << "static inline uint vkd3d_draw_vertex_count(device char* draw_bytes, device char* draw_info_bytes) {\n";
         os << "  if (draw_bytes == nullptr) return 0u;\n";
-        os << "  if (m12_is_indexed_draw(draw_info_bytes)) return reinterpret_cast<device m12_draw_indexed_argument*>(draw_bytes)->indexCountPerInstance;\n";
-        os << "  return reinterpret_cast<device m12_draw_argument*>(draw_bytes)->vertexCountPerInstance;\n";
+        os << "  if (vkd3d_is_indexed_draw(draw_info_bytes)) return reinterpret_cast<device vkd3d_draw_indexed_argument*>(draw_bytes)->indexCountPerInstance;\n";
+        os << "  return reinterpret_cast<device vkd3d_draw_argument*>(draw_bytes)->vertexCountPerInstance;\n";
         os << "}\n";
-        os << "static inline uint m12_vertex_fetch_index(uint vid, device char* draw_bytes, device char* draw_info_bytes) {\n";
-        os << "  if (draw_bytes == nullptr || !m12_is_indexed_draw(draw_info_bytes)) return vid;\n";
-        os << "  device m12_draw_indexed_argument* draw = reinterpret_cast<device m12_draw_indexed_argument*>(draw_bytes);\n";
+        os << "static inline uint vkd3d_vertex_fetch_index(uint vid, device char* draw_bytes, device char* draw_info_bytes) {\n";
+        os << "  if (draw_bytes == nullptr || !vkd3d_is_indexed_draw(draw_info_bytes)) return vid;\n";
+        os << "  device vkd3d_draw_indexed_argument* draw = reinterpret_cast<device vkd3d_draw_indexed_argument*>(draw_bytes);\n";
         os << "  int indexed_vertex = int(vid) + draw->baseVertexLocation;\n";
         os << "  return indexed_vertex < 0 ? 0u : uint(indexed_vertex);\n";
         os << "}\n";
-        os << "static inline uint m12_instance_fetch_index(uint iid, uint step_rate, device char* draw_bytes, device char* draw_info_bytes) {\n";
+        os << "static inline uint vkd3d_instance_fetch_index(uint iid, uint step_rate, device char* draw_bytes, device char* draw_info_bytes) {\n";
         os << "  uint start_instance = 0;\n";
         os << "  if (draw_bytes != nullptr) {\n";
-        os << "    if (m12_is_indexed_draw(draw_info_bytes)) start_instance = reinterpret_cast<device m12_draw_indexed_argument*>(draw_bytes)->startInstanceLocation;\n";
-        os << "    else start_instance = reinterpret_cast<device m12_draw_argument*>(draw_bytes)->startInstanceLocation;\n";
+        os << "    if (vkd3d_is_indexed_draw(draw_info_bytes)) start_instance = reinterpret_cast<device vkd3d_draw_indexed_argument*>(draw_bytes)->startInstanceLocation;\n";
+        os << "    else start_instance = reinterpret_cast<device vkd3d_draw_argument*>(draw_bytes)->startInstanceLocation;\n";
         os << "  }\n";
         os << "  if (step_rate == 0) return start_instance;\n";
         os << "  return start_instance + (iid / step_rate);\n";
         os << "}\n";
-        os << "static inline float4 m12_load_vertex_attr(uint table_index, uint aligned_byte_offset, uint dxgi_format, uint per_instance, uint step_rate, uint vid, uint iid, device char* table_bytes, device char* vb, device char* draw_bytes, device char* draw_info_bytes) {\n";
+        os << "static inline float4 vkd3d_load_vertex_attr(uint table_index, uint aligned_byte_offset, uint dxgi_format, uint per_instance, uint step_rate, uint vid, uint iid, device char* table_bytes, device char* vb, device char* draw_bytes, device char* draw_info_bytes) {\n";
         os << "  if (table_bytes == nullptr || vb == nullptr) return float4(0.0);\n";
-        os << "  device m12_vertex_buffer_entry* table = reinterpret_cast<device m12_vertex_buffer_entry*>(table_bytes);\n";
+        os << "  device vkd3d_vertex_buffer_entry* table = reinterpret_cast<device vkd3d_vertex_buffer_entry*>(table_bytes);\n";
         os << "  uint stride = table[table_index].stride;\n";
         os << "  uint length = table[table_index].length;\n";
         os << "  if (stride == 0) stride = 16;\n";
-        os << "  uint element_index = per_instance != 0 ? m12_instance_fetch_index(iid, step_rate, draw_bytes, draw_info_bytes) : m12_vertex_fetch_index(vid, draw_bytes, draw_info_bytes);\n";
+        os << "  uint element_index = per_instance != 0 ? vkd3d_instance_fetch_index(iid, step_rate, draw_bytes, draw_info_bytes) : vkd3d_vertex_fetch_index(vid, draw_bytes, draw_info_bytes);\n";
         os << "  uint offset = element_index * stride + aligned_byte_offset;\n";
         os << "  uint required = (dxgi_format == 41 || dxgi_format == 42 || dxgi_format == 43) ? 4u : ((dxgi_format == 16 || dxgi_format == 17 || dxgi_format == 18) ? 8u : ((dxgi_format == 6 || dxgi_format == 7 || dxgi_format == 8) ? 12u : 16u));\n";
         os << "  if (length != 0 && offset + required > length) return float4(0.0);\n";

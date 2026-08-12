@@ -74,7 +74,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
         PipelineId::Dxmt
             | PipelineId::Dxmt32
             | PipelineId::M9
-            | PipelineId::M12
+            | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::D3DMetal
             | PipelineId::M32
@@ -91,7 +91,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
         PipelineId::Dxmt
         | PipelineId::Dxmt32
         | PipelineId::M9
-        | PipelineId::M12
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::D3DMetal
         | PipelineId::M32
@@ -138,7 +138,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
 
 pub fn effective_launch_args(appid: u32, node: &PipelineNode) -> Vec<String> {
     let mut launch_args: Vec<String> = node.launch_args.iter().map(|arg| arg.to_string()).collect();
-    if appid == 1962700 && node.id == PipelineId::M12 {
+    if appid == 1962700 && node.id == PipelineId::Vkd3d {
         launch_args.retain(|arg| !arg.eq_ignore_ascii_case("-NOSPLASH"));
     }
     append_app_launch_args(appid, node.id, &mut launch_args);
@@ -146,7 +146,7 @@ pub fn effective_launch_args(appid: u32, node: &PipelineNode) -> Vec<String> {
 }
 
 fn append_app_launch_args(appid: u32, pipeline: PipelineId, launch_args: &mut Vec<String>) {
-    if appid == 1962700 && pipeline == PipelineId::M12 {
+    if appid == 1962700 && pipeline == PipelineId::Vkd3d {
         let dpcvars = [
             "r.Nanite=0",
             "r.Nanite.ProjectEnabled=0",
@@ -180,7 +180,7 @@ fn append_app_launch_args(appid: u32, pipeline: PipelineId, launch_args: &mut Ve
     }
 
     match (appid, pipeline) {
-        (1196590 | 1623730 | 1928870 | 2358720 | 2456740, PipelineId::M12) => {
+        (1196590 | 1623730 | 1928870 | 2358720 | 2456740, PipelineId::Vkd3d) => {
             append_unique_launch_arg(launch_args, "-dx12");
             append_unique_launch_arg(launch_args, "-d3d12");
         },
@@ -221,12 +221,12 @@ pub(crate) fn requires_steam_launch_args(appid: u32) -> bool {
 }
 
 pub(crate) fn uses_steam_launch_model(appid: u32, pipeline: PipelineId) -> bool {
-    // M12 ALWAYS uses the real Steam model: the game is launched directly
+    // VKD3D ALWAYS uses the real Steam model: the game is launched directly
     // (never steam://run) with the real Steam user files deployed into the
     // game folder (steamclient64.dll, GameOverlayRenderer*, steam_api64) so
     // the game talks to the real Steam client running in the background.
     // `-steam` is passed so UE/Unity titles enable Steam integration.
-    if pipeline == PipelineId::M12 {
+    if pipeline == PipelineId::Vkd3d {
         return true;
     }
     requires_steam_launch_args(appid) && !matches!(pipeline, PipelineId::M13 | PipelineId::D3DMetal)
@@ -254,7 +254,7 @@ pub fn build_custom_launch_recipe(
         PipelineId::Dxmt
         | PipelineId::Dxmt32
         | PipelineId::M9
-        | PipelineId::M12
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::M32
         | PipelineId::WineBare => Some(match exe_path {
@@ -338,16 +338,16 @@ fn resolve_game_exe_for_pipeline_with_eac(
         }
     }
 
-    // Subnautica 2's M12 route must invoke the real game executable directly.
+    // Subnautica 2's VKD3D route must invoke the real game executable directly.
     // Do not let a protected launcher take precedence over Subnautica2.exe
     // when the EAC toggle is off for this path.
-    if appid == 1962700 && matches!(pipeline, Some(PipelineId::M12)) {
+    if appid == 1962700 && matches!(pipeline, Some(PipelineId::Vkd3d)) {
         if let Some(path) = find_case_insensitive(game_dir, "Subnautica2.exe") {
             return Ok(path);
         }
     }
 
-    if matches!(pipeline, Some(PipelineId::Dxmt | PipelineId::M12 | PipelineId::D3DMetal | PipelineId::M13)) {
+    if matches!(pipeline, Some(PipelineId::Dxmt | PipelineId::Vkd3d | PipelineId::D3DMetal | PipelineId::M13)) {
         for preferred in d3dmetal_direct_exe_names(appid) {
             if let Some(path) = find_case_insensitive(game_dir, preferred) {
                 return Ok(path);
@@ -437,7 +437,7 @@ fn deploy_target_dirs_for_pipeline(game_dir: &Path, exe_path: Option<&Path>, nod
     let primary = exe_path.and_then(Path::parent).unwrap_or(game_dir).to_path_buf();
     let mut dirs = vec![primary.clone()];
 
-    if node.id == PipelineId::M12 {
+    if node.id == PipelineId::Vkd3d {
         let engine_bin = game_dir.join("Engine").join("Binaries").join("Win64");
         if engine_bin.is_dir() && engine_bin != primary {
             dirs.push(engine_bin);
@@ -495,7 +495,7 @@ pub fn diagnose_recipe(recipe: LaunchRecipe) -> LaunchDoctorReport {
         PipelineId::Dxmt
             | PipelineId::Dxmt32
             | PipelineId::M9
-            | PipelineId::M12
+            | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::M32
             | PipelineId::FnaArm64
@@ -666,7 +666,7 @@ fn inspect_exe_route_compatibility(
     let api = d3d_api_label(pe.detected_api);
     let detail = format!("{} executable, imports {}", arch, api);
 
-    if !pe.is_64_bit && matches!(recipe.pipeline, PipelineId::Dxmt | PipelineId::M12) {
+    if !pe.is_64_bit && matches!(recipe.pipeline, PipelineId::Dxmt | PipelineId::Vkd3d) {
         let message = format!(
             "{} route requires a 64-bit Windows executable, but {} is 32-bit",
             recipe.pipeline_name,
@@ -714,7 +714,7 @@ fn route_api_mismatch(pipeline: PipelineId, api: super::pe::D3dApi) -> bool {
             | (PipelineId::Dxmt32, _)
             | (PipelineId::WineBare, _)
             | (PipelineId::M9, super::pe::D3dApi::D3D9)
-            | (PipelineId::M12, super::pe::D3dApi::D3D12)
+            | (PipelineId::Vkd3d, super::pe::D3dApi::D3D12)
             | (PipelineId::M13, super::pe::D3dApi::D3D12)
             | (PipelineId::M32, _)
     )
@@ -938,8 +938,8 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
     }
 
     match node.id {
-        PipelineId::M12 => {
-            // The M12 stack: vkd3d-proton D3D12 pair, DXVK dxgi, VKMT MoltenVK
+        PipelineId::Vkd3d => {
+            // The VKD3D stack: vkd3d-proton D3D12 pair, DXVK dxgi, VKMT MoltenVK
             // ICD. These are the hash-gated artifacts the installer verifies.
             for (lane, rel) in [
                 ("vkd3d-proton", "x86_64-windows/d3d12.dll"),
@@ -980,7 +980,7 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
 
     for deploy in &node.deploy_dlls {
         let path = ms_root.join(deploy.source_subpath).join(deploy.filename);
-        let required = node.id == PipelineId::M12 || !optional_runtime_stub(deploy.filename);
+        let required = node.id == PipelineId::Vkd3d || !optional_runtime_stub(deploy.filename);
         assets.push(RuntimeAsset {
             name: format!("{}/{}", deploy.source_subpath, deploy.filename),
             present: runtime_file_present(&path),
@@ -1040,17 +1040,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dxmt_validates_legacy_winemetal_so_without_changing_m12_stack_assets() {
+    fn dxmt_validates_legacy_winemetal_so_without_changing_vkd3d_stack_assets() {
         let ms_root = test_dir("runtime-assets-winemetal-lanes");
         let dxmt = super::super::engine::get_pipeline(PipelineId::Dxmt);
-        let m12 = super::super::engine::get_pipeline(PipelineId::M12);
+        let vkd3d = super::super::engine::get_pipeline(PipelineId::Vkd3d);
 
         let dxmt_assets = runtime_assets_for_node(dxmt, &ms_root);
         assert!(dxmt_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
         assert!(!dxmt_assets.iter().any(|asset| asset.name.starts_with("lib/vkd3d-proton/")));
 
-        let m12_assets = runtime_assets_for_node(m12, &ms_root);
-        // M12 requires the vkd3d-proton D3D12 pair, DXVK dxgi, and VKMT
+        let vkd3d_assets = runtime_assets_for_node(vkd3d, &ms_root);
+        // VKD3D requires the vkd3d-proton D3D12 pair, DXVK dxgi, and VKMT
         // MoltenVK ICD — no DXMT surface.
         for required in [
             "lib/vkd3d-proton/x86_64-windows/d3d12.dll",
@@ -1059,9 +1059,9 @@ mod tests {
             "lib/moltenvk-vkmt/libMoltenVK.dylib",
             "lib/moltenvk-vkmt/MoltenVK_icd.json",
         ] {
-            assert!(m12_assets.iter().any(|asset| asset.name == required), "M12 missing asset {required}");
+            assert!(vkd3d_assets.iter().any(|asset| asset.name == required), "VKD3D missing asset {required}");
         }
-        assert!(!m12_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        assert!(!vkd3d_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
 
         let _ = std::fs::remove_dir_all(ms_root);
     }
@@ -1076,7 +1076,7 @@ mod tests {
             assets.iter().any(|asset| asset.name == "lib/dxmt/i386-unix/winemetal.so"),
             "DXMT(32) missing i386-unix/winemetal.so runtime asset"
         );
-        // and must not pull the x86_64-only DXMT or M12 stack assets
+        // and must not pull the x86_64-only DXMT or VKD3D stack assets
         assert!(!assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
         assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/vkd3d-proton/")));
         let _ = std::fs::remove_dir_all(ms_root);
@@ -1187,7 +1187,7 @@ mod tests {
     }
 
     #[test]
-    fn m12_uses_direct_game_exe_when_eac_is_off() {
+    fn vkd3d_uses_direct_game_exe_when_eac_is_off() {
         let dir = test_dir("spg-prepared");
         let game_dir = dir.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
@@ -1196,7 +1196,7 @@ mod tests {
         std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
 
         let selected =
-            resolve_game_exe_for_pipeline(1245620, &dir, Some(PipelineId::M12)).expect("select real game exe");
+            resolve_game_exe_for_pipeline(1245620, &dir, Some(PipelineId::Vkd3d)).expect("select real game exe");
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("eldenring.exe"));
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME_COPY");
@@ -1218,7 +1218,7 @@ mod tests {
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("armoredcore6.exe"));
 
-        let protected = resolve_game_exe_for_pipeline_with_eac(1888160, &dir, Some(PipelineId::M12), true)
+        let protected = resolve_game_exe_for_pipeline_with_eac(1888160, &dir, Some(PipelineId::Vkd3d), true)
             .expect("select AC6 protected launcher");
         assert_eq!(protected.file_name().and_then(|name| name.to_str()), Some("start_protected_game.exe"));
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
@@ -1336,38 +1336,39 @@ mod tests {
     }
 
     #[test]
-    fn subnautica_m12_preserves_startup_movie_handoff() {
-        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
+    fn subnautica_vkd3d_preserves_startup_movie_handoff() {
+        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-NoStartupMovies")));
         assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-NOSPLASH")));
     }
 
     #[test]
-    fn subnautica_m12_uses_steam_arg_on_vkd3d_shape() {
-        // Subnautica 2 is on the vkd3d-proton M12 shape now (no DXMT), so it
-        // gets the global M12 real-Steam model: -steam is passed.
-        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
+    fn subnautica_vkd3d_uses_steam_arg_on_vkd3d_shape() {
+        // Subnautica 2 is on the vkd3d-proton VKD3D shape now (no DXMT), so it
+        // gets the global VKD3D real-Steam model: -steam is passed.
+        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
     }
 
     #[test]
-    fn subnautica_m12_prefers_direct_subnautica2_exe() {
+    fn subnautica_vkd3d_prefers_direct_subnautica2_exe() {
         let dir = test_dir("subnautica2-direct-exe");
         std::fs::create_dir_all(&dir).expect("create test dir");
         std::fs::write(dir.join("start_protected_game.exe"), b"not pe").expect("write protected launcher");
         std::fs::write(dir.join("Subnautica2.exe"), b"not pe").expect("write direct exe");
 
-        let selected = resolve_game_exe_for_pipeline(1962700, &dir, Some(PipelineId::M12)).expect("select direct exe");
+        let selected =
+            resolve_game_exe_for_pipeline(1962700, &dir, Some(PipelineId::Vkd3d)).expect("select direct exe");
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("Subnautica2.exe"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn subnautica_m12_keeps_startup_pso_cache_for_build_window() {
-        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
+    fn subnautica_vkd3d_keeps_startup_pso_cache_for_build_window() {
+        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-NoShaderPipelineCache")));
         assert!(!args.iter().any(|arg| arg.contains("r.ShaderPipelineCache.Enabled=0")));
@@ -1387,9 +1388,9 @@ mod tests {
     }
 
     #[test]
-    fn m12_half_working_titles_get_explicit_dx12_args() {
+    fn vkd3d_half_working_titles_get_explicit_dx12_args() {
         for appid in [1196590, 1623730, 1928870, 2358720, 2456740] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M12));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dx12")), "appid {appid}");
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d12")), "appid {appid}");
@@ -1398,7 +1399,7 @@ mod tests {
 
     #[test]
     fn source_style_titles_get_steam_secure_launch_args() {
-        for pipeline in [PipelineId::Dxmt, PipelineId::M12] {
+        for pipeline in [PipelineId::Dxmt, PipelineId::Vkd3d] {
             for appid in [440, 730, 252490, 271590, 284160, 292030, 1172380, 3241660] {
                 let args = effective_launch_args(appid, super::super::engine::get_pipeline(pipeline));
 
@@ -1425,8 +1426,8 @@ mod tests {
     }
 
     #[test]
-    fn party_animals_dxmt_and_m12_use_steam_without_secure() {
-        for pipeline in [PipelineId::Dxmt, PipelineId::M12] {
+    fn party_animals_dxmt_and_vkd3d_use_steam_without_secure() {
+        for pipeline in [PipelineId::Dxmt, PipelineId::Vkd3d] {
             let args = effective_launch_args(1260320, super::super::engine::get_pipeline(pipeline));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")), "pipeline {pipeline:?}");
@@ -1435,17 +1436,17 @@ mod tests {
     }
 
     #[test]
-    fn every_m12_game_gets_steam_arg_globally() {
-        // The real Steam model is GLOBAL for M12 (not an appid allowlist):
-        // any game switched to m12 launches directly with -steam and the real
+    fn every_vkd3d_game_gets_steam_arg_globally() {
+        // The real Steam model is GLOBAL for VKD3D (not an appid allowlist):
+        // any game switched to vkd3d launches directly with -steam and the real
         // Steam user files deployed. Sample a mix of games — Control (UE),
         // MECCA CHAMELEON (UE5/EOS), PEAK — none of which are in the legacy
         // requires_steam_launch_args allowlist.
         for appid in [870780u32, 4704690, 1583230] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M12));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
             assert!(
                 args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")),
-                "appid {appid}: M12 must pass -steam globally"
+                "appid {appid}: Vkd3d must pass -steam globally"
             );
         }
     }
@@ -1593,11 +1594,11 @@ mod tests {
     }
 
     #[test]
-    fn m12_deploys_dlls_to_unreal_engine_binary_dir_too() {
-        let game_dir = test_dir("m12-ue-dll-dest");
+    fn vkd3d_deploys_dlls_to_unreal_engine_binary_dir_too() {
+        let game_dir = test_dir("vkd3d-ue-dll-dest");
         let exe_dir = game_dir.join("Subnautica2").join("Binaries").join("Win64");
         let engine_dir = game_dir.join("Engine").join("Binaries").join("Win64");
-        let runtime = test_dir("runtime-m12-ue");
+        let runtime = test_dir("runtime-vkd3d-ue");
         std::fs::create_dir_all(&exe_dir).expect("create exe dir");
         std::fs::create_dir_all(&engine_dir).expect("create engine dir");
         let exe = exe_dir.join("Subnautica2-Win64-Shipping.exe");
@@ -1606,7 +1607,7 @@ mod tests {
         let dlls = selected_deploy_dlls_for_pipeline(
             &game_dir,
             Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M12),
+            super::super::engine::get_pipeline(PipelineId::Vkd3d),
             &runtime,
         );
 

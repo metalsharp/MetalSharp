@@ -2,7 +2,7 @@
 **Updated:** 2026-07-08
 
 
-MetalSharp supports Apple's Game Porting Toolkit (GPTK) as the **D3DMetal** route. This route uses Apple's D3DMetal framework for D3D11/D3D12 translation instead of the MetalSharp DXMT routes (M9/M10/M11) or the vkd3d-proton M12 route.
+MetalSharp supports Apple's Game Porting Toolkit (GPTK) as the **D3DMetal** route. This route uses Apple's D3DMetal framework for D3D11/D3D12 translation instead of the MetalSharp DXMT routes (M9/M10/M11) or the vkd3d-proton VKD3D route.
 
 GPTK is **not bundled** with MetalSharp. MetalSharp installs and uses the Homebrew GPTK app in place:
 
@@ -84,16 +84,16 @@ D3DMETAL_FRAMEWORK_PATH=/Applications/Game Porting Toolkit.app/Contents/Resource
 DYLD_FALLBACK_LIBRARY_PATH=<Homebrew GPTK lib paths>
 ```
 
-## When to Use D3DMetal vs M11/M12
+## When to Use D3DMetal vs M11/VKD3D
 
-| | D3DMetal | M11/M12 |
+| | D3DMetal | M11/VKD3D |
 |---|---|---|
-| **Translation** | Apple D3DMetal framework | DXMT for M11; vkd3d-proton → Vulkan → MoltenVK for M12 (DXMT rollback available) |
+| **Translation** | Apple D3DMetal framework | DXMT for M11; vkd3d-proton → Vulkan → MoltenVK for VKD3D (DXMT rollback available) |
 | **Wine** | Homebrew GPTK Wine | MetalSharp Wine |
 | **Prefix** | Shared (`prefix-gptk`) | Shared Wine Steam prefix with bottle preflight |
 | **Best for** | Games that need Apple's D3DMetal behavior | Most games, better compatibility tracking |
 
-Use M11 or M12 as the default. Switch to D3DMetal if a game has specific rendering issues on the DXMT path or if developer notes say to use GPTK.
+Use M11 or VKD3D as the default. Switch to D3DMetal if a game has specific rendering issues on the DXMT path or if developer notes say to use GPTK.
 
 ## GPTK Prefix Location
 

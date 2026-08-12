@@ -1,5 +1,5 @@
-# Confirmed-good M12 DXMT runtime material from a24464357fc0cb09ba794330d89d7dd6df9e2140 rebuilt on 2026-07-01.
-# Paths are relative to the dxmt_m12 runtime lane root.
+# Confirmed-good VKD3D DXMT runtime material from a24464357fc0cb09ba794330d89d7dd6df9e2140 rebuilt on 2026-07-01.
+# Paths are relative to the dxmt_vkd3d runtime lane root.
 path	sha256
 x86_64-windows/d3d10core.dll	11c9610770cb0e3f6476d2bde2a3b1afa36a41bd00a2fffc6ea61d2e62c6258d
 x86_64-windows/d3d11.dll	98ba9581e10414db0273bf1345b5087ee28de0859fcadfb4a6da09579c2020e9

@@ -411,8 +411,8 @@ _MTLCommandBuffer_retainObjectsUntilCompleted(void *obj) {
     (void)completed;
     fprintf(
         stderr,
-        "info:  M12 command buffer retained resources released "
-        "schema=metalsharp.m12.command-buffer-retention-release.v1 "
+        "info:  VKD3D command buffer retained resources released "
+        "schema=metalsharp.vkd3d.command-buffer-retention-release.v1 "
         "cmdbuf=%llu retained=%llu\n",
         (unsigned long long)cmdbuf_handle, (unsigned long long)retained_count
     );

@@ -79,7 +79,7 @@ For the three `Hades.exe` candidates (no `exe_names`, no `preferred_exe_names` e
 `build_launch_recipe` (lines ~58 and ~91), `build_custom_launch_recipe` (line ~251), and
 `diagnose_recipe` (line ~454) all use a match of the form:
 ```rust
-PipelineId::Dxmt | M9 | M10 | M11 | M12 | M13 | M32 | FnaArm64 | WineBare
+PipelineId::Dxmt | M9 | M10 | M11 | VKD3D | M13 | M32 | FnaArm64 | WineBare
 ```
 `M11_32` and `M10_32` are **absent**. Consequences for an M11(32)/M10(32) bottle:
 - `game_dir` is resolved via `resolve_game_dir` (macOS-or-Windows) instead of
@@ -98,7 +98,7 @@ Note `launcher.rs` already routes M11_32/M10_32 through `launch_dxmt_metal` /
 ```rust
 fn runtime_profile_for_pipeline(pipeline: PipelineId) -> RuntimeProfile {
     match pipeline {
-        Dxmt => GameInstall, M9 => M9, M10 => M10, M11 => M11, M12 => M12,
+        Dxmt => GameInstall, M9 => M9, M10 => M10, M11 => M11, VKD3D => VKD3D,
         M13 => M13, D3DMetal => D3DMetal, FnaArm64 => FnaArm64,
         _ => RuntimeProfile::Plain,   // <-- M10_32 and M11_32 fall here
     }
@@ -165,7 +165,7 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 - **Drop the `[overrides.475150.env]` block entirely.** `steam_pipeline_env_pairs` pushes the
   M11_32 node's `wine_overrides` (`d3d11,dxgi,winemetal=n,b;gameoverlayrenderer,gameoverlayrenderer64=d`)
   first, then pushes `recipe.env` after it — and `is_reserved_route_env_key` only protects
-  `WINEDLLOVERRIDES` for M12, not M11_32. Keeping the old `d3d9,dxgi=n,b` override would
+  `WINEDLLOVERRIDES` for VKD3D, not M11_32. Keeping the old `d3d9,dxgi=n,b` override would
   clobber the route's D3D11 overrides and break the M11(32) load. The node's defaults are
   correct for this title.
 - `dependencies.components`: switch `vcrun2019` → `vcrun2019_x86` (Titan Quest is 32-bit; the
@@ -256,4 +256,4 @@ the backend:
 - No DB / migration changes; `mtsp-rules.toml` is read at runtime via `OnceLock` and the
   shipped copy is already first in `rule_candidates`.
 - The recipe/bottle changes are additive match-arm extensions plus two mapping arms; no
-  existing 64-bit or M9/M12 behavior changes.
+  existing 64-bit or M9/VKD3D behavior changes.

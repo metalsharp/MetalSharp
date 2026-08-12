@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fresh M12 proof harness runner.
+"""Fresh VKD3D proof harness runner.
 
 Phase 0 intentionally produces new proof roots and fresh runtime identity logs.
 It does not consume previous proof directories, old shader caches, or older probe
@@ -208,9 +208,9 @@ def read_existing_text(path: Path) -> str:
 
 HARD_FAIL_PATTERNS: list[tuple[str, str]] = [
     ("vertex_range_oob", r"vertex_range_oob"),
-    ("d3d12_tessellation_fallback", r"D3D12 tessellation fallback|M12 tessellation fallback draw"),
-    ("compute_encoder_encode_failed", r"M12 compute encoder encode failed"),
-    ("render_encoder_encode_failed", r"M12 render encoder encode failed"),
+    ("d3d12_tessellation_fallback", r"D3D12 tessellation fallback|VKD3D tessellation fallback draw"),
+    ("compute_encoder_encode_failed", r"VKD3D compute encoder encode failed"),
+    ("render_encoder_encode_failed", r"VKD3D render encoder encode failed"),
     ("metal_command_buffer_error", r"MTLCommandBufferErrorDomain"),
     ("windowserver_watchdog_reboot", r"WindowServer|watchdog|userspace_watchdog|IOGPU|AGX|panic|reboot"),
 ]
@@ -257,7 +257,7 @@ def d3d12_native_tessellation_source_guard(repo: Path) -> dict[str, Any]:
                         }
                     )
     return {
-        "schema": "metalsharp.m12.d3d12-native-tessellation-source-guard.v1",
+        "schema": "metalsharp.vkd3d.d3d12-native-tessellation-source-guard.v1",
         "ok": not matches and not missing,
         "rule": "D3D12 native tessellation must not reuse D3D11 context/pipeline/shader machinery",
         "scanned_files": scanned,
@@ -305,7 +305,7 @@ def msl_err_sidecar_inventory(shader_cache_dir: Path) -> dict[str, Any]:
             else:
                 stale_records.append(record)
     return {
-        "schema": "metalsharp.m12.msl-sidecar-inventory.v1",
+        "schema": "metalsharp.vkd3d.msl-sidecar-inventory.v1",
         "shader_cache_dir": str(shader_cache_dir),
         "freshness_rule": "active when paired .msl is missing or .msl.err.txt mtime is >= paired .msl mtime; stale otherwise",
         "total_count": len(records),
@@ -351,7 +351,7 @@ def shader_replay_guardrail(
         "active_msl_err_counter_zero": int(hard_fail_gates.get("counters", {}).get("active_msl_err_sidecars", 0) or 0) == 0,
     }
     return {
-        "schema": "metalsharp.m12.shader-replay-guardrail.v1",
+        "schema": "metalsharp.vkd3d.shader-replay-guardrail.v1",
         "ok": all(shader_gates.values()),
         "runtime_ok": all(runtime_gates.values()),
         "proof_scope": "phase9_shader_replay_and_stale_sidecar_guardrail_separate_from_runtime_gates",
@@ -393,7 +393,7 @@ def hard_fail_scan(text: str, shader_cache_dir: Path) -> dict[str, Any]:
         and counters["windowserver_watchdog_reboot"] == 0
     )
     return {
-        "schema": "metalsharp.m12.fresh.hard-fail-scan.v1",
+        "schema": "metalsharp.vkd3d.fresh.hard-fail-scan.v1",
         "counters": counters,
         "active_msl_err_sidecars": active_sidecars[:50],
         "active_msl_err_sidecars_truncated": bool(sidecar_inventory["active_records_truncated"]),
@@ -436,7 +436,7 @@ def command_json(cmd: list[str], cwd: Path | None = None, timeout_s: int = 120) 
 
 def collect_pr_ci_status(repo: Path, pr_number: int, local_commit: str, skip_pr_ci: bool) -> dict[str, Any]:
     if skip_pr_ci:
-        return {"schema": "metalsharp.m12.pr-ci-status.v1", "ok": False, "skipped": True, "checks": []}
+        return {"schema": "metalsharp.vkd3d.pr-ci-status.v1", "ok": False, "skipped": True, "checks": []}
     view_json, view_meta = command_json(
         ["gh", "pr", "view", str(pr_number), "--json", "number,url,headRefName,headRefOid,state"],
         cwd=repo,
@@ -452,7 +452,7 @@ def collect_pr_ci_status(repo: Path, pr_number: int, local_commit: str, skip_pr_
     head_oid = str(view_json.get("headRefOid", "")) if isinstance(view_json, dict) else ""
     head_matches_local = bool(head_oid and head_oid == local_commit)
     return {
-        "schema": "metalsharp.m12.pr-ci-status.v1",
+        "schema": "metalsharp.vkd3d.pr-ci-status.v1",
         "ok": bool(view_meta["ok"] and checks_meta["ok"] and head_matches_local and checks and states == ["SUCCESS"]),
         "skipped": False,
         "pr_number": pr_number,
@@ -484,7 +484,7 @@ def write_readiness_bundle(
     runtime_hash_ok = bool(summary.get("runtime_stage_ok") is True)
     repo_status_short = git_text(repo, "status", "--short")
     readiness = {
-        "schema": "metalsharp.m12.final-readiness.v1",
+        "schema": "metalsharp.vkd3d.final-readiness.v1",
         "ok": False,
         "proof_root": str(proof_root),
         "repo": {
@@ -531,7 +531,7 @@ def write_readiness_bundle(
     hard_fail_lines = [f"- {name}: {value}" for name, value in sorted(readiness["hard_fail_counters"].items())]
     md = "\n".join(
         [
-            "# M12 Final Prelaunch Readiness",
+            "# VKD3D Final Prelaunch Readiness",
             "",
             f"- Overall readiness: `{readiness['ok']}`",
             f"- Local proof: `{readiness['local_proof_ok']}`",
@@ -703,7 +703,7 @@ def extract_backpressure_window_safety(
     avg_frame_ms = (elapsed_ms / frames_presented) if frames_presented else 0.0
     max_avg_frame_ms = 5000.0 if visible_frames < 10 else 2000.0
     return {
-        "schema": "metalsharp.m12.backpressure-window-safety.v1",
+        "schema": "metalsharp.vkd3d.backpressure-window-safety.v1",
         "ok": bool(
             not timed_out
             and frames_presented == visible_frames
@@ -725,7 +725,7 @@ def extract_backpressure_window_safety(
         "avg_frame_ms": avg_frame_ms,
         "max_avg_frame_ms": max_avg_frame_ms,
         "queue_depth_bound": 1,
-        "queue_depth_source": "m12_fresh_game ExecuteCommandLists completes submitted command buffers before next bounded proof process exits",
+        "queue_depth_source": "vkd3d_fresh_game ExecuteCommandLists completes submitted command buffers before next bounded proof process exits",
         "drawable_wait_ms_max": 0,
         "drawable_wait_source": "no nil-drawable or drawable-timeout diagnostics emitted during proof window",
         "nil_drawable_count": nil_drawable_count,
@@ -743,12 +743,12 @@ def extract_command_buffer_retention(text: str, required_records: int) -> dict[s
     records: list[dict[str, Any]] = []
     releases: list[dict[str, Any]] = []
     for line in text.splitlines():
-        if "M12 command buffer retained resources released" in line:
+        if "VKD3D command buffer retained resources released" in line:
             release = _parse_kv_tail(line)
             release["raw"] = line.strip()
             releases.append(release)
             continue
-        if "M12 command buffer retained resources" not in line:
+        if "VKD3D command buffer retained resources" not in line:
             continue
         record = _parse_kv_tail(line)
         record["raw"] = line.strip()
@@ -757,7 +757,7 @@ def extract_command_buffer_retention(text: str, required_records: int) -> dict[s
     valid_records = [
         record
         for record in records
-        if record.get("schema") == "metalsharp.m12.command-buffer-retention.v1"
+        if record.get("schema") == "metalsharp.vkd3d.command-buffer-retention.v1"
         and int(record.get("cmdbuf", 0) or 0) != 0
         and int(record.get("retained", 0) or 0) > 0
         and int(record.get("command_count", 0) or 0) > 0
@@ -766,7 +766,7 @@ def extract_command_buffer_retention(text: str, required_records: int) -> dict[s
     valid_release_records = [
         release
         for release in releases
-        if release.get("schema") == "metalsharp.m12.command-buffer-retention-release.v1"
+        if release.get("schema") == "metalsharp.vkd3d.command-buffer-retention-release.v1"
         and int(release.get("cmdbuf", 0) or 0) != 0
         and int(release.get("retained", 0) or 0) > 0
     ]
@@ -776,7 +776,7 @@ def extract_command_buffer_retention(text: str, required_records: int) -> dict[s
     retained_cmdbufs = {int(record.get("cmdbuf", 0) or 0) for record in valid_records}
     released_cmdbufs = {int(release.get("cmdbuf", 0) or 0) for release in valid_release_records}
     return {
-        "schema": "metalsharp.m12.command-buffer-retention-proof.v1",
+        "schema": "metalsharp.vkd3d.command-buffer-retention-proof.v1",
         "ok": bool(
             len(valid_records) >= required_records
             and len(draw_records) >= required_records
@@ -807,11 +807,11 @@ def extract_native_compute_resolve(text: str) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     for line in text.splitlines():
-        if "M12 native_compute_resolve" in line:
+        if "VKD3D native_compute_resolve" in line:
             record = _parse_kv_tail(line)
             record["raw"] = line.strip()
             records.append(record)
-        elif "M12 compute encoder encode failed" in line:
+        elif "VKD3D compute encoder encode failed" in line:
             record = _parse_kv_tail(line)
             record["raw"] = line.strip()
             failures.append(record)
@@ -830,7 +830,7 @@ def extract_native_compute_resolve(text: str) -> dict[str, Any]:
         and str(record.get("dispatch", ""))
     ]
     return {
-        "schema": "metalsharp.m12.native-compute-resolve.v1",
+        "schema": "metalsharp.vkd3d.native-compute-resolve.v1",
         "ok": bool(
             len(valid_records) >= 4
             and not failures
@@ -865,7 +865,7 @@ LOCAL_GAME_SNAPSHOT_SOURCES: list[dict[str, Any]] = [
             / "visible-window-no-render-cache-and-logs-20260626-050752"
             / "elden-ring-1245620"
             / "shader-cache",
-            Path.home() / ".metalsharp" / "shader-cache" / "m12" / "1245620",
+            Path.home() / ".metalsharp" / "shader-cache" / "vkd3d" / "1245620",
         ],
     },
     {
@@ -883,12 +883,12 @@ LOCAL_GAME_SNAPSHOT_SOURCES: list[dict[str, Any]] = [
             / "visible-window-no-render-cache-and-logs-20260626-050752"
             / "subnautica2-1962700"
             / "shader-cache",
-            Path.home() / ".metalsharp" / "shader-cache" / "m12" / "1962700",
+            Path.home() / ".metalsharp" / "shader-cache" / "vkd3d" / "1962700",
             DEFAULT_LAB_ROOT
             / "04-corpus"
-            / "subnautica2-m12-live-corpus-20260625-172628"
+            / "subnautica2-vkd3d-live-corpus-20260625-172628"
             / "source-snapshots"
-            / "shader-cache-m12-1962700",
+            / "shader-cache-vkd3d-1962700",
         ],
     },
 ]
@@ -1318,7 +1318,7 @@ def run_local_game_snapshot_inventory(
         errors.extend(title_errors)
 
     result = {
-        "schema": "metalsharp.m12.fresh.local-game-snapshot-inventory.v1",
+        "schema": "metalsharp.vkd3d.fresh.local-game-snapshot-inventory.v1",
         "scope": "report_inventory_only_no_live_commercial_game_launch_no_presented_frame_claim",
         "policy": {
             "live_game_launched": False,
@@ -1378,9 +1378,9 @@ def copy_runtime_to_probe_dir(runtime_root: Path, out_bin: Path) -> list[dict[st
 
 def build_identity_probe(repo: Path, cxx: str) -> dict[str, Any]:
     sdk = repo / "tools" / "d3d12-metal-sdk"
-    source = sdk / "probes" / "probe_m12_runtime_identity" / "probe_m12_runtime_identity.cpp"
+    source = sdk / "probes" / "probe_vkd3d_runtime_identity" / "probe_vkd3d_runtime_identity.cpp"
     out_bin = sdk / "out" / "bin"
-    exe = out_bin / "probe_m12_runtime_identity.exe"
+    exe = out_bin / "probe_vkd3d_runtime_identity.exe"
     out_bin.mkdir(parents=True, exist_ok=True)
     cmd = [
         cxx,
@@ -1412,9 +1412,9 @@ def build_identity_probe(repo: Path, cxx: str) -> dict[str, Any]:
 
 def build_fresh_game(repo: Path, cxx: str) -> dict[str, Any]:
     sdk = repo / "tools" / "d3d12-metal-sdk"
-    source = sdk / "probes" / "m12_fresh_game" / "m12_fresh_game.cpp"
+    source = sdk / "probes" / "vkd3d_fresh_game" / "vkd3d_fresh_game.cpp"
     out_bin = sdk / "out" / "bin"
-    exe = out_bin / "m12_fresh_game.exe"
+    exe = out_bin / "vkd3d_fresh_game.exe"
     out_bin.mkdir(parents=True, exist_ok=True)
     cmd = [
         cxx,
@@ -1459,8 +1459,8 @@ def parse_loaddll(stderr: str) -> list[dict[str, Any]]:
             "dxgi.dll",
             "dxgi_dxmt.dll",
             "winemetal.dll",
-            "probe_m12_runtime_identity.exe",
-            "m12_fresh_game.exe",
+            "probe_vkd3d_runtime_identity.exe",
+            "vkd3d_fresh_game.exe",
         }:
             rows.append({"path": path, "address": match.group(2), "kind": match.group(3)})
     return rows
@@ -1618,7 +1618,7 @@ def validate_fresh_game_corpus_tsv(corpus_tsv: Path, target_shaders: int = 300, 
         manifest_error = str(error)
     summary_ok = bool(
         summary
-        and summary.get("schema") == "metalsharp.m12.fresh.corpus-summary.v1"
+        and summary.get("schema") == "metalsharp.vkd3d.fresh.corpus-summary.v1"
         and summary.get("ok") is True
         and Path(summary.get("files_tsv", "")).expanduser().resolve() == corpus_tsv
         and Path(summary.get("manifest", "")).expanduser().resolve() == manifest_path
@@ -1627,7 +1627,7 @@ def validate_fresh_game_corpus_tsv(corpus_tsv: Path, target_shaders: int = 300, 
     )
     manifest_ok = bool(
         manifest
-        and manifest.get("schema") == "metalsharp.m12.fresh.corpus-manifest.v1"
+        and manifest.get("schema") == "metalsharp.vkd3d.fresh.corpus-manifest.v1"
         and manifest.get("proof_root") == summary.get("proof_root")
         and manifest.get("entry_count") == summary.get("entry_count")
         and manifest.get("category_counts") == summary.get("category_counts")
@@ -1778,9 +1778,9 @@ def validate_fresh_game_corpus_tsv(corpus_tsv: Path, target_shaders: int = 300, 
 def build_fresh_game_dxil(out_bin: Path, run_dir: Path, wine: Path, prefix: Path) -> dict[str, Any]:
     dxil_dir = run_dir / "fresh-sm6-dxil"
     dxil_dir.mkdir(parents=True, exist_ok=True)
-    hlsl_path = dxil_dir / "m12_fresh_sm6_scene.hlsl"
-    vs_path = dxil_dir / "m12_fresh_sm6_vs.dxil"
-    ps_path = dxil_dir / "m12_fresh_sm6_ps.dxil"
+    hlsl_path = dxil_dir / "vkd3d_fresh_sm6_scene.hlsl"
+    vs_path = dxil_dir / "vkd3d_fresh_sm6_vs.dxil"
+    ps_path = dxil_dir / "vkd3d_fresh_sm6_ps.dxil"
 
     sdk_dir = out_bin.parent.parent
     fetch_dxc = sdk_dir / "scripts" / "fetch-dxc.sh"
@@ -1838,9 +1838,9 @@ PSIn VSMain(VSIn input) {
   return output;
 }
 float4 PSMain(PSIn input) : SV_TARGET {
-  // M12_SCALAR_VECTOR_SEMANTICS_PROOF: keep this input-dependent so DXIL/MSL lowering cannot collapse to a constant.
-  // M12_ELDEN_VECTOR_BOOL_PROOF: stage-input vector comparison must lower through any()/all(), never bool = bool4.
-  // M12_ELDEN_VECTOR_CTOR_ARITY_PROOF: vector constructor/shuffle lowering must never emit over-width int4/uint4/float4 constructors.
+  // VKD3D_SCALAR_VECTOR_SEMANTICS_PROOF: keep this input-dependent so DXIL/MSL lowering cannot collapse to a constant.
+  // VKD3D_ELDEN_VECTOR_BOOL_PROOF: stage-input vector comparison must lower through any()/all(), never bool = bool4.
+  // VKD3D_ELDEN_VECTOR_CTOR_ARITY_PROOF: vector constructor/shuffle lowering must never emit over-width int4/uint4/float4 constructors.
   float4 vector_cmp_value = input.color + float4(-0.25, -0.75, -0.50, -1.0);
   bool4 vector_mask = (vector_cmp_value != float4(0.0, 0.0, 0.0, 0.0));
   bool vector_condition = any(vector_mask);
@@ -1870,9 +1870,9 @@ float4 PSMain(PSIn input) : SV_TARGET {
 
     source_text = hlsl_path.read_text(encoding="utf-8")
     semantic_markers = {
-        "proof_marker": "M12_SCALAR_VECTOR_SEMANTICS_PROOF" in source_text,
-        "elden_vector_bool_marker": "M12_ELDEN_VECTOR_BOOL_PROOF" in source_text,
-        "elden_vector_ctor_marker": "M12_ELDEN_VECTOR_CTOR_ARITY_PROOF" in source_text,
+        "proof_marker": "VKD3D_SCALAR_VECTOR_SEMANTICS_PROOF" in source_text,
+        "elden_vector_bool_marker": "VKD3D_ELDEN_VECTOR_BOOL_PROOF" in source_text,
+        "elden_vector_ctor_marker": "VKD3D_ELDEN_VECTOR_CTOR_ARITY_PROOF" in source_text,
         "stage_input_vector_compare": "bool4 vector_mask = (vector_cmp_value != float4" in source_text,
         "stage_input_any_bool": "bool vector_condition = any(vector_mask);" in source_text,
         "int4_ctor_merge": "int4 ctor_merged = int4(ctor_left.xy, ctor_right.zw);" in source_text,
@@ -1951,7 +1951,7 @@ float4 PSMain(PSIn input) : SV_TARGET {
 def stage_elden_dxil_hazard_shaders(run_dir: Path) -> dict[str, Any]:
     hazard_dir = run_dir / "exact-elden-dxil-hazards"
     hazard_dir.mkdir(parents=True, exist_ok=True)
-    source_dir = Path.home() / ".metalsharp" / "shader-cache" / "m12" / "1245620"
+    source_dir = Path.home() / ".metalsharp" / "shader-cache" / "vkd3d" / "1245620"
     stems = ELDEN_DXIL_HAZARD_PIXEL_STEMS
     entries: list[dict[str, Any]] = []
     ok = True
@@ -1987,14 +1987,14 @@ def stage_elden_dxil_hazard_shaders(run_dir: Path) -> dict[str, Any]:
 def build_fresh_game_waveops_dxil(out_bin: Path, run_dir: Path, wine: Path, prefix: Path) -> dict[str, Any]:
     wave_dir = run_dir / "fresh-sm6-waveops"
     wave_dir.mkdir(parents=True, exist_ok=True)
-    hlsl_path = wave_dir / "m12_fresh_waveops.hlsl"
-    cs_path = wave_dir / "m12_fresh_waveops_cs.dxil"
+    hlsl_path = wave_dir / "vkd3d_fresh_waveops.hlsl"
+    cs_path = wave_dir / "vkd3d_fresh_waveops_cs.dxil"
     hlsl_path.write_text(
         """
 RWTexture2D<float4> OutTexture : register(u0);
 [numthreads(32, 1, 1)]
 void CSMain(uint3 tid : SV_DispatchThreadID, uint group_index : SV_GroupIndex) {
-  // M12_WAVEOPS_RUNTIME_PRESENTED_PROOF: every channel is read back from a presented-frame stamp.
+  // VKD3D_WAVEOPS_RUNTIME_PRESENTED_PROOF: every channel is read back from a presented-frame stamp.
   uint lane = WaveGetLaneIndex();
   uint count = WaveGetLaneCount();
   uint payload = lane + 5u;
@@ -2019,7 +2019,7 @@ void CSMain(uint3 tid : SV_DispatchThreadID, uint group_index : SV_GroupIndex) {
     )
     source_text = hlsl_path.read_text(encoding="utf-8")
     semantic_markers = {
-        "proof_marker": "M12_WAVEOPS_RUNTIME_PRESENTED_PROOF" in source_text,
+        "proof_marker": "VKD3D_WAVEOPS_RUNTIME_PRESENTED_PROOF" in source_text,
         "wave_lane_index": "WaveGetLaneIndex" in source_text,
         "wave_lane_count": "WaveGetLaneCount" in source_text,
         "wave_is_first_lane": "WaveIsFirstLane" in source_text,
@@ -2297,30 +2297,30 @@ def validate_presented_shader_cache(shader_cache_dir: Path, stderr_text: str, d3
     nanite_vertices = int((nanite_cluster.get("computed_draw_args") or [0])[0] or 0) if nanite_cluster else 0
     wave_ops = d3d12_json.get("wave_ops", {}) if d3d12_json else {}
     wave_cs_bytes = int(wave_ops.get("cs_bytes", 0) or 0)
-    dxil_draws = re.findall(r"M12 swapchain DrawInstanced encoded v=3 i=1 .*?vs=([0-9a-f]{16}) ps=([0-9a-f]{16})", stderr_text)
-    sm5_pattern = rf"M12 swapchain DrawInstanced encoded v={visible_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    dxil_draws = re.findall(r"VKD3D swapchain DrawInstanced encoded v=3 i=1 .*?vs=([0-9a-f]{16}) ps=([0-9a-f]{16})", stderr_text)
+    sm5_pattern = rf"VKD3D swapchain DrawInstanced encoded v={visible_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     sm5_draws = re.findall(sm5_pattern, stderr_text) if visible_vertices else []
-    corpus_pattern = rf"M12 swapchain DrawInstanced encoded v={corpus_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}}).*?vs_cb=0.*?ps_cb=0"
+    corpus_pattern = rf"VKD3D swapchain DrawInstanced encoded v={corpus_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}}).*?vs_cb=0.*?ps_cb=0"
     corpus_draws = re.findall(corpus_pattern, stderr_text) if corpus_vertices else []
-    srv_pattern = rf"M12 swapchain DrawInstanced encoded v={srv_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    srv_pattern = rf"VKD3D swapchain DrawInstanced encoded v={srv_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     srv_draws = re.findall(srv_pattern, stderr_text) if srv_vertices else []
-    texture_array_srv_pattern = rf"M12 swapchain DrawInstanced encoded v={texture_array_srv_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    texture_array_srv_pattern = rf"VKD3D swapchain DrawInstanced encoded v={texture_array_srv_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     texture_array_srv_draws = re.findall(texture_array_srv_pattern, stderr_text) if texture_array_srv_vertices else []
-    textured_3d_pattern = rf"M12 swapchain DrawInstanced encoded v={textured_3d_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    textured_3d_pattern = rf"VKD3D swapchain DrawInstanced encoded v={textured_3d_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     textured_3d_draws = re.findall(textured_3d_pattern, stderr_text) if textured_3d_vertices else []
-    cbv_pattern = rf"M12 swapchain DrawInstanced encoded v={cbv_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    cbv_pattern = rf"VKD3D swapchain DrawInstanced encoded v={cbv_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     cbv_draws = re.findall(cbv_pattern, stderr_text) if cbv_vertices else []
-    indexed_pattern = rf"M12 swapchain DrawIndexedInstanced encoded idx={indexed_count} inst=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    indexed_pattern = rf"VKD3D swapchain DrawIndexedInstanced encoded idx={indexed_count} inst=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     indexed_draws = re.findall(indexed_pattern, stderr_text) if indexed_count else []
-    tessellation_pattern = r"M12 native_tessellation_path draw encoded control_points=3 patches=\d+ instances=1"
+    tessellation_pattern = r"VKD3D native_tessellation_path draw encoded control_points=3 patches=\d+ instances=1"
     tessellation_draws = re.findall(tessellation_pattern, stderr_text) if tessellation_vertices else []
-    tessellation_indexed_pattern = r"M12 native_tessellation_path indexed draw encoded control_points=3 patches=\d+ instances=1"
+    tessellation_indexed_pattern = r"VKD3D native_tessellation_path indexed draw encoded control_points=3 patches=\d+ instances=1"
     tessellation_indexed_draws = re.findall(tessellation_indexed_pattern, stderr_text) if tessellation_vertices else []
-    tessellation_fallback_trace_pattern = rf"M12 tessellation fallback draw .*?patch_control_points=3 .*?elements={tessellation_vertices} .*?tess_fallback=1"
+    tessellation_fallback_trace_pattern = rf"VKD3D tessellation fallback draw .*?patch_control_points=3 .*?elements={tessellation_vertices} .*?tess_fallback=1"
     tessellation_fallback_traces = re.findall(tessellation_fallback_trace_pattern, stderr_text) if tessellation_vertices else []
-    indirect_pattern = rf"M12 swapchain ExecuteIndirect DrawInstanced encoded v={indirect_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    indirect_pattern = rf"VKD3D swapchain ExecuteIndirect DrawInstanced encoded v={indirect_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     indirect_draws = re.findall(indirect_pattern, stderr_text) if indirect_vertices else []
-    nanite_pattern = rf"M12 swapchain ExecuteIndirect DrawInstanced encoded v={nanite_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
+    nanite_pattern = rf"VKD3D swapchain ExecuteIndirect DrawInstanced encoded v={nanite_vertices} i=1 .*?vs=([0-9a-f]{{16}}) ps=([0-9a-f]{{16}})"
     nanite_draws = re.findall(nanite_pattern, stderr_text) if nanite_vertices else []
     dxil_unique_draws = sorted(set(dxil_draws))
     sm5_unique_draws = sorted(set(sm5_draws))
@@ -2468,7 +2468,7 @@ def validate_presented_shader_cache(shader_cache_dir: Path, stderr_text: str, d3
         vs_msl = shader_cache_dir / f"{dxil_vs}.msl"
         text = vs_msl.read_text(errors="replace") if vs_msl.exists() else ""
         msl_checks["dxil_vs_clip_w_one"] = "out.position.w = 1.0f;" in text
-        msl_checks["dxil_vs_vertex_pull"] = "m12_load_vertex_attr" in text
+        msl_checks["dxil_vs_vertex_pull"] = "vkd3d_load_vertex_attr" in text
         if not msl_checks["dxil_vs_clip_w_one"]:
             errors.append("dxil_vs_msl_missing_clip_w_one")
         if not msl_checks["dxil_vs_vertex_pull"]:
@@ -2921,7 +2921,7 @@ def run_fresh_game(
 ) -> dict[str, Any]:
     sdk = repo / "tools" / "d3d12-metal-sdk"
     out_bin = sdk / "out" / "bin"
-    exe = out_bin / "m12_fresh_game.exe"
+    exe = out_bin / "vkd3d_fresh_game.exe"
     run_dir = proof_dir / "phase1-visible-game"
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2976,18 +2976,18 @@ def run_fresh_game(
             "DXMT_D3D12_TRACE": "1",
             "DXMT_D3D12_TRACE_STDERR": "1",
             "DXMT_D3D12_TRACE_MAX_MB": "128",
-            "D3D12_METAL_SDK_PROFILE": "m12-fresh-visible-game",
+            "D3D12_METAL_SDK_PROFILE": "vkd3d-fresh-visible-game",
             "DXMT_D3D12_PRESENT_LOG_INTERVAL": "1",
-            "M12_FRESH_CORPUS_TSV": str(corpus_tsv),
-            "M12_FRESH_DXIL_VS": dxil_artifacts["vs_path"],
-            "M12_FRESH_DXIL_PS": dxil_artifacts["ps_path"],
-            "M12_FRESH_WAVEOPS_CS": waveops_artifacts["cs_path"],
-            "M12_FRESH_VISIBLE_FRAMES": str(visible_frames),
+            "VKD3D_FRESH_CORPUS_TSV": str(corpus_tsv),
+            "VKD3D_FRESH_DXIL_VS": dxil_artifacts["vs_path"],
+            "VKD3D_FRESH_DXIL_PS": dxil_artifacts["ps_path"],
+            "VKD3D_FRESH_WAVEOPS_CS": waveops_artifacts["cs_path"],
+            "VKD3D_FRESH_VISIBLE_FRAMES": str(visible_frames),
             "WINEDEBUG": "+loaddll",
         }
     )
     for index, entry in enumerate(dxil_hazard_artifacts.get("entries", [])):
-        env[f"M12_FRESH_DXIL_HAZARD_PS{index}"] = str(entry.get("destination", ""))
+        env[f"VKD3D_FRESH_DXIL_HAZARD_PS{index}"] = str(entry.get("destination", ""))
     cmd = [str(wine), exe.name]
     process_timeout_s = max(180, min(900, visible_frames * 5))
     process_timeout_ms = process_timeout_s * 1000
@@ -3009,15 +3009,15 @@ def run_fresh_game(
         timeout_stdout = error.stdout if isinstance(error.stdout, str) else (error.stdout or b"").decode("utf-8", "replace")
         timeout_stderr = error.stderr if isinstance(error.stderr, str) else (error.stderr or b"").decode("utf-8", "replace")
         timeout_stderr += (
-            f"\nM12 proof timeout schema=metalsharp.m12.proof-timeout.v1 "
+            f"\nVKD3D proof timeout schema=metalsharp.vkd3d.proof-timeout.v1 "
             f"timeout_s={process_timeout_s} visible_frames={visible_frames}\n"
         )
         proc = subprocess.CompletedProcess(cmd, -9, timeout_stdout, timeout_stderr)
     proof_end_mono = time.monotonic()
     proof_end_time = time.time()
     process_elapsed_ms = int(round((proof_end_mono - proof_start_mono) * 1000.0))
-    stdout_path = run_dir / "m12_fresh_game.stdout.json"
-    stderr_path = run_dir / "m12_fresh_game.stderr.txt"
+    stdout_path = run_dir / "vkd3d_fresh_game.stdout.json"
+    stderr_path = run_dir / "vkd3d_fresh_game.stderr.txt"
     stdout_path.write_text(proc.stdout)
     stderr_path.write_text(proc.stderr)
     diagnostic_log_paths = sorted(
@@ -3046,22 +3046,22 @@ def run_fresh_game(
     draw_line_count = len(re.findall(r"draws=[1-9]", proc.stderr))
     present_draw_counts = [
         int(match.group(1))
-        for match in re.finditer(r"M12 present backbuffer work count=\d+ .*? draws=(\d+).*?classification=drawn", proc.stderr)
+        for match in re.finditer(r"VKD3D present backbuffer work count=\d+ .*? draws=(\d+).*?classification=drawn", proc.stderr)
     ]
     present_indexed_counts = [
         int(match.group(1))
-        for match in re.finditer(r"M12 present backbuffer work count=\d+ .*? indexed=(\d+).*?classification=drawn", proc.stderr)
+        for match in re.finditer(r"VKD3D present backbuffer work count=\d+ .*? indexed=(\d+).*?classification=drawn", proc.stderr)
     ]
     present_indirect_counts = [
         int(match.group(1))
-        for match in re.finditer(r"M12 present backbuffer work count=\d+ .*? indirect=(\d+).*?classification=drawn", proc.stderr)
+        for match in re.finditer(r"VKD3D present backbuffer work count=\d+ .*? indirect=(\d+).*?classification=drawn", proc.stderr)
     ]
-    native_vertex_resolved_count = len(re.findall(r"M12 native vertex path resolved", diagnostic_log_text))
+    native_vertex_resolved_count = len(re.findall(r"VKD3D native vertex path resolved", diagnostic_log_text))
     native_vertex_draw_indexed_resolved_count = len(
-        re.findall(r"M12 native vertex path resolved draw=DrawIndexedInstanced", diagnostic_log_text)
+        re.findall(r"VKD3D native vertex path resolved draw=DrawIndexedInstanced", diagnostic_log_text)
     )
     native_vertex_execute_indirect_draw_indexed_resolved_count = len(
-        re.findall(r"M12 native vertex path resolved draw=ExecuteIndirectDrawIndexed", diagnostic_log_text)
+        re.findall(r"VKD3D native vertex path resolved draw=ExecuteIndirectDrawIndexed", diagnostic_log_text)
     )
     native_vertex_resolve_log_budget = 256
     native_vertex_resolved_required = min(visible_frames * 5, native_vertex_resolve_log_budget)
@@ -3073,30 +3073,30 @@ def run_fresh_game(
         visible_frames,
         native_vertex_resolve_log_budget // 5,
     )
-    dxil_draw_encoded_count = len(re.findall(r"M12 swapchain DrawInstanced encoded v=3 i=1", diagnostic_log_text))
+    dxil_draw_encoded_count = len(re.findall(r"VKD3D swapchain DrawInstanced encoded v=3 i=1", diagnostic_log_text))
     dxil_vertex_pull_snapshot_count = len(
         re.findall(
-            r"M12 vertex-pull snapshot draw=DrawInstanced v=3 i=1 .*?slot_mask=0x1.*?bound_vbs=1",
+            r"VKD3D vertex-pull snapshot draw=DrawInstanced v=3 i=1 .*?slot_mask=0x1.*?bound_vbs=1",
             diagnostic_log_text,
         )
     )
     dxil_draw_skipped = bool(
-        re.search(r"M12 swapchain DrawInstanced skipped v=3\s+i=1|DrawInstanced\s+SKIPPED\s+v=3\s+i=1", diagnostic_log_text,
+        re.search(r"VKD3D swapchain DrawInstanced skipped v=3\s+i=1|DrawInstanced\s+SKIPPED\s+v=3\s+i=1", diagnostic_log_text,
                   re.IGNORECASE)
     )
     indexed_draw_skipped = bool(
-        re.search(r"M12 swapchain DrawIndexedInstanced skipped idx=6\s+inst=1|DrawIndexedInstanced\s+SKIPPED\s+idx=6\s+inst=1", diagnostic_log_text,
+        re.search(r"VKD3D swapchain DrawIndexedInstanced skipped idx=6\s+inst=1|DrawIndexedInstanced\s+SKIPPED\s+idx=6\s+inst=1", diagnostic_log_text,
                   re.IGNORECASE)
     )
     indirect_draw_skipped = bool(
-        re.search(r"M12 swapchain ExecuteIndirect DrawInstanced skipped v=24\s+i=1|ExecuteIndirectDraw\s+SKIPPED\s+v=24\s+i=1", diagnostic_log_text,
+        re.search(r"VKD3D swapchain ExecuteIndirect DrawInstanced skipped v=24\s+i=1|ExecuteIndirectDraw\s+SKIPPED\s+v=24\s+i=1", diagnostic_log_text,
                   re.IGNORECASE)
     )
     execute_indirect_indexed_draw_skipped = bool(
         re.search(
             r"ExecuteIndirect DRAW_INDEXED SKIPPED idx=6\s+inst=1|"
             r"ExecuteIndirectDrawIndexed\s+SKIPPED\s+idx=6\s+inst=1|"
-            r"M12 skipping unsafe ExecuteIndirectDrawIndexed",
+            r"VKD3D skipping unsafe ExecuteIndirectDrawIndexed",
             diagnostic_log_text,
             re.IGNORECASE,
         )
@@ -3104,32 +3104,32 @@ def run_fresh_game(
     multi_slot_instance_root_draw_skipped = bool(
         re.search(
             r"DrawInstanced\s+SKIPPED\s+v=6\s+i=1.*start_inst=4|"
-            r"M12 swapchain DrawInstanced skipped v=6\s+i=1.*start_inst=4|"
-            r"M12 skipping unsafe DrawInstanced.*elems=6.*start_inst=4",
+            r"VKD3D swapchain DrawInstanced skipped v=6\s+i=1.*start_inst=4|"
+            r"VKD3D skipping unsafe DrawInstanced.*elems=6.*start_inst=4",
             diagnostic_log_text,
             re.IGNORECASE,
         )
     )
     tessellation_fallback_draw_skipped = bool(
-        re.search(r"M12 swapchain DrawInstanced skipped v=51\s+i=1|DrawInstanced\s+SKIPPED\s+v=51\s+i=1", diagnostic_log_text,
+        re.search(r"VKD3D swapchain DrawInstanced skipped v=51\s+i=1|DrawInstanced\s+SKIPPED\s+v=51\s+i=1", diagnostic_log_text,
                   re.IGNORECASE)
     )
     nanite_cluster_draw_skipped = bool(
-        re.search(r"M12 swapchain ExecuteIndirect DrawInstanced skipped v=6\s+i=1|ExecuteIndirectDraw\s+SKIPPED\s+v=6\s+i=1", diagnostic_log_text,
+        re.search(r"VKD3D swapchain ExecuteIndirect DrawInstanced skipped v=6\s+i=1|ExecuteIndirectDraw\s+SKIPPED\s+v=6\s+i=1", diagnostic_log_text,
                   re.IGNORECASE)
     )
     texture_array_srv_draw_skipped = bool(
         re.search(
-            r"M12 swapchain DrawInstanced skipped v=30\s+i=1|DrawInstanced\s+SKIPPED\s+v=30\s+i=1",
+            r"VKD3D swapchain DrawInstanced skipped v=30\s+i=1|DrawInstanced\s+SKIPPED\s+v=30\s+i=1",
             diagnostic_log_text,
             re.IGNORECASE,
         )
     )
     textured_3d_draw_skipped = bool(
-        re.search(r"M12 swapchain DrawInstanced skipped v=33\s+i=1|DrawInstanced\s+SKIPPED\s+v=33\s+i=1", diagnostic_log_text,
+        re.search(r"VKD3D swapchain DrawInstanced skipped v=33\s+i=1|DrawInstanced\s+SKIPPED\s+v=33\s+i=1", diagnostic_log_text,
                   re.IGNORECASE)
     )
-    render_encoder_encode_failed = bool(re.search(r"M12 render encoder encode failed", diagnostic_log_text, re.IGNORECASE))
+    render_encoder_encode_failed = bool(re.search(r"VKD3D render encoder encode failed", diagnostic_log_text, re.IGNORECASE))
     stderr_assertion = "std::__condvar" in proc.stderr or "Assertion" in proc.stderr
     frames_presented = 0
     if parsed:
@@ -4145,8 +4145,8 @@ def run_fresh_game(
 
 
 def build_vulkan_report_probe(repo: Path, run_dir: Path) -> dict[str, Any]:
-    source = repo / "tools" / "d3d12-metal-sdk" / "probes" / "probe_m12_vulkan_report" / "probe_m12_vulkan_report.cpp"
-    exe = run_dir / "probe_m12_vulkan_report"
+    source = repo / "tools" / "d3d12-metal-sdk" / "probes" / "probe_vkd3d_vulkan_report" / "probe_vkd3d_vulkan_report.cpp"
+    exe = run_dir / "probe_vkd3d_vulkan_report"
     command = [
         "xcrun",
         "--sdk",
@@ -4242,8 +4242,8 @@ def run_vulkan_report_probe(repo: Path, proof_dir: Path, wine_runtime: Path) -> 
     }
     build = build_vulkan_report_probe(repo, run_dir)
     write_json(run_dir / "build-probe.json", build)
-    stdout_path = run_dir / "probe_m12_vulkan_report.stdout.json"
-    stderr_path = run_dir / "probe_m12_vulkan_report.stderr.txt"
+    stdout_path = run_dir / "probe_vkd3d_vulkan_report.stdout.json"
+    stderr_path = run_dir / "probe_vkd3d_vulkan_report.stderr.txt"
     parsed: dict[str, Any] | None = None
     parse_error = ""
     proc_return = None
@@ -4305,7 +4305,7 @@ def run_vulkan_report_probe(repo: Path, proof_dir: Path, wine_runtime: Path) -> 
     )
     winevulkan_so_probe_ok = bool(parsed) and parsed.get("winevulkan_so_open_ok") is True and parsed.get("winevulkan_unix_call_funcs_ok") is True and parsed.get("winevulkan_unix_call_wow64_funcs_ok") is True
     result = {
-        "schema": "metalsharp.m12.fresh.phase3-vulkan-report.v1",
+        "schema": "metalsharp.vkd3d.fresh.phase3-vulkan-report.v1",
         "build": build,
         "paths": path_records,
         "icd_validation": icd_validation,
@@ -4343,8 +4343,8 @@ def run_vulkan_report_probe(repo: Path, proof_dir: Path, wine_runtime: Path) -> 
 
 
 def build_metal_archive_probe(repo: Path, run_dir: Path) -> dict[str, Any]:
-    source = repo / "tools" / "d3d12-metal-sdk" / "probes" / "probe_m12_fresh_metal_archive" / "probe_m12_fresh_metal_archive.mm"
-    exe = run_dir / "probe_m12_fresh_metal_archive"
+    source = repo / "tools" / "d3d12-metal-sdk" / "probes" / "probe_vkd3d_fresh_metal_archive" / "probe_vkd3d_fresh_metal_archive.mm"
+    exe = run_dir / "probe_vkd3d_fresh_metal_archive"
     command = [
         "xcrun",
         "--sdk",
@@ -4525,8 +4525,8 @@ def run_metal_archive_proof(repo: Path, proof_dir: Path, visible_game_result: di
     manifest_list.write_text("\n".join(str(path) for path in normalized_manifests) + ("\n" if normalized_manifests else ""))
     build = build_metal_archive_probe(repo, run_dir)
     write_json(run_dir / "build-probe.json", build)
-    stdout_path = run_dir / "probe_m12_fresh_metal_archive.stdout.json"
-    stderr_path = run_dir / "probe_m12_fresh_metal_archive.stderr.txt"
+    stdout_path = run_dir / "probe_vkd3d_fresh_metal_archive.stdout.json"
+    stderr_path = run_dir / "probe_vkd3d_fresh_metal_archive.stderr.txt"
     parsed: dict[str, Any] | None = None
     parse_error = ""
     proc_return = None
@@ -4581,7 +4581,7 @@ def run_metal_archive_proof(repo: Path, proof_dir: Path, visible_game_result: di
     excluded_manifests_allowed = all(record.get("reason") == allowed_exclusion_reason for record in excluded_manifest_records)
     parsed_manifest_count_matches = bool(parsed and int(parsed.get("manifest_count", -1)) == len(normalized_manifests))
     result = {
-        "schema": "metalsharp.m12.fresh.phase2-metal-archive-prewarm.v1",
+        "schema": "metalsharp.vkd3d.fresh.phase2-metal-archive-prewarm.v1",
         "build": build,
         "shader_cache_dir": str(shader_cache_dir),
         "manifest_list": str(manifest_list),
@@ -4641,7 +4641,7 @@ def run_identity_probe(
 ) -> dict[str, Any]:
     sdk = repo / "tools" / "d3d12-metal-sdk"
     out_bin = sdk / "out" / "bin"
-    exe = out_bin / "probe_m12_runtime_identity.exe"
+    exe = out_bin / "probe_vkd3d_runtime_identity.exe"
     run_dir = proof_dir / "phase0-runtime-identity"
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -4663,14 +4663,14 @@ def run_identity_probe(
             "DXMT_WINEMETAL_UNIXLIB": unix_bridge.name,
             "DXMT_WINEMETAL_DEBUG": "1",
             "DXMT_LOG_PATH": str(run_dir),
-            "D3D12_METAL_SDK_PROFILE": "m12-fresh-proof",
+            "D3D12_METAL_SDK_PROFILE": "vkd3d-fresh-proof",
             "WINEDEBUG": "+loaddll",
         }
     )
     cmd = [str(wine), exe.name]
     proc = subprocess.run(cmd, cwd=out_bin, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout_path = run_dir / "probe_m12_runtime_identity.stdout.json"
-    stderr_path = run_dir / "probe_m12_runtime_identity.stderr.txt"
+    stdout_path = run_dir / "probe_vkd3d_runtime_identity.stdout.json"
+    stderr_path = run_dir / "probe_vkd3d_runtime_identity.stderr.txt"
     stdout_path.write_text(proc.stdout)
     stderr_path.write_text(proc.stderr)
 
@@ -4755,21 +4755,21 @@ def run_identity_probe(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the fresh M12 proof harness gates.")
+    parser = argparse.ArgumentParser(description="Run the fresh VKD3D proof harness gates.")
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[3]))
     parser.add_argument("--proof-root", default="")
     parser.add_argument("--lab-root", default=str(DEFAULT_LAB_ROOT))
-    parser.add_argument("--runtime-root", default=os.path.expanduser("~/.metalsharp/runtime/wine/lib/dxmt_m12"))
+    parser.add_argument("--runtime-root", default=os.path.expanduser("~/.metalsharp/runtime/wine/lib/dxmt_vkd3d"))
     parser.add_argument("--wine-runtime", default=os.path.expanduser("~/.metalsharp/runtime/wine"))
     parser.add_argument("--wine", default=os.path.expanduser("~/.metalsharp/runtime/wine/bin/metalsharp-wine"))
     parser.add_argument("--prefix", default=os.path.expanduser("~/.metalsharp/prefix-steam"))
     parser.add_argument("--min-free-gib", type=int, default=50)
     parser.add_argument("--cxx", default=os.environ.get("CXX", "x86_64-w64-mingw32-g++"))
-    parser.add_argument("--corpus-tsv", default=os.environ.get("M12_FRESH_CORPUS_TSV", ""))
+    parser.add_argument("--corpus-tsv", default=os.environ.get("VKD3D_FRESH_CORPUS_TSV", ""))
     parser.add_argument("--visible-frames", type=int, default=600)
     parser.add_argument("--pr-number", type=int, default=230, help="GitHub PR number for final readiness CI accounting.")
     parser.add_argument("--skip-pr-ci", action="store_true", help="Skip PR CI accounting in final readiness output.")
-    parser.add_argument("--skip-game", action="store_true", help="Skip the visible m12_fresh_game.exe phase.")
+    parser.add_argument("--skip-game", action="store_true", help="Skip the visible vkd3d_fresh_game.exe phase.")
     parser.add_argument(
         "--local-game-snapshot-root",
         action="append",
@@ -4812,7 +4812,7 @@ def main() -> int:
         )
         return 2
     proof_root = Path(args.proof_root).expanduser() if args.proof_root else (
-        lab_root / "06-results" / "in-progress" / f"m12-fresh-proof-game-harness-{timestamp()}"
+        lab_root / "06-results" / "in-progress" / f"vkd3d-fresh-proof-game-harness-{timestamp()}"
     )
 
     if not lab_root.exists():
@@ -4838,7 +4838,7 @@ def main() -> int:
 
     runtime_entries, missing_runtime = inspect_runtime(runtime_root)
     manifest = {
-        "schema": "metalsharp.m12.fresh.proof-run-manifest.v1",
+        "schema": "metalsharp.vkd3d.fresh.proof-run-manifest.v1",
         "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "policy": {
             "fresh_artifacts_only": True,
@@ -4881,7 +4881,7 @@ def main() -> int:
         return 6
 
     game_build = build_fresh_game(repo, args.cxx)
-    write_json(proof_root / "phase1-build-m12-fresh-game.json", game_build)
+    write_json(proof_root / "phase1-build-vkd3d-fresh-game.json", game_build)
     if not game_build["ok"]:
         print(game_build["stderr"], file=sys.stderr)
         return 9
@@ -4943,7 +4943,7 @@ def main() -> int:
         and (args.skip_run or args.skip_game or bool(metal_archive_result and metal_archive_result["ok"]))
     )
     summary = {
-        "schema": "metalsharp.m12.fresh.phase0-summary.v1",
+        "schema": "metalsharp.vkd3d.fresh.phase0-summary.v1",
         "ok": local_ok,
         "local_ok": local_ok,
         "proof_root": str(proof_root),

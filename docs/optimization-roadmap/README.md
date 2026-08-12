@@ -3,7 +3,7 @@
 
 
 This directory documents the 9-phase optimization roadmap that hardens
-MetalSharp's launch routes, bottles, M12 artifact verification, shader/PSO
+MetalSharp's launch routes, bottles, VKD3D artifact verification, shader/PSO
 diagnostics, descriptor binding, command replay, runtime/migration cleanup,
 Mono/FNA/XNA reliability, and release gates.
 
@@ -16,7 +16,7 @@ artifact paths untouched.
 |-------|---------------|------------------|
 | 1 — Baseline observability | `feat(diagnostics)` | `diagnostics.rs`, launch timing, injection hashes |
 | 2 — Bottle/route contract | `feat(bottles)` | `SteamRouteContract`, migration report |
-| 3 — M12 artifact verifier | `feat(mtsp)` | `m12_verify_dry_run`, pipeline dry-run |
+| 3 — VKD3D artifact verifier | `feat(mtsp)` | `vkd3d_verify_dry_run`, pipeline dry-run |
 | 4 — Shader/PSO/cache | `feat(shader_cache)` | cache doctor, `PsoDiagnosticManifest` |
 | 5 — Descriptor binding | `feat(binding_contract)` | root-signature + reflection ABI |
 | 6 — Command replay/barriers | `feat(command_contract)` | command-list/visibility validator |

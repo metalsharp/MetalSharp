@@ -40,7 +40,7 @@ D3DMetal is an explicit GPTK lane rather than a generic bottle repair path. Savi
 
 | Public route | Backend | Launch path |
 |---|---|---|
-| **M12** | vkd3d-proton (default) / DXMT (`m12Backend` setting) | Direct Wine launch; default uses isolated vkd3d-proton D3D12/DXVK dxgi/VKMT MoltenVK DLLs; DXMT rollback uses `dxmt-m12` |
+| **VKD3D** | vkd3d-proton (default) / DXMT (`vkd3dBackend` setting) | Direct Wine launch; default uses isolated vkd3d-proton D3D12/DXVK dxgi/VKMT MoltenVK DLLs; DXMT rollback uses `dxmt-vkd3d` |
 | **M11** | DXMT | Direct Wine launch with legacy `dxmt` D3D11/DXGI DLLs |
 | **M10** | DXMT | Direct Wine launch with legacy `dxmt` D3D10/D3D11/DXGI DLLs |
 | **M9** | DXMT launch family | Direct Wine launch with bundled `d3d9.dll` and DXMT-family cache/env |
@@ -57,7 +57,7 @@ The resolver checks, in order:
 2. Managed .NET/FNA eligibility
 3. PE header analysis
 4. Installed game directory markers
-5. M12 fallback
+5. VKD3D fallback
 
 Common marker behavior:
 
@@ -66,7 +66,7 @@ Common marker behavior:
 | Known XNA/FNA managed game | Mono/FNA |
 | Unity, Unreal, Source, RE Engine, or `steam_api*.dll` markers | M11 |
 | `d3dx9_43.dll` or D3D9 import | M9 |
-| PE imports D3D12 | M12 for 64-bit games, M11 otherwise |
+| PE imports D3D12 | VKD3D for 64-bit games, M11 otherwise |
 | PE imports D3D11 | M11 |
 | 64-bit PE imports D3D10 | M10 |
 | PE imports D3D9 | M9 |
@@ -97,7 +97,7 @@ For DXMT shader-compiling routes M10, M10(32), M11, and M11(32), the backend rea
 
 Malformed or unavailable version output fails open: no shader-version overlay is set, so DXMT keeps its own supported-host detection. The policy is applied after game recipe and caller configuration on direct/bottle paths, preventing stale per-game shader-version values from overriding the host capability.
 
-M12 reads from its default vkd3d-proton/DXVK/MoltenVK surface:
+VKD3D reads from its default vkd3d-proton/DXVK/MoltenVK surface:
 
 ```text
 ~/.metalsharp/runtime/wine/lib/vkd3d-proton   (d3d12.dll + d3d12core.dll)
@@ -105,11 +105,11 @@ M12 reads from its default vkd3d-proton/DXVK/MoltenVK surface:
 ~/.metalsharp/runtime/wine/lib/moltenvk-vkmt  (VKMT MoltenVK)
 ```
 
-With the `m12Backend=dxmt` rollback, M12 reads from the isolated DXMT surface
+With the `vkd3dBackend=dxmt` rollback, VKD3D reads from the isolated DXMT surface
 instead:
 
 ```text
-~/.metalsharp/runtime/wine/lib/dxmt-m12
+~/.metalsharp/runtime/wine/lib/dxmt-vkd3d
 ```
 
 M11/M10 copy:
@@ -121,14 +121,14 @@ M11/M10 copy:
 
 M10 is selected by 64-bit `d3d10.dll`, `d3d10_1.dll`, or `d3d10core.dll` imports. It deploys Wine's public `d3d10.dll` and `d3d10_1.dll` entrypoints plus DXMT's `d3d10core.dll`, so public D3D10 imports and the DXMT core handoff are both owned by the x86_64 M10 runtime contract.
 
-M12 (default backend) copies:
+VKD3D (default backend) copies:
 
 - `d3d12.dll`
 - `d3d12core.dll`
 - `dxgi.dll` (DXVK lane)
-- `nvapi64.dll` / `nvngx.dll` (GPU vendor stubs, shared `dxmt_m12` lane)
+- `nvapi64.dll` / `nvngx.dll` (GPU vendor stubs, shared `dxmt_vkd3d` lane)
 
-M12 also adds the route's unix library directories to the fallback library path: the default backend resolves `lib/wine/x86_64-unix` and `lib/moltenvk-vkmt` (Vulkan -> MoltenVK presentation, `VK_ICD_FILENAMES` pinned to the runtime ICD); the DXMT rollback resolves `lib/dxmt-m12/x86_64-unix` so `winemetal.so` and its bundled C++ sidecars are found. vkd3d-proton ships Windows DLLs only and has no unix sidecar.
+VKD3D also adds the route's unix library directories to the fallback library path: the default backend resolves `lib/wine/x86_64-unix` and `lib/moltenvk-vkmt` (Vulkan -> MoltenVK presentation, `VK_ICD_FILENAMES` pinned to the runtime ICD); the DXMT rollback resolves `lib/dxmt-vkd3d/x86_64-unix` so `winemetal.so` and its bundled C++ sidecars are found. vkd3d-proton ships Windows DLLs only and has no unix sidecar.
 
 M9 copies:
 

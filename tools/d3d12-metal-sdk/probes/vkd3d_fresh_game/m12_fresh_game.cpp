@@ -707,7 +707,7 @@ static AbiSemanticStats exercise_abi_semantics(IDXGIFactory4* factory, IDXGIAdap
 static HRESULT compile_shader(D3DCompileFn compile, const char* source, const char* entry, const char* target,
                               ID3DBlob** blob) {
     ID3DBlob* errors = nullptr;
-    HRESULT hr = compile ? compile(source, std::strlen(source), "m12_fresh_game_loading.hlsl", nullptr, nullptr, entry,
+    HRESULT hr = compile ? compile(source, std::strlen(source), "vkd3d_fresh_game_loading.hlsl", nullptr, nullptr, entry,
                                    target, 0, 0, blob, &errors)
                          : E_FAIL;
     if (errors)
@@ -7197,14 +7197,14 @@ struct D3DRunStats {
 static D3DRunStats run_d3d_window(const CorpusStats& corpus) {
     D3DRunStats stats;
     HINSTANCE instance = GetModuleHandleW(nullptr);
-    const wchar_t* class_name = L"MetalSharpM12FreshGameWindow";
+    const wchar_t* class_name = L"MetalSharpVKD3DFreshGameWindow";
     WNDCLASSW wc = {};
     wc.lpfnWndProc = game_window_proc;
     wc.hInstance = instance;
     wc.lpszClassName = class_name;
     RegisterClassW(&wc);
 
-    HWND hwnd = CreateWindowExW(0, class_name, L"MetalSharp M12 Fresh Proof Game", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+    HWND hwnd = CreateWindowExW(0, class_name, L"MetalSharp VKD3D Fresh Proof Game", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                                 CW_USEDEFAULT, CW_USEDEFAULT, 960, 540, nullptr, nullptr, instance, nullptr);
     stats.hwnd_created = hwnd != nullptr;
     if (!hwnd)
@@ -7311,16 +7311,16 @@ static D3DRunStats run_d3d_window(const CorpusStats& corpus) {
     stats.create_fence_hr = device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) : E_FAIL;
     stats.abi_semantics = exercise_abi_semantics(factory, adapter, device, queue, allocator, list, fence, swapchain);
 
-    const uint32_t visible_frame_target = getenv_u32("M12_FRESH_VISIBLE_FRAMES", 600);
+    const uint32_t visible_frame_target = getenv_u32("VKD3D_FRESH_VISIBLE_FRAMES", 600);
     VisibleSceneResources visible_scene = create_visible_scene(device, compile, serialize, visible_frame_target);
     stats.visible_scene = visible_scene.stats;
-    const std::string dxil_vs_path = getenv_string("M12_FRESH_DXIL_VS");
+    const std::string dxil_vs_path = getenv_string("VKD3D_FRESH_DXIL_VS");
     DxilSceneResources dxil_scene =
-        create_dxil_scene(device, serialize, dxil_vs_path, getenv_string("M12_FRESH_DXIL_PS"));
+        create_dxil_scene(device, serialize, dxil_vs_path, getenv_string("VKD3D_FRESH_DXIL_PS"));
     stats.dxil_scene = dxil_scene.stats;
     std::vector<std::string> dxil_hazard_ps_paths;
     for (uint32_t hazard_index = 0; hazard_index < 64; ++hazard_index) {
-        std::string path = getenv_string(("M12_FRESH_DXIL_HAZARD_PS" + std::to_string(hazard_index)).c_str());
+        std::string path = getenv_string(("VKD3D_FRESH_DXIL_HAZARD_PS" + std::to_string(hazard_index)).c_str());
         if (!path.empty())
             dxil_hazard_ps_paths.push_back(path);
     }
@@ -7341,7 +7341,7 @@ static D3DRunStats run_d3d_window(const CorpusStats& corpus) {
         exercise_uav_barrier_stamp(device, compile, serialize, queue, allocator, list, fence, fence_event, fence_value);
     stats.uav_barrier = uav_barrier.stats;
     WaveOpsExercise wave_ops = exercise_wave_ops_stamp(device, serialize, queue, allocator, list, fence, fence_event,
-                                                       fence_value, getenv_string("M12_FRESH_WAVEOPS_CS"));
+                                                       fence_value, getenv_string("VKD3D_FRESH_WAVEOPS_CS"));
     stats.wave_ops = wave_ops.stats;
     RtvFormatExercise rtv_format =
         exercise_rtv_format_stamp(device, queue, allocator, list, fence, fence_event, fence_value);
@@ -8080,7 +8080,7 @@ static std::string hr_hex(HRESULT hr) {
 }
 
 int main() {
-    std::string corpus_tsv = getenv_string("M12_FRESH_CORPUS_TSV");
+    std::string corpus_tsv = getenv_string("VKD3D_FRESH_CORPUS_TSV");
     uint32_t target_shaders = 300;
     uint32_t target_textures = 300;
     CorpusStats corpus = load_corpus_tsv(corpus_tsv, target_shaders, target_textures);
@@ -8093,7 +8093,7 @@ int main() {
     bool pass = corpus_ok && d3d.pass;
 
     std::printf("{\n");
-    std::printf("  \"schema\": \"metalsharp.m12.fresh.game.v1\",\n");
+    std::printf("  \"schema\": \"metalsharp.vkd3d.fresh.game.v1\",\n");
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"corpus\": {\n");
     std::printf("    \"tsv\": \"%s\",\n", json_escape(corpus.tsv_path).c_str());

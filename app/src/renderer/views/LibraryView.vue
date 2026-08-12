@@ -108,7 +108,7 @@ function isWineSteamRouteId(launchMethod: string) {
     "m10_32",
     "m11",
     "m11_32",
-    "m12",
+    "vkd3d",
     "m32",
     "dx9",
     "dx10",
@@ -146,7 +146,7 @@ function effectiveLaunchMethod(launchMethod: string, eacEnabled = false) {
     eacEnabled &&
     ["mac_steam", "macos_steam", "native_steam"].includes(method)
   ) {
-    return "m12";
+    return "vkd3d";
   }
   return launchMethod;
 }

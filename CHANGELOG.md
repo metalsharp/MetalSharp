@@ -10,8 +10,8 @@
 
 ### Fixed
 
-- **M12/DXMT pipeline switches** — game-folder graphics deployment now strictly removes the conflicting prior route before staging the selected one. M12 owns VKD3D-Proton `d3d12.dll`/`d3d12core.dll` and DXVK `dxgi.dll`/`d3d11.dll`; DXMT transitions evict that full set, and M12 transitions remove DXMT-specific files first.
-- **VKMT MoltenVK installation and upgrades** — fresh installs and existing installations now synchronize Wine’s direct-load MoltenVK copies from the staged VKMT lane after graphics extraction, with byte-level stale-copy detection; the legacy DXMT fast path also verifies and repairs missing M12 lanes.
+- **VKD3D/DXMT pipeline switches** — game-folder graphics deployment now strictly removes the conflicting prior route before staging the selected one. VKD3D owns VKD3D-Proton `d3d12.dll`/`d3d12core.dll` and DXVK `dxgi.dll`/`d3d11.dll`; DXMT transitions evict that full set, and VKD3D transitions remove DXMT-specific files first.
+- **VKMT MoltenVK installation and upgrades** — fresh installs and existing installations now synchronize Wine’s direct-load MoltenVK copies from the staged VKMT lane after graphics extraction, with byte-level stale-copy detection; the legacy DXMT fast path also verifies and repairs missing VKD3D lanes.
 - **Saved application theme** — auxiliary and process-manager windows now respect an explicitly saved theme; first launch remains dark.
 - **`js-yaml` security update** — updated to 4.3.1.
 
@@ -25,7 +25,7 @@
 
 ### Added
 
-- **M12 moves to vkd3d-proton by default** — the D3D12 route now runs on the VKMT stack: `d3d12.dll` forwarder + `d3d12core.dll` (VKMT win64-filtered build), DXVK's `dxgi.dll`, and VKMT's patched MoltenVK (`lib/moltenvk-vkmt` lane, `VK_ICD_FILENAMES` pinned to the runtime ICD). The legacy DXMT M12 stack remains as an instant rollback via the `m12Backend` setting (`vkd3d-proton` default / `dxmt`). Bundle lanes added: `vkd3d-proton`, `dxvk`, `moltenvk-vkmt`; M12 bottle saves, repair, and diagnostics are backend-aware; 22 shipped M12 game rules re-pointed to the vkd3d-deployed DLL set.
+- **VKD3D moves to vkd3d-proton by default** — the D3D12 route now runs on the VKMT stack: `d3d12.dll` forwarder + `d3d12core.dll` (VKMT win64-filtered build), DXVK's `dxgi.dll`, and VKMT's patched MoltenVK (`lib/moltenvk-vkmt` lane, `VK_ICD_FILENAMES` pinned to the runtime ICD). The legacy DXMT VKD3D stack remains as an instant rollback via the `vkd3dBackend` setting (`vkd3d-proton` default / `dxmt`). Bundle lanes added: `vkd3d-proton`, `dxvk`, `moltenvk-vkmt`; VKD3D bottle saves, repair, and diagnostics are backend-aware; 22 shipped VKD3D game rules re-pointed to the vkd3d-deployed DLL set.
 - **Sidebar MetalFX toggle** — 1.75 | 1.50 | OFF (default **1.50**, enabled). DXMT MetalFX Spatial upscaling for the DXMT routes (M10, M10(32), M11, M11(32)); drives the existing `/metalfx/toggle` overlay (state file + dxmt.conf + in-game live swapchain toggle), and the launcher now reconciles the DXMT env from that state at launch — fixing the node's hardcoded 1.43 factor shadowing the overlay choice.
 - **Sidebar msync toggle** — ON/OFF (default ON). `WINEMSYNC` is now config-driven across all launch paths (was hardcoded to `1`), including GOG prefix init.
 - **Sidebar Controller input selector** — Off / X (XInput) / D (DInput) shims, shipped in `lib/metalsharp` (#375).
@@ -48,12 +48,12 @@ Testing-surface hardening, pre-commit strictness, and compatibility database ref
 - **`tools/ci/check-doc-freshness.py`** — warns on docs without an `Updated:` header or older than 120 days; also verifies `CHANGELOG.md` has a section for the current version. Warn-only by default; `--strict` makes it an error.
 - **`.github/hooks/pre-commit`** + README — opt-in shared pre-commit hook. Runs `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --lib`, `clang-format --dry-run --Werror`, `tsc --noEmit`, `biome ci`, `prettier --check`, and the rules-TOML/doc-freshness validators locally when relevant files are staged.
 - **`shipped_rules_toml_is_well_formed`** Rust test — same checks as the Python rules TOML validator, runs as part of `cargo test`.
-- **609 default rule entries** for Steam AppIDs — bulk-add of game compatibility rules for DX9/10/11/12 pipelines, sourced from Steam store data and community testing. Pipeline distribution: m9: 54, m10: 2, m11: 471, m11_32: 70, m12: 12.
+- **609 default rule entries** for Steam AppIDs — bulk-add of game compatibility rules for DX9/10/11/12 pipelines, sourced from Steam store data and community testing. Pipeline distribution: m9: 54, m10: 2, m11: 471, m11_32: 70, vkd3d: 12.
 
 ### Changed
 
 - **Pre-commit policy: fail-hard on missing toolchains.** Previously the pre-commit hook would warn and silently skip a check if the required toolchain (cargo, clang-format, node_modules, python3) wasn't installed. That made it possible for a `cargo fmt` violation to slip past locally and only get caught in CI. The hook now fails the commit in that case, with an install hint.
-- **Compatibility database** — `docs/compatibility/GAMES-SUPPORTED.md` now documents the M9, M10, M11, M11-32, M12, and D3DMetal pipeline coverage and corrects the Party Animals AppID (1260320; the prior 1823720 was incorrect).
+- **Compatibility database** — `docs/compatibility/GAMES-SUPPORTED.md` now documents the M9, M10, M11, M11-32, VKD3D, and D3DMetal pipeline coverage and corrects the Party Animals AppID (1260320; the prior 1823720 was incorrect).
 
 ### Fixed
 
@@ -111,15 +111,15 @@ M11(32)/M10(32) bottle save correctness.
 
 ## v0.51.0 — 2026-07-01
 
-GOG MetalSharp Games launcher, M12 release path, D3DMetal GPTK explicit lane, dependency hygiene, and Electron theme polish.
+GOG MetalSharp Games launcher, VKD3D release path, D3DMetal GPTK explicit lane, dependency hygiene, and Electron theme polish.
 
 ### Added
 
 - **GOG MetalSharp Games launcher** — (#242) a fully separate GOG launcher built on the `gogdl` downloader. GOG OAuth now flows through a bundled Electron `BrowserWindow` (replacing the previous Safari AppleScript bridge). GOG prefixes are managed end-to-end, GOG cards get artwork, and the GOG install path is shared with the Steam path for compatibility surface purposes.
-- **M12 release runtime path** — release CI now installs the DXMT build tools and MinGW toolchain and verifies the M12 archive layout. The `chore: bump release version` script verifies all 5 version locations are in sync.
-- **D3DMetal GPTK explicit lane** — #231 adds a dedicated `D3DMetal` lane separate from `M12`, with its own bottle repair actions, runtime staging, and Titan Quest M9 rule.
-- **D3DMetal → M12 route switching** — bottles can be switched between D3DMetal and M12 with the right DLLs swapped automatically.
-- **M12 winemetal sidecar validation** — release CI validates the staged `winemetal.dylib` and `winemetal.so` sidecars.
+- **VKD3D release runtime path** — release CI now installs the DXMT build tools and MinGW toolchain and verifies the VKD3D archive layout. The `chore: bump release version` script verifies all 5 version locations are in sync.
+- **D3DMetal GPTK explicit lane** — #231 adds a dedicated `D3DMetal` lane separate from `VKD3D`, with its own bottle repair actions, runtime staging, and Titan Quest M9 rule.
+- **D3DMetal → VKD3D route switching** — bottles can be switched between D3DMetal and VKD3D with the right DLLs swapped automatically.
+- **VKD3D winemetal sidecar validation** — release CI validates the staged `winemetal.dylib` and `winemetal.so` sidecars.
 - **Process Manager performance + process controls** — the in-game overlay now has explicit performance and process controls (per-process kill, GPU usage, etc.).
 - **Developer theme preview** — a new developer theme that uses neutral sidebar active text and an honest library card grid.
 
@@ -128,45 +128,45 @@ GOG MetalSharp Games launcher, M12 release path, D3DMetal GPTK explicit lane, de
 - **Library card grid** — cards now lay out in a fixed 2-column grid; glass sidebar active route shimmers on route change; the developer theme is opt-in.
 - **Dependency bumps** — bumps `vue`, `lucide-icons`, `biome`, `electron`, and the `sha2` Rust crate. Patches vulnerable npm transitive deps.
 - **CI: CodeQL C** — restored and then removed (job was kept active in the meantime).
-- **Subnautica 2** — now launches directly on M12 (no more guard).
+- **Subnautica 2** — now launches directly on VKD3D (no more guard).
 
 ### Fixed
 
-- **M12 normal launch pipeline** — guarded staging for normal launches (not just Steam).
-- **M12 Steam launch artifact staging** — guarded.
+- **VKD3D normal launch pipeline** — guarded staging for normal launches (not just Steam).
+- **VKD3D Steam launch artifact staging** — guarded.
 - **GOG OAuth callback capture** — OAuth callback tabs are now captured correctly.
 - **GOG prefix setup state refresh** — GOGDL is provisioned during prefix setup.
 - **GOG uninstall + retry state** — hardened.
-- **Bottle profile save isolation** — saves no longer share state between D3DMetal and M12.
-- **M12 runtime repair contract** — CI checks added.
-- **M12 unix sidecar staging** — staged for game launches.
-- **M12 command/present milestone logging** — milestones are now logged in the runtime.
+- **Bottle profile save isolation** — saves no longer share state between D3DMetal and VKD3D.
+- **VKD3D runtime repair contract** — CI checks added.
+- **VKD3D unix sidecar staging** — staged for game launches.
+- **VKD3D command/present milestone logging** — milestones are now logged in the runtime.
 
 ## v0.50.0 — 2026-06-13
 
-M12 DXIL vertex input hardening, RE4 diagnostic capture, and the M12 cube pipeline CI gate.
+VKD3D DXIL vertex input hardening, RE4 diagnostic capture, and the VKD3D cube pipeline CI gate.
 
 ### Added
 
-- **M12 DXIL vertex input mapping** — uses vertex pulling for DXIL vertex inputs (replaces an earlier "share unix winemetal" attempt that was reverted). The shared IA metadata builder is now used by both the M12 cube runner and the game launch path.
-- **M12 fragment bindings hardened** — compute binding completeness logs added; zero-draw swapchain presents classified; direct swapchain clear work recorded; command list lifecycle traced.
-- **M12 render encode path hardened** — encodes go through the new M12 render encode path.
-- **M12 shader present path hardened** — and a defined M12 shader engine contract.
-- **M12 game-local launch path** — defined; a bottle repair checklist and a native repair fallback were added.
+- **VKD3D DXIL vertex input mapping** — uses vertex pulling for DXIL vertex inputs (replaces an earlier "share unix winemetal" attempt that was reverted). The shared IA metadata builder is now used by both the VKD3D cube runner and the game launch path.
+- **VKD3D fragment bindings hardened** — compute binding completeness logs added; zero-draw swapchain presents classified; direct swapchain clear work recorded; command list lifecycle traced.
+- **VKD3D render encode path hardened** — encodes go through the new VKD3D render encode path.
+- **VKD3D shader present path hardened** — and a defined VKD3D shader engine contract.
+- **VKD3D game-local launch path** — defined; a bottle repair checklist and a native repair fallback were added.
 - **Steam prefix init without wineboot** — speeds up launch on cold bottles.
 - **DXMT winemetal migration staging** — verified.
-- **Elden M12 shader corpus** — added for shader testing.
-- **MTSP game rules + M12 fallback DLL checks** — updated.
+- **Elden VKD3D shader corpus** — added for shader testing.
+- **MTSP game rules + VKD3D fallback DLL checks** — updated.
 - **Sharp artwork fallback** — uses fallback art for games missing images.
-- **Phase 1–9 hardening** — diagnostic observability, bottle route contract hardening, M12 artifact verification, shader/PSO cache diagnostics, Metal binding descriptor hardening, command replay/barriers/visibility contract, runtime/migration perf cleanup, Mono/FNA/XNA reliability, release gates.
-- **M12 cube pipeline CI check** — the standalone M12 cube runner is restored and hardens the M12 cube unix dylib staging; release CI runs it on every push.
+- **Phase 1–9 hardening** — diagnostic observability, bottle route contract hardening, VKD3D artifact verification, shader/PSO cache diagnostics, Metal binding descriptor hardening, command replay/barriers/visibility contract, runtime/migration perf cleanup, Mono/FNA/XNA reliability, release gates.
+- **VKD3D cube pipeline CI check** — the standalone VKD3D cube runner is restored and hardens the VKD3D cube unix dylib staging; release CI runs it on every push.
 - **Ad-hoc deep signing for DMG packaging** — the DMG build now signs deeply (Developer ID + notarization).
-- **M12 dxmt surface isolated** — (#201) the updated M12 DXMT surface is isolated from M11.
+- **VKD3D dxmt surface isolated** — (#201) the updated VKD3D DXMT surface is isolated from M11.
 
 ### Fixed
 
 - **RE4 DXMT diagnostics** — captured and staged.
-- **mscompatdb disabled for M12 launches** — bypass wrapper load for M12; the wrapper is no longer needed because M12 uses the native DXMT surface.
+- **mscompatdb disabled for VKD3D launches** — bypass wrapper load for VKD3D; the wrapper is no longer needed because VKD3D uses the native DXMT surface.
 
 ## v0.46.5 — 2026-06-11
 
@@ -258,11 +258,11 @@ EAC toggle, kernel translation IPC bridge.
 
 ## v0.40.0 — 2026-05-28
 
-DXMT D3D12 support, M12 pipeline.
+DXMT D3D12 support, VKD3D pipeline.
 
 ### Added
 
-- **D3D12 to Metal via DXMT** — M12 pipeline for D3D12 games using DXMT's Metal backend.
+- **D3D12 to Metal via DXMT** — VKD3D pipeline for D3D12 games using DXMT's Metal backend.
 - **Per-game shader and pipeline cache** — persistent cache dirs under `~/.metalsharp/shader-cache/` and `~/.metalsharp/pipeline-cache/`.
 
 ## v0.38.0 — 2026-05-24
@@ -291,7 +291,7 @@ Beta 7. Runtime bottles, installer profiles, migration wizard.
 
 - **Installer bottle support** — Sharp Library classifies `.exe`/`.msi` installers, launches in bottle-aware Wine prefixes, scans for installed apps.
 - **Migration wizard** — preserves user settings, Steam metadata, Sharp Library apps, and bottle settings across updates.
-- **Runtime profile routing** — explicit bottle profiles for M9/M10/M11/M12/M32/Steam/Wine/installer flows.
+- **Runtime profile routing** — explicit bottle profiles for M9/M10/M11/VKD3D/M32/Steam/Wine/installer flows.
 
 ## v0.24.0 — 2026-05-14
 
