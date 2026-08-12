@@ -34,6 +34,10 @@ if [ "$copied" -ne 1 ]; then
   exit 1
 fi
 
+if [ "$(uname -s)" = "Darwin" ]; then
+  "$SCRIPT_DIR/verify-macos-architecture.sh" arm64 "$HOST_DIR/libmetalsharp_host_runtime.dylib"
+fi
+
 cp "$PROJECT_ROOT/include/metalsharp/HostRuntimeABI.h" "$HOST_DIR/HostRuntimeABI.h"
 
 cat > "$HOST_DIR/manifest.json" <<'JSON'

@@ -70,9 +70,31 @@ def require_file_type(src: Path, description: str, *needles: str) -> None:
         raise RuntimeError(f"invalid {description}: {src} ({result.stdout.strip()})")
 
 
+def require_macos_architecture(src: Path, expected: str, description: str) -> None:
+    if sys.platform != "darwin":
+        return
+    try:
+        info = subprocess.run(["lipo", "-info", str(src)], capture_output=True, text=True, check=False)
+        archs = subprocess.run(["lipo", "-archs", str(src)], capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise RuntimeError("lipo is required to validate macOS package architectures") from exc
+    if info.returncode != 0 or archs.returncode != 0:
+        detail = (info.stderr or info.stdout or archs.stderr or archs.stdout).strip()
+        raise RuntimeError(f"invalid {description}: {src} ({detail})")
+    actual = archs.stdout.strip().split()
+    if actual != [expected]:
+        raise RuntimeError(f"invalid {description}: {src} has architectures {actual}, expected only {expected}")
+    print(f"{description}: {info.stdout.strip()}")
+
+
 def require_host_runtime(host_dir: Path) -> None:
     require_file(host_dir / "manifest.json", "host runtime manifest")
     require_file(host_dir / "HostRuntimeABI.h", "host runtime ABI header")
+    if sys.platform == "darwin":
+        library = host_dir / "libmetalsharp_host_runtime.dylib"
+        require_file(library, "macOS host runtime library")
+        require_macos_architecture(library, "arm64", "macOS host runtime library")
+        return
     libraries = [
         host_dir / "libmetalsharp_host_runtime.dylib",
         host_dir / "libmetalsharp_host_runtime.so",
@@ -276,6 +298,14 @@ def build_staging(tmp: Path) -> dict[str, Path]:
         platform_shlibs = native_dylibs + native_so
     for name in platform_shlibs + native_binaries:
         require_file(APP_DIR / "native" / name, f"native shim {name}")
+    if sys.platform == "darwin":
+        for name in platform_shlibs:
+            require_macos_architecture(APP_DIR / "native" / name, "x86_64", f"native Wine artifact {name}")
+        require_macos_architecture(APP_DIR / "native" / "metalsharp", "x86_64", "native PE loader")
+        require_macos_architecture(APP_DIR / "native" / "metalsharp_launcher", "arm64", "native host launcher")
+        migrator = APP_DIR / "native" / "MetalSharpMigrator"
+        if migrator.is_file():
+            require_macos_architecture(migrator, "arm64", "native host migrator")
     if sys.platform == "darwin":
         require_file_type(
             APP_DIR / "native" / "metalsharp_eac_substrate.dylib",

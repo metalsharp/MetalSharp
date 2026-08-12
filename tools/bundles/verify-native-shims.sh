@@ -19,6 +19,8 @@ if [ "${1:-}" = "--eac-only" ]; then
     shift
 fi
 NATIVE_DIR="${1:-${METALSHARP_NATIVE_DIR:-app/native}}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARCH_CHECK="$SCRIPT_DIR/../package/verify-macos-architecture.sh"
 
 if [ "$EAC_ONLY" -eq 1 ]; then
     required_dylibs=(metalsharp_eac_substrate.dylib)
@@ -51,6 +53,9 @@ for f in "${required_files[@]}"; do
                 echo "ERROR: $path is not a Mach-O binary"
                 errors=$((errors + 1))
             fi
+            if ! "$ARCH_CHECK" x86_64 "$path"; then
+                errors=$((errors + 1))
+            fi
             if [[ "$f" == "metalsharp_eac_substrate.dylib" ]] && ! file "$path" | grep -q "x86_64"; then
                 echo "ERROR: $path does not contain the x86_64 Wine/Rosetta slice"
                 errors=$((errors + 1))
@@ -65,8 +70,19 @@ for f in "${required_files[@]}"; do
                 done
             fi
         fi
+        if [[ "$f" == "metalsharp" ]] && ! "$ARCH_CHECK" x86_64 "$path"; then
+            errors=$((errors + 1))
+        fi
+        if [[ "$f" == "metalsharp_launcher" ]] && ! "$ARCH_CHECK" arm64 "$path"; then
+            errors=$((errors + 1))
+        fi
     fi
 done
+
+if [ "$EAC_ONLY" -eq 0 ] && [ -f "$NATIVE_DIR/MetalSharpMigrator" ] \
+  && ! "$ARCH_CHECK" arm64 "$NATIVE_DIR/MetalSharpMigrator"; then
+    errors=$((errors + 1))
+fi
 
 for f in "${required_elf[@]}"; do
     path="$NATIVE_DIR/$f"
