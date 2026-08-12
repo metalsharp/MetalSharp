@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -59,8 +60,10 @@ class SettingsManager {
     bool load(const std::string& path = "");
     bool save(const std::string& path = "");
 
-    SettingsState& state();
-    const SettingsState& state() const;
+    /// Return a consistent snapshot of the current settings.
+    SettingsState state() const;
+    /// Replace the current settings as one synchronized update.
+    void setState(SettingsState state);
 
     static std::string defaultSettingsPath();
     static std::string upscalingToString(UpscalingQuality q);
@@ -74,6 +77,7 @@ class SettingsManager {
 
   private:
     SettingsManager() = default;
+    mutable std::mutex m_mutex;
     SettingsState m_state;
     std::string m_path;
 };
