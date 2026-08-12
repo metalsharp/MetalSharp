@@ -22,6 +22,22 @@
 namespace metalsharp {
 namespace win32 {
 
+namespace {
+// Recursively create a directory path (mkdir -p). Mirrors the helper in
+// VirtualFileSystem.cpp; needed here because the pipe base directory lives
+// under ~/.metalsharp/prefix, which may not exist on a fresh install.
+bool mkdirRecursive(const std::string& path) {
+    size_t pos = path.rfind('/');
+    if (pos != std::string::npos && pos > 0) {
+        std::string parent = path.substr(0, pos);
+        struct stat st;
+        if (stat(parent.c_str(), &st) != 0)
+            mkdirRecursive(parent);
+    }
+    return mkdir(path.c_str(), 0755) == 0 || errno == EEXIST;
+}
+} // namespace
+
 thread_local uint32_t NetworkContext::t_wsaError = 0;
 
 NetworkContext& NetworkContext::instance() {
@@ -142,13 +158,14 @@ uint32_t NetworkContext::getSocketEventMask(int handle) const {
     return it != m_sockets.end() ? it->second.eventMask : 0;
 }
 
-int* NetworkContext::allocPipePair(const std::string& name, bool server) {
+bool NetworkContext::allocPipePair(const std::string& name, bool server, int outHandles[2]) {
     std::lock_guard<std::mutex> lock(m_mutex);
     int handle = m_nextPipe++;
 
     const char* home = getenv("HOME");
     std::string baseDir = home ? std::string(home) + "/.metalsharp/prefix/pipe" : "/tmp/metalsharp/pipe";
-    mkdir(baseDir.c_str(), 0755);
+    if (!mkdirRecursive(baseDir))
+        return false;
 
     std::string pipePath = baseDir + "/" + name;
     for (auto& c : pipePath) {
@@ -160,7 +177,7 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
         unlink(pipePath.c_str());
         int listenFd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (listenFd < 0)
-            return nullptr;
+            return false;
 
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -169,7 +186,7 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
 
         if (bind(listenFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
             close(listenFd);
-            return nullptr;
+            return false;
         }
         listen(listenFd, 1);
 
@@ -181,14 +198,13 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
         pi.fds[1] = -1;
         m_pipes[handle] = pi;
 
-        static int returnHandles[2];
-        returnHandles[0] = handle;
-        returnHandles[1] = -1;
-        return returnHandles;
+        outHandles[0] = handle;
+        outHandles[1] = -1;
+        return true;
     } else {
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0)
-            return nullptr;
+            return false;
 
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
@@ -197,7 +213,7 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
 
         if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
             close(fd);
-            return nullptr;
+            return false;
         }
 
         PipeInstance pi;
@@ -208,11 +224,25 @@ int* NetworkContext::allocPipePair(const std::string& name, bool server) {
         pi.fds[1] = fd;
         m_pipes[handle] = pi;
 
-        static int returnHandles[2];
-        returnHandles[0] = handle;
-        returnHandles[1] = handle;
-        return returnHandles;
+        outHandles[0] = handle;
+        outHandles[1] = handle;
+        return true;
     }
+}
+
+bool NetworkContext::connectPipe(int handle, int clientFd) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_pipes.find(handle);
+    if (it == m_pipes.end() || it->second.connected) {
+        close(clientFd);
+        return false;
+    }
+    if (it->second.fds[0] >= 0)
+        close(it->second.fds[0]); // the listen socket has served its purpose
+    it->second.fds[0] = clientFd;
+    it->second.fds[1] = clientFd;
+    it->second.connected = true;
+    return true;
 }
 
 int NetworkContext::getPipeReadFd(int handle) const {

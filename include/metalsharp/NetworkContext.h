@@ -100,7 +100,19 @@ class NetworkContext {
 
     uint32_t mapErrnoToWsa(int err) const;
 
-    int* allocPipePair(const std::string& name, bool server);
+    /// Allocate a named-pipe pair and write the resulting handles into
+    /// outHandles[0]/outHandles[1] (per-call storage, safe under
+    /// concurrency). For a server pipe, outHandles[0] is the pipe handle
+    /// (backed by the listen socket until connectPipe wires the accepted
+    /// client connection) and outHandles[1] is -1. For a client pipe, both
+    /// entries receive the connected handle. Returns false on failure
+    /// without modifying outHandles.
+    bool allocPipePair(const std::string& name, bool server, int outHandles[2]);
+    /// Wire an accepted client socket into a server pipe handle, replacing
+    /// the listen socket. Takes ownership of clientFd: it is closed when the
+    /// handle is unknown or the pipe is already connected. Returns true once
+    /// the pipe is connected and both its read/write fds reference clientFd.
+    bool connectPipe(int handle, int clientFd);
     int getPipeReadFd(int handle) const;
     int getPipeWriteFd(int handle) const;
     void closePipe(int handle);

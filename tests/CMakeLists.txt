@@ -90,6 +90,11 @@ add_executable(test_input
 target_link_libraries(test_input PRIVATE metalsharp_input metalsharp_core)
 target_compile_options(test_input PRIVATE -fobjc-arc)
 
+add_executable(test_network_context
+    test_network_context.cpp
+)
+target_link_libraries(test_network_context PRIVATE metalsharp_loader metalsharp_core)
+
 add_executable(test_phase5
     test_phase5.cpp
 )
@@ -117,6 +122,7 @@ add_test(NAME mscoree_path_safety COMMAND test_mscoree_path_safety)
 add_test(NAME darwin_sync_map COMMAND test_darwin_sync_map)
 add_test(NAME audio COMMAND test_audio)
 add_test(NAME input COMMAND test_input)
+add_test(NAME network_context COMMAND test_network_context)
 add_test(NAME phase5 COMMAND test_phase5)
 add_test(NAME tiled_resources COMMAND test_tiled_resources)
 

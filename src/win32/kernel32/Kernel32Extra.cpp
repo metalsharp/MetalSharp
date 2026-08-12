@@ -1992,8 +1992,8 @@ static void* MSABI shim_CreateNamedPipeW(const wchar_t* lpName, DWORD dwOpenMode
     if (pipePos != std::string::npos)
         pipeName = pipeName.substr(pipePos + 5);
 
-    int* handles = NetworkContext::instance().allocPipePair(pipeName, true);
-    if (!handles)
+    int handles[2];
+    if (!NetworkContext::instance().allocPipePair(pipeName, true, handles))
         return INVALID_HANDLE_VALUE;
 
     MS_INFO("TRACE: CreateNamedPipeW(\"%s\") -> handle %d", nameA, handles[0]);
@@ -2011,16 +2011,14 @@ static BOOL MSABI shim_ConnectNamedPipe(void* hNamedPipe, void* lpOverlapped) {
     if (clientFd < 0)
         return 0;
 
+    fcntl(clientFd, F_SETFL, O_NONBLOCK);
     MS_INFO("TRACE: ConnectNamedPipe(%d) -> client fd %d", handle, clientFd);
 
-    int pipeHandles[2];
-    if (pipe(pipeHandles) < 0)
-        return 0;
-
-    fcntl(pipeHandles[0], F_SETFL, O_NONBLOCK);
-    fcntl(pipeHandles[1], F_SETFL, O_NONBLOCK);
-
-    return 1;
+    // Wire the accepted client socket into the pipe's handle table entry so
+    // subsequent reads/writes on this pipe reach the client, instead of
+    // discarding it (fd leak) and plumbing an anonymous pipe that was never
+    // connected to anything.
+    return NetworkContext::instance().connectPipe(handle, clientFd) ? 1 : 0;
 }
 
 static BOOL MSABI shim_WaitNamedPipeW(const wchar_t* lpNamedPipeName, DWORD nTimeOut) {
