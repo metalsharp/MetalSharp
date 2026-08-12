@@ -204,10 +204,42 @@ const userSelectablePipelineNames: Record<string, string> = {
   dxmt_32: "DXMT(32)",
   fna_arm64: "Mono/FNA",
 };
+// Legacy route ids saved by pre-unification builds resolve to their
+// canonical successors: m10/m11 -> dxmt, m10_32/m11_32 -> dxmt_32,
+// m9/m12 -> vkd3d. Old localStorage, launch_method, and saved-bottle ids
+// must never surface on the card badge.
+const legacyRouteIds: Record<string, string> = {
+  m9: "vkd3d",
+  m12: "vkd3d",
+  dxmt_metal12: "vkd3d",
+  d3d9_metal: "vkd3d",
+  m10: "dxmt",
+  m11: "dxmt",
+  dxmt_metal: "dxmt",
+  m10_32: "dxmt_32",
+  m11_32: "dxmt_32",
+};
+function normalizeRouteId(id: string | null | undefined): string {
+  if (!id) return "";
+  return legacyRouteIds[id] ?? id;
+}
+const legacyRouteNames: Record<string, string> = {
+  M9: "VKD3D",
+  M10: "DXMT",
+  "M10(32)": "DXMT(32)",
+  M11: "DXMT",
+  "M11(32)": "DXMT(32)",
+  M12: "VKD3D",
+};
+function normalizeRouteName(name: string | null | undefined): string | undefined {
+  if (!name) return undefined;
+  return legacyRouteNames[name] ?? name;
+}
 const displayedPipelineName = computed(() => {
   if (props.game.installed) return pipelineName.value;
-  const routeId = props.game.preferred_pipeline || props.game.launch_method || "";
-  return props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+  const routeId =
+    normalizeRouteId(props.game.preferred_pipeline) || normalizeRouteId(props.game.launch_method) || "";
+  return normalizeRouteName(props.game.launch_method_name) || userSelectablePipelineNames[routeId] || pipelineName.value;
 });
 
 const componentDisplayName: Record<string, string> = {
@@ -220,12 +252,12 @@ const componentDisplayName: Record<string, string> = {
   faudio: "FAudio",
   fmod: "FMOD Audio",
   vkd3d_d3d12: "VKD3D d3d12.dll",
+  vkd3d_d3d12core: "VKD3D d3d12core.dll",
   vkd3d_d3d11: "VKD3D d3d11.dll",
-  vkd3d_d3d10core: "VKD3D d3d10core.dll",
-  vkd3d_dxgi_dxmt: "VKD3D dxgi_dxmt.dll",
+  vkd3d_d3d10: "VKD3D d3d10core.dll",
+  vkd3d_d3d9: "VKD3D d3d9.dll",
   vkd3d_dxgi: "VKD3D dxgi.dll",
-  vkd3d_winemetal: "VKD3D winemetal.dll / .so",
-  vkd3d_gpu_stubs: "VKD3D GPU Stubs",
+  vkd3d_moltenvk: "VKD3D MoltenVK",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -252,6 +284,9 @@ const runtimeProfileDisplayName: Record<string, string> = {
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
   d3dmetal: "D3DMetal (GPTK)",
+  vkd3d: "VKD3D",
+  dxmt: "DXMT",
+  dxmt_32: "DXMT(32)",
   game_install: "Game Installer",
   winebare: "Plain Wine",
 };
@@ -263,7 +298,7 @@ function componentLabel(id: string): string {
 function bottleComponentLabel(id: string): string {
   const label = componentLabel(id);
   const profile = runtimeReport.value?.runtime_profile;
-  if (profile === "m11_32" || profile === "m10_32") {
+  if (profile === "dxmt_32") {
     // Only suffix DLL component IDs, not runtime/VC components that already indicate arch
     const dllIds = new Set(["d3d11", "dxgi", "d3d10core", "d3d10_1", "winemetal"]);
     if (dllIds.has(id)) {
@@ -327,14 +362,14 @@ const bottlePipelineOptions = computed(() =>
 
 function preferredBottlePipeline(report: SteamRuntimeReport) {
   const candidates = [
-    report.preferred_pipeline,
-    report.pipeline,
-    report.runtime_profile,
-    props.game.preferred_pipeline,
-    props.game.launch_method,
-    selectedLaunchMode.value,
+    normalizeRouteId(report.preferred_pipeline),
+    normalizeRouteId(report.pipeline),
+    normalizeRouteId(report.runtime_profile),
+    normalizeRouteId(props.game.preferred_pipeline),
+    normalizeRouteId(props.game.launch_method),
+    normalizeRouteId(selectedLaunchMode.value),
   ];
-  return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "m11";
+  return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "vkd3d";
 }
 
 function runtimeDoctorPipelineRequest() {
@@ -456,7 +491,7 @@ onMounted(async () => {
   if (!primaryArtworkUrl.value) emit("artworkMissing", props.game.appid);
 
   const savedLaunchMode = localStorage.getItem(launchModeStorageKey.value);
-  if (savedLaunchMode) selectedLaunchMode.value = savedLaunchMode;
+  if (savedLaunchMode) selectedLaunchMode.value = normalizeRouteId(savedLaunchMode);
 
   if (props.game.installed) {
     await refreshPipelineMetadata();
@@ -518,9 +553,13 @@ watch(
   () => [props.game.launch_method, props.game.launch_method_name, props.game.preferred_pipeline],
   () => {
     if (pipelineResolvedLocally.value) return;
-    const routeId = props.game.preferred_pipeline || props.game.launch_method;
+    const routeId =
+      normalizeRouteId(props.game.preferred_pipeline) || normalizeRouteId(props.game.launch_method);
     if (routeId && userSelectablePipelineOrder.includes(routeId)) {
-      pipelineName.value = props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+      pipelineName.value =
+        normalizeRouteName(props.game.launch_method_name) ||
+        userSelectablePipelineNames[routeId] ||
+        pipelineName.value;
     }
   },
 );
