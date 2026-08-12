@@ -215,7 +215,7 @@ Acceptance:
 Replace one ambiguous DXMT readiness model with explicit lane readiness:
 
 ```rust
-ensure_dxmt_runtime_ready(home)       // M9/M10/M11 lane only
+ensure_dxmt_runtime_ready(home)       // DXMT lane only
 ensure_dxmt_vkd3d_runtime_ready(home)   // VKD3D lane only
 ensure_graphics_runtimes_ready(home)  // full setup/new install/update
 ```
@@ -247,7 +247,7 @@ Acceptance:
 
 Update setup dependencies to list both graphics lanes:
 
-- `dxmt_runtime` — M9/M10/M11 runtime under `runtime/wine/lib/dxmt`.
+- `dxmt_runtime` — DXMT runtime under `runtime/wine/lib/dxmt`.
 - `dxmt_vkd3d_runtime` — VKD3D runtime under `runtime/wine/lib/dxmt_vkd3d`.
 
 Setup/install-all should prepare both for new installs and migrations.

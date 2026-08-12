@@ -40,10 +40,9 @@ D3DMetal is an explicit GPTK lane rather than a generic bottle repair path. Savi
 
 | Public route | Backend | Launch path |
 |---|---|---|
-| **VKD3D** | vkd3d-proton (default) / DXMT (`vkd3dBackend` setting) | Direct Wine launch; default uses isolated vkd3d-proton D3D12/DXVK dxgi/VKMT MoltenVK DLLs; DXMT rollback uses `dxmt-vkd3d` |
-| **M11** | DXMT | Direct Wine launch with legacy `dxmt` D3D11/DXGI DLLs |
-| **M10** | DXMT | Direct Wine launch with legacy `dxmt` D3D10/D3D11/DXGI DLLs |
-| **M9** | DXMT launch family | Direct Wine launch with bundled `d3d9.dll` and DXMT-family cache/env |
+| **VKD3D** | vkd3d-proton + DXVK-macOS | Direct Wine launch; deploys vkd3d-proton D3D12/D3D12core plus DXVK-macOS D3D11/D3D10core/D3D9/DXGI to the game folder, routed via n,b overrides on VKMT MoltenVK |
+| **DXMT** | DXMT | Direct Wine launch with legacy `dxmt` D3D10/D3D11/DXGI DLLs (x86_64) |
+| **DXMT(32)** | DXMT | Direct Wine launch with legacy `dxmt` D3D10/D3D11/DXGI DLLs (32-bit / i386) |
 | **Mono/FNA** | Native Mono | Native FNA/XNA/Mono runtime with FNA/XNA assemblies, native dylib staging, FMOD/FAudio/FNA3D shims, and Steamworks shim support |
 | **D3DMetal** | Homebrew GPTK | Direct GPTK Wine launch with Homebrew D3DMetal framework and prefix-seeded Homebrew route DLLs |
 
@@ -64,14 +63,14 @@ Common marker behavior:
 | Marker | Pipeline |
 |---|---|
 | Known XNA/FNA managed game | Mono/FNA |
-| Unity, Unreal, Source, RE Engine, or `steam_api*.dll` markers | M11 |
-| `d3dx9_43.dll` or D3D9 import | M9 |
-| PE imports D3D12 | VKD3D for 64-bit games, M11 otherwise |
-| PE imports D3D11 | M11 |
-| 64-bit PE imports D3D10 | M10 |
-| PE imports D3D9 | M9 |
+| Unity, Unreal, Source, RE Engine, or `steam_api*.dll` markers | DXMT |
+| `d3dx9_43.dll` or D3D9 import | VKD3D |
+| PE imports D3D12 | VKD3D |
+| PE imports D3D11 | DXMT |
+| 64-bit PE imports D3D10 | DXMT |
+| PE imports D3D9 | VKD3D |
 
-D3D10 PE imports are checked before broad Unity, Unreal, Source, RE Engine, and Steam marker heuristics so D3D10 games stay on `[m10]`.
+D3D10 PE imports are checked before broad Unity, Unreal, Source, RE Engine, and Steam marker heuristics so D3D10 games stay on the DXMT route.
 
 ## Runtime Prep
 
@@ -79,7 +78,7 @@ Runtime prep is recipe-driven. DXMT/Wine DLL overrides are deployed next to the 
 into the game root, which keeps nested layouts such as `Binaries/Win64` and launcher-heavy games from loading the wrong
 binary or missing local overrides.
 
-M11/M10/M9 read from the legacy runtime surface:
+DXMT/DXMT(32) read from the legacy runtime surface:
 
 ```text
 ~/.metalsharp/runtime/wine/lib/dxmt
@@ -130,11 +129,14 @@ VKD3D (default backend) copies:
 
 VKD3D also adds the route's unix library directories to the fallback library path: the default backend resolves `lib/wine/x86_64-unix` and `lib/moltenvk-vkmt` (Vulkan -> MoltenVK presentation, `VK_ICD_FILENAMES` pinned to the runtime ICD); the DXMT rollback resolves `lib/dxmt-vkd3d/x86_64-unix` so `winemetal.so` and its bundled C++ sidecars are found. vkd3d-proton ships Windows DLLs only and has no unix sidecar.
 
-M9 copies:
+VKD3D copies (deployed to the game folder):
 
-- `d3d9.dll`
+- `d3d12.dll`, `d3d12core.dll` (vkd3d-proton lane)
+- `d3d9.dll`, `d3d10core.dll`, `d3d11.dll`, `dxgi.dll` (DXVK-macOS lane)
 
-M9 no longer accepts the legacy `dxvk_metal32`, `m9_gl`, or `m32_vk` aliases. D3D9 imports resolve to `[m9]`, and `[m9]` stays on the DXMT-family launch path instead of selecting DXVK/MoltenVK.
+D3D9 imports resolve to VKD3D, which runs D3D9 through DXVK-macOS on the
+same Vulkan → MoltenVK path. The legacy `dxvk_metal32`, `m9_gl`, and
+`m32_vk` aliases are rejected.
 
 D3DMetal does not use MetalSharp's bundled GPTK assets because there are none. It uses Homebrew GPTK at `/Applications/Game Porting Toolkit.app`, copies the matched route DLLs (`d3d10`, `d3d11`, `d3d12`, `dxgi`, `nvapi64`, `nvngx-on-metalfx`) into `~/.metalsharp/prefix-gptk/drive_c/windows/system32`, sets `D3DMETAL_FRAMEWORK_PATH`, and launches through Homebrew GPTK Wine.
 

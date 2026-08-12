@@ -419,12 +419,16 @@ fn detect_from_directory(dir: &PathBuf) -> Option<PipelineId> {
 
 fn pe_info_to_pipeline(pe: &PeInfo) -> Option<PipelineId> {
     if !pe.is_64_bit {
-        return Some(PipelineId::M9);
+        // 32-bit binaries: D3D10/D3D11 -> DXMT(32); everything else (D3D9,
+        // D3D12, unknown) resolves through the 64-bit routes or auto-detection.
+        return match pe.detected_api {
+            D3dApi::D3D11 | D3dApi::D3D10 => Some(PipelineId::Dxmt32),
+            _ => None,
+        };
     }
     match pe.detected_api {
-        D3dApi::D3D12 => Some(PipelineId::Vkd3d),
+        D3dApi::D3D12 | D3dApi::D3D9 => Some(PipelineId::Vkd3d),
         D3dApi::D3D11 | D3dApi::D3D10 => Some(PipelineId::Dxmt),
-        D3dApi::D3D9 => Some(PipelineId::M9),
         D3dApi::Unknown => None,
     }
 }
@@ -555,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn d3d10_32_bit_pe_routes_to_m9() {
+    fn d3d10_32_bit_pe_routes_to_dxmt32() {
         let pe = PeInfo {
             machine_type: 0x014c,
             is_64_bit: false,
@@ -563,11 +567,11 @@ mod tests {
             detected_api: D3dApi::D3D10,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M9));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Dxmt32));
     }
 
     #[test]
-    fn d3d12_32_bit_pe_routes_to_m9() {
+    fn d3d12_32_bit_pe_has_no_auto_route() {
         let pe = PeInfo {
             machine_type: 0x014c,
             is_64_bit: false,
@@ -575,11 +579,11 @@ mod tests {
             detected_api: D3dApi::D3D12,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M9));
+        assert_eq!(pe_info_to_pipeline(&pe), None);
     }
 
     #[test]
-    fn d3d11_32_bit_pe_routes_to_m9() {
+    fn d3d11_32_bit_pe_routes_to_dxmt32() {
         let pe = PeInfo {
             machine_type: 0x014c,
             is_64_bit: false,
@@ -587,11 +591,11 @@ mod tests {
             detected_api: D3dApi::D3D11,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M9));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Dxmt32));
     }
 
     #[test]
-    fn d3d9_pe_maps_to_m9() {
+    fn d3d9_pe_maps_to_vkd3d() {
         let pe = PeInfo {
             machine_type: 0x8664,
             is_64_bit: true,
@@ -599,7 +603,7 @@ mod tests {
             detected_api: D3dApi::D3D9,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M9));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Vkd3d));
     }
 
     #[test]
@@ -611,7 +615,7 @@ mod tests {
             detected_api: D3dApi::D3D9,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M9));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Vkd3d));
     }
 
     #[test]
@@ -619,16 +623,16 @@ mod tests {
         let rules = parse_rules(include_str!("../../../../configs/mtsp-rules.toml"));
 
         for (appid, pipeline) in [
-            (17410, PipelineId::M9),
+            (17410, PipelineId::Vkd3d),
             (250900, PipelineId::Dxmt32),
             (312520, PipelineId::Dxmt),
             (387290, PipelineId::Dxmt),
             (475150, PipelineId::Dxmt32),
             (504230, PipelineId::FnaArm64),
-            (49520, PipelineId::M9),
+            (49520, PipelineId::Vkd3d),
             (508440, PipelineId::Dxmt),
-            (535520, PipelineId::M9),
-            (774361, PipelineId::M9),
+            (535520, PipelineId::Vkd3d),
+            (774361, PipelineId::Vkd3d),
             (1169040, PipelineId::WineBare),
             (1237320, PipelineId::Dxmt),
             (1245620, PipelineId::Vkd3d),
@@ -645,7 +649,7 @@ mod tests {
             (1583230, PipelineId::Vkd3d),
             (3164500, PipelineId::Vkd3d),
             (3527290, PipelineId::Vkd3d),
-            (22380, PipelineId::M9),
+            (22380, PipelineId::Vkd3d),
             (1030300, PipelineId::Vkd3d),
             (222880, PipelineId::Dxmt),
             (305620, PipelineId::Dxmt),
@@ -794,10 +798,10 @@ mod tests {
     }
 
     #[test]
-    fn game_recipes_parse_goat_simulator_m9_runtime() {
+    fn game_recipes_parse_goat_simulator_vkd3d_runtime() {
         let (_, recipes) = parse_rules_full(include_str!("../../../../configs/mtsp-rules.toml"));
         let goat = recipes.get(&265930).expect("goat simulator recipe");
-        assert_eq!(goat.pipeline, PipelineId::M9);
+        assert_eq!(goat.pipeline, PipelineId::Vkd3d);
         assert!(goat.components.contains(&"dotnet40".to_string()));
         assert!(!goat.components.contains(&"dotnet48".to_string()));
         assert!(goat.components.contains(&"vcrun2010".to_string()));

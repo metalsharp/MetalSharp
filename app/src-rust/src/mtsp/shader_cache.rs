@@ -44,7 +44,7 @@ fn find_preset(home: &PathBuf, cache_subdir: &str, appid: u32) -> Option<PathBuf
 
 fn preset_lookup_subdirs(cache_subdir: &str) -> Vec<&str> {
     match cache_subdir {
-        "m9" | "dxmt" | "dxmt_32" => vec![cache_subdir, "dxmt-metal"],
+        "dxmt" | "dxmt_32" => vec![cache_subdir, "dxmt-metal"],
         "vkd3d" => vec![cache_subdir, "dxmt-metal12"],
         _ => vec![cache_subdir],
     }
@@ -181,12 +181,11 @@ fn merge_preset_into_user(preset_db: &PathBuf, user_db: &PathBuf) -> Option<u64>
 // trace flags such as DXMT_D3D12_TRACE) has a stable parsing surface, and it
 // gives the cache doctor a real, testable introspection path today.
 
-/// The shader-cache family a pipeline shares. M9/DXMT/DXMT(32) share the
+/// The shader-cache family a pipeline shares. DXMT/DXMT(32) share the
 /// legacy `dxmt-metal` family; VKD3D/M13 use the isolated `dxmt-metal12` family.
 pub fn shader_cache_family(pipeline: crate::mtsp::engine::PipelineId) -> &'static [&'static str] {
     use crate::mtsp::engine::PipelineId;
     match pipeline {
-        PipelineId::M9 => &["m9", "dxmt-metal"],
         PipelineId::Dxmt => &["dxmt", "dxmt-metal"],
         PipelineId::Dxmt32 => &["dxmt_32", "dxmt-metal"],
         PipelineId::Vkd3d => &["vkd3d", "dxmt-metal12"],
@@ -199,7 +198,6 @@ pub fn shader_cache_family(pipeline: crate::mtsp::engine::PipelineId) -> &'stati
 pub fn primary_cache_subdir(pipeline: crate::mtsp::engine::PipelineId) -> Option<&'static str> {
     use crate::mtsp::engine::PipelineId;
     match pipeline {
-        PipelineId::M9 => Some("m9"),
         PipelineId::Dxmt => Some("dxmt"),
         PipelineId::Dxmt32 => Some("dxmt_32"),
         PipelineId::Vkd3d => Some("vkd3d"),
@@ -381,7 +379,6 @@ pub fn cache_doctor_for(home: &Path, pipeline: crate::mtsp::engine::PipelineId, 
 fn pipeline_preference_id_str(pipeline: crate::mtsp::engine::PipelineId) -> &'static str {
     use crate::mtsp::engine::PipelineId;
     match pipeline {
-        PipelineId::M9 => "m9",
         PipelineId::Dxmt => "dxmt",
         PipelineId::Dxmt32 => "dxmt_32",
         PipelineId::Vkd3d => "vkd3d",
@@ -495,8 +492,8 @@ mod tests {
     }
 
     #[test]
-    fn m9_reuses_dxmt_preset_family() {
-        assert_eq!(preset_lookup_subdirs("m9"), vec!["m9", "dxmt-metal"]);
+    fn dxmt_reuses_dxmt_preset_family() {
+        assert_eq!(preset_lookup_subdirs("dxmt"), vec!["dxmt", "dxmt-metal"]);
     }
 
     // ---- Phase 4: cache doctor + PSO manifest ----
@@ -504,7 +501,7 @@ mod tests {
     #[test]
     fn shader_cache_family_keeps_legacy_and_vkd3d_isolated() {
         use crate::mtsp::engine::PipelineId;
-        // M9/DXMT/DXMT(32) share the legacy dxmt-metal family.
+        // DXMT/DXMT(32) share the legacy dxmt-metal family.
         assert_eq!(shader_cache_family(PipelineId::Dxmt), &["dxmt", "dxmt-metal"]);
         // VKD3D/M13 use the isolated dxmt-metal12 family and must not mix.
         assert_eq!(shader_cache_family(PipelineId::Vkd3d), &["vkd3d", "dxmt-metal12"]);
@@ -514,7 +511,6 @@ mod tests {
     #[test]
     fn primary_cache_subdir_maps_each_pipeline_to_its_isolated_lane() {
         use crate::mtsp::engine::PipelineId;
-        assert_eq!(primary_cache_subdir(PipelineId::M9), Some("m9"));
         assert_eq!(primary_cache_subdir(PipelineId::Dxmt), Some("dxmt"));
         assert_eq!(primary_cache_subdir(PipelineId::Dxmt32), Some("dxmt_32"));
         assert_eq!(primary_cache_subdir(PipelineId::Vkd3d), Some("vkd3d"));

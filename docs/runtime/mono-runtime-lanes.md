@@ -34,6 +34,6 @@ Minecraft is a useful hard case because it exercises installer classification, b
 - The bottle classifies as `java_launcher` and launches from a stable installer bottle.
 - Fonts and Gecko can be repaired or detected correctly.
 - WebView2 is still not available as a local runtime asset.
-- M9, bare Wine, and `WINEDLLOVERRIDES=mscompatdb=d` all reproduce the same native Mono crash.
+- bare Wine and `WINEDLLOVERRIDES=mscompatdb=d` reproduce the same native Mono crash.
 
 The next implementation path is to keep Minecraft as the proof target while adding better Wine Mono diagnostics and, if needed, a bottle-scoped alternate Mono strategy rather than changing global runtime behavior.

@@ -73,7 +73,6 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
         node.id,
         PipelineId::Dxmt
             | PipelineId::Dxmt32
-            | PipelineId::M9
             | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::D3DMetal
@@ -90,7 +89,6 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
     let exe_path = match node.id {
         PipelineId::Dxmt
         | PipelineId::Dxmt32
-        | PipelineId::M9
         | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::D3DMetal
@@ -203,9 +201,9 @@ fn database_default_launch_args(appid: u32, pipeline: PipelineId) -> &'static [&
         379720 | 275850 | 892970 | 252490 | 570 | 548430 | 526870 | 1272080 => &["-vulkan"],
         949230 => &["-force-vulkan"],
         1174180 => &["-api", "Vulkan"],
-        400 | 620 | 4000 if pipeline == PipelineId::M9 => &["-dxlevel", "90", "-novid"],
-        240 | 500 | 550 if pipeline == PipelineId::M9 => &["-dxlevel", "90"],
-        7670 if pipeline == PipelineId::M9 => &["-dx9"],
+        400 | 620 | 4000 if pipeline == PipelineId::Vkd3d => &["-dxlevel", "90", "-novid"],
+        240 | 500 | 550 if pipeline == PipelineId::Vkd3d => &["-dxlevel", "90"],
+        7670 if pipeline == PipelineId::Vkd3d => &["-dx9"],
         12210 if pipeline == PipelineId::Dxmt => &["-d3d10"],
         17300 if pipeline == PipelineId::Dxmt => &["-dx10"],
         _ => &[],
@@ -253,7 +251,6 @@ pub fn build_custom_launch_recipe(
     let exe_path = match node.id {
         PipelineId::Dxmt
         | PipelineId::Dxmt32
-        | PipelineId::M9
         | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::M32
@@ -413,12 +410,10 @@ pub fn selected_deploy_dlls_for_pipeline(
     node: &PipelineNode,
     ms_root: &Path,
 ) -> Vec<RecipeDll> {
-    let d3d9_subpath = if node.id == PipelineId::M9 { m9_d3d9_source_subpath(game_dir, exe_path) } else { "" };
     let target_dirs = deploy_target_dirs_for_pipeline(game_dir, exe_path, node);
 
     node.deploy_dlls
         .iter()
-        .filter(|dll| node.id != PipelineId::M9 || dll.source_subpath == d3d9_subpath)
         .flat_map(|dll| {
             let source_path = ms_root.join(dll.source_subpath).join(dll.filename);
             let dest_name = dll.dest_filename.unwrap_or(dll.filename);
@@ -494,7 +489,6 @@ pub fn diagnose_recipe(recipe: LaunchRecipe) -> LaunchDoctorReport {
         recipe.pipeline,
         PipelineId::Dxmt
             | PipelineId::Dxmt32
-            | PipelineId::M9
             | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::M32
@@ -713,8 +707,8 @@ fn route_api_mismatch(pipeline: PipelineId, api: super::pe::D3dApi) -> bool {
             | (PipelineId::Dxmt, _)
             | (PipelineId::Dxmt32, _)
             | (PipelineId::WineBare, _)
-            | (PipelineId::M9, super::pe::D3dApi::D3D9)
             | (PipelineId::Vkd3d, super::pe::D3dApi::D3D12)
+            | (PipelineId::Vkd3d, super::pe::D3dApi::D3D9)
             | (PipelineId::M13, super::pe::D3dApi::D3D12)
             | (PipelineId::M32, _)
     )
@@ -889,26 +883,6 @@ fn normalized_tokens(name: &str) -> Vec<String> {
         .map(|s| s.to_lowercase())
         .filter(|s| !s.is_empty() && !["the", "and", "goty", "edition"].contains(&s.as_str()))
         .collect()
-}
-
-fn m9_d3d9_source_subpath(game_dir: &Path, exe_path: Option<&Path>) -> &'static str {
-    let exe = match exe_path {
-        Some(path) => path.to_path_buf(),
-        None => match resolve_game_exe(0, game_dir) {
-            Ok(path) => path,
-            Err(_) => return "lib/wine/x86_64-windows",
-        },
-    };
-
-    if let Ok(data) = std::fs::read(&exe) {
-        if let Some(pe) = super::pe::parse_pe_imports(&data) {
-            if !pe.is_64_bit {
-                return "lib/wine/i386-windows";
-            }
-        }
-    }
-
-    "lib/wine/x86_64-windows"
 }
 
 fn runtime_file_present(path: &Path) -> bool {
@@ -1459,8 +1433,8 @@ mod tests {
     }
 
     #[test]
-    fn portal_2_m9_uses_source_defaults_without_secure() {
-        let args = effective_launch_args(620, super::super::engine::get_pipeline(PipelineId::M9));
+    fn portal_2_vkd3d_uses_source_defaults_without_secure() {
+        let args = effective_launch_args(620, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")));
@@ -1470,8 +1444,8 @@ mod tests {
     }
 
     #[test]
-    fn garrys_mod_m9_uses_source_defaults_without_secure() {
-        let args = effective_launch_args(4000, super::super::engine::get_pipeline(PipelineId::M9));
+    fn garrys_mod_vkd3d_uses_source_defaults_without_secure() {
+        let args = effective_launch_args(4000, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")));
@@ -1545,7 +1519,7 @@ mod tests {
     #[test]
     fn database_source_titles_get_default_dxlevel_args() {
         for appid in [400, 620] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M9));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")), "appid {appid}");
             assert!(args.iter().any(|arg| arg == "90"), "appid {appid}");
@@ -1553,7 +1527,7 @@ mod tests {
         }
 
         for appid in [240, 500, 550] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M9));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")), "appid {appid}");
             assert!(args.iter().any(|arg| arg == "90"), "appid {appid}");
@@ -1563,20 +1537,20 @@ mod tests {
 
     #[test]
     fn database_pipeline_specific_renderer_args_stay_on_matching_routes() {
-        let bioshock_m9 = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::M9));
-        assert!(bioshock_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
+        let bioshock_vkd3d = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::Vkd3d));
+        assert!(bioshock_vkd3d.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
         let bioshock_dxmt = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::Dxmt));
         assert!(!bioshock_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
 
         let gta_iv_dxmt = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::Dxmt));
         assert!(gta_iv_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
-        let gta_iv_m9 = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::M9));
-        assert!(!gta_iv_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
+        let gta_iv_vkd3d = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::Vkd3d));
+        assert!(!gta_iv_vkd3d.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
 
         let crysis_dxmt = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::Dxmt));
         assert!(crysis_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
-        let crysis_m9 = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::M9));
-        assert!(!crysis_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
+        let crysis_vkd3d = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::Vkd3d));
+        assert!(!crysis_vkd3d.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
     }
 
     #[test]
@@ -1625,52 +1599,6 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(dxgi_targets.contains(&Some(exe_dir)));
         assert!(dxgi_targets.contains(&Some(engine_dir)));
-        let _ = std::fs::remove_dir_all(game_dir);
-        let _ = std::fs::remove_dir_all(runtime);
-    }
-
-    #[test]
-    fn m9_selects_i386_d3d9_and_dxgi_for_32_bit_exes() {
-        let game_dir = test_dir("m9-32");
-        let runtime = test_dir("runtime-32");
-        std::fs::create_dir_all(&game_dir).expect("create test game dir");
-        let exe = game_dir.join("portal2.exe");
-        write_test_pe(&exe, 0x014c, 0x10b);
-
-        let selected = selected_deploy_dlls_for_pipeline(
-            &game_dir,
-            Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M9),
-            &runtime,
-        );
-        let sources: std::collections::HashSet<_> = selected.iter().map(|dll| dll.source_subpath.as_str()).collect();
-        let filenames: std::collections::HashSet<_> = selected.iter().map(|dll| dll.filename.as_str()).collect();
-
-        assert_eq!(sources, std::collections::HashSet::from(["lib/wine/i386-windows"]));
-        assert_eq!(filenames, std::collections::HashSet::from(["d3d9.dll", "dxgi.dll"]));
-        assert_eq!(selected.len(), 2);
-        let _ = std::fs::remove_dir_all(game_dir);
-        let _ = std::fs::remove_dir_all(runtime);
-    }
-
-    #[test]
-    fn m9_selects_x86_64_d3d9_for_64_bit_exes() {
-        let game_dir = test_dir("m9-64");
-        let runtime = test_dir("runtime-64");
-        std::fs::create_dir_all(&game_dir).expect("create test game dir");
-        let exe = game_dir.join("valheim.exe");
-        write_test_pe(&exe, 0x8664, 0x20b);
-
-        let selected = selected_deploy_dlls_for_pipeline(
-            &game_dir,
-            Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M9),
-            &runtime,
-        );
-        let sources: std::collections::HashSet<_> = selected.iter().map(|dll| dll.source_subpath.as_str()).collect();
-
-        assert_eq!(sources, std::collections::HashSet::from(["lib/wine/x86_64-windows"]));
-        assert_eq!(selected.len(), 1);
         let _ = std::fs::remove_dir_all(game_dir);
         let _ = std::fs::remove_dir_all(runtime);
     }

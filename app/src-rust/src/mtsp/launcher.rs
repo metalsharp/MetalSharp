@@ -398,7 +398,7 @@ pub fn launch_with_pipeline(
     prepare_steam_api_for_pipeline(appid, pipeline_id);
 
     match pipeline_id {
-        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::Vkd3d => launch_dxmt_metal(appid, node),
+        PipelineId::Dxmt | PipelineId::Dxmt32 | PipelineId::Vkd3d => launch_dxmt_metal(appid, node),
         PipelineId::M13 | PipelineId::D3DMetal => launch_d3dmetal_gptk(appid, node),
         PipelineId::M32 => launch_wine_bare(appid, node),
         PipelineId::FnaArm64 => launch_fna_arm64(appid).map(|(pid, method, _)| (pid, method)),
@@ -422,7 +422,7 @@ pub fn launch_steam_bottle_with_pipeline(
     prepare_steam_api_for_pipeline(appid, pipeline_id);
 
     match pipeline_id {
-        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::Vkd3d => {
+        PipelineId::Dxmt | PipelineId::Dxmt32 | PipelineId::Vkd3d => {
             launch_dxmt_metal_with_context(appid, node, Some(prefix_path), extra_env, Some(&log_path))
                 .map(|(pid, method)| (pid, method, log_path))
         },
@@ -503,7 +503,6 @@ pub fn prepare_steam_pipeline_env(
     let node = get_pipeline(pipeline_id);
     match pipeline_id {
         PipelineId::Dxmt
-        | PipelineId::M9
         | PipelineId::Dxmt32
         | PipelineId::Vkd3d
         | PipelineId::M13
@@ -690,7 +689,7 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
 fn quarantine_route_conflicts_for_recipe(
     recipe: &super::recipe::LaunchRecipe,
 ) -> Result<usize, Box<dyn std::error::Error>> {
-    if !matches!(recipe.pipeline, PipelineId::M9 | PipelineId::Dxmt | PipelineId::Dxmt32 | PipelineId::Vkd3d) {
+    if !matches!(recipe.pipeline, PipelineId::Dxmt | PipelineId::Dxmt32 | PipelineId::Vkd3d) {
         return Ok(0);
     }
 
@@ -856,7 +855,6 @@ fn unique_quarantine_target(path: &Path) -> PathBuf {
 
 fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
     match pipeline {
-        PipelineId::M9 => "m9",
         PipelineId::Dxmt => "dxmt",
         PipelineId::Dxmt32 => "dxmt_32",
         PipelineId::Vkd3d => "vkd3d",
@@ -877,7 +875,7 @@ fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
 fn runtime_source_for_dll(dll_path: &Path, ms_root: &Path) -> Option<PathBuf> {
     let filename = dll_path.file_name()?.to_string_lossy().to_ascii_lowercase();
     // Known deploy-from source roots, derived from the PipelineNode deploy_dlls
-    // source_subpath values across M9/DXMT/DXMT(32)/VKD3D.
+    // source_subpath values across DXMT/DXMT(32)/VKD3D.
     const SOURCE_ROOTS: &[&str] = &[
         "lib/dxmt/x86_64-windows",
         "lib/dxmt/i386-windows",
@@ -1024,7 +1022,7 @@ const VKD3D_PREFIX_ROUTE_DLLS: &[&str] =
 ///
 /// The VKD3D route (vkd3d-proton + DXVK lanes) deploys its DLLs into the GAME
 /// DIR and routes them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like
-/// M9/DXMT (`deploy_recipe_dlls`). It never stages into the shared prefix
+/// DXMT (`deploy_recipe_dlls`). It never stages into the shared prefix
 /// system32.
 ///
 /// This repair detects route copies the OLD backend left in system32 and
@@ -1364,7 +1362,6 @@ pub fn launch_custom_with_options(
     let node = get_pipeline(pipeline_id);
     match pipeline_id {
         PipelineId::Dxmt
-        | PipelineId::M9
         | PipelineId::Dxmt32
         | PipelineId::Vkd3d
         | PipelineId::M13
@@ -1372,9 +1369,7 @@ pub fn launch_custom_with_options(
         | PipelineId::M32
         | PipelineId::WineBare => {},
         PipelineId::FnaArm64 | PipelineId::Steam | PipelineId::MacSteam => {
-            return Err(
-                "Sharp Library apps must use Auto, Wine, M9, DXMT, DXMT(32), Vkd3d, M13, D3DMetal, or M32".into()
-            );
+            return Err("Sharp Library apps must use Auto, Wine, DXMT, DXMT(32), VKD3D, M13, D3DMetal, or M32".into());
         },
     }
 
@@ -2958,8 +2953,7 @@ fn apply_msync_config(env: &mut Vec<(String, String)>, home: &Path) {
 
 /// DXMT routes that carry MetalFX Spatial upscaling (`DXMT_METALFX_*` env +
 /// `d3d11.metalSpatialUpscaleFactor` in `DXMT_CONFIG`): DXMT and DXMT(32).
-/// M9 has no upscale key; VKD3D is vkd3d-proton; M13/D3DMetal/FNA use
-/// other stacks.
+/// VKD3D is vkd3d-proton; M13/D3DMetal/FNA use other stacks.
 fn is_metalfx_route(pipeline_id: PipelineId) -> bool {
     matches!(pipeline_id, PipelineId::Dxmt | PipelineId::Dxmt32)
 }
@@ -2990,8 +2984,7 @@ fn apply_metal_fx_config(env: &mut Vec<(String, String)>, node: &PipelineNode, h
         *config = metal_fx_config_with_upscale(config, enabled.then_some(factor_str.as_str()));
     }
 
-    // MetalFX swapchain integration: on for strengths, off for "off" (matches
-    // DXMT's own disable semantics used for M9 stuck-loading titles).
+    // MetalFX swapchain integration: on for strengths, off for "off".
     let swapchain_value = if enabled { "1" } else { "0" };
     if let Some((_, value)) = env.iter_mut().rev().find(|(key, _)| key == "DXMT_METALFX_SPATIAL_SWAPCHAIN") {
         *value = swapchain_value.to_string();
@@ -3121,7 +3114,7 @@ pub(crate) fn reconcile_dxmt_conf_shader_metal_version_for_host(home: &Path) -> 
 }
 
 /// Read the live host version and reconcile the conf for DXMT shader routes.
-/// No-op for every non-DXMT-shader pipeline (M9, VKD3D/vkd3d, GPTK, Mono, ...).
+/// No-op for every non-DXMT-shader pipeline (VKD3D/vkd3d, GPTK, Mono, ...).
 fn reconcile_dxmt_conf_shader_metal_version(home: &Path, node: &PipelineNode) -> Option<u16> {
     if !is_dxmt_shader_metal_version_route(node.id) {
         return None;
@@ -3254,16 +3247,6 @@ fn app_compat_env_pairs_with_logs(
     pipeline_id: PipelineId,
     graphics_runtime_logs: bool,
 ) -> Vec<(String, String)> {
-    if pipeline_id == PipelineId::M9 && is_m9_stuck_loading_title(appid) {
-        return vec![
-            ("DXMT_ASYNC_PIPELINE_COMPILE".to_string(), "0".to_string()),
-            ("DXMT_METALFX_SPATIAL_SWAPCHAIN".to_string(), "0".to_string()),
-            ("DXMT_METALFX_SPATIAL".to_string(), "0".to_string()),
-            ("DXMT_CONFIG".to_string(), "d3d11.preferredMaxFrameRate=60".to_string()),
-            ("METALSHARP_M9_SYNC_LOADING".to_string(), "1".to_string()),
-        ];
-    }
-
     if appid == 870780 && pipeline_id == PipelineId::Vkd3d {
         // Windows Steam launch options are not inherited by MetalSharp's direct
         // VKD3D game process. Preserve the user-selected MoltenVK debug mode here
@@ -3338,10 +3321,6 @@ fn app_compat_env_pairs_with_logs(
         return env;
     }
     Vec::new()
-}
-
-fn is_m9_stuck_loading_title(appid: u32) -> bool {
-    matches!(appid, 774361 | 17410 | 49520)
 }
 
 fn apply_app_launch_env(cmd: &mut Command, appid: u32, pipeline_id: PipelineId) {
@@ -6661,12 +6640,12 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m9_cache_env_uses_dxmt_family_not_dxvk() {
-        let node = get_pipeline(PipelineId::M9);
+    fn dxmt_cache_env_uses_dxmt_family_not_dxvk() {
+        let node = get_pipeline(PipelineId::Dxmt);
         let cache = CachePaths {
-            shader: "/tmp/m9-shaders".into(),
-            pipeline: "/tmp/m9-pipelines".into(),
-            log: "/tmp/m9-logs".into(),
+            shader: "/tmp/dxmt-shaders".into(),
+            pipeline: "/tmp/dxmt-pipelines".into(),
+            log: "/tmp/dxmt-logs".into(),
             vkd3d_shader: None,
         };
 
@@ -6679,7 +6658,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert!(keys.contains("METALSHARP_CACHE_SUMMARY"));
 
         let log_env = cache_env_pairs_with_logs(node, Some(&cache), &PathBuf::from("/tmp/metalsharp-runtime"), true);
-        assert!(log_env.iter().any(|(key, value)| key == "DXMT_LOG_PATH" && value == "/tmp/m9-logs/"));
+        assert!(log_env.iter().any(|(key, value)| key == "DXMT_LOG_PATH" && value == "/tmp/dxmt-logs/"));
         assert!(!keys.contains("DXVK_STATE_CACHE_PATH"));
         assert!(!keys.contains("DXVK_LOG_PATH"));
         assert!(!keys.contains("VK_ICD_FILENAMES"));
@@ -6709,9 +6688,9 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     #[test]
     fn dxmt_family_env_uses_metalfx_upscale_and_cache_paths() {
         // VKD3D now runs vkd3d-proton; the DXMT_CONFIG contract applies to the
-        // legacy DXMT family (M9/DXMT) only. MetalFX default strength is
+        // legacy DXMT family (DXMT/DXMT(32)) only. MetalFX default strength is
         // 1.50 (metalfx.overlay.json default), reconciled into the env at
-        // launch; M9 has no upscale pair (no MetalFX on D3D9).
+        // launch.
         for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let home = test_dir(&format!("dxmt-env-{:?}", pipeline_id));
             let node = get_pipeline(pipeline_id);
@@ -6780,33 +6759,11 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m9_stuck_loading_titles_disable_async_loading_features() {
-        for appid in [774361, 17410, 49520] {
-            let env = app_compat_env_pairs(appid, PipelineId::M9);
-
-            assert_eq!(env_value(&env, "DXMT_ASYNC_PIPELINE_COMPILE"), Some("0"));
-            assert_eq!(env_value(&env, "DXMT_METALFX_SPATIAL_SWAPCHAIN"), Some("0"));
-            assert_eq!(env_value(&env, "DXMT_METALFX_SPATIAL"), Some("0"));
-            assert_eq!(env_value(&env, "DXMT_CONFIG"), Some("d3d11.preferredMaxFrameRate=60"));
-            assert_eq!(env_value(&env, "METALSHARP_M9_SYNC_LOADING"), Some("1"));
-        }
-
-        assert!(app_compat_env_pairs(123456, PipelineId::M9).is_empty());
+    fn non_vkd3d_app_compat_env_is_empty_for_previous_m9_titles() {
+        // Former M9 titles now run on VKD3D; the DXMT sync-loading workaround
+        // is gone with the M9 route.
         assert!(app_compat_env_pairs(774361, PipelineId::Dxmt).is_empty());
-    }
-
-    #[test]
-    fn steam_pipeline_env_applies_m9_stuck_loading_overrides_after_defaults() {
-        let home = test_dir("m9-stuck-loading-env");
-        let node = get_pipeline(PipelineId::M9);
-
-        let env = steam_pipeline_env_pairs(&home, node, 774361);
-
-        assert_eq!(last_env_value(&env, "DXMT_ASYNC_PIPELINE_COMPILE"), Some("0"));
-        assert_eq!(last_env_value(&env, "DXMT_METALFX_SPATIAL_SWAPCHAIN"), Some("0"));
-        assert_eq!(last_env_value(&env, "DXMT_CONFIG"), Some("d3d11.preferredMaxFrameRate=60"));
-        assert_eq!(last_env_value(&env, "METALSHARP_M9_SYNC_LOADING"), Some("1"));
-        let _ = std::fs::remove_dir_all(home);
+        assert!(app_compat_env_pairs(17410, PipelineId::Vkd3d).is_empty());
     }
 
     #[test]
@@ -6982,7 +6939,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn dxmt_pipelines_use_winedllpath_routing() {
-        for pipeline_id in [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32] {
+        for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let node = get_pipeline(pipeline_id);
             assert!(node.uses_winedllpath_routing(), "{:?} should use WINEDLLPATH routing", pipeline_id);
         }
@@ -7326,7 +7283,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn steam_pipeline_env_includes_winedllpath_for_dxmt_pipelines() {
-        for pipeline_id in [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32] {
+        for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let home = test_dir(&format!("winedllpath-env-{:?}", pipeline_id));
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
@@ -7508,8 +7465,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         assert!(aliases.contains(&dosdevices.join("d:").join("steamapps").join("common").join("Celeste")));
         assert_eq!(dirs, vec![game_dir.clone()]);
 
-        let m9_dirs = goldberg_dirs_for_pipeline(&home, &game_dir, PipelineId::M9);
-        assert_eq!(m9_dirs, vec![game_dir]);
+        let vkd3d_dirs = goldberg_dirs_for_pipeline(&home, &game_dir, PipelineId::Vkd3d);
+        assert_eq!(vkd3d_dirs, vec![game_dir]);
 
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -8151,8 +8108,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     fn metalfx_env_untouched_for_non_dxmt_routes() {
         let home = metalfx_home();
         write_metalfx_state(&home, false, 1.75); // would strip if applied
-        for pipeline_id in [PipelineId::M9, PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare]
-        {
+        for pipeline_id in [PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare] {
             let node = get_pipeline(pipeline_id);
             let mut env = dxmt_env_with_node(pipeline_id);
             let before = env.clone();
@@ -8289,8 +8245,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn dxmt_shader_metal_version_leaves_non_target_routes_unchanged() {
-        for pipeline_id in [PipelineId::M9, PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare]
-        {
+        for pipeline_id in [PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare] {
             let node = get_pipeline(pipeline_id);
             let mut env = dxmt_env_with_node(pipeline_id);
             let before = env.clone();
@@ -8482,14 +8437,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     fn msync_env_reflects_config_on_all_routes() {
         let home = metalfx_home();
         // Default: no config -> WINEMSYNC=1.
-        for pipeline_id in [
-            PipelineId::M9,
-            PipelineId::Dxmt,
-            PipelineId::Dxmt32,
-            PipelineId::Vkd3d,
-            PipelineId::M13,
-            PipelineId::Steam,
-        ] {
+        for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32, PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam]
+        {
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
             assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("1"), "{:?} default ON", pipeline_id);
@@ -8497,14 +8446,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
         // OFF: all routes get WINEMSYNC=0.
         write_msync_config(&home, false);
-        for pipeline_id in [
-            PipelineId::M9,
-            PipelineId::Dxmt,
-            PipelineId::Dxmt32,
-            PipelineId::Vkd3d,
-            PipelineId::M13,
-            PipelineId::Steam,
-        ] {
+        for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32, PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam]
+        {
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
             assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "{:?} OFF must disable msync", pipeline_id);

@@ -44,7 +44,7 @@
     {
       "id": "recipe-and-route",
       "source": "app/src-rust/src/mtsp/engine.rs",
-      "flow": "VKD3D selects the DXMT D3D12 node, deploys D3D12/DXGI/Winemetal plus D3D11 fallback DLLs, and keeps M11/M10/M9 as fallbacks."
+      "flow": "VKD3D deploys vkd3d-proton d3d12/d3d12core plus the DXVK-macOS d3d11/d3d10core/d3d9/dxgi set to the game folder and routes them via n,b overrides."
     },
     {
       "id": "launch-env",

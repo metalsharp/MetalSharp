@@ -50,7 +50,7 @@ explicitly a release PR.
 
 - [ ] `cargo test --manifest-path app/src-rust/Cargo.toml bottles::tests` passes
 - [ ] `cargo test --manifest-path app/src-rust/Cargo.toml mtsp` passes
-- [ ] `GET /bottles/route-contracts` reports every protected lane (M9, M10,
+- [ ] `GET /bottles/route-contracts` reports every protected lane (DXMT,
       M11, VKD3D, FnaArm64, WineBare, D3DMetal)
 - [ ] `GET /update/migrate/report` shows the expected preserved/skipped
       categories after a migration smoke
@@ -69,4 +69,4 @@ explicitly a release PR.
       with DXMT rollback via `vkd3dBackend=dxmt`).
 - [ ] No doc claims "D3D12 works" without naming the exact route, probes,
       feature level, and remaining gaps.
-- [ ] M9/M10/M11 docs do not inherit VKD3D proof claims.
+- [ ] DXMT docs do not inherit VKD3D proof claims.
