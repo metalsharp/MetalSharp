@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   pickAssetFile: () => ipcRenderer.invoke("app:pick-asset-file"),
   pickDirectory: (title?: string) => ipcRenderer.invoke("app:pick-directory", title),
   gogOAuthLogin: (authUrl: string) => ipcRenderer.invoke("gog:oauth-login", authUrl),
+  openExternalUrl: (url: string) => ipcRenderer.invoke("shell:open-external", url),
   processManagerToggle: () => ipcRenderer.invoke("process-manager:toggle"),
   processManagerClose: () => ipcRenderer.invoke("process-manager:close"),
   processManagerSample: () => ipcRenderer.invoke("process-manager:sample"),
