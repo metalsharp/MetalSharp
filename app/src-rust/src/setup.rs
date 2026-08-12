@@ -622,13 +622,38 @@ fn prepare_dxmt_pipeline(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let marker = game_dir.join(".metalsharp_prepared");
     stage_packaged_steam_runtime_for_game(appid, game_dir)?;
-    if pipeline == crate::mtsp::engine::PipelineId::Vkd3d {
-        stage_agility_sdk_for_game(appid, game_dir, home)?;
+    if pipeline == crate::mtsp::engine::PipelineId::Vkd3d && game_exe_imports_d3d12(game_dir, None) {
+        // Agility is never a launch blocker: D3D9/D3D10/D3D11 titles on the
+        // VKD3D route don't use it, and a D3D12 title must still launch even
+        // if the payload could not be staged right now.
+        if let Err(error) = stage_agility_sdk_for_game(appid, game_dir, home) {
+            eprintln!("setup: Agility SDK staging skipped (non-blocking): {error}");
+        }
     }
     if !marker.exists() {
         let _ = std::fs::write(&marker, "dxmt");
     }
     Ok(())
+}
+
+/// True when the game executable imports `d3d12.dll` (and can therefore
+/// consume an Agility SDK payload). D3D9/D3D10/D3D11-only titles on the VKD3D
+/// route must never be staged or blocked for Agility.
+pub(crate) fn game_exe_imports_d3d12(game_dir: &Path, exe_path: Option<&Path>) -> bool {
+    let exe = match exe_path {
+        Some(path) => path.to_path_buf(),
+        None => match crate::mtsp::recipe::resolve_game_exe(0, game_dir) {
+            Ok(path) => path,
+            Err(_) => return false,
+        },
+    };
+    let Ok(data) = std::fs::read(&exe) else {
+        return false;
+    };
+    let Some(pe) = crate::mtsp::pe::parse_pe_imports(&data) else {
+        return false;
+    };
+    pe.imports.iter().any(|import| import.eq_ignore_ascii_case("d3d12.dll"))
 }
 
 fn stage_packaged_steam_runtime_for_game(appid: u32, game_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {

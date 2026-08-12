@@ -2566,15 +2566,25 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
 
             if let Some(aid) = appid {
                 // The appid is only an identifier. The PID must come from the
-                // backend's registration made at launch; never fall back to a
-                // caller-supplied PID when the app is not registered.
+                // backend's registration made at launch, falling back to the
+                // bottle manifest's last launch PID (survives backend
+                // restarts), then to the caller-supplied PID. Every candidate
+                // is ownership-verified below; a caller PID is never trusted
+                // without the check.
                 prune_inactive_game_pids();
-                let Some(target_pid) = get_game_pid(aid) else {
+                let caller_pid =
+                    body.get("pid").and_then(|value| value.as_u64()).and_then(|value| i32::try_from(value).ok());
+                let manifest_pid = crate::bottles::load_bottle(&crate::bottles::steam_game_bottle_id(aid))
+                    .ok()
+                    .and_then(|manifest| manifest.last_launch_pid)
+                    .and_then(|pid| i32::try_from(pid).ok());
+                let target_pid = get_game_pid(aid).or(manifest_pid).or(caller_pid);
+                let Some(target_pid) = target_pid else {
                     app_log(&format!("[STOP REJECTED] appid {} is not registered", aid));
                     return resp(409, json!({"ok": false, "error": "game is not registered as running"}));
                 };
 
-                if !is_metalsharp_owned_process(target_pid) {
+                if !is_metalsharp_owned_process_for_appid(target_pid, aid) {
                     app_log(&format!(
                         "[STOP REJECTED] appid {} pid {} is not a MetalSharp-owned process",
                         aid, target_pid
@@ -2886,14 +2896,29 @@ fn command_executable(command: &str) -> &str {
 }
 
 fn is_metalsharp_wine_executable(command: &str, home: &std::path::Path) -> bool {
-    let executable = std::path::Path::new(command_executable(command));
+    let raw_executable = command_executable(command);
+    let executable = std::path::Path::new(raw_executable);
     let runtime_bin = home.join("runtime").join("wine").join("bin");
-    if !executable.starts_with(&runtime_bin) {
+    // Shell-interpreter launcher scripts (`#!/bin/bash` wrappers such as
+    // metalsharp-wine) show up in `ps` as `/bin/bash <script> ...`; the
+    // script path is the first argument and is safe to treat as the
+    // executable for ownership purposes.
+    let checked = match executable.to_str() {
+        Some("/bin/bash") | Some("/bin/sh") | Some("/bin/zsh") | Some("/usr/bin/env") => {
+            std::path::Path::new(command_first_arg(command).unwrap_or(""))
+        },
+        _ => executable,
+    };
+    if !checked.starts_with(&runtime_bin) {
         return false;
     }
 
-    let name = executable.file_name().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase());
+    let name = checked.file_name().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase());
     name.as_deref().is_some_and(|name| METALSHARP_WINE_EXECUTABLES.contains(&name))
+}
+
+fn command_first_arg(command: &str) -> Option<&str> {
+    command.split_whitespace().nth(1)
 }
 
 fn is_metalsharp_runtime_helper(command: &str, home: &std::path::Path) -> bool {
@@ -2943,6 +2968,28 @@ fn is_metalsharp_game_command(command: &str, home: &std::path::Path) -> bool {
 fn is_metalsharp_owned_process(pid: i32) -> bool {
     let home = crate::platform::metalsharp_home_dir();
     process_command_for_pid(pid).map(|command| is_metalsharp_game_command(&command, &home)).unwrap_or(false)
+}
+
+/// Ownership check for a game registered under `appid`. In addition to the
+/// standard MetalSharp matcher, a process whose executable lives inside the
+/// game's resolved directory is owned: Mono/FNA launchers and native game
+/// binaries run as their own process from the game folder (which may live
+/// outside the MetalSharp home, e.g. a Steam library), and the registered-PID
+/// plus in-game-dir executable is a sufficient ownership proof.
+fn is_metalsharp_owned_process_for_appid(pid: i32, appid: u32) -> bool {
+    let home = crate::platform::metalsharp_home_dir();
+    let Some(command) = process_command_for_pid(pid) else {
+        return false;
+    };
+    if is_metalsharp_game_command(&command, &home) {
+        return true;
+    }
+    let Some(game_dir) =
+        crate::setup::resolve_game_dir(appid).or_else(|| crate::setup::resolve_windows_game_dir(appid))
+    else {
+        return false;
+    };
+    std::path::Path::new(command_executable(&command)).starts_with(&game_dir)
 }
 
 fn is_force_kill_target(command: &str, home: &std::path::Path) -> bool {

@@ -531,7 +531,14 @@ pub fn prepare_steam_pipeline_env(
         if matches!(pipeline_id, PipelineId::Vkd3d | PipelineId::M13) {
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
             cleanup_vkd3d_legacy_hook_artifacts(game_dir, &prefix);
-            crate::setup::stage_agility_sdk_for_game(appid, game_dir, &home)?;
+            if crate::setup::game_exe_imports_d3d12(game_dir, recipe.exe_path.as_deref()) {
+                // Agility is never a launch blocker: a D3D9/D3D10/D3D11 title
+                // on the VKD3D route doesn't use it, and a D3D12 title still
+                // launches even if the payload could not be staged.
+                if let Err(error) = crate::setup::stage_agility_sdk_for_game(appid, game_dir, &home) {
+                    eprintln!("mtsp: Agility SDK staging skipped (non-blocking): {error}");
+                }
+            }
         }
     }
     if pipeline_id == PipelineId::D3DMetal {
@@ -1920,9 +1927,15 @@ fn deploy_d3d12_agility_sidecars(
     if !matches!(node.id, PipelineId::Vkd3d | PipelineId::M13) {
         return Ok(());
     }
+    if !crate::setup::game_exe_imports_d3d12(game_dir, None) {
+        return Ok(());
+    }
 
     let home = dirs::home_dir().ok_or("no home dir")?;
-    crate::setup::stage_agility_sdk_for_game(appid, game_dir, &home)
+    if let Err(error) = crate::setup::stage_agility_sdk_for_game(appid, game_dir, &home) {
+        eprintln!("mtsp: Agility SDK staging skipped (non-blocking): {error}");
+    }
+    Ok(())
 }
 
 fn launch_wine_bare(appid: u32, node: &PipelineNode) -> Result<(u32, &'static str), Box<dyn std::error::Error>> {
