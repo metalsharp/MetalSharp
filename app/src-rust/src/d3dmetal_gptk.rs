@@ -36,20 +36,25 @@ const GAME_LOCAL_ROUTE_DLLS: &[&str] = &[
 ];
 const GPTK_EXTERNAL_PAYLOAD_FILES: &[&str] = &["libd3dshared.dylib", "D3DMetal.framework/Versions/A/D3DMetal"];
 
-// GPTK 4.0 beta 2 (Apple Developer download). The outer DMG contains the
-// Metal Shader Converter pkg and the "Evaluation environment" DMG whose
-// redist/ tree overlays the homebrew GPTK wine root.
-const GPTK4_DMG_BASENAME: &str = "Game_Porting_Toolkit_4.0_beta_2.dmg";
-const GPTK4_INNER_DMG_NAME: &str = "Evaluation environment for Windows games 4.0 beta 2.dmg";
-const GPTK4_MSC_PKG_NAME: &str = "Metal Shader Converter 4.0 beta 2.pkg";
+// GPTK 3.0 (Apple Developer download). The outer DMG contains the Metal
+// Shader Converter pkg and the "Evaluation environment" DMG whose redist/
+// tree overlays the homebrew GPTK wine root. GPTK 3.0's route DLLs only
+// need `__wine_unix_call` (compatible with the installed 7.7 wine base),
+// unlike the 4.0 beta DLLs which require `__wine_unix_call_dispatcher`.
+const GPTK3_DMG_BASENAME: &str = "Game_Porting_Toolkit_3.0.dmg";
+const GPTK3_INNER_DMG_NAME: &str = "Evaluation environment for Windows games 3.0.dmg";
+const GPTK3_MSC_PKG_NAME: &str = "Metal Shader Converter 3.0.pkg";
 /// Guard against acting on a partial download. The real DMG is
-/// 104,459,838 bytes (~99.6 MiB); 90 MiB is safely below it while still
+/// 93,534,640 bytes (~89.2 MiB); 80 MiB is safely below it while still
 /// rejecting empty/partial downloads.
-const GPTK4_MIN_DMG_SIZE: u64 = 90 * 1024 * 1024;
-/// The GPTK 4 redist route DLL set must stay identical to the seeded set.
-const GPTK4_ROUTE_DLLS: &[&str] = GPTK_ROUTE_DLLS;
+const GPTK3_MIN_DMG_SIZE: u64 = 80 * 1024 * 1024;
+/// The GPTK 3.0 redist route DLL set (includes the atidxx64 probe stub the
+/// 3.0 redist adds on top of the seeded six).
+const GPTK3_ROUTE_DLLS: &[&str] =
+    &["d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "nvapi64.dll", "nvngx-on-metalfx.dll", "atidxx64.dll"];
 /// Unix sidecar twins of the route DLLs (same stems, .so).
-const GPTK4_ROUTE_UNIX: &[&str] = &["d3d10.so", "d3d11.so", "d3d12.so", "dxgi.so", "nvapi64.so", "nvngx-on-metalfx.so"];
+const GPTK3_ROUTE_UNIX: &[&str] =
+    &["d3d10.so", "d3d11.so", "d3d12.so", "dxgi.so", "nvapi64.so", "nvngx-on-metalfx.so", "atidxx64.so"];
 const GPTK_OVERRIDES: &str =
     "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
 
@@ -85,7 +90,7 @@ pub struct D3DMetalGptkState {
     pub x64_redist: D3DMetalStepState,
     pub seed: D3DMetalStepState,
     #[serde(default = "default_step_state")]
-    pub gptk4: D3DMetalStepState,
+    pub gptk3: D3DMetalStepState,
     pub play_ready: bool,
     pub last_error: Option<String>,
     #[serde(default)]
@@ -114,8 +119,8 @@ pub fn handle_status(body: &serde_json::Map<String, Value>) -> Value {
                 "ok": true,
                 "state": state,
                 "actions": actions_for(&state),
-                "gptk4_installed": gptk4_installed_globally(),
-                "gptk4_dmg_found": find_gptk4_dmg_in_downloads().is_some(),
+                "gptk3_installed": gptk3_installed_globally(),
+                "gptk3_dmg_found": find_gptk3_dmg_in_downloads().is_some(),
             })
         },
         Err(e) => json!({"ok": false, "error": e}),
@@ -601,7 +606,7 @@ fn new_state(bottle_id: &str, appid: u32, name: &str, game_dir: &Path) -> D3DMet
         gptk_payload: D3DMetalStepState::Missing,
         x64_redist: D3DMetalStepState::Missing,
         seed: D3DMetalStepState::Missing,
-        gptk4: D3DMetalStepState::Missing,
+        gptk3: D3DMetalStepState::Missing,
         play_ready: false,
         last_error: None,
         last_launch_pid: None,
@@ -993,27 +998,27 @@ pub struct Gptk4OverlayReport {
 /// Global "done once" marker: the GPTK 4 overlay is machine-wide (it replaces
 /// files inside the shared GPTK app), so once installed it is never presented
 /// again, for any bottle.
-fn gptk4_marker_path() -> PathBuf {
-    metalsharp_home().join(".gptk4-installed")
+fn gptk3_marker_path() -> PathBuf {
+    metalsharp_home().join(".gptk3-installed")
 }
 
-pub fn gptk4_installed_globally() -> bool {
-    gptk4_marker_path().is_file()
+pub fn gptk3_installed_globally() -> bool {
+    gptk3_marker_path().is_file()
 }
 
-fn write_gptk4_marker() -> Result<(), String> {
-    fs::write(gptk4_marker_path(), format!("{}{}", GPTK4_DMG_BASENAME, "\n"))
-        .map_err(|e| format!("write GPTK4 marker: {e}"))
+fn write_gptk3_marker() -> Result<(), String> {
+    fs::write(gptk3_marker_path(), format!("{}{}", GPTK3_DMG_BASENAME, "\n"))
+        .map_err(|e| format!("write GPTK3 marker: {e}"))
 }
 
 /// The user downloads the Apple Developer DMG manually; watch ~/Downloads and
 /// require a complete (>=100 MB) file so a partial download is never mounted.
-fn find_gptk4_dmg_in_downloads() -> Option<PathBuf> {
+fn find_gptk3_dmg_in_downloads() -> Option<PathBuf> {
     let downloads = dirs::download_dir().or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))?;
-    let candidate = downloads.join(GPTK4_DMG_BASENAME);
+    let candidate = downloads.join(GPTK3_DMG_BASENAME);
     candidate
         .metadata()
-        .map(|meta| meta.is_file() && meta.len() >= GPTK4_MIN_DMG_SIZE)
+        .map(|meta| meta.is_file() && meta.len() >= GPTK3_MIN_DMG_SIZE)
         .unwrap_or(false)
         .then_some(candidate)
 }
@@ -1118,19 +1123,19 @@ fn install_msc_pkg(pkg_path: &Path) -> Result<(), String> {
 /// lib/wine/x86_64-unix, and the external payload (D3DMetal.framework +
 /// libd3dshared.dylib) -> lib/external. Every file is sha256-verified; the
 /// framework is replaced with ditto (preserves symlinks/permissions).
-fn overlay_gptk4_redist(redist_root: &Path, wine_root: &Path) -> Result<Gptk4OverlayReport, String> {
+fn overlay_gptk3_redist(redist_root: &Path, wine_root: &Path) -> Result<Gptk4OverlayReport, String> {
     let mut report = Gptk4OverlayReport::default();
 
     let src_win = redist_root.join("lib").join("wine").join("x86_64-windows");
     let dst_win = wine_root.join("lib").join("wine").join("x86_64-windows");
-    for dll in GPTK4_ROUTE_DLLS {
+    for dll in GPTK3_ROUTE_DLLS {
         copy_file_checked(&src_win.join(dll), &dst_win.join(dll))?;
         report.windows.push(dll.to_string());
     }
 
     let src_unix = redist_root.join("lib").join("wine").join("x86_64-unix");
     let dst_unix = wine_root.join("lib").join("wine").join("x86_64-unix");
-    for so in GPTK4_ROUTE_UNIX {
+    for so in GPTK3_ROUTE_UNIX {
         copy_file_checked(&src_unix.join(so), &dst_unix.join(so))?;
         report.unix.push(so.to_string());
     }
@@ -1168,28 +1173,28 @@ fn overlay_gptk4_redist(redist_root: &Path, wine_root: &Path) -> Result<Gptk4Ove
 /// Shader Converter pkg, mount the Evaluation environment DMG, overlay the
 /// redist tree, re-verify the payload, and re-seed the prefix. Mounts are
 /// always detached, even on failure.
-fn repair_gptk4(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkState, String> {
+fn repair_gptk3(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkState, String> {
     let mut state = state_from_request(body)?;
-    state.gptk4 = D3DMetalStepState::Installing;
+    state.gptk3 = D3DMetalStepState::Installing;
     state.play_ready = false;
     state.last_error = None;
     save_state(&state)?;
 
     let result = (|| -> Result<Gptk4OverlayReport, String> {
-        let dmg = find_gptk4_dmg_in_downloads().ok_or_else(|| {
+        let dmg = find_gptk3_dmg_in_downloads().ok_or_else(|| {
             "Download Game Porting Toolkit 4.0 beta 2 from Apple Developer into ~/Downloads, then run Repair again"
                 .to_string()
         })?;
         let outer_mount = attach_dmg(&dmg)?;
         let mut mounted = vec![outer_mount.clone()];
         let inner = (|| -> Result<Gptk4OverlayReport, String> {
-            let msc_pkg = outer_mount.join(GPTK4_MSC_PKG_NAME);
+            let msc_pkg = outer_mount.join(GPTK3_MSC_PKG_NAME);
             if !msc_pkg.is_file() {
                 return Err(format!("Metal Shader Converter pkg not found in {}", outer_mount.display()));
             }
             install_msc_pkg(&msc_pkg)?;
 
-            let inner_dmg = outer_mount.join(GPTK4_INNER_DMG_NAME);
+            let inner_dmg = outer_mount.join(GPTK3_INNER_DMG_NAME);
             if !inner_dmg.is_file() {
                 return Err(format!("Evaluation environment DMG not found in {}", outer_mount.display()));
             }
@@ -1199,7 +1204,7 @@ fn repair_gptk4(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkSta
             if !redist_root.is_dir() {
                 return Err(format!("redist/ not found in {}", inner_mount.display()));
             }
-            overlay_gptk4_redist(&redist_root, &homebrew_wine_root())
+            overlay_gptk3_redist(&redist_root, &homebrew_wine_root())
         })();
         for mount in mounted.iter().rev() {
             detach_dmg(mount);
@@ -1212,19 +1217,19 @@ fn repair_gptk4(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkSta
             if let Err(e) =
                 ensure_homebrew_gptk_payload_ready().and_then(|_| seed_homebrew_gptk_route_dlls_into_prefix())
             {
-                state.gptk4 = D3DMetalStepState::Failed;
+                state.gptk3 = D3DMetalStepState::Failed;
                 state.last_error = Some(e.clone());
                 save_state(&state)?;
                 persist_d3dmetal_bottle_manifest_best_effort(&state);
                 return Err(e);
             }
-            write_gptk4_marker()?;
-            state.gptk4 = D3DMetalStepState::Installed;
+            write_gptk3_marker()?;
+            state.gptk3 = D3DMetalStepState::Installed;
             state.gptk_payload = D3DMetalStepState::Updated;
             state.last_error = None;
         },
         Err(e) => {
-            state.gptk4 = D3DMetalStepState::Failed;
+            state.gptk3 = D3DMetalStepState::Failed;
             state.last_error = Some(e.clone());
             save_state(&state)?;
             persist_d3dmetal_bottle_manifest_best_effort(&state);
@@ -1238,8 +1243,8 @@ fn repair_gptk4(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkSta
     Ok(state)
 }
 
-pub fn handle_repair_gptk4(body: &serde_json::Map<String, Value>) -> Value {
-    match repair_gptk4(body) {
+pub fn handle_repair_gptk3(body: &serde_json::Map<String, Value>) -> Value {
+    match repair_gptk3(body) {
         Ok(state) => json!({"ok": true, "state": state, "actions": actions_for(&state)}),
         Err(e) => json!({"ok": false, "error": e}),
     }
@@ -1972,17 +1977,20 @@ mod tests {
     }
 
     #[test]
-    fn gptk4_manifests_cover_the_seeded_route_set() {
-        // The GPTK 4 redist route DLL set must stay identical to the set the
-        // seed/verify pipeline deploys, and the unix sidecars must be the
-        // same stems with the .so extension.
-        assert_eq!(GPTK4_ROUTE_DLLS, GPTK_ROUTE_DLLS);
-        assert_eq!(GPTK4_ROUTE_DLLS.len(), GPTK4_ROUTE_UNIX.len());
-        for (dll, so) in GPTK4_ROUTE_DLLS.iter().zip(GPTK4_ROUTE_UNIX.iter()) {
+    fn gptk3_manifests_cover_the_seeded_route_set() {
+        // The GPTK 3.0 redist route DLL set extends the seeded set with the
+        // atidxx64 probe stub, and the unix sidecars must be the same stems
+        // with the .so extension.
+        for dll in GPTK_ROUTE_DLLS {
+            assert!(GPTK3_ROUTE_DLLS.contains(dll), "redist set must include seeded {dll}");
+        }
+        assert!(GPTK3_ROUTE_DLLS.contains(&"atidxx64.dll"));
+        assert_eq!(GPTK3_ROUTE_DLLS.len(), GPTK3_ROUTE_UNIX.len());
+        for (dll, so) in GPTK3_ROUTE_DLLS.iter().zip(GPTK3_ROUTE_UNIX.iter()) {
             let stem = dll.trim_end_matches(".dll");
             assert_eq!(so, &format!("{stem}.so"));
         }
-        assert_eq!(GPTK4_MIN_DMG_SIZE, 90 * 1024 * 1024);
+        assert_eq!(GPTK3_MIN_DMG_SIZE, 80 * 1024 * 1024);
     }
 
     #[test]
@@ -1991,7 +1999,7 @@ mod tests {
         // colliding volume names, and can carry a deprecation warning line.
         // The mount path (which may contain spaces) must be extracted
         // correctly.
-        let temp = std::env::temp_dir().join(format!("ms-gptk4 parse dir {}", std::process::id()));
+        let temp = std::env::temp_dir().join(format!("ms-gptk3 parse dir {}", std::process::id()));
         std::fs::create_dir_all(&temp).expect("create fake mount");
         let stdout = format!(
             "/dev/disk8\tApple_partition_scheme\t\n/dev/disk8s1\tApple_partition_map\t\n/dev/disk8s2\t\tApple_HFS\t\t{temp}\nhdiutil: WARNING: 'hdiutil attach -nobrowse -readonly ...' is deprecated.\n",
@@ -2004,8 +2012,8 @@ mod tests {
     }
 
     #[test]
-    fn overlay_gptk4_redist_copies_all_three_trees_and_verifies_hashes() {
-        let temp = std::env::temp_dir().join(format!("ms-gptk4-overlay-{}", std::process::id()));
+    fn overlay_gptk3_redist_copies_all_three_trees_and_verifies_hashes() {
+        let temp = std::env::temp_dir().join(format!("ms-gptk3-overlay-{}", std::process::id()));
         let redist = temp.join("redist");
         let wine_root = temp.join("wine");
         std::fs::create_dir_all(redist.join("lib/wine/x86_64-windows")).expect("redist windows");
@@ -2014,10 +2022,10 @@ mod tests {
             .expect("redist external");
         std::fs::create_dir_all(redist.join("lib/external/D3DMetal.framework/Resources")).expect("redist resources");
 
-        for dll in GPTK4_ROUTE_DLLS {
+        for dll in GPTK3_ROUTE_DLLS {
             std::fs::write(redist.join("lib/wine/x86_64-windows").join(dll), format!("dll-{dll}")).unwrap();
         }
-        for so in GPTK4_ROUTE_UNIX {
+        for so in GPTK3_ROUTE_UNIX {
             std::fs::write(redist.join("lib/wine/x86_64-unix").join(so), format!("so-{so}")).unwrap();
         }
         std::fs::write(redist.join("lib/external/D3DMetal.framework/Versions/A/D3DMetal"), b"framework-binary")
@@ -2031,19 +2039,19 @@ mod tests {
         .unwrap();
         std::fs::write(redist.join("lib/external/libd3dshared.dylib"), b"shared-dylib").unwrap();
 
-        let report = overlay_gptk4_redist(&redist, &wine_root).expect("overlay must succeed");
-        assert_eq!(report.windows.len(), GPTK4_ROUTE_DLLS.len());
-        assert_eq!(report.unix.len(), GPTK4_ROUTE_UNIX.len());
+        let report = overlay_gptk3_redist(&redist, &wine_root).expect("overlay must succeed");
+        assert_eq!(report.windows.len(), GPTK3_ROUTE_DLLS.len());
+        assert_eq!(report.unix.len(), GPTK3_ROUTE_UNIX.len());
         assert_eq!(report.external.len(), 2);
 
         // Every copied file must hash-match its redist source.
-        for dll in GPTK4_ROUTE_DLLS {
+        for dll in GPTK3_ROUTE_DLLS {
             assert!(same_file_hash(
                 &redist.join("lib/wine/x86_64-windows").join(dll),
                 &wine_root.join("lib/wine/x86_64-windows").join(dll)
             ));
         }
-        for so in GPTK4_ROUTE_UNIX {
+        for so in GPTK3_ROUTE_UNIX {
             assert!(same_file_hash(
                 &redist.join("lib/wine/x86_64-unix").join(so),
                 &wine_root.join("lib/wine/x86_64-unix").join(so)
@@ -2059,19 +2067,19 @@ mod tests {
     }
 
     #[test]
-    fn overlay_gptk4_redist_rejects_a_missing_redist_file() {
-        let temp = std::env::temp_dir().join(format!("ms-gptk4-overlay-missing-{}", std::process::id()));
+    fn overlay_gptk3_redist_rejects_a_missing_redist_file() {
+        let temp = std::env::temp_dir().join(format!("ms-gptk3-overlay-missing-{}", std::process::id()));
         let redist = temp.join("redist");
         std::fs::create_dir_all(redist.join("lib/wine/x86_64-windows")).expect("redist windows");
         std::fs::create_dir_all(redist.join("lib/wine/x86_64-unix")).expect("redist unix");
-        for dll in GPTK4_ROUTE_DLLS {
+        for dll in GPTK3_ROUTE_DLLS {
             std::fs::write(redist.join("lib/wine/x86_64-windows").join(dll), format!("dll-{dll}")).unwrap();
         }
-        for so in GPTK4_ROUTE_UNIX {
+        for so in GPTK3_ROUTE_UNIX {
             std::fs::write(redist.join("lib/wine/x86_64-unix").join(so), format!("so-{so}")).unwrap();
         }
         // No D3DMetal.framework at all.
-        let err = overlay_gptk4_redist(&redist, &temp.join("wine")).expect_err("missing framework must fail");
+        let err = overlay_gptk3_redist(&redist, &temp.join("wine")).expect_err("missing framework must fail");
         assert!(err.contains("D3DMetal.framework"), "error should name the framework: {err}");
         let _ = std::fs::remove_dir_all(&temp);
     }

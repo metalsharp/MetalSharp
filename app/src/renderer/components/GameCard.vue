@@ -96,7 +96,7 @@ interface D3DMetalGptkState {
   gptk_payload: string;
   x64_redist: string;
   seed: string;
-  gptk4: string;
+  gptk3: string;
   play_ready: boolean;
   last_error?: string | null;
 }
@@ -114,8 +114,8 @@ interface D3DMetalGptkResponse {
   state?: D3DMetalGptkState;
   actions?: D3DMetalGptkAction[];
   launch?: D3DMetalLaunchReport;
-  gptk4_installed?: boolean;
-  gptk4_dmg_found?: boolean;
+  gptk3_installed?: boolean;
+  gptk3_dmg_found?: boolean;
   error?: string;
 }
 
@@ -180,9 +180,9 @@ const d3dmetalState = ref<D3DMetalGptkState | null>(null);
 const d3dmetalActions = ref<D3DMetalGptkAction[]>([]);
 const d3dmetalLoading = ref(false);
 // GPTK 4 is machine-wide: once installed it is marked done and never
-// presented again (mirrors the backend's global .gptk4-installed marker).
-const gptk4Installed = ref(false);
-const gptk4DmgFound = ref(false);
+// presented again (mirrors the backend's global .gptk3-installed marker).
+const gptk3Installed = ref(false);
+const gptk3DmgFound = ref(false);
 const bottleName = ref("");
 const bottlePreferredMode = ref("auto");
 const bottleSaving = ref(false);
@@ -757,8 +757,8 @@ async function loadD3DMetalStatus() {
   if (result?.ok && result.state) {
     d3dmetalState.value = result.state;
     d3dmetalActions.value = result.actions ?? [];
-    gptk4Installed.value = result.gptk4_installed === true;
-    gptk4DmgFound.value = result.gptk4_dmg_found === true;
+    gptk3Installed.value = result.gptk3_installed === true;
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
     syncD3DMetalRuntimeReport();
   } else {
     d3dmetalState.value = null;
@@ -766,23 +766,23 @@ async function loadD3DMetalStatus() {
   }
 }
 
-const GPTK4_DOWNLOAD_URL =
-  "https://download.developer.apple.com/Developer_Tools/Game_Porting_Toolkit_4.0_beta_1/Game_Porting_Toolkit_4.0_beta_2.dmg";
+const GPTK3_DOWNLOAD_URL =
+  "https://download.developer.apple.com/Developer_Tools/Game_Porting_Toolkit_3.0/Game_Porting_Toolkit_3.0.dmg";
 
-async function repairGptk4() {
+async function repairGptk3() {
   // If the DMG is not in ~/Downloads yet, open the Apple Developer download
   // and wait for the file to appear before running the repair. When it is
   // already downloaded, skip straight to the repair.
-  if (!gptk4DmgFound.value) {
-    toast.show("Opening the Game Porting Toolkit 4.0 beta 2 download — waiting for the DMG in ~/Downloads…", "success");
-    const opened = await getAPI().openExternalUrl(GPTK4_DOWNLOAD_URL);
+  if (!gptk3DmgFound.value) {
+    toast.show("Opening the Game Porting Toolkit 3.0 download — waiting for the DMG in ~/Downloads…", "success");
+    const opened = await getAPI().openExternalUrl(GPTK3_DOWNLOAD_URL);
     if (!opened?.ok) toast.show("Could not open the download page", "error");
     for (let attempt = 0; attempt < 120; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 5000));
       await loadD3DMetalStatus();
-      if (gptk4DmgFound.value) break;
+      if (gptk3DmgFound.value) break;
     }
-    if (!gptk4DmgFound.value) {
+    if (!gptk3DmgFound.value) {
       toast.show("DMG not in ~/Downloads yet — run Repair again once the download finishes", "error");
       return;
     }
@@ -792,7 +792,7 @@ async function repairGptk4() {
   d3dmetalLoading.value = true;
   const result = await api<D3DMetalGptkResponse>(
     "POST",
-    "/d3dmetal/bottles/repair-gptk4",
+    "/d3dmetal/bottles/repair-gptk3",
     { appid: props.game.appid, bottleId },
     10 * 60 * 1000,
   );
@@ -802,13 +802,13 @@ async function repairGptk4() {
       d3dmetalState.value = result.state;
       d3dmetalActions.value = result.actions ?? [];
     }
-    gptk4Installed.value = result.gptk4_installed === true;
-    gptk4DmgFound.value = result.gptk4_dmg_found === true;
-    toast.show(gptk4Installed.value ? "GPTK 4 installed" : "GPTK 4 setup complete", "success");
+    gptk3Installed.value = result.gptk3_installed === true;
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
+    toast.show(gptk3Installed.value ? "GPTK 4 installed" : "GPTK 4 setup complete", "success");
   } else {
     toast.show(
       result?.error ??
-        "GPTK 4 repair failed — download Game Porting Toolkit 4.0 beta 2 into ~/Downloads and try again",
+        "GPTK 4 repair failed — download Game Porting Toolkit 3.0 into ~/Downloads and try again",
       "error",
     );
   }
@@ -1303,17 +1303,17 @@ function formatBytes(bytes: number): string {
                   </button>
                 </div>
                 <div
-                  v-if="!gptk4Installed"
+                  v-if="!gptk3Installed"
                   class="runtime-action-row compact-repair-row"
-                  title="Apple's Game Porting Toolkit 4.0 beta 2 runtime (Metal Shader Converter + Evaluation environment) overlaid onto the Homebrew GPTK install"
+                  title="Apple's Game Porting Toolkit 3.0 runtime (Metal Shader Converter + Evaluation environment) overlaid onto the Homebrew GPTK install"
                 >
                   <span>
-                    Add gptk4 (optional)
-                    <template v-if="!gptk4DmgFound"
-                      >— download Game Porting Toolkit 4.0 beta 2 from Apple Developer into ~/Downloads first</template
+                    Add gptk3 (optional)
+                    <template v-if="!gptk3DmgFound"
+                      >— download Game Porting Toolkit 3.0 from Apple Developer into ~/Downloads first</template
                     >
                   </span>
-                  <button class="btn btn-secondary btn-sm" :disabled="d3dmetalLoading" @click="repairGptk4">
+                  <button class="btn btn-secondary btn-sm" :disabled="d3dmetalLoading" @click="repairGptk3">
                     {{ d3dmetalLoading ? "Working..." : "Repair" }}
                   </button>
                 </div>
