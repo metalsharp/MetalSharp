@@ -12,7 +12,8 @@ namespace metalsharp {
 
 static constexpr uint32_t RING_BUFFER_FRAMES = 4096;
 static constexpr uint32_t RING_BUFFER_CHANNELS = 2;
-static constexpr uint32_t RING_BUFFER_BYTES = RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float);
+static constexpr uint32_t RING_BUFFER_FRAME_BYTES = RING_BUFFER_CHANNELS * sizeof(float);
+static constexpr uint32_t RING_BUFFER_BYTES = RING_BUFFER_FRAMES * RING_BUFFER_FRAME_BYTES;
 static constexpr uint32_t PRE_BUFFER_FRAMES = 2048;
 static constexpr uint32_t IO_BUFFER_FRAMES = 1024;
 static constexpr uint32_t FADE_OUT_FRAMES = 64;
@@ -48,25 +49,20 @@ struct CoreAudioBackend::Impl {
     uint32_t ringFramesAvailable() const {
         uint32_t w = writePos.load(std::memory_order_acquire);
         uint32_t r = readPos.load(std::memory_order_acquire);
-        uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        uint32_t channelCount = channels.load(std::memory_order_acquire);
-        uint32_t frameBytes = static_cast<uint32_t>(channelCount * sizeof(float));
-        return frameBytes > 0 ? ((w + total - r) % total) / frameBytes : 0;
+        uint32_t total = static_cast<uint32_t>(RING_BUFFER_BYTES);
+        return ((w + total - r) % total) / RING_BUFFER_FRAME_BYTES;
     }
 
     uint32_t ringFramesFree() const {
         uint32_t w = writePos.load(std::memory_order_acquire);
         uint32_t r = readPos.load(std::memory_order_acquire);
-        uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        uint32_t channelCount = channels.load(std::memory_order_acquire);
-        uint32_t frameBytes = static_cast<uint32_t>(channelCount * sizeof(float));
-        return frameBytes > 0 ? ((r + total - w - 1) % total) / frameBytes : 0;
+        uint32_t total = static_cast<uint32_t>(RING_BUFFER_BYTES);
+        return ((r + total - w - 1) % total) / RING_BUFFER_FRAME_BYTES;
     }
 
     uint32_t ringRead(float* out, uint32_t frames) {
-        uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        uint32_t channelCount = channels.load(std::memory_order_acquire);
-        size_t frameBytes = static_cast<size_t>(frames) * channelCount * sizeof(float);
+        uint32_t total = static_cast<uint32_t>(RING_BUFFER_BYTES);
+        size_t frameBytes = static_cast<size_t>(frames) * RING_BUFFER_FRAME_BYTES;
         uint32_t r = readPos.load(std::memory_order_acquire);
         size_t first = std::min(frameBytes, static_cast<size_t>(total - r));
         memcpy(out, ringBuffer + r, first);
@@ -78,9 +74,8 @@ struct CoreAudioBackend::Impl {
     }
 
     uint32_t ringWrite(const float* in, uint32_t frames) {
-        uint32_t total = static_cast<uint32_t>(RING_BUFFER_FRAMES * RING_BUFFER_CHANNELS * sizeof(float));
-        uint32_t channelCount = channels.load(std::memory_order_acquire);
-        size_t frameBytes = static_cast<size_t>(frames) * channelCount * sizeof(float);
+        uint32_t total = static_cast<uint32_t>(RING_BUFFER_BYTES);
+        size_t frameBytes = static_cast<size_t>(frames) * RING_BUFFER_FRAME_BYTES;
         uint32_t w = writePos.load(std::memory_order_acquire);
         size_t first = std::min(frameBytes, static_cast<size_t>(total - w));
         memcpy(ringBuffer + w, reinterpret_cast<const uint8_t*>(in), first);
@@ -154,21 +149,29 @@ static OSStatus audioRenderCallback(void* inRefCon, AudioUnitRenderActionFlags*,
     float vol = impl->volume.load(std::memory_order_acquire);
     bool applyVolume = vol < 0.999f;
     bool applyFadeOut = impl->fadeOutRemaining.load(std::memory_order_acquire) > 0;
-    uint32_t channelCount = impl->channels.load(std::memory_order_acquire);
     float fadeOutGain = impl->fadeOutGain.load(std::memory_order_acquire);
 
     for (UInt32 bufIdx = 0; bufIdx < ioData->mNumberBuffers; bufIdx++) {
         auto& outBuf = ioData->mBuffers[bufIdx];
+        if (!outBuf.mData || outBuf.mDataByteSize == 0)
+            continue;
+
         auto* outPtr = static_cast<float*>(outBuf.mData);
-        uint32_t framesNeeded = inNumberFrames;
+        uint32_t framesWritable = std::min(inNumberFrames, outBuf.mDataByteSize / RING_BUFFER_FRAME_BYTES);
+        if (framesWritable == 0) {
+            memset(outBuf.mData, 0, outBuf.mDataByteSize);
+            continue;
+        }
+
         uint32_t available = impl->ringFramesAvailable();
 
-        if (available >= framesNeeded) {
-            impl->ringRead(outPtr, framesNeeded);
+        if (available >= framesWritable) {
+            impl->ringRead(outPtr, framesWritable);
         } else if (available > 0) {
             impl->ringRead(outPtr, available);
-            uint32_t remaining = framesNeeded - available;
-            memset(outPtr + available * channelCount, 0, static_cast<size_t>(remaining) * channelCount * sizeof(float));
+            uint32_t remaining = framesWritable - available;
+            memset(outPtr + available * RING_BUFFER_CHANNELS, 0,
+                   static_cast<size_t>(remaining) * RING_BUFFER_FRAME_BYTES);
             if (impl->fadeOutRemaining.load(std::memory_order_acquire) == 0) {
                 impl->underrunCount.fetch_add(1, std::memory_order_relaxed);
             }
@@ -181,12 +184,12 @@ static OSStatus audioRenderCallback(void* inRefCon, AudioUnitRenderActionFlags*,
 
         if (applyFadeOut && bufIdx == 0) {
             uint32_t remaining = impl->fadeOutRemaining.load(std::memory_order_acquire);
-            uint32_t toFade = std::min(remaining, framesNeeded);
+            uint32_t toFade = std::min(remaining, framesWritable);
             for (uint32_t f = 0; f < toFade; f++) {
                 float t = static_cast<float>(f) / static_cast<float>(FADE_OUT_FRAMES);
                 float gain = 1.0f - t * fadeOutGain;
-                for (uint32_t c = 0; c < channelCount; c++) {
-                    outPtr[f * channelCount + c] *= gain;
+                for (uint32_t c = 0; c < RING_BUFFER_CHANNELS; c++) {
+                    outPtr[f * RING_BUFFER_CHANNELS + c] *= gain;
                 }
             }
             uint32_t newRemaining = remaining - toFade;
@@ -197,10 +200,15 @@ static OSStatus audioRenderCallback(void* inRefCon, AudioUnitRenderActionFlags*,
         }
 
         if (applyVolume) {
-            uint32_t totalSamples = outBuf.mDataByteSize / sizeof(float);
+            uint32_t totalSamples = framesWritable * RING_BUFFER_CHANNELS;
             for (uint32_t i = 0; i < totalSamples; i++) {
                 outPtr[i] *= vol;
             }
+        }
+
+        uint32_t bytesWritten = framesWritable * RING_BUFFER_FRAME_BYTES;
+        if (bytesWritten < outBuf.mDataByteSize) {
+            memset(static_cast<uint8_t*>(outBuf.mData) + bytesWritten, 0, outBuf.mDataByteSize - bytesWritten);
         }
     }
 
@@ -332,9 +340,14 @@ bool CoreAudioBackend::submitBuffer(const void* data, uint32_t size, const XAudi
     if (!data || size == 0)
         return false;
 
+    if (format.channels != RING_BUFFER_CHANNELS) {
+        MS_WARN("CoreAudioBackend: rejecting %u-channel buffer; stereo output is required", format.channels);
+        return false;
+    }
+
     if (!m_impl->formatFrozen.load(std::memory_order_acquire)) {
         m_impl->format = format;
-        m_impl->channels.store(format.channels, std::memory_order_release);
+        m_impl->channels.store(RING_BUFFER_CHANNELS, std::memory_order_release);
         m_impl->sampleRate.store(format.samplesPerSec, std::memory_order_release);
         m_impl->bytesPerSample.store(format.bitsPerSample == 8    ? 1
                                      : format.bitsPerSample == 16 ? 2
@@ -346,17 +359,16 @@ bool CoreAudioBackend::submitBuffer(const void* data, uint32_t size, const XAudi
     }
 
     uint32_t bytesPerSample = m_impl->bytesPerSample.load(std::memory_order_acquire);
-    uint32_t channelCount = m_impl->channels.load(std::memory_order_acquire);
     uint32_t totalSamples = size / bytesPerSample;
-    uint32_t totalFloatSamples = totalSamples;
-    uint32_t frames = totalSamples / channelCount;
+    uint32_t frames = totalSamples / RING_BUFFER_CHANNELS;
+    uint32_t totalFloatSamples = frames * RING_BUFFER_CHANNELS;
 
     uint32_t freeFrames = m_impl->ringFramesFree();
     if (frames > freeFrames) {
+        uint32_t inputFrames = frames;
         frames = freeFrames;
-        totalFloatSamples = frames * channelCount;
-        MS_TRACE("CoreAudioBackend: ring buffer near-full, dropping %u frames",
-                 (size / bytesPerSample / channelCount) - frames);
+        totalFloatSamples = frames * RING_BUFFER_CHANNELS;
+        MS_TRACE("CoreAudioBackend: ring buffer near-full, dropping %u frames", inputFrames - frames);
     }
 
     if (frames == 0)
