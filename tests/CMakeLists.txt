@@ -210,6 +210,13 @@ add_executable(test_pe_loader_relocations
 target_link_libraries(test_pe_loader_relocations PRIVATE metalsharp_loader metalsharp_core)
 add_test(NAME pe_loader_relocations COMMAND test_pe_loader_relocations)
 
+add_executable(test_virtual_file_system
+    test_virtual_file_system.cpp
+)
+target_link_libraries(test_virtual_file_system PRIVATE metalsharp_loader metalsharp_core)
+
+add_test(NAME virtual_file_system COMMAND test_virtual_file_system)
+
 add_executable(test_phase21
     test_phase21.cpp
 )
