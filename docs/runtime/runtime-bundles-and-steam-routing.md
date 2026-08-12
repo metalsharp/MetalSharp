@@ -17,7 +17,7 @@ Current split bundle roots:
 | Asset | Why it is guarded |
 |---|---|
 | `metalsharp-electron.tar.zst` | Contains `electron/`, the built Electron application payload. |
-| `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the DXMT surfaces (legacy `dxmt` for M9/M10/M11 + `dxmt-vkd3d` VKD3D rollback) and the vkd3d-proton VKD3D stack lanes (`vkd3d-proton`, `dxvk`, `moltenvk-vkmt`). |
+| `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the DXMT surfaces (`dxmt`) and the VKD3D stack lanes (`vkd3d-proton`, `dxvk`, `moltenvk-vkmt`). |
 | `metalsharp-runtime.tar.zst` | Contains `runtime/`, the Wine runtime, host ABI, and backend executable. |
 | `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, GPTK, DXVK, Goldberg, EAC toggle, shims, and runtime support assets. |
 | `metalsharp-scripts-tools.tar.zst` | Contains `scripts/tools/`, updater scripts, configs, native tools, and CEF helpers. |
@@ -34,12 +34,12 @@ tools/bundles/verify-developer-sdk.sh app/bundles/metalsharp-d3d12-developer-sdk
 
 ## Installer Acceptance Rules
 
-The installer consumes the split runtime tarballs by root name. `metalsharp-graphics-dll.tar.zst` is the only source for the active graphics runtime payloads used by M9-VKD3D.
+The installer consumes the split runtime tarballs by root name. `metalsharp-graphics-dll.tar.zst` is the only source for the active graphics runtime payloads used by VKD3D/DXMT.
 
 The graphics bundle has five runtime surfaces:
 
 ```text
-Graphics/dll/dxmt/           -> legacy DXMT payload for M9, M10, and M11
+Graphics/dll/dxmt/           -> DXMT payload for DXMT/DXMT(32)
 Graphics/dll/dxmt-vkd3d/       -> DXMT VKD3D rollback payload (also supplies the
                                shared nvapi64/nvngx GPU vendor stubs)
 Graphics/dll/vkd3d-proton/   -> default VKD3D D3D12 stack (d3d12.dll + d3d12core.dll)
@@ -93,7 +93,7 @@ The app launches Wine Steam through:
 Renderer button -> POST /steam/launch -> steam::launch_wine_steam()
 ```
 
-Game launches that need an explicit public route use VKD3D/M11/M10/M9/Mono-FNA route IDs. Raw `dxmt` remains an internal auto-router and legacy compatibility value.
+Game launches that need an explicit public route use VKD3D/DXMT/DXMT(32)/Mono-FNA route IDs. Raw `dxmt` remains an internal auto-router and legacy compatibility value.
 
 ```text
 Renderer Play -> POST /steam/launch-game {"launchMethod":"vkd3d"} -> prepare_steam_pipeline_env() -> direct game launch with Wine Steam alive in the background

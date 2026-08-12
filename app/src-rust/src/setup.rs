@@ -186,7 +186,7 @@ pub fn dependencies() -> Value {
             },
             {
                 "id": "dxmt_runtime",
-                "name": "DXMT M9/DXMT Runtime",
+                "name": "DXMT Runtime",
                 "desc": format!("Bundled D3D9/D3D10/D3D11-to-Metal runtime ({}) staged under runtime/wine/lib/dxmt.", crate::installer::DXMT_BUNDLED_RUNTIME_VERSION),
                 "installed": dxmt_runtime,
                 "required": true,

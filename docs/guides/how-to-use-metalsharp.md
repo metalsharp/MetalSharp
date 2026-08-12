@@ -18,7 +18,7 @@ After a game is installed, MetalSharp detects the Wine Steam library and creates
 
 The bottle is the launch-authoritative runtime record. It checks the selected profile, runtime assets, redistributables, DLL expectations, and logs before launch.
 
-For routes such as VKD3D, M11, M10, M9, and Mono/FNA, MetalSharp keeps Wine Steam alive in the background when Steamworks ownership/session state is needed, then launches the game executable through the selected bottle-aware MTSP pipeline. The game process receives the prepared prefix or native Mono/FNA environment, cache paths, and Steam identity variables (`SteamAppId` and `SteamGameId`) so Steamworks can bind back to the running Wine Steam client where applicable.
+For routes such as VKD3D, DXMT, and Mono/FNA, MetalSharp keeps Wine Steam alive in the background when Steamworks ownership/session state is needed, then launches the game executable through the selected bottle-aware MTSP pipeline. The game process receives the prepared prefix or native Mono/FNA environment, cache paths, and Steam identity variables (`SteamAppId` and `SteamGameId`) so Steamworks can bind back to the running Wine Steam client where applicable.
 
 Internal Steam, Wine, macOS Steam, M32, and raw DXMT routes still exist for diagnostics, compatibility records, and backend fallback behavior, but they are not normal route selector choices. If Wine Steam is not detectable after startup, MetalSharp fails the launch clearly instead of hanging behind the renderer timeout.
 
@@ -29,7 +29,7 @@ Click **Play** from the Library page. Use the launch mode dropdown when you want
 | VKD3D | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK). DXMT rollback available via the `vkd3dBackend` setting (Settings) |
 | M11 | D3D11 to Metal |
 | M10 | D3D10 to Metal |
-| M9 | D3D9 through the DXMT launch/cache family |
+| VKD3D | D3D9/D3D10/D3D11/D3D12 through vkd3d-proton + DXVK-macOS (Vulkan → MoltenVK) |
 | Mono/FNA | Windows XNA/FNA games through MetalSharp's native Mono runtime, staged FNA/XNA assemblies, native dylibs, FMOD/FAudio/FNA3D shims, and Steamworks shim support |
 | D3DMetal | Apple Game Porting Toolkit via Homebrew, using a shared GPTK prefix and Homebrew-matched D3DMetal route DLLs |
 

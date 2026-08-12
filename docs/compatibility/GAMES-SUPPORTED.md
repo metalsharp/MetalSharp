@@ -13,11 +13,9 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Pipeline | Backend | Use |
 |---|---|---|
 | **D3DMetal** | Homebrew GPTK / Apple D3DMetal | D3D11/D3D12 via Apple's D3DMetal framework. GPTK is installed through Homebrew and is not bundled by MetalSharp. |
-| **VKD3D** | vkd3d-proton (default) / DXMT (rollback) | D3D12 to Metal via D3D12 → Vulkan → MoltenVK |
-| **M11** | DXMT | D3D11 to Metal |
-| **M11 (32-bit)** | DXMT | D3D11 to Metal, 32-bit prefix route |
-| **M10** | DXMT | D3D10 to Metal |
-| **M9** | DXMT | D3D9 to Metal |
+| **VKD3D** | vkd3d-proton + DXVK-macOS | Complete Vulkan pipeline: D3D9/D3D10/D3D11/D3D12 to Metal via Vulkan → MoltenVK |
+| **DXMT** | DXMT | D3D10/D3D11 to Metal (x86_64) |
+| **DXMT(32)** | DXMT | D3D10/D3D11 to Metal (32-bit / i386) |
 | **Mono/FNA** | MonoKickstart + FNA | XNA/FNA/MonoGame via native Mono runtime |
 
 Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remain backend machinery and are not shown in bottle selectors.
@@ -111,11 +109,11 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## M9 — D3D9 to Metal
+## VKD3D — D3D9/D3D10/D3D11/D3D12 to Metal (Vulkan)
 
 | Game | AppID | Notes |
 |---|---:|---|
-| Mirror's Edge | 17410 | Sync-loading mitigation active. |
+| Mirror's Edge | 17410 | |
 | Half-Life 2 | 220 | |
 | Portal 2 | 620 | Steam Emu supported. |
 | Among Us | 945360 | Steam online play. |

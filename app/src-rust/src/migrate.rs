@@ -3172,7 +3172,8 @@ mod tests {
                 .join("Portal 2"),
         )
         .expect("create bottle prefix payload");
-        fs::write(bottle.join("bottle.json"), br#"{"id":"steam_620","profile":"m9"}"#).expect("write bottle settings");
+        fs::write(bottle.join("bottle.json"), br#"{"id":"steam_620","profile":"vkd3d"}"#)
+            .expect("write bottle settings");
         fs::write(
             bottle
                 .join("prefix")
@@ -3235,7 +3236,7 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(ms_dir.join("bottles").join("steam_620").join("bottle.json")).unwrap(),
-            r#"{"id":"steam_620","profile":"m9"}"#
+            r#"{"id":"steam_620","profile":"vkd3d"}"#
         );
         assert!(ms_dir
             .join("bottles")

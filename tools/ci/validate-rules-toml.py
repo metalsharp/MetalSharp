@@ -35,7 +35,6 @@ ROOT = Path(__file__).resolve().parents[2]
 RULES_PATH = ROOT / "configs" / "mtsp-rules.toml"
 
 VALID_PIPELINES = {
-    "m9",
     "vkd3d",
     "dxmt",
     "dxmt_32",

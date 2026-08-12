@@ -401,7 +401,6 @@ const engineOptions = [
   { id: "vkd3d", name: "VKD3D" },
   { id: "dxmt", name: "DXMT" },
   { id: "dxmt_32", name: "DXMT(32)" },
-  { id: "m9", name: "M9" },
   { id: "fna_arm64", name: "Mono/FNA" },
 ];
 
@@ -463,7 +462,7 @@ function d3dmetalActionReady(action: D3DMetalGptkAction): boolean {
 function isFnaProfile(profile: string): boolean {
   return profile === "fna_arm64" || profile === "fna_x86";
 }
-const selectableRuntimeProfileIds = new Set(["vkd3d", "d3dmetal", "dxmt", "dxmt_32", "m9", "fna_arm64"]);
+const selectableRuntimeProfileIds = new Set(["vkd3d", "d3dmetal", "dxmt", "dxmt_32", "fna_arm64"]);
 const visibleRuntimeProfiles = computed(() => {
   const profiles = runtimeProfiles.value.some((profile) => profile.id === "d3dmetal")
     ? runtimeProfiles.value

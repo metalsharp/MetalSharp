@@ -3283,7 +3283,6 @@ fn pipeline_label_for(pipeline: crate::mtsp::engine::PipelineId) -> &'static str
         crate::mtsp::engine::PipelineId::Vkd3d => "VKD3D",
         crate::mtsp::engine::PipelineId::Dxmt => "DXMT",
         crate::mtsp::engine::PipelineId::Dxmt32 => "DXMT(32)",
-        crate::mtsp::engine::PipelineId::M9 => "M9",
         crate::mtsp::engine::PipelineId::FnaArm64 => "FNA/Mono",
         _ => "Other",
     }

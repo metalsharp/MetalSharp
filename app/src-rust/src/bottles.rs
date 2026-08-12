@@ -251,7 +251,6 @@ pub enum RuntimeProfile {
     Plain,
     Launcher,
     GameInstall,
-    M9,
     Dxmt,
     Dxmt32,
     Vkd3d,
@@ -935,7 +934,6 @@ fn pipeline_preference_id(pipeline: crate::mtsp::engine::PipelineId) -> &'static
     match pipeline {
         crate::mtsp::engine::PipelineId::Dxmt => "dxmt",
         crate::mtsp::engine::PipelineId::Dxmt32 => "dxmt_32",
-        crate::mtsp::engine::PipelineId::M9 => "m9",
         crate::mtsp::engine::PipelineId::Vkd3d => "vkd3d",
         crate::mtsp::engine::PipelineId::M13 => "m13",
         crate::mtsp::engine::PipelineId::D3DMetal => "d3dmetal",
@@ -1089,13 +1087,12 @@ pub fn steam_route_contract_for(pipeline: crate::mtsp::engine::PipelineId) -> St
 }
 
 /// The full route-contract table covering every protected and first-class
-/// Steam game lane. M9/DXMT/DXMT(32) are protected compatibility lanes;
+/// Steam game lane. DXMT/DXMT(32) are protected compatibility lanes;
 /// VKD3D/M13, FnaArm64, WineBare, and D3DMetal cover the remaining route
 /// families the contract must exercise.
 pub fn steam_route_contracts() -> Vec<SteamRouteContract> {
     use crate::mtsp::engine::PipelineId::*;
     vec![
-        steam_route_contract_for(M9),
         steam_route_contract_for(Dxmt),
         steam_route_contract_for(Dxmt32),
         steam_route_contract_for(Vkd3d),
@@ -1505,10 +1502,10 @@ pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
     // install phase only needs plain Wine + user32/comctl32 — no DXVK. The
     // previous code computed pipeline from PE alone before knowing the
     // installer_kind, so 32-bit Inno/NSIS installers (Moonscraper, GOG, Itch.io
-    // games) launched with M9 (DXVK), forcing MoltenVK init in a context where
-    // the installer UI never gets a chance to render. Runtime profile stays
-    // GameInstall for these so the *installed* app later launches with the
-    // WineBare pipeline defined for GameInstall.
+    // games) launched with a graphics route, forcing MoltenVK init in a context
+    // where the installer UI never gets a chance to render. Runtime profile
+    // stays GameInstall for these so the *installed* app later launches with
+    // the WineBare pipeline defined for GameInstall.
     let is_framework_installer =
         matches!(installer_kind, InstallerKind::Msi | InstallerKind::Nsis | InstallerKind::Inno | InstallerKind::Wix);
     let pipeline = if let Some(recipe) = known_launcher {
@@ -1538,7 +1535,6 @@ pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
         match pipeline {
             crate::mtsp::engine::PipelineId::Dxmt => RuntimeProfile::Dxmt,
             crate::mtsp::engine::PipelineId::Dxmt32 => RuntimeProfile::Dxmt32,
-            crate::mtsp::engine::PipelineId::M9 => RuntimeProfile::M9,
             crate::mtsp::engine::PipelineId::Vkd3d => RuntimeProfile::Vkd3d,
             crate::mtsp::engine::PipelineId::M13 => RuntimeProfile::M13,
             crate::mtsp::engine::PipelineId::D3DMetal => RuntimeProfile::D3DMetal,
@@ -1693,7 +1689,7 @@ fn stage_vkd3d_dlls_for_saved_steam_bottle(
 ///
 /// VKD3D is handled by `stage_vkd3d_dlls_for_saved_steam_bottle` (which also
 /// ensures the isolated VKD3D runtime is ready). This helper covers the other
-/// DXMT-family routes (M9/DXMT/DXMT(32)); non-DXMT profiles return
+/// DXMT-family routes (DXMT/DXMT(32)); non-DXMT profiles return
 /// `None` and are staged at launch time as before.
 fn stage_route_dlls_for_saved_steam_bottle(
     manifest: &BottleManifest,
@@ -3484,7 +3480,6 @@ fn runtime_profile_definitions() -> Vec<RuntimeProfileDefinition> {
         RuntimeProfile::Plain,
         RuntimeProfile::Launcher,
         RuntimeProfile::GameInstall,
-        RuntimeProfile::M9,
         RuntimeProfile::Dxmt,
         RuntimeProfile::Dxmt32,
         RuntimeProfile::Vkd3d,
@@ -3519,13 +3514,6 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
             true,
             &["vcrun2019_x64", "vcrun2019_x86", "vcrun2013", "directx_jun2010", "corefonts"][..],
             crate::mtsp::engine::PipelineId::WineBare,
-        ),
-        RuntimeProfile::M9 => (
-            "D3D9 Metal",
-            BottleArch::Wow64,
-            true,
-            &["d3d9", "vcrun2019_x64", "vcrun2019_x86", "directx_jun2010"][..],
-            crate::mtsp::engine::PipelineId::M9,
         ),
         RuntimeProfile::Dxmt => (
             "DXMT",
@@ -3585,7 +3573,7 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
             BottleArch::Win32,
             true,
             &["wine-mono", "gecko", "dotnet48", "vcrun2019_x64", "vcrun2019_x86", "corefonts"][..],
-            crate::mtsp::engine::PipelineId::M9,
+            crate::mtsp::engine::PipelineId::WineBare,
         ),
         RuntimeProfile::Webview => (
             "WebView",
@@ -3673,7 +3661,6 @@ fn runtime_profile_for_pipeline(pipeline: crate::mtsp::engine::PipelineId) -> Ru
     match pipeline {
         crate::mtsp::engine::PipelineId::Dxmt => RuntimeProfile::Dxmt,
         crate::mtsp::engine::PipelineId::Dxmt32 => RuntimeProfile::Dxmt32,
-        crate::mtsp::engine::PipelineId::M9 => RuntimeProfile::M9,
         crate::mtsp::engine::PipelineId::Vkd3d => RuntimeProfile::Vkd3d,
         crate::mtsp::engine::PipelineId::M13 => RuntimeProfile::M13,
         crate::mtsp::engine::PipelineId::D3DMetal => RuntimeProfile::D3DMetal,
@@ -3700,7 +3687,6 @@ fn parse_runtime_profile(value: &str) -> Option<RuntimeProfile> {
         "plain" => Some(RuntimeProfile::Plain),
         "launcher" => Some(RuntimeProfile::Launcher),
         "game_install" | "gameinstall" => Some(RuntimeProfile::GameInstall),
-        "m9" => Some(RuntimeProfile::M9),
         "dxmt" => Some(RuntimeProfile::Dxmt),
         "dxmt_32" | "dxmt32" => Some(RuntimeProfile::Dxmt32),
         "vkd3d" => Some(RuntimeProfile::Vkd3d),
@@ -5530,13 +5516,15 @@ fn installer_pipeline_from_pe(pe: Option<&crate::mtsp::pe::PeInfo>) -> crate::mt
         return crate::mtsp::engine::PipelineId::WineBare;
     };
     if !pe.is_64_bit {
-        return crate::mtsp::engine::PipelineId::M9;
+        // 32-bit installers: plain Wine (no graphics route init). Installed
+        // games get their real route at launch time.
+        return crate::mtsp::engine::PipelineId::WineBare;
     }
     match pe.detected_api {
         crate::mtsp::pe::D3dApi::D3D12 => crate::mtsp::engine::PipelineId::Vkd3d,
         crate::mtsp::pe::D3dApi::D3D11 => crate::mtsp::engine::PipelineId::Dxmt,
         crate::mtsp::pe::D3dApi::D3D10 => crate::mtsp::engine::PipelineId::Dxmt,
-        crate::mtsp::pe::D3dApi::D3D9 => crate::mtsp::engine::PipelineId::M9,
+        crate::mtsp::pe::D3dApi::D3D9 => crate::mtsp::engine::PipelineId::Vkd3d,
         crate::mtsp::pe::D3dApi::Unknown => crate::mtsp::engine::PipelineId::WineBare,
     }
 }
@@ -6380,10 +6368,10 @@ mod tests {
             bottle_type: BottleType::Steam,
             steam_app_id: Some(17410),
             prefix_path: steam_launch_prefix().to_string_lossy().to_string(),
-            arch: BottleArch::Wow64,
-            runtime_profile: RuntimeProfile::M9,
-            preferred_pipeline: Some("m9".into()),
-            installed_components: default_components_for(RuntimeProfile::M9),
+            arch: BottleArch::Win64,
+            runtime_profile: RuntimeProfile::Vkd3d,
+            preferred_pipeline: Some("vkd3d".into()),
+            installed_components: default_components_for(RuntimeProfile::Vkd3d),
             source_installer_path: None,
             installer_kind: None,
             game_install_path: None,
@@ -6401,7 +6389,7 @@ mod tests {
 
         assert_eq!(
             effective_pipeline_for_bottle_refresh(Some(&manifest), crate::mtsp::engine::PipelineId::Dxmt, true),
-            crate::mtsp::engine::PipelineId::M9
+            crate::mtsp::engine::PipelineId::Vkd3d
         );
         assert_eq!(
             effective_pipeline_for_bottle_refresh(Some(&manifest), crate::mtsp::engine::PipelineId::Dxmt, false),
@@ -6412,8 +6400,8 @@ mod tests {
     #[test]
     fn passive_steam_refresh_preserves_saved_dxmt_pipeline() {
         // A saved DXMT route must survive a passive refresh that would
-        // otherwise resolve to VKD3D. This is the DXMT counterpart to the M9
-        // preservation rule and protects the D3D10/D3D11 compatibility lane.
+        // otherwise resolve to VKD3D. This protects the D3D10/D3D11
+        // compatibility lane.
         let manifest = BottleManifest {
             id: steam_game_bottle_id(17300),
             name: "DXMT Title".into(),
@@ -6455,7 +6443,7 @@ mod tests {
     #[test]
     fn passive_steam_refresh_preserves_saved_vkd3d_pipeline() {
         // A saved VKD3D route must survive a passive refresh that would otherwise
-        // fall back to DXMT or M9. The isolated VKD3D lane cannot be silently
+        // fall back to DXMT. The isolated VKD3D lane cannot be silently
         // erased by a background library refresh.
         let manifest = BottleManifest {
             id: steam_game_bottle_id(2379780),
@@ -6489,9 +6477,9 @@ mod tests {
             "passive refresh must not downgrade a saved Vkd3d route to DXMT"
         );
         assert_eq!(
-            effective_pipeline_for_bottle_refresh(Some(&manifest), crate::mtsp::engine::PipelineId::M9, true),
+            effective_pipeline_for_bottle_refresh(Some(&manifest), crate::mtsp::engine::PipelineId::WineBare, true),
             crate::mtsp::engine::PipelineId::Vkd3d,
-            "passive refresh must not downgrade a saved Vkd3d route to M9"
+            "passive refresh must not downgrade a saved Vkd3d route"
         );
     }
 
@@ -6560,7 +6548,7 @@ mod tests {
         // The contract table is the protected-lane gate. These ids must all be
         // present so a future refactor cannot silently drop a lane.
         let ids: Vec<&'static str> = steam_route_contracts().iter().map(|c| c.pipeline).collect();
-        for required in ["m9", "dxmt", "dxmt_32", "vkd3d", "fna_arm64", "wine_bare", "d3dmetal"] {
+        for required in ["dxmt", "dxmt_32", "vkd3d", "fna_arm64", "wine_bare", "d3dmetal"] {
             assert!(ids.contains(&required), "route contract table must cover {} (got {:?})", required, ids);
         }
     }
@@ -6598,7 +6586,7 @@ mod tests {
     fn runtime_profile_definitions_are_declarative() {
         let win32 = runtime_profile_definition(RuntimeProfile::Win32Dotnet);
         assert_eq!(win32.arch, BottleArch::Win32);
-        assert_eq!(win32.launch_pipeline, crate::mtsp::engine::PipelineId::M9);
+        assert_eq!(win32.launch_pipeline, crate::mtsp::engine::PipelineId::WineBare);
         assert!(win32.components.contains(&"dotnet48".to_string()));
 
         let profiles = runtime_profile_definitions();
@@ -6679,7 +6667,7 @@ mod tests {
         let classification = classify_installer(&exe);
 
         assert_eq!(classification.arch, BottleArch::Win32);
-        assert_eq!(classification.pipeline, crate::mtsp::engine::PipelineId::M9);
+        assert_eq!(classification.pipeline, crate::mtsp::engine::PipelineId::WineBare);
         assert_eq!(classification.runtime_profile, RuntimeProfile::Win32Dotnet);
         assert!(classification.hints.contains(&"dotnet_or_clr".to_string()));
         let _ = fs::remove_dir_all(dir);
@@ -6788,7 +6776,7 @@ mod tests {
         assert!(!rebuilt.iter().any(|component| component.id == "d3d12"));
         assert!(!rebuilt.iter().any(|component| component.id == "vcrun2019_x64"));
 
-        let rebuilt = rebuild_components_for_profile(&existing, RuntimeProfile::M9);
+        let rebuilt = rebuild_components_for_profile(&existing, RuntimeProfile::Vkd3d);
         let vcrun_x64 = rebuilt.iter().find(|component| component.id == "vcrun2019_x64").expect("vcrun x64 component");
         assert_eq!(vcrun_x64.state, ComponentState::Installed);
         let vcrun_x86 = rebuilt.iter().find(|component| component.id == "vcrun2019_x86").expect("vcrun x86 component");
@@ -7160,7 +7148,6 @@ mod tests {
     fn steam_pipeline_maps_to_runtime_profile() {
         assert_eq!(runtime_profile_for_pipeline(crate::mtsp::engine::PipelineId::Dxmt), RuntimeProfile::Dxmt);
         assert_eq!(runtime_profile_for_pipeline(crate::mtsp::engine::PipelineId::Dxmt32), RuntimeProfile::Dxmt32);
-        assert_eq!(runtime_profile_for_pipeline(crate::mtsp::engine::PipelineId::M9), RuntimeProfile::M9);
         assert_eq!(runtime_profile_for_pipeline(crate::mtsp::engine::PipelineId::Vkd3d), RuntimeProfile::Vkd3d);
         assert_eq!(runtime_profile_for_pipeline(crate::mtsp::engine::PipelineId::FnaArm64), RuntimeProfile::FnaArm64);
         assert_eq!(
@@ -7282,10 +7269,10 @@ mod tests {
             bottle_type: BottleType::Steam,
             steam_app_id: Some(620),
             prefix_path: steam_launch_prefix().to_string_lossy().to_string(),
-            arch: BottleArch::Wow64,
-            runtime_profile: RuntimeProfile::M9,
+            arch: BottleArch::Win64,
+            runtime_profile: RuntimeProfile::Vkd3d,
             preferred_pipeline: None,
-            installed_components: default_components_for(RuntimeProfile::M9),
+            installed_components: default_components_for(RuntimeProfile::Vkd3d),
             source_installer_path: None,
             installer_kind: None,
             game_install_path: None,
@@ -7314,10 +7301,10 @@ mod tests {
             bottle_type: BottleType::Steam,
             steam_app_id: Some(620),
             prefix_path: steam_launch_prefix().to_string_lossy().to_string(),
-            arch: BottleArch::Wow64,
-            runtime_profile: RuntimeProfile::M9,
+            arch: BottleArch::Win64,
+            runtime_profile: RuntimeProfile::Vkd3d,
             preferred_pipeline: None,
-            installed_components: default_components_for(RuntimeProfile::M9),
+            installed_components: default_components_for(RuntimeProfile::Vkd3d),
             source_installer_path: None,
             installer_kind: None,
             game_install_path: Some("/games/Portal 2".into()),
@@ -7338,13 +7325,13 @@ mod tests {
             mono_profile: None,
         };
 
-        let record = steam_compatdata_record(&manifest, crate::mtsp::engine::PipelineId::M9);
+        let record = steam_compatdata_record(&manifest, crate::mtsp::engine::PipelineId::Vkd3d);
 
         assert_eq!(record.appid, 620);
         assert_eq!(record.bottle_id, "steam_620");
         assert!(record.compatdata_path.ends_with("/bottles/steam_620"));
         assert!(record.log_dir.ends_with("/bottles/steam_620/logs"));
-        assert_eq!(record.launch_pipeline, "m9");
+        assert_eq!(record.launch_pipeline, "vkd3d");
         assert_eq!(record.steam_identity_mode, "wine_steam_background");
         assert_eq!(record.compat_tool_name, "MetalSharp");
         assert!(record.launch_command_template.contains("/steam/launch-game"));

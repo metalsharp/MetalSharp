@@ -57,10 +57,10 @@ validation. Earlier Phase 0 hashes are superseded by these patched builds.
 2. **Runtime PE layout is x86_64-windows / i386-windows** — the correct vkd3d-proton build is **build-vkmt-win64-filtered** (x86-64), NOT build-vkmt-arm64-clang (AArch64, used by VKMT's own arm64-native Wine, not MetalSharp's current x86_64-windows runtime).
 3. **VKMT MoltenVK is a universal dylib** (x86_64+arm64) — fits MetalSharp's `lib/wine/x86_64-unix` and `i386-unix` needs.
 4. **ICD JSON** ships with the package; `fix_moltenvk_icd_paths` already rewrites `library_path` — extend it to prefer the VKMT dylib lane.
-5. **DXMT stays for M9/M10/M11** (and as `vkd3dBackend=dxmt` rollback): the new lane must not touch `lib/dxmt*`.
+5. **DXMT stays for DXMT/DXMT(32)**: the new lane must not touch `lib/dxmt*`.
 6. **32-bit D3D12 out of scope** — VKD3D is 64-bit only. Its readiness gate
    requires only the x86_64 vkd3d-proton DLLs; DXVK i386 artifacts remain
-   required independently by M9/M10(32)/M11(32).
+   required independently by DXMT/DXMT(32).
 7. **Vulkan feature contract is explicit** — `moltenvk_ready` should verify the runtime dylib is the VKMT one (has a recognizable feature set) and error clearly if a stock MoltenVK would be used, since vkd3d-proton requires features stock may lack.
 
 ## 4. Risks & decisions to confirm

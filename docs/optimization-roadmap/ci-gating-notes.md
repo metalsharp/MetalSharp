@@ -47,9 +47,9 @@ and are also exposed as routes for live introspection:
 
 VKD3D's default backend (`lib/vkd3d-proton` + `lib/dxvk` + `lib/moltenvk-vkmt`)
 is an isolated lane that may advance independently; the `vkd3dBackend=dxmt`
-rollback (`lib/dxmt-vkd3d`) is a protected compatibility lane. M9/M10/M11 are
+is a protected compatibility lane. DXMT/DXMT(32) are
 protected compatibility lanes that share the legacy `lib/dxmt` surface. A
-graphics PR that touches VKD3D must not disturb M9/M10/M11 artifact paths; the
+graphics PR that touches VKD3D must not disturb DXMT artifact paths; the
 contract tests in `mtsp::launcher::tests` enforce this.
 
 See `docs/architecture/vkd3d-pipeline-map.md` for the full VKD3D route definition

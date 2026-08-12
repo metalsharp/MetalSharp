@@ -162,7 +162,7 @@ const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     // VKD3D is x86_64-only; i386 vkd3d-proton remains future scope.
     "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll",
     "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll",
-    // DXVK lane: dxgi/d3d11/d3d10/d3d9 surfaces (VKD3D uses dxgi; M9/DXMT use d3d11+).
+    // DXVK lane: dxgi/d3d11/d3d10/d3d9 surfaces (VKD3D uses the full set).
     "Graphics/dll/dxvk/x86_64-windows/dxgi.dll",
     "Graphics/dll/dxvk/x86_64-windows/d3d11.dll",
     "Graphics/dll/dxvk/x86_64-windows/d3d10core.dll",

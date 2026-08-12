@@ -8,8 +8,8 @@ existing graphics bundle, preserving every other entry byte-for-byte.
 Uses the same tar normalization as update-runtime-bundle.py (uid/gid=0,
 mtime=0, deterministic order) so the output is reproducible.
 
-The DXMT surfaces are untouched: M9/M10/M11 and the vkd3dBackend=dxmt
-rollback keep working from the same archive.
+The DXMT surfaces are untouched: DXMT/DXMT(32) and the VKD3D stack keep
+working from the same archive.
 
 Usage:
   update-graphics-bundle.py --archive in.tar.zst --out out.tar.zst \\

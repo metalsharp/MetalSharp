@@ -210,7 +210,6 @@ pub fn shader_cache_dirs(home: &Path, pipeline: crate::mtsp::engine::PipelineId,
     let appid_str = appid.to_string();
 
     let subdirs: &[&str] = match pipeline {
-        PipelineId::M9 => &["m9", "dxmt-metal"],
         PipelineId::Dxmt => &["dxmt", "dxmt-metal"],
         PipelineId::Dxmt32 => &["dxmt_32", "dxmt-metal"],
         PipelineId::Vkd3d => &["vkd3d", "dxmt-metal12"],

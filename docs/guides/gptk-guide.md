@@ -2,7 +2,7 @@
 **Updated:** 2026-07-08
 
 
-MetalSharp supports Apple's Game Porting Toolkit (GPTK) as the **D3DMetal** route. This route uses Apple's D3DMetal framework for D3D11/D3D12 translation instead of the MetalSharp DXMT routes (M9/M10/M11) or the vkd3d-proton VKD3D route.
+MetalSharp supports Apple's Game Porting Toolkit (GPTK) as the **D3DMetal** route. This route uses Apple's D3DMetal framework for D3D11/D3D12 translation instead of the MetalSharp DXMT routes (DXMT/DXMT(32)) or the vkd3d-proton VKD3D route.
 
 GPTK is **not bundled** with MetalSharp. MetalSharp installs and uses the Homebrew GPTK app in place:
 

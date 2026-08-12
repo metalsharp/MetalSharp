@@ -19,7 +19,7 @@ VKD3D uses for Wine-launched games.
 | Shader/cache routing | `app/src-rust/src/mtsp/shader_cache.rs` | VKD3D uses `vkd3d` and `dxmt-metal12` cache directories. | Present in current project |
 | VKD3D default artifact surface | `~/.metalsharp/runtime/wine/lib/{vkd3d-proton,dxvk,moltenvk-vkmt}` | VKD3D loads `d3d12.dll` + `d3d12core.dll` (vkd3d-proton lane), `dxgi.dll` (DXVK lane), and VKMT's patched MoltenVK (`libMoltenVK.dylib` + `MoltenVK_icd.json`). | Present in current project |
 | VKD3D DXMT rollback surface | `~/.metalsharp/runtime/wine/lib/dxmt-vkd3d` | Only when `vkd3dBackend=dxmt`; also supplies the shared GPU vendor stubs (`nvapi64.dll`, `nvngx.dll`). | Present in current project |
-| Legacy DXMT surface | `~/.metalsharp/runtime/wine/lib/dxmt` | M9/M10/M11 continue to use the known-good legacy DXMT payload. | Present in current project |
+| DXMT surface | `~/.metalsharp/runtime/wine/lib/dxmt` | DXMT/DXMT(32) use the legacy DXMT payload. | Present in current project |
 | DXMT D3D12 implementation | External DXMT source tree | Conformance branch contains the real DXMT D3D12/DXIL/winemetal work, used only by the VKD3D DXMT rollback lane. | External source tree |
 | vkd3d-proton implementation | VKMT vkd3d-proton build | `build-vkmt-win64-filtered` produces the `d3d12.dll` forwarder + `d3d12core.dll` implementation shipped in the bundle. | External source tree |
 | Native D3D12 target | `include/metalsharp/D3D12Device.h`, `src/d3d/d3d12/*` | Builds `build/d3d12.dylib` and exposes `D3D12CreateDevice`. | In-tree, smoke-tested |
@@ -81,7 +81,7 @@ ninja -C <dxmt-source>/build src/winemetal/unix/winemetal.so src/d3d12/d3d12.dll
 
 The current release-hosted graphics bundle carries five lanes:
 
-- `Graphics/dll/dxmt`: the legacy DXMT surface used by M9/M10/M11.
+- `Graphics/dll/dxmt`: the DXMT surface used by DXMT/DXMT(32).
 - `Graphics/dll/dxmt-vkd3d`: the DXMT VKD3D rollback surface (also the source of
   the shared `nvapi64.dll`/`nvngx.dll` GPU vendor stubs), including
   `winemetal.so`, `libc++.1.dylib`, `libc++abi.1.dylib`, and
@@ -101,7 +101,7 @@ The current release-hosted graphics bundle carries five lanes:
 | VKD3D backend handoff | Present | The handoff is backend-aware: vkd3d-proton copies vkd3d-proton/DXVK/MoltenVK artifacts and pins `VK_ICD_FILENAMES`; DXMT rollback copies the `dxmt-vkd3d` set. |
 | Subnautica-class VKD3D runtime | Demonstrated by local use | This validates the launcher/runtime path, not the native CMake D3D12 dylib. |
 | Avery DXMT probes | Strongest external proof (DXMT lane) | `tests/ROADMAP.md` in `dxmt-src` marks probes 2-6 complete, including compute, triangle, indexed draw, depth, and texture sampling. |
-| Deployed runtime parity | Split surface | M9/M10/M11 stay on the known-good `dxmt` surface; VKD3D default uses the vkd3d-proton/DXVK/MoltenVK lanes with `dxmt-vkd3d` as rollback. |
+| Deployed runtime parity | Split surface | DXMT/DXMT(32) stay on the `dxmt` surface; VKD3D uses the vkd3d-proton/DXVK-macOS/MoltenVK lanes. |
 | Avery source cleanliness | Needs cleanup | `dxmt-src` has dirty debug/probe changes and notes that prior dirty changes broke Steam launching. |
 | Native in-tree D3D12 | Expanded coverage | Smoke, C entrypoint, MSL compute PSO dispatch, and MSL indexed draw tests pass. |
 | Native compute PSO | Implemented for MSL/DXBC/DXIL paths | The in-tree native `CreateComputePipelineState` now creates a real Metal compute pipeline when shader bytecode is available. |
@@ -132,7 +132,7 @@ by default (D3D12 -> Vulkan -> VKMT MoltenVK -> Metal) while keeping the DXMT
 D3D12 stack available as the `vkd3dBackend=dxmt` rollback. D3D12 PE import
 detection selects VKD3D, the backend handoff deploys the vkd3d-proton/DXVK/
 MoltenVK runtime by default (the `dxmt-vkd3d` runtime under rollback), and
-M9/M10/M11 continue to use the legacy `dxmt` surface that is known to work for
+DXMT/DXMT(32) use the `dxmt` surface that is known to work for
 current Steam/Wine titles.
 
 ## VKD3D Artifact and Launch Verification (Phase 3)

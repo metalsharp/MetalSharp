@@ -106,7 +106,7 @@ pub fn eac_enabled(appid: u32) -> bool {
 /// route must never silently receive the substrate: redirect those requests
 /// to the already-built VKD3D Wine 11.5 lane instead.  Existing MTSP Wine lanes
 /// stay selectable so the card toggle does not overwrite a user's explicit
-/// M9/DXMT/DXMT(32)/VKD3D choice.
+/// DXMT/DXMT(32)/VKD3D choice.
 pub fn eac_pipeline_for_request(
     appid: u32,
     requested: crate::mtsp::engine::PipelineId,

@@ -9,7 +9,7 @@ Mono/FNA/XNA reliability, and release gates.
 
 Each phase landed as its own commit on the `codex/phased-optimization-roadmap`
 branch with its own proof gate (`cargo fmt --check`, `cargo clippy -D
-warnings`, `cargo test` all green) and kept M9/M10/M11 launch behavior and
+warnings`, `cargo test` all green) and kept DXMT/VKD3D launch behavior and
 artifact paths untouched.
 
 | Phase | Commit prefix | Module / surface |

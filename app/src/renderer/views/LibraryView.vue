@@ -101,13 +101,9 @@ function isWineSteamRouteId(launchMethod: string) {
   const method = launchMethod.toLowerCase();
   return [
     "dxmt",
+    "dxmt_32",
     "steam",
     "wine_steam",
-    "m9",
-    "m10",
-    "m10_32",
-    "m11",
-    "m11_32",
     "vkd3d",
     "m32",
     "dx9",

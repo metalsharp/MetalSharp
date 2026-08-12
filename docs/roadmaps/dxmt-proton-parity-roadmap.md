@@ -8,7 +8,7 @@ Status: Proposed
 > (D3D12 → Vulkan → VKMT MoltenVK → Metal, PR #377), which resolves the
 > "why not pivot" question (lines 10-15) in-tree: VKMT's patched MoltenVK
 > provides the Vulkan extensions vkd3d-proton needs, and the double-translation
-> tax is accepted for D3D12 while the DXMT routes (M9/M10/M11) keep the direct
+> tax is accepted for D3D12 while the DXMT routes (DXMT/DXMT(32)) keep the direct
 > D3D→Metal path. The DXIL→MSL converter work below now only serves the
 > `vkd3dBackend=dxmt` rollback lane. Keep this roadmap for its runtime-discipline
 > patterns; treat the "VKD3D-Proton cannot run on macOS" premise as resolved.
