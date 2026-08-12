@@ -270,3 +270,9 @@ target_compile_options(test_eac_substrate PRIVATE -Wno-deprecated-declarations)
 # dynamic lookup; keep the same link contract as metalsharp_eac_substrate.
 target_link_options(test_eac_substrate PRIVATE "-Wl,-undefined,dynamic_lookup")
 add_test(NAME eac_substrate COMMAND test_eac_substrate)
+
+add_executable(test_kernel32_environment
+    test_kernel32_environment.cpp
+)
+target_link_libraries(test_kernel32_environment PRIVATE metalsharp_loader metalsharp_core)
+add_test(NAME kernel32_environment COMMAND test_kernel32_environment)
