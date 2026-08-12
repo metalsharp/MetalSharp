@@ -885,7 +885,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                             // files (steamclient64.dll, steam_api64,
                             // GameOverlayRenderer*) are deployed into the game
                             // folder by prepare_steam_pipeline_env for the
-                            // routes that use the real Steam model (M12 always).
+                            // routes that use the real Steam model (VKD3D always).
                             let steam_started = if is_gptk_direct {
                                 false
                             } else {
@@ -1565,10 +1565,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 ),
             }
         },
-        // Phase 3: M12 artifact + launch verification (dry-run). Reports the
-        // exact env pairs and artifact hashes M12 would load, without
+        // Phase 3: VKD3D artifact + launch verification (dry-run). Reports the
+        // exact env pairs and artifact hashes VKD3D would load, without
         // launching Steam or the game. Uses the same env builder as launch.
-        (Method::Get, "/diagnostics/m12/dry-run") => {
+        (Method::Get, "/diagnostics/vkd3d/dry-run") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1576,7 +1576,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .and_then(|v| v.split('&').next())
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0);
-            resp(200, mtsp::launcher::m12_verify_dry_run(appid))
+            resp(200, mtsp::launcher::vkd3d_verify_dry_run(appid))
         },
         (Method::Get, "/diagnostics/pipeline/dry-run") => {
             let url_str = req.url().to_string();
@@ -3280,7 +3280,7 @@ fn parse_optional_request_steam_appid(
 
 fn pipeline_label_for(pipeline: crate::mtsp::engine::PipelineId) -> &'static str {
     match pipeline {
-        crate::mtsp::engine::PipelineId::M12 => "M12",
+        crate::mtsp::engine::PipelineId::Vkd3d => "VKD3D",
         crate::mtsp::engine::PipelineId::Dxmt => "DXMT",
         crate::mtsp::engine::PipelineId::Dxmt32 => "DXMT(32)",
         crate::mtsp::engine::PipelineId::M9 => "M9",

@@ -303,7 +303,7 @@ int main(int argc, char **argv) {
         fprintf(stdout, "No test shaders found.\n");
         fprintf(stdout, "Usage: %s <shader_cache_dir> [additional_dir]\n", argv[0]);
         fprintf(stdout, "\nRun against Subnautica 2 shader cache:\n");
-        fprintf(stdout, "  %s /path/to/.metalsharp-cache/shader-cache/m12/1962700\n", argv[0]);
+        fprintf(stdout, "  %s /path/to/.metalsharp-cache/shader-cache/vkd3d/1962700\n", argv[0]);
         return 1;
     }
 

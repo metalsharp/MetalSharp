@@ -1,30 +1,30 @@
-# M12 Release Runtime, Bottle Save, Migration, and Launch Shape Roadmap
+# VKD3D Release Runtime, Bottle Save, Migration, and Launch Shape Roadmap
 
 Date: 2026-06-29  
-Scope: PR #230 continuation / MetalSharp M12 release runtime update
+Scope: PR #230 continuation / MetalSharp VKD3D release runtime update
 
 > **Status note (2026-08-05):** Most of this roadmap's "current state" claims
-> are now resolved differently than planned. M12's shipped shape is the
-> **vkd3d-proton default** (PR #377): M12 uses `lib/vkd3d-proton` +
-> `lib/dxvk` (dxgi) + `lib/moltenvk-vkmt` by default; `lib/dxmt_m12` is the
-> `m12Backend=dxmt` rollback lane (still supplying the shared nvapi/nvngx
+> are now resolved differently than planned. VKD3D's shipped shape is the
+> **vkd3d-proton default** (PR #377): VKD3D uses `lib/vkd3d-proton` +
+> `lib/dxvk` (dxgi) + `lib/moltenvk-vkmt` by default; `lib/dxmt_vkd3d` is the
+> `vkd3dBackend=dxmt` rollback lane (still supplying the shared nvapi/nvngx
 > stubs). EAC ("Offline EAC Mode") is removed from setup; compatdata
 > preserve/restore is gone from migration (still written at launch);
 > `DXMT_LOG_PATH` is dev-gated only. The release bundle carries five graphics
-> lanes (dxmt, dxmt_m12, vkd3d-proton, dxvk, moltenvk-vkmt), and
+> lanes (dxmt, dxmt_vkd3d, vkd3d-proton, dxvk, moltenvk-vkmt), and
 > `WINEMSYNC` is config-driven (msync toggle). Treat requirements below as
 > the historical DXMT-shape plan; the vkd3d-proton shape supersedes them.
 
 ## Purpose
 
-Make the next MetalSharp update correctly ship the isolated PR #230 M12 DXMT runtime shape for new installs and update migrations, while keeping M11 and M12 separated, removing stale compatdata and current anti-cheat/EAC behavior, and ensuring every M12 game uses the updated PR #230 launch/prepare contract.
+Make the next MetalSharp update correctly ship the isolated PR #230 VKD3D DXMT runtime shape for new installs and update migrations, while keeping M11 and VKD3D separated, removing stale compatdata and current anti-cheat/EAC behavior, and ensuring every VKD3D game uses the updated PR #230 launch/prepare contract.
 
 ## Non-negotiable requirements
 
 - M11 must use `runtime/wine/lib/dxmt`.
-- M12 must use `runtime/wine/lib/dxmt_m12`. — **superseded:** default M12 uses `lib/vkd3d-proton` + `lib/dxvk` + `lib/moltenvk-vkmt`; `dxmt_m12` is the DXMT rollback lane.
-- M12 must use the PR #230/Elden-proven launch shape globally, not one-off per-game hacks.
-- Bottle saves/switches between M11 and M12 must prepare and verify the selected runtime lane.
+- VKD3D must use `runtime/wine/lib/dxmt_vkd3d`. — **superseded:** default VKD3D uses `lib/vkd3d-proton` + `lib/dxvk` + `lib/moltenvk-vkmt`; `dxmt_vkd3d` is the DXMT rollback lane.
+- VKD3D must use the PR #230/Elden-proven launch shape globally, not one-off per-game hacks.
+- Bottle saves/switches between M11 and VKD3D must prepare and verify the selected runtime lane.
 - New installs and migration wizard flows must install/update all required runtime material.
 - `metalsharp-runtime.tar.zst` must include the current built backend because installer/migration consume `runtime/metalsharp-backend` from the runtime tarball.
 - Compatdata should be removed/deprecated and no longer preserved/restored/written.
@@ -40,11 +40,11 @@ For a tag release, `.github/workflows/release.yml` currently does the following:
 1. Builds the Rust backend.
 2. Builds host runtime ABI assets.
 3. Downloads current split bundles from the `bundles` release.
-4. Extracts `metalsharp-runtime.tar.zst` to get Wine build tooling for the M12 DXMT build.
-5. Builds/stages M12 DXMT runtime into `dist/dxmt_m12`.
+4. Extracts `metalsharp-runtime.tar.zst` to get Wine build tooling for the VKD3D DXMT build.
+5. Builds/stages VKD3D DXMT runtime into `dist/dxmt_vkd3d`.
 6. Runs `tools/dmg/create-bundles.sh`, which:
    - downloads/validates split bundles,
-   - repairs `metalsharp-graphics-dll.tar.zst` with `METALSHARP_DXMT_M12_ROOT`,
+   - repairs `metalsharp-graphics-dll.tar.zst` with `METALSHARP_DXMT_VKD3D_ROOT`,
    - repairs `metalsharp-runtime.tar.zst` with current `runtime/metalsharp-backend` and host ABI,
    - verifies bundles,
    - writes `dist/bundles/metalsharp-bundle-manifest.tsv`.
@@ -95,28 +95,28 @@ Current setup still includes an `Offline EAC Mode` install step and bundle verif
 
 ### Logging defaults are not clean
 
-`DXMT_LOG_PATH` is currently added by default for DXMT routes through cache env generation. Subnautica 2 M12 also has hardcoded trace/debug env defaults. This conflicts with the default-off graphics logging requirement.
+`DXMT_LOG_PATH` is currently added by default for DXMT routes through cache env generation. Subnautica 2 VKD3D also has hardcoded trace/debug env defaults. This conflicts with the default-off graphics logging requirement.
 
 ### Bottle save/runtime prepare is incomplete
 
-Current M12 work started in this area, but the desired model must be broader:
+Current VKD3D work started in this area, but the desired model must be broader:
 
 - M11 save must ensure/verify the legacy `dxmt` lane.
-- M12 save must ensure/verify the isolated `dxmt_m12` lane.
-- Switching between M11 and M12 must run the same prepare path launch uses.
-- Shared M12 runtime readiness must not be conflated with game-local D3D12 Agility readiness.
+- VKD3D save must ensure/verify the isolated `dxmt_vkd3d` lane.
+- Switching between M11 and VKD3D must run the same prepare path launch uses.
+- Shared VKD3D runtime readiness must not be conflated with game-local D3D12 Agility readiness.
 
 ## Target runtime and launch shape
 
-### Confirmed-good M12 release material
+### Confirmed-good VKD3D release material
 
-The final approved Elden Ring proof rendered only after rebuilding/staging the M12 DXMT runtime from last-known-good source commit:
+The final approved Elden Ring proof rendered only after rebuilding/staging the VKD3D DXMT runtime from last-known-good source commit:
 
 ```text
 a24464357fc0cb09ba794330d89d7dd6df9e2140
 ```
 
-The release graphics bundle and developer SDK must contain that M12 runtime material, not a later unverified DXMT build. Release CI must consume and verify the prebuilt release bundles; it must not build or repair runtime/graphics/assets bundles itself. The only bundle artifact release CI may generate is the developer SDK, built from the verified release bundles. The proofed hashes are:
+The release graphics bundle and developer SDK must contain that VKD3D runtime material, not a later unverified DXMT build. Release CI must consume and verify the prebuilt release bundles; it must not build or repair runtime/graphics/assets bundles itself. The only bundle artifact release CI may generate is the developer SDK, built from the verified release bundles. The proofed hashes are:
 
 ```text
 d3d10core.dll  e6647486489473800a85e5ca8dff94e0beec63847138c72d9145297dd97de3c1
@@ -145,25 +145,25 @@ Expected M11 route traits:
 WINEDLLPATH includes lib/dxmt/x86_64-windows
 DYLD_LIBRARY_PATH / fallback include lib/dxmt/x86_64-unix
 WINEDLLOVERRIDES=winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d
-No dxmt_m12 paths
+No dxmt_vkd3d paths
 No d3d12.dll deployment requirement for M11
 ```
 
-### M12 lane
+### VKD3D lane
 
-M12 uses:
+VKD3D uses:
 
 ```text
-runtime/wine/lib/dxmt_m12/x86_64-windows
-runtime/wine/lib/dxmt_m12/x86_64-unix
+runtime/wine/lib/dxmt_vkd3d/x86_64-windows
+runtime/wine/lib/dxmt_vkd3d/x86_64-unix
 ```
 
-Global M12 launch env must include:
+Global VKD3D launch env must include:
 
 ```text
-WINEDLLPATH=.../lib/dxmt_m12/x86_64-windows
-DYLD_LIBRARY_PATH includes .../lib/dxmt_m12/x86_64-unix
-DYLD_FALLBACK_LIBRARY_PATH includes .../lib/dxmt_m12/x86_64-unix
+WINEDLLPATH=.../lib/dxmt_vkd3d/x86_64-windows
+DYLD_LIBRARY_PATH includes .../lib/dxmt_vkd3d/x86_64-unix
+DYLD_FALLBACK_LIBRARY_PATH includes .../lib/dxmt_vkd3d/x86_64-unix
 WINEDLLOVERRIDES=winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d
 DXMT_WINEMETAL_UNIXLIB=winemetal.so
 DXMT_CONFIG_FILE=.../runtime/wine/etc/dxmt.conf
@@ -171,7 +171,7 @@ MS_GRAPHICS_BACKEND=dxmt
 WINEMSYNC=1
 ```
 
-M12 deploy DLL set:
+VKD3D deploy DLL set:
 
 ```text
 d3d12.dll
@@ -184,7 +184,7 @@ nvapi64.dll
 nvngx.dll
 ```
 
-M12 Unix sidecars:
+VKD3D Unix sidecars:
 
 ```text
 winemetal.so
@@ -200,15 +200,15 @@ libunwind.1.dylib
 Define artifact truth before further implementation:
 
 - `metalsharp-runtime.tar.zst` contains Wine, host ABI, backend, and MetalSharp hook DLL.
-- `metalsharp-graphics-dll.tar.zst` contains both `Graphics/dll/dxmt` and `Graphics/dll/dxmt-m12`.
+- `metalsharp-graphics-dll.tar.zst` contains both `Graphics/dll/dxmt` and `Graphics/dll/dxmt-vkd3d`.
 - `metalsharp-d3d12-developer-sdk.tar.zst` is regenerated from the repaired runtime + repaired graphics bundles.
 - `metalsharp-bundle-manifest.tsv` is regenerated after runtime, graphics, and SDK changes.
 
 Acceptance:
 
 - Bundle verifier confirms runtime backend and host ABI are present.
-- Graphics verifier confirms both M11 and M12 runtime surfaces are present.
-- SDK verifier confirms M11 and M12 runtime material is present.
+- Graphics verifier confirms both M11 and VKD3D runtime surfaces are present.
+- SDK verifier confirms M11 and VKD3D runtime material is present.
 
 ### Phase 1 — Split runtime readiness APIs
 
@@ -216,7 +216,7 @@ Replace one ambiguous DXMT readiness model with explicit lane readiness:
 
 ```rust
 ensure_dxmt_runtime_ready(home)       // M9/M10/M11 lane only
-ensure_dxmt_m12_runtime_ready(home)   // M12 lane only
+ensure_dxmt_vkd3d_runtime_ready(home)   // VKD3D lane only
 ensure_graphics_runtimes_ready(home)  // full setup/new install/update
 ```
 
@@ -229,18 +229,18 @@ Add lane status fields:
     "filesReady": true,
     "path": ".../runtime/wine/lib/dxmt"
   },
-  "dxmt_m12": {
+  "dxmt_vkd3d": {
     "current": true,
     "filesReady": true,
-    "path": ".../runtime/wine/lib/dxmt_m12"
+    "path": ".../runtime/wine/lib/dxmt_vkd3d"
   }
 }
 ```
 
 Acceptance:
 
-- M11 readiness does not require `dxmt_m12`.
-- M12 readiness does require `dxmt_m12`.
+- M11 readiness does not require `dxmt_vkd3d`.
+- VKD3D readiness does require `dxmt_vkd3d`.
 - Full setup readiness requires both.
 
 ### Phase 2 — Setup wizard and dependency model
@@ -248,7 +248,7 @@ Acceptance:
 Update setup dependencies to list both graphics lanes:
 
 - `dxmt_runtime` — M9/M10/M11 runtime under `runtime/wine/lib/dxmt`.
-- `dxmt_m12_runtime` — M12 runtime under `runtime/wine/lib/dxmt_m12`.
+- `dxmt_vkd3d_runtime` — VKD3D runtime under `runtime/wine/lib/dxmt_vkd3d`.
 
 Setup/install-all should prepare both for new installs and migrations.
 
@@ -275,27 +275,27 @@ selected pipeline
 For M11:
 
 - Prepare `dxmt` lane.
-- Verify no `dxmt_m12` path appears.
+- Verify no `dxmt_vkd3d` path appears.
 - Verify M11 DLLs from `runtime/wine/lib/dxmt`.
 
-For M12:
+For VKD3D:
 
-- Prepare `dxmt_m12` lane.
+- Prepare `dxmt_vkd3d` lane.
 - Verify full 8-DLL deploy set.
-- Verify M12 Unix sidecars.
+- Verify VKD3D Unix sidecars.
 - Verify `WINEDLLOVERRIDES` includes `winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b`.
-- Verify `WINEDLLPATH` and DYLD paths target `dxmt_m12`.
+- Verify `WINEDLLPATH` and DYLD paths target `dxmt_vkd3d`.
 - Stage/verify D3D12 Agility only if the game/title requires it.
 
 Important correction:
 
-- Do not mark `d3d12_agility` installed merely because shared M12 runtime is ready.
+- Do not mark `d3d12_agility` installed merely because shared VKD3D runtime is ready.
 - Agility must be verified with the existing game-local/shared-payload inspection path.
 
 Acceptance:
 
-- Saving M11 after M12 restages/verifies M11 from `dxmt`.
-- Saving M12 after M11 restages/verifies M12 from `dxmt_m12`.
+- Saving M11 after VKD3D restages/verifies M11 from `dxmt`.
+- Saving VKD3D after M11 restages/verifies VKD3D from `dxmt_vkd3d`.
 - Bottle manifest reflects the selected route.
 - No compatdata is written.
 
@@ -307,7 +307,7 @@ Shared runtime repair components:
 
 ```text
 dxmt_runtime
-dxmt_m12_runtime
+dxmt_vkd3d_runtime
 graphics_runtime
 runtime_backend
 host_runtime
@@ -318,7 +318,7 @@ Game-local route repair components:
 
 ```text
 m11_route_dlls
-m12_route_dlls
+vkd3d_route_dlls
 d3d12_agility
 gpu_vendor_stubs
 ```
@@ -327,8 +327,8 @@ Doctor output should include:
 
 ```json
 {
-  "pipeline": "m12",
-  "runtimeLane": "dxmt_m12",
+  "pipeline": "vkd3d",
+  "runtimeLane": "dxmt_vkd3d",
   "sharedRuntimeReady": true,
   "gameLocalDllsReady": true,
   "launchEnvReady": true,
@@ -339,8 +339,8 @@ Doctor output should include:
 
 Acceptance:
 
-- M11 repair never pulls from `dxmt_m12`.
-- M12 repair always pulls from `dxmt_m12`.
+- M11 repair never pulls from `dxmt_vkd3d`.
+- VKD3D repair always pulls from `dxmt_vkd3d`.
 - Doctor names every missing DLL/sidecar.
 - Prepare and launch share the same path.
 
@@ -423,11 +423,11 @@ Acceptance:
 - Rules have no `anticheat = ...` entries.
 - No EAC repair path is exposed.
 
-### Phase 7 — Global M12 launch shape and logging controls
+### Phase 7 — Global VKD3D launch shape and logging controls
 
-Make the global M12 node the only default M12 launch shape.
+Make the global VKD3D node the only default VKD3D launch shape.
 
-Keep default M12 env minimal and production-safe:
+Keep default VKD3D env minimal and production-safe:
 
 ```text
 WINEDLLOVERRIDES
@@ -443,7 +443,7 @@ cache paths except graphics logs
 Remove default-on graphics logging:
 
 - Do not export `DXMT_LOG_PATH` unless developer logging is enabled.
-- Remove/gate hardcoded Subnautica 2 M12 trace/debug env.
+- Remove/gate hardcoded Subnautica 2 VKD3D trace/debug env.
 - Add a developer setting/API/UI flag such as `graphicsRuntimeLogs`.
 
 When enabled, developer logging can add:
@@ -458,19 +458,19 @@ DXMT_DUMP_MSL
 
 Acceptance:
 
-- Normal M12 launch has no `DXMT_LOG_PATH`.
+- Normal VKD3D launch has no `DXMT_LOG_PATH`.
 - Developer logging opt-in does add expected log env.
 - Final Elden launch can prove no logs are emitted by default.
 
-### Phase 8 — Rules cleanup for all M12 games
+### Phase 8 — Rules cleanup for all VKD3D games
 
-Audit every `pipeline = "m12"` rule in `configs/mtsp-rules.toml`.
+Audit every `pipeline = "vkd3d"` rule in `configs/mtsp-rules.toml`.
 
-For every M12 game:
+For every VKD3D game:
 
 - No stale anti-cheat field.
 - No default trace/debug env.
-- No custom env overriding global M12 routing unless explicitly justified.
+- No custom env overriding global VKD3D routing unless explicitly justified.
 - Diagnostics include at least:
 
 ```text
@@ -483,10 +483,10 @@ winemetal.dll
 Acceptance tests:
 
 ```text
-all M12 rules inherit global M12 override shape
-all M12 rules have no anti-cheat field
-all M12 rules have no default trace/debug env
-all M12 diagnostics include dxgi_dxmt + winemetal
+all VKD3D rules inherit global VKD3D override shape
+all VKD3D rules have no anti-cheat field
+all VKD3D rules have no default trace/debug env
+all VKD3D diagnostics include dxgi_dxmt + winemetal
 ```
 
 ### Phase 9 — Bundle/release build order
@@ -505,12 +505,12 @@ codesign --force --sign - target/release/metalsharp-backend
 Then:
 
 1. Repair/rebuild `metalsharp-runtime.tar.zst` with current backend + host ABI.
-2. Repair/rebuild `metalsharp-graphics-dll.tar.zst` with current `dxmt_m12` payload.
+2. Repair/rebuild `metalsharp-graphics-dll.tar.zst` with current `dxmt_vkd3d` payload.
 3. Regenerate developer SDK.
 4. Regenerate bundle manifest.
 5. Verify bundles and SDK.
 6. Verify M11 preservation.
-7. Verify M12 hashes.
+7. Verify VKD3D hashes.
 8. Verify Mach-O signing.
 9. Do not upload until explicitly approved.
 
@@ -531,12 +531,12 @@ setup installs runtime bundle
 setup installs host runtime
 setup installs backend from runtime tarball
 setup installs dxmt lane
-setup installs dxmt_m12 lane
+setup installs dxmt_vkd3d lane
 setup installs rules
 setup does not install EAC toggle
 setup does not create compatdata
 M11 bottle save prepares dxmt
-M12 bottle save prepares dxmt_m12
+VKD3D bottle save prepares dxmt_vkd3d
 ```
 
 ### Phase 11 — Migration validation
@@ -547,12 +547,12 @@ Update migration must prove:
 old runtime removed
 new runtime installed
 new backend installed from runtime tarball
-dxmt and dxmt_m12 both current
+dxmt and dxmt_vkd3d both current
 existing bottles preserved
 existing preferred pipeline preserved
 compatdata removed/not restored
 old EAC assets not restored
-old M12 bottles re-prepare on next save/launch
+old VKD3D bottles re-prepare on next save/launch
 migration report explains removed compatdata
 ```
 
@@ -561,9 +561,9 @@ migration report explains removed compatdata
 Only after implementation and bundle verification:
 
 1. Restart backend from updated runtime.
-2. Run `/mtsp/prepare` for Elden Ring M12.
+2. Run `/mtsp/prepare` for Elden Ring VKD3D.
 3. Verify no default DXMT logs are enabled.
-4. Launch Elden Ring with M12 after explicit approval.
+4. Launch Elden Ring with VKD3D after explicit approval.
 5. Let it run for about 25 seconds.
 6. Close cleanly.
 7. Capture proof:
@@ -579,25 +579,25 @@ Only after this audit can the active goal be marked complete.
 
 ### Runtime tests
 
-- `dxmt_runtime_ready_does_not_require_dxmt_m12`
-- `dxmt_m12_runtime_ready_requires_isolated_sidecars`
+- `dxmt_runtime_ready_does_not_require_dxmt_vkd3d`
+- `dxmt_vkd3d_runtime_ready_requires_isolated_sidecars`
 - `graphics_runtime_status_reports_both_lanes`
 - `runtime_bundle_requires_backend_and_host_abi`
 
 ### Bottle tests
 
 - `m11_bottle_save_prepares_legacy_dxmt_lane`
-- `m12_bottle_save_prepares_isolated_dxmt_m12_lane`
-- `switch_m11_to_m12_updates_profile_and_prepare_contract`
-- `switch_m12_to_m11_removes_m12_lane_from_prepare_env`
+- `vkd3d_bottle_save_prepares_isolated_dxmt_vkd3d_lane`
+- `switch_m11_to_vkd3d_updates_profile_and_prepare_contract`
+- `switch_vkd3d_to_m11_removes_vkd3d_lane_from_prepare_env`
 - `d3d12_agility_is_game_local_not_shared_runtime_ready`
 
 ### Prepare/doctor tests
 
-- `m12_prepare_uses_pr230_launch_shape`
-- `m11_prepare_does_not_use_dxmt_m12`
-- `m12_doctor_reports_missing_dxgi_dxmt`
-- `m12_doctor_reports_missing_winemetal_unix_sidecars`
+- `vkd3d_prepare_uses_pr230_launch_shape`
+- `m11_prepare_does_not_use_dxmt_vkd3d`
+- `vkd3d_doctor_reports_missing_dxgi_dxmt`
+- `vkd3d_doctor_reports_missing_winemetal_unix_sidecars`
 
 ### Compatdata tests
 
@@ -613,9 +613,9 @@ Only after this audit can the active goal be marked complete.
 
 ### Logging tests
 
-- `m12_default_env_has_no_dxmt_log_path`
+- `vkd3d_default_env_has_no_dxmt_log_path`
 - `developer_graphics_logs_enable_dxmt_log_path`
-- `subnautica2_m12_trace_env_is_opt_in_only`
+- `subnautica2_vkd3d_trace_env_is_opt_in_only`
 
 ## Open questions before implementation
 
@@ -623,4 +623,4 @@ Only after this audit can the active goal be marked complete.
 2. Where should new launch logs live permanently: bottle-local logs or global `logs/steam/{appid}`?
 3. Should developer graphics logging be a global setting, per-game setting, or both?
 4. Should EAC/anti-cheat endpoints be removed outright or return `501 Not Implemented` pending replacement?
-5. Should migration immediately re-prepare saved M12 bottles, or defer prepare until next save/launch to avoid touching commercial game directories during update?
+5. Should migration immediately re-prepare saved VKD3D bottles, or defer prepare until next save/launch to avoid touching commercial game directories during update?

@@ -45,7 +45,7 @@ fn find_preset(home: &PathBuf, cache_subdir: &str, appid: u32) -> Option<PathBuf
 fn preset_lookup_subdirs(cache_subdir: &str) -> Vec<&str> {
     match cache_subdir {
         "m9" | "dxmt" | "dxmt_32" => vec![cache_subdir, "dxmt-metal"],
-        "m12" => vec![cache_subdir, "dxmt-metal12"],
+        "vkd3d" => vec![cache_subdir, "dxmt-metal12"],
         _ => vec![cache_subdir],
     }
 }
@@ -171,7 +171,7 @@ fn merge_preset_into_user(preset_db: &PathBuf, user_db: &PathBuf) -> Option<u64>
 // Phase 4: Shader / PSO / cache diagnostics
 // ============================================================================
 //
-// The DXMT runtime is shipped prebuilt under lib/dxmt(-m12); vendor/dxmt is
+// The DXMT runtime is shipped prebuilt under lib/dxmt(-vkd3d); vendor/dxmt is
 // reference source and is NOT compiled by this repo's CMake build. These Rust
 // diagnostics therefore observe the runtime's on-disk products (the DXMT
 // SQLite shader/pipeline caches and any JSON PSO trace sidecars DXMT emits
@@ -182,14 +182,14 @@ fn merge_preset_into_user(preset_db: &PathBuf, user_db: &PathBuf) -> Option<u64>
 // gives the cache doctor a real, testable introspection path today.
 
 /// The shader-cache family a pipeline shares. M9/DXMT/DXMT(32) share the
-/// legacy `dxmt-metal` family; M12/M13 use the isolated `dxmt-metal12` family.
+/// legacy `dxmt-metal` family; VKD3D/M13 use the isolated `dxmt-metal12` family.
 pub fn shader_cache_family(pipeline: crate::mtsp::engine::PipelineId) -> &'static [&'static str] {
     use crate::mtsp::engine::PipelineId;
     match pipeline {
         PipelineId::M9 => &["m9", "dxmt-metal"],
         PipelineId::Dxmt => &["dxmt", "dxmt-metal"],
         PipelineId::Dxmt32 => &["dxmt_32", "dxmt-metal"],
-        PipelineId::M12 => &["m12", "dxmt-metal12"],
+        PipelineId::Vkd3d => &["vkd3d", "dxmt-metal12"],
         PipelineId::M13 => &["m13", "dxmt-metal12"],
         _ => &[],
     }
@@ -202,7 +202,7 @@ pub fn primary_cache_subdir(pipeline: crate::mtsp::engine::PipelineId) -> Option
         PipelineId::M9 => Some("m9"),
         PipelineId::Dxmt => Some("dxmt"),
         PipelineId::Dxmt32 => Some("dxmt_32"),
-        PipelineId::M12 => Some("m12"),
+        PipelineId::Vkd3d => Some("vkd3d"),
         PipelineId::M13 => Some("m13"),
         _ => None,
     }
@@ -384,7 +384,7 @@ fn pipeline_preference_id_str(pipeline: crate::mtsp::engine::PipelineId) -> &'st
         PipelineId::M9 => "m9",
         PipelineId::Dxmt => "dxmt",
         PipelineId::Dxmt32 => "dxmt_32",
-        PipelineId::M12 => "m12",
+        PipelineId::Vkd3d => "vkd3d",
         PipelineId::M13 => "m13",
         PipelineId::D3DMetal => "d3dmetal",
         PipelineId::FnaArm64 => "fna_arm64",
@@ -502,12 +502,12 @@ mod tests {
     // ---- Phase 4: cache doctor + PSO manifest ----
 
     #[test]
-    fn shader_cache_family_keeps_legacy_and_m12_isolated() {
+    fn shader_cache_family_keeps_legacy_and_vkd3d_isolated() {
         use crate::mtsp::engine::PipelineId;
         // M9/DXMT/DXMT(32) share the legacy dxmt-metal family.
         assert_eq!(shader_cache_family(PipelineId::Dxmt), &["dxmt", "dxmt-metal"]);
-        // M12/M13 use the isolated dxmt-metal12 family and must not mix.
-        assert_eq!(shader_cache_family(PipelineId::M12), &["m12", "dxmt-metal12"]);
+        // VKD3D/M13 use the isolated dxmt-metal12 family and must not mix.
+        assert_eq!(shader_cache_family(PipelineId::Vkd3d), &["vkd3d", "dxmt-metal12"]);
         assert_eq!(shader_cache_family(PipelineId::M13), &["m13", "dxmt-metal12"]);
     }
 
@@ -517,7 +517,7 @@ mod tests {
         assert_eq!(primary_cache_subdir(PipelineId::M9), Some("m9"));
         assert_eq!(primary_cache_subdir(PipelineId::Dxmt), Some("dxmt"));
         assert_eq!(primary_cache_subdir(PipelineId::Dxmt32), Some("dxmt_32"));
-        assert_eq!(primary_cache_subdir(PipelineId::M12), Some("m12"));
+        assert_eq!(primary_cache_subdir(PipelineId::Vkd3d), Some("vkd3d"));
         assert_eq!(primary_cache_subdir(PipelineId::M13), Some("m13"));
     }
 
@@ -536,22 +536,22 @@ mod tests {
     }
 
     #[test]
-    fn cache_doctor_counts_entries_and_reports_isolated_m12_lane() {
+    fn cache_doctor_counts_entries_and_reports_isolated_vkd3d_lane() {
         use crate::mtsp::engine::PipelineId;
-        let home = std::env::temp_dir().join("ms-cache-doctor-m12");
+        let home = std::env::temp_dir().join("ms-cache-doctor-vkd3d");
         let _ = std::fs::remove_dir_all(&home);
         let ms_home = crate::platform::metalsharp_home_dir_for(&home);
-        let shader_dir = ms_home.join("shader-cache").join("m12").join("42");
-        let pipeline_dir = ms_home.join("pipeline-cache").join("m12").join("42");
+        let shader_dir = ms_home.join("shader-cache").join("vkd3d").join("42");
+        let pipeline_dir = ms_home.join("pipeline-cache").join("vkd3d").join("42");
         std::fs::create_dir_all(&shader_dir).unwrap();
         std::fs::create_dir_all(&pipeline_dir).unwrap();
 
         make_dxmt_cache_db(&shader_dir.join("shaders_42.db"), &[("cache_1", vec!["a", "b", "c"])]);
         make_dxmt_cache_db(&pipeline_dir.join("pipelines_42.db"), &[("cache_2", vec!["x", "y"])]);
 
-        let report = cache_doctor_for(&home, PipelineId::M12, 42);
+        let report = cache_doctor_for(&home, PipelineId::Vkd3d, 42);
         assert_eq!(report.get("schema_version").and_then(|v| v.as_u64()), Some(1));
-        assert_eq!(report.get("pipeline").and_then(|v| v.as_str()), Some("m12"));
+        assert_eq!(report.get("pipeline").and_then(|v| v.as_str()), Some("vkd3d"));
         let shader = report.get("shader_cache").unwrap();
         assert_eq!(shader.get("total_entries").and_then(|v| v.as_u64()), Some(3));
         assert_eq!(shader.get("exists").and_then(|v| v.as_bool()), Some(true));
@@ -652,7 +652,7 @@ mod tests {
         use crate::mtsp::engine::PipelineId;
         let home = std::env::temp_dir().join("ms-pso-recent");
         let _ = std::fs::remove_dir_all(&home);
-        let dir = crate::platform::metalsharp_home_dir_for(&home).join("pipeline-cache").join("m12").join("100");
+        let dir = crate::platform::metalsharp_home_dir_for(&home).join("pipeline-cache").join("vkd3d").join("100");
         std::fs::create_dir_all(&dir).unwrap();
 
         for (idx, ts) in [(3u32, 1700000000u64), (1, 1700000002), (2, 1700000001)] {
@@ -665,7 +665,7 @@ mod tests {
         // A non-pso json must be ignored.
         std::fs::write(dir.join("other.json"), "{}").unwrap();
 
-        let manifests = recent_pso_manifests(&home, PipelineId::M12, 100, 2);
+        let manifests = recent_pso_manifests(&home, PipelineId::Vkd3d, 100, 2);
         assert_eq!(manifests.len(), 2, "must respect the limit and return newest first");
         assert_eq!(manifests[0].dxil_input_hash.as_deref(), Some("h1"), "newest first");
         assert_eq!(manifests[1].dxil_input_hash.as_deref(), Some("h2"));

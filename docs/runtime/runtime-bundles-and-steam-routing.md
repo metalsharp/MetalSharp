@@ -8,7 +8,7 @@ This is the operational contract for bundle provenance and Wine Steam launch rou
 
 Runtime assets are downloaded from the `bundles` GitHub release into `app/bundles/` during app packaging and into `~/.metalsharp/cache/bundles/` during installer fallback downloads.
 
-Every archive is published with its SHA-256 in the `metalsharp-bundle-manifest.tsv` asset of the `bundles` release. Consumers that execute bundle payloads pin those digests rather than trusting the download channel: the production installer (`scripts/install-metalsharp-wine-runtime.sh`) pins its archive digests inline, and the CI M12 gate (`tools/ci/m12-check.sh`) verifies each downloaded bundle against the pinned manifest `tools/ci/m12-bundle-hashes.tsv` via `tools/ci/verify-bundle-sha256.sh`, failing the gate on any mismatch. Update that manifest in the same change that rotates the `bundles` release.
+Every archive is published with its SHA-256 in the `metalsharp-bundle-manifest.tsv` asset of the `bundles` release. Consumers that execute bundle payloads pin those digests rather than trusting the download channel: the production installer (`scripts/install-metalsharp-wine-runtime.sh`) pins its archive digests inline, and the CI VKD3D gate (`tools/ci/vkd3d-check.sh`) verifies each downloaded bundle against the pinned manifest `tools/ci/vkd3d-bundle-hashes.tsv` via `tools/ci/verify-bundle-sha256.sh`, failing the gate on any mismatch. Update that manifest in the same change that rotates the `bundles` release.
 
 The manifest-tracked assets are listed in `tools/bundles/asset-manifest.tsv`. The verifier checks that each tarball exists and contains the expected baby-named root.
 
@@ -17,7 +17,7 @@ Current split bundle roots:
 | Asset | Why it is guarded |
 |---|---|
 | `metalsharp-electron.tar.zst` | Contains `electron/`, the built Electron application payload. |
-| `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the DXMT surfaces (legacy `dxmt` for M9/M10/M11 + `dxmt-m12` M12 rollback) and the vkd3d-proton M12 stack lanes (`vkd3d-proton`, `dxvk`, `moltenvk-vkmt`). |
+| `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the DXMT surfaces (legacy `dxmt` for M9/M10/M11 + `dxmt-vkd3d` VKD3D rollback) and the vkd3d-proton VKD3D stack lanes (`vkd3d-proton`, `dxvk`, `moltenvk-vkmt`). |
 | `metalsharp-runtime.tar.zst` | Contains `runtime/`, the Wine runtime, host ABI, and backend executable. |
 | `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, GPTK, DXVK, Goldberg, EAC toggle, shims, and runtime support assets. |
 | `metalsharp-scripts-tools.tar.zst` | Contains `scripts/tools/`, updater scripts, configs, native tools, and CEF helpers. |
@@ -34,16 +34,16 @@ tools/bundles/verify-developer-sdk.sh app/bundles/metalsharp-d3d12-developer-sdk
 
 ## Installer Acceptance Rules
 
-The installer consumes the split runtime tarballs by root name. `metalsharp-graphics-dll.tar.zst` is the only source for the active graphics runtime payloads used by M9-M12.
+The installer consumes the split runtime tarballs by root name. `metalsharp-graphics-dll.tar.zst` is the only source for the active graphics runtime payloads used by M9-VKD3D.
 
 The graphics bundle has five runtime surfaces:
 
 ```text
 Graphics/dll/dxmt/           -> legacy DXMT payload for M9, M10, and M11
-Graphics/dll/dxmt-m12/       -> DXMT M12 rollback payload (also supplies the
+Graphics/dll/dxmt-vkd3d/       -> DXMT VKD3D rollback payload (also supplies the
                                shared nvapi64/nvngx GPU vendor stubs)
-Graphics/dll/vkd3d-proton/   -> default M12 D3D12 stack (d3d12.dll + d3d12core.dll)
-Graphics/dll/dxvk/           -> shared D3D9/D3D10/D3D11/DXGI surface; dxgi.dll for M12
+Graphics/dll/vkd3d-proton/   -> default VKD3D D3D12 stack (d3d12.dll + d3d12core.dll)
+Graphics/dll/dxvk/           -> shared D3D9/D3D10/D3D11/DXGI surface; dxgi.dll for VKD3D
 Graphics/dll/moltenvk-vkmt/  -> VKMT patched MoltenVK (libMoltenVK.dylib + ICD)
 ```
 
@@ -51,7 +51,7 @@ After install those surfaces live under:
 
 ```text
 ~/.metalsharp/runtime/wine/lib/dxmt/
-~/.metalsharp/runtime/wine/lib/dxmt-m12/
+~/.metalsharp/runtime/wine/lib/dxmt-vkd3d/
 ~/.metalsharp/runtime/wine/lib/vkd3d-proton/
 ~/.metalsharp/runtime/wine/lib/dxvk/
 ~/.metalsharp/runtime/wine/lib/moltenvk-vkmt/
@@ -63,7 +63,7 @@ Installed DXMT runtime state is recorded in:
 ~/.metalsharp/runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json
 ```
 
-Do not trust a runtime by version string alone. Check the manifest, required DLLs, the vkd3d-proton/DXVK/MoltenVK lane artifacts (for the default M12 backend) or the `dxmt-m12` sidecars (for the DXMT rollback), and source archive hash when diagnosing deployment drift.
+Do not trust a runtime by version string alone. Check the manifest, required DLLs, the vkd3d-proton/DXVK/MoltenVK lane artifacts (for the default VKD3D backend) or the `dxmt-vkd3d` sidecars (for the DXMT rollback), and source archive hash when diagnosing deployment drift.
 
 ## Downloaded Installer Artifact Integrity
 
@@ -93,10 +93,10 @@ The app launches Wine Steam through:
 Renderer button -> POST /steam/launch -> steam::launch_wine_steam()
 ```
 
-Game launches that need an explicit public route use M12/M11/M10/M9/Mono-FNA route IDs. Raw `dxmt` remains an internal auto-router and legacy compatibility value.
+Game launches that need an explicit public route use VKD3D/M11/M10/M9/Mono-FNA route IDs. Raw `dxmt` remains an internal auto-router and legacy compatibility value.
 
 ```text
-Renderer Play -> POST /steam/launch-game {"launchMethod":"m12"} -> prepare_steam_pipeline_env() -> direct game launch with Wine Steam alive in the background
+Renderer Play -> POST /steam/launch-game {"launchMethod":"vkd3d"} -> prepare_steam_pipeline_env() -> direct game launch with Wine Steam alive in the background
 ```
 
 Wine Steam must be launched by the backend so it gets the managed Wine prefix, runtime library env, DLL overrides, and wrapper deployment. Launching `Steam.exe` directly from a shell is not equivalent to pressing the app button.

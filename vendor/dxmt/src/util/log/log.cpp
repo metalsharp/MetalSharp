@@ -180,7 +180,7 @@ LogLevel Logger::getMinLogLevel() {
 }
 
 FILE *openDiagnosticLog(const char *base) {
-  // MetalSharp's M12 launcher sets DXMT_LOG_PATH to the per-title pipeline log
+  // MetalSharp's VKD3D launcher sets DXMT_LOG_PATH to the per-title pipeline log
   // folder. Focused DXGI/D3D12/DXIL probes write separate files there instead
   // of hard-coded temp paths that would be invisible to the app.
   std::string path = buildLogFileName(base && base[0] ? base : "dxmt-diagnostic.log");

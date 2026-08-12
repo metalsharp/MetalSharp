@@ -316,7 +316,7 @@ public:
     uint32_t query_log_count =
         __atomic_add_fetch(&s_query_log_count, 1, __ATOMIC_RELAXED);
     if (query_log_count <= 32 || (query_log_count % 128) == 0) {
-      Logger::info(str::format("M12 DXGI video memory group=",
+      Logger::info(str::format("VKD3D DXGI video memory group=",
                                (uint32_t)MemorySegmentGroup,
                                " budget=", budget,
                                " usage=", usage,

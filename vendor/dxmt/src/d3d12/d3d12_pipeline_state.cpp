@@ -251,7 +251,7 @@ private:
     if (!m_workers.empty())
       return;
     m_worker_count = AsyncPipelineWorkerCount();
-    Logger::info(str::format("M12 async PSO compiler starting workers=",
+    Logger::info(str::format("VKD3D async PSO compiler starting workers=",
                              m_worker_count));
     PSTRACE("PSO async compiler starting workers=%u", m_worker_count);
     for (uint32_t i = 0; i < m_worker_count; i++) {
@@ -317,7 +317,7 @@ size_t ComputeShaderCacheHash(const void *bytecode, SIZE_T size,
   hash = hash * 131 + (size_t)type;
   if (type == ShaderType::Vertex)
     hash = hash * 131 +
-           0x4d3132506833ull; // M12 Phase 3 explicit varying contract.
+           0x4d3132506833ull; // VKD3D Phase 3 explicit varying contract.
   if (bytecode && size > 0) {
     const uint8_t *p = (const uint8_t *)bytecode;
     for (SIZE_T i = 0; i < size; i++)
@@ -1346,7 +1346,7 @@ fragment float4 d3d12_native_tess_fragment(
   m_compile_state.store(CompileState::Compiled);
   m_compile_cv.notify_all();
   Logger::info(str::format(
-      "M12 native_tessellation_path resolved "
+      "VKD3D native_tessellation_path resolved "
       "implementation=d3d12_native_tessellation_path ",
       "shape=proof_triangle_passthrough control_points=3 partition=integer ",
       "factor=1 d3d11_reuse=forbidden pso=", (void *)this));
@@ -1519,7 +1519,7 @@ bool MTLD3D12PipelineState::CompileShader(
                 element.system_value = input.system_value;
                 lowering_options.vertex_inputs.push_back(element);
                 PSTRACE(
-                    "  M12 vertex input map reg=%u slot=%u table=%u system=%u",
+                    "  VKD3D vertex input map reg=%u slot=%u table=%u system=%u",
                     element.shader_register, element.input_slot,
                     element.table_index, element.system_value ? 1u : 0u);
               }

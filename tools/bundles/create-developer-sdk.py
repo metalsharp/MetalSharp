@@ -32,14 +32,14 @@ CRITICAL_FILES = [
     "runtime/dxmt/x86_64-windows/dxgi_dxmt.dll",
     "runtime/dxmt/x86_64-windows/winemetal.dll",
     "runtime/dxmt/x86_64-unix/winemetal.so",
-    "runtime/dxmt_m12/x86_64-windows/d3d12.dll",
-    "runtime/dxmt_m12/x86_64-windows/dxgi.dll",
-    "runtime/dxmt_m12/x86_64-windows/dxgi_dxmt.dll",
-    "runtime/dxmt_m12/x86_64-windows/winemetal.dll",
-    "runtime/dxmt_m12/x86_64-unix/winemetal.so",
-    "runtime/dxmt_m12/x86_64-unix/libc++.1.dylib",
-    "runtime/dxmt_m12/x86_64-unix/libc++abi.1.dylib",
-    "runtime/dxmt_m12/x86_64-unix/libunwind.1.dylib",
+    "runtime/dxmt_vkd3d/x86_64-windows/d3d12.dll",
+    "runtime/dxmt_vkd3d/x86_64-windows/dxgi.dll",
+    "runtime/dxmt_vkd3d/x86_64-windows/dxgi_dxmt.dll",
+    "runtime/dxmt_vkd3d/x86_64-windows/winemetal.dll",
+    "runtime/dxmt_vkd3d/x86_64-unix/winemetal.so",
+    "runtime/dxmt_vkd3d/x86_64-unix/libc++.1.dylib",
+    "runtime/dxmt_vkd3d/x86_64-unix/libc++abi.1.dylib",
+    "runtime/dxmt_vkd3d/x86_64-unix/libunwind.1.dylib",
     "scripts/run-probes.sh",
     "scripts/preflight-runtime-layout.py",
     "scripts/stage-dxmt-runtime.py",
@@ -222,7 +222,7 @@ def build_sdk(bundle_dir: Path, out_dir: Path, release_manifest: Path | None) ->
         copy_tree(runtime_src / "runtime" / "host", sdk_root / "runtime" / "host")
         copy_file(runtime_src / "runtime" / "metalsharp-backend", sdk_root / "runtime" / "metalsharp-backend")
         copy_tree(graphics_src / "Graphics" / "dll" / "dxmt", sdk_root / "runtime" / "dxmt")
-        copy_tree(graphics_src / "Graphics" / "dll" / "dxmt-m12", sdk_root / "runtime" / "dxmt_m12")
+        copy_tree(graphics_src / "Graphics" / "dll" / "dxmt-vkd3d", sdk_root / "runtime" / "dxmt_vkd3d")
         write_runtime_manifest(sdk_root, runtime_asset, graphics_asset)
         write_tar_zst(sdk_root, output)
 

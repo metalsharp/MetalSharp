@@ -132,7 +132,7 @@ interface BottleEditResponse {
   error?: string;
 }
 
-interface M12DryRun {
+interface VKD3DDryRun {
   ok: boolean;
   dry_run: boolean;
   missing?: Array<{ filename?: string }>;
@@ -196,9 +196,9 @@ const currentIsDefaultRule = computed(() => {
 });
 const artworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
-const userSelectablePipelineOrder = ["d3dmetal", "m12", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
+const userSelectablePipelineOrder = ["d3dmetal", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
-  m12: "M12",
+  vkd3d: "VKD3D",
   d3dmetal: "D3DMetal",
   m11: "M11",
   m11_32: "M11(32)",
@@ -222,13 +222,13 @@ const componentDisplayName: Record<string, string> = {
   fna3d: "FNA3D",
   faudio: "FAudio",
   fmod: "FMOD Audio",
-  m12_d3d12: "M12 d3d12.dll",
-  m12_d3d11: "M12 d3d11.dll",
-  m12_d3d10core: "M12 d3d10core.dll",
-  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
-  m12_dxgi: "M12 dxgi.dll",
-  m12_winemetal: "M12 winemetal.dll / .so",
-  m12_gpu_stubs: "M12 GPU Stubs",
+  vkd3d_d3d12: "VKD3D d3d12.dll",
+  vkd3d_d3d11: "VKD3D d3d11.dll",
+  vkd3d_d3d10core: "VKD3D d3d10core.dll",
+  vkd3d_dxgi_dxmt: "VKD3D dxgi_dxmt.dll",
+  vkd3d_dxgi: "VKD3D dxgi.dll",
+  vkd3d_winemetal: "VKD3D winemetal.dll / .so",
+  vkd3d_gpu_stubs: "VKD3D GPU Stubs",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -443,7 +443,7 @@ function effectivePlayLaunchMode() {
   // The bottle's real runtime profile (from the backend report or the game
   // record) is the source of truth: a stale per-game "d3dmetal" selection
   // from localStorage must never hijack a bottle that was saved on a Wine
-  // route (M12/M11/...) — it made M12 bottles show "D3DMetal bottle is not
+  // route (VKD3D/M11/...) — it made VKD3D bottles show "D3DMetal bottle is not
   // ready" instead of launching with the saved route.
   const bottleProfile = runtimeReport.value?.runtime_profile ?? props.game.preferred_pipeline;
   if (selectedLaunchMode.value !== "auto") {
@@ -935,12 +935,12 @@ async function saveBottleEdit() {
   bottleSaving.value = false;
 
   if (result?.ok && result.bottle) {
-    // Saving an M12 bottle must execute the same read-only M12 diagnostic
+    // Saving an VKD3D bottle must execute the same read-only VKD3D diagnostic
     // that launch uses. It validates the isolated DLL lane, Unix sidecars,
-    // and M12 environment without deploying or spawning the game. The save
+    // and VKD3D environment without deploying or spawning the game. The save
     // toast fires FIRST so the UI never hangs on the (slow) dry run; a
     // failing dry run surfaces as an error toast right after.
-    const isM12 = bottlePreferredMode.value === "m12";
+    const isVKD3D = bottlePreferredMode.value === "vkd3d";
     bottleName.value = result.bottle.name;
     bottlePreferredMode.value =
       result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
@@ -958,16 +958,16 @@ async function saveBottleEdit() {
     } else {
       toast.show("Bottle settings saved", "success");
     }
-    if (isM12) {
-      const m12DryRun = await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`);
-      if (m12DryRun?.ok === false) {
-        const missing = m12DryRun.missing
+    if (isVKD3D) {
+      const vkd3dDryRun = await api<VKD3DDryRun>("GET", `/diagnostics/vkd3d/dry-run?appid=${props.game.appid}`);
+      if (vkd3dDryRun?.ok === false) {
+        const missing = vkd3dDryRun.missing
           ?.map((entry) => entry.filename)
           .filter(Boolean)
           .join(", ");
-        toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
-      } else if (!m12DryRun) {
-        toast.show("M12 bottle saved, but its dry run could not be completed", "error");
+        toast.show(`VKD3D bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
+      } else if (!vkd3dDryRun) {
+        toast.show("VKD3D bottle saved, but its dry run could not be completed", "error");
       }
     }
     await refreshPipelineMetadata();

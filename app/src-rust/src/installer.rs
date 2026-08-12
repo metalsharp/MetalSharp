@@ -24,7 +24,7 @@ fn mac_cmd(name: &str) -> Command {
     Command::new(path)
 }
 
-pub const DXMT_BUNDLED_RUNTIME_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-m12-isolated-surface-v1");
+pub const DXMT_BUNDLED_RUNTIME_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-vkd3d-isolated-surface-v1");
 const DXMT_RUNTIME_MANIFEST: &str = "metalsharp-dxmt-runtime.json";
 const DXMT_RUNTIME_SCHEMA: &str = "metalsharp.dxmt-runtime.v1";
 const RUNTIME_BUNDLE: &str = "metalsharp-runtime";
@@ -47,8 +47,8 @@ const DXMT_REQUIRED_I386_PE: &[&str] = &["d3d11.dll", "dxgi.dll", "d3d10core.dll
 /// `lib/dxmt/i386-unix/`; DXMT(32) launch sets
 /// `DXMT_WINEMETAL_UNIXLIB=winemetal.so` and adds this dir to dyld fallbacks.
 const DXMT_REQUIRED_I386_UNIX: &[&str] = &["winemetal.so"];
-/// Pinned hashes for the vkd3d-proton M12 lane (production). Sources are the
-/// VKMT win64-filtered x86-64 builds (see docs/roadmaps/m12-vkd3d-proton-migration.md).
+/// Pinned hashes for the vkd3d-proton VKD3D lane (production). Sources are the
+/// VKMT win64-filtered x86-64 builds (see docs/roadmaps/vkd3d-vkd3d-proton-migration.md).
 #[cfg(not(test))]
 const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
     ("x86_64-windows/d3d12.dll", "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93"),
@@ -69,7 +69,7 @@ pub(crate) fn write_vkd3d_proton_expected_test_files(vkd3d_dir: &Path) {
     }
 }
 
-/// Pinned hash for the VKMT-patched MoltenVK dylib used by M12.
+/// Pinned hash for the VKMT-patched MoltenVK dylib used by VKD3D.
 #[cfg(not(test))]
 const MOLTENVK_VKMT_EXPECTED_HASHES: &[(&str, &str)] =
     &[("libMoltenVK.dylib", "50e41de23ce85260870c24cec11ac29b225704c6cb0366ce555dcd9ac03417f3")];
@@ -123,11 +123,11 @@ const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "Graphics/dll/dxmt/i386-windows/d3d11.dll",
     "Graphics/dll/dxmt/i386-windows/dxgi.dll",
     "Graphics/dll/dxmt/i386-windows/winemetal.dll",
-    // vkd3d-proton lane (M12): D3D12 -> Vulkan -> MoltenVK.
-    // M12 is x86_64-only; i386 vkd3d-proton remains future scope.
+    // vkd3d-proton lane (VKD3D): D3D12 -> Vulkan -> MoltenVK.
+    // VKD3D is x86_64-only; i386 vkd3d-proton remains future scope.
     "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll",
     "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll",
-    // DXVK lane: dxgi/d3d11/d3d10/d3d9 surfaces (M12 uses dxgi; M9/DXMT use d3d11+).
+    // DXVK lane: dxgi/d3d11/d3d10/d3d9 surfaces (VKD3D uses dxgi; M9/DXMT use d3d11+).
     "Graphics/dll/dxvk/x86_64-windows/dxgi.dll",
     "Graphics/dll/dxvk/x86_64-windows/d3d11.dll",
     "Graphics/dll/dxvk/x86_64-windows/d3d10core.dll",
@@ -356,7 +356,7 @@ fn run_install_all() {
         std::thread::sleep(Duration::from_millis(200));
     }
 
-    // Fresh install: the default M12 runtime is the vkd3d-proton stack.
+    // Fresh install: the default VKD3D runtime is the vkd3d-proton stack.
     // The setup flow above stages the vkd3d-proton/DXVK/MoltenVK lanes and
     // reports failure loudly if they are missing; there is no DXMT fallback.
 
@@ -858,7 +858,7 @@ pub fn moltenvk_ready(wine_dir: &Path) -> bool {
 }
 
 /// True when the hash-pinned VKMT MoltenVK lane is installed (preferred for
-/// the vkd3d-proton M12 stack). Falls back to the stock runtime dylib.
+/// the vkd3d-proton VKD3D stack). Falls back to the stock runtime dylib.
 pub fn moltenvk_vkmt_ready(wine_dir: &Path) -> bool {
     let dir = wine_dir.join("lib").join("moltenvk-vkmt");
     MOLTENVK_VKMT_EXPECTED_HASHES
@@ -1495,11 +1495,11 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     // re-stage to apply it during a migration update.
     if dxmt_runtime_current_for_dir(&dxmt_dir)
         && !graphics_bundle_has_update(home)
-        && m12_vulkan_runtime_ready_for_home(home)
+        && vkd3d_vulkan_runtime_ready_for_home(home)
     {
         // DXMT currency alone is insufficient: older installations can have a
-        // current graphics marker yet lack the later vkd3d/DXVK/VKMT M12
-        // lanes. Run the M12 ensure on the fast path so it also repairs
+        // current graphics marker yet lack the later vkd3d/DXVK/VKMT VKD3D
+        // lanes. Run the VKD3D ensure on the fast path so it also repairs
         // Wine's direct-load MoltenVK mirror without re-staging healthy lanes.
         return match ensure_vkd3d_proton_runtime_ready(home) {
             Ok(changed) => Ok(changed),
@@ -1528,8 +1528,8 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     }
     changed |= install_dxmt_runtime(&home_buf)?;
 
-    // Stage the vkd3d-proton M12 stack (vkd3d-proton + dxvk + VKMT MoltenVK)
-    // from the graphics bundle. M12 is the vkd3d-proton stack only.
+    // Stage the vkd3d-proton VKD3D stack (vkd3d-proton + dxvk + VKMT MoltenVK)
+    // from the graphics bundle. VKD3D is the vkd3d-proton stack only.
     changed |= ensure_vkd3d_proton_runtime_ready(home)?;
 
     if dxmt_runtime_current_for_dir(&dxmt_dir) {
@@ -1543,7 +1543,7 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     }
 }
 
-pub fn ensure_m12_runtime_ready(home: &Path) -> Result<bool, String> {
+pub fn ensure_vkd3d_runtime_ready(home: &Path) -> Result<bool, String> {
     ensure_vkd3d_proton_runtime_ready(home)
 }
 
@@ -1670,7 +1670,7 @@ fn sync_vkmt_moltenvk_into_wine_tree(wine_dir: &Path) -> Result<bool, String> {
     Ok(changed)
 }
 
-/// Stage the vkd3d-proton M12 stack from the graphics bundle:
+/// Stage the vkd3d-proton VKD3D stack from the graphics bundle:
 /// `Graphics/dll/{vkd3d-proton,dxvk,moltenvk-vkmt}` -> the runtime wine lib
 /// lanes. Installs when the bundle carries the lanes; returns Ok(true) when
 /// the lanes are present and hash-valid afterwards.
@@ -1680,7 +1680,7 @@ pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
     // decompresses the ENTIRE graphics bundle and rm -rf + re-copies the
     // vkd3d-proton/dxvk/moltenvk-vkmt dirs, and it runs on the backend's
     // single main thread — an ungated run freezes the app (Steam status
-    // polls, launch requests) for the whole duration. Every M12 bottle save
+    // polls, launch requests) for the whole duration. Every VKD3D bottle save
     // and health check hits this; with current lanes it must be a no-op.
     let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let vkd3d_dir = wine_dir.join("lib").join("vkd3d-proton");
@@ -1697,7 +1697,7 @@ pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
     // decompresses the ENTIRE graphics bundle and rm -rf + re-copies the
     // vkd3d-proton/dxvk/moltenvk-vkmt dirs, and it runs on the backend's
     // single main thread — an ungated run freezes the app (Steam status
-    // polls, launch requests) for the whole duration. Every M12 bottle save
+    // polls, launch requests) for the whole duration. Every VKD3D bottle save
     // and health check hits this; with current lanes it must be a no-op.
     if vkd3d_proton_runtime_current_for_home(home)
         && moltenvk_vkmt_runtime_ready_for_home(home)
@@ -1739,7 +1739,7 @@ pub fn ensure_vkd3d_proton_runtime_ready(home: &Path) -> Result<bool, String> {
     {
         Ok(true)
     } else {
-        Err("vkd3d-proton M12 runtime lanes not installed — refresh the metalsharp-graphics-dll bundle".into())
+        Err("vkd3d-proton Vkd3d runtime lanes not installed — refresh the metalsharp-graphics-dll bundle".into())
     }
 }
 
@@ -1771,7 +1771,7 @@ pub fn dxvk_runtime_dir_for_home(home: &Path) -> PathBuf {
 /// entries are aspirational (the vkd3d-proton bundle ships Windows DLLs for
 /// x86_64-windows only — no i386, no unix sidecar), so requiring them would
 /// make "current" permanently false and force an ungated full-bundle
-/// re-extraction on every M12 bottle save.
+/// re-extraction on every VKD3D bottle save.
 pub fn vkd3d_proton_runtime_current_for_home(home: &Path) -> bool {
     let dir = vkd3d_proton_runtime_dir_for_home(home);
     VKD3D_PROTON_EXPECTED_HASHES
@@ -1807,7 +1807,7 @@ pub fn dxvk_runtime_ready_for_home(home: &Path) -> bool {
     ["dxgi.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll"].iter().all(|dll| dir.join(dll).is_file())
 }
 
-fn m12_vulkan_runtime_ready_for_home(home: &Path) -> bool {
+fn vkd3d_vulkan_runtime_ready_for_home(home: &Path) -> bool {
     vkd3d_proton_runtime_current_for_home(home)
         && moltenvk_vkmt_runtime_ready_for_home(home)
         && dxvk_runtime_ready_for_home(home)
@@ -1914,7 +1914,7 @@ fn dxmt_runtime_ready(dxmt_dir: &Path) -> bool {
 
 /// Phase 7: per-artifact verification report. Goes beyond the existing
 /// `file_nonempty` presence checks by also recording sha256 and size, and by
-/// reporting EACH required file individually (so a missing M12 sidecar is
+/// reporting EACH required file individually (so a missing VKD3D sidecar is
 /// visible by name, not a single boolean). Used by the runtime-verification
 /// gate so a missing DLL/dylib/so sidecar is caught before gameplay.
 pub fn runtime_artifact_report() -> Value {
@@ -1964,9 +1964,9 @@ fn verify_required_files_with_unix(
     unix_required: &[&str],
     pe_required: &[&str],
 ) -> Value {
-    // M12 lane has its OWN required unix set (winemetal.so + libc++ dylibs +
+    // VKD3D lane has its OWN required unix set (winemetal.so + libc++ dylibs +
     // libunwind). This is the same shape as verify_required_files but takes the
-    // M12 unix list explicitly so the report names each sidecar.
+    // VKD3D unix list explicitly so the report names each sidecar.
     verify_required_files(label, runtime_dir, unix_required, pe_required)
 }
 
@@ -1984,15 +1984,15 @@ fn artifact_entry(label: &str, subdir: &str, name: &str, path: &Path, present: b
     })
 }
 
-/// Explicitly named missing M12 stack artifacts (vkd3d-proton D3D12 pair,
+/// Explicitly named missing VKD3D stack artifacts (vkd3d-proton D3D12 pair,
 /// DXVK dxgi, VKMT MoltenVK ICD) for the regression test
-/// ("runtime verification catches missing M12 artifacts before gameplay").
-pub fn missing_m12_sidecars() -> Vec<String> {
-    dirs::home_dir().map(|home| missing_m12_sidecars_for(&home)).unwrap_or_default()
+/// ("runtime verification catches missing VKD3D artifacts before gameplay").
+pub fn missing_vkd3d_sidecars() -> Vec<String> {
+    dirs::home_dir().map(|home| missing_vkd3d_sidecars_for(&home)).unwrap_or_default()
 }
 
 /// Explicit-home variant used by tests.
-pub fn missing_m12_sidecars_for(home: &Path) -> Vec<String> {
+pub fn missing_vkd3d_sidecars_for(home: &Path) -> Vec<String> {
     let mut missing = Vec::new();
     for (lane, rel) in [
         ("vkd3d-proton", "x86_64-windows/d3d12.dll"),
@@ -2565,7 +2565,7 @@ fn bundled_artifact_valid(name: &str, path: &Path) -> bool {
     }
 
     if name == GRAPHICS_DLL_BUNDLE || name == "metalsharp-graphics-dll.tar.zst" {
-        return archive_required_files_valid(path, GRAPHICS_REQUIRED_ARCHIVE_FILES) && archive_m12_hashes_valid(path);
+        return archive_required_files_valid(path, GRAPHICS_REQUIRED_ARCHIVE_FILES) && archive_vkd3d_hashes_valid(path);
     }
 
     if name == ASSETS_BUNDLE || name == "metalsharp-assets.tar.zst" {
@@ -2590,9 +2590,9 @@ fn bundled_artifact_valid(name: &str, path: &Path) -> bool {
     true
 }
 
-fn archive_m12_hashes_valid(path: &Path) -> bool {
+fn archive_vkd3d_hashes_valid(path: &Path) -> bool {
     let tmp = std::env::temp_dir().join(format!(
-        "metalsharp-m12-hash-validate-{}-{}",
+        "metalsharp-vkd3d-hash-validate-{}-{}",
         std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
     ));
@@ -2912,15 +2912,15 @@ mod tests {
     }
 
     #[test]
-    fn missing_m12_sidecars_lists_each_absent_file_by_name() {
-        // Runtime verification must catch missing M12 stack artifacts
+    fn missing_vkd3d_sidecars_lists_each_absent_file_by_name() {
+        // Runtime verification must catch missing VKD3D stack artifacts
         // (vkd3d-proton d3d12/d3d12core, DXVK dxgi, VKMT MoltenVK) by name
-        // before gameplay. With an empty home, every required M12 artifact is
+        // before gameplay. With an empty home, every required VKD3D artifact is
         // missing and must be named explicitly. Uses the explicit-home
         // variant so no global env is mutated.
-        let home = test_home("missing-m12-sidecars");
+        let home = test_home("missing-vkd3d-sidecars");
 
-        let missing = missing_m12_sidecars_for(&home);
+        let missing = missing_vkd3d_sidecars_for(&home);
         for required in [
             "vkd3d-proton/x86_64-windows/d3d12.dll",
             "vkd3d-proton/x86_64-windows/d3d12core.dll",
@@ -2930,11 +2930,11 @@ mod tests {
         ] {
             assert!(
                 missing.iter().any(|m| m == required),
-                "missing M12 artifact {required} must be reported: {:?}",
+                "missing Vkd3d artifact {required} must be reported: {:?}",
                 missing
             );
         }
-        assert_eq!(missing.len(), 5, "exactly the five M12 stack artifacts must be named: {:?}", missing);
+        assert_eq!(missing.len(), 5, "exactly the five Vkd3d stack artifacts must be named: {:?}", missing);
     }
 
     #[test]
@@ -3166,8 +3166,8 @@ mod tests {
     }
 
     #[test]
-    fn dxmt_runtime_current_is_independent_of_the_m12_stack() {
-        let home = test_home("dxmt-current-no-m12");
+    fn dxmt_runtime_current_is_independent_of_the_vkd3d_stack() {
+        let home = test_home("dxmt-current-no-vkd3d");
         let dxmt_dir = dxmt_runtime_dir_for_home(&home);
         write_dxmt_runtime_files_only(&dxmt_dir);
         write_dxmt_runtime_manifest(&dxmt_dir, "test").expect("write current DXMT manifest");
@@ -3180,7 +3180,7 @@ mod tests {
     #[test]
     fn dxmt_install_stages_exactly_the_route_required_files() {
         // The DXMT runtime surface carries only the route-required files; the
-        // M12-owned dxgi_dxmt bridge is not part of the DXMT lane anymore.
+        // VKD3D-owned dxgi_dxmt bridge is not part of the DXMT lane anymore.
         let home = test_home("dxmt-required-files");
         let dxmt_dir = dxmt_runtime_dir_for_home(&home);
         let unix_dir = dxmt_dir.join("x86_64-unix");
@@ -3193,7 +3193,10 @@ mod tests {
         }
 
         assert!(dxmt_runtime_ready(&dxmt_dir));
-        assert!(!pe_dir.join("dxgi_dxmt.dll").exists(), "DXMT lane must not synthesize the M12-owned dxgi_dxmt bridge");
+        assert!(
+            !pe_dir.join("dxgi_dxmt.dll").exists(),
+            "DXMT lane must not synthesize the Vkd3d-owned dxgi_dxmt bridge"
+        );
         let _ = fs::remove_dir_all(home);
     }
 
@@ -3401,7 +3404,7 @@ mod tests {
         // The bundle ships x86_64-windows only: missing i386 lanes are
         // phantom pins and must NOT block currency — requiring them would
         // keep "current" permanently false and force a full-bundle zstd
-        // re-extraction on every M12 bottle save (backend freeze).
+        // re-extraction on every VKD3D bottle save (backend freeze).
         assert!(!dir.join("i386-windows").exists(), "the test fixture must remain x86_64-only");
         assert!(vkd3d_proton_runtime_current_for_home(&home), "phantom i386 lanes must not block currency");
 
@@ -3472,10 +3475,10 @@ mod tests {
             fs::write(dxvk.join(dll), dll.as_bytes()).expect("write dll");
         }
         assert!(dxvk_runtime_ready_for_home(&home));
-        assert!(!m12_vulkan_runtime_ready_for_home(&home), "vkd3d-proton lane still missing");
+        assert!(!vkd3d_vulkan_runtime_ready_for_home(&home), "vkd3d-proton lane still missing");
 
         write_vkd3d_proton_expected_test_files(&vkd3d_proton_runtime_dir_for_home(&home));
-        assert!(m12_vulkan_runtime_ready_for_home(&home));
+        assert!(vkd3d_vulkan_runtime_ready_for_home(&home));
 
         let _ = fs::remove_dir_all(home);
     }
@@ -3511,10 +3514,10 @@ mod tests {
     }
 
     #[test]
-    fn install_m12_stack_readiness_requires_all_three_lanes() {
-        let home = test_home("install-m12-stack-readiness");
-        // Empty home: the vkd3d-proton M12 stack is not ready.
-        assert!(!m12_vulkan_runtime_ready_for_home(&home));
+    fn install_vkd3d_stack_readiness_requires_all_three_lanes() {
+        let home = test_home("install-vkd3d-stack-readiness");
+        // Empty home: the vkd3d-proton VKD3D stack is not ready.
+        assert!(!vkd3d_vulkan_runtime_ready_for_home(&home));
 
         // Stage the vkd3d-proton pair, DXVK dxgi, and VKMT MoltenVK lane.
         write_vkd3d_proton_expected_test_files(&vkd3d_proton_runtime_dir_for_home(&home));
@@ -3529,7 +3532,7 @@ mod tests {
             fs::write(dxvk.join(dll), dll.as_bytes()).expect("write dxvk dll");
         }
 
-        assert!(m12_vulkan_runtime_ready_for_home(&home));
+        assert!(vkd3d_vulkan_runtime_ready_for_home(&home));
         let _ = fs::remove_dir_all(home);
     }
 }

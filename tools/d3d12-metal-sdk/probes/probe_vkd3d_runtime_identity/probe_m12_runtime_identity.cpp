@@ -447,7 +447,7 @@ int main() {
     bool pass = module_exports_ok && adapter_ok && device_ok && abi_semantics.ok;
 
     std::printf("{\n");
-    std::printf("  \"schema\": \"metalsharp.m12.fresh.runtime-identity.v1\",\n");
+    std::printf("  \"schema\": \"metalsharp.vkd3d.fresh.runtime-identity.v1\",\n");
     std::printf("  \"profile\": \"%s\",\n", json_escape(profile).c_str());
     std::printf("  \"pass\": %s,\n", bool_json(pass));
     std::printf("  \"environment\": {\n");
@@ -540,7 +540,7 @@ int main() {
     if (factory)
         factory->Release();
     // This gate proves runtime identity and bootstrap, not process teardown.
-    // Avoid CRT/static destruction after the JSON is flushed because the M12
+    // Avoid CRT/static destruction after the JSON is flushed because the VKD3D
     // runtime owns process-global worker state whose orderly shutdown is covered
     // by later lifecycle gates.
     std::fflush(stdout);

@@ -10,7 +10,7 @@ The roadmap has to be driven by reproducible evidence. `configs/proof-targets.js
 
 - Installer baseline: Minecraft Launcher, GOG offline installer, Itch/Unity demo, Unreal demo.
 - Launcher baseline: EA App, Ubisoft Connect, Battle.net, Epic Games Launcher.
-- Steam runtime baseline: known M9, M11, M12, Steam CommonRedist, and Steam third-party launcher cases.
+- Steam runtime baseline: known M9, M11, VKD3D, Steam CommonRedist, and Steam third-party launcher cases.
 - Anti-cheat baseline: EAC title with Proton support, BattlEye title with Proton support, policy-blocked title, Windows-kernel-only title.
 
 ## Evidence Fields
@@ -385,4 +385,4 @@ Local probe result:
 - Elden Ring and Rubicon both return `linux_elf_host_gap_confirmed`.
 - Anonymous memory can transition from writable to executable in the backend process.
 - The host dynamic loader rejects a synthetic ELF `.so` as not valid Mach-O.
-- This narrows the next implementation target to the Linux ELF module host/substrate boundary rather than M11/M12 graphics routing.
+- This narrows the next implementation target to the Linux ELF module host/substrate boundary rather than M11/VKD3D graphics routing.

@@ -398,7 +398,7 @@ pub fn launch_with_pipeline(
     prepare_steam_api_for_pipeline(appid, pipeline_id);
 
     match pipeline_id {
-        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::M12 => launch_dxmt_metal(appid, node),
+        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::Vkd3d => launch_dxmt_metal(appid, node),
         PipelineId::M13 | PipelineId::D3DMetal => launch_d3dmetal_gptk(appid, node),
         PipelineId::M32 => launch_wine_bare(appid, node),
         PipelineId::FnaArm64 => launch_fna_arm64(appid).map(|(pid, method, _)| (pid, method)),
@@ -422,7 +422,7 @@ pub fn launch_steam_bottle_with_pipeline(
     prepare_steam_api_for_pipeline(appid, pipeline_id);
 
     match pipeline_id {
-        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::M12 => {
+        PipelineId::Dxmt | PipelineId::M9 | PipelineId::Dxmt32 | PipelineId::Vkd3d => {
             launch_dxmt_metal_with_context(appid, node, Some(prefix_path), extra_env, Some(&log_path))
                 .map(|(pid, method)| (pid, method, log_path))
         },
@@ -505,7 +505,7 @@ pub fn prepare_steam_pipeline_env(
         PipelineId::Dxmt
         | PipelineId::M9
         | PipelineId::Dxmt32
-        | PipelineId::M12
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::D3DMetal
         | PipelineId::M32
@@ -529,9 +529,9 @@ pub fn prepare_steam_pipeline_env(
     if let Some(game_dir) = recipe.game_dir.as_ref() {
         prepare_steam_api_for_game_dir(&home, game_dir, appid, pipeline_id);
         cleanup_legacy_injections(game_dir)?;
-        if matches!(pipeline_id, PipelineId::M12 | PipelineId::M13) {
+        if matches!(pipeline_id, PipelineId::Vkd3d | PipelineId::M13) {
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-            cleanup_m12_legacy_hook_artifacts(game_dir, &prefix);
+            cleanup_vkd3d_legacy_hook_artifacts(game_dir, &prefix);
             crate::setup::stage_agility_sdk_for_game(appid, game_dir, &home)?;
         }
     }
@@ -549,26 +549,26 @@ pub fn prepare_steam_pipeline_env(
     }
     deploy_recipe_dlls(&recipe)?;
     let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
-    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // VKD3D runtime DLLs live in the game dir + n,b overrides — never system32.
     // Heal any pollution the pre-fix backend left in the shared prefix so a
-    // Steam launch after an M12 play can never pick up a DXVK dxgi.
+    // Steam launch after an VKD3D play can never pick up a DXVK dxgi.
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
-    repair_m12_prefix_system32(&prefix, &ms_root)?;
+    repair_vkd3d_prefix_system32(&prefix, &ms_root)?;
 
     let env = steam_pipeline_env_pairs(&home, node, appid);
     Ok((env, recipe))
 }
 
-/// Phase 3: M12 artifact and launch verification (dry-run).
+/// Phase 3: VKD3D artifact and launch verification (dry-run).
 ///
-/// Proves the M12 route would load the intended DXMT/winemetal artifacts
+/// Proves the VKD3D route would load the intended DXMT/winemetal artifacts
 /// WITHOUT launching Steam or the game. This runs through the same
 /// environment builder (`steam_pipeline_env_pairs`) as `launch_dxmt_metal`,
 /// so the env pairs and artifact sources reported here are exactly what a
-/// real M12 launch would use. Nothing is deployed or spawned.
-pub fn m12_verify_dry_run(appid: u32) -> serde_json::Value {
+/// real VKD3D launch would use. Nothing is deployed or spawned.
+pub fn vkd3d_verify_dry_run(appid: u32) -> serde_json::Value {
     match dirs::home_dir() {
-        Some(home) => pipeline_dry_run_for(&home, appid, Some(PipelineId::M12)),
+        Some(home) => pipeline_dry_run_for(&home, appid, Some(PipelineId::Vkd3d)),
         None => serde_json::json!({"ok": false, "appid": appid, "error": "home directory could not be resolved"}),
     }
 }
@@ -606,7 +606,7 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
             windows_dll_dir = source_path.parent().map(|p| p.to_path_buf());
         }
         let present = source_path.exists();
-        let optional_stub = pipeline != PipelineId::M12
+        let optional_stub = pipeline != PipelineId::Vkd3d
             && (deploy.filename.starts_with("nvapi")
                 || deploy.filename.starts_with("nvngx")
                 || deploy.filename.starts_with("atidxx"));
@@ -630,11 +630,11 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
         }
     }
 
-    // For the M12 lane, also verify the VKMT MoltenVK unix surface that the
+    // For the VKD3D lane, also verify the VKMT MoltenVK unix surface that the
     // Vulkan loader requires at runtime (the vkd3d-proton/DXVK PE files are
     // already covered by the deploy_dlls source checks above).
     let mut unix_sidecars: Vec<serde_json::Value> = Vec::new();
-    let unix_lib_dir = if pipeline == PipelineId::M12 {
+    let unix_lib_dir = if pipeline == PipelineId::Vkd3d {
         let dir = ms_root.join("lib").join("moltenvk-vkmt");
         for sidecar in ["libMoltenVK.dylib", "MoltenVK_icd.json"] {
             let path = dir.join(sidecar);
@@ -690,7 +690,7 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
 fn quarantine_route_conflicts_for_recipe(
     recipe: &super::recipe::LaunchRecipe,
 ) -> Result<usize, Box<dyn std::error::Error>> {
-    if !matches!(recipe.pipeline, PipelineId::M9 | PipelineId::Dxmt | PipelineId::Dxmt32 | PipelineId::M12) {
+    if !matches!(recipe.pipeline, PipelineId::M9 | PipelineId::Dxmt | PipelineId::Dxmt32 | PipelineId::Vkd3d) {
         return Ok(0);
     }
 
@@ -859,7 +859,7 @@ fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
         PipelineId::M9 => "m9",
         PipelineId::Dxmt => "dxmt",
         PipelineId::Dxmt32 => "dxmt_32",
-        PipelineId::M12 => "m12",
+        PipelineId::Vkd3d => "vkd3d",
         PipelineId::D3DMetal => "d3dmetal",
         _ => "route",
     }
@@ -877,7 +877,7 @@ fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
 fn runtime_source_for_dll(dll_path: &Path, ms_root: &Path) -> Option<PathBuf> {
     let filename = dll_path.file_name()?.to_string_lossy().to_ascii_lowercase();
     // Known deploy-from source roots, derived from the PipelineNode deploy_dlls
-    // source_subpath values across M9/DXMT/DXMT(32)/M12.
+    // source_subpath values across M9/DXMT/DXMT(32)/VKD3D.
     const SOURCE_ROOTS: &[&str] = &[
         "lib/dxmt/x86_64-windows",
         "lib/dxmt/i386-windows",
@@ -952,7 +952,7 @@ pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Bo
     for deploy in &recipe.dlls {
         if !deploy.source_present {
             // nvapi/nvngx/atidxx are vendor-probe stubs: optional for every
-            // pipeline (M12 included) so a missing stub can never block the
+            // pipeline (VKD3D included) so a missing stub can never block the
             // launch.
             let is_optional_stub = deploy.filename.starts_with("nvapi")
                 || deploy.filename.starts_with("nvngx")
@@ -1012,17 +1012,17 @@ pub fn deploy_recipe_dlls(recipe: &super::recipe::LaunchRecipe) -> Result<(), Bo
     Ok(())
 }
 
-/// DLLs the pre-fix M12 backend could have written into the shared prefix
-/// system32 (the old `deploy_prefix_route_dlls`). The M12 runtime must NEVER
+/// DLLs the pre-fix VKD3D backend could have written into the shared prefix
+/// system32 (the old `deploy_prefix_route_dlls`). The VKD3D runtime must NEVER
 /// live there: a native DXVK/vkd3d-proton copy next to wine's builtin d3d11
 /// freezes the Steam client UI, which renders D3D11 through whatever dxgi the
 /// loader resolves first.
-const M12_PREFIX_ROUTE_DLLS: &[&str] =
+const VKD3D_PREFIX_ROUTE_DLLS: &[&str] =
     &["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll", "d3d10core.dll", "winemetal.dll"];
 
 /// Self-healing inverse of the old `deploy_prefix_route_dlls`.
 ///
-/// The M12 route (vkd3d-proton + DXVK lanes) deploys its DLLs into the GAME
+/// The VKD3D route (vkd3d-proton + DXVK lanes) deploys its DLLs into the GAME
 /// DIR and routes them via WINEDLLOVERRIDES=n,b + WINEDLLPATH — exactly like
 /// M9/DXMT (`deploy_recipe_dlls`). It never stages into the shared prefix
 /// system32.
@@ -1032,12 +1032,12 @@ const M12_PREFIX_ROUTE_DLLS: &[&str] =
 /// ("what used to be there"), so Steam works again without a reinstall.
 /// Idempotent and cheap: size-compare first, exact sha only when sizes match.
 /// Never creates system32 and never touches unrelated files.
-pub fn repair_m12_prefix_system32(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn repair_vkd3d_prefix_system32(prefix: &Path, ms_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let system32 = prefix.join("drive_c").join("windows").join("system32");
     if !system32.is_dir() {
         return Ok(());
     }
-    for dll in M12_PREFIX_ROUTE_DLLS {
+    for dll in VKD3D_PREFIX_ROUTE_DLLS {
         let dest = system32.join(dll);
         if !dest.is_file() {
             continue;
@@ -1063,10 +1063,10 @@ pub fn repair_m12_prefix_system32(prefix: &Path, ms_root: &Path) -> Result<(), B
         if restore {
             if wine_builtin.is_file() {
                 std::fs::copy(&wine_builtin, &dest)?;
-                eprintln!("mtsp: repaired prefix system32/{} — restored wine builtin over stale M12 route DLL", dll);
+                eprintln!("mtsp: repaired prefix system32/{} — restored wine builtin over stale Vkd3d route DLL", dll);
             } else {
                 std::fs::remove_file(&dest)?;
-                eprintln!("mtsp: repaired prefix system32/{} — removed stale M12 route DLL", dll);
+                eprintln!("mtsp: repaired prefix system32/{} — removed stale Vkd3d route DLL", dll);
             }
         }
     }
@@ -1252,7 +1252,7 @@ fn sanitize_metalsharp_wine_wrapper_script(script: &str) -> String {
     // Steam CreateProcess-spawns (which inherit Steam's env, not the route
     // env the backend set on the Steam command). MVK_PRESENT_MODE already
     // rides globally in the wrapper; the VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT
-    // toggle must too, or Steam-spawned M12 games render with broken texturing
+    // toggle must too, or Steam-spawned VKD3D games render with broken texturing
     // (PEAK: launched but graphics shitting out). Only the per-route
     // WINEDLLOVERRIDES stays route-specific.
     repaired = replace_or_insert_export_line(
@@ -1366,13 +1366,15 @@ pub fn launch_custom_with_options(
         PipelineId::Dxmt
         | PipelineId::M9
         | PipelineId::Dxmt32
-        | PipelineId::M12
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::D3DMetal
         | PipelineId::M32
         | PipelineId::WineBare => {},
         PipelineId::FnaArm64 | PipelineId::Steam | PipelineId::MacSteam => {
-            return Err("Sharp Library apps must use Auto, Wine, M9, DXMT, DXMT(32), M12, M13, D3DMetal, or M32".into());
+            return Err(
+                "Sharp Library apps must use Auto, Wine, M9, DXMT, DXMT(32), Vkd3d, M13, D3DMetal, or M32".into()
+            );
         },
     }
 
@@ -1495,7 +1497,7 @@ fn runtime_path_record(path: &Path, required: bool) -> serde_json::Value {
 }
 
 fn optional_route_stub(pipeline: PipelineId, filename: &str) -> bool {
-    pipeline != PipelineId::M12
+    pipeline != PipelineId::Vkd3d
         && (filename.starts_with("nvapi") || filename.starts_with("nvngx") || filename.starts_with("atidxx"))
 }
 
@@ -1552,13 +1554,13 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
     let ms_root = dirs::home_dir()
         .map(|home| crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine"))
         .unwrap_or_default();
-    let prefix_dlls: Vec<serde_json::Value> = if recipe.pipeline == PipelineId::M12 {
-        // M12 runtime DLLs must live in the GAME DIR, never the shared prefix
+    let prefix_dlls: Vec<serde_json::Value> = if recipe.pipeline == PipelineId::Vkd3d {
+        // VKD3D runtime DLLs must live in the GAME DIR, never the shared prefix
         // system32: a native DXVK/vkd3d-proton copy next to wine's builtin
         // d3d11 freezes the Steam client UI. A route DLL sitting in system32
-        // is pollution the old backend left behind; `repair_m12_prefix_system32`
-        // restores the wine builtin baseline on the next M12/Steam launch.
-        M12_PREFIX_ROUTE_DLLS
+        // is pollution the old backend left behind; `repair_vkd3d_prefix_system32`
+        // restores the wine builtin baseline on the next VKD3D/Steam launch.
+        VKD3D_PREFIX_ROUTE_DLLS
             .iter()
             .map(|dll| {
                 let dest_path = prefix_system32.join(dll);
@@ -1595,9 +1597,9 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
     let dyld_fallback_library_path = env_value("DYLD_FALLBACK_LIBRARY_PATH").unwrap_or_default();
     let route_dyld_path = env_value("METALSHARP_ROUTE_DYLD_PATH").unwrap_or_default();
     let vk_icd_filenames = env_value("VK_ICD_FILENAMES").unwrap_or_default();
-    // M12 is the vkd3d-proton stack only: the launch env must carry the VKMT
+    // VKD3D is the vkd3d-proton stack only: the launch env must carry the VKMT
     // MoltenVK lane and the pinned Vulkan ICD.
-    let m12_env_ok = if recipe.pipeline != PipelineId::M12 {
+    let vkd3d_env_ok = if recipe.pipeline != PipelineId::Vkd3d {
         true
     } else {
         [dyld_library_path, dyld_fallback_library_path, route_dyld_path]
@@ -1606,13 +1608,13 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
             && vk_icd_filenames.contains("MoltenVK_icd.json")
     };
 
-    let ok = runtime_assets_ok && dlls_ok && prefix_dlls_ok && m12_env_ok;
+    let ok = runtime_assets_ok && dlls_ok && prefix_dlls_ok && vkd3d_env_ok;
     serde_json::json!({
         "ok": ok,
         "runtime_assets_ok": runtime_assets_ok,
         "game_local_dlls_ok": dlls_ok,
         "prefix_route_dlls_ok": prefix_dlls_ok,
-        "m12_env_ok": m12_env_ok,
+        "vkd3d_env_ok": vkd3d_env_ok,
         "runtime_assets": runtime_assets,
         "game_local_dlls": dlls,
         "prefix_route_dlls": prefix_dlls,
@@ -1623,10 +1625,10 @@ fn prepare_readiness_report(recipe: &super::recipe::LaunchRecipe, env: &[(String
             "METALSHARP_ROUTE_DYLD_PATH": route_dyld_path,
             "VK_ICD_FILENAMES": vk_icd_filenames,
             "WINEDLLOVERRIDES": env_value("WINEDLLOVERRIDES"),
-            "requires_vkd3d_proton_windows": recipe.pipeline == PipelineId::M12,
-            "requires_dxvk_windows": recipe.pipeline == PipelineId::M12,
-            "requires_moltenvk_vkmt": recipe.pipeline == PipelineId::M12,
-            "requires_vulkan_icd": recipe.pipeline == PipelineId::M12,
+            "requires_vkd3d_proton_windows": recipe.pipeline == PipelineId::Vkd3d,
+            "requires_dxvk_windows": recipe.pipeline == PipelineId::Vkd3d,
+            "requires_moltenvk_vkmt": recipe.pipeline == PipelineId::Vkd3d,
+            "requires_vulkan_icd": recipe.pipeline == PipelineId::Vkd3d,
         },
     })
 }
@@ -1728,9 +1730,9 @@ fn launch_d3dmetal_gptk_with_context(
         validate_recipe_runtime(&recipe)?;
     }
     deploy_recipe_dlls(&recipe)?;
-    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // VKD3D runtime DLLs live in the game dir + n,b overrides — never system32.
     // Heal pollution the pre-fix backend left in the shared prefix.
-    repair_m12_prefix_system32(&prefix, &ms_root)?;
+    repair_vkd3d_prefix_system32(&prefix, &ms_root)?;
 
     let cache_paths = build_cache_paths(&home, node, appid);
 
@@ -1833,20 +1835,20 @@ fn launch_dxmt_metal_with_context(
         validate_recipe_runtime(&recipe)?;
         cleanup_legacy_injections(game_dir)?;
     }
-    if node.id == PipelineId::M12 {
-        cleanup_m12_legacy_hook_artifacts(game_dir, &prefix);
+    if node.id == PipelineId::Vkd3d {
+        cleanup_vkd3d_legacy_hook_artifacts(game_dir, &prefix);
     }
     deploy_recipe_dlls(&recipe)?;
-    // M12 runtime DLLs live in the game dir + n,b overrides — never system32.
+    // VKD3D runtime DLLs live in the game dir + n,b overrides — never system32.
     // Heal pollution the pre-fix backend left in the shared prefix.
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
-    repair_m12_prefix_system32(&prefix, &ms_root)?;
+    repair_vkd3d_prefix_system32(&prefix, &ms_root)?;
 
     deploy_d3d12_agility_sidecars(appid, node, game_dir)?;
 
     let cache_paths = build_cache_paths(&home, node, appid);
-    if node.id == PipelineId::M12
-        && std::env::var("METALSHARP_M12_LIVE_MSC_SIDECAR")
+    if node.id == PipelineId::Vkd3d
+        && std::env::var("METALSHARP_Vkd3d_LIVE_MSC_SIDECAR")
             .map(|value| !value.is_empty() && value != "0")
             .unwrap_or(false)
     {
@@ -1920,7 +1922,7 @@ fn deploy_d3d12_agility_sidecars(
     node: &PipelineNode,
     game_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !matches!(node.id, PipelineId::M12 | PipelineId::M13) {
+    if !matches!(node.id, PipelineId::Vkd3d | PipelineId::M13) {
         return Ok(());
     }
 
@@ -2254,9 +2256,9 @@ fn launch_fna_arm64(appid: u32) -> Result<(u32, &'static str, PathBuf), Box<dyn 
             crate::mono_profile::MonoProfileKind::UnityMono => {
                 "Unity engine games cannot run under the bundled Mono runtime: the Windows build's \
                  executable is the native Unity player (no managed entry point). Use a Wine pipeline \
-                 (DXMT/M12) or the native macOS Steam build."
+                 (DXMT/Vkd3d) or the native macOS Steam build."
             },
-            _ => "the resolved executable is not a .NET assembly; use a Wine pipeline (DXMT/M12)",
+            _ => "the resolved executable is not a .NET assembly; use a Wine pipeline (DXMT/Vkd3d)",
         };
         return Err(
             format!("FNA/Mono/XNA route unavailable for appid {}: {}. Target: {}", appid, hint, exe.display()).into()
@@ -2684,7 +2686,7 @@ fn cleanup_metalsharp_dlls_from_game_dir(game_dir: &Path) -> Result<(), Box<dyn 
     Ok(())
 }
 
-fn cleanup_m12_legacy_hook_artifacts(game_dir: &Path, prefix: &Path) {
+fn cleanup_vkd3d_legacy_hook_artifacts(game_dir: &Path, prefix: &Path) {
     let _ = std::fs::remove_file(game_dir.join("metalsharp_ntdll_hook.dll"));
     let windows = prefix.join("drive_c").join("windows");
     for system_dir in ["system32", "syswow64"] {
@@ -2769,8 +2771,8 @@ fn build_cache_paths(home: &PathBuf, node: &PipelineNode, appid: u32) -> Option<
     let ms_home = crate::platform::metalsharp_home_dir_for(&home);
     let shader_base = preferred_shader_cache_base(home, subdir, appid);
     let pipeline_base = ms_home.join("pipeline-cache").join(subdir).join(appid.to_string());
-    let log_base = if subdir == "m12" {
-        ms_home.join("logs").join("m12-pipeline").join(appid.to_string())
+    let log_base = if subdir == "vkd3d" {
+        ms_home.join("logs").join("vkd3d-pipeline").join(appid.to_string())
     } else {
         pipeline_base.clone()
     };
@@ -2795,7 +2797,7 @@ fn build_cache_paths(home: &PathBuf, node: &PipelineNode, appid: u32) -> Option<
 }
 
 fn preferred_shader_cache_base(home: &PathBuf, subdir: &str, appid: u32) -> PathBuf {
-    if appid == 1962700 && subdir == "m12" {
+    if appid == 1962700 && subdir == "vkd3d" {
         let game_dirs = crate::scan::resolve_dual_game_dir(appid);
         for game_dir in [game_dirs.wine_dir.as_ref(), game_dirs.macos_dir.as_ref()].into_iter().flatten() {
             let candidate =
@@ -2944,7 +2946,7 @@ fn msync_env_value_from(home: &Path, parent_env: Option<String>) -> String {
 
 /// Reconcile the WINEMSYNC env entry after recipe env so the sidebar msync
 /// toggle is authoritative (a game recipe could otherwise override it for
-/// non-M12 routes, where WINEMSYNC is not a reserved key).
+/// non-VKD3D routes, where WINEMSYNC is not a reserved key).
 fn apply_msync_config(env: &mut Vec<(String, String)>, home: &Path) {
     let value = msync_env_value(home);
     if let Some((_, existing)) = env.iter_mut().rev().find(|(key, _)| key == "WINEMSYNC") {
@@ -2956,7 +2958,7 @@ fn apply_msync_config(env: &mut Vec<(String, String)>, home: &Path) {
 
 /// DXMT routes that carry MetalFX Spatial upscaling (`DXMT_METALFX_*` env +
 /// `d3d11.metalSpatialUpscaleFactor` in `DXMT_CONFIG`): DXMT and DXMT(32).
-/// M9 has no upscale key; M12 is vkd3d-proton; M13/D3DMetal/FNA use
+/// M9 has no upscale key; VKD3D is vkd3d-proton; M13/D3DMetal/FNA use
 /// other stacks.
 fn is_metalfx_route(pipeline_id: PipelineId) -> bool {
     matches!(pipeline_id, PipelineId::Dxmt | PipelineId::Dxmt32)
@@ -3119,7 +3121,7 @@ pub(crate) fn reconcile_dxmt_conf_shader_metal_version_for_host(home: &Path) -> 
 }
 
 /// Read the live host version and reconcile the conf for DXMT shader routes.
-/// No-op for every non-DXMT-shader pipeline (M9, M12/vkd3d, GPTK, Mono, ...).
+/// No-op for every non-DXMT-shader pipeline (M9, VKD3D/vkd3d, GPTK, Mono, ...).
 fn reconcile_dxmt_conf_shader_metal_version(home: &Path, node: &PipelineNode) -> Option<u16> {
     if !is_dxmt_shader_metal_version_route(node.id) {
         return None;
@@ -3225,7 +3227,7 @@ fn metal_fx_config_with_upscale(config: &str, factor: Option<&str>) -> String {
 }
 
 fn is_reserved_route_env_key(pipeline_id: PipelineId, key: &str) -> bool {
-    if pipeline_id != PipelineId::M12 {
+    if pipeline_id != PipelineId::Vkd3d {
         return false;
     }
     matches!(
@@ -3262,18 +3264,18 @@ fn app_compat_env_pairs_with_logs(
         ];
     }
 
-    if appid == 870780 && pipeline_id == PipelineId::M12 {
+    if appid == 870780 && pipeline_id == PipelineId::Vkd3d {
         // Windows Steam launch options are not inherited by MetalSharp's direct
-        // M12 game process. Preserve the user-selected MoltenVK debug mode here
+        // VKD3D game process. Preserve the user-selected MoltenVK debug mode here
         // so Metal exposes command-buffer encoder failure information.
         return vec![("MVK_CONFIG_DEBUG".to_string(), "1".to_string())];
     }
 
-    if appid == 1245620 && pipeline_id == PipelineId::M12 {
+    if appid == 1245620 && pipeline_id == PipelineId::Vkd3d {
         return vec![("VKD3D_FEATURE_LEVEL".to_string(), "12_0".to_string())];
     }
 
-    if appid == 1962700 && pipeline_id == PipelineId::M12 {
+    if appid == 1962700 && pipeline_id == PipelineId::Vkd3d {
         let mut env = vec![
             ("DXMT_D3D12_ENABLE_GEOMETRY_MESH".to_string(), "1".to_string()),
             ("DXMT_D3D12_FORCE_SWAPCHAIN_BLIT".to_string(), "1".to_string()),
@@ -3299,7 +3301,7 @@ fn app_compat_env_pairs_with_logs(
                 ("DXMT_DUMP_MSL".to_string(), "1".to_string()),
             ]);
         }
-        if std::env::var("METALSHARP_M12_DIAGNOSTIC_CAPTURE")
+        if std::env::var("METALSHARP_Vkd3d_DIAGNOSTIC_CAPTURE")
             .map(|value| !value.is_empty() && value != "0")
             .unwrap_or(false)
         {
@@ -3309,25 +3311,25 @@ fn app_compat_env_pairs_with_logs(
             env.push(("DXMT_D3D12_LIVE_PRESENT".to_string(), "0".to_string()));
             env.push(("DXMT_D3D12_PRESENT_LOG_INTERVAL".to_string(), "30".to_string()));
         }
-        if std::env::var("METALSHARP_M12_FORCE_SWAPCHAIN_COLOR")
+        if std::env::var("METALSHARP_Vkd3d_FORCE_SWAPCHAIN_COLOR")
             .map(|value| !value.is_empty() && value != "0")
             .unwrap_or(false)
         {
             env.push(("DXMT_D3D12_FORCE_SWAPCHAIN_COLOR".to_string(), "1".to_string()));
         }
-        if std::env::var("METALSHARP_M12_FORCE_COLOR_WRITE_STATE")
+        if std::env::var("METALSHARP_Vkd3d_FORCE_COLOR_WRITE_STATE")
             .map(|value| !value.is_empty() && value != "0")
             .unwrap_or(false)
         {
             env.push(("DXMT_D3D12_FORCE_COLOR_WRITE_STATE".to_string(), "1".to_string()));
         }
-        if std::env::var("METALSHARP_M12_FORCE_DIAGNOSTIC_FRAGMENT")
+        if std::env::var("METALSHARP_Vkd3d_FORCE_DIAGNOSTIC_FRAGMENT")
             .map(|value| !value.is_empty() && value != "0")
             .unwrap_or(false)
         {
             env.push(("DXMT_D3D12_FORCE_DIAGNOSTIC_FRAGMENT".to_string(), "1".to_string()));
         }
-        if std::env::var("METALSHARP_M12_FORCE_DIAGNOSTIC_FULLSCREEN")
+        if std::env::var("METALSHARP_Vkd3d_FORCE_DIAGNOSTIC_FULLSCREEN")
             .map(|value| !value.is_empty() && value != "0")
             .unwrap_or(false)
         {
@@ -3411,7 +3413,7 @@ fn cache_env_pairs_with_logs(
         "vkd3d-proton" => {
             // D3D12 -> vkd3d-proton -> Vulkan -> MoltenVK -> Metal.
             // vkd3d-proton owns vkd3d-proton.cache; DXVK still owns dxgi/d3d11
-            // state cache on this M12 route, so both providers need a path.
+            // state cache on this VKD3D route, so both providers need a path.
             env.push(("DXVK_STATE_CACHE_PATH".to_string(), shader_dir.clone()));
             env.push(("VKD3D_SHADER_CACHE_PATH".to_string(), cache.vkd3d_shader.clone().unwrap_or(shader_dir)));
             if graphics_runtime_logs {
@@ -6249,41 +6251,41 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_pipeline_deploy_list_includes_d3d12_and_uses_vkd3d_surface() {
-        // Phase 3 contract: M12 must deploy exactly the vkd3d-proton stack
+    fn vkd3d_pipeline_deploy_list_includes_d3d12_and_uses_vkd3d_surface() {
+        // Phase 3 contract: VKD3D must deploy exactly the vkd3d-proton stack
         // (d3d12, d3d12core from vkd3d-proton + dxgi from DXVK) — no DXMT
         // artifacts and no d3d11 handoff.
-        let node = get_pipeline(PipelineId::M12);
+        let node = get_pipeline(PipelineId::Vkd3d);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
         let required = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
-        assert_eq!(filenames.len(), required.len(), "M12 deploy list must be the vkd3d 3-DLL set");
+        assert_eq!(filenames.len(), required.len(), "VKD3D deploy list must be the vkd3d 3-DLL set");
         for required in required {
-            assert!(filenames.contains(&required), "M12 deploy list must include {} (got {:?})", required, filenames);
+            assert!(filenames.contains(&required), "VKD3D deploy list must include {} (got {:?})", required, filenames);
         }
-        assert!(!filenames.contains(&"d3d11.dll"), "M12 must never deploy d3d11.dll (got {:?})", filenames);
+        assert!(!filenames.contains(&"d3d11.dll"), "VKD3D must never deploy d3d11.dll (got {:?})", filenames);
         for deploy in &node.deploy_dlls {
             assert!(
                 deploy.source_subpath.starts_with("lib/vkd3d-proton/")
                     || deploy.source_subpath.starts_with("lib/dxvk/"),
-                "M12 DLL {} must come from the vkd3d-proton/dxvk runtime surface",
+                "VKD3D DLL {} must come from the vkd3d-proton/dxvk runtime surface",
                 deploy.filename
             );
         }
-        assert!(!filenames.contains(&"winemetal.dll"), "M12 must never deploy winemetal.dll (got {:?})", filenames);
-        assert!(!filenames.contains(&"dxgi_dxmt.dll"), "M12 must never deploy dxgi_dxmt.dll (got {:?})", filenames);
+        assert!(!filenames.contains(&"winemetal.dll"), "VKD3D must never deploy winemetal.dll (got {:?})", filenames);
+        assert!(!filenames.contains(&"dxgi_dxmt.dll"), "VKD3D must never deploy dxgi_dxmt.dll (got {:?})", filenames);
     }
 
     #[test]
     fn dxmt_pipeline_deploy_list_does_not_include_d3d12_and_uses_legacy_dxmt_surface() {
         // Phase 3 contract: DXMT must NOT deploy d3d12.dll and must point at the
-        // legacy lib/dxmt surface, never the M12 vkd3d-proton lane.
+        // legacy lib/dxmt surface, never the VKD3D vkd3d-proton lane.
         let node = get_pipeline(PipelineId::Dxmt);
         let filenames: Vec<&str> = node.deploy_dlls.iter().map(|d| d.filename).collect();
         assert!(!filenames.contains(&"d3d12.dll"), "DXMT deploy list must NOT include d3d12.dll (got {:?})", filenames);
         for deploy in &node.deploy_dlls {
             assert!(
                 !deploy.source_subpath.starts_with("lib/vkd3d-proton/"),
-                "DXMT DLL {} must not come from the M12 vkd3d-proton lane (got {})",
+                "DXMT DLL {} must not come from the Vkd3d vkd3d-proton lane (got {})",
                 deploy.filename,
                 deploy.source_subpath
             );
@@ -6291,24 +6293,24 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn deploy_recipe_dlls_strictly_isolates_m12_and_dxmt_route_families() {
+    fn deploy_recipe_dlls_strictly_isolates_vkd3d_and_dxmt_route_families() {
         let root = test_dir("strict-route-family-switch");
         let game_dir = root.join("game");
         let exe_dir = game_dir.join("Binaries").join("Win64");
-        let m12_source = root.join("runtime").join("wine").join("lib").join("vkd3d-proton").join("x86_64-windows");
+        let vkd3d_source = root.join("runtime").join("wine").join("lib").join("vkd3d-proton").join("x86_64-windows");
         let dxvk_source = root.join("runtime").join("wine").join("lib").join("dxvk").join("x86_64-windows");
         let dxmt_source = root.join("runtime").join("wine").join("lib").join("dxmt").join("x86_64-windows");
         std::fs::create_dir_all(&exe_dir).unwrap();
-        std::fs::create_dir_all(&m12_source).unwrap();
+        std::fs::create_dir_all(&vkd3d_source).unwrap();
         std::fs::create_dir_all(&dxvk_source).unwrap();
         std::fs::create_dir_all(&dxmt_source).unwrap();
         std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
 
         for dll in ["d3d12.dll", "d3d12core.dll"] {
-            std::fs::write(m12_source.join(dll), format!("m12-vkd3d-{dll}")).unwrap();
+            std::fs::write(vkd3d_source.join(dll), format!("vkd3d-vkd3d-{dll}")).unwrap();
         }
         for dll in ["dxgi.dll", "d3d11.dll"] {
-            std::fs::write(dxvk_source.join(dll), format!("m12-dxvk-{dll}")).unwrap();
+            std::fs::write(dxvk_source.join(dll), format!("vkd3d-dxvk-{dll}")).unwrap();
         }
         for dll in ["dxgi.dll", "d3d11.dll", "winemetal.dll"] {
             std::fs::write(dxmt_source.join(dll), format!("dxmt-{dll}")).unwrap();
@@ -6339,19 +6341,19 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                 warnings: Vec::new(),
             };
 
-        let m12 = make_recipe(
-            PipelineId::M12,
+        let vkd3d = make_recipe(
+            PipelineId::Vkd3d,
             "vkd3d-proton",
             vec![
-                (&m12_source, "lib/vkd3d-proton/x86_64-windows", "d3d12.dll"),
-                (&m12_source, "lib/vkd3d-proton/x86_64-windows", "d3d12core.dll"),
+                (&vkd3d_source, "lib/vkd3d-proton/x86_64-windows", "d3d12.dll"),
+                (&vkd3d_source, "lib/vkd3d-proton/x86_64-windows", "d3d12core.dll"),
                 (&dxvk_source, "lib/dxvk/x86_64-windows", "dxgi.dll"),
                 (&dxvk_source, "lib/dxvk/x86_64-windows", "d3d11.dll"),
             ],
         );
-        deploy_recipe_dlls(&m12).expect("deploy M12");
-        assert_eq!(std::fs::read_to_string(exe_dir.join("dxgi.dll")).unwrap(), "m12-dxvk-dxgi.dll");
-        assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "m12-dxvk-d3d11.dll");
+        deploy_recipe_dlls(&vkd3d).expect("deploy Vkd3d");
+        assert_eq!(std::fs::read_to_string(exe_dir.join("dxgi.dll")).unwrap(), "vkd3d-dxvk-dxgi.dll");
+        assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "vkd3d-dxvk-d3d11.dll");
 
         let dxmt = make_recipe(
             PipelineId::Dxmt,
@@ -6362,29 +6364,29 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                 (&dxmt_source, "lib/dxmt/x86_64-windows", "winemetal.dll"),
             ],
         );
-        deploy_recipe_dlls(&dxmt).expect("switch M12 to DXMT");
+        deploy_recipe_dlls(&dxmt).expect("switch Vkd3d to DXMT");
         for dll in ["d3d12.dll", "d3d12core.dll"] {
-            assert!(!exe_dir.join(dll).exists(), "DXMT route must remove stale M12 {dll}");
+            assert!(!exe_dir.join(dll).exists(), "DXMT route must remove stale Vkd3d {dll}");
         }
         assert_eq!(std::fs::read_to_string(exe_dir.join("dxgi.dll")).unwrap(), "dxmt-dxgi.dll");
         assert_eq!(std::fs::read_to_string(exe_dir.join("d3d11.dll")).unwrap(), "dxmt-d3d11.dll");
 
-        deploy_recipe_dlls(&m12).expect("switch DXMT to M12");
-        assert!(!exe_dir.join("winemetal.dll").exists(), "M12 route must remove stale DXMT winemetal.dll");
+        deploy_recipe_dlls(&vkd3d).expect("switch DXMT to Vkd3d");
+        assert!(!exe_dir.join("winemetal.dll").exists(), "VKD3D route must remove stale DXMT winemetal.dll");
         for (dll, contents) in [
-            ("d3d12.dll", "m12-vkd3d-d3d12.dll"),
-            ("d3d12core.dll", "m12-vkd3d-d3d12core.dll"),
-            ("dxgi.dll", "m12-dxvk-dxgi.dll"),
-            ("d3d11.dll", "m12-dxvk-d3d11.dll"),
+            ("d3d12.dll", "vkd3d-vkd3d-d3d12.dll"),
+            ("d3d12core.dll", "vkd3d-vkd3d-d3d12core.dll"),
+            ("dxgi.dll", "vkd3d-dxvk-dxgi.dll"),
+            ("d3d11.dll", "vkd3d-dxvk-d3d11.dll"),
         ] {
-            assert_eq!(std::fs::read_to_string(exe_dir.join(dll)).unwrap(), contents, "M12 route must own {dll}");
+            assert_eq!(std::fs::read_to_string(exe_dir.join(dll)).unwrap(), contents, "VKD3D route must own {dll}");
         }
 
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn every_dxmt_route_quarantines_the_m12_ownership_set() {
+    fn every_dxmt_route_quarantines_the_vkd3d_ownership_set() {
         for pipeline in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let root = test_dir(&format!("dxmt-route-quarantine-{pipeline:?}"));
             let game_dir = root.join("game");
@@ -6392,7 +6394,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             std::fs::create_dir_all(&exe_dir).unwrap();
             std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
             for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
-                std::fs::write(exe_dir.join(dll), format!("stale-m12-{dll}")).unwrap();
+                std::fs::write(exe_dir.join(dll), format!("stale-vkd3d-{dll}")).unwrap();
             }
 
             let recipe = recipe::LaunchRecipe {
@@ -6410,10 +6412,10 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
                 warnings: Vec::new(),
             };
 
-            let removed = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine M12 route files");
-            assert_eq!(removed, 4, "{pipeline:?} must evict every M12-owned D3D12/DXVK DLL");
+            let removed = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine Vkd3d route files");
+            assert_eq!(removed, 4, "{pipeline:?} must evict every Vkd3d-owned D3D12/DXVK DLL");
             for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
-                assert!(!exe_dir.join(dll).exists(), "{pipeline:?} must remove stale M12 {dll}");
+                assert!(!exe_dir.join(dll).exists(), "{pipeline:?} must remove stale Vkd3d {dll}");
             }
             let _ = std::fs::remove_dir_all(root);
         }
@@ -6428,7 +6430,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         std::fs::create_dir_all(&exe_dir).unwrap();
         std::fs::create_dir_all(&source_dir).unwrap();
         std::fs::write(exe_dir.join("Game.exe"), b"exe").unwrap();
-        std::fs::write(exe_dir.join("d3d12.dll"), b"stale m12 route").unwrap();
+        std::fs::write(exe_dir.join("d3d12.dll"), b"stale vkd3d route").unwrap();
         std::fs::write(exe_dir.join("d3d11.dll"), b"stale d3dmetal route").unwrap();
         std::fs::write(exe_dir.join("winemetal.dll"), b"stale winemetal route").unwrap();
         std::fs::write(source_dir.join("d3d11.dll"), b"legacy dxmt d3d11").unwrap();
@@ -6478,8 +6480,8 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_quarantines_stale_dxmt_route_dlls_before_deploying_vkd3d_stack() {
-        let root = test_dir("m12-route-quarantine-switchback");
+    fn vkd3d_quarantines_stale_dxmt_route_dlls_before_deploying_vkd3d_stack() {
+        let root = test_dir("vkd3d-route-quarantine-switchback");
         let game_dir = root.join("game");
         let exe_dir = game_dir.join("Binaries").join("Win64");
         let source_dir = root.join("runtime").join("wine").join("lib").join("vkd3d-proton").join("x86_64-windows");
@@ -6492,13 +6494,13 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
         let route_dlls = ["d3d12.dll", "d3d12core.dll", "dxgi.dll"];
         for dll in route_dlls {
-            std::fs::write(source_dir.join(dll), format!("isolated m12 {dll}")).unwrap();
+            std::fs::write(source_dir.join(dll), format!("isolated vkd3d {dll}")).unwrap();
         }
 
         let recipe = recipe::LaunchRecipe {
             appid: 42,
-            pipeline: PipelineId::M12,
-            pipeline_name: "M12".into(),
+            pipeline: PipelineId::Vkd3d,
+            pipeline_name: "VKD3D".into(),
             backend: "vkd3d-proton".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe_dir.join("Game.exe")),
@@ -6520,17 +6522,17 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         };
 
         let moved = quarantine_route_conflicts_for_recipe(&recipe).expect("quarantine stale DXMT routes");
-        assert_eq!(moved, 3, "stale d3d11/dxgi/winemetal should be quarantined before M12 deploy");
-        deploy_recipe_dlls(&recipe).expect("deploy M12 vkd3d-proton stack");
+        assert_eq!(moved, 3, "stale d3d11/dxgi/winemetal should be quarantined before Vkd3d deploy");
+        deploy_recipe_dlls(&recipe).expect("deploy Vkd3d vkd3d-proton stack");
 
         for dll in route_dlls {
             assert_eq!(
                 std::fs::read_to_string(exe_dir.join(dll)).unwrap(),
-                format!("isolated m12 {dll}"),
-                "M12 switch-back must deploy {dll} from vkd3d-proton"
+                format!("isolated vkd3d {dll}"),
+                "VKD3D switch-back must deploy {dll} from vkd3d-proton"
             );
         }
-        assert!(!exe_dir.join("dxgi_dxmt.dll").exists(), "M12 must never deploy dxgi_dxmt.dll");
+        assert!(!exe_dir.join("dxgi_dxmt.dll").exists(), "VKD3D must never deploy dxgi_dxmt.dll");
         let marker = game_dir.join(".metalsharp").join("route-quarantine").join("latest-manifest.json");
         assert!(marker.is_file(), "quarantine marker should document moved DXMT route DLLs");
 
@@ -6538,18 +6540,18 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_dry_run_includes_d3d12_dll_and_dxmt_dry_run_does_not() {
+    fn vkd3d_dry_run_includes_d3d12_dll_and_dxmt_dry_run_does_not() {
         // Phase 3 contract: the dry-run verifier's deploy list must reflect
-        // the pipeline node. M12 dry-run includes d3d12.dll; DXMT does not.
+        // the pipeline node. VKD3D dry-run includes d3d12.dll; DXMT does not.
         // Uses an explicit temp home so no global env is mutated.
-        let home = std::env::temp_dir().join("ms-m12-dryrun-contract");
+        let home = std::env::temp_dir().join("ms-vkd3d-dryrun-contract");
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
 
-        let m12 = pipeline_dry_run_for(&home, 2379780, Some(PipelineId::M12));
+        let vkd3d = pipeline_dry_run_for(&home, 2379780, Some(PipelineId::Vkd3d));
         let dxmt = pipeline_dry_run_for(&home, 17300, Some(PipelineId::Dxmt));
 
-        let m12_filenames: Vec<String> = m12
+        let vkd3d_filenames: Vec<String> = vkd3d
             .get("deploy_dlls")
             .and_then(|v| v.as_array())
             .unwrap()
@@ -6565,9 +6567,9 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             .collect();
 
         assert!(
-            m12_filenames.contains(&"d3d12.dll".to_string()),
-            "M12 dry-run must include d3d12.dll: {:?}",
-            m12_filenames
+            vkd3d_filenames.contains(&"d3d12.dll".to_string()),
+            "VKD3D dry-run must include d3d12.dll: {:?}",
+            vkd3d_filenames
         );
         assert!(
             !dxmt_filenames.contains(&"d3d12.dll".to_string()),
@@ -6576,26 +6578,26 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         );
 
         // Both dry-runs must report the env keys the launch path sets.
-        let m12_env = m12.get("env_keys_present").unwrap();
-        assert_eq!(m12_env.get("WINEDLLOVERRIDES").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(m12_env.get("SteamAppId").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(m12.get("dry_run").and_then(|v| v.as_bool()), Some(true));
+        let vkd3d_env = vkd3d.get("env_keys_present").unwrap();
+        assert_eq!(vkd3d_env.get("WINEDLLOVERRIDES").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(vkd3d_env.get("SteamAppId").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(vkd3d.get("dry_run").and_then(|v| v.as_bool()), Some(true));
 
         let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
-    fn m12_dry_run_verifies_unix_sidecars_and_marks_missing_artifacts() {
-        // Phase 3: the M12 dry-run must enumerate the x86_64-unix sidecars and
+    fn vkd3d_dry_run_verifies_unix_sidecars_and_marks_missing_artifacts() {
+        // Phase 3: the VKD3D dry-run must enumerate the x86_64-unix sidecars and
         // report missing required artifacts as a structured failure (not a
         // silent ok=true). With an empty temp home, all artifacts are absent.
-        let home = std::env::temp_dir().join("ms-m12-dryrun-empty");
+        let home = std::env::temp_dir().join("ms-vkd3d-dryrun-empty");
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
 
-        let dry = pipeline_dry_run_for(&home, 2379780, Some(PipelineId::M12));
+        let dry = pipeline_dry_run_for(&home, 2379780, Some(PipelineId::Vkd3d));
 
-        // Unix sidecars must be enumerated for the M12 lane.
+        // Unix sidecars must be enumerated for the VKD3D lane.
         let sidecar_names: Vec<String> = dry
             .get("unix_sidecars")
             .and_then(|v| v.as_array())
@@ -6606,13 +6608,13 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         for required in ["libMoltenVK.dylib", "MoltenVK_icd.json"] {
             assert!(
                 sidecar_names.contains(&required.to_string()),
-                "M12 dry-run must verify {}: {:?}",
+                "VKD3D dry-run must verify {}: {:?}",
                 required,
                 sidecar_names
             );
         }
 
-        // d3d12.dll is a required (non-optional) M12 artifact, so it must be
+        // d3d12.dll is a required (non-optional) VKD3D artifact, so it must be
         // listed as missing when absent.
         let missing_filenames: Vec<String> = dry
             .get("missing")
@@ -6623,7 +6625,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             .collect();
         assert!(
             missing_filenames.contains(&"d3d12.dll".to_string()),
-            "M12 dry-run must flag missing d3d12.dll: {:?}",
+            "VKD3D dry-run must flag missing d3d12.dll: {:?}",
             missing_filenames
         );
         assert_eq!(dry.get("ok").and_then(|v| v.as_bool()), Some(false), "empty home must yield ok=false");
@@ -6632,28 +6634,28 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_pipeline_env_vars_set_vkd3d_overrides_and_shader_cache() {
-        // Phase 3 contract: the M12 env builder must set the vkd3d-proton
+    fn vkd3d_pipeline_env_vars_set_vkd3d_overrides_and_shader_cache() {
+        // Phase 3 contract: the VKD3D env builder must set the vkd3d-proton
         // WINEDLLOVERRIDES (d3d12/d3d12core/dxgi native-first), carry the
         // MoltenVK + VKMT launch env, and point the shader cache at the
-        // isolated m12 lane. The M12 route no longer uses DXMT at all.
-        let node = get_pipeline(PipelineId::M12);
+        // isolated vkd3d lane. The VKD3D route no longer uses DXMT at all.
+        let node = get_pipeline(PipelineId::Vkd3d);
         assert!(node.wine_overrides.unwrap_or("").contains("d3d12,d3d12core,dxgi,d3d11=n,b"));
         assert!(!node.wine_overrides.unwrap_or("").contains("winemetal"));
         assert!(
             node.env_vars.iter().any(|ev| ev.key == "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT" && ev.value == "1"),
-            "M12 must set VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=1"
+            "VKD3D must set VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=1"
         );
         assert!(
             node.env_vars.iter().any(|ev| ev.key == "MVK_PRESENT_MODE" && ev.value == "1"),
-            "M12 must set MVK_PRESENT_MODE=1"
+            "VKD3D must set MVK_PRESENT_MODE=1"
         );
         assert!(
             node.env_vars.iter().any(|ev| ev.key == "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS" && ev.value == "1"),
-            "M12 must globally force retained Metal command-buffer references for this diagnostic"
+            "VKD3D must globally force retained Metal command-buffer references for this diagnostic"
         );
-        assert!(!node.env_vars.iter().any(|ev| ev.key.starts_with("DXMT_")), "M12 must not carry DXMT env vars");
-        assert_eq!(node.shader_cache_subdir, Some("m12"), "M12 shader cache must be isolated under m12");
+        assert!(!node.env_vars.iter().any(|ev| ev.key.starts_with("DXMT_")), "VKD3D must not carry DXMT env vars");
+        assert_eq!(node.shader_cache_subdir, Some("vkd3d"), "VKD3D shader cache must be isolated under vkd3d");
     }
 
     #[test]
@@ -6682,11 +6684,11 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_log_path_uses_shared_logs_folder_when_developer_logs_enabled() {
-        let home = test_dir("m12-log-path");
-        let node = get_pipeline(PipelineId::M12);
+    fn vkd3d_log_path_uses_shared_logs_folder_when_developer_logs_enabled() {
+        let home = test_dir("vkd3d-log-path");
+        let node = get_pipeline(PipelineId::Vkd3d);
         assert_eq!(node.backend, "vkd3d-proton");
-        let cache = build_cache_paths(&home, node, 1583230).expect("m12 cache paths");
+        let cache = build_cache_paths(&home, node, 1583230).expect("vkd3d cache paths");
 
         let env = cache_env_pairs_with_logs(
             node,
@@ -6697,14 +6699,14 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         let dxmt_log_path =
             env.iter().find(|(key, _)| key == "DXVK_LOG_PATH").map(|(_, value)| value.as_str()).unwrap_or_default();
 
-        assert!(dxmt_log_path.contains("/logs/m12-pipeline/1583230/"));
+        assert!(dxmt_log_path.contains("/logs/vkd3d-pipeline/1583230/"));
         assert!(!dxmt_log_path.contains("/pipeline-cache/"));
         let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
     fn dxmt_family_env_uses_metalfx_upscale_and_cache_paths() {
-        // M12 now runs vkd3d-proton; the DXMT_CONFIG contract applies to the
+        // VKD3D now runs vkd3d-proton; the DXMT_CONFIG contract applies to the
         // legacy DXMT family (M9/DXMT) only. MetalFX default strength is
         // 1.50 (metalfx.overlay.json default), reconciled into the env at
         // launch; M9 has no upscale pair (no MetalFX on D3D9).
@@ -6727,33 +6729,33 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_vkd3d_env_uses_vkd3d_cache_and_no_dxmt_config() {
-        let home = test_dir("m12-vkd3d-env");
-        let node = get_pipeline(PipelineId::M12);
+    fn vkd3d_vkd3d_env_uses_vkd3d_cache_and_no_dxmt_config() {
+        let home = test_dir("vkd3d-vkd3d-env");
+        let node = get_pipeline(PipelineId::Vkd3d);
         assert_eq!(node.backend, "vkd3d-proton");
 
         let env = steam_pipeline_env_pairs(&home, node, 42);
         let keys: std::collections::HashSet<_> = env.iter().map(|(key, _)| key.as_str()).collect();
-        assert!(!keys.contains("DXMT_CONFIG"), "M12 must not set DXMT_CONFIG (vkd3d-proton backend)");
-        assert!(!keys.contains("DXMT_CONFIG_FILE"), "M12 must not set DXMT_CONFIG_FILE");
-        assert!(!keys.contains("DXMT_SHADER_CACHE_PATH"), "M12 must not set DXMT_SHADER_CACHE_PATH");
-        assert!(keys.contains("DXVK_STATE_CACHE_PATH"), "M12 must route DXVK state cache");
-        assert!(keys.contains("VKD3D_SHADER_CACHE_PATH"), "M12 must route vkd3d-proton's shader cache");
+        assert!(!keys.contains("DXMT_CONFIG"), "VKD3D must not set DXMT_CONFIG (vkd3d-proton backend)");
+        assert!(!keys.contains("DXMT_CONFIG_FILE"), "VKD3D must not set DXMT_CONFIG_FILE");
+        assert!(!keys.contains("DXMT_SHADER_CACHE_PATH"), "VKD3D must not set DXMT_SHADER_CACHE_PATH");
+        assert!(keys.contains("DXVK_STATE_CACHE_PATH"), "VKD3D must route DXVK state cache");
+        assert!(keys.contains("VKD3D_SHADER_CACHE_PATH"), "VKD3D must route vkd3d-proton's shader cache");
         let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
-    fn elden_ring_m12_advertises_required_d3d_feature_level() {
-        let env = app_compat_env_pairs(1245620, PipelineId::M12);
+    fn elden_ring_vkd3d_advertises_required_d3d_feature_level() {
+        let env = app_compat_env_pairs(1245620, PipelineId::Vkd3d);
 
         assert_eq!(env_value(&env, "VKD3D_FEATURE_LEVEL"), Some("12_0"));
         assert!(app_compat_env_pairs(1245620, PipelineId::Dxmt).is_empty());
-        assert!(app_compat_env_pairs(814380, PipelineId::M12).is_empty());
+        assert!(app_compat_env_pairs(814380, PipelineId::Vkd3d).is_empty());
     }
 
     #[test]
-    fn m12_vkd3d_readiness_validates_vulkan_route_instead_of_dxmt() {
-        let mut recipe = empty_test_recipe(PipelineId::M12);
+    fn vkd3d_vkd3d_readiness_validates_vulkan_route_instead_of_dxmt() {
+        let mut recipe = empty_test_recipe(PipelineId::Vkd3d);
         recipe.backend = "vkd3d-proton".into();
         let env = vec![
             ("WINEDLLPATH".into(), "/runtime/lib/vkd3d-proton/x86_64-windows:/runtime/lib/dxvk/x86_64-windows".into()),
@@ -6762,7 +6764,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         ];
 
         let ready = prepare_readiness_report(&recipe, &env);
-        assert_eq!(ready.get("m12_env_ok").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(ready.get("vkd3d_env_ok").and_then(|value| value.as_bool()), Some(true));
         let checks = ready.get("env_checks").expect("env checks");
         assert_eq!(checks.get("requires_vkd3d_proton_windows").and_then(|value| value.as_bool()), Some(true));
         assert_eq!(checks.get("requires_dxvk_windows").and_then(|value| value.as_bool()), Some(true));
@@ -6771,7 +6773,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 
         let missing_icd: Vec<_> = env.into_iter().filter(|(key, _)| key != "VK_ICD_FILENAMES").collect();
         let not_ready = prepare_readiness_report(&recipe, &missing_icd);
-        assert_eq!(not_ready.get("m12_env_ok").and_then(|value| value.as_bool()), Some(false));
+        assert_eq!(not_ready.get("vkd3d_env_ok").and_then(|value| value.as_bool()), Some(false));
         assert_eq!(not_ready.get("ok").and_then(|value| value.as_bool()), Some(false));
     }
 
@@ -6824,7 +6826,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn m12_reserved_route_env_keys_cannot_be_overridden_by_rules() {
+    fn vkd3d_reserved_route_env_keys_cannot_be_overridden_by_rules() {
         for key in [
             "WINEDLLOVERRIDES",
             "WINEDLLPATH",
@@ -6837,16 +6839,20 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
             "WINEMSYNC",
             "DXMT_LOG_PATH",
         ] {
-            assert!(is_reserved_route_env_key(PipelineId::M12, key), "{} must be reserved for M12", key);
-            assert!(!is_reserved_route_env_key(PipelineId::Dxmt, key), "{} should remain overridable outside M12", key);
+            assert!(is_reserved_route_env_key(PipelineId::Vkd3d, key), "{} must be reserved for Vkd3d", key);
+            assert!(
+                !is_reserved_route_env_key(PipelineId::Dxmt, key),
+                "{} should remain overridable outside Vkd3d",
+                key
+            );
         }
-        assert!(!is_reserved_route_env_key(PipelineId::M12, "DXMT_D3D12_UE_SM6_COMPAT"));
+        assert!(!is_reserved_route_env_key(PipelineId::Vkd3d, "DXMT_D3D12_UE_SM6_COMPAT"));
     }
 
     #[test]
     fn steam_pipeline_env_includes_route_overrides_and_cache_keys() {
         let home = test_dir("steam-env");
-        let node = get_pipeline(PipelineId::M12);
+        let node = get_pipeline(PipelineId::Vkd3d);
         assert_eq!(node.backend, "vkd3d-proton");
 
         let env = steam_pipeline_env_pairs(&home, node, 1583230);
@@ -6883,7 +6889,7 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
         assert!(!keys.contains("WINEDATADIR"));
         assert!(!keys.contains("MS_ROOT"));
         let winedllpath = env_value(&env, "WINEDLLPATH").unwrap_or_default();
-        assert!(!winedllpath.contains("dxmt_m12"));
+        assert!(!winedllpath.contains("dxmt_vkd3d"));
         assert!(!winedllpath.contains("lib/metalsharp"));
         assert!(!winedllpath.contains("vkd3d-proton"));
         assert!(!winedllpath.contains("dxvk"));
@@ -6898,13 +6904,13 @@ export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
     }
 
     #[test]
-    fn subnautica2_m12_trace_env_is_opt_in_only() {
-        let default_env = app_compat_env_pairs_with_logs(1962700, PipelineId::M12, false);
+    fn subnautica2_vkd3d_trace_env_is_opt_in_only() {
+        let default_env = app_compat_env_pairs_with_logs(1962700, PipelineId::Vkd3d, false);
         assert!(default_env.iter().any(|(key, _)| key == "DXMT_D3D12_ENABLE_GEOMETRY_MESH"));
         assert!(!default_env.iter().any(|(key, _)| key == "DXMT_D3D12_TRACE"));
         assert!(!default_env.iter().any(|(key, _)| key == "DXMT_DUMP_MSL"));
 
-        let log_env = app_compat_env_pairs_with_logs(1962700, PipelineId::M12, true);
+        let log_env = app_compat_env_pairs_with_logs(1962700, PipelineId::Vkd3d, true);
         assert!(log_env.iter().any(|(key, value)| key == "DXMT_D3D12_TRACE" && value == "1"));
         assert!(log_env.iter().any(|(key, value)| key == "DXMT_DUMP_MSL" && value == "1"));
     }
@@ -6934,20 +6940,20 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn m12_launch_uses_normal_metalsharp_wine_binary() {
-        let home = test_dir("m12-normal-wine");
+    fn vkd3d_launch_uses_normal_metalsharp_wine_binary() {
+        let home = test_dir("vkd3d-normal-wine");
         let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
         let bin = ms_root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("metalsharp-wine"), b"#!/bin/sh\n").unwrap();
         std::fs::write(bin.join("wine"), b"#!/bin/sh\n").unwrap();
 
-        let m12 = get_pipeline(PipelineId::M12);
+        let vkd3d = get_pipeline(PipelineId::Vkd3d);
         let dxmt = get_pipeline(PipelineId::Dxmt);
         assert_eq!(crate::platform::runtime_wine_binary(&ms_root), bin.join("metalsharp-wine"));
-        assert_eq!(m12.requires_wine, dxmt.requires_wine);
-        assert_eq!(m12.backend, "vkd3d-proton");
-        assert!(m12.winedllpath_dirs.is_empty());
+        assert_eq!(vkd3d.requires_wine, dxmt.requires_wine);
+        assert_eq!(vkd3d.backend, "vkd3d-proton");
+        assert!(vkd3d.winedllpath_dirs.is_empty());
         let _ = std::fs::remove_dir_all(home);
     }
 
@@ -6980,7 +6986,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         }
     }
 
-    /// End-to-end M12 vkd3d-proton evidence with the REAL VKMT binaries.
+    /// End-to-end VKD3D vkd3d-proton evidence with the REAL VKMT binaries.
     /// Runs only when METALSHARP_VKD3D_SOURCE points at a VKMT checkout
     /// (skipped in CI); stages the actual win64-filtered d3d12/d3d12core,
     /// DXVK dxgi, and VKMT MoltenVK into a temp home, then drives the real
@@ -6988,7 +6994,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     /// vkd3d-proton wiring (no DXMT env, pinned Vulkan ICD, d3d12core.dll
     /// actually copied into system32).
     #[test]
-    fn m12_vkd3d_real_binaries_launch_env_and_prefix_route() {
+    fn vkd3d_vkd3d_real_binaries_launch_env_and_prefix_route() {
         let vkd3d_src = std::env::var("METALSHARP_VKD3D_SOURCE").unwrap_or_default();
         let dxvk_src = std::env::var("METALSHARP_DXVK_SOURCE").unwrap_or_default();
         let mvk_src = std::env::var("METALSHARP_MOLTENVK_SOURCE").unwrap_or_default();
@@ -6997,7 +7003,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             return;
         }
 
-        let home = test_dir("m12-vkd3d-e2e");
+        let home = test_dir("vkd3d-vkd3d-e2e");
         let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
         let vkd3d_dir = ms_root.join("lib").join("vkd3d-proton").join("x86_64-windows");
         let dxvk_dir = ms_root.join("lib").join("dxvk").join("x86_64-windows");
@@ -7024,24 +7030,24 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let d3d12_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12.dll")).expect("d3d12 hash");
         assert_eq!(
             d3d12_hash, "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93",
-            "d3d12.dll must be the pinned deployed M12 build"
+            "d3d12.dll must be the pinned deployed Vkd3d build"
         );
         let core_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12core.dll")).expect("d3d12core hash");
         assert_eq!(
             core_hash, "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4",
-            "d3d12core.dll must be the pinned deployed M12 build"
+            "d3d12core.dll must be the pinned deployed Vkd3d build"
         );
         let moltenvk_hash = crate::diagnostics::file_sha256(&mvk_dir.join("libMoltenVK.dylib")).expect("MoltenVK hash");
         assert_eq!(
             moltenvk_hash, "50e41de23ce85260870c24cec11ac29b225704c6cb0366ce555dcd9ac03417f3",
-            "libMoltenVK.dylib must be the pinned deployed M12 build"
+            "libMoltenVK.dylib must be the pinned deployed Vkd3d build"
         );
         assert!(crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home));
-        assert!(dxvk_dir.join("dxgi.dll").is_file(), "M12's DXVK dxgi.dll must be staged");
+        assert!(dxvk_dir.join("dxgi.dll").is_file(), "VKD3D's DXVK dxgi.dll must be staged");
 
-        // Env wiring: M12 env must carry the vkd3d-proton lane, the pinned
+        // Env wiring: VKD3D env must carry the vkd3d-proton lane, the pinned
         // Vulkan ICD, and zero DXMT keys.
-        let node = get_pipeline(PipelineId::M12);
+        let node = get_pipeline(PipelineId::Vkd3d);
         assert_eq!(node.backend, "vkd3d-proton");
         let env = steam_pipeline_env_pairs(&home, node, 1583230);
         let keys: std::collections::HashSet<_> = env.iter().map(|(key, _)| key.as_str()).collect();
@@ -7056,9 +7062,9 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         assert!(overrides.contains("d3d12"));
         assert!(overrides.contains("d3d12core"));
         // Keep the vkd3d cache on Wine's C: drive. Exclusive file creation on
-        // a Z:-mapped Unix path fails under the M12 Wine runtime.
+        // a Z:-mapped Unix path fails under the VKD3D Wine runtime.
         let cache_path = env_value(&env, "VKD3D_SHADER_CACHE_PATH").unwrap_or_default();
-        assert_eq!(cache_path, r"C:\metalsharp-cache\m12\1583230");
+        assert_eq!(cache_path, r"C:\metalsharp-cache\vkd3d\1583230");
 
         // Prefix route deployment: d3d12core.dll (the real impl the forwarder
         // needs) must actually land in system32.
@@ -7092,8 +7098,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
         let recipe = recipe::LaunchRecipe {
             appid: 1583230,
-            pipeline: PipelineId::M12,
-            pipeline_name: "M12".into(),
+            pipeline: PipelineId::Vkd3d,
+            pipeline_name: "VKD3D".into(),
             backend: "vkd3d-proton".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe_dir.join("Game.exe")),
@@ -7108,7 +7114,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll", "d3d11.dll"] {
             assert!(exe_dir.join(dll).is_file(), "game dir must receive {}", dll);
         }
-        // The M12 route must NEVER stage into the shared prefix system32 (a
+        // The VKD3D route must NEVER stage into the shared prefix system32 (a
         // native DXVK/vkd3d-proton set there freezes the Steam client): the
         // DLLs live in the game dir and are routed via n,b overrides.
         assert!(!system32.join("d3d12.dll").exists(), "system32 must NOT receive d3d12.dll");
@@ -7124,7 +7130,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             std::fs::write(system32.join(dll), format!("stale-{dll}")).unwrap();
             std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).unwrap();
         }
-        repair_m12_prefix_system32(&home.join("prefix"), &ms_root).expect("system32 repair");
+        repair_vkd3d_prefix_system32(&home.join("prefix"), &ms_root).expect("system32 repair");
         for dll in ["d3d12.dll", "d3d12core.dll", "dxgi.dll"] {
             assert_eq!(
                 std::fs::read_to_string(system32.join(dll)).unwrap(),
@@ -7327,18 +7333,18 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             let path = winedllpath.unwrap().1.as_str();
             assert!(!path.is_empty(), "{:?} WINEDLLPATH is empty", pipeline_id);
             assert!(path.contains("x86_64-windows"), "{:?} WINEDLLPATH missing windows dir: {}", pipeline_id, path);
-            assert!(!path.contains("dxmt_m12"), "{:?} should not use isolated M12 DLL path: {}", pipeline_id, path);
+            assert!(!path.contains("dxmt_vkd3d"), "{:?} should not use isolated Vkd3d DLL path: {}", pipeline_id, path);
             let _ = std::fs::remove_dir_all(&home);
         }
 
-        // M12 deploys the vkd3d-proton/DXVK set to the game dir and routes via
+        // VKD3D deploys the vkd3d-proton/DXVK set to the game dir and routes via
         // WINEDLLOVERRIDES=n,b — no WINEDLLPATH lane (installed-backend shape).
-        let home = test_dir("winedllpath-env-M12");
-        let node = get_pipeline(PipelineId::M12);
+        let home = test_dir("winedllpath-env-Vkd3d");
+        let node = get_pipeline(PipelineId::Vkd3d);
         let env = steam_pipeline_env_pairs(&home, node, 42);
         assert!(
             !env.iter().any(|(key, _)| key == "WINEDLLPATH"),
-            "M12 must not set WINEDLLPATH (game-dir deploy + WINEDLLOVERRIDES route)"
+            "VKD3D must not set WINEDLLPATH (game-dir deploy + WINEDLLOVERRIDES route)"
         );
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -7353,12 +7359,12 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn m12_prefix_route_dlls_stage_into_system32() {
-        // The M12 route must NEVER stage its DLLs into the shared prefix
+    fn vkd3d_prefix_route_dlls_stage_into_system32() {
+        // The VKD3D route must NEVER stage its DLLs into the shared prefix
         // system32 (that freezes the Steam client). Renamed behaviour: the
         // self-healing repair restores the wine builtin baseline over any
         // stale route copies the OLD backend left behind.
-        let root = test_dir("m12-prefix-repair");
+        let root = test_dir("vkd3d-prefix-repair");
         let ms_root = root.join("runtime").join("wine");
         let wine_lane = ms_root.join("lib").join("wine").join("x86_64-windows");
         std::fs::create_dir_all(&wine_lane).expect("create wine lane");
@@ -7375,7 +7381,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         std::fs::write(system32.join("d3d12.dll"), "stale").expect("write same-size stale d3d12");
         std::fs::write(wine_lane.join("d3d12.dll"), "clean").expect("write builtin d3d12");
 
-        repair_m12_prefix_system32(&prefix, &ms_root).expect("repair M12 prefix system32");
+        repair_vkd3d_prefix_system32(&prefix, &ms_root).expect("repair Vkd3d prefix system32");
 
         assert_eq!(
             std::fs::read_to_string(system32.join("d3d12.dll")).unwrap(),
@@ -7395,9 +7401,9 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn non_m12_prefix_route_dlls_do_not_stage_into_system32() {
-        // Regression guard for the old M12-only system32 deploy: no pipeline
-        // (M12 included) may write route DLLs into the shared prefix. The
+    fn non_vkd3d_prefix_route_dlls_do_not_stage_into_system32() {
+        // Regression guard for the old VKD3D-only system32 deploy: no pipeline
+        // (VKD3D included) may write route DLLs into the shared prefix. The
         // repair is a pure no-op on a clean prefix (nothing to heal).
         let root = test_dir("dxmt-prefix-route");
         let ms_root = root.join("runtime").join("wine");
@@ -7413,7 +7419,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             std::fs::write(system32.join(dll), format!("builtin-{dll}")).expect("write builtin");
             std::fs::write(wine_lane.join(dll), format!("builtin-{dll}")).expect("write builtin");
         }
-        repair_m12_prefix_system32(&prefix, &ms_root).expect("repair is a no-op on a clean prefix");
+        repair_vkd3d_prefix_system32(&prefix, &ms_root).expect("repair is a no-op on a clean prefix");
         for dll in ["d3d12.dll", "d3d11.dll", "dxgi.dll"] {
             assert_eq!(
                 std::fs::read_to_string(system32.join(dll)).unwrap(),
@@ -7591,9 +7597,9 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn m12_steam_launch_models_deploy_same_real_steam_components_as_dxmt() {
+    fn vkd3d_steam_launch_models_deploy_same_real_steam_components_as_dxmt() {
         for (appid, expects_secure) in [(1260320, false), (440, true)] {
-            let home = test_dir(&format!("m12-real-steam-{appid}"));
+            let home = test_dir(&format!("vkd3d-real-steam-{appid}"));
             let steam_dir = crate::platform::metalsharp_home_dir_for(&home)
                 .join("prefix-steam")
                 .join("drive_c")
@@ -7611,11 +7617,11 @@ export WINEDEBUG="${WINEDEBUG:--all}"
                 std::fs::write(steam_dir.join(filename), filename.as_bytes()).expect("write steam component");
             }
 
-            let args = recipe::effective_launch_args(appid, get_pipeline(PipelineId::M12));
+            let args = recipe::effective_launch_args(appid, get_pipeline(PipelineId::Vkd3d));
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")), "appid {appid}");
             assert_eq!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-secure")), expects_secure, "appid {appid}");
 
-            prepare_steam_api_for_game_dir(&home, &game_dir, appid, PipelineId::M12);
+            prepare_steam_api_for_game_dir(&home, &game_dir, appid, PipelineId::Vkd3d);
 
             for target in [&game_dir, &bin_dir] {
                 assert_eq!(std::fs::read(target.join("steam_api64.dll")).expect("read api64"), b"steam_api64.dll");
@@ -8143,7 +8149,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     fn metalfx_env_untouched_for_non_dxmt_routes() {
         let home = metalfx_home();
         write_metalfx_state(&home, false, 1.75); // would strip if applied
-        for pipeline_id in [PipelineId::M9, PipelineId::M12, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare] {
+        for pipeline_id in [PipelineId::M9, PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare]
+        {
             let node = get_pipeline(pipeline_id);
             let mut env = dxmt_env_with_node(pipeline_id);
             let before = env.clone();
@@ -8280,7 +8287,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
     #[test]
     fn dxmt_shader_metal_version_leaves_non_target_routes_unchanged() {
-        for pipeline_id in [PipelineId::M9, PipelineId::M12, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare] {
+        for pipeline_id in [PipelineId::M9, PipelineId::Vkd3d, PipelineId::M13, PipelineId::Steam, PipelineId::WineBare]
+        {
             let node = get_pipeline(pipeline_id);
             let mut env = dxmt_env_with_node(pipeline_id);
             let before = env.clone();
@@ -8472,9 +8480,14 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     fn msync_env_reflects_config_on_all_routes() {
         let home = metalfx_home();
         // Default: no config -> WINEMSYNC=1.
-        for pipeline_id in
-            [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
-        {
+        for pipeline_id in [
+            PipelineId::M9,
+            PipelineId::Dxmt,
+            PipelineId::Dxmt32,
+            PipelineId::Vkd3d,
+            PipelineId::M13,
+            PipelineId::Steam,
+        ] {
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
             assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("1"), "{:?} default ON", pipeline_id);
@@ -8482,9 +8495,14 @@ export WINEDEBUG="${WINEDEBUG:--all}"
 
         // OFF: all routes get WINEMSYNC=0.
         write_msync_config(&home, false);
-        for pipeline_id in
-            [PipelineId::M9, PipelineId::Dxmt, PipelineId::Dxmt32, PipelineId::M12, PipelineId::M13, PipelineId::Steam]
-        {
+        for pipeline_id in [
+            PipelineId::M9,
+            PipelineId::Dxmt,
+            PipelineId::Dxmt32,
+            PipelineId::Vkd3d,
+            PipelineId::M13,
+            PipelineId::Steam,
+        ] {
             let node = get_pipeline(pipeline_id);
             let env = steam_pipeline_env_pairs(&home, node, 42);
             assert_eq!(last_env_value(&env, "WINEMSYNC"), Some("0"), "{:?} OFF must disable msync", pipeline_id);
@@ -8704,8 +8722,8 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     }
 
     #[test]
-    fn m12_retained_command_buffer_diagnostic_is_global_to_m12_only() {
-        let control = app_compat_env_pairs(870780, PipelineId::M12);
+    fn vkd3d_retained_command_buffer_diagnostic_is_global_to_vkd3d_only() {
+        let control = app_compat_env_pairs(870780, PipelineId::Vkd3d);
         assert!(control.iter().any(|(key, value)| key == "MVK_CONFIG_DEBUG" && value == "1"));
         assert!(!control.iter().any(|(key, _)| key == "MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS"));
         assert!(!app_compat_env_pairs(870780, PipelineId::Dxmt)
@@ -8717,7 +8735,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     fn deployed_dxmt_route_dlls_are_byte_identical_to_their_arch_source_artifacts() {
         // Hash proof: DXMT must stage the x64 artifacts, DXMT(32) must stage
         // the i386 artifacts, and neither may carry bytes from the other arch
-        // (or the M12-owned dxgi_dxmt bridge). Every staged file's SHA-256
+        // (or the VKD3D-owned dxgi_dxmt bridge). Every staged file's SHA-256
         // must match its declared source artifact exactly.
         let root = test_dir("dxmt-route-hash-proof");
         let ms_root = root.join("runtime").join("wine");
@@ -8746,9 +8764,9 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             std::fs::write(x64_dxmt.join(name), x64(name)).unwrap();
             std::fs::write(i386_dxmt.join(name), i386(name)).unwrap();
         }
-        // M12-owned bridge present in the source tree must never be deployed.
-        std::fs::write(x64_dxmt.join("dxgi_dxmt.dll"), b"m12-bridge").unwrap();
-        std::fs::write(i386_dxmt.join("dxgi_dxmt.dll"), b"m12-bridge").unwrap();
+        // VKD3D-owned bridge present in the source tree must never be deployed.
+        std::fs::write(x64_dxmt.join("dxgi_dxmt.dll"), b"vkd3d-bridge").unwrap();
+        std::fs::write(i386_dxmt.join("dxgi_dxmt.dll"), b"vkd3d-bridge").unwrap();
 
         let sha256 = |path: &Path| crate::diagnostics::file_sha256(path).expect("read file for sha256");
 
@@ -8773,12 +8791,12 @@ export WINEDEBUG="${WINEDEBUG:--all}"
                 runtime_assets: Vec::new(),
                 warnings: Vec::new(),
             };
-            // exactly the six unified route DLLs, never the M12 bridge
+            // exactly the six unified route DLLs, never the VKD3D bridge
             assert_eq!(recipe.dlls.len(), 6, "{pipeline:?} must deploy exactly six route DLLs");
             assert!(recipe.dlls.iter().all(|dll| dll.source_present), "{pipeline:?} all sources present");
             assert!(
                 !recipe.dlls.iter().any(|dll| dll.filename == "dxgi_dxmt.dll"),
-                "{pipeline:?} must never deploy the M12-owned dxgi_dxmt bridge"
+                "{pipeline:?} must never deploy the Vkd3d-owned dxgi_dxmt bridge"
             );
 
             deploy_recipe_dlls(&recipe).expect("deploy route");

@@ -721,28 +721,28 @@ mod tests {
     }
 
     #[test]
-    fn config_report_no_longer_exposes_m12_backend_choice() {
-        // M12 is the vkd3d-proton stack only; the m12Backend config is gone.
-        let temp = std::env::temp_dir().join(format!("ms-m12backend-removed-{}", std::process::id()));
+    fn config_report_no_longer_exposes_vkd3d_backend_choice() {
+        // VKD3D is the vkd3d-proton stack only; the vkd3dBackend config is gone.
+        let temp = std::env::temp_dir().join(format!("ms-vkd3dbackend-removed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp);
         std::fs::create_dir_all(&temp).unwrap();
 
         let report = get_config_for_home(&temp);
-        assert_eq!(report.get("m12Backend"), None, "m12Backend must not be exposed");
+        assert_eq!(report.get("vkd3dBackend"), None, "vkd3dBackend must not be exposed");
         let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
-    fn set_config_ignores_stale_m12_backend_key() {
-        let temp = std::env::temp_dir().join(format!("ms-m12backend-set-{}", std::process::id()));
+    fn set_config_ignores_stale_vkd3d_backend_key() {
+        let temp = std::env::temp_dir().join(format!("ms-vkd3dbackend-set-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp);
         std::fs::create_dir_all(&temp).unwrap();
 
-        // A stale m12Backend value in the request must not be persisted.
+        // A stale vkd3dBackend value in the request must not be persisted.
         let mut body = serde_json::Map::new();
-        body.insert("m12Backend".into(), json!("dxmt"));
+        body.insert("vkd3dBackend".into(), json!("dxmt"));
         let result = set_config_for_home(&temp, &body).expect("set_config");
-        assert_eq!(result.get("m12Backend"), None);
+        assert_eq!(result.get("vkd3dBackend"), None);
 
         let _ = std::fs::remove_dir_all(&temp);
     }

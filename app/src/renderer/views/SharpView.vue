@@ -78,7 +78,7 @@ interface BottleManifest {
   installed_app_detections: { name: string; exe_path: string; source: string }[];
 }
 
-interface M12DryRun {
+interface VKD3DDryRun {
   ok: boolean;
   dry_run: boolean;
   missing?: Array<{ filename?: string }>;
@@ -398,7 +398,7 @@ function stopGogMonoPoll() {
 }
 const engineOptions = [
   { id: "d3dmetal", name: "D3DMetal" },
-  { id: "m12", name: "M12" },
+  { id: "vkd3d", name: "VKD3D" },
   { id: "dxmt", name: "DXMT" },
   { id: "dxmt_32", name: "DXMT(32)" },
   { id: "m9", name: "M9" },
@@ -414,13 +414,13 @@ const componentDisplayName: Record<string, string> = {
   fna3d: "FNA3D",
   faudio: "FAudio",
   fmod: "FMOD Audio",
-  m12_d3d12: "M12 d3d12.dll",
-  m12_d3d11: "M12 d3d11.dll",
-  m12_d3d10core: "M12 d3d10core.dll",
-  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
-  m12_dxgi: "M12 dxgi.dll",
-  m12_winemetal: "M12 winemetal.dll / .so",
-  m12_gpu_stubs: "M12 GPU Stubs",
+  vkd3d_d3d12: "VKD3D d3d12.dll",
+  vkd3d_d3d11: "VKD3D d3d11.dll",
+  vkd3d_d3d10core: "VKD3D d3d10core.dll",
+  vkd3d_dxgi_dxmt: "VKD3D dxgi_dxmt.dll",
+  vkd3d_dxgi: "VKD3D dxgi.dll",
+  vkd3d_winemetal: "VKD3D winemetal.dll / .so",
+  vkd3d_gpu_stubs: "VKD3D GPU Stubs",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -463,7 +463,7 @@ function d3dmetalActionReady(action: D3DMetalGptkAction): boolean {
 function isFnaProfile(profile: string): boolean {
   return profile === "fna_arm64" || profile === "fna_x86";
 }
-const selectableRuntimeProfileIds = new Set(["m12", "d3dmetal", "dxmt", "dxmt_32", "m9", "fna_arm64"]);
+const selectableRuntimeProfileIds = new Set(["vkd3d", "d3dmetal", "dxmt", "dxmt_32", "m9", "fna_arm64"]);
 const visibleRuntimeProfiles = computed(() => {
   const profiles = runtimeProfiles.value.some((profile) => profile.id === "d3dmetal")
     ? runtimeProfiles.value
@@ -1093,19 +1093,19 @@ async function setBottleProfile(id: string, profile: string) {
   );
   bottleLoading.value[id] = false;
   if (result?.ok && result.bottle) {
-    const isM12 = profile === "m12";
+    const isVKD3D = profile === "vkd3d";
     const appid = result.bottle.steam_app_id ?? 0;
-    const m12DryRun = isM12 ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${appid}`) : null;
+    const vkd3dDryRun = isVKD3D ? await api<VKD3DDryRun>("GET", `/diagnostics/vkd3d/dry-run?appid=${appid}`) : null;
     upsertBottle(result.bottle);
     if (result.bottle.runtime_profile !== "d3dmetal") clearD3DMetalBottleState(id);
-    if (isM12 && m12DryRun?.ok === false) {
-      const missing = m12DryRun.missing
+    if (isVKD3D && vkd3dDryRun?.ok === false) {
+      const missing = vkd3dDryRun.missing
         ?.map((entry) => entry.filename)
         .filter(Boolean)
         .join(", ");
-      toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
-    } else if (isM12 && !m12DryRun) {
-      toast.show("M12 bottle saved, but its dry run could not be completed", "error");
+      toast.show(`VKD3D bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
+    } else if (isVKD3D && !vkd3dDryRun) {
+      toast.show("VKD3D bottle saved, but its dry run could not be completed", "error");
     } else {
       toast.show("Bottle profile updated", "success");
     }

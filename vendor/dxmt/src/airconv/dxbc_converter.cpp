@@ -78,7 +78,7 @@ static void DumpSM50LLVMIRIfRequested(const llvm::Module &module,
 
 namespace dxmt::dxbc {
 
-static constexpr uint32_t kM12PaddedVertexOutputRegisters = 16;
+static constexpr uint32_t kVKD3DPaddedVertexOutputRegisters = 16;
 
 inline dxmt::shader::common::ResourceType
 to_shader_resource_type(microsoft::D3D10_SB_RESOURCE_DIMENSION dim) {
@@ -741,7 +741,7 @@ llvm::Error convert_dxbc_vertex_shader(
   }
   if (!rasterization_disabled) {
     max_output_register =
-      std::max(max_output_register, kM12PaddedVertexOutputRegisters);
+      std::max(max_output_register, kVKD3DPaddedVertexOutputRegisters);
   }
   if (std::getenv("DXMT_SM50_TRACE")) {
     fprintf(stderr,
@@ -771,10 +771,10 @@ llvm::Error convert_dxbc_vertex_shader(
       p(sig_ctx);
     }
 
-    bool output_reg_declared[kM12PaddedVertexOutputRegisters] = {};
+    bool output_reg_declared[kVKD3DPaddedVertexOutputRegisters] = {};
     for (auto& out : pShaderInternal->output_signature) {
       if(out.isSystemValue()) continue;
-      if (out.reg() < kM12PaddedVertexOutputRegisters)
+      if (out.reg() < kVKD3DPaddedVertexOutputRegisters)
         output_reg_declared[out.reg()] = true;
       func_signature.DefineOutput(air::OutputVertex{
         .user = out.consistentAttributeName(),
@@ -782,7 +782,7 @@ llvm::Error convert_dxbc_vertex_shader(
       });
     }
     if (!rasterization_disabled) {
-      for (uint32_t reg = 0; reg < kM12PaddedVertexOutputRegisters; reg++) {
+      for (uint32_t reg = 0; reg < kVKD3DPaddedVertexOutputRegisters; reg++) {
         if (output_reg_declared[reg])
           continue;
         uint32_t assigned_index = func_signature.DefineOutput(air::OutputVertex{

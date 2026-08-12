@@ -10,7 +10,7 @@ shader-presets/
 ├── dxmt-metal/          # DXMT D3D11 (M11 pipeline)
 │   ├── 312520.db        # Rain World (26 shaders)
 │   └── 3164500.db       # Schedule I (285 shaders)
-└── dxmt-metal12/        # DXMT D3D12 (M12 pipeline)
+└── dxmt-metal12/        # DXMT D3D12 (VKD3D pipeline)
     ├── 848450.db        # Subnautica Below Zero (1,166 shaders)
     ├── 1139900.db       # Ghostrunner (640 shaders)
     └── 1030300.db       # Hollow Knight: Silksong (14 shaders)
@@ -27,7 +27,7 @@ shader-presets/
 
 ## Adding New Presets
 
-1. Play a game through MetalSharp with the target pipeline (M11/M12)
+1. Play a game through MetalSharp with the target pipeline (M11/VKD3D)
 2. Copy the shader cache from `~/.metalsharp/shader-cache/<engine>/<appid>/shaders_320.db`
 3. Place it in the matching subdirectory as `<appid>.db`
 4. Update this README with the game name and shader count

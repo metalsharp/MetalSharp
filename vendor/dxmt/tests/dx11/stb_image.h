@@ -2312,8 +2312,8 @@ static void stbi__idct_block(stbi_uc *out, int out_stride, short data[64])
 static void stbi__idct_simd(stbi_uc *out, int out_stride, short data[64])
 {
    // This is constructed to match our regular (generic) integer IDCT exactly.
-   __m128i row0, row1, row2, row3, row4, row5, row6, row7;
-   __m128i tmp;
+   __vkd3d8i row0, row1, row2, row3, row4, row5, row6, row7;
+   __vkd3d8i tmp;
 
    // dot product constant: even elems=x, odd elems=y
    #define dct_const(x,y)  _mm_setr_epi16((x),(y),(x),(y),(x),(y),(x),(y))
@@ -2321,33 +2321,33 @@ static void stbi__idct_simd(stbi_uc *out, int out_stride, short data[64])
    // out(0) = c0[even]*x + c0[odd]*y   (c0, x, y 16-bit, out 32-bit)
    // out(1) = c1[even]*x + c1[odd]*y
    #define dct_rot(out0,out1, x,y,c0,c1) \
-      __m128i c0##lo = _mm_unpacklo_epi16((x),(y)); \
-      __m128i c0##hi = _mm_unpackhi_epi16((x),(y)); \
-      __m128i out0##_l = _mm_madd_epi16(c0##lo, c0); \
-      __m128i out0##_h = _mm_madd_epi16(c0##hi, c0); \
-      __m128i out1##_l = _mm_madd_epi16(c0##lo, c1); \
-      __m128i out1##_h = _mm_madd_epi16(c0##hi, c1)
+      __vkd3d8i c0##lo = _mm_unpacklo_epi16((x),(y)); \
+      __vkd3d8i c0##hi = _mm_unpackhi_epi16((x),(y)); \
+      __vkd3d8i out0##_l = _mm_madd_epi16(c0##lo, c0); \
+      __vkd3d8i out0##_h = _mm_madd_epi16(c0##hi, c0); \
+      __vkd3d8i out1##_l = _mm_madd_epi16(c0##lo, c1); \
+      __vkd3d8i out1##_h = _mm_madd_epi16(c0##hi, c1)
 
    // out = in << 12  (in 16-bit, out 32-bit)
    #define dct_widen(out, in) \
-      __m128i out##_l = _mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), (in)), 4); \
-      __m128i out##_h = _mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), (in)), 4)
+      __vkd3d8i out##_l = _mm_srai_epi32(_mm_unpacklo_epi16(_mm_setzero_si128(), (in)), 4); \
+      __vkd3d8i out##_h = _mm_srai_epi32(_mm_unpackhi_epi16(_mm_setzero_si128(), (in)), 4)
 
    // wide add
    #define dct_wadd(out, a, b) \
-      __m128i out##_l = _mm_add_epi32(a##_l, b##_l); \
-      __m128i out##_h = _mm_add_epi32(a##_h, b##_h)
+      __vkd3d8i out##_l = _mm_add_epi32(a##_l, b##_l); \
+      __vkd3d8i out##_h = _mm_add_epi32(a##_h, b##_h)
 
    // wide sub
    #define dct_wsub(out, a, b) \
-      __m128i out##_l = _mm_sub_epi32(a##_l, b##_l); \
-      __m128i out##_h = _mm_sub_epi32(a##_h, b##_h)
+      __vkd3d8i out##_l = _mm_sub_epi32(a##_l, b##_l); \
+      __vkd3d8i out##_h = _mm_sub_epi32(a##_h, b##_h)
 
    // butterfly a/b, add bias, then shift by "s" and pack
    #define dct_bfly32o(out0, out1, a,b,bias,s) \
       { \
-         __m128i abiased_l = _mm_add_epi32(a##_l, bias); \
-         __m128i abiased_h = _mm_add_epi32(a##_h, bias); \
+         __vkd3d8i abiased_l = _mm_add_epi32(a##_l, bias); \
+         __vkd3d8i abiased_h = _mm_add_epi32(a##_h, bias); \
          dct_wadd(sum, abiased, b); \
          dct_wsub(dif, abiased, b); \
          out0 = _mm_packs_epi32(_mm_srai_epi32(sum_l, s), _mm_srai_epi32(sum_h, s)); \
@@ -2370,8 +2370,8 @@ static void stbi__idct_simd(stbi_uc *out, int out_stride, short data[64])
       { \
          /* even part */ \
          dct_rot(t2e,t3e, row2,row6, rot0_0,rot0_1); \
-         __m128i sum04 = _mm_add_epi16(row0, row4); \
-         __m128i dif04 = _mm_sub_epi16(row0, row4); \
+         __vkd3d8i sum04 = _mm_add_epi16(row0, row4); \
+         __vkd3d8i dif04 = _mm_sub_epi16(row0, row4); \
          dct_widen(t0e, sum04); \
          dct_widen(t1e, dif04); \
          dct_wadd(x0, t0e, t3e); \
@@ -2381,8 +2381,8 @@ static void stbi__idct_simd(stbi_uc *out, int out_stride, short data[64])
          /* odd part */ \
          dct_rot(y0o,y2o, row7,row3, rot2_0,rot2_1); \
          dct_rot(y1o,y3o, row5,row1, rot3_0,rot3_1); \
-         __m128i sum17 = _mm_add_epi16(row1, row7); \
-         __m128i sum35 = _mm_add_epi16(row3, row5); \
+         __vkd3d8i sum17 = _mm_add_epi16(row1, row7); \
+         __vkd3d8i sum35 = _mm_add_epi16(row3, row5); \
          dct_rot(y4o,y5o, sum17,sum35, rot1_0,rot1_1); \
          dct_wadd(x4, y0o, y4o); \
          dct_wadd(x5, y1o, y5o); \
@@ -2394,28 +2394,28 @@ static void stbi__idct_simd(stbi_uc *out, int out_stride, short data[64])
          dct_bfly32o(row3,row4, x3,x4,bias,shift); \
       }
 
-   __m128i rot0_0 = dct_const(stbi__f2f(0.5411961f), stbi__f2f(0.5411961f) + stbi__f2f(-1.847759065f));
-   __m128i rot0_1 = dct_const(stbi__f2f(0.5411961f) + stbi__f2f( 0.765366865f), stbi__f2f(0.5411961f));
-   __m128i rot1_0 = dct_const(stbi__f2f(1.175875602f) + stbi__f2f(-0.899976223f), stbi__f2f(1.175875602f));
-   __m128i rot1_1 = dct_const(stbi__f2f(1.175875602f), stbi__f2f(1.175875602f) + stbi__f2f(-2.562915447f));
-   __m128i rot2_0 = dct_const(stbi__f2f(-1.961570560f) + stbi__f2f( 0.298631336f), stbi__f2f(-1.961570560f));
-   __m128i rot2_1 = dct_const(stbi__f2f(-1.961570560f), stbi__f2f(-1.961570560f) + stbi__f2f( 3.072711026f));
-   __m128i rot3_0 = dct_const(stbi__f2f(-0.390180644f) + stbi__f2f( 2.053119869f), stbi__f2f(-0.390180644f));
-   __m128i rot3_1 = dct_const(stbi__f2f(-0.390180644f), stbi__f2f(-0.390180644f) + stbi__f2f( 1.501321110f));
+   __vkd3d8i rot0_0 = dct_const(stbi__f2f(0.5411961f), stbi__f2f(0.5411961f) + stbi__f2f(-1.847759065f));
+   __vkd3d8i rot0_1 = dct_const(stbi__f2f(0.5411961f) + stbi__f2f( 0.765366865f), stbi__f2f(0.5411961f));
+   __vkd3d8i rot1_0 = dct_const(stbi__f2f(1.175875602f) + stbi__f2f(-0.899976223f), stbi__f2f(1.175875602f));
+   __vkd3d8i rot1_1 = dct_const(stbi__f2f(1.175875602f), stbi__f2f(1.175875602f) + stbi__f2f(-2.562915447f));
+   __vkd3d8i rot2_0 = dct_const(stbi__f2f(-1.961570560f) + stbi__f2f( 0.298631336f), stbi__f2f(-1.961570560f));
+   __vkd3d8i rot2_1 = dct_const(stbi__f2f(-1.961570560f), stbi__f2f(-1.961570560f) + stbi__f2f( 3.072711026f));
+   __vkd3d8i rot3_0 = dct_const(stbi__f2f(-0.390180644f) + stbi__f2f( 2.053119869f), stbi__f2f(-0.390180644f));
+   __vkd3d8i rot3_1 = dct_const(stbi__f2f(-0.390180644f), stbi__f2f(-0.390180644f) + stbi__f2f( 1.501321110f));
 
    // rounding biases in column/row passes, see stbi__idct_block for explanation.
-   __m128i bias_0 = _mm_set1_epi32(512);
-   __m128i bias_1 = _mm_set1_epi32(65536 + (128<<17));
+   __vkd3d8i bias_0 = _mm_set1_epi32(512);
+   __vkd3d8i bias_1 = _mm_set1_epi32(65536 + (128<<17));
 
    // load
-   row0 = _mm_load_si128((const __m128i *) (data + 0*8));
-   row1 = _mm_load_si128((const __m128i *) (data + 1*8));
-   row2 = _mm_load_si128((const __m128i *) (data + 2*8));
-   row3 = _mm_load_si128((const __m128i *) (data + 3*8));
-   row4 = _mm_load_si128((const __m128i *) (data + 4*8));
-   row5 = _mm_load_si128((const __m128i *) (data + 5*8));
-   row6 = _mm_load_si128((const __m128i *) (data + 6*8));
-   row7 = _mm_load_si128((const __m128i *) (data + 7*8));
+   row0 = _mm_load_si128((const __vkd3d8i *) (data + 0*8));
+   row1 = _mm_load_si128((const __vkd3d8i *) (data + 1*8));
+   row2 = _mm_load_si128((const __vkd3d8i *) (data + 2*8));
+   row3 = _mm_load_si128((const __vkd3d8i *) (data + 3*8));
+   row4 = _mm_load_si128((const __vkd3d8i *) (data + 4*8));
+   row5 = _mm_load_si128((const __vkd3d8i *) (data + 5*8));
+   row6 = _mm_load_si128((const __vkd3d8i *) (data + 6*8));
+   row7 = _mm_load_si128((const __vkd3d8i *) (data + 7*8));
 
    // column pass
    dct_pass(bias_0, 10);
@@ -2445,10 +2445,10 @@ static void stbi__idct_simd(stbi_uc *out, int out_stride, short data[64])
 
    {
       // pack
-      __m128i p0 = _mm_packus_epi16(row0, row1); // a0a1a2a3...a7b0b1b2b3...b7
-      __m128i p1 = _mm_packus_epi16(row2, row3);
-      __m128i p2 = _mm_packus_epi16(row4, row5);
-      __m128i p3 = _mm_packus_epi16(row6, row7);
+      __vkd3d8i p0 = _mm_packus_epi16(row0, row1); // a0a1a2a3...a7b0b1b2b3...b7
+      __vkd3d8i p1 = _mm_packus_epi16(row2, row3);
+      __vkd3d8i p2 = _mm_packus_epi16(row4, row5);
+      __vkd3d8i p3 = _mm_packus_epi16(row6, row7);
 
       // 8bit 8x8 transpose pass 1
       dct_interleave8(p0, p2); // a0e0a1e1...
@@ -2463,14 +2463,14 @@ static void stbi__idct_simd(stbi_uc *out, int out_stride, short data[64])
       dct_interleave8(p1, p3); // a4b4c4d4...
 
       // store
-      _mm_storel_epi64((__m128i *) out, p0); out += out_stride;
-      _mm_storel_epi64((__m128i *) out, _mm_shuffle_epi32(p0, 0x4e)); out += out_stride;
-      _mm_storel_epi64((__m128i *) out, p2); out += out_stride;
-      _mm_storel_epi64((__m128i *) out, _mm_shuffle_epi32(p2, 0x4e)); out += out_stride;
-      _mm_storel_epi64((__m128i *) out, p1); out += out_stride;
-      _mm_storel_epi64((__m128i *) out, _mm_shuffle_epi32(p1, 0x4e)); out += out_stride;
-      _mm_storel_epi64((__m128i *) out, p3); out += out_stride;
-      _mm_storel_epi64((__m128i *) out, _mm_shuffle_epi32(p3, 0x4e));
+      _mm_storel_epi64((__vkd3d8i *) out, p0); out += out_stride;
+      _mm_storel_epi64((__vkd3d8i *) out, _mm_shuffle_epi32(p0, 0x4e)); out += out_stride;
+      _mm_storel_epi64((__vkd3d8i *) out, p2); out += out_stride;
+      _mm_storel_epi64((__vkd3d8i *) out, _mm_shuffle_epi32(p2, 0x4e)); out += out_stride;
+      _mm_storel_epi64((__vkd3d8i *) out, p1); out += out_stride;
+      _mm_storel_epi64((__vkd3d8i *) out, _mm_shuffle_epi32(p1, 0x4e)); out += out_stride;
+      _mm_storel_epi64((__vkd3d8i *) out, p3); out += out_stride;
+      _mm_storel_epi64((__vkd3d8i *) out, _mm_shuffle_epi32(p3, 0x4e));
    }
 
 #undef dct_const
@@ -3298,46 +3298,46 @@ static stbi_uc *stbi__resample_row_hv_2_simd(stbi_uc *out, stbi_uc *in_near, stb
 #if defined(STBI_SSE2)
       // load and perform the vertical filtering pass
       // this uses 3*x + y = 4*x + (y - x)
-      __m128i zero  = _mm_setzero_si128();
-      __m128i farb  = _mm_loadl_epi64((__m128i *) (in_far + i));
-      __m128i nearb = _mm_loadl_epi64((__m128i *) (in_near + i));
-      __m128i farw  = _mm_unpacklo_epi8(farb, zero);
-      __m128i nearw = _mm_unpacklo_epi8(nearb, zero);
-      __m128i diff  = _mm_sub_epi16(farw, nearw);
-      __m128i nears = _mm_slli_epi16(nearw, 2);
-      __m128i curr  = _mm_add_epi16(nears, diff); // current row
+      __vkd3d8i zero  = _mm_setzero_si128();
+      __vkd3d8i farb  = _mm_loadl_epi64((__vkd3d8i *) (in_far + i));
+      __vkd3d8i nearb = _mm_loadl_epi64((__vkd3d8i *) (in_near + i));
+      __vkd3d8i farw  = _mm_unpacklo_epi8(farb, zero);
+      __vkd3d8i nearw = _mm_unpacklo_epi8(nearb, zero);
+      __vkd3d8i diff  = _mm_sub_epi16(farw, nearw);
+      __vkd3d8i nears = _mm_slli_epi16(nearw, 2);
+      __vkd3d8i curr  = _mm_add_epi16(nears, diff); // current row
 
       // horizontal filter works the same based on shifted vers of current
       // row. "prev" is current row shifted right by 1 pixel; we need to
       // insert the previous pixel value (from t1).
       // "next" is current row shifted left by 1 pixel, with first pixel
       // of next block of 8 pixels added in.
-      __m128i prv0 = _mm_slli_si128(curr, 2);
-      __m128i nxt0 = _mm_srli_si128(curr, 2);
-      __m128i prev = _mm_insert_epi16(prv0, t1, 0);
-      __m128i next = _mm_insert_epi16(nxt0, 3*in_near[i+8] + in_far[i+8], 7);
+      __vkd3d8i prv0 = _mm_slli_si128(curr, 2);
+      __vkd3d8i nxt0 = _mm_srli_si128(curr, 2);
+      __vkd3d8i prev = _mm_insert_epi16(prv0, t1, 0);
+      __vkd3d8i next = _mm_insert_epi16(nxt0, 3*in_near[i+8] + in_far[i+8], 7);
 
       // horizontal filter, polyphase implementation since it's convenient:
       // even pixels = 3*cur + prev = cur*4 + (prev - cur)
       // odd  pixels = 3*cur + next = cur*4 + (next - cur)
       // note the shared term.
-      __m128i bias  = _mm_set1_epi16(8);
-      __m128i curs = _mm_slli_epi16(curr, 2);
-      __m128i prvd = _mm_sub_epi16(prev, curr);
-      __m128i nxtd = _mm_sub_epi16(next, curr);
-      __m128i curb = _mm_add_epi16(curs, bias);
-      __m128i even = _mm_add_epi16(prvd, curb);
-      __m128i odd  = _mm_add_epi16(nxtd, curb);
+      __vkd3d8i bias  = _mm_set1_epi16(8);
+      __vkd3d8i curs = _mm_slli_epi16(curr, 2);
+      __vkd3d8i prvd = _mm_sub_epi16(prev, curr);
+      __vkd3d8i nxtd = _mm_sub_epi16(next, curr);
+      __vkd3d8i curb = _mm_add_epi16(curs, bias);
+      __vkd3d8i even = _mm_add_epi16(prvd, curb);
+      __vkd3d8i odd  = _mm_add_epi16(nxtd, curb);
 
       // interleave even and odd pixels, then undo scaling.
-      __m128i int0 = _mm_unpacklo_epi16(even, odd);
-      __m128i int1 = _mm_unpackhi_epi16(even, odd);
-      __m128i de0  = _mm_srli_epi16(int0, 4);
-      __m128i de1  = _mm_srli_epi16(int1, 4);
+      __vkd3d8i int0 = _mm_unpacklo_epi16(even, odd);
+      __vkd3d8i int1 = _mm_unpackhi_epi16(even, odd);
+      __vkd3d8i de0  = _mm_srli_epi16(int0, 4);
+      __vkd3d8i de1  = _mm_srli_epi16(int1, 4);
 
       // pack and write output
-      __m128i outv = _mm_packus_epi16(de0, de1);
-      _mm_storeu_si128((__m128i *) (out + i*2), outv);
+      __vkd3d8i outv = _mm_packus_epi16(de0, de1);
+      _mm_storeu_si128((__vkd3d8i *) (out + i*2), outv);
 #elif defined(STBI_NEON)
       // load and perform the vertical filtering pass
       // this uses 3*x + y = 4*x + (y - x)
@@ -3446,56 +3446,56 @@ static void stbi__YCbCr_to_RGB_simd(stbi_uc *out, stbi_uc const *y, stbi_uc cons
    // so just accelerate step == 4 case.
    if (step == 4) {
       // this is a fairly straightforward implementation and not super-optimized.
-      __m128i signflip  = _mm_set1_epi8(-0x80);
-      __m128i cr_const0 = _mm_set1_epi16(   (short) ( 1.40200f*4096.0f+0.5f));
-      __m128i cr_const1 = _mm_set1_epi16( - (short) ( 0.71414f*4096.0f+0.5f));
-      __m128i cb_const0 = _mm_set1_epi16( - (short) ( 0.34414f*4096.0f+0.5f));
-      __m128i cb_const1 = _mm_set1_epi16(   (short) ( 1.77200f*4096.0f+0.5f));
-      __m128i y_bias = _mm_set1_epi8((char) (unsigned char) 128);
-      __m128i xw = _mm_set1_epi16(255); // alpha channel
+      __vkd3d8i signflip  = _mm_set1_epi8(-0x80);
+      __vkd3d8i cr_const0 = _mm_set1_epi16(   (short) ( 1.40200f*4096.0f+0.5f));
+      __vkd3d8i cr_const1 = _mm_set1_epi16( - (short) ( 0.71414f*4096.0f+0.5f));
+      __vkd3d8i cb_const0 = _mm_set1_epi16( - (short) ( 0.34414f*4096.0f+0.5f));
+      __vkd3d8i cb_const1 = _mm_set1_epi16(   (short) ( 1.77200f*4096.0f+0.5f));
+      __vkd3d8i y_bias = _mm_set1_epi8((char) (unsigned char) 128);
+      __vkd3d8i xw = _mm_set1_epi16(255); // alpha channel
 
       for (; i+7 < count; i += 8) {
          // load
-         __m128i y_bytes = _mm_loadl_epi64((__m128i *) (y+i));
-         __m128i cr_bytes = _mm_loadl_epi64((__m128i *) (pcr+i));
-         __m128i cb_bytes = _mm_loadl_epi64((__m128i *) (pcb+i));
-         __m128i cr_biased = _mm_xor_si128(cr_bytes, signflip); // -128
-         __m128i cb_biased = _mm_xor_si128(cb_bytes, signflip); // -128
+         __vkd3d8i y_bytes = _mm_loadl_epi64((__vkd3d8i *) (y+i));
+         __vkd3d8i cr_bytes = _mm_loadl_epi64((__vkd3d8i *) (pcr+i));
+         __vkd3d8i cb_bytes = _mm_loadl_epi64((__vkd3d8i *) (pcb+i));
+         __vkd3d8i cr_biased = _mm_xor_si128(cr_bytes, signflip); // -128
+         __vkd3d8i cb_biased = _mm_xor_si128(cb_bytes, signflip); // -128
 
          // unpack to short (and left-shift cr, cb by 8)
-         __m128i yw  = _mm_unpacklo_epi8(y_bias, y_bytes);
-         __m128i crw = _mm_unpacklo_epi8(_mm_setzero_si128(), cr_biased);
-         __m128i cbw = _mm_unpacklo_epi8(_mm_setzero_si128(), cb_biased);
+         __vkd3d8i yw  = _mm_unpacklo_epi8(y_bias, y_bytes);
+         __vkd3d8i crw = _mm_unpacklo_epi8(_mm_setzero_si128(), cr_biased);
+         __vkd3d8i cbw = _mm_unpacklo_epi8(_mm_setzero_si128(), cb_biased);
 
          // color transform
-         __m128i yws = _mm_srli_epi16(yw, 4);
-         __m128i cr0 = _mm_mulhi_epi16(cr_const0, crw);
-         __m128i cb0 = _mm_mulhi_epi16(cb_const0, cbw);
-         __m128i cb1 = _mm_mulhi_epi16(cbw, cb_const1);
-         __m128i cr1 = _mm_mulhi_epi16(crw, cr_const1);
-         __m128i rws = _mm_add_epi16(cr0, yws);
-         __m128i gwt = _mm_add_epi16(cb0, yws);
-         __m128i bws = _mm_add_epi16(yws, cb1);
-         __m128i gws = _mm_add_epi16(gwt, cr1);
+         __vkd3d8i yws = _mm_srli_epi16(yw, 4);
+         __vkd3d8i cr0 = _mm_mulhi_epi16(cr_const0, crw);
+         __vkd3d8i cb0 = _mm_mulhi_epi16(cb_const0, cbw);
+         __vkd3d8i cb1 = _mm_mulhi_epi16(cbw, cb_const1);
+         __vkd3d8i cr1 = _mm_mulhi_epi16(crw, cr_const1);
+         __vkd3d8i rws = _mm_add_epi16(cr0, yws);
+         __vkd3d8i gwt = _mm_add_epi16(cb0, yws);
+         __vkd3d8i bws = _mm_add_epi16(yws, cb1);
+         __vkd3d8i gws = _mm_add_epi16(gwt, cr1);
 
          // descale
-         __m128i rw = _mm_srai_epi16(rws, 4);
-         __m128i bw = _mm_srai_epi16(bws, 4);
-         __m128i gw = _mm_srai_epi16(gws, 4);
+         __vkd3d8i rw = _mm_srai_epi16(rws, 4);
+         __vkd3d8i bw = _mm_srai_epi16(bws, 4);
+         __vkd3d8i gw = _mm_srai_epi16(gws, 4);
 
          // back to byte, set up for transpose
-         __m128i brb = _mm_packus_epi16(rw, bw);
-         __m128i gxb = _mm_packus_epi16(gw, xw);
+         __vkd3d8i brb = _mm_packus_epi16(rw, bw);
+         __vkd3d8i gxb = _mm_packus_epi16(gw, xw);
 
          // transpose to interleave channels
-         __m128i t0 = _mm_unpacklo_epi8(brb, gxb);
-         __m128i t1 = _mm_unpackhi_epi8(brb, gxb);
-         __m128i o0 = _mm_unpacklo_epi16(t0, t1);
-         __m128i o1 = _mm_unpackhi_epi16(t0, t1);
+         __vkd3d8i t0 = _mm_unpacklo_epi8(brb, gxb);
+         __vkd3d8i t1 = _mm_unpackhi_epi8(brb, gxb);
+         __vkd3d8i o0 = _mm_unpacklo_epi16(t0, t1);
+         __vkd3d8i o1 = _mm_unpackhi_epi16(t0, t1);
 
          // store
-         _mm_storeu_si128((__m128i *) (out + 0), o0);
-         _mm_storeu_si128((__m128i *) (out + 16), o1);
+         _mm_storeu_si128((__vkd3d8i *) (out + 0), o0);
+         _mm_storeu_si128((__vkd3d8i *) (out + 16), o1);
          out += 32;
       }
    }

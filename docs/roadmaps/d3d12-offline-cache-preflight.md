@@ -9,7 +9,7 @@ offline-only and makes the phase 7 PSO replay limitation machine-readable.
 
 ```sh
 python3 vendor/dxmt/tests/dxil/replay_d3d12_pso_metadata.py \
-  --cache /Users/alexmondello/.metalsharp/shader-cache/m12/2050650 \
+  --cache /Users/alexmondello/.metalsharp/shader-cache/vkd3d/2050650 \
   --output /tmp/replay_d3d12_pso_metadata_phase8.json
 ```
 

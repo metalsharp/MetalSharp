@@ -6,7 +6,7 @@ Status: Phase 9 active
 
 This roadmap tracks the work needed to make `Install Windows Program` reliable for assorted Windows installers by treating installers as bottle-managed programs with installer-specific runtime prep, logs, repair actions, and post-install app discovery.
 
-Core rule: the installer bootstrap route is not the game/app runtime route. Installer and launcher bootstrap work should happen in a stable bottle route first; the final detected app or game executable can then choose M9, M10, M11, M12, bare Wine, or another route from its own evidence.
+Core rule: the installer bootstrap route is not the game/app runtime route. Installer and launcher bootstrap work should happen in a stable bottle route first; the final detected app or game executable can then choose M9, M10, M11, VKD3D, bare Wine, or another route from its own evidence.
 
 ## Phase 1: Classify Installers Correctly
 
@@ -21,7 +21,7 @@ Build the installer classifier around real families:
 - Legacy .NET installers
 - Console/admin tools, like `BERCon.exe`
 
-Known launchers should install through `WineBare`, not M9/M11/M12. Graphics pipelines belong to the final launched game executable, not the bootstrap installer.
+Known launchers should install through `WineBare`, not M9/M11/VKD3D. Graphics pipelines belong to the final launched game executable, not the bootstrap installer.
 
 ## Phase 2: Runtime Profiles Per Installer Family
 

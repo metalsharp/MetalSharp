@@ -10,11 +10,11 @@ REPO="${METALSHARP_BUNDLE_REPO:-aaf2tbz/metalsharp}"
 MANIFEST="$PROJECT_ROOT/tools/bundles/asset-manifest.tsv"
 REPAIR_BUNDLES="${METALSHARP_REPAIR_BUNDLES:-1}"
 SKIP_DEVELOPER_SDK="${METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE:-0}"
-# M12 (dxmt-m12) dll refresh is off by default. Rebuilding the m12 lane from a
+# VKD3D (dxmt-vkd3d) dll refresh is off by default. Rebuilding the vkd3d lane from a
 # local runtime root silently changes the dlls and desyncs the bundle from the
-# installer's compiled-in DXMT_M12_EXPECTED_HASHES. Set METALSHARP_REPAIR_M12=1
-# only when intentionally refreshing the canonical m12 material.
-REPAIR_M12="${METALSHARP_REPAIR_M12:-0}"
+# installer's compiled-in DXMT_VKD3D_EXPECTED_HASHES. Set METALSHARP_REPAIR_VKD3D=1
+# only when intentionally refreshing the canonical vkd3d material.
+REPAIR_VKD3D="${METALSHARP_REPAIR_VKD3D:-0}"
 
 mkdir -p "$BUNDLE_DIR" "$OUT_DIR"
 
@@ -33,21 +33,21 @@ download_asset() {
   curl -fL --retry 3 -o "$dest" "https://github.com/$REPO/releases/download/$RELEASE_TAG/$asset"
 }
 
-repair_graphics_m12_bundle() {
+repair_graphics_vkd3d_bundle() {
   local archive="$BUNDLE_DIR/metalsharp-graphics-dll.tar.zst"
-  local m12_root="${METALSHARP_DXMT_M12_ROOT:-$HOME/.metalsharp/runtime/wine/lib/dxmt_m12}"
-  if [ ! -s "$archive" ] || [ ! -d "$m12_root/x86_64-windows" ] || [ ! -d "$m12_root/x86_64-unix" ]; then
+  local vkd3d_root="${METALSHARP_DXMT_VKD3D_ROOT:-$HOME/.metalsharp/runtime/wine/lib/dxmt_vkd3d}"
+  if [ ! -s "$archive" ] || [ ! -d "$vkd3d_root/x86_64-windows" ] || [ ! -d "$vkd3d_root/x86_64-unix" ]; then
     return 0
   fi
 
   local tmp root
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-graphics-m12.XXXXXX")"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-graphics-vkd3d.XXXXXX")"
   root="$tmp/root"
   mkdir -p "$root"
   tar --use-compress-program=unzstd -xf "$archive" -C "$root"
-  mkdir -p "$root/Graphics/dll/dxmt-m12/x86_64-unix" "$root/Graphics/dll/dxmt-m12/x86_64-windows"
-  cp -R -p "$m12_root/x86_64-unix/." "$root/Graphics/dll/dxmt-m12/x86_64-unix/"
-  cp -R -p "$m12_root/x86_64-windows/." "$root/Graphics/dll/dxmt-m12/x86_64-windows/"
+  mkdir -p "$root/Graphics/dll/dxmt-vkd3d/x86_64-unix" "$root/Graphics/dll/dxmt-vkd3d/x86_64-windows"
+  cp -R -p "$vkd3d_root/x86_64-unix/." "$root/Graphics/dll/dxmt-vkd3d/x86_64-unix/"
+  cp -R -p "$vkd3d_root/x86_64-windows/." "$root/Graphics/dll/dxmt-vkd3d/x86_64-windows/"
   (
     cd "$root"
     tar -cf "$tmp/metalsharp-graphics-dll.tar" Graphics
@@ -55,7 +55,7 @@ repair_graphics_m12_bundle() {
   zstd -q -19 -T0 -f "$tmp/metalsharp-graphics-dll.tar" -o "$archive"
   chmod 0644 "$archive"
   rm -rf "$tmp"
-  echo "repaired graphics M12 payload: $archive from $m12_root"
+  echo "repaired graphics VKD3D payload: $archive from $vkd3d_root"
 }
 
 repair_assets_fnalibs_bundle() {
@@ -144,10 +144,10 @@ while IFS=$'\t' read -r asset _root _platforms _notes; do
 done < "$MANIFEST"
 
 if [ "$REPAIR_BUNDLES" = "1" ]; then
-  if [ "$REPAIR_M12" = "1" ]; then
-    repair_graphics_m12_bundle
+  if [ "$REPAIR_VKD3D" = "1" ]; then
+    repair_graphics_vkd3d_bundle
   else
-    echo "M12 dll repair disabled (METALSHARP_REPAIR_M12!=1); preserving canonical dxmt-m12 lane"
+    echo "VKD3D dll repair disabled (METALSHARP_REPAIR_VKD3D!=1); preserving canonical dxmt-vkd3d lane"
   fi
   repair_assets_fnalibs_bundle
   repair_scripts_tools_eac_bundle

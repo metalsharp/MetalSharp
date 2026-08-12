@@ -320,7 +320,7 @@ int main(int argc, const char** argv) {
                   async_errors_snapshot.count == 0;
 
         NSMutableDictionary* result = [NSMutableDictionary dictionary];
-        result[@"schema"] = @"metalsharp.m12.fresh.metal-archive-proof.v1";
+        result[@"schema"] = @"metalsharp.vkd3d.fresh.metal-archive-proof.v1";
         result[@"ok"] = @(ok);
         result[@"device_name"] = device.name ?: @"";
         result[@"manifest_count"] = @(manifest_count);

@@ -1652,7 +1652,8 @@ pub fn set_launch_args(id: &str, args: Vec<String>) -> Result<(), Box<dyn std::e
 }
 
 pub fn set_engine(id: &str, engine: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let valid = ["auto", "wine_bare", "m64", "m9", "dxmt", "dxmt_32", "m12", "m32", "d3d9", "d3d10", "d3d11", "d3d12"];
+    let valid =
+        ["auto", "wine_bare", "m64", "m9", "dxmt", "dxmt_32", "vkd3d", "m32", "d3d9", "d3d10", "d3d11", "d3d12"];
     if engine != "auto" && crate::mtsp::engine::PipelineId::from_str_flexible(engine).is_none() {
         return Err(format!("Unknown engine: {}. Valid: {}", engine, valid.join(", ")).into());
     }
@@ -1797,7 +1798,7 @@ fn pipeline_engine_id(pipeline: crate::mtsp::engine::PipelineId) -> &'static str
         crate::mtsp::engine::PipelineId::Dxmt => "dxmt",
         crate::mtsp::engine::PipelineId::Dxmt32 => "dxmt_32",
         crate::mtsp::engine::PipelineId::M9 => "m9",
-        crate::mtsp::engine::PipelineId::M12 => "m12",
+        crate::mtsp::engine::PipelineId::Vkd3d => "vkd3d",
         crate::mtsp::engine::PipelineId::M13 => "m13",
         crate::mtsp::engine::PipelineId::M32 => "m32",
         crate::mtsp::engine::PipelineId::WineBare => "wine_bare",
@@ -1829,7 +1830,7 @@ fn resolve_sharp_pipeline(engine: &str, exe_path: &Path) -> crate::mtsp::engine:
     }
 
     match pe.detected_api {
-        crate::mtsp::pe::D3dApi::D3D12 => crate::mtsp::engine::PipelineId::M12,
+        crate::mtsp::pe::D3dApi::D3D12 => crate::mtsp::engine::PipelineId::Vkd3d,
         crate::mtsp::pe::D3dApi::D3D11 => crate::mtsp::engine::PipelineId::Dxmt,
         crate::mtsp::pe::D3dApi::D3D10 => crate::mtsp::engine::PipelineId::Dxmt,
         crate::mtsp::pe::D3dApi::D3D9 => crate::mtsp::engine::PipelineId::M9,

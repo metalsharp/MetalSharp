@@ -998,7 +998,7 @@ fn stage_game_local_d3dmetal_route_dlls_for_exe(state: &D3DMetalGptkState, game_
                 fs::create_dir_all(parent).map_err(|e| format!("create {}: {}", parent.display(), e))?;
             }
             fs::rename(&path, &target).map_err(|e| {
-                format!("quarantine stale app-local M12 route DLL {} -> {}: {}", path.display(), target.display(), e)
+                format!("quarantine stale app-local Vkd3d route DLL {} -> {}: {}", path.display(), target.display(), e)
             })?;
             moved.push(json!({"from": path.to_string_lossy(), "to": target.to_string_lossy()}));
         }
@@ -1010,7 +1010,7 @@ fn stage_game_local_d3dmetal_route_dlls_for_exe(state: &D3DMetalGptkState, game_
         let marker = marker_root.join("latest-manifest.json");
         let manifest = json!({
             "quarantined_at": now_secs(),
-            "reason": "D3DMetal/GPTK lane replaces app-local M12/DXMT route DLLs with Homebrew-matched D3DMetal route DLLs",
+            "reason": "D3DMetal/GPTK lane replaces app-local Vkd3d/DXMT route DLLs with Homebrew-matched D3DMetal route DLLs",
             "moved": moved,
             "deployed": deployed,
         });
@@ -1076,20 +1076,20 @@ fn verify_game_local_d3dmetal_route_dlls_for_exe(_state: &D3DMetalGptkState, gam
             bad.push((*dll).to_string());
         }
     }
-    let stale_m12: Vec<String> = GAME_LOCAL_ROUTE_DLLS
+    let stale_vkd3d: Vec<String> = GAME_LOCAL_ROUTE_DLLS
         .iter()
         .filter(|dll| !GPTK_ROUTE_DLLS.iter().any(|candidate| candidate.eq_ignore_ascii_case(dll)))
         .map(|dll| exe_dir.join(dll))
         .filter(|path| path.is_file())
         .map(|path| path.to_string_lossy().to_string())
         .collect();
-    if bad.is_empty() && stale_m12.is_empty() {
+    if bad.is_empty() && stale_vkd3d.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "app-local D3DMetal route DLLs are not current; mismatched=[{}] stale_m12=[{}]",
+            "app-local D3DMetal route DLLs are not current; mismatched=[{}] stale_vkd3d=[{}]",
             bad.join(", "),
-            stale_m12.join(", ")
+            stale_vkd3d.join(", ")
         ))
     }
 }

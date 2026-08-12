@@ -30,7 +30,7 @@ Baseline before any work: **502 tests passed, 0 failed.**
     from `<game_dir>/.metalsharp/injections.json`, plus the recorded source
     hash and a `matches_source` boolean
   - `cache_directories[]` — shader cache roots per pipeline (M9/M10/M11 share
-    the `dxmt-metal` family; M12/M13 use the isolated `dxmt-metal12` family)
+    the `dxmt-metal` family; VKD3D/M13 use the isolated `dxmt-metal12` family)
 - Missing required runtime artifacts produce a **structured failure**
   (`ok: false`, `missing_artifacts[]`, explanatory `error`) instead of a
   silent fallback. Optional stubs (nvapi/nvngx/atidxx) are tolerated.
@@ -49,7 +49,7 @@ Baseline before any work: **502 tests passed, 0 failed.**
 **New tests (11):** known appid diagnostic fields, structured failure on
 missing artifacts, sha256 known-vector, sha256-of-missing, timing checkpoint
 ordering, timing monotonicity, shader cache family isolation (M11 shares
-legacy, M12 isolated), timing round-trip, scan-timing round-trip, staged DLL
+legacy, VKD3D isolated), timing round-trip, scan-timing round-trip, staged DLL
 hash matching source.
 
 **Proof:**
@@ -78,10 +78,10 @@ content hashes in the existing injection manifest.
   `runtime_profile_for_pipeline`, `pipeline_preference_id`, pipeline node's
   `requires_wine`) so it cannot drift from launch behavior.
 - `steam_route_contract_for(pipeline)` and `steam_route_contracts()` table
-  covering M9, M10, M11, M12, M13, FnaArm64, WineBare, D3DMetal.
-- Passive-refresh preservation tests for M11 and M12 (the M9 case already
+  covering M9, M10, M11, VKD3D, M13, FnaArm64, WineBare, D3DMetal.
+- Passive-refresh preservation tests for M11 and VKD3D (the M9 case already
   existed): a saved M11 route survives a passive refresh that would resolve
-  to M12, and a saved M12 route survives passive fallback to M11/M9.
+  to VKD3D, and a saved VKD3D route survives passive fallback to M11/M9.
 - A data-driven route-contract test that builds a bottle per contract lane
   and asserts `steam_compatdata_record` matches the contract (appid scoping,
   bottle id, launch pipeline, identity mode, compat tool, launch route).
@@ -100,9 +100,9 @@ content hashes in the existing injection manifest.
   and migration tests use explicit-home (`_for`) variants so they are safe
   under parallel test execution.
 
-**New tests (8):** M11 passive preservation, M12 passive preservation,
+**New tests (8):** M11 passive preservation, VKD3D passive preservation,
 route-contract table vs compatdata records, route-contract lane coverage,
-M12 isolated-lane contract, D3DMetal offline contract, `deploy_steam_appid`
+VKD3D isolated-lane contract, D3DMetal offline contract, `deploy_steam_appid`
 staging, migration preserve/skip report round-trip.
 
 **Proof:**
@@ -119,39 +119,39 @@ The route contract is derived from existing primitives, not a new source of
 truth. Migration preserve/restore logic is unchanged; only an observational
 report was added.
 
-## Phase 3: M12 Artifact and Launch Verification ✅
+## Phase 3: VKD3D Artifact and Launch Verification ✅
 
-**Purpose:** prove M12 is using the intended updated DXMT/winemetal artifacts
+**Purpose:** prove VKD3D is using the intended updated DXMT/winemetal artifacts
 before debugging games.
 
 **What landed:**
-- `m12_verify_dry_run(appid)` and `pipeline_dry_run_for(home, appid, requested)`
+- `vkd3d_verify_dry_run(appid)` and `pipeline_dry_run_for(home, appid, requested)`
   — a read-only verifier that runs through the **same environment builder**
   (`steam_pipeline_env_pairs`) as `launch_dxmt_metal`. It reports, without
   launching Steam or the game:
-  - the resolved `lib/dxmt-m12/x86_64-windows` dir + each deploy DLL
+  - the resolved `lib/dxmt-vkd3d/x86_64-windows` dir + each deploy DLL
     (`d3d12.dll`, `dxgi.dll`, `d3d11.dll`, `d3d10core.dll`, `winemetal.dll`,
     …) with presence, sha256, and size
-  - the `lib/dxmt-m12/x86_64-unix` sidecars (`winemetal.so`, `libc++.1.dylib`,
-    `libc++abi.1.dylib`, `libunwind.1.dylib`) for the M12/M13 lane
+  - the `lib/dxmt-vkd3d/x86_64-unix` sidecars (`winemetal.so`, `libc++.1.dylib`,
+    `libc++abi.1.dylib`, `libunwind.1.dylib`) for the VKD3D/M13 lane
   - the exact env pairs the launch path sets, with an `env_keys_present` map
     for `WINEDLLOVERRIDES`, `DXMT_SHADER_CACHE_PATH`, `DYLD_FALLBACK_LIBRARY_PATH`,
     `SteamAppId`, `DXMT_WINEMETAL_UNIXLIB`
   - missing required artifacts as a structured `ok: false` + `missing[]` array
     (optional stubs nvapi/nvngx/atidxx tolerated)
-- New routes: `GET /diagnostics/m12/dry-run?appid=`,
+- New routes: `GET /diagnostics/vkd3d/dry-run?appid=`,
   `GET /diagnostics/pipeline/dry-run?appid=&pipeline=`.
-- `docs/architecture/m12-pipeline-map.md` now documents the verifier and marks
-  stability gap #1 ("first-class M12 runtime verification") as addressed.
+- `docs/architecture/vkd3d-pipeline-map.md` now documents the verifier and marks
+  stability gap #1 ("first-class VKD3D runtime verification") as addressed.
 - Verified the existing SDK proof scripts are invocable with the roadmap's
   flags: `preflight-runtime-layout.py --profile metalsharp`,
   `run-probes.sh --profile metalsharp --mini-only`, `validate-contracts.py`.
 
-**New tests (5):** M12 deploy list includes d3d12 and uses isolated
-`lib/dxmt-m12` surface; M11 deploy list excludes d3d12 and never touches
-`lib/dxmt-m12`; M12 dry-run includes d3d12 / M11 does not + env keys;
-M12 dry-run verifies unix sidecars and flags missing artifacts;
-M12 env vars set winemetal overrides + isolated `m12` shader cache.
+**New tests (5):** VKD3D deploy list includes d3d12 and uses isolated
+`lib/dxmt-vkd3d` surface; M11 deploy list excludes d3d12 and never touches
+`lib/dxmt-vkd3d`; VKD3D dry-run includes d3d12 / M11 does not + env keys;
+VKD3D dry-run verifies unix sidecars and flags missing artifacts;
+VKD3D env vars set winemetal overrides + isolated `vkd3d` shader cache.
 
 **Proof:**
 ```
@@ -167,7 +167,7 @@ The verifier is purely read-only — it never deploys, spawns, or launches.
 
 ## Phase 4: Shader, PSO, and Cache Diagnostics ✅
 
-**Purpose:** turn opaque M12 graphics failures into actionable shader/PSO/cache
+**Purpose:** turn opaque VKD3D graphics failures into actionable shader/PSO/cache
 evidence.
 
 **Scope note:** `vendor/dxmt` is vendored **reference source** — it is NOT
@@ -186,7 +186,7 @@ runtime's on-disk products, without touching shader lowering semantics.
     caches built against an older runtime build
   - a `stale_warning` when entries exist but no runtime hash is recorded
 - `shader_cache_family` / `primary_cache_subdir` codify the cache isolation
-  contract: M9/M10/M11 share the `dxmt-metal` family, M12/M13 use the isolated
+  contract: M9/M10/M11 share the `dxmt-metal` family, VKD3D/M13 use the isolated
   `dxmt-metal12` family.
 - `PsoDiagnosticManifest` — the stable JSON schema for DXMT PSO trace
   sidecars (DXIL input hash, MSL output hash, root signature hash, vertex
@@ -198,7 +198,7 @@ runtime's on-disk products, without touching shader lowering semantics.
   `GET /diagnostics/pso-manifests?appid=&pipeline=&limit=`.
 
 **New tests (8):** shader cache family isolation, primary cache subdir mapping,
-cache doctor counts entries + reports isolated M12 lane, cache doctor empty
+cache doctor counts entries + reports isolated VKD3D lane, cache doctor empty
 state, cache doctor stale warning without runtime hash, graphics PSO manifest
 failure parse, compute PSO manifest success parse, recent PSO manifests
 newest-first ordering.
@@ -213,7 +213,7 @@ cargo test                        # 534 passed, 0 failed
 
 **Boundary check:** no shader lowering semantics changed. Cache inspection is
 strictly read-only (SQLite `SQLITE_OPEN_READ_ONLY`). M9/M10/M11 cache families
-remain shared as before; M12/M13 remain isolated.
+remain shared as before; VKD3D/M13 remain isolated.
 
 ## Phase 5: Descriptor and Root-Signature Metal Binding Hardening ✅
 
@@ -329,9 +329,9 @@ trace patterns the validator accepts in clean form.
 **What landed:**
 - `installer::runtime_artifact_report[_for]` — per-artifact verification that
   goes beyond the existing `file_nonempty` presence checks by recording sha256
-  + size for EACH required file (M11 `lib/dxmt` and M12 `lib/dxmt-m12`, both
-  PE and unix sidecars). A missing M12 sidecar is now reported by name.
-- `installer::missing_m12_sidecars[_for]` — explicitly named missing M12
+  + size for EACH required file (M11 `lib/dxmt` and VKD3D `lib/dxmt-vkd3d`, both
+  PE and unix sidecars). A missing VKD3D sidecar is now reported by name.
+- `installer::missing_vkd3d_sidecars[_for]` — explicitly named missing VKD3D
   DLLs/dylibs/so, for the regression gate.
 - `bottles::WinebootState` — explicit state machine (`Idle` /
   `PrefixUpdating` / `Verifying` / `PrefixMissing`) separating "prefix is
@@ -351,7 +351,7 @@ trace patterns the validator accepts in clean form.
   the process-global `METALSHARP_HOME` (parallel-safe).
 
 **New tests (6):** wineboot PrefixMissing when absent; Verifying takes
-precedence; wineboot report distinguishes updating vs verifying; missing M12
+precedence; wineboot report distinguishes updating vs verifying; missing VKD3D
 sidecars listed by name; runtime artifact report names each file with presence
 + hash; stop-targets report shape.
 
@@ -426,7 +426,7 @@ land.
   ctest), and the D3D12 Metal SDK probes CI cannot run, plus a table of every
   Phase 1–8 backend diagnostic route.
 - `docs/optimization-roadmap/release-checklist.md` — pre-release verification:
-  version sync across the 5 files, runtime artifact presence + hashes, M12
+  version sync across the 5 files, runtime artifact presence + hashes, VKD3D
   sidecar presence, legacy DXMT surface presence, local graphics gates, route
   gates, and the strict SDK doc gate (no "D3D12 works" claim without naming
   the exact route/probes/feature level/gaps).
@@ -471,8 +471,8 @@ M9/M10/M11 launch behavior / artifact paths untouched.
 
 The final state is a cleaner MetalSharp, not a risky graphics branch:
 - launch routes are explainable (`/diagnostics/launch`, route contracts);
-- bottles preserve intent (passive-refresh preservation tested for M9/M11/M12);
-- M12 artifact use is provable (`/diagnostics/m12/dry-run`);
+- bottles preserve intent (passive-refresh preservation tested for M9/M11/VKD3D);
+- VKD3D artifact use is provable (`/diagnostics/vkd3d/dry-run`);
 - DXMT/winemetal failures are diagnosable (cache doctor, PSO manifests);
 - binding and command-replay bugs are contract failures, not game mysteries;
 - migration preserves/skips are reported;

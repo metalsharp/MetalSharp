@@ -44,7 +44,7 @@ const apiKeyInput = ref("");
 const graphicsRuntimeLogs = ref(false);
 const developerTelemetry = ref(true);
 const developerFeedback = ref("");
-const m12Backend = ref<"vkd3d-proton" | "dxmt">("vkd3d-proton");
+const vkd3dBackend = ref<"vkd3d-proton" | "dxmt">("vkd3d-proton");
 
 interface WineMonoStatus {
   latestVersion: string;
@@ -166,8 +166,8 @@ async function refreshConfig() {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
     developerTelemetry.value = result.developerTelemetry ?? true;
-    if (result.m12Backend === "vkd3d-proton" || result.m12Backend === "dxmt") {
-      m12Backend.value = result.m12Backend;
+    if (result.vkd3dBackend === "vkd3d-proton" || result.vkd3dBackend === "dxmt") {
+      vkd3dBackend.value = result.vkd3dBackend;
     }
   }
 }
@@ -426,25 +426,25 @@ async function toggleGraphicsRuntimeLogs(enabled: boolean) {
   }
 }
 
-async function setM12Backend(backend: "vkd3d-proton" | "dxmt") {
-  if (backend === m12Backend.value) return;
-  const previous = m12Backend.value;
-  m12Backend.value = backend;
-  const result = await api<AppConfig>("POST", "/config", { m12Backend: backend });
+async function setVKD3DBackend(backend: "vkd3d-proton" | "dxmt") {
+  if (backend === vkd3dBackend.value) return;
+  const previous = vkd3dBackend.value;
+  vkd3dBackend.value = backend;
+  const result = await api<AppConfig>("POST", "/config", { vkd3dBackend: backend });
   if (result?.ok) {
     config.value = result;
-    if (result.m12Backend === "vkd3d-proton" || result.m12Backend === "dxmt") {
-      m12Backend.value = result.m12Backend;
+    if (result.vkd3dBackend === "vkd3d-proton" || result.vkd3dBackend === "dxmt") {
+      vkd3dBackend.value = result.vkd3dBackend;
     }
     toast.show(
-      m12Backend.value === "vkd3d-proton"
-        ? "M12 will use vkd3d-proton (D3D12 -> Vulkan -> MoltenVK) on next launch"
-        : "M12 will fall back to DXMT on next launch",
+      vkd3dBackend.value === "vkd3d-proton"
+        ? "VKD3D will use vkd3d-proton (D3D12 -> Vulkan -> MoltenVK) on next launch"
+        : "VKD3D will fall back to DXMT on next launch",
       "success",
     );
   } else {
-    m12Backend.value = previous;
-    toast.show("Failed to save M12 backend setting", "error");
+    vkd3dBackend.value = previous;
+    toast.show("Failed to save VKD3D backend setting", "error");
   }
 }
 
@@ -631,7 +631,7 @@ function uninstallMetalsharp() {
         <div>
           <div class="settings-label">Graphics Runtime Logs</div>
           <div class="settings-desc">
-            Opt in to DXMT graphics logs for future launches. Off by default so M12 games do not emit runtime logs
+            Opt in to DXMT graphics logs for future launches. Off by default so VKD3D games do not emit runtime logs
             unless requested.
           </div>
         </div>
@@ -651,21 +651,21 @@ function uninstallMetalsharp() {
       </div>
       <div v-if="developerMode" class="settings-row">
         <div>
-          <div class="settings-label">M12 Graphics Backend</div>
+          <div class="settings-label">VKD3D Graphics Backend</div>
           <div class="settings-desc">
             D3D12 pipeline backend. vkd3d-proton (default) routes D3D12 through Vulkan and the VKMT MoltenVK stack; DXMT
             is the legacy fallback. Applies on next launch.
           </div>
         </div>
         <div class="settings-value">
-          <span class="badge" :class="m12Backend === 'vkd3d-proton' ? 'badge-ok' : 'badge-warn'">
-            {{ m12Backend === "vkd3d-proton" ? "vkd3d-proton" : "DXMT" }}
+          <span class="badge" :class="vkd3dBackend === 'vkd3d-proton' ? 'badge-ok' : 'badge-warn'">
+            {{ vkd3dBackend === "vkd3d-proton" ? "vkd3d-proton" : "DXMT" }}
           </span>
-          <label class="settings-toggle toggle-label" aria-label="M12 Graphics Backend">
+          <label class="settings-toggle toggle-label" aria-label="VKD3D Graphics Backend">
             <input
               type="checkbox"
-              :checked="m12Backend === 'dxmt'"
-              @change="setM12Backend(($event.target as HTMLInputElement).checked ? 'dxmt' : 'vkd3d-proton')"
+              :checked="vkd3dBackend === 'dxmt'"
+              @change="setVKD3DBackend(($event.target as HTMLInputElement).checked ? 'dxmt' : 'vkd3d-proton')"
             />
             <span class="toggle-switch"></span>
           </label>

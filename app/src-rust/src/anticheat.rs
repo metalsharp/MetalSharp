@@ -104,9 +104,9 @@ pub fn eac_enabled(appid: u32) -> bool {
 
 /// EAC is only opt-in on a MetalSharp Wine route.  A selected Steam or GPTK
 /// route must never silently receive the substrate: redirect those requests
-/// to the already-built M12 Wine 11.5 lane instead.  Existing MTSP Wine lanes
+/// to the already-built VKD3D Wine 11.5 lane instead.  Existing MTSP Wine lanes
 /// stay selectable so the card toggle does not overwrite a user's explicit
-/// M9/DXMT/DXMT(32)/M12 choice.
+/// M9/DXMT/DXMT(32)/VKD3D choice.
 pub fn eac_pipeline_for_request(
     appid: u32,
     requested: crate::mtsp::engine::PipelineId,
@@ -126,7 +126,7 @@ fn eac_pipeline_for_enabled(
 
     match requested {
         PipelineId::D3DMetal | PipelineId::M13 | PipelineId::FnaArm64 | PipelineId::Steam | PipelineId::MacSteam => {
-            PipelineId::M12
+            PipelineId::Vkd3d
         },
         pipeline => pipeline,
     }
@@ -1625,9 +1625,9 @@ mod tests {
         use crate::mtsp::engine::PipelineId;
 
         assert_eq!(eac_pipeline_for_enabled(false, PipelineId::D3DMetal), PipelineId::D3DMetal);
-        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::D3DMetal), PipelineId::M12);
+        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::D3DMetal), PipelineId::Vkd3d);
         assert_eq!(eac_pipeline_for_enabled(true, PipelineId::Dxmt), PipelineId::Dxmt);
-        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::Steam), PipelineId::M12);
+        assert_eq!(eac_pipeline_for_enabled(true, PipelineId::Steam), PipelineId::Vkd3d);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 {
   "schema": "metalsharp.d3d12.shader-engine.v1",
   "summary": {
-    "name": "M12 D3D12 shader engine",
+    "name": "VKD3D D3D12 shader engine",
     "purpose": "Define the DXBC/DXIL to Metal shader engine as one reviewed system covering parsing, lowering, binding manifests, PSO creation, cache behavior, runtime binding, offline replay, and probe gates.",
     "status": "active",
     "reported_shader_model": "6.5"
@@ -125,13 +125,13 @@
       "proves": "Captured DXBC/DXIL blobs replay through the converter and produce reusable shader artifacts."
     },
     {
-      "id": "m12-render-check",
-      "command": "tools/ci/m12-check.sh",
+      "id": "vkd3d-render-check",
+      "command": "tools/ci/vkd3d-check.sh",
       "proves": "A live DX12 render path can create PSOs, bind shaders, draw indexed geometry, present, and read back expected pixels."
     },
     {
-      "id": "m12-stress-game",
-      "command": "tools/d3d12-metal-sdk/scripts/m12-dev.sh stress-game",
+      "id": "vkd3d-stress-game",
+      "command": "tools/d3d12-metal-sdk/scripts/vkd3d-dev.sh stress-game",
       "proves": "A title-shaped DX12-only stress executable runs a splash/movie phase, compute UAV writes, descriptor-table SRV sampling, dynamic CBV roots, depth/blend rendering, dense instanced and micro-triangle draws, fullscreen strip presentation, barriers, present, and readback diagnostics."
     }
   ],
@@ -159,8 +159,8 @@
     },
     {
       "kind": "probe",
-      "path": "tools/ci/m12-check.sh",
-      "note": "CI-oriented M12 live render pipeline proof."
+      "path": "tools/ci/vkd3d-check.sh",
+      "note": "CI-oriented VKD3D live render pipeline proof."
     }
   ]
 }

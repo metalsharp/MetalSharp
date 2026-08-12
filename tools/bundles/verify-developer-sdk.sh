@@ -30,14 +30,14 @@ required=(
   "$ROOT/runtime/dxmt/x86_64-windows/dxgi_dxmt.dll"
   "$ROOT/runtime/dxmt/x86_64-windows/winemetal.dll"
   "$ROOT/runtime/dxmt/x86_64-unix/winemetal.so"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/d3d12.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/dxgi.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/dxgi_dxmt.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/winemetal.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/winemetal.so"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/libc++.1.dylib"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/libc++abi.1.dylib"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/libunwind.1.dylib"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-windows/d3d12.dll"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-windows/dxgi.dll"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-windows/dxgi_dxmt.dll"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-windows/winemetal.dll"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-unix/winemetal.so"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-unix/libc++.1.dylib"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-unix/libc++abi.1.dylib"
+  "$ROOT/runtime/dxmt_vkd3d/x86_64-unix/libunwind.1.dylib"
   "$ROOT/scripts/run-probes.sh"
   "$ROOT/scripts/stage-dxmt-runtime.py"
   "$ROOT/scripts/preflight-runtime-layout.py"
@@ -57,17 +57,17 @@ while IFS=$'\t' read -r rel expected; do
   case "$rel" in
     ""|"#"*|path) continue ;;
   esac
-  path="$TMP_DIR/$ROOT/runtime/dxmt_m12/$rel"
+  path="$TMP_DIR/$ROOT/runtime/dxmt_vkd3d/$rel"
   if [ ! -s "$path" ]; then
-    echo "Developer SDK archive is missing M12 hash-checked file: runtime/dxmt_m12/$rel" >&2
+    echo "Developer SDK archive is missing VKD3D hash-checked file: runtime/dxmt_vkd3d/$rel" >&2
     exit 1
   fi
   actual="$(shasum -a 256 "$path" | awk '{print $1}')"
   if [ "$actual" != "$expected" ]; then
-    echo "Developer SDK M12 hash mismatch: runtime/dxmt_m12/$rel expected=$expected actual=$actual" >&2
+    echo "Developer SDK VKD3D hash mismatch: runtime/dxmt_vkd3d/$rel expected=$expected actual=$actual" >&2
     exit 1
   fi
-done < "$PROJECT_ROOT/tools/bundles/m12-dxmt-runtime-hashes.tsv"
+done < "$PROJECT_ROOT/tools/bundles/vkd3d-dxmt-runtime-hashes.tsv"
 
 python3 - "$TMP_DIR/$ROOT/runtime/manifest.json" <<'PY'
 import json

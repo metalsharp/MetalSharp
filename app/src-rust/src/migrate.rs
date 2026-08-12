@@ -572,7 +572,7 @@ fn run_migration() {
     restore_user_data(&ms_dir, &preserved, &mut report);
     write_migration_report(&report);
 
-    // M12 runs the vkd3d-proton stack only (no DXMT fallback); the runtime
+    // VKD3D runs the vkd3d-proton stack only (no DXMT fallback); the runtime
     // install above either staged the vkd3d-proton/DXVK/VKMT lanes or failed
     // loudly. No backend reconciliation is needed.
 
@@ -880,7 +880,7 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
         },
     );
 
-    // Preserve the app config (m12Backend, msync, controllerInput,
+    // Preserve the app config (vkd3dBackend, msync, controllerInput,
     // graphicsRuntimeLogs). remove_old_runtime deletes configs/, so without
     // this every migration silently resets the user's runtime toggles.
     let config_json_path = ms_dir.join("configs").join("config.json");
@@ -2505,7 +2505,7 @@ fn restore_setup_json(ms_dir: &Path, data: &[u8], steam_api_key_restored: bool) 
 /// defaults written during install) are never clobbered.
 fn restore_config_json(ms_dir: &Path, data: &[u8]) {
     const PRESERVED_KEYS: &[&str] =
-        &["m12Backend", "msync", "controllerInput", "graphicsRuntimeLogs", "developerTelemetry"];
+        &["vkd3dBackend", "msync", "controllerInput", "graphicsRuntimeLogs", "developerTelemetry"];
     let configs_dir = ms_dir.join("configs");
     let _ = fs::create_dir_all(&configs_dir);
     let path = configs_dir.join("config.json");
@@ -2910,7 +2910,7 @@ mod tests {
         // that a fresh install would write.
         fs::write(
             configs.join("config.json"),
-            r#"{"m12Backend":"dxmt","msync":false,"controllerInput":"x","graphicsRuntimeLogs":true,"developerTelemetry":false,"futureKey":"keep"}"#,
+            r#"{"vkd3dBackend":"dxmt","msync":false,"controllerInput":"x","graphicsRuntimeLogs":true,"developerTelemetry":false,"futureKey":"keep"}"#,
         )
         .expect("write config.json");
 
@@ -2921,13 +2921,13 @@ mod tests {
         // writes a default config.json (vkd3d-proton default + a new-version key).
         remove_old_runtime(&ms_dir);
         fs::create_dir_all(&configs).expect("recreate configs dir");
-        fs::write(configs.join("config.json"), r#"{"m12Backend":"vkd3d-proton","newVersionKey":"fresh"}"#)
+        fs::write(configs.join("config.json"), r#"{"vkd3dBackend":"vkd3d-proton","newVersionKey":"fresh"}"#)
             .expect("write fresh config");
 
         restore_user_data(&ms_dir, &preserved, &mut report);
         let restored: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(configs.join("config.json")).unwrap()).unwrap();
-        assert_eq!(restored["m12Backend"], "dxmt", "user's backend choice must survive migration");
+        assert_eq!(restored["vkd3dBackend"], "dxmt", "user's backend choice must survive migration");
         assert_eq!(restored["msync"], false, "msync toggle must survive migration");
         assert_eq!(restored["controllerInput"], "x", "controller input mode must survive migration");
         assert_eq!(restored["graphicsRuntimeLogs"], true, "graphics logs toggle must survive migration");
@@ -3900,9 +3900,9 @@ mod tests {
     }
 
     #[test]
-    fn m12_stack_readiness_requires_all_three_lanes() {
-        let home = test_dir("m12-stack-readiness");
-        // Empty home: the vkd3d-proton M12 stack is not ready.
+    fn vkd3d_stack_readiness_requires_all_three_lanes() {
+        let home = test_dir("vkd3d-stack-readiness");
+        // Empty home: the vkd3d-proton VKD3D stack is not ready.
         assert!(!crate::installer::vkd3d_proton_runtime_current_for_home(&home));
 
         crate::installer::write_vkd3d_proton_expected_test_files(&crate::installer::vkd3d_proton_runtime_dir_for_home(

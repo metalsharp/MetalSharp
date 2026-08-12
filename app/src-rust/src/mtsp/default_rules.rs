@@ -174,7 +174,7 @@ mod tests {
         for required in ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"] {
             assert!(filenames.contains(&required), "DXMT deploy set missing {}", required);
         }
-        assert!(!filenames.contains(&"dxgi_dxmt.dll"), "DXMT deploy set must not include M12-owned dxgi_dxmt.dll");
+        assert!(!filenames.contains(&"dxgi_dxmt.dll"), "DXMT deploy set must not include Vkd3d-owned dxgi_dxmt.dll");
         for dll in dlls {
             assert_eq!(dll.get("arch").and_then(|v| v.as_str()), Some("64-bit"));
             assert!(dll.get("source_subpath").and_then(|v| v.as_str()).unwrap_or("").contains("x86_64-windows"));
@@ -195,7 +195,10 @@ mod tests {
         for required in ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"] {
             assert!(filenames.contains(&required), "DXMT(32) deploy set missing {}", required);
         }
-        assert!(!filenames.contains(&"dxgi_dxmt.dll"), "DXMT(32) deploy set must not include M12-owned dxgi_dxmt.dll");
+        assert!(
+            !filenames.contains(&"dxgi_dxmt.dll"),
+            "DXMT(32) deploy set must not include Vkd3d-owned dxgi_dxmt.dll"
+        );
         for dll in dlls {
             assert_eq!(dll.get("arch").and_then(|v| v.as_str()), Some("32-bit"));
             assert!(dll.get("source_subpath").and_then(|v| v.as_str()).unwrap_or("").contains("i386-windows"));
