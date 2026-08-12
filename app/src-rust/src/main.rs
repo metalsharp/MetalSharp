@@ -1445,9 +1445,9 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_repair_gptk_payload(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/repair-gptk4") => {
+        (Method::Post, "/d3dmetal/bottles/repair-gptk3") => {
             let body = read_body_or_return!(req);
-            resp(200, d3dmetal_gptk::handle_repair_gptk4(&body))
+            resp(200, d3dmetal_gptk::handle_repair_gptk3(&body))
         },
         (Method::Post, "/d3dmetal/bottles/install-x64-redist") => {
             let body = read_body_or_return!(req);
