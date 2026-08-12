@@ -806,6 +806,18 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
     manifest.installed_components =
         merge_components(manifest.installed_components.clone(), default_components_for(manifest.runtime_profile));
 
+    // First-save host detection: bake the macOS-matched Metal shader dialect
+    // into dxmt.conf so a DXMT bottle launches with the right backend even
+    // when the launch env override is dropped across processes.
+    if matches!(
+        manifest.runtime_profile,
+        RuntimeProfile::M11 | RuntimeProfile::M11_32 | RuntimeProfile::M10 | RuntimeProfile::M10_32
+    ) {
+        crate::mtsp::launcher::reconcile_dxmt_conf_shader_metal_version_for_host(
+            &crate::platform::metalsharp_home_dir_for(&home),
+        );
+    }
+
     // Prune components belonging to the inactive M12 lane: merge_components is
     // adds-only, so a backend switch (vkd3d-proton <-> dxmt) would otherwise
     // leave the other lane's ids in installed_components, where they inspect
