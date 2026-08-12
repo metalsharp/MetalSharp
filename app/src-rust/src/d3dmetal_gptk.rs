@@ -1088,9 +1088,13 @@ fn install_msc_pkg(pkg_path: &Path) -> Result<(), String> {
         .map(|output| output.status.success())
         .unwrap_or(false);
     if !direct_ok {
-        let quoted = shell_single_quote(&pkg_path.to_string_lossy());
-        let cmd = format!("installer -pkg {} -target /", quoted);
-        let script = format!("do shell script {} with administrator privileges", shell_single_quote(&cmd));
+        // `do shell script "..." with administrator privileges`: the command
+        // is a double-quoted AppleScript string (shell-single-quoted path
+        // inside), with backslashes/double quotes escaped for AppleScript.
+        let quoted_path = shell_single_quote(&pkg_path.to_string_lossy());
+        let cmd = format!("installer -pkg {} -target /", quoted_path);
+        let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!("do shell script \"{}\" with administrator privileges", escaped);
         let output = Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(&script)
