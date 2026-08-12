@@ -58,6 +58,11 @@ add_executable(test_fna_kernel32_shim
     ../src/fna/shims/kernel32_shim.c
 )
 
+add_executable(test_thread_completion
+    test_thread_completion.cpp
+)
+target_link_libraries(test_thread_completion PRIVATE metalsharp_loader metalsharp_core)
+
 add_executable(test_host_runtime_abi
     test_host_runtime_abi.cpp
 )
@@ -106,6 +111,7 @@ add_test(NAME d3d12 COMMAND test_d3d12)
 add_test(NAME d3d12_entrypoint COMMAND test_d3d12_entrypoint)
 add_test(NAME runtime COMMAND test_runtime)
 add_test(NAME fna_kernel32_shim COMMAND test_fna_kernel32_shim)
+add_test(NAME thread_completion COMMAND test_thread_completion)
 add_test(NAME host_runtime_abi COMMAND test_host_runtime_abi)
 add_test(NAME mscoree_path_safety COMMAND test_mscoree_path_safety)
 add_test(NAME darwin_sync_map COMMAND test_darwin_sync_map)

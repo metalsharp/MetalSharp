@@ -14,6 +14,31 @@
 namespace metalsharp {
 namespace win32 {
 
+namespace {
+
+struct ThreadStartContext {
+    SyncThreadState* state;
+    void* startAddress;
+    void* parameter;
+};
+
+static void* threadTrampoline(void* rawContext) {
+    auto* context = static_cast<ThreadStartContext*>(rawContext);
+    auto entry = reinterpret_cast<DWORD(MSABI*)(void*)>(context->startAddress);
+    DWORD exitCode = entry ? entry(context->parameter) : 0;
+
+    context->state->exitCode.store(exitCode);
+    pthread_mutex_lock(&context->state->joinMutex);
+    context->state->finished.store(true);
+    pthread_cond_broadcast(&context->state->joinCond);
+    pthread_mutex_unlock(&context->state->joinMutex);
+
+    delete context;
+    return reinterpret_cast<void*>(static_cast<uintptr_t>(exitCode));
+}
+
+} // namespace
+
 SyncContext& SyncContext::instance() {
     static SyncContext ctx;
     return ctx;
@@ -191,18 +216,34 @@ bool SyncContext::releaseSemaphore(void* handle, int32_t releaseCount, int32_t* 
     return true;
 }
 
-void* SyncContext::createThread(pthread_t thread) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    int handle = m_nextHandle++;
+void* SyncContext::createThread(void* startAddress, void* parameter, DWORD* threadId, int* errorCode) {
+    if (errorCode)
+        *errorCode = 0;
 
     auto* thr = new SyncThreadState();
-    thr->thread = thread;
     thr->exitCode.store(259);
     thr->joined.store(false);
     thr->finished.store(false);
     pthread_mutex_init(&thr->joinMutex, nullptr);
     pthread_cond_init(&thr->joinCond, nullptr);
+
+    auto* context = new ThreadStartContext{thr, startAddress, parameter};
+    int result = pthread_create(&thr->thread, nullptr, threadTrampoline, context);
+    if (result != 0) {
+        if (errorCode)
+            *errorCode = result;
+        delete context;
+        pthread_mutex_destroy(&thr->joinMutex);
+        pthread_cond_destroy(&thr->joinCond);
+        delete thr;
+        return nullptr;
+    }
+
+    if (threadId)
+        *threadId = static_cast<DWORD>(reinterpret_cast<uintptr_t>(thr->thread));
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    int handle = m_nextHandle++;
 
     SyncHandle sh;
     sh.type = SyncHandleType::Thread;
