@@ -75,6 +75,10 @@ interface UpdaterReadyResult {
   candidates?: string[];
 }
 
+type InstallDepsAction =
+  | { kind: "brew"; package: "game-porting-toolkit" | "molten-vk" | "mono" }
+  | { kind: "script"; name: "install-metalsharp-wine-runtime" };
+
 interface CrashReportSummary {
   id: string;
   timestamp: string;
@@ -220,7 +224,7 @@ type MetalsharpAPI = {
     launched?: string;
   }>;
   ejectDmg: () => Promise<void>;
-  installDeps: (command: string) => Promise<{ ok: boolean; error?: string }>;
+  installDeps: (action: InstallDepsAction) => Promise<{ ok: boolean; error?: string }>;
   installHomebrew: () => Promise<{ ok: boolean; installed?: boolean; path?: string; message?: string; error?: string }>;
   homebrewStatus: () => Promise<{ installed: boolean; path?: string }>;
   onSteamappsChanged: (callback: () => void) => void;
@@ -238,16 +242,9 @@ type MetalsharpAPI = {
   restartBackend: () => Promise<{ ok: boolean; error?: string }>;
   isBackendAlive: () => Promise<boolean>;
   updaterEnsureReady: () => Promise<UpdaterReadyResult>;
-  updaterSpawnInstall: (
-    dmgPath: string,
-    backendPid: number,
-    targetVersion: string,
-    dmgSize: number,
-    dmgSha256: string,
-  ) => Promise<{ ok: boolean; error?: string }>;
+  updaterSpawnInstall: () => Promise<{ ok: boolean; error?: string }>;
   updaterInstallStatus: () => Promise<InstallStatus | null>;
   updaterClearStatus: () => Promise<void>;
-  backendGetPid: () => Promise<number | null>;
   migrateCheck: () => Promise<BackendResponse>;
   migrateStart: () => Promise<BackendResponse>;
   migrateProgress: () => Promise<BackendResponse>;
