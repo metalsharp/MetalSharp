@@ -3540,10 +3540,10 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
                 "vkd3d_moltenvk",
             ];
             (
-                "D3D12 Metal",
+                "VKD3D",
                 BottleArch::Win64,
                 true,
-                &[vkd3d_components, &["vcrun2019_x64", "vcrun2019_x86", "d3d12_agility", "corefonts"]].concat()[..],
+                &[vkd3d_components, &["vcrun2019_x64", "vcrun2019_x86", "corefonts"]].concat()[..],
                 crate::mtsp::engine::PipelineId::Vkd3d,
             )
         },
@@ -6792,7 +6792,9 @@ mod tests {
         let rebuilt_vkd3d = rebuild_components_for_profile(&d3dmetal_existing, RuntimeProfile::Vkd3d);
         assert!(!rebuilt_vkd3d.iter().any(|component| component.id == "gptk"));
         assert!(!rebuilt_vkd3d.iter().any(|component| component.id == "gptk_prefix"));
-        assert!(rebuilt_vkd3d.iter().any(|component| component.id == "d3d12_agility"));
+        // Agility is not a blanket VKD3D profile component (only D3D12 titles
+        // use it); a previously-installed copy is still kept as overlap.
+        assert!(!rebuilt_vkd3d.iter().any(|component| component.id == "d3d12_agility"));
 
         let vkd3d_existing = vec![
             RuntimeComponent { id: "d3d12_agility".into(), state: ComponentState::Installed },
@@ -7615,9 +7617,13 @@ mod tests {
         for stale in ["vkd3d_dxgi_dxmt", "vkd3d_winemetal", "vkd3d_gpu_stubs"] {
             assert!(!vkd3d_ids.contains(&stale), "VKD3D vkd3d profile must not include DXMT-only {stale}");
         }
-        for required in ["vcrun2019_x64", "vcrun2019_x86", "corefonts", "d3d12_agility"] {
+        for required in ["vcrun2019_x64", "vcrun2019_x86", "corefonts"] {
             assert!(vkd3d_ids.contains(&required), "VKD3D profile should include {required}");
         }
+        // Agility is staged for D3D12 titles at launch, never required as a
+        // blanket VKD3D profile component (D3D9/D3D10/D3D11 titles on the
+        // route don't use it).
+        assert!(!vkd3d_ids.contains(&"d3d12_agility"));
         assert!(!vkd3d_ids.contains(&"gpu_vendor_stubs"));
         assert!(!vkd3d_ids.contains(&"gptk_amd_stub"));
 
