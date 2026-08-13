@@ -320,6 +320,17 @@ onMounted(async () => {
     });
     if (backendConnected.value) localStorage.setItem("metalsharp-backend-ready-reported", "true");
   }
+  // Dev-only view override: ?wizard=setup|migration renders the wizard
+  // standalone (pure view, no backend triggers) for styling iterations.
+  const wizardParam = new URLSearchParams(window.location.search).get("wizard");
+  if (wizardParam === "setup") {
+    showSetup.value = true;
+    return;
+  }
+  if (wizardParam === "migration") {
+    showMigration.value = true;
+    return;
+  }
   if (new URLSearchParams(window.location.search).get("skip-to") === "library") {
     // The dev backend may still be starting (first-run bottle scan); wait for
     // it before loading the library instead of racing a dead window.

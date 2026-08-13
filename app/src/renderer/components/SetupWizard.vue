@@ -244,7 +244,7 @@ async function installVcppX86() {
 
       <div v-if="step === 0" class="setup-body">
         <div class="setup-hero">
-          <div class="setup-hero-icon">M</div>
+          <img class="setup-hero-icon" src="../assets/metalsharp-logo.png" alt="MetalSharp" />
           <h1 class="setup-hero-title">Welcome to MetalSharp</h1>
           <p class="setup-hero-sub">A compatibility layer for running Windows Steam games on Apple Silicon through Wine and Metal translation.</p>
         </div>
@@ -254,8 +254,8 @@ async function installVcppX86() {
               <IconZap width="20" height="20" />
             </div>
             <div>
-              <div class="setup-feature-title">D3D9/11/12 via DXMT + Metal</div>
-              <div class="setup-feature-desc">Translates Direct3D calls to Metal with DXMT, including D3D12 support</div>
+              <div class="setup-feature-title">D3D9/10/11/12 Support</div>
+              <div class="setup-feature-desc">D3D9/10/11/12 via VKD3D, D3D10/11 via DXMT, Offline D3D12 Support with D3DMetal.</div>
             </div>
           </div>
           <div class="setup-feature">
@@ -426,7 +426,11 @@ async function installVcppX86() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-deep);
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 12%, rgba(95, 183, 232, 0.08), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 90%, rgba(95, 183, 232, 0.05), transparent 55%),
+    linear-gradient(rgba(14, 18, 24, 0.88), rgba(14, 18, 24, 0.92)),
+    url("../assets/textures/metal-foil.png") center / cover;
 }
 
 .setup-wizard {
@@ -434,10 +438,26 @@ async function installVcppX86() {
   max-width: 94vw;
   max-height: 90vh;
   overflow-y: auto;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  background-color: color-mix(in srgb, var(--bg-surface) 32%, transparent);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.19), transparent 26%),
+    linear-gradient(
+      112deg,
+      rgba(255, 255, 255, 0.09),
+      transparent 46%,
+      rgba(255, 255, 255, 0.05)
+    );
+  backdrop-filter: blur(42px) saturate(210%) brightness(1.12);
+  -webkit-backdrop-filter: blur(42px) saturate(210%) brightness(1.12);
+  border: 1px solid color-mix(in srgb, white 18%, var(--border));
   border-radius: var(--radius-lg);
   padding: 32px;
+  font-family: var(--font-rethink);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 -1px rgba(255, 255, 255, 0.08),
+    0 16px 42px rgba(0, 0, 0, 0.18);
+  isolation: isolate;
 }
 
 .setup-steps {
@@ -495,15 +515,21 @@ async function installVcppX86() {
   margin-bottom: 32px;
 }
 .setup-hero-icon {
-  font-family: var(--font-logo);
-  font-size: 28px;
-  color: var(--accent);
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
   margin-bottom: 16px;
+  filter: drop-shadow(0 2px 8px rgba(95, 183, 232, 0.25));
 }
 .setup-hero-title {
   font-size: 24px;
   font-weight: 700;
   margin-bottom: 8px;
+  background: linear-gradient(180deg, #f4f7fa 0%, #cdd6de 55%, #93a1ad 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 .setup-hero-sub {
   color: var(--text-secondary);
@@ -520,27 +546,97 @@ async function installVcppX86() {
 }
 .setup-feature {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  padding: 12px;
-  background: var(--bg-card);
+  padding: 16px;
+  background-color: #171b20;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, white 10%, var(--border));
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.setup-feature:hover {
+  border-color: color-mix(in srgb, white 22%, var(--border));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07);
 }
 .setup-feature-icon {
   color: var(--accent);
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 24px;
+  margin-left: -12px;
+}
+.setup-feature > div:last-child {
+  flex: 1;
+  text-align: center;
+  margin-left: -14px;
+  margin-top: -4px;
 }
 .setup-feature-title {
   font-weight: 600;
   font-size: 13px;
-  margin-bottom: 2px;
+  margin-bottom: 6px;
+  display: inline-block;
+  border: 1px solid rgba(214, 226, 236, 0.2);
+  border-radius: 4px;
+  padding: 1px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 6px rgba(205, 218, 230, 0.14),
+    0 0 14px rgba(205, 218, 230, 0.08);
+  margin-left: -14px;
+  margin-top: -4px;
 }
 .setup-feature-desc {
   font-size: 12px;
   color: var(--text-dim);
   line-height: 1.4;
+  text-align: left;
+  margin-left: 14px;
+}
+
+.setup-wizard .btn-primary {
+  position: relative;
+  overflow: hidden;
+  background-color: #3a4149;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 45%);
+  border: 2px solid rgba(214, 226, 236, 0.35);
+  color: var(--text-primary);
+  text-shadow:
+    0 0 14px rgba(255, 255, 255, 0.85),
+    0 0 34px rgba(255, 255, 255, 0.5),
+    0 0 60px rgba(190, 215, 235, 0.35);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 -1px rgba(0, 0, 0, 0.25),
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    0 8px 20px rgba(0, 0, 0, 0.45),
+    0 16px 38px rgba(0, 0, 0, 0.4);
+}
+.setup-wizard .btn-primary::before {
+  content: "";
+  position: absolute;
+  inset: -14px;
+  background: url("../assets/textures/metal-foil.png") center / cover;
+  filter: blur(3px);
+  z-index: -1;
+  display: none;
+}
+.setup-wizard .btn-primary:hover:not(:disabled) {
+  background-color: #454d56;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 45%);
+  border-color: rgba(224, 234, 243, 0.5);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 -1px rgba(0, 0, 0, 0.28),
+    0 6px 18px rgba(0, 0, 0, 0.35),
+    0 14px 34px rgba(0, 0, 0, 0.32);
+}
+.setup-wizard .btn-primary:disabled {
+  background-color: #2c3137;
+  background-image: none;
+  border-color: rgba(214, 226, 236, 0.15);
+  color: var(--text-dim);
+  text-shadow: none;
 }
 
 .setup-actions {
@@ -576,8 +672,9 @@ async function installVcppX86() {
 }
 .setup-progress-bar {
   height: 100%;
-  background: var(--accent);
+  background: linear-gradient(180deg, #75c7f2 0%, #5fb7e8 45%, #3d8fc4 100%);
   border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
   transition: width 0.3s ease;
 }
 .setup-progress-label {
