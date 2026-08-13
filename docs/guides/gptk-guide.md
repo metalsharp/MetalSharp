@@ -42,6 +42,12 @@ launcher preparation when `start_protected_game.exe` exists without
 backup, and the real game executable (`eldenring.exe` or `armoredcore6.exe`)
 is copied to the original launcher path. A later save leaves both files alone.
 
+The save also stages `libraryfolder.vdf`, `steam.dll`, `steamclient.dll`,
+`steamclient64.dll`, and the requested `steam_appid.txt` next to the game and
+its selected executable directory. Sources are resolved from the game's
+internal or external Steam library, with the MetalSharp Wine Steam install as
+a local fallback.
+
 ### 2. Repair Redist
 
 Click **Repair Redist** in the D3DMetal bottle UI. This does not run `vc_redist*.exe`.

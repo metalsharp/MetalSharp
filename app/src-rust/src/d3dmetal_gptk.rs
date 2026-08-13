@@ -228,6 +228,13 @@ fn save_d3dmetal_bottle(body: &serde_json::Map<String, Value>) -> Result<D3DMeta
         persist_d3dmetal_bottle_manifest_best_effort(&state);
         return Err(e);
     }
+    if let Err(e) = stage_d3dmetal_steam_files(appid, &game_dir, state.game_exe.as_deref().map(Path::new)) {
+        state.last_error = Some(e.clone());
+        state.play_ready = false;
+        save_state(&state)?;
+        persist_d3dmetal_bottle_manifest_best_effort(&state);
+        return Err(e);
+    }
     let prepared_game_exe = match prepare_d3dmetal_protected_game(appid, &game_dir) {
         Ok(path) => path,
         Err(e) => {
@@ -764,6 +771,127 @@ fn request_game_dir(body: &serde_json::Map<String, Value>) -> Result<PathBuf, St
     } else {
         Err(format!("gameDir does not exist: {}", path.display()))
     }
+}
+
+const D3DMETAL_STEAM_RUNTIME_FILES: &[&str] = &["steam.dll", "steamclient.dll", "steamclient64.dll"];
+
+/// Stage the Windows Steam files that a direct GPTK launch expects beside the
+/// saved game. The game directory is the GPTK prefix's mapped external game
+/// path; the executable directory is included because Windows DLL lookup
+/// starts there. Steam's library metadata is kept at the install root.
+fn stage_d3dmetal_steam_files(appid: u32, game_dir: &Path, game_exe: Option<&Path>) -> Result<(), String> {
+    let library_roots = d3dmetal_steam_library_roots(game_dir);
+    let steam_install_dir =
+        metalsharp_home().join("prefix-steam").join("drive_c").join("Program Files (x86)").join("Steam");
+    stage_d3dmetal_steam_files_from_sources(appid, game_dir, game_exe, &library_roots, Some(&steam_install_dir))
+}
+
+fn stage_d3dmetal_steam_files_from_sources(
+    appid: u32,
+    game_dir: &Path,
+    game_exe: Option<&Path>,
+    library_roots: &[PathBuf],
+    steam_install_dir: Option<&Path>,
+) -> Result<(), String> {
+    if !game_dir.is_dir() {
+        return Err(format!("D3DMetal game directory missing: {}", game_dir.display()));
+    }
+
+    let exe_dir = game_exe.and_then(Path::parent).filter(|path| path.is_dir());
+    let libraryfolder =
+        find_d3dmetal_steam_source("libraryfolder.vdf", game_dir, exe_dir, library_roots, steam_install_dir)
+            .ok_or_else(|| {
+                "D3DMetal Steam libraryfolder.vdf could not be found on an internal or external Steam library"
+                    .to_string()
+            })?;
+    let sources: Vec<(&str, PathBuf)> = D3DMETAL_STEAM_RUNTIME_FILES
+        .iter()
+        .map(|filename| {
+            let source = find_d3dmetal_steam_source(filename, game_dir, exe_dir, library_roots, steam_install_dir)
+                .ok_or_else(|| format!("D3DMetal Steam runtime file could not be found: {}", filename))?;
+            Ok((*filename, source))
+        })
+        .collect::<Result<_, String>>()?;
+
+    copy_file_checked(&libraryfolder, &game_dir.join("libraryfolder.vdf"))?;
+
+    let mut runtime_destinations = vec![game_dir.to_path_buf()];
+    if let Some(exe_dir) = exe_dir {
+        if exe_dir != game_dir {
+            runtime_destinations.push(exe_dir.to_path_buf());
+        }
+    }
+    for (filename, source) in sources {
+        for destination_dir in &runtime_destinations {
+            copy_file_checked(&source, &destination_dir.join(filename))?;
+        }
+    }
+    for destination_dir in runtime_destinations {
+        fs::write(destination_dir.join("steam_appid.txt"), appid.to_string())
+            .map_err(|e| format!("write D3DMetal Steam appid file in {}: {}", destination_dir.display(), e))?;
+    }
+    Ok(())
+}
+
+fn find_d3dmetal_steam_source(
+    filename: &str,
+    game_dir: &Path,
+    exe_dir: Option<&Path>,
+    library_roots: &[PathBuf],
+    steam_install_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let is_runtime_file = D3DMETAL_STEAM_RUNTIME_FILES.iter().any(|name| name.eq_ignore_ascii_case(filename));
+    let mut search_dirs = Vec::new();
+    if is_runtime_file {
+        if let Some(steam_install_dir) = steam_install_dir {
+            search_dirs.push(steam_install_dir.to_path_buf());
+        }
+    }
+    if let Some(exe_dir) = exe_dir {
+        search_dirs.push(exe_dir.to_path_buf());
+    }
+    search_dirs.push(game_dir.to_path_buf());
+    search_dirs.extend(library_roots.iter().cloned());
+    if !is_runtime_file {
+        if let Some(steam_install_dir) = steam_install_dir {
+            search_dirs.push(steam_install_dir.to_path_buf());
+        }
+    }
+
+    search_dirs.dedup();
+    search_dirs
+        .iter()
+        .find_map(|dir| find_direct_file_case_insensitive(dir, filename).filter(|path| file_nonempty(path)))
+}
+
+fn d3dmetal_steam_library_roots(game_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let mut ancestor = Some(game_dir);
+    while let Some(path) = ancestor {
+        if path.file_name().map(|name| name.to_string_lossy().eq_ignore_ascii_case("steamapps")).unwrap_or(false) {
+            if let Some(root) = path.parent() {
+                roots.push(root.to_path_buf());
+            }
+        }
+        ancestor = path.parent();
+    }
+
+    for steamapps in crate::scan::macos_steam_library_paths().into_iter().chain(crate::scan::wine_steam_library_paths())
+    {
+        if let Some(root) = steamapps.parent() {
+            roots.push(root.to_path_buf());
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        roots.extend([
+            home.join("SteamLibrary"),
+            home.join("Library/Application Support/Steam"),
+            home.join(".steam/steam"),
+            home.join(".local/share/Steam"),
+        ]);
+    }
+    roots.dedup();
+    roots
 }
 
 fn d3dmetal_protected_game_exe_name(appid: u32) -> Option<&'static str> {
@@ -1809,6 +1937,9 @@ fn copy_file_checked(src: &Path, dst: &Path) -> Result<(), String> {
     if !file_nonempty(src) {
         return Err(format!("source payload missing: {}", src.display()));
     }
+    if same_file_hash(src, dst) {
+        return Ok(());
+    }
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create {}: {}", parent.display(), e))?;
     }
@@ -2072,6 +2203,43 @@ mod tests {
         assert_eq!(selected_again, original);
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"original protected launcher");
         assert_eq!(std::fs::read(&protected).unwrap(), b"real Elden Ring executable");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn d3dmetal_steam_runtime_files_are_staged_next_to_game_and_executable() {
+        let temp =
+            std::env::temp_dir().join(format!("metalsharp-d3dmetal-steam-{}-{}", std::process::id(), now_secs()));
+        let library_root = temp.join("SteamLibrary");
+        let game_dir = library_root.join("steamapps").join("common").join("ELDEN RING");
+        let exe_dir = game_dir.join("Game");
+        let game_exe = exe_dir.join("eldenring.exe");
+        std::fs::create_dir_all(&exe_dir).expect("create game directory");
+        std::fs::write(library_root.join("libraryfolder.vdf"), b"library metadata").expect("write library metadata");
+        std::fs::write(library_root.join("steam.dll"), b"steam dll").expect("write steam dll");
+        std::fs::write(exe_dir.join("steamclient.dll"), b"steamclient dll").expect("write steamclient dll");
+        std::fs::write(exe_dir.join("steamclient64.dll"), b"steamclient64 dll").expect("write steamclient64 dll");
+        std::fs::write(&game_exe, b"game executable").expect("write game executable");
+
+        stage_d3dmetal_steam_files_from_sources(
+            1245620,
+            &game_dir,
+            Some(&game_exe),
+            std::slice::from_ref(&library_root),
+            None,
+        )
+        .expect("stage Steam runtime files");
+
+        for filename in ["libraryfolder.vdf", "steam.dll", "steamclient.dll", "steamclient64.dll"] {
+            assert!(game_dir.join(filename).is_file(), "missing game-root {}", filename);
+        }
+        for filename in ["steam.dll", "steamclient.dll", "steamclient64.dll"] {
+            assert!(exe_dir.join(filename).is_file(), "missing executable-dir {}", filename);
+        }
+        assert_eq!(std::fs::read_to_string(game_dir.join("steam_appid.txt")).unwrap(), "1245620");
+        assert_eq!(std::fs::read_to_string(exe_dir.join("steam_appid.txt")).unwrap(), "1245620");
+        assert_eq!(std::fs::read(game_dir.join("steamclient64.dll")).unwrap(), b"steamclient64 dll");
 
         let _ = std::fs::remove_dir_all(temp);
     }
