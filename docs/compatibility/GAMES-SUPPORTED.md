@@ -45,7 +45,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## M11 — D3D11 to Metal
+## DXMT — D3D10/D3D11 to Metal
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -59,7 +59,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 | Rain World | 312520 | |
 | Reminiscence | 1675140 | |
 | Hollow Knight | 367520 | |
-| Party Animals | 1260320 | Save M11 bottle, launch direct with Steam. |
+| Party Animals | 1260320 | Save DXMT bottle, launch direct with Steam. |
 | Dave the Diver | 1868140 | |
 | Totally Accurate Battle Simulator | 508440 | |
 | Skul: The Hero Slayer | 1147560 | |
@@ -90,7 +90,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## M11 (32-bit) — D3D11 to Metal, 32-bit prefix route
+## DXMT (32-bit) — D3D10/D3D11 to Metal, 32-bit prefix route
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -101,7 +101,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## M10 — D3D10 to Metal
+## DXMT — D3D10 to Metal (covered above)
 
 | Game | AppID | Notes |
 |---|---:|---|
