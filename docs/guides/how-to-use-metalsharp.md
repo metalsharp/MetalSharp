@@ -20,6 +20,11 @@ The bottle is the launch-authoritative runtime record. It checks the selected pr
 
 For routes such as VKD3D, DXMT, and Mono/FNA, MetalSharp keeps Wine Steam alive in the background when Steamworks ownership/session state is needed, then launches the game executable through the selected bottle-aware MTSP pipeline. The game process receives the prepared prefix or native Mono/FNA environment, cache paths, and Steam identity variables (`SteamAppId` and `SteamGameId`) so Steamworks can bind back to the running Wine Steam client where applicable.
 
+Wine Steam desktop shortcuts are redirected to the hidden
+`~/.metalsharp/steam-desktop/` directory instead of the macOS Desktop. Existing
+Steam `.url` shortcuts are moved there the next time Wine Steam starts; other
+URL shortcuts on the macOS Desktop are left untouched.
+
 Internal Steam, Wine, macOS Steam, M32, and raw DXMT routes still exist for diagnostics, compatibility records, and backend fallback behavior, but they are not normal route selector choices. If Wine Steam is not detectable after startup, MetalSharp fails the launch clearly instead of hanging behind the renderer timeout.
 
 Click **Play** from the Library page. Use the launch mode dropdown when you want to force a route:
