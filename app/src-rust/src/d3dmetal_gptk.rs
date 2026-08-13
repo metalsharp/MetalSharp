@@ -228,6 +228,18 @@ fn save_d3dmetal_bottle(body: &serde_json::Map<String, Value>) -> Result<D3DMeta
         persist_d3dmetal_bottle_manifest_best_effort(&state);
         return Err(e);
     }
+    let prepared_game_exe = match prepare_d3dmetal_protected_game(appid, &game_dir) {
+        Ok(path) => path,
+        Err(e) => {
+            state.last_error = Some(e.clone());
+            state.play_ready = false;
+            save_state(&state)?;
+            persist_d3dmetal_bottle_manifest_best_effort(&state);
+            return Err(e);
+        },
+    };
+    state.game_exe =
+        prepared_game_exe.map(|path| path.to_string_lossy().into_owned()).or_else(|| find_game_exe(&game_dir));
     state.gptk_payload = D3DMetalStepState::Updated;
     if state.x64_redist == D3DMetalStepState::Installed && state.seed == D3DMetalStepState::Seeded {
         state.play_ready = verify_seed(&state).is_ok();
@@ -752,6 +764,96 @@ fn request_game_dir(body: &serde_json::Map<String, Value>) -> Result<PathBuf, St
     } else {
         Err(format!("gameDir does not exist: {}", path.display()))
     }
+}
+
+fn d3dmetal_protected_game_exe_name(appid: u32) -> Option<&'static str> {
+    match appid {
+        1245620 => Some("eldenring.exe"),
+        1888160 => Some("armoredcore6.exe"),
+        _ => None,
+    }
+}
+
+/// D3DMetal launches these two protected games through their real game image.
+/// Steam's protected launcher is kept as `start_protected_game.old`, while a
+/// copy of the real image is placed at the protected launcher's original path.
+/// The backup marker makes the operation one-time and prevents a later bottle
+/// save from overwriting the preserved launcher.
+fn prepare_d3dmetal_protected_game(appid: u32, game_dir: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(game_exe_name) = d3dmetal_protected_game_exe_name(appid) else {
+        return Ok(None);
+    };
+    let Some(protected_exe) = find_file_case_insensitive(game_dir, "start_protected_game.exe") else {
+        return Ok(None);
+    };
+    let protected_dir = protected_exe
+        .parent()
+        .ok_or_else(|| format!("protected launcher has no parent directory: {}", protected_exe.display()))?;
+    let backup_exe = protected_dir.join("start_protected_game.old");
+    let game_exe = find_direct_file_case_insensitive(protected_dir, game_exe_name);
+
+    // A prior save already prepared this folder. Do not rename or overwrite
+    // anything again, but still prefer the real executable for the bottle's
+    // direct GPTK launch.
+    if backup_exe.exists() {
+        return Ok(game_exe);
+    }
+
+    let game_exe = game_exe.ok_or_else(|| {
+        format!(
+            "D3DMetal protected launcher found at {}, but {} is missing from the same directory",
+            protected_exe.display(),
+            game_exe_name
+        )
+    })?;
+    if !file_nonempty(&game_exe) {
+        return Err(format!("D3DMetal game executable is empty: {}", game_exe.display()));
+    }
+
+    fs::rename(&protected_exe, &backup_exe).map_err(|e| {
+        format!("preserve protected launcher {} as {}: {}", protected_exe.display(), backup_exe.display(), e)
+    })?;
+
+    if let Err(copy_error) = copy_file_checked(&game_exe, &protected_exe) {
+        // Do not leave a half-prepared game directory if copying the real
+        // executable fails after the protected launcher was moved.
+        let _ = fs::remove_file(&protected_exe);
+        let restore_result = fs::rename(&backup_exe, &protected_exe);
+        return match restore_result {
+            Ok(()) => Err(format!(
+                "copy D3DMetal game executable {} to {}: {}",
+                game_exe.display(),
+                protected_exe.display(),
+                copy_error
+            )),
+            Err(restore_error) => Err(format!(
+                "copy D3DMetal game executable {} to {} failed: {}; restoring {} also failed: {}",
+                game_exe.display(),
+                protected_exe.display(),
+                copy_error,
+                backup_exe.display(),
+                restore_error
+            )),
+        };
+    }
+
+    Ok(Some(game_exe))
+}
+
+fn find_file_case_insensitive(root: &Path, filename: &str) -> Option<PathBuf> {
+    let target = filename.to_ascii_lowercase();
+    WalkDir::new(root).max_depth(5).into_iter().flatten().map(|entry| entry.into_path()).find(|path| {
+        path.is_file()
+            && path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase() == target).unwrap_or(false)
+    })
+}
+
+fn find_direct_file_case_insensitive(dir: &Path, filename: &str) -> Option<PathBuf> {
+    let target = filename.to_ascii_lowercase();
+    fs::read_dir(dir).ok()?.flatten().map(|entry| entry.path()).find(|path| {
+        path.is_file()
+            && path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase() == target).unwrap_or(false)
+    })
 }
 
 fn load_state(bottle_id: &str) -> Option<D3DMetalGptkState> {
@@ -1942,6 +2044,51 @@ mod tests {
         assert!(validate_d3dmetal_bottle_id("steam_1962700").is_ok());
         assert!(validate_d3dmetal_bottle_id("../../escape").is_err());
         assert!(validate_d3dmetal_bottle_id("/tmp/escape").is_err());
+    }
+
+    #[test]
+    fn d3dmetal_protected_games_are_prepared_once_and_keep_the_original_launcher() {
+        let temp = std::env::temp_dir().join(format!("metalsharp-d3dmetal-protected-{}", std::process::id()));
+        let game_dir = temp.join("ELDEN RING").join("Game");
+        std::fs::create_dir_all(&game_dir).expect("create game directory");
+        let protected = game_dir.join("start_protected_game.exe");
+        let original = game_dir.join("eldenring.exe");
+        std::fs::write(&protected, b"original protected launcher").expect("write protected launcher");
+        std::fs::write(&original, b"real Elden Ring executable").expect("write real executable");
+
+        let selected = prepare_d3dmetal_protected_game(1245620, &temp)
+            .expect("prepare protected game")
+            .expect("return real game executable");
+        assert_eq!(selected, original);
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"original protected launcher");
+        assert_eq!(std::fs::read(&protected).unwrap(), b"real Elden Ring executable");
+
+        // A second bottle save is a no-op for the game files and keeps the
+        // first preserved launcher intact.
+        std::fs::write(&original, b"real Elden Ring executable updated").expect("update real executable");
+        let selected_again = prepare_d3dmetal_protected_game(1245620, &temp)
+            .expect("repeated preparation")
+            .expect("return real game executable on repeat");
+        assert_eq!(selected_again, original);
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"original protected launcher");
+        assert_eq!(std::fs::read(&protected).unwrap(), b"real Elden Ring executable");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn d3dmetal_protected_game_preparation_is_limited_to_known_games() {
+        let temp = std::env::temp_dir().join(format!("metalsharp-d3dmetal-protected-other-{}", std::process::id()));
+        let game_dir = temp.join("Game");
+        std::fs::create_dir_all(&game_dir).expect("create game directory");
+        std::fs::write(game_dir.join("start_protected_game.exe"), b"protected launcher").expect("write launcher");
+        std::fs::write(game_dir.join("other.exe"), b"real executable").expect("write executable");
+
+        assert_eq!(prepare_d3dmetal_protected_game(1, &temp).unwrap(), None);
+        assert!(game_dir.join("start_protected_game.exe").is_file());
+        assert!(!game_dir.join("start_protected_game.old").exists());
+
+        let _ = std::fs::remove_dir_all(temp);
     }
 
     #[test]

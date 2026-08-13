@@ -36,6 +36,12 @@ softwareupdate --install-rosetta --agree-to-license
 
 MetalSharp then verifies the Homebrew GPTK app and exposes the next actions. Saving a D3DMetal bottle does **not** install VC++ through a Microsoft installer, and it does **not** seed the prefix yet.
 
+For Elden Ring and ARMORED CORE VI, the save also performs a one-time protected
+launcher preparation when `start_protected_game.exe` exists without
+`start_protected_game.old`: the original launcher is renamed to the `.old`
+backup, and the real game executable (`eldenring.exe` or `armoredcore6.exe`)
+is copied to the original launcher path. A later save leaves both files alone.
+
 ### 2. Repair Redist
 
 Click **Repair Redist** in the D3DMetal bottle UI. This does not run `vc_redist*.exe`.
