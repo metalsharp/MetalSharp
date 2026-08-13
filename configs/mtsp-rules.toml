@@ -517,7 +517,7 @@ name = "Sonic Frontiers"
 [overrides.1237320.diagnostics]
 check_dlls = ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"]
 [overrides.1326470]
-pipeline = "vkd3d"
+pipeline = "dxmt"
 name = "Sons Of The Forest"
 
 [overrides.1326470.diagnostics]
