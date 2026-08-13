@@ -8,6 +8,8 @@ const STEAMWEBHELPER_WRAPPER_MAX_BYTES: u64 = 100_000;
 const STEAMWEBHELPER_WRAPPER_SHA256: &str = "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9";
 const STEAM_D3D12_GUARD_APPS: &[&str] = &["Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"];
 const STEAM_D3D12_GUARD_DLLS: &[&str] = &["d3d12", "d3d12core", "d3d12SDKLayers", "dxcore"];
+const STEAM_LAUNCH_ARGS: &[&str] = &["-no-cef-sandbox", "-noverifyfiles", "-no-dwrite"];
+const STEAM_APPIDS_CACHE_VERSION: u64 = 2;
 
 fn ms_wine() -> PathBuf {
     let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
@@ -960,7 +962,7 @@ fn file_sha256(path: &Path) -> Option<String> {
 pub fn get_game_name_from_manifest(appid: u32) -> Option<String> {
     let manifest_name = format!("appmanifest_{}.acf", appid);
 
-    for steamapps in crate::scan::wine_steam_library_paths() {
+    for steamapps in crate::scan::steam_library_paths() {
         let manifest_path = steamapps.join(&manifest_name);
         if let Ok(contents) = std::fs::read_to_string(&manifest_path) {
             if let Some(name) = parse_acf_field(&contents, "name") {
@@ -1249,6 +1251,11 @@ pub fn library() -> Value {
         })
         .collect();
 
+    // The watcher compares against the last library response, not against
+    // every watcher call. This prevents a failed/timeout refresh from
+    // consuming a newly installed app id before the renderer has received it.
+    save_installed_appid_snapshot(&installed_appids);
+
     json!({
         "ok": true,
         "total": games.len(),
@@ -1379,19 +1386,16 @@ fn save_cache(path: &PathBuf, games: &[(u32, String)]) -> Result<(), Box<dyn std
 }
 
 fn get_installed_appids() -> Vec<u32> {
-    let home = dirs::home_dir().unwrap_or_default();
+    collect_installed_appids(crate::scan::steam_library_paths())
+}
+
+fn collect_installed_appids<I>(steamapps_paths: I) -> Vec<u32>
+where
+    I: IntoIterator<Item = PathBuf>,
+{
     let mut appids = Vec::new();
 
-    let mac_dirs = vec![
-        home.join("Library/Application Support/Steam/steamapps"),
-        home.join(".steam/steam/steamapps"),
-        home.join(".local/share/Steam/steamapps"),
-    ];
-
-    let mut all_dirs: Vec<PathBuf> = mac_dirs.into_iter().filter(|d| d.exists()).collect();
-    all_dirs.extend(crate::scan::wine_steam_library_paths());
-
-    for dir in all_dirs {
+    for dir in steamapps_paths {
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
@@ -1409,6 +1413,46 @@ fn get_installed_appids() -> Vec<u32> {
     }
 
     appids
+}
+
+fn installed_appid_snapshot_path() -> PathBuf {
+    crate::platform::metalsharp_home_dir().join("cache/steam_appids.cache")
+}
+
+fn read_installed_appid_snapshot() -> Vec<u32> {
+    let path = installed_appid_snapshot_path();
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(snapshot) = serde_json::from_str::<Value>(&contents) else {
+        // Older releases wrote one app id per line. Treat that legacy file as
+        // an empty snapshot so the first new watcher pass forces a real
+        // library response and publishes the versioned format.
+        return Vec::new();
+    };
+    if snapshot.get("version").and_then(Value::as_u64) != Some(STEAM_APPIDS_CACHE_VERSION) {
+        return Vec::new();
+    }
+    snapshot
+        .get("appids")
+        .and_then(Value::as_array)
+        .map(|appids| appids.iter().filter_map(Value::as_u64).map(|id| id as u32).collect())
+        .unwrap_or_default()
+}
+
+fn save_installed_appid_snapshot(appids: &[u32]) {
+    let path = installed_appid_snapshot_path();
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let snapshot = json!({
+        "version": STEAM_APPIDS_CACHE_VERSION,
+        "appids": appids,
+    });
+    let _ = std::fs::write(path, serde_json::to_vec_pretty(&snapshot).unwrap_or_default());
 }
 
 fn detect_login_state() -> Value {
@@ -1618,16 +1662,7 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
 
 pub fn watch_steamapps() -> Vec<u32> {
     let current = get_installed_appids();
-    let cached_path = crate::platform::metalsharp_home_dir().join("cache").join("steam_appids.cache");
-
-    let cached: Vec<u32> = if cached_path.exists() {
-        std::fs::read_to_string(&cached_path)
-            .ok()
-            .map(|s| s.lines().filter_map(|l| l.parse::<u32>().ok()).collect())
-            .unwrap_or_default()
-    } else {
-        vec![]
-    };
+    let cached = read_installed_appid_snapshot();
 
     let mut new_appids = Vec::new();
     for &id in &current {
@@ -1636,9 +1671,9 @@ pub fn watch_steamapps() -> Vec<u32> {
         }
     }
 
-    let _ = std::fs::create_dir_all(cached_path.parent().unwrap_or(std::path::Path::new(".")));
-    let _ = std::fs::write(&cached_path, current.iter().map(|id| id.to_string()).collect::<Vec<_>>().join("\n"));
-
+    // Do not update the snapshot here. The renderer may fail to consume the
+    // subsequent library refresh; retaining the old snapshot makes the next
+    // 15-second poll retry instead of silently losing the new game.
     new_appids
 }
 
@@ -1647,6 +1682,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn installed_appids_include_internal_and_external_steam_libraries() {
+        let root = std::env::temp_dir().join(format!(
+            "metalsharp-steam-libraries-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let internal = root.join("internal/steamapps");
+        let external = root.join("external/steamapps");
+        std::fs::create_dir_all(&internal).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        std::fs::write(internal.join("appmanifest_100.acf"), "\"AppState\"\n{\n\t\"appid\"\t\"100\"\n}\n").unwrap();
+        std::fs::write(external.join("appmanifest_200.acf"), "\"AppState\"\n{\n\t\"appid\"\t\"200\"\n}\n").unwrap();
+
+        let appids = collect_installed_appids(vec![internal, external]);
+        assert_eq!(appids, vec![100, 200]);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
     fn stop_wine_steam_targets_report_has_required_shape() {
         // Phase 7: the stop-targets report must expose the targeted and
         // explicitly-excluded process lists so a reviewer can prove the stop
