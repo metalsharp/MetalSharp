@@ -41,7 +41,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 | Route | Engine | How To Use |
 |---|---|---|
-| **VKD3D** | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK | In Progress |
+| **VKD3D** | D3D12/D3D11/D3D10/D3D9 via DXVK-MacOS and Proton | In Progress |
 | **DXMT** | D3D10/D3D11 to Metal (DXMT) | Save 'DXMT' Bottle, Hit Play |
 | **DXMT(32)** | D3D10/D3D11 i386 to Metal (DXMT) - 32Bit D3D10/D3D11 | Save 'DXMT(32)' Bottle, Hit Play |
 | **Mono/FNA** | Windows XNA/FNA via native Mono | Save 'Mono/Fna' Bottle, Hit Play |
