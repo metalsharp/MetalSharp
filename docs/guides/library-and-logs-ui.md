@@ -4,7 +4,7 @@
 
 ## Library
 
-Steam and backend status remain in the title row as the window narrows. Launch, refresh, search, and filter controls reflow below the title without moving those status badges into the action row.
+Steam and backend status remain in the title row as the window narrows. Launch, refresh, search, and filter controls reflow below the title without moving those status badges into the action row. **Refresh** scans the internal Steam library plus external Steam libraries from `libraryfolders.vdf`; the background watcher checks for new installed manifests every 15 seconds.
 
 Installed Steam game cards show the **Steam Emu** toggle. The EAC substrate
 remains backend-controlled while its compatibility work continues; no EAC
