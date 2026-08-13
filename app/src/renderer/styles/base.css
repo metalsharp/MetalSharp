@@ -7,6 +7,20 @@
   font-style: normal;
 }
 
+@font-face {
+  font-family: "Rethink Sans";
+  src: url("../assets/fonts/RethinkSans-Regular.ttf") format("truetype");
+  font-weight: 100 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Rethink Sans";
+  src: url("../assets/fonts/RethinkSans-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+
 *,
 *::before,
 *::after {
