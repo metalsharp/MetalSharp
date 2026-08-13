@@ -372,6 +372,10 @@ fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> R
         return Err("MetalSharp Wine not found".into());
     }
 
+    if let Err(error) = crate::platform::redirect_wine_steam_desktop() {
+        eprintln!("steam: WARNING — failed to redirect Wine Desktop shortcuts: {}", error);
+    }
+
     let steam_dir = resolve_steam_dir();
     let exe = steam_dir.join("Steam.exe");
     let prefix = resolve_steam_prefix();
@@ -490,6 +494,10 @@ pub fn launch_wine_steam_with_env(extra_env: &[(String, String)]) -> Result<Valu
 
     if !exe.exists() || !steam_dir.join("steamui.dll").exists() {
         return Err("Steam is not installed — use the setup wizard to install it first".into());
+    }
+
+    if let Err(error) = crate::platform::redirect_wine_steam_desktop() {
+        eprintln!("steam: WARNING — failed to redirect Wine Desktop shortcuts: {}", error);
     }
 
     if is_wine_steam_running() {
