@@ -14,7 +14,10 @@ GPTK/D3DMetal is not installed during generic setup. MetalSharp installs and use
 
 ## Steam Games
 
-After a game is installed, MetalSharp detects the Wine Steam library and creates a Steam game bottle such as `steam_620`.
+After a game is installed, MetalSharp scans the internal Steam library and every
+external library listed in Steam's `libraryfolders.vdf`, then creates a Steam
+game bottle such as `steam_620`. The Library refresh action and the background
+installed-game watcher check for new manifests every 15 seconds.
 
 The bottle is the launch-authoritative runtime record. It checks the selected profile, runtime assets, redistributables, DLL expectations, and logs before launch.
 

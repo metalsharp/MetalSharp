@@ -59,6 +59,9 @@ const showUpdateChangelog = ref(false);
 const updateDismissed = ref(false);
 let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let installPollTimer: ReturnType<typeof setInterval> | null = null;
+let steamLibraryPollTimer: ReturnType<typeof setInterval> | null = null;
+let libraryLoadInFlight: Promise<void> | null = null;
+let steamLibraryPollInFlight = false;
 
 const { theme, setTheme } = useTheme();
 const toast = useToast();
@@ -123,14 +126,29 @@ async function refreshSteamStatus() {
   }
 }
 
-async function loadLibrary() {
-  const lib = await api<SteamLibrary>("GET", "/steam/library");
-  if (lib && Array.isArray(lib.games)) {
-    library.value = lib;
-  }
+async function loadLibrary(force = false) {
+  if (libraryLoadInFlight) return libraryLoadInFlight;
 
-  await api<{ steam: SteamStatus }>("GET", "/scan");
-  await refreshSteamStatus();
+  const load = (async () => {
+    // Bottle reconciliation makes this route slower than a normal status
+    // request, especially when an external Steam library has many games.
+    // Keep the renderer request alive long enough to receive the complete
+    // internal + external library response.
+    const lib = await api<SteamLibrary>("GET", `/steam/library${force ? "?refresh=1" : ""}`, undefined, 120_000);
+    if (lib && Array.isArray(lib.games)) {
+      library.value = lib;
+    }
+
+    await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
+    await refreshSteamStatus();
+  })();
+
+  libraryLoadInFlight = load;
+  try {
+    await load;
+  } finally {
+    if (libraryLoadInFlight === load) libraryLoadInFlight = null;
+  }
 }
 
 async function checkBackend() {
@@ -269,14 +287,26 @@ async function getSteamApiKey() {
 }
 
 function startHealthPolling() {
+  if (steamLibraryPollTimer !== null) return;
+
   setInterval(refreshSteamStatus, 5000);
 
-  setInterval(async () => {
-    const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps");
-    if (result?.new_appids && result.new_appids.length > 0) {
-      await loadLibrary();
+  steamLibraryPollTimer = setInterval(async () => {
+    if (steamLibraryPollInFlight) return;
+    steamLibraryPollInFlight = true;
+    try {
+      const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps", undefined, 30_000);
+      if (result?.new_appids && result.new_appids.length > 0) {
+        // Force-refresh so a freshly installed game (possibly purchased after
+        // the last owned-games sync) actually surfaces in the library. The
+        // backend snapshot is only committed after this library response, so
+        // a timeout is retried by the next poll instead of being lost.
+        await loadLibrary(true);
+      }
+    } finally {
+      steamLibraryPollInFlight = false;
     }
-  }, 30000);
+  }, 15_000);
 
   setInterval(async () => {
     const prev = backendConnected.value;

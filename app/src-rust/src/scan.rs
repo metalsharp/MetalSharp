@@ -41,11 +41,33 @@ pub fn macos_steam_library_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for mac_path in &candidates {
         if mac_path.exists() {
-            paths.push(mac_path.clone());
-            paths.extend(parse_library_folders(mac_path));
+            push_unique_steamapps_path(&mut paths, mac_path.clone());
+            for library_path in parse_library_folders(mac_path) {
+                push_unique_steamapps_path(&mut paths, library_path);
+            }
         }
     }
     paths
+}
+
+/// Return every Steam library visible from the native and Wine Steam
+/// configurations. Native macOS Steam's `libraryfolders.vdf` is the source of
+/// truth for external volumes, while Wine Steam can maintain a separate list
+/// of Windows game libraries. Keep both sets so an install on either internal
+/// or external storage is visible to the library and watcher paths.
+pub fn steam_library_paths() -> Vec<PathBuf> {
+    let mut paths = macos_steam_library_paths();
+    for library_path in wine_steam_library_paths() {
+        push_unique_steamapps_path(&mut paths, library_path);
+    }
+    paths
+}
+
+fn push_unique_steamapps_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if paths.iter().any(|existing| existing == &path) {
+        return;
+    }
+    paths.push(path);
 }
 
 pub fn resolve_dual_game_dir(appid: u32) -> DualGameDir {
@@ -223,12 +245,6 @@ fn detect_windows_steam() -> Option<Game> {
         size_bytes: dir_size(&steam_exe.parent()?.to_path_buf()),
         metalsharp_compatible: true,
     })
-}
-
-fn steam_library_paths() -> Vec<PathBuf> {
-    let mut paths = macos_steam_library_paths();
-    paths.extend(wine_steam_library_paths());
-    paths
 }
 
 fn parse_library_folders(steamapps: &PathBuf) -> Vec<PathBuf> {
@@ -874,6 +890,28 @@ mod tests {
         assert_eq!(wine_dir.as_deref(), Some(dir.as_path()));
         assert!(macos_dir.is_none());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn libraryfolders_discovers_external_steam_library() {
+        let root = test_dir("external-steam-library");
+        let primary = root.join("internal/steamapps");
+        let external = root.join("external/steamapps");
+        std::fs::create_dir_all(&primary).expect("create primary Steam library");
+        std::fs::create_dir_all(&external).expect("create external Steam library");
+        std::fs::write(
+            primary.join("libraryfolders.vdf"),
+            format!(
+                "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}\n",
+                external.parent().unwrap().display()
+            ),
+        )
+        .expect("write libraryfolders.vdf");
+
+        let discovered = parse_library_folders(&primary);
+        assert_eq!(discovered, vec![external]);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
