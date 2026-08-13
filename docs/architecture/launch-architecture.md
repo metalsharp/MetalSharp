@@ -34,7 +34,7 @@ For env-dependent Steam routes, MetalSharp keeps Wine Steam running as the backg
 executable directly through the selected MTSP pipeline with the bottle prefix, route env, cache paths, and
 `SteamAppId`/`SteamGameId`. Internal client-only Steam handoff still exists for diagnostics and bootstrap cases, but it is not exposed as a normal bottle option.
 
-D3DMetal is an explicit GPTK lane rather than a generic bottle repair path. Saving a D3DMetal bottle installs/trusts Homebrew GPTK and Rosetta, **Repair Redist** copies x64+x86 VC runtime DLLs plus registry keys into `~/.metalsharp/prefix-gptk`, **Seed Prefix** copies Homebrew GPTK route DLLs into prefix `system32`, and **Play D3DMetal** launches the game exe directly through Homebrew GPTK Wine.
+D3DMetal is an explicit GPTK lane rather than a generic bottle repair path. Saving a D3DMetal bottle installs/trusts Homebrew GPTK and Rosetta, stages the Steam runtime files and `steam_appid.txt` beside the mapped game/executable path, **Repair Redist** copies x64+x86 VC runtime DLLs plus registry keys into `~/.metalsharp/prefix-gptk`, **Seed Prefix** copies Homebrew GPTK route DLLs into prefix `system32`, and **Play D3DMetal** launches the game exe directly through Homebrew GPTK Wine.
 
 ## Current Pipelines
 
