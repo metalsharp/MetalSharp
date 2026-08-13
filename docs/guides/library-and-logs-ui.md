@@ -6,16 +6,11 @@
 
 Steam and backend status remain in the title row as the window narrows. Launch, refresh, search, and filter controls reflow below the title without moving those status badges into the action row.
 
-Installed Steam game cards show the **Steam Emu** toggle followed immediately by
-the opt-in **EAC** toggle. EAC is disabled by default for every app. The card
-enables it only when the packaged MetalSharp substrate and Linux symbol image
-are available on macOS; enabling it persists per-app state under
-`~/.metalsharp/sharp-library/eac/` and applies the substrate environment only
-to the next MetalSharp Wine launch. It never starts a game automatically. An
-opted-in non-Wine selection is routed to the already-installed VKD3D MetalSharp
-Wine 11.5 lane so the substrate is not sent through GPTK, another Wine build,
-or macOS Steam. An explicit M11 selection remains M11. Per-app substrate logs
-and module dumps are kept under `~/.metalsharp/logs/eac/<appid>/`.
+Installed Steam game cards show the **Steam Emu** toggle. The EAC substrate
+remains backend-controlled while its compatibility work continues; no EAC
+toggle is exposed on game cards for now. Existing per-app EAC state and launch
+plumbing remain available for diagnostics and migration, with substrate logs
+and module dumps kept under `~/.metalsharp/logs/eac/<appid>/`.
 
 The shipped MTSP rules include protected-launcher metadata (`eac_exe_names`)
 and normal executable metadata (`exe_names`) for all requested EAC cards:
@@ -27,13 +22,14 @@ Out, Back 4 Blood, Apex Legends, Lords of the Fallen, Throne and Liberty,
 Star Wars: Squadrons, NBA 2K26, Next Day: Survival, Suicide Squad, SCP:
 ReEnter, Killing Floor 3, Battlefield 2042, Squad, ARC Raiders, and
 MultiVersus. New defaults use M11; the existing Elden Ring and AC6 VKD3D rules
-remain unchanged. Fires of Rubicon is launched through its real
-`Game/start_protected_game.exe` when enabled; no executable rename or `.old`
-swap is performed.
+remain unchanged. When saving either game as a D3DMetal bottle, MetalSharp
+preserves `Game/start_protected_game.exe` as
+`Game/start_protected_game.old` once, then copies the real game executable to
+the original protected-launcher path.
 
-Turning EAC off removes the per-process substrate environment and leaves the
-game files untouched. The card remains available for every installed Steam
-game; rule metadata controls the executable selected when the toggle is on.
+The EAC card control is intentionally hidden for now. The card remains
+available for every installed Steam game; rule metadata continues to control
+protected and normal executable selection in backend launch paths.
 
 ### EAC substrate installation lifecycle
 
@@ -47,9 +43,10 @@ artifact beside one old artifact.
 An app update verifies those files before replacing the installed app and then
 sets the post-update migration marker. Migration schema 5 treats a missing or
 invalid durable pair as runtime repair: it reinstalls the substrate, verifies
-both files, and only then marks the migration complete. Per-game EAC toggle
-JSON under `sharp-library` is preserved; the toggle remains opt-in and does
-not launch a game during installation, update, or migration.
+both files, and only then marks the migration complete. Per-game EAC state JSON
+under `sharp-library` is preserved; the backend state remains opt-in and does
+not launch a game during installation, update, or migration. The app-card
+toggle is hidden until the substrate is ready.
 
 ## Sharp Library
 
