@@ -7187,3 +7187,6 @@ check_dlls = ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dl
 [overrides.2784470]
 pipeline = "vkd3d"
 name = "9 Kings"
+
+[overrides.2784470.diagnostics]
+check_dlls = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"]
