@@ -36,10 +36,9 @@ Use this page as the repo map before changing launch/runtime code.
 - [Launch Architecture](architecture/launch-architecture.md) - pipeline selection and launch ownership.
 - [Backend HTTP Request Contract](architecture/backend-http-contract.md) - bounded JSON request bodies and client error responses.
 - [Electron IPC Security Contract](architecture/electron-ipc-security.md) - renderer trust boundary, backend allowlist, dependency actions, and updater validation.
-- [D3D12 Pipeline Map](architecture/m12-pipeline-map.md) - current M12 D3D12 path (vkd3d-proton default, DXMT rollback).
-- [D3D10 Pipeline Map](architecture/m10-pipeline-map.md) - current M10 D3D10/DXMT path.
-- [D3D9 Pipeline Map](architecture/m9-pipeline-map.md) - current M9 D3D9 route.
-- [DXMT and Vulkan Architecture](architecture/dxmt-vulkan-architecture.md) - DXMT/M9-M11 boundaries and Vulkan fallback boundaries.
+- [D3D12 Pipeline Map](architecture/vkd3d-pipeline-map.md) - current VKD3D path (vkd3d-proton + DXVK-macOS, complete Vulkan pipeline).
+- [D3D10 Pipeline Map](architecture/m10-pipeline-map.md) - historical D3D10 route documentation.
+- [DXMT and Vulkan Architecture](architecture/dxmt-vulkan-architecture.md) - DXMT/DXMT(32)/VKD3D boundaries and Vulkan fallback boundaries.
 - [D3D12 Developer Runtime Package](../tools/d3d12-metal-sdk/docs/developer-runtime.md) - self-contained developer SDK tarball layout and publish flow.
 
 ## Historical Roadmaps

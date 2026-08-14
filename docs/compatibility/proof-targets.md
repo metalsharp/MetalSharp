@@ -10,7 +10,7 @@ The roadmap has to be driven by reproducible evidence. `configs/proof-targets.js
 
 - Installer baseline: Minecraft Launcher, GOG offline installer, Itch/Unity demo, Unreal demo.
 - Launcher baseline: EA App, Ubisoft Connect, Battle.net, Epic Games Launcher.
-- Steam runtime baseline: known M9, M11, M12, Steam CommonRedist, and Steam third-party launcher cases.
+- Steam runtime baseline: known DXMT, VKD3D, Steam CommonRedist, and Steam third-party launcher cases.
 - Anti-cheat baseline: EAC title with Proton support, BattlEye title with Proton support, policy-blocked title, Windows-kernel-only title.
 
 ## Evidence Fields
@@ -51,10 +51,10 @@ Observed result:
 
 - MetalSharp created/reused bottle `installer_057475b8830b64bc`.
 - The bottle manifest classifies the target as `runtime_profile=java_launcher`, `installer_kind=java`, `arch=win32`.
-- The launcher route started as `pipeline=M9`.
+- The launcher route started on the legacy D3D9 pipeline.
 - The process exited quickly and no final launcher app was detected.
 - Bottle Doctor reports the prefix exists, but tracked components are not ready and app detection is still empty.
-- A manual bare-Wine rerun in the same bottle reproduces the same native crash, so this is not only an M9 graphics-route issue.
+- A manual bare-Wine rerun in the same bottle reproduces the same native crash, so this is not only a graphics-route issue.
 - A manual rerun with `WINEDLLOVERRIDES=mscompatdb=d` still reproduces the same native crash.
 - `gecko` repair launched, logged, and is now detected from Wine's `system32/gecko` / `syswow64/gecko` locations.
 - `corefonts` is now repaired by mapping locally installed host fonts into the bottle font directory.
@@ -144,7 +144,7 @@ Observed result:
 
 - MetalSharp created bottle `installer_16c2e7d7a6e2d5e7`.
 - The classifier mapped EA to `runtime_profile=webview`.
-- Before this fix, the 32-bit PE fallback still launched the known launcher through `pipeline=M9`.
+- Before this fix, the 32-bit PE fallback still launched the known launcher through a graphics route.
 - The EA bootstrapper downloaded and verified `EAapp-13.700.0.6213-4218.msi`.
 - After the visible install bar completed, the MSI failed with `0x80070643`.
 - EA reports that MSI failure as `INST-14-1603`.
@@ -385,4 +385,4 @@ Local probe result:
 - Elden Ring and Rubicon both return `linux_elf_host_gap_confirmed`.
 - Anonymous memory can transition from writable to executable in the backend process.
 - The host dynamic loader rejects a synthetic ELF `.so` as not valid Mach-O.
-- This narrows the next implementation target to the Linux ELF module host/substrate boundary rather than M11/M12 graphics routing.
+- This narrows the next implementation target to the Linux ELF module host/substrate boundary rather than M11/VKD3D graphics routing.

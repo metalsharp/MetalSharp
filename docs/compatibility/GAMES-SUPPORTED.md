@@ -13,11 +13,9 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Pipeline | Backend | Use |
 |---|---|---|
 | **D3DMetal** | Homebrew GPTK / Apple D3DMetal | D3D11/D3D12 via Apple's D3DMetal framework. GPTK is installed through Homebrew and is not bundled by MetalSharp. |
-| **M12** | vkd3d-proton (default) / DXMT (rollback) | D3D12 to Metal via D3D12 → Vulkan → MoltenVK |
-| **M11** | DXMT | D3D11 to Metal |
-| **M11 (32-bit)** | DXMT | D3D11 to Metal, 32-bit prefix route |
-| **M10** | DXMT | D3D10 to Metal |
-| **M9** | DXMT | D3D9 to Metal |
+| **VKD3D** | vkd3d-proton + DXVK-macOS | Complete Vulkan pipeline: D3D9/D3D10/D3D11/D3D12 to Metal via Vulkan → MoltenVK |
+| **DXMT** | DXMT | D3D10/D3D11 to Metal (x86_64) |
+| **DXMT(32)** | DXMT | D3D10/D3D11 to Metal (32-bit / i386) |
 | **Mono/FNA** | MonoKickstart + FNA | XNA/FNA/MonoGame via native Mono runtime |
 
 Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remain backend machinery and are not shown in bottle selectors.
@@ -32,7 +30,7 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 |---|---:|---|
 | Elden Ring | 1245620 | Offline play. |
 | ARMORED CORE VI FIRES OF RUBICON | 1888160 | Offline play. |
-| High On Life | 1583230 | Also works on M12. |
+| High On Life | 1583230 | Also works on VKD3D. |
 | Cyberpunk 2077 | 1091500 | Offline play. |
 | Ghostrunner | 1139900 | D3DMetal route confirmed. |
 | Control - Ultimate Edition | 870780 | |
@@ -41,13 +39,13 @@ Games running through Homebrew GPTK and Apple's D3DMetal pipeline. D3DMetal bott
 
 ---
 
-## M12 — D3D12 to Metal
+## VKD3D — D3D12 to Metal
 
-The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan → VKMT MoltenVK → Metal), with the legacy DXMT D3D12 stack available via the `m12Backend` setting. Confirmed working games are listed in the D3DMetal section where noted (e.g. High On Life "Also works on M12") and via the shipped MTSP rules for tested D3D12 titles.
+The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan → VKMT MoltenVK → Metal), with the legacy DXMT D3D12 stack available via the `vkd3dBackend` setting. Confirmed working games are listed in the D3DMetal section where noted (e.g. High On Life "Also works on VKD3D") and via the shipped MTSP rules for tested D3D12 titles.
 
 ---
 
-## M11 — D3D11 to Metal
+## DXMT — D3D10/D3D11 to Metal
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -61,7 +59,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 | Rain World | 312520 | |
 | Reminiscence | 1675140 | |
 | Hollow Knight | 367520 | |
-| Party Animals | 1260320 | Save M11 bottle, launch direct with Steam. |
+| Party Animals | 1260320 | Save DXMT bottle, launch direct with Steam. |
 | Dave the Diver | 1868140 | |
 | Totally Accurate Battle Simulator | 508440 | |
 | Skul: The Hero Slayer | 1147560 | |
@@ -92,7 +90,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## M11 (32-bit) — D3D11 to Metal, 32-bit prefix route
+## DXMT (32-bit) — D3D10/D3D11 to Metal, 32-bit prefix route
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -103,7 +101,7 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## M10 — D3D10 to Metal
+## DXMT — D3D10 to Metal (covered above)
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -111,11 +109,11 @@ The primary/default D3D12 route runs on the vkd3d-proton stack (D3D12 → Vulkan
 
 ---
 
-## M9 — D3D9 to Metal
+## VKD3D — D3D9/D3D10/D3D11/D3D12 to Metal (Vulkan)
 
 | Game | AppID | Notes |
 |---|---:|---|
-| Mirror's Edge | 17410 | Sync-loading mitigation active. |
+| Mirror's Edge | 17410 | |
 | Half-Life 2 | 220 | |
 | Portal 2 | 620 | Steam Emu supported. |
 | Among Us | 945360 | Steam online play. |

@@ -1917,7 +1917,7 @@ struct WIN64_CONTEXT {
             uint8_t Xmm0[16], Xmm1[16], Xmm2[16], Xmm3[16];
             uint8_t Xmm4[16], Xmm5[16], Xmm6[16], Xmm7[16];
             uint8_t Xmm8[16], Xmm9[16], Xmm10[16], Xmm11[16];
-            uint8_t Xmm12[16], Xmm13[16], Xmm14[16], Xmm15[16];
+            uint8_t Xmvkd3d[16], Xmm13[16], Xmm14[16], Xmm15[16];
         } DUMMYSTRUCTNAME;
     } DUMMYUNIONNAME;
     uint8_t VectorRegister[26][16];

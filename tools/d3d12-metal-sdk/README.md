@@ -41,7 +41,7 @@ game, run the headless mini-app suite:
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp --mini-only
 ```
 
-This builds normal Windows EXEs and runs each under Wine with the DXMT M12
+This builds normal Windows EXEs and runs each under Wine with the DXMT VKD3D
 runtime. Each result is written to `results/probe-mini-*-metalsharp.json`.
 The current mini suite isolates:
 
@@ -287,7 +287,7 @@ For offline shader replay against a known corpus:
 ```bash
 python3 tools/d3d12-metal-sdk/scripts/replay-shader-corpus.py \
   --profile subnautica2 \
-  --corpus "/path/to/shader-cache/m12/1962700"
+  --corpus "/path/to/shader-cache/vkd3d/1962700"
 ```
 
 For an independent shader translation oracle, compile HLSL through
@@ -352,7 +352,7 @@ For offline Metal PSO factory checks against converted shaders:
 ```bash
 python3 tools/d3d12-metal-sdk/scripts/offline-pso-factory.py \
   --profile subnautica2 \
-  --corpus "/path/to/shader-cache/m12/1962700"
+  --corpus "/path/to/shader-cache/vkd3d/1962700"
 ```
 
 Without a manifest, this loads converted `.metallib` files, verifies function
@@ -395,7 +395,7 @@ DXMT now also writes captured manifests beside the shader cache as
 ```bash
 python3 tools/d3d12-metal-sdk/scripts/offline-pso-factory.py \
   --profile subnautica2 \
-  --corpus "/path/to/shader-cache/m12/1962700"
+  --corpus "/path/to/shader-cache/vkd3d/1962700"
 ```
 
 This is the preferred no-game proof for Subnautica-class failures: the game

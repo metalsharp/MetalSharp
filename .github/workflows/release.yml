@@ -148,7 +148,7 @@ jobs:
 
       - name: Download bundles for DMG
         run: |
-          METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REPAIR_M12=0 tools/dmg/create-bundles.sh
+          METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REPAIR_VKD3D=0 tools/dmg/create-bundles.sh
           tools/dmg/stage-release-bundles.sh app/bundles dist/staged-bundles
           for required in \
             metalsharp-electron.tar.zst \

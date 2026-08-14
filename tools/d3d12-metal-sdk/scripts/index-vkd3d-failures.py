@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Index M12 D3D12/Metal render evidence without launching a game."""
+"""Index VKD3D D3D12/Metal render evidence without launching a game."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def tail(path: Path, limit: int = 4000) -> str:
 def default_log_roots(appid: int) -> list[Path]:
     home = Path.home()
     return [
-        home / ".metalsharp" / "pipeline-cache" / "m12" / str(appid),
+        home / ".metalsharp" / "pipeline-cache" / "vkd3d" / str(appid),
         home / ".metalsharp" / "compatdata" / str(appid) / "logs",
         home / ".metalsharp" / "bottles" / f"steam_{appid}" / "logs",
     ]
@@ -49,8 +49,8 @@ def default_log_roots(appid: int) -> list[Path]:
 def default_cache_roots(appid: int) -> list[Path]:
     home = Path.home()
     return [
-        home / ".metalsharp" / "shader-cache" / "m12" / str(appid),
-        home / ".metalsharp" / "pipeline-cache" / "m12" / str(appid),
+        home / ".metalsharp" / "shader-cache" / "vkd3d" / str(appid),
+        home / ".metalsharp" / "pipeline-cache" / "vkd3d" / str(appid),
     ]
 
 
@@ -108,9 +108,9 @@ def write_markdown(path: Path, result: dict) -> None:
         log_totals.update(log["counts"])
 
     lines = [
-        f"# M12 Failure Index: {result['profile']}",
+        f"# VKD3D Failure Index: {result['profile']}",
         "",
-        "Generated from local M12 logs and shader sidecars without launching a game.",
+        "Generated from local VKD3D logs and shader sidecars without launching a game.",
         "",
         "## Totals",
         "",
@@ -144,7 +144,7 @@ def write_markdown(path: Path, result: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Index M12 D3D12/Metal failures from logs and shader sidecars.")
+    parser = argparse.ArgumentParser(description="Index VKD3D D3D12/Metal failures from logs and shader sidecars.")
     parser.add_argument("--appid", type=int, default=2050650)
     parser.add_argument("--profile", default="")
     parser.add_argument("--log-root", action="append", default=[])
@@ -160,7 +160,7 @@ def main() -> int:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     result = {
-        "schema": "metalsharp.d3d12-metal.m12-failure-index.v1",
+        "schema": "metalsharp.d3d12-metal.vkd3d-failure-index.v1",
         "profile": profile,
         "appid": args.appid,
         "log_roots": [str(root) for root in log_roots],
@@ -169,8 +169,8 @@ def main() -> int:
         "shader_sidecars": collect_shader_sidecars(cache_roots),
     }
 
-    json_path = results_dir / f"m12-failure-index-{profile}.json"
-    md_path = results_dir / f"m12-failure-index-{profile}.md"
+    json_path = results_dir / f"vkd3d-failure-index-{profile}.json"
+    md_path = results_dir / f"vkd3d-failure-index-{profile}.md"
     json_path.write_text(json.dumps(result, indent=2) + "\n")
     write_markdown(md_path, result)
     print(md_path)

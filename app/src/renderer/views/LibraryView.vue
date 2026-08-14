@@ -43,6 +43,7 @@ const macSteamRunning = inject<Ref<boolean>>("macSteamRunning")!;
 const backendConnected = inject<Ref<boolean>>("backendConnected")!;
 const backendVersion = inject<Ref<string | null>>("backendVersion")!;
 const developerMode = inject<Ref<boolean>>("developerMode")!;
+const libraryRefreshing = inject<Ref<boolean>>("libraryRefreshing")!;
 const reloadLibrary = inject<() => Promise<void>>("loadLibrary")!;
 
 const toast = useToast();
@@ -63,6 +64,7 @@ const gameGridEl = ref<HTMLElement | null>(null);
 const columnCount = ref(1);
 let gridResizeObserver: ResizeObserver | null = null;
 let removeGameStoppedListener: (() => void) | null = null;
+let gameExitPollTimer: ReturnType<typeof setInterval> | null = null;
 
 function handleGameStopped(appids: number[]) {
   if (runningAppId.value === null || !appids.includes(runningAppId.value)) return;
@@ -70,6 +72,34 @@ function handleGameStopped(appids: number[]) {
   runningPid.value = null;
   runningAppId.value = null;
   toast.show(`Stopped ${game?.name ?? "game"}`);
+}
+
+// The stop button binds to the registered game PID; poll the same registry
+// so a game that quits on its own (from inside the game) reverts the card
+// from "stop" back to "play" within a few seconds.
+async function pollRegisteredGameExit() {
+  if (runningAppId.value === null) return;
+  try {
+    const res = await api<{ ok?: boolean; running?: Array<{ appid?: number }> }>("GET", "/game/running");
+    if (res?.ok !== true) return;
+    const running = new Set(
+      (res.running ?? []).map((game) => game.appid).filter((appid): appid is number => typeof appid === "number"),
+    );
+    if (running.has(runningAppId.value)) return;
+    const game = library.value?.games.find((candidate) => candidate.appid === runningAppId.value);
+    // The stuck-game watchdog force-kills hung games (0% or 100% CPU for 7s);
+    // distinguish that from a clean exit so the toast says it crashed.
+    const stuck = await api<{ ok?: boolean; appids?: number[] }>("GET", "/game/stuck-kills");
+    const wasStuckKilled = (stuck?.appids ?? []).includes(runningAppId.value);
+    runningPid.value = null;
+    runningAppId.value = null;
+    toast.show(
+      wasStuckKilled ? "Game crashed with selected launch method" : `${game?.name ?? "Game"} exited`,
+      wasStuckKilled ? "error" : undefined,
+    );
+  } catch {
+    // Backend briefly unavailable; keep the current state.
+  }
 }
 
 function updateColumnCount() {
@@ -101,14 +131,10 @@ function isWineSteamRouteId(launchMethod: string) {
   const method = launchMethod.toLowerCase();
   return [
     "dxmt",
+    "dxmt_32",
     "steam",
     "wine_steam",
-    "m9",
-    "m10",
-    "m10_32",
-    "m11",
-    "m11_32",
-    "m12",
+    "vkd3d",
     "m32",
     "dx9",
     "dx10",
@@ -146,7 +172,7 @@ function effectiveLaunchMethod(launchMethod: string, eacEnabled = false) {
     eacEnabled &&
     ["mac_steam", "macos_steam", "native_steam"].includes(method)
   ) {
-    return "m12";
+    return "vkd3d";
   }
   return launchMethod;
 }
@@ -331,6 +357,7 @@ async function uninstallGame(game: SteamGame) {
 
 onMounted(() => {
   removeGameStoppedListener = getAPI().onGameStopped(handleGameStopped);
+  gameExitPollTimer = setInterval(pollRegisteredGameExit, 5000);
   applyFilter();
   gridResizeObserver = new ResizeObserver(updateColumnCount);
   if (gameGridEl.value) gridResizeObserver.observe(gameGridEl.value);
@@ -340,6 +367,10 @@ onMounted(() => {
 onUnmounted(() => {
   removeGameStoppedListener?.();
   removeGameStoppedListener = null;
+  if (gameExitPollTimer !== null) {
+    window.clearInterval(gameExitPollTimer);
+    gameExitPollTimer = null;
+  }
   if (gridResizeObserver) {
     gridResizeObserver.disconnect();
     gridResizeObserver = null;
@@ -391,10 +422,11 @@ watch([library, search, filter], () => {
           <button
             class="btn btn-secondary library-control-button refresh-button"
             title="Refresh"
-            @click="reloadLibrary()"
+            :disabled="libraryRefreshing"
+            @click="reloadLibrary(true)"
           >
             <component :is="refreshIcon" class="control-icon" width="15" height="15" />
-            <span class="control-label">Refresh</span>
+            <span class="control-label">{{ libraryRefreshing ? "Refreshing…" : "Refresh" }}</span>
           </button>
         </div>
         <div class="library-controls-center">
@@ -548,6 +580,10 @@ watch([library, search, filter], () => {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
+}
+.library-control-button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .control-icon {
   flex: 0 0 15px;

@@ -13,7 +13,7 @@ const RENDERER_ENDPOINTS = [
   "GET /bottles/profiles",
   "GET /cache/size",
   "GET /config",
-  "GET /diagnostics/m12/dry-run",
+  "GET /diagnostics/vkd3d/dry-run",
   "GET /eac/status",
   "GET /goldberg/status",
   "GET /logs",
@@ -53,12 +53,15 @@ const RENDERER_ENDPOINTS = [
   "POST /d3dmetal/bottles/install-x64-redist",
   "POST /d3dmetal/bottles/play",
   "POST /d3dmetal/bottles/repair-gptk-payload",
+  "POST /d3dmetal/bottles/repair-gptk3",
   "POST /d3dmetal/bottles/save",
   "POST /d3dmetal/bottles/seed-prefix",
   "POST /d3dmetal/bottles/status",
   "POST /diagnostics/open",
   "POST /eac/toggle",
   "POST /game/launch-auto",
+  "GET /game/running",
+  "GET /game/stuck-kills",
   "POST /goldberg/toggle",
   "POST /kill",
   "POST /logs/crash-report",
@@ -112,6 +115,7 @@ const MAIN_ONLY_ENDPOINTS = [
   "POST /update/cleanup",
   "POST /update/migrate/cleanup-preserved",
   "POST /update/migrate/start",
+  "POST /wine/evacuate",
 ] as const;
 
 const appIdQuery: QueryValidator = (params) => {
@@ -131,7 +135,7 @@ const logStreamQuery: QueryValidator = (params) => {
 };
 
 const QUERY_VALIDATORS = new Map<string, QueryValidator>([
-  ["GET /diagnostics/m12/dry-run", appIdQuery],
+  ["GET /diagnostics/vkd3d/dry-run", appIdQuery],
   ["GET /eac/status", appIdQuery],
   ["GET /goldberg/status", appIdQuery],
   ["GET /logs/stream", logStreamQuery],

@@ -33,7 +33,7 @@ static void LogCommandListLifecycle(const char *label, uint64_t id,
     return;
 
   Logger::info(str::format(
-      "M12 command list ", label, " id=", (unsigned long long)id,
+      "VKD3D command list ", label, " id=", (unsigned long long)id,
       " type=", (unsigned)type, " closed=", closed,
       " cmds=", stats.command_count, " draws=", stats.draw_count,
       " indexed=", stats.indexed_draw_count,

@@ -23,7 +23,7 @@ function appendLiveLogLines(lines: string[]) {
   logs.value = linesAfterLastThreshold === 0 ? [] : next.slice(-linesAfterLastThreshold);
 }
 
-const pipelineOrder = ["M12", "M11", "M9", "FNA/Mono", "System", "Other"];
+const pipelineOrder = ["VKD3D", "DXMT", "DXMT(32)", "FNA/Mono", "System", "Other"];
 const crashByPipeline = computed(() => {
   const groups: Record<string, typeof crashReports.value> = {};
   for (const r of crashReports.value) {

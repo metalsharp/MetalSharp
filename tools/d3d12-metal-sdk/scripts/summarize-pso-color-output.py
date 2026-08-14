@@ -114,7 +114,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--corpus",
-        default="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/m12/1962700",
+        default="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/vkd3d/1962700",
     )
     parser.add_argument("--profile", default="subnautica2")
     parser.add_argument("--results-dir", default=str(Path(__file__).resolve().parents[1] / "results"))

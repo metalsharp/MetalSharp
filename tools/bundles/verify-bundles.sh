@@ -210,22 +210,22 @@ verify_graphics_core() {
     Graphics/dll/dxmt/i386-windows/dxgi.dll \
     Graphics/dll/dxmt/i386-windows/dxgi_dxmt.dll \
     Graphics/dll/dxmt/i386-windows/winemetal.dll \
-    Graphics/dll/dxmt-m12/x86_64-unix/winemetal.so \
-    Graphics/dll/dxmt-m12/x86_64-unix/libc++.1.dylib \
-    Graphics/dll/dxmt-m12/x86_64-unix/libc++abi.1.dylib \
-    Graphics/dll/dxmt-m12/x86_64-unix/libunwind.1.dylib \
-    Graphics/dll/dxmt-m12/x86_64-windows/d3d10core.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/d3d11.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/d3d12.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/dxgi.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/dxgi_dxmt.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/nvapi64.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/nvngx.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/winemetal.dll &&
-    verify_hash_manifest "$path" "GRAPHICS M12" "Graphics/dll/dxmt-m12" "$SCRIPT_DIR/m12-dxmt-runtime-hashes.tsv"
+    Graphics/dll/dxmt-vkd3d/x86_64-unix/winemetal.so \
+    Graphics/dll/dxmt-vkd3d/x86_64-unix/libc++.1.dylib \
+    Graphics/dll/dxmt-vkd3d/x86_64-unix/libc++abi.1.dylib \
+    Graphics/dll/dxmt-vkd3d/x86_64-unix/libunwind.1.dylib \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/d3d10core.dll \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/d3d11.dll \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/d3d12.dll \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/dxgi.dll \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/dxgi_dxmt.dll \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/nvapi64.dll \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/nvngx.dll \
+    Graphics/dll/dxmt-vkd3d/x86_64-windows/winemetal.dll &&
+    verify_hash_manifest "$path" "GRAPHICS VKD3D" "Graphics/dll/dxmt-vkd3d" "$SCRIPT_DIR/vkd3d-dxmt-runtime-hashes.tsv"
 }
 
-# The vkd3d-proton M12 stack is optional in the graphics bundle (DXMT remains
+# The vkd3d-proton VKD3D stack is optional in the graphics bundle (DXMT remains
 # the fallback when absent). When the lanes ARE present, verify their layout.
 # The required set must match the installer's GRAPHICS_REQUIRED_ARCHIVE_FILES
 # (app/src-rust/src/installer.rs) so a bundle can never pass CI yet fail
@@ -258,7 +258,7 @@ verify_vkd3d_graphics_core() {
     echo "ERROR: vkd3d-proton graphics lanes are partially staged; ship all lanes or none" >&2
     return 1
   fi
-  echo "OK: vkd3d-proton graphics lanes present (M12 vkd3d-proton backend usable)"
+  echo "OK: vkd3d-proton graphics lanes present (VKD3D vkd3d-proton backend usable)"
 }
 
 verify_hash_manifest() {

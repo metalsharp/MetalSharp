@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static STEAM_INSTALLING: AtomicBool = AtomicBool::new(false);
 const STEAMWEBHELPER_WRAPPER_MAX_BYTES: u64 = 100_000;
-const STEAMWEBHELPER_WRAPPER_SHA256: &str = "3f33958020f6c987b94cc1a7790222b1efc2e3775e3cddd711cdff99143bc182";
+const STEAMWEBHELPER_WRAPPER_SHA256: &str = "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9";
 const STEAMSETUP_SIZE: u64 = 2_380_800;
 const STEAMSETUP_SHA256: &str = "7d3654531c32d941b8cae81c4137fc542172bfa9635f169cb392f245a0a12bcb";
 const STEAM_BUNDLE_ARCHIVE_SIZE: u64 = 2_327_667;
@@ -13,6 +13,7 @@ const STEAM_BUNDLE_ARCHIVE_SHA256: &str = "5090e08bdd2edbf7e550726e79c9c9b12c2fd
 const STEAM_D3D12_GUARD_APPS: &[&str] = &["Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"];
 const STEAM_D3D12_GUARD_DLLS: &[&str] = &["d3d12", "d3d12core", "d3d12SDKLayers", "dxcore"];
 const STEAM_LAUNCH_ARGS: &[&str] = &["-no-cef-sandbox", "-noverifyfiles", "-no-dwrite"];
+const STEAM_APPIDS_CACHE_VERSION: u64 = 2;
 
 fn ms_wine() -> PathBuf {
     let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
@@ -372,6 +373,10 @@ fn spawn_wine_steam_with_env(args: &[&str], extra_env: &[(String, String)]) -> R
         return Err("MetalSharp Wine not found".into());
     }
 
+    if let Err(error) = crate::platform::redirect_wine_steam_desktop() {
+        eprintln!("steam: WARNING — failed to redirect Wine Desktop shortcuts: {}", error);
+    }
+
     let steam_dir = resolve_steam_dir();
     let exe = steam_dir.join("Steam.exe");
     let prefix = resolve_steam_prefix();
@@ -475,14 +480,14 @@ pub fn launch_wine_steam_with_env(extra_env: &[(String, String)]) -> Result<Valu
     // Repair it before every spawn so a Steam launch can never fail on it.
     crate::mtsp::launcher::sanitize_metalsharp_wine_wrapper_env()?;
 
-    // The pre-fix M12 backend staged vkd3d-proton/DXVK DLLs into the shared
+    // The pre-fix VKD3D backend staged vkd3d-proton/DXVK DLLs into the shared
     // prefix system32, which freezes the Steam client UI (a native DXVK dxgi
     // next to wine's builtin d3d11). Restore the wine builtin baseline before
     // every Steam spawn so a polluted prefix heals without a reinstall.
     // Best-effort: Steam must still launch if the repair hits an I/O error.
     let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
-    if let Err(err) = crate::mtsp::launcher::repair_m12_prefix_system32(&steam_prefix(), &ms_root) {
-        eprintln!("steam: WARNING — prefix system32 M12 pollution repair failed: {}", err);
+    if let Err(err) = crate::mtsp::launcher::repair_vkd3d_prefix_system32(&steam_prefix(), &ms_root) {
+        eprintln!("steam: WARNING — prefix system32 Vkd3d pollution repair failed: {}", err);
     }
 
     let steam_dir = resolve_steam_dir();
@@ -490,6 +495,10 @@ pub fn launch_wine_steam_with_env(extra_env: &[(String, String)]) -> Result<Valu
 
     if !exe.exists() || !steam_dir.join("steamui.dll").exists() {
         return Err("Steam is not installed — use the setup wizard to install it first".into());
+    }
+
+    if let Err(error) = crate::platform::redirect_wine_steam_desktop() {
+        eprintln!("steam: WARNING — failed to redirect Wine Desktop shortcuts: {}", error);
     }
 
     if is_wine_steam_running() {
@@ -1045,7 +1054,7 @@ pub(crate) fn stage_verified_steam_setup(destination: &Path) -> Result<(), Strin
 pub fn get_game_name_from_manifest(appid: u32) -> Option<String> {
     let manifest_name = format!("appmanifest_{}.acf", appid);
 
-    for steamapps in crate::scan::wine_steam_library_paths() {
+    for steamapps in crate::scan::steam_library_paths() {
         let manifest_path = steamapps.join(&manifest_name);
         if let Ok(contents) = std::fs::read_to_string(&manifest_path) {
             if let Some(name) = parse_acf_field(&contents, "name") {
@@ -1245,13 +1254,13 @@ pub fn get_steam_id() -> Option<String> {
     get_steam_id_for_home(&dirs::home_dir()?)
 }
 
-pub fn library() -> Value {
+pub fn library(force_refresh: bool) -> Value {
     let installed_appids = get_installed_appids();
     let downloaded_appids = get_downloaded_appids();
     let wine_steam_appids = get_wine_steam_installed_games();
     let sync = api_key_sync_state();
 
-    let owned: Vec<(u32, String)> = match fetch_owned_games(get_steam_id().as_deref()) {
+    let owned: Vec<(u32, String)> = match fetch_owned_games(get_steam_id().as_deref(), force_refresh) {
         Ok(games) if !games.is_empty() => games,
         _ => {
             let mut fallback: Vec<(u32, String)> = Vec::new();
@@ -1279,6 +1288,16 @@ pub fn library() -> Value {
     for &appid in &downloaded_appids {
         if !all_games.iter().any(|(id, _)| *id == appid) {
             all_games.push((appid, format!("Game {}", appid)));
+        }
+    }
+    // Installed manifests from every scanned library (including a shared
+    // external Steam library that may be classified as the macOS library)
+    // must surface even when the owned-games API cache is stale or the game
+    // was purchased after the last sync.
+    for &appid in &installed_appids {
+        if !all_games.iter().any(|(id, _)| *id == appid) {
+            let name = get_game_name_from_manifest(appid).unwrap_or_else(|| format!("Game {}", appid));
+            all_games.push((appid, name));
         }
     }
 
@@ -1336,6 +1355,11 @@ pub fn library() -> Value {
         })
         .collect();
 
+    // The watcher compares against the last library response, not against
+    // every watcher call. This prevents a failed/timeout refresh from
+    // consuming a newly installed app id before the renderer has received it.
+    save_installed_appid_snapshot(&installed_appids);
+
     json!({
         "ok": true,
         "total": games.len(),
@@ -1387,7 +1411,10 @@ fn read_steam_config() -> (Option<String>, Option<String>) {
     (None, get_steam_id())
 }
 
-fn fetch_owned_games(_steam_id: Option<&str>) -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>> {
+fn fetch_owned_games(
+    _steam_id: Option<&str>,
+    force_refresh: bool,
+) -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>> {
     let (api_key, steam_id) = read_steam_config();
     let key = api_key.as_deref().unwrap_or("");
     let sid = steam_id.as_deref().or(_steam_id).unwrap_or("");
@@ -1398,7 +1425,7 @@ fn fetch_owned_games(_steam_id: Option<&str>) -> Result<Vec<(u32, String)>, Box<
 
     let cache_path = crate::platform::metalsharp_home_dir().join("cache/owned_games.json");
 
-    if cache_path.exists() {
+    if !force_refresh && cache_path.exists() {
         if let Ok(contents) = std::fs::read_to_string(&cache_path) {
             if let Ok(cached) = serde_json::from_str::<serde_json::Map<String, Value>>(&contents) {
                 if let Some(ts) = cached.get("timestamp").and_then(|t| t.as_u64()) {
@@ -1466,19 +1493,16 @@ fn save_cache(path: &PathBuf, games: &[(u32, String)]) -> Result<(), Box<dyn std
 }
 
 fn get_installed_appids() -> Vec<u32> {
-    let home = dirs::home_dir().unwrap_or_default();
+    collect_installed_appids(crate::scan::steam_library_paths())
+}
+
+fn collect_installed_appids<I>(steamapps_paths: I) -> Vec<u32>
+where
+    I: IntoIterator<Item = PathBuf>,
+{
     let mut appids = Vec::new();
 
-    let mac_dirs = vec![
-        home.join("Library/Application Support/Steam/steamapps"),
-        home.join(".steam/steam/steamapps"),
-        home.join(".local/share/Steam/steamapps"),
-    ];
-
-    let mut all_dirs: Vec<PathBuf> = mac_dirs.into_iter().filter(|d| d.exists()).collect();
-    all_dirs.extend(crate::scan::wine_steam_library_paths());
-
-    for dir in all_dirs {
+    for dir in steamapps_paths {
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
@@ -1496,6 +1520,46 @@ fn get_installed_appids() -> Vec<u32> {
     }
 
     appids
+}
+
+fn installed_appid_snapshot_path() -> PathBuf {
+    crate::platform::metalsharp_home_dir().join("cache/steam_appids.cache")
+}
+
+fn read_installed_appid_snapshot() -> Vec<u32> {
+    let path = installed_appid_snapshot_path();
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(snapshot) = serde_json::from_str::<Value>(&contents) else {
+        // Older releases wrote one app id per line. Treat that legacy file as
+        // an empty snapshot so the first new watcher pass forces a real
+        // library response and publishes the versioned format.
+        return Vec::new();
+    };
+    if snapshot.get("version").and_then(Value::as_u64) != Some(STEAM_APPIDS_CACHE_VERSION) {
+        return Vec::new();
+    }
+    snapshot
+        .get("appids")
+        .and_then(Value::as_array)
+        .map(|appids| appids.iter().filter_map(Value::as_u64).map(|id| id as u32).collect())
+        .unwrap_or_default()
+}
+
+fn save_installed_appid_snapshot(appids: &[u32]) {
+    let path = installed_appid_snapshot_path();
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let snapshot = json!({
+        "version": STEAM_APPIDS_CACHE_VERSION,
+        "appids": appids,
+    });
+    let _ = std::fs::write(path, serde_json::to_vec_pretty(&snapshot).unwrap_or_default());
 }
 
 fn detect_login_state() -> Value {
@@ -1808,16 +1872,7 @@ fn run_install_steam() -> Result<String, Box<dyn std::error::Error>> {
 
 pub fn watch_steamapps() -> Vec<u32> {
     let current = get_installed_appids();
-    let cached_path = crate::platform::metalsharp_home_dir().join("cache").join("steam_appids.cache");
-
-    let cached: Vec<u32> = if cached_path.exists() {
-        std::fs::read_to_string(&cached_path)
-            .ok()
-            .map(|s| s.lines().filter_map(|l| l.parse::<u32>().ok()).collect())
-            .unwrap_or_default()
-    } else {
-        vec![]
-    };
+    let cached = read_installed_appid_snapshot();
 
     let mut new_appids = Vec::new();
     for &id in &current {
@@ -1826,9 +1881,9 @@ pub fn watch_steamapps() -> Vec<u32> {
         }
     }
 
-    let _ = std::fs::create_dir_all(cached_path.parent().unwrap_or(std::path::Path::new(".")));
-    let _ = std::fs::write(&cached_path, current.iter().map(|id| id.to_string()).collect::<Vec<_>>().join("\n"));
-
+    // Do not update the snapshot here. The renderer may fail to consume the
+    // subsequent library refresh; retaining the old snapshot makes the next
+    // 5-second poll retry instead of silently losing the new game.
     new_appids
 }
 
@@ -1853,6 +1908,26 @@ mod tests {
         assert_eq!(get_steam_id_for_home(&home).as_deref(), Some("76561198152725565"));
 
         let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn installed_appids_include_internal_and_external_steam_libraries() {
+        let root = std::env::temp_dir().join(format!(
+            "metalsharp-steam-libraries-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let internal = root.join("internal/steamapps");
+        let external = root.join("external/steamapps");
+        std::fs::create_dir_all(&internal).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        std::fs::write(internal.join("appmanifest_100.acf"), "\"AppState\"\n{\n\t\"appid\"\t\"100\"\n}\n").unwrap();
+        std::fs::write(external.join("appmanifest_200.acf"), "\"AppState\"\n{\n\t\"appid\"\t\"200\"\n}\n").unwrap();
+
+        let appids = collect_installed_appids(vec![internal, external]);
+        assert_eq!(appids, vec![100, 200]);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1997,7 +2072,7 @@ mod tests {
         }
         assert!(
             !reg.contains("[HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides]"),
-            "Steam D3D12 guard must not globally disable M12 game routing"
+            "Steam D3D12 guard must not globally disable Vkd3d game routing"
         );
     }
 

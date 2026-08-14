@@ -92,7 +92,7 @@ void MTLD3D12Resource::InitializeResource(
              (unsigned long long)backing_offset,
              (unsigned)m_heap_properties.Type);
       if (m_desc.Width >= (64ull << 20)) {
-        Logger::info(str::format("M12 large resource uses heap backing width=",
+        Logger::info(str::format("VKD3D large resource uses heap backing width=",
                                  m_desc.Width, " gpu=0x",
                                  (unsigned long long)m_gpu_addr, " off=",
                                  (unsigned long long)backing_offset));
@@ -110,7 +110,7 @@ void MTLD3D12Resource::InitializeResource(
              (unsigned long long)m_desc.Width, (unsigned)buf_info.options,
              (unsigned)m_heap_properties.Type);
       if (m_desc.Width >= (64ull << 20)) {
-        Logger::info(str::format("M12 large resource standalone buffer width=",
+        Logger::info(str::format("VKD3D large resource standalone buffer width=",
                                  m_desc.Width, " gpu=0x",
                                  (unsigned long long)m_gpu_addr, " heap_type=",
                                  (unsigned)m_heap_properties.Type));

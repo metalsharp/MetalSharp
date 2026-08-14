@@ -44,6 +44,7 @@
   --font-body: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
   --font-mono: "SF Mono", "Menlo", "Monaco", monospace;
   --font-logo: "PressStart2P", monospace;
+  --font-rethink: "Rethink Sans", "Inter", system-ui, sans-serif;
   --sidebar-width-collapsed: 56px;
   --sidebar-width-expanded: 200px;
 }

@@ -50,7 +50,7 @@ Observed intent in dirty checkout:
 - M13/GPTK routing was locally changed away from GPTK DLL deployment and toward builtin Wine/DXMT-style DLL loading.
 - Anti-cheat recipes write `steam_appid.txt` into common game directories before launch.
 - EXE candidate selection excludes `start_protected` and `easyanticheat`.
-- Elden Ring was locally moved from M12 to M13 in config and tests.
+- Elden Ring was locally moved from VKD3D to M13 in config and tests.
 
 These changes were not imported into the PR worktree during Phase 0.
 

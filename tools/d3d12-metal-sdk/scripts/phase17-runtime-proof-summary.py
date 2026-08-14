@@ -18,8 +18,8 @@ from pathlib import Path
 
 DEFAULT_APPID = "1962700"
 DEFAULT_CACHE_ROOTS = [
-    Path.home() / ".metalsharp" / "shader-cache" / "m12" / DEFAULT_APPID,
-    Path("/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/m12")
+    Path.home() / ".metalsharp" / "shader-cache" / "vkd3d" / DEFAULT_APPID,
+    Path("/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/vkd3d")
     / DEFAULT_APPID,
     Path("/tmp/dxmt_shader_cache"),
 ]

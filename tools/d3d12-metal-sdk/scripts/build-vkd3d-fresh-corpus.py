@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the fresh Phase 1 corpus/source manifest for the M12 proof harness.
+"""Build the fresh Phase 1 corpus/source manifest for the VKD3D proof harness.
 
 This is provenance tooling, not a legacy-result importer. It inventories and
 copies source assets from local engine/vendor trees and optional fresh sparse SDK
@@ -431,7 +431,7 @@ def build_local_specs(args: argparse.Namespace) -> list[SourceSpec]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build fresh M12 corpus and SDK provenance manifests.")
+    parser = argparse.ArgumentParser(description="Build fresh VKD3D corpus and SDK provenance manifests.")
     parser.add_argument("--lab-root", default=str(DEFAULT_LAB_ROOT))
     parser.add_argument("--proof-root", default="")
     parser.add_argument("--unreal-root", default=str(DEFAULT_UNREAL_ROOT))
@@ -457,7 +457,7 @@ def main() -> int:
         return 2
 
     proof_root = Path(args.proof_root).expanduser() if args.proof_root else (
-        lab_root / "06-results" / "in-progress" / f"m12-fresh-corpus-{timestamp()}"
+        lab_root / "06-results" / "in-progress" / f"vkd3d-fresh-corpus-{timestamp()}"
     )
     lab_resolved = lab_root.resolve()
     proof_resolved = proof_root.resolve(strict=False)
@@ -470,7 +470,7 @@ def main() -> int:
     if not args.microsoft_root:
         args.microsoft_root.extend(
             [
-                str(Path.home() / "metalsharp-m12-lab" / "tools" / "d3d12-metal-sdk" / "cache" / "dxc"),
+                str(Path.home() / "metalsharp-vkd3d-lab" / "tools" / "d3d12-metal-sdk" / "cache" / "dxc"),
                 str(DEFAULT_LAB_ROOT / "03-dxc"),
             ]
         )
@@ -521,7 +521,7 @@ def main() -> int:
     }
 
     manifest = {
-        "schema": "metalsharp.m12.fresh.corpus-manifest.v1",
+        "schema": "metalsharp.vkd3d.fresh.corpus-manifest.v1",
         "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "proof_root": str(proof_root),
         "policy": {
@@ -572,7 +572,7 @@ def main() -> int:
     write_text(proof_root / "fresh-corpus-files.tsv", "\n".join(tsv_lines) + "\n")
 
     summary = {
-        "schema": "metalsharp.m12.fresh.corpus-summary.v1",
+        "schema": "metalsharp.vkd3d.fresh.corpus-summary.v1",
         "ok": len(all_entries) > 0
         and target_status["total_ok"]
         and target_status["shader_ok"]

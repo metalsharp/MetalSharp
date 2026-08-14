@@ -473,6 +473,110 @@ pub fn ensure_gptk_dosdevices(home: &Path) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+/// Keep Wine Steam's desktop shortcuts out of the host Desktop. macOS Wine
+/// prefixes commonly make `drive_c/users/<user>/Desktop` a symlink to the
+/// native Desktop, so Steam's Windows `.url` shortcuts otherwise appear on
+/// the user's macOS Desktop. Redirect only links that point at that native
+/// Desktop; ordinary prefix-local Desktop directories remain untouched.
+pub fn redirect_wine_steam_desktop() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(());
+    };
+    redirect_wine_steam_desktop_for(&home)
+}
+
+pub fn redirect_wine_steam_desktop_for(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let prefix = metalsharp_home_dir_for(home).join("prefix-steam");
+    let users = prefix.join("drive_c").join("users");
+    if !users.is_dir() {
+        return Ok(());
+    }
+
+    let host_desktop = home.join("Desktop");
+    let redirect_root = metalsharp_home_dir_for(home).join("steam-desktop");
+    for entry in std::fs::read_dir(&users)? {
+        let entry = entry?;
+        let user_dir = entry.path();
+        if !user_dir.is_dir() {
+            continue;
+        }
+        let desktop = user_dir.join("Desktop");
+        match std::fs::symlink_metadata(&desktop) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {},
+            _ => continue,
+        }
+        let link_target = std::fs::read_link(&desktop)?;
+        let resolved_target = if link_target.is_absolute() {
+            link_target
+        } else {
+            desktop.parent().unwrap_or(Path::new(".")).join(link_target)
+        };
+        if !same_path(&resolved_target, &host_desktop) {
+            continue;
+        }
+
+        let user_name = user_dir.file_name().ok_or("Wine Steam user directory has no name")?;
+        let redirect_dir = redirect_root.join(user_name);
+        std::fs::create_dir_all(&redirect_dir)?;
+        move_steam_desktop_shortcuts(&host_desktop, &redirect_dir)?;
+
+        std::fs::remove_file(&desktop)?;
+        std::os::unix::fs::symlink(&redirect_dir, &desktop)?;
+        eprintln!("steam: redirected Wine Desktop {} -> {}", desktop.display(), redirect_dir.display());
+    }
+    Ok(())
+}
+
+fn move_steam_desktop_shortcuts(source_dir: &Path, destination_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if !source_dir.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(source_dir)? {
+        let entry = entry?;
+        let source = entry.path();
+        if !source.is_file() || !is_steam_url_shortcut(&source) {
+            continue;
+        }
+        let filename = entry.file_name();
+        let mut destination = destination_dir.join(&filename);
+        let mut suffix = 1u32;
+        while destination.exists() {
+            destination = destination_dir.join(format!("{}.{}", filename.to_string_lossy(), suffix));
+            suffix += 1;
+        }
+        if let Err(rename_error) = std::fs::rename(&source, &destination) {
+            std::fs::copy(&source, &destination).map_err(|copy_error| {
+                format!(
+                    "move Steam desktop shortcut {} -> {} failed (rename: {}; copy: {})",
+                    source.display(),
+                    destination.display(),
+                    rename_error,
+                    copy_error
+                )
+            })?;
+            std::fs::remove_file(&source)?;
+        }
+    }
+    Ok(())
+}
+
+fn is_steam_url_shortcut(path: &Path) -> bool {
+    if !path.extension().map(|extension| extension.eq_ignore_ascii_case("url")).unwrap_or(false) {
+        return false;
+    }
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    contents.lines().any(|line| line.trim().to_ascii_lowercase().starts_with("url=steam://"))
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
+}
+
 fn ensure_dosdevice(dosdevices: &Path, letter: &str, target: &Path) {
     let link = dosdevices.join(letter);
     if link.exists() {
@@ -1289,6 +1393,39 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp prefix");
         dir
+    }
+
+    #[test]
+    fn redirects_wine_steam_desktop_shortcuts_into_hidden_storage() {
+        let root = test_prefix("steam-desktop-redirect");
+        let home = root.join("home");
+        let host_desktop = home.join("Desktop");
+        let prefix_users = metalsharp_home_dir_for(&home).join("prefix-steam").join("drive_c").join("users");
+        let user_dir = prefix_users.join("alex");
+        fs::create_dir_all(&host_desktop).expect("create host desktop");
+        fs::create_dir_all(&user_dir).expect("create Wine user");
+        std::os::unix::fs::symlink(&host_desktop, user_dir.join("Desktop")).expect("link Wine desktop");
+        fs::write(host_desktop.join("Hades.url"), "[InternetShortcut]\nURL=steam://rungameid/1145360\n")
+            .expect("write Steam shortcut");
+        fs::write(host_desktop.join("reference.url"), "[InternetShortcut]\nURL=https://example.com\n")
+            .expect("write non-Steam shortcut");
+
+        redirect_wine_steam_desktop_for(&home).expect("redirect Wine desktop");
+
+        let redirect_dir = metalsharp_home_dir_for(&home).join("steam-desktop").join("alex");
+        let desktop_link = user_dir.join("Desktop");
+        assert_eq!(fs::read_link(&desktop_link).unwrap(), redirect_dir);
+        assert!(redirect_dir.join("Hades.url").is_file());
+        assert!(!host_desktop.join("Hades.url").exists());
+        assert!(host_desktop.join("reference.url").is_file());
+
+        // Re-running the repair is idempotent and does not move unrelated
+        // URL shortcuts from the user's real Desktop.
+        redirect_wine_steam_desktop_for(&home).expect("repeat redirect");
+        assert!(redirect_dir.join("Hades.url").is_file());
+        assert!(host_desktop.join("reference.url").is_file());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     fn create_gptk_wineboot_runtime(prefix: &Path) {

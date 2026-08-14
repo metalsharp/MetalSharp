@@ -54,7 +54,7 @@ Request:
 ```json
 {
   "appid": 620,
-  "pipeline": "m9"
+  "pipeline": "vkd3d"
 }
 ```
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the M12 D3D12 shader-engine contract against the local tree."""
+"""Validate the VKD3D D3D12 shader-engine contract against the local tree."""
 
 from __future__ import annotations
 

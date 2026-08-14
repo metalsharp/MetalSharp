@@ -96,6 +96,7 @@ interface D3DMetalGptkState {
   gptk_payload: string;
   x64_redist: string;
   seed: string;
+  gptk3: string;
   play_ready: boolean;
   last_error?: string | null;
 }
@@ -113,6 +114,8 @@ interface D3DMetalGptkResponse {
   state?: D3DMetalGptkState;
   actions?: D3DMetalGptkAction[];
   launch?: D3DMetalLaunchReport;
+  gptk3_installed?: boolean;
+  gptk3_dmg_found?: boolean;
   error?: string;
 }
 
@@ -132,7 +135,7 @@ interface BottleEditResponse {
   error?: string;
 }
 
-interface M12DryRun {
+interface VKD3DDryRun {
   ok: boolean;
   dry_run: boolean;
   missing?: Array<{ filename?: string }>;
@@ -159,10 +162,6 @@ const toast = useToast();
 const goldbergActive = ref(false);
 const goldbergBackedUpAt = ref<number | null>(null);
 const goldbergCacheOk = ref(true);
-const eacEnabled = ref(false);
-const eacAvailable = ref(false);
-const eacLoading = ref(false);
-const eacStatusError = ref<string | null>(null);
 const pipelineName = ref("Auto");
 const pipelineResolvedLocally = ref(false);
 const selectedLaunchMode = ref("auto");
@@ -176,6 +175,10 @@ const runtimeReport = ref<SteamRuntimeReport | null>(null);
 const d3dmetalState = ref<D3DMetalGptkState | null>(null);
 const d3dmetalActions = ref<D3DMetalGptkAction[]>([]);
 const d3dmetalLoading = ref(false);
+// GPTK 3 is machine-wide: once installed it is marked done and never
+// presented again (mirrors the backend's global .gptk3-installed marker).
+const gptk3Installed = ref(false);
+const gptk3DmgFound = ref(false);
 const bottleName = ref("");
 const bottlePreferredMode = ref("auto");
 const bottleSaving = ref(false);
@@ -196,21 +199,50 @@ const currentIsDefaultRule = computed(() => {
 });
 const artworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
-const userSelectablePipelineOrder = ["d3dmetal", "m12", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
+const userSelectablePipelineOrder = ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
-  m12: "M12",
+  vkd3d: "VKD3D",
   d3dmetal: "D3DMetal",
-  m11: "M11",
-  m11_32: "M11(32)",
-  m10: "M10",
-  m10_32: "M10(32)",
-  m9: "M9",
+  dxmt: "DXMT",
+  dxmt_32: "DXMT(32)",
   fna_arm64: "Mono/FNA",
 };
+// Legacy route ids saved by pre-unification builds resolve to their
+// canonical successors: m10/m11 -> dxmt, m10_32/m11_32 -> dxmt_32,
+// m9/m12 -> vkd3d. Old localStorage, launch_method, and saved-bottle ids
+// must never surface on the card badge.
+const legacyRouteIds: Record<string, string> = {
+  m9: "vkd3d",
+  m12: "vkd3d",
+  dxmt_metal12: "vkd3d",
+  d3d9_metal: "vkd3d",
+  m10: "dxmt",
+  m11: "dxmt",
+  dxmt_metal: "dxmt",
+  m10_32: "dxmt_32",
+  m11_32: "dxmt_32",
+};
+function normalizeRouteId(id: string | null | undefined): string {
+  if (!id) return "";
+  return legacyRouteIds[id] ?? id;
+}
+const legacyRouteNames: Record<string, string> = {
+  M9: "VKD3D",
+  M10: "DXMT",
+  "M10(32)": "DXMT(32)",
+  M11: "DXMT",
+  "M11(32)": "DXMT(32)",
+  M12: "VKD3D",
+};
+function normalizeRouteName(name: string | null | undefined): string | undefined {
+  if (!name) return undefined;
+  return legacyRouteNames[name] ?? name;
+}
 const displayedPipelineName = computed(() => {
   if (props.game.installed) return pipelineName.value;
-  const routeId = props.game.preferred_pipeline || props.game.launch_method || "";
-  return props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+  const routeId =
+    normalizeRouteId(props.game.preferred_pipeline) || normalizeRouteId(props.game.launch_method) || "";
+  return normalizeRouteName(props.game.launch_method_name) || userSelectablePipelineNames[routeId] || pipelineName.value;
 });
 
 const componentDisplayName: Record<string, string> = {
@@ -222,13 +254,13 @@ const componentDisplayName: Record<string, string> = {
   fna3d: "FNA3D",
   faudio: "FAudio",
   fmod: "FMOD Audio",
-  m12_d3d12: "M12 d3d12.dll",
-  m12_d3d11: "M12 d3d11.dll",
-  m12_d3d10core: "M12 d3d10core.dll",
-  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
-  m12_dxgi: "M12 dxgi.dll",
-  m12_winemetal: "M12 winemetal.dll / .so",
-  m12_gpu_stubs: "M12 GPU Stubs",
+  vkd3d_d3d12: "VKD3D d3d12.dll",
+  vkd3d_d3d12core: "VKD3D d3d12core.dll",
+  vkd3d_d3d11: "VKD3D d3d11.dll",
+  vkd3d_d3d10: "VKD3D d3d10core.dll",
+  vkd3d_d3d9: "VKD3D d3d9.dll",
+  vkd3d_dxgi: "VKD3D dxgi.dll",
+  vkd3d_moltenvk: "VKD3D MoltenVK",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -255,6 +287,9 @@ const runtimeProfileDisplayName: Record<string, string> = {
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
   d3dmetal: "D3DMetal (GPTK)",
+  vkd3d: "VKD3D",
+  dxmt: "DXMT",
+  dxmt_32: "DXMT(32)",
   game_install: "Game Installer",
   winebare: "Plain Wine",
 };
@@ -266,7 +301,7 @@ function componentLabel(id: string): string {
 function bottleComponentLabel(id: string): string {
   const label = componentLabel(id);
   const profile = runtimeReport.value?.runtime_profile;
-  if (profile === "m11_32" || profile === "m10_32") {
+  if (profile === "dxmt_32") {
     // Only suffix DLL component IDs, not runtime/VC components that already indicate arch
     const dllIds = new Set(["d3d11", "dxgi", "d3d10core", "d3d10_1", "winemetal"]);
     if (dllIds.has(id)) {
@@ -330,14 +365,14 @@ const bottlePipelineOptions = computed(() =>
 
 function preferredBottlePipeline(report: SteamRuntimeReport) {
   const candidates = [
-    report.preferred_pipeline,
-    report.pipeline,
-    report.runtime_profile,
-    props.game.preferred_pipeline,
-    props.game.launch_method,
-    selectedLaunchMode.value,
+    normalizeRouteId(report.preferred_pipeline),
+    normalizeRouteId(report.pipeline),
+    normalizeRouteId(report.runtime_profile),
+    normalizeRouteId(props.game.preferred_pipeline),
+    normalizeRouteId(props.game.launch_method),
+    normalizeRouteId(selectedLaunchMode.value),
   ];
-  return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "m11";
+  return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "vkd3d";
 }
 
 function runtimeDoctorPipelineRequest() {
@@ -443,7 +478,7 @@ function effectivePlayLaunchMode() {
   // The bottle's real runtime profile (from the backend report or the game
   // record) is the source of truth: a stale per-game "d3dmetal" selection
   // from localStorage must never hijack a bottle that was saved on a Wine
-  // route (M12/M11/...) — it made M12 bottles show "D3DMetal bottle is not
+  // route (VKD3D/M11/...) — it made VKD3D bottles show "D3DMetal bottle is not
   // ready" instead of launching with the saved route.
   const bottleProfile = runtimeReport.value?.runtime_profile ?? props.game.preferred_pipeline;
   if (selectedLaunchMode.value !== "auto") {
@@ -459,7 +494,7 @@ onMounted(async () => {
   if (!primaryArtworkUrl.value) emit("artworkMissing", props.game.appid);
 
   const savedLaunchMode = localStorage.getItem(launchModeStorageKey.value);
-  if (savedLaunchMode) selectedLaunchMode.value = savedLaunchMode;
+  if (savedLaunchMode) selectedLaunchMode.value = normalizeRouteId(savedLaunchMode);
 
   if (props.game.installed) {
     await refreshPipelineMetadata();
@@ -482,7 +517,6 @@ onMounted(async () => {
       }
       goldbergCacheOk.value = gs.cache_files_ok === true;
     }
-    await refreshEacStatus();
   }
 });
 
@@ -521,9 +555,13 @@ watch(
   () => [props.game.launch_method, props.game.launch_method_name, props.game.preferred_pipeline],
   () => {
     if (pipelineResolvedLocally.value) return;
-    const routeId = props.game.preferred_pipeline || props.game.launch_method;
+    const routeId =
+      normalizeRouteId(props.game.preferred_pipeline) || normalizeRouteId(props.game.launch_method);
     if (routeId && userSelectablePipelineOrder.includes(routeId)) {
-      pipelineName.value = props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+      pipelineName.value =
+        normalizeRouteName(props.game.launch_method_name) ||
+        userSelectablePipelineNames[routeId] ||
+        pipelineName.value;
     }
   },
 );
@@ -574,58 +612,6 @@ async function toggleGoldberg(enable: boolean) {
     }
   } else {
     toast.show("Failed to toggle Steam Emu", "error");
-  }
-}
-
-async function refreshEacStatus() {
-  const result = await api<{
-    ok: boolean;
-    enabled?: boolean;
-    eac_enabled?: boolean;
-    available?: boolean;
-    error?: string | null;
-  }>("GET", `/eac/status?appid=${props.game.appid}`);
-  if (result?.ok) {
-    eacEnabled.value = result.eac_enabled === true || result.enabled === true;
-    eacAvailable.value = result.available === true;
-    eacStatusError.value = result.error ?? null;
-  } else {
-    eacEnabled.value = false;
-    eacAvailable.value = false;
-    eacStatusError.value = result?.error ?? "EAC substrate status is unavailable";
-  }
-}
-
-async function toggleEac(enable: boolean) {
-  if (enable && !eacAvailable.value) {
-    toast.show(eacStatusError.value ?? "EAC substrate is unavailable on this MetalSharp installation", "error");
-    return;
-  }
-  eacLoading.value = true;
-  const result = await api<{
-    ok: boolean;
-    enabled?: boolean;
-    eac_enabled?: boolean;
-    available?: boolean;
-    error?: string;
-  }>("POST", "/eac/toggle", {
-    appid: props.game.appid,
-    enable,
-  });
-  eacLoading.value = false;
-  if (result?.ok) {
-    eacEnabled.value = result.eac_enabled === true || result.enabled === true;
-    eacAvailable.value = result.available === true;
-    eacStatusError.value = result.error ?? null;
-    toast.show(
-      enable
-        ? "EAC substrate enabled; it will apply on the next MetalSharp Wine launch"
-        : "EAC substrate disabled for this game",
-      "success",
-    );
-  } else {
-    await refreshEacStatus();
-    toast.show(result?.error ?? "Failed to toggle EAC substrate", "error");
   }
 }
 
@@ -714,11 +700,62 @@ async function loadD3DMetalStatus() {
   if (result?.ok && result.state) {
     d3dmetalState.value = result.state;
     d3dmetalActions.value = result.actions ?? [];
+    gptk3Installed.value = result.gptk3_installed === true;
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
     syncD3DMetalRuntimeReport();
   } else {
     d3dmetalState.value = null;
     d3dmetalActions.value = [];
   }
+}
+
+const GPTK3_DOWNLOAD_URL =
+  "https://download.developer.apple.com/Developer_Tools/Game_Porting_Toolkit_3.0/Game_Porting_Toolkit_3.0.dmg";
+
+async function repairGptk3() {
+  // If the DMG is not in ~/Downloads yet, open the Apple Developer download
+  // and wait for the file to appear before running the repair. When it is
+  // already downloaded, skip straight to the repair.
+  if (!gptk3DmgFound.value) {
+    toast.show("Opening the Game Porting Toolkit 3.0 download — waiting for the DMG in ~/Downloads…", "success");
+    const opened = await getAPI().openExternalUrl(GPTK3_DOWNLOAD_URL);
+    if (!opened?.ok) toast.show("Could not open the download page", "error");
+    for (let attempt = 0; attempt < 120; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await loadD3DMetalStatus();
+      if (gptk3DmgFound.value) break;
+    }
+    if (!gptk3DmgFound.value) {
+      toast.show("DMG not in ~/Downloads yet — run Repair again once the download finishes", "error");
+      return;
+    }
+  }
+
+  const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
+  d3dmetalLoading.value = true;
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    "/d3dmetal/bottles/repair-gptk3",
+    { appid: props.game.appid, bottleId },
+    10 * 60 * 1000,
+  );
+  d3dmetalLoading.value = false;
+  if (result?.ok) {
+    if (result.state) {
+      d3dmetalState.value = result.state;
+      d3dmetalActions.value = result.actions ?? [];
+    }
+    gptk3Installed.value = result.gptk3_installed === true;
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
+    toast.show(gptk3Installed.value ? "GPTK 3 installed" : "GPTK 3 setup complete", "success");
+  } else {
+    toast.show(
+      result?.error ??
+        "GPTK 3 repair failed — download Game Porting Toolkit 3.0 into ~/Downloads and try again",
+      "error",
+    );
+  }
+  await loadD3DMetalStatus();
 }
 
 async function playSelectedLaunchMode() {
@@ -787,6 +824,9 @@ async function runD3DMetalAction(action: D3DMetalGptkAction): Promise<number | n
       d3dmetalState.value = result.state;
       d3dmetalActions.value = result.actions ?? [];
       syncD3DMetalRuntimeReport();
+      // Refresh the global gptk3 flags (not present in action responses) so
+      // the "Add gptk3 (optional)" control tracks the installed marker.
+      await loadD3DMetalStatus();
     } else {
       await loadD3DMetalStatus();
     }
@@ -905,6 +945,10 @@ async function saveBottleEdit() {
       localStorage.setItem(launchModeStorageKey.value, "d3dmetal");
       pipelineName.value = "D3DMetal";
       pipelineResolvedLocally.value = true;
+      // The save response does not carry the global gptk3 flags; refresh the
+      // status so "Add gptk3 (optional)" disappears immediately when GPTK 3
+      // is already installed (instead of after closing/reopening the bottle).
+      await loadD3DMetalStatus();
       toast.show("D3DMetal bottle saved; seed VC runtime DLLs and seed prefix when ready", "success");
       return;
     }
@@ -935,12 +979,12 @@ async function saveBottleEdit() {
   bottleSaving.value = false;
 
   if (result?.ok && result.bottle) {
-    // Saving an M12 bottle must execute the same read-only M12 diagnostic
+    // Saving an VKD3D bottle must execute the same read-only VKD3D diagnostic
     // that launch uses. It validates the isolated DLL lane, Unix sidecars,
-    // and M12 environment without deploying or spawning the game. The save
+    // and VKD3D environment without deploying or spawning the game. The save
     // toast fires FIRST so the UI never hangs on the (slow) dry run; a
     // failing dry run surfaces as an error toast right after.
-    const isM12 = bottlePreferredMode.value === "m12";
+    const isVKD3D = bottlePreferredMode.value === "vkd3d";
     bottleName.value = result.bottle.name;
     bottlePreferredMode.value =
       result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
@@ -958,16 +1002,16 @@ async function saveBottleEdit() {
     } else {
       toast.show("Bottle settings saved", "success");
     }
-    if (isM12) {
-      const m12DryRun = await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`);
-      if (m12DryRun?.ok === false) {
-        const missing = m12DryRun.missing
+    if (isVKD3D) {
+      const vkd3dDryRun = await api<VKD3DDryRun>("GET", `/diagnostics/vkd3d/dry-run?appid=${props.game.appid}`);
+      if (vkd3dDryRun?.ok === false) {
+        const missing = vkd3dDryRun.missing
           ?.map((entry) => entry.filename)
           .filter(Boolean)
           .join(", ");
-        toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
-      } else if (!m12DryRun) {
-        toast.show("M12 bottle saved, but its dry run could not be completed", "error");
+        toast.show(`VKD3D bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
+      } else if (!vkd3dDryRun) {
+        toast.show("VKD3D bottle saved, but its dry run could not be completed", "error");
       }
     }
     await refreshPipelineMetadata();
@@ -1029,25 +1073,6 @@ function formatBytes(bytes: number): string {
           />
           <span class="toggle-switch"></span>
           <span class="toggle-text">Steam Emu</span>
-        </label>
-        <label
-          v-if="game.installed"
-          class="tool-chip toggle-label eac-toggle"
-          :class="{ 'eac-toggle-unavailable': !eacAvailable }"
-          :title="
-            eacAvailable
-              ? 'Enable the verified MetalSharp EAC substrate for the next Wine launch'
-              : eacStatusError || 'EAC substrate is unavailable on this MetalSharp installation'
-          "
-        >
-          <input
-            type="checkbox"
-            :checked="eacEnabled"
-            :disabled="eacLoading || !eacAvailable"
-            @change="toggleEac(($event.target as HTMLInputElement).checked)"
-          />
-          <span class="toggle-switch"></span>
-          <span class="toggle-text">EAC</span>
         </label>
         <span
           v-if="game.installed && goldbergActive"
@@ -1206,6 +1231,21 @@ function formatBytes(bytes: number): string {
                     @click="runD3DMetalPanelAction(action)"
                   >
                     {{ d3dmetalLoading ? "Working..." : "Fix" }}
+                  </button>
+                </div>
+                <div
+                  v-if="!gptk3Installed"
+                  class="runtime-action-row compact-repair-row"
+                  title="Apple's Game Porting Toolkit 3.0 runtime (Metal Shader Converter + Evaluation environment) overlaid onto the Homebrew GPTK install"
+                >
+                  <span>
+                    Add gptk3 (optional)
+                    <template v-if="!gptk3DmgFound"
+                      >— download Game Porting Toolkit 3.0 from Apple Developer into ~/Downloads first</template
+                    >
+                  </span>
+                  <button class="btn btn-secondary btn-sm" :disabled="d3dmetalLoading" @click="repairGptk3">
+                    {{ d3dmetalLoading ? "Working..." : "Repair" }}
                   </button>
                 </div>
               </div>
@@ -1453,19 +1493,6 @@ function formatBytes(bytes: number): string {
   min-height: 22px;
   vertical-align: middle;
 }
-.eac-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 6px;
-  min-height: 22px;
-  vertical-align: middle;
-}
-.eac-toggle-unavailable {
-  opacity: 0.62;
-  cursor: not-allowed;
-}
 .steam-emu-cache {
   font-size: 10px;
   padding: 2px 6px;
@@ -1596,7 +1623,6 @@ function formatBytes(bytes: number): string {
   .route-chip,
   .bottle-chip,
   .steam-emu-toggle,
-  .eac-toggle,
   .game-card-size {
     font-size: 10px;
   }

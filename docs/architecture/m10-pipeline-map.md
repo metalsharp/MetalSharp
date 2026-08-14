@@ -61,4 +61,4 @@ Recognized D3D10 imports:
 - `d3d10_1.dll`
 - `d3d10core.dll`
 
-If a game imports both D3D12 and D3D10 compatibility DLLs, D3D12 still wins and maps to M12 for 64-bit executables.
+If a game imports both D3D12 and D3D10 compatibility DLLs, D3D12 still wins and maps to VKD3D for 64-bit executables.

@@ -56,7 +56,7 @@ pub fn handle_steam_d3d12_runtime_doctor(body: &serde_json::Map<String, Value>) 
     let bottle = crate::bottles::ensure_steam_game_bottle(appid, &name, dual.wine_dir.as_deref(), pipeline).ok();
 
     let latest = latest_cached_report(appid);
-    if pipeline != crate::mtsp::engine::PipelineId::M12 {
+    if pipeline != crate::mtsp::engine::PipelineId::Vkd3d {
         return json!({
             "ok": true,
             "report": {
@@ -68,7 +68,7 @@ pub fn handle_steam_d3d12_runtime_doctor(body: &serde_json::Map<String, Value>) 
                 "applicable": false,
                 "ready": false,
                 "status": "not_applicable",
-                "summary": "D3D12 runtime doctor only applies to the M12 DXMT D3D12 route.",
+                "summary": "D3D12 runtime doctor only applies to the Vkd3d DXMT D3D12 route.",
                 "sdkAvailability": sdk_availability(),
                 "latestCachedReport": latest,
             }
@@ -286,7 +286,7 @@ fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 fn probe_runs_root(home: &Path, appid: u32) -> PathBuf {
     crate::platform::metalsharp_home_dir_for(&home)
         .join("pipeline-cache")
-        .join("m12")
+        .join("vkd3d")
         .join("probes")
         .join(appid.to_string())
 }
@@ -507,7 +507,7 @@ fn command_status_json(capture: &CommandCapture) -> Value {
 fn build_next_actions(run_output: &CommandCapture, validation_ok: bool, compare: Option<&Value>) -> Vec<String> {
     if !run_output.success {
         return vec![
-            "Open the D3D12 runtime doctor log under ~/.metalsharp/logs and the per-app run directory under ~/.metalsharp/pipeline-cache/m12/probes/ to inspect probe runner stderr.".to_string(),
+            "Open the D3D12 runtime doctor log under ~/.metalsharp/logs and the per-app run directory under ~/.metalsharp/pipeline-cache/vkd3d/probes/ to inspect probe runner stderr.".to_string(),
             "Verify the local MetalSharp DXMT runtime under ~/.metalsharp/runtime/wine/lib/dxmt still contains the expected x86_64-windows and x86_64-unix assets.".to_string(),
         ];
     }

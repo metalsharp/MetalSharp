@@ -1,35 +1,35 @@
-# M12 Fresh Proof Game Harness Roadmap
+# VKD3D Fresh Proof Game Harness Roadmap
 **Updated:** 2026-08-05
 
-> **Status note (2026-08-05):** M12's default backend is now **vkd3d-proton**
+> **Status note (2026-08-05):** VKD3D's default backend is now **vkd3d-proton**
 > (D3D12 → Vulkan → VKMT MoltenVK → Metal, PR #377); the DXMT stack is the
-> `m12Backend=dxmt` rollback. Update the harness target list below
-> accordingly: the default M12 route deploys `d3d12.dll` + `d3d12core.dll`
+> `vkd3dBackend=dxmt` rollback. Update the harness target list below
+> accordingly: the default VKD3D route deploys `d3d12.dll` + `d3d12core.dll`
 > (vkd3d-proton lane), `dxgi.dll` (DXVK lane), and the `nvapi64.dll`/`nvngx.dll`
-> stubs (shared dxmt_m12 lane) — the DXMT-only files (`dxgi_dxmt.dll`,
+> stubs (shared dxmt_vkd3d lane) — the DXMT-only files (`dxgi_dxmt.dll`,
 > `winemetal.dll`, `winemetal.so`) belong to the rollback lane only.
 
 This roadmap is the first artifact for a new PR branch. It deliberately does not rely on prior probe results, prior proof directories, prior cached shader artifacts, or previous PR evidence. Every pass/fail claim for this PR must be produced again from fresh source inputs, fresh logs, and fresh machine-readable result files.
 
 ## Non-negotiable scope
 
-Build a fresh Windows `game.exe`-style proof harness that runs through MetalSharp Wine 11.5 with the real M12 route (default vkd3d-proton backend):
+Build a fresh Windows `game.exe`-style proof harness that runs through MetalSharp Wine 11.5 with the real VKD3D route (default vkd3d-proton backend):
 
 - `d3d12.dll` (vkd3d-proton forwarder)
 - `d3d12core.dll` (vkd3d-proton implementation)
 - `dxgi.dll` (DXVK lane)
-- `nvapi64.dll` / `nvngx.dll` (GPU vendor stubs, shared dxmt_m12 lane)
+- `nvapi64.dll` / `nvngx.dll` (GPU vendor stubs, shared dxmt_vkd3d lane)
 - the VKMT MoltenVK runtime (`lib/moltenvk-vkmt`, `VK_ICD_FILENAMES` pinned)
 - the selected Wine prefix and runtime layout used by normal games
 
 (The DXMT rollback set — `dxgi_dxmt.dll`, `winemetal.dll`, `winemetal.so` from
-`lib/dxmt-m12` — applies only when the harness targets `m12Backend=dxmt`.)
+`lib/dxmt-vkd3d` — applies only when the harness targets `vkd3dBackend=dxmt`.)
 
-The harness must render an actual loading/game window and must prove, with structured logs and result JSON, that the D3D12/M12 pipeline is correct without hidden skips, fallbacks, stale caches, or incorrect DLL routing. It must exercise hundreds of shaders and hundreds of textures when source material is available; one-shader/one-texture smoke coverage is not sufficient for final acceptance because the executable must behave like a real game workload.
+The harness must render an actual loading/game window and must prove, with structured logs and result JSON, that the D3D12/VKD3D pipeline is correct without hidden skips, fallbacks, stale caches, or incorrect DLL routing. It must exercise hundreds of shaders and hundreds of textures when source material is available; one-shader/one-texture smoke coverage is not sufficient for final acceptance because the executable must behave like a real game workload.
 
 ## Forward-focused runtime policy
 
-This PR is not constrained by preserving current or old MetalSharp install behavior. If the fresh proof shows the runtime shape must change, the runtime will change. Compatibility gates should target the forward M12 architecture this work is creating, not stale behavior from old installs. Existing behavior may be documented as context, but it must not override correctness, exact runtime identity, exact bridge loading, high-volume proof workload, or fresh-proof requirements.
+This PR is not constrained by preserving current or old MetalSharp install behavior. If the fresh proof shows the runtime shape must change, the runtime will change. Compatibility gates should target the forward VKD3D architecture this work is creating, not stale behavior from old installs. Existing behavior may be documented as context, but it must not override correctness, exact runtime identity, exact bridge loading, high-volume proof workload, or fresh-proof requirements.
 
 ## Backend isolation policy
 
@@ -49,7 +49,7 @@ Any backend used by this work must be built and run on port `9277`. Do not use o
 Large proof output will live outside the repo under:
 
 ```text
-/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/06-results/in-progress/m12-fresh-proof-game-harness-<timestamp>/
+/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/06-results/in-progress/vkd3d-fresh-proof-game-harness-<timestamp>/
 ```
 
 The repo will keep only source, scripts, schemas, manifests, and compact summaries.
@@ -133,7 +133,7 @@ Exit criteria:
 Create a fresh runtime bootstrap executable/gate that proves:
 
 - Correct Wine prefix and route environment.
-- Correct native/builtin load behavior for the M12 DLL set.
+- Correct native/builtin load behavior for the VKD3D DLL set.
 - D3D12 device creation.
 - DXGI factory/adapter enumeration.
 - DXGI/DXGI_DXMT bootstrap behavior.

@@ -365,7 +365,7 @@ def main() -> int:
                 entry["advisory_only"] = True
                 entry["advisory_reason"] = (
                     "Active DXMT/prefix winemetal.dll export surface passed; "
-                    "global Wine builtin copy is not the launch-authoritative M12 DLL."
+                    "global Wine builtin copy is not the launch-authoritative VKD3D DLL."
                 )
 
     source_audit = inspect_sources(contract)

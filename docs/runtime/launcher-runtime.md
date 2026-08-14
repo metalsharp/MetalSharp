@@ -20,7 +20,7 @@ The installer classifier recognizes these launcher families before generic .NET,
 
 Known launcher hints are stored in the classifier output as `known_launcher:<id>` and `launcher_name:<display name>`. These hints make installer bottles more predictable, especially when launcher bootstrapper binaries also contain generic .NET or WebView strings.
 
-Known launchers default to the bare Wine pipeline during install/bootstrap. That keeps store launchers from inheriting game-specific graphics routes such as M9 before the actual child game executable exists. Once a launcher installs or starts a game, that child executable still gets its own bottle/runtime route.
+Known launchers default to the bare Wine pipeline during install/bootstrap. That keeps store launchers from inheriting game-specific graphics routes before the actual child game executable exists. Once a launcher installs or starts a game, that child executable still gets its own bottle/runtime route.
 
 ## Runtime Behavior
 
@@ -54,7 +54,7 @@ EA App is the first Steam-adjacent storefront proof target:
 - the installer reaches the EA MSI apply step in bottle `installer_16c2e7d7a6e2d5e7`
 - the visible install bar completes, then the MSI fails with `0x80070643`, which EA reports as `INST-14-1603`
 - extracted MSI custom-action metadata requests `.NET v4.0`, so the WebView profile now provisions `dotnet48` before the launcher installer runs
-- known launchers now install through bare Wine first instead of falling back to M9 from the 32-bit bootstrapper PE header
+- known launchers now install through bare Wine first instead of falling back to a graphics route from the 32-bit bootstrapper PE header
 - fresh proof bottle relaunches now stay in the selected proof bottle instead of silently falling back to the stable source-path bottle
 - the latest EA proof has `corefonts`, `dotnet48`, `gecko`, `vcrun2019`, and `webview2` installed
 - the direct MSI log files are still created as zero bytes, so the next EA pass needs deeper Wine MSI/service/elevation inspection around per-machine package cache writes

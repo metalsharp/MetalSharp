@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the M12 D3D12 launch/logging contract against the local tree."""
+"""Validate the VKD3D D3D12 launch/logging contract against the local tree."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ DEFAULT_CONTRACT = (
     / "tools"
     / "d3d12-metal-sdk"
     / "contracts"
-    / "m12-pipeline-contract.json"
+    / "vkd3d-pipeline-contract.json"
 )
 
 REQUIRED_ENV_KEYS = {
@@ -41,7 +41,7 @@ REQUIRED_GATE_IDS = {
     "rust-launch-env",
     "runtime-layout",
     "shader-engine",
-    "m12-check",
+    "vkd3d-check",
     "stress-game",
 }
 
@@ -70,7 +70,7 @@ def read_rel(path: str, errors: list[str]) -> str:
 
 
 def validate_contract_shape(data: dict[str, Any], errors: list[str]) -> None:
-    require(data.get("schema") == "metalsharp.d3d12.m12-pipeline.v1", "unexpected or missing schema", errors)
+    require(data.get("schema") == "metalsharp.d3d12.vkd3d-pipeline.v1", "unexpected or missing schema", errors)
 
     required_env = data.get("required_env")
     require(isinstance(required_env, list) and bool(required_env), "required_env must be a non-empty list", errors)
@@ -126,21 +126,21 @@ def validate_source_contract(data: dict[str, Any], errors: list[str]) -> None:
     for pattern in [
         "steam_pipeline_env_pairs",
         "build_cache_paths",
-        "m12-pipeline",
+        "vkd3d-pipeline",
         "DXMT_WINEMETAL_UNIXLIB",
         "DXMT_PIPELINE_CACHE_PATH",
         "METALSHARP_SHADER_CACHE_PATH",
         "DXMT_LOG_PATH",
-        "dxmt_m12",
+        "dxmt_vkd3d",
     ]:
         require(pattern in launcher, f"launcher missing `{pattern}`", errors)
 
     for pattern in [
-        "id: PipelineId::M12",
-        "lib/dxmt_m12/x86_64-windows",
-        "lib/dxmt_m12/x86_64-unix",
+        "id: PipelineId::VKD3D",
+        "lib/dxmt_vkd3d/x86_64-windows",
+        "lib/dxmt_vkd3d/x86_64-unix",
         "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b",
-        'shader_cache_subdir: Some("m12")',
+        'shader_cache_subdir: Some("vkd3d")',
     ]:
         require(pattern in engine, f"engine missing `{pattern}`", errors)
 
@@ -163,32 +163,32 @@ def validate_source_contract(data: dict[str, Any], errors: list[str]) -> None:
             require(pattern in read_rel(path, errors), f"{path}: missing source comment `{pattern}`", errors)
 
 
-def validate_m12_route_guards(data: dict[str, Any], errors: list[str]) -> None:
+def validate_vkd3d_route_guards(data: dict[str, Any], errors: list[str]) -> None:
     engine = read_rel("app/src-rust/src/mtsp/engine.rs", errors)
     launcher = read_rel("app/src-rust/src/mtsp/launcher.rs", errors)
 
-    def m12_engine_block() -> str:
-        start = engine.find("id: PipelineId::M12")
+    def vkd3d_engine_block() -> str:
+        start = engine.find("id: PipelineId::VKD3D")
         end = engine.find("id: PipelineId::M11", start)
         if start == -1 or end == -1:
             return ""
         return engine[start:end]
 
-    block = m12_engine_block()
-    require(bool(block), "could not isolate M12 engine block", errors)
+    block = vkd3d_engine_block()
+    require(bool(block), "could not isolate VKD3D engine block", errors)
 
-    forbidden = [str(item) for item in data.get("forbidden_m12_launcher_patterns", [])]
-    require(bool(forbidden), "forbidden_m12_launcher_patterns must be non-empty", errors)
+    forbidden = [str(item) for item in data.get("forbidden_vkd3d_launcher_patterns", [])]
+    require(bool(forbidden), "forbidden_vkd3d_launcher_patterns must be non-empty", errors)
     for pattern in forbidden:
-        require(pattern not in block, f"M12 engine block must not contain `{pattern}`", errors)
+        require(pattern not in block, f"VKD3D engine block must not contain `{pattern}`", errors)
 
     for pattern in [
-        'assert!(m12_overrides.contains("dxgi_dxmt"))',
-        '!m12.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll")',
-        'winedllpath.contains("dxmt_m12/x86_64-windows")',
-        'path.contains("dxmt_m12")',
+        'assert!(vkd3d_overrides.contains("dxgi_dxmt"))',
+        '!vkd3d.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll")',
+        'winedllpath.contains("dxmt_vkd3d/x86_64-windows")',
+        'path.contains("dxmt_vkd3d")',
     ]:
-        require(pattern in engine + launcher, f"M12 route guard missing `{pattern}`", errors)
+        require(pattern in engine + launcher, f"VKD3D route guard missing `{pattern}`", errors)
 
 
 def validate_evidence(data: dict[str, Any], errors: list[str]) -> None:
@@ -212,10 +212,10 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     validate_contract_shape(data, errors)
     validate_source_contract(data, errors)
-    validate_m12_route_guards(data, errors)
+    validate_vkd3d_route_guards(data, errors)
     validate_evidence(data, errors)
     return {
-        "schema": "metalsharp.d3d12.m12-pipeline.audit.v1",
+        "schema": "metalsharp.d3d12.vkd3d-pipeline.audit.v1",
         "ok": not errors,
         "summary": {
             "required_env_count": len(data.get("required_env", [])) if isinstance(data.get("required_env"), list) else 0,
@@ -240,7 +240,7 @@ def main() -> int:
 
     if audit["ok"]:
         print(
-            "[PASS] M12 pipeline contract: "
+            "[PASS] VKD3D pipeline contract: "
             f"{audit['summary']['required_env_count']} env keys, "
             f"{audit['summary']['stage_count']} stages, "
             f"{audit['summary']['gate_count']} gates"

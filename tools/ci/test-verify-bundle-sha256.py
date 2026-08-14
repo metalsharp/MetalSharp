@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Regression coverage for tools/ci/verify-bundle-sha256.sh.
 
-The M12 gate downloads prebuilt runtime/graphics bundles from the `bundles`
+The VKD3D gate downloads prebuilt runtime/graphics bundles from the `bundles`
 GitHub release and extracts/executes them (Wine, DXMT DLLs). The verifier must
 reject any archive whose SHA-256 does not match the pinned manifest
-(tools/ci/m12-bundle-hashes.tsv), mirroring the installer's hash pinning.
+(tools/ci/vkd3d-bundle-hashes.tsv), mirroring the installer's hash pinning.
 """
 
 import hashlib
@@ -33,7 +33,7 @@ class VerifyBundleSha256Tests(unittest.TestCase):
     def test_accepts_archive_matching_pinned_hash(self) -> None:
         with tempfile.TemporaryDirectory(prefix="verify-bundle-test-") as temp:
             root = Path(temp)
-            manifest = root / "m12-bundle-hashes.tsv"
+            manifest = root / "vkd3d-bundle-hashes.tsv"
             bundle = root / ASSET
             payload = b"fake bundle payload"
             bundle.write_bytes(payload)
@@ -46,7 +46,7 @@ class VerifyBundleSha256Tests(unittest.TestCase):
     def test_rejects_tampered_archive(self) -> None:
         with tempfile.TemporaryDirectory(prefix="verify-bundle-test-") as temp:
             root = Path(temp)
-            manifest = root / "m12-bundle-hashes.tsv"
+            manifest = root / "vkd3d-bundle-hashes.tsv"
             bundle = root / ASSET
             manifest.write_text(f"asset\tsha256\n{ASSET}\t{sha256_hex(b'good payload')}\n")
             bundle.write_bytes(b"tampered payload")
@@ -58,7 +58,7 @@ class VerifyBundleSha256Tests(unittest.TestCase):
     def test_rejects_asset_missing_from_manifest(self) -> None:
         with tempfile.TemporaryDirectory(prefix="verify-bundle-test-") as temp:
             root = Path(temp)
-            manifest = root / "m12-bundle-hashes.tsv"
+            manifest = root / "vkd3d-bundle-hashes.tsv"
             bundle = root / ASSET
             bundle.write_bytes(b"payload")
             manifest.write_text("asset\tsha256\nother-asset.tar.zst\tabc\n")
@@ -69,7 +69,7 @@ class VerifyBundleSha256Tests(unittest.TestCase):
     def test_rejects_missing_and_empty_archives(self) -> None:
         with tempfile.TemporaryDirectory(prefix="verify-bundle-test-") as temp:
             root = Path(temp)
-            manifest = root / "m12-bundle-hashes.tsv"
+            manifest = root / "vkd3d-bundle-hashes.tsv"
             bundle = root / ASSET
             manifest.write_text(f"asset\tsha256\n{ASSET}\t{sha256_hex(b'payload')}\n")
             result = self.run_verifier(manifest, ASSET, bundle)

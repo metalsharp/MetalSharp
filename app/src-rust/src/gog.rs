@@ -221,6 +221,17 @@ fn python3_binary() -> Option<PathBuf> {
         .or_else(|| command_from_path("python3"))
 }
 
+/// Strip any ambient Python environment that could leak a foreign
+/// site-packages (e.g. an agent/IDE venv exporting PYTHONPATH or
+/// VIRTUAL_ENV) into the GOG venv's pip. A 3.11 pip running under the
+/// macOS CLT python 3.9 fails with `dataclass() got an unexpected keyword
+/// argument 'slots'`; the venv must always use its own interpreter + pip.
+fn sanitize_python_env(command: &mut Command) {
+    for key in ["VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE"] {
+        command.env_remove(key);
+    }
+}
+
 fn git_binary() -> Option<PathBuf> {
     ["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"]
         .into_iter()
@@ -260,7 +271,12 @@ fn write_gogdl_wrapper() -> Result<(), String> {
     let wrapper = gogdl_wrapper_path();
     ensure_parent(&wrapper)?;
     let target = gogdl_venv_bin();
-    let script = format!("#!/bin/sh\nexec {} \"$@\"\n", shell_single_quote(&target));
+    // The wrapper runs gogdl outside any ambient Python environment so the
+    // venv interpreter + pip are always used.
+    let script = format!(
+        "#!/bin/sh\nunset VIRTUAL_ENV PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE\nexec {} \"$@\"\n",
+        shell_single_quote(&target)
+    );
     fs::write(&wrapper, script).map_err(|error| format!("failed to write {}: {}", wrapper.display(), error))?;
     #[cfg(unix)]
     {
@@ -272,6 +288,10 @@ fn write_gogdl_wrapper() -> Result<(), String> {
             .map_err(|error| format!("failed to mark {} executable: {}", wrapper.display(), error))?;
     }
     Ok(())
+}
+
+fn venv_has_pip(venv: &Path) -> bool {
+    venv.join("bin").join("pip").is_file() || venv.join("bin").join("pip3").is_file()
 }
 
 fn ensure_gogdl_available() -> Result<(), String> {
@@ -293,10 +313,24 @@ fn ensure_gogdl_available() -> Result<(), String> {
     let git = git_binary().ok_or_else(|| "git is required to prepare GOG support".to_string())?;
     let venv = gogdl_venv_dir();
     let venv_python = venv.join("bin").join("python");
-    if !venv_python.is_file() {
+    if !venv_python.is_file() || !venv_has_pip(&venv) {
+        // A bootstrap under a polluted Python env (ambient PYTHONPATH /
+        // VIRTUAL_ENV) can leave a pip-less venv behind, which makes
+        // `python -m pip` fail with "No module named pip". Rebuild the venv
+        // in a clean environment so its own pip is installed.
+        if venv.exists() {
+            fs::remove_dir_all(&venv).map_err(|error| format!("failed to reset GOG support venv: {error}"))?;
+        }
         let mut command = Command::new(&python);
+        sanitize_python_env(&mut command);
         command.arg("-m").arg("venv").arg(&venv);
         run_bootstrap_command(&mut command, "GOG support environment setup")?;
+        if !venv_has_pip(&venv) {
+            let mut command = Command::new(&venv_python);
+            sanitize_python_env(&mut command);
+            command.arg("-m").arg("ensurepip").arg("--upgrade");
+            run_bootstrap_command(&mut command, "GOG support pip setup")?;
+        }
     }
 
     let source = gogdl_source_dir();
@@ -320,11 +354,13 @@ fn ensure_gogdl_available() -> Result<(), String> {
     }
 
     let mut command = Command::new(&venv_python);
+    sanitize_python_env(&mut command);
     command.arg("-m").arg("pip").arg("install").arg("--upgrade").arg(&source).env("PIP_DISABLE_PIP_VERSION_CHECK", "1");
     run_bootstrap_command(&mut command, "GOG support install")?;
     write_gogdl_wrapper()?;
 
     let mut command = Command::new(gogdl_wrapper_path());
+    sanitize_python_env(&mut command);
     command.arg("--version");
     run_bootstrap_command(&mut command, "GOG support verification")?;
     // Stage the OAuth helper next to the gogdl tool so the Electron main

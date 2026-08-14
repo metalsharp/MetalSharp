@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 
-ATTR_CALL_RE = re.compile(r"m12_load_vertex_attr\(([^)]*)\)")
+ATTR_CALL_RE = re.compile(r"vkd3d_load_vertex_attr\(([^)]*)\)")
 HEX_MASK_RE = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
@@ -83,7 +83,7 @@ def read_text(path: Path | None) -> str:
 def parse_attr_calls(msl: str) -> list[list[str]]:
     calls: list[list[str]] = []
     for line in msl.splitlines():
-        if "static inline" in line and "m12_load_vertex_attr" in line:
+        if "static inline" in line and "vkd3d_load_vertex_attr" in line:
             continue
         for match in ATTR_CALL_RE.finditer(line):
             calls.append([part.strip() for part in match.group(1).split(",")])
@@ -101,7 +101,7 @@ def expected_call_prefix(element: dict[str, Any]) -> str:
     per_instance = 1 if str(element.get("class", "")) == "per_instance" or int_value(element.get("input_slot_class"), 0) == 1 else 0
     table_index = int_value(element.get("table_index"), 0)
     return (
-        f"m12_load_vertex_attr({table_index}, "
+        f"vkd3d_load_vertex_attr({table_index}, "
         f"{int_value(element.get('offset'), 0)}, "
         f"{int_value(element.get('dxgi_format'), 0)}, "
         f"{per_instance}, "
@@ -208,7 +208,7 @@ def audit_pipeline(
 
     if elements:
         failures.extend(validate_metadata_order(manifest, name, elements, input_layout))
-        call_text = "\n".join(f"m12_load_vertex_attr({', '.join(call)})" for call in attr_calls)
+        call_text = "\n".join(f"vkd3d_load_vertex_attr({', '.join(call)})" for call in attr_calls)
         for element in elements:
             if element.get("system_value"):
                 continue

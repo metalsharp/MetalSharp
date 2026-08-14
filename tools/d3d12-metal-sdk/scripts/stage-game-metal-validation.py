@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage captured M12 game shader corpora into an offline Metal validation lab.
+"""Stage captured VKD3D game shader corpora into an offline Metal validation lab.
 
 This is intentionally file-based and safe to run without launching a game. It:
 
@@ -31,7 +31,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 SDK_ROOT = SCRIPT_DIR.parent
 PROJECT_ROOT = SDK_ROOT.parent.parent
-DEFAULT_STAGE_ROOT = Path("/Volumes/AverySSD/MetalSharp-M12-CorpusLab")
+DEFAULT_STAGE_ROOT = Path("/Volumes/AverySSD/MetalSharp-VKD3D-CorpusLab")
 DEFAULT_CONVERTER = PROJECT_ROOT / "vendor" / "dxmt" / "build-metalsharp-x64" / "tests" / "test_dxil_converter"
 
 
@@ -48,7 +48,7 @@ def sha256(path: Path) -> str:
 
 
 def safe_label(path: Path) -> str:
-    parts = [part for part in path.parts[-5:] if part not in {"/", "shader-cache", "m12"}]
+    parts = [part for part in path.parts[-5:] if part not in {"/", "shader-cache", "vkd3d"}]
     label = "__".join(parts) or path.name or "corpus"
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", label)[:160]
 
@@ -64,17 +64,17 @@ def default_corpora() -> list[Path]:
     roots: list[Path] = []
     home = Path.home()
 
-    global_m12 = home / ".metalsharp" / "shader-cache" / "m12"
-    if global_m12.is_dir():
-        roots.extend(path for path in sorted(global_m12.iterdir()) if path.is_dir())
+    global_vkd3d = home / ".metalsharp" / "shader-cache" / "vkd3d"
+    if global_vkd3d.is_dir():
+        roots.extend(path for path in sorted(global_vkd3d.iterdir()) if path.is_dir())
 
     tmp_root = home / ".metalsharp" / "tmp"
     if tmp_root.is_dir():
-        roots.extend(sorted(path for path in tmp_root.glob("*m12*/**/shader-cache") if path.is_dir()))
+        roots.extend(sorted(path for path in tmp_root.glob("*vkd3d*/**/shader-cache") if path.is_dir()))
 
     steam_root = Path("/Volumes/AverySSD/SteamLibrary/steamapps/common")
     if steam_root.is_dir():
-        roots.extend(sorted(path for path in steam_root.glob("*/.metalsharp-cache/shader-cache/m12/*") if path.is_dir()))
+        roots.extend(sorted(path for path in steam_root.glob("*/.metalsharp-cache/shader-cache/vkd3d/*") if path.is_dir()))
 
     deduped: list[Path] = []
     seen: set[str] = set()
@@ -251,7 +251,7 @@ int main(int argc, char **argv) {
     NSArray *shaders = manifest[@"shaders"];
     NSUInteger ok = 0;
     NSUInteger failed = 0;
-    printf("{\"schema\":\"metalsharp.m12.native-metal-probe.v1\",\"device\":");
+    printf("{\"schema\":\"metalsharp.vkd3d.native-metal-probe.v1\",\"device\":");
     print_json_string([device name]);
     printf(",\"results\":[");
     BOOL firstResult = YES;
@@ -411,7 +411,7 @@ def main() -> int:
         return 1
 
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_name = args.name or f"m12-metal-validation-{timestamp}"
+    run_name = args.name or f"vkd3d-metal-validation-{timestamp}"
     out_root = args.stage_root / run_name
     if args.clean and out_root.exists():
         shutil.rmtree(out_root)
@@ -453,7 +453,7 @@ def main() -> int:
                 print(f"Metal compile failed: {source}", file=sys.stderr)
 
     manifest = {
-        "schema": "metalsharp.m12.game-metal-validation.v1",
+        "schema": "metalsharp.vkd3d.game-metal-validation.v1",
         "stage_root": str(out_root),
         "metal_tool": metal_tool,
         "metallib_tool": metallib_tool,

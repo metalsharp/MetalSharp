@@ -34,7 +34,7 @@ interface AppConfig {
   graphicsRuntimeLogs?: boolean;
   graphics_runtime_logs?: boolean;
   controllerInput?: "off" | "x" | "d";
-  m12Backend?: "vkd3d-proton" | "dxmt";
+  vkd3dBackend?: "vkd3d-proton" | "dxmt";
   msync?: boolean;
   developerTelemetry?: boolean;
 }
@@ -255,6 +255,7 @@ type MetalsharpAPI = {
   pickAssetFile: () => Promise<string | null>;
   pickDirectory: (title?: string) => Promise<string | null>;
   gogOAuthLogin: (authUrl: string) => Promise<{ ok: boolean; code?: string; redirectUrl?: string; error?: string }>;
+  openExternalUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
   processManagerToggle: () => Promise<{ ok: boolean }>;
   processManagerClose: () => Promise<{ ok: boolean }>;
   processManagerSample: () => Promise<ProcessManagerSample>;

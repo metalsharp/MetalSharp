@@ -25,10 +25,9 @@ pub fn state() -> Value {
     let config_path = crate::platform::metalsharp_home_dir_for(&home).join("setup.json");
     let dxmt_runtime = crate::installer::dxmt_runtime_status();
     let dxmt_current = dxmt_runtime.get("current").and_then(|v| v.as_bool()).unwrap_or(false);
-    let dxmt_m12_current = dxmt_runtime.get("m12Current").and_then(|v| v.as_bool()).unwrap_or(false);
     let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let metalsharp_runtime_lib_ready = crate::installer::metalsharp_runtime_lib_ready(&wine_dir);
-    let runtime_current = dxmt_current && dxmt_m12_current && metalsharp_runtime_lib_ready;
+    let runtime_current = dxmt_current && metalsharp_runtime_lib_ready;
 
     if config_path.exists() {
         if let Ok(contents) = std::fs::read_to_string(&config_path) {
@@ -137,15 +136,8 @@ pub fn dependencies() -> Value {
         .or_else(|| dxmt_status.get("current"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let dxmt_m12_runtime = dxmt_status
-        .get("dxmt_m12")
-        .and_then(|lane| lane.get("current"))
-        .or_else(|| dxmt_status.get("m12Current"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
 
-    let all_ok =
-        homebrew && rosetta && xcode_cli && metalsharp_wine && host_runtime && dxmt_runtime && dxmt_m12_runtime;
+    let all_ok = homebrew && rosetta && xcode_cli && metalsharp_wine && host_runtime && dxmt_runtime;
 
     json!({
         "ok": true,
@@ -194,7 +186,7 @@ pub fn dependencies() -> Value {
             },
             {
                 "id": "dxmt_runtime",
-                "name": "DXMT M9-M11 Runtime",
+                "name": "DXMT Runtime",
                 "desc": format!("Bundled D3D9/D3D10/D3D11-to-Metal runtime ({}) staged under runtime/wine/lib/dxmt.", crate::installer::DXMT_BUNDLED_RUNTIME_VERSION),
                 "installed": dxmt_runtime,
                 "required": true,
@@ -202,19 +194,17 @@ pub fn dependencies() -> Value {
                 "status": dxmt_status.get("dxmt").cloned().unwrap_or_else(|| dxmt_status.clone()),
             },
             {
-                "id": "dxmt_m12_runtime",
-                "name": "DXMT M12 Runtime",
-                "desc": "Isolated D3D12-to-Metal runtime staged under runtime/wine/lib/dxmt_m12 with its own DLLs and winemetal.so sidecars.",
-                "installed": dxmt_m12_runtime,
+                "id": "vkd3d_vkd3d_runtime",
+                "name": "VKD3D vkd3d-proton Runtime",
+                "desc": "D3D12-to-Metal stack (vkd3d-proton + DXVK + VKMT MoltenVK) staged under runtime/wine/lib.",
+                "installed": crate::installer::vkd3d_proton_runtime_current_for_home(&home)
+                    && crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home)
+                    && crate::installer::dxvk_runtime_ready_for_home(&home),
                 "required": true,
-                "installCmd": "metalsharp-setup-dxmt-m12",
-                "status": dxmt_status.get("dxmt_m12").cloned().unwrap_or_else(|| dxmt_status.clone()),
-                "path": dxmt_status
-                    .get("dxmt_m12")
-                    .and_then(|lane| lane.get("path"))
-                    .cloned()
-                    .or_else(|| dxmt_status.get("m12Path").cloned())
-                    .unwrap_or(json!(null)),
+                "installCmd": "metalsharp-setup-vkd3d-proton",
+                "status": json!({
+                    "current": crate::installer::vkd3d_proton_runtime_current_for_home(&home),
+                }),
             },
             {
                 "id": "mono",
@@ -632,13 +622,38 @@ fn prepare_dxmt_pipeline(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let marker = game_dir.join(".metalsharp_prepared");
     stage_packaged_steam_runtime_for_game(appid, game_dir)?;
-    if pipeline == crate::mtsp::engine::PipelineId::M12 {
-        stage_agility_sdk_for_game(appid, game_dir, home)?;
+    if pipeline == crate::mtsp::engine::PipelineId::Vkd3d && game_exe_imports_d3d12(game_dir, None) {
+        // Agility is never a launch blocker: D3D9/D3D10/D3D11 titles on the
+        // VKD3D route don't use it, and a D3D12 title must still launch even
+        // if the payload could not be staged right now.
+        if let Err(error) = stage_agility_sdk_for_game(appid, game_dir, home) {
+            eprintln!("setup: Agility SDK staging skipped (non-blocking): {error}");
+        }
     }
     if !marker.exists() {
         let _ = std::fs::write(&marker, "dxmt");
     }
     Ok(())
+}
+
+/// True when the game executable imports `d3d12.dll` (and can therefore
+/// consume an Agility SDK payload). D3D9/D3D10/D3D11-only titles on the VKD3D
+/// route must never be staged or blocked for Agility.
+pub(crate) fn game_exe_imports_d3d12(game_dir: &Path, exe_path: Option<&Path>) -> bool {
+    let exe = match exe_path {
+        Some(path) => path.to_path_buf(),
+        None => match crate::mtsp::recipe::resolve_game_exe(0, game_dir) {
+            Ok(path) => path,
+            Err(_) => return false,
+        },
+    };
+    let Ok(data) = std::fs::read(&exe) else {
+        return false;
+    };
+    let Some(pe) = crate::mtsp::pe::parse_pe_imports(&data) else {
+        return false;
+    };
+    pe.imports.iter().any(|import| import.eq_ignore_ascii_case("d3d12.dll"))
 }
 
 fn stage_packaged_steam_runtime_for_game(appid: u32, game_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {

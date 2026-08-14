@@ -6,10 +6,10 @@ Related: PR #118 (Beta 7 mscompatdb), PR #119 (merged D3D12 bridge), PR #127 (me
 
 ## Diagnosis
 
-M12 D3D12 work changed the DXMT runtime surface as a whole, exposing breakage in the shared D3D11/DXGI/WineMetal path. Two concrete bugs:
+VKD3D D3D12 work changed the DXMT runtime surface as a whole, exposing breakage in the shared D3D11/DXGI/WineMetal path. Two concrete bugs:
 
 1. **M11 BZ PSO Failure** — D3D11 device creates but Metal PSO creation gets garbage vertex buffer indices (2223720704, 4294967295). Uninitialized vertex descriptor state.
-2. **M12 DXIL SSA Failure** — generated MSL references undeclared SSA values (v197). PHI lowering emits un-materialized expressions.
+2. **VKD3D DXIL SSA Failure** — generated MSL references undeclared SSA values (v197). PHI lowering emits un-materialized expressions.
 
 Plus: DXGI unknown IID crash, feature reporting exceeding capability, and SDK gate too weak.
 
@@ -82,7 +82,7 @@ One DXMT runtime manifest with hashes for every PE and Unix artifact. No more pi
 | Probe | Gate |
 |-------|------|
 | BZ M11 first-frame render | Phase 7.1 |
-| S2 M12 D3D12 device creation | Phase 7.3 |
+| S2 VKD3D D3D12 device creation | Phase 7.3 |
 | Shader corpus replay (0 undeclared SSA) | Phase 7.2 |
 | D3D11 PSO replay (valid buffer indices) | Phase 7.1 |
 | DXGI factory probe | Phase 7.4 |

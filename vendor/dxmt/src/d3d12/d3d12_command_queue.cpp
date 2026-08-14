@@ -746,9 +746,9 @@ struct ReplayState {
   static constexpr uint32_t kMSCDrawArgumentsSlot = 4;
   static constexpr uint32_t kMSCUniformsSlot = 5;
   static constexpr uint32_t kMSCVertexBufferBindPoint = 6;
-  static constexpr uint32_t kM12VertexPullDrawArgumentsSlot = 29;
-  static constexpr uint32_t kM12VertexPullDrawInfoSlot = 30;
-  static constexpr uint32_t kM12VertexBufferSignatureSlotCount = 31;
+  static constexpr uint32_t kVKD3DVertexPullDrawArgumentsSlot = 29;
+  static constexpr uint32_t kVKD3DVertexPullDrawInfoSlot = 30;
+  static constexpr uint32_t kVKD3DVertexBufferSignatureSlotCount = 31;
   static constexpr uint16_t kMSCNonIndexedDraw = 0;
 
   struct VertexBufferEntry {
@@ -1378,7 +1378,7 @@ struct ReplayState {
       return;
 
     Logger::warn(str::format(
-        "M12 skipping unsafe ", draw_kind,
+        "VKD3D skipping unsafe ", draw_kind,
         " reason=", D3D12DrawSafetySkipReasonName(result.reason),
         " pso=", (void *)pso, " ", TracePsoShaderSummary(pso),
         " slot=", result.input_slot, " table=", result.table_index, " gpu=0x",
@@ -1407,7 +1407,7 @@ struct ReplayState {
             ? 4u
             : (ib.Format == DXGI_FORMAT_R16_UINT ? 2u : 0u);
     Logger::info(str::format(
-        "M12 native vertex path resolved draw=", draw_kind, " pso=",
+        "VKD3D native vertex path resolved draw=", draw_kind, " pso=",
         (void *)pso, " ", TracePsoShaderSummary(pso), " elems=", element_count,
         " inst=", instance_count, " start=", start_element,
         " base=", base_vertex, " start_inst=", start_instance,
@@ -1464,7 +1464,7 @@ struct ReplayState {
     void *mapped = info.memory.get();
     if (!buffer.handle || !mapped) {
       Logger::info(
-          str::format("M12 swapchain render readback unavailable "
+          str::format("VKD3D swapchain render readback unavailable "
                       "capture=",
                       capture, " backbuffer=",
                       swapchain_rt_for_present->SwapchainBackBufferIndex()));
@@ -1536,7 +1536,7 @@ struct ReplayState {
     }
 
     Logger::info(str::format(
-        "M12 swapchain render readback capture=", render_readback.capture,
+        "VKD3D swapchain render readback capture=", render_readback.capture,
         " backbuffer=", render_readback.backbuffer,
         " fmt=", (unsigned)render_readback.format,
         " sample=", render_readback.width, "x", render_readback.height,
@@ -1574,7 +1574,7 @@ struct ReplayState {
     EndMetalEncoder(enc, "render_swapchain_forced_color");
     if (TakeLogBudget(&g_swapchain_forced_color_logs, 16)) {
       Logger::info(str::format(
-          "M12 swapchain forced diagnostic color "
+          "VKD3D swapchain forced diagnostic color "
           "backbuffer=",
           swapchain_rt_for_present->SwapchainBackBufferIndex(),
           " tex=", (unsigned long long)tex.handle, " color=1,0,1,1"));
@@ -1586,7 +1586,7 @@ struct ReplayState {
       return;
 
     bool compiled = pso->EnsureCompiled();
-    Logger::info(str::format("M12 render PSO ready compiled=", compiled,
+    Logger::info(str::format("VKD3D render PSO ready compiled=", compiled,
                              " pso=", (void *)pso,
                              " swapchain=", HasSwapchainRenderTarget(),
                              " stage=", TraceCompileFailureStage(pso),
@@ -1604,7 +1604,7 @@ struct ReplayState {
       return;
 
     Logger::info(str::format(
-        "M12 final render snapshot #", capture, " draw=", draw_kind, " elems=",
+        "VKD3D final render snapshot #", capture, " draw=", draw_kind, " elems=",
         element_count, " inst=", instance_count, " start=", start_element,
         " enc=", (unsigned long long)render_enc.handle, " pso=", (void *)pso,
         " compiled=", pso->IsCompiled(),
@@ -1614,7 +1614,7 @@ struct ReplayState {
 
     const auto &blend = pso->GetBlendDesc();
     Logger::info(str::format(
-        "M12 final pso color rts=", (unsigned)pso->GetNumRenderTargets(),
+        "VKD3D final pso color rts=", (unsigned)pso->GetNumRenderTargets(),
         " rtv0=", (unsigned)pso->GetRTVFormat(0),
         " sample_count=", (unsigned)pso->GetSampleCount(), " blend0=",
         (unsigned)blend.RenderTarget[0].BlendEnable, " write_mask0=0x",
@@ -1629,7 +1629,7 @@ struct ReplayState {
       auto *res =
           desc ? static_cast<MTLD3D12Resource *>(desc->resource) : nullptr;
       Logger::info(str::format(
-          "M12 final RTV slot=", i, " handle=0x",
+          "VKD3D final RTV slot=", i, " handle=0x",
           (unsigned long long)rt_handles[i].ptr,
           " rtv_fmt=", desc ? (unsigned)desc->rtv.Format : 0u,
           " rtv_dim=", desc ? (unsigned)desc->rtv.ViewDimension : 0u, " ",
@@ -1641,7 +1641,7 @@ struct ReplayState {
       auto *res =
           desc ? static_cast<MTLD3D12Resource *>(desc->resource) : nullptr;
       Logger::info(str::format(
-          "M12 final DSV handle=0x", (unsigned long long)dsv_handle.ptr,
+          "VKD3D final DSV handle=0x", (unsigned long long)dsv_handle.ptr,
           " dsv_fmt=", desc ? (unsigned)desc->dsv.Format : 0u,
           " dsv_dim=", desc ? (unsigned)desc->dsv.ViewDimension : 0u,
           " stencil=", desc ? DSVHasStencil(desc) : false, " ",
@@ -1652,19 +1652,19 @@ struct ReplayState {
     if (!sig && pso->GetRootSignature())
       sig = static_cast<MTLD3D12RootSignature *>(pso->GetRootSignature());
     if (!sig) {
-      Logger::info("M12 final roots root_sig=null");
+      Logger::info("VKD3D final roots root_sig=null");
       return;
     }
 
     const auto &params = sig->GetParameters();
     Logger::info(
-        str::format("M12 final root signature params=", (unsigned)params.size(),
+        str::format("VKD3D final root signature params=", (unsigned)params.size(),
                     " heaps=", desc_heap_count));
     for (uint32_t i = 0; i < params.size() && i < kRootParameterSlotCount;
          i++) {
       const auto &param = params[i];
       Logger::info(str::format(
-          "M12 final root[", i, "] type=", RootParameterTypeName(param.type),
+          "VKD3D final root[", i, "] type=", RootParameterTypeName(param.type),
           " vis=", ShaderVisibilityName(param.shader_visibility),
           " reg=", param.register_index, " space=", param.register_space,
           " constants=", root_constant_set[i], " cbv=", root_cbv_set[i],
@@ -1686,7 +1686,7 @@ struct ReplayState {
             range.num_descriptors == UINT32_MAX ? 1u : range.num_descriptors;
         uint32_t inspect_count = std::min<uint32_t>(descriptor_count, 4u);
         Logger::info(str::format(
-            "M12 final root[", i, "] range[", r,
+            "VKD3D final root[", i, "] range[", r,
             "] type=", DescriptorRangeTypeName(range.range_type),
             " base=", range.base_register, " space=", range.register_space,
             " offset=", range.offset_in_table,
@@ -1701,7 +1701,7 @@ struct ReplayState {
                   root_tables[i], range.offset_in_table + d);
             }
           }
-          Logger::info(str::format("M12 final root[", i, "] range[", r,
+          Logger::info(str::format("VKD3D final root[", i, "] range[", r,
                                    "] desc[", d,
                                    "] reg=", range.base_register + d, " ",
                                    DescriptorSummary(desc, range.range_type)));
@@ -1723,7 +1723,7 @@ struct ReplayState {
 
     const auto &input_layout = pso->GetInputLayout();
     Logger::info(str::format(
-        "M12 stage_in vertex snapshot #", capture, " draw=", draw_kind,
+        "VKD3D stage_in vertex snapshot #", capture, " draw=", draw_kind,
         " elems=", element_count, " inst=", instance_count,
         " pso=", (void *)pso, " stage_in=", pso->UsesStageInVertexDescriptor(),
         " msc_stage_in=", pso->RequiresMSCStageInFunction(),
@@ -1734,7 +1734,7 @@ struct ReplayState {
     for (UINT i = 0; i < input_layout.NumElements && i < 16; i++) {
       const auto &el = input_layout.pInputElementDescs[i];
       Logger::info(str::format(
-          "M12 stage_in il[", i,
+          "VKD3D stage_in il[", i,
           "] semantic=", el.SemanticName ? el.SemanticName : "?",
           el.SemanticIndex, " fmt=", (unsigned)el.Format,
           " slot=", el.InputSlot, " offset=", el.AlignedByteOffset,
@@ -1745,7 +1745,7 @@ struct ReplayState {
       if (!(pso->GetIAInputSlotMask() & (1u << slot)))
         continue;
       const auto &vb = vbs[slot];
-      Logger::info(str::format("M12 stage_in vb[", slot, "] gpu=0x",
+      Logger::info(str::format("VKD3D stage_in vb[", slot, "] gpu=0x",
                                (unsigned long long)vb.BufferLocation, " size=",
                                vb.SizeInBytes, " stride=", vb.StrideInBytes));
     }
@@ -1764,7 +1764,7 @@ struct ReplayState {
 
     const auto &inputs = pso->GetIAInputElements();
     Logger::info(str::format(
-        "M12 vertex-pull snapshot draw=", draw_kind, " v=", vertex_count,
+        "VKD3D vertex-pull snapshot draw=", draw_kind, " v=", vertex_count,
         " i=", instance_count, " start_vertex=", start_vertex,
         " start_instance=", start_instance, " slot_mask=0x", std::hex,
         pso->GetIAInputSlotMask(), std::dec, " inputs=", inputs.size(),
@@ -1778,7 +1778,7 @@ struct ReplayState {
 
       const auto &vb = vbs[input.input_slot];
       Logger::info(str::format(
-          "M12 vertex-pull input semantic=", input.semantic_name,
+          "VKD3D vertex-pull input semantic=", input.semantic_name,
           input.semantic_index, " reg=", input.shader_register,
           " slot=", input.input_slot, " table=", input.table_index, " offset=",
           input.aligned_byte_offset, " fmt=", (unsigned)input.dxgi_format,
@@ -1807,7 +1807,7 @@ struct ReplayState {
       auto *vb_res = device->LookupResourceByGPUAddress(vb.BufferLocation);
       if (!vb_res) {
         Logger::warn(str::format(
-            "M12 vertex-pull sample slot=", slot, " unresolved vb_gpu=0x",
+            "VKD3D vertex-pull sample slot=", slot, " unresolved vb_gpu=0x",
             std::hex, (unsigned long long)vb.BufferLocation, std::dec,
             " size=", vb.SizeInBytes, " stride=", vb.StrideInBytes));
         continue;
@@ -1859,7 +1859,7 @@ struct ReplayState {
         }
 
         Logger::info(str::format(
-            "M12 vertex-pull sample slot=", slot, " n=", n,
+            "VKD3D vertex-pull sample slot=", slot, " n=", n,
             " vertex_id=", (unsigned long long)vertex_id, " vb_gpu=0x",
             std::hex, (unsigned long long)vb.BufferLocation, std::dec, " res=",
             (void *)vb_res, " base_off=", (unsigned long long)vb_base_offset,
@@ -1978,8 +1978,8 @@ struct ReplayState {
     cmdbuf.retainObjectsUntilCompleted(retained_completion_objects.data(),
                                        retained_completion_objects.size());
     Logger::info(str::format(
-        "M12 command buffer retained resources "
-        "schema=metalsharp.m12.command-buffer-retention.v1 cmdlist_id=",
+        "VKD3D command buffer retained resources "
+        "schema=metalsharp.vkd3d.command-buffer-retention.v1 cmdlist_id=",
         (unsigned long long)command_list_id, " queue=", queue_type,
         " cmdbuf=", (unsigned long long)cmdbuf.handle,
         " retained=", retained_completion_objects.size(),
@@ -2096,7 +2096,7 @@ struct ReplayState {
     if (HasSwapchainRenderTarget() &&
         TakeLogBudget(&g_swapchain_vs_cbv_logs, 32)) {
       Logger::info(str::format(
-          "M12 swapchain staged CBV ", label, " original=0x", std::hex,
+          "VKD3D swapchain staged CBV ", label, " original=0x", std::hex,
           (unsigned long long)gpu_address, " staged=0x",
           (unsigned long long)staged_gpu_address, std::dec,
           " bytes=", (unsigned long long)length, " f0=", cbv_probe[0],
@@ -2140,7 +2140,7 @@ struct ReplayState {
         TakeLogBudget(&g_swapchain_vs_cbv_logs, 32)) {
       const float *floats =
           reinterpret_cast<const float *>(root_constants_buf + root_offset);
-      Logger::info(str::format("M12 swapchain root constants staged CBV ",
+      Logger::info(str::format("VKD3D swapchain root constants staged CBV ",
                                label, " root_idx=", root_idx, " gpu=0x",
                                std::hex, (unsigned long long)staged_gpu_address,
                                std::dec, " size=", root_size, " f0=", floats[0],
@@ -2322,7 +2322,7 @@ struct ReplayState {
       return;
 
     uint32_t filled = 0;
-    for (uint32_t slot = 0; slot < kM12VertexBufferSignatureSlotCount; slot++) {
+    for (uint32_t slot = 0; slot < kVKD3DVertexBufferSignatureSlotCount; slot++) {
       if (slot == kVertexBufferTableSlot || slot == kConstantBufferTableSlot ||
           slot == kArgBufSlot)
         continue;
@@ -2338,7 +2338,7 @@ struct ReplayState {
       if (HasSwapchainRenderTarget() &&
           TakeLogBudget(&g_swapchain_draw_logs, 384)) {
         Logger::info(str::format(
-            "M12 non-stage-in filled missing vertex buffers count=", filled,
+            "VKD3D non-stage-in filled missing vertex buffers count=", filled,
             " mask=0x", std::hex, bound_vertex_buffer_slots, std::dec,
             " pso=", (void *)pso, " ", TracePsoShaderSummary(pso)));
       }
@@ -2364,9 +2364,9 @@ struct ReplayState {
 
   D3D12ShaderBindingCompletenessSummary FragmentCompletenessSummary() const {
     D3D12ShaderBindingCompletenessDesc desc = {};
-    desc.buffer_count = kD3D12M12DirectBufferSlots;
-    desc.texture_count = kD3D12M12DirectFragmentTextureSlots;
-    desc.sampler_count = kD3D12M12DirectFragmentSamplerSlots;
+    desc.buffer_count = kD3D12VKD3DDirectBufferSlots;
+    desc.texture_count = kD3D12VKD3DDirectFragmentTextureSlots;
+    desc.sampler_count = kD3D12VKD3DDirectFragmentSamplerSlots;
     desc.bound_buffers = bound_fragment_buffer_slots;
     desc.bound_textures = bound_fragment_texture_slots;
     desc.bound_samplers = bound_fragment_sampler_slots;
@@ -2398,7 +2398,7 @@ struct ReplayState {
           root_uav_mask |= 1ull << i;
       }
       Logger::info(str::format(
-          "M12 fragment prefill label=", draw_label ? draw_label : "draw",
+          "VKD3D fragment prefill label=", draw_label ? draw_label : "draw",
           " bound_buf=0x", std::hex, bound_fragment_buffer_slots,
           " bound_tex=0x", bound_fragment_texture_slots, " bound_samp=0x",
           bound_fragment_sampler_slots, " root_tables=0x", root_table_mask,
@@ -2415,9 +2415,9 @@ struct ReplayState {
     }
 
     if (null_vertex_arg_buf.handle) {
-      uint64_t missing = D3D12DirectBindingMask(kD3D12M12DirectBufferSlots) &
+      uint64_t missing = D3D12DirectBindingMask(kD3D12VKD3DDirectBufferSlots) &
                          ~bound_fragment_buffer_slots;
-      for (uint32_t slot = 0; slot < kD3D12M12DirectBufferSlots; slot++) {
+      for (uint32_t slot = 0; slot < kD3D12VKD3DDirectBufferSlots; slot++) {
         if (!(missing & (1ull << slot)))
           continue;
         SetFragmentBufferTracked(null_vertex_arg_buf, 0, slot, true);
@@ -2429,9 +2429,9 @@ struct ReplayState {
 
     if (EnsureNullDirectTexture(device)) {
       uint64_t missing =
-          D3D12DirectBindingMask(kD3D12M12DirectFragmentTextureSlots) &
+          D3D12DirectBindingMask(kD3D12VKD3DDirectFragmentTextureSlots) &
           ~bound_fragment_texture_slots;
-      for (uint32_t slot = 0; slot < kD3D12M12DirectFragmentTextureSlots;
+      for (uint32_t slot = 0; slot < kD3D12VKD3DDirectFragmentTextureSlots;
            slot++) {
         if (!(missing & (1ull << slot)))
           continue;
@@ -2447,9 +2447,9 @@ struct ReplayState {
 
     if (EnsureNullDirectSampler(device)) {
       uint64_t missing =
-          D3D12DirectBindingMask(kD3D12M12DirectFragmentSamplerSlots) &
+          D3D12DirectBindingMask(kD3D12VKD3DDirectFragmentSamplerSlots) &
           ~bound_fragment_sampler_slots;
-      for (uint32_t slot = 0; slot < kD3D12M12DirectFragmentSamplerSlots;
+      for (uint32_t slot = 0; slot < kD3D12VKD3DDirectFragmentSamplerSlots;
            slot++) {
         if (!(missing & (1ull << slot)))
           continue;
@@ -2461,7 +2461,7 @@ struct ReplayState {
         TakeLogBudget(&g_swapchain_fragment_completeness_logs, 128)) {
       auto summary = FragmentCompletenessSummary();
       Logger::info(str::format(
-          "M12 fragment completeness label=", draw_label ? draw_label : "draw",
+          "VKD3D fragment completeness label=", draw_label ? draw_label : "draw",
           " pso=", (void *)pso, " buffers ", summary.bound_buffer_count, "+",
           summary.fallback_buffer_count, "/", summary.required_buffer_count,
           " missing=0x", std::hex, summary.missing_buffers, " textures ",
@@ -2695,7 +2695,7 @@ struct ReplayState {
               if (HasSwapchainRenderTarget() &&
                   TakeLogBudget(&g_swapchain_texture_binding_logs, 96)) {
                 Logger::info(str::format(
-                    "M12 swapchain PS SRV binding slot=", arg.SM50BindingSlot,
+                    "VKD3D swapchain PS SRV binding slot=", arg.SM50BindingSlot,
                     " space=", arg.SM50RegisterSpace, " root=", root_idx,
                     " desc_off=", descriptor_offset,
                     " qword_off=", arg.StructurePtrOffset, " gpu_id=0x",
@@ -2809,7 +2809,7 @@ struct ReplayState {
       if (HasSwapchainRenderTarget() &&
           TakeLogBudget(&g_swapchain_argbuf_logs, 48)) {
         Logger::info(str::format(
-            "M12 swapchain PS argbuf ", TracePsoShaderSummary(pso),
+            "VKD3D swapchain PS argbuf ", TracePsoShaderSummary(pso),
             " bind_index=",
             BindIndexOrFallback(pso->GetPSReflection().ArgumentBufferBindIndex,
                                 kArgBufSlot),
@@ -2938,7 +2938,7 @@ struct ReplayState {
         if (HasSwapchainRenderTarget() &&
             TakeLogBudget(&g_swapchain_ps_cbv_logs, 96)) {
           Logger::info(str::format(
-              "M12 swapchain PS cbv resolve inline slot=", arg.SM50BindingSlot,
+              "VKD3D swapchain PS cbv resolve inline slot=", arg.SM50BindingSlot,
               " space=", arg.SM50RegisterSpace,
               " field=", arg.StructurePtrOffset, " root_idx=", root_idx,
               " gpu=0x", std::hex, (unsigned long long)gpu_address, std::dec,
@@ -2957,7 +2957,7 @@ struct ReplayState {
       if (HasSwapchainRenderTarget() &&
           TakeLogBudget(&g_swapchain_ps_cbv_logs, 96)) {
         Logger::info(str::format(
-            "M12 swapchain PS cbv resolve slot=", arg.SM50BindingSlot,
+            "VKD3D swapchain PS cbv resolve slot=", arg.SM50BindingSlot,
             " space=", arg.SM50RegisterSpace,
             " qword_off=", arg.StructurePtrOffset, " root_idx=", root_idx,
             " gpu=0x", std::hex, (unsigned long long)gpu_address,
@@ -3036,7 +3036,7 @@ struct ReplayState {
         if (HasSwapchainRenderTarget() &&
             TakeLogBudget(&g_swapchain_ps_cbv_logs, 96)) {
           Logger::info(str::format(
-              "M12 swapchain PS cbv table bind slot=", bind_index,
+              "VKD3D swapchain PS cbv table bind slot=", bind_index,
               " qwords=", qword_count, " inline_bytes=", inline_table_bytes,
               " data0=0x", std::hex, (unsigned long long)cbv_table_data[0],
               " data1=0x", (unsigned long long)cbv_table_data[1], std::dec,
@@ -3054,7 +3054,7 @@ struct ReplayState {
     if (!pso || pso->GetVSConstantBuffers().empty()) {
       if (pso && HasSwapchainRenderTarget() &&
           TakeLogBudget(&g_swapchain_vs_cbv_logs, 96)) {
-        Logger::info(str::format("M12 swapchain VS cbv table empty ",
+        Logger::info(str::format("VKD3D swapchain VS cbv table empty ",
                                  TracePsoShaderSummary(pso)));
       }
       return;
@@ -3158,7 +3158,7 @@ struct ReplayState {
         if (HasSwapchainRenderTarget() &&
             TakeLogBudget(&g_swapchain_vs_cbv_logs, 96)) {
           Logger::info(str::format(
-              "M12 swapchain VS cbv resolve inline slot=", arg.SM50BindingSlot,
+              "VKD3D swapchain VS cbv resolve inline slot=", arg.SM50BindingSlot,
               " space=", arg.SM50RegisterSpace,
               " field=", arg.StructurePtrOffset, " root_idx=", root_idx,
               " gpu=0x", std::hex, (unsigned long long)gpu_address, std::dec,
@@ -3177,7 +3177,7 @@ struct ReplayState {
       if (HasSwapchainRenderTarget() &&
           TakeLogBudget(&g_swapchain_vs_cbv_logs, 96)) {
         Logger::info(str::format(
-            "M12 swapchain VS cbv resolve slot=", arg.SM50BindingSlot,
+            "VKD3D swapchain VS cbv resolve slot=", arg.SM50BindingSlot,
             " space=", arg.SM50RegisterSpace,
             " qword_off=", arg.StructurePtrOffset, " root_idx=", root_idx,
             " gpu=0x", std::hex, (unsigned long long)gpu_address,
@@ -3256,7 +3256,7 @@ struct ReplayState {
         if (HasSwapchainRenderTarget() &&
             TakeLogBudget(&g_swapchain_vs_cbv_logs, 96)) {
           Logger::info(str::format(
-              "M12 swapchain VS cbv table bind slot=", bind_index,
+              "VKD3D swapchain VS cbv table bind slot=", bind_index,
               " qwords=", qword_count, " inline_bytes=", inline_table_bytes,
               " data0=0x", std::hex, (unsigned long long)vs_cbv_table_data[0],
               " data1=0x", (unsigned long long)vs_cbv_table_data[1], std::dec,
@@ -3496,7 +3496,7 @@ struct ReplayState {
         if (HasSwapchainRenderTarget() &&
             TakeLogBudget(&g_swapchain_vs_argbuf_logs, 64)) {
           Logger::info(str::format(
-              "M12 swapchain VS argbuf ", TracePsoShaderSummary(pso),
+              "VKD3D swapchain VS argbuf ", TracePsoShaderSummary(pso),
               " bind_index=", bind_index, " qwords=", qword_count, " data=[",
               (unsigned long long)vs_arg_buf_data[0], ",",
               (unsigned long long)(qword_count > 1 ? vs_arg_buf_data[1] : 0),
@@ -3920,7 +3920,7 @@ struct ReplayState {
         start_vertex % control_points != 0) {
       if (TakeLogBudget(&g_swapchain_draw_logs, 64)) {
         Logger::warn(
-            str::format("M12 native_tessellation_unsupported draw ",
+            str::format("VKD3D native_tessellation_unsupported draw ",
                         "reason=topology_or_patch_alignment control_points=",
                         control_points, " topology=", (unsigned)topology,
                         " topology_control_points=", topology_control_points,
@@ -3939,7 +3939,7 @@ struct ReplayState {
         requested_vertex_bytes > vbs[0].SizeInBytes) {
       if (TakeLogBudget(&g_swapchain_draw_logs, 64)) {
         Logger::warn(str::format(
-            "M12 native_tessellation_unsupported draw ",
+            "VKD3D native_tessellation_unsupported draw ",
             "reason=ia_stride_or_range stride=", vbs[0].StrideInBytes,
             " expected_stride=", kNativeTessellationProofStride,
             " requested_bytes=", requested_vertex_bytes,
@@ -3999,7 +3999,7 @@ struct ReplayState {
     if (HasSwapchainRenderTarget() &&
         TakeLogBudget(&g_swapchain_draw_logs, 64)) {
       Logger::info(str::format(
-          "M12 native_tessellation_path draw encoded control_points=",
+          "VKD3D native_tessellation_path draw encoded control_points=",
           control_points, " patches=", (unsigned long long)draw.patch_count,
           " instances=", instance_count, " start_vertex=", start_vertex,
           " pso=", (void *)pso,
@@ -4024,7 +4024,7 @@ struct ReplayState {
         ib.Format != DXGI_FORMAT_R16_UINT) {
       if (TakeLogBudget(&g_swapchain_draw_logs, 64)) {
         Logger::warn(str::format(
-            "M12 native_tessellation_unsupported indexed_draw ",
+            "VKD3D native_tessellation_unsupported indexed_draw ",
             "reason=topology_patch_alignment_base_vertex_or_index_format "
             "control_points=",
             control_points, " topology=", (unsigned)topology,
@@ -4040,7 +4040,7 @@ struct ReplayState {
         vbs[0].StrideInBytes != kNativeTessellationProofStride) {
       if (TakeLogBudget(&g_swapchain_draw_logs, 64)) {
         Logger::warn(
-            str::format("M12 native_tessellation_unsupported indexed_draw ",
+            str::format("VKD3D native_tessellation_unsupported indexed_draw ",
                         "reason=ia_stride stride=", vbs[0].StrideInBytes,
                         " expected_stride=", kNativeTessellationProofStride,
                         " pso=", (void *)pso));
@@ -4060,7 +4060,7 @@ struct ReplayState {
     if (requested_index_bytes > ib.SizeInBytes) {
       if (TakeLogBudget(&g_swapchain_draw_logs, 64)) {
         Logger::warn(
-            str::format("M12 native_tessellation_unsupported indexed_draw ",
+            str::format("VKD3D native_tessellation_unsupported indexed_draw ",
                         "reason=index_range_oob start_index=", start_index,
                         " index_count=", index_count,
                         " index_bytes=", requested_index_bytes,
@@ -4130,7 +4130,7 @@ struct ReplayState {
     if (HasSwapchainRenderTarget() &&
         TakeLogBudget(&g_swapchain_draw_logs, 64)) {
       Logger::info(str::format(
-          "M12 native_tessellation_path indexed draw encoded control_points=",
+          "VKD3D native_tessellation_path indexed draw encoded control_points=",
           control_points, " patches=", (unsigned long long)draw.patch_count,
           " instances=", instance_count, " start_index=", start_index, " pso=",
           (void *)pso, " implementation=d3d12_native_tessellation_path"));
@@ -4502,7 +4502,7 @@ struct ReplayState {
     if (render_enc.encodeCommands(cmd))
       return true;
 
-    Logger::info(str::format("M12 render encoder encode failed label=",
+    Logger::info(str::format("VKD3D render encoder encode failed label=",
                              label ? label : "render_encode",
                              " enc=", (unsigned long long)render_enc.handle,
                              " pso=", (void *)pso, " ",
@@ -4547,7 +4547,7 @@ struct ReplayState {
 
     if (TakeLogBudget(&g_tessellation_fallback_draw_logs, 64)) {
       Logger::warn(str::format(
-          "M12 tessellation fallback draw label=", label ? label : "draw",
+          "VKD3D tessellation fallback draw label=", label ? label : "draw",
           " indexed=", indexed,
           " patch_control_points=", D3D12PatchControlPointCount(topology),
           " elements=", element_count, " instances=", instance_count,
@@ -4643,7 +4643,7 @@ struct ReplayState {
     ResetTrackedRenderBindings();
     if (has_swapchain_rt && TakeLogBudget(&g_swapchain_encoder_logs, 24)) {
       Logger::info(str::format(
-          "M12 swapchain render encoder created rt=", swapchain_rt_index,
+          "VKD3D swapchain render encoder created rt=", swapchain_rt_index,
           " backbuffer=", swapchain_backbuffer_index,
           " tex=", (unsigned long long)rp.colors[swapchain_rt_index].texture,
           " pso=", (void *)pso, " compiled=", pso ? pso->IsCompiled() : 0));
@@ -4832,7 +4832,7 @@ struct ReplayState {
           D3D12_SHADER_VISIBILITY cbv_vis = D3D12_SHADER_VISIBILITY_ALL;
           uint32_t cbv_slot =
               root_register_and_vis(D3D12_ROOT_PARAMETER_TYPE_CBV, &cbv_vis);
-          Logger::info(str::format("M12 MSC root CBV param=", i,
+          Logger::info(str::format("VKD3D MSC root CBV param=", i,
                                    " slot=", cbv_slot, " vis=", (int)cbv_vis,
                                    " gpu=0x", (unsigned long long)root_cbvs[i],
                                    " set=", root_cbv_set[i]));
@@ -4862,7 +4862,7 @@ struct ReplayState {
           if (!desc->cbv.BufferLocation)
             return;
           uint32_t buf_slot = shader_register;
-          if (buf_slot >= kD3D12M12DirectBufferSlots)
+          if (buf_slot >= kD3D12VKD3DDirectBufferSlots)
             return;
           auto *res =
               device->LookupResourceByGPUAddress(desc->cbv.BufferLocation);
@@ -4888,7 +4888,7 @@ struct ReplayState {
                vis == D3D12_SHADER_VISIBILITY_PIXEL) &&
               TakeLogBudget(&g_swapchain_texture_binding_logs, 128)) {
             Logger::info(str::format(
-                "M12 swapchain direct CBV binding root_table=", i, " reg=",
+                "VKD3D swapchain direct CBV binding root_table=", i, " reg=",
                 shader_register, " vis=", ShaderVisibilityName(vis), " gpu=0x",
                 std::hex, (unsigned long long)desc->cbv.BufferLocation,
                 std::dec, " size=", desc->cbv.SizeInBytes, " off=", off, " ",
@@ -4902,7 +4902,7 @@ struct ReplayState {
         if (!desc->resource)
           return;
         uint32_t buf_slot = shader_register;
-        if (buf_slot >= kD3D12M12DirectBufferSlots)
+        if (buf_slot >= kD3D12VKD3DDirectBufferSlots)
           return;
         auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
         if (res->GetMTLBuffer().handle) {
@@ -4944,7 +4944,7 @@ struct ReplayState {
                vis == D3D12_SHADER_VISIBILITY_PIXEL) &&
               TakeLogBudget(&g_swapchain_texture_binding_logs, 128)) {
             Logger::info(str::format(
-                "M12 swapchain direct texture binding root_table=", i,
+                "VKD3D swapchain direct texture binding root_table=", i,
                 " reg=", shader_register, " vis=", ShaderVisibilityName(vis),
                 " range=", DescriptorRangeTypeName(range_type),
                 " tex=", (unsigned long long)tex.handle, " ",
@@ -5082,7 +5082,7 @@ struct ReplayState {
 
     msc_draw_args_buf = MakeTransientBuffer(device, sizeof(params));
     const uint32_t draw_args_slot =
-        stage_in ? kMSCDrawArgumentsSlot : kM12VertexPullDrawArgumentsSlot;
+        stage_in ? kMSCDrawArgumentsSlot : kVKD3DVertexPullDrawArgumentsSlot;
     if (msc_draw_args_buf.handle) {
       msc_draw_args_buf.updateContents(0, &params, sizeof(params));
       SetVertexBufferTracked(msc_draw_args_buf, 0, draw_args_slot);
@@ -5092,7 +5092,7 @@ struct ReplayState {
 
     msc_uniforms_buf = MakeTransientBuffer(device, sizeof(draw_info));
     const uint32_t draw_info_slot =
-        stage_in ? kMSCUniformsSlot : kM12VertexPullDrawInfoSlot;
+        stage_in ? kMSCUniformsSlot : kVKD3DVertexPullDrawInfoSlot;
     if (msc_uniforms_buf.handle) {
       msc_uniforms_buf.updateContents(0, &draw_info, sizeof(draw_info));
       SetVertexBufferTracked(msc_uniforms_buf, 0, draw_info_slot);
@@ -5200,7 +5200,7 @@ struct ReplayState {
         last_bound_vertex_buffers = bound_slots;
         if (HasSwapchainRenderTarget() &&
             TakeLogBudget(&g_swapchain_stage_in_vb_logs, 64)) {
-          Logger::info(str::format("M12 swapchain stage_in vertex buffers "
+          Logger::info(str::format("VKD3D swapchain stage_in vertex buffers "
                                    "mask=",
                                    slot_mask, " entries=", table_entries,
                                    " bound=", bound_slots, " pso=", (void *)pso,
@@ -5507,7 +5507,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   }
   if (!st.pso->IsCompiled()) {
     Logger::info(str::format(
-        "M12 compute dispatch first-use compile pso=", (void *)st.pso,
+        "VKD3D compute dispatch first-use compile pso=", (void *)st.pso,
         " tg=", st.pso->GetThreadgroupSize().width, "x",
         st.pso->GetThreadgroupSize().height, "x",
         st.pso->GetThreadgroupSize().depth, " dispatch=", x, "x", y, "x", z,
@@ -5516,7 +5516,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     bool compiled = st.pso->EnsureCompiled();
     if (!compiled) {
       Logger::err(str::format(
-          "M12 COMPUTE PSO FAILURE pso=", (void *)st.pso, " dispatch=", x, "x",
+          "VKD3D COMPUTE PSO FAILURE pso=", (void *)st.pso, " dispatch=", x, "x",
           y, "x", z, " root_sig=", (void *)st.pso->GetRootSignature(),
           " tg=", st.pso->GetThreadgroupSize().width, "x",
           st.pso->GetThreadgroupSize().height, "x",
@@ -5924,11 +5924,11 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
            (unsigned long long)st.null_vertex_arg_buf.handle);
   }
   if (st.null_vertex_arg_buf.handle) {
-    uint64_t missing = D3D12DirectBindingMask(kD3D12M12DirectBufferSlots) &
+    uint64_t missing = D3D12DirectBindingMask(kD3D12VKD3DDirectBufferSlots) &
                        ~bound_compute_buffer_slots;
     QTRACE("%s: compute buffer fallback missing=0x%llx", trace_prefix,
            (unsigned long long)missing);
-    for (uint32_t slot = 0; slot < kD3D12M12DirectBufferSlots; slot++) {
+    for (uint32_t slot = 0; slot < kD3D12VKD3DDirectBufferSlots; slot++) {
       if (!(missing & (1ull << slot)))
         continue;
       append_compute_setbuffer(st.null_vertex_arg_buf.handle, 0, slot, true);
@@ -5939,12 +5939,12 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   }
   if (st.EnsureNullDirectTexture(device)) {
     uint64_t missing =
-        D3D12DirectBindingMask(kD3D12M12DirectComputeTextureSlots) &
+        D3D12DirectBindingMask(kD3D12VKD3DDirectComputeTextureSlots) &
         ~bound_compute_texture_slots;
     QTRACE("%s: compute texture fallback handle=%llu missing=0x%llx",
            trace_prefix, (unsigned long long)st.null_direct_texture.handle,
            (unsigned long long)missing);
-    for (uint32_t slot = 0; slot < kD3D12M12DirectComputeTextureSlots; slot++) {
+    for (uint32_t slot = 0; slot < kD3D12VKD3DDirectComputeTextureSlots; slot++) {
       if (!(missing & (1ull << slot)))
         continue;
       append_compute_settexture(st.null_direct_texture.handle, slot, true);
@@ -5957,12 +5957,12 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   }
   if (st.EnsureNullDirectSampler(device)) {
     uint64_t missing =
-        D3D12DirectBindingMask(kD3D12M12DirectComputeSamplerSlots) &
+        D3D12DirectBindingMask(kD3D12VKD3DDirectComputeSamplerSlots) &
         ~bound_compute_sampler_slots;
     QTRACE("%s: compute sampler fallback handle=%llu missing=0x%llx",
            trace_prefix, (unsigned long long)st.null_direct_sampler.handle,
            (unsigned long long)missing);
-    for (uint32_t slot = 0; slot < kD3D12M12DirectComputeSamplerSlots; slot++) {
+    for (uint32_t slot = 0; slot < kD3D12VKD3DDirectComputeSamplerSlots; slot++) {
       if (!(missing & (1ull << slot)))
         continue;
       append_compute_setsampler(st.null_direct_sampler.handle, slot, true);
@@ -5975,9 +5975,9 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
          (unsigned long long)fallback_compute_sampler_slots);
 
   D3D12ShaderBindingCompletenessDesc compute_binding_desc = {};
-  compute_binding_desc.buffer_count = kD3D12M12DirectBufferSlots;
-  compute_binding_desc.texture_count = kD3D12M12DirectComputeTextureSlots;
-  compute_binding_desc.sampler_count = kD3D12M12DirectComputeSamplerSlots;
+  compute_binding_desc.buffer_count = kD3D12VKD3DDirectBufferSlots;
+  compute_binding_desc.texture_count = kD3D12VKD3DDirectComputeTextureSlots;
+  compute_binding_desc.sampler_count = kD3D12VKD3DDirectComputeSamplerSlots;
   compute_binding_desc.bound_buffers = bound_compute_buffer_slots;
   compute_binding_desc.bound_textures = bound_compute_texture_slots;
   compute_binding_desc.bound_samplers = bound_compute_sampler_slots;
@@ -6005,7 +6005,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
            (unsigned long long)compute_binding_summary.missing_textures,
            (unsigned long long)compute_binding_summary.missing_samplers);
     Logger::info(str::format(
-        "M12 compute completeness label=", trace_prefix,
+        "VKD3D compute completeness label=", trace_prefix,
         " pso=", (void *)st.pso, " dispatch=", x, "x", y, "x", z,
         " buffers=", compute_binding_summary.bound_buffer_count, "+",
         compute_binding_summary.fallback_buffer_count, "/",
@@ -6028,7 +6028,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
 
   if (compute_cmd_overflow) {
     Logger::err(str::format(
-        "M12 compute command chain overflow label=", trace_prefix,
+        "VKD3D compute command chain overflow label=", trace_prefix,
         " pso=", (void *)st.pso, " used=", (uint64_t)(cmd_ptr - cmd_buf),
         " cap=", (uint64_t)sizeof(cmd_buf), " dispatch=", x, "x", y, "x", z));
     return;
@@ -6045,7 +6045,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
 
   if (chain_head && !comp.encodeCommands(chain_head)) {
     Logger::info(str::format(
-        "M12 compute encoder encode failed label=", trace_prefix,
+        "VKD3D compute encoder encode failed label=", trace_prefix,
         " pso=", (void *)st.pso, " dispatch=", x, "x", y, "x", z,
         " native_compute_resolve=failed root_sig=", (void *)compute_sig,
         " compute_pso=", (unsigned long long)st.pso->GetComputePSO().handle,
@@ -6077,7 +6077,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   }
   if (chain_head && log_compute_diagnostics) {
     Logger::info(str::format(
-        "M12 native_compute_resolve label=", trace_prefix,
+        "VKD3D native_compute_resolve label=", trace_prefix,
         " implementation=d3d12_native_compute_resolver pso=", (void *)st.pso,
         " root_sig=", (void *)compute_sig, " compute_pso=",
         (unsigned long long)st.pso->GetComputePSO().handle, " dispatch=", x,
@@ -6327,7 +6327,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (st.ShouldSkipUnsafeMSCOffscreenPass()) {
           if (TakeLogBudget(&g_swapchain_draw_logs, 384)) {
             Logger::warn(str::format(
-                "M12 skipping unsafe MSC offscreen DrawInstanced reason=",
+                "VKD3D skipping unsafe MSC offscreen DrawInstanced reason=",
                 st.UnsafeMSCOffscreenPassReason(), " v=", cmd->vertex_count,
                 " i=", cmd->instance_count, " pso=", (void *)st.pso, " ",
                 TracePsoShaderSummary(st.pso)));
@@ -6362,7 +6362,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           if (st.HasSwapchainRenderTarget() &&
               TakeLogBudget(&g_swapchain_draw_logs, 384)) {
             Logger::info(str::format(
-                "M12 swapchain GeometryDraw encoded v=", cmd->vertex_count,
+                "VKD3D swapchain GeometryDraw encoded v=", cmd->vertex_count,
                 " i=", cmd->instance_count, " pso=", (void *)st.pso, " ",
                 TracePsoShaderSummary(st.pso)));
           }
@@ -6399,7 +6399,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           if (st.HasSwapchainRenderTarget() &&
               TakeLogBudget(&g_swapchain_draw_logs, 384)) {
             Logger::info(str::format(
-                "M12 swapchain DrawInstanced encoded v=", cmd->vertex_count,
+                "VKD3D swapchain DrawInstanced encoded v=", cmd->vertex_count,
                 " i=", cmd->instance_count, " start=", cmd->start_vertex,
                 " topology=", (unsigned)st.topology, " primitive=",
                 (unsigned)primitive_type, " pso=", (void *)st.pso,
@@ -6417,7 +6417,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               TraceCompileFailureDetail(st.pso));
           if (st.HasSwapchainRenderTarget()) {
             Logger::info(str::format(
-                "M12 swapchain DrawInstanced skipped v=", cmd->vertex_count,
+                "VKD3D swapchain DrawInstanced skipped v=", cmd->vertex_count,
                 " i=", cmd->instance_count, " enc_open=", st.render_enc_open,
                 " pso=", (void *)st.pso,
                 " compiled=", st.pso ? st.pso->IsCompiled() : 0,
@@ -6471,7 +6471,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                              __ATOMIC_RELAXED);
           if (TakeLogBudget(&g_swapchain_draw_logs, 384)) {
             Logger::warn(str::format(
-                "M12 skipping unsafe MSC indexed stage-in DrawIndexedInstanced "
+                "VKD3D skipping unsafe MSC indexed stage-in DrawIndexedInstanced "
                 "reason=",
                 unsafe_stage_in_reason, " pso=", (void *)st.pso, " ",
                 TracePsoShaderSummary(st.pso)));
@@ -6481,7 +6481,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (st.ShouldSkipUnsafeMSCOffscreenPass()) {
           if (TakeLogBudget(&g_swapchain_draw_logs, 384)) {
             Logger::warn(str::format(
-                "M12 skipping unsafe MSC offscreen DrawIndexedInstanced "
+                "VKD3D skipping unsafe MSC offscreen DrawIndexedInstanced "
                 "reason=",
                 st.UnsafeMSCOffscreenPassReason(), " idx=", cmd->index_count,
                 " inst=", cmd->instance_count, " start=", cmd->start_index,
@@ -6513,7 +6513,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           if (st.HasSwapchainRenderTarget() &&
               TakeLogBudget(&g_swapchain_draw_logs, 384)) {
             Logger::info(str::format(
-                "M12 swapchain GeometryDrawIndexed encoded idx=",
+                "VKD3D swapchain GeometryDrawIndexed encoded idx=",
                 cmd->index_count, " inst=", cmd->instance_count,
                 " pso=", (void *)st.pso, " ", TracePsoShaderSummary(st.pso)));
           }
@@ -6631,7 +6631,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             }
 
             Logger::info(str::format(
-                "M12 swapchain vertex sample idx_count=", cmd->index_count,
+                "VKD3D swapchain vertex sample idx_count=", cmd->index_count,
                 " start_index=", cmd->start_index, " first_index=", first_index,
                 " index_sampled=", index_sampled, " index_hr=0x", std::hex,
                 (unsigned)index_map_hr, std::dec, " base_vertex=",
@@ -6673,7 +6673,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 TakeLogBudget(&g_offscreen_indexed_draw_logs, 128)) {
               auto fragment_summary = st.FragmentCompletenessSummary();
               Logger::info(str::format(
-                  "M12 offscreen DrawIndexedInstanced encoded idx=",
+                  "VKD3D offscreen DrawIndexedInstanced encoded idx=",
                   cmd->index_count, " inst=", cmd->instance_count,
                   " start=", cmd->start_index, " base=", cmd->base_vertex,
                   " start_inst=", cmd->start_instance,
@@ -6701,7 +6701,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           if (st.HasSwapchainRenderTarget() &&
               TakeLogBudget(&g_swapchain_draw_logs, 384)) {
             Logger::info(str::format(
-                "M12 swapchain DrawIndexedInstanced encoded idx=",
+                "VKD3D swapchain DrawIndexedInstanced encoded idx=",
                 cmd->index_count, " inst=", cmd->instance_count,
                 " start=", cmd->start_index, " ib_res=", (void *)ib_res,
                 " ib_off=", (unsigned long long)index_buffer_offset,
@@ -6730,7 +6730,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               actual_rt_format = resource_desc.Format;
             }
             Logger::info(str::format(
-                "M12 swapchain draw state vp_count=", st.viewport_count,
+                "VKD3D swapchain draw state vp_count=", st.viewport_count,
                 " vp=", vp.TopLeftX, ",", vp.TopLeftY, " ", vp.Width, "x",
                 vp.Height, " depth=", vp.MinDepth, "-", vp.MaxDepth,
                 " sc_count=", st.scissor_count, " sc=", sc.left, ",", sc.top,
@@ -6772,7 +6772,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               TraceCompileFailureDetail(st.pso));
           if (st.HasSwapchainRenderTarget()) {
             Logger::info(str::format(
-                "M12 swapchain DrawIndexedInstanced skipped idx=",
+                "VKD3D swapchain DrawIndexedInstanced skipped idx=",
                 cmd->index_count, " inst=", cmd->instance_count,
                 " ib_gpu=", (unsigned long long)st.ib.BufferLocation,
                 " enc_open=", st.render_enc_open, " pso=", (void *)st.pso,
@@ -6889,7 +6889,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               if (st.HasSwapchainRenderTarget() &&
                   TakeLogBudget(&g_swapchain_indirect_draw_logs, 128)) {
                 Logger::info(str::format(
-                    "M12 swapchain ExecuteIndirect DrawInstanced encoded v=",
+                    "VKD3D swapchain ExecuteIndirect DrawInstanced encoded v=",
                     args.VertexCountPerInstance, " i=", args.InstanceCount,
                     " start_v=", args.StartVertexLocation, " start_i=",
                     args.StartInstanceLocation, " pso=", (void *)st.pso,
@@ -6900,7 +6900,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           } else if (st.HasSwapchainRenderTarget() &&
                      TakeLogBudget(&g_swapchain_indirect_skip_logs, 48)) {
             Logger::info(str::format(
-                "M12 swapchain ExecuteIndirect DrawInstanced skipped v=",
+                "VKD3D swapchain ExecuteIndirect DrawInstanced skipped v=",
                 args.VertexCountPerInstance, " i=", args.InstanceCount,
                 " start_v=", args.StartVertexLocation,
                 " start_i=", args.StartInstanceLocation,
@@ -7736,7 +7736,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               res ? (unsigned long long)res->GetMTLTexture().handle : 0ull);
           if (res && res->IsSwapchainBackBuffer()) {
             Logger::info(str::format(
-                "M12 OMSetRenderTargets swapchain idx=",
+                "VKD3D OMSetRenderTargets swapchain idx=",
                 res->SwapchainBackBufferIndex(), " slot=", i,
                 " handle=", (unsigned long long)st.rt_handles[i].ptr,
                 " tex=", (unsigned long long)res->GetMTLTexture().handle));
@@ -7795,7 +7795,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               if (res->IsSwapchainBackBuffer() &&
                   TakeLogBudget(&g_swapchain_clear_logs, 24)) {
                 Logger::info(str::format(
-                    "M12 swapchain ClearRTV backbuffer=",
+                    "VKD3D swapchain ClearRTV backbuffer=",
                     res->SwapchainBackBufferIndex(),
                     " tex=", (unsigned long long)res->GetMTLTexture().handle,
                     " color=", cmd->color[0], ",", cmd->color[1], ",",
@@ -8404,7 +8404,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
     }
     if (interesting_list && TakeLogBudget(&g_command_list_summary_logs, 192)) {
       Logger::info(str::format(
-          "M12 command list summary queue=", (unsigned)m_desc.Type,
+          "VKD3D command list summary queue=", (unsigned)m_desc.Type,
           " list=", li, " cmdlist_id=", (unsigned long long)command_list_id,
           " serial=", (unsigned long long)queue_serial,
           " cmds=", stream_stats.command_count, " draws=", draw_count,
@@ -8437,7 +8437,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       HRESULT hr =
           swapchain->PresentBackBufferFromQueue(st.swapchain_rt_for_present);
       if (FAILED(hr)) {
-        Logger::err(str::format("M12 autopresent failed hr=", (unsigned)hr));
+        Logger::err(str::format("VKD3D autopresent failed hr=", (unsigned)hr));
       }
     }
   }
