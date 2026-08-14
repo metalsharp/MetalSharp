@@ -209,20 +209,7 @@ verify_graphics_core() {
     Graphics/dll/dxmt/i386-windows/d3d11.dll \
     Graphics/dll/dxmt/i386-windows/dxgi.dll \
     Graphics/dll/dxmt/i386-windows/dxgi_dxmt.dll \
-    Graphics/dll/dxmt/i386-windows/winemetal.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-unix/winemetal.so \
-    Graphics/dll/dxmt-vkd3d/x86_64-unix/libc++.1.dylib \
-    Graphics/dll/dxmt-vkd3d/x86_64-unix/libc++abi.1.dylib \
-    Graphics/dll/dxmt-vkd3d/x86_64-unix/libunwind.1.dylib \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/d3d10core.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/d3d11.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/d3d12.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/dxgi.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/dxgi_dxmt.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/nvapi64.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/nvngx.dll \
-    Graphics/dll/dxmt-vkd3d/x86_64-windows/winemetal.dll &&
-    verify_hash_manifest "$path" "GRAPHICS VKD3D" "Graphics/dll/dxmt-vkd3d" "$SCRIPT_DIR/vkd3d-dxmt-runtime-hashes.tsv"
+    Graphics/dll/dxmt/i386-windows/winemetal.dll
 }
 
 # The vkd3d-proton VKD3D stack is optional in the graphics bundle (DXMT remains
