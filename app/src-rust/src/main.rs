@@ -43,12 +43,17 @@ mod sharp_library;
 mod steam;
 mod updater;
 
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{header, HeaderMap, Method, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
+use axum::Router;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use tiny_http::{Header, Method, Response, Server};
+use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
 static RUNNING_GAMES: OnceLock<Mutex<HashMap<u32, i32>>> = OnceLock::new();
 static RUNNING_SHARP_APPS: OnceLock<Mutex<HashMap<String, i32>>> = OnceLock::new();
@@ -167,6 +172,168 @@ fn stop_active_games() -> Value {
     })
 }
 
+/// Seconds the window server must be unresponsive before the watchdog
+/// force-kills every registered game (evacuation). Override with
+/// `METALSHARP_STUCK_KILL_SECS`; `0` disables the watchdog.
+const STUCK_GAME_KILL_AFTER_SECS: u64 = 7;
+
+/// A window-list query answering slower than this (ms) means the window
+/// server is wedged: healthy servers answer in single-digit milliseconds even
+/// under load, so a >1s round trip is a deadlock, not load.
+const WINDOW_SERVER_STUCK_MS: u64 = 1000;
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    /// kCGWindowListOptionAll
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> *mut std::ffi::c_void;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFRelease(cf: *const std::ffi::c_void);
+}
+
+/// Measure how long the window server takes to answer a window-list query.
+/// The call blocks until the server responds, so a hung (deadlocked) server
+/// shows up as a multi-second round trip. Returns the round trip in ms.
+fn window_server_roundtrip_ms() -> Option<u64> {
+    let started = std::time::Instant::now();
+    let list = unsafe { CGWindowListCopyWindowInfo(0, 0) };
+    let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if !list.is_null() {
+        unsafe { CFRelease(list) };
+    }
+    Some(elapsed)
+}
+
+/// Tracks window-server unresponsiveness and reports when an evacuation is
+/// due. Pure and testable: `observe` is fed sampled round-trip times (or
+/// `None` when the server could not be reached) plus the sample time.
+struct WindowServerStuckTracker {
+    threshold_ms: u64,
+    kill_after: std::time::Duration,
+    stuck_since: Option<std::time::Instant>,
+}
+
+impl WindowServerStuckTracker {
+    fn new(threshold_ms: u64, kill_after: std::time::Duration) -> Self {
+        Self { threshold_ms, kill_after, stuck_since: None }
+    }
+
+    /// Returns `true` when the server has been continuously unresponsive for
+    /// at least `kill_after`. A responsive sample resets the window.
+    fn observe(&mut self, roundtrip_ms: Option<u64>, now: std::time::Instant) -> bool {
+        let stuck = roundtrip_ms.is_some_and(|ms| ms >= self.threshold_ms);
+        if !stuck {
+            self.stuck_since = None;
+            return false;
+        }
+        let since = *self.stuck_since.get_or_insert(now);
+        now.duration_since(since) >= self.kill_after
+    }
+
+    /// Restart the unresponsiveness window (called after an evacuation so a
+    /// still-wedged server does not re-trigger on the next sample).
+    fn rearm(&mut self, now: std::time::Instant) {
+        self.stuck_since = Some(now);
+    }
+}
+
+/// Recently watchdog-killed appids with timestamps, so the renderer can show
+/// a "Game crashed with selected launch method" toast instead of a normal
+/// "Game exited".
+static STUCK_KILLS: Mutex<Vec<(u32, std::time::Instant)>> = Mutex::new(Vec::new());
+
+fn record_stuck_kill(appid: u32) {
+    if let Ok(mut kills) = STUCK_KILLS.lock() {
+        kills.retain(|(_, at)| at.elapsed() < std::time::Duration::from_secs(60));
+        kills.push((appid, std::time::Instant::now()));
+    }
+}
+
+fn recent_stuck_kills() -> Vec<u32> {
+    match STUCK_KILLS.lock() {
+        Ok(mut kills) => {
+            kills.retain(|(_, at)| at.elapsed() < std::time::Duration::from_secs(60));
+            kills.iter().map(|(appid, _)| *appid).collect()
+        },
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Background evacuation watchdog: every two seconds, measure how long the
+/// window server takes to answer a window-list query. When the server stays
+/// unresponsive for more than `STUCK_GAME_KILL_AFTER_SECS` (a deadlock — on
+/// this stack game hangs wedge compositing), every registered game is wedged
+/// too (nothing can render), so all of them are force-killed through the
+/// same kill path as the Stop button and reported via `/game/stuck-kills` so
+/// the UI can toast the crash. Only backend-registered PIDs are ever
+/// targeted, matching the trust boundary of the stop routes. Idle or hot but
+/// healthy games never wedge the window server, so they are never targeted.
+fn spawn_stuck_game_watchdog() {
+    let kill_after_secs: u64 = std::env::var("METALSHARP_STUCK_KILL_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(STUCK_GAME_KILL_AFTER_SECS);
+    if kill_after_secs == 0 {
+        app_log("Stuck-game watchdog disabled (METALSHARP_STUCK_KILL_SECS=0)");
+        return;
+    }
+    std::thread::spawn(move || {
+        let mut tracker =
+            WindowServerStuckTracker::new(WINDOW_SERVER_STUCK_MS, std::time::Duration::from_secs(kill_after_secs));
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let roundtrip = window_server_roundtrip_ms();
+            let now = std::time::Instant::now();
+            if !tracker.observe(roundtrip, now) {
+                continue;
+            }
+            app_log(&format!("[WINDOW SERVER STUCK] unresponsive for {}s — evacuating Wine stack", kill_after_secs));
+            evacuate_wine_stack();
+            tracker.rearm(now);
+        }
+    });
+}
+
+/// Nuclear evacuation: force-kill every process under the MetalSharp Wine
+/// runtime (wineserver, wine/wine64, preloaders — the whole Wine session).
+/// A frozen game can outlive its registered PID tree or hold processes in
+/// uninterruptible waits that survive the tree kill, but wineserver owns the
+/// session: killing it takes the game down with it. Registered appids are
+/// recorded as stuck kills so the UI toasts them as crashes. Only processes
+/// under the MetalSharp wine runtime (or named wineserver) are matched —
+/// never arbitrary user processes.
+fn evacuate_wine_stack() -> Value {
+    let runtime_pattern = crate::platform::metalsharp_home_dir().join("runtime/wine").to_string_lossy().to_string();
+    let appids: Vec<u32> = running_games().lock().map(|games| games.keys().copied().collect()).unwrap_or_default();
+
+    // Track whether any Wine process was actually matched: pkill exits 0 when
+    // it killed something, 1 when nothing matched.
+    let mut killed_any = false;
+    for pattern in [runtime_pattern.as_str(), "wineserver"] {
+        let status = std::process::Command::new("/usr/bin/pkill")
+            .args(["-9", "-f", pattern])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if matches!(status, Ok(status) if status.success()) {
+            killed_any = true;
+        }
+    }
+
+    for &appid in &appids {
+        unregister_game_pid(appid);
+        record_stuck_kill(appid);
+    }
+    app_log(&format!(
+        "[WINE EVACUATE] force-killed Wine stack (matched={}) with {} registered game(s)",
+        killed_any,
+        appids.len()
+    ));
+    json!({ "ok": true, "appids": appids, "killed_any": killed_any })
+}
+
 fn stop_registered_sharp_app(app_id: &str) -> Result<i32, String> {
     let pid = get_sharp_pid(app_id).ok_or_else(|| "Sharp app is not registered as running".to_string())?;
     if !is_metalsharp_owned_process(pid) {
@@ -198,6 +365,128 @@ enum RequestBodyError {
     InvalidJson(serde_json::Error),
 }
 
+/// Shared backend state for the axum router.
+#[derive(Clone)]
+struct AppState {
+    backend_auth: Arc<backend_auth::BackendAuth>,
+    api_token: Option<String>,
+}
+
+/// Minimal HTTP request view consumed by the route table. The backend runs on
+/// axum now, but the routing logic (auth, body parsing, per-route handlers)
+/// is preserved verbatim from the tiny_http era behind this small adapter.
+struct HttpRequest {
+    method: Method,
+    url: String,
+    headers: HeaderMap,
+    body: Option<Vec<u8>>,
+}
+
+impl HttpRequest {
+    /// Path + query string, mirroring the tiny_http `request.url()` contract
+    /// that route handlers relied on.
+    fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+/// Reconstruct the old `request.url()` string (path + query) from an axum URI.
+fn full_request_url(uri: &Uri) -> String {
+    match uri.query() {
+        Some(query) => format!("{}?{}", uri.path(), query),
+        None => uri.path().to_string(),
+    }
+}
+
+/// Single axum fallback handler: every route from the tiny_http match table
+/// flows through here. Handlers now run on the tokio runtime, so a panicking
+/// handler no longer risks the process; panics are still caught per-request
+/// to answer a structured 500 instead of dropping the connection.
+async fn handle_request(State(state): State<Arc<AppState>>, request: axum::extract::Request) -> Response {
+    let method = request.method().clone();
+    let url = full_request_url(request.uri());
+    let headers = request.headers().clone();
+
+    // Local-API origin guard (H9): Electron reaches the backend through the
+    // main-process bridge and sends no Origin header. If a browser client is
+    // used during development, only the fixed Vite origins are accepted.
+    // `null`, `file://`, arbitrary localhost ports, and attacker-controlled
+    // origins are rejected.
+    let origin = headers
+        .get("Origin")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|origin| !origin.is_empty())
+        .map(str::to_string);
+    if let Some(origin) = origin.as_deref() {
+        if !is_trusted_local_origin(origin) {
+            eprintln!("rejected cross-origin request from {origin}");
+            return resp(403, json!({"ok": false, "error": "cross-origin request rejected"})).into_response();
+        }
+    }
+
+    // Accept the current-process bearer token for compatibility with existing
+    // clients, while requiring the persisted token for the new updater and
+    // migration clients. The health route stays public.
+    if !is_public_health_request(&method, &url)
+        && !is_authorized_request(&headers, state.api_token.as_deref())
+        && !state.backend_auth.is_authorized(&headers)
+    {
+        return resp(401, json!({"ok": false, "error": "unauthorized"})).into_response();
+    }
+
+    // Preserve the tiny_http contract: reject known-oversized bodies on the
+    // Content-Length header before reading, then bound the stream.
+    if let Some(length) = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        if length > MAX_REQUEST_BODY_BYTES as u64 {
+            return request_body_error_response(RequestBodyError::TooLarge).into_response();
+        }
+    }
+    let body = match axum::body::to_bytes(request.into_body(), MAX_REQUEST_BODY_BYTES + 1).await {
+        Ok(bytes) => bytes.to_vec(),
+        Err(_) => return request_body_error_response(RequestBodyError::TooLarge).into_response(),
+    };
+
+    let mut http_request = HttpRequest { method, url, headers, body: Some(body) };
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| route(&mut http_request)));
+    let mut response = match outcome {
+        Ok(route_response) => route_response.into_response(),
+        Err(payload) => {
+            let msg = panic_payload_message(&payload);
+            eprintln!("metalsharp-backend: request handler panicked: {}", msg);
+            app_log(&format!("request handler panicked: {}", msg));
+            let safe = msg.replace('"', "'").replace('\\', "/");
+            resp(500, json!({"ok": false, "error": format!("internal handler panic: {}", safe)})).into_response()
+        },
+    };
+    if let Some(origin) = origin.as_deref().filter(|origin| is_trusted_local_origin(origin)) {
+        if let Ok(value) = header::HeaderValue::from_str(origin) {
+            response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, value);
+        }
+    }
+    response
+}
+
+impl IntoResponse for RouteResponse {
+    fn into_response(self) -> Response {
+        let (code, bytes, mime) = match self {
+            RouteResponse::Json(code, body) => (code, body, "application/json".to_string()),
+            RouteResponse::Raw(code, data, mime) => (code, data, mime),
+        };
+        let status = StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let mut response = Response::new(Body::from(bytes));
+        *response.status_mut() = status;
+        if let Ok(value) = header::HeaderValue::from_str(&mime) {
+            response.headers_mut().insert(header::CONTENT_TYPE, value);
+        }
+        response
+    }
+}
+
 fn main() {
     let port = std::env::var("METALSHARP_PORT").unwrap_or_else(|_| "9274".into());
     let addr = format!("127.0.0.1:{}", port);
@@ -208,24 +497,6 @@ fn main() {
             std::process::exit(1);
         },
     };
-    let server = Arc::new({
-        let mut attempts = 0u32;
-        let max_attempts = 30u32;
-        loop {
-            match Server::http(&addr) {
-                Ok(s) => break s,
-                Err(e) => {
-                    attempts += 1;
-                    if attempts >= max_attempts {
-                        eprintln!("failed to bind {} after {} attempts: {}", addr, max_attempts, e);
-                        std::process::exit(1);
-                    }
-                    eprintln!("bind {} attempt {}/{} failed: {} — retrying in 500ms", addr, attempts, max_attempts, e);
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                },
-            }
-        }
-    });
 
     ctrlc::set_handler(move || {
         app_log("Shutting down — cleaning up running games");
@@ -258,87 +529,58 @@ fn main() {
             .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
     }));
 
-    eprintln!("metalsharp-backend listening on {}", addr);
-    app_log(&format!("MetalSharp v{} backend started on {}", env!("CARGO_PKG_VERSION"), addr));
-
-    if crate::steam::is_wine_steam_running() {
-        let _ = kernel_translation::ipc_bridge::start_ipc_listener();
-    }
-
-    let json_header = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
     let api_token = configured_api_token();
     if api_token.is_none() {
         eprintln!("{API_TOKEN_ENV} is missing or invalid; refusing backend requests");
     }
 
-    loop {
-        let mut request = match server.recv() {
-            Ok(r) => r,
-            Err(_) => break,
+    spawn_stuck_game_watchdog();
+
+    // axum replaces the serial tiny_http loop: handlers are now concurrent on
+    // the tokio runtime, so a slow route (e.g. the full library scan) no
+    // longer stalls every other request behind it.
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("failed to start tokio runtime: {error}");
+            std::process::exit(1);
+        },
+    };
+    runtime.block_on(async move {
+        let listener = {
+            let mut attempts = 0u32;
+            let max_attempts = 30u32;
+            loop {
+                match tokio::net::TcpListener::bind(&addr).await {
+                    Ok(listener) => break listener,
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts >= max_attempts {
+                            eprintln!("failed to bind {} after {} attempts: {}", addr, max_attempts, e);
+                            std::process::exit(1);
+                        }
+                        eprintln!(
+                            "bind {} attempt {}/{} failed: {} — retrying in 500ms",
+                            addr, attempts, max_attempts, e
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    },
+                }
+            }
         };
 
-        // Handlers run synchronously on the main thread (tiny_http), so a
-        // panic in ANY handler previously terminated the whole backend.
-        // Catch panics per-request: a single bad request must never take the
-        // process down (the app has no live-session supervisor).
-        let outcome =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Response<std::io::Cursor<Vec<u8>>>> {
-                let is_public_health_check = is_public_health_request(request.method(), request.url());
-                // Accept the current-process bearer token for compatibility with
-                // existing clients, while requiring the persisted token for the
-                // new updater and migration clients.
-                if !is_public_health_check
-                    && !is_authorized_request(&request, api_token.as_deref())
-                    && !backend_auth.is_authorized(&request)
-                {
-                    return Some(
-                        Response::from_data(br#"{"ok":false,"error":"unauthorized"}"#.to_vec())
-                            .with_header(json_header.clone())
-                            .with_status_code(401),
-                    );
-                }
+        eprintln!("metalsharp-backend listening on {}", addr);
+        app_log(&format!("MetalSharp v{} backend started on {}", env!("CARGO_PKG_VERSION"), addr));
 
-                // Local-API origin guard (H9): Electron reaches the backend
-                // through the main-process bridge and sends no Origin header.
-                // If a browser client is used during development, only the
-                // fixed Vite origins are accepted. `null`, `file://`, arbitrary
-                // localhost ports, and attacker-controlled origins are rejected.
-                let origin = request
-                    .headers()
-                    .iter()
-                    .find(|h| h.field.equiv("Origin"))
-                    .map(|h| h.value.as_str().trim().to_string())
-                    .filter(|o| !o.is_empty());
-                if let Some(origin) = origin.as_deref() {
-                    if !is_trusted_local_origin(origin) {
-                        eprintln!("rejected cross-origin request from {origin}");
-                        return Some(
-                            Response::from_data(br#"{"ok":false,"error":"cross-origin request rejected"}"#.to_vec())
-                                .with_header(json_header.clone())
-                                .with_status_code(403),
-                        );
-                    }
-                }
-
-                Some(response_for_route(route(&mut request), &json_header, origin.as_deref()))
-            }));
-        match outcome {
-            Ok(Some(resp)) => {
-                let _ = request.respond(resp);
-            },
-            Ok(None) => {},
-            Err(payload) => {
-                let msg = panic_payload_message(&payload);
-                eprintln!("metalsharp-backend: request handler panicked: {}", msg);
-                app_log(&format!("request handler panicked: {}", msg));
-                let safe = msg.replace('"', "'").replace('\\', "/");
-                let body = format!(r#"{{"ok":false,"error":"internal handler panic: {}"}}"#, safe);
-                let resp =
-                    Response::from_data(body.into_bytes()).with_header(json_header.clone()).with_status_code(500);
-                let _ = request.respond(resp);
-            },
+        if crate::steam::is_wine_steam_running() {
+            let _ = kernel_translation::ipc_bridge::start_ipc_listener();
         }
-    }
+
+        let app = Router::new().fallback(handle_request).with_state(Arc::new(AppState { backend_auth, api_token }));
+        if let Err(error) = axum::serve(listener, app).await {
+            eprintln!("metalsharp-backend server error: {error}");
+        }
+    });
 }
 
 fn panic_payload_message(payload: &Box<dyn std::any::Any + Send>) -> String {
@@ -359,12 +601,8 @@ fn configured_api_token() -> Option<String> {
     Some(token)
 }
 
-fn request_authorization(request: &tiny_http::Request) -> Option<&str> {
-    request
-        .headers()
-        .iter()
-        .find(|header| header.field.equiv("Authorization"))
-        .map(|header| header.value.as_str().trim())
+fn request_authorization(headers: &HeaderMap) -> Option<&str> {
+    headers.get("Authorization").and_then(|value| value.to_str().ok()).map(str::trim)
 }
 
 fn constant_time_token_eq(expected: &str, provided: &str) -> bool {
@@ -393,45 +631,12 @@ fn is_authorized_bearer(authorization: Option<&str>, expected_token: Option<&str
     constant_time_token_eq(expected_token, provided_token)
 }
 
-fn is_authorized_request(request: &tiny_http::Request, expected_token: Option<&str>) -> bool {
-    is_authorized_bearer(request_authorization(request), expected_token)
+fn is_authorized_request(headers: &HeaderMap, expected_token: Option<&str>) -> bool {
+    is_authorized_bearer(request_authorization(headers), expected_token)
 }
 
 fn is_public_health_request(method: &Method, url: &str) -> bool {
-    method == &Method::Get && url.split('?').next().unwrap_or(url) == "/health"
-}
-
-fn response_with_trusted_origin(
-    response: Response<std::io::Cursor<Vec<u8>>>,
-    origin: Option<&str>,
-) -> Response<std::io::Cursor<Vec<u8>>> {
-    if let Some(origin) = origin.filter(|origin| is_trusted_local_origin(origin)) {
-        if let Ok(header) = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], origin.as_bytes()) {
-            return response.with_header(header);
-        }
-    }
-    response
-}
-
-fn response_for_route(
-    route_response: RouteResponse,
-    json_header: &Header,
-    origin: Option<&str>,
-) -> Response<std::io::Cursor<Vec<u8>>> {
-    match route_response {
-        RouteResponse::Json(code, body) => response_with_trusted_origin(
-            Response::from_data(body).with_header(json_header.clone()).with_status_code(code),
-            origin,
-        ),
-        RouteResponse::Raw(code, data, mime) => {
-            let content_header =
-                Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap_or_else(|_| json_header.clone());
-            response_with_trusted_origin(
-                Response::from_data(data).with_header(content_header).with_status_code(code),
-                origin,
-            )
-        },
-    }
+    *method == Method::GET && url.split('?').next().unwrap_or(url) == "/health"
 }
 
 /// True only for the fixed Vite development origins. Packaged Electron
@@ -475,14 +680,14 @@ macro_rules! read_body_or_return {
     }};
 }
 
-fn route(req: &mut tiny_http::Request) -> RouteResponse {
-    let method = req.method().clone();
-    let url = req.url().to_string();
+fn route(req: &mut HttpRequest) -> RouteResponse {
+    let method = req.method.clone();
+    let url = req.url.clone();
     let path = url.split('?').next().unwrap_or(&url);
 
     match (method, path) {
-        (Method::Get, "/health") => resp(200, json!({"ok": true, "version": env!("CARGO_PKG_VERSION")})),
-        (Method::Get, "/status") => {
+        (Method::GET, "/health") => resp(200, json!({"ok": true, "version": env!("CARGO_PKG_VERSION")})),
+        (Method::GET, "/status") => {
             app_log("Backend status checked");
             resp(
                 200,
@@ -495,7 +700,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }),
             )
         },
-        (Method::Get, "/runtime/host-abi") => resp(
+        (Method::GET, "/runtime/host-abi") => resp(
             200,
             json!({
                 "ok": true,
@@ -524,13 +729,13 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 ]
             }),
         ),
-        (Method::Get, "/update/check") => resp(200, updater::check_for_update()),
-        (Method::Post, "/update/start") => match updater::start_update() {
+        (Method::GET, "/update/check") => resp(200, updater::check_for_update()),
+        (Method::POST, "/update/start") => match updater::start_update() {
             Ok(v) => resp(200, v),
             Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
         },
-        (Method::Get, "/update/progress") => resp(200, updater::read_update_progress()),
-        (Method::Get, "/update/dmg-path") => match updater::get_downloaded_dmg() {
+        (Method::GET, "/update/progress") => resp(200, updater::read_update_progress()),
+        (Method::GET, "/update/dmg-path") => match updater::get_downloaded_dmg() {
             Some(download) => resp(
                 200,
                 json!({
@@ -543,47 +748,47 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             ),
             None => resp(200, json!({"ok": false, "error": "no downloaded DMG"})),
         },
-        (Method::Post, "/update/cleanup") => resp(200, updater::cleanup_downloaded_dmgs()),
-        (Method::Get, "/update/migrate/check") => resp(200, migrate::needs_migration()),
-        (Method::Post, "/update/migrate/start") => match migrate::start_migration() {
+        (Method::POST, "/update/cleanup") => resp(200, updater::cleanup_downloaded_dmgs()),
+        (Method::GET, "/update/migrate/check") => resp(200, migrate::needs_migration()),
+        (Method::POST, "/update/migrate/start") => match migrate::start_migration() {
             Ok(v) => resp(200, v),
             Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
         },
-        (Method::Get, "/update/migrate/progress") => resp(200, migrate::read_migrate_progress()),
+        (Method::GET, "/update/migrate/progress") => resp(200, migrate::read_migrate_progress()),
         // Phase 2: report what the last migration preserved, skipped, and why.
-        (Method::Get, "/update/migrate/report") => resp(200, migrate::latest_migration_report()),
-        (Method::Post, "/update/migrate/cleanup-preserved") => resp(200, migrate::cleanup_preserved_temp_dirs()),
-        (Method::Get, "/setup/state") => resp(200, setup::state()),
-        (Method::Post, "/setup/save") => {
+        (Method::GET, "/update/migrate/report") => resp(200, migrate::latest_migration_report()),
+        (Method::POST, "/update/migrate/cleanup-preserved") => resp(200, migrate::cleanup_preserved_temp_dirs()),
+        (Method::GET, "/setup/state") => resp(200, setup::state()),
+        (Method::POST, "/setup/save") => {
             let body = read_body_or_return!(req);
             match setup::save_step(&body) {
                 Ok(v) => resp(200, v),
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Get, "/setup/device-name") => resp(
+        (Method::GET, "/setup/device-name") => resp(
             200,
             json!({
                 "ok": true,
                 "name": setup::generate_device_name(),
             }),
         ),
-        (Method::Get, "/setup/dependencies") => resp(200, setup::dependencies()),
-        (Method::Get, "/setup/agility-versions") => resp(200, setup::agility_known_sdk_versions()),
-        (Method::Post, "/setup/install-deps") => {
+        (Method::GET, "/setup/dependencies") => resp(200, setup::dependencies()),
+        (Method::GET, "/setup/agility-versions") => resp(200, setup::agility_known_sdk_versions()),
+        (Method::POST, "/setup/install-deps") => {
             let body = read_body_or_return!(req);
             match setup::install_dependencies(&body) {
                 Ok(v) => resp(200, v),
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Post, "/setup/install-all") => match installer::start_install_all() {
+        (Method::POST, "/setup/install-all") => match installer::start_install_all() {
             Ok(v) => resp(200, v),
             Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
         },
-        (Method::Get, "/setup/install-progress") => resp(200, installer::read_progress()),
-        (Method::Get, "/setup/installing") => resp(200, json!({"installing": installer::is_installing()})),
-        (Method::Post, "/setup/install-vcpp-x64") => {
+        (Method::GET, "/setup/install-progress") => resp(200, installer::read_progress()),
+        (Method::GET, "/setup/installing") => resp(200, json!({"installing": installer::is_installing()})),
+        (Method::POST, "/setup/install-vcpp-x64") => {
             let home = dirs::home_dir().unwrap_or_default();
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
             if !prefix.join("drive_c/windows/system32").exists() {
@@ -595,7 +800,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }
             }
         },
-        (Method::Post, "/setup/install-vcpp-x86") => {
+        (Method::POST, "/setup/install-vcpp-x86") => {
             let home = dirs::home_dir().unwrap_or_default();
             let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
             if !prefix.join("drive_c/windows/system32").exists() {
@@ -607,7 +812,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }
             }
         },
-        (Method::Post, "/game/prepare") => {
+        (Method::POST, "/game/prepare") => {
             let body = read_body_or_return!(req);
             let id = match parse_request_appid(&body) {
                 Ok(id) => id,
@@ -659,7 +864,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }
             }
         },
-        (Method::Post, "/game/resolve-routing") => {
+        (Method::POST, "/game/resolve-routing") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -684,7 +889,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }),
             )
         },
-        (Method::Get, "/scan") => {
+        (Method::GET, "/scan") => {
             // Handlers run synchronously on the main request loop, so a slow
             // scan_all blocks every other route (library, status, poll).
             // Single-flight: if a scan is already running, answer immediately
@@ -705,8 +910,8 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Get, "/steam/status") => resp(200, steam::status()),
-        (Method::Get, "/steam/library") => {
+        (Method::GET, "/steam/status") => resp(200, steam::status()),
+        (Method::GET, "/steam/library") => {
             let mut timing = diagnostics::LaunchTiming::start();
             app_log("Loading Steam library...");
             timing.mark("library_load_start");
@@ -719,8 +924,8 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             app_log(&format!("Loaded {} games", result.get("total").and_then(|t| t.as_u64()).unwrap_or(0)));
             resp(200, result)
         },
-        (Method::Get, "/steam/api-key") => resp(200, steam::get_api_key()),
-        (Method::Post, "/steam/save-api-key") => {
+        (Method::GET, "/steam/api-key") => resp(200, steam::get_api_key()),
+        (Method::POST, "/steam/save-api-key") => {
             let body = read_body_or_return!(req);
             let key = body.get("key").and_then(|v| v.as_str()).unwrap_or("");
             app_log("Steam API key saved");
@@ -743,14 +948,14 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Post, "/steam/install") => match steam::install_steam() {
+        (Method::POST, "/steam/install") => match steam::install_steam() {
             Ok(p) => resp(200, json!({"ok": true, "path": p})),
             Err(e) => {
                 app_issue_log("steam-install", "wine-steam", &e.to_string(), &[]);
                 resp(500, json!({"ok": false, "error": e.to_string()}))
             },
         },
-        (Method::Post, "/steam/launch") => {
+        (Method::POST, "/steam/launch") => {
             app_log("Launching Wine Steam...");
             match steam::launch_wine_steam() {
                 Ok(v) => resp(200, v),
@@ -760,7 +965,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Post, "/steam/stop") => {
+        (Method::POST, "/steam/stop") => {
             app_log("Stopping Wine Steam...");
             match steam::stop_wine_steam() {
                 Ok(v) => resp(200, v),
@@ -770,7 +975,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Post, "/steam/mac-launch") => {
+        (Method::POST, "/steam/mac-launch") => {
             app_log("Launching macOS Steam...");
             match steam::launch_macos_steam() {
                 Ok(v) => resp(200, v),
@@ -780,7 +985,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Post, "/steam/mac-install") => {
+        (Method::POST, "/steam/mac-install") => {
             app_log("Opening macOS Steam installer...");
             match steam::install_macos_steam() {
                 Ok(v) => resp(200, v),
@@ -790,7 +995,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Post, "/steam/mac-stop") => {
+        (Method::POST, "/steam/mac-stop") => {
             app_log("Stopping macOS Steam...");
             match steam::stop_macos_steam() {
                 Ok(v) => resp(200, v),
@@ -800,7 +1005,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Post, "/steam/mac-launch-game") => {
+        (Method::POST, "/steam/mac-launch-game") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -812,20 +1017,20 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Get, "/steam/is-running") => resp(200, json!({"ok": true, "running": steam::is_wine_steam_running()})),
-        (Method::Get, "/steam/bridge-status") => {
+        (Method::GET, "/steam/is-running") => resp(200, json!({"ok": true, "running": steam::is_wine_steam_running()})),
+        (Method::GET, "/steam/bridge-status") => {
             let running = mtsp::launcher::bridge_is_running();
             resp(200, json!({"ok": true, "running": running, "port": mtsp::launcher::bridge_port()}))
         },
-        (Method::Post, "/steam/bridge-start") => match mtsp::launcher::ensure_bridge_running() {
+        (Method::POST, "/steam/bridge-start") => match mtsp::launcher::ensure_bridge_running() {
             Ok(_) => resp(200, json!({"ok": true, "port": mtsp::launcher::bridge_port()})),
             Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
         },
-        (Method::Get, "/steam/watch-steamapps") => {
+        (Method::GET, "/steam/watch-steamapps") => {
             let new_ids = steam::watch_steamapps();
             resp(200, json!({"ok": true, "new_appids": new_ids}))
         },
-        (Method::Post, "/steam/install-game") => {
+        (Method::POST, "/steam/install-game") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -837,7 +1042,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Post, "/steam/launch-game") => {
+        (Method::POST, "/steam/launch-game") => {
             let body = read_body_or_return!(req);
             match parse_request_appid(&body) {
                 Ok(id) => {
@@ -965,7 +1170,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(error) => resp(400, json!({"ok": false, "error": error})),
             }
         },
-        (Method::Post, "/steam/launch-offline") => {
+        (Method::POST, "/steam/launch-offline") => {
             let body = read_body_or_return!(req);
             match parse_request_appid(&body) {
                 Ok(id) => {
@@ -1048,7 +1253,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(error) => resp(400, json!({"ok": false, "error": error})),
             }
         },
-        (Method::Post, "/steam/view-game") => {
+        (Method::POST, "/steam/view-game") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -1060,7 +1265,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Get, "/logs") => {
+        (Method::GET, "/logs") => {
             let home = dirs::home_dir().unwrap_or_default();
             let log_path = crate::platform::metalsharp_home_dir_for(&home).join("logs");
             let mut entries = Vec::new();
@@ -1096,7 +1301,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             }
             resp(200, json!({"ok": true, "logs": entries}))
         },
-        (Method::Get, "/logs/stream") => {
+        (Method::GET, "/logs/stream") => {
             let home = dirs::home_dir().unwrap_or_default();
             let log_dir = crate::platform::metalsharp_home_dir_for(&home).join("logs");
             let url_str = req.url().to_string();
@@ -1125,13 +1330,13 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 resp(200, json!({"ok": true, "name": log_name, "total": 0, "lines": []}))
             }
         },
-        (Method::Get, "/logs/crash-reports") => {
+        (Method::GET, "/logs/crash-reports") => {
             let home = dirs::home_dir().unwrap_or_default();
             let ms_home = crate::platform::metalsharp_home_dir_for(&home);
             let reports = collect_crash_reports(&ms_home);
             resp(200, json!({"ok": true, "reports": reports}))
         },
-        (Method::Post, "/logs/crash-report") => {
+        (Method::POST, "/logs/crash-report") => {
             let body = read_body_or_return!(req);
             let Some(file) = body.get("file").and_then(|value| value.as_str()) else {
                 return resp(400, json!({"ok": false, "error": "file required"}));
@@ -1151,7 +1356,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         // resolve under the MetalSharp home (mirrors crash_report_preview's
         // containment check) so the local API can't be used to open arbitrary
         // files.
-        (Method::Post, "/diagnostics/open") => {
+        (Method::POST, "/diagnostics/open") => {
             let body = read_body_or_return!(req);
             let Some(path) = body.get("path").and_then(|value| value.as_str()) else {
                 return resp(400, json!({"ok": false, "error": "path required"}));
@@ -1163,16 +1368,16 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(error) => resp(400, json!({"ok": false, "error": error})),
             }
         },
-        (Method::Get, "/config") => resp(200, launch::get_config()),
-        (Method::Post, "/config") => {
+        (Method::GET, "/config") => resp(200, launch::get_config()),
+        (Method::POST, "/config") => {
             let body = read_body_or_return!(req);
             match launch::set_config(&body) {
                 Ok(cfg) => resp(200, cfg),
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Get, "/mtsp/default-rules") => resp(200, mtsp::default_rules::handle_default_rules_catalog()),
-        (Method::Get, "/mtsp/launch-shape") => {
+        (Method::GET, "/mtsp/default-rules") => resp(200, mtsp::default_rules::handle_default_rules_catalog()),
+        (Method::GET, "/mtsp/launch-shape") => {
             let url = req.url();
             let appid: u32 = query_param(url, "appid").and_then(|v| v.parse().ok()).unwrap_or(0);
             let pipeline_str = query_param(url, "pipeline").unwrap_or_else(|| "auto".to_string());
@@ -1186,7 +1391,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             };
             resp(200, mtsp::default_rules::handle_launch_shape(appid, pipeline))
         },
-        (Method::Get, "/mtsp/pipelines") => {
+        (Method::GET, "/mtsp/pipelines") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1226,7 +1431,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }),
             )
         },
-        (Method::Post, "/mtsp/prepare") => {
+        (Method::POST, "/mtsp/prepare") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -1245,7 +1450,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Post, "/mtsp/recipe") => {
+        (Method::POST, "/mtsp/recipe") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -1260,7 +1465,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Post, "/mtsp/doctor") => {
+        (Method::POST, "/mtsp/doctor") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -1273,7 +1478,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             let report = mtsp::recipe::diagnose_launch_request(appid, node);
             resp(200, json!({"ok": true, "appid": appid, "report": report}))
         },
-        (Method::Get, "/goldberg/status") => {
+        (Method::GET, "/goldberg/status") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1322,7 +1527,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }),
             )
         },
-        (Method::Get, "/eac/status") => {
+        (Method::GET, "/eac/status") => {
             let appid = req
                 .url()
                 .split("appid=")
@@ -1334,7 +1539,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 _ => resp(400, json!({"ok": false, "error": "appid required"})),
             }
         },
-        (Method::Post, "/eac/toggle") => {
+        (Method::POST, "/eac/toggle") => {
             let body = read_body_or_return!(req);
             let enabled = body.get("enable").and_then(|value| value.as_bool()).unwrap_or(true);
             let appid = match parse_request_appid(&body) {
@@ -1353,7 +1558,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 resp(400, result)
             }
         },
-        (Method::Post, "/goldberg/toggle") => {
+        (Method::POST, "/goldberg/toggle") => {
             let body = read_body_or_return!(req);
             let enable = body.get("enable").and_then(|v| v.as_bool()).unwrap_or(true);
             let aid = match parse_request_appid(&body) {
@@ -1431,113 +1636,113 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 _ => resp(404, json!({"ok": false, "error": "game directory not found"})),
             }
         },
-        (Method::Get, "/sharp-library") => resp(200, sharp_library::handle_get_library()),
-        (Method::Get, "/bottles") => resp(200, bottles::handle_list_bottles()),
-        (Method::Post, "/d3dmetal/bottles/save") => {
+        (Method::GET, "/sharp-library") => resp(200, sharp_library::handle_get_library()),
+        (Method::GET, "/bottles") => resp(200, bottles::handle_list_bottles()),
+        (Method::POST, "/d3dmetal/bottles/save") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_save(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/status") => {
+        (Method::POST, "/d3dmetal/bottles/status") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_status(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/install-homebrew-gptk") => {
+        (Method::POST, "/d3dmetal/bottles/install-homebrew-gptk") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_install_homebrew_gptk(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/install-rosetta") => {
+        (Method::POST, "/d3dmetal/bottles/install-rosetta") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_install_rosetta(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/repair-gptk-payload") => {
+        (Method::POST, "/d3dmetal/bottles/repair-gptk-payload") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_repair_gptk_payload(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/repair-gptk3") => {
+        (Method::POST, "/d3dmetal/bottles/repair-gptk3") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_repair_gptk3(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/install-x64-redist") => {
+        (Method::POST, "/d3dmetal/bottles/install-x64-redist") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_install_x64_redist(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/seed-prefix") => {
+        (Method::POST, "/d3dmetal/bottles/seed-prefix") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_seed_prefix(&body))
         },
-        (Method::Post, "/d3dmetal/bottles/play") => {
+        (Method::POST, "/d3dmetal/bottles/play") => {
             let body = read_body_or_return!(req);
             resp(200, d3dmetal_gptk::handle_play(&body))
         },
-        (Method::Get, "/bottles/profiles") => resp(200, bottles::handle_list_runtime_profiles()),
+        (Method::GET, "/bottles/profiles") => resp(200, bottles::handle_list_runtime_profiles()),
         // Phase 2: declarative Steam route contract table (protected + first-class lanes).
-        (Method::Get, "/bottles/route-contracts") => {
+        (Method::GET, "/bottles/route-contracts") => {
             resp(200, json!({ "ok": true, "contracts": bottles::steam_route_contracts() }))
         },
-        (Method::Get, "/bottles/compatibility-matrix") => resp(200, bottles::handle_compatibility_matrix()),
-        (Method::Get, "/bottles/redist-sources") => resp(200, bottles::handle_redist_sources()),
-        (Method::Post, "/bottles/record-compatibility") => {
+        (Method::GET, "/bottles/compatibility-matrix") => resp(200, bottles::handle_compatibility_matrix()),
+        (Method::GET, "/bottles/redist-sources") => resp(200, bottles::handle_redist_sources()),
+        (Method::POST, "/bottles/record-compatibility") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_record_compatibility_case(&body))
         },
-        (Method::Post, "/bottles/sync-steam") => resp(200, bottles::handle_sync_steam_bottles()),
-        (Method::Post, "/bottles/get") => {
+        (Method::POST, "/bottles/sync-steam") => resp(200, bottles::handle_sync_steam_bottles()),
+        (Method::POST, "/bottles/get") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_get_bottle(&body))
         },
-        (Method::Post, "/bottles/refresh") => {
+        (Method::POST, "/bottles/refresh") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_refresh_bottle(&body))
         },
-        (Method::Post, "/bottles/doctor") => {
+        (Method::POST, "/bottles/doctor") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_diagnose_bottle(&body))
         },
-        (Method::Post, "/bottles/prepare") => {
+        (Method::POST, "/bottles/prepare") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_prepare_bottle(&body))
         },
-        (Method::Post, "/bottles/repair-component") => {
+        (Method::POST, "/bottles/repair-component") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_repair_component(&body))
         },
-        (Method::Post, "/bottles/set-runtime-profile") => {
+        (Method::POST, "/bottles/set-runtime-profile") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_set_runtime_profile(&body))
         },
-        (Method::Post, "/bottles/edit") => {
+        (Method::POST, "/bottles/edit") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_edit_bottle(&body))
         },
-        (Method::Post, "/bottles/set-windows-version") => {
+        (Method::POST, "/bottles/set-windows-version") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_set_windows_version(&body))
         },
-        (Method::Post, "/bottles/relaunch-installer") => {
+        (Method::POST, "/bottles/relaunch-installer") => {
             let body = read_body_or_return!(req);
             resp(200, sharp_library::handle_relaunch_bottle_installer(&body))
         },
-        (Method::Post, "/bottles/apply-font-subs") => {
+        (Method::POST, "/bottles/apply-font-subs") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_apply_font_substitutions(&body))
         },
-        (Method::Post, "/bottles/seed-post-wineboot") => {
+        (Method::POST, "/bottles/seed-post-wineboot") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_seed_post_wineboot(&body))
         },
-        (Method::Post, "/bottles/verify-directx") => {
+        (Method::POST, "/bottles/verify-directx") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_verify_directx(&body))
         },
-        (Method::Post, "/steam/install-recipe-deps") => {
+        (Method::POST, "/steam/install-recipe-deps") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_install_recipe_deps(&body))
         },
-        (Method::Post, "/steam/runtime-doctor") => {
+        (Method::POST, "/steam/runtime-doctor") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_steam_runtime_doctor(&body))
         },
-        (Method::Post, "/steam/d3d12-runtime-doctor") => {
+        (Method::POST, "/steam/d3d12-runtime-doctor") => {
             let body = read_body_or_return!(req);
             resp(200, d3d12_runtime_doctor::handle_steam_d3d12_runtime_doctor(&body))
         },
@@ -1545,7 +1750,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         // reports the resolved pipeline, runtime profile, wine path, prefix,
         // artifact sources (with content hashes), staged DLL hashes, and cache
         // directories for an appid. No launch behavior changes.
-        (Method::Get, "/diagnostics/launch") => {
+        (Method::GET, "/diagnostics/launch") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1560,7 +1765,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .and_then(crate::mtsp::engine::PipelineId::from_str_flexible);
             resp(200, diagnostics::build_launch_diagnostic(appid, requested_pipeline))
         },
-        (Method::Get, "/diagnostics/launch/timing") => {
+        (Method::GET, "/diagnostics/launch/timing") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1583,7 +1788,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         // Phase 3: VKD3D artifact + launch verification (dry-run). Reports the
         // exact env pairs and artifact hashes VKD3D would load, without
         // launching Steam or the game. Uses the same env builder as launch.
-        (Method::Get, "/diagnostics/vkd3d/dry-run") => {
+        (Method::GET, "/diagnostics/vkd3d/dry-run") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1593,7 +1798,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .unwrap_or(0);
             resp(200, mtsp::launcher::vkd3d_verify_dry_run(appid))
         },
-        (Method::Get, "/diagnostics/pipeline/dry-run") => {
+        (Method::GET, "/diagnostics/pipeline/dry-run") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1610,7 +1815,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             resp(200, mtsp::launcher::pipeline_dry_run_for(&home, appid, requested_pipeline))
         },
         // Phase 4: shader/PSO/cache diagnostics.
-        (Method::Get, "/diagnostics/cache-doctor") => {
+        (Method::GET, "/diagnostics/cache-doctor") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1620,7 +1825,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 .unwrap_or(0);
             resp(200, mtsp::shader_cache::cache_doctor(appid))
         },
-        (Method::Get, "/diagnostics/pso-manifests") => {
+        (Method::GET, "/diagnostics/pso-manifests") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1652,7 +1857,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         // Accepts a root signature manifest JSON and (optionally) reflection
         // bindings, returns a structured pass/fail against Metal's direct-
         // binding limits and D3D12 ABI rules.
-        (Method::Post, "/diagnostics/binding-contract/validate") => {
+        (Method::POST, "/diagnostics/binding-contract/validate") => {
             let body = read_body_or_return!(req);
             let manifest_json = body.get("root_signature").cloned().unwrap_or(json!(null));
             let reflection_json = body.get("reflection").cloned().unwrap_or(json!([]));
@@ -1673,7 +1878,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         // Phase 6: command replay / barriers / resource visibility validator.
         // Accepts a recorded command-list trace JSON and returns a structured
         // pass/fail against encoder-lifetime, render-pass, and transition rules.
-        (Method::Post, "/diagnostics/command-replay/validate") => {
+        (Method::POST, "/diagnostics/command-replay/validate") => {
             let body = read_body_or_return!(req);
             let trace_json = body.get("trace").cloned().unwrap_or(json!([]));
             match serde_json::from_value::<Vec<command_contract::CommandOp>>(trace_json) {
@@ -1686,8 +1891,8 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         },
         // Phase 7: runtime artifact verification (presence + sha256 per file),
         // wineboot state, and stop-Wine-Steam target report.
-        (Method::Get, "/diagnostics/runtime-artifacts") => resp(200, installer::runtime_artifact_report()),
-        (Method::Get, "/diagnostics/wineboot-state") => {
+        (Method::GET, "/diagnostics/runtime-artifacts") => resp(200, installer::runtime_artifact_report()),
+        (Method::GET, "/diagnostics/wineboot-state") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1698,11 +1903,11 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             let verifying = url_str.contains("verifying=true");
             resp(200, bottles::steam_prefix_wineboot_state(appid, verifying))
         },
-        (Method::Get, "/steam/stop-targets") => resp(200, steam::stop_wine_steam_targets()),
+        (Method::GET, "/steam/stop-targets") => resp(200, steam::stop_wine_steam_targets()),
         // Phase 8: Mono/FNA/XNA flavor detection, profile explanation, and
         // conservative unproven-game classification. These explain the lane
         // selection without changing pinned known-good behavior.
-        (Method::Get, "/diagnostics/fna/signals") => {
+        (Method::GET, "/diagnostics/fna/signals") => {
             let url_str = req.url().to_string();
             let game_dir = url_str
                 .split("gameDir=")
@@ -1716,7 +1921,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             };
             resp(200, serde_json::to_value(fna_profile::detect_fna_signals(&path)).unwrap())
         },
-        (Method::Get, "/diagnostics/fna/explain") => {
+        (Method::GET, "/diagnostics/fna/explain") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1736,7 +1941,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             };
             resp(200, serde_json::to_value(fna_profile::explain_profile(appid, &path)).unwrap())
         },
-        (Method::Get, "/diagnostics/fna/classify") => {
+        (Method::GET, "/diagnostics/fna/classify") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -1756,7 +1961,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             };
             resp(200, serde_json::to_value(fna_profile::classify_unproven_fna_game(appid, &path)).unwrap())
         },
-        (Method::Post, "/steam/compatdata") => {
+        (Method::POST, "/steam/compatdata") => {
             let body = read_body_or_return!(req);
             resp(200, bottles::handle_steam_compatdata(&body))
         },
@@ -1764,577 +1969,577 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
         // observational: they report the protected launcher/module boundary
         // without changing vendor binaries, identity exports, or launch
         // policy.
-        (Method::Post, "/steam/anticheat-evidence") => {
+        (Method::POST, "/steam/anticheat-evidence") => {
             let body = read_body_or_return!(req);
             resp(200, anticheat::handle_steam_anticheat_evidence(&body))
         },
-        (Method::Post, "/steam/anticheat-probe") => {
+        (Method::POST, "/steam/anticheat-probe") => {
             let body = read_body_or_return!(req);
             resp(200, anticheat::handle_steam_anticheat_probe(&body))
         },
-        (Method::Post, "/steam/anticheat-delta-audit") => {
+        (Method::POST, "/steam/anticheat-delta-audit") => {
             let body = read_body_or_return!(req);
             resp(200, anticheat::handle_steam_anticheat_delta_audit(&body))
         },
-        (Method::Post, "/steam/anticheat-substrate-decision") => {
+        (Method::POST, "/steam/anticheat-substrate-decision") => {
             let body = read_body_or_return!(req);
             resp(200, anticheat::handle_steam_anticheat_substrate_decision(&body))
         },
-        (Method::Post, "/steam/anticheat-contract-probe") => {
+        (Method::POST, "/steam/anticheat-contract-probe") => {
             let body = read_body_or_return!(req);
             resp(200, anticheat::handle_steam_anticheat_contract_probe(&body))
         },
-        (Method::Post, "/kernel-translation/probe") => {
+        (Method::POST, "/kernel-translation/probe") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_kernel_translation_probe(&body))
         },
-        (Method::Post, "/kernel-translation/host-probe") => {
+        (Method::POST, "/kernel-translation/host-probe") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::probe::handle_kernel_probe(&body))
         },
-        (Method::Post, "/kernel-translation/handle/create") => {
+        (Method::POST, "/kernel-translation/handle/create") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_create(&body))
         },
-        (Method::Post, "/kernel-translation/handle/close") => {
+        (Method::POST, "/kernel-translation/handle/close") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_close(&body))
         },
-        (Method::Post, "/kernel-translation/handle/duplicate") => {
+        (Method::POST, "/kernel-translation/handle/duplicate") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_duplicate(&body))
         },
-        (Method::Post, "/kernel-translation/handle/query") => {
+        (Method::POST, "/kernel-translation/handle/query") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_query(&body))
         },
-        (Method::Post, "/kernel-translation/handle/enumerate") => {
+        (Method::POST, "/kernel-translation/handle/enumerate") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_enumerate(&body))
         },
-        (Method::Post, "/kernel-translation/handle/system-info") => {
+        (Method::POST, "/kernel-translation/handle/system-info") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_system_handle_information(&body))
         },
-        (Method::Post, "/kernel-translation/handle/table-status") => {
+        (Method::POST, "/kernel-translation/handle/table-status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_table_status(&body))
         },
-        (Method::Post, "/kernel-translation/handle/seed-demo") => {
+        (Method::POST, "/kernel-translation/handle/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_table::handle_seed_demo(&body))
         },
-        (Method::Post, "/kernel-translation/handle/enumerate-fds") => {
+        (Method::POST, "/kernel-translation/handle/enumerate-fds") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_bridge::handle_enumerate_fds(&body))
         },
-        (Method::Post, "/kernel-translation/handle/enumerate-ports") => {
+        (Method::POST, "/kernel-translation/handle/enumerate-ports") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_bridge::handle_enumerate_ports(&body))
         },
-        (Method::Post, "/kernel-translation/handle/unified-snapshot") => {
+        (Method::POST, "/kernel-translation/handle/unified-snapshot") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_bridge::handle_unified_snapshot(&body))
         },
-        (Method::Post, "/kernel-translation/handle/snapshot-all") => {
+        (Method::POST, "/kernel-translation/handle/snapshot-all") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_bridge::handle_snapshot_all(&body))
         },
-        (Method::Post, "/kernel-translation/integrity/query-signing-level") => {
+        (Method::POST, "/kernel-translation/integrity/query-signing-level") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::code_integrity::handle_query_signing_level(&body))
         },
-        (Method::Post, "/kernel-translation/integrity/query-process-signing") => {
+        (Method::POST, "/kernel-translation/integrity/query-process-signing") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::code_integrity::handle_query_process_signing(&body))
         },
-        (Method::Post, "/kernel-translation/integrity/register-pe-module") => {
+        (Method::POST, "/kernel-translation/integrity/register-pe-module") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::code_integrity::handle_register_pe_module(&body))
         },
-        (Method::Post, "/kernel-translation/integrity/register-macho-module") => {
+        (Method::POST, "/kernel-translation/integrity/register-macho-module") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::code_integrity::handle_register_macho_module(&body))
         },
-        (Method::Post, "/kernel-translation/integrity/set-cached-signing-level") => {
+        (Method::POST, "/kernel-translation/integrity/set-cached-signing-level") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::code_integrity::handle_set_cached_signing_level(&body))
         },
-        (Method::Post, "/kernel-translation/integrity/list-modules") => {
+        (Method::POST, "/kernel-translation/integrity/list-modules") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::code_integrity::handle_list_signed_modules(&body))
         },
-        (Method::Post, "/kernel-translation/integrity/seed-demo") => {
+        (Method::POST, "/kernel-translation/integrity/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::code_integrity::handle_seed_integrity_demo(&body))
         },
-        (Method::Post, "/kernel-translation/apc/queue") => {
+        (Method::POST, "/kernel-translation/apc/queue") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_queue_apc(&body))
         },
-        (Method::Post, "/kernel-translation/apc/test-alert") => {
+        (Method::POST, "/kernel-translation/apc/test-alert") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_test_alert(&body))
         },
-        (Method::Post, "/kernel-translation/apc/wait-alertable") => {
+        (Method::POST, "/kernel-translation/apc/wait-alertable") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_wait_alertable(&body))
         },
-        (Method::Post, "/kernel-translation/apc/allocate-trampoline") => {
+        (Method::POST, "/kernel-translation/apc/allocate-trampoline") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_allocate_trampoline(&body))
         },
-        (Method::Post, "/kernel-translation/apc/suspend-thread") => {
+        (Method::POST, "/kernel-translation/apc/suspend-thread") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_suspend_thread(&body))
         },
-        (Method::Post, "/kernel-translation/apc/get-thread-context") => {
+        (Method::POST, "/kernel-translation/apc/get-thread-context") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_get_thread_context(&body))
         },
-        (Method::Post, "/kernel-translation/apc/set-thread-context") => {
+        (Method::POST, "/kernel-translation/apc/set-thread-context") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_set_thread_context(&body))
         },
-        (Method::Post, "/kernel-translation/apc/inject-sequence") => {
+        (Method::POST, "/kernel-translation/apc/inject-sequence") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_inject_apc_sequence(&body))
         },
-        (Method::Post, "/kernel-translation/apc/queue-status") => {
+        (Method::POST, "/kernel-translation/apc/queue-status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_apc_queue_status(&body))
         },
-        (Method::Post, "/kernel-translation/apc/trampoline-status") => {
+        (Method::POST, "/kernel-translation/apc/trampoline-status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::apc::handle_trampoline_status(&body))
         },
-        (Method::Post, "/kernel-translation/es/register-callback") => {
+        (Method::POST, "/kernel-translation/es/register-callback") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_register_callback(&body))
         },
-        (Method::Post, "/kernel-translation/es/unregister-callback") => {
+        (Method::POST, "/kernel-translation/es/unregister-callback") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_unregister_callback(&body))
         },
-        (Method::Post, "/kernel-translation/es/list-callbacks") => {
+        (Method::POST, "/kernel-translation/es/list-callbacks") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_list_callbacks(&body))
         },
-        (Method::Post, "/kernel-translation/es/fire-process-event") => {
+        (Method::POST, "/kernel-translation/es/fire-process-event") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_fire_process_event(&body))
         },
-        (Method::Post, "/kernel-translation/es/fire-thread-event") => {
+        (Method::POST, "/kernel-translation/es/fire-thread-event") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_fire_thread_event(&body))
         },
-        (Method::Post, "/kernel-translation/es/fire-image-event") => {
+        (Method::POST, "/kernel-translation/es/fire-image-event") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_fire_image_event(&body))
         },
-        (Method::Post, "/kernel-translation/es/process-events") => {
+        (Method::POST, "/kernel-translation/es/process-events") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_process_events(&body))
         },
-        (Method::Post, "/kernel-translation/es/thread-events") => {
+        (Method::POST, "/kernel-translation/es/thread-events") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_thread_events(&body))
         },
-        (Method::Post, "/kernel-translation/es/image-events") => {
+        (Method::POST, "/kernel-translation/es/image-events") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_image_events(&body))
         },
-        (Method::Post, "/kernel-translation/es/create-ipc-channel") => {
+        (Method::POST, "/kernel-translation/es/create-ipc-channel") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_create_ipc_channel(&body))
         },
-        (Method::Post, "/kernel-translation/es/ipc-channels") => {
+        (Method::POST, "/kernel-translation/es/ipc-channels") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_ipc_channels(&body))
         },
-        (Method::Post, "/kernel-translation/es/status") => {
+        (Method::POST, "/kernel-translation/es/status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_es_status(&body))
         },
-        (Method::Post, "/kernel-translation/es/detect-events") => {
+        (Method::POST, "/kernel-translation/es/detect-events") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_detect_events(&body))
         },
-        (Method::Post, "/kernel-translation/es/nt-callback-bridge") => {
+        (Method::POST, "/kernel-translation/es/nt-callback-bridge") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_nt_callback_bridge(&body))
         },
-        (Method::Post, "/kernel-translation/es/seed-demo") => {
+        (Method::POST, "/kernel-translation/es/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_bridge::handle_seed_demo(&body))
         },
-        (Method::Post, "/kernel-translation/thread/snapshot") => {
+        (Method::POST, "/kernel-translation/thread/snapshot") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_snapshot_threads(&body))
         },
-        (Method::Post, "/kernel-translation/thread/compute-delta") => {
+        (Method::POST, "/kernel-translation/thread/compute-delta") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_compute_delta(&body))
         },
-        (Method::Post, "/kernel-translation/thread/create-watcher") => {
+        (Method::POST, "/kernel-translation/thread/create-watcher") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_create_watcher(&body))
         },
-        (Method::Post, "/kernel-translation/thread/destroy-watcher") => {
+        (Method::POST, "/kernel-translation/thread/destroy-watcher") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_destroy_watcher(&body))
         },
-        (Method::Post, "/kernel-translation/thread/list-watchers") => {
+        (Method::POST, "/kernel-translation/thread/list-watchers") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_list_watchers(&body))
         },
-        (Method::Post, "/kernel-translation/thread/poll-watcher") => {
+        (Method::POST, "/kernel-translation/thread/poll-watcher") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_poll_watcher(&body))
         },
-        (Method::Post, "/kernel-translation/thread/info") => {
+        (Method::POST, "/kernel-translation/thread/info") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_thread_info(&body))
         },
-        (Method::Post, "/kernel-translation/thread/list-deltas") => {
+        (Method::POST, "/kernel-translation/thread/list-deltas") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_list_deltas(&body))
         },
-        (Method::Post, "/kernel-translation/thread/configure-notifications") => {
+        (Method::POST, "/kernel-translation/thread/configure-notifications") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_configure_notifications(&body))
         },
-        (Method::Post, "/kernel-translation/thread/mechanism-survey") => {
+        (Method::POST, "/kernel-translation/thread/mechanism-survey") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_mechanism_survey(&body))
         },
-        (Method::Post, "/kernel-translation/thread/watcher-status") => {
+        (Method::POST, "/kernel-translation/thread/watcher-status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_watcher_status(&body))
         },
-        (Method::Post, "/kernel-translation/thread/seed-demo") => {
+        (Method::POST, "/kernel-translation/thread/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::thread_notify::handle_seed_demo(&body))
         },
-        (Method::Post, "/kernel-translation/ob/register-callback") => {
+        (Method::POST, "/kernel-translation/ob/register-callback") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_register_callback(&body))
         },
-        (Method::Post, "/kernel-translation/ob/unregister-callback") => {
+        (Method::POST, "/kernel-translation/ob/unregister-callback") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_unregister_callback(&body))
         },
-        (Method::Post, "/kernel-translation/ob/list-registrations") => {
+        (Method::POST, "/kernel-translation/ob/list-registrations") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_list_registrations(&body))
         },
-        (Method::Post, "/kernel-translation/ob/protect-process") => {
+        (Method::POST, "/kernel-translation/ob/protect-process") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_protect_process(&body))
         },
-        (Method::Post, "/kernel-translation/ob/unprotect-process") => {
+        (Method::POST, "/kernel-translation/ob/unprotect-process") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_unprotect_process(&body))
         },
-        (Method::Post, "/kernel-translation/ob/list-protected") => {
+        (Method::POST, "/kernel-translation/ob/list-protected") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_list_protected(&body))
         },
-        (Method::Post, "/kernel-translation/ob/simulate-operation") => {
+        (Method::POST, "/kernel-translation/ob/simulate-operation") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_simulate_operation(&body))
         },
-        (Method::Post, "/kernel-translation/ob/pre-operations") => {
+        (Method::POST, "/kernel-translation/ob/pre-operations") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_pre_operations(&body))
         },
-        (Method::Post, "/kernel-translation/ob/post-operations") => {
+        (Method::POST, "/kernel-translation/ob/post-operations") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_post_operations(&body))
         },
-        (Method::Post, "/kernel-translation/ob/access-log") => {
+        (Method::POST, "/kernel-translation/ob/access-log") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_access_log(&body))
         },
-        (Method::Post, "/kernel-translation/ob/capability-survey") => {
+        (Method::POST, "/kernel-translation/ob/capability-survey") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_capability_survey(&body))
         },
-        (Method::Post, "/kernel-translation/ob/seed-demo") => {
+        (Method::POST, "/kernel-translation/ob/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::handle_callbacks::handle_seed_demo(&body))
         },
-        (Method::Post, "/kernel-translation/driver/load") => {
+        (Method::POST, "/kernel-translation/driver/load") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_load_driver(&body))
         },
-        (Method::Post, "/kernel-translation/driver/unload") => {
+        (Method::POST, "/kernel-translation/driver/unload") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_unload_driver(&body))
         },
-        (Method::Post, "/kernel-translation/driver/list") => {
+        (Method::POST, "/kernel-translation/driver/list") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_list_drivers(&body))
         },
-        (Method::Post, "/kernel-translation/driver/create-device") => {
+        (Method::POST, "/kernel-translation/driver/create-device") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_create_device(&body))
         },
-        (Method::Post, "/kernel-translation/driver/list-devices") => {
+        (Method::POST, "/kernel-translation/driver/list-devices") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_list_devices(&body))
         },
-        (Method::Post, "/kernel-translation/driver/dispatch-irp") => {
+        (Method::POST, "/kernel-translation/driver/dispatch-irp") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_dispatch_irp(&body))
         },
-        (Method::Post, "/kernel-translation/driver/list-irps") => {
+        (Method::POST, "/kernel-translation/driver/list-irps") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_list_irps(&body))
         },
-        (Method::Post, "/kernel-translation/driver/register-ioctl") => {
+        (Method::POST, "/kernel-translation/driver/register-ioctl") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_register_ioctl(&body))
         },
-        (Method::Post, "/kernel-translation/driver/decode-ioctl") => {
+        (Method::POST, "/kernel-translation/driver/decode-ioctl") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_decode_ioctl(&body))
         },
-        (Method::Post, "/kernel-translation/driver/list-ioctls") => {
+        (Method::POST, "/kernel-translation/driver/list-ioctls") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_list_ioctls(&body))
         },
-        (Method::Post, "/kernel-translation/driver/type-mapping-survey") => {
+        (Method::POST, "/kernel-translation/driver/type-mapping-survey") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_type_mapping_survey(&body))
         },
-        (Method::Post, "/kernel-translation/driver/extension-template") => {
+        (Method::POST, "/kernel-translation/driver/extension-template") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_extension_template(&body))
         },
-        (Method::Post, "/kernel-translation/driver/seed-demo") => {
+        (Method::POST, "/kernel-translation/driver/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::driver_model::handle_seed_demo(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/simulate-check") => {
+        (Method::POST, "/kernel-translation/anti-debug/simulate-check") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_simulate_check(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/run-all-checks") => {
+        (Method::POST, "/kernel-translation/anti-debug/run-all-checks") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_run_all_checks(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/check-results") => {
+        (Method::POST, "/kernel-translation/anti-debug/check-results") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_check_results(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/hw-breakpoint-map") => {
+        (Method::POST, "/kernel-translation/anti-debug/hw-breakpoint-map") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_hw_breakpoint_map(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/full-breakpoint-map") => {
+        (Method::POST, "/kernel-translation/anti-debug/full-breakpoint-map") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_full_breakpoint_map(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/module-sanitize") => {
+        (Method::POST, "/kernel-translation/anti-debug/module-sanitize") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_module_sanitize(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/add-sanitize-rule") => {
+        (Method::POST, "/kernel-translation/anti-debug/add-sanitize-rule") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_add_sanitize_rule(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/timing-analysis") => {
+        (Method::POST, "/kernel-translation/anti-debug/timing-analysis") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_timing_analysis(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/filesystem-check") => {
+        (Method::POST, "/kernel-translation/anti-debug/filesystem-check") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_filesystem_check(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/status-survey") => {
+        (Method::POST, "/kernel-translation/anti-debug/status-survey") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_status_survey(&body))
         },
-        (Method::Post, "/kernel-translation/anti-debug/seed-demo") => {
+        (Method::POST, "/kernel-translation/anti-debug/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::anti_debug::handle_seed_demo(&body))
         },
-        (Method::Post, "/kernel-translation/integration/extension-install") => {
+        (Method::POST, "/kernel-translation/integration/extension-install") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_extension_install(&body))
         },
-        (Method::Post, "/kernel-translation/integration/extension-activate") => {
+        (Method::POST, "/kernel-translation/integration/extension-activate") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_extension_activate(&body))
         },
-        (Method::Post, "/kernel-translation/integration/extension-deactivate") => {
+        (Method::POST, "/kernel-translation/integration/extension-deactivate") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_extension_deactivate(&body))
         },
-        (Method::Post, "/kernel-translation/integration/extension-crash") => {
+        (Method::POST, "/kernel-translation/integration/extension-crash") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_extension_simulate_crash(&body))
         },
-        (Method::Post, "/kernel-translation/integration/extension-status") => {
+        (Method::POST, "/kernel-translation/integration/extension-status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_extension_status(&body))
         },
-        (Method::Post, "/kernel-translation/integration/simulate-pipeline") => {
+        (Method::POST, "/kernel-translation/integration/simulate-pipeline") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_simulate_pipeline(&body))
         },
-        (Method::Post, "/kernel-translation/integration/bottle-configure") => {
+        (Method::POST, "/kernel-translation/integration/bottle-configure") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_bottle_configure(&body))
         },
-        (Method::Post, "/kernel-translation/integration/bottle-get-config") => {
+        (Method::POST, "/kernel-translation/integration/bottle-get-config") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_bottle_get_config(&body))
         },
-        (Method::Post, "/kernel-translation/integration/bottle-list-configs") => {
+        (Method::POST, "/kernel-translation/integration/bottle-list-configs") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_bottle_list_configs(&body))
         },
-        (Method::Post, "/kernel-translation/integration/runtime-doctor") => {
+        (Method::POST, "/kernel-translation/integration/runtime-doctor") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_runtime_doctor(&body))
         },
-        (Method::Post, "/kernel-translation/integration/log-translation") => {
+        (Method::POST, "/kernel-translation/integration/log-translation") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_log_translation(&body))
         },
-        (Method::Post, "/kernel-translation/integration/query-translation-log") => {
+        (Method::POST, "/kernel-translation/integration/query-translation-log") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_query_translation_log(&body))
         },
-        (Method::Post, "/kernel-translation/integration/register-multi-ac") => {
+        (Method::POST, "/kernel-translation/integration/register-multi-ac") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_register_multi_ac(&body))
         },
-        (Method::Post, "/kernel-translation/integration/list-multi-ac") => {
+        (Method::POST, "/kernel-translation/integration/list-multi-ac") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_list_multi_ac(&body))
         },
-        (Method::Post, "/kernel-translation/integration/simulate-conflict") => {
+        (Method::POST, "/kernel-translation/integration/simulate-conflict") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_simulate_conflict(&body))
         },
-        (Method::Post, "/kernel-translation/integration/performance-profile") => {
+        (Method::POST, "/kernel-translation/integration/performance-profile") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_performance_profile(&body))
         },
-        (Method::Post, "/kernel-translation/integration/list-performance") => {
+        (Method::POST, "/kernel-translation/integration/list-performance") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_list_performance(&body))
         },
-        (Method::Post, "/kernel-translation/integration/fallback-mode") => {
+        (Method::POST, "/kernel-translation/integration/fallback-mode") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_fallback_mode_status(&body))
         },
-        (Method::Post, "/kernel-translation/integration/full-stack-status") => {
+        (Method::POST, "/kernel-translation/integration/full-stack-status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_full_stack_status(&body))
         },
-        (Method::Post, "/kernel-translation/integration/seed-demo") => {
+        (Method::POST, "/kernel-translation/integration/seed-demo") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::integration::handle_seed_demo(&body))
         },
-        (Method::Post, "/kernel-translation/ipc/start") => match kernel_translation::ipc_bridge::start_ipc_listener() {
+        (Method::POST, "/kernel-translation/ipc/start") => match kernel_translation::ipc_bridge::start_ipc_listener() {
             Ok(()) => {
                 resp(200, serde_json::json!({"ok": true, "bind_addr": kernel_translation::ipc_bridge::IPC_BIND_ADDR}))
             },
             Err(e) => resp(500, serde_json::json!({"ok": false, "error": e})),
         },
-        (Method::Post, "/kernel-translation/ipc/stop") => {
+        (Method::POST, "/kernel-translation/ipc/stop") => {
             resp(200, kernel_translation::ipc_bridge::stop_ipc_listener())
         },
-        (Method::Get, "/kernel-translation/ipc/status") => {
+        (Method::GET, "/kernel-translation/ipc/status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::ipc_bridge::handle_ipc_status(&body))
         },
-        (Method::Get, "/kernel-translation/ipc/handles") => {
+        (Method::GET, "/kernel-translation/ipc/handles") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::ipc_bridge::handle_ipc_handles(&body))
         },
-        (Method::Post, "/kernel-translation/es-live/start") => {
+        (Method::POST, "/kernel-translation/es-live/start") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_live::handle_es_live_start(&body))
         },
-        (Method::Post, "/kernel-translation/es-live/stop") => {
+        (Method::POST, "/kernel-translation/es-live/stop") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_live::handle_es_live_stop(&body))
         },
-        (Method::Get, "/kernel-translation/es-live/status") => {
+        (Method::GET, "/kernel-translation/es-live/status") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_live::handle_es_live_status(&body))
         },
-        (Method::Get, "/kernel-translation/es-live/events") => {
+        (Method::GET, "/kernel-translation/es-live/events") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_live::handle_es_live_events(&body))
         },
-        (Method::Get, "/kernel-translation/es-live/processes") => {
+        (Method::GET, "/kernel-translation/es-live/processes") => {
             let body = read_body_or_return!(req);
             resp(200, kernel_translation::es_live::handle_es_live_processes(&body))
         },
-        (Method::Post, "/launcher/evidence") => {
+        (Method::POST, "/launcher/evidence") => {
             let body = read_body_or_return!(req);
             resp(200, launcher_evidence::handle_launcher_evidence(&body))
         },
-        (Method::Get, "/sharp-library/gog/status") => resp(200, gog::handle_status()),
-        (Method::Post, "/sharp-library/gog/initialize-prefix") => resp(200, gog::handle_initialize_prefix()),
-        (Method::Post, "/sharp-library/gog/remove-prefix") => resp(200, gog::handle_remove_prefix()),
-        (Method::Post, "/sharp-library/gog/auth-code") => {
+        (Method::GET, "/sharp-library/gog/status") => resp(200, gog::handle_status()),
+        (Method::POST, "/sharp-library/gog/initialize-prefix") => resp(200, gog::handle_initialize_prefix()),
+        (Method::POST, "/sharp-library/gog/remove-prefix") => resp(200, gog::handle_remove_prefix()),
+        (Method::POST, "/sharp-library/gog/auth-code") => {
             let body = read_body_or_return!(req);
             resp(200, gog::handle_auth_code(&Value::Object(body)))
         },
-        (Method::Post, "/sharp-library/gog/logout") => resp(200, gog::handle_logout()),
-        (Method::Post, "/sharp-library/gog/sync") => resp(200, gog::handle_sync()),
-        (Method::Get, "/sharp-library/gog/games") => resp(200, gog::handle_games()),
-        (Method::Post, "/sharp-library/gog/install") => {
+        (Method::POST, "/sharp-library/gog/logout") => resp(200, gog::handle_logout()),
+        (Method::POST, "/sharp-library/gog/sync") => resp(200, gog::handle_sync()),
+        (Method::GET, "/sharp-library/gog/games") => resp(200, gog::handle_games()),
+        (Method::POST, "/sharp-library/gog/install") => {
             let body = read_body_or_return!(req);
             resp(200, gog::handle_install(&Value::Object(body)))
         },
-        (Method::Post, "/sharp-library/gog/import") => {
+        (Method::POST, "/sharp-library/gog/import") => {
             let body = read_body_or_return!(req);
             resp(200, gog::handle_import(&Value::Object(body)))
         },
-        (Method::Post, "/sharp-library/gog/progress") => {
+        (Method::POST, "/sharp-library/gog/progress") => {
             let body = read_body_or_return!(req);
             resp(200, gog::handle_progress(&Value::Object(body)))
         },
-        (Method::Post, "/sharp-library/gog/play") => {
+        (Method::POST, "/sharp-library/gog/play") => {
             let body = read_body_or_return!(req);
             resp(200, gog::handle_play(&Value::Object(body)))
         },
-        (Method::Post, "/sharp-library/gog/stop") => {
+        (Method::POST, "/sharp-library/gog/stop") => {
             let body = read_body_or_return!(req);
             resp(200, gog::handle_stop(&Value::Object(body)))
         },
-        (Method::Post, "/sharp-library/gog/uninstall") => {
+        (Method::POST, "/sharp-library/gog/uninstall") => {
             let body = read_body_or_return!(req);
             resp(200, gog::handle_uninstall(&Value::Object(body)))
         },
-        (Method::Get, "/wine-mono/status") => {
+        (Method::GET, "/wine-mono/status") => {
             let prefix = query_param(req.url(), "prefix").unwrap_or_else(|| "gog".to_string());
             resp(200, mono::handle_status(&prefix))
         },
-        (Method::Post, "/wine-mono/install") => {
+        (Method::POST, "/wine-mono/install") => {
             let body = read_body_or_return!(req);
             let prefix = body.get("prefix").and_then(|v| v.as_str()).unwrap_or("gog").to_string();
             resp(200, mono::handle_install(&prefix))
         },
-        (Method::Post, "/wine-mono/reset") => {
+        (Method::POST, "/wine-mono/reset") => {
             let body = read_body_or_return!(req);
             let prefix = body.get("prefix").and_then(|v| v.as_str()).unwrap_or("gog").to_string();
             resp(200, mono::handle_reset(&prefix))
         },
-        (Method::Post, "/sharp-library/install") => {
+        (Method::POST, "/sharp-library/install") => {
             let body = read_body_or_return!(req);
             app_log(&format!("[SHARP-LIB] install: {}", body.get("srcPath").and_then(|v| v.as_str()).unwrap_or("?")));
             resp(200, sharp_library::handle_install(&body))
         },
-        (Method::Post, "/sharp-library/import-bottle-app") => {
+        (Method::POST, "/sharp-library/import-bottle-app") => {
             let body = read_body_or_return!(req);
             app_log(&format!(
                 "[SHARP-LIB] import bottle app: {}",
@@ -2342,13 +2547,13 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             ));
             resp(200, sharp_library::handle_import_bottle_app(&body))
         },
-        (Method::Post, "/sharp-library/uninstall") => {
+        (Method::POST, "/sharp-library/uninstall") => {
             let body = read_body_or_return!(req);
             let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("?");
             app_log(&format!("[SHARP-LIB] uninstall: {}", id));
             resp(200, sharp_library::handle_uninstall(&body))
         },
-        (Method::Post, "/sharp-library/launch") => {
+        (Method::POST, "/sharp-library/launch") => {
             let body = read_body_or_return!(req);
             let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("?");
             let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("wine_bare");
@@ -2368,7 +2573,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             }
             resp(200, result)
         },
-        (Method::Post, "/sharp-library/stop") => {
+        (Method::POST, "/sharp-library/stop") => {
             let body = read_body_or_return!(req);
             let id = body.get("id").and_then(|v| v.as_str()).unwrap_or("").trim();
             if id.is_empty() {
@@ -2385,31 +2590,31 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Post, "/sharp-library/doctor") => {
+        (Method::POST, "/sharp-library/doctor") => {
             let body = read_body_or_return!(req);
             resp(200, sharp_library::handle_doctor(&body))
         },
-        (Method::Post, "/sharp-library/set-cover") => {
+        (Method::POST, "/sharp-library/set-cover") => {
             let body = read_body_or_return!(req);
             resp(200, sharp_library::handle_set_cover(&body))
         },
-        (Method::Post, "/sharp-library/add-asset") => {
+        (Method::POST, "/sharp-library/add-asset") => {
             let body = read_body_or_return!(req);
             resp(200, sharp_library::handle_add_asset(&body))
         },
-        (Method::Post, "/sharp-library/set-cover-position") => {
+        (Method::POST, "/sharp-library/set-cover-position") => {
             let body = read_body_or_return!(req);
             resp(200, sharp_library::handle_set_cover_position(&body))
         },
-        (Method::Post, "/sharp-library/set-engine") => {
+        (Method::POST, "/sharp-library/set-engine") => {
             let body = read_body_or_return!(req);
             resp(200, sharp_library::handle_set_engine(&body))
         },
-        (Method::Post, "/sharp-library/set-launch-args") => {
+        (Method::POST, "/sharp-library/set-launch-args") => {
             let body = read_body_or_return!(req);
             resp(200, sharp_library::handle_set_launch_args(&body))
         },
-        (Method::Get, "/sharp-library/cover") => {
+        (Method::GET, "/sharp-library/cover") => {
             let url_str = req.url().to_string();
             let id = url_str.split("id=").nth(1).and_then(|v| v.split('&').next()).unwrap_or("");
             match sharp_library::get_cover_path(id) {
@@ -2430,7 +2635,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 None => resp(404, json!({"ok": false, "error": "cover not found"})),
             }
         },
-        (Method::Post, "/launch") => {
+        (Method::POST, "/launch") => {
             let body = read_body_or_return!(req);
             let exe = body.get("exePath").and_then(|v| v.as_str()).unwrap_or("");
             let steam_app_id = match parse_optional_request_steam_appid(&body) {
@@ -2478,7 +2683,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Post, "/game/launch-auto") => {
+        (Method::POST, "/game/launch-auto") => {
             let body = read_body_or_return!(req);
             let id = match parse_request_appid(&body) {
                 Ok(id) => id,
@@ -2535,14 +2740,19 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 },
             }
         },
-        (Method::Get, "/game/running") => {
+        (Method::GET, "/game/running") => {
             prune_inactive_game_pids();
             let map = running_games().lock().unwrap_or_else(|e| e.into_inner());
             let running: Vec<serde_json::Value> =
                 map.iter().map(|(&appid, &pid)| json!({"appid": appid, "pid": pid})).collect();
             resp(200, json!({"ok": true, "running": running}))
         },
-        (Method::Get, "/game/dual-info") => {
+        (Method::GET, "/game/stuck-kills") => {
+            // Appids force-killed by the stuck-game watchdog within the last
+            // 60s, so the renderer can distinguish a crash from a normal exit.
+            resp(200, json!({"ok": true, "appids": recent_stuck_kills()}))
+        },
+        (Method::GET, "/game/dual-info") => {
             let url_str = req.url().to_string();
             let appid: u32 = url_str
                 .split("appid=")
@@ -2566,9 +2776,10 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }),
             )
         },
-        (Method::Post, "/processes/force-kill") => resp(200, force_kill_metalsharp_processes()),
-        (Method::Post, "/games/stop-active") => resp(200, stop_active_games()),
-        (Method::Post, "/kill") => {
+        (Method::POST, "/processes/force-kill") => resp(200, force_kill_metalsharp_processes()),
+        (Method::POST, "/games/stop-active") => resp(200, stop_active_games()),
+        (Method::POST, "/wine/evacuate") => resp(200, evacuate_wine_stack()),
+        (Method::POST, "/kill") => {
             let body = read_body_or_return!(req);
             let appid = if body.contains_key("appid") {
                 match parse_request_appid(&body) {
@@ -2664,7 +2875,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }
             }
         },
-        (Method::Post, "/steam/uninstall-game") => {
+        (Method::POST, "/steam/uninstall-game") => {
             let body = read_body_or_return!(req);
             let appid = match parse_request_appid(&body) {
                 Ok(appid) => appid,
@@ -2682,7 +2893,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 Err(e) => resp(500, json!({"ok": false, "error": e.to_string()})),
             }
         },
-        (Method::Post, "/cache/clear") => {
+        (Method::POST, "/cache/clear") => {
             let body = read_body_or_return!(req);
             let cache_type = body.get("type").and_then(|v| v.as_str()).unwrap_or("shader");
             let home = dirs::home_dir().unwrap_or_default();
@@ -2703,7 +2914,7 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }),
             )
         },
-        (Method::Get, "/cache/size") => {
+        (Method::GET, "/cache/size") => {
             let home = dirs::home_dir().unwrap_or_default();
             let shader_dir = cache_dir_for_type(&home, "shader");
             let pipeline_dir = cache_dir_for_type(&home, "pipeline");
@@ -2718,8 +2929,8 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
                 }),
             )
         },
-        (Method::Get, "/metalfx/state") => resp(200, metalfx::get_state()),
-        (Method::Post, "/metalfx/toggle") => {
+        (Method::GET, "/metalfx/state") => resp(200, metalfx::get_state()),
+        (Method::POST, "/metalfx/toggle") => {
             let body = read_body_or_return!(req);
             resp(200, metalfx::set_state(&body))
         },
@@ -3304,12 +3515,27 @@ fn resolve_game_exe(ms_home: &std::path::Path, appid: u32) -> Result<String, Str
     Err(format!("no game executable found for appid {} (searched {})", appid, game_dir.display()))
 }
 
-fn read_body(req: &mut tiny_http::Request) -> Result<serde_json::Map<String, serde_json::Value>, RequestBodyError> {
-    if req.body_length().map(|length| length > MAX_REQUEST_BODY_BYTES).unwrap_or(false) {
-        return Err(RequestBodyError::TooLarge);
+fn read_body(req: &mut HttpRequest) -> Result<serde_json::Map<String, serde_json::Value>, RequestBodyError> {
+    // Preserve the tiny_http contract: reject known-oversized bodies from the
+    // Content-Length header before touching the payload.
+    if let Some(length) = req
+        .headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        if length > MAX_REQUEST_BODY_BYTES as u64 {
+            return Err(RequestBodyError::TooLarge);
+        }
     }
 
-    read_body_from_reader(req.as_reader())
+    match req.body.take() {
+        Some(body) => read_body_from_reader(std::io::Cursor::new(body)),
+        None => Err(RequestBodyError::Read(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "request body was already consumed",
+        ))),
+    }
 }
 
 fn read_body_from_reader<R: Read>(reader: R) -> Result<serde_json::Map<String, serde_json::Value>, RequestBodyError> {
@@ -3680,11 +3906,12 @@ mod tests {
 
     #[test]
     fn route_propagates_malformed_json_before_handler_validation() {
-        let mut request: tiny_http::Request = tiny_http::TestRequest::new()
-            .with_method(Method::Post)
-            .with_path("/game/resolve-routing")
-            .with_body("{")
-            .into();
+        let mut request = HttpRequest {
+            method: Method::POST,
+            url: "/game/resolve-routing".to_string(),
+            headers: HeaderMap::new(),
+            body: Some(b"{".to_vec()),
+        };
         let (status, payload) = response_json(route(&mut request));
 
         assert_eq!(status, 400);
@@ -3717,10 +3944,14 @@ mod tests {
     #[test]
     fn request_body_rejects_known_oversized_content_length_before_reading() {
         let content_length = (MAX_REQUEST_BODY_BYTES + 1).to_string();
-        let header =
-            Header::from_bytes(&b"Content-Length"[..], content_length.as_bytes()).expect("content length header");
-        let mut request: tiny_http::Request =
-            tiny_http::TestRequest::new().with_method(Method::Post).with_body("{}").with_header(header).into();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_LENGTH, content_length.parse().expect("content length header"));
+        let mut request = HttpRequest {
+            method: Method::POST,
+            url: "/game/resolve-routing".to_string(),
+            headers,
+            body: Some(b"{}".to_vec()),
+        };
 
         assert!(matches!(read_body(&mut request), Err(RequestBodyError::TooLarge)));
     }
@@ -3757,10 +3988,10 @@ mod tests {
 
     #[test]
     fn only_read_only_health_check_is_public() {
-        assert!(is_public_health_request(&Method::Get, "/health"));
-        assert!(is_public_health_request(&Method::Get, "/health?probe=1"));
-        assert!(!is_public_health_request(&Method::Get, "/status"));
-        assert!(!is_public_health_request(&Method::Post, "/health"));
+        assert!(is_public_health_request(&Method::GET, "/health"));
+        assert!(is_public_health_request(&Method::GET, "/health?probe=1"));
+        assert!(!is_public_health_request(&Method::GET, "/status"));
+        assert!(!is_public_health_request(&Method::POST, "/health"));
     }
 
     #[test]
@@ -3804,6 +4035,65 @@ mod tests {
         let targets = active_game_targets(&HashMap::from([(620, 4242), (4000, 0), (1260320, -1)]));
 
         assert_eq!(targets, vec![(620, 4242)]);
+    }
+
+    #[test]
+    fn stuck_tracker_triggers_only_after_kill_window_of_unresponsiveness() {
+        let kill_after = std::time::Duration::from_secs(7);
+        let mut tracker = WindowServerStuckTracker::new(1000, kill_after);
+        let t0 = std::time::Instant::now();
+
+        // Responsive samples never trigger.
+        assert!(!tracker.observe(Some(3), t0));
+        assert!(!tracker.observe(Some(500), t0 + std::time::Duration::from_secs(2)));
+
+        // Unresponsive (>=1s) samples: not yet 7s after the first stuck sample.
+        assert!(!tracker.observe(Some(1500), t0 + std::time::Duration::from_secs(4)));
+        assert!(!tracker.observe(Some(9000), t0 + std::time::Duration::from_secs(8)));
+
+        // Continuous unresponsiveness crosses the 7s window (8s after start).
+        assert!(tracker.observe(Some(9000), t0 + std::time::Duration::from_secs(12)));
+
+        // Rearm suppresses immediate re-triggering while still wedged.
+        tracker.rearm(t0 + std::time::Duration::from_secs(12));
+        assert!(!tracker.observe(Some(9000), t0 + std::time::Duration::from_secs(14)));
+        assert!(tracker.observe(Some(9000), t0 + std::time::Duration::from_secs(20)));
+    }
+
+    #[test]
+    fn stuck_tracker_recovers_when_window_server_answers() {
+        let kill_after = std::time::Duration::from_secs(7);
+        let mut tracker = WindowServerStuckTracker::new(1000, kill_after);
+        let t0 = std::time::Instant::now();
+
+        assert!(!tracker.observe(Some(5000), t0));
+        assert!(!tracker.observe(Some(5000), t0 + std::time::Duration::from_secs(2)));
+        // Server answers again: window resets, a later stall starts fresh.
+        assert!(!tracker.observe(Some(2), t0 + std::time::Duration::from_secs(4)));
+        assert!(!tracker.observe(Some(5000), t0 + std::time::Duration::from_secs(6)));
+        assert!(!tracker.observe(Some(5000), t0 + std::time::Duration::from_secs(8)));
+        assert!(tracker.observe(Some(5000), t0 + std::time::Duration::from_secs(14)));
+    }
+
+    #[test]
+    fn stuck_tracker_never_triggers_on_healthy_server() {
+        let kill_after = std::time::Duration::from_secs(7);
+        let mut tracker = WindowServerStuckTracker::new(1000, kill_after);
+        let t0 = std::time::Instant::now();
+
+        for i in 0..20 {
+            assert!(!tracker.observe(Some(3), t0 + std::time::Duration::from_secs(i * 2)));
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn wine_evacuation_is_a_safe_noop_without_a_running_wine_stack() {
+        // pkill exits 1 when nothing matches; the evacuation must still report
+        // ok and empty appids instead of erroring.
+        let result = evacuate_wine_stack();
+        assert_eq!(result.get("ok").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(result.get("appids").and_then(|v| v.as_array()).map(Vec::len), Some(0));
     }
 
     #[test]

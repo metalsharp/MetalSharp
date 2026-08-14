@@ -61,6 +61,7 @@ const RENDERER_ENDPOINTS = [
   "POST /eac/toggle",
   "POST /game/launch-auto",
   "GET /game/running",
+  "GET /game/stuck-kills",
   "POST /goldberg/toggle",
   "POST /kill",
   "POST /logs/crash-report",
@@ -114,6 +115,7 @@ const MAIN_ONLY_ENDPOINTS = [
   "POST /update/cleanup",
   "POST /update/migrate/cleanup-preserved",
   "POST /update/migrate/start",
+  "POST /wine/evacuate",
 ] as const;
 
 const appIdQuery: QueryValidator = (params) => {
