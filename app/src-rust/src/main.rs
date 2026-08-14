@@ -47,6 +47,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tiny_http::{Header, Method, Response, Server};
 
 static RUNNING_GAMES: OnceLock<Mutex<HashMap<u32, i32>>> = OnceLock::new();
+static RUNNING_SHARP_APPS: OnceLock<Mutex<HashMap<String, i32>>> = OnceLock::new();
+static SCAN_IN_PROGRESS: Mutex<()> = Mutex::new(());
 static ISSUE_LOG_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn running_games() -> &'static Mutex<HashMap<u32, i32>> {
@@ -362,6 +364,13 @@ fn route(req: &mut tiny_http::Request) -> RouteResponse {
             }
         },
         (Method::Get, "/scan") => {
+            // Handlers run synchronously on the main request loop, so a slow
+            // scan_all blocks every other route (library, status, poll).
+            // Single-flight: if a scan is already running, answer immediately
+            // instead of queueing a pile-up of full filesystem walks.
+            let Ok(_scan_guard) = SCAN_IN_PROGRESS.try_lock() else {
+                return resp(200, json!({"ok": true, "skipped": true, "steam": crate::steam::status()}));
+            };
             let mut timing = diagnostics::LaunchTiming::start();
             app_log("Scanning for installed games...");
             timing.mark("scan_start");
