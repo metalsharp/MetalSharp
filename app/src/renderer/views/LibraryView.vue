@@ -43,6 +43,7 @@ const macSteamRunning = inject<Ref<boolean>>("macSteamRunning")!;
 const backendConnected = inject<Ref<boolean>>("backendConnected")!;
 const backendVersion = inject<Ref<string | null>>("backendVersion")!;
 const developerMode = inject<Ref<boolean>>("developerMode")!;
+const libraryRefreshing = inject<Ref<boolean>>("libraryRefreshing")!;
 const reloadLibrary = inject<() => Promise<void>>("loadLibrary")!;
 
 const toast = useToast();
@@ -414,10 +415,11 @@ watch([library, search, filter], () => {
           <button
             class="btn btn-secondary library-control-button refresh-button"
             title="Refresh"
+            :disabled="libraryRefreshing"
             @click="reloadLibrary(true)"
           >
             <component :is="refreshIcon" class="control-icon" width="15" height="15" />
-            <span class="control-label">Refresh</span>
+            <span class="control-label">{{ libraryRefreshing ? "Refreshing…" : "Refresh" }}</span>
           </button>
         </div>
         <div class="library-controls-center">
@@ -571,6 +573,10 @@ watch([library, search, filter], () => {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
+}
+.library-control-button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .control-icon {
   flex: 0 0 15px;
