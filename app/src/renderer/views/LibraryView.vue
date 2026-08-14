@@ -87,9 +87,16 @@ async function pollRegisteredGameExit() {
     );
     if (running.has(runningAppId.value)) return;
     const game = library.value?.games.find((candidate) => candidate.appid === runningAppId.value);
+    // The stuck-game watchdog force-kills hung games (0% or 100% CPU for 7s);
+    // distinguish that from a clean exit so the toast says it crashed.
+    const stuck = await api<{ ok?: boolean; appids?: number[] }>("GET", "/game/stuck-kills");
+    const wasStuckKilled = (stuck?.appids ?? []).includes(runningAppId.value);
     runningPid.value = null;
     runningAppId.value = null;
-    toast.show(`${game?.name ?? "Game"} exited`);
+    toast.show(
+      wasStuckKilled ? "Game crashed with selected launch method" : `${game?.name ?? "Game"} exited`,
+      wasStuckKilled ? "error" : undefined,
+    );
   } catch {
     // Backend briefly unavailable; keep the current state.
   }

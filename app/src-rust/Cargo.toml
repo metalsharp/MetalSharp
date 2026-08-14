@@ -7,6 +7,8 @@ edition = "2021"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tiny_http = "0.12"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 dirs = "6"
 walkdir = "2"
 zstd = "0.13"

@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tiny_http::{Header, Request};
+use axum::http::HeaderMap;
 
 pub const TOKEN_FILE_NAME: &str = ".backend-token";
 pub const TOKEN_HEADER: &str = "X-MetalSharp-Token";
@@ -23,15 +23,15 @@ impl BackendAuth {
         Ok(Self { token })
     }
 
-    pub fn is_authorized(&self, request: &Request) -> bool {
-        self.is_authorized_headers(request.headers())
+    pub fn is_authorized(&self, headers: &HeaderMap) -> bool {
+        self.is_authorized_headers(headers)
     }
 
-    fn is_authorized_headers(&self, headers: &[Header]) -> bool {
+    fn is_authorized_headers(&self, headers: &HeaderMap) -> bool {
         headers
-            .iter()
-            .filter(|header| header.field.equiv(TOKEN_HEADER))
-            .any(|header| token_matches(&self.token, header.value.as_str()))
+            .get(TOKEN_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| token_matches(&self.token, value.trim()))
     }
 }
 
@@ -109,6 +109,16 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    fn header_map_of(entries: &[(&str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in entries {
+            let name: axum::http::HeaderName = name.parse().expect("header name");
+            let value: axum::http::HeaderValue = value.parse().expect("header value");
+            headers.insert(name, value);
+        }
+        headers
+    }
+
     fn test_home(name: &str) -> PathBuf {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).expect("system clock").as_nanos();
         std::env::temp_dir().join(format!("metalsharp-backend-auth-{name}-{}-{timestamp}", std::process::id()))
@@ -124,7 +134,7 @@ mod tests {
         assert_eq!(token.len(), TOKEN_BYTE_LENGTH * 2);
         assert!(token.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert!(token_matches(token, token));
-        assert!(auth.is_authorized_headers(&[Header::from_bytes(TOKEN_HEADER, token).expect("token header"),]));
+        assert!(auth.is_authorized_headers(&header_map_of(&[(TOKEN_HEADER, token)])));
 
         #[cfg(unix)]
         assert_eq!(fs::metadata(token_path(&home)).expect("token metadata").permissions().mode() & 0o777, 0o600);
@@ -147,10 +157,10 @@ mod tests {
         let token = fs::read_to_string(token_path(&home)).expect("read backend token");
         let token = token.trim();
 
-        assert!(!auth.is_authorized_headers(&[]));
-        assert!(!auth.is_authorized_headers(&[Header::from_bytes(TOKEN_HEADER, "wrong").expect("wrong token header"),]));
-        assert!(!auth.is_authorized_headers(&[Header::from_bytes("Authorization", token).expect("wrong header name"),]));
-        assert!(auth.is_authorized_headers(&[Header::from_bytes(TOKEN_HEADER, token).expect("valid token header"),]));
+        assert!(!auth.is_authorized_headers(&HeaderMap::new()));
+        assert!(!auth.is_authorized_headers(&header_map_of(&[(TOKEN_HEADER, "wrong")])));
+        assert!(!auth.is_authorized_headers(&header_map_of(&[("Authorization", token)])));
+        assert!(auth.is_authorized_headers(&header_map_of(&[(TOKEN_HEADER, token)])));
 
         let _ = fs::remove_dir_all(home);
     }
