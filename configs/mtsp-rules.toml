@@ -7184,3 +7184,5 @@ components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.1818750.diagnostics]
 check_dlls = ["d3d10.dll", "d3d10_1.dll", "d3d11.dll", "dxgi.dll", "d3d10core.dll", "winemetal.dll"]
+[overrides.2784470]
+pipeline = "vkd3d"

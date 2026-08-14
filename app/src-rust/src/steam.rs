@@ -1883,7 +1883,7 @@ pub fn watch_steamapps() -> Vec<u32> {
 
     // Do not update the snapshot here. The renderer may fail to consume the
     // subsequent library refresh; retaining the old snapshot makes the next
-    // 15-second poll retry instead of silently losing the new game.
+    // 5-second poll retry instead of silently losing the new game.
     new_appids
 }
 

@@ -63,6 +63,11 @@ let installPollTimer: ReturnType<typeof setInterval> | null = null;
 let steamLibraryPollTimer: ReturnType<typeof setInterval> | null = null;
 let libraryLoadInFlight: Promise<void> | null = null;
 let steamLibraryPollInFlight = false;
+// Set when a forced library reload is requested while another load is still
+// in flight. The in-flight load re-runs immediately after finishing so a
+// refresh click or new-install detection is never silently swallowed.
+let pendingForceReload = false;
+const libraryRefreshing = ref(false);
 
 const { theme, setTheme } = useTheme();
 const toast = useToast();
@@ -91,6 +96,7 @@ const updateChangelog = computed(() => {
 const fullUpdateChangelog = computed(() => updateStatus.value?.release_notes?.trim() ?? "");
 
 provide("library", library);
+provide("libraryRefreshing", libraryRefreshing);
 provide("config", config);
 provide("wineSteamInstalled", wineSteamInstalled);
 provide("wineSteamRunning", wineSteamRunning);
@@ -128,20 +134,40 @@ async function refreshSteamStatus() {
 }
 
 async function loadLibrary(force = false) {
-  if (libraryLoadInFlight) return libraryLoadInFlight;
+  if (libraryLoadInFlight) {
+    // Never swallow a user-requested refresh (or a new-install detection)
+    // because another load is already running; queue it to run immediately
+    // after the in-flight load finishes.
+    if (force) pendingForceReload = true;
+    return libraryLoadInFlight;
+  }
 
   const load = (async () => {
-    // Bottle reconciliation makes this route slower than a normal status
-    // request, especially when an external Steam library has many games.
-    // Keep the renderer request alive long enough to receive the complete
-    // internal + external library response.
-    const lib = await api<SteamLibrary>("GET", `/steam/library${force ? "?refresh=1" : ""}`, undefined, 120_000);
-    if (lib && Array.isArray(lib.games)) {
-      library.value = lib;
-    }
-
-    await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
-    await refreshSteamStatus();
+    let refresh = force;
+    do {
+      pendingForceReload = false;
+      libraryRefreshing.value = refresh;
+      try {
+        if (refresh) {
+          // Refresh button or new install detected: scan the filesystem first
+          // so the library response below reflects freshly installed games.
+          await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
+        }
+        // Bottle reconciliation makes this route slower than a normal status
+        // request, especially when an external Steam library has many games.
+        // Keep the renderer request alive long enough to receive the complete
+        // internal + external library response.
+        const lib = await api<SteamLibrary>("GET", `/steam/library${refresh ? "?refresh=1" : ""}`, undefined, 120_000);
+        if (lib && Array.isArray(lib.games)) {
+          library.value = lib;
+        }
+        await refreshSteamStatus();
+      } finally {
+        libraryRefreshing.value = false;
+      }
+      // A force request arrived while we were loading; run it now.
+      refresh = pendingForceReload;
+    } while (refresh);
   })();
 
   libraryLoadInFlight = load;
@@ -290,7 +316,7 @@ function startHealthPolling() {
     } finally {
       steamLibraryPollInFlight = false;
     }
-  }, 15_000);
+  }, 5_000);
 
   setInterval(async () => {
     const prev = backendConnected.value;
