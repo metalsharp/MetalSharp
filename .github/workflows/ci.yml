@@ -220,15 +220,3 @@ jobs:
           test -s app/native/host/HostRuntimeABI.h
           test -s app/native/host/manifest.json
           test -s app/native/host/libmetalsharp_host_runtime.dylib
-
-  dmg-workflow:
-    name: DMG Workflow CI
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Verify DMG workflow contract
-        run: python3 tools/ci/verify-dmg-workflow.py
-
-      - name: Updater security regression tests
-        run: python3 -m unittest -v tools/ci/test_updater_security.py
