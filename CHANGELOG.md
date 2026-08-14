@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.59.5 — 2026-08-13
+
+### Added
+
+- **External Steam library sync** — installed games now surface from shared external Steam libraries (`libraryfolders.vdf` roots, e.g. a second drive), not just the internal prefix.
+- **Fast new-install detection** — the app polls for newly installed games every 5 seconds and auto-refreshes the library; the Refresh button always runs a filesystem scan before reloading, shows a “Refreshing…” state, and queues behind in-flight loads instead of being dropped.
+- **Game cards revert correctly on in-game quit** — the UI polls the registered game PID directly (with `GET /game/running` allowlisted for IPC).
+- **GPTK 4.0 beta 2 optional overlay** with a repair flow, lowered DMG size guard, tab-separated hdiutil output parsing, and a valid AppleScript admin command; the optional overlay now targets **GPTK 3** with corrected toasts.
+- **gogdl bootstraps in a clean Python env** — pip-less venv rebuild with an ensurepip fallback, and a friendlier empty library state.
+- **Setup wizard redesign** — logo, Rethink Sans, glass + foil design language, and a matching glassmorphic migration screen.
+- **9 Kings (2784470) VKD3D rule** added to the shipped MTSP rules.
+
+### Fixed
+
+- **Route naming unified** — legacy M9/M10/M11 labels retired: M10/M11 surface as **DXMT**, M10(32)/M11(32) as **DXMT(32)**, M9 as **VKD3D**; the M12 route is renamed VKD3D everywhere (tools, probes, docs, saved bottles).
+- **DXMT Metal shader version baked into `dxmt.conf`** — the macOS-matched shader dialect no longer rides only on an env var that can be dropped or clobbered; the launcher reconciles `dxmt.shaderMetalVersion` into `runtime/wine/etc/dxmt.conf` before every DXMT launch (macOS 14 → 310, 15–25 → 320, 26+ → no pin).
+- **steamwebhelper wrapper pin matches the packaged bundle** — the sha pin and tracked staging artifact now match the known-good wrapper that ships in the current steam bundle, so wrapper deployment runs again.
+- **Wine Steam desktop shortcuts hidden** — installer-created shortcuts no longer clutter the desktop.
+- **Game force-kill restored** — kill ownership matches Wine's Windows-form and bare exe argv; the Agility SDK no longer blocks non-D3D12 launches.
+- **Steam runtime staged for D3DMetal bottles** and protected games prepared for D3DMetal launches.
+- **DMG workflow injects the built EAC substrate** into the scripts-tools bundle during fetch, so `npm run dmg` on a clean checkout passes bundle verification.
+- **Rules fixes** — Sons of the Forest routes `dxmt` (not `vkd3d`); failing Rust clippy and rules-TOML validation fixed.
+
 ## v0.59.1 — 2026-08-08
 
 ### Added
