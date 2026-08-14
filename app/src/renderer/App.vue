@@ -148,18 +148,18 @@ async function loadLibrary(force = false) {
       pendingForceReload = false;
       libraryRefreshing.value = refresh;
       try {
-        if (refresh) {
-          // Refresh button or new install detected: scan the filesystem first
-          // so the library response below reflects freshly installed games.
-          await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
-        }
-        // Bottle reconciliation makes this route slower than a normal status
-        // request, especially when an external Steam library has many games.
-        // Keep the renderer request alive long enough to receive the complete
-        // internal + external library response.
+        // Fetch the library FIRST: it reads appmanifests from every Steam
+        // library directly, so a freshly installed game renders immediately.
+        // The /scan walk is expensive (it sizes the whole prefix) and only
+        // reconciles extras, so it runs after the render instead of delaying
+        // it. Handlers run serially on the backend, so a scan queued in front
+        // of this request would stall the game from appearing.
         const lib = await api<SteamLibrary>("GET", `/steam/library${refresh ? "?refresh=1" : ""}`, undefined, 120_000);
         if (lib && Array.isArray(lib.games)) {
           library.value = lib;
+        }
+        if (refresh) {
+          await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
         }
         await refreshSteamStatus();
       } finally {
@@ -307,11 +307,11 @@ function startHealthPolling() {
     try {
       const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps", undefined, 30_000);
       if (result?.new_appids && result.new_appids.length > 0) {
-        // Force-refresh so a freshly installed game (possibly purchased after
-        // the last owned-games sync) actually surfaces in the library. The
-        // backend snapshot is only committed after this library response, so
-        // a timeout is retried by the next poll instead of being lost.
-        await loadLibrary(true);
+        // Surface a freshly installed game as fast as possible. The non-forced
+        // library load reads appmanifests directly (no network sync, no scan),
+        // so the game renders within seconds; the backend snapshot commits
+        // with this response so the next poll stops reporting it.
+        await loadLibrary(false);
       }
     } finally {
       steamLibraryPollInFlight = false;
