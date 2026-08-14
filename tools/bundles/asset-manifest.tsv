@@ -6,4 +6,3 @@ metalsharp-assets.tar.zst	assets	mac	Mono, GPTK, DXVK, Goldberg, shims, FNA kick
 fnalibs.tar.zst	fnalibs	mac	SDL2-linked FNA3D, FAudio, SDL2, theorafile, and real FMOD native payloads for FNA repair.
 metalsharp-scripts-tools.tar.zst	scripts/tools	mac	Updater scripts, configs, native tools, and CEF compatibility helpers.
 metalsharp-steam.tar.zst	steam	mac	Steam installer and Steam CEF wrapper assets.
-metalsharp-d3d12-developer-sdk.tar.zst	developer-sdk/d3d12	mac,linux,windows	Self-contained D3D12 developer SDK with contracts, probes, docs, staged Wine runtime, and DXMT DLLs.
