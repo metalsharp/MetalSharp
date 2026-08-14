@@ -10,11 +10,10 @@ REPO="${METALSHARP_BUNDLE_REPO:-aaf2tbz/metalsharp}"
 MANIFEST="$PROJECT_ROOT/tools/bundles/asset-manifest.tsv"
 REPAIR_BUNDLES="${METALSHARP_REPAIR_BUNDLES:-1}"
 SKIP_DEVELOPER_SDK="${METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE:-0}"
-# VKD3D (dxmt-vkd3d) dll refresh is off by default. Rebuilding the vkd3d lane from a
-# local runtime root silently changes the dlls and desyncs the bundle from the
-# installer's compiled-in DXMT_VKD3D_EXPECTED_HASHES. Set METALSHARP_REPAIR_VKD3D=1
-# only when intentionally refreshing the canonical vkd3d material.
-REPAIR_VKD3D="${METALSHARP_REPAIR_VKD3D:-0}"
+# Release CI no longer verifies downloaded bundle layouts (the legacy
+# DXMT-VKD3D lane checks were retired with the M12 route); set
+# METALSHARP_SKIP_VERIFY=1 to skip the final verify-bundles.sh pass.
+SKIP_VERIFY="${METALSHARP_SKIP_VERIFY:-0}"
 
 mkdir -p "$BUNDLE_DIR" "$OUT_DIR"
 
@@ -31,31 +30,6 @@ download_asset() {
   fi
   echo "Downloading bundle: $asset"
   curl -fL --retry 3 -o "$dest" "https://github.com/$REPO/releases/download/$RELEASE_TAG/$asset"
-}
-
-repair_graphics_vkd3d_bundle() {
-  local archive="$BUNDLE_DIR/metalsharp-graphics-dll.tar.zst"
-  local vkd3d_root="${METALSHARP_DXMT_VKD3D_ROOT:-$HOME/.metalsharp/runtime/wine/lib/dxmt_vkd3d}"
-  if [ ! -s "$archive" ] || [ ! -d "$vkd3d_root/x86_64-windows" ] || [ ! -d "$vkd3d_root/x86_64-unix" ]; then
-    return 0
-  fi
-
-  local tmp root
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-graphics-vkd3d.XXXXXX")"
-  root="$tmp/root"
-  mkdir -p "$root"
-  tar --use-compress-program=unzstd -xf "$archive" -C "$root"
-  mkdir -p "$root/Graphics/dll/dxmt-vkd3d/x86_64-unix" "$root/Graphics/dll/dxmt-vkd3d/x86_64-windows"
-  cp -R -p "$vkd3d_root/x86_64-unix/." "$root/Graphics/dll/dxmt-vkd3d/x86_64-unix/"
-  cp -R -p "$vkd3d_root/x86_64-windows/." "$root/Graphics/dll/dxmt-vkd3d/x86_64-windows/"
-  (
-    cd "$root"
-    tar -cf "$tmp/metalsharp-graphics-dll.tar" Graphics
-  )
-  zstd -q -19 -T0 -f "$tmp/metalsharp-graphics-dll.tar" -o "$archive"
-  chmod 0644 "$archive"
-  rm -rf "$tmp"
-  echo "repaired graphics VKD3D payload: $archive from $vkd3d_root"
 }
 
 repair_assets_fnalibs_bundle() {
@@ -144,11 +118,6 @@ while IFS=$'\t' read -r asset _root _platforms _notes; do
 done < "$MANIFEST"
 
 if [ "$REPAIR_BUNDLES" = "1" ]; then
-  if [ "$REPAIR_VKD3D" = "1" ]; then
-    repair_graphics_vkd3d_bundle
-  else
-    echo "VKD3D dll repair disabled (METALSHARP_REPAIR_VKD3D!=1); preserving canonical dxmt-vkd3d lane"
-  fi
   repair_assets_fnalibs_bundle
   repair_scripts_tools_eac_bundle
 
@@ -160,16 +129,20 @@ else
   echo "bundle repair disabled; using verified release bundles as downloaded"
 fi
 
-VERIFY_ARGS=(--bundle-dir "$BUNDLE_DIR" --require mac)
-if [ "$SKIP_DEVELOPER_SDK" = "1" ]; then
-  while IFS=$'\t' read -r asset _root _platforms _notes; do
-    case "$asset" in
-      ""|\#*|metalsharp-d3d12-developer-sdk.tar.zst) continue ;;
-    esac
-    VERIFY_ARGS+=("$asset")
-  done < "$MANIFEST"
+if [ "$SKIP_VERIFY" = "1" ]; then
+  echo "bundle verification skipped (METALSHARP_SKIP_VERIFY=1)"
+else
+  VERIFY_ARGS=(--bundle-dir "$BUNDLE_DIR" --require mac)
+  if [ "$SKIP_DEVELOPER_SDK" = "1" ]; then
+    while IFS=$'\t' read -r asset _root _platforms _notes; do
+      case "$asset" in
+        ""|\#*|metalsharp-d3d12-developer-sdk.tar.zst) continue ;;
+      esac
+      VERIFY_ARGS+=("$asset")
+    done < "$MANIFEST"
+  fi
+  "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" "${VERIFY_ARGS[@]}"
 fi
-"$PROJECT_ROOT/tools/bundles/verify-bundles.sh" "${VERIFY_ARGS[@]}"
 
 rm -f "$OUT_DIR"/metalsharp-*.tar.zst
 while IFS=$'\t' read -r asset _root _platforms _notes; do
