@@ -41,16 +41,11 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 | Route | Engine | How To Use |
 |---|---|---|
-| **VKD3D** | D3D12/D3D11/D3D10/D3D9 via DXVK-MacOS and Proton | In Progress |
+| **VKD3D** | D3D12/D3D11/D3D10/D3D9 via DXVK-MacOS and Proton | In Progress, Some Games Work |
 | **DXMT** | D3D10/D3D11 to Metal (DXMT) | Save 'DXMT' Bottle, Hit Play |
 | **DXMT(32)** | D3D10/D3D11 i386 to Metal (DXMT) - 32Bit D3D10/D3D11 | Save 'DXMT(32)' Bottle, Hit Play |
 | **Mono/FNA** | Windows XNA/FNA via native Mono | Save 'Mono/Fna' Bottle, Hit Play |
-| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with Homebrew-matched D3DMetal route DLLs. | Save 'D3DMetal' Bottle, Fix, Hit Play |
-
-> **Route naming:** the legacy M9/M10/M11 route labels are retired. M10/M11 now
-> surface as **DXMT**, M10(32)/M11(32) as **DXMT(32)**, and M9 as **VKD3D**
-> (the D3D9 route is owned by the VKD3D pipeline's DXVK-macOS `d3d9.dll`).
-> Saved bottles and MTSP rules continue to resolve to the same engines.
+| **D3DMetal** | Apple Game Porting Toolkit via Homebrew, With Optional GPTK 3 DLL Staging | Save 'D3DMetal' Bottle, Fix, Hit Play |
 
 ## Features and Notes 
 
