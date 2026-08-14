@@ -51,8 +51,7 @@ for required in \
   "$BUNDLES/metalsharp-assets.tar.zst" \
   "$BUNDLES/fnalibs.tar.zst" \
   "$BUNDLES/metalsharp-scripts-tools.tar.zst" \
-  "$BUNDLES/metalsharp-steam.tar.zst" \
-  "$BUNDLES/metalsharp-d3d12-developer-sdk.tar.zst"
+  "$BUNDLES/metalsharp-steam.tar.zst"
 do
   if [ ! -s "$required" ]; then
     echo "DMG missing required runtime asset: ${required#$APP_DIR/}" >&2

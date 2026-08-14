@@ -179,10 +179,6 @@
       {
         "from": "bundles/metalsharp-steam.tar.zst",
         "to": "bundles/metalsharp-steam.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-d3d12-developer-sdk.tar.zst",
-        "to": "bundles/metalsharp-d3d12-developer-sdk.tar.zst"
       }
     ],
     "directories": {
