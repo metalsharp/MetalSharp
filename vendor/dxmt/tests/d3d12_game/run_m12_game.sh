@@ -8,13 +8,13 @@ if [[ $# -gt 0 && "$1" != --* ]]; then
   shift
 fi
 wine_root="${WINE_ROOT:-$HOME/.metalsharp/runtime/wine}"
-m12_dxmt_root="${METALSHARP_M12_DXMT_ROOT:-$wine_root/lib/dxmt-m12}"
+vkd3d_dxmt_root="${METALSHARP_VKD3D_DXMT_ROOT:-$wine_root/lib/dxmt-vkd3d}"
 wine_bin="${WINE_BIN:-$wine_root/bin/wine}"
-run_root="${M12_GAME_RUN_ROOT:-$HOME/.metalsharp/tmp/m12_game_run}"
-prefix="${M12_GAME_WINEPREFIX:-$HOME/.metalsharp/tmp/m12_game_prefix}"
-loops="${M12_GAME_LOOPS:-1}"
-timeout_seconds="${M12_GAME_TIMEOUT:-45}"
-exe_name="${M12_GAME_EXE:-m12_game.exe}"
+run_root="${VKD3D_GAME_RUN_ROOT:-$HOME/.metalsharp/tmp/vkd3d_game_run}"
+prefix="${VKD3D_GAME_WINEPREFIX:-$HOME/.metalsharp/tmp/vkd3d_game_prefix}"
+loops="${VKD3D_GAME_LOOPS:-1}"
+timeout_seconds="${VKD3D_GAME_TIMEOUT:-45}"
+exe_name="${VKD3D_GAME_EXE:-vkd3d_game.exe}"
 toolchain_root="${METALSHARP_X86_LLVM_ROOT:-$HOME/.metalsharp/toolchains}"
 llvm_name="clang+llvm-15.0.7-x86_64-apple-darwin21.0"
 
@@ -58,13 +58,13 @@ cp "$build_dir/src/dxgi/dxgi_dxmt.dll" "$run_root/"
 if [[ -f "$build_dir/src/winemetal/winemetal.dll" ]]; then
   cp "$build_dir/src/winemetal/winemetal.dll" "$run_root/"
 else
-  cp "$m12_dxmt_root/x86_64-windows/winemetal.dll" "$run_root/"
+  cp "$vkd3d_dxmt_root/x86_64-windows/winemetal.dll" "$run_root/"
 fi
 cp "$wine_root/lib/wine/x86_64-windows/d3dcompiler_47.dll" "$run_root/"
 if [[ -f "$build_dir/src/winemetal/unix/winemetal.so" ]]; then
   cp "$build_dir/src/winemetal/unix/winemetal.so" "$run_root/unix/"
 else
-  cp "$m12_dxmt_root/x86_64-unix/winemetal.so" "$run_root/unix/"
+  cp "$vkd3d_dxmt_root/x86_64-unix/winemetal.so" "$run_root/unix/"
 fi
 cp "$wine_root/lib/wine/x86_64-unix/winemac.so" "$run_root/unix/"
 cp "$wine_root/lib/wine/x86_64-unix/ntdll.so" "$run_root/unix/"
@@ -78,7 +78,7 @@ copy_llvm_dylib "libunwind.1.dylib"
 mirror_wine_unix_sidecar() {
   local dep="$1"
   local src="$run_root/unix/$dep"
-  local dxmt_dst="$m12_dxmt_root/x86_64-unix/$dep"
+  local dxmt_dst="$vkd3d_dxmt_root/x86_64-unix/$dep"
   local wine_dst="$wine_root/lib/wine/x86_64-unix/$dep"
 
   if [[ ! -f "$src" ]]; then

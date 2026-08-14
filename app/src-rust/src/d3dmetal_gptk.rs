@@ -29,13 +29,32 @@ const GAME_LOCAL_ROUTE_DLLS: &[&str] = &[
     "d3d11.dll",
     "d3d12.dll",
     "dxgi.dll",
-    "dxgi_dxmt.dll",
     "nvapi64.dll",
     "nvngx.dll",
     "nvngx-on-metalfx.dll",
     "winemetal.dll",
 ];
 const GPTK_EXTERNAL_PAYLOAD_FILES: &[&str] = &["libd3dshared.dylib", "D3DMetal.framework/Versions/A/D3DMetal"];
+
+// GPTK 3.0 (Apple Developer download). The outer DMG contains the Metal
+// Shader Converter pkg and the "Evaluation environment" DMG whose redist/
+// tree overlays the homebrew GPTK wine root. GPTK 3.0's route DLLs only
+// need `__wine_unix_call` (compatible with the installed 7.7 wine base),
+// unlike the 4.0 beta DLLs which require `__wine_unix_call_dispatcher`.
+const GPTK3_DMG_BASENAME: &str = "Game_Porting_Toolkit_3.0.dmg";
+const GPTK3_INNER_DMG_NAME: &str = "Evaluation environment for Windows games 3.0.dmg";
+const GPTK3_MSC_PKG_NAME: &str = "Metal Shader Converter 3.0.pkg";
+/// Guard against acting on a partial download. The real DMG is
+/// 93,534,640 bytes (~89.2 MiB); 80 MiB is safely below it while still
+/// rejecting empty/partial downloads.
+const GPTK3_MIN_DMG_SIZE: u64 = 80 * 1024 * 1024;
+/// The GPTK 3.0 redist route DLL set (includes the atidxx64 probe stub the
+/// 3.0 redist adds on top of the seeded six).
+const GPTK3_ROUTE_DLLS: &[&str] =
+    &["d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "nvapi64.dll", "nvngx-on-metalfx.dll", "atidxx64.dll"];
+/// Unix sidecar twins of the route DLLs (same stems, .so).
+const GPTK3_ROUTE_UNIX: &[&str] =
+    &["d3d10.so", "d3d11.so", "d3d12.so", "dxgi.so", "nvapi64.so", "nvngx-on-metalfx.so", "atidxx64.so"];
 const GPTK_OVERRIDES: &str =
     "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
 
@@ -53,6 +72,10 @@ pub enum D3DMetalStepState {
     RepairRequired,
 }
 
+fn default_step_state() -> D3DMetalStepState {
+    D3DMetalStepState::Missing
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct D3DMetalGptkState {
     pub schema: u32,
@@ -66,6 +89,8 @@ pub struct D3DMetalGptkState {
     pub gptk_payload: D3DMetalStepState,
     pub x64_redist: D3DMetalStepState,
     pub seed: D3DMetalStepState,
+    #[serde(default = "default_step_state")]
+    pub gptk3: D3DMetalStepState,
     pub play_ready: bool,
     pub last_error: Option<String>,
     #[serde(default)]
@@ -90,7 +115,13 @@ pub fn handle_status(body: &serde_json::Map<String, Value>) -> Value {
     match state_from_request(body) {
         Ok(state) => {
             let state = refresh_status_state(state);
-            json!({"ok": true, "state": state, "actions": actions_for(&state)})
+            json!({
+                "ok": true,
+                "state": state,
+                "actions": actions_for(&state),
+                "gptk3_installed": gptk3_installed_globally(),
+                "gptk3_dmg_found": find_gptk3_dmg_in_downloads().is_some(),
+            })
         },
         Err(e) => json!({"ok": false, "error": e}),
     }
@@ -197,6 +228,25 @@ fn save_d3dmetal_bottle(body: &serde_json::Map<String, Value>) -> Result<D3DMeta
         persist_d3dmetal_bottle_manifest_best_effort(&state);
         return Err(e);
     }
+    if let Err(e) = stage_d3dmetal_steam_files(appid, &game_dir, state.game_exe.as_deref().map(Path::new)) {
+        state.last_error = Some(e.clone());
+        state.play_ready = false;
+        save_state(&state)?;
+        persist_d3dmetal_bottle_manifest_best_effort(&state);
+        return Err(e);
+    }
+    let prepared_game_exe = match prepare_d3dmetal_protected_game(appid, &game_dir) {
+        Ok(path) => path,
+        Err(e) => {
+            state.last_error = Some(e.clone());
+            state.play_ready = false;
+            save_state(&state)?;
+            persist_d3dmetal_bottle_manifest_best_effort(&state);
+            return Err(e);
+        },
+    };
+    state.game_exe =
+        prepared_game_exe.map(|path| path.to_string_lossy().into_owned()).or_else(|| find_game_exe(&game_dir));
     state.gptk_payload = D3DMetalStepState::Updated;
     if state.x64_redist == D3DMetalStepState::Installed && state.seed == D3DMetalStepState::Seeded {
         state.play_ready = verify_seed(&state).is_ok();
@@ -575,6 +625,7 @@ fn new_state(bottle_id: &str, appid: u32, name: &str, game_dir: &Path) -> D3DMet
         gptk_payload: D3DMetalStepState::Missing,
         x64_redist: D3DMetalStepState::Missing,
         seed: D3DMetalStepState::Missing,
+        gptk3: D3DMetalStepState::Missing,
         play_ready: false,
         last_error: None,
         last_launch_pid: None,
@@ -720,6 +771,217 @@ fn request_game_dir(body: &serde_json::Map<String, Value>) -> Result<PathBuf, St
     } else {
         Err(format!("gameDir does not exist: {}", path.display()))
     }
+}
+
+const D3DMETAL_STEAM_RUNTIME_FILES: &[&str] = &["steam.dll", "steamclient.dll", "steamclient64.dll"];
+
+/// Stage the Windows Steam files that a direct GPTK launch expects beside the
+/// saved game. The game directory is the GPTK prefix's mapped external game
+/// path; the executable directory is included because Windows DLL lookup
+/// starts there. Steam's library metadata is kept at the install root.
+fn stage_d3dmetal_steam_files(appid: u32, game_dir: &Path, game_exe: Option<&Path>) -> Result<(), String> {
+    let library_roots = d3dmetal_steam_library_roots(game_dir);
+    let steam_install_dir =
+        metalsharp_home().join("prefix-steam").join("drive_c").join("Program Files (x86)").join("Steam");
+    stage_d3dmetal_steam_files_from_sources(appid, game_dir, game_exe, &library_roots, Some(&steam_install_dir))
+}
+
+fn stage_d3dmetal_steam_files_from_sources(
+    appid: u32,
+    game_dir: &Path,
+    game_exe: Option<&Path>,
+    library_roots: &[PathBuf],
+    steam_install_dir: Option<&Path>,
+) -> Result<(), String> {
+    if !game_dir.is_dir() {
+        return Err(format!("D3DMetal game directory missing: {}", game_dir.display()));
+    }
+
+    let exe_dir = game_exe.and_then(Path::parent).filter(|path| path.is_dir());
+    let libraryfolder =
+        find_d3dmetal_steam_source("libraryfolder.vdf", game_dir, exe_dir, library_roots, steam_install_dir)
+            .ok_or_else(|| {
+                "D3DMetal Steam libraryfolder.vdf could not be found on an internal or external Steam library"
+                    .to_string()
+            })?;
+    let sources: Vec<(&str, PathBuf)> = D3DMETAL_STEAM_RUNTIME_FILES
+        .iter()
+        .map(|filename| {
+            let source = find_d3dmetal_steam_source(filename, game_dir, exe_dir, library_roots, steam_install_dir)
+                .ok_or_else(|| format!("D3DMetal Steam runtime file could not be found: {}", filename))?;
+            Ok((*filename, source))
+        })
+        .collect::<Result<_, String>>()?;
+
+    copy_file_checked(&libraryfolder, &game_dir.join("libraryfolder.vdf"))?;
+
+    let mut runtime_destinations = vec![game_dir.to_path_buf()];
+    if let Some(exe_dir) = exe_dir {
+        if exe_dir != game_dir {
+            runtime_destinations.push(exe_dir.to_path_buf());
+        }
+    }
+    for (filename, source) in sources {
+        for destination_dir in &runtime_destinations {
+            copy_file_checked(&source, &destination_dir.join(filename))?;
+        }
+    }
+    for destination_dir in runtime_destinations {
+        fs::write(destination_dir.join("steam_appid.txt"), appid.to_string())
+            .map_err(|e| format!("write D3DMetal Steam appid file in {}: {}", destination_dir.display(), e))?;
+    }
+    Ok(())
+}
+
+fn find_d3dmetal_steam_source(
+    filename: &str,
+    game_dir: &Path,
+    exe_dir: Option<&Path>,
+    library_roots: &[PathBuf],
+    steam_install_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let is_runtime_file = D3DMETAL_STEAM_RUNTIME_FILES.iter().any(|name| name.eq_ignore_ascii_case(filename));
+    let mut search_dirs = Vec::new();
+    if is_runtime_file {
+        if let Some(steam_install_dir) = steam_install_dir {
+            search_dirs.push(steam_install_dir.to_path_buf());
+        }
+    }
+    if let Some(exe_dir) = exe_dir {
+        search_dirs.push(exe_dir.to_path_buf());
+    }
+    search_dirs.push(game_dir.to_path_buf());
+    search_dirs.extend(library_roots.iter().cloned());
+    if !is_runtime_file {
+        if let Some(steam_install_dir) = steam_install_dir {
+            search_dirs.push(steam_install_dir.to_path_buf());
+        }
+    }
+
+    search_dirs.dedup();
+    search_dirs
+        .iter()
+        .find_map(|dir| find_direct_file_case_insensitive(dir, filename).filter(|path| file_nonempty(path)))
+}
+
+fn d3dmetal_steam_library_roots(game_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let mut ancestor = Some(game_dir);
+    while let Some(path) = ancestor {
+        if path.file_name().map(|name| name.to_string_lossy().eq_ignore_ascii_case("steamapps")).unwrap_or(false) {
+            if let Some(root) = path.parent() {
+                roots.push(root.to_path_buf());
+            }
+        }
+        ancestor = path.parent();
+    }
+
+    for steamapps in crate::scan::macos_steam_library_paths().into_iter().chain(crate::scan::wine_steam_library_paths())
+    {
+        if let Some(root) = steamapps.parent() {
+            roots.push(root.to_path_buf());
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        roots.extend([
+            home.join("SteamLibrary"),
+            home.join("Library/Application Support/Steam"),
+            home.join(".steam/steam"),
+            home.join(".local/share/Steam"),
+        ]);
+    }
+    roots.dedup();
+    roots
+}
+
+fn d3dmetal_protected_game_exe_name(appid: u32) -> Option<&'static str> {
+    match appid {
+        1245620 => Some("eldenring.exe"),
+        1888160 => Some("armoredcore6.exe"),
+        _ => None,
+    }
+}
+
+/// D3DMetal launches these two protected games through their real game image.
+/// Steam's protected launcher is kept as `start_protected_game.old`, while a
+/// copy of the real image is placed at the protected launcher's original path.
+/// The backup marker makes the operation one-time and prevents a later bottle
+/// save from overwriting the preserved launcher.
+fn prepare_d3dmetal_protected_game(appid: u32, game_dir: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(game_exe_name) = d3dmetal_protected_game_exe_name(appid) else {
+        return Ok(None);
+    };
+    let Some(protected_exe) = find_file_case_insensitive(game_dir, "start_protected_game.exe") else {
+        return Ok(None);
+    };
+    let protected_dir = protected_exe
+        .parent()
+        .ok_or_else(|| format!("protected launcher has no parent directory: {}", protected_exe.display()))?;
+    let backup_exe = protected_dir.join("start_protected_game.old");
+    let game_exe = find_direct_file_case_insensitive(protected_dir, game_exe_name);
+
+    // A prior save already prepared this folder. Do not rename or overwrite
+    // anything again, but still prefer the real executable for the bottle's
+    // direct GPTK launch.
+    if backup_exe.exists() {
+        return Ok(game_exe);
+    }
+
+    let game_exe = game_exe.ok_or_else(|| {
+        format!(
+            "D3DMetal protected launcher found at {}, but {} is missing from the same directory",
+            protected_exe.display(),
+            game_exe_name
+        )
+    })?;
+    if !file_nonempty(&game_exe) {
+        return Err(format!("D3DMetal game executable is empty: {}", game_exe.display()));
+    }
+
+    fs::rename(&protected_exe, &backup_exe).map_err(|e| {
+        format!("preserve protected launcher {} as {}: {}", protected_exe.display(), backup_exe.display(), e)
+    })?;
+
+    if let Err(copy_error) = copy_file_checked(&game_exe, &protected_exe) {
+        // Do not leave a half-prepared game directory if copying the real
+        // executable fails after the protected launcher was moved.
+        let _ = fs::remove_file(&protected_exe);
+        let restore_result = fs::rename(&backup_exe, &protected_exe);
+        return match restore_result {
+            Ok(()) => Err(format!(
+                "copy D3DMetal game executable {} to {}: {}",
+                game_exe.display(),
+                protected_exe.display(),
+                copy_error
+            )),
+            Err(restore_error) => Err(format!(
+                "copy D3DMetal game executable {} to {} failed: {}; restoring {} also failed: {}",
+                game_exe.display(),
+                protected_exe.display(),
+                copy_error,
+                backup_exe.display(),
+                restore_error
+            )),
+        };
+    }
+
+    Ok(Some(game_exe))
+}
+
+fn find_file_case_insensitive(root: &Path, filename: &str) -> Option<PathBuf> {
+    let target = filename.to_ascii_lowercase();
+    WalkDir::new(root).max_depth(5).into_iter().flatten().map(|entry| entry.into_path()).find(|path| {
+        path.is_file()
+            && path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase() == target).unwrap_or(false)
+    })
+}
+
+fn find_direct_file_case_insensitive(dir: &Path, filename: &str) -> Option<PathBuf> {
+    let target = filename.to_ascii_lowercase();
+    fs::read_dir(dir).ok()?.flatten().map(|entry| entry.path()).find(|path| {
+        path.is_file()
+            && path.file_name().map(|name| name.to_string_lossy().to_ascii_lowercase() == target).unwrap_or(false)
+    })
 }
 
 fn load_state(bottle_id: &str) -> Option<D3DMetalGptkState> {
@@ -953,6 +1215,271 @@ fn verify_prefix_route_dlls() -> Result<(), String> {
     }
 }
 
+// ---- GPTK 4.0 beta 2 overlay ----
+
+/// Files copied by a successful GPTK 4 overlay (for the status report).
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct Gptk4OverlayReport {
+    pub windows: Vec<String>,
+    pub unix: Vec<String>,
+    pub external: Vec<String>,
+}
+
+/// Global "done once" marker: the GPTK 4 overlay is machine-wide (it replaces
+/// files inside the shared GPTK app), so once installed it is never presented
+/// again, for any bottle.
+fn gptk3_marker_path() -> PathBuf {
+    metalsharp_home().join(".gptk3-installed")
+}
+
+pub fn gptk3_installed_globally() -> bool {
+    gptk3_marker_path().is_file()
+}
+
+fn write_gptk3_marker() -> Result<(), String> {
+    fs::write(gptk3_marker_path(), format!("{}{}", GPTK3_DMG_BASENAME, "\n"))
+        .map_err(|e| format!("write GPTK3 marker: {e}"))
+}
+
+/// The user downloads the Apple Developer DMG manually; watch ~/Downloads and
+/// require a complete (>=100 MB) file so a partial download is never mounted.
+fn find_gptk3_dmg_in_downloads() -> Option<PathBuf> {
+    let downloads = dirs::download_dir().or_else(|| dirs::home_dir().map(|home| home.join("Downloads")))?;
+    let candidate = downloads.join(GPTK3_DMG_BASENAME);
+    candidate
+        .metadata()
+        .map(|meta| meta.is_file() && meta.len() >= GPTK3_MIN_DMG_SIZE)
+        .unwrap_or(false)
+        .then_some(candidate)
+}
+
+/// Parse `hdiutil attach` stdout: lines like
+/// `/dev/disk8s2\t\tApple_HFS\t\t/Volumes/Name (with spaces) 1`. The mount
+/// path is everything after the device + filesystem-type tokens (whitespace
+/// runs may be tabs or spaces; the mount name itself may contain spaces).
+/// Warning lines (e.g. hdiutil deprecation notices) are skipped, and the
+/// first token group that names an existing directory wins.
+fn parse_attach_output(stdout: &str) -> Option<PathBuf> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("hdiutil:") || trimmed.starts_with("diskutil:") {
+                return None;
+            }
+            let mut rest = trimmed;
+            let device_end = rest.find(char::is_whitespace)?;
+            rest = &rest[device_end..];
+            let kind_start = rest.find(|c: char| !c.is_whitespace())?;
+            rest = &rest[kind_start..];
+            let kind_end = rest.find(char::is_whitespace)?;
+            rest = &rest[kind_end..];
+            let mount = rest.trim();
+            (!mount.is_empty()).then(|| PathBuf::from(mount))
+        })
+        .find(|mount| mount.is_dir())
+}
+
+fn attach_dmg(path: &Path) -> Result<PathBuf, String> {
+    let output = Command::new("/usr/bin/hdiutil")
+        .args(["attach", "-nobrowse", "-readonly"])
+        .arg(path)
+        .output()
+        .map_err(|e| format!("hdiutil attach failed to start: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("hdiutil attach failed: {}", command_text(&output)));
+    }
+    parse_attach_output(&String::from_utf8_lossy(&output.stdout))
+        .ok_or_else(|| format!("hdiutil attach produced no mount point: {}", command_text(&output)))
+}
+
+fn detach_dmg(mount: &Path) {
+    let _ = Command::new("/usr/bin/hdiutil").args(["detach", "-force"]).arg(mount).output();
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn msc_tool_path() -> Option<PathBuf> {
+    [
+        PathBuf::from("/usr/local/bin/metal-shaderconverter"),
+        PathBuf::from("/opt/homebrew/bin/metal-shaderconverter"),
+        PathBuf::from("/opt/metal-shaderconverter/bin/metal-shaderconverter"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+}
+
+/// Install the Metal Shader Converter pkg. The pkg is `auth="root"`, so the
+/// direct `installer` call is tried first and, if not permitted, escalated
+/// through the macOS admin-privileges prompt (osascript).
+fn install_msc_pkg(pkg_path: &Path) -> Result<(), String> {
+    let direct_ok = Command::new("/usr/sbin/installer")
+        .args(["-pkg"])
+        .arg(pkg_path)
+        .args(["-target", "/"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !direct_ok {
+        // `do shell script "..." with administrator privileges`: the command
+        // is a double-quoted AppleScript string (shell-single-quoted path
+        // inside), with backslashes/double quotes escaped for AppleScript.
+        let quoted_path = shell_single_quote(&pkg_path.to_string_lossy());
+        let cmd = format!("installer -pkg {} -target /", quoted_path);
+        let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!("do shell script \"{}\" with administrator privileges", escaped);
+        let output = Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .map_err(|e| format!("Metal Shader Converter installer (osascript) failed to start: {e}"))?;
+        if !output.status.success() {
+            return Err(format!("Metal Shader Converter install failed: {}", command_text(&output)));
+        }
+    }
+    let tool = msc_tool_path()
+        .ok_or_else(|| "Metal Shader Converter installed but metal-shaderconverter was not found".to_string())?;
+    let version = Command::new(&tool).arg("--version").output();
+    if !version.map(|output| output.status.success()).unwrap_or(false) {
+        return Err("metal-shaderconverter --version failed after install".to_string());
+    }
+    Ok(())
+}
+
+/// Copy the Evaluation environment `redist/` tree into the homebrew GPTK wine
+/// root: route DLLs -> lib/wine/x86_64-windows, unix sidecars ->
+/// lib/wine/x86_64-unix, and the external payload (D3DMetal.framework +
+/// libd3dshared.dylib) -> lib/external. Every file is sha256-verified; the
+/// framework is replaced with ditto (preserves symlinks/permissions).
+fn overlay_gptk3_redist(redist_root: &Path, wine_root: &Path) -> Result<Gptk4OverlayReport, String> {
+    let mut report = Gptk4OverlayReport::default();
+
+    let src_win = redist_root.join("lib").join("wine").join("x86_64-windows");
+    let dst_win = wine_root.join("lib").join("wine").join("x86_64-windows");
+    for dll in GPTK3_ROUTE_DLLS {
+        copy_file_checked(&src_win.join(dll), &dst_win.join(dll))?;
+        report.windows.push(dll.to_string());
+    }
+
+    let src_unix = redist_root.join("lib").join("wine").join("x86_64-unix");
+    let dst_unix = wine_root.join("lib").join("wine").join("x86_64-unix");
+    for so in GPTK3_ROUTE_UNIX {
+        copy_file_checked(&src_unix.join(so), &dst_unix.join(so))?;
+        report.unix.push(so.to_string());
+    }
+
+    let src_ext = redist_root.join("lib").join("external");
+    let dst_ext = wine_root.join("lib").join("external");
+    let framework_src = src_ext.join("D3DMetal.framework");
+    let framework_dst = dst_ext.join("D3DMetal.framework");
+    if !framework_ready(&framework_src) {
+        return Err(format!("GPTK 4 redist D3DMetal.framework is incomplete: {}", framework_src.display()));
+    }
+    if framework_dst.exists() {
+        fs::remove_dir_all(&framework_dst).map_err(|e| format!("remove old D3DMetal.framework: {e}"))?;
+    }
+    let ditto = Command::new("/usr/bin/ditto")
+        .arg(&framework_src)
+        .arg(&framework_dst)
+        .output()
+        .map_err(|e| format!("ditto D3DMetal.framework failed to start: {e}"))?;
+    if !ditto.status.success() {
+        return Err(format!("ditto D3DMetal.framework failed: {}", command_text(&ditto)));
+    }
+    if !framework_ready(&framework_dst) {
+        return Err("overlaid D3DMetal.framework is incomplete".to_string());
+    }
+    report.external.push("D3DMetal.framework".to_string());
+
+    copy_file_checked(&src_ext.join("libd3dshared.dylib"), &dst_ext.join("libd3dshared.dylib"))?;
+    report.external.push("libd3dshared.dylib".to_string());
+
+    Ok(report)
+}
+
+/// Full GPTK 4 repair: locate the downloaded DMG, mount it, install the Metal
+/// Shader Converter pkg, mount the Evaluation environment DMG, overlay the
+/// redist tree, re-verify the payload, and re-seed the prefix. Mounts are
+/// always detached, even on failure.
+fn repair_gptk3(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkState, String> {
+    let mut state = state_from_request(body)?;
+    state.gptk3 = D3DMetalStepState::Installing;
+    state.play_ready = false;
+    state.last_error = None;
+    save_state(&state)?;
+
+    let result = (|| -> Result<Gptk4OverlayReport, String> {
+        let dmg = find_gptk3_dmg_in_downloads().ok_or_else(|| {
+            "Download Game Porting Toolkit 4.0 beta 2 from Apple Developer into ~/Downloads, then run Repair again"
+                .to_string()
+        })?;
+        let outer_mount = attach_dmg(&dmg)?;
+        let mut mounted = vec![outer_mount.clone()];
+        let inner = (|| -> Result<Gptk4OverlayReport, String> {
+            let msc_pkg = outer_mount.join(GPTK3_MSC_PKG_NAME);
+            if !msc_pkg.is_file() {
+                return Err(format!("Metal Shader Converter pkg not found in {}", outer_mount.display()));
+            }
+            install_msc_pkg(&msc_pkg)?;
+
+            let inner_dmg = outer_mount.join(GPTK3_INNER_DMG_NAME);
+            if !inner_dmg.is_file() {
+                return Err(format!("Evaluation environment DMG not found in {}", outer_mount.display()));
+            }
+            let inner_mount = attach_dmg(&inner_dmg)?;
+            mounted.push(inner_mount.clone());
+            let redist_root = inner_mount.join("redist");
+            if !redist_root.is_dir() {
+                return Err(format!("redist/ not found in {}", inner_mount.display()));
+            }
+            overlay_gptk3_redist(&redist_root, &homebrew_wine_root())
+        })();
+        for mount in mounted.iter().rev() {
+            detach_dmg(mount);
+        }
+        inner
+    })();
+
+    match result {
+        Ok(_report) => {
+            if let Err(e) =
+                ensure_homebrew_gptk_payload_ready().and_then(|_| seed_homebrew_gptk_route_dlls_into_prefix())
+            {
+                state.gptk3 = D3DMetalStepState::Failed;
+                state.last_error = Some(e.clone());
+                save_state(&state)?;
+                persist_d3dmetal_bottle_manifest_best_effort(&state);
+                return Err(e);
+            }
+            write_gptk3_marker()?;
+            state.gptk3 = D3DMetalStepState::Installed;
+            state.gptk_payload = D3DMetalStepState::Updated;
+            state.last_error = None;
+        },
+        Err(e) => {
+            state.gptk3 = D3DMetalStepState::Failed;
+            state.last_error = Some(e.clone());
+            save_state(&state)?;
+            persist_d3dmetal_bottle_manifest_best_effort(&state);
+            return Err(e);
+        },
+    }
+    state.updated_at = now_secs();
+    state = refresh_status_state(state);
+    save_state(&state)?;
+    persist_d3dmetal_bottle_manifest(&state)?;
+    Ok(state)
+}
+
+pub fn handle_repair_gptk3(body: &serde_json::Map<String, Value>) -> Value {
+    match repair_gptk3(body) {
+        Ok(state) => json!({"ok": true, "state": state, "actions": actions_for(&state)}),
+        Err(e) => json!({"ok": false, "error": e}),
+    }
+}
+
 fn stage_game_local_d3dmetal_route_dlls(state: &D3DMetalGptkState) -> Result<(), String> {
     let game_exe = state
         .game_exe
@@ -999,7 +1526,7 @@ fn stage_game_local_d3dmetal_route_dlls_for_exe(state: &D3DMetalGptkState, game_
                 fs::create_dir_all(parent).map_err(|e| format!("create {}: {}", parent.display(), e))?;
             }
             fs::rename(&path, &target).map_err(|e| {
-                format!("quarantine stale app-local M12 route DLL {} -> {}: {}", path.display(), target.display(), e)
+                format!("quarantine stale app-local Vkd3d route DLL {} -> {}: {}", path.display(), target.display(), e)
             })?;
             moved.push(json!({"from": path.to_string_lossy(), "to": target.to_string_lossy()}));
         }
@@ -1011,7 +1538,7 @@ fn stage_game_local_d3dmetal_route_dlls_for_exe(state: &D3DMetalGptkState, game_
         let marker = marker_root.join("latest-manifest.json");
         let manifest = json!({
             "quarantined_at": now_secs(),
-            "reason": "D3DMetal/GPTK lane replaces app-local M12/DXMT route DLLs with Homebrew-matched D3DMetal route DLLs",
+            "reason": "D3DMetal/GPTK lane replaces app-local Vkd3d/DXMT route DLLs with Homebrew-matched D3DMetal route DLLs",
             "moved": moved,
             "deployed": deployed,
         });
@@ -1077,20 +1604,20 @@ fn verify_game_local_d3dmetal_route_dlls_for_exe(_state: &D3DMetalGptkState, gam
             bad.push((*dll).to_string());
         }
     }
-    let stale_m12: Vec<String> = GAME_LOCAL_ROUTE_DLLS
+    let stale_vkd3d: Vec<String> = GAME_LOCAL_ROUTE_DLLS
         .iter()
         .filter(|dll| !GPTK_ROUTE_DLLS.iter().any(|candidate| candidate.eq_ignore_ascii_case(dll)))
         .map(|dll| exe_dir.join(dll))
         .filter(|path| path.is_file())
         .map(|path| path.to_string_lossy().to_string())
         .collect();
-    if bad.is_empty() && stale_m12.is_empty() {
+    if bad.is_empty() && stale_vkd3d.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "app-local D3DMetal route DLLs are not current; mismatched=[{}] stale_m12=[{}]",
+            "app-local D3DMetal route DLLs are not current; mismatched=[{}] stale_vkd3d=[{}]",
             bad.join(", "),
-            stale_m12.join(", ")
+            stale_vkd3d.join(", ")
         ))
     }
 }
@@ -1410,6 +1937,9 @@ fn copy_file_checked(src: &Path, dst: &Path) -> Result<(), String> {
     if !file_nonempty(src) {
         return Err(format!("source payload missing: {}", src.display()));
     }
+    if same_file_hash(src, dst) {
+        return Ok(());
+    }
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create {}: {}", parent.display(), e))?;
     }
@@ -1648,6 +2178,88 @@ mod tests {
     }
 
     #[test]
+    fn d3dmetal_protected_games_are_prepared_once_and_keep_the_original_launcher() {
+        let temp = std::env::temp_dir().join(format!("metalsharp-d3dmetal-protected-{}", std::process::id()));
+        let game_dir = temp.join("ELDEN RING").join("Game");
+        std::fs::create_dir_all(&game_dir).expect("create game directory");
+        let protected = game_dir.join("start_protected_game.exe");
+        let original = game_dir.join("eldenring.exe");
+        std::fs::write(&protected, b"original protected launcher").expect("write protected launcher");
+        std::fs::write(&original, b"real Elden Ring executable").expect("write real executable");
+
+        let selected = prepare_d3dmetal_protected_game(1245620, &temp)
+            .expect("prepare protected game")
+            .expect("return real game executable");
+        assert_eq!(selected, original);
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"original protected launcher");
+        assert_eq!(std::fs::read(&protected).unwrap(), b"real Elden Ring executable");
+
+        // A second bottle save is a no-op for the game files and keeps the
+        // first preserved launcher intact.
+        std::fs::write(&original, b"real Elden Ring executable updated").expect("update real executable");
+        let selected_again = prepare_d3dmetal_protected_game(1245620, &temp)
+            .expect("repeated preparation")
+            .expect("return real game executable on repeat");
+        assert_eq!(selected_again, original);
+        assert_eq!(std::fs::read(game_dir.join("start_protected_game.old")).unwrap(), b"original protected launcher");
+        assert_eq!(std::fs::read(&protected).unwrap(), b"real Elden Ring executable");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn d3dmetal_steam_runtime_files_are_staged_next_to_game_and_executable() {
+        let temp =
+            std::env::temp_dir().join(format!("metalsharp-d3dmetal-steam-{}-{}", std::process::id(), now_secs()));
+        let library_root = temp.join("SteamLibrary");
+        let game_dir = library_root.join("steamapps").join("common").join("ELDEN RING");
+        let exe_dir = game_dir.join("Game");
+        let game_exe = exe_dir.join("eldenring.exe");
+        std::fs::create_dir_all(&exe_dir).expect("create game directory");
+        std::fs::write(library_root.join("libraryfolder.vdf"), b"library metadata").expect("write library metadata");
+        std::fs::write(library_root.join("steam.dll"), b"steam dll").expect("write steam dll");
+        std::fs::write(exe_dir.join("steamclient.dll"), b"steamclient dll").expect("write steamclient dll");
+        std::fs::write(exe_dir.join("steamclient64.dll"), b"steamclient64 dll").expect("write steamclient64 dll");
+        std::fs::write(&game_exe, b"game executable").expect("write game executable");
+
+        stage_d3dmetal_steam_files_from_sources(
+            1245620,
+            &game_dir,
+            Some(&game_exe),
+            std::slice::from_ref(&library_root),
+            None,
+        )
+        .expect("stage Steam runtime files");
+
+        for filename in ["libraryfolder.vdf", "steam.dll", "steamclient.dll", "steamclient64.dll"] {
+            assert!(game_dir.join(filename).is_file(), "missing game-root {}", filename);
+        }
+        for filename in ["steam.dll", "steamclient.dll", "steamclient64.dll"] {
+            assert!(exe_dir.join(filename).is_file(), "missing executable-dir {}", filename);
+        }
+        assert_eq!(std::fs::read_to_string(game_dir.join("steam_appid.txt")).unwrap(), "1245620");
+        assert_eq!(std::fs::read_to_string(exe_dir.join("steam_appid.txt")).unwrap(), "1245620");
+        assert_eq!(std::fs::read(game_dir.join("steamclient64.dll")).unwrap(), b"steamclient64 dll");
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn d3dmetal_protected_game_preparation_is_limited_to_known_games() {
+        let temp = std::env::temp_dir().join(format!("metalsharp-d3dmetal-protected-other-{}", std::process::id()));
+        let game_dir = temp.join("Game");
+        std::fs::create_dir_all(&game_dir).expect("create game directory");
+        std::fs::write(game_dir.join("start_protected_game.exe"), b"protected launcher").expect("write launcher");
+        std::fs::write(game_dir.join("other.exe"), b"real executable").expect("write executable");
+
+        assert_eq!(prepare_d3dmetal_protected_game(1, &temp).unwrap(), None);
+        assert!(game_dir.join("start_protected_game.exe").is_file());
+        assert!(!game_dir.join("start_protected_game.old").exists());
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
     fn vcredist_registry_check_is_scoped_to_x64_runtime_key() {
         let unrelated_installed = r#"
 [Software\\Other]
@@ -1668,7 +2280,6 @@ mod tests {
     #[test]
     fn detects_app_local_d3dmetal_route_conflicts() {
         assert!(is_d3dmetal_route_conflict(Path::new("dxgi.dll")));
-        assert!(is_d3dmetal_route_conflict(Path::new("dxgi_dxmt.dll")));
         assert!(is_d3dmetal_route_conflict(Path::new("d3d12.dll")));
         assert!(is_d3dmetal_route_conflict(Path::new("d3d10core.dll")));
         assert!(!is_d3dmetal_route_conflict(Path::new("d3dcompiler_47.dll")));
@@ -1678,5 +2289,113 @@ mod tests {
         assert!(is_d3dmetal_route_conflict(Path::new("winemetal.dll")));
         assert!(!is_d3dmetal_route_conflict(Path::new("sl.interposer.dll")));
         assert!(!is_d3dmetal_route_conflict(Path::new("steam_api64.dll")));
+    }
+
+    #[test]
+    fn gptk3_manifests_cover_the_seeded_route_set() {
+        // The GPTK 3.0 redist route DLL set extends the seeded set with the
+        // atidxx64 probe stub, and the unix sidecars must be the same stems
+        // with the .so extension.
+        for dll in GPTK_ROUTE_DLLS {
+            assert!(GPTK3_ROUTE_DLLS.contains(dll), "redist set must include seeded {dll}");
+        }
+        assert!(GPTK3_ROUTE_DLLS.contains(&"atidxx64.dll"));
+        assert_eq!(GPTK3_ROUTE_DLLS.len(), GPTK3_ROUTE_UNIX.len());
+        for (dll, so) in GPTK3_ROUTE_DLLS.iter().zip(GPTK3_ROUTE_UNIX.iter()) {
+            let stem = dll.trim_end_matches(".dll");
+            assert_eq!(so, &format!("{stem}.so"));
+        }
+        assert_eq!(GPTK3_MIN_DMG_SIZE, 80 * 1024 * 1024);
+    }
+
+    #[test]
+    fn parse_attach_output_handles_mount_paths_with_spaces() {
+        // Real hdiutil output uses double-tab separators, may append " 1" for
+        // colliding volume names, and can carry a deprecation warning line.
+        // The mount path (which may contain spaces) must be extracted
+        // correctly.
+        let temp = std::env::temp_dir().join(format!("ms-gptk3 parse dir {}", std::process::id()));
+        std::fs::create_dir_all(&temp).expect("create fake mount");
+        let stdout = format!(
+            "/dev/disk8\tApple_partition_scheme\t\n/dev/disk8s1\tApple_partition_map\t\n/dev/disk8s2\t\tApple_HFS\t\t{temp}\nhdiutil: WARNING: 'hdiutil attach -nobrowse -readonly ...' is deprecated.\n",
+            temp = temp.display()
+        );
+        assert_eq!(parse_attach_output(&stdout), Some(temp.clone()));
+        assert_eq!(parse_attach_output("/dev/disk8s2 Apple_HFS /nonexistent 1"), None);
+        assert_eq!(parse_attach_output("hdiutil: WARNING: deprecated"), None);
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn overlay_gptk3_redist_copies_all_three_trees_and_verifies_hashes() {
+        let temp = std::env::temp_dir().join(format!("ms-gptk3-overlay-{}", std::process::id()));
+        let redist = temp.join("redist");
+        let wine_root = temp.join("wine");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-windows")).expect("redist windows");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-unix")).expect("redist unix");
+        std::fs::create_dir_all(redist.join("lib/external/D3DMetal.framework/Versions/A/Resources"))
+            .expect("redist external");
+        std::fs::create_dir_all(redist.join("lib/external/D3DMetal.framework/Resources")).expect("redist resources");
+
+        for dll in GPTK3_ROUTE_DLLS {
+            std::fs::write(redist.join("lib/wine/x86_64-windows").join(dll), format!("dll-{dll}")).unwrap();
+        }
+        for so in GPTK3_ROUTE_UNIX {
+            std::fs::write(redist.join("lib/wine/x86_64-unix").join(so), format!("so-{so}")).unwrap();
+        }
+        std::fs::write(redist.join("lib/external/D3DMetal.framework/Versions/A/D3DMetal"), b"framework-binary")
+            .unwrap();
+        std::fs::write(redist.join("lib/external/D3DMetal.framework/Versions/A/Resources/Info.plist"), b"plist")
+            .unwrap();
+        std::fs::write(
+            redist.join("lib/external/D3DMetal.framework/Versions/A/Resources/libd3dshared.dylib"),
+            b"dylib",
+        )
+        .unwrap();
+        std::fs::write(redist.join("lib/external/libd3dshared.dylib"), b"shared-dylib").unwrap();
+
+        let report = overlay_gptk3_redist(&redist, &wine_root).expect("overlay must succeed");
+        assert_eq!(report.windows.len(), GPTK3_ROUTE_DLLS.len());
+        assert_eq!(report.unix.len(), GPTK3_ROUTE_UNIX.len());
+        assert_eq!(report.external.len(), 2);
+
+        // Every copied file must hash-match its redist source.
+        for dll in GPTK3_ROUTE_DLLS {
+            assert!(same_file_hash(
+                &redist.join("lib/wine/x86_64-windows").join(dll),
+                &wine_root.join("lib/wine/x86_64-windows").join(dll)
+            ));
+        }
+        for so in GPTK3_ROUTE_UNIX {
+            assert!(same_file_hash(
+                &redist.join("lib/wine/x86_64-unix").join(so),
+                &wine_root.join("lib/wine/x86_64-unix").join(so)
+            ));
+        }
+        assert!(framework_ready(&wine_root.join("lib/external/D3DMetal.framework")));
+        assert!(same_file_hash(
+            &redist.join("lib/external/libd3dshared.dylib"),
+            &wine_root.join("lib/external/libd3dshared.dylib")
+        ));
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn overlay_gptk3_redist_rejects_a_missing_redist_file() {
+        let temp = std::env::temp_dir().join(format!("ms-gptk3-overlay-missing-{}", std::process::id()));
+        let redist = temp.join("redist");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-windows")).expect("redist windows");
+        std::fs::create_dir_all(redist.join("lib/wine/x86_64-unix")).expect("redist unix");
+        for dll in GPTK3_ROUTE_DLLS {
+            std::fs::write(redist.join("lib/wine/x86_64-windows").join(dll), format!("dll-{dll}")).unwrap();
+        }
+        for so in GPTK3_ROUTE_UNIX {
+            std::fs::write(redist.join("lib/wine/x86_64-unix").join(so), format!("so-{so}")).unwrap();
+        }
+        // No D3DMetal.framework at all.
+        let err = overlay_gptk3_redist(&redist, &temp.join("wine")).expect_err("missing framework must fail");
+        assert!(err.contains("D3DMetal.framework"), "error should name the framework: {err}");
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }

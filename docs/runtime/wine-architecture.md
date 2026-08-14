@@ -8,7 +8,7 @@ MetalSharp ships a self-contained Wine runtime at:
 ~/.metalsharp/runtime/wine/
 ```
 
-It is used by the public Wine-backed routes M12, M11, M10, and M9. Internal fallback/diagnostic routes such as M32, Steam handoff, and plain Wine also use this runtime. Mono/FNA does not use the Wine runtime.
+It is used by the public Wine-backed routes VKD3D, DXMT, and DXMT(32). Internal fallback/diagnostic routes such as M32, Steam handoff, and plain Wine also use this runtime. Mono/FNA does not use the Wine runtime.
 
 ## Layout
 
@@ -27,9 +27,9 @@ It is used by the public Wine-backed routes M12, M11, M10, and M9. Internal fall
 │   ├── dxmt/
 │   │   ├── x86_64-unix/
 │   │   └── x86_64-windows/
-│   ├── dxmt-m12/                    (DXMT M12 rollback lane)
-│   ├── vkd3d-proton/                (default M12 D3D12 stack)
-│   ├── dxvk/                        (shared DXGI; dxgi.dll for M12)
+│   ├── dxmt-vkd3d/                    (DXMT VKD3D rollback lane)
+│   ├── vkd3d-proton/                (default VKD3D D3D12 stack)
+│   ├── dxvk/                        (shared DXGI; dxgi.dll for VKD3D)
 │   └── moltenvk-vkmt/               (VKMT patched MoltenVK)
 └── etc/
     ├── dxmt.conf
@@ -61,10 +61,10 @@ User/runtime state lives beside the runtime root:
 
 | Route | Wine use |
 |---|---|
-| M12 | Wine + vkd3d-proton D3D12 (default, D3D12 → Vulkan → MoltenVK); DXMT fallback via `m12Backend=dxmt` |
+| VKD3D | Wine + vkd3d-proton D3D12 (default, D3D12 → Vulkan → MoltenVK); DXMT fallback via `vkd3dBackend=dxmt` |
 | M11 | Wine + DXMT D3D11/DXGI |
 | M10 | Wine + DXMT D3D10/D3D11/DXGI |
-| M9 | Wine + D3D9 Metal under the DXMT launch family |
+| VKD3D | Wine + vkd3d-proton/DXVK-macOS (D3D9/D3D10/D3D11/D3D12 via Vulkan) |
 
 M32, Steam handoff, and plain Wine remain internal Wine-backed routes for diagnostics, bootstrap cases, legacy records, and installer/custom-app internals.
 
@@ -83,7 +83,7 @@ winemetal.dll
 
 M10 deploys Wine's public `d3d10.dll` and `d3d10_1.dll` entrypoints for D3D10 imports, then uses DXMT's `d3d10core.dll` as the D3D10 handoff and shares the D3D11/DXGI/winemetal runtime with M11.
 
-M12:
+VKD3D:
 
 ```text
 d3d12.dll          (vkd3d-proton forwarder)
@@ -95,14 +95,8 @@ nvngx.dll          (optional stub)
 
 The vkd3d-proton stack translates D3D12 to Vulkan and runs on the VKMT-patched
 MoltenVK (Vulkan-on-Metal); `VK_ICD_FILENAMES` pins the runtime ICD. The
-legacy DXMT M12 set (winemetal.dll/d3d11/d3d10core/dxgi_dxmt) is deployed only
-when `m12Backend=dxmt` is set in `~/.metalsharp/configs/config.json`.
-
-M9:
-
-```text
-d3d9.dll
-```
+DXVK-macOS set (d3d9/d3d10core/d3d11/dxgi) covers D3D9/D3D10/D3D11 on the
+same Vulkan path.
 
 ## Prefixes
 
@@ -137,8 +131,8 @@ run the game executable directly through the selected MTSP pipeline with this pr
 | `WINEMSYNC` | Wine msync toggle (config-driven, default `1`) |
 | `DXMT_SHADER_CACHE_PATH` | DXMT shader cache (DXMT routes) |
 | `DXMT_CONFIG_FILE` | DXMT config file (DXMT routes) |
-| `VKD3D_SHADER_CACHE_PATH` / `DXVK_STATE_CACHE_PATH` | vkd3d-proton/DXVK caches (default M12 route) |
-| `VK_ICD_FILENAMES` | Pins the runtime-bundled VKMT `MoltenVK_icd.json` (default M12 route) |
+| `VKD3D_SHADER_CACHE_PATH` / `DXVK_STATE_CACHE_PATH` | vkd3d-proton/DXVK caches (default VKD3D route) |
+| `VK_ICD_FILENAMES` | Pins the runtime-bundled VKMT `MoltenVK_icd.json` (default VKD3D route) |
 | `SteamAppId` / `SteamGameId` | Steam identity for direct Steam-bottle game launches |
 
 ### Isolation Contract (read before changing any launch code)

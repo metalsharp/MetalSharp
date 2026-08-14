@@ -175,14 +175,14 @@ SDK_CRITICAL_FILES = [
     "runtime/dxmt/x86_64-windows/dxgi_dxmt.dll",
     "runtime/dxmt/x86_64-windows/winemetal.dll",
     "runtime/dxmt/x86_64-unix/winemetal.so",
-    "runtime/dxmt_m12/x86_64-windows/d3d12.dll",
-    "runtime/dxmt_m12/x86_64-windows/dxgi.dll",
-    "runtime/dxmt_m12/x86_64-windows/dxgi_dxmt.dll",
-    "runtime/dxmt_m12/x86_64-windows/winemetal.dll",
-    "runtime/dxmt_m12/x86_64-unix/winemetal.so",
-    "runtime/dxmt_m12/x86_64-unix/libc++.1.dylib",
-    "runtime/dxmt_m12/x86_64-unix/libc++abi.1.dylib",
-    "runtime/dxmt_m12/x86_64-unix/libunwind.1.dylib",
+    "runtime/dxmt_vkd3d/x86_64-windows/d3d12.dll",
+    "runtime/dxmt_vkd3d/x86_64-windows/dxgi.dll",
+    "runtime/dxmt_vkd3d/x86_64-windows/dxgi_dxmt.dll",
+    "runtime/dxmt_vkd3d/x86_64-windows/winemetal.dll",
+    "runtime/dxmt_vkd3d/x86_64-unix/winemetal.so",
+    "runtime/dxmt_vkd3d/x86_64-unix/libc++.1.dylib",
+    "runtime/dxmt_vkd3d/x86_64-unix/libc++abi.1.dylib",
+    "runtime/dxmt_vkd3d/x86_64-unix/libunwind.1.dylib",
     "scripts/run-probes.sh",
     "scripts/preflight-runtime-layout.py",
     "scripts/stage-dxmt-runtime.py",
@@ -331,15 +331,15 @@ def build_staging(tmp: Path) -> dict[str, Path]:
 
     copy_tree(source_dxmt / "x86_64-unix", roots["graphics"] / "dxmt" / "x86_64-unix")
     copy_tree(source_dxmt / "x86_64-windows", roots["graphics"] / "dxmt" / "x86_64-windows")
-    m12_root_env = os.environ.get("METALSHARP_DXMT_M12_ROOT")
-    m12_root = Path(m12_root_env).expanduser() if m12_root_env else Path.home() / ".metalsharp" / "runtime" / "wine" / "lib" / "dxmt_m12"
-    if m12_root.exists():
-        copy_tree(m12_root / "x86_64-unix", roots["graphics"] / "dxmt_m12" / "x86_64-unix")
-        copy_tree(m12_root / "x86_64-windows", roots["graphics"] / "dxmt_m12" / "x86_64-windows")
+    vkd3d_root_env = os.environ.get("METALSHARP_DXMT_VKD3D_ROOT")
+    vkd3d_root = Path(vkd3d_root_env).expanduser() if vkd3d_root_env else Path.home() / ".metalsharp" / "runtime" / "wine" / "lib" / "dxmt_vkd3d"
+    if vkd3d_root.exists():
+        copy_tree(vkd3d_root / "x86_64-unix", roots["graphics"] / "dxmt_vkd3d" / "x86_64-unix")
+        copy_tree(vkd3d_root / "x86_64-windows", roots["graphics"] / "dxmt_vkd3d" / "x86_64-windows")
 
-    # vkd3d-proton M12 stack (optional): staged from explicit VKMT source dirs
+    # vkd3d-proton VKD3D stack (optional): staged from explicit VKMT source dirs
     # (METALSHARP_VKD3D_SOURCE / METALSHARP_DXVK_SOURCE / METALSHARP_MOLTENVK_SOURCE).
-    # When absent the graphics bundle ships DXMT-only and M12 falls back.
+    # When absent the graphics bundle ships DXMT-only and VKD3D falls back.
     vkd3d_source = os.environ.get("METALSHARP_VKD3D_SOURCE")
     if vkd3d_source:
         vkd3d_root = Path(vkd3d_source).expanduser()
@@ -414,7 +414,7 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     copy_tree(roots["runtime"] / "host", roots["sdk"] / "runtime" / "host")
     copy_file(roots["runtime"] / "metalsharp-backend", roots["sdk"] / "runtime" / "metalsharp-backend")
     copy_tree(roots["graphics"] / "dxmt", roots["sdk"] / "runtime" / "dxmt")
-    copy_tree(roots["graphics"] / "dxmt_m12", roots["sdk"] / "runtime" / "dxmt_m12")
+    copy_tree(roots["graphics"] / "dxmt_vkd3d", roots["sdk"] / "runtime" / "dxmt_vkd3d")
     write_sdk_runtime_manifest(
         roots["sdk"],
         SOURCE_BUNDLES / "metalsharp_bundle.tar.zst",

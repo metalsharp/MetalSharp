@@ -60,6 +60,14 @@ const showUpdateChangelog = ref(false);
 const updateDismissed = ref(false);
 let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let installPollTimer: ReturnType<typeof setInterval> | null = null;
+let steamLibraryPollTimer: ReturnType<typeof setInterval> | null = null;
+let libraryLoadInFlight: Promise<void> | null = null;
+let steamLibraryPollInFlight = false;
+// Set when a forced library reload is requested while another load is still
+// in flight. The in-flight load re-runs immediately after finishing so a
+// refresh click or new-install detection is never silently swallowed.
+let pendingForceReload = false;
+const libraryRefreshing = ref(false);
 
 const { theme, setTheme } = useTheme();
 const toast = useToast();
@@ -88,6 +96,7 @@ const updateChangelog = computed(() => {
 const fullUpdateChangelog = computed(() => updateStatus.value?.release_notes?.trim() ?? "");
 
 provide("library", library);
+provide("libraryRefreshing", libraryRefreshing);
 provide("config", config);
 provide("wineSteamInstalled", wineSteamInstalled);
 provide("wineSteamRunning", wineSteamRunning);
@@ -124,14 +133,49 @@ async function refreshSteamStatus() {
   }
 }
 
-async function loadLibrary() {
-  const lib = await api<SteamLibrary>("GET", "/steam/library");
-  if (lib && Array.isArray(lib.games)) {
-    library.value = lib;
+async function loadLibrary(force = false) {
+  if (libraryLoadInFlight) {
+    // Never swallow a user-requested refresh (or a new-install detection)
+    // because another load is already running; queue it to run immediately
+    // after the in-flight load finishes.
+    if (force) pendingForceReload = true;
+    return libraryLoadInFlight;
   }
 
-  await api<{ steam: SteamStatus }>("GET", "/scan");
-  await refreshSteamStatus();
+  const load = (async () => {
+    let refresh = force;
+    do {
+      pendingForceReload = false;
+      libraryRefreshing.value = refresh;
+      try {
+        // Fetch the library FIRST: it reads appmanifests from every Steam
+        // library directly, so a freshly installed game renders immediately.
+        // The /scan walk is expensive (it sizes the whole prefix) and only
+        // reconciles extras, so it runs after the render instead of delaying
+        // it. Handlers run serially on the backend, so a scan queued in front
+        // of this request would stall the game from appearing.
+        const lib = await api<SteamLibrary>("GET", `/steam/library${refresh ? "?refresh=1" : ""}`, undefined, 120_000);
+        if (lib && Array.isArray(lib.games)) {
+          library.value = lib;
+        }
+        if (refresh) {
+          await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
+        }
+        await refreshSteamStatus();
+      } finally {
+        libraryRefreshing.value = false;
+      }
+      // A force request arrived while we were loading; run it now.
+      refresh = pendingForceReload;
+    } while (refresh);
+  })();
+
+  libraryLoadInFlight = load;
+  try {
+    await load;
+  } finally {
+    if (libraryLoadInFlight === load) libraryLoadInFlight = null;
+  }
 }
 
 async function checkBackend() {
@@ -253,14 +297,26 @@ async function getSteamApiKey() {
 }
 
 function startHealthPolling() {
+  if (steamLibraryPollTimer !== null) return;
+
   setInterval(refreshSteamStatus, 5000);
 
-  setInterval(async () => {
-    const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps");
-    if (result?.new_appids && result.new_appids.length > 0) {
-      await loadLibrary();
+  steamLibraryPollTimer = setInterval(async () => {
+    if (steamLibraryPollInFlight) return;
+    steamLibraryPollInFlight = true;
+    try {
+      const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps", undefined, 30_000);
+      if (result?.new_appids && result.new_appids.length > 0) {
+        // Surface a freshly installed game as fast as possible. The non-forced
+        // library load reads appmanifests directly (no network sync, no scan),
+        // so the game renders within seconds; the backend snapshot commits
+        // with this response so the next poll stops reporting it.
+        await loadLibrary(false);
+      }
+    } finally {
+      steamLibraryPollInFlight = false;
     }
-  }, 30000);
+  }, 5_000);
 
   setInterval(async () => {
     const prev = backendConnected.value;
@@ -317,6 +373,17 @@ onMounted(async () => {
       first_observed_ready: firstReady,
     });
     if (backendConnected.value) localStorage.setItem("metalsharp-backend-ready-reported", "true");
+  }
+  // Dev-only view override: ?wizard=setup|migration renders the wizard
+  // standalone (pure view, no backend triggers) for styling iterations.
+  const wizardParam = new URLSearchParams(window.location.search).get("wizard");
+  if (wizardParam === "setup") {
+    showSetup.value = true;
+    return;
+  }
+  if (wizardParam === "migration") {
+    showMigration.value = true;
+    return;
   }
   if (new URLSearchParams(window.location.search).get("skip-to") === "library") {
     // The dev backend may still be starting (first-run bottle scan); wait for

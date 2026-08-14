@@ -6,7 +6,7 @@
 **Run Windows games on MacOS Silicon.**
 
 <a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
-<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.59.1"><img src="https://img.shields.io/github/v/release/aaf2tbz/metalsharp?filter=v0.59.1&style=for-the-badge" alt="Release"></a>
+<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.59.5"><img src="https://img.shields.io/github/v/release/aaf2tbz/metalsharp?filter=v0.59.5&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/aaf2tbz/metalsharp/discussions"><img src="https://img.shields.io/github/discussions/aaf2tbz/metalsharp?style=for-the-badge" alt="Discussions"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow.svg?style=for-the-badge" alt="PolyForm Noncommercial 1.0.0"></a>
 <a href="https://discord.gg/qW5rUr4dH"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
@@ -21,7 +21,7 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 ## Arm64-FEX Build For Devs Out Now
 
-[0.60.0 Dependancies Release](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.59.1 Remains The Current Working Version.
+[0.60.0 Dependancies Release](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.59.5 Remains The Current Working Version.
 
 ## Quick Start
 
@@ -41,14 +41,16 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 
 | Route | Engine | How To Use |
 |---|---|---|
-| **M12** | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK | In Progress |
-| **M11** | D3D11 to Metal (DXMT) | Save 'M11' Bottle, Hit Play |
-| **M11(32)** | D3D11 i386 to Metal (DXMT) - 32Bit D3D11 | Save 'M11(32)' Bottle, Hit Play |
-| **M10** | D3D10 to Metal (DXMT) | Save 'M10' Bottle, Hit Play |
-| **M10(32)** | D3D10 i386 to Metal (DXMT) - 32Bit D3D10 | Save 'M10(32)' Bottle, Hit Play |
-| **M9** | D3D9 i386 Wine, DXMT Overrides| Save 'M9' Bottle, Hit Play |
+| **VKD3D** | D3D12/D3D11/D3D10/D3D9 via DXVK-MacOS and Proton | In Progress |
+| **DXMT** | D3D10/D3D11 to Metal (DXMT) | Save 'DXMT' Bottle, Hit Play |
+| **DXMT(32)** | D3D10/D3D11 i386 to Metal (DXMT) - 32Bit D3D10/D3D11 | Save 'DXMT(32)' Bottle, Hit Play |
 | **Mono/FNA** | Windows XNA/FNA via native Mono | Save 'Mono/Fna' Bottle, Hit Play |
 | **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with Homebrew-matched D3DMetal route DLLs. | Save 'D3DMetal' Bottle, Fix, Hit Play |
+
+> **Route naming:** the legacy M9/M10/M11 route labels are retired. M10/M11 now
+> surface as **DXMT**, M10(32)/M11(32) as **DXMT(32)**, and M9 as **VKD3D**
+> (the D3D9 route is owned by the VKD3D pipeline's DXVK-macOS `d3d9.dll`).
+> Saved bottles and MTSP rules continue to resolve to the same engines.
 
 ## Features and Notes 
 

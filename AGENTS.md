@@ -15,7 +15,7 @@ routing, isolated runtime bottles, installer profiles, FNA/Mono support, and
 release packaging for macOS and Linux.
 
 The repository contains several different execution surfaces. Do not assume
-that the in-tree native C++ D3D12 implementation, the Wine-launched M12
+that the in-tree native C++ D3D12 implementation, the Wine-launched VKD3D
 pipeline, GPTK, DXMT, and the FNA/Mono lane are interchangeable. Before
 changing an existing surface, identify which launcher, runtime directory,
 bundle, prefix, and diagnostic contract own it.
@@ -113,7 +113,7 @@ vendor/glslang/, vendor/SPIRV-Cross/ shader/compiler dependencies
 configs/                       MTSP rules, DLL maps, and proof targets
 docs/                          architecture, runtime, compatibility, and gates
 tools/bundles/                 asset manifest, split-bundle and SDK tooling
-tools/d3d12-metal-sdk/         contracts, probes, audits, and M12 SDK scripts
+tools/d3d12-metal-sdk/         contracts, probes, audits, and VKD3D SDK scripts
 tools/ci/                      CI validation, formatting, and contract checks
 tools/dmg/                     bundle staging, DMG, and runtime verification
 tools/diagnostics/             launch/environment probes
@@ -158,7 +158,7 @@ The backend's important layers are:
 - `bottles.rs` owns bottle manifests, runtime profiles, Windows-version modes,
   redist checks, compatibility records, and bottle doctors.
 - `installer.rs` downloads/verifies/stages split bundles, preserves graphics
-  surfaces during runtime replacement, reconciles M12 fallback state, and
+  surfaces during runtime replacement, reconciles VKD3D fallback state, and
   enforces pinned hashes.
 - `diagnostics.rs`, `d3d12_runtime_doctor.rs`, `binding_contract.rs`, and
   `command_contract.rs` expose read-only or validation contracts used by local
@@ -185,58 +185,58 @@ When adding or changing a route, update the corresponding renderer API types,
 route tests, diagnostics, and this guide only when the public contract changes.
 Keep compatibility aliases documented rather than silently removing them.
 
-## Graphics Pipelines and the Rust M12 Update
+## Graphics Pipelines and the Rust VKD3D Update
 
-The current M12 implementation changed after v0.59.1. **M12 now defaults to
+The current VKD3D implementation changed after v0.59.1. **VKD3D now defaults to
 vkd3d-proton**, not DXMT:
 
 ```text
-M12 default:  D3D12 → vkd3d-proton → Vulkan → VKMT MoltenVK → Metal
-M12 rollback intent: D3D12 → DXMT/winemetal → Metal (m12Backend=dxmt)
+VKD3D default:  D3D12 → vkd3d-proton → Vulkan → VKMT MoltenVK → Metal
+VKD3D rollback intent: D3D12 → DXMT/winemetal → Metal (vkd3dBackend=dxmt)
 M11:          D3D11 → DXMT → Metal
 M10:          D3D10 → DXMT → Metal
 M9:           D3D9  → the current Metal/DXMT-family handoff
 ```
 
-Read [`docs/architecture/m12-pipeline-map.md`](docs/architecture/m12-pipeline-map.md)
-before touching M12. The default M12 route is x86_64-only and stages:
+Read [`docs/architecture/vkd3d-pipeline-map.md`](docs/architecture/vkd3d-pipeline-map.md)
+before touching VKD3D. The default VKD3D route is x86_64-only and stages:
 
 The architecture map describes the intended DXMT rollback, but the current
-Rust source/tests expose only the vkd3d-proton M12 node. Treat the source and
+Rust source/tests expose only the vkd3d-proton VKD3D node. Treat the source and
 tests as authoritative until that document and the implementation are
 reconciled; do not present the rollback as a working route today.
 
 - `lib/vkd3d-proton/x86_64-windows/d3d12.dll` and `d3d12core.dll`;
 - `lib/dxvk/x86_64-windows/dxgi.dll` and the accompanying D3D11 surface;
 - `lib/moltenvk-vkmt/libMoltenVK.dylib` and `MoltenVK_icd.json`; and
-- optional `nvapi64.dll`/`nvngx.dll` stubs from the DXMT M12 lane when a game
-  or bottle component requires them; they are not part of the default M12
+- optional `nvapi64.dll`/`nvngx.dll` stubs from the DXMT VKD3D lane when a game
+  or bottle component requires them; they are not part of the default VKD3D
   node's core DLL deploy list.
 
-The setting `m12Backend=vkd3d-proton` is the default. `m12Backend=dxmt` is a
+The setting `vkd3dBackend=vkd3d-proton` is the default. `vkd3dBackend=dxmt` is a
 recognized configuration value and installer/runtime rollback intent, but the
-current `PipelineNode::M12` implementation and its tests expose only the
+current `PipelineNode::VKD3D` implementation and its tests expose only the
 vkd3d-proton node. Do not claim that the DXMT rollback is functional without
 first implementing and testing a distinct node in `mtsp/engine.rs` and
 `mtsp/launcher.rs`. The rollback surface is still staged under
-`lib/dxmt_m12` for that work. The release archive calls it
-`Graphics/dll/dxmt-m12` (hyphen); the installed runtime directory uses
-`lib/dxmt_m12` (underscore). Do not conflate it with the known-good
+`lib/dxmt_vkd3d` for that work. The release archive calls it
+`Graphics/dll/dxmt-vkd3d` (hyphen); the installed runtime directory uses
+`lib/dxmt_vkd3d` (underscore). Do not conflate it with the known-good
 M9/M10/M11 `lib/dxmt` surface.
 
 The vkd3d-proton launch path pins `VK_ICD_FILENAMES` to the VKMT ICD and uses
 `VKD3D_SHADER_CACHE_PATH`/`DXVK_STATE_CACHE_PATH`. `DXMT_CONFIG_FILE` and
 `DXMT_WINEMETAL_UNIXLIB` are used by the other DXMT-backed nodes; do not assume
-they apply to an M12 `m12Backend=dxmt` request until the distinct rollback node
-is implemented. M12 route aliases such as `m12`, `dx12`, and `d3d12` select a
+they apply to an VKD3D `vkd3dBackend=dxmt` request until the distinct rollback node
+is implemented. VKD3D route aliases such as `vkd3d`, `dx12`, and `d3d12` select a
 pipeline; they are not universal game command-line arguments. Keep Wine Steam
 alive as the client when a Steam route requires it, and launch the game with
 the selected bottle, prefix, Steam identity variables, and route environment.
 
-The M12 installer validates pinned vkd3d-proton and VKMT MoltenVK hashes. If a
+The VKD3D installer validates pinned vkd3d-proton and VKMT MoltenVK hashes. If a
 graphics bundle changes, update the source/manifest/hash contract together;
-do not set `METALSHARP_REPAIR_M12=1` casually. The default bundle workflow
-preserves the canonical M12 payload specifically to prevent local artifacts
+do not set `METALSHARP_REPAIR_VKD3D=1` casually. The default bundle workflow
+preserves the canonical VKD3D payload specifically to prevent local artifacts
 from silently replacing the release lane.
 
 ## Runtime, Prefix, Cache, and Bundle Paths
@@ -250,9 +250,9 @@ paths are:
 | `~/.metalsharp/runtime/host/` | host runtime ABI manifest/header/library |
 | `~/.metalsharp/runtime/metalsharp-backend` | staged Rust backend executable |
 | `~/.metalsharp/runtime/wine/lib/dxmt/` | M9/M10/M11 DXMT surface |
-| `~/.metalsharp/runtime/wine/lib/dxmt_m12/` | M12 DXMT rollback surface |
-| `~/.metalsharp/runtime/wine/lib/vkd3d-proton/` | default M12 D3D12 DLLs |
-| `~/.metalsharp/runtime/wine/lib/dxvk/` | DXVK DLL lanes used by M12/fallbacks |
+| `~/.metalsharp/runtime/wine/lib/dxmt_vkd3d/` | VKD3D DXMT rollback surface |
+| `~/.metalsharp/runtime/wine/lib/vkd3d-proton/` | default VKD3D D3D12 DLLs |
+| `~/.metalsharp/runtime/wine/lib/dxvk/` | DXVK DLL lanes used by VKD3D/fallbacks |
 | `~/.metalsharp/runtime/wine/lib/moltenvk-vkmt/` | patched MoltenVK and VKMT ICD |
 | `~/.metalsharp/runtime/wine/lib/wine/x86_64-unix/` | Wine unix libraries and shared sidecars |
 | `~/.metalsharp/runtime/wine/etc/dxmt.conf` | DXMT configuration |
@@ -313,7 +313,7 @@ separately when working on `tools/d3d12-metal-sdk/` or release publication.
 The default `create-bundles.sh` mode repairs/stages local runtime outputs and
 requires the built backend, host runtime, and native runtime libraries. Use
 that mode only when intentionally rebuilding release inputs; use
-`METALSHARP_REPAIR_M12=1` only when deliberately refreshing the pinned DXMT
+`METALSHARP_REPAIR_VKD3D=1` only when deliberately refreshing the pinned DXMT
 rollback payload.
 
 For release/developer SDK work, also use
@@ -365,7 +365,7 @@ tools/ci/check-clang-format.sh
 The CI smoke expression omits a few host-dependent graphics tests. Use the
 full local suite when the host toolchain supports it.
 
-### D3D12/M12 contracts (required for graphics/contract changes)
+### D3D12/VKD3D contracts (required for graphics/contract changes)
 
 These checks are local gates because they need the appropriate Wine/Metal
 runtime and are not fully reproducible in CI. The generic probe script does
@@ -378,7 +378,7 @@ python3 tools/d3d12-metal-sdk/scripts/validate-probe-matrix.py
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp --mini-only \
   --wine "$HOME/.metalsharp/runtime/wine/bin/wine" \
   --prefix "$HOME/.metalsharp/tmp/d3d12-probe-prefix" \
-  --dxmt-runtime "$HOME/.metalsharp/runtime/wine/lib/dxmt_m12"
+  --dxmt-runtime "$HOME/.metalsharp/runtime/wine/lib/dxmt_vkd3d"
 ```
 
 For a targeted change, use the matching `--graphics-pso-only`,
@@ -387,8 +387,8 @@ For a targeted change, use the matching `--graphics-pso-only`,
 `--resource-views-formats-only` profile. Use
 `tools/d3d12-metal-sdk/scripts/compare-contract.py` and
 `preflight-runtime-layout.py` when validating a staged runtime. The
-`tools/ci/m12-check.sh` script exercises the DXMT M12 contract/rollback lane;
-default vkd3d-proton M12 work should additionally use the M12 dry-run and
+`tools/ci/vkd3d-check.sh` script exercises the DXMT VKD3D contract/rollback lane;
+default vkd3d-proton VKD3D work should additionally use the VKD3D dry-run and
 runtime-doctor endpoints below.
 
 ### Shell, rules, bundles, and packaging
@@ -403,8 +403,8 @@ python3 tools/ci/test-verify-bundle-sha256.py
 
 Run rules validation when `configs/mtsp-rules.toml` or DLL maps change; run
 DMG workflow validation when release/bundle tooling changes; run the bundle
-checksum verifier regression tests when `tools/ci/m12-bundle-hashes.tsv`,
-`tools/ci/verify-bundle-sha256.sh`, or `tools/ci/m12-check.sh` change. Do not
+checksum verifier regression tests when `tools/ci/vkd3d-bundle-hashes.tsv`,
+`tools/ci/verify-bundle-sha256.sh`, or `tools/ci/vkd3d-check.sh` change. Do not
 build a DMG merely to validate a documentation change.
 
 ## Backend Diagnostic Gates
@@ -424,7 +424,7 @@ Only `GET /health` is intentionally public for updater/readiness checks.
 | `GET /diagnostics/launch/timing?appid=` | latest persisted launch timing |
 | `GET /bottles/route-contracts` | declarative Steam route contracts |
 | `GET /update/migrate/report` | migration preserve/skip report |
-| `GET /diagnostics/m12/dry-run?appid=` | current M12 artifact/env resolution without launching; confirm backend mode/output |
+| `GET /diagnostics/vkd3d/dry-run?appid=` | current VKD3D artifact/env resolution without launching; confirm backend mode/output |
 | `GET /diagnostics/pipeline/dry-run?appid=&pipeline=` | compare route dry-runs |
 | `GET /diagnostics/cache-doctor?appid=` | shader/pipeline cache counts and staleness |
 | `GET /diagnostics/pso-manifests?appid=&pipeline=&limit=` | recent PSO manifests |
@@ -436,7 +436,7 @@ Only `GET /health` is intentionally public for updater/readiness checks.
 | `POST /steam/d3d12-runtime-doctor` | DXMT-oriented D3D12 runtime/SDK doctor; not proof of default VKMT lane |
 | `GET /diagnostics/fna/signals`, `/explain`, `/classify` | FNA/XNA profile evidence |
 
-For default vkd3d-proton M12 work, prefer the M12 dry-run and runtime-artifact
+For default vkd3d-proton VKD3D work, prefer the VKD3D dry-run and runtime-artifact
 report and inspect their reported backend, DLL sources, hashes, and env. Treat
 the D3D12 runtime doctor as DXMT-oriented until it becomes backend-aware.
 
@@ -499,14 +499,14 @@ risk and rollback details from
 
 ## Common Pitfalls
 
-- M12 is vkd3d-proton-first now. Treat DXMT as the recognized but currently
-  unimplemented `m12Backend=dxmt` rollback intent, not as the default M12
+- VKD3D is vkd3d-proton-first now. Treat DXMT as the recognized but currently
+  unimplemented `vkd3dBackend=dxmt` rollback intent, not as the default VKD3D
   runtime.
-- The release archive uses `dxmt-m12`, while the installed runtime uses
-  `dxmt_m12`; `dxmt` is the separate M9/M10/M11 surface.
-- M12's VKMT `MoltenVK_icd.json` must resolve the pinned
+- The release archive uses `dxmt-vkd3d`, while the installed runtime uses
+  `dxmt_vkd3d`; `dxmt` is the separate M9/M10/M11 surface.
+- VKD3D's VKMT `MoltenVK_icd.json` must resolve the pinned
   `lib/moltenvk-vkmt/libMoltenVK.dylib`; do not silently fall back when
-  validating a production M12 bundle.
+  validating a production VKD3D bundle.
 - DXVK i386 DLLs are under `lib/dxvk/i386-windows/`, not
   `lib/wine/i386-windows/`; the latter contains Wine builtins.
 - Shader caches are per route and app id (`shader-cache/<route>/<appid>`),
@@ -519,7 +519,7 @@ risk and rollback details from
   Library.
 - Do not edit Wine plist state before the owning daemon/setup path creates it.
 - `winemetal.so` is a unix bridge; do not invent an i386-unix copy for the
-  x86_64-only M12 rollback. M10/M11 32-bit surfaces have their own i386 lane.
+  x86_64-only VKD3D rollback. M10/M11 32-bit surfaces have their own i386 lane.
 - `CMakeLists.txt`, `app/src-rust/Cargo.toml`, `app/src-rust/Cargo.lock`,
   `app/package.json`, and `app/package-lock.json` participate in synchronized
   version bumps; release tags must match the intended version.

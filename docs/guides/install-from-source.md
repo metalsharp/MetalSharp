@@ -58,7 +58,7 @@ can never be packaged without the native surface.
 
 ## Fetch Runtime Bundles
 
-Downloads MetalSharp-owned runtime assets from the GitHub release: Wine, graphics DLLs (DXMT for M9/M10/M11, vkd3d-proton + DXVK + VKMT MoltenVK for the M12 route, plus the DXMT M12 rollback lane), Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
+Downloads MetalSharp-owned runtime assets from the GitHub release: Wine, graphics DLLs (DXMT for DXMT/DXMT(32), vkd3d-proton + DXVK-macOS + VKMT MoltenVK for the VKD3D route), Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
 
 GPTK/D3DMetal is not bundled in MetalSharp release assets. When you save a D3DMetal bottle, MetalSharp installs/trusts Homebrew GPTK separately and uses `/Applications/Game Porting Toolkit.app` directly.
 

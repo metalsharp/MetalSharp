@@ -14,11 +14,19 @@ GPTK/D3DMetal is not installed during generic setup. MetalSharp installs and use
 
 ## Steam Games
 
-After a game is installed, MetalSharp detects the Wine Steam library and creates a Steam game bottle such as `steam_620`.
+After a game is installed, MetalSharp scans the internal Steam library and every
+external library listed in Steam's `libraryfolders.vdf`, then creates a Steam
+game bottle such as `steam_620`. The Library refresh action and the background
+installed-game watcher check for new manifests every 15 seconds.
 
 The bottle is the launch-authoritative runtime record. It checks the selected profile, runtime assets, redistributables, DLL expectations, and logs before launch.
 
-For routes such as M12, M11, M10, M9, and Mono/FNA, MetalSharp keeps Wine Steam alive in the background when Steamworks ownership/session state is needed, then launches the game executable through the selected bottle-aware MTSP pipeline. The game process receives the prepared prefix or native Mono/FNA environment, cache paths, and Steam identity variables (`SteamAppId` and `SteamGameId`) so Steamworks can bind back to the running Wine Steam client where applicable.
+For routes such as VKD3D, DXMT, and Mono/FNA, MetalSharp keeps Wine Steam alive in the background when Steamworks ownership/session state is needed, then launches the game executable through the selected bottle-aware MTSP pipeline. The game process receives the prepared prefix or native Mono/FNA environment, cache paths, and Steam identity variables (`SteamAppId` and `SteamGameId`) so Steamworks can bind back to the running Wine Steam client where applicable.
+
+Wine Steam desktop shortcuts are redirected to the hidden
+`~/.metalsharp/steam-desktop/` directory instead of the macOS Desktop. Existing
+Steam `.url` shortcuts are moved there the next time Wine Steam starts; other
+URL shortcuts on the macOS Desktop are left untouched.
 
 Internal Steam, Wine, macOS Steam, M32, and raw DXMT routes still exist for diagnostics, compatibility records, and backend fallback behavior, but they are not normal route selector choices. If Wine Steam is not detectable after startup, MetalSharp fails the launch clearly instead of hanging behind the renderer timeout.
 
@@ -26,10 +34,10 @@ Click **Play** from the Library page. Use the launch mode dropdown when you want
 
 | Mode | Use |
 |---|---|
-| M12 | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK). DXMT rollback available via the `m12Backend` setting (Settings) |
+| VKD3D | D3D12 to Metal via vkd3d-proton (D3D12 → Vulkan → MoltenVK). DXMT rollback available via the `vkd3dBackend` setting (Settings) |
 | M11 | D3D11 to Metal |
 | M10 | D3D10 to Metal |
-| M9 | D3D9 through the DXMT launch/cache family |
+| VKD3D | D3D9/D3D10/D3D11/D3D12 through vkd3d-proton + DXVK-macOS (Vulkan → MoltenVK) |
 | Mono/FNA | Windows XNA/FNA games through MetalSharp's native Mono runtime, staged FNA/XNA assemblies, native dylibs, FMOD/FAudio/FNA3D shims, and Steamworks shim support |
 | D3DMetal | Apple Game Porting Toolkit via Homebrew, using a shared GPTK prefix and Homebrew-matched D3DMetal route DLLs |
 
@@ -39,7 +47,7 @@ Use **Runtime Doctor** on a game card when a game needs VC runtime, DirectX, .NE
 
 D3DMetal is an explicit bottle lane for games that should run through Apple Game Porting Toolkit instead of MetalSharp's DXMT route.
 
-1. Save the game as a **D3DMetal** bottle. MetalSharp installs/trusts Homebrew GPTK (`brew trust --cask gcenx/wine/game-porting-toolkit` as needed, then `brew install game-porting-toolkit`) and ensures Rosetta 2 is present.
+1. Save the game as a **D3DMetal** bottle. MetalSharp installs/trusts Homebrew GPTK (`brew trust --cask gcenx/wine/game-porting-toolkit` as needed, then `brew install game-porting-toolkit`) and ensures Rosetta 2 is present. The save stages Steam runtime files (`libraryfolder.vdf`, `steam.dll`, `steam_appid.txt`, `steamclient.dll`, and `steamclient64.dll`) beside the game and selected executable directory. For Elden Ring and ARMORED CORE VI, save also performs the one-time `start_protected_game.exe` → `start_protected_game.old` preservation and copies the real game executable to the original launcher path.
 2. Click **Repair Redist**. This copies MetalSharp-bundled x64+x86 VC runtime DLLs into `~/.metalsharp/prefix-gptk/drive_c/windows/system32` and `syswow64`, then writes VC runtime registry keys.
 3. Click **Seed Prefix**. This wineboots `~/.metalsharp/prefix-gptk`, copies Homebrew GPTK route DLLs from `/Applications/Game Porting Toolkit.app` into prefix `system32`, quarantines app-local D3D/DXGI/NVAPI shims, and writes D3DMetal launch metadata.
 4. Click **Play D3DMetal**. MetalSharp launches the game executable directly through Homebrew GPTK Wine; it does not launch Steam for this route.
@@ -64,13 +72,13 @@ MoonScraper Chart Editor's Inno Setup bootstrapper is handled without its Window
 
 Use **Logs** when something fails. The page has drawer sections for live logs, crash reports, and recent log files.
 
-Use **Settings** to manage Steam API sync, backend restart, cache cleanup, runtime maintenance, and the **M12 graphics backend** (vkd3d-proton default / DXMT fallback).
+Use **Settings** to manage Steam API sync, backend restart, cache cleanup, runtime maintenance, and the **VKD3D graphics backend** (vkd3d-proton default / DXMT fallback).
 
 ### Sidebar Toggles
 
 The sidebar (near the theme picker) has three runtime toggles, applied on next launch:
 
-- **MetalFX** — DXMT MetalFX Spatial upscaling strength for the DXMT routes (M10, M10(32), M11, M11(32)): **1.75** / **1.50** / **OFF** (default **1.50**, enabled). M12 (vkd3d-proton) and other routes are unaffected.
+- **MetalFX** — DXMT MetalFX Spatial upscaling strength for the DXMT routes (M10, M10(32), M11, M11(32)): **1.75** / **1.50** / **OFF** (default **1.50**, enabled). VKD3D (vkd3d-proton) and other routes are unaffected.
 - **msync** — Wine msync (Mach-synchronized sync primitives): **ON** (default) / **OFF**.
 - **Controller** — input shims: Off / X / D (see below).
 

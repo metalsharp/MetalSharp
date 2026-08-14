@@ -187,15 +187,15 @@ int main() {
       dxmt::dxil::MSLResolveVertexInputTableIndex(9, sparse_msl_options), 2);
   expect_true("MSL sparse register 5 emits compact table, offset, format, step",
               dxmt::dxil::MSLVertexPullExpression(5, sparse_msl_options) ==
-                  "m12_load_vertex_attr(1, 0, 16, 1, 2, vid, iid, buf16, "
+                  "vkd3d_load_vertex_attr(1, 0, 16, 1, 2, vid, iid, buf16, "
                   "buf1, buf29, buf30)");
   expect_true("MSL sparse register 6 emits duplicate-slot offset",
               dxmt::dxil::MSLVertexPullExpression(6, sparse_msl_options) ==
-                  "m12_load_vertex_attr(1, 8, 16, 1, 2, vid, iid, buf16, "
+                  "vkd3d_load_vertex_attr(1, 8, 16, 1, 2, vid, iid, buf16, "
                   "buf1, buf29, buf30)");
   expect_true("MSL sparse register 9 emits compact table and float4 format",
               dxmt::dxil::MSLVertexPullExpression(9, sparse_msl_options) ==
-                  "m12_load_vertex_attr(2, 0, 2, 0, 1, vid, iid, buf16, "
+                  "vkd3d_load_vertex_attr(2, 0, 2, 0, 1, vid, iid, buf16, "
                   "buf2, buf29, buf30)");
 
   dxmt::dxil::MSLLoweringOptions raw_msl_options = {};
@@ -213,13 +213,13 @@ int main() {
                3);
   expect_true("MSL explicit raw slot expression carries metadata",
               dxmt::dxil::MSLVertexPullExpression(5, raw_msl_options) ==
-                  "m12_load_vertex_attr(3, 12, 16, 0, 1, vid, iid, buf16, "
+                  "vkd3d_load_vertex_attr(3, 12, 16, 0, 1, vid, iid, buf16, "
                   "buf3, buf29, buf30)");
 
   dxmt::D3D12ShaderBindingCompletenessDesc fragment_direct = {};
-  fragment_direct.buffer_count = dxmt::kD3D12M12DirectBufferSlots;
-  fragment_direct.texture_count = dxmt::kD3D12M12DirectFragmentTextureSlots;
-  fragment_direct.sampler_count = dxmt::kD3D12M12DirectFragmentSamplerSlots;
+  fragment_direct.buffer_count = dxmt::kD3D12VKD3DDirectBufferSlots;
+  fragment_direct.texture_count = dxmt::kD3D12VKD3DDirectFragmentTextureSlots;
+  fragment_direct.sampler_count = dxmt::kD3D12VKD3DDirectFragmentSamplerSlots;
   fragment_direct.bound_buffers = (1ull << 0) | (1ull << 16);
   fragment_direct.bound_textures = 1ull << 0;
   auto fragment_before =
@@ -228,7 +228,7 @@ int main() {
                fragment_before.required_buffer_count, 31);
   expect_equal("fragment direct texture required count",
                fragment_before.required_texture_count,
-               dxmt::kD3D12M12DirectFragmentTextureSlots);
+               dxmt::kD3D12VKD3DDirectFragmentTextureSlots);
   expect_equal("fragment direct sampler required count",
                fragment_before.required_sampler_count, 4);
   expect_equal("fragment direct bound buffer count",
@@ -241,15 +241,15 @@ int main() {
               fragment_before.missing_samplers == 0xf);
 
   fragment_direct.fallback_buffers =
-      dxmt::D3D12DirectBindingMask(dxmt::kD3D12M12DirectBufferSlots) &
+      dxmt::D3D12DirectBindingMask(dxmt::kD3D12VKD3DDirectBufferSlots) &
       ~fragment_direct.bound_buffers;
   fragment_direct.fallback_textures =
       dxmt::D3D12DirectBindingMask(
-          dxmt::kD3D12M12DirectFragmentTextureSlots) &
+          dxmt::kD3D12VKD3DDirectFragmentTextureSlots) &
       ~fragment_direct.bound_textures;
   fragment_direct.fallback_samplers =
       dxmt::D3D12DirectBindingMask(
-          dxmt::kD3D12M12DirectFragmentSamplerSlots);
+          dxmt::kD3D12VKD3DDirectFragmentSamplerSlots);
   auto fragment_after =
       dxmt::D3D12EvaluateShaderBindingCompleteness(fragment_direct);
   expect_true("fragment direct fallback closes buffer gaps",
@@ -260,19 +260,19 @@ int main() {
               fragment_after.missing_samplers == 0);
 
   dxmt::D3D12ShaderBindingCompletenessDesc compute_direct = {};
-  compute_direct.buffer_count = dxmt::kD3D12M12DirectBufferSlots;
-  compute_direct.texture_count = dxmt::kD3D12M12DirectComputeTextureSlots;
-  compute_direct.sampler_count = dxmt::kD3D12M12DirectComputeSamplerSlots;
+  compute_direct.buffer_count = dxmt::kD3D12VKD3DDirectBufferSlots;
+  compute_direct.texture_count = dxmt::kD3D12VKD3DDirectComputeTextureSlots;
+  compute_direct.sampler_count = dxmt::kD3D12VKD3DDirectComputeSamplerSlots;
   compute_direct.bound_buffers = (1ull << 16);
   compute_direct.bound_textures = 0;
   compute_direct.bound_samplers = 1ull << 1;
   compute_direct.fallback_buffers =
-      dxmt::D3D12DirectBindingMask(dxmt::kD3D12M12DirectBufferSlots) &
+      dxmt::D3D12DirectBindingMask(dxmt::kD3D12VKD3DDirectBufferSlots) &
       ~compute_direct.bound_buffers;
   compute_direct.fallback_textures =
-      dxmt::D3D12DirectBindingMask(dxmt::kD3D12M12DirectComputeTextureSlots);
+      dxmt::D3D12DirectBindingMask(dxmt::kD3D12VKD3DDirectComputeTextureSlots);
   compute_direct.fallback_samplers =
-      dxmt::D3D12DirectBindingMask(dxmt::kD3D12M12DirectComputeSamplerSlots) &
+      dxmt::D3D12DirectBindingMask(dxmt::kD3D12VKD3DDirectComputeSamplerSlots) &
       ~compute_direct.bound_samplers;
   auto compute_after =
       dxmt::D3D12EvaluateShaderBindingCompleteness(compute_direct);
@@ -487,15 +487,15 @@ int main() {
   }
   expect_true("MSL per-instance step rate 0 is explicit",
               dxmt::dxil::MSLVertexPullExpression(0, instance_msl_options) ==
-                  "m12_load_vertex_attr(0, 0, 2, 1, 0, vid, iid, buf16, "
+                  "vkd3d_load_vertex_attr(0, 0, 2, 1, 0, vid, iid, buf16, "
                   "buf0, buf29, buf30)");
   expect_true("MSL per-instance step rate 1 is explicit",
               dxmt::dxil::MSLVertexPullExpression(1, instance_msl_options) ==
-                  "m12_load_vertex_attr(1, 0, 2, 1, 1, vid, iid, buf16, "
+                  "vkd3d_load_vertex_attr(1, 0, 2, 1, 1, vid, iid, buf16, "
                   "buf1, buf29, buf30)");
   expect_true("MSL per-instance step rate >1 is explicit",
               dxmt::dxil::MSLVertexPullExpression(2, instance_msl_options) ==
-                  "m12_load_vertex_attr(2, 0, 2, 1, 5, vid, iid, buf16, "
+                  "vkd3d_load_vertex_attr(2, 0, 2, 1, 5, vid, iid, buf16, "
                   "buf2, buf29, buf30)");
 
   dxmt::D3D12DrawSafetyDesc safety = {};

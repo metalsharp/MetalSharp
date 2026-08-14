@@ -72,12 +72,8 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
     let direct_wine_pipeline = matches!(
         node.id,
         PipelineId::Dxmt
-            | PipelineId::M9
-            | PipelineId::M10
-            | PipelineId::M10_32
-            | PipelineId::M11
-            | PipelineId::M11_32
-            | PipelineId::M12
+            | PipelineId::Dxmt32
+            | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::D3DMetal
             | PipelineId::M32
@@ -92,12 +88,8 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
 
     let exe_path = match node.id {
         PipelineId::Dxmt
-        | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
-        | PipelineId::M12
+        | PipelineId::Dxmt32
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::D3DMetal
         | PipelineId::M32
@@ -144,7 +136,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
 
 pub fn effective_launch_args(appid: u32, node: &PipelineNode) -> Vec<String> {
     let mut launch_args: Vec<String> = node.launch_args.iter().map(|arg| arg.to_string()).collect();
-    if appid == 1962700 && node.id == PipelineId::M12 {
+    if appid == 1962700 && node.id == PipelineId::Vkd3d {
         launch_args.retain(|arg| !arg.eq_ignore_ascii_case("-NOSPLASH"));
     }
     append_app_launch_args(appid, node.id, &mut launch_args);
@@ -152,7 +144,7 @@ pub fn effective_launch_args(appid: u32, node: &PipelineNode) -> Vec<String> {
 }
 
 fn append_app_launch_args(appid: u32, pipeline: PipelineId, launch_args: &mut Vec<String>) {
-    if appid == 1962700 && pipeline == PipelineId::M12 {
+    if appid == 1962700 && pipeline == PipelineId::Vkd3d {
         let dpcvars = [
             "r.Nanite=0",
             "r.Nanite.ProjectEnabled=0",
@@ -186,11 +178,11 @@ fn append_app_launch_args(appid: u32, pipeline: PipelineId, launch_args: &mut Ve
     }
 
     match (appid, pipeline) {
-        (1196590 | 1623730 | 1928870 | 2358720 | 2456740, PipelineId::M12) => {
+        (1196590 | 1623730 | 1928870 | 2358720 | 2456740, PipelineId::Vkd3d) => {
             append_unique_launch_arg(launch_args, "-dx12");
             append_unique_launch_arg(launch_args, "-d3d12");
         },
-        (1623730 | 2358720, PipelineId::M11) => {
+        (1623730 | 2358720, PipelineId::Dxmt) => {
             append_unique_launch_arg(launch_args, "-dx11");
             append_unique_launch_arg(launch_args, "-d3d11");
         },
@@ -209,11 +201,11 @@ fn database_default_launch_args(appid: u32, pipeline: PipelineId) -> &'static [&
         379720 | 275850 | 892970 | 252490 | 570 | 548430 | 526870 | 1272080 => &["-vulkan"],
         949230 => &["-force-vulkan"],
         1174180 => &["-api", "Vulkan"],
-        400 | 620 | 4000 if pipeline == PipelineId::M9 => &["-dxlevel", "90", "-novid"],
-        240 | 500 | 550 if pipeline == PipelineId::M9 => &["-dxlevel", "90"],
-        7670 if pipeline == PipelineId::M9 => &["-dx9"],
-        12210 if pipeline == PipelineId::M10 => &["-d3d10"],
-        17300 if pipeline == PipelineId::M10 => &["-dx10"],
+        400 | 620 | 4000 if pipeline == PipelineId::Vkd3d => &["-dxlevel", "90", "-novid"],
+        240 | 500 | 550 if pipeline == PipelineId::Vkd3d => &["-dxlevel", "90"],
+        7670 if pipeline == PipelineId::Vkd3d => &["-dx9"],
+        12210 if pipeline == PipelineId::Dxmt => &["-d3d10"],
+        17300 if pipeline == PipelineId::Dxmt => &["-dx10"],
         _ => &[],
     }
 }
@@ -227,12 +219,12 @@ pub(crate) fn requires_steam_launch_args(appid: u32) -> bool {
 }
 
 pub(crate) fn uses_steam_launch_model(appid: u32, pipeline: PipelineId) -> bool {
-    // M12 ALWAYS uses the real Steam model: the game is launched directly
+    // VKD3D ALWAYS uses the real Steam model: the game is launched directly
     // (never steam://run) with the real Steam user files deployed into the
     // game folder (steamclient64.dll, GameOverlayRenderer*, steam_api64) so
     // the game talks to the real Steam client running in the background.
     // `-steam` is passed so UE/Unity titles enable Steam integration.
-    if pipeline == PipelineId::M12 {
+    if pipeline == PipelineId::Vkd3d {
         return true;
     }
     requires_steam_launch_args(appid) && !matches!(pipeline, PipelineId::M13 | PipelineId::D3DMetal)
@@ -258,12 +250,8 @@ pub fn build_custom_launch_recipe(
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let exe_path = match node.id {
         PipelineId::Dxmt
-        | PipelineId::M9
-        | PipelineId::M10
-        | PipelineId::M10_32
-        | PipelineId::M11
-        | PipelineId::M11_32
-        | PipelineId::M12
+        | PipelineId::Dxmt32
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::M32
         | PipelineId::WineBare => Some(match exe_path {
@@ -347,16 +335,16 @@ fn resolve_game_exe_for_pipeline_with_eac(
         }
     }
 
-    // Subnautica 2's M12 route must invoke the real game executable directly.
+    // Subnautica 2's VKD3D route must invoke the real game executable directly.
     // Do not let a protected launcher take precedence over Subnautica2.exe
     // when the EAC toggle is off for this path.
-    if appid == 1962700 && matches!(pipeline, Some(PipelineId::M12)) {
+    if appid == 1962700 && matches!(pipeline, Some(PipelineId::Vkd3d)) {
         if let Some(path) = find_case_insensitive(game_dir, "Subnautica2.exe") {
             return Ok(path);
         }
     }
 
-    if matches!(pipeline, Some(PipelineId::Dxmt | PipelineId::M12 | PipelineId::D3DMetal | PipelineId::M13)) {
+    if matches!(pipeline, Some(PipelineId::Dxmt | PipelineId::Vkd3d | PipelineId::D3DMetal | PipelineId::M13)) {
         for preferred in d3dmetal_direct_exe_names(appid) {
             if let Some(path) = find_case_insensitive(game_dir, preferred) {
                 return Ok(path);
@@ -422,12 +410,10 @@ pub fn selected_deploy_dlls_for_pipeline(
     node: &PipelineNode,
     ms_root: &Path,
 ) -> Vec<RecipeDll> {
-    let d3d9_subpath = if node.id == PipelineId::M9 { m9_d3d9_source_subpath(game_dir, exe_path) } else { "" };
     let target_dirs = deploy_target_dirs_for_pipeline(game_dir, exe_path, node);
 
     node.deploy_dlls
         .iter()
-        .filter(|dll| node.id != PipelineId::M9 || dll.source_subpath == d3d9_subpath)
         .flat_map(|dll| {
             let source_path = ms_root.join(dll.source_subpath).join(dll.filename);
             let dest_name = dll.dest_filename.unwrap_or(dll.filename);
@@ -446,7 +432,7 @@ fn deploy_target_dirs_for_pipeline(game_dir: &Path, exe_path: Option<&Path>, nod
     let primary = exe_path.and_then(Path::parent).unwrap_or(game_dir).to_path_buf();
     let mut dirs = vec![primary.clone()];
 
-    if node.id == PipelineId::M12 {
+    if node.id == PipelineId::Vkd3d {
         let engine_bin = game_dir.join("Engine").join("Binaries").join("Win64");
         if engine_bin.is_dir() && engine_bin != primary {
             dirs.push(engine_bin);
@@ -502,12 +488,8 @@ pub fn diagnose_recipe(recipe: LaunchRecipe) -> LaunchDoctorReport {
     let direct_wine_pipeline = matches!(
         recipe.pipeline,
         PipelineId::Dxmt
-            | PipelineId::M9
-            | PipelineId::M10
-            | PipelineId::M10_32
-            | PipelineId::M11
-            | PipelineId::M11_32
-            | PipelineId::M12
+            | PipelineId::Dxmt32
+            | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::M32
             | PipelineId::FnaArm64
@@ -678,9 +660,7 @@ fn inspect_exe_route_compatibility(
     let api = d3d_api_label(pe.detected_api);
     let detail = format!("{} executable, imports {}", arch, api);
 
-    if !pe.is_64_bit
-        && matches!(recipe.pipeline, PipelineId::Dxmt | PipelineId::M10 | PipelineId::M11 | PipelineId::M12)
-    {
+    if !pe.is_64_bit && matches!(recipe.pipeline, PipelineId::Dxmt | PipelineId::Vkd3d) {
         let message = format!(
             "{} route requires a 64-bit Windows executable, but {} is 32-bit",
             recipe.pipeline_name,
@@ -725,11 +705,10 @@ fn route_api_mismatch(pipeline: PipelineId, api: super::pe::D3dApi) -> bool {
         (pipeline, api),
         (_, super::pe::D3dApi::Unknown)
             | (PipelineId::Dxmt, _)
+            | (PipelineId::Dxmt32, _)
             | (PipelineId::WineBare, _)
-            | (PipelineId::M9, super::pe::D3dApi::D3D9)
-            | (PipelineId::M10, super::pe::D3dApi::D3D10)
-            | (PipelineId::M11, super::pe::D3dApi::D3D11)
-            | (PipelineId::M12, super::pe::D3dApi::D3D12)
+            | (PipelineId::Vkd3d, super::pe::D3dApi::D3D12)
+            | (PipelineId::Vkd3d, super::pe::D3dApi::D3D9)
             | (PipelineId::M13, super::pe::D3dApi::D3D12)
             | (PipelineId::M32, _)
     )
@@ -906,26 +885,6 @@ fn normalized_tokens(name: &str) -> Vec<String> {
         .collect()
 }
 
-fn m9_d3d9_source_subpath(game_dir: &Path, exe_path: Option<&Path>) -> &'static str {
-    let exe = match exe_path {
-        Some(path) => path.to_path_buf(),
-        None => match resolve_game_exe(0, game_dir) {
-            Ok(path) => path,
-            Err(_) => return "lib/wine/x86_64-windows",
-        },
-    };
-
-    if let Ok(data) = std::fs::read(&exe) {
-        if let Some(pe) = super::pe::parse_pe_imports(&data) {
-            if !pe.is_64_bit {
-                return "lib/wine/i386-windows";
-            }
-        }
-    }
-
-    "lib/wine/x86_64-windows"
-}
-
 fn runtime_file_present(path: &Path) -> bool {
     path.metadata().map(|metadata| metadata.is_file() && metadata.len() > 0).unwrap_or(false)
 }
@@ -953,19 +912,30 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
     }
 
     match node.id {
-        PipelineId::M12 => {
-            let unix_dir = ms_root.join("lib").join("dxmt_m12").join("x86_64-unix");
-            for filename in ["winemetal.so", "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"] {
-                let path = unix_dir.join(filename);
+        PipelineId::Vkd3d => {
+            // The VKD3D stack: vkd3d-proton D3D12 pair, DXVK-macOS
+            // d3d11/d3d10/d3d9/dxgi set, and the VKMT MoltenVK ICD. These are
+            // the hash-gated artifacts the installer verifies.
+            for (lane, rel) in [
+                ("vkd3d-proton", "x86_64-windows/d3d12.dll"),
+                ("vkd3d-proton", "x86_64-windows/d3d12core.dll"),
+                ("dxvk", "x86_64-windows/d3d11.dll"),
+                ("dxvk", "x86_64-windows/d3d10core.dll"),
+                ("dxvk", "x86_64-windows/d3d9.dll"),
+                ("dxvk", "x86_64-windows/dxgi.dll"),
+                ("moltenvk-vkmt", "libMoltenVK.dylib"),
+                ("moltenvk-vkmt", "MoltenVK_icd.json"),
+            ] {
+                let path = ms_root.join("lib").join(lane).join(rel);
                 assets.push(RuntimeAsset {
-                    name: format!("lib/dxmt_m12/x86_64-unix/{filename}"),
+                    name: format!("lib/{lane}/{rel}"),
                     present: runtime_file_present(&path),
                     path,
                     required: true,
                 });
             }
         },
-        PipelineId::M11 => {
+        PipelineId::Dxmt => {
             let path = ms_root.join("lib").join("dxmt").join("x86_64-unix").join("winemetal.so");
             assets.push(RuntimeAsset {
                 name: "lib/dxmt/x86_64-unix/winemetal.so".into(),
@@ -974,7 +944,7 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
                 required: true,
             });
         },
-        PipelineId::M11_32 | PipelineId::M10_32 => {
+        PipelineId::Dxmt32 => {
             let path = ms_root.join("lib").join("dxmt").join("i386-unix").join("winemetal.so");
             assets.push(RuntimeAsset {
                 name: "lib/dxmt/i386-unix/winemetal.so".into(),
@@ -988,7 +958,7 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
 
     for deploy in &node.deploy_dlls {
         let path = ms_root.join(deploy.source_subpath).join(deploy.filename);
-        let required = node.id == PipelineId::M12 || !optional_runtime_stub(deploy.filename);
+        let required = node.id == PipelineId::Vkd3d || !optional_runtime_stub(deploy.filename);
         assets.push(RuntimeAsset {
             name: format!("{}/{}", deploy.source_subpath, deploy.filename),
             present: runtime_file_present(&path),
@@ -1048,39 +1018,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn m11_validates_legacy_winemetal_so_without_changing_m12_sidecars() {
+    fn dxmt_validates_legacy_winemetal_so_without_changing_vkd3d_stack_assets() {
         let ms_root = test_dir("runtime-assets-winemetal-lanes");
-        let m11 = super::super::engine::get_pipeline(PipelineId::M11);
-        let m12 = super::super::engine::get_pipeline(PipelineId::M12);
+        let dxmt = super::super::engine::get_pipeline(PipelineId::Dxmt);
+        let vkd3d = super::super::engine::get_pipeline(PipelineId::Vkd3d);
 
-        let m11_assets = runtime_assets_for_node(m11, &ms_root);
-        assert!(m11_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
-        assert!(!m11_assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/x86_64-unix/")));
+        let dxmt_assets = runtime_assets_for_node(dxmt, &ms_root);
+        assert!(dxmt_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        assert!(!dxmt_assets.iter().any(|asset| asset.name.starts_with("lib/vkd3d-proton/")));
 
-        let m12_assets = runtime_assets_for_node(m12, &ms_root);
-        assert!(m12_assets.iter().any(|asset| asset.name == "lib/dxmt_m12/x86_64-unix/winemetal.so"));
-        assert!(m12_assets.iter().any(|asset| asset.name == "lib/dxmt_m12/x86_64-unix/libc++.1.dylib"));
-        assert!(!m12_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        let vkd3d_assets = runtime_assets_for_node(vkd3d, &ms_root);
+        // VKD3D requires the vkd3d-proton D3D12 pair, the DXVK-macOS
+        // d3d11/d3d10/d3d9/dxgi set, and the VKMT MoltenVK ICD — no DXMT surface.
+        for required in [
+            "lib/vkd3d-proton/x86_64-windows/d3d12.dll",
+            "lib/vkd3d-proton/x86_64-windows/d3d12core.dll",
+            "lib/dxvk/x86_64-windows/d3d11.dll",
+            "lib/dxvk/x86_64-windows/d3d10core.dll",
+            "lib/dxvk/x86_64-windows/d3d9.dll",
+            "lib/dxvk/x86_64-windows/dxgi.dll",
+            "lib/moltenvk-vkmt/libMoltenVK.dylib",
+            "lib/moltenvk-vkmt/MoltenVK_icd.json",
+        ] {
+            assert!(vkd3d_assets.iter().any(|asset| asset.name == required), "VKD3D missing asset {required}");
+        }
+        assert!(!vkd3d_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
 
         let _ = std::fs::remove_dir_all(ms_root);
     }
 
     #[test]
-    fn m11_32_and_m10_32_validate_i386_winemetal_so_sidecar() {
+    fn dxmt32_validates_i386_winemetal_so_sidecar() {
         let ms_root = test_dir("runtime-assets-i386-winemetal-lanes");
-        for id in [PipelineId::M11_32, PipelineId::M10_32] {
-            let node = super::super::engine::get_pipeline(id);
-            let assets = runtime_assets_for_node(node, &ms_root);
-            // doctor must surface the i386 unix sidecar as a required runtime asset
-            assert!(
-                assets.iter().any(|asset| asset.name == "lib/dxmt/i386-unix/winemetal.so"),
-                "{:?} missing i386-unix/winemetal.so runtime asset",
-                id
-            );
-            // and must not pull the x86_64-only M11/M12 sidecars
-            assert!(!assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
-            assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/dxmt_m12/")));
-        }
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
+        let assets = runtime_assets_for_node(node, &ms_root);
+        // doctor must surface the i386 unix sidecar as a required runtime asset
+        assert!(
+            assets.iter().any(|asset| asset.name == "lib/dxmt/i386-unix/winemetal.so"),
+            "DXMT(32) missing i386-unix/winemetal.so runtime asset"
+        );
+        // and must not pull the x86_64-only DXMT or VKD3D stack assets
+        assert!(!assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+        assert!(!assets.iter().any(|asset| asset.name.starts_with("lib/vkd3d-proton/")));
         let _ = std::fs::remove_dir_all(ms_root);
     }
 
@@ -1104,30 +1083,28 @@ mod tests {
     }
 
     #[test]
-    fn m11_32_pipeline_resolves_exe_and_deploys_next_to_it() {
-        // Hades ships x64, x64Vk (Vulkan), and x86 builds. The M11(32) route
+    fn dxmt32_pipeline_resolves_exe_and_deploys_next_to_it() {
+        // Hades ships x64, x64Vk (Vulkan), and x86 builds. The DXMT(32) route
         // must (a) accept a resolved 32-bit exe instead of forcing exe_path to
-        // None (the pre-fix `direct_wine_pipeline` match arm omitted M11_32),
-        // and (b) deploy the i386 DXMT DLLs next to that binary in x86/ rather
-        // than the game root. The exe_names rule itself is asserted in
-        // rules::tests::game_recipes_parse_hades_m11_32_exe_override.
-        let dir = test_dir("m11-32-exe-resolve");
+        // None, and (b) deploy the i386 DXMT DLLs next to that binary in x86/
+        // rather than the game root.
+        let dir = test_dir("dxmt-32-exe-resolve");
         std::fs::create_dir_all(dir.join("x86")).expect("create x86 dir");
         std::fs::write(dir.join("x86/Hades.exe"), b"not pe").expect("write x86 exe");
         std::fs::create_dir_all(dir.join("x64Vk")).expect("create x64Vk dir");
         std::fs::write(dir.join("x64Vk/Hades.exe"), b"not pe").expect("write x64vk exe");
 
-        let node = super::super::engine::get_pipeline(PipelineId::M11_32);
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
         let exe = dir.join("x86/Hades.exe");
-        let recipe = build_custom_launch_recipe(1145360, node, &dir, Some(&exe)).expect("build m11(32) recipe");
+        let recipe = build_custom_launch_recipe(1145360, node, &dir, Some(&exe)).expect("build dxmt(32) recipe");
 
-        let resolved = recipe.exe_path.as_ref().expect("m11(32) kept the resolved exe");
-        assert_eq!(resolved, &exe, "M11(32) should retain the provided 32-bit exe");
-        assert!(!recipe.dlls.is_empty(), "M11(32) should deploy route DLLs");
+        let resolved = recipe.exe_path.as_ref().expect("dxmt(32) kept the resolved exe");
+        assert_eq!(resolved, &exe, "DXMT(32) should retain the provided 32-bit exe");
+        assert!(!recipe.dlls.is_empty(), "DXMT(32) should deploy route DLLs");
         for dll in &recipe.dlls {
             assert!(
                 dll.dest_path.starts_with(dir.join("x86")),
-                "M11(32) DLL {} should target x86/, got {}",
+                "DXMT(32) DLL {} should target x86/, got {}",
                 dll.filename,
                 dll.dest_path.display()
             );
@@ -1136,22 +1113,22 @@ mod tests {
     }
 
     #[test]
-    fn m10_32_pipeline_resolves_exe_and_deploys_next_to_it() {
-        let dir = test_dir("m10-32-exe-resolve");
+    fn dxmt32_pipeline_resolves_exe_and_deploys_next_to_game_binary() {
+        let dir = test_dir("dxmt-32-exe-auto-resolve");
         std::fs::create_dir_all(dir.join("bin")).expect("create bin dir");
         std::fs::write(dir.join("bin/game.exe"), b"not pe").expect("write game exe");
 
-        let node = super::super::engine::get_pipeline(PipelineId::M10_32);
-        let recipe = build_custom_launch_recipe(0, node, &dir, None).expect("build m10(32) recipe");
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
+        let recipe = build_custom_launch_recipe(0, node, &dir, None).expect("build dxmt(32) recipe");
 
-        let exe = recipe.exe_path.as_ref().expect("m10(32) resolved an exe");
-        assert!(exe.ends_with("bin/game.exe"), "M10(32) should resolve bin/game.exe, got {}", exe.display());
+        let exe = recipe.exe_path.as_ref().expect("dxmt(32) resolved an exe");
+        assert!(exe.ends_with("bin/game.exe"), "DXMT(32) should resolve bin/game.exe, got {}", exe.display());
         let primary = exe.parent().expect("exe parent");
         for dll in &recipe.dlls {
             assert_eq!(
                 dll.dest_path.parent().map(|p| p == primary).unwrap_or(false),
                 true,
-                "M10(32) DLL {} should target the exe dir, got {}",
+                "DXMT(32) DLL {} should target the exe dir, got {}",
                 dll.filename,
                 dll.dest_path.display()
             );
@@ -1160,38 +1137,38 @@ mod tests {
     }
 
     #[test]
-    fn titan_quest_m11_32_resolves_tq_exe_via_preferred_names() {
+    fn titan_quest_dxmt32_resolves_tq_exe_via_preferred_names() {
         // Titan Quest has no exe_names in its rule; preferred_exe_names(475150)
-        // pins TQ.exe. Under M11(32) the resolver must still pick it (proving
-        // the (32) pipeline reaches resolve_game_exe_for_pipeline at all).
-        let dir = test_dir("tq-m11-32-exe");
+        // pins TQ.exe. Under DXMT(32) the resolver must still pick it (proving
+        // the 32-bit pipeline reaches resolve_game_exe_for_pipeline at all).
+        let dir = test_dir("tq-dxmt-32-exe");
         std::fs::create_dir_all(&dir).expect("create test dir");
         std::fs::write(dir.join("TQ.exe"), b"not pe").expect("write tq exe");
         std::fs::write(dir.join("Setup.exe"), b"not pe").expect("write setup exe");
 
-        let exe = resolve_game_exe_for_pipeline(475150, &dir, Some(PipelineId::M11_32)).expect("resolve tq exe");
+        let exe = resolve_game_exe_for_pipeline(475150, &dir, Some(PipelineId::Dxmt32)).expect("resolve tq exe");
         assert_eq!(exe.file_name().unwrap().to_string_lossy(), "TQ.exe");
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn m11_32_diagnose_reports_exe_check_instead_of_not_required() {
-        let dir = test_dir("m11-32-diagnose");
+    fn dxmt32_diagnose_reports_exe_check_instead_of_not_required() {
+        let dir = test_dir("dxmt-32-diagnose");
         std::fs::create_dir_all(dir.join("x86")).expect("create x86 dir");
         std::fs::write(dir.join("x86/Hades.exe"), b"not pe").expect("write x86 exe");
 
-        let node = super::super::engine::get_pipeline(PipelineId::M11_32);
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt32);
         let recipe = build_custom_launch_recipe(1145360, node, &dir, None).expect("build recipe");
         let report = diagnose_recipe(recipe);
         let exe_check = report.checks.iter().find(|c| c.id == "exe").expect("exe check present");
-        assert!(exe_check.detail != "Not required for this pipeline", "M11(32) must not skip the exe check");
+        assert!(exe_check.detail != "Not required for this pipeline", "DXMT(32) must not skip the exe check");
         let route_check = report.checks.iter().find(|c| c.id == "exe_route");
-        assert!(route_check.is_some(), "M11(32) must run route compatibility inspection");
+        assert!(route_check.is_some(), "DXMT(32) must run route compatibility inspection");
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn m12_uses_direct_game_exe_when_eac_is_off() {
+    fn vkd3d_uses_direct_game_exe_when_eac_is_off() {
         let dir = test_dir("spg-prepared");
         let game_dir = dir.join("Game");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
@@ -1200,7 +1177,7 @@ mod tests {
         std::fs::write(game_dir.join("eldenring.exe"), b"REAL_GAME").expect("write real exe");
 
         let selected =
-            resolve_game_exe_for_pipeline(1245620, &dir, Some(PipelineId::M12)).expect("select real game exe");
+            resolve_game_exe_for_pipeline(1245620, &dir, Some(PipelineId::Vkd3d)).expect("select real game exe");
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("eldenring.exe"));
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"REAL_GAME_COPY");
@@ -1222,7 +1199,7 @@ mod tests {
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("armoredcore6.exe"));
 
-        let protected = resolve_game_exe_for_pipeline_with_eac(1888160, &dir, Some(PipelineId::M12), true)
+        let protected = resolve_game_exe_for_pipeline_with_eac(1888160, &dir, Some(PipelineId::Vkd3d), true)
             .expect("select AC6 protected launcher");
         assert_eq!(protected.file_name().and_then(|name| name.to_str()), Some("start_protected_game.exe"));
         assert_eq!(std::fs::read(game_dir.join("start_protected_game.exe")).unwrap(), b"PROTECTED_STUB");
@@ -1340,38 +1317,39 @@ mod tests {
     }
 
     #[test]
-    fn subnautica_m12_preserves_startup_movie_handoff() {
-        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
+    fn subnautica_vkd3d_preserves_startup_movie_handoff() {
+        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-NoStartupMovies")));
         assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-NOSPLASH")));
     }
 
     #[test]
-    fn subnautica_m12_uses_steam_arg_on_vkd3d_shape() {
-        // Subnautica 2 is on the vkd3d-proton M12 shape now (no DXMT), so it
-        // gets the global M12 real-Steam model: -steam is passed.
-        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
+    fn subnautica_vkd3d_uses_steam_arg_on_vkd3d_shape() {
+        // Subnautica 2 is on the vkd3d-proton VKD3D shape now (no DXMT), so it
+        // gets the global VKD3D real-Steam model: -steam is passed.
+        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
     }
 
     #[test]
-    fn subnautica_m12_prefers_direct_subnautica2_exe() {
+    fn subnautica_vkd3d_prefers_direct_subnautica2_exe() {
         let dir = test_dir("subnautica2-direct-exe");
         std::fs::create_dir_all(&dir).expect("create test dir");
         std::fs::write(dir.join("start_protected_game.exe"), b"not pe").expect("write protected launcher");
         std::fs::write(dir.join("Subnautica2.exe"), b"not pe").expect("write direct exe");
 
-        let selected = resolve_game_exe_for_pipeline(1962700, &dir, Some(PipelineId::M12)).expect("select direct exe");
+        let selected =
+            resolve_game_exe_for_pipeline(1962700, &dir, Some(PipelineId::Vkd3d)).expect("select direct exe");
 
         assert_eq!(selected.file_name().and_then(|name| name.to_str()), Some("Subnautica2.exe"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn subnautica_m12_keeps_startup_pso_cache_for_build_window() {
-        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
+    fn subnautica_vkd3d_keeps_startup_pso_cache_for_build_window() {
+        let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-NoShaderPipelineCache")));
         assert!(!args.iter().any(|arg| arg.contains("r.ShaderPipelineCache.Enabled=0")));
@@ -1381,9 +1359,9 @@ mod tests {
     }
 
     #[test]
-    fn dual_renderer_half_working_titles_get_dx11_args_on_m11() {
+    fn dual_renderer_half_working_titles_get_dx11_args_on_dxmt() {
         for appid in [1623730, 2358720] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M11));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Dxmt));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dx11")), "appid {appid}");
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d11")), "appid {appid}");
@@ -1391,9 +1369,9 @@ mod tests {
     }
 
     #[test]
-    fn m12_half_working_titles_get_explicit_dx12_args() {
+    fn vkd3d_half_working_titles_get_explicit_dx12_args() {
         for appid in [1196590, 1623730, 1928870, 2358720, 2456740] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M12));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dx12")), "appid {appid}");
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d12")), "appid {appid}");
@@ -1402,7 +1380,7 @@ mod tests {
 
     #[test]
     fn source_style_titles_get_steam_secure_launch_args() {
-        for pipeline in [PipelineId::M11, PipelineId::M12] {
+        for pipeline in [PipelineId::Dxmt, PipelineId::Vkd3d] {
             for appid in [440, 730, 252490, 271590, 284160, 292030, 1172380, 3241660] {
                 let args = effective_launch_args(appid, super::super::engine::get_pipeline(pipeline));
 
@@ -1429,8 +1407,8 @@ mod tests {
     }
 
     #[test]
-    fn party_animals_m11_and_m12_use_steam_without_secure() {
-        for pipeline in [PipelineId::M11, PipelineId::M12] {
+    fn party_animals_dxmt_and_vkd3d_use_steam_without_secure() {
+        for pipeline in [PipelineId::Dxmt, PipelineId::Vkd3d] {
             let args = effective_launch_args(1260320, super::super::engine::get_pipeline(pipeline));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")), "pipeline {pipeline:?}");
@@ -1439,24 +1417,24 @@ mod tests {
     }
 
     #[test]
-    fn every_m12_game_gets_steam_arg_globally() {
-        // The real Steam model is GLOBAL for M12 (not an appid allowlist):
-        // any game switched to m12 launches directly with -steam and the real
+    fn every_vkd3d_game_gets_steam_arg_globally() {
+        // The real Steam model is GLOBAL for VKD3D (not an appid allowlist):
+        // any game switched to vkd3d launches directly with -steam and the real
         // Steam user files deployed. Sample a mix of games — Control (UE),
         // MECCA CHAMELEON (UE5/EOS), PEAK — none of which are in the legacy
         // requires_steam_launch_args allowlist.
         for appid in [870780u32, 4704690, 1583230] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M12));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
             assert!(
                 args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")),
-                "appid {appid}: M12 must pass -steam globally"
+                "appid {appid}: Vkd3d must pass -steam globally"
             );
         }
     }
 
     #[test]
-    fn portal_2_m9_uses_source_defaults_without_secure() {
-        let args = effective_launch_args(620, super::super::engine::get_pipeline(PipelineId::M9));
+    fn portal_2_vkd3d_uses_source_defaults_without_secure() {
+        let args = effective_launch_args(620, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")));
@@ -1466,8 +1444,8 @@ mod tests {
     }
 
     #[test]
-    fn garrys_mod_m9_uses_source_defaults_without_secure() {
-        let args = effective_launch_args(4000, super::super::engine::get_pipeline(PipelineId::M9));
+    fn garrys_mod_vkd3d_uses_source_defaults_without_secure() {
+        let args = effective_launch_args(4000, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
         assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")));
@@ -1525,7 +1503,7 @@ mod tests {
             (949230, vec!["-force-vulkan"]),
             (1174180, vec!["-api", "Vulkan"]),
         ] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M11));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Dxmt));
 
             for expected in expected_args {
                 assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case(expected)), "appid {appid} missing {expected}");
@@ -1541,7 +1519,7 @@ mod tests {
     #[test]
     fn database_source_titles_get_default_dxlevel_args() {
         for appid in [400, 620] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M9));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")), "appid {appid}");
             assert!(args.iter().any(|arg| arg == "90"), "appid {appid}");
@@ -1549,7 +1527,7 @@ mod tests {
         }
 
         for appid in [240, 500, 550] {
-            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::M9));
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
 
             assert!(args.iter().any(|arg| arg.eq_ignore_ascii_case("-dxlevel")), "appid {appid}");
             assert!(args.iter().any(|arg| arg == "90"), "appid {appid}");
@@ -1559,20 +1537,20 @@ mod tests {
 
     #[test]
     fn database_pipeline_specific_renderer_args_stay_on_matching_routes() {
-        let bioshock_m9 = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::M9));
-        assert!(bioshock_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
-        let bioshock_m10 = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::M10));
-        assert!(!bioshock_m10.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
+        let bioshock_vkd3d = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::Vkd3d));
+        assert!(bioshock_vkd3d.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
+        let bioshock_dxmt = effective_launch_args(7670, super::super::engine::get_pipeline(PipelineId::Dxmt));
+        assert!(!bioshock_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-dx9")));
 
-        let gta_iv_m10 = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::M10));
-        assert!(gta_iv_m10.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
-        let gta_iv_m9 = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::M9));
-        assert!(!gta_iv_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
+        let gta_iv_dxmt = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::Dxmt));
+        assert!(gta_iv_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
+        let gta_iv_vkd3d = effective_launch_args(12210, super::super::engine::get_pipeline(PipelineId::Vkd3d));
+        assert!(!gta_iv_vkd3d.iter().any(|arg| arg.eq_ignore_ascii_case("-d3d10")));
 
-        let crysis_m10 = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::M10));
-        assert!(crysis_m10.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
-        let crysis_m9 = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::M9));
-        assert!(!crysis_m9.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
+        let crysis_dxmt = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::Dxmt));
+        assert!(crysis_dxmt.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
+        let crysis_vkd3d = effective_launch_args(17300, super::super::engine::get_pipeline(PipelineId::Vkd3d));
+        assert!(!crysis_vkd3d.iter().any(|arg| arg.eq_ignore_ascii_case("-dx10")));
     }
 
     #[test]
@@ -1587,7 +1565,7 @@ mod tests {
         let dlls = selected_deploy_dlls_for_pipeline(
             &game_dir,
             Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M11),
+            super::super::engine::get_pipeline(PipelineId::Dxmt),
             &runtime,
         );
 
@@ -1597,11 +1575,11 @@ mod tests {
     }
 
     #[test]
-    fn m12_deploys_dlls_to_unreal_engine_binary_dir_too() {
-        let game_dir = test_dir("m12-ue-dll-dest");
+    fn vkd3d_deploys_dlls_to_unreal_engine_binary_dir_too() {
+        let game_dir = test_dir("vkd3d-ue-dll-dest");
         let exe_dir = game_dir.join("Subnautica2").join("Binaries").join("Win64");
         let engine_dir = game_dir.join("Engine").join("Binaries").join("Win64");
-        let runtime = test_dir("runtime-m12-ue");
+        let runtime = test_dir("runtime-vkd3d-ue");
         std::fs::create_dir_all(&exe_dir).expect("create exe dir");
         std::fs::create_dir_all(&engine_dir).expect("create engine dir");
         let exe = exe_dir.join("Subnautica2-Win64-Shipping.exe");
@@ -1610,7 +1588,7 @@ mod tests {
         let dlls = selected_deploy_dlls_for_pipeline(
             &game_dir,
             Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M12),
+            super::super::engine::get_pipeline(PipelineId::Vkd3d),
             &runtime,
         );
 
@@ -1626,52 +1604,6 @@ mod tests {
     }
 
     #[test]
-    fn m9_selects_i386_d3d9_and_dxgi_for_32_bit_exes() {
-        let game_dir = test_dir("m9-32");
-        let runtime = test_dir("runtime-32");
-        std::fs::create_dir_all(&game_dir).expect("create test game dir");
-        let exe = game_dir.join("portal2.exe");
-        write_test_pe(&exe, 0x014c, 0x10b);
-
-        let selected = selected_deploy_dlls_for_pipeline(
-            &game_dir,
-            Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M9),
-            &runtime,
-        );
-        let sources: std::collections::HashSet<_> = selected.iter().map(|dll| dll.source_subpath.as_str()).collect();
-        let filenames: std::collections::HashSet<_> = selected.iter().map(|dll| dll.filename.as_str()).collect();
-
-        assert_eq!(sources, std::collections::HashSet::from(["lib/wine/i386-windows"]));
-        assert_eq!(filenames, std::collections::HashSet::from(["d3d9.dll", "dxgi.dll"]));
-        assert_eq!(selected.len(), 2);
-        let _ = std::fs::remove_dir_all(game_dir);
-        let _ = std::fs::remove_dir_all(runtime);
-    }
-
-    #[test]
-    fn m9_selects_x86_64_d3d9_for_64_bit_exes() {
-        let game_dir = test_dir("m9-64");
-        let runtime = test_dir("runtime-64");
-        std::fs::create_dir_all(&game_dir).expect("create test game dir");
-        let exe = game_dir.join("valheim.exe");
-        write_test_pe(&exe, 0x8664, 0x20b);
-
-        let selected = selected_deploy_dlls_for_pipeline(
-            &game_dir,
-            Some(&exe),
-            super::super::engine::get_pipeline(PipelineId::M9),
-            &runtime,
-        );
-        let sources: std::collections::HashSet<_> = selected.iter().map(|dll| dll.source_subpath.as_str()).collect();
-
-        assert_eq!(sources, std::collections::HashSet::from(["lib/wine/x86_64-windows"]));
-        assert_eq!(selected.len(), 1);
-        let _ = std::fs::remove_dir_all(game_dir);
-        let _ = std::fs::remove_dir_all(runtime);
-    }
-
-    #[test]
     fn doctor_blocks_missing_runtime_and_dll_sources() {
         let game_dir = test_dir("doctor-blocks");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
@@ -1680,8 +1612,8 @@ mod tests {
 
         let report = diagnose_recipe(LaunchRecipe {
             appid: 1,
-            pipeline: PipelineId::M11,
-            pipeline_name: "M11".into(),
+            pipeline: PipelineId::Dxmt,
+            pipeline_name: "DXMT".into(),
             backend: "dxmt".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe),
@@ -1738,15 +1670,15 @@ mod tests {
 
     #[test]
     fn doctor_blocks_32_bit_exe_on_64_bit_dxmt_route() {
-        let game_dir = test_dir("doctor-32-on-m11");
+        let game_dir = test_dir("doctor-32-on-dxmt");
         std::fs::create_dir_all(&game_dir).expect("create game dir");
         let exe = game_dir.join("LegacyGame.exe");
         write_test_pe(&exe, 0x014c, 0x10b);
 
         let report = diagnose_recipe(LaunchRecipe {
             appid: 1,
-            pipeline: PipelineId::M11,
-            pipeline_name: "M11".into(),
+            pipeline: PipelineId::Dxmt,
+            pipeline_name: "DXMT".into(),
             backend: "dxmt".into(),
             game_dir: Some(game_dir.clone()),
             exe_path: Some(exe),
@@ -1794,7 +1726,7 @@ mod tests {
 
     #[test]
     fn doctor_request_reports_recipe_build_failures_as_blockers() {
-        let report = diagnose_launch_request(4_000_000_000, super::super::engine::get_pipeline(PipelineId::M11));
+        let report = diagnose_launch_request(4_000_000_000, super::super::engine::get_pipeline(PipelineId::Dxmt));
 
         assert!(!report.ready);
         assert!(report.summary.contains("Blocked"));

@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "child_process";
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, shell } from "electron";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -141,9 +141,9 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
         cover_url: "",
         header_url: "",
         size_bytes: 48791234560,
-        launch_method: "m12",
-        launch_method_name: "M12",
-        preferred_pipeline: "m12",
+        launch_method: "vkd3d",
+        launch_method_name: "VKD3D",
+        preferred_pipeline: "vkd3d",
       },
       {
         appid: 3527290,
@@ -177,9 +177,9 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
         cover_url: "",
         header_url: "",
         size_bytes: 15032385536,
-        launch_method: "m12",
-        launch_method_name: "M12",
-        preferred_pipeline: "m12",
+        launch_method: "vkd3d",
+        launch_method_name: "VKD3D",
+        preferred_pipeline: "vkd3d",
       },
     ];
     return { ok: true, total: games.length, installed_count: 3, games };
@@ -195,7 +195,7 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
     return { ok: true, new_appids: [] };
   }
   if (url.startsWith("/mtsp/pipelines")) {
-    return { ok: true, id: "m12", name: "M12", preferred: "m12", pipelines: [] };
+    return { ok: true, id: "vkd3d", name: "VKD3D", preferred: "vkd3d", pipelines: [] };
   }
   if (method === "POST") {
     return { ok: true };
@@ -567,32 +567,91 @@ function registerProcessManagerShortcut(): void {
   }
 }
 
+// Cmd+Q can reach the stop handler twice for a single keypress: once via the
+// application menu (app focused) and once via the global shortcut (game
+// window focused). The dedupe window keeps one press from running the stop
+// path, then immediately running it again and quitting because no game is
+// registered anymore.
+let lastGameStopShortcutAt = 0;
+
 async function stopActiveGameFromShortcut(): Promise<void> {
-  const result = (await requestBackend("POST", "/games/stop-active", undefined, 15000, "main")) as {
+  const now = Date.now();
+  if (now - lastGameStopShortcutAt < 300) return;
+  lastGameStopShortcutAt = now;
+  console.log(`MetalSharp game-stop shortcut fired (${now}ms)`);
+
+  // A frozen game can outlive its registered PID tree, and registration can
+  // be lost across backend restarts — so Cmd+Q always nukes the whole Wine
+  // stack (wineserver owns the session; killing it takes the stuck game with
+  // it). If no Wine processes were running at all, this is a plain quit.
+  const evac = (await requestBackend("POST", "/wine/evacuate", undefined, 15000, "main")) as {
     ok?: boolean;
-    active?: boolean;
-    stopped?: Array<{ appid?: number }>;
+    appids?: number[];
+    killed_any?: boolean;
   };
-  if (!result?.active) {
+  const appids = (evac?.appids ?? []).filter((appid): appid is number => typeof appid === "number");
+
+  if (!evac?.killed_any && appids.length === 0) {
     app.quit();
     return;
   }
 
-  const appids = (result.stopped ?? [])
-    .map((game) => game.appid)
-    .filter((appid): appid is number => typeof appid === "number");
   if (appids.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("game:stopped", appids);
   }
-  if (!result.ok) console.warn("MetalSharp Cmd+Q could not stop every active game");
 }
 
 function registerGameStopShortcut(): void {
-  const accelerator = process.platform === "darwin" ? "Command+Q" : "CommandOrControl+Q";
-  const ok = globalShortcut.register(accelerator, () => void stopActiveGameFromShortcut());
-  if (!ok && !globalShortcut.isRegistered(accelerator)) {
-    console.warn(`MetalSharp game-stop shortcut was not registered: ${accelerator}`);
+  // Cmd+Q is captured by the app menu while the app is focused, and by the
+  // global shortcut while it is not — but when a game window owns focus,
+  // macOS hands the quit event to the frontmost app (the frozen game) and
+  // the Cmd+Q global hotkey never fires. Cmd+Option+Q is a reliably
+  // capturable global combo for that case: it force-kills the Wine stack
+  // even when the game has focus.
+  const accelerators = process.platform === "darwin" ? ["Command+Q", "Command+Option+Q"] : ["CommandOrControl+Q"];
+  for (const accelerator of accelerators) {
+    const ok = globalShortcut.register(accelerator, () => void stopActiveGameFromShortcut());
+    if (!ok && !globalShortcut.isRegistered(accelerator)) {
+      console.warn(`MetalSharp game-stop shortcut was not registered: ${accelerator}`);
+    }
   }
+}
+
+// Replace the default menu: its Quit role (Cmd+Q) quit the app directly
+// whenever the app was focused, so the game-stop path never ran. The Quit
+// item now stops active games first (emulating the Stop button) and only
+// quits when nothing is running; the global shortcut covers Cmd+Q while a
+// game window has focus.
+function installApplicationMenu(): void {
+  const isMac = process.platform === "darwin";
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              {
+                label: "Quit MetalSharp",
+                accelerator: "Command+Q",
+                click: () => void stopActiveGameFromShortcut(),
+              },
+            ] as Electron.MenuItemConstructorOptions[],
+          },
+        ]
+      : []),
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 async function checkNeedsMigration(): Promise<boolean> {
@@ -685,6 +744,7 @@ async function cleanup() {
 let migrationMode = false;
 
 app.whenReady().then(async () => {
+  installApplicationMenu();
   if (isProcessManagerOnlyRuntime()) {
     process.env.METALSHARP_DEV = "1";
     migrationMode = false;
@@ -1325,6 +1385,19 @@ function registerIpc() {
     }
 
     app.quit();
+  });
+
+  ipcMain.handle("shell:open-external", async (_e, url: string) => {
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        return { ok: false, error: "Refusing to open a non-http(s) URL." };
+      }
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
   });
 
   ipcMain.handle("gog:oauth-login", async (_e, authUrl: string) => {

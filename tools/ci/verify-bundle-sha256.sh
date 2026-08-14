@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verify a downloaded bundle archive against the pinned SHA-256 manifest used
-# by the M12 gate (tools/ci/m12-bundle-hashes.tsv). Exits non-zero when the
+# by the VKD3D gate (tools/ci/vkd3d-bundle-hashes.tsv). Exits non-zero when the
 # archive is missing, has no pinned digest, or does not match it.
 set -euo pipefail
 

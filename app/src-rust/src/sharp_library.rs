@@ -1652,7 +1652,7 @@ pub fn set_launch_args(id: &str, args: Vec<String>) -> Result<(), Box<dyn std::e
 }
 
 pub fn set_engine(id: &str, engine: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let valid = ["auto", "wine_bare", "m64", "m9", "m10", "m11", "m12", "m32", "d3d9", "d3d10", "d3d11", "d3d12"];
+    let valid = ["auto", "wine_bare", "m64", "dxmt", "dxmt_32", "vkd3d", "m32", "d3d9", "d3d10", "d3d11", "d3d12"];
     if engine != "auto" && crate::mtsp::engine::PipelineId::from_str_flexible(engine).is_none() {
         return Err(format!("Unknown engine: {}. Valid: {}", engine, valid.join(", ")).into());
     }
@@ -1795,12 +1795,8 @@ fn normalize_engine(engine: &str) -> String {
 fn pipeline_engine_id(pipeline: crate::mtsp::engine::PipelineId) -> &'static str {
     match pipeline {
         crate::mtsp::engine::PipelineId::Dxmt => "dxmt",
-        crate::mtsp::engine::PipelineId::M9 => "m9",
-        crate::mtsp::engine::PipelineId::M10 => "m10",
-        crate::mtsp::engine::PipelineId::M10_32 => "m10_32",
-        crate::mtsp::engine::PipelineId::M11 => "m11",
-        crate::mtsp::engine::PipelineId::M11_32 => "m11_32",
-        crate::mtsp::engine::PipelineId::M12 => "m12",
+        crate::mtsp::engine::PipelineId::Dxmt32 => "dxmt_32",
+        crate::mtsp::engine::PipelineId::Vkd3d => "vkd3d",
         crate::mtsp::engine::PipelineId::M13 => "m13",
         crate::mtsp::engine::PipelineId::M32 => "m32",
         crate::mtsp::engine::PipelineId::WineBare => "wine_bare",
@@ -1828,14 +1824,14 @@ fn resolve_sharp_pipeline(engine: &str, exe_path: &Path) -> crate::mtsp::engine:
     };
 
     if !pe.is_64_bit {
-        return crate::mtsp::engine::PipelineId::M9;
+        return crate::mtsp::engine::PipelineId::WineBare;
     }
 
     match pe.detected_api {
-        crate::mtsp::pe::D3dApi::D3D12 => crate::mtsp::engine::PipelineId::M12,
-        crate::mtsp::pe::D3dApi::D3D11 => crate::mtsp::engine::PipelineId::M11,
-        crate::mtsp::pe::D3dApi::D3D10 => crate::mtsp::engine::PipelineId::M10,
-        crate::mtsp::pe::D3dApi::D3D9 => crate::mtsp::engine::PipelineId::M9,
+        crate::mtsp::pe::D3dApi::D3D12 => crate::mtsp::engine::PipelineId::Vkd3d,
+        crate::mtsp::pe::D3dApi::D3D11 => crate::mtsp::engine::PipelineId::Dxmt,
+        crate::mtsp::pe::D3dApi::D3D10 => crate::mtsp::engine::PipelineId::Dxmt,
+        crate::mtsp::pe::D3dApi::D3D9 => crate::mtsp::engine::PipelineId::Vkd3d,
         crate::mtsp::pe::D3dApi::Unknown => crate::mtsp::engine::PipelineId::WineBare,
     }
 }
@@ -2558,7 +2554,7 @@ mod tests {
             cover: Some("cover.png".into()),
             cover_position_x: 34,
             cover_position_y: 67,
-            engine: "m11".into(),
+            engine: "dxmt".into(),
             launch_args: vec!["-dx11".into()],
             user_launch_args: vec!["-custom".into()],
             bottle_id: None,
@@ -2586,7 +2582,7 @@ mod tests {
         assert_eq!(apps[0].cover.as_deref(), Some("cover.png"));
         assert_eq!(apps[0].cover_position_x, 34);
         assert_eq!(apps[0].cover_position_y, 67);
-        assert_eq!(apps[0].engine, "m11");
+        assert_eq!(apps[0].engine, "dxmt");
         assert_eq!(apps[0].launch_args, vec!["-d3d12"]);
         assert_eq!(apps[0].user_launch_args, vec!["-custom"]);
     }
@@ -2823,13 +2819,13 @@ mod tests {
     }
 
     #[test]
-    fn generic_pe32_installers_use_m9_pipeline() {
+    fn generic_pe32_installers_use_plain_wine_pipeline() {
         let dir = test_dir("installer-pe32");
         fs::create_dir_all(&dir).expect("create test dir");
         let exe = dir.join("DemoInstaller.exe");
         write_test_pe(&exe, 0x014c, 0x10b);
 
-        assert_eq!(installer_pipeline(&exe), crate::mtsp::engine::PipelineId::M9);
+        assert_eq!(installer_pipeline(&exe), crate::mtsp::engine::PipelineId::WineBare);
         let _ = fs::remove_dir_all(dir);
     }
 

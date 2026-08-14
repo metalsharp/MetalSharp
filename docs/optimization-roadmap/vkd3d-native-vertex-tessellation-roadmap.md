@@ -1,27 +1,27 @@
-# M12 Native Vertex/Tessellation GPU Roadmap
+# VKD3D Native Vertex/Tessellation GPU Roadmap
 **Updated:** 2026-08-05
 
-> **Status note (2026-08-05):** M12's default backend is now **vkd3d-proton**
+> **Status note (2026-08-05):** VKD3D's default backend is now **vkd3d-proton**
 > (D3D12 → Vulkan → VKMT MoltenVK → Metal, PR #377). The DXMT-internal
-> vertex/tessellation path this roadmap describes ("inside DXMT/M12") now
-> applies only to the `m12Backend=dxmt` **rollback** lane — the default
+> vertex/tessellation path this roadmap describes ("inside DXMT/VKD3D") now
+> applies only to the `vkd3dBackend=dxmt` **rollback** lane — the default
 > vkd3d-proton route has no in-house IA/tessellation code (vkd3d-proton + DXVK
 > handle it). Treat all `vendor/dxmt/...` implementation points below as
 > rollback-lane work unless the roadmap is explicitly re-scoped to the
 > vkd3d-proton stack.
 
 Status: final source-backed roadmap for PR #230 follow-up work
-Branch/worktree: `feat/m12-fresh-proof-game-harness` at `/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-m12-fresh-proof-pr`
+Branch/worktree: `feat/vkd3d-fresh-proof-game-harness` at `/Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-vkd3d-fresh-proof-pr`
 Primary post-crash evidence root: `/tmp/pr230-elden-postcrash-persistent-evidence-20260629-002331`
 
 ## Mission
 
-Build **M12 Native Vertex/Tessellation Path** (`M12-NVTP`): a D3D12-specific GPU path inside DXMT/M12 that resolves input-assembler, vertex-buffer, index-buffer, patch/tessellation, compute, resource-lifetime, and command-buffer semantics explicitly before any future commercial game launch.
+Build **VKD3D Native Vertex/Tessellation Path** (`VKD3D-NVTP`): a D3D12-specific GPU path inside DXMT/VKD3D that resolves input-assembler, vertex-buffer, index-buffer, patch/tessellation, compute, resource-lifetime, and command-buffer semantics explicitly before any future commercial game launch.
 
 This roadmap is intentionally **anti-fallback**:
 
 - Existing `D3D12 tessellation fallback` is a defect signal, not a success path.
-- Existing `M12 skipping unsafe DrawIndexedInstanced reason=vertex_range_oob` is a defect signal, not a visual workaround.
+- Existing `VKD3D skipping unsafe DrawIndexedInstanced reason=vertex_range_oob` is a defect signal, not a visual workaround.
 - CPU-only geometry/tessellation fallback is forbidden for correctness acceptance. It can create the same class of backpressure/resource lifetime failures that this roadmap is designed to remove, and the project is treating the DXMT maintainer warning about CPU fallback pressure as a hard design constraint.
 - Unsupported native GPU shapes must fail closed with a named diagnostic and artifact, not render through a degraded path.
 
@@ -29,7 +29,7 @@ Working implementation names:
 
 - `d3d12_native_vertex_path.*` — D3D12 IA/VB/IB/draw-state resolution, validation, Metal binding, and draw breadcrumbs.
 - `d3d12_native_tessellation_path.*` — D3D12 HS/DS patch topology, tessellation-factor generation, and Metal patch draw encoding.
-- `m12_native_vertex_tessellation` — shared counters, proof gates, logs, and mini-game/probe outputs.
+- `vkd3d_native_vertex_tessellation` — shared counters, proof gates, logs, and mini-game/probe outputs.
 
 D3D12-native ownership rule:
 
@@ -40,9 +40,9 @@ D3D12-native ownership rule:
 
 No live Elden launch is allowed until all local gates below pass under the PR runtime/backend:
 
-- `vertex_range_oob=0` for all valid `m12_fresh_game.exe` proof lanes.
+- `vertex_range_oob=0` for all valid `vkd3d_fresh_game.exe` proof lanes.
 - `D3D12 tessellation fallback=0` in all proof and prelaunch logs.
-- `M12 compute encoder encode failed=0` under compute stress.
+- `VKD3D compute encoder encode failed=0` under compute stress.
 - `MTLCommandBufferErrorDomain=0` under diagnostic command-buffer stress.
 - Bounded in-flight command buffers and drawable acquisition; no unbounded `nextDrawable`/WindowServer stall.
 - Exact Elden shader replay remains clean and active `.msl.err.txt` freshness checks remain zero.
@@ -70,10 +70,10 @@ Active final-run runtime issues:
 
 | Issue | Evidence | What it indicates |
 |---|---:|---|
-| Tessellation path is not native | `238` warnings shaped as `D3D12 tessellation fallback: compiling VS/PS-only render PSO ... topology=4` | HS/DS shaders and patch topology are reaching M12, but the current path compiles a VS/PS-only render PSO. Character/body geometry can plausibly fail when patch/tessellated geometry is discarded, flattened, or approximated incorrectly. |
-| Indexed draws skipped for vertex OOB | `256` warnings shaped as `M12 skipping unsafe DrawIndexedInstanced reason=vertex_range_oob` | Current IA/VB/IB range resolution believes draw parameters would read beyond bound vertex buffers. This directly matches missing geometry. |
-| Compute encode failure | `1` line: `M12 compute encoder encode failed label=Dispatch pso=0x5312eaa0 dispatch=1x1x16` | Likely invalid resource/argument binding, poisoned encoder state, incomplete compute root/descriptor binding, or command-buffer resource lifetime/residency issue. |
-| Present path alive | `M12 present ... classification=drawn`, final present count around `960` | This was not a pure no-present failure; the renderer stayed alive while geometry/command state degraded. |
+| Tessellation path is not native | `238` warnings shaped as `D3D12 tessellation fallback: compiling VS/PS-only render PSO ... topology=4` | HS/DS shaders and patch topology are reaching VKD3D, but the current path compiles a VS/PS-only render PSO. Character/body geometry can plausibly fail when patch/tessellated geometry is discarded, flattened, or approximated incorrectly. |
+| Indexed draws skipped for vertex OOB | `256` warnings shaped as `VKD3D skipping unsafe DrawIndexedInstanced reason=vertex_range_oob` | Current IA/VB/IB range resolution believes draw parameters would read beyond bound vertex buffers. This directly matches missing geometry. |
+| Compute encode failure | `1` line: `VKD3D compute encoder encode failed label=Dispatch pso=0x5312eaa0 dispatch=1x1x16` | Likely invalid resource/argument binding, poisoned encoder state, incomplete compute root/descriptor binding, or command-buffer resource lifetime/residency issue. |
+| Present path alive | `VKD3D present ... classification=drawn`, final present count around `960` | This was not a pure no-present failure; the renderer stayed alive while geometry/command state degraded. |
 | Shader compile path clean in final epoch | `shader_compile_fail=0`, `pso_compile_failed=0`, `CreateGraphicsPipelineState_failed=0`, `post_final_launch_msl_err_count=0` | Latest failure must be investigated as runtime draw/resource/command correctness, not only shader syntax compilation. |
 | Historical/stale MSL sidecars still present | `total_msl_err_count=15`, `post_final_launch_msl_err_count=0` | Prior shader bugs were real and fixed/replaced by newer `.msl`; sidecars must stay tracked as historical hazards but not confused with active final-run errors. |
 | WindowServer/system stall and reboot | WindowServer ping timeouts before reboot; `kern.boottime Mon Jun 29 00:15:02`; watchdog/panic-flow boot messages | The run destabilized the graphics/session environment. Do not overclaim a direct preserved AGX panic, but treat watchdog/reboot evidence as a hard launch-safety blocker. |
@@ -81,7 +81,7 @@ Active final-run runtime issues:
 Representative `vertex_range_oob` line:
 
 ```text
-warn:  M12 skipping unsafe DrawIndexedInstanced reason=vertex_range_oob pso=0x635227d0 vs=0a9d2ab3d81f9b7d ps=cfee6b49d62139d5 ... gpu=0x10063560000 size=10944 stride=12 required=6708 available=912 elems=1716 inst=1 start=4992 base=0 start_inst=0 indexed=1
+warn:  VKD3D skipping unsafe DrawIndexedInstanced reason=vertex_range_oob pso=0x635227d0 vs=0a9d2ab3d81f9b7d ps=cfee6b49d62139d5 ... gpu=0x10063560000 size=10944 stride=12 required=6708 available=912 elems=1716 inst=1 start=4992 base=0 start_inst=0 indexed=1
 ```
 
 Representative tessellation warning:
@@ -100,7 +100,7 @@ These shader hazards remain regression gates, but they are not the active final-
 
 ## Source-backed technical constraints
 
-### D3D12 IA and draw semantics that M12-NVTP must preserve
+### D3D12 IA and draw semantics that VKD3D-NVTP must preserve
 
 - `IASetVertexBuffers(StartSlot, NumViews, pViews)` binds vertex-buffer views starting at a zero-based slot. The native path must preserve D3D12 input slots instead of compacting them into an ambiguous runtime slot order.
 - `D3D12_VERTEX_BUFFER_VIEW` consists of `BufferLocation`, `SizeInBytes`, and `StrideInBytes`; stride is part of draw-time IA state.
@@ -117,7 +117,7 @@ These shader hazards remain regression gates, but they are not the active final-
 - `D3D12_RESOURCE_STATE_INDEX_BUFFER` is required when accessed by the 3D pipeline as an index buffer.
 - `D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT` is required for ExecuteIndirect argument buffers.
 - UAV writes feeding draw/dispatch arguments or vertex/index data need explicit barrier ordering before later reads.
-- M12 should keep a lightweight state ledger for buffers used as VB, IB, indirect arguments, root descriptors, and argument buffers. It does not need to become the Windows debug layer to start, but the proof harness must catch obvious missing transitions.
+- VKD3D should keep a lightweight state ledger for buffers used as VB, IB, indirect arguments, root descriptors, and argument buffers. It does not need to become the Windows debug layer to start, but the proof harness must catch obvious missing transitions.
 
 ### Metal draw, tessellation, and lifetime constraints
 
@@ -126,16 +126,16 @@ These shader hazards remain regression gates, but they are not the active final-
 - Metal `indexBufferOffset` must be a byte offset and a multiple of the index size.
 - Metal render pipelines include tessellation properties: `tessellationPartitionMode`, `maxTessellationFactor`, `tessellationFactorFormat`, `tessellationControlPointIndexType`, `tessellationFactorStepFunction`, and `tessellationOutputWindingOrder`.
 - Metal render encoders expose `setTessellationFactorBuffer`, `setTessellationFactorScale`, `drawPatches`, and `drawIndexedPatches`; this is the native GPU target for patch proof, not VS/PS fallback.
-- Metal `useResource`/`useResources` calls do not retain resources. M12 must retain every referenced MTL object until command-buffer completion.
+- Metal `useResource`/`useResources` calls do not retain resources. VKD3D must retain every referenced MTL object until command-buffer completion.
 - Metal heap/argument-buffer usage calls do not solve all hazards; fences are still required where data hazards exist.
 - Metal command-buffer errors include timeout, page fault, invalid resource, out of memory, access revoked, and stack overflow. Page fault documentation includes out-of-boundary access as a possible cause; invalid resource includes resources deleted before command-buffer execution.
 - `CAMetalLayer.nextDrawable` may return nil after a one-second timeout when all drawables are in use, while disabling drawable timeout can block forever. Proof and launch paths must be bounded.
 
 ### Ecosystem lessons from SearXNG-backed research
 
-- MoltenVK issue searches show real Metal argument-buffer, validation, descriptor-pool lifetime, imported-texture, and device-loss-like regressions. M12 must not hand-wave descriptor/resource lifetime.
-- wgpu issue searches show real Metal vertex-pulling and vertex-buffer OOB concerns. M12 must validate or robustly handle vertex/index bounds instead of relying on backend undefined behavior.
-- GPUWeb discussions identify a portability mismatch: D3D12 supplies vertex stride through IA buffer views, while Metal/Vulkan often couple vertex layout/stride more tightly to pipeline layout. M12 must either use raw-slot vertex pulling or include effective D3D12 stride/layout in pipeline keys.
+- MoltenVK issue searches show real Metal argument-buffer, validation, descriptor-pool lifetime, imported-texture, and device-loss-like regressions. VKD3D must not hand-wave descriptor/resource lifetime.
+- wgpu issue searches show real Metal vertex-pulling and vertex-buffer OOB concerns. VKD3D must validate or robustly handle vertex/index bounds instead of relying on backend undefined behavior.
+- GPUWeb discussions identify a portability mismatch: D3D12 supplies vertex stride through IA buffer views, while Metal/Vulkan often couple vertex layout/stride more tightly to pipeline layout. VKD3D must either use raw-slot vertex pulling or include effective D3D12 stride/layout in pipeline keys.
 
 ## Existing code entry points
 
@@ -151,18 +151,18 @@ Runtime implementation points:
 
 Proof vehicle:
 
-- Mini-game source: `tools/d3d12-metal-sdk/probes/m12_fresh_game/m12_fresh_game.cpp`
+- Mini-game source: `tools/d3d12-metal-sdk/probes/vkd3d_fresh_game/vkd3d_fresh_game.cpp`
 - Build script: `tools/d3d12-metal-sdk/scripts/build-probes.sh`
-- Full proof harness: `tools/d3d12-metal-sdk/scripts/run-m12-fresh-proof.py`
-- Built mini-game executable: `tools/d3d12-metal-sdk/out/bin/m12_fresh_game.exe`
+- Full proof harness: `tools/d3d12-metal-sdk/scripts/run-vkd3d-fresh-proof.py`
+- Built mini-game executable: `tools/d3d12-metal-sdk/out/bin/vkd3d_fresh_game.exe`
 
 The roadmap requires loading the mini-game through the PR runtime using the proof harness or equivalent Wine invocation, not through a packaged backend or unrelated runtime.
 
 Canonical proof command shape:
 
 ```bash
-python3 tools/d3d12-metal-sdk/scripts/run-m12-fresh-proof.py \
-  --repo /Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-m12-fresh-proof-pr \
+python3 tools/d3d12-metal-sdk/scripts/run-vkd3d-fresh-proof.py \
+  --repo /Volumes/AverySSD/MetalSharp-SM6-UE-Lab/10-worktrees/metalsharp-vkd3d-fresh-proof-pr \
   --visible-frames 600
 ```
 
@@ -173,7 +173,7 @@ For targeted phase work, the same executable may be launched directly by the har
 Each phase has three required outputs:
 
 1. **Real code** in the PR worktree.
-2. **Mini-game/probe proof** that loads `m12_fresh_game.exe` or a focused SDK probe through the PR runtime.
+2. **Mini-game/probe proof** that loads `vkd3d_fresh_game.exe` or a focused SDK probe through the PR runtime.
 3. **Validity artifact** containing stdout JSON, stderr/log scans, readback/visual proof when applicable, and exact pass/fail counters.
 
 ### Phase 0 — Evidence lock and no-fallback gate wiring
@@ -184,10 +184,10 @@ Make fallback and runtime hazard strings hard failures before changing rendering
 
 Code changes:
 
-- Extend `run-m12-fresh-proof.py` summary generation to count:
+- Extend `run-vkd3d-fresh-proof.py` summary generation to count:
   - `vertex_range_oob`
   - `D3D12 tessellation fallback`
-  - `M12 compute encoder encode failed`
+  - `VKD3D compute encoder encode failed`
   - `MTLCommandBufferErrorDomain`
   - active `.msl.err.txt` sidecars newer than their paired `.msl`
   - WindowServer/watchdog/reboot evidence in bounded proof windows
@@ -196,7 +196,7 @@ Code changes:
 
 Mini-game proof:
 
-- Build and load current `m12_fresh_game.exe` for a short smoke run.
+- Build and load current `vkd3d_fresh_game.exe` for a short smoke run.
 - Confirm the proof summary reports all hard-fail counters, even if current code still fails some of them.
 
 Acceptance:
@@ -204,7 +204,7 @@ Acceptance:
 - The harness can fail closed with a single summary naming the exact failure class.
 - No fallback path can produce a green proof.
 
-### Phase 1 — Native IA truth-table lanes in `m12_fresh_game.exe`
+### Phase 1 — Native IA truth-table lanes in `vkd3d_fresh_game.exe`
 
 Goal:
 
@@ -231,7 +231,7 @@ Code changes:
 
 Mini-game proof:
 
-- Load `m12_fresh_game.exe` for at least one visible/readback frame per lane.
+- Load `vkd3d_fresh_game.exe` for at least one visible/readback frame per lane.
 - Read back stamped pixels and/or structured readback buffers proving the intended geometry appeared.
 - For the RGB vertex triangle lane, prove progressive reveal across a bounded frame sequence: frame 0/1 has only the seed pixel/point, intermediate frames have monotonically increasing triangle coverage/sample counts, and the final frame matches the full triangle. A single static square, static flat-color triangle, or complete triangle presented immediately on the first frame is not sufficient.
 - Run invalid lanes and prove they produce named diagnostics without poisoning the next valid lane.
@@ -285,14 +285,14 @@ Code changes:
 
 Mini-game proof:
 
-- Load `m12_fresh_game.exe` and run all Phase 1 lanes through the new resolver.
+- Load `vkd3d_fresh_game.exe` and run all Phase 1 lanes through the new resolver.
 - Compare resolver output against expected lane metadata.
 
 Validity artifacts:
 
 - `native_vertex_resolve.json` per lane with formulas and computed values.
-- Log lines shaped as `M12 native vertex path resolved` for valid lanes.
-- Log lines shaped as `M12 native vertex path blocked` only for intentional invalid lanes.
+- Log lines shaped as `VKD3D native vertex path resolved` for valid lanes.
+- Log lines shaped as `VKD3D native vertex path blocked` only for intentional invalid lanes.
 
 Acceptance:
 
@@ -321,7 +321,7 @@ Code changes:
 
 Mini-game proof:
 
-- Load `m12_fresh_game.exe` with Phase 1 lanes after native Metal binding is enabled.
+- Load `vkd3d_fresh_game.exe` with Phase 1 lanes after native Metal binding is enabled.
 - Run repeated PSO reuse and dynamic-stride draws for at least 600 frames.
 
 Validity artifacts:
@@ -349,7 +349,7 @@ Code changes:
 
 Mini-game proof:
 
-- Load `m12_fresh_game.exe` with the current tessellation-shaped lane.
+- Load `vkd3d_fresh_game.exe` with the current tessellation-shaped lane.
 - Expected interim result: lane reports `native_tessellation_required` and no fallback draw is encoded.
 - Verify following non-tessellation lanes still render, proving the block does not poison the command buffer.
 
@@ -387,7 +387,7 @@ Code changes:
 
 Mini-game proof:
 
-- Add and load minimal quad/triangle patch HS/DS scenes in `m12_fresh_game.exe`.
+- Add and load minimal quad/triangle patch HS/DS scenes in `vkd3d_fresh_game.exe`.
 - Include a progressive RGB tessellated triangle lane that renders frame-by-frame from a single lit pixel/point-sized patch output through increasing tessellated coverage to a complete RGB tessellated triangle. The lane must vary tessellation factor and/or control-point color/position over frames and must not satisfy the proof by presenting a complete triangle immediately.
 - Include indexed and non-indexed patch variants.
 - Include a tessellation-factor debug/readback buffer.
@@ -413,7 +413,7 @@ Acceptance:
 
 Goal:
 
-Make `M12 compute encoder encode failed` reproducible, diagnosable, and absent from valid proof runs.
+Make `VKD3D compute encoder encode failed` reproducible, diagnosable, and absent from valid proof runs.
 
 Code changes:
 
@@ -429,14 +429,14 @@ Code changes:
 
 Mini-game proof:
 
-- Load `m12_fresh_game.exe` with descriptor mutation across compute dispatches.
+- Load `vkd3d_fresh_game.exe` with descriptor mutation across compute dispatches.
 - Add valid compute after heavy graphics PSO churn.
 - Add intentional invalid compute descriptors that fail closed.
 
 Validity artifacts:
 
 - `native_compute_resolve.json` per dispatch lane.
-- `M12 compute encoder encode failed=0` for valid lanes.
+- `VKD3D compute encoder encode failed=0` for valid lanes.
 - Intentional invalid lanes identify missing/invalid binding exactly.
 
 Acceptance:
@@ -462,18 +462,18 @@ Code changes:
   - transient draw/dispatch buffers
   - drawables
 - Release retained resources only in command-buffer completion handlers.
-- Add M12 breadcrumbs:
+- Add VKD3D breadcrumbs:
   - before/after draw
   - before/after dispatch
   - before/after copy/barrier
   - PSO/shader hashes
   - IA/descriptor/resource-state summaries
-- Enable Metal command-buffer encoder status in diagnostic/proof profiles and record `MTLCommandBufferErrorDomain`, error code, encoder labels, and M12 breadcrumbs.
+- Enable Metal command-buffer encoder status in diagnostic/proof profiles and record `MTLCommandBufferErrorDomain`, error code, encoder labels, and VKD3D breadcrumbs.
 - Audit `MakeTransientBuffer` use so transient memory cannot be recycled before GPU completion.
 
 Mini-game proof:
 
-- Load `m12_fresh_game.exe` for a long bounded stress run using native vertex, native/fail-closed tessellation, compute, descriptor mutation, transient buffers, and readback.
+- Load `vkd3d_fresh_game.exe` for a long bounded stress run using native vertex, native/fail-closed tessellation, compute, descriptor mutation, transient buffers, and readback.
 - Force resource churn while keeping valid D3D12 behavior.
 
 Validity artifacts:
@@ -512,7 +512,7 @@ Code changes:
 
 Mini-game proof:
 
-- Load `m12_fresh_game.exe` for a long present stress run.
+- Load `vkd3d_fresh_game.exe` for a long present stress run.
 - Run under the same monitor that will be used for any future launch request.
 
 Validity artifacts:
@@ -542,7 +542,7 @@ Code changes:
 Mini-game/probe proof:
 
 - Run shader replay/corpus proof in the same final proof bundle as mini-game proof.
-- Load `m12_fresh_game.exe` after replay to ensure runtime proof still passes.
+- Load `vkd3d_fresh_game.exe` after replay to ensure runtime proof still passes.
 
 Validity artifacts:
 
@@ -579,7 +579,7 @@ Code changes:
 
 Mini-game/probe proof:
 
-- Load `m12_fresh_game.exe` through the full proof harness for the final bounded run.
+- Load `vkd3d_fresh_game.exe` through the full proof harness for the final bounded run.
 - Require the progressive RGB vertex triangle lane and the native/fail-closed tessellation lane outputs in the final bundle; once Phase 5 lands, require the progressive RGB tessellated triangle lane as green too. The final bundle must include per-frame coverage counts proving the triangle was drawn out over time rather than presented whole immediately.
 - Run `/mtsp/prepare` for Elden only after all mini-game/probe gates are green.
 - Do not launch Elden as part of this phase without explicit user approval.
@@ -601,7 +601,7 @@ Acceptance:
 
 | Phase | Goal | Mini-game/probe proof | Must be zero for valid lanes |
 |---|---|---|---|
-| 0 | Wire no-fallback gates | short `m12_fresh_game.exe` smoke | fallback/draw-skip counters cannot pass |
+| 0 | Wire no-fallback gates | short `vkd3d_fresh_game.exe` smoke | fallback/draw-skip counters cannot pass |
 | 1 | Add IA truth-table lanes | indexed/base/stride/instance/indirect scenes + progressive RGB vertex triangle reveal | valid-lane `vertex_range_oob` |
 | 2 | Implement native vertex resolver | resolver JSON matches lane expectations | valid-lane OOB/block |
 | 3 | Bind native vertex/index to Metal | 600f repeated draw/readback proof | compact-slot fallback, draw skip, Metal error |
@@ -630,7 +630,7 @@ Acceptance:
 ## Open risks
 
 - Metal tessellation is not a one-to-one D3D12 HS/DS mapping. A GPU prepass may be required to generate Metal-compatible factor/control-point buffers.
-- D3D12 dynamic VB strides conflict with Metal pipeline-state vertex descriptor assumptions unless M12 uses vertex pulling or includes stride/layout in pipeline keys.
+- D3D12 dynamic VB strides conflict with Metal pipeline-state vertex descriptor assumptions unless VKD3D uses vertex pulling or includes stride/layout in pipeline keys.
 - Some index buffers may not be CPU-readable when sampling min/max indices. The resolver needs both a debug/proof sampling path and a non-mapping production path.
 - Resource lifetime bugs may only appear under long PSO/draw/dispatch pressure. Bounded stress tests must run longer than five-frame smoke proofs.
 - The final crash did not preserve a direct AGX panic backtrace. Future bounded launch monitors must gather better GPU/WindowServer evidence if a live launch is ever approved.

@@ -14,7 +14,7 @@ if [[ -n "${METALSHARP_API_TOKEN:-}" ]]; then
 fi
 BACKEND_TOKEN_FILE="${METALSHARP_BACKEND_TOKEN_FILE:-${METALSHARP_HOME:-$HOME/.metalsharp}/.backend-token}"
 GAME_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/Subnautica2/Binaries/Win64"
-CORPUS_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/m12/1962700"
+CORPUS_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/vkd3d/1962700"
 START_STEAM=0
 
 backend_curl() {

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Surgical update of the published metalsharp-graphics-dll bundle.
 
-Adds the vkd3d-proton M12 stack lanes — vkd3d-proton (d3d12/d3d12core,
+Adds the vkd3d-proton VKD3D stack lanes — vkd3d-proton (d3d12/d3d12core,
 x86_64 + i386), DXVK (dxgi/d3d11/d3d10core/d3d9, x86_64 + i386), and the
 VKMT MoltenVK lane (libMoltenVK.dylib + MoltenVK_icd.json) — to an
 existing graphics bundle, preserving every other entry byte-for-byte.
 Uses the same tar normalization as update-runtime-bundle.py (uid/gid=0,
 mtime=0, deterministic order) so the output is reproducible.
 
-The DXMT surfaces are untouched: M9/M10/M11 and the m12Backend=dxmt
-rollback keep working from the same archive.
+The DXMT surfaces are untouched: DXMT/DXMT(32) and the VKD3D stack keep
+working from the same archive.
 
 Usage:
   update-graphics-bundle.py --archive in.tar.zst --out out.tar.zst \\

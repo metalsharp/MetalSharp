@@ -45,7 +45,7 @@ CI (`pr-ci.yml` → "C/C++/Obj-C CI") enforces the build. Tests run locally.
 ## D3D12 Metal SDK contracts (required for graphics/contract changes)
 
 These are the local graphics gates CI cannot run (they need a host
-Wine/Metal runtime). Run them before any PR that touches M12, descriptors,
+Wine/Metal runtime). Run them before any PR that touches VKD3D, descriptors,
 root signatures, command replay, barriers, or resource views.
 
 ```bash
@@ -83,7 +83,7 @@ the Electron bridge attaches the per-session token automatically. Only
 | `GET /diagnostics/launch/timing?appid=` | 1 | latest persisted launch timing |
 | `GET /bottles/route-contracts` | 2 | declarative Steam route contract table |
 | `GET /update/migrate/report` | 2 | latest migration preserve/skip report |
-| `GET /diagnostics/m12/dry-run?appid=` | 3 | M12 artifact + env verification (no launch) |
+| `GET /diagnostics/vkd3d/dry-run?appid=` | 3 | VKD3D artifact + env verification (no launch) |
 | `GET /diagnostics/pipeline/dry-run?appid=&pipeline=` | 3 | generic pipeline dry-run |
 | `GET /diagnostics/cache-doctor?appid=` | 4 | shader/pipeline cache entry counts + staleness |
 | `GET /diagnostics/pso-manifests?appid=&pipeline=&limit=` | 4 | recent PSO trace manifests |

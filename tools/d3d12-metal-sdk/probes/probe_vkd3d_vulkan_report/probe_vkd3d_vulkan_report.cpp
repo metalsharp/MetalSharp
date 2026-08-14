@@ -220,7 +220,7 @@ int main(int argc, const char** argv) {
     if (create_instance) {
         VkApplicationInfo app_info = {};
         app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        app_info.pApplicationName = "metalsharp-m12-vulkan-report";
+        app_info.pApplicationName = "metalsharp-vkd3d-vulkan-report";
         app_info.applicationVersion = 1;
         app_info.pEngineName = "metalsharp-fresh-proof";
         app_info.engineVersion = 1;
@@ -280,7 +280,7 @@ int main(int argc, const char** argv) {
               get_physical_device_properties && enumerate_devices_result == VK_SUCCESS && physical_device_count > 0;
 
     std::cout << "{\n";
-    std::cout << "  \"schema\": \"metalsharp.m12.fresh.vulkan-report.v1\",\n";
+    std::cout << "  \"schema\": \"metalsharp.vkd3d.fresh.vulkan-report.v1\",\n";
     std::cout << "  \"ok\": " << (ok ? "true" : "false") << ",\n";
     std::cout << "  \"process_arch\": \"x86_64\",\n";
     std::cout << "  \"vk_icd_filenames\": \""

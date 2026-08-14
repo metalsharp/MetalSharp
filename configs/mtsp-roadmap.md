@@ -16,7 +16,7 @@ TOML, not Rust code.
 - [x] API endpoints: GET /mtsp/pipelines, POST /mtsp/prepare
 - [x] Backward-compatible launch delegates
 - [x] GPTK dependency removed
-- [x] M9 D3D9 route under the DXMT launch/cache family
+- [x] VKD3D complete Vulkan pipeline (D3D9/D3D10/D3D11/D3D12 via DXVK-macOS + vkd3d-proton)
 - [x] Clippy clean, fmt pass, CI green
 
 ## Phase 1 — Frontend Integration
@@ -44,17 +44,17 @@ TOML, not Rust code.
 
 | ID | Name | Backend | Notes |
 |---|---|---|---|
-| M12 | D3D12 → Metal | dxmt | Public D3D12 route; deploys D3D12/DXGI/DXIL/Agility sidecars when selected |
+| VKD3D | D3D12 → Metal | dxmt | Public D3D12 route; deploys D3D12/DXGI/DXIL/Agility sidecars when selected |
 | M11 | D3D11 → Metal | dxmt | Public D3D11 route |
 | M10 | D3D10 → Metal | dxmt | Public D3D10 route |
-| M9 | D3D9 → Metal | dxmt | Public D3D9 route under the DXMT launch/cache family |
+| VKD3D | D3D9/D3D10/D3D11/D3D12 → Metal | vkd3d-proton + DXVK-macOS | Complete Vulkan pipeline via MoltenVK |
 | Mono/FNA | Windows XNA/FNA → native Mono | mono | Public FNA/XNA route; launcher picks ARM64 or x86_64 Mono internally |
 
 ## Internal Route IDs
 
 | ID | Role |
 |---|---|
-| DXMT | Auto-router that selects M12/M11/M10/M9 from rules and PE evidence |
+| DXMT | Auto-router that selects VKD3D/DXMT/DXMT(32) from rules and PE evidence |
 | M32 | 32-bit Wine fallback retained for diagnostics/legacy records |
 | Steam | Windows Steam client handoff retained for bootstrap/diagnostics |
 | MacOS Steam | Native Steam handoff retained for diagnostics/special cases |

@@ -13,7 +13,7 @@ test("backend IPC only accepts allowlisted renderer routes and queries", () => {
     method: "GET",
     url: "/status",
   });
-  assert.equal(validateBackendRequest("GET", "/diagnostics/m12/dry-run?appid=1583230").ok, true);
+  assert.equal(validateBackendRequest("GET", "/diagnostics/vkd3d/dry-run?appid=1583230").ok, true);
   assert.equal(validateBackendRequest("GET", "/wine-mono/status?prefix=steam").ok, true);
   assert.equal(validateBackendRequest("POST", "/processes/force-kill").ok, true);
   assert.equal(validateBackendRequest("POST", "/update/start").ok, true);
@@ -22,7 +22,7 @@ test("backend IPC only accepts allowlisted renderer routes and queries", () => {
   assert.equal(validateBackendRequest("GET", "http://127.0.0.1/processes/force-kill").ok, false);
   assert.equal(validateBackendRequest("GET", "/processes/force-kill").ok, false);
   assert.equal(validateBackendRequest("GET", "/status?endpoint=/processes/force-kill").ok, false);
-  assert.equal(validateBackendRequest("GET", "/diagnostics/m12/dry-run?appid=not-a-number").ok, false);
+  assert.equal(validateBackendRequest("GET", "/diagnostics/vkd3d/dry-run?appid=not-a-number").ok, false);
   assert.equal(validateBackendRequest("GET", "/wine-mono/status?prefix=other").ok, false);
 
   assert.equal(validateBackendRequest("GET", "/update/migrate/check").ok, false);

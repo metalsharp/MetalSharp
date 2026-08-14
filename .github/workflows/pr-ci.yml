@@ -211,9 +211,9 @@ jobs:
             tmp_dxmt="$(mktemp -d)"
             tar --use-compress-program=unzstd -xf app/bundles/metalsharp-graphics-dll.tar.zst -C "$tmp_dxmt"
             mkdir -p "$HOME/.metalsharp/runtime/wine/lib/dxmt"
-            mkdir -p "$HOME/.metalsharp/runtime/wine/lib/dxmt_m12"
+            mkdir -p "$HOME/.metalsharp/runtime/wine/lib/dxmt_vkd3d"
             cp -R "$tmp_dxmt/Graphics/dll/dxmt"/. "$HOME/.metalsharp/runtime/wine/lib/dxmt/"
-            cp -R "$tmp_dxmt/Graphics/dll/dxmt-m12"/. "$HOME/.metalsharp/runtime/wine/lib/dxmt_m12/"
+            cp -R "$tmp_dxmt/Graphics/dll/dxmt-vkd3d"/. "$HOME/.metalsharp/runtime/wine/lib/dxmt_vkd3d/"
           }
 
           python3 tools/d3d12-metal-sdk/scripts/validate-contracts.py

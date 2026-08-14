@@ -218,25 +218,9 @@ pub fn get_config_for_home(home: &Path) -> Value {
         "graphicsRuntimeLogs": graphics_runtime_logs,
         "graphics_runtime_logs": graphics_runtime_logs,
         "controllerInput": controller_input,
-        "m12Backend": m12_backend_mode_for(home),
         "msync": msync_enabled_for(home),
         "developerTelemetry": developer_telemetry,
     })
-}
-
-/// The active M12 graphics backend: `"vkd3d-proton"` (default, D3D12 ->
-/// vkd3d-proton -> Vulkan -> MoltenVK -> Metal) or `"dxmt"` (legacy D3D12 ->
-/// DXMT -> Metal, kept as rollback). Anything else resolves to the default.
-pub fn m12_backend_mode() -> String {
-    m12_backend_mode_for(&dirs::home_dir().unwrap_or_default())
-}
-
-/// Path-based variant (testable without touching the global METALSHARP_HOME).
-pub fn m12_backend_mode_for(home: &Path) -> String {
-    read_config_string_for_home(home, "m12Backend")
-        .map(|v| v.trim().to_ascii_lowercase())
-        .filter(|v| matches!(v.as_str(), "vkd3d-proton" | "dxmt"))
-        .unwrap_or_else(|| "vkd3d-proton".to_string())
 }
 
 /// Read the persisted controller input shim mode. Valid values are
@@ -515,13 +499,6 @@ pub fn set_config_for_home(home: &Path, body: &Map<String, Value>) -> Result<Val
         }
     }
 
-    if let Some(value) = body.get("m12Backend").and_then(|v| v.as_str()) {
-        let normalized = value.trim().to_ascii_lowercase();
-        if matches!(normalized.as_str(), "vkd3d-proton" | "dxmt") {
-            cfg.insert("m12Backend".into(), json!(normalized));
-        }
-    }
-
     if let Some(value) = body.get("msync").and_then(|v| v.as_bool()) {
         cfg.insert("msync".into(), json!(value));
     }
@@ -744,62 +721,28 @@ mod tests {
     }
 
     #[test]
-    fn m12_backend_defaults_to_vkd3d_proton() {
-        let temp = std::env::temp_dir().join(format!("ms-m12backend-default-{}", std::process::id()));
+    fn config_report_no_longer_exposes_vkd3d_backend_choice() {
+        // VKD3D is the vkd3d-proton stack only; the vkd3dBackend config is gone.
+        let temp = std::env::temp_dir().join(format!("ms-vkd3dbackend-removed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp);
         std::fs::create_dir_all(&temp).unwrap();
 
-        // No config -> vkd3d-proton (the new default).
-        assert_eq!(m12_backend_mode_for(&temp), "vkd3d-proton");
-
-        // Unknown value -> vkd3d-proton.
-        let configs = temp.join(".metalsharp").join("configs");
-        std::fs::create_dir_all(&configs).unwrap();
-        std::fs::write(configs.join("config.json"), r#"{"m12Backend": "bogus"}"#).unwrap();
-        assert_eq!(m12_backend_mode_for(&temp), "vkd3d-proton");
-
+        let report = get_config_for_home(&temp);
+        assert_eq!(report.get("vkd3dBackend"), None, "vkd3dBackend must not be exposed");
         let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
-    fn m12_backend_accepts_vkd3d_proton_and_dxmt() {
-        let temp = std::env::temp_dir().join(format!("ms-m12backend-modes-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&temp);
-        let configs = temp.join(".metalsharp").join("configs");
-        std::fs::create_dir_all(&configs).unwrap();
-
-        for (raw, expected) in
-            [("vkd3d-proton", "vkd3d-proton"), ("VKD3D-PROTON", "vkd3d-proton"), ("dxmt", "dxmt"), (" DXMT ", "dxmt")]
-        {
-            std::fs::write(configs.join("config.json"), serde_json::json!({ "m12Backend": raw }).to_string()).unwrap();
-            assert_eq!(m12_backend_mode_for(&temp), expected, "raw={raw}");
-        }
-
-        let _ = std::fs::remove_dir_all(&temp);
-    }
-
-    #[test]
-    fn set_config_persists_m12_backend_with_whitelist() {
-        let temp = std::env::temp_dir().join(format!("ms-m12backend-set-{}", std::process::id()));
+    fn set_config_ignores_stale_vkd3d_backend_key() {
+        let temp = std::env::temp_dir().join(format!("ms-vkd3dbackend-set-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp);
         std::fs::create_dir_all(&temp).unwrap();
 
-        let mut dxmt = serde_json::Map::new();
-        dxmt.insert("m12Backend".into(), json!("dxmt"));
-        let result = set_config_for_home(&temp, &dxmt).expect("set_config");
-        assert_eq!(result.get("m12Backend").and_then(|v| v.as_str()), Some("dxmt"));
-
-        // Invalid value is rejected, keeps dxmt.
-        let mut bad = serde_json::Map::new();
-        bad.insert("m12Backend".into(), json!("hax"));
-        let result = set_config_for_home(&temp, &bad).expect("set_config");
-        assert_eq!(result.get("m12Backend").and_then(|v| v.as_str()), Some("dxmt"));
-
-        // Back to default.
-        let mut vk = serde_json::Map::new();
-        vk.insert("m12Backend".into(), json!("vkd3d-proton"));
-        let result = set_config_for_home(&temp, &vk).expect("set_config");
-        assert_eq!(result.get("m12Backend").and_then(|v| v.as_str()), Some("vkd3d-proton"));
+        // A stale vkd3dBackend value in the request must not be persisted.
+        let mut body = serde_json::Map::new();
+        body.insert("vkd3dBackend".into(), json!("dxmt"));
+        let result = set_config_for_home(&temp, &body).expect("set_config");
+        assert_eq!(result.get("vkd3dBackend"), None);
 
         let _ = std::fs::remove_dir_all(&temp);
     }
