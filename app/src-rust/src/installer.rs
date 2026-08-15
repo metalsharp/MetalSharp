@@ -619,7 +619,9 @@ fn install_metalsharp_bundle(home: &PathBuf) -> Result<bool, String> {
         // GnuTLS install names.  Repair this even on the currency fast path;
         // otherwise an already-current bundle can keep failing HTTPS during
         // protected-launch module download forever.
-        return repair_wine_packaged_dependencies(&runtime_dir.join("wine"));
+        let repaired = repair_wine_packaged_dependencies(&runtime_dir.join("wine"))?;
+        let conf_changed = ensure_installed_dxmt_conf(home)?;
+        return Ok(repaired || conf_changed);
     }
 
     if let Some(archive) = bundle {
@@ -667,6 +669,7 @@ fn install_metalsharp_bundle(home: &PathBuf) -> Result<bool, String> {
                 Ok(o) if o.status.success() => {
                     fix_moltenvk_icd_paths(&runtime_dir.join("wine"));
                     repair_wine_packaged_dependencies(&runtime_dir.join("wine"))?;
+                    ensure_installed_dxmt_conf(home)?;
                     mark_split_bundle_installed(home, RUNTIME_BUNDLE, &archive);
                     return Ok(true);
                 },
@@ -825,6 +828,11 @@ fn restore_preserved_graphics_runtime_surfaces(wine_dir: &Path, preserve_dir: &P
 
 fn metalsharp_wine_binary(home: &Path) -> PathBuf {
     crate::platform::runtime_wine_binary(&crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine"))
+}
+
+fn ensure_installed_dxmt_conf(home: &Path) -> Result<bool, String> {
+    let ms_home = crate::platform::metalsharp_home_dir_for(home);
+    crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(&ms_home)
 }
 
 fn install_host_runtime(home: &PathBuf) -> Result<bool, String> {
@@ -1170,7 +1178,7 @@ fn install_split_assets_bundle(home: &PathBuf) -> Result<bool, String> {
     let runtime_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime");
     let _ = fs::remove_dir_all(runtime_dir.join("eac-toggle"));
     if split_bundle_current(home, ASSETS_BUNDLE, &archive) {
-        return Ok(false);
+        return ensure_installed_dxmt_conf(home);
     }
     let tmp = std::env::temp_dir().join("metalsharp-assets-extract");
     let _ = fs::remove_dir_all(&tmp);
@@ -1214,6 +1222,7 @@ fn install_split_assets_bundle(home: &PathBuf) -> Result<bool, String> {
         copy_dir_recursive(&wine_etc, &runtime_dir.join("wine").join("etc"))?;
         changed = true;
     }
+    changed |= ensure_installed_dxmt_conf(home)?;
 
     let shader_cache = assets.join("shader-cache");
     if shader_cache.exists() {
@@ -1498,7 +1507,7 @@ fn install_metalsharp_wine(home: &PathBuf) -> Result<bool, String> {
 pub fn ensure_dxmt_runtime_ready(home: &Path) -> Result<bool, String> {
     let dxmt_dir = dxmt_runtime_dir_for_home(home);
     if dxmt_runtime_current_for_dir(&dxmt_dir) {
-        return Ok(false);
+        return ensure_installed_dxmt_conf(home);
     }
 
     let home_buf = home.to_path_buf();
@@ -1508,6 +1517,7 @@ pub fn ensure_dxmt_runtime_ready(home: &Path) -> Result<bool, String> {
     changed |= install_host_runtime(&home_buf)?;
     changed |= install_scripts_tools_bundle(&home_buf)?;
     changed |= install_dxmt_runtime(&home_buf)?;
+    changed |= ensure_installed_dxmt_conf(home)?;
 
     if dxmt_runtime_current_for_dir(&dxmt_dir) {
         Ok(changed)
@@ -1532,15 +1542,16 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
         && !graphics_bundle_has_update(home)
         && vkd3d_vulkan_runtime_ready_for_home(home)
     {
+        let conf_changed = ensure_installed_dxmt_conf(home)?;
         // DXMT currency alone is insufficient: older installations can have a
         // current graphics marker yet lack the later vkd3d/DXVK/VKMT VKD3D
         // lanes. Run the VKD3D ensure on the fast path so it also repairs
         // Wine's direct-load MoltenVK mirror without re-staging healthy lanes.
         return match ensure_vkd3d_proton_runtime_ready(home) {
-            Ok(changed) => Ok(changed),
+            Ok(changed) => Ok(changed || conf_changed),
             Err(err) => {
                 eprintln!("setup: vkd3d-proton lanes not staged: {}", err);
-                Ok(false)
+                Ok(conf_changed)
             },
         };
     }
@@ -1566,6 +1577,7 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     // Stage the vkd3d-proton VKD3D stack (vkd3d-proton + dxvk + VKMT MoltenVK)
     // from the graphics bundle. VKD3D is the vkd3d-proton stack only.
     changed |= ensure_vkd3d_proton_runtime_ready(home)?;
+    changed |= ensure_installed_dxmt_conf(home)?;
 
     if dxmt_runtime_current_for_dir(&dxmt_dir) {
         Ok(changed)
@@ -1607,20 +1619,23 @@ pub fn ensure_gptk_runtime_ready(home: &Path) -> Result<bool, String> {
 fn install_dxmt_runtime(home: &PathBuf) -> Result<bool, String> {
     let dxmt_dir = dxmt_runtime_dir_for_home(home);
     let bundled = find_bundled_archive(GRAPHICS_DLL_BUNDLE);
+    let mut changed = ensure_installed_dxmt_conf(home)?;
     if dxmt_runtime_current_for_dir(&dxmt_dir)
         && bundled.as_ref().is_some_and(|archive| split_bundle_current(home, GRAPHICS_DLL_BUNDLE, archive))
     {
-        return Ok(false);
+        return Ok(changed);
     }
 
-    install_graphics_runtime_surface(
+    changed |= install_graphics_runtime_surface(
         home,
         "dxmt",
         &dxmt_dir,
         |dir| dxmt_runtime_ready(dir),
         |dir| dxmt_runtime_current_for_dir(dir),
         "fallback:~/metalsharp/runtime/dxmt",
-    )
+    )?;
+    changed |= ensure_installed_dxmt_conf(home)?;
+    Ok(changed)
 }
 
 fn install_graphics_runtime_surface(

@@ -56,7 +56,8 @@ impl PipelineNode {
 }
 
 static PIPELINES: OnceLock<Vec<PipelineNode>> = OnceLock::new();
-const DXMT_70_PERCENT_UPSCALE_CONFIG: &str = "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60";
+const DXMT_70_PERCENT_UPSCALE_CONFIG: &str =
+    "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310";
 
 /// The VKD3D pipeline node for the vkd3d-proton graphics stack:
 /// D3D12 -> vkd3d-proton -> Vulkan -> MoltenVK -> Metal.

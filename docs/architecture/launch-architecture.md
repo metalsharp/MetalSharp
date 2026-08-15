@@ -86,15 +86,18 @@ DXMT/DXMT(32) read from the legacy runtime surface:
 
 ### DXMT shader Metal version
 
-For DXMT shader-compiling routes M10, M10(32), M11, and M11(32), the backend reads the host product version through `sw_vers -productVersion` at launch and writes a final `DXMT_CONFIG` overlay. This overlay has precedence over `DXMT_CONFIG_FILE` while preserving unrelated DXMT options:
+For DXMT shader-compiling routes M10, M10(32), M11, and M11(32), MetalSharp
+does not perform macOS version detection. The vendored template and every
+installed runtime config explicitly contain:
 
-| macOS major version | DXMT overlay | Rationale |
-|---|---|---|
-| 14 | `dxmt.shaderMetalVersion=310` | Metal 3.1 |
-| 15 through 25 | `dxmt.shaderMetalVersion=320` | Metal 3.2 |
-| 26 or newer | no shader-version overlay | DXMT automatically selects Metal 4 |
+```text
+dxmt.shaderMetalVersion = 310
+```
 
-Malformed or unavailable version output fails open: no shader-version overlay is set, so DXMT keeps its own supported-host detection. The policy is applied after game recipe and caller configuration on direct/bottle paths, preventing stale per-game shader-version values from overriding the host capability.
+The installer writes this key into `runtime/wine/etc/dxmt.conf`, preserving
+unrelated DXMT options, and launch-time reconciliation removes stale values
+from both `dxmt.conf` and `DXMT_CONFIG`. This keeps DXMT on Metal 3.1 even
+when a launcher bridge drops or rewrites environment variables.
 
 VKD3D reads from its default vkd3d-proton/DXVK/MoltenVK surface:
 
