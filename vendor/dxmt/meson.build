@@ -121,7 +121,7 @@ xcrun = find_program('xcrun')
 
 metalir_generator = generator(xcrun,
   output    : [ '@BASENAME@.air'],
-  arguments : [ '-sdk', 'macosx', 'metal', '-o', '@OUTPUT@', '-c', '@INPUT@', '@EXTRA_ARGS@'],
+  arguments : [ '-sdk', 'macosx', 'metal', '-target', 'air64-apple-macos14.0', '-o', '@OUTPUT@', '-c', '@INPUT@', '@EXTRA_ARGS@'],
 )
 
 metallib_generator = generator(xcrun,
