@@ -119,7 +119,8 @@ fn write_conf_factor(home: &Path, factor: f32) -> Result<(), String> {
     if !content.ends_with('\n') {
         content.push('\n');
     }
-    fs::write(&path, content).map_err(|e| format!("write dxmt.conf: {e}"))
+    fs::write(&path, content).map_err(|e| format!("write dxmt.conf: {e}"))?;
+    crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home).map(|_| ())
 }
 
 /// `GET /metalfx/state` — current toggle + factor + how it applies.
@@ -223,6 +224,7 @@ mod tests {
         assert!(state_path_for(&home).exists());
         let conf = fs::read_to_string(dxmt_conf_path_for(&home)).unwrap();
         assert!(conf.contains("d3d11.metalSpatialUpscaleFactor = 1.75"));
+        assert!(conf.contains("dxmt.shaderMetalVersion = 310"));
         assert_eq!(read_conf_factor(&home), Some(1.75));
 
         // flip off without changing factor

@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_DIR = PROJECT_ROOT / "app"
 SOURCE_BUNDLES = APP_DIR / "bundles"
 OUT_DIR = PROJECT_ROOT / "dist" / "bundles"
+DXMT_CONFIG_TEMPLATE = PROJECT_ROOT / "vendor" / "dxmt" / "dxmt.conf"
 
 SPLIT_BUNDLES = {
     "electron": "metalsharp-electron.tar.zst",
@@ -56,6 +57,25 @@ def copy_file(src: Path, dst: Path) -> None:
     if src.exists():
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+
+
+def enforce_dxmt_shader_metal_version(conf: Path) -> None:
+    """Make every installed DXMT config use the fixed Metal 3.1 dialect."""
+    if conf.exists():
+        content = conf.read_text(encoding="utf-8")
+    else:
+        content = DXMT_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+
+    lines = []
+    for line in content.splitlines():
+        probe = line.lstrip().lstrip("#").lstrip()
+        key = probe.split("=", 1)[0].strip() if "=" in probe else (probe.split(None, 1)[0] if probe else "")
+        if key == "dxmt.shaderMetalVersion":
+            continue
+        lines.append(line)
+    lines.append("dxmt.shaderMetalVersion = 310")
+    conf.parent.mkdir(parents=True, exist_ok=True)
+    conf.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def require_file(src: Path, description: str) -> None:
@@ -255,6 +275,7 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     wine_src = source1 / "wine-11.5"
     copy_tree(wine_src, roots["runtime"] / "wine")
     copy_tree(source2 / "wine" / "etc", roots["runtime"] / "wine" / "etc")
+    enforce_dxmt_shader_metal_version(roots["runtime"] / "wine" / "etc" / "dxmt.conf")
     backend = APP_DIR / "build" / "c-backend" / "metalsharp-backend"
     require_file(backend, "runtime backend")
     copy_file(backend, roots["runtime"] / "metalsharp-backend")
@@ -363,6 +384,7 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     for name in ["mono-arm64", "goldberg", "shims", "shader-cache"]:
         copy_tree(source2 / name, roots["assets"] / name)
     copy_tree(source2 / "wine" / "etc", roots["assets"] / "wine" / "etc")
+    enforce_dxmt_shader_metal_version(roots["assets"] / "wine" / "etc" / "dxmt.conf")
 
     optional_archives = {
         "dxvk.tar.zst": ("dxvk", "dxvk-1.10.3"),
