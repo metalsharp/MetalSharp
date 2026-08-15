@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.59.9 — 2026-08-15
+
+### Fixed
+
+- **DXMT Metal shader version pinned to Metal 3.1** — host macOS-version detection is removed; the vendor template, installed runtime config, bundle generation, migration, bottle/MetalFX writes, and every DXMT launch environment explicitly enforce `dxmt.shaderMetalVersion = 310`.
+
 ## v0.59.5 — 2026-08-13
 
 ### Added
@@ -15,7 +21,6 @@
 ### Fixed
 
 - **Route naming unified** — legacy M9/M10/M11 labels retired: M10/M11 surface as **DXMT**, M10(32)/M11(32) as **DXMT(32)**, M9 as **VKD3D**; the M12 route is renamed VKD3D everywhere (tools, probes, docs, saved bottles).
-- **DXMT Metal shader version baked into `dxmt.conf`** — the macOS-matched shader dialect no longer rides only on an env var that can be dropped or clobbered; the launcher reconciles `dxmt.shaderMetalVersion` into `runtime/wine/etc/dxmt.conf` before every DXMT launch (macOS 14 → 310, 15–25 → 320, 26+ → no pin).
 - **steamwebhelper wrapper pin matches the packaged bundle** — the sha pin and tracked staging artifact now match the known-good wrapper that ships in the current steam bundle, so wrapper deployment runs again.
 - **Wine Steam desktop shortcuts hidden** — installer-created shortcuts no longer clutter the desktop.
 - **Game force-kill restored** — kill ownership matches Wine's Windows-form and bare exe argv; the Agility SDK no longer blocks non-D3D12 launches.

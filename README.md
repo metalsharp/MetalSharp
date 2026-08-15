@@ -1,12 +1,12 @@
 <div align="center">
 
 # MetalSharp
-**Updated:** 2026-08-08
+**Updated:** 2026-08-15
 
 **Run Windows games on MacOS Silicon.**
 
 <a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
-<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.59.7"><img src="https://img.shields.io/github/v/release/aaf2tbz/metalsharp?filter=v0.59.7&style=for-the-badge" alt="Release"></a>
+<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.59.9"><img src="https://img.shields.io/github/v/release/aaf2tbz/metalsharp?filter=v0.59.9&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/aaf2tbz/metalsharp/discussions"><img src="https://img.shields.io/github/discussions/aaf2tbz/metalsharp?style=for-the-badge" alt="Discussions"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow.svg?style=for-the-badge" alt="PolyForm Noncommercial 1.0.0"></a>
 <a href="https://discord.gg/qW5rUr4dH"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
@@ -21,7 +21,7 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 ## Arm64-FEX Build For Devs Out Now
 
-[0.60.0 Dependancies Release](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.59.5 Remains The Current Working Version.
+[0.60.0 Dependancies Release](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.59.9 Remains The Current Working Version.
 
 ## Quick Start
 
