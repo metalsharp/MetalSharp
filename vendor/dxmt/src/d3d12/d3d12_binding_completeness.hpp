@@ -4,11 +4,11 @@
 
 namespace dxmt {
 
-static constexpr uint32_t kD3D12M12DirectBufferSlots = 31;
-static constexpr uint32_t kD3D12M12DirectFragmentTextureSlots = 16;
-static constexpr uint32_t kD3D12M12DirectFragmentSamplerSlots = 4;
-static constexpr uint32_t kD3D12M12DirectComputeTextureSlots = 8;
-static constexpr uint32_t kD3D12M12DirectComputeSamplerSlots = 4;
+static constexpr uint32_t kD3D12VKD3DDirectBufferSlots = 31;
+static constexpr uint32_t kD3D12VKD3DDirectFragmentTextureSlots = 16;
+static constexpr uint32_t kD3D12VKD3DDirectFragmentSamplerSlots = 4;
+static constexpr uint32_t kD3D12VKD3DDirectComputeTextureSlots = 8;
+static constexpr uint32_t kD3D12VKD3DDirectComputeSamplerSlots = 4;
 
 struct D3D12ShaderBindingCompletenessDesc {
   uint32_t buffer_count = 0;

@@ -24,7 +24,7 @@ fn mac_cmd(name: &str) -> Command {
     Command::new(path)
 }
 
-pub const DXMT_BUNDLED_RUNTIME_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-vkd3d-isolated-surface-v1");
+pub const DXMT_BUNDLED_RUNTIME_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-macos14-dxmt-v1");
 const DXMT_RUNTIME_MANIFEST: &str = "metalsharp-dxmt-runtime.json";
 const DXMT_RUNTIME_SCHEMA: &str = "metalsharp.dxmt-runtime.v1";
 const RUNTIME_BUNDLE: &str = "metalsharp-runtime";

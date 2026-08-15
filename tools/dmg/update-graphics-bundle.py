@@ -8,11 +8,13 @@ existing graphics bundle, preserving every other entry byte-for-byte.
 Uses the same tar normalization as update-runtime-bundle.py (uid/gid=0,
 mtime=0, deterministic order) so the output is reproducible.
 
-The DXMT surfaces are untouched: DXMT/DXMT(32) and the VKD3D stack keep
-working from the same archive.
+Can also replace the DXMT lane (--dxmt-root, dir with x86_64-windows/,
+x86_64-unix/, i386-windows/, i386-unix/) when rebuilding DXMT for a new
+macOS deployment target.
 
 Usage:
   update-graphics-bundle.py --archive in.tar.zst --out out.tar.zst \\
+      --dxmt-root PATH (dir with x86_64-windows/, x86_64-unix/, i386-windows/, i386-unix/) \\
       --vkd3d-root PATH (dir with x86_64-windows/ and i386-windows/) \\
       --dxvk-root PATH   (dir with x86_64-windows/ and i386-windows/) \\
       --moltenvk-root PATH (dir with libMoltenVK.dylib + MoltenVK_icd.json)
@@ -28,6 +30,7 @@ import tempfile
 from pathlib import Path
 
 LANES = {
+    "dxmt": ("dxmt_root", ["x86_64-windows", "x86_64-unix", "i386-windows", "i386-unix"]),
     "vkd3d-proton": ("vkd3d_root", ["x86_64-windows", "i386-windows"]),
     "dxvk": ("dxvk_root", ["x86_64-windows", "i386-windows"]),
     "moltenvk-vkmt": ("moltenvk_root", []),
@@ -39,6 +42,11 @@ def extract_archive(archive: Path, dest: Path) -> None:
 
 
 def add_tree_to_tar(tar: tarfile.TarFile, root: Path, prefix: str) -> None:
+    root_info = tarfile.TarInfo(prefix)
+    root_info.type = tarfile.DIRTYPE
+    root_info.mode = 0o755
+    root_info.mtime = 0
+    tar.addfile(root_info)
     paths = sorted([p for p in root.rglob("*") if p.is_dir()]) + sorted(
         [p for p in root.rglob("*") if p.is_file() or p.is_symlink()]
     )
@@ -68,13 +76,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--dxmt-root", type=Path)
     parser.add_argument("--vkd3d-root", type=Path)
     parser.add_argument("--dxvk-root", type=Path)
     parser.add_argument("--moltenvk-root", type=Path)
     args = parser.parse_args()
 
-    if not any([args.vkd3d_root, args.dxvk_root, args.moltenvk_root]):
-        parser.error("at least one of --vkd3d-root/--dxvk-root/--moltenvk-root is required")
+    if not any([args.dxmt_root, args.vkd3d_root, args.dxvk_root, args.moltenvk_root]):
+        parser.error("at least one of --dxmt-root/--vkd3d-root/--dxvk-root/--moltenvk-root is required")
 
     with tempfile.TemporaryDirectory(prefix="ms-graphics-update-") as tmp:
         tmp_path = Path(tmp)
@@ -109,8 +118,6 @@ def main() -> int:
         out_tar = tmp_path / "graphics.tar"
         with tarfile.open(out_tar, "w") as tar:
             for member in sorted(extracted.rglob("*")):
-                if member.is_dir() and not member.is_symlink():
-                    continue
                 arcname = str(member.relative_to(extracted))
                 if any(arcname == prefix or arcname.startswith(f"{prefix}/") for prefix in replaced_prefixes):
                     continue
@@ -120,7 +127,10 @@ def main() -> int:
                 info.uname = ""
                 info.gname = ""
                 info.mtime = 0
-                if member.is_symlink():
+                if member.is_dir() and not member.is_symlink():
+                    info.mode = 0o755
+                    tar.addfile(info)
+                elif member.is_symlink():
                     info.type = tarfile.SYMTYPE
                     info.linkname = os.readlink(member)
                     info.mode = 0o777
