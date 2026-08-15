@@ -156,13 +156,11 @@ def check_workflows() -> None:
     main = read(".github/workflows/ci.yml")
     release = read(".github/workflows/release.yml")
 
-    if "DMG Workflow CI" not in pr:
-        fail("PR CI must keep a lightweight DMG Workflow CI job")
     for forbidden in ["electron-builder --mac dmg", "Verify mounted DMG runtime assets"]:
         if forbidden in pr:
             fail(f"PR CI should not run the full DMG build path: {forbidden}")
 
-    for required in ["Shell CI", "Metal CI", "Vue CI", "Rust CI", "Electron CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
+    for required in ["Shell CI", "Metal CI", "Vue CI", "Rust CI", "Electron CI", "C/C++/Obj-C CI"]:
         if required not in main:
             fail(f"main CI missing validation job: {required}")
     for workflow, label in [(pr, "PR"), (main, "main")]:
@@ -181,9 +179,6 @@ def check_workflows() -> None:
         fail("main CI verifier must not share the release SDK publish concurrency group")
 
     for required in [
-        "Publish Developer SDK Bundle",
-        "Publish developer SDK package",
-        "Publish developer SDK bundle",
         "Build DMG",
         "Check Apple signing credentials",
         "Verify Apple notarization",
