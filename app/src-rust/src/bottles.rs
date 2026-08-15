@@ -762,11 +762,11 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
     manifest.installed_components =
         merge_components(manifest.installed_components.clone(), default_components_for(manifest.runtime_profile));
 
-    // First-save host detection: bake the macOS-matched Metal shader dialect
-    // into dxmt.conf so a DXMT bottle launches with the right backend even
-    // when the launch env override is dropped across processes.
+    // First-save installation: bake the fixed Metal 3.1 shader dialect into
+    // dxmt.conf so a DXMT bottle launches with the right backend even when the
+    // launch env override is dropped across processes.
     if matches!(manifest.runtime_profile, RuntimeProfile::Dxmt | RuntimeProfile::Dxmt32) {
-        crate::mtsp::launcher::reconcile_dxmt_conf_shader_metal_version_for_host(
+        let _ = crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(
             &crate::platform::metalsharp_home_dir_for(&home),
         );
     }
