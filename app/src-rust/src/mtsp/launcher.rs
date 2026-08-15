@@ -1427,8 +1427,9 @@ pub fn launch_custom_with_options(
     }
     apply_cache_env(&mut cmd, node, cache_paths.as_ref(), &ms_root);
     if node.backend == "dxmt" {
-        // Bake the host Metal dialect into dxmt.conf before DXMT reads it.
-        reconcile_dxmt_conf_shader_metal_version(&crate::platform::metalsharp_home_dir_for(&home), node);
+        // Bake the fixed Metal 3.1 dialect into dxmt.conf before DXMT reads it.
+        let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+        ensure_dxmt_conf_shader_metal_version(&ms_home).map_err(std::io::Error::other)?;
         cmd.env("DXMT_CONFIG_FILE", ms_root.join("etc").join("dxmt.conf").to_string_lossy().to_string());
         cmd.env("DXMT_WINEMETAL_UNIXLIB", dxmt_winemetal_unixlib_path(&ms_root));
     }
@@ -1877,8 +1878,9 @@ fn launch_dxmt_metal_with_context(
 
     apply_cache_env(&mut cmd, node, cache_paths.as_ref(), &ms_root);
     if node.backend == "dxmt" {
-        // Bake the host Metal dialect into dxmt.conf before DXMT reads it.
-        reconcile_dxmt_conf_shader_metal_version(&crate::platform::metalsharp_home_dir_for(&home), node);
+        // Bake the fixed Metal 3.1 dialect into dxmt.conf before DXMT reads it.
+        let ms_home = crate::platform::metalsharp_home_dir_for(&home);
+        ensure_dxmt_conf_shader_metal_version(&ms_home).map_err(std::io::Error::other)?;
         cmd.env("DXMT_CONFIG_FILE", &dxmt_config_file);
         cmd.env("DXMT_WINEMETAL_UNIXLIB", dxmt_winemetal_unixlib_path(&ms_root));
     }
@@ -1895,8 +1897,11 @@ fn launch_dxmt_metal_with_context(
     for (key, value) in extra_env {
         cmd.env(key, value);
     }
-    // Reconcile after game recipe and caller-provided environment so the host
-    // Metal shader dialect remains authoritative on direct launch paths.
+    if node.backend == "dxmt" {
+        cmd.env("DXMT_CONFIG_FILE", &dxmt_config_file);
+    }
+    // Reconcile after game recipe and caller-provided environment so the fixed
+    // Metal 3.1 shader dialect remains authoritative on direct launch paths.
     apply_dxmt_shader_metal_version_config_cmd(&mut cmd, node);
     apply_eac_launch_env(&mut cmd, &home, appid)?;
 
@@ -2855,10 +2860,10 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
         env.push(("WINEDLLPATH".to_string(), build_winedllpath(&ms_root, &node.winedllpath_dirs)));
     }
     if node.backend == "dxmt" {
-        // Bake the host Metal dialect into dxmt.conf before DXMT reads it: the
-        // env override below can be dropped across the Steam bridge / recipe
-        // env, the conf file cannot.
-        reconcile_dxmt_conf_shader_metal_version(&crate::platform::metalsharp_home_dir_for(home), node);
+        // Bake the fixed Metal 3.1 dialect into dxmt.conf before DXMT reads
+        // it: the env override below can be dropped across the Steam bridge /
+        // recipe env, the conf file cannot.
+        let _ = ensure_dxmt_conf_shader_metal_version(&crate::platform::metalsharp_home_dir_for(home));
         env.push(("DXMT_CONFIG_FILE".to_string(), ms_root.join("etc").join("dxmt.conf").to_string_lossy().to_string()));
         env.push(("DXMT_WINEMETAL_UNIXLIB".to_string(), dxmt_winemetal_unixlib_path(&ms_root)));
     }
@@ -2874,11 +2879,14 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
             }
         }
     }
+    if node.backend == "dxmt" {
+        set_env_pair(&mut env, "DXMT_CONFIG_FILE", ms_root.join("etc").join("dxmt.conf").to_string_lossy().to_string());
+    }
     // MetalFX strength is the user's choice: applied last so it overrides the
     // node default and any game-recipe DXMT_CONFIG/DXMT_METALFX_* entries.
     apply_metal_fx_config(&mut env, node, home);
-    // DXMT's Metal shader dialect must match the host macOS capability. Apply
-    // this after route and recipe config so a stale per-game value cannot win.
+    // DXMT must always compile against Metal 3.1. Apply this after route and
+    // recipe config so a stale per-game value cannot win.
     apply_dxmt_shader_metal_version_config(&mut env, node);
     // msync toggle likewise wins over recipe env.
     apply_msync_config(&mut env, home);
@@ -3020,42 +3028,12 @@ fn apply_metal_fx_config_cmd(cmd: &mut std::process::Command, node: &PipelineNod
     }
 }
 
-/// DXMT routes that compile D3D10/11 shaders and require an explicit Metal
-/// shader language version on macOS 14 and 15 through 25.
+const DXMT_SHADER_METAL_VERSION: u16 = 310;
+
+/// DXMT routes that compile D3D10/11 shaders and use the fixed Metal 3.1
+/// shader language version.
 fn is_dxmt_shader_metal_version_route(pipeline_id: PipelineId) -> bool {
     matches!(pipeline_id, PipelineId::Dxmt | PipelineId::Dxmt32)
-}
-
-/// Map a macOS ProductVersion to the DXMT Metal shader language override.
-/// macOS 14 uses Metal 3.1; macOS 15 through 25 use Metal 3.2. macOS 26 and
-/// newer use Metal 4, for which DXMT's automatic selection requires no flag.
-fn dxmt_shader_metal_version_for_macos_product_version(product_version: &str) -> Option<u16> {
-    let components: Vec<&str> = product_version.trim().split('.').collect();
-    if !(1..=3).contains(&components.len())
-        || components.iter().any(|component| component.is_empty() || component.parse::<u32>().is_err())
-    {
-        return None;
-    }
-    let major = components[0].parse::<u32>().ok()?;
-    if major < 14 {
-        return None;
-    }
-    match major {
-        14 => Some(310),
-        15..=25 => Some(320),
-        _ => None,
-    }
-}
-
-/// Read the host product version via the system-owned macOS utility. Failure is
-/// deliberately fail-open: DXMT then retains its own supported-host detection.
-fn macos_product_version() -> Option<String> {
-    let output = std::process::Command::new("/usr/bin/sw_vers").arg("-productVersion").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let version = String::from_utf8(output.stdout).ok()?;
-    (!version.trim().is_empty()).then_some(version)
 }
 
 /// The DXMT config file every launch path points `DXMT_CONFIG_FILE` at.
@@ -3064,97 +3042,59 @@ fn dxmt_conf_path_for_home(home: &Path) -> std::path::PathBuf {
     home.join("runtime").join("wine").join("etc").join("dxmt.conf")
 }
 
-/// Bake the host Metal shader dialect directly into `dxmt.conf` so DXMT reads
-/// it from disk regardless of how the launch env propagates. The env override
-/// alone (`apply_dxmt_shader_metal_version_config`) can be lost when a launch
-/// crosses multiple processes (backend -> Steam bridge -> game) or when a
-/// game recipe rewrites `DXMT_CONFIG`; the conf file is parsed by DXMT itself
-/// at device creation, so it cannot be dropped.
+/// Ensure the fixed Metal 3.1 shader dialect is present in `dxmt.conf`.
 ///
-/// `product_version` is the host macOS version from `sw_vers`. The policy
-/// matches `dxmt_shader_metal_version_for_macos_product_version`:
-/// macOS 14 -> 310, macOS 15..=25 -> 320, macOS 26+ -> no line (DXMT default
-/// selects the newest dialect, i.e. Metal 4). Malformed versions fail open to
-/// "no line" so DXMT's built-in supported-host detection decides.
-///
-/// Every stale `dxmt.shaderMetalVersion` line is removed and at most one
-/// current line is appended; all unrelated lines are preserved verbatim.
-/// Returns the selected version (None when no override is pinned).
-pub(crate) fn reconcile_dxmt_conf_shader_metal_version_for_macos(
-    home: &Path,
-    product_version: Option<&str>,
-) -> Option<u16> {
-    let shader_version = product_version.and_then(dxmt_shader_metal_version_for_macos_product_version);
+/// The file is the authoritative DXMT configuration because every DXMT launch
+/// path points `DXMT_CONFIG_FILE` at it. Remove stale or commented copies of
+/// the key, preserve every unrelated option (including MetalFX), and write the
+/// result atomically so installation and launch cannot leave a truncated file.
+/// A missing file is created at the installed runtime location.
+pub(crate) fn ensure_dxmt_conf_shader_metal_version(home: &Path) -> Result<bool, String> {
     let path = dxmt_conf_path_for_home(home);
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let target_line = shader_version.map(|v| format!("dxmt.shaderMetalVersion = {v}"));
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("read DXMT config {}: {error}", path.display())),
+    };
 
     let mut out: Vec<String> = Vec::new();
     for line in existing.lines() {
         // Drop every stale copy of the key (commented or not); re-add below.
         let probe = line.trim_start().trim_start_matches('#').trim_start();
-        if probe.starts_with("dxmt.shaderMetalVersion") {
+        if probe.split_once('=').map(|(key, _)| key.trim()).or_else(|| probe.split_whitespace().next())
+            == Some("dxmt.shaderMetalVersion")
+        {
             continue;
         }
         out.push(line.to_string());
     }
-    if let Some(target) = &target_line {
-        out.push(target.clone());
-    }
+    out.push(format!("dxmt.shaderMetalVersion = {DXMT_SHADER_METAL_VERSION}"));
 
     let desired = if out.is_empty() { String::new() } else { format!("{}\n", out.join("\n")) };
     // Idempotence fast path: only touch the file when the content changes.
     if desired != existing {
         if let Some(parent) = path.parent() {
-            if std::fs::create_dir_all(parent).is_err() {
-                return shader_version;
-            }
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("create DXMT config dir {}: {error}", parent.display()))?;
         }
         // Atomic write: a crash mid-launch must never leave a truncated conf.
         let tmp = path.with_extension("conf.tmp");
-        if std::fs::write(&tmp, desired).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+        std::fs::write(&tmp, desired).map_err(|error| format!("write DXMT config {}: {error}", tmp.display()))?;
+        std::fs::rename(&tmp, &path).map_err(|error| format!("install DXMT config {}: {error}", path.display()))?;
+        return Ok(true);
     }
-    shader_version
-}
-
-/// Host-driven variant for call sites without a pipeline node (bottle save).
-/// Reads `sw_vers` directly so first-save detection matches launch behavior.
-pub(crate) fn reconcile_dxmt_conf_shader_metal_version_for_host(home: &Path) -> Option<u16> {
-    let product_version = macos_product_version();
-    reconcile_dxmt_conf_shader_metal_version_for_macos(home, product_version.as_deref())
-}
-
-/// Read the live host version and reconcile the conf for DXMT shader routes.
-/// No-op for every non-DXMT-shader pipeline (VKD3D/vkd3d, GPTK, Mono, ...).
-fn reconcile_dxmt_conf_shader_metal_version(home: &Path, node: &PipelineNode) -> Option<u16> {
-    if !is_dxmt_shader_metal_version_route(node.id) {
-        return None;
-    }
-    let product_version = macos_product_version();
-    reconcile_dxmt_conf_shader_metal_version_for_macos(home, product_version.as_deref())
+    Ok(false)
 }
 
 fn apply_dxmt_shader_metal_version_config(env: &mut Vec<(String, String)>, node: &PipelineNode) {
-    let product_version = macos_product_version();
-    apply_dxmt_shader_metal_version_config_for_macos_version(env, node, product_version.as_deref());
+    apply_dxmt_shader_metal_version_config_fixed(env, node);
 }
 
 /// Final command-path reconciliation. `Command::get_envs` exposes the explicit
 /// environment accumulated by route, recipe, and caller configuration, so this
-/// preserves every other DXMT option while making only the shader version host
+/// preserves every other DXMT option while making the fixed shader version
 /// authoritative.
 fn apply_dxmt_shader_metal_version_config_cmd(cmd: &mut std::process::Command, node: &PipelineNode) {
-    let product_version = macos_product_version();
-    apply_dxmt_shader_metal_version_config_cmd_for_macos_version(cmd, node, product_version.as_deref());
-}
-
-fn apply_dxmt_shader_metal_version_config_cmd_for_macos_version(
-    cmd: &mut std::process::Command,
-    node: &PipelineNode,
-    product_version: Option<&str>,
-) {
     if !is_dxmt_shader_metal_version_route(node.id) {
         return;
     }
@@ -3168,41 +3108,34 @@ fn apply_dxmt_shader_metal_version_config_cmd_for_macos_version(
                 .flatten()
         })
         .collect();
-    apply_dxmt_shader_metal_version_config_for_macos_version(&mut env, node, product_version);
+    apply_dxmt_shader_metal_version_config_fixed(&mut env, node);
     if let Some((_, config)) = env.last() {
         cmd.env("DXMT_CONFIG", config);
     }
 }
 
-/// Apply the DXMT shader-language policy using an explicit product-version
-/// input. Kept separate from `sw_vers` for deterministic boundary testing.
-fn apply_dxmt_shader_metal_version_config_for_macos_version(
-    env: &mut Vec<(String, String)>,
-    node: &PipelineNode,
-    product_version: Option<&str>,
-) {
+/// Apply the fixed DXMT shader-language version after all route, recipe, and
+/// caller configuration has been collected.
+fn apply_dxmt_shader_metal_version_config_fixed(env: &mut Vec<(String, String)>, node: &PipelineNode) {
     if !is_dxmt_shader_metal_version_route(node.id) {
         return;
     }
-    let shader_version = product_version.and_then(dxmt_shader_metal_version_for_macos_product_version);
     if let Some((_, config)) = env.iter_mut().rev().find(|(key, _)| key == "DXMT_CONFIG") {
-        *config = dxmt_config_with_shader_metal_version(config, shader_version);
-    } else if let Some(shader_version) = shader_version {
-        env.push(("DXMT_CONFIG".to_string(), format!("dxmt.shaderMetalVersion={shader_version}")));
+        *config = dxmt_config_with_shader_metal_version(config);
+    } else {
+        env.push(("DXMT_CONFIG".to_string(), format!("dxmt.shaderMetalVersion={DXMT_SHADER_METAL_VERSION}")));
     }
 }
 
 /// Replace the shader Metal version pair while retaining all unrelated DXMT
-/// configuration. `None` removes the launch override for Metal 4 hosts.
-fn dxmt_config_with_shader_metal_version(config: &str, shader_version: Option<u16>) -> String {
+/// configuration.
+fn dxmt_config_with_shader_metal_version(config: &str) -> String {
     let mut pairs: Vec<String> = config
         .split(';')
-        .filter(|pair| pair.split_once('=').is_some_and(|(key, _)| key != "dxmt.shaderMetalVersion"))
+        .filter(|pair| pair.split_once('=').is_some_and(|(key, _)| key.trim() != "dxmt.shaderMetalVersion"))
         .map(ToString::to_string)
         .collect();
-    if let Some(shader_version) = shader_version {
-        pairs.push(format!("dxmt.shaderMetalVersion={shader_version}"));
-    }
+    pairs.push(format!("dxmt.shaderMetalVersion={DXMT_SHADER_METAL_VERSION}"));
     pairs.join(";")
 }
 
@@ -8212,47 +8145,26 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         let _ = std::fs::remove_dir_all(&home);
     }
 
-    // ---- DXMT shader Metal version: macOS capability policy ----
+    // ---- DXMT shader Metal version: fixed Metal 3.1 policy ----
 
     #[test]
-    fn dxmt_shader_metal_version_maps_macos_boundaries() {
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("14.7.6"), Some(310));
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("15.0"), Some(320));
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("25.4.1"), Some(320));
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("26.0"), None);
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("not-a-version"), None);
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("14..x"), None);
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("14.0.0.0"), None);
-        assert_eq!(dxmt_shader_metal_version_for_macos_product_version("0"), None);
-    }
-
-    #[test]
-    fn dxmt_shader_metal_version_reconciles_all_dxmt_routes() {
+    fn dxmt_shader_metal_version_is_fixed_at_310_for_all_dxmt_routes() {
+        assert_eq!(DXMT_SHADER_METAL_VERSION, 310);
         for pipeline_id in [PipelineId::Dxmt, PipelineId::Dxmt32] {
             let node = get_pipeline(pipeline_id);
-            for (product_version, expected_shader_version) in
-                [("14.7.6", Some("310")), ("15.0", Some("320")), ("25.4.1", Some("320")), ("26.0", None)]
-            {
-                let mut env = dxmt_env_with_node(pipeline_id);
-                env.push((
-                    "DXMT_CONFIG".to_string(),
-                    "d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310".to_string(),
-                ));
-                apply_dxmt_shader_metal_version_config_for_macos_version(&mut env, node, Some(product_version));
+            let mut env = dxmt_env_with_node(pipeline_id);
+            env.push((
+                "DXMT_CONFIG".to_string(),
+                "d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=320;custom.option=keep".to_string(),
+            ));
+            apply_dxmt_shader_metal_version_config_fixed(&mut env, node);
 
-                let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
-                assert!(config.contains("d3d11.preferredMaxFrameRate=60"), "{pipeline_id:?}: {config}");
-                assert_eq!(
-                    config.matches("dxmt.shaderMetalVersion").count(),
-                    usize::from(expected_shader_version.is_some())
-                );
-                if let Some(version) = expected_shader_version {
-                    assert!(
-                        config.contains(&format!("dxmt.shaderMetalVersion={version}")),
-                        "{pipeline_id:?}: {config}"
-                    );
-                }
-            }
+            let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
+            assert!(config.contains("d3d11.preferredMaxFrameRate=60"), "{pipeline_id:?}: {config}");
+            assert!(config.contains("custom.option=keep"), "{pipeline_id:?}: {config}");
+            assert_eq!(config.matches("dxmt.shaderMetalVersion").count(), 1, "{pipeline_id:?}: {config}");
+            assert!(config.contains("dxmt.shaderMetalVersion=310"), "{pipeline_id:?}: {config}");
+            assert!(!config.contains("dxmt.shaderMetalVersion=320"), "{pipeline_id:?}: {config}");
         }
     }
 
@@ -8262,7 +8174,7 @@ export WINEDEBUG="${WINEDEBUG:--all}"
             let node = get_pipeline(pipeline_id);
             let mut env = dxmt_env_with_node(pipeline_id);
             let before = env.clone();
-            apply_dxmt_shader_metal_version_config_for_macos_version(&mut env, node, Some("14.7.6"));
+            apply_dxmt_shader_metal_version_config_fixed(&mut env, node);
             assert_eq!(env, before, "{pipeline_id:?} must not receive a shader Metal version override");
         }
     }
@@ -8270,87 +8182,68 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     #[test]
     fn dxmt_shader_metal_version_command_reconciliation_beats_late_env() {
         let node = get_pipeline(PipelineId::Dxmt);
-        for (product_version, expected_shader_version) in
-            [("14.7.6", Some("310")), ("15.0", Some("320")), ("25.4.1", Some("320")), ("26.0", None)]
-        {
-            let mut cmd = std::process::Command::new("/usr/bin/true");
-            // Model recipe/extra_env setting a stale value after node defaults.
-            cmd.env("DXMT_CONFIG", "d3d11.preferredMaxFrameRate=45;dxmt.shaderMetalVersion=310;custom.option=keep");
-            apply_dxmt_shader_metal_version_config_cmd_for_macos_version(&mut cmd, node, Some(product_version));
+        let mut cmd = std::process::Command::new("/usr/bin/true");
+        // Model recipe/extra_env setting a stale value after node defaults.
+        cmd.env("DXMT_CONFIG", "d3d11.preferredMaxFrameRate=45;dxmt.shaderMetalVersion=320;custom.option=keep");
+        apply_dxmt_shader_metal_version_config_cmd(&mut cmd, node);
 
-            let config = cmd
-                .get_envs()
-                .find_map(|(key, value)| (key == "DXMT_CONFIG").then(|| value.and_then(|value| value.to_str())))
-                .flatten()
-                .expect("DXMT_CONFIG after command reconciliation");
-            assert!(config.contains("d3d11.preferredMaxFrameRate=45"), "{product_version}: {config}");
-            assert!(config.contains("custom.option=keep"), "{product_version}: {config}");
-            assert_eq!(
-                config.matches("dxmt.shaderMetalVersion").count(),
-                usize::from(expected_shader_version.is_some())
-            );
-            if let Some(version) = expected_shader_version {
-                assert!(config.contains(&format!("dxmt.shaderMetalVersion={version}")), "{product_version}: {config}");
-            }
-        }
+        let config = cmd
+            .get_envs()
+            .find_map(|(key, value)| (key == "DXMT_CONFIG").then(|| value.and_then(|value| value.to_str())))
+            .flatten()
+            .expect("DXMT_CONFIG after command reconciliation");
+        assert!(config.contains("d3d11.preferredMaxFrameRate=45"), "{config}");
+        assert!(config.contains("custom.option=keep"), "{config}");
+        assert_eq!(config.matches("dxmt.shaderMetalVersion").count(), 1, "{config}");
+        assert!(config.contains("dxmt.shaderMetalVersion=310"), "{config}");
     }
 
-    // ---- dxmt.conf reconciliation: dummy macOS 14 / 15 launches ----
+    // ---- dxmt.conf reconciliation: fixed Metal 3.1 installation policy ----
 
     fn read_conf(home: &std::path::Path) -> String {
         std::fs::read_to_string(dxmt_conf_path_for_home(home)).unwrap_or_default()
     }
 
     #[test]
-    fn dxmt_conf_reconcile_pretend_macos14_writes_310() {
-        // Dummy macOS 14 launch: the conf must pin Metal 3.1 for DXMT.
-        let home = std::env::temp_dir().join(format!("ms-dxmt-conf-14-{}", std::process::id()));
+    fn dxmt_conf_ensure_creates_fixed_310() {
+        let home = std::env::temp_dir().join(format!("ms-dxmt-conf-fixed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
 
-        let selected = reconcile_dxmt_conf_shader_metal_version_for_macos(&home, Some("14.7.6"));
-        assert_eq!(selected, Some(310));
+        assert!(ensure_dxmt_conf_shader_metal_version(&home).unwrap());
         let conf = read_conf(&home);
         assert_eq!(conf.matches("dxmt.shaderMetalVersion").count(), 1, "{conf}");
         assert!(conf.contains("dxmt.shaderMetalVersion = 310"), "{conf}");
+        assert!(!ensure_dxmt_conf_shader_metal_version(&home).unwrap());
 
         let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
-    fn dxmt_conf_reconcile_pretend_macos15_writes_320() {
-        // Dummy macOS 15 launch: the conf must pin Metal 3.2 for DXMT.
-        let home = std::env::temp_dir().join(format!("ms-dxmt-conf-15-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-
-        let selected = reconcile_dxmt_conf_shader_metal_version_for_macos(&home, Some("15.0"));
-        assert_eq!(selected, Some(320));
-        let conf = read_conf(&home);
-        assert_eq!(conf.matches("dxmt.shaderMetalVersion").count(), 1, "{conf}");
-        assert!(conf.contains("dxmt.shaderMetalVersion = 320"), "{conf}");
-
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn dxmt_conf_reconcile_macos26_strips_override_for_metal4_default() {
-        // Metal 4 hosts must NOT pin an older dialect: a stale 310 line from a
-        // previous macOS 14 boot has to be removed, not kept.
-        let home = std::env::temp_dir().join(format!("ms-dxmt-conf-26-{}", std::process::id()));
+    fn dxmt_conf_ensure_replaces_stale_and_commented_values() {
+        let home = std::env::temp_dir().join(format!("ms-dxmt-conf-stale-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         let conf_dir = home.join("runtime").join("wine").join("etc");
         std::fs::create_dir_all(&conf_dir).unwrap();
-        std::fs::write(conf_dir.join("dxmt.conf"), "dxmt.shaderMetalVersion = 310\n").unwrap();
+        std::fs::write(
+            conf_dir.join("dxmt.conf"),
+            "# user comment\ndxmt.shaderMetalVersion = 320\n# dxmt.shaderMetalVersion = 999\ncustom.option = keep\n",
+        )
+        .unwrap();
 
-        let selected = reconcile_dxmt_conf_shader_metal_version_for_macos(&home, Some("26.0"));
-        assert_eq!(selected, None);
+        assert!(ensure_dxmt_conf_shader_metal_version(&home).unwrap());
         let conf = read_conf(&home);
-        assert!(!conf.contains("dxmt.shaderMetalVersion"), "26+ must strip the pin: {conf}");
+        assert_eq!(conf.matches("dxmt.shaderMetalVersion").count(), 1, "{conf}");
+        assert!(conf.contains("# user comment"), "{conf}");
+        assert!(conf.contains("custom.option = keep"), "{conf}");
+        assert!(conf.contains("dxmt.shaderMetalVersion = 310"), "{conf}");
+        assert!(!conf.contains("= 320"), "{conf}");
+        assert!(!conf.contains("= 999"), "{conf}");
 
         let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
-    fn dxmt_conf_reconcile_preserves_unrelated_keys_and_is_idempotent() {
+    fn dxmt_conf_ensure_preserves_unrelated_keys_and_is_idempotent() {
         let home = std::env::temp_dir().join(format!("ms-dxmt-conf-preserve-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         let conf_dir = home.join("runtime").join("wine").join("etc");
@@ -8361,81 +8254,22 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         )
         .unwrap();
 
-        // macOS 15 upgrades the stale 310 pin to 320, keeps everything else.
-        reconcile_dxmt_conf_shader_metal_version_for_macos(&home, Some("15.6"));
+        ensure_dxmt_conf_shader_metal_version(&home).unwrap();
         let conf = read_conf(&home);
         assert!(conf.contains("# user comment"), "{conf}");
         assert!(conf.contains("d3d11.metalSpatialUpscaleFactor = 1.43"), "{conf}");
         assert!(conf.contains("custom.option = keep"), "{conf}");
-        assert!(!conf.contains("= 310"), "{conf}");
-        assert!(conf.contains("dxmt.shaderMetalVersion = 320"), "{conf}");
+        assert!(conf.contains("dxmt.shaderMetalVersion = 310"), "{conf}");
 
         // Repeated launches (idempotence): no duplicate lines, content stable.
         for _ in 0..3 {
-            reconcile_dxmt_conf_shader_metal_version_for_macos(&home, Some("15.6"));
+            ensure_dxmt_conf_shader_metal_version(&home).unwrap();
         }
         let conf_after = read_conf(&home);
         assert_eq!(conf_after, conf, "reconciliation must be idempotent: {conf_after}");
         assert_eq!(conf_after.matches("dxmt.shaderMetalVersion").count(), 1, "{conf_after}");
 
         let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn dxmt_conf_reconcile_malformed_version_fails_open() {
-        // Garbage detector output must not invent a version: no pin is written.
-        let home = std::env::temp_dir().join(format!("ms-dxmt-conf-bad-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-
-        let selected = reconcile_dxmt_conf_shader_metal_version_for_macos(&home, Some("not-a-version"));
-        assert_eq!(selected, None);
-        assert!(!read_conf(&home).contains("dxmt.shaderMetalVersion"));
-
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn dxmt_conf_host_detection_sees_real_sw_vers() {
-        // Proof the detector sees the REAL host (this machine reports macOS 27
-        // via `sw_vers -productVersion`): the conf reconcile must follow the
-        // same live version, not a hardcoded one. Host-agnostic so CI runners
-        // on macOS 14/15 exercise the pin branch while this host (27) proves
-        // the Metal-4 strip branch.
-        let product_version = macos_product_version().expect("sw_vers must answer on this host");
-        let expected = dxmt_shader_metal_version_for_macos_product_version(&product_version);
-
-        let home = std::env::temp_dir().join(format!("ms-dxmt-conf-host-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        let conf_dir = home.join("runtime").join("wine").join("etc");
-        std::fs::create_dir_all(&conf_dir).unwrap();
-        std::fs::write(conf_dir.join("dxmt.conf"), "dxmt.shaderMetalVersion = 999\n").unwrap();
-
-        let selected = reconcile_dxmt_conf_shader_metal_version_for_host(&home);
-        assert_eq!(selected, expected, "live host {product_version} must drive the conf");
-        let conf = read_conf(&home);
-        match expected {
-            Some(version) => {
-                assert!(conf.contains(&format!("dxmt.shaderMetalVersion = {version}")), "{conf}");
-                assert!(!conf.contains("= 999"), "stale pin must be replaced: {conf}");
-            },
-            None => {
-                assert!(!conf.contains("dxmt.shaderMetalVersion"), "Metal 4 default host must strip the pin: {conf}");
-            },
-        }
-
-        let _ = std::fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn dxmt_shader_metal_version_missing_detector_output_fails_open() {
-        let node = get_pipeline(PipelineId::Dxmt);
-        let mut env = dxmt_env_with_node(PipelineId::Dxmt);
-        env.push(("DXMT_CONFIG".to_string(), "d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310".to_string()));
-        apply_dxmt_shader_metal_version_config_for_macos_version(&mut env, node, None);
-
-        let config = last_env_value(&env, "DXMT_CONFIG").expect("DXMT_CONFIG");
-        assert!(config.contains("d3d11.preferredMaxFrameRate=60"), "{config}");
-        assert!(!config.contains("dxmt.shaderMetalVersion"), "{config}");
     }
 
     // ---- Wine msync toggle: WINEMSYNC env from config ----

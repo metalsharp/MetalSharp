@@ -889,6 +889,22 @@ fn runtime_file_present(path: &Path) -> bool {
     path.metadata().map(|metadata| metadata.is_file() && metadata.len() > 0).unwrap_or(false)
 }
 
+fn dxmt_conf_has_fixed_shader_version(path: &Path) -> bool {
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    contents.lines().any(|line| {
+        let probe = line.trim_start();
+        if probe.starts_with('#') {
+            return false;
+        }
+        let Some((key, value)) = probe.split_once('=') else {
+            return false;
+        };
+        key.trim() == "dxmt.shaderMetalVersion" && value.trim() == "310"
+    })
+}
+
 fn optional_runtime_stub(filename: &str) -> bool {
     filename.starts_with("nvapi") || filename.starts_with("nvngx") || filename.starts_with("atidxx")
 }
@@ -971,9 +987,9 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
         let conf = ms_root.join("etc").join("dxmt.conf");
         assets.push(RuntimeAsset {
             name: "dxmt.conf".into(),
-            present: runtime_file_present(&conf),
+            present: dxmt_conf_has_fixed_shader_version(&conf),
             path: conf,
-            required: false,
+            required: true,
         });
     }
 
@@ -1043,6 +1059,30 @@ mod tests {
             assert!(vkd3d_assets.iter().any(|asset| asset.name == required), "VKD3D missing asset {required}");
         }
         assert!(!vkd3d_assets.iter().any(|asset| asset.name == "lib/dxmt/x86_64-unix/winemetal.so"));
+
+        let _ = std::fs::remove_dir_all(ms_root);
+    }
+
+    #[test]
+    fn dxmt_runtime_asset_requires_active_fixed_shader_version() {
+        let ms_root = test_dir("runtime-assets-dxmt-conf-version");
+        let conf = ms_root.join("etc").join("dxmt.conf");
+        std::fs::create_dir_all(conf.parent().unwrap()).expect("create DXMT config dir");
+        let node = super::super::engine::get_pipeline(PipelineId::Dxmt);
+
+        std::fs::write(&conf, "# dxmt.shaderMetalVersion = 310\n").expect("write commented DXMT config");
+        let assets = runtime_assets_for_node(node, &ms_root);
+        assert!(!assets.iter().find(|asset| asset.name == "dxmt.conf").unwrap().present);
+
+        std::fs::write(&conf, "dxmt.shaderMetalVersion = 320\n").expect("write stale DXMT config");
+        let assets = runtime_assets_for_node(node, &ms_root);
+        assert!(!assets.iter().find(|asset| asset.name == "dxmt.conf").unwrap().present);
+
+        std::fs::write(&conf, "dxmt.shaderMetalVersion = 310\n").expect("write fixed DXMT config");
+        let assets = runtime_assets_for_node(node, &ms_root);
+        let config_asset = assets.iter().find(|asset| asset.name == "dxmt.conf").unwrap();
+        assert!(config_asset.required);
+        assert!(config_asset.present);
 
         let _ = std::fs::remove_dir_all(ms_root);
     }

@@ -441,6 +441,7 @@ fn runtime_core_ready(ms_dir: &Path) -> bool {
     ]
     .iter()
     .all(|path| path.exists())
+        && dxmt_conf_has_fixed_shader_version(&runtime_wine.join("etc").join("dxmt.conf"))
         && crate::installer::dxmt_graphics_runtimes_current_for_ms_dir(ms_dir)
 }
 
@@ -454,6 +455,22 @@ fn host_runtime_ready(dir: &Path) -> bool {
 
 fn file_nonempty(path: &Path) -> bool {
     path.metadata().map(|meta| meta.is_file() && meta.len() > 0).unwrap_or(false)
+}
+
+fn dxmt_conf_has_fixed_shader_version(path: &Path) -> bool {
+    let Ok(contents) = fs::read_to_string(path) else {
+        return false;
+    };
+    contents.lines().any(|line| {
+        let probe = line.trim_start();
+        if probe.starts_with('#') {
+            return false;
+        }
+        let Some((key, value)) = probe.split_once('=') else {
+            return false;
+        };
+        key.trim() == "dxmt.shaderMetalVersion" && value.trim() == "310"
+    })
 }
 
 pub fn start_migration() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
@@ -3609,6 +3626,8 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).expect("create runtime parent");
             fs::write(path, b"test").expect("write runtime file");
         }
+        fs::write(runtime_wine.join("etc").join("dxmt.conf"), b"dxmt.shaderMetalVersion = 310\n")
+            .expect("write fixed DXMT config");
 
         fs::write(
             runtime_wine.join("lib").join("dxmt").join("metalsharp-dxmt-runtime.json"),
