@@ -1,10 +1,26 @@
-MetalSharp DXMT VKD3D runtime build artifacts
+MetalSharp DXMT runtime build artifacts
 
-Source commit: a24464357fc0cb09ba794330d89d7dd6df9e2140
+Source commit: a24464357fc0cb09ba794330d89d7dd6df9e2140 (vendored)
 Source path: vendor/dxmt
 Build command:
-  METALSHARP_X86_LLVM_ROOT="$HOME/.cache/metalsharp/toolchains" \
-    tools/d3d12-metal-sdk/scripts/vkd3d-dev.sh build-runtime
+  PATH="<xcrun-shim-dir>:$PATH" \
+  MACOSX_DEPLOYMENT_TARGET=14.0 \
+  METALSHARP_X86_LLVM_ROOT=<dir containing clang+llvm-15.0.7-x86_64-apple-darwin21.0> \
+  METALSHARP_WINE_ROOT=<MetalSharp Wine 11.5 install prefix> \
+  tools/d3d12-metal-sdk/scripts/prepare-dxmt-x86-llvm15.sh
+  (win32 lane: meson setup build-metalsharp-x86 --cross-file build-win32.txt
+   with the same LLVM/Wine roots)
 
-These artifacts are the generated DXMT runtime files from the confirmed-good
-Elden Ring VKD3D render build on 2026-07-01.
+Rebuilt 2026-08-15 targeting macOS 14.0 minimum / Metal 3:
+- Metal shaders compiled with the Xcode 16.0 toolchain (metalfe-32023.335)
+  pinned to -target air64-apple-macos14.0 (see vendor/dxmt/meson.build), so
+  the embedded AIR is air64-apple-macosx14.0.0 instead of Metal 4
+  (air64_v29/macosx27) produced by the macOS 26/27 toolchains.
+- Native winemetal.so linked with MACOSX_DEPLOYMENT_TARGET=14.0
+  (LC_BUILD_VERSION minos 14.0; previously minos 26.0/27.0).
+- x86_64 LLVM 15.0.7: prebuilt clang+llvm-15.0.7-x86_64-apple-darwin21.0.
+- Wine: MetalSharp Wine 11.5 install prefix (-Dwine_install_path).
+
+Published as metalsharp-graphics-dll.tar.zst (Graphics/dll/dxmt lane),
+sha256 d0b30d54e785c1476b4ad626c83fbf81b84b533d134adc2e38c2f31d6ad66801,
+on the `bundles` release.

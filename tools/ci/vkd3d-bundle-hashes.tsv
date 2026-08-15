@@ -8,4 +8,4 @@
 # manifest in the same change that rotates the `bundles` release.
 asset	sha256
 metalsharp-runtime.tar.zst	7e4089ea9e02e36ea1da81f5e10124d6269df5bef6d3785fbabdfaee2fe5d696
-metalsharp-graphics-dll.tar.zst	63da6b9aa765882adfa564eb6a051af942d7328b2f2519edcd7aad15ec1898be
+metalsharp-graphics-dll.tar.zst	d0b30d54e785c1476b4ad626c83fbf81b84b533d134adc2e38c2f31d6ad66801
