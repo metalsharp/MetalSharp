@@ -1612,6 +1612,27 @@ pub fn set_runtime_profile(id: &str, profile: RuntimeProfile) -> Result<BottleMa
     Ok(manifest)
 }
 
+/// Seed the DXMT config for a bottle save on a DXMT-family route.
+///
+/// The runtime-completeness gate (see `recipe.rs`) treats the literal line
+/// `dxmt.shaderMetalVersion = 310` in `runtime/wine/etc/dxmt.conf` as a
+/// required asset, and the save path reaches that validation via
+/// `deploy_recipe_dlls` *before* the launch-time seeding would run. So on the
+/// first bottle save we ensure the config carries the shader-metal version and
+/// drop a marker recording that the seed was applied (idempotent afterwards).
+fn ensure_dxmt_config_seeded_for_save(home: &Path, pipeline: crate::mtsp::engine::PipelineId) -> Result<bool, String> {
+    if !pipeline.is_dxmt_family() {
+        return Ok(false);
+    }
+    let changed = crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home)?;
+    let wine_etc = crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine").join("etc");
+    fs::create_dir_all(&wine_etc).map_err(|e| format!("create DXMT config dir {}: {}", wine_etc.display(), e))?;
+    let marker = wine_etc.join("metalsharp.dxmt-seeded");
+    fs::write(&marker, format!("dxmt.shaderMetalVersion = {}\n", crate::mtsp::launcher::DXMT_SHADER_METAL_VERSION))
+        .map_err(|e| format!("write DXMT seed marker {}: {}", marker.display(), e))?;
+    Ok(changed)
+}
+
 fn stage_m12_dlls_for_saved_steam_bottle(
     manifest: &BottleManifest,
 ) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
@@ -1631,6 +1652,7 @@ fn stage_m12_dlls_for_saved_steam_bottle(
     let home = dirs::home_dir().ok_or("no home dir")?;
     crate::installer::ensure_dxmt_m12_runtime_ready(&home)
         .map_err(|e| format!("M12 runtime setup failed while saving bottle: {}", e))?;
+    ensure_dxmt_config_seeded_for_save(&home, crate::mtsp::engine::PipelineId::M12)?;
 
     let (_env, recipe) = crate::mtsp::launcher::prepare_steam_pipeline_env(appid, crate::mtsp::engine::PipelineId::M12)
         .map_err(|e| format!("M12 DLL deployment failed while saving bottle: {}", e))?;
@@ -1661,6 +1683,9 @@ fn stage_route_dlls_for_saved_steam_bottle(
     if !pipeline.is_graphics_route() {
         return Ok(None);
     }
+
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    ensure_dxmt_config_seeded_for_save(&home, pipeline)?;
 
     let manifest_game_dir = manifest.game_install_path.as_ref().map(PathBuf::from).filter(|path| path.exists());
     let scan_game_dir = crate::scan::resolve_dual_game_dir(appid).wine_dir.filter(|path| path.exists());
