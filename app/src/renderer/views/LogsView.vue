@@ -10,6 +10,15 @@ const logContentEl = ref<HTMLElement | null>(null);
 const liveOpen = ref(false);
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
+const liveDrawerEl = ref<HTMLDetailsElement | null>(null);
+const crashDrawerEl = ref<HTMLDetailsElement | null>(null);
+const filesDrawerEl = ref<HTMLDetailsElement | null>(null);
+function showSection(section: string) {
+  const target =
+    section === "live" ? liveDrawerEl.value : section === "crashes" ? crashDrawerEl.value : filesDrawerEl.value;
+  if (target) target.open = true;
+}
+
 const pipelineOrder = ["M12", "M11", "M9", "FNA/Mono", "System", "Other"];
 const crashByPipeline = computed(() => {
   const groups: Record<string, typeof crashReports.value> = {};
@@ -61,6 +70,12 @@ function clearView() {
   logLineCount.value = 0;
 }
 
+function copyLiveLog() {
+  const text = logs.value.join("\n");
+  if (!text) return;
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
 async function openLogFolder() {
   await getAPI().openLogsFolder();
 }
@@ -79,20 +94,33 @@ onUnmounted(() => {
 
 <template>
   <div class="logs-view">
-    <div class="logs-header">
-      <div>
-        <h1>Logs</h1>
-        <p class="subtitle">Live MetalSharp runtime logs</p>
+    <div class="logs-header glass-header">
+      <div class="logs-title-row">
+        <div>
+          <h1>Logs</h1>
+          <p class="subtitle">Live MetalSharp runtime logs</p>
+        </div>
       </div>
-      <div class="logs-actions">
-        <button class="btn btn-secondary" @click="openLogFolder">Open Logs</button>
-        <button class="btn btn-secondary" @click="clearView">Clear View</button>
+      <div class="logs-controls">
+        <div class="logs-sections">
+          <button class="section-btn" type="button" @click="showSection('live')">Live</button>
+          <button class="section-btn" type="button" @click="showSection('crashes')">Crash Reports</button>
+          <button class="section-btn" type="button" @click="showSection('files')">Log Files</button>
+        </div>
+        <div class="logs-actions">
+          <button class="btn btn-secondary btn-sm" @click="openLogFolder">Open Logs</button>
+          <button class="btn btn-secondary btn-sm" @click="copyLiveLog" :disabled="!logs.length">Copy</button>
+          <button class="btn btn-secondary btn-sm" @click="clearView">Clear View</button>
+        </div>
       </div>
     </div>
-    <details class="log-drawer live-log-drawer" @toggle="liveOpen = ($event.target as HTMLDetailsElement).open; if (liveOpen) scrollToBottom()">
+    <details ref="liveDrawerEl" class="log-drawer live-log-drawer" @toggle="liveOpen = ($event.target as HTMLDetailsElement).open; if (liveOpen) scrollToBottom()">
       <summary>
         Live log stream <span>{{ logs.length }} lines</span>
       </summary>
+      <div class="live-toolbar">
+        <button class="btn btn-secondary btn-sm" @click="copyLiveLog" :disabled="!logs.length">Copy</button>
+      </div>
       <div class="log-content" ref="logContentEl">
         <div v-for="(line, i) in logs" :key="i" class="log-line" :class="logClass(line)">
           {{ line }}
@@ -100,7 +128,7 @@ onUnmounted(() => {
       </div>
     </details>
     <div class="log-drawers">
-      <details class="log-drawer">
+      <details ref="crashDrawerEl" class="log-drawer">
         <summary>
           Crash reports <span>{{ crashReports.length }}</span>
         </summary>
@@ -116,7 +144,7 @@ onUnmounted(() => {
         </div>
         <div v-else class="crash-empty">No crash reports found.</div>
       </details>
-      <details v-if="logFiles.length" class="log-drawer">
+      <details v-if="logFiles.length" ref="filesDrawerEl" class="log-drawer">
         <summary>
           Recent log files <span>{{ logFiles.length }}</span>
         </summary>
@@ -163,16 +191,54 @@ export default {
   flex-direction: column;
 }
 .logs-header {
+  flex-shrink: 0;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin: 0 -28px 16px;
-  padding: 44px 28px 18px;
-  background: var(--page-header-bg);
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  margin: 0 -28px;
+  padding: 44px 28px 14px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   position: relative;
   overflow: hidden;
+}
+.logs-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  min-width: 0;
+}
+.logs-title-row > div {
+  min-width: 0;
+}
+.logs-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  -webkit-app-region: no-drag;
+}
+.logs-sections {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.section-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.section-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 .logs-header::after {
   content: "";
@@ -183,8 +249,9 @@ export default {
   pointer-events: none;
 }
 .logs-header h1 {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1.1;
 }
 .subtitle {
   font-size: 12px;
@@ -193,6 +260,7 @@ export default {
 }
 .logs-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   -webkit-app-region: no-drag;
 }
@@ -307,6 +375,14 @@ export default {
   line-height: 1.8;
   color: var(--text-secondary);
   white-space: pre-wrap;
+}
+.live-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  order: -1;
+  border-top: 1px solid var(--border);
 }
 .live-log-drawer {
   min-height: 0;
