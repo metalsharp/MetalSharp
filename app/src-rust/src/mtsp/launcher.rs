@@ -1160,6 +1160,7 @@ pub fn launch_custom_with_options(
     }
     apply_cache_env(&mut cmd, node, cache_paths.as_ref(), &ms_root);
     if node.backend == "dxmt" {
+        let _ = ensure_dxmt_conf_shader_metal_version(&crate::platform::metalsharp_home_dir_for(&home));
         cmd.env("DXMT_CONFIG_FILE", ms_root.join("etc").join("dxmt.conf").to_string_lossy().to_string());
         cmd.env("DXMT_WINEMETAL_UNIXLIB", dxmt_winemetal_unixlib_path(&ms_root));
     }
@@ -1590,6 +1591,7 @@ fn launch_dxmt_metal_with_context(
 
     apply_cache_env(&mut cmd, node, cache_paths.as_ref(), &ms_root);
     if node.backend == "dxmt" {
+        let _ = ensure_dxmt_conf_shader_metal_version(&crate::platform::metalsharp_home_dir_for(&home));
         cmd.env("DXMT_CONFIG_FILE", &dxmt_config_file);
         cmd.env("DXMT_WINEMETAL_UNIXLIB", dxmt_winemetal_unixlib_path(&ms_root));
     }
@@ -2366,6 +2368,7 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
         env.push(("WINEDLLPATH".to_string(), build_winedllpath(&ms_root, &node.winedllpath_dirs)));
     }
     if node.backend == "dxmt" {
+        let _ = ensure_dxmt_conf_shader_metal_version(&crate::platform::metalsharp_home_dir_for(home));
         env.push(("DXMT_CONFIG_FILE".to_string(), ms_root.join("etc").join("dxmt.conf").to_string_lossy().to_string()));
         env.push(("DXMT_WINEMETAL_UNIXLIB".to_string(), dxmt_winemetal_unixlib_path(&ms_root)));
     }
@@ -2384,9 +2387,45 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
     // MetalFX strength is the user's choice: applied last so it overrides the
     // node default and any game-recipe DXMT_CONFIG/DXMT_METALFX_* entries.
     apply_metal_fx_config(&mut env, node, home);
+    apply_dxmt_shader_metal_version_config(&mut env, node);
     // msync toggle likewise wins over recipe env.
     apply_msync_config(&mut env, home);
     env
+}
+
+const DXMT_SHADER_METAL_VERSION: u16 = 310;
+
+/// Keep DXMT's shader language pin in the file it reads at device creation.
+/// Environment-only configuration can be lost across the Steam bridge, so
+/// every DXMT route also repairs the installed file before launch.
+pub(crate) fn ensure_dxmt_conf_shader_metal_version(home: &Path) -> Result<bool, String> {
+    let path = home.join("runtime").join("wine").join("etc").join("dxmt.conf");
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("read DXMT config {}: {error}", path.display())),
+    };
+    let mut lines = Vec::new();
+    for line in existing.lines() {
+        let probe = line.trim_start().trim_start_matches('#').trim_start();
+        if probe.split_once('=').map(|(key, _)| key.trim()) == Some("dxmt.shaderMetalVersion") {
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    lines.push(format!("dxmt.shaderMetalVersion = {DXMT_SHADER_METAL_VERSION}"));
+    let desired = format!("{}\n", lines.join("\n"));
+    if desired == existing {
+        return Ok(false);
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("create DXMT config dir {}: {error}", parent.display()))?;
+    }
+    let tmp = path.with_extension("conf.tmp");
+    std::fs::write(&tmp, desired).map_err(|error| format!("write DXMT config {}: {error}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|error| format!("install DXMT config {}: {error}", path.display()))?;
+    Ok(true)
 }
 
 /// Wine msync toggle value (`WINEMSYNC`) for the given home. Defaults ON.
@@ -2407,6 +2446,27 @@ fn apply_msync_config(env: &mut Vec<(String, String)>, home: &Path) {
         *existing = value;
     } else {
         env.push(("WINEMSYNC".to_string(), value));
+    }
+}
+
+fn apply_dxmt_shader_metal_version_config(env: &mut Vec<(String, String)>, node: &PipelineNode) {
+    if node.backend != "dxmt" {
+        return;
+    }
+    if let Some((_, config)) = env.iter_mut().rev().find(|(key, _)| key == "DXMT_CONFIG") {
+        let mut pairs = Vec::new();
+        for pair in config.split(';') {
+            if pair.split_once('=').map(|(key, _)| key.trim()) == Some("dxmt.shaderMetalVersion") {
+                continue;
+            }
+            if !pair.trim().is_empty() {
+                pairs.push(pair.to_string());
+            }
+        }
+        pairs.push(format!("dxmt.shaderMetalVersion={DXMT_SHADER_METAL_VERSION}"));
+        *config = pairs.join(";");
+    } else {
+        env.push(("DXMT_CONFIG".to_string(), format!("dxmt.shaderMetalVersion={DXMT_SHADER_METAL_VERSION}")));
     }
 }
 
@@ -2460,6 +2520,7 @@ fn apply_metal_fx_config_cmd(cmd: &mut std::process::Command, node: &PipelineNod
         env.push((ev.key.to_string(), ev.value.to_string()));
     }
     apply_metal_fx_config(&mut env, node, home);
+    apply_dxmt_shader_metal_version_config(&mut env, node);
     for (key, value) in env {
         cmd.env(key, value);
     }
@@ -5534,7 +5595,10 @@ mod tests {
 
         assert_eq!(last_env_value(&env, "DXMT_ASYNC_PIPELINE_COMPILE"), Some("0"));
         assert_eq!(last_env_value(&env, "DXMT_METALFX_SPATIAL_SWAPCHAIN"), Some("0"));
-        assert_eq!(last_env_value(&env, "DXMT_CONFIG"), Some("d3d11.preferredMaxFrameRate=60"));
+        assert_eq!(
+            last_env_value(&env, "DXMT_CONFIG"),
+            Some("d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310")
+        );
         assert_eq!(last_env_value(&env, "METALSHARP_M9_SYNC_LOADING"), Some("1"));
         let _ = std::fs::remove_dir_all(home);
     }

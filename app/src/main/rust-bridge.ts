@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "child_process";
+import { execFile, type ChildProcess, spawn } from "child_process";
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
@@ -333,6 +333,29 @@ export class RustBridge {
       } catch {}
     }
     return "";
+  }
+
+  private async getListeningBackendPid(): Promise<number | null> {
+    const pids = await new Promise<number[]>((resolve) => {
+      execFile("lsof", ["-nP", `-tiTCP:${this.port}`, "-sTCP:LISTEN"], (err, stdout) => {
+        if (err) {
+          resolve([]);
+          return;
+        }
+        resolve(
+          stdout
+            .split(/\s+/)
+            .map((value) => Number.parseInt(value, 10))
+            .filter((pid) => Number.isInteger(pid) && pid > 0),
+        );
+      });
+    });
+
+    for (const pid of pids) {
+      const processPath = await this.getProcessPath(pid);
+      if (processPath?.endsWith("metalsharp-backend")) return pid;
+    }
+    return null;
   }
 
   private async getBackendVersion(): Promise<string | null> {

@@ -1095,7 +1095,7 @@ fn install_metalsharp_wine(home: &PathBuf) -> Result<bool, String> {
 pub fn ensure_dxmt_runtime_ready(home: &Path) -> Result<bool, String> {
     let dxmt_dir = dxmt_runtime_dir_for_home(home);
     if dxmt_runtime_current_for_dir(&dxmt_dir) {
-        return Ok(false);
+        return crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home);
     }
 
     let home_buf = home.to_path_buf();
@@ -1105,6 +1105,7 @@ pub fn ensure_dxmt_runtime_ready(home: &Path) -> Result<bool, String> {
     changed |= install_host_runtime(&home_buf)?;
     changed |= install_scripts_tools_bundle(&home_buf)?;
     changed |= install_dxmt_runtime(&home_buf)?;
+    changed |= crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home)?;
 
     if dxmt_runtime_current_for_dir(&dxmt_dir) {
         Ok(changed)
