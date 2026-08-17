@@ -611,11 +611,8 @@ fn route(req: &HttpRequest) -> RouteResponse {
                                 env.push(("SteamGameId".to_string(), id.to_string()));
                                 env.push(("METALSHARP_OFFLINE_MODE".to_string(), "1".to_string()));
                             }
-                            let is_direct_launch = matches!(
-                                pipeline,
-                                mtsp::engine::PipelineId::D3DMetal | mtsp::engine::PipelineId::Vkd3d
-                            );
-                            let steam_started = if is_direct_launch {
+                            let is_gptk_direct = matches!(pipeline, mtsp::engine::PipelineId::D3DMetal);
+                            let steam_started = if is_gptk_direct {
                                 false
                             } else {
                                 match steam::ensure_wine_steam_ready_for_game_launch() {
