@@ -1120,6 +1120,25 @@ fi
     if repaired != script {
         std::fs::write(&wrapper, repaired)?;
     }
+
+    // VKD3D vkmt hardening: pin the non-single-texel-alignment allowance in the
+    // wrapper so the vkd3d-proton route can create a D3D12 device regardless of
+    // which launch path reaches it. Harmless for every other route (only
+    // vkd3d-proton's d3d12core.dll reads VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT).
+    let script = std::fs::read_to_string(&wrapper)?;
+    if !script.contains("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT") {
+        let vkmt_export = "export VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT=\"1\"\n";
+        let mut hardened = script.clone();
+        let anchor = if let Some(pos) = hardened.find("export MVK_PRESENT_MODE=") {
+            hardened[pos..].find('\n').map(|o| pos + o + 1).unwrap_or(hardened.len())
+        } else if let Some(pos) = hardened.find("export MS_FWD_COMPAT_GL_CTX=1") {
+            hardened[pos..].find('\n').map(|o| pos + o + 1).unwrap_or(hardened.len())
+        } else {
+            hardened.len()
+        };
+        hardened.insert_str(anchor, vkmt_export);
+        std::fs::write(&wrapper, hardened)?;
+    }
     Ok(())
 }
 
