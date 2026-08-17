@@ -169,6 +169,10 @@ verify_runtime_core() {
     runtime/wine/lib/wine/i386-windows/xinput1_4.dll \
     runtime/wine/lib/wine/i386-windows/xinput9_1_0.dll \
     runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib \
+    runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib \
+    runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib \
+    runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib \
+    runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json \
     runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json &&
     verify_hash_manifest "$1" "RUNTIME MoltenVK" "runtime/wine" "$SCRIPT_DIR/moltenvk-runtime-hashes.tsv"
 }

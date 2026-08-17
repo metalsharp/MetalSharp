@@ -31,20 +31,22 @@ const ASSETS_BUNDLE: &str = "metalsharp-assets";
 const FNALIBS_BUNDLE: &str = "fnalibs";
 const SCRIPTS_TOOLS_BUNDLE: &str = "metalsharp-scripts-tools";
 const STEAM_BUNDLE: &str = "metalsharp-steam";
-// The VKD3D pipeline is intentionally not wired into the graphics bundle yet.
-// This first step only stages the MoltenVK pieces from the pinned upstream
-// release so installer/migration behavior can be validated independently.
-const VKD3D_PROTON_MACOS_ARCHIVE: &str = "vkd3d-proton-macos.tar.zst";
-const VKD3D_PROTON_MACOS_ROOT: &str = "vkd3d-proton-macos";
-const VKD3D_PROTON_MACOS_URL: &str =
-    "https://github.com/metalsharp/VKD3D-Proton-MacOS/releases/download/v1.0/vkd3d-proton-macos.tar.zst";
-const VKD3D_PROTON_MACOS_ARCHIVE_SHA256: &str = "2e50c89e2cf5184f43b96eb0f8eb75913d0978382a26189b211ebabe8f2efffc";
-const VKD3D_MOLTENVK_LIBRARY_SHA256: &str = "38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde";
-const VKD3D_MOLTENVK_ICD_SHA256: &str = "578ff08cd0d8734619357541771a5abc9c3470ca300030219a971a9e9dbbe466";
+// VKD3D-Proton uses the independent Vulkan graphics lane.  The Windows DLLs
+// are verified from metalsharp-graphics-dll.tar.zst and MoltenVK is verified
+// from the matching metalsharp-runtime.tar.zst.
+const VKD3D_MOLTENVK_BUNDLE_LIBRARY_SHA256: &str = "8249d81ebf2d46f82b16ca166c2e5cca5d76d91d0a412cd6d3db1aaa6e8430bf";
+const VKD3D_MOLTENVK_BUNDLE_LANE_ICD_SHA256: &str = "578ff08cd0d8734619357541771a5abc9c3470ca300030219a971a9e9dbbe466";
+const VKD3D_MOLTENVK_BUNDLE_RUNTIME_ICD_SHA256: &str =
+    "0dcbf7707cc0a347d0ba2941e835e5e92709919370a1bb0fc252e8dc4d95d322";
 #[cfg(not(test))]
-const VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256: &str = "38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde";
+const VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256: &str = VKD3D_MOLTENVK_BUNDLE_LIBRARY_SHA256;
 #[cfg(test)]
 const VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+#[cfg(not(test))]
+const VKD3D_MOLTENVK_EXPECTED_LANE_ICD_SHA256: &str = VKD3D_MOLTENVK_BUNDLE_LANE_ICD_SHA256;
+#[cfg(test)]
+const VKD3D_MOLTENVK_EXPECTED_LANE_ICD_SHA256: &str =
+    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 #[cfg(not(test))]
 const VKD3D_REQUIRED_PE: &[(&str, &str)] = &[
     ("x86_64-windows/d3d12.dll", "ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e"),
@@ -162,6 +164,10 @@ const RUNTIME_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "runtime/wine/lib/wine/i386-windows/xinput1_4.dll",
     "runtime/wine/lib/wine/i386-windows/xinput9_1_0.dll",
     "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib",
+    "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib",
+    "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib",
+    "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib",
+    "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json",
     "runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json",
 ];
 const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
@@ -455,6 +461,14 @@ fn ensure_runtime_bundle_assets(_home: &PathBuf) -> Result<bool, String> {
 }
 
 fn bundled_file_valid_exists(name: &str) -> bool {
+    dirs::home_dir().map(|home| bundled_file_valid_exists_for(name, &home)).unwrap_or(false)
+}
+
+/// Hermetic variant of [`bundled_file_valid_exists`] that resolves the bundle
+/// cache against an explicit home directory instead of the process-global
+/// `METALSHARP_HOME`/real home, so tests never depend on (or mutate) the
+/// developer's installed runtime state.
+fn bundled_file_valid_exists_for(name: &str, home: &Path) -> bool {
     if let Some(resources) = crate::platform::app_resources_dir() {
         let file = resources.join(format!("bundles/{}", name));
         if bundled_artifact_valid(name, &file) {
@@ -467,14 +481,10 @@ fn bundled_file_valid_exists(name: &str) -> bool {
         return true;
     }
 
-    dirs::home_dir()
-        .map(|home| {
-            bundled_artifact_valid(
-                name,
-                &crate::platform::metalsharp_home_dir_for(&home).join("cache").join("bundles").join(name),
-            )
-        })
-        .unwrap_or(false)
+    bundled_artifact_valid(
+        name,
+        &crate::platform::metalsharp_home_dir_for(home).join("cache").join("bundles").join(name),
+    )
 }
 
 fn install_rosetta() -> Result<bool, String> {
@@ -605,6 +615,7 @@ fn install_metalsharp_bundle(home: &PathBuf) -> Result<bool, String> {
         && host_runtime_ready(&host_dir)
         && file_nonempty(&backend)
         && metalsharp_runtime_lib_ready(&runtime_dir.join("wine"))
+        && moltenvk_runtime_current_for_wine_dir(&runtime_dir.join("wine"))
         && bundle.as_ref().is_some_and(|archive| split_bundle_current(home, RUNTIME_BUNDLE, archive))
     {
         return Ok(false);
@@ -768,9 +779,19 @@ pub fn moltenvk_ready(wine_dir: &Path) -> bool {
 /// to an absolute path because it lives under `etc/vulkan/icd.d`, while the
 /// dylib lives under Wine's `lib/wine/x86_64-unix` directory.
 pub(crate) fn moltenvk_runtime_current_for_wine_dir(wine_dir: &Path) -> bool {
-    let library = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
+    let library_dir = wine_dir.join("lib").join("wine").join("x86_64-unix");
+    let library = library_dir.join("libMoltenVK.dylib");
+    let library_soname = library_dir.join("libMoltenVK.1.dylib");
+    let lane_dir = wine_dir.join("lib").join("moltenvk-vkmt");
+    let lane_library = lane_dir.join("libMoltenVK.dylib");
+    let lane_library_soname = lane_dir.join("libMoltenVK.1.dylib");
+    let lane_icd = lane_dir.join("MoltenVK_icd.json");
     let icd = wine_dir.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
-    if crate::diagnostics::file_sha256(&library).as_deref() != Some(VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256) {
+    if [&library, &library_soname, &lane_library, &lane_library_soname]
+        .iter()
+        .any(|path| crate::diagnostics::file_sha256(path).as_deref() != Some(VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256))
+        || crate::diagnostics::file_sha256(&lane_icd).as_deref() != Some(VKD3D_MOLTENVK_EXPECTED_LANE_ICD_SHA256)
+    {
         return false;
     }
 
@@ -796,10 +817,19 @@ pub(crate) fn moltenvk_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
 #[cfg(test)]
 pub(crate) fn write_vkd3d_moltenvk_expected_test_files(wine_dir: &Path) {
     let library = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
+    let library_soname = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.1.dylib");
+    let lane_library = wine_dir.join("lib").join("moltenvk-vkmt").join("libMoltenVK.dylib");
+    let lane_library_soname = wine_dir.join("lib").join("moltenvk-vkmt").join("libMoltenVK.1.dylib");
+    let lane_icd = wine_dir.join("lib").join("moltenvk-vkmt").join("MoltenVK_icd.json");
     let icd = wine_dir.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
     fs::create_dir_all(library.parent().expect("MoltenVK library parent")).expect("create MoltenVK library dir");
+    fs::create_dir_all(lane_library.parent().expect("MoltenVK lane parent")).expect("create MoltenVK lane dir");
     fs::create_dir_all(icd.parent().expect("MoltenVK ICD parent")).expect("create MoltenVK ICD dir");
     fs::write(&library, b"test").expect("write test MoltenVK library");
+    fs::write(&library_soname, b"test").expect("write test MoltenVK soname");
+    fs::write(&lane_library, b"test").expect("write test MoltenVK lane library");
+    fs::write(&lane_library_soname, b"test").expect("write test MoltenVK lane soname");
+    fs::write(&lane_icd, b"test").expect("write test MoltenVK lane ICD");
     fs::write(
         icd,
         serde_json::to_vec(&json!({
@@ -827,9 +857,9 @@ pub(crate) fn write_vkd3d_runtime_expected_test_files(wine_dir: &Path) {
     }
 }
 
-/// Install the pinned MoltenVK files from the VKD3D-Proton-MacOS archive.
-/// The VKD3D-Proton and DXVK Windows DLL lanes are staged separately from the
-/// graphics bundle by `ensure_vkd3d_runtime_ready`.
+/// Verify the pinned MoltenVK files from the validated MetalSharp runtime
+/// bundle. The VKD3D-Proton and DXVK Windows DLL lanes are staged separately
+/// from the graphics bundle by `ensure_vkd3d_runtime_ready`.
 pub fn ensure_vkd3d_moltenvk_ready(home: &PathBuf) -> Result<bool, String> {
     let wine_dir = crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine");
     if moltenvk_runtime_current_for_wine_dir(&wine_dir) {
@@ -844,152 +874,53 @@ pub fn ensure_vkd3d_moltenvk_ready(home: &PathBuf) -> Result<bool, String> {
         return Ok(true);
     }
 
-    let archive = find_vkd3d_proton_macos_archive(home)?;
-    install_vkd3d_moltenvk_from_archive(&wine_dir, &archive)
+    install_vkd3d_moltenvk_from_runtime_bundle(home)
 }
 
-fn find_vkd3d_proton_macos_archive(home: &Path) -> Result<PathBuf, String> {
-    let filename = VKD3D_PROTON_MACOS_ARCHIVE;
-    let mut candidates = Vec::new();
-    if let Some(resources) = crate::platform::app_resources_dir() {
-        candidates.push(resources.join("bundles").join(filename));
-    }
-    candidates.push(PathBuf::from("app/bundles").join(filename));
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).and_then(|p| p.parent()) {
-            candidates.push(parent.join("bundles").join(filename));
-        }
-    }
-
-    let cache_dir = crate::platform::metalsharp_home_dir_for(&home).join("cache").join("bundles");
-    candidates.push(cache_dir.join(filename));
-    if let Some(path) = candidates.into_iter().find(|path| vkd3d_proton_macos_archive_valid(path)) {
-        return Ok(path);
-    }
-
-    fs::create_dir_all(&cache_dir).map_err(|e| format!("create VKD3D bundle cache: {}", e))?;
-    let tmp = cache_dir.join(format!("{}.download", filename));
-    let _ = fs::remove_file(&tmp);
-    let mut last_error = String::from("download did not complete");
-    for retry in 0..3 {
-        let output = mac_cmd("curl")
-            .args([
-                "--fail",
-                "--location",
-                "--silent",
-                "--show-error",
-                "--retry",
-                "2",
-                "--connect-timeout",
-                "30",
-                "--max-time",
-                "600",
-                "-o",
-            ])
-            .arg(&tmp)
-            .arg(VKD3D_PROTON_MACOS_URL)
-            .output()
-            .map_err(|e| format!("download VKD3D-Proton-MacOS archive: {}", e))?;
-
-        if output.status.success() && vkd3d_proton_macos_archive_valid(&tmp) {
-            fs::rename(&tmp, cache_dir.join(filename))
-                .or_else(|_| fs::copy(&tmp, cache_dir.join(filename)).map(|_| ()))
-                .map_err(|e| format!("cache VKD3D-Proton-MacOS archive: {}", e))?;
-            let cached = cache_dir.join(filename);
-            if vkd3d_proton_macos_archive_valid(&cached) {
-                return Ok(cached);
-            }
-            last_error = String::from("cached archive failed validation after download");
-        } else {
-            last_error = if output.status.success() {
-                format!(
-                    "archive SHA-256 did not match pinned v1.0 release (expected {})",
-                    VKD3D_PROTON_MACOS_ARCHIVE_SHA256
-                )
-            } else {
-                String::from_utf8_lossy(&output.stderr).trim().to_string()
-            };
-            let _ = fs::remove_file(&tmp);
-        }
-
-        if retry < 2 {
-            std::thread::sleep(Duration::from_secs(1));
-        }
-    }
-
-    Err(format!("VKD3D-Proton-MacOS MoltenVK archive unavailable: {}", last_error))
-}
-
-fn vkd3d_proton_macos_archive_valid(path: &Path) -> bool {
-    file_nonempty(path)
-        && archive_sha256(path).as_deref() == Some(VKD3D_PROTON_MACOS_ARCHIVE_SHA256)
-        && archive_required_files_valid(
-            path,
-            &["vkd3d-proton-macos/libMoltenVK.dylib", "vkd3d-proton-macos/MoltenVK_icd.json"],
-        )
-}
-
-fn install_vkd3d_moltenvk_from_archive(wine_dir: &Path, archive: &Path) -> Result<bool, String> {
-    if !vkd3d_proton_macos_archive_valid(archive) {
-        return Err(format!("invalid VKD3D-Proton-MacOS v1.0 archive: {}", archive.display()));
-    }
-
+/// Install only the VKD3D MoltenVK surface from the validated runtime bundle.
+/// This is used by migration repair as well as setup, so a stale or partially
+/// extracted runtime cannot cause the feature ladder to run against an older
+/// dylib while the rest of the runtime appears present.
+fn install_vkd3d_moltenvk_from_runtime_bundle(home: &Path) -> Result<bool, String> {
+    let archive = find_bundled_archive(RUNTIME_BUNDLE)
+        .ok_or_else(|| "validated metalsharp-runtime.tar.zst with MoltenVK 1.4.3 is missing".to_string())?;
     let tmp = std::env::temp_dir().join(format!(
-        "metalsharp-vkd3d-moltenvk-{}-{}",
+        "metalsharp-vkd3d-moltenvk-bundle-{}-{}",
         std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
     ));
     let _ = fs::remove_dir_all(&tmp);
-    fs::create_dir_all(&tmp).map_err(|e| format!("create VKD3D extraction directory: {}", e))?;
-    let archive_files = ["vkd3d-proton-macos/libMoltenVK.dylib", "vkd3d-proton-macos/MoltenVK_icd.json"];
-    let extracted = extract_archive_files(archive, &tmp, &archive_files);
-    if !extracted {
-        let _ = fs::remove_dir_all(&tmp);
-        return Err("VKD3D-Proton-MacOS archive extraction failed".into());
-    }
+    fs::create_dir_all(&tmp).map_err(|e| format!("create MoltenVK bundle extraction directory: {}", e))?;
 
-    let source_dir = tmp.join(VKD3D_PROTON_MACOS_ROOT);
-    let source_library = source_dir.join("libMoltenVK.dylib");
-    let source_icd = source_dir.join("MoltenVK_icd.json");
-    if crate::diagnostics::file_sha256(&source_library).as_deref() != Some(VKD3D_MOLTENVK_LIBRARY_SHA256)
-        || crate::diagnostics::file_sha256(&source_icd).as_deref() != Some(VKD3D_MOLTENVK_ICD_SHA256)
-    {
-        let _ = fs::remove_dir_all(&tmp);
-        return Err("VKD3D-Proton-MacOS MoltenVK payload hash validation failed".into());
-    }
+    const FILES: &[&str] = &[
+        "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib",
+        "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib",
+        "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib",
+        "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib",
+        "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json",
+        "runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json",
+    ];
+    let result = (|| {
+        if !extract_archive_files(&archive, &tmp, FILES) {
+            return Err("MoltenVK files could not be extracted from metalsharp-runtime.tar.zst".into());
+        }
 
-    let Ok(source_icd_data) = fs::read_to_string(&source_icd) else {
-        let _ = fs::remove_dir_all(&tmp);
-        return Err("VKD3D-Proton-MacOS ICD manifest is unreadable".into());
-    };
-    let Ok(source_icd_value) = serde_json::from_str::<Value>(&source_icd_data) else {
-        let _ = fs::remove_dir_all(&tmp);
-        return Err("VKD3D-Proton-MacOS ICD manifest is invalid JSON".into());
-    };
-    if source_icd_value
-        .get("ICD")
-        .and_then(Value::as_object)
-        .and_then(|icd| icd.get("library_path"))
-        .and_then(Value::as_str)
-        != Some("./libMoltenVK.dylib")
-    {
-        let _ = fs::remove_dir_all(&tmp);
-        return Err("VKD3D-Proton-MacOS ICD manifest does not name libMoltenVK.dylib".into());
-    }
+        let wine_dir = crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine");
+        for relative in FILES {
+            let source = tmp.join(relative);
+            let target = wine_dir.join(relative.strip_prefix("runtime/wine/").unwrap_or(relative));
+            copy_file_overwrite(&source, &target)?;
+        }
+        fix_moltenvk_icd_paths(&wine_dir);
 
-    let target_library = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
-    let target_icd = wine_dir.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
-    copy_file_overwrite(&source_library, &target_library)?;
-    make_executable(&target_library);
-    copy_file_overwrite(&source_icd, &target_icd)?;
-    fix_moltenvk_icd_paths(wine_dir);
+        if moltenvk_runtime_current_for_wine_dir(&wine_dir) {
+            Ok(true)
+        } else {
+            Err("updated MoltenVK was copied but failed runtime hash/ICD validation".into())
+        }
+    })();
     let _ = fs::remove_dir_all(&tmp);
-
-    if moltenvk_runtime_current_for_wine_dir(wine_dir) {
-        Ok(true)
-    } else {
-        Err("VKD3D MoltenVK payload was copied but runtime validation failed".into())
-    }
+    result
 }
 
 fn fix_moltenvk_icd_paths(wine_dir: &Path) {
@@ -2579,7 +2510,8 @@ fn bundled_artifact_valid(name: &str, path: &Path) -> bool {
     }
 
     if name == RUNTIME_BUNDLE || name == "metalsharp-runtime.tar.zst" {
-        return archive_required_files_valid(path, RUNTIME_REQUIRED_ARCHIVE_FILES);
+        return archive_required_files_valid(path, RUNTIME_REQUIRED_ARCHIVE_FILES)
+            && archive_moltenvk_hashes_valid(path);
     }
 
     if name == GRAPHICS_DLL_BUNDLE || name == "metalsharp-graphics-dll.tar.zst" {
@@ -2655,6 +2587,33 @@ fn archive_lane_hashes_valid(path: &Path, surface: &str, expected: &[(&str, &str
         && expected.iter().all(|(rel, expected_hash)| {
             let extracted_path = tmp.join("Graphics").join("dll").join(surface).join(rel);
             crate::diagnostics::file_sha256(&extracted_path).as_deref() == Some(*expected_hash)
+        });
+    let _ = fs::remove_dir_all(&tmp);
+    valid
+}
+
+fn archive_moltenvk_hashes_valid(path: &Path) -> bool {
+    const EXPECTED: &[(&str, &str)] = &[
+        ("runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib", VKD3D_MOLTENVK_BUNDLE_LIBRARY_SHA256),
+        ("runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib", VKD3D_MOLTENVK_BUNDLE_LIBRARY_SHA256),
+        ("runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib", VKD3D_MOLTENVK_BUNDLE_LIBRARY_SHA256),
+        ("runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib", VKD3D_MOLTENVK_BUNDLE_LIBRARY_SHA256),
+        ("runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", VKD3D_MOLTENVK_BUNDLE_LANE_ICD_SHA256),
+        ("runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json", VKD3D_MOLTENVK_BUNDLE_RUNTIME_ICD_SHA256),
+    ];
+    let tmp = std::env::temp_dir().join(format!(
+        "metalsharp-moltenvk-hash-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+    ));
+    let _ = fs::remove_dir_all(&tmp);
+    if fs::create_dir_all(&tmp).is_err() {
+        return false;
+    }
+    let archive_paths: Vec<&str> = EXPECTED.iter().map(|(path, _)| *path).collect();
+    let valid = extract_archive_files(path, &tmp, &archive_paths)
+        && EXPECTED.iter().all(|(relative, expected)| {
+            crate::diagnostics::file_sha256(&tmp.join(relative)).as_deref() == Some(*expected)
         });
     let _ = fs::remove_dir_all(&tmp);
     valid
@@ -3232,13 +3191,15 @@ mod tests {
         let empty_file = bundles_dir.join("metalsharp-runtime.tar.zst");
         fs::write(&empty_file, b"").expect("create empty file");
 
-        assert!(!bundled_file_valid_exists("metalsharp-runtime.tar.zst"));
+        assert!(!bundled_file_valid_exists_for("metalsharp-runtime.tar.zst", &home));
         let _ = fs::remove_dir_all(home);
     }
 
     #[test]
     fn bundled_file_valid_exists_rejects_nonexistent_files() {
-        assert!(!bundled_file_valid_exists("metalsharp-runtime.tar.zst"));
+        let home = test_home("nonexistent-file-validation");
+        assert!(!bundled_file_valid_exists_for("metalsharp-runtime.tar.zst", &home));
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]
@@ -3251,7 +3212,7 @@ mod tests {
         let invalid_file = bundles_dir.join("metalsharp-runtime.tar.zst");
         fs::write(&invalid_file, b"not a valid zst archive").expect("create invalid archive");
 
-        assert!(!bundled_file_valid_exists("metalsharp-runtime.tar.zst"));
+        assert!(!bundled_file_valid_exists_for("metalsharp-runtime.tar.zst", &home));
         let _ = fs::remove_dir_all(home);
     }
 
