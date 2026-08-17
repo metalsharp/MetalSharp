@@ -6934,17 +6934,17 @@ export WINEDEBUG="${WINEDEBUG:--all}"
         // VKMT win64-filtered builds).
         let d3d12_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12.dll")).expect("d3d12 hash");
         assert_eq!(
-            d3d12_hash, "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93",
+            d3d12_hash, "ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e",
             "d3d12.dll must be the pinned deployed Vkd3d build"
         );
         let core_hash = crate::diagnostics::file_sha256(&vkd3d_dir.join("d3d12core.dll")).expect("d3d12core hash");
         assert_eq!(
-            core_hash, "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4",
+            core_hash, "78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8",
             "d3d12core.dll must be the pinned deployed Vkd3d build"
         );
         let moltenvk_hash = crate::diagnostics::file_sha256(&mvk_dir.join("libMoltenVK.dylib")).expect("MoltenVK hash");
         assert_eq!(
-            moltenvk_hash, "50e41de23ce85260870c24cec11ac29b225704c6cb0366ce555dcd9ac03417f3",
+            moltenvk_hash, "38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde",
             "libMoltenVK.dylib must be the pinned deployed Vkd3d build"
         );
         assert!(crate::installer::moltenvk_vkmt_runtime_ready_for_home(&home));

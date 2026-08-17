@@ -53,8 +53,8 @@ const DXMT_REQUIRED_I386_UNIX: &[&str] = &["winemetal.so"];
 /// VKMT win64-filtered x86-64 builds (see docs/roadmaps/vkd3d-vkd3d-proton-migration.md).
 #[cfg(not(test))]
 const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
-    ("x86_64-windows/d3d12.dll", "7a34f49a8cf309e20df8f5418c133d8e6a00882155de5532eef2bd9b9f094f93"),
-    ("x86_64-windows/d3d12core.dll", "8b643bfbdc9acab92aee8c76ce971b9877f0b851cf6fe2aa04bc37cca5ac22e4"),
+    ("x86_64-windows/d3d12.dll", "ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e"),
+    ("x86_64-windows/d3d12core.dll", "78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8"),
 ];
 #[cfg(test)]
 const VKD3D_PROTON_EXPECTED_HASHES: &[(&str, &str)] = &[
@@ -74,7 +74,7 @@ pub(crate) fn write_vkd3d_proton_expected_test_files(vkd3d_dir: &Path) {
 /// Pinned hash for the VKMT-patched MoltenVK dylib used by VKD3D.
 #[cfg(not(test))]
 const MOLTENVK_VKMT_EXPECTED_HASHES: &[(&str, &str)] =
-    &[("libMoltenVK.dylib", "50e41de23ce85260870c24cec11ac29b225704c6cb0366ce555dcd9ac03417f3")];
+    &[("libMoltenVK.dylib", "38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde")];
 #[cfg(test)]
 const MOLTENVK_VKMT_EXPECTED_HASHES: &[(&str, &str)] =
     &[("libMoltenVK.dylib", "c0ee2baa9eee1b262c93f30588760835d4262f9bae9d205dce5bc71bcf658b8c")];
@@ -97,7 +97,7 @@ const DXVK_EXPECTED_HASHES: &[(&str, &str)] = &[
     ("x86_64-windows/d3d9.dll", "67f8b1f139c7b4838de535876668c44716cec5dda56a1aa88bab5b820acd72fc"),
     ("x86_64-windows/d3d10core.dll", "d8616fc3c1e13b32562325202655d4ecba972b4043bdf8f0b7350d627b842c26"),
     ("x86_64-windows/d3d11.dll", "e7cf78bdc3722b40f19919ada77cfb535bdb3708934eb6d4c13111f5454b8c74"),
-    ("x86_64-windows/dxgi.dll", "1568105bcbbb0a98e6f12f386725e8186483c985a3c95cfe1484cfef125ae63c"),
+    ("x86_64-windows/dxgi.dll", "943dc921530aeba8bc5add09f5a3c5fac7da50e90a84ca2f41f1b87ba532846e"),
     ("i386-windows/d3d9.dll", "3bbe4b5aa1445380223ab5ce98f9ea5ad91ab3599e3354b4e91943a017474dbd"),
     ("i386-windows/d3d10core.dll", "a7010f0a1b4eaa54b892c79fbdc01c83b6030770acd6045962fff05c142dfbeb"),
     ("i386-windows/d3d11.dll", "04a6393bff8da791eccc81f6e54012e148ec9f960d465405bf5e0c76f024f063"),
