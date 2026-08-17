@@ -2557,7 +2557,7 @@ fn steam_pipeline_env_pairs(home: &PathBuf, node: &PipelineNode, appid: u32) -> 
     env
 }
 
-const DXMT_SHADER_METAL_VERSION: u16 = 310;
+pub(crate) const DXMT_SHADER_METAL_VERSION: u16 = 310;
 
 /// Keep DXMT's shader language pin in the file it reads at device creation.
 /// Environment-only configuration can be lost across the Steam bridge, so
