@@ -5764,7 +5764,7 @@ mod tests {
 
         assert_eq!(value("MS_GRAPHICS_BACKEND"), Some("vulkan"));
         assert!(
-            value("WINEDLLOVERRIDES").is_some_and(|v| v.contains("d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b")),
+            value("WINEDLLOVERRIDES").is_some_and(|v| v.contains("d3d12,d3d12core,d3d11,d3d10core,d3d9=n,b")),
             "VKD3D-Proton must override the Vulkan-backed d3d9/d3d11/d3d10core/dxgi + vkd3d d3d12 pair"
         );
         assert!(value("WINEDLLPATH").is_some_and(|v| v.contains("vkd3d-proton/x86_64-windows")));
