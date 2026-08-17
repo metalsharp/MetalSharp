@@ -648,13 +648,14 @@ fn normalize_loaded_runtime_profile_components(manifest: &mut BottleManifest) {
 const M12_RUNTIME_COMPONENT_IDS: &[&str] =
     &["m12_d3d12", "m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_dxgi", "m12_winemetal", "m12_gpu_stubs"];
 const VKD3D_RUNTIME_COMPONENT_IDS: &[&str] =
-    &["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "dxvk_d3d11", "dxvk_d3d10core"];
+    &["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "dxvk_d3d9", "dxvk_d3d11", "dxvk_d3d10core"];
 
 fn vkd3d_runtime_component_artifacts(component_id: &str) -> Option<&'static [&'static str]> {
     match component_id {
         "vkd3d_d3d12" => Some(&["vkd3d-proton/x86_64-windows/d3d12.dll"]),
         "vkd3d_d3d12core" => Some(&["vkd3d-proton/x86_64-windows/d3d12core.dll"]),
         "vkd3d_dxgi" => Some(&["vkd3d-proton/x86_64-windows/dxgi.dll"]),
+        "dxvk_d3d9" => Some(&["dxvk/x86_64-windows/d3d9.dll"]),
         "dxvk_d3d11" => Some(&["dxvk/x86_64-windows/d3d11.dll"]),
         "dxvk_d3d10core" => Some(&["dxvk/x86_64-windows/d3d10core.dll"]),
         _ => None,
@@ -3593,6 +3594,7 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
                 "vkd3d_d3d12",
                 "vkd3d_d3d12core",
                 "vkd3d_dxgi",
+                "dxvk_d3d9",
                 "dxvk_d3d11",
                 "dxvk_d3d10core",
                 "vcrun2019_x64",

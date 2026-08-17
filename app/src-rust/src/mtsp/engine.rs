@@ -168,7 +168,7 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                 experimental: false,
                 requires_wine: true,
                 wine_overrides: Some(
-                    "d3d12,d3d12core,d3d11,d3d10core,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+                    "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
                 ),
                 dyld_paths: vec!["lib/wine/x86_64-unix"],
                 winedllpath_dirs: vec![
@@ -193,6 +193,7 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                         filename: "d3d10core.dll",
                         dest_filename: None,
                     },
+                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d9.dll", dest_filename: None },
                     DllDeploy {
                         source_subpath: "lib/vkd3d-proton/x86_64-windows",
                         filename: "dxgi.dll",
