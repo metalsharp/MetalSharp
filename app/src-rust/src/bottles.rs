@@ -3408,9 +3408,20 @@ pub fn handle_steam_runtime_doctor(body: &serde_json::Map<String, Value>) -> Val
         .map(|r| {
             let system32 = prefix.join("drive_c/windows/system32");
             let syswow64 = prefix.join("drive_c/windows/syswow64");
+            // VKD3D-Proton / DXVK DLLs are deployed to the game folder, not the
+            // Wine prefix system32 — treat the game install dir as the source of
+            // truth for installed route DLLs on the vkd3d lane.
+            let game_dir = if pipeline == crate::mtsp::engine::PipelineId::Vkd3d {
+                bottle.as_ref().and_then(|b| b.game_install_path.as_deref()).map(PathBuf::from)
+            } else {
+                None
+            };
             r.check_dlls
                 .iter()
-                .filter(|dll| !system32.join(dll).exists() && !syswow64.join(dll).exists())
+                .filter(|dll| {
+                    let in_game = game_dir.as_ref().map(|d| d.join(dll).exists()).unwrap_or(false);
+                    !system32.join(dll).exists() && !syswow64.join(dll).exists() && !in_game
+                })
                 .cloned()
                 .collect::<Vec<_>>()
         })
