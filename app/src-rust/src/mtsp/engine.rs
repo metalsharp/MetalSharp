@@ -198,6 +198,11 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                     // create a D3D12 device on the MoltenVK/Metal stack.
                     EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
                     EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
+                    // MoltenVK runtime config (see MoltenVK_Configuration_Parameters.md):
+                    // synchronous queue submits avoid GPU hangs/deadlocks on many titles,
+                    // and resume-lost-device recovers from a device-lost instead of dying.
+                    EnvVar { key: "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", value: "1" },
+                    EnvVar { key: "MVK_CONFIG_RESUME_LOST_DEVICE", value: "1" },
                 ],
                 launch_args: vec![],
                 alternatives: vec![
