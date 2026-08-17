@@ -5492,7 +5492,6 @@ mod tests {
         // 1.50 (metalfx.overlay.json default), reconciled into the env at
         // launch; M9 has no upscale pair (no MetalFX on D3D9).
         for pipeline_id in [PipelineId::M10, PipelineId::M11] {
-
             let home = test_dir(&format!("dxmt-env-{:?}", pipeline_id));
             let node = get_pipeline(pipeline_id);
 
