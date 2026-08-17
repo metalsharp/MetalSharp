@@ -96,6 +96,7 @@ interface D3DMetalGptkState {
   gptk_payload: string;
   x64_redist: string;
   seed: string;
+  gptk3: string;
   play_ready: boolean;
   last_error?: string | null;
 }
@@ -113,6 +114,8 @@ interface D3DMetalGptkResponse {
   state?: D3DMetalGptkState;
   actions?: D3DMetalGptkAction[];
   launch?: D3DMetalLaunchReport;
+  gptk3_installed?: boolean;
+  gptk3_dmg_found?: boolean;
   error?: string;
 }
 
@@ -172,6 +175,8 @@ const runtimeReport = ref<SteamRuntimeReport | null>(null);
 const d3dmetalState = ref<D3DMetalGptkState | null>(null);
 const d3dmetalActions = ref<D3DMetalGptkAction[]>([]);
 const d3dmetalLoading = ref(false);
+const gptk3Installed = ref(false);
+const gptk3DmgFound = ref(false);
 const bottleName = ref("");
 const bottlePreferredMode = ref("auto");
 const bottleSaving = ref(false);
@@ -646,10 +651,54 @@ async function loadD3DMetalStatus() {
   if (result?.ok && result.state) {
     d3dmetalState.value = result.state;
     d3dmetalActions.value = result.actions ?? [];
+    gptk3Installed.value = result.gptk3_installed === true;
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
     syncD3DMetalRuntimeReport();
   } else {
     d3dmetalState.value = null;
     d3dmetalActions.value = [];
+    gptk3Installed.value = false;
+    gptk3DmgFound.value = false;
+  }
+}
+
+const GPTK3_DOWNLOAD_URL =
+  "https://download.developer.apple.com/Developer_Tools/Game_Porting_Toolkit_3.0/Game_Porting_Toolkit_3.0.dmg";
+
+async function repairGptk3() {
+  if (!gptk3DmgFound.value) {
+    toast.show("Opening the Game Porting Toolkit 3.0 download — place the DMG in ~/Downloads", "success");
+    await getAPI().openExternalUrl(GPTK3_DOWNLOAD_URL);
+    for (let attempt = 0; attempt < 120; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await loadD3DMetalStatus();
+      if (gptk3DmgFound.value) break;
+    }
+    if (!gptk3DmgFound.value) {
+      toast.show("GPTK 3.0 DMG not found in ~/Downloads; run Repair after downloading it", "error");
+      return;
+    }
+  }
+  d3dmetalLoading.value = true;
+  const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    "/d3dmetal/bottles/repair-gptk3",
+    { appid: props.game.appid, bottleId },
+    10 * 60 * 1000,
+  );
+  d3dmetalLoading.value = false;
+  if (result?.ok) {
+    if (result.state) {
+      d3dmetalState.value = result.state;
+      d3dmetalActions.value = result.actions ?? [];
+    }
+    gptk3Installed.value = result.gptk3_installed === true || result.state?.gptk3 === "installed";
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
+    toast.show(gptk3Installed.value ? "GPTK 3.0 overlay installed" : "GPTK 3.0 setup complete", "success");
+  } else {
+    toast.show(result?.error ?? "GPTK 3.0 repair failed", "error");
+    await loadD3DMetalStatus();
   }
 }
 
@@ -1098,6 +1147,12 @@ function formatBytes(bytes: number): string {
                   </span>
                 </div>
                 <div v-if="d3dmetalState.last_error" class="doctor-notes blocked">{{ d3dmetalState.last_error }}</div>
+                <div v-if="!gptk3Installed" class="runtime-action-row compact-repair-row">
+                  <span>Add GPTK 3.0 overlay{{ gptk3DmgFound ? "" : " — download DMG to ~/Downloads" }}</span>
+                  <button class="btn btn-secondary btn-sm" :disabled="d3dmetalLoading" @click="repairGptk3">
+                    {{ d3dmetalLoading ? "Working..." : "Repair" }}
+                  </button>
+                </div>
                 <div
                   v-for="action in pendingD3DMetalActions"
                   :key="action.id"

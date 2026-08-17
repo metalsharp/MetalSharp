@@ -119,7 +119,8 @@ fn write_conf_factor(home: &Path, factor: f32) -> Result<(), String> {
     if !content.ends_with('\n') {
         content.push('\n');
     }
-    fs::write(&path, content).map_err(|e| format!("write dxmt.conf: {e}"))
+    fs::write(&path, content).map_err(|e| format!("write dxmt.conf: {e}"))?;
+    crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home).map(|_| ())
 }
 
 /// `GET /metalfx/state` — current toggle + factor + how it applies.

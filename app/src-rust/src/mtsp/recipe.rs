@@ -946,9 +946,11 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
         let conf = ms_root.join("etc").join("dxmt.conf");
         assets.push(RuntimeAsset {
             name: "dxmt.conf".into(),
-            present: runtime_file_present(&conf),
+            present: std::fs::read_to_string(&conf)
+                .map(|contents| contents.lines().any(|line| line.trim() == "dxmt.shaderMetalVersion = 310"))
+                .unwrap_or(false),
             path: conf,
-            required: false,
+            required: true,
         });
     }
 
