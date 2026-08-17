@@ -2958,6 +2958,19 @@ fn cache_env_pairs_with_logs(
             env.push(("FNA3D_SHADER_CACHE_PATH".to_string(), shader_dir));
             env.push(("FNA3D_PIPELINE_CACHE_PATH".to_string(), pipeline_dir));
         },
+        "vulkan" => {
+            // VKD3D-Proton lane (d3d12) + DXVK lane (d3d11/d3d9). Keep device
+            // diagnostics on so routing failures are visible: vkd3d writes to
+            // stderr (VKD3D_DEBUG), dxvk writes to DXVK_LOG_PATH.
+            env.push(("DXVK_STATE_CACHE_PATH".to_string(), shader_dir));
+            env.push(("DXVK_LOG_PATH".to_string(), cache.pipeline.clone()));
+            env.push(("DXVK_LOG_LEVEL".to_string(), "info".to_string()));
+            env.push(("VKD3D_DEBUG".to_string(), "info".to_string()));
+            let moltenvk_icd = ms_root.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
+            if moltenvk_icd.exists() {
+                env.push(("VK_ICD_FILENAMES".to_string(), moltenvk_icd.to_string_lossy().to_string()));
+            }
+        },
         _ => {},
     }
 
