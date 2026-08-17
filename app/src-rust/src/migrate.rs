@@ -611,6 +611,9 @@ fn repair_runtime_for_migration_verify(ms_dir: &Path) -> Result<bool, String> {
     }
 
     let mut changed = crate::installer::ensure_graphics_runtimes_ready(&home)?;
+    // This explicitly repairs the bundle-owned MoltenVK surface after the
+    // graphics lanes are refreshed; migration must never validate against a
+    // stale dylib left by an older runtime extraction.
     changed |= crate::installer::ensure_vkd3d_moltenvk_ready(&home)?;
     Ok(changed)
 }
