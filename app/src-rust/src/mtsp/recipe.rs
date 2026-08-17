@@ -233,11 +233,12 @@ pub(crate) fn requires_steam_launch_args(appid: u32) -> bool {
 }
 
 pub(crate) fn uses_steam_launch_model(appid: u32, pipeline: PipelineId) -> bool {
-    requires_steam_launch_args(appid) && !matches!(pipeline, PipelineId::M13 | PipelineId::D3DMetal)
+    requires_steam_launch_args(appid) && !matches!(pipeline, PipelineId::M13 | PipelineId::D3DMetal | PipelineId::Vkd3d)
 }
 
 pub(crate) fn uses_steam_secure_launch_model(appid: u32, pipeline: PipelineId) -> bool {
-    requires_steam_secure_launch_args(appid) && !matches!(pipeline, PipelineId::M13 | PipelineId::D3DMetal)
+    requires_steam_secure_launch_args(appid)
+        && !matches!(pipeline, PipelineId::M13 | PipelineId::D3DMetal | PipelineId::Vkd3d)
 }
 
 fn append_unique_launch_arg(launch_args: &mut Vec<String>, arg: &str) {
@@ -1335,6 +1336,23 @@ mod tests {
         let args = effective_launch_args(1962700, super::super::engine::get_pipeline(PipelineId::M12));
 
         assert!(!args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")));
+    }
+
+    #[test]
+    fn vkd3d_launches_are_direct_without_steam_launch_args() {
+        for appid in [1888160, 1245620, 1962700, 3527290] {
+            let args = effective_launch_args(appid, super::super::engine::get_pipeline(PipelineId::Vkd3d));
+
+            assert!(!uses_steam_launch_model(appid, PipelineId::Vkd3d), "appid {appid}");
+            assert!(
+                !args.iter().any(|arg| arg.eq_ignore_ascii_case("-steam")),
+                "appid {appid} must not get -steam on the vkd3d route"
+            );
+            assert!(
+                !args.iter().any(|arg| arg.eq_ignore_ascii_case("-secure")),
+                "appid {appid} must not get -secure on the vkd3d route"
+            );
+        }
     }
 
     #[test]
