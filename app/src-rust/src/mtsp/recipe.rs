@@ -978,6 +978,10 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
 
     if node.backend == "dxmt" {
         let conf = ms_root.join("etc").join("dxmt.conf");
+        // Ensure the required DXMT shader-metal-version line exists rather than
+        // failing validation when a freshly-installed/bundled config lacks it.
+        let home = ms_root.parent().and_then(|p| p.parent()).unwrap_or(ms_root);
+        let _ = crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home);
         assets.push(RuntimeAsset {
             name: "dxmt.conf".into(),
             present: std::fs::read_to_string(&conf)

@@ -1210,6 +1210,16 @@ pub fn library() -> Value {
             all_games.push((appid, format!("Game {}", appid)));
         }
     }
+    // Any game detected on disk via an appmanifest (native macOS, Wine, or an
+    // external volume) is surfaced regardless of the owned-games API/cache or
+    // the Steam API key having been entered. The scan is authoritative for
+    // what is installed, so it must not be gated on the owned list.
+    for &appid in &installed_appids {
+        if !all_games.iter().any(|(id, _)| *id == appid) {
+            let name = get_game_name_from_manifest(appid).unwrap_or_else(|| format!("Game {}", appid));
+            all_games.push((appid, name));
+        }
+    }
 
     // This is Steam's shared dependency depot, not a user game. Keep it out
     // of the library even when Steam reports it as installed or owned.
