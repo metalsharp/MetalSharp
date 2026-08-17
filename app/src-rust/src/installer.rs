@@ -45,6 +45,40 @@ const VKD3D_MOLTENVK_ICD_SHA256: &str = "578ff08cd0d8734619357541771a5abc9c3470c
 const VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256: &str = "38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde";
 #[cfg(test)]
 const VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+#[cfg(not(test))]
+const VKD3D_REQUIRED_PE: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d12.dll", "ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e"),
+    ("x86_64-windows/d3d12core.dll", "78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8"),
+    ("x86_64-windows/dxgi.dll", "943dc921530aeba8bc5add09f5a3c5fac7da50e90a84ca2f41f1b87ba532846e"),
+];
+#[cfg(test)]
+const VKD3D_REQUIRED_PE: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d12.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("x86_64-windows/d3d12core.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("x86_64-windows/dxgi.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+];
+#[cfg(not(test))]
+const DXVK_REQUIRED_PE: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d9.dll", "67f8b1f139c7b4838de535876668c44716cec5dda56a1aa88bab5b820acd72fc"),
+    ("x86_64-windows/d3d10core.dll", "d8616fc3c1e13b32562325202655d4ecba972b4043bdf8f0b7350d627b842c26"),
+    ("x86_64-windows/d3d11.dll", "e7cf78bdc3722b40f19919ada77cfb535bdb3708934eb6d4c13111f5454b8c74"),
+    ("x86_64-windows/dxgi.dll", "1568105bcbbb0a98e6f12f386725e8186483c985a3c95cfe1484cfef125ae63c"),
+    ("i386-windows/d3d9.dll", "3bbe4b5aa1445380223ab5ce98f9ea5ad91ab3599e3354b4e91943a017474dbd"),
+    ("i386-windows/d3d10core.dll", "a7010f0a1b4eaa54b892c79fbdc01c83b6030770acd6045962fff05c142dfbeb"),
+    ("i386-windows/d3d11.dll", "04a6393bff8da791eccc81f6e54012e148ec9f960d465405bf5e0c76f024f063"),
+    ("i386-windows/dxgi.dll", "ce7d7235562b534474098e77e4d26742b91807e766693a44dfdd5e50385199df"),
+];
+#[cfg(test)]
+const DXVK_REQUIRED_PE: &[(&str, &str)] = &[
+    ("x86_64-windows/d3d9.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("x86_64-windows/d3d10core.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("x86_64-windows/d3d11.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("x86_64-windows/dxgi.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("i386-windows/d3d9.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("i386-windows/d3d10core.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("i386-windows/d3d11.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("i386-windows/dxgi.dll", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+];
 const METALSHARP_NTDLL_HOOK_DLL: &str = "metalsharp_ntdll_hook.dll";
 const DXMT_REQUIRED_PE: &[&str] = &[
     "d3d10core.dll",
@@ -113,20 +147,22 @@ const RUNTIME_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "runtime/host/libmetalsharp_host_runtime.dylib",
     "runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll",
     "runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll",
-    "runtime/wine/lib/metalsharp/x86_64-windows/dinput.dll",
-    "runtime/wine/lib/metalsharp/x86_64-windows/dinput8.dll",
-    "runtime/wine/lib/metalsharp/x86_64-windows/xinput1_1.dll",
-    "runtime/wine/lib/metalsharp/x86_64-windows/xinput1_2.dll",
-    "runtime/wine/lib/metalsharp/x86_64-windows/xinput1_3.dll",
-    "runtime/wine/lib/metalsharp/x86_64-windows/xinput1_4.dll",
-    "runtime/wine/lib/metalsharp/x86_64-windows/xinput9_1_0.dll",
-    "runtime/wine/lib/metalsharp/i386-windows/dinput.dll",
-    "runtime/wine/lib/metalsharp/i386-windows/dinput8.dll",
-    "runtime/wine/lib/metalsharp/i386-windows/xinput1_1.dll",
-    "runtime/wine/lib/metalsharp/i386-windows/xinput1_2.dll",
-    "runtime/wine/lib/metalsharp/i386-windows/xinput1_3.dll",
-    "runtime/wine/lib/metalsharp/i386-windows/xinput1_4.dll",
-    "runtime/wine/lib/metalsharp/i386-windows/xinput9_1_0.dll",
+    "runtime/wine/lib/wine/x86_64-windows/dinput.dll",
+    "runtime/wine/lib/wine/x86_64-windows/dinput8.dll",
+    "runtime/wine/lib/wine/x86_64-windows/xinput1_1.dll",
+    "runtime/wine/lib/wine/x86_64-windows/xinput1_2.dll",
+    "runtime/wine/lib/wine/x86_64-windows/xinput1_3.dll",
+    "runtime/wine/lib/wine/x86_64-windows/xinput1_4.dll",
+    "runtime/wine/lib/wine/x86_64-windows/xinput9_1_0.dll",
+    "runtime/wine/lib/wine/i386-windows/dinput.dll",
+    "runtime/wine/lib/wine/i386-windows/dinput8.dll",
+    "runtime/wine/lib/wine/i386-windows/xinput1_1.dll",
+    "runtime/wine/lib/wine/i386-windows/xinput1_2.dll",
+    "runtime/wine/lib/wine/i386-windows/xinput1_3.dll",
+    "runtime/wine/lib/wine/i386-windows/xinput1_4.dll",
+    "runtime/wine/lib/wine/i386-windows/xinput9_1_0.dll",
+    "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib",
+    "runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json",
 ];
 const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "Graphics/dll/dxmt/x86_64-unix/winemetal.so",
@@ -156,6 +192,17 @@ const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "Graphics/dll/dxmt-m12/x86_64-windows/nvapi64.dll",
     "Graphics/dll/dxmt-m12/x86_64-windows/nvngx.dll",
     "Graphics/dll/dxmt-m12/x86_64-windows/winemetal.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d9.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d10core.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d11.dll",
+    "Graphics/dll/dxvk/x86_64-windows/dxgi.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d9.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d10core.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d11.dll",
+    "Graphics/dll/dxvk/i386-windows/dxgi.dll",
+    "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll",
+    "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll",
+    "Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll",
 ];
 const ASSETS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "assets/fna-kickstart/kick.bin.osx",
@@ -768,13 +815,33 @@ pub(crate) fn write_vkd3d_moltenvk_expected_test_files(wine_dir: &Path) {
     .expect("write test MoltenVK ICD");
 }
 
-/// Install only the MoltenVK files from the pinned VKD3D-Proton-MacOS
-/// archive. D3D12/DXGI DLLs remain untouched until the VKD3D pipeline is
-/// deliberately implemented in a later change.
+#[cfg(test)]
+pub(crate) fn write_vkd3d_runtime_expected_test_files(wine_dir: &Path) {
+    for (surface, entries) in [("vkd3d-proton", VKD3D_REQUIRED_PE), ("dxvk", DXVK_REQUIRED_PE)] {
+        for (rel, _) in entries {
+            let path = wine_dir.join("lib").join(surface).join(rel);
+            fs::create_dir_all(path.parent().expect("Vulkan lane test fixture parent"))
+                .expect("create Vulkan lane fixture parent");
+            fs::write(path, b"test").expect("write Vulkan lane test fixture");
+        }
+    }
+}
+
+/// Install the pinned MoltenVK files from the VKD3D-Proton-MacOS archive.
+/// The VKD3D-Proton and DXVK Windows DLL lanes are staged separately from the
+/// graphics bundle by `ensure_vkd3d_runtime_ready`.
 pub fn ensure_vkd3d_moltenvk_ready(home: &PathBuf) -> Result<bool, String> {
     let wine_dir = crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine");
     if moltenvk_runtime_current_for_wine_dir(&wine_dir) {
         return Ok(false);
+    }
+
+    // A newly installed runtime bundle already carries the pinned library and
+    // ICD. Normalize its relocatable ICD path in place before falling back to
+    // the standalone upstream archive download.
+    fix_moltenvk_icd_paths(&wine_dir);
+    if moltenvk_runtime_current_for_wine_dir(&wine_dir) {
+        return Ok(true);
     }
 
     let archive = find_vkd3d_proton_macos_archive(home)?;
@@ -1370,6 +1437,8 @@ pub fn ensure_dxmt_m12_runtime_ready(home: &Path) -> Result<bool, String> {
 pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     let dxmt_dir = dxmt_runtime_dir_for_home(home);
     let dxmt_m12_dir = dxmt_m12_runtime_dir_for_home(home);
+    let vkd3d_current = vkd3d_runtime_current_for_home(home);
+    let dxvk_current = dxvk_runtime_current_for_home(home);
     // Skip only when BOTH staged surfaces are current AND the bundled
     // metalsharp-graphics-dll.tar.zst has not changed since the last stage.
     // If the bundle carries new infrastructure (e.g. the i386 DXMT lanes for
@@ -1378,6 +1447,8 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     // re-stage to apply it during a migration update.
     if dxmt_runtime_current_for_dir(&dxmt_dir)
         && dxmt_m12_runtime_current_for_dir(&dxmt_m12_dir)
+        && vkd3d_current
+        && dxvk_current
         && !graphics_bundle_has_update(home)
     {
         return Ok(false);
@@ -1402,8 +1473,14 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
     }
     changed |= install_dxmt_runtime(&home_buf)?;
     changed |= install_dxmt_m12_runtime(&home_buf)?;
+    changed |= install_dxvk_runtime(&home_buf)?;
+    changed |= install_vkd3d_runtime(&home_buf)?;
 
-    if dxmt_runtime_current_for_dir(&dxmt_dir) && dxmt_m12_runtime_current_for_dir(&dxmt_m12_dir) {
+    if dxmt_runtime_current_for_dir(&dxmt_dir)
+        && dxmt_m12_runtime_current_for_dir(&dxmt_m12_dir)
+        && dxvk_runtime_current_for_home(home)
+        && vkd3d_runtime_current_for_home(home)
+    {
         Ok(changed)
     } else {
         Err(format!(
@@ -1412,6 +1489,110 @@ pub fn ensure_graphics_runtimes_ready(home: &Path) -> Result<bool, String> {
             dxmt_dir.display(),
             dxmt_m12_dir.display()
         ))
+    }
+}
+
+pub fn ensure_vkd3d_runtime_ready(home: &Path) -> Result<bool, String> {
+    let home_buf = home.to_path_buf();
+    let mut changed = false;
+    changed |= ensure_runtime_bundle_assets(&home_buf)?;
+    changed |= install_metalsharp_bundle(&home_buf)?;
+    changed |= ensure_vkd3d_moltenvk_ready(&home_buf)?;
+    changed |= install_dxvk_runtime(&home_buf)?;
+    changed |= install_vkd3d_runtime(&home_buf)?;
+    if vkd3d_runtime_current_for_home(home) && dxvk_runtime_current_for_home(home) {
+        Ok(changed)
+    } else {
+        Err("VKD3D-Proton/DXVK runtime lanes are not ready after setup".into())
+    }
+}
+
+fn vkd3d_runtime_dir_for_home(home: &Path) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine").join("lib").join("vkd3d-proton")
+}
+
+fn dxvk_runtime_dir_for_home(home: &Path) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine").join("lib").join("dxvk")
+}
+
+pub fn vkd3d_runtime_current_for_home(home: &Path) -> bool {
+    let root = vkd3d_runtime_dir_for_home(home);
+    VKD3D_REQUIRED_PE
+        .iter()
+        .all(|(rel, expected)| crate::diagnostics::file_sha256(&root.join(rel)).as_deref() == Some(*expected))
+}
+
+pub fn dxvk_runtime_current_for_home(home: &Path) -> bool {
+    let root = dxvk_runtime_dir_for_home(home);
+    DXVK_REQUIRED_PE
+        .iter()
+        .all(|(rel, expected)| crate::diagnostics::file_sha256(&root.join(rel)).as_deref() == Some(*expected))
+}
+
+pub(crate) fn vkd3d_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
+    let root = ms_dir.join("runtime").join("wine").join("lib").join("vkd3d-proton");
+    VKD3D_REQUIRED_PE
+        .iter()
+        .all(|(rel, expected)| crate::diagnostics::file_sha256(&root.join(rel)).as_deref() == Some(*expected))
+}
+
+pub(crate) fn dxvk_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
+    let root = ms_dir.join("runtime").join("wine").join("lib").join("dxvk");
+    DXVK_REQUIRED_PE
+        .iter()
+        .all(|(rel, expected)| crate::diagnostics::file_sha256(&root.join(rel)).as_deref() == Some(*expected))
+}
+
+pub fn vkd3d_runtime_artifact_valid_for_home(home: &Path, rel: &str) -> bool {
+    let Some((_, expected)) = VKD3D_REQUIRED_PE.iter().find(|(path, _)| *path == rel) else { return false };
+    crate::diagnostics::file_sha256(&vkd3d_runtime_dir_for_home(home).join(rel)).as_deref() == Some(*expected)
+}
+
+pub fn vkd3d_runtime_artifact_path_for_home(home: &Path, rel: &str) -> PathBuf {
+    vkd3d_runtime_dir_for_home(home).join(rel)
+}
+
+fn install_dxvk_runtime(home: &PathBuf) -> Result<bool, String> {
+    let dst = dxvk_runtime_dir_for_home(home);
+    if dxvk_runtime_current_for_home(home) && !graphics_bundle_has_update(home) {
+        return Ok(false);
+    }
+    install_graphics_lane(home, "dxvk", &dst, DXVK_REQUIRED_PE, "DXVK")
+}
+
+fn install_vkd3d_runtime(home: &PathBuf) -> Result<bool, String> {
+    let dst = vkd3d_runtime_dir_for_home(home);
+    if vkd3d_runtime_current_for_home(home) && !graphics_bundle_has_update(home) {
+        return Ok(false);
+    }
+    install_graphics_lane(home, "vkd3d-proton", &dst, VKD3D_REQUIRED_PE, "VKD3D-Proton")
+}
+
+fn install_graphics_lane(
+    home: &PathBuf,
+    bundle_surface: &str,
+    dst_dir: &Path,
+    expected: &[(&str, &str)],
+    label: &str,
+) -> Result<bool, String> {
+    if let Some(archive) = find_bundled_archive(GRAPHICS_DLL_BUNDLE) {
+        let tmp = std::env::temp_dir().join(format!("metalsharp-{}-extract", bundle_surface));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).map_err(|e| format!("create {} extraction directory: {}", label, e))?;
+        extract_zst(&archive, &tmp, GRAPHICS_DLL_BUNDLE)?;
+        let src_root = tmp.join("Graphics").join("dll").join(bundle_surface);
+        copy_graphics_runtime_surface(&src_root, dst_dir)?;
+        let valid = expected
+            .iter()
+            .all(|(rel, hash)| crate::diagnostics::file_sha256(&dst_dir.join(rel)).as_deref() == Some(*hash));
+        let _ = fs::remove_dir_all(&tmp);
+        if !valid {
+            return Err(format!("{} runtime lane failed hash validation under {}", label, dst_dir.display()));
+        }
+        mark_split_bundle_installed(home, GRAPHICS_DLL_BUNDLE, &archive);
+        Ok(true)
+    } else {
+        Err(format!("{} runtime lane unavailable — graphics bundle is missing", label))
     }
 }
 
@@ -2403,7 +2584,9 @@ fn bundled_artifact_valid(name: &str, path: &Path) -> bool {
 
     if name == GRAPHICS_DLL_BUNDLE || name == "metalsharp-graphics-dll.tar.zst" {
         return archive_required_files_valid(path, GRAPHICS_REQUIRED_ARCHIVE_FILES)
-            && archive_dxmt_m12_hashes_valid(path);
+            && archive_dxmt_m12_hashes_valid(path)
+            && archive_lane_hashes_valid(path, "dxvk", DXVK_REQUIRED_PE)
+            && archive_lane_hashes_valid(path, "vkd3d-proton", VKD3D_REQUIRED_PE);
     }
 
     if name == ASSETS_BUNDLE || name == "metalsharp-assets.tar.zst" {
@@ -2449,6 +2632,30 @@ fn archive_dxmt_m12_hashes_valid(path: &Path) -> bool {
             crate::diagnostics::file_sha256(&extracted_path).as_deref() == Some(*expected)
         });
 
+    let _ = fs::remove_dir_all(&tmp);
+    valid
+}
+
+fn archive_lane_hashes_valid(path: &Path, surface: &str, expected: &[(&str, &str)]) -> bool {
+    let tmp = std::env::temp_dir().join(format!(
+        "metalsharp-{}-hash-{}-{}",
+        surface,
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+    ));
+    let _ = fs::remove_dir_all(&tmp);
+    if fs::create_dir_all(&tmp).is_err() {
+        return false;
+    }
+    let archive_paths: Vec<String> =
+        expected.iter().map(|(rel, _)| format!("Graphics/dll/{}/{}", surface, rel)).collect();
+    let archive_args: Vec<&str> = archive_paths.iter().map(String::as_str).collect();
+    let extracted = extract_archive_files(path, &tmp, &archive_args);
+    let valid = extracted
+        && expected.iter().all(|(rel, expected_hash)| {
+            let extracted_path = tmp.join("Graphics").join("dll").join(surface).join(rel);
+            crate::diagnostics::file_sha256(&extracted_path).as_deref() == Some(*expected_hash)
+        });
     let _ = fs::remove_dir_all(&tmp);
     valid
 }

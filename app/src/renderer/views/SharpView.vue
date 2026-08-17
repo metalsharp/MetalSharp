@@ -397,6 +397,7 @@ function stopGogMonoPoll() {
 }
 const engineOptions = [
   { id: "d3dmetal", name: "D3DMetal" },
+  { id: "vkd3d", name: "VKD3D-Proton" },
   { id: "m11", name: "M11" },
   { id: "m11_32", name: "M11(32)" },
   { id: "m10", name: "M10" },
@@ -421,6 +422,11 @@ const componentDisplayName: Record<string, string> = {
   m12_dxgi: "M12 dxgi.dll",
   m12_winemetal: "M12 winemetal.dll / .so",
   m12_gpu_stubs: "M12 GPU Stubs",
+  vkd3d_d3d12: "VKD3D d3d12.dll",
+  vkd3d_d3d12core: "VKD3D d3d12core.dll",
+  vkd3d_dxgi: "VKD3D dxgi.dll",
+  dxvk_d3d11: "DXVK d3d11.dll",
+  dxvk_d3d10core: "DXVK d3d10core.dll",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -463,7 +469,7 @@ function d3dmetalActionReady(action: D3DMetalGptkAction): boolean {
 function isFnaProfile(profile: string): boolean {
   return profile === "fna_arm64" || profile === "fna_x86";
 }
-const selectableRuntimeProfileIds = new Set(["d3dmetal", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"]);
+const selectableRuntimeProfileIds = new Set(["d3dmetal", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"]);
 const visibleRuntimeProfiles = computed(() => {
   const profiles = runtimeProfiles.value.some((profile) => profile.id === "d3dmetal")
     ? runtimeProfiles.value

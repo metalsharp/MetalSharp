@@ -1,0 +1,4 @@
+# Paths are relative to the runtime/wine root.
+path	sha256
+lib/wine/x86_64-unix/libMoltenVK.dylib	38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde
+etc/vulkan/icd.d/MoltenVK_icd.json	0dcbf7707cc0a347d0ba2941e835e5e92709919370a1bb0fc252e8dc4d95d322

@@ -1691,6 +1691,7 @@ fn pipeline_engine_id(pipeline: crate::mtsp::engine::PipelineId) -> &'static str
         crate::mtsp::engine::PipelineId::M11 => "m11",
         crate::mtsp::engine::PipelineId::M11_32 => "m11_32",
         crate::mtsp::engine::PipelineId::M12 => "m12",
+        crate::mtsp::engine::PipelineId::Vkd3d => "vkd3d",
         crate::mtsp::engine::PipelineId::M13 => "m13",
         crate::mtsp::engine::PipelineId::M32 => "m32",
         crate::mtsp::engine::PipelineId::WineBare => "wine_bare",
