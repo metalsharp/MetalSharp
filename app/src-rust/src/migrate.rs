@@ -553,12 +553,12 @@ fn run_migration() {
 
     step += 1;
     write_migrate_progress("running", step, total_steps, "Installing update...", None);
-    let install_ok = match crate::installer::start_install_all() {
+    let install_result = match crate::installer::start_install_all() {
         Ok(v) if v.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false) => match wait_for_install_complete() {
-            Ok(()) => true,
+            Ok(()) => Ok(()),
             Err(e) => {
                 write_migrate_progress("error", step, total_steps, &format!("Runtime install failed: {}", e), Some(&e));
-                false
+                Err(e)
             },
         },
         Ok(v) => {
@@ -570,7 +570,7 @@ fn run_migration() {
                 &format!("Runtime install failed: {}", error),
                 Some(error),
             );
-            false
+            Err(error.to_string())
         },
         Err(e) => {
             write_migrate_progress(
@@ -580,9 +580,11 @@ fn run_migration() {
                 &format!("Runtime install failed: {}", e),
                 Some(&e.to_string()),
             );
-            false
+            Err(e.to_string())
         },
     };
+    let install_ok = install_result.is_ok();
+    let install_error = install_result.err();
 
     step += 1;
     write_migrate_progress("running", step, total_steps, "Restoring preserved user data...", None);
@@ -594,14 +596,10 @@ fn run_migration() {
     // loudly. No backend reconciliation is needed.
 
     if !install_ok {
-        write_migrate_progress(
-            "error",
-            total_steps,
-            total_steps,
-            "Runtime install incomplete — re-run setup wizard after restart",
-            Some("runtime_install_incomplete"),
-        );
-        log_to_file(&format!("Migration to v{} finished (install_ok=false)", MIGRATE_VERSION));
+        let detail = install_error.as_deref().unwrap_or("the installer stopped without a final status");
+        let message = format!("Runtime install incomplete: {}. Re-run setup wizard after restart", detail);
+        write_migrate_progress("error", total_steps, total_steps, &message, Some("runtime_install_incomplete"));
+        log_to_file(&format!("Migration to v{} finished (install_ok=false): {}", MIGRATE_VERSION, detail));
         return;
     }
 

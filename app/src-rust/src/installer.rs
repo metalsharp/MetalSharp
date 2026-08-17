@@ -28,6 +28,8 @@ pub const DXMT_BUNDLED_RUNTIME_VERSION: &str = concat!(env!("CARGO_PKG_VERSION")
 const DXMT_RUNTIME_MANIFEST: &str = "metalsharp-dxmt-runtime.json";
 const DXMT_RUNTIME_SCHEMA: &str = "metalsharp.dxmt-runtime.v1";
 const RUNTIME_BUNDLE: &str = "metalsharp-runtime";
+pub(crate) const BUNDLED_RELEASE_REPOSITORY: &str = "metalsharp/MetalSharp";
+pub(crate) const BUNDLED_RELEASE_TAG: &str = "bundles";
 const WINE_PACKAGED_DEPENDENCY_ROOT: &str = "/tmp/metalsharp-wine-deps/lib/";
 const GRAPHICS_DLL_BUNDLE: &str = "metalsharp-graphics-dll";
 const ASSETS_BUNDLE: &str = "metalsharp-assets";
@@ -2561,7 +2563,7 @@ fn download_bundled_file(name: &str) -> Option<PathBuf> {
         return Some(cached);
     }
 
-    let url = format!("https://github.com/aaf2tbz/metalsharp/releases/download/bundles/{}", name);
+    let url = bundled_release_asset_url(name);
 
     let _ = fs::remove_file(&tmp);
 
@@ -2616,6 +2618,10 @@ fn download_bundled_file(name: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+pub(crate) fn bundled_release_asset_url(name: &str) -> String {
+    format!("https://github.com/{}/releases/download/{}/{}", BUNDLED_RELEASE_REPOSITORY, BUNDLED_RELEASE_TAG, name)
 }
 
 fn download_from_github_release(filename: &str) -> Option<PathBuf> {
@@ -3190,6 +3196,15 @@ mod tests {
         let fields: Vec<&str> = graphics_row.split('\t').collect();
 
         assert_eq!(fields.get(1).copied(), Some("Graphics/dll"));
+    }
+
+    #[test]
+    fn bundled_assets_use_the_transferred_canonical_repository() {
+        assert_eq!(
+            bundled_release_asset_url("metalsharp-runtime.tar.zst"),
+            "https://github.com/metalsharp/MetalSharp/releases/download/bundles/metalsharp-runtime.tar.zst"
+        );
+        assert!(!bundled_release_asset_url("metalsharp-runtime.tar.zst").contains("aaf2tbz"));
     }
 
     #[test]

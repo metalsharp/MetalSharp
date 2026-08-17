@@ -31,7 +31,7 @@ download_bundle() {
   local asset="$1"
   local target="$BUNDLE_DIR/$asset"
   if [[ ! -s "$target" ]]; then
-    curl -fsSL --retry 3 -o "$target" "https://github.com/aaf2tbz/metalsharp/releases/download/bundles/$asset"
+    curl -fsSL --retry 3 -o "$target" "https://github.com/metalsharp/MetalSharp/releases/download/bundles/$asset"
   fi
   if ! "$ROOT_DIR/tools/ci/verify-bundle-sha256.sh" "$VKD3D_BUNDLE_HASH_MANIFEST" "$asset" "$target"; then
     rm -f "$target"

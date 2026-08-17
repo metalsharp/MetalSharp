@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const REPO_API: &str = "https://api.github.com/repos/aaf2tbz/metalsharp/releases/latest";
+const REPO_API: &str = "https://api.github.com/repos/metalsharp/MetalSharp/releases/latest";
 
 static UPDATING: AtomicBool = AtomicBool::new(false);
 static DOWNLOAD_PERCENT: AtomicU32 = AtomicU32::new(0);

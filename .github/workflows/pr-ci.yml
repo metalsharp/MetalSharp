@@ -182,7 +182,7 @@ jobs:
             mkdir -p app/bundles "$HOME/.metalsharp/runtime/wine/lib/dxmt"
             for asset in metalsharp-runtime.tar.zst metalsharp-graphics-dll.tar.zst; do
               if [ ! -s "app/bundles/$asset" ]; then
-                curl -fL -o "app/bundles/$asset" "https://github.com/aaf2tbz/metalsharp/releases/download/bundles/$asset"
+                curl -fL -o "app/bundles/$asset" "https://github.com/metalsharp/MetalSharp/releases/download/bundles/$asset"
               fi
             done
 

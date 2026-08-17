@@ -930,7 +930,7 @@ fn find_steam_bundle_archive() -> Option<PathBuf> {
     }
     let _ = std::fs::remove_file(&cached);
 
-    let url = format!("https://github.com/aaf2tbz/metalsharp/releases/download/bundles/{}", filename);
+    let url = crate::installer::bundled_release_asset_url(filename);
     let tmp = cached.with_extension("download");
     let _ = std::fs::remove_file(&tmp);
     let output = match Command::new("curl")
@@ -961,7 +961,7 @@ fn download_steamwebhelper_wrapper_fallback() -> Option<PathBuf> {
         return Some(cached);
     }
 
-    let url = "https://github.com/aaf2tbz/metalsharp/releases/download/bundles/metalsharp-steam.tar.zst";
+    let url = crate::installer::bundled_release_asset_url("metalsharp-steam.tar.zst");
     let archive_tmp = cache_dir.join("metalsharp-steam.tar.zst.download");
     let archive_path = cache_dir.join("metalsharp-steam.tar.zst");
 

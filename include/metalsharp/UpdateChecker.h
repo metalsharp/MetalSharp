@@ -37,7 +37,7 @@ struct UpdateInfo {
 
 class UpdateChecker {
   public:
-    static UpdateInfo checkForUpdates(const std::string& repo = "aaf2tbz/metalsharp");
+    static UpdateInfo checkForUpdates(const std::string& repo = "metalsharp/MetalSharp");
     static Version getCurrentVersion();
     static std::string getUserAgent();
     static UpdateInfo parseGitHubRelease(const std::string& json, const Version& current);
