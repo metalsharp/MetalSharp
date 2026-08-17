@@ -161,7 +161,7 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
             },
             PipelineNode {
                 id: PipelineId::Vkd3d,
-                name: "VKD3D-Proton",
+                name: "VKD3D",
                 description: "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver",
                 backend: "vulkan",
                 graphics_backend: "vulkan",
@@ -666,7 +666,7 @@ impl PipelineId {
     pub fn user_selectable_name(self) -> Option<&'static str> {
         match self {
             PipelineId::M12 => Some("M12"),
-            PipelineId::Vkd3d => Some("VKD3D-Proton"),
+            PipelineId::Vkd3d => Some("VKD3D"),
             PipelineId::D3DMetal => Some("D3DMetal"),
             PipelineId::M11 => Some("M11"),
             PipelineId::M11_32 => Some("M11(32)"),
@@ -996,10 +996,7 @@ mod tests {
         );
 
         let labels: Vec<_> = selectable.iter().map(|pipeline| pipeline.user_selectable_name().unwrap()).collect();
-        assert_eq!(
-            labels,
-            vec!["M12", "VKD3D-Proton", "M11", "M11(32)", "M10", "M10(32)", "M9", "D3DMetal", "Mono/FNA"]
-        );
+        assert_eq!(labels, vec!["M12", "VKD3D", "M11", "M11(32)", "M10", "M10(32)", "M9", "D3DMetal", "Mono/FNA"]);
 
         for hidden in [
             PipelineId::Dxmt,

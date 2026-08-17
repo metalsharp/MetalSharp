@@ -1178,7 +1178,7 @@ pub fn launch_custom_with_options(
         | PipelineId::WineBare => {},
         PipelineId::FnaArm64 | PipelineId::Steam | PipelineId::MacSteam => {
             return Err(
-                "Sharp Library apps must use Auto, Wine, M9, M10, M11, M12, VKD3D-Proton, M13, D3DMetal, or M32".into(),
+                "Sharp Library apps must use Auto, Wine, M9, M10, M11, M12, VKD3D, M13, D3DMetal, or M32".into()
             );
         },
     }
