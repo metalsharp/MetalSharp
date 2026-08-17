@@ -192,7 +192,13 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                         dest_filename: None,
                     },
                 ],
-                env_vars: vec![],
+                env_vars: vec![
+                    // Matches the VKD3D-Proton-MacOS validated launch shape: without
+                    // the non-single-texel-alignment allowance, vkd3d-proton cannot
+                    // create a D3D12 device on the MoltenVK/Metal stack.
+                    EnvVar { key: "VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", value: "1" },
+                    EnvVar { key: "MVK_PRESENT_MODE", value: "1" },
+                ],
                 launch_args: vec![],
                 alternatives: vec![
                     PipelineId::M12,
