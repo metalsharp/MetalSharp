@@ -1,3 +1,4 @@
+# Regenerated 2026-08-17T18:58:33Z by update-vulkan-lane-hashes.sh — do not edit by hand.
 # Paths are relative to the dxvk runtime lane root.
 path	sha256
 x86_64-windows/d3d9.dll	67f8b1f139c7b4838de535876668c44716cec5dda56a1aa88bab5b820acd72fc
