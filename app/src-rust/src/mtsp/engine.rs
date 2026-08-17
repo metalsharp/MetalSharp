@@ -168,7 +168,7 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                 experimental: false,
                 requires_wine: true,
                 wine_overrides: Some(
-                    "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+                    "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9,nvapi64,nvngx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
                 ),
                 dyld_paths: vec!["lib/wine/x86_64-unix"],
                 winedllpath_dirs: vec!["vkd3d-proton/x86_64-windows", "dxvk/x86_64-windows", "lib/wine/x86_64-windows"],
@@ -191,6 +191,11 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                         filename: "dxgi.dll",
                         dest_filename: None,
                     },
+                    // GPU vendor driver stubs (NvAPI/NVNGX) so titles that query the
+                    // NVIDIA driver don't fail graphics init on the vkd3d lane. These
+                    // deploy to the game folder (never system32), matching the lane.
+                    DllDeploy { source_subpath: "lib/dxmt/x86_64-windows", filename: "nvapi64.dll", dest_filename: None },
+                    DllDeploy { source_subpath: "lib/dxmt/x86_64-windows", filename: "nvngx.dll", dest_filename: None },
                 ],
                 env_vars: vec![
                     // Matches the VKD3D-Proton-MacOS validated launch shape: without
