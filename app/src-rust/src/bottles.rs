@@ -786,8 +786,12 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
             },
             RuntimeProfile::M12 => crate::installer::ensure_dxmt_m12_runtime_ready(&home)
                 .map(|_| crate::installer::dxmt_m12_runtime_current_for_home(&home)),
-            RuntimeProfile::Vkd3d => crate::installer::ensure_vkd3d_runtime_ready(&home)
-                .map(|_| crate::installer::vkd3d_runtime_current_for_home(&home)),
+            // The VKD3D-Proton / DXVK lanes are installed once by the installer
+            // / migration and deployed from the already-installed lane on save.
+            // They must never be re-staged here: ensure_vkd3d_runtime_ready would
+            // re-extract the runtime bundle and spawn wine on every bottle save,
+            // hanging the pipeline. Keep this a read-only currency check.
+            RuntimeProfile::Vkd3d => Ok(crate::installer::vkd3d_runtime_current_for_home(&home)),
             _ => Ok(false),
         })
         .unwrap_or_else(|e| {
@@ -1248,8 +1252,10 @@ pub fn prepare_steam_game_launch(
                     .map_err(|e| format!("M12 runtime setup failed before Steam launch: {}", e))?;
             },
             crate::mtsp::engine::PipelineId::Vkd3d => {
-                crate::installer::ensure_vkd3d_runtime_ready(&home)
-                    .map_err(|e| format!("VKD3D-Proton runtime setup failed before Steam launch: {}", e))?;
+                // VKD3D-Proton prepares by removing stale DLLs and deploying the
+                // correct set from the already-installed lane (preparation runs
+                // immediately below via prepare_steam_pipeline_env). It does not
+                // re-run the installer on launch.
             },
             _ => {},
         }
