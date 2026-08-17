@@ -255,7 +255,7 @@ async function installVcppX86() {
             </div>
             <div>
               <div class="setup-feature-title">D3D9/10/11/12 Support</div>
-              <div class="setup-feature-desc">D3D9/10/11/12 via VKD3D, D3D10/11 via DXMT, Offline D3D12 Support with D3DMetal.</div>
+              <div class="setup-feature-desc">D3D12 via M12/DXMT, D3D10/11 via DXMT, Offline D3D12 Support with D3DMetal.</div>
             </div>
           </div>
           <div class="setup-feature">

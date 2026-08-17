@@ -1,0 +1,6 @@
+# Confirmed-good FNA/Unity-Mono runtime payload hashes for the mono route.
+# Populated at bundle build time by tools/bundles/update-fna-unity-hashes.sh —
+# paths are relative to the assets bundle root (assets/unity-mono, assets/xna,
+# assets/sdl3). The installer + verify-bundles.sh require these files, and the
+# hash manifest pins them so a partial/bad republish is rejected by CI.
+path	sha256

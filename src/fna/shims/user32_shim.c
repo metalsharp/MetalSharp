@@ -208,3 +208,136 @@ void* DefWindowProcA(HANDLE hWnd, DWORD Msg, void* wParam, void* lParam) {
     (void)lParam;
     return NULL;
 }
+
+// Mono resolves the unsuffixed symbol on macOS dllmap targets (Terraria's
+// ReLogic WindowService takes a DefWindowProc delegate via
+// Marshal.GetFunctionPointerForDelegate — EntryPointNotFoundException
+// "DefWindowProc" without the A/W variants present).
+void* DefWindowProc(HANDLE hWnd, DWORD Msg, void* wParam, void* lParam) {
+    (void)hWnd;
+    (void)Msg;
+    (void)wParam;
+    (void)lParam;
+    return NULL;
+}
+
+void* DefWindowProcW(HANDLE hWnd, DWORD Msg, void* wParam, void* lParam) {
+    (void)hWnd;
+    (void)Msg;
+    (void)wParam;
+    (void)lParam;
+    return NULL;
+}
+
+// Terraria's ReLogic NativeMethods surface (merged into Terraria.exe):
+// SetWindowLong / GetWindowLong / CallWindowProc / GetParent — with the
+// Ptr and A/W variants mono may resolve depending on the DllImport charset.
+void* CallWindowProc(void* prevWndFunc, HANDLE hWnd, DWORD Msg, void* wParam, void* lParam) {
+    (void)prevWndFunc;
+    (void)hWnd;
+    (void)Msg;
+    (void)wParam;
+    (void)lParam;
+    return NULL;
+}
+
+void* CallWindowProcA(void* prevWndFunc, HANDLE hWnd, DWORD Msg, void* wParam, void* lParam) {
+    (void)prevWndFunc;
+    (void)hWnd;
+    (void)Msg;
+    (void)wParam;
+    (void)lParam;
+    return NULL;
+}
+
+void* CallWindowProcW(void* prevWndFunc, HANDLE hWnd, DWORD Msg, void* wParam, void* lParam) {
+    (void)prevWndFunc;
+    (void)hWnd;
+    (void)Msg;
+    (void)wParam;
+    (void)lParam;
+    return NULL;
+}
+
+void* SetWindowLong(HANDLE hWnd, int nIndex, void* dwNewLong) {
+    (void)hWnd;
+    (void)nIndex;
+    (void)dwNewLong;
+    return NULL;
+}
+
+void* SetWindowLongA(HANDLE hWnd, int nIndex, void* dwNewLong) {
+    (void)hWnd;
+    (void)nIndex;
+    (void)dwNewLong;
+    return NULL;
+}
+
+void* SetWindowLongW(HANDLE hWnd, int nIndex, void* dwNewLong) {
+    (void)hWnd;
+    (void)nIndex;
+    (void)dwNewLong;
+    return NULL;
+}
+
+void* SetWindowLongPtr(HANDLE hWnd, int nIndex, void* dwNewLong) {
+    (void)hWnd;
+    (void)nIndex;
+    (void)dwNewLong;
+    return NULL;
+}
+
+void* SetWindowLongPtrA(HANDLE hWnd, int nIndex, void* dwNewLong) {
+    (void)hWnd;
+    (void)nIndex;
+    (void)dwNewLong;
+    return NULL;
+}
+
+void* SetWindowLongPtrW(HANDLE hWnd, int nIndex, void* dwNewLong) {
+    (void)hWnd;
+    (void)nIndex;
+    (void)dwNewLong;
+    return NULL;
+}
+
+void* GetWindowLong(HANDLE hWnd, int nIndex) {
+    (void)hWnd;
+    (void)nIndex;
+    return NULL;
+}
+
+void* GetWindowLongA(HANDLE hWnd, int nIndex) {
+    (void)hWnd;
+    (void)nIndex;
+    return NULL;
+}
+
+void* GetWindowLongW(HANDLE hWnd, int nIndex) {
+    (void)hWnd;
+    (void)nIndex;
+    return NULL;
+}
+
+void* GetWindowLongPtr(HANDLE hWnd, int nIndex) {
+    (void)hWnd;
+    (void)nIndex;
+    return NULL;
+}
+
+void* GetWindowLongPtrA(HANDLE hWnd, int nIndex) {
+    (void)hWnd;
+    (void)nIndex;
+    return NULL;
+}
+
+void* GetWindowLongPtrW(HANDLE hWnd, int nIndex) {
+    (void)hWnd;
+    (void)nIndex;
+    return NULL;
+}
+
+HANDLE GetParent(HANDLE hWnd) {
+    (void)hWnd;
+    return NULL;
+}

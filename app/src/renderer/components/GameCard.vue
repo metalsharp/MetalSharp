@@ -116,6 +116,9 @@ interface D3DMetalGptkResponse {
   launch?: D3DMetalLaunchReport;
   gptk3_installed?: boolean;
   gptk3_dmg_found?: boolean;
+  download_opened?: boolean;
+  download_required?: boolean;
+  download_url?: string;
   error?: string;
 }
 
@@ -152,6 +155,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   play: [launchMethod: string];
   d3dmetalLaunched: [pid: number];
+  bottleUpdated: [update: { preferredPipeline: string | null }];
   stop: [];
   install: [];
   uninstall: [];
@@ -174,7 +178,7 @@ const runtimeLoading = ref(false);
 const runtimeReport = ref<SteamRuntimeReport | null>(null);
 const d3dmetalState = ref<D3DMetalGptkState | null>(null);
 const d3dmetalActions = ref<D3DMetalGptkAction[]>([]);
-const d3dmetalLoading = ref(false);
+const d3dmetalActiveActionId = ref<string | null>(null);
 const gptk3Installed = ref(false);
 const gptk3DmgFound = ref(false);
 const bottleName = ref("");
@@ -208,10 +212,15 @@ const userSelectablePipelineNames: Record<string, string> = {
   m9: "M9",
   fna_arm64: "Mono/FNA",
 };
+function pipelineDisplayName(id: string | null | undefined, fallback = pipelineName.value): string {
+  const normalized = id?.trim().toLowerCase();
+  return (normalized && userSelectablePipelineNames[normalized]) || fallback;
+}
+
 const displayedPipelineName = computed(() => {
-  if (props.game.installed) return pipelineName.value;
   const routeId = props.game.preferred_pipeline || props.game.launch_method || "";
-  return props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+  if (props.game.installed) return pipelineDisplayName(routeId, pipelineName.value);
+  return pipelineDisplayName(routeId, props.game.launch_method_name || pipelineName.value);
 });
 
 const componentDisplayName: Record<string, string> = {
@@ -253,6 +262,7 @@ const componentDisplayName: Record<string, string> = {
 };
 
 const runtimeProfileDisplayName: Record<string, string> = {
+  m12: "M12",
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
   d3dmetal: "D3DMetal (GPTK)",
@@ -278,7 +288,8 @@ function bottleComponentLabel(id: string): string {
 }
 
 function runtimeProfileLabel(id: string): string {
-  return runtimeProfileDisplayName[id] ?? id;
+  const normalized = id.trim().toLowerCase();
+  return runtimeProfileDisplayName[normalized] ?? id;
 }
 
 function componentStateIcon(state: string): string {
@@ -373,7 +384,7 @@ function runtimeReportFromD3DMetalState(state: D3DMetalGptkState, actions: D3DMe
   const requiredActions = state.play_ready
     ? []
     : actions
-        .filter((action) => action.id !== "play_d3dmetal")
+        .filter((action) => action.id !== "play_d3dmetal" && !d3dmetalStateReady(action.state))
         .map((action) => ({ id: action.id, status: d3dmetalComponentState(action.state), detail: action.detail }));
   return {
     appid: state.appid,
@@ -399,7 +410,7 @@ function runtimeReportFromD3DMetalState(state: D3DMetalGptkState, actions: D3DMe
 const visibleD3DMetalActions = computed(() => d3dmetalActions.value.filter((action) => action.id !== "play_d3dmetal"));
 
 const pendingD3DMetalActions = computed(() =>
-  visibleD3DMetalActions.value.filter((action) => !d3dmetalActionReady(action)),
+  visibleD3DMetalActions.value.filter((action) => action.enabled && !d3dmetalActionReady(action)),
 );
 
 const d3dmetalStatusItems = computed(() => {
@@ -512,7 +523,7 @@ watch(
     if (pipelineResolvedLocally.value) return;
     const routeId = props.game.preferred_pipeline || props.game.launch_method;
     if (routeId && userSelectablePipelineOrder.includes(routeId)) {
-      pipelineName.value = props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+      pipelineName.value = pipelineDisplayName(routeId, props.game.launch_method_name || pipelineName.value);
     }
   },
 );
@@ -527,7 +538,8 @@ async function refreshPipelineMetadata() {
     pipelines: PipelineOption[];
   }>("GET", `/mtsp/pipelines?appid=${props.game.appid}`);
   if (gp?.ok && gp.recommended_name) {
-    pipelineName.value = gp.preferred_name || gp.recommended_name;
+    const routeId = gp.preferred || gp.recommended;
+    pipelineName.value = pipelineDisplayName(routeId, gp.preferred_name || gp.recommended_name);
     pipelineResolvedLocally.value = true;
     pipelineOptions.value = gp.pipelines ?? [];
   }
@@ -662,24 +674,9 @@ async function loadD3DMetalStatus() {
   }
 }
 
-const GPTK3_DOWNLOAD_URL =
-  "https://download.developer.apple.com/Developer_Tools/Game_Porting_Toolkit_3.0/Game_Porting_Toolkit_3.0.dmg";
-
 async function repairGptk3() {
-  if (!gptk3DmgFound.value) {
-    toast.show("Opening the Game Porting Toolkit 3.0 download — place the DMG in ~/Downloads", "success");
-    await getAPI().openExternalUrl(GPTK3_DOWNLOAD_URL);
-    for (let attempt = 0; attempt < 120; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      await loadD3DMetalStatus();
-      if (gptk3DmgFound.value) break;
-    }
-    if (!gptk3DmgFound.value) {
-      toast.show("GPTK 3.0 DMG not found in ~/Downloads; run Repair after downloading it", "error");
-      return;
-    }
-  }
-  d3dmetalLoading.value = true;
+  if (gptk3Installed.value || d3dmetalActiveActionId.value) return;
+  d3dmetalActiveActionId.value = "gptk3";
   const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
   const result = await api<D3DMetalGptkResponse>(
     "POST",
@@ -687,8 +684,12 @@ async function repairGptk3() {
     { appid: props.game.appid, bottleId },
     10 * 60 * 1000,
   );
-  d3dmetalLoading.value = false;
+  d3dmetalActiveActionId.value = null;
   if (result?.ok) {
+    if (result.download_opened || result.download_required) {
+      toast.show("Apple Developer downloads opened — download GPTK 3.0, then click Repair again", "success");
+      return;
+    }
     if (result.state) {
       d3dmetalState.value = result.state;
       d3dmetalActions.value = result.actions ?? [];
@@ -747,9 +748,10 @@ function d3dmetalActionRoute(actionId: string) {
 }
 
 async function runD3DMetalAction(action: D3DMetalGptkAction): Promise<number | null> {
+  if (d3dmetalActiveActionId.value) return null;
   const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
   const gameDir = runtimeReport.value?.game_install_path;
-  d3dmetalLoading.value = true;
+  d3dmetalActiveActionId.value = action.id;
   const route = d3dmetalActionRoute(action.id);
   const result = await api<D3DMetalGptkResponse>(
     "POST",
@@ -761,7 +763,7 @@ async function runD3DMetalAction(action: D3DMetalGptkAction): Promise<number | n
     },
     10 * 60 * 1000,
   );
-  d3dmetalLoading.value = false;
+  d3dmetalActiveActionId.value = null;
   if (result?.ok) {
     toast.show(action.id === "play_d3dmetal" ? "D3DMetal launch started" : `${action.label}: complete`, "success");
     if (result.state) {
@@ -877,12 +879,21 @@ async function saveBottleEdit() {
     if (d3dmetalResult?.ok && d3dmetalResult.state) {
       d3dmetalState.value = d3dmetalResult.state;
       d3dmetalActions.value = d3dmetalResult.actions ?? [];
+      gptk3Installed.value = d3dmetalResult.state.gptk3 === "installed";
       selectedLaunchMode.value = "d3dmetal";
       runtimeReport.value = runtimeReportFromD3DMetalState(d3dmetalState.value, d3dmetalActions.value);
       localStorage.setItem(launchModeStorageKey.value, "d3dmetal");
       pipelineName.value = "D3DMetal";
       pipelineResolvedLocally.value = true;
-      toast.show("D3DMetal bottle saved; seed VC runtime DLLs and seed prefix when ready", "success");
+      emit("bottleUpdated", {
+        preferredPipeline: "d3dmetal",
+      });
+      toast.show(
+        d3dmetalResult.state.play_ready
+          ? "D3DMetal bottle saved and ready"
+          : "D3DMetal bottle saved; seed the prefix when ready",
+        "success",
+      );
       return;
     }
     toast.show(d3dmetalResult?.error ?? "D3DMetal bottle save failed", "error");
@@ -925,6 +936,9 @@ async function saveBottleEdit() {
     selectedLaunchMode.value = bottlePreferredMode.value;
     pipelineName.value = userSelectablePipelineNames[bottlePreferredMode.value] || pipelineName.value;
     pipelineResolvedLocally.value = true;
+    emit("bottleUpdated", {
+      preferredPipeline: result.bottle.preferred_pipeline || null,
+    });
     if (runtimeReport.value) {
       runtimeReport.value.bottle_name = result.bottle.name;
       runtimeReport.value.preferred_pipeline = result.bottle.preferred_pipeline || null;
@@ -1148,9 +1162,9 @@ function formatBytes(bytes: number): string {
                 </div>
                 <div v-if="d3dmetalState.last_error" class="doctor-notes blocked">{{ d3dmetalState.last_error }}</div>
                 <div v-if="!gptk3Installed" class="runtime-action-row compact-repair-row">
-                  <span>Add GPTK 3.0 overlay{{ gptk3DmgFound ? "" : " — download DMG to ~/Downloads" }}</span>
-                  <button class="btn btn-secondary btn-sm" :disabled="d3dmetalLoading" @click="repairGptk3">
-                    {{ d3dmetalLoading ? "Working..." : "Repair" }}
+                  <span>Add GPTK 3.0 overlay (optional){{ gptk3DmgFound ? "" : " — download DMG to ~/Downloads" }}</span>
+                  <button class="btn btn-secondary btn-sm" :disabled="gptk3Installed || d3dmetalActiveActionId !== null" @click="repairGptk3">
+                    {{ d3dmetalActiveActionId === "gptk3" ? "Working..." : "Repair" }}
                   </button>
                 </div>
                 <div
@@ -1161,10 +1175,10 @@ function formatBytes(bytes: number): string {
                   <span>{{ action.label }}</span>
                   <button
                     class="btn btn-secondary btn-sm"
-                    :disabled="d3dmetalLoading || !action.enabled"
+                    :disabled="d3dmetalActiveActionId !== null || !action.enabled"
                     @click="runD3DMetalPanelAction(action)"
                   >
-                    {{ d3dmetalLoading ? "Working..." : "Fix" }}
+                    {{ d3dmetalActiveActionId === action.id ? "Working..." : "Fix" }}
                   </button>
                 </div>
               </div>
