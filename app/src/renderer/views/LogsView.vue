@@ -386,6 +386,7 @@ export default {
 }
 .live-log-drawer {
   min-height: 0;
+  margin-top: 16px;
 }
 .live-log-drawer[open] {
   display: flex;
