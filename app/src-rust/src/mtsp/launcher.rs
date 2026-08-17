@@ -2966,6 +2966,16 @@ fn cache_env_pairs_with_logs(
             env.push(("DXVK_LOG_PATH".to_string(), cache.pipeline.clone()));
             env.push(("DXVK_LOG_LEVEL".to_string(), "info".to_string()));
             env.push(("VKD3D_DEBUG".to_string(), "info".to_string()));
+            // DXVK.conf lives beside the external vkd3d lanes (<ms_home>/vkd3d/),
+            // mirroring dxmt.conf as the D3D11-side runtime config.
+            let dxvk_conf = ms_root
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|ms_home| ms_home.join("vkd3d").join("dxvk.conf"))
+                .filter(|p| p.exists());
+            if let Some(conf) = dxvk_conf {
+                env.push(("DXVK_CONFIG_FILE".to_string(), conf.to_string_lossy().to_string()));
+            }
             let moltenvk_icd = ms_root.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
             if moltenvk_icd.exists() {
                 env.push(("VK_ICD_FILENAMES".to_string(), moltenvk_icd.to_string_lossy().to_string()));

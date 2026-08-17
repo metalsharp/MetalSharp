@@ -1472,11 +1472,43 @@ pub fn ensure_vkd3d_runtime_ready(home: &Path) -> Result<bool, String> {
     changed |= ensure_vkd3d_moltenvk_ready(&home_buf)?;
     changed |= install_dxvk_runtime(&home_buf)?;
     changed |= install_vkd3d_runtime(&home_buf)?;
+    changed |= ensure_vkd3d_dxvk_config(&home_buf)?;
     if vkd3d_runtime_current_for_home(home) && dxvk_runtime_current_for_home(home) {
         Ok(changed)
     } else {
         Err("VKD3D-Proton/DXVK runtime lanes are not ready after setup".into())
     }
+}
+
+/// Write the DXVK (D3D11) configuration file beside the external vkd3d lane if
+/// it is missing, mirroring dxmt.conf for the D3D11 side. DXVK reads this via
+/// DXVK_CONFIG_FILE.
+pub(crate) fn ensure_vkd3d_dxvk_config(home: &Path) -> Result<bool, String> {
+    let path = vkd3d_lane_root_for_home(home).join("dxvk.conf");
+    if path.exists() {
+        return Ok(false);
+    }
+    let contents = r#"# MetalSharp VKD3D lane — DXVK (D3D11/D3D9) configuration for the Metal/MoltenVK stack.
+# DXVK reads settings here via DXVK_CONFIG_FILE. Options mirror DXVK-macOS
+# (Gcenx) dxvk.conf. See https://github.com/Gcenx/DXVK-macOS/blob/1.10.x/dxvk.conf
+
+# Report NVIDIA GPUs as AMD by default. Works around NVAPI-based initialization
+# failures on the MoltenVK/Apple adapter.
+dxgi.nvapiHack = True
+
+# Defer swapchain surface creation to the first Present. Fixes games that start
+# rendering with a different graphics API (black window / init failure).
+dxgi.deferSurfaceCreation = True
+
+# Override the max feature level a D3D11 device can be created with. Keeps
+# D3D11 device creation from failing when an app requests an unsupported level.
+d3d11.maxFeatureLevel = 11_1
+"#;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create vkd3d lane dir: {e}"))?;
+    }
+    fs::write(&path, contents).map_err(|e| format!("write dxvk.conf: {e}"))?;
+    Ok(true)
 }
 
 /// Dedicated on-disk lane for the independent VKD3D-Proton / DXVK Vulkan
