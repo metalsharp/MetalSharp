@@ -210,6 +210,42 @@ const GRAPHICS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll",
     "Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll",
 ];
+
+/// Scope of graphics-bundle lane validation.
+///
+/// The independent X64 Vulkan lanes (DXVK + VKD3D-Proton) are a completely
+/// separate pipeline from DXMT / DXMT-M12: they resolve and stage from the
+/// same `metalsharp-graphics-dll.tar.zst` but must never require, validate, or
+/// extract any DXMT-M12 artifact. The VKD3D-Proton pipeline therefore resolves
+/// the bundle with [`GraphicsBundleScope::X64Vulkan`]; only the DXMT install
+/// step (full setup / migration) uses [`GraphicsBundleScope::Full`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GraphicsBundleScope {
+    /// DXVK + VKD3D-Proton x64/i386 Vulkan lanes only; DXMT / DXMT-M12 are
+    /// never touched. Used by the whole VKD3D-Proton pipeline path.
+    X64Vulkan,
+    /// The entire graphics bundle, including DXMT-M12. Used only by the DXMT
+    /// installer surface and full-install / migration.
+    Full,
+}
+
+/// Required files for the independent X64 Vulkan lanes (DXVK + VKD3D-Proton).
+/// The VKD3D-Proton pipeline validates the graphics bundle against this
+/// reduced set so it never requires any DXMT / DXMT-M12 artifact.
+const GRAPHICS_X64_REQUIRED_ARCHIVE_FILES: &[&str] = &[
+    "Graphics/dll/dxvk/x86_64-windows/d3d9.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d10core.dll",
+    "Graphics/dll/dxvk/x86_64-windows/d3d11.dll",
+    "Graphics/dll/dxvk/x86_64-windows/dxgi.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d9.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d10core.dll",
+    "Graphics/dll/dxvk/i386-windows/d3d11.dll",
+    "Graphics/dll/dxvk/i386-windows/dxgi.dll",
+    "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll",
+    "Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll",
+    "Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll",
+];
+
 const ASSETS_REQUIRED_ARCHIVE_FILES: &[&str] = &[
     "assets/fna-kickstart/kick.bin.osx",
     "assets/fna-kickstart/FNA.dll",
@@ -1485,7 +1521,7 @@ pub fn vkd3d_runtime_artifact_path_for_home(home: &Path, rel: &str) -> PathBuf {
 
 fn install_dxvk_runtime(home: &PathBuf) -> Result<bool, String> {
     let dst = dxvk_runtime_dir_for_home(home);
-    if dxvk_runtime_current_for_home(home) && !graphics_bundle_has_update(home) {
+    if dxvk_runtime_current_for_home(home) && !graphics_bundle_has_update_for(home, GraphicsBundleScope::X64Vulkan) {
         return Ok(false);
     }
     install_graphics_lane(home, "dxvk", &dst, DXVK_REQUIRED_PE, "DXVK")
@@ -1493,7 +1529,7 @@ fn install_dxvk_runtime(home: &PathBuf) -> Result<bool, String> {
 
 fn install_vkd3d_runtime(home: &PathBuf) -> Result<bool, String> {
     let dst = vkd3d_runtime_dir_for_home(home);
-    if vkd3d_runtime_current_for_home(home) && !graphics_bundle_has_update(home) {
+    if vkd3d_runtime_current_for_home(home) && !graphics_bundle_has_update_for(home, GraphicsBundleScope::X64Vulkan) {
         return Ok(false);
     }
     install_graphics_lane(home, "vkd3d-proton", &dst, VKD3D_REQUIRED_PE, "VKD3D-Proton")
@@ -1506,7 +1542,7 @@ fn install_graphics_lane(
     expected: &[(&str, &str)],
     label: &str,
 ) -> Result<bool, String> {
-    if let Some(archive) = find_bundled_archive(GRAPHICS_DLL_BUNDLE) {
+    if let Some(archive) = find_bundled_archive_lane(GRAPHICS_DLL_BUNDLE, GraphicsBundleScope::X64Vulkan) {
         let tmp = std::env::temp_dir().join(format!("metalsharp-{}-extract", bundle_surface));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).map_err(|e| format!("create {} extraction directory: {}", label, e))?;
@@ -1537,7 +1573,15 @@ pub fn ensure_m12_runtime_ready(home: &Path) -> Result<bool, String> {
 /// runtime surface has not yet absorbed. Returns false when no bundle is
 /// present so the no-bundle fallback path keeps its existing behavior.
 fn graphics_bundle_has_update(home: &Path) -> bool {
-    match find_bundled_archive(GRAPHICS_DLL_BUNDLE) {
+    graphics_bundle_has_update_for(home, GraphicsBundleScope::Full)
+}
+
+/// Lane-scoped variant of [`graphics_bundle_has_update`]. The VKD3D-Proton
+/// path calls this with [`GraphicsBundleScope::X64Vulkan`] so an update check
+/// never validates (or touches) the DXMT / DXMT-M12 lanes. The DXMT install
+/// surface uses [`GraphicsBundleScope::Full`].
+fn graphics_bundle_has_update_for(home: &Path, scope: GraphicsBundleScope) -> bool {
+    match find_bundled_archive_lane(GRAPHICS_DLL_BUNDLE, scope) {
         Some(archive) => bundle_archive_has_update(home, GRAPHICS_DLL_BUNDLE, &archive),
         None => false,
     }
@@ -2417,13 +2461,38 @@ fn find_bundled_archive(name: &str) -> Option<PathBuf> {
     download_from_github_release(&format!("{}.tar.zst", name))
 }
 
+/// Resolve an archive with a lane-scoped validator. Used by the VKD3D-Proton
+/// path so `metalsharp-graphics-dll.tar.zst` is validated for the DXVK /
+/// VKD3D-Proton x64 lanes only — DXMT and DXMT-M12 are never examined here.
+fn find_bundled_archive_lane(name: &str, scope: GraphicsBundleScope) -> Option<PathBuf> {
+    let candidates = [find_in_resources(name), find_in_dev_path(name)];
+
+    if let Some(found) = candidates
+        .into_iter()
+        .find(|c| c.as_ref().is_some_and(|path| bundled_artifact_valid_lane(name, path, scope)))
+        .flatten()
+    {
+        return Some(found);
+    }
+
+    download_bundled_file_lane(&format!("{}.tar.zst", name), scope)
+}
+
 fn download_bundled_file(name: &str) -> Option<PathBuf> {
+    download_bundled_file_with(name, bundled_artifact_valid)
+}
+
+fn download_bundled_file_lane(name: &str, scope: GraphicsBundleScope) -> Option<PathBuf> {
+    download_bundled_file_with(name, |n, p| bundled_artifact_valid_lane(n, p, scope))
+}
+
+fn download_bundled_file_with(name: &str, valid: impl Fn(&str, &Path) -> bool) -> Option<PathBuf> {
     let cache_dir = crate::platform::metalsharp_home_dir().join("cache").join("bundles");
     let _ = fs::create_dir_all(&cache_dir);
     let cached = cache_dir.join(name);
     let tmp = cache_dir.join(format!("{}.download", name));
 
-    if file_nonempty(&cached) && bundled_artifact_valid(name, &cached) {
+    if file_nonempty(&cached) && valid(name, &cached) {
         return Some(cached);
     }
 
@@ -2452,7 +2521,7 @@ fn download_bundled_file(name: &str) -> Option<PathBuf> {
 
         match output {
             Ok(o) if o.status.success() && file_nonempty(&tmp) => {
-                if bundled_artifact_valid(name, &tmp) {
+                if valid(name, &tmp) {
                     if fs::rename(&tmp, &cached).or_else(|_| fs::copy(&tmp, &cached).map(|_| ())).is_ok() {
                         let _ = fs::remove_file(&tmp);
                         return Some(cached);
@@ -2485,23 +2554,59 @@ fn download_bundled_file(name: &str) -> Option<PathBuf> {
 }
 
 fn find_bundled_file(name: &str) -> Option<PathBuf> {
+    find_bundled_file_with(name, bundled_artifact_valid)
+}
+
+fn find_bundled_file_lane(name: &str, scope: GraphicsBundleScope) -> Option<PathBuf> {
+    find_bundled_file_with(name, |n, p| bundled_artifact_valid_lane(n, p, scope))
+}
+
+fn find_bundled_file_with(name: &str, valid: impl Fn(&str, &Path) -> bool) -> Option<PathBuf> {
     if let Some(resources) = crate::platform::app_resources_dir() {
         let file = resources.join(format!("bundles/{}", name));
-        if file.exists() && bundled_artifact_valid(name, &file) {
+        if file.exists() && valid(name, &file) {
             return Some(file);
         }
     }
 
     let dev = PathBuf::from(format!("app/bundles/{}", name));
-    if dev.exists() && bundled_artifact_valid(name, &dev) {
+    if dev.exists() && valid(name, &dev) {
         return Some(dev);
     }
 
-    download_bundled_file(name)
+    download_bundled_file_with(name, valid)
 }
 
 fn download_from_github_release(filename: &str) -> Option<PathBuf> {
     download_bundled_file(filename)
+}
+
+fn graphics_required_archive_files(scope: GraphicsBundleScope) -> &'static [&'static str] {
+    match scope {
+        GraphicsBundleScope::X64Vulkan => GRAPHICS_X64_REQUIRED_ARCHIVE_FILES,
+        GraphicsBundleScope::Full => GRAPHICS_REQUIRED_ARCHIVE_FILES,
+    }
+}
+
+/// Lane-scoped bundle validity. For the graphics bundle this validates only the
+/// requested lane scope (X64 Vulkan lanes never touch DXMT / DXMT-M12). Non-
+/// graphics bundles fall through to the full [`bundled_artifact_valid`].
+fn bundled_artifact_valid_lane(name: &str, path: &Path, scope: GraphicsBundleScope) -> bool {
+    if !file_nonempty(path) {
+        return false;
+    }
+
+    if name == GRAPHICS_DLL_BUNDLE || name == "metalsharp-graphics-dll.tar.zst" {
+        let base = archive_required_files_valid(path, graphics_required_archive_files(scope))
+            && archive_lane_hashes_valid(path, "dxvk", DXVK_REQUIRED_PE)
+            && archive_lane_hashes_valid(path, "vkd3d-proton", VKD3D_REQUIRED_PE);
+        return match scope {
+            GraphicsBundleScope::X64Vulkan => base,
+            GraphicsBundleScope::Full => base && archive_dxmt_m12_hashes_valid(path),
+        };
+    }
+
+    bundled_artifact_valid(name, path)
 }
 
 fn bundled_artifact_valid(name: &str, path: &Path) -> bool {
@@ -3257,6 +3362,26 @@ mod tests {
         for dll in DXMT_REQUIRED_PE {
             fs::write(m12_pe_dir.join(dll), b"dll").expect("write M12 DLL");
         }
+    }
+
+    #[test]
+    fn x64_vulkan_graphics_scope_excludes_dxmt_m12() {
+        // The VKD3D-Proton pipeline resolves the graphics bundle with the X64
+        // Vulkan scope: it must never require or enumerate any artifact from
+        // the DXMT / DXMT-M12 lanes. Full scope (used only by the DXMT install
+        // surface) must keep requiring DXMT-M12.
+        let x64 = graphics_required_archive_files(GraphicsBundleScope::X64Vulkan);
+        assert!(
+            x64.iter().all(|f| !f.contains("dxmt")),
+            "X64 Vulkan scope must not require any DXMT/DXMT-M12 artifact: {:?}",
+            x64
+        );
+        assert!(x64.iter().any(|f| f.contains("vkd3d-proton")));
+        assert!(x64.iter().any(|f| f.contains("dxvk")));
+
+        let full = graphics_required_archive_files(GraphicsBundleScope::Full);
+        assert!(full.iter().any(|f| f.contains("dxmt-m12")), "Full scope must still require DXMT-M12 artifacts");
+        assert_eq!(full.len(), GRAPHICS_REQUIRED_ARCHIVE_FILES.len());
     }
 
     #[test]
