@@ -926,6 +926,7 @@ fn is_metalsharp_route_dll_conflict(path: &Path) -> bool {
             | "d3d10core.dll"
             | "d3d11.dll"
             | "d3d12.dll"
+            | "d3d12core.dll"
             | "dxgi.dll"
             | "dxgi_dxmt.dll"
             | "nvapi64.dll"
