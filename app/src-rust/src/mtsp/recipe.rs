@@ -1017,7 +1017,14 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
     }
 
     for dir in &node.winedllpath_dirs {
-        let p = ms_root.join(dir);
+        // VKD3D-Proton / DXVK winedllpath dirs are lane-relative (no "lib/"
+        // prefix) and live outside runtime/wine; resolve them against that lane.
+        let lane_root = ms_root
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|ms_home| ms_home.join("vkd3d"))
+            .unwrap_or_else(|| ms_root.to_path_buf());
+        let p = if dir.starts_with("lib/") { ms_root.join(dir) } else { lane_root.join(dir) };
         assets.push(RuntimeAsset { name: dir.to_string(), present: p.exists(), path: p, required: true });
     }
 
