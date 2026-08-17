@@ -207,7 +207,7 @@ const hiddenUserPipelineIds = new Set(["m12"]);
 const userSelectablePipelineOrder = ["d3dmetal", "m12", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
   m12: "M12",
-  vkd3d: "VKD3D-Proton",
+  vkd3d: "VKD3D",
   d3dmetal: "D3DMetal",
   m11: "M11",
   m11_32: "M11(32)",
@@ -272,7 +272,7 @@ const componentDisplayName: Record<string, string> = {
 
 const runtimeProfileDisplayName: Record<string, string> = {
   m12: "M12",
-  vkd3d: "VKD3D-Proton",
+  vkd3d: "VKD3D",
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
   d3dmetal: "D3DMetal (GPTK)",

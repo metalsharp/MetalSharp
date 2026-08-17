@@ -397,7 +397,7 @@ function stopGogMonoPoll() {
 }
 const engineOptions = [
   { id: "d3dmetal", name: "D3DMetal" },
-  { id: "vkd3d", name: "VKD3D-Proton" },
+  { id: "vkd3d", name: "VKD3D" },
   { id: "m11", name: "M11" },
   { id: "m11_32", name: "M11(32)" },
   { id: "m10", name: "M10" },
