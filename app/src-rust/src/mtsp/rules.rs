@@ -21,7 +21,7 @@ pub struct GameRecipe {
 impl Default for GameRecipe {
     fn default() -> Self {
         Self {
-            pipeline: PipelineId::M12,
+            pipeline: PipelineId::Vkd3d,
             name: String::new(),
             components: Vec::new(),
             env: HashMap::new(),
@@ -305,7 +305,7 @@ fn recipe_component_satisfied(component_id: &str, prefix: &Path) -> bool {
 }
 
 fn default_pipeline() -> PipelineId {
-    PipelineId::M12
+    PipelineId::Vkd3d
 }
 
 fn detect_from_directory(dir: &PathBuf) -> Option<PipelineId> {
@@ -383,7 +383,7 @@ fn pe_info_to_pipeline(pe: &PeInfo) -> Option<PipelineId> {
         return Some(PipelineId::M9);
     }
     match pe.detected_api {
-        D3dApi::D3D12 => Some(PipelineId::M12),
+        D3dApi::D3D12 => Some(PipelineId::Vkd3d),
         D3dApi::D3D11 => Some(PipelineId::M11),
         D3dApi::D3D10 => Some(PipelineId::M10),
         D3dApi::D3D9 => Some(PipelineId::M9),
@@ -396,7 +396,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn d3d12_pe_maps_to_m12() {
+    fn d3d12_pe_maps_to_vkd3d() {
         let pe = PeInfo {
             machine_type: 0x8664,
             is_64_bit: true,
@@ -404,7 +404,7 @@ mod tests {
             detected_api: D3dApi::D3D12,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M12));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Vkd3d));
     }
 
     #[test]
@@ -484,12 +484,12 @@ mod tests {
             detected_api: D3dApi::D3D12,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M12));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Vkd3d));
     }
 
     #[test]
-    fn unresolved_games_default_to_main_m12_engine() {
-        assert_eq!(default_pipeline(), PipelineId::M12);
+    fn unresolved_games_default_to_main_vkd3d_engine() {
+        assert_eq!(default_pipeline(), PipelineId::Vkd3d);
     }
 
     #[test]
@@ -592,22 +592,22 @@ mod tests {
             (774361, PipelineId::M9),
             (1169040, PipelineId::WineBare),
             (1237320, PipelineId::M11),
-            (1245620, PipelineId::M12),
+            (1245620, PipelineId::Vkd3d),
             (1562430, PipelineId::FnaArm64),
-            (1623730, PipelineId::M12),
+            (1623730, PipelineId::Vkd3d),
             (1868140, PipelineId::M11),
-            (1928870, PipelineId::M12),
-            (1962700, PipelineId::M12),
+            (1928870, PipelineId::Vkd3d),
+            (1962700, PipelineId::Vkd3d),
             (2358720, PipelineId::M11),
-            (2456740, PipelineId::M12),
+            (2456740, PipelineId::Vkd3d),
             (275850, PipelineId::WineBare),
             (284160, PipelineId::M11),
             (1326470, PipelineId::M11),
-            (1583230, PipelineId::M12),
+            (1583230, PipelineId::Vkd3d),
             (3164500, PipelineId::M11),
-            (3527290, PipelineId::M12),
+            (3527290, PipelineId::Vkd3d),
             (22380, PipelineId::M9),
-            (1030300, PipelineId::M12),
+            (1030300, PipelineId::Vkd3d),
             (222880, PipelineId::M11),
             (305620, PipelineId::M11),
             (1260320, PipelineId::M11),
@@ -643,7 +643,7 @@ mod tests {
         assert!(!recipes.is_empty());
 
         let elden = recipes.get(&1245620).expect("elden ring recipe");
-        assert_eq!(elden.pipeline, PipelineId::M12);
+        assert_eq!(elden.pipeline, PipelineId::Vkd3d);
         assert_eq!(elden.name, "ELDEN RING");
         assert!(elden.components.contains(&"vcrun2019".to_string()));
         assert!(elden.components.contains(&"directx_jun2010".to_string()));
@@ -656,10 +656,10 @@ mod tests {
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
 
-        let m12_required = ["d3d12.dll", "d3d11.dll", "dxgi_dxmt.dll", "dxgi.dll", "winemetal.dll"];
+        let vkd3d_required = ["d3d12.dll", "d3d11.dll", "dxgi.dll"];
         let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
         let required_by_pipeline =
-            [(PipelineId::M12, m12_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
+            [(PipelineId::Vkd3d, vkd3d_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
 
         for (pipeline, required) in required_by_pipeline {
             let matching_recipes = recipes.iter().filter(|(_, recipe)| recipe.pipeline == pipeline).collect::<Vec<_>>();
@@ -742,7 +742,7 @@ mod tests {
     fn game_recipes_parse_resident_evil_4_exe_override() {
         let (_, recipes) = parse_rules_full(include_str!("../../../../configs/mtsp-rules.toml"));
         let re4 = recipes.get(&2050650).expect("resident evil 4 recipe");
-        assert_eq!(re4.pipeline, PipelineId::M12);
+        assert_eq!(re4.pipeline, PipelineId::Vkd3d);
         assert_eq!(re4.name, "Resident Evil 4");
         assert_eq!(re4.exe_names, vec!["re4.exe".to_string()]);
         assert!(re4.offline_capable);
