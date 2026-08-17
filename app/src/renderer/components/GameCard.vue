@@ -201,6 +201,9 @@ const currentIsDefaultRule = computed(() => {
 });
 const artworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
+// M12 remains a valid backend route and must continue to display for existing
+// bottles, but it is intentionally not offered as a new frontend selection.
+const hiddenUserPipelineIds = new Set(["m12"]);
 const userSelectablePipelineOrder = ["d3dmetal", "m12", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
   m12: "M12",
@@ -321,11 +324,11 @@ const launchModeOptions = computed(() => {
   byId.set("auto", { id: "auto", name: `Auto${pipelineName.value !== "Auto" ? ` (${pipelineName.value})` : ""}` });
   for (const option of pipelineOptions.value) {
     const normalized = normalizePipelineOption(option);
-    if (normalized) byId.set(normalized.id, normalized);
+    if (normalized && !hiddenUserPipelineIds.has(normalized.id)) byId.set(normalized.id, normalized);
   }
   for (const option of props.game.available_pipelines ?? []) {
     const normalized = normalizePipelineOption(option);
-    if (normalized) byId.set(normalized.id, normalized);
+    if (normalized && !hiddenUserPipelineIds.has(normalized.id)) byId.set(normalized.id, normalized);
   }
   return [...byId.values()];
 });
@@ -337,7 +340,9 @@ const displayedArtworkUrl = computed(() =>
 const usingFallbackArtwork = computed(() => !primaryArtworkUrl.value || artworkLoadFailed.value);
 
 const bottlePipelineOptions = computed(() =>
-  userSelectablePipelineOrder.map((id) => ({ id, name: userSelectablePipelineNames[id] })),
+  userSelectablePipelineOrder
+    .filter((id) => !hiddenUserPipelineIds.has(id))
+    .map((id) => ({ id, name: userSelectablePipelineNames[id] })),
 );
 
 function preferredBottlePipeline(report: SteamRuntimeReport) {
@@ -1051,6 +1056,9 @@ function formatBytes(bytes: number): string {
             </button>
             <button class="btn btn-play" @click="playSelectedLaunchMode">Play</button>
             <select v-if="developerMode" v-model="selectedLaunchMode" class="launch-mode-select" title="Launch mode">
+              <option v-if="hiddenUserPipelineIds.has(selectedLaunchMode)" :value="selectedLaunchMode" hidden>
+                {{ userSelectablePipelineNames[selectedLaunchMode] }}
+              </option>
               <option v-for="option in launchModeOptions" :key="option.id" :value="option.id">
                 {{ option.name }}
               </option>
@@ -1140,6 +1148,9 @@ function formatBytes(bytes: number): string {
               <div class="bottle-edit-row">
                 <span>Graphics Backend</span>
                 <select v-model="bottlePreferredMode" class="launch-mode-select" title="Bottle graphics backend">
+                  <option v-if="hiddenUserPipelineIds.has(bottlePreferredMode)" :value="bottlePreferredMode" hidden>
+                    {{ userSelectablePipelineNames[bottlePreferredMode] }}
+                  </option>
                   <option v-for="option in bottlePipelineOptions" :key="option.id" :value="option.id">
                     {{ option.name }}
                   </option>

@@ -397,7 +397,6 @@ function stopGogMonoPoll() {
 }
 const engineOptions = [
   { id: "d3dmetal", name: "D3DMetal" },
-  { id: "m12", name: "M12" },
   { id: "m11", name: "M11" },
   { id: "m11_32", name: "M11(32)" },
   { id: "m10", name: "M10" },
@@ -464,7 +463,7 @@ function d3dmetalActionReady(action: D3DMetalGptkAction): boolean {
 function isFnaProfile(profile: string): boolean {
   return profile === "fna_arm64" || profile === "fna_x86";
 }
-const selectableRuntimeProfileIds = new Set(["m12", "d3dmetal", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"]);
+const selectableRuntimeProfileIds = new Set(["d3dmetal", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"]);
 const visibleRuntimeProfiles = computed(() => {
   const profiles = runtimeProfiles.value.some((profile) => profile.id === "d3dmetal")
     ? runtimeProfiles.value
@@ -1606,6 +1605,7 @@ onUnmounted(stopGogMonoPoll);
                     :value="app.engine"
                     @change="updateEngine(app.id, ($event.target as HTMLSelectElement).value)"
                   >
+                    <option v-if="app.engine === 'm12'" value="m12" hidden>M12</option>
                     <option v-for="option in engineOptions" :key="option.id" :value="option.id">
                       {{ option.name }}
                     </option>
