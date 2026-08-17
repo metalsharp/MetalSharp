@@ -16,7 +16,7 @@ const filesDrawerEl = ref<HTMLDetailsElement | null>(null);
 function showSection(section: string) {
   const target =
     section === "live" ? liveDrawerEl.value : section === "crashes" ? crashDrawerEl.value : filesDrawerEl.value;
-  if (target) target.open = true;
+  if (target) target.open = !target.open;
 }
 
 const pipelineOrder = ["M12", "M11", "M9", "FNA/Mono", "System", "Other"];
