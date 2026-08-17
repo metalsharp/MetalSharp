@@ -372,6 +372,8 @@ fn runtime_core_ready(ms_dir: &Path) -> bool {
     .all(|path| path.exists())
         && crate::installer::dxmt_graphics_runtimes_current_for_ms_dir(ms_dir)
         && crate::installer::moltenvk_runtime_current_for_ms_dir(ms_dir)
+        && crate::installer::dxvk_runtime_current_for_ms_dir(ms_dir)
+        && crate::installer::vkd3d_runtime_current_for_ms_dir(ms_dir)
 }
 
 fn host_runtime_ready(dir: &Path) -> bool {
@@ -3164,6 +3166,7 @@ mod tests {
         }
 
         crate::installer::write_vkd3d_moltenvk_expected_test_files(&runtime_wine);
+        crate::installer::write_vkd3d_runtime_expected_test_files(&runtime_wine);
 
         crate::installer::write_dxmt_m12_expected_test_files(&runtime_wine.join("lib").join("dxmt_m12"));
 

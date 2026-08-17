@@ -204,9 +204,10 @@ const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game
 // M12 remains a valid backend route and must continue to display for existing
 // bottles, but it is intentionally not offered as a new frontend selection.
 const hiddenUserPipelineIds = new Set(["m12"]);
-const userSelectablePipelineOrder = ["d3dmetal", "m12", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
+const userSelectablePipelineOrder = ["d3dmetal", "m12", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
   m12: "M12",
+  vkd3d: "VKD3D-Proton",
   d3dmetal: "D3DMetal",
   m11: "M11",
   m11_32: "M11(32)",
@@ -242,6 +243,11 @@ const componentDisplayName: Record<string, string> = {
   m12_dxgi: "M12 dxgi.dll",
   m12_winemetal: "M12 winemetal.dll / .so",
   m12_gpu_stubs: "M12 GPU Stubs",
+  vkd3d_d3d12: "VKD3D d3d12.dll",
+  vkd3d_d3d12core: "VKD3D d3d12core.dll",
+  vkd3d_dxgi: "VKD3D dxgi.dll",
+  dxvk_d3d11: "DXVK d3d11.dll",
+  dxvk_d3d10core: "DXVK d3d10core.dll",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -266,6 +272,7 @@ const componentDisplayName: Record<string, string> = {
 
 const runtimeProfileDisplayName: Record<string, string> = {
   m12: "M12",
+  vkd3d: "VKD3D-Proton",
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
   d3dmetal: "D3DMetal (GPTK)",

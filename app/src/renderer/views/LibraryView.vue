@@ -100,6 +100,7 @@ function isWineSteamRouteId(launchMethod: string) {
     "m11",
     "m11_32",
     "m12",
+    "vkd3d",
     "m32",
     "dx9",
     "dx10",
@@ -292,6 +293,7 @@ function pipelineDisplayName(id: string): string {
   const names: Record<string, string> = {
     d3dmetal: "D3DMetal",
     m12: "M12",
+    vkd3d: "VKD3D-Proton",
     m11: "M11",
     m11_32: "M11(32)",
     m10: "M10",

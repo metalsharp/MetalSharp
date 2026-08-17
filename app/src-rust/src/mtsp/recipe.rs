@@ -78,6 +78,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
             | PipelineId::M11
             | PipelineId::M11_32
             | PipelineId::M12
+            | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::D3DMetal
             | PipelineId::M32
@@ -98,6 +99,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
         | PipelineId::M11
         | PipelineId::M11_32
         | PipelineId::M12
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::D3DMetal
         | PipelineId::M32
@@ -909,6 +911,15 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
                     required: true,
                 });
             }
+        },
+        PipelineId::Vkd3d => {
+            let icd = ms_root.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
+            assets.push(RuntimeAsset {
+                name: "MoltenVK ICD".into(),
+                present: runtime_file_present(&icd),
+                path: icd,
+                required: true,
+            });
         },
         PipelineId::M11 => {
             let path = ms_root.join("lib").join("dxmt").join("x86_64-unix").join("winemetal.so");

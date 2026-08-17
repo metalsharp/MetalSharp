@@ -395,8 +395,8 @@ pub fn prepare_game(appid: u32) -> Result<Value, Box<dyn std::error::Error>> {
         _ => {
             if is_dotnet {
                 prepare_fna_game(appid, &game_dir, &home)?;
-            } else if pipeline.is_dxmt_family() {
-                prepare_dxmt_pipeline(appid, &game_dir, &home, pipeline)?;
+            } else if pipeline.is_graphics_route() {
+                prepare_graphics_pipeline(appid, &game_dir, &home, pipeline)?;
             }
         },
     }
@@ -588,19 +588,23 @@ fn prepare_celeste(game_dir: &PathBuf, home: &PathBuf) -> Result<(), Box<dyn std
     Ok(())
 }
 
-fn prepare_dxmt_pipeline(
+fn prepare_graphics_pipeline(
     appid: u32,
     game_dir: &PathBuf,
     home: &PathBuf,
     pipeline: crate::mtsp::engine::PipelineId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let marker = game_dir.join(".metalsharp_prepared");
+    if pipeline == crate::mtsp::engine::PipelineId::Vkd3d {
+        crate::installer::ensure_vkd3d_runtime_ready(home)?;
+        crate::mtsp::launcher::prepare_steam_pipeline_env(appid, pipeline)?;
+    }
     stage_packaged_steam_runtime_for_game(appid, game_dir)?;
     if pipeline == crate::mtsp::engine::PipelineId::M12 {
         stage_agility_sdk_for_game(appid, game_dir, home)?;
     }
     if !marker.exists() {
-        let _ = std::fs::write(&marker, "dxmt");
+        let _ = std::fs::write(&marker, pipeline.to_legacy_method());
     }
     Ok(())
 }
