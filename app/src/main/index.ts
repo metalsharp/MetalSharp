@@ -176,7 +176,7 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
     return { ok: true, new_appids: [] };
   }
   if (url.startsWith("/mtsp/pipelines")) {
-    return { ok: true, id: "vkd3d", name: "VKD3D-Proton", preferred: "vkd3d", pipelines: [] };
+    return { ok: true, id: "vkd3d", name: "VKD3D", preferred: "vkd3d", pipelines: [] };
   }
   if (method === "POST") {
     return { ok: true };
