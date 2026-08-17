@@ -171,31 +171,23 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                     "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
                 ),
                 dyld_paths: vec!["lib/wine/x86_64-unix"],
-                winedllpath_dirs: vec![
-                    "lib/vkd3d-proton/x86_64-windows",
-                    "lib/dxvk/x86_64-windows",
-                    "lib/wine/x86_64-windows",
-                ],
+                winedllpath_dirs: vec!["vkd3d-proton/x86_64-windows", "dxvk/x86_64-windows", "lib/wine/x86_64-windows"],
                 deploy_dlls: vec![
                     DllDeploy {
-                        source_subpath: "lib/vkd3d-proton/x86_64-windows",
+                        source_subpath: "vkd3d-proton/x86_64-windows",
                         filename: "d3d12.dll",
                         dest_filename: None,
                     },
                     DllDeploy {
-                        source_subpath: "lib/vkd3d-proton/x86_64-windows",
+                        source_subpath: "vkd3d-proton/x86_64-windows",
                         filename: "d3d12core.dll",
                         dest_filename: None,
                     },
-                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d11.dll", dest_filename: None },
+                    DllDeploy { source_subpath: "dxvk/x86_64-windows", filename: "d3d11.dll", dest_filename: None },
+                    DllDeploy { source_subpath: "dxvk/x86_64-windows", filename: "d3d10core.dll", dest_filename: None },
+                    DllDeploy { source_subpath: "dxvk/x86_64-windows", filename: "d3d9.dll", dest_filename: None },
                     DllDeploy {
-                        source_subpath: "lib/dxvk/x86_64-windows",
-                        filename: "d3d10core.dll",
-                        dest_filename: None,
-                    },
-                    DllDeploy { source_subpath: "lib/dxvk/x86_64-windows", filename: "d3d9.dll", dest_filename: None },
-                    DllDeploy {
-                        source_subpath: "lib/vkd3d-proton/x86_64-windows",
+                        source_subpath: "vkd3d-proton/x86_64-windows",
                         filename: "dxgi.dll",
                         dest_filename: None,
                     },

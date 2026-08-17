@@ -610,8 +610,17 @@ pub fn pipeline_dry_run_for(home: &Path, appid: u32, requested: Option<PipelineI
     let mut deploy_dlls: Vec<serde_json::Value> = Vec::new();
     let mut missing: Vec<serde_json::Value> = Vec::new();
     let mut windows_dll_dir: Option<PathBuf> = None;
+    let lane_root = ms_root
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|ms_home| ms_home.join("vkd3d"))
+        .unwrap_or_else(|| ms_root.clone());
     for deploy in &node.deploy_dlls {
-        let source_path = ms_root.join(deploy.source_subpath).join(deploy.filename);
+        let source_path = if deploy.source_subpath.starts_with("lib/") {
+            ms_root.join(deploy.source_subpath).join(deploy.filename)
+        } else {
+            lane_root.join(deploy.source_subpath).join(deploy.filename)
+        };
         if windows_dll_dir.is_none() {
             windows_dll_dir = source_path.parent().map(|p| p.to_path_buf());
         }
@@ -895,20 +904,31 @@ fn pipeline_quarantine_label(pipeline: PipelineId) -> &'static str {
 /// known runtime source carries that filename.
 fn runtime_source_for_dll(dll_path: &Path, ms_root: &Path) -> Option<PathBuf> {
     let filename = dll_path.file_name()?.to_string_lossy().to_ascii_lowercase();
-    // Known deploy-from source roots, derived from the PipelineNode deploy_dlls
-    // source_subpath values across M9/M10/M10_32/M11/M11_32/M12.
-    const SOURCE_ROOTS: &[&str] = &[
+    // Known deploy-from source roots. The VKD3D-Proton / DXVK lanes live in a
+    // dedicated deploy lane outside runtime/wine (non-"lib/" entries); the rest
+    // are wine-relative.
+    const WINE_SOURCE_ROOTS: &[&str] = &[
         "lib/dxmt/x86_64-windows",
         "lib/dxmt/i386-windows",
         "lib/dxmt_m12/x86_64-windows",
-        "lib/dxvk/x86_64-windows",
-        "lib/vkd3d-proton/x86_64-windows",
         "lib/wine/x86_64-windows",
         "lib/wine/i386-windows",
         "lib/metalsharp/x86_64-windows",
     ];
-    for root in SOURCE_ROOTS {
+    const LANE_SOURCE_ROOTS: &[&str] = &["dxvk/x86_64-windows", "vkd3d-proton/x86_64-windows"];
+    for root in WINE_SOURCE_ROOTS {
         let candidate = ms_root.join(root).join(&filename);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    let lane_root = ms_root
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|ms_home| ms_home.join("vkd3d"))
+        .unwrap_or_else(|| ms_root.to_path_buf());
+    for root in LANE_SOURCE_ROOTS {
+        let candidate = lane_root.join(root).join(&filename);
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -1019,7 +1039,13 @@ fn deploy_prefix_route_dlls(
     recipe: &super::recipe::LaunchRecipe,
     prefix: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !matches!(recipe.pipeline, PipelineId::M12 | PipelineId::Vkd3d) {
+    // Only the DXMT-M12 route stages its DLLs into the prefix system32 (that's
+    // where Wine/Steam expect the DXMT d3d12 stack). The VKD3D-Proton pipeline
+    // must NEVER write into system32: its DLLs are only ever copied per-game
+    // into the game folder and loaded via WINEDLLOVERRIDES/WINEDLLPATH. Staging
+    // vkd3d-proton/dxvk there regresses Steam's webhelper, which relies on the
+    // DXMT/Wine builtins in system32.
+    if !matches!(recipe.pipeline, PipelineId::M12) {
         return Ok(());
     }
 
@@ -1038,6 +1064,8 @@ fn deploy_prefix_route_dlls(
                 | "d3d11.dll"
                 | "d3d10core.dll"
                 | "winemetal.dll"
+                | "nvapi64.dll"
+                | "nvngx.dll"
         ) {
             continue;
         }
@@ -2380,7 +2408,19 @@ fn cleanup_legacy_eac_toggle_artifacts(game_dir: &Path) {
 }
 
 fn build_winedllpath(ms_root: &PathBuf, dirs: &[&str]) -> String {
-    dirs.iter().map(|d| ms_root.join(d).to_string_lossy().to_string()).collect::<Vec<_>>().join(":")
+    // VKD3D-Proton / DXVK lanes live in a dedicated deploy lane outside
+    // runtime/wine; those dirs omit the "lib/" prefix and resolve against that
+    // lane. Wine / DXMT dirs keep the "lib/" prefix and resolve against the
+    // wine root.
+    let lane_root = ms_root
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|ms_home| ms_home.join("vkd3d"))
+        .unwrap_or_else(|| ms_root.clone());
+    dirs.iter()
+        .map(|d| if d.starts_with("lib/") { ms_root.join(d) } else { lane_root.join(d) }.to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 fn cleanup_legacy_injections(game_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {

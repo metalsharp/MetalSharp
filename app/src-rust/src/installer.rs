@@ -883,9 +883,14 @@ pub(crate) fn write_vkd3d_moltenvk_expected_test_files(wine_dir: &Path) {
 
 #[cfg(test)]
 pub(crate) fn write_vkd3d_runtime_expected_test_files(wine_dir: &Path) {
+    let lane_root = wine_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|ms_home| ms_home.join("vkd3d"))
+        .unwrap_or_else(|| wine_dir.to_path_buf());
     for (surface, entries) in [("vkd3d-proton", VKD3D_REQUIRED_PE), ("dxvk", DXVK_REQUIRED_PE)] {
         for (rel, _) in entries {
-            let path = wine_dir.join("lib").join(surface).join(rel);
+            let path = lane_root.join(surface).join(rel);
             fs::create_dir_all(path.parent().expect("Vulkan lane test fixture parent"))
                 .expect("create Vulkan lane fixture parent");
             fs::write(path, b"test").expect("write Vulkan lane test fixture");
@@ -1474,12 +1479,21 @@ pub fn ensure_vkd3d_runtime_ready(home: &Path) -> Result<bool, String> {
     }
 }
 
+/// Dedicated on-disk lane for the independent VKD3D-Proton / DXVK Vulkan
+/// pipeline, outside the Wine runtime tree (`runtime/wine`). These DLLs are
+/// deploy-source-only: copied per-game into the game folder and loaded via
+/// WINEDLLOVERRIDES/WINEDLLPATH, and NEVER staged into the prefix system32
+/// (Steam's webhelper depends on the DXMT/Wine builtins there).
+pub(crate) fn vkd3d_lane_root_for_home(home: &Path) -> PathBuf {
+    crate::platform::metalsharp_home_dir_for(home).join("vkd3d")
+}
+
 fn vkd3d_runtime_dir_for_home(home: &Path) -> PathBuf {
-    crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine").join("lib").join("vkd3d-proton")
+    vkd3d_lane_root_for_home(home).join("vkd3d-proton")
 }
 
 fn dxvk_runtime_dir_for_home(home: &Path) -> PathBuf {
-    crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine").join("lib").join("dxvk")
+    vkd3d_lane_root_for_home(home).join("dxvk")
 }
 
 pub fn vkd3d_runtime_current_for_home(home: &Path) -> bool {
@@ -1497,26 +1511,37 @@ pub fn dxvk_runtime_current_for_home(home: &Path) -> bool {
 }
 
 pub(crate) fn vkd3d_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
-    let root = ms_dir.join("runtime").join("wine").join("lib").join("vkd3d-proton");
+    let root = ms_dir.join("vkd3d").join("vkd3d-proton");
     VKD3D_REQUIRED_PE
         .iter()
         .all(|(rel, expected)| crate::diagnostics::file_sha256(&root.join(rel)).as_deref() == Some(*expected))
 }
 
 pub(crate) fn dxvk_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
-    let root = ms_dir.join("runtime").join("wine").join("lib").join("dxvk");
+    let root = ms_dir.join("vkd3d").join("dxvk");
     DXVK_REQUIRED_PE
         .iter()
         .all(|(rel, expected)| crate::diagnostics::file_sha256(&root.join(rel)).as_deref() == Some(*expected))
 }
 
 pub fn vkd3d_runtime_artifact_valid_for_home(home: &Path, rel: &str) -> bool {
-    let Some((_, expected)) = VKD3D_REQUIRED_PE.iter().find(|(path, _)| *path == rel) else { return false };
-    crate::diagnostics::file_sha256(&vkd3d_runtime_dir_for_home(home).join(rel)).as_deref() == Some(*expected)
+    let expected = if let Some(k) = rel.strip_prefix("vkd3d-proton/") {
+        VKD3D_REQUIRED_PE.iter().find(|(p, _)| *p == k).map(|(_, h)| *h)
+    } else if let Some(k) = rel.strip_prefix("dxvk/") {
+        DXVK_REQUIRED_PE.iter().find(|(p, _)| *p == k).map(|(_, h)| *h)
+    } else {
+        None
+    };
+    match expected {
+        Some(h) => {
+            crate::diagnostics::file_sha256(&vkd3d_runtime_artifact_path_for_home(home, rel)).as_deref() == Some(h)
+        },
+        None => false,
+    }
 }
 
 pub fn vkd3d_runtime_artifact_path_for_home(home: &Path, rel: &str) -> PathBuf {
-    vkd3d_runtime_dir_for_home(home).join(rel)
+    vkd3d_lane_root_for_home(home).join(rel)
 }
 
 fn install_dxvk_runtime(home: &PathBuf) -> Result<bool, String> {

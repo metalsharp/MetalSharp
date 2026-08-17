@@ -394,12 +394,24 @@ pub fn selected_deploy_dlls_for_pipeline(
 ) -> Vec<RecipeDll> {
     let d3d9_subpath = if node.id == PipelineId::M9 { m9_d3d9_source_subpath(game_dir, exe_path) } else { "" };
     let target_dirs = deploy_target_dirs_for_pipeline(game_dir, exe_path, node);
+    // The VKD3D-Proton / DXVK lanes live in a dedicated deploy lane OUTSIDE
+    // the Wine runtime (`<ms>/vkd3d`, resolved via the non-"lib/" subpaths), so
+    // deploy sources resolve against that lane rather than the wine tree.
+    let lane_root = ms_root
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|ms_home| ms_home.join("vkd3d"))
+        .unwrap_or_else(|| ms_root.to_path_buf());
 
     node.deploy_dlls
         .iter()
         .filter(|dll| node.id != PipelineId::M9 || dll.source_subpath == d3d9_subpath)
         .flat_map(|dll| {
-            let source_path = ms_root.join(dll.source_subpath).join(dll.filename);
+            let source_path = if dll.source_subpath.starts_with("lib/") {
+                ms_root.join(dll.source_subpath).join(dll.filename)
+            } else {
+                lane_root.join(dll.source_subpath).join(dll.filename)
+            };
             let dest_name = dll.dest_filename.unwrap_or(dll.filename);
             target_dirs.iter().map(move |target_dir| RecipeDll {
                 source_subpath: dll.source_subpath.to_string(),
@@ -943,7 +955,18 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
     }
 
     for deploy in &node.deploy_dlls {
-        let path = ms_root.join(deploy.source_subpath).join(deploy.filename);
+        // VKD3D-Proton / DXVK lanes live outside runtime/wine (non-"lib/"
+        // subpaths); resolve them against that lane for runtime-asset checks.
+        let lane_root = ms_root
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|ms_home| ms_home.join("vkd3d"))
+            .unwrap_or_else(|| ms_root.to_path_buf());
+        let path = if deploy.source_subpath.starts_with("lib/") {
+            ms_root.join(deploy.source_subpath).join(deploy.filename)
+        } else {
+            lane_root.join(deploy.source_subpath).join(deploy.filename)
+        };
         let required = node.id == PipelineId::M12 || !optional_runtime_stub(deploy.filename);
         assets.push(RuntimeAsset {
             name: format!("{}/{}", deploy.source_subpath, deploy.filename),
