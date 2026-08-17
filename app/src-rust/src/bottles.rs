@@ -4700,8 +4700,8 @@ fn inspect_runtime_dll_component(id: &str) -> Option<ComponentState> {
     let candidates = [
         runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join(&filename),
         runtime_wine.join("lib").join("wine").join("x86_64-windows").join(&filename),
-        runtime_wine.join("lib").join("dxvk").join("x64-windows").join(&filename),
-        runtime_wine.join("lib").join("dxvk").join("i386-windows").join(&filename),
+        crate::installer::vkd3d_lane_root_for_home(&home).join("dxvk").join("x86_64-windows").join(&filename),
+        crate::installer::vkd3d_lane_root_for_home(&home).join("dxvk").join("i386-windows").join(&filename),
     ];
     Some(if candidates.iter().any(|path| path.exists()) { ComponentState::Installed } else { ComponentState::Missing })
 }
