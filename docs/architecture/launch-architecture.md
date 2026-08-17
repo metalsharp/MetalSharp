@@ -36,6 +36,14 @@ executable directly through the selected MTSP pipeline with the bottle prefix, r
 
 D3DMetal is an explicit GPTK lane rather than a generic bottle repair path. Saving a D3DMetal bottle installs/trusts Homebrew GPTK and Rosetta, **Repair Redist** copies x64+x86 VC runtime DLLs plus registry keys into `~/.metalsharp/prefix-gptk`, **Seed Prefix** copies Homebrew GPTK route DLLs into prefix `system32`, and **Play D3DMetal** launches the game exe directly through Homebrew GPTK Wine.
 
+When a Steam game bottle is saved, MetalSharp checks for `start_protected_game.exe`
+before runtime staging or other save work. If present and not already prepared, it
+preserves the protected launcher as `start_protected_game.old` and copies the real
+game executable into its place. The operation is idempotent and applies to every
+selectable bottle pipeline. Steamworks Common Redistributables (AppID 228980) is a
+shared dependency depot rather than a user game and is therefore omitted from the
+library view.
+
 ## Current Pipelines
 
 | Public route | Backend | Launch path |

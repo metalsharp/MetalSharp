@@ -2472,8 +2472,8 @@ fn apply_dxmt_shader_metal_version_config(env: &mut Vec<(String, String)>, node:
 
 /// DXMT routes that carry MetalFX Spatial upscaling (`DXMT_METALFX_*` env +
 /// `d3d11.metalSpatialUpscaleFactor` in `DXMT_CONFIG`): M10, M10(32), M11,
-/// M11(32). M9 has no upscale key; M12 is vkd3d-proton; M13/D3DMetal/FNA use
-/// other stacks.
+/// M11(32). M9 has no upscale key; M12 is the isolated DXMT D3D12 route;
+/// M13/D3DMetal/FNA use other stacks.
 fn is_metalfx_route(pipeline_id: PipelineId) -> bool {
     matches!(pipeline_id, PipelineId::M10 | PipelineId::M10_32 | PipelineId::M11 | PipelineId::M11_32)
 }
@@ -4815,6 +4815,13 @@ fn prepare_start_protected_game_for_pipeline(appid: u32, pipeline_id: PipelineId
     apply_start_protected_game_bypass(appid, &game_dir);
 }
 
+/// Prepare Steam's protected-game launcher before a bottle is saved. Bottle
+/// saves may select any pipeline, so this deliberately does not apply the
+/// launch-time DXMT/M12 restriction above.
+pub fn prepare_start_protected_game_for_bottle_save(appid: u32, game_dir: &Path) {
+    apply_start_protected_game_bypass(appid, game_dir);
+}
+
 fn apply_start_protected_game_bypass(appid: u32, game_dir: &Path) {
     let spg = match super::recipe::find_case_insensitive(game_dir, "start_protected_game.exe") {
         Some(path) => path,
@@ -5548,8 +5555,8 @@ mod tests {
     #[test]
 
     fn dxmt_family_env_uses_metalfx_upscale_and_cache_paths() {
-        // M12 now runs vkd3d-proton; the DXMT_CONFIG contract applies to the
-        // legacy DXMT family (M9/M10/M11) only. MetalFX default strength is
+        // M12 uses its dedicated DXMT config. The DXMT_CONFIG contract also
+        // applies to the legacy DXMT family (M9/M10/M11). MetalFX default strength is
         // 1.50 (metalfx.overlay.json default), reconciled into the env at
         // launch; M9 has no upscale pair (no MetalFX on D3D9).
         for pipeline_id in [PipelineId::M10, PipelineId::M11] {

@@ -1537,6 +1537,7 @@ pub fn set_runtime_profile(id: &str, profile: RuntimeProfile) -> Result<BottleMa
         let pipeline = runtime_profile_definition(profile).launch_pipeline;
         manifest.preferred_pipeline = pipeline.user_selectable_id().map(|id| id.to_string());
     }
+    prepare_start_protected_game_for_bottle_save(&manifest);
     manifest.updated_at = timestamp_secs();
     save_bottle(&manifest)?;
     if let Some(game_dir) = stage_route_dlls_for_saved_steam_bottle(&manifest)? {
@@ -1616,6 +1617,17 @@ fn stage_route_dlls_for_saved_steam_bottle(
     Ok(recipe.game_dir)
 }
 
+fn prepare_start_protected_game_for_bottle_save(manifest: &BottleManifest) {
+    let Some(appid) = manifest.steam_app_id else {
+        return;
+    };
+    let manifest_dir = manifest.game_install_path.as_deref().map(Path::new).filter(|path| path.is_dir());
+    let scanned_dir = crate::scan::resolve_dual_game_dir(appid).wine_dir;
+    if let Some(game_dir) = manifest_dir.or(scanned_dir.as_deref()) {
+        crate::mtsp::launcher::prepare_start_protected_game_for_bottle_save(appid, game_dir);
+    }
+}
+
 pub fn edit_bottle(
     id: &str,
     name: Option<&str>,
@@ -1659,6 +1671,7 @@ pub fn edit_bottle(
         manifest.installed_components =
             rebuild_components_for_profile(&manifest.installed_components, manifest.runtime_profile);
     }
+    prepare_start_protected_game_for_bottle_save(&manifest);
     manifest.updated_at = timestamp_secs();
     save_bottle(&manifest)?;
     if let Some(game_dir) = stage_route_dlls_for_saved_steam_bottle(&manifest)? {

@@ -10,6 +10,12 @@ const STEAM_D3D12_GUARD_APPS: &[&str] = &["Steam.exe", "steamwebhelper.exe", "st
 const STEAM_D3D12_GUARD_DLLS: &[&str] = &["d3d12", "d3d12core", "d3d12SDKLayers", "dxcore"];
 const STEAM_LAUNCH_ARGS: &[&str] = &["-no-cef-sandbox", "-noverifyfiles", "-no-dwrite"];
 const STEAM_APPIDS_CACHE_VERSION: u64 = 2;
+const STEAMWORKS_COMMON_REDISTRIBUTABLES_APPID: u32 = 228980;
+
+fn hidden_library_game(appid: u32, name: &str) -> bool {
+    appid == STEAMWORKS_COMMON_REDISTRIBUTABLES_APPID
+        || name.trim().eq_ignore_ascii_case("Steamworks Common Redistributables")
+}
 
 fn ms_wine() -> PathBuf {
     let ms_root = crate::platform::metalsharp_home_dir().join("runtime").join("wine");
@@ -1205,6 +1211,10 @@ pub fn library() -> Value {
         }
     }
 
+    // This is Steam's shared dependency depot, not a user game. Keep it out
+    // of the library even when Steam reports it as installed or owned.
+    all_games.retain(|(appid, name)| !hidden_library_game(*appid, name));
+
     let games: Vec<Value> = all_games
         .iter()
         .map(|(appid, name)| {
@@ -1708,6 +1718,15 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn shared_steamworks_redistributables_are_hidden_from_library() {
+        assert!(hidden_library_game(228980, "Steamworks Common Redistributables"));
+        assert!(hidden_library_game(228980, "Game 228980"));
+        assert!(hidden_library_game(999, "Steamworks Common Redistributables"));
+        assert!(!hidden_library_game(999, "Example Game"));
+    }
+
     fn stop_wine_steam_targets_report_has_required_shape() {
         // Phase 7: the stop-targets report must expose the targeted and
         // explicitly-excluded process lists so a reviewer can prove the stop

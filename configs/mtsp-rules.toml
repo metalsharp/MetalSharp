@@ -409,8 +409,13 @@ name = "Hollow Knight"
 [overrides.367520.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.413150]
+# Stardew Valley 1.6+ is a .NET 6 (self-contained) MonoGame build. The
+# Mono/FNA route hands its own runtime to Wine after restoring Steamworks.NET.
 pipeline = "fna_arm64"
 name = "Stardew Valley"
+
+[overrides.413150.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.1145360]
 pipeline = "m11_32"
@@ -430,6 +435,8 @@ name = "Dome Keeper"
 [overrides.1562430]
 pipeline = "fna_arm64"
 name = "DREDGE"
+# Unity-Mono (Unity 2021.3.5f1, MonoBleedingEdge, x86 PE32) — discovered and
+# validated by mono_profile.rs; the FNA lane deploys the version-matched mono.
 
 [overrides.1092790]
 pipeline = "m11_32"
@@ -6769,4 +6776,3 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 
 [overrides.4498220.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
-

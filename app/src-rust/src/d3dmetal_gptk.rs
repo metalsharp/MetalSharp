@@ -43,6 +43,7 @@ const GPTK_EXTERNAL_PAYLOAD_FILES: &[&str] = &["libd3dshared.dylib", "D3DMetal.f
 // need `__wine_unix_call` (compatible with the installed 7.7 wine base),
 // unlike the 4.0 beta DLLs which require `__wine_unix_call_dispatcher`.
 const GPTK3_DMG_BASENAME: &str = "Game_Porting_Toolkit_3.0.dmg";
+const GPTK3_DOWNLOAD_PAGE: &str = "https://developer.apple.com/download/all/?q=game%20porting%20toolkit";
 const GPTK3_INNER_DMG_NAME: &str = "Evaluation environment for Windows games 3.0.dmg";
 const GPTK3_MSC_PKG_NAME: &str = "Metal Shader Converter 3.0.pkg";
 /// Guard against acting on a partial download. The real DMG is
@@ -190,6 +191,11 @@ fn save_d3dmetal_bottle(body: &serde_json::Map<String, Value>) -> Result<D3DMeta
     crate::bottles::load_bottle(&bottle_id)
         .map_err(|e| format!("D3DMetal save requires an existing bottle manifest for {}: {}", bottle_id, e))?;
 
+    // Do this before any GPTK state writes, downloads, or other save actions.
+    // The protected launcher is retained as .old and the real game executable
+    // is copied into its place exactly once.
+    crate::mtsp::launcher::prepare_start_protected_game_for_bottle_save(appid, &game_dir);
+
     let mut state = load_state(&bottle_id).unwrap_or_else(|| new_state(&bottle_id, appid, &name, &game_dir));
     state.appid = appid;
     state.name = name;
@@ -230,11 +236,12 @@ fn save_d3dmetal_bottle(body: &serde_json::Map<String, Value>) -> Result<D3DMeta
         return Err(e);
     }
     state.gptk_payload = D3DMetalStepState::Updated;
-    if state.x64_redist == D3DMetalStepState::Installed && state.seed == D3DMetalStepState::Seeded {
-        state.play_ready = verify_seed(&state).is_ok();
-    } else {
-        state.play_ready = false;
-    }
+    // Redist, GPTK 3, and the shared GPTK payload are machine-wide. Refresh
+    // the returned state before sending it to the bottle card so a newly
+    // saved game does not ask the user to repeat work already completed for a
+    // different D3DMetal bottle. The game-local seed remains per-bottle and
+    // will correctly stay pending until this game's route files are staged.
+    state = refresh_status_state(state);
     state.updated_at = now_secs();
     save_state(&state)?;
     persist_d3dmetal_bottle_manifest(&state)?;
@@ -243,6 +250,10 @@ fn save_d3dmetal_bottle(body: &serde_json::Map<String, Value>) -> Result<D3DMeta
 
 fn refresh_status_state(mut state: D3DMetalGptkState) -> D3DMetalGptkState {
     let original = state.clone();
+    // GPTK 3 is a machine-wide overlay, not a per-game operation. Reflect the
+    // marker in every bottle's state so a newly opened save cannot ask the user
+    // to repeat an already completed repair.
+    state.gptk3 = if gptk3_installed_globally() { D3DMetalStepState::Installed } else { D3DMetalStepState::Missing };
     state.gptk_homebrew =
         if homebrew_gptk_installed() { D3DMetalStepState::Installed } else { D3DMetalStepState::Missing };
     state.gptk_payload = if state.gptk_homebrew == D3DMetalStepState::Installed {
@@ -292,6 +303,7 @@ fn refresh_status_state(mut state: D3DMetalGptkState) -> D3DMetalGptkState {
         || state.rosetta != original.rosetta
         || state.x64_redist != original.x64_redist
         || state.seed != original.seed
+        || state.gptk3 != original.gptk3
         || state.play_ready != original.play_ready
         || state.last_error != original.last_error
     {
@@ -571,7 +583,8 @@ fn actions_for(state: &D3DMetalGptkState) -> Vec<D3DMetalAction> {
             id: "install_x64_redist".to_string(),
             label: "Repair Redist".to_string(),
             enabled: state.gptk_homebrew == D3DMetalStepState::Installed
-                && state.gptk_payload == D3DMetalStepState::Updated,
+                && state.gptk_payload == D3DMetalStepState::Updated
+                && state.x64_redist != D3DMetalStepState::Installed,
             state: state.x64_redist.clone(),
             detail:
                 "Copy MetalSharp-bundled VC runtime DLLs into GPTK system32/syswow64 and write runtime registry keys"
@@ -580,7 +593,8 @@ fn actions_for(state: &D3DMetalGptkState) -> Vec<D3DMetalAction> {
         D3DMetalAction {
             id: "seed_prefix".to_string(),
             label: if seed_repair { "Repair Seed" } else { "Seed Prefix" }.to_string(),
-            enabled: state.x64_redist == D3DMetalStepState::Installed,
+            enabled: state.x64_redist == D3DMetalStepState::Installed
+                && state.seed != D3DMetalStepState::Seeded,
             state: state.seed.clone(),
             detail: "Wineboot the GPTK prefix, copy Homebrew GPTK route DLLs into system32, quarantine app-local shims, and seed launch material".to_string(),
         },
@@ -1244,6 +1258,26 @@ fn repair_gptk3(body: &serde_json::Map<String, Value>) -> Result<D3DMetalGptkSta
 }
 
 pub fn handle_repair_gptk3(body: &serde_json::Map<String, Value>) -> Value {
+    if find_gptk3_dmg_in_downloads().is_none() {
+        return match Command::new("/usr/bin/open").arg(GPTK3_DOWNLOAD_PAGE).output() {
+            Ok(output) if output.status.success() => json!({
+                "ok": true,
+                "download_opened": true,
+                "download_required": true,
+                "download_url": GPTK3_DOWNLOAD_PAGE,
+            }),
+            Ok(output) => json!({
+                "ok": false,
+                "error": format!("Could not open Apple Developer downloads: {}", command_text(&output)),
+                "download_url": GPTK3_DOWNLOAD_PAGE,
+            }),
+            Err(e) => json!({
+                "ok": false,
+                "error": format!("Could not launch /usr/bin/open: {}", e),
+                "download_url": GPTK3_DOWNLOAD_PAGE,
+            }),
+        };
+    }
     match repair_gptk3(body) {
         Ok(state) => json!({"ok": true, "state": state, "actions": actions_for(&state)}),
         Err(e) => json!({"ok": false, "error": e}),

@@ -273,6 +273,35 @@ function markD3DMetalLaunched(game: SteamGame, pid: number) {
   launchingAppId.value = null;
 }
 
+function updateGameBottle(
+  game: SteamGame,
+  update: { preferredPipeline: string | null },
+) {
+  // Keep the card reactive immediately after Save Bottle. The library is
+  // refreshed as well so the displayed route and the backend's persisted
+  // manifest cannot drift apart after a later navigation or refresh.
+  game.preferred_pipeline = update.preferredPipeline;
+  if (update.preferredPipeline) {
+    game.launch_method = update.preferredPipeline;
+    game.launch_method_name = pipelineDisplayName(update.preferredPipeline);
+  }
+  void reloadLibrary();
+}
+
+function pipelineDisplayName(id: string): string {
+  const names: Record<string, string> = {
+    d3dmetal: "D3DMetal",
+    m12: "M12",
+    m11: "M11",
+    m11_32: "M11(32)",
+    m10: "M10",
+    m10_32: "M10(32)",
+    m9: "M9",
+    fna_arm64: "Mono/FNA",
+  };
+  return names[id.toLowerCase()] ?? id;
+}
+
 async function stopGame(game: SteamGame) {
   await api("POST", "/kill", { pid: runningPid.value, appid: game.appid });
   runningPid.value = null;
@@ -405,6 +434,7 @@ watch([library, search, filter], () => {
             :developer-mode="developerMode"
             @play="launchGame(game, $event)"
             @d3dmetal-launched="markD3DMetalLaunched(game, $event)"
+            @bottle-updated="updateGameBottle(game, $event)"
             @stop="stopGame(game)"
             @install="installGame(game)"
             @uninstall="uninstallGame(game)"
