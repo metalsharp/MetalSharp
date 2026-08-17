@@ -5,9 +5,9 @@
 
 **Run Windows games on MacOS Silicon.**
 
-<a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
-<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.59.9"><img src="https://img.shields.io/github/v/release/aaf2tbz/metalsharp?filter=v0.59.9&style=for-the-badge" alt="Release"></a>
-<a href="https://github.com/aaf2tbz/metalsharp/discussions"><img src="https://img.shields.io/github/discussions/aaf2tbz/metalsharp?style=for-the-badge" alt="Discussions"></a>
+<a href="https://github.com/metalsharp/MetalSharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/metalsharp/MetalSharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
+<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.61.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.61.0&style=for-the-badge" alt="Release"></a>
+<a href="https://github.com/metalsharp/MetalSharp/discussions"><img src="https://img.shields.io/github/discussions/metalsharp/MetalSharp?style=for-the-badge" alt="Discussions"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-yellow.svg?style=for-the-badge" alt="PolyForm Noncommercial 1.0.0"></a>
 <a href="https://discord.gg/qW5rUr4dH"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
 
@@ -15,17 +15,17 @@
 
 ---
 
-MetalSharp is an application designed to run Windows Steam and Windows Steam games natively on Apple Silicon macOS. Now includes GOG-Games Support. MetalSharp builds and includes its own custom Wine 11.5 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling. 
+MetalSharp is an application designed to run Windows Steam and Windows Steam games natively on Apple Silicon macOS. Now includes GOG-Games Support. MetalSharp builds and includes its own custom Wine 11.5 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
 
 <br><img width="946" height="809" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/dac3865b-31de-49a8-9065-c1bbe1cf37af" /><br>
 
-## Arm64-FEX Build For Devs Out Now
+## MetalSharp 0.61.0
 
-[0.60.0 Dependancies Release](https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0-dependency-bundles), 0.59.9 Remains The Current Working Version.
+The 0.61.0 release uses the current synchronized dependency bundles, including VKD3D-Proton macOS, DXVK-MacOS DXGI, and MoltenVK assets.
 
 ## Quick Start
 
-Download the latest DMG from [Releases](https://github.com/aaf2tbz/metalsharp/releases), drag MetalSharp into `/Applications`, and open it. The setup wizard handles the rest. To ensure accurate Steam Installation, please wait for Steam to finish both update windows it will launch before installing the x64 /x86 Reddist Installers. 
+Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it. The setup wizard handles the rest. To ensure accurate Steam Installation, please wait for Steam to finish both update windows it will launch before installing the x64 /x86 Reddist Installers.
 
 If Gatekeeper cannot verify the app, open **System Settings → Privacy & Security** and choose **Open Anyway** for MetalSharp. VirusTotal scans are included with release notes when available.
 
@@ -47,7 +47,7 @@ This installs the signed MetalSharp release into `/Applications`. For developer 
 | **Mono/FNA** | Windows XNA/FNA via native Mono | Save 'Mono/Fna' Bottle, Hit Play |
 | **D3DMetal** | Apple Game Porting Toolkit via Homebrew, With Optional GPTK 3 DLL Staging | Save 'D3DMetal' Bottle, Fix, Hit Play |
 
-## Features and Notes 
+## Features and Notes
 
 | Feature | Notes |
 |---|---|
@@ -86,9 +86,9 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 ## Community
 
-- [Releases](https://github.com/aaf2tbz/metalsharp/releases)
-- [Discussions](https://github.com/aaf2tbz/metalsharp/discussions)
-- [Issues](https://github.com/aaf2tbz/metalsharp/issues)
+- [Releases](https://github.com/metalsharp/MetalSharp/releases)
+- [Discussions](https://github.com/metalsharp/MetalSharp/discussions)
+- [Issues](https://github.com/metalsharp/MetalSharp/issues)
 
 ## License
 

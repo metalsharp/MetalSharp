@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.61.0 — 2026-08-16
+
+### Added
+
+- Current synchronized dependency bundles for VKD3D-Proton macOS D3D12, DXVK-MacOS DXGI, MoltenVK, and ICD assets.
+- M12 bottle preparation and launch routing verified against the refreshed D3D12/DXGI payloads while preserving bottle saves during runtime replacement.
+
 ## v0.59.9 — 2026-08-15
 
 ### Fixed
