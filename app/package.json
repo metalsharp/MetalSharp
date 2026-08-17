@@ -1,11 +1,11 @@
 {
   "name": "metalsharp",
-  "version": "0.59.9",
+  "version": "0.61.0",
   "description": "MetalSharp — D3D→Metal translation layer frontend",
   "author": "MetalSharp",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aaf2tbz/metalsharp.git"
+    "url": "https://github.com/metalsharp/MetalSharp.git"
   },
   "main": "dist/main/index.js",
   "scripts": {
