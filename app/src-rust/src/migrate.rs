@@ -6,7 +6,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const MIGRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MIGRATE_SCHEMA_VERSION: u64 = 4;
+const MIGRATE_SCHEMA_VERSION: u64 = 5;
 const GOG_PREFIX_BOTTLE_ID: &str = "gog-prefix";
 const MIGRATION_PAYLOAD_DENY_NAMES: &[&str] = &[
     "steamapps",
@@ -371,6 +371,7 @@ fn runtime_core_ready(ms_dir: &Path) -> bool {
     .iter()
     .all(|path| path.exists())
         && crate::installer::dxmt_graphics_runtimes_current_for_ms_dir(ms_dir)
+        && crate::installer::moltenvk_runtime_current_for_ms_dir(ms_dir)
 }
 
 fn host_runtime_ready(dir: &Path) -> bool {
@@ -607,7 +608,9 @@ fn repair_runtime_for_migration_verify(ms_dir: &Path) -> Result<bool, String> {
         return Ok(false);
     }
 
-    crate::installer::ensure_graphics_runtimes_ready(&home)
+    let mut changed = crate::installer::ensure_graphics_runtimes_ready(&home)?;
+    changed |= crate::installer::ensure_vkd3d_moltenvk_ready(&home)?;
+    Ok(changed)
 }
 
 fn migration_metadata_current(ms_dir: &Path) -> bool {
@@ -3159,6 +3162,8 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).expect("create runtime parent");
             fs::write(path, b"test").expect("write runtime file");
         }
+
+        crate::installer::write_vkd3d_moltenvk_expected_test_files(&runtime_wine);
 
         crate::installer::write_dxmt_m12_expected_test_files(&runtime_wine.join("lib").join("dxmt_m12"));
 

@@ -31,6 +31,20 @@ const ASSETS_BUNDLE: &str = "metalsharp-assets";
 const FNALIBS_BUNDLE: &str = "fnalibs";
 const SCRIPTS_TOOLS_BUNDLE: &str = "metalsharp-scripts-tools";
 const STEAM_BUNDLE: &str = "metalsharp-steam";
+// The VKD3D pipeline is intentionally not wired into the graphics bundle yet.
+// This first step only stages the MoltenVK pieces from the pinned upstream
+// release so installer/migration behavior can be validated independently.
+const VKD3D_PROTON_MACOS_ARCHIVE: &str = "vkd3d-proton-macos.tar.zst";
+const VKD3D_PROTON_MACOS_ROOT: &str = "vkd3d-proton-macos";
+const VKD3D_PROTON_MACOS_URL: &str =
+    "https://github.com/metalsharp/VKD3D-Proton-MacOS/releases/download/v1.0/vkd3d-proton-macos.tar.zst";
+const VKD3D_PROTON_MACOS_ARCHIVE_SHA256: &str = "2e50c89e2cf5184f43b96eb0f8eb75913d0978382a26189b211ebabe8f2efffc";
+const VKD3D_MOLTENVK_LIBRARY_SHA256: &str = "38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde";
+const VKD3D_MOLTENVK_ICD_SHA256: &str = "578ff08cd0d8734619357541771a5abc9c3470ca300030219a971a9e9dbbe466";
+#[cfg(not(test))]
+const VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256: &str = "38e0a7c3839390d524a3bb4b1165d13e96a2c3e771a14df2510c1ad5ab598bde";
+#[cfg(test)]
+const VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 const METALSHARP_NTDLL_HOOK_DLL: &str = "metalsharp_ntdll_hook.dll";
 const DXMT_REQUIRED_PE: &[&str] = &[
     "d3d10core.dll",
@@ -335,6 +349,7 @@ fn install_steps() -> Vec<InstallStep> {
         ("Extract Tools (zstd)", Box::new(|_| ensure_zstd())),
         ("Runtime Bundle Downloads", Box::new(ensure_runtime_bundle_assets)),
         ("Runtime Assets", Box::new(install_metalsharp_bundle)),
+        ("VKD3D MoltenVK Runtime", Box::new(ensure_vkd3d_moltenvk_ready)),
         ("Host Runtime ABI", Box::new(install_host_runtime)),
         ("Support Assets", Box::new(install_split_assets_bundle)),
         ("Scripts and Tools", Box::new(install_scripts_tools_bundle)),
@@ -362,17 +377,17 @@ fn ensure_runtime_bundle_assets(_home: &PathBuf) -> Result<bool, String> {
             continue;
         }
 
-        write_progress(3, 14, "Runtime Bundle Downloads", "downloading", &format!("Downloading {}...", asset), None);
+        write_progress(3, 16, "Runtime Bundle Downloads", "downloading", &format!("Downloading {}...", asset), None);
         match download_bundled_file(asset) {
             Some(path) if file_nonempty(&path) && bundled_artifact_valid(asset, &path) => {
                 downloaded = true;
-                write_progress(3, 14, "Runtime Bundle Downloads", "done", &format!("Downloaded {}", asset), None);
+                write_progress(3, 16, "Runtime Bundle Downloads", "done", &format!("Downloaded {}", asset), None);
             },
             _ => {
                 missing.push(*asset);
                 write_progress(
                     3,
-                    14,
+                    16,
                     "Runtime Bundle Downloads",
                     "error",
                     &format!("Failed to download {}", asset),
@@ -698,7 +713,216 @@ pub(crate) fn metalsharp_runtime_lib_ready(wine_dir: &Path) -> bool {
 }
 
 pub fn moltenvk_ready(wine_dir: &Path) -> bool {
-    wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib").is_file()
+    moltenvk_runtime_current_for_wine_dir(wine_dir)
+}
+
+/// Return true only when the pinned VKD3D-Proton-MacOS MoltenVK library and
+/// its MetalSharp-layout ICD are both installed.  The ICD JSON is normalized
+/// to an absolute path because it lives under `etc/vulkan/icd.d`, while the
+/// dylib lives under Wine's `lib/wine/x86_64-unix` directory.
+pub(crate) fn moltenvk_runtime_current_for_wine_dir(wine_dir: &Path) -> bool {
+    let library = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
+    let icd = wine_dir.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
+    if crate::diagnostics::file_sha256(&library).as_deref() != Some(VKD3D_MOLTENVK_EXPECTED_LIBRARY_SHA256) {
+        return false;
+    }
+
+    let Ok(data) = fs::read_to_string(icd) else { return false };
+    let Ok(value) = serde_json::from_str::<Value>(&data) else { return false };
+    value.get("file_format_version").and_then(Value::as_str) == Some("1.0.0")
+        && value.get("ICD").and_then(Value::as_object).and_then(|icd| icd.get("api_version")).and_then(Value::as_str)
+            == Some("1.4.0")
+        && value
+            .get("ICD")
+            .and_then(Value::as_object)
+            .and_then(|icd| icd.get("is_portability_driver"))
+            .and_then(Value::as_bool)
+            == Some(true)
+        && value.get("ICD").and_then(Value::as_object).and_then(|icd| icd.get("library_path")).and_then(Value::as_str)
+            == Some(library.to_string_lossy().as_ref())
+}
+
+pub(crate) fn moltenvk_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
+    moltenvk_runtime_current_for_wine_dir(&ms_dir.join("runtime").join("wine"))
+}
+
+#[cfg(test)]
+pub(crate) fn write_vkd3d_moltenvk_expected_test_files(wine_dir: &Path) {
+    let library = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
+    let icd = wine_dir.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
+    fs::create_dir_all(library.parent().expect("MoltenVK library parent")).expect("create MoltenVK library dir");
+    fs::create_dir_all(icd.parent().expect("MoltenVK ICD parent")).expect("create MoltenVK ICD dir");
+    fs::write(&library, b"test").expect("write test MoltenVK library");
+    fs::write(
+        icd,
+        serde_json::to_vec(&json!({
+            "file_format_version": "1.0.0",
+            "ICD": {
+                "library_path": library.to_string_lossy(),
+                "api_version": "1.4.0",
+                "is_portability_driver": true,
+            },
+        }))
+        .expect("serialize test MoltenVK ICD"),
+    )
+    .expect("write test MoltenVK ICD");
+}
+
+/// Install only the MoltenVK files from the pinned VKD3D-Proton-MacOS
+/// archive. D3D12/DXGI DLLs remain untouched until the VKD3D pipeline is
+/// deliberately implemented in a later change.
+pub fn ensure_vkd3d_moltenvk_ready(home: &PathBuf) -> Result<bool, String> {
+    let wine_dir = crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine");
+    if moltenvk_runtime_current_for_wine_dir(&wine_dir) {
+        return Ok(false);
+    }
+
+    let archive = find_vkd3d_proton_macos_archive(home)?;
+    install_vkd3d_moltenvk_from_archive(&wine_dir, &archive)
+}
+
+fn find_vkd3d_proton_macos_archive(home: &Path) -> Result<PathBuf, String> {
+    let filename = VKD3D_PROTON_MACOS_ARCHIVE;
+    let mut candidates = Vec::new();
+    if let Some(resources) = crate::platform::app_resources_dir() {
+        candidates.push(resources.join("bundles").join(filename));
+    }
+    candidates.push(PathBuf::from("app/bundles").join(filename));
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).and_then(|p| p.parent()) {
+            candidates.push(parent.join("bundles").join(filename));
+        }
+    }
+
+    let cache_dir = crate::platform::metalsharp_home_dir_for(&home).join("cache").join("bundles");
+    candidates.push(cache_dir.join(filename));
+    if let Some(path) = candidates.into_iter().find(|path| vkd3d_proton_macos_archive_valid(path)) {
+        return Ok(path);
+    }
+
+    fs::create_dir_all(&cache_dir).map_err(|e| format!("create VKD3D bundle cache: {}", e))?;
+    let tmp = cache_dir.join(format!("{}.download", filename));
+    let _ = fs::remove_file(&tmp);
+    let mut last_error = String::from("download did not complete");
+    for retry in 0..3 {
+        let output = mac_cmd("curl")
+            .args([
+                "--fail",
+                "--location",
+                "--silent",
+                "--show-error",
+                "--retry",
+                "2",
+                "--connect-timeout",
+                "30",
+                "--max-time",
+                "600",
+                "-o",
+            ])
+            .arg(&tmp)
+            .arg(VKD3D_PROTON_MACOS_URL)
+            .output()
+            .map_err(|e| format!("download VKD3D-Proton-MacOS archive: {}", e))?;
+
+        if output.status.success() && vkd3d_proton_macos_archive_valid(&tmp) {
+            fs::rename(&tmp, cache_dir.join(filename))
+                .or_else(|_| fs::copy(&tmp, cache_dir.join(filename)).map(|_| ()))
+                .map_err(|e| format!("cache VKD3D-Proton-MacOS archive: {}", e))?;
+            let cached = cache_dir.join(filename);
+            if vkd3d_proton_macos_archive_valid(&cached) {
+                return Ok(cached);
+            }
+            last_error = String::from("cached archive failed validation after download");
+        } else {
+            last_error = if output.status.success() {
+                format!(
+                    "archive SHA-256 did not match pinned v1.0 release (expected {})",
+                    VKD3D_PROTON_MACOS_ARCHIVE_SHA256
+                )
+            } else {
+                String::from_utf8_lossy(&output.stderr).trim().to_string()
+            };
+            let _ = fs::remove_file(&tmp);
+        }
+
+        if retry < 2 {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    Err(format!("VKD3D-Proton-MacOS MoltenVK archive unavailable: {}", last_error))
+}
+
+fn vkd3d_proton_macos_archive_valid(path: &Path) -> bool {
+    file_nonempty(path)
+        && archive_sha256(path).as_deref() == Some(VKD3D_PROTON_MACOS_ARCHIVE_SHA256)
+        && archive_required_files_valid(
+            path,
+            &["vkd3d-proton-macos/libMoltenVK.dylib", "vkd3d-proton-macos/MoltenVK_icd.json"],
+        )
+}
+
+fn install_vkd3d_moltenvk_from_archive(wine_dir: &Path, archive: &Path) -> Result<bool, String> {
+    if !vkd3d_proton_macos_archive_valid(archive) {
+        return Err(format!("invalid VKD3D-Proton-MacOS v1.0 archive: {}", archive.display()));
+    }
+
+    let tmp = std::env::temp_dir().join(format!(
+        "metalsharp-vkd3d-moltenvk-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+    ));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).map_err(|e| format!("create VKD3D extraction directory: {}", e))?;
+    let archive_files = ["vkd3d-proton-macos/libMoltenVK.dylib", "vkd3d-proton-macos/MoltenVK_icd.json"];
+    let extracted = extract_archive_files(archive, &tmp, &archive_files);
+    if !extracted {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err("VKD3D-Proton-MacOS archive extraction failed".into());
+    }
+
+    let source_dir = tmp.join(VKD3D_PROTON_MACOS_ROOT);
+    let source_library = source_dir.join("libMoltenVK.dylib");
+    let source_icd = source_dir.join("MoltenVK_icd.json");
+    if crate::diagnostics::file_sha256(&source_library).as_deref() != Some(VKD3D_MOLTENVK_LIBRARY_SHA256)
+        || crate::diagnostics::file_sha256(&source_icd).as_deref() != Some(VKD3D_MOLTENVK_ICD_SHA256)
+    {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err("VKD3D-Proton-MacOS MoltenVK payload hash validation failed".into());
+    }
+
+    let Ok(source_icd_data) = fs::read_to_string(&source_icd) else {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err("VKD3D-Proton-MacOS ICD manifest is unreadable".into());
+    };
+    let Ok(source_icd_value) = serde_json::from_str::<Value>(&source_icd_data) else {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err("VKD3D-Proton-MacOS ICD manifest is invalid JSON".into());
+    };
+    if source_icd_value
+        .get("ICD")
+        .and_then(Value::as_object)
+        .and_then(|icd| icd.get("library_path"))
+        .and_then(Value::as_str)
+        != Some("./libMoltenVK.dylib")
+    {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err("VKD3D-Proton-MacOS ICD manifest does not name libMoltenVK.dylib".into());
+    }
+
+    let target_library = wine_dir.join("lib").join("wine").join("x86_64-unix").join("libMoltenVK.dylib");
+    let target_icd = wine_dir.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
+    copy_file_overwrite(&source_library, &target_library)?;
+    make_executable(&target_library);
+    copy_file_overwrite(&source_icd, &target_icd)?;
+    fix_moltenvk_icd_paths(wine_dir);
+    let _ = fs::remove_dir_all(&tmp);
+
+    if moltenvk_runtime_current_for_wine_dir(wine_dir) {
+        Ok(true)
+    } else {
+        Err("VKD3D MoltenVK payload was copied but runtime validation failed".into())
+    }
 }
 
 fn fix_moltenvk_icd_paths(wine_dir: &Path) {
@@ -2568,6 +2792,25 @@ mod tests {
         ] {
             assert!(mac_assets.contains(&expected), "missing mac bundle asset {}", expected);
         }
+    }
+
+    #[test]
+    fn moltenvk_readiness_requires_pinned_library_and_normalized_icd() {
+        let home = test_home("moltenvk-readiness");
+        let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
+        assert!(!moltenvk_runtime_current_for_wine_dir(&wine_dir));
+
+        write_vkd3d_moltenvk_expected_test_files(&wine_dir);
+        assert!(moltenvk_runtime_current_for_wine_dir(&wine_dir));
+
+        fs::write(
+            wine_dir.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json"),
+            br#"{"file_format_version":"1.0.0","ICD":{"library_path":"./libMoltenVK.dylib","api_version":"1.4.0","is_portability_driver":true}}"#,
+        )
+        .expect("write relative ICD");
+        assert!(!moltenvk_runtime_current_for_wine_dir(&wine_dir));
+
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]
