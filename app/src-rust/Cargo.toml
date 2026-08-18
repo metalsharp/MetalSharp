@@ -2,6 +2,7 @@
 name = "metalsharp-backend"
 version = "0.60.0"
 edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
