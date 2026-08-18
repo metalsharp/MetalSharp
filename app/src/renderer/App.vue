@@ -9,6 +9,7 @@ import LibraryView from "./views/LibraryView.vue";
 import SharpView from "./views/SharpView.vue";
 import LogsView from "./views/LogsView.vue";
 import SettingsView from "./views/SettingsView.vue";
+import { marked } from "marked";
 import { useTheme } from "./composables/useTheme";
 import { useToast } from "./composables/useToast";
 import { getAPI, api } from "./composables/useApi";
@@ -35,8 +36,7 @@ interface SteamLibrary {
 }
 
 const currentView = ref("library");
-const isProcessManagerOverlay =
-  new URLSearchParams(window.location.search).get("overlay") === "process-manager";
+const isProcessManagerOverlay = new URLSearchParams(window.location.search).get("overlay") === "process-manager";
 const showSetup = ref(false);
 const showMigration = ref(false);
 const backendConnected = ref(false);
@@ -60,8 +60,12 @@ const showUpdateChangelog = ref(false);
 const updateDismissed = ref(false);
 let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let installPollTimer: ReturnType<typeof setInterval> | null = null;
+let steamLibraryPollTimer: ReturnType<typeof setInterval> | null = null;
+let libraryLoadInFlight: Promise<void> | null = null;
+let steamLibraryPollInFlight = false;
+let pendingForceReload = false;
 
-const { theme, toggle: toggleTheme } = useTheme();
+const { theme, setTheme } = useTheme();
 const toast = useToast();
 
 const viewMap: Record<string, Component> = {
@@ -76,12 +80,21 @@ const activeView = computed(() => viewMap[currentView.value] ?? LibraryView);
 const updateChangelog = computed(() => {
   if (!updateStatus.value?.release_notes) return "";
   const firstLine = updateStatus.value.release_notes.split("\n").find((l) => l.trim().length > 0) ?? "";
-  const cleaned = firstLine.replace(/^#+\s*/, "").replace(/\*\*/g, "").replace(/`/g, "").trim();
+  const cleaned = firstLine
+    .replace(/^#+\s*/, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .trim();
   if (cleaned.length <= 20) return cleaned;
   return cleaned.slice(0, 19) + "\u2026";
 });
 
 const fullUpdateChangelog = computed(() => updateStatus.value?.release_notes?.trim() ?? "");
+
+const renderedChangelog = computed(() => {
+  const src = fullUpdateChangelog.value;
+  return src ? (marked.parse(src, { gfm: true, breaks: true }) as string) : "";
+});
 
 provide("library", library);
 provide("config", config);
@@ -120,14 +133,32 @@ async function refreshSteamStatus() {
   }
 }
 
-async function loadLibrary() {
-  const lib = await api<SteamLibrary>("GET", "/steam/library");
-  if (lib && Array.isArray(lib.games)) {
-    library.value = lib;
+async function loadLibrary(force = false) {
+  if (libraryLoadInFlight) {
+    if (force) pendingForceReload = true;
+    return libraryLoadInFlight;
   }
 
-  await api<{ steam: SteamStatus }>("GET", "/scan");
-  await refreshSteamStatus();
+  const load = (async () => {
+    let refresh = force;
+    do {
+      pendingForceReload = false;
+      // Read manifests first. This makes new games appear before the
+      // expensive full filesystem scan, including external Steam libraries.
+      const lib = await api<SteamLibrary>("GET", `/steam/library${refresh ? "?refresh=1" : ""}`, undefined, 120_000);
+      if (lib && Array.isArray(lib.games)) library.value = lib;
+      if (refresh) await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
+      await refreshSteamStatus();
+      refresh = pendingForceReload;
+    } while (refresh);
+  })();
+
+  libraryLoadInFlight = load;
+  try {
+    await load;
+  } finally {
+    if (libraryLoadInFlight === load) libraryLoadInFlight = null;
+  }
 }
 
 async function checkBackend() {
@@ -266,14 +297,26 @@ async function getSteamApiKey() {
 }
 
 function startHealthPolling() {
+  if (steamLibraryPollTimer !== null) return;
+
   setInterval(refreshSteamStatus, 5000);
 
-  setInterval(async () => {
-    const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps");
-    if (result?.new_appids && result.new_appids.length > 0) {
-      await loadLibrary();
+  steamLibraryPollTimer = setInterval(async () => {
+    if (steamLibraryPollInFlight) return;
+    steamLibraryPollInFlight = true;
+    try {
+      const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps", undefined, 30_000);
+      if (result?.new_appids && result.new_appids.length > 0) {
+        // Surface a freshly installed game as fast as possible. The non-forced
+        // library load reads appmanifests directly (no network sync, no scan),
+        // so the game renders within seconds; the backend snapshot commits
+        // with this response so the next poll stops reporting it.
+        await loadLibrary(false);
+      }
+    } finally {
+      steamLibraryPollInFlight = false;
     }
-  }, 30000);
+  }, 15_000);
 
   setInterval(async () => {
     const prev = backendConnected.value;
@@ -316,6 +359,17 @@ watch(lowPerformanceMode, (enabled) => {
 onMounted(async () => {
   applyLowPerformanceMode(lowPerformanceMode.value);
   await checkBackend();
+  if (new URLSearchParams(window.location.search).get("skip-to") === "library") {
+    // The dev backend may still be starting (first-run bottle scan); wait for
+    // it before loading the library instead of racing a dead window.
+    for (let i = 0; i < 60 && !backendConnected.value; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      await checkBackend();
+    }
+    await initApp();
+    checkForUpdates();
+    return;
+  }
   const migrationMode = await getAPI().isMigrationMode?.();
   if (migrationMode) {
     showMigration.value = true;
@@ -342,13 +396,20 @@ onMounted(async () => {
       :current-view="currentView"
       :theme="theme"
       @navigate="currentView = $event"
-      @toggle-theme="toggleTheme()"
+      @select-theme="setTheme($event)"
     />
-    <main class="content">
+    <main
+      class="content"
+      :class="{ 'content-glass-header': ['library', 'sharp-library', 'logs'].includes(currentView) }"
+    >
       <div class="drag-strip"></div>
       <div v-if="updateStatus?.ok && updateStatus?.available && !updateDismissed" class="update-banner">
         <span class="update-banner-text" v-if="!updateDownloading"
-          >MetalSharp v{{ updateStatus.latest_version }} is available<span v-if="updateChangelog" class="update-changelog">{{ updateChangelog }}</span></span
+          >MetalSharp v{{ updateStatus.latest_version }} is available<span
+            v-if="updateChangelog"
+            class="update-changelog"
+            >{{ updateChangelog }}</span
+          ></span
         >
         <span class="update-banner-text" v-else>{{ updateMessage }}</span>
         <div v-if="updateDownloading" class="update-banner-progress">
@@ -364,7 +425,9 @@ onMounted(async () => {
         >
           What's New
         </button>
-        <button v-if="!updateDownloading" class="update-banner-close" @click="updateDismissed = true" title="Dismiss">&times;</button>
+        <button v-if="!updateDownloading" class="update-banner-close" @click="updateDismissed = true" title="Dismiss">
+          &times;
+        </button>
       </div>
       <component :is="activeView" :key="currentView" />
     </main>
@@ -374,11 +437,17 @@ onMounted(async () => {
       <section class="update-changelog-modal" @click.stop>
         <header class="update-changelog-modal-header">
           <h2>MetalSharp v{{ updateStatus?.latest_version }}</h2>
-          <button class="modal-close-btn" type="button" aria-label="Close" title="Close" @click="showUpdateChangelog = false">
+          <button
+            class="modal-close-btn"
+            type="button"
+            aria-label="Close"
+            title="Close"
+            @click="showUpdateChangelog = false"
+          >
             x
           </button>
         </header>
-        <pre class="update-changelog-body">{{ fullUpdateChangelog }}</pre>
+        <div class="update-changelog-body" v-html="renderedChangelog"></div>
       </section>
     </div>
   </Teleport>
@@ -411,7 +480,13 @@ onMounted(async () => {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(95, 183, 232, 0.06) 0%, transparent 30%, transparent 70%, rgba(95, 183, 232, 0.04) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(95, 183, 232, 0.06) 0%,
+    transparent 30%,
+    transparent 70%,
+    rgba(95, 183, 232, 0.04) 100%
+  );
   pointer-events: none;
 }
 .update-banner:hover {
@@ -526,17 +601,80 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
 }
-.update-changelog-modal pre,
 .update-changelog-body {
   margin: 0;
   padding: 18px;
   overflow: auto;
-  white-space: pre-wrap;
   word-break: break-word;
-  font: inherit;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.55;
   flex: 1;
   min-height: 0;
+}
+.update-changelog-body :deep(h1),
+.update-changelog-body :deep(h2),
+.update-changelog-body :deep(h3) {
+  margin: 16px 0 8px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+.update-changelog-body :deep(h1:first-child),
+.update-changelog-body :deep(h2:first-child),
+.update-changelog-body :deep(h3:first-child) {
+  margin-top: 0;
+}
+.update-changelog-body :deep(h1) { font-size: 18px; }
+.update-changelog-body :deep(h2) { font-size: 16px; }
+.update-changelog-body :deep(h3) { font-size: 14px; }
+.update-changelog-body :deep(p) {
+  margin: 8px 0;
+}
+.update-changelog-body :deep(ul) {
+  margin: 8px 0;
+  padding-left: 22px;
+  list-style: disc;
+}
+.update-changelog-body :deep(ol) {
+  margin: 8px 0;
+  padding-left: 22px;
+  list-style: decimal;
+}
+.update-changelog-body :deep(li) {
+  margin: 3px 0;
+}
+.update-changelog-body :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.update-changelog-body :deep(pre) {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.update-changelog-body :deep(pre code) {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.update-changelog-body :deep(a) {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.update-changelog-body :deep(blockquote) {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
 }
 .content {
   flex: 1;
@@ -547,24 +685,7 @@ onMounted(async () => {
   flex-direction: column;
   background: var(--bg-deep);
 }
-:root[data-theme="developer"] .content {
-  background:
-    linear-gradient(118deg, rgba(185, 255, 77, 0.025), transparent 36%, rgba(0, 245, 255, 0.03) 72%, transparent),
-    radial-gradient(circle at 24% 16%, rgba(255, 46, 247, 0.14), transparent 34%),
-    radial-gradient(circle at 84% 10%, rgba(0, 245, 255, 0.11), transparent 30%),
-    var(--bg-deep);
-}
-:root[data-theme="developer"] .update-banner {
-  background:
-    linear-gradient(90deg, rgba(185, 255, 77, 0.16), rgba(0, 245, 255, 0.10), rgba(255, 46, 247, 0.14)),
-    rgba(9, 7, 15, 0.84);
-  border-bottom-color: rgba(185, 255, 77, 0.28);
-  color: var(--text-primary);
-}
-:root[data-theme="developer"] .update-banner-btn {
-  border-radius: 999px;
-  border-color: rgba(185, 255, 77, 0.42);
-  background: rgba(9, 7, 15, 0.62);
-  color: var(--accent);
+.content.content-glass-header {
+  background: transparent;
 }
 </style>

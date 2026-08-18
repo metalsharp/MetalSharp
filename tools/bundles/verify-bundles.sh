@@ -126,8 +126,8 @@ verify_required_files() {
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-bundle-core.XXXXXX")"
 
-  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" "$@"; then
-    echo "$label INVALID: $path is missing one or more required files" >&2
+  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" >/dev/null 2>&1; then
+    echo "$label INVALID: $path could not be extracted" >&2
     rm -rf "$tmp"
     return 1
   fi
@@ -153,7 +153,28 @@ verify_runtime_core() {
     runtime/host/HostRuntimeABI.h \
     runtime/host/libmetalsharp_host_runtime.dylib \
     runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll \
-    runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll
+    runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll \
+    runtime/wine/lib/wine/x86_64-windows/dinput.dll \
+    runtime/wine/lib/wine/x86_64-windows/dinput8.dll \
+    runtime/wine/lib/wine/x86_64-windows/xinput1_1.dll \
+    runtime/wine/lib/wine/x86_64-windows/xinput1_2.dll \
+    runtime/wine/lib/wine/x86_64-windows/xinput1_3.dll \
+    runtime/wine/lib/wine/x86_64-windows/xinput1_4.dll \
+    runtime/wine/lib/wine/x86_64-windows/xinput9_1_0.dll \
+    runtime/wine/lib/wine/i386-windows/dinput.dll \
+    runtime/wine/lib/wine/i386-windows/dinput8.dll \
+    runtime/wine/lib/wine/i386-windows/xinput1_1.dll \
+    runtime/wine/lib/wine/i386-windows/xinput1_2.dll \
+    runtime/wine/lib/wine/i386-windows/xinput1_3.dll \
+    runtime/wine/lib/wine/i386-windows/xinput1_4.dll \
+    runtime/wine/lib/wine/i386-windows/xinput9_1_0.dll \
+    runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib \
+    runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib \
+    runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib \
+    runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib \
+    runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json \
+    runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json &&
+    verify_hash_manifest "$1" "RUNTIME MoltenVK" "runtime/wine" "$SCRIPT_DIR/moltenvk-runtime-hashes.tsv"
 }
 
 verify_graphics_core() {
@@ -185,8 +206,21 @@ verify_graphics_core() {
     Graphics/dll/dxmt-m12/x86_64-windows/dxgi_dxmt.dll \
     Graphics/dll/dxmt-m12/x86_64-windows/nvapi64.dll \
     Graphics/dll/dxmt-m12/x86_64-windows/nvngx.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/winemetal.dll &&
-    verify_hash_manifest "$path" "GRAPHICS M12" "Graphics/dll/dxmt-m12" "$SCRIPT_DIR/m12-dxmt-runtime-hashes.tsv"
+    Graphics/dll/dxmt-m12/x86_64-windows/winemetal.dll \
+    Graphics/dll/dxvk/x86_64-windows/d3d9.dll \
+    Graphics/dll/dxvk/x86_64-windows/d3d10core.dll \
+    Graphics/dll/dxvk/x86_64-windows/d3d11.dll \
+    Graphics/dll/dxvk/x86_64-windows/dxgi.dll \
+    Graphics/dll/dxvk/i386-windows/d3d9.dll \
+    Graphics/dll/dxvk/i386-windows/d3d10core.dll \
+    Graphics/dll/dxvk/i386-windows/d3d11.dll \
+    Graphics/dll/dxvk/i386-windows/dxgi.dll \
+    Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll \
+    Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll \
+    Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll &&
+    verify_hash_manifest "$path" "GRAPHICS M12" "Graphics/dll/dxmt-m12" "$SCRIPT_DIR/m12-dxmt-runtime-hashes.tsv" &&
+    verify_hash_manifest "$path" "GRAPHICS DXVK" "Graphics/dll/dxvk" "$SCRIPT_DIR/dxvk-runtime-hashes.tsv" &&
+    verify_hash_manifest "$path" "GRAPHICS VKD3D" "Graphics/dll/vkd3d-proton" "$SCRIPT_DIR/vkd3d-proton-runtime-hashes.tsv"
 }
 
 verify_hash_manifest() {
@@ -195,6 +229,13 @@ verify_hash_manifest() {
   local prefix="$3"
   local manifest="$4"
   local failed=0
+  local hash_tmp
+  hash_tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-bundle-hash.XXXXXX")"
+  if ! tar --use-compress-program=unzstd -xf "$archive" -C "$hash_tmp" >/dev/null 2>&1; then
+    echo "$label INVALID: unable to extract $archive for hash verification" >&2
+    rm -rf "$hash_tmp"
+    return 1
+  fi
 
   while IFS=$'\t' read -r rel expected; do
     case "$rel" in
@@ -202,13 +243,18 @@ verify_hash_manifest() {
     esac
     local archive_path="$prefix/$rel"
     local actual
-    actual="$(tar --use-compress-program=unzstd -xOf "$archive" "$archive_path" 2>/dev/null | shasum -a 256 | awk '{print $1}')" || actual=""
+    if [ -s "$hash_tmp/$archive_path" ]; then
+      actual="$(shasum -a 256 "$hash_tmp/$archive_path" | awk '{print $1}')"
+    else
+      actual=""
+    fi
     if [ -z "$actual" ] || [ "$actual" != "$expected" ]; then
       echo "$label HASH MISMATCH: $archive_path expected=$expected actual=${actual:-missing}" >&2
       failed=1
     fi
   done < "$manifest"
 
+  rm -rf "$hash_tmp"
   return "$failed"
 }
 
@@ -232,10 +278,37 @@ verify_assets_core() {
     assets/goldberg/x64/steam_api64.dll \
     assets/goldberg/x86/steam_api.dll \
     assets/mono-arm64/bin/mono-sgen \
-    assets/shims/libsteam_api.dylib &&
+    assets/shims/libsteam_api.dylib \
+    assets/xna/Microsoft.Xna.Framework.dll \
+    assets/xna/Microsoft.Xna.Framework.Game.dll \
+    assets/xna/Microsoft.Xna.Framework.Graphics.dll \
+    assets/xna/Microsoft.Xna.Framework.Audio.dll \
+    assets/xna/Microsoft.Xna.Framework.Input.dll \
+    assets/xna/Microsoft.Xna.Framework.Media.dll \
+    assets/xna/Microsoft.Xna.Framework.Storage.dll \
+    assets/unity-mono/2021.3/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/2021.3/mono-sgen \
+    assets/unity-mono/2021.3/MonoBleedingEdge.version \
+    assets/unity-mono/2022.3/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/2022.3/mono-sgen \
+    assets/unity-mono/2022.3/MonoBleedingEdge.version \
+    assets/unity-mono/2020.3/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/2020.3/mono-sgen \
+    assets/unity-mono/2020.3/MonoBleedingEdge.version \
+    assets/unity-mono/6000.0/libmonosgen-2.0.1.dylib \
+    assets/unity-mono/6000.0/mono-sgen \
+    assets/unity-mono/6000.0/MonoBleedingEdge.version \
+    assets/unity-mono/manifest.json \
+    assets/sdl3/libSDL3.dylib \
+    assets/prebuilt-launchers/TerrariaLauncher.exe \
+    assets/prebuilt-launchers/TerrariaOfflinePatcher.exe \
+    assets/prebuilt-launchers/Microsoft.Xna.Framework.Xact.dll \
+    assets/shims/libgdiplus.dylib \
+    assets/shims/libFAudio.0.dylib &&
     archive_not_contains "$path" '^assets/eac-toggle/' &&
     verify_fna_payloads "$path" "ASSETS" assets/fnalibs &&
-    verify_fna_kickstart_payloads "$path" "ASSETS" assets/fna-kickstart/osx
+    verify_fna_kickstart_payloads "$path" "ASSETS" assets/fna-kickstart/osx &&
+    verify_hash_manifest "$path" "FNA-UNITY" "assets" "$SCRIPT_DIR/fna-unity-hashes.tsv"
 }
 
 verify_fnalibs_core() {

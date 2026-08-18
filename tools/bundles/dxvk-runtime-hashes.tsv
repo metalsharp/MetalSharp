@@ -1,0 +1,11 @@
+# Regenerated 2026-08-17T18:58:33Z by update-vulkan-lane-hashes.sh — do not edit by hand.
+# Paths are relative to the dxvk runtime lane root.
+path	sha256
+x86_64-windows/d3d9.dll	67f8b1f139c7b4838de535876668c44716cec5dda56a1aa88bab5b820acd72fc
+x86_64-windows/d3d10core.dll	d8616fc3c1e13b32562325202655d4ecba972b4043bdf8f0b7350d627b842c26
+x86_64-windows/d3d11.dll	e7cf78bdc3722b40f19919ada77cfb535bdb3708934eb6d4c13111f5454b8c74
+x86_64-windows/dxgi.dll	1568105bcbbb0a98e6f12f386725e8186483c985a3c95cfe1484cfef125ae63c
+i386-windows/d3d9.dll	3bbe4b5aa1445380223ab5ce98f9ea5ad91ab3599e3354b4e91943a017474dbd
+i386-windows/d3d10core.dll	a7010f0a1b4eaa54b892c79fbdc01c83b6030770acd6045962fff05c142dfbeb
+i386-windows/d3d11.dll	04a6393bff8da791eccc81f6e54012e148ec9f960d465405bf5e0c76f024f063
+i386-windows/dxgi.dll	ce7d7235562b534474098e77e4d26742b91807e766693a44dfdd5e50385199df

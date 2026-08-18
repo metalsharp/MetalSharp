@@ -14,11 +14,19 @@ GPTK/D3DMetal is not installed during generic setup. MetalSharp installs and use
 
 ## Steam Games
 
-After a game is installed, MetalSharp detects the Wine Steam library and creates a Steam game bottle such as `steam_620`.
+After a game is installed, MetalSharp scans the internal Steam library and every
+external library listed in Steam's `libraryfolders.vdf`, then creates a Steam
+game bottle such as `steam_620`. The Library refresh action and the background
+installed-game watcher check for new manifests every 15 seconds.
 
 The bottle is the launch-authoritative runtime record. It checks the selected profile, runtime assets, redistributables, DLL expectations, and logs before launch.
 
 For routes such as M12, M11, M10, M9, and Mono/FNA, MetalSharp keeps Wine Steam alive in the background when Steamworks ownership/session state is needed, then launches the game executable through the selected bottle-aware MTSP pipeline. The game process receives the prepared prefix or native Mono/FNA environment, cache paths, and Steam identity variables (`SteamAppId` and `SteamGameId`) so Steamworks can bind back to the running Wine Steam client where applicable.
+
+Wine Steam desktop shortcuts are redirected to the hidden
+`~/.metalsharp/steam-desktop/` directory instead of the macOS Desktop. Existing
+Steam `.url` shortcuts are moved there the next time Wine Steam starts; other
+URL shortcuts on the macOS Desktop are left untouched.
 
 Internal Steam, Wine, macOS Steam, M32, and raw DXMT routes still exist for diagnostics, compatibility records, and backend fallback behavior, but they are not normal route selector choices. If Wine Steam is not detectable after startup, MetalSharp fails the launch clearly instead of hanging behind the renderer timeout.
 
@@ -65,6 +73,16 @@ MoonScraper Chart Editor's Inno Setup bootstrapper is handled without its Window
 Use **Logs** when something fails. The page has drawer sections for live logs, crash reports, and recent log files.
 
 Use **Settings** to manage Steam API sync, backend restart, cache cleanup, and runtime maintenance.
+
+### Controller Input Shims
+
+The sidebar has a **Controller** selector (Off / X / D) near the theme picker:
+
+- **Off** (default) — no input shims are deployed.
+- **X** — XInput shims (`xinput1_1.dll` … `xinput1_4.dll`, `xinput9_1_0.dll`) are copied into the game folder on launch and into the Steam prefix (`system32` + `syswow64`).
+- **D** — DInput shims (`dinput.dll`, `dinput8.dll`) are deployed the same way.
+
+Switching between X and D removes the previously deployed set before deploying the new one; switching to Off removes both. Files that already existed (for example a game's own `xinput1_3.dll`) are backed up and restored when the mode is switched off.
 
 ### Uninstall
 

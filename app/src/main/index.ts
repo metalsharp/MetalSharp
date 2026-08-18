@@ -176,7 +176,7 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
     return { ok: true, new_appids: [] };
   }
   if (url.startsWith("/mtsp/pipelines")) {
-    return { ok: true, id: "m12", name: "M12", preferred: "m12", pipelines: [] };
+    return { ok: true, id: "vkd3d", name: "VKD3D", preferred: "vkd3d", pipelines: [] };
   }
   if (method === "POST") {
     return { ok: true };
@@ -522,7 +522,7 @@ async function createProcessManagerWindow(): Promise<BrowserWindow> {
     processManagerWindow = null;
   });
   await processManagerWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
-    query: { overlay: "process-manager", theme: "developer" },
+    query: { overlay: "process-manager", theme: "dark" },
   });
   return processManagerWindow;
 }
@@ -552,6 +552,31 @@ function registerProcessManagerShortcut(): void {
     console.warn(
       "MetalSharp Process Manager Cmd+P shortcut unavailable; overlay can still be opened from IPC/dev launch.",
     );
+  }
+}
+
+function forceQuitRunningGames(): void {
+  const port = bridge ? bridge.getPort() : 9274;
+  const req = http.request(
+    { hostname: "127.0.0.1", port, path: "/games/force-quit", method: "POST", headers: { "Content-Length": 0 } },
+    (res) => res.resume(),
+  );
+  req.on("error", (e) => console.warn("Force-quit games request failed:", e));
+  req.end();
+}
+
+// Cmd+Opt+Q force-quits all running games but leaves the Wine Steam client up.
+function registerForceQuitGamesShortcut(): void {
+  if (process.platform !== "darwin") return;
+  for (const accelerator of ["Command+Option+Q", "Command+Alt+Q"]) {
+    let ok = false;
+    try {
+      ok = globalShortcut.register(accelerator, forceQuitRunningGames);
+    } catch {
+      ok = false;
+    }
+    if (ok || globalShortcut.isRegistered(accelerator)) return;
+    console.warn(`MetalSharp force-quit games shortcut not registered: ${accelerator}`);
   }
 }
 
@@ -604,8 +629,10 @@ async function createWindow(migrating = false) {
     },
   });
 
+  const query: Record<string, string> = uiOnly ? { theme: "dark" } : {};
+  if (process.env.METALSHARP_DEV_LIBRARY === "1") query["skip-to"] = "library";
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
-    query: isUiOnlyRuntime() ? { theme: "developer" } : {},
+    query,
   });
 }
 
@@ -656,6 +683,7 @@ app.whenReady().then(async () => {
     migrationMode = false;
     registerIpc();
     registerProcessManagerShortcut();
+    registerForceQuitGamesShortcut();
     await createProcessManagerWindow();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) void createProcessManagerWindow();
@@ -668,6 +696,7 @@ app.whenReady().then(async () => {
     migrationMode = false;
     registerIpc();
     registerProcessManagerShortcut();
+    registerForceQuitGamesShortcut();
     await createWindow(false);
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow(false);
@@ -706,6 +735,7 @@ app.whenReady().then(async () => {
 
   registerIpc();
   registerProcessManagerShortcut();
+  registerForceQuitGamesShortcut();
 
   await createWindow(needsMigration);
 

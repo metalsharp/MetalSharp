@@ -189,9 +189,15 @@ fn spawn_and_reap(mut cmd: Command) -> Result<u32, Box<dyn std::error::Error>> {
 }
 
 pub fn get_config() -> Value {
+    get_config_for_home(&dirs::home_dir().unwrap_or_default())
+}
+
+/// Path-based variant (testable without touching the global METALSHARP_HOME).
+pub fn get_config_for_home(home: &Path) -> Value {
     let native_available = find_metalsharp_native().is_ok();
     let mono_available = find_mono().is_ok();
     let graphics_runtime_logs = graphics_runtime_logs_enabled();
+    let controller_input = controller_input_mode_for(home);
 
     json!({
         "ok": true,
@@ -199,7 +205,56 @@ pub fn get_config() -> Value {
         "mono_available": mono_available,
         "graphicsRuntimeLogs": graphics_runtime_logs,
         "graphics_runtime_logs": graphics_runtime_logs,
+        "controllerInput": controller_input,
+        "msync": msync_enabled_for(home),
     })
+}
+
+/// Read the persisted controller input shim mode. Valid values are
+/// `"off"`, `"x"` (XInput shims), and `"d"` (DInput shims); anything else
+/// (missing, empty, or unknown) resolves to `"off"` so the selector is
+/// off by default.
+pub fn controller_input_mode() -> String {
+    controller_input_mode_for(&dirs::home_dir().unwrap_or_default())
+}
+
+/// Path-based variant (testable without touching the global METALSHARP_HOME).
+pub fn controller_input_mode_for(home: &Path) -> String {
+    read_config_string_for_home(home, "controllerInput")
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| matches!(v.as_str(), "off" | "x" | "d"))
+        .unwrap_or_else(|| "off".to_string())
+}
+
+/// Whether Wine msync (Mach-synchronized Wine sync primitives) is enabled.
+/// Default ON, matching the historical `WINEMSYNC=1` launch behavior.
+pub fn msync_enabled() -> bool {
+    if let Ok(value) = std::env::var("WINEMSYNC") {
+        return truthy(&value);
+    }
+    msync_enabled_for(&dirs::home_dir().unwrap_or_default())
+}
+
+pub fn msync_enabled_for(home: &Path) -> bool {
+    read_config_bool_for_home(home, "msync").unwrap_or(true)
+}
+
+fn read_config_bool_for_home(home: &Path, key: &str) -> Option<bool> {
+    let path = config_path_for_home_unenv(home);
+    let contents = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+    value.get(key).and_then(json_bool)
+}
+
+fn read_config_string(key: &str) -> Option<String> {
+    read_config_string_for_home(&dirs::home_dir()?, key)
+}
+
+fn read_config_string_for_home(home: &Path, key: &str) -> Option<String> {
+    let path = config_path_for_home_unenv(home);
+    let contents = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+    value.get(key).and_then(|v| v.as_str()).map(str::to_string)
 }
 
 pub fn graphics_runtime_logs_enabled() -> bool {
@@ -231,6 +286,13 @@ fn truthy(value: &str) -> bool {
 
 fn config_path_for_home(home: &Path) -> PathBuf {
     crate::platform::metalsharp_home_dir_for(home).join("configs").join("config.json")
+}
+
+/// Env-independent config path: joins `home/.metalsharp` directly instead of
+/// going through `metalsharp_home_dir_for`, which honors the global
+/// METALSHARP_HOME env var (racy under parallel tests).
+fn config_path_for_home_unenv(home: &Path) -> PathBuf {
+    home.join(".metalsharp").join("configs").join("config.json")
 }
 
 fn find_metalsharp_native() -> Result<String, Box<dyn std::error::Error>> {
@@ -318,26 +380,43 @@ fn find_mono() -> Result<String, Box<dyn std::error::Error>> {
 
 fn find_wine() -> Result<String, Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
-
     let ms_root = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
-    let ms_wine = crate::platform::runtime_wine_binary(&ms_root);
+    find_wine_at(&ms_root)
+}
+
+/// Path-based variant for tests: resolves the runtime strictly under
+/// `home/.metalsharp` without consulting the process-global METALSHARP_HOME
+/// env var (which races under parallel test execution).
+fn find_wine_for(home: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    find_wine_at(&home.join(".metalsharp").join("runtime").join("wine"))
+}
+
+fn find_wine_at(ms_root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let ms_wine = crate::platform::runtime_wine_binary(ms_root);
     if ms_wine.exists() {
         return Ok(ms_wine.to_string_lossy().to_string());
     }
 
-    let candidates = vec![
-        PathBuf::from("/opt/homebrew/bin/wine64"),
-        PathBuf::from("/usr/bin/wine"),
-        PathBuf::from("/usr/local/bin/wine"),
-    ];
+    // Isolation contract: MetalSharp must NEVER fall back to a system or
+    // third-party Wine (Homebrew, GPTK, CrossOver, Whisky, SakuraGiri…).
+    // Those runtimes are not ABI-compatible with MetalSharp's prefix and
+    // graphics stack, and resolving one of them is exactly how a foreign
+    // launcher's Wine ends up running MetalSharp's Steam/prefix. Fail
+    // loudly so the user runs setup instead.
+    Err(format!(
+        "MetalSharp Wine runtime missing at {} — run setup. System/third-party Wine is intentionally not used (found: {:?})",
+        ms_wine.display(),
+        system_wine_candidates_present()
+    )
+    .into())
+}
 
-    for c in candidates {
-        if c.exists() {
-            return Ok(c.to_string_lossy().to_string());
-        }
-    }
-
-    Err("wine not found".into())
+fn system_wine_candidates_present() -> Vec<String> {
+    ["/opt/homebrew/bin/wine64", "/usr/bin/wine", "/usr/local/bin/wine"]
+        .iter()
+        .filter(|path| PathBuf::from(path).exists())
+        .map(|path| (*path).to_string())
+        .collect()
 }
 
 pub fn ensure_wine_prefix(prefix: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
@@ -366,7 +445,12 @@ pub fn ensure_wine_prefix(prefix: &PathBuf) -> Result<(), Box<dyn std::error::Er
 
 pub fn set_config(body: &Map<String, Value>) -> Result<Value, Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("no home dir")?;
-    let path = config_path_for_home(&home);
+    set_config_for_home(&home, body)
+}
+
+/// Path-based variant (testable without touching the global METALSHARP_HOME).
+pub fn set_config_for_home(home: &Path, body: &Map<String, Value>) -> Result<Value, Box<dyn std::error::Error>> {
+    let path = config_path_for_home_unenv(home);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -386,8 +470,19 @@ pub fn set_config(body: &Map<String, Value>) -> Result<Value, Box<dyn std::error
         cfg.insert("graphics_runtime_logs".into(), json!(value));
     }
 
+    if let Some(value) = body.get("controllerInput").and_then(|v| v.as_str()) {
+        let normalized = value.trim().to_ascii_lowercase();
+        if matches!(normalized.as_str(), "off" | "x" | "d") {
+            cfg.insert("controllerInput".into(), json!(normalized));
+        }
+    }
+
+    if let Some(value) = body.get("msync").and_then(|v| v.as_bool()) {
+        cfg.insert("msync".into(), json!(value));
+    }
+
     std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?;
-    Ok(get_config())
+    Ok(get_config_for_home(home))
 }
 
 fn launch_via_wine(exe_path: &str) -> Result<u32, Box<dyn std::error::Error>> {
@@ -395,6 +490,15 @@ fn launch_via_wine(exe_path: &str) -> Result<u32, Box<dyn std::error::Error>> {
     let wine = find_wine()?;
     let prefix = crate::platform::metalsharp_home_dir_for(&home).join("prefix-steam");
     let prefix_str = prefix.to_string_lossy().to_string();
+
+    if std::env::var_os("MS_LAUNCH_TRACE").is_some() {
+        eprintln!("[trace] launch_via_wine wine_bin={}", wine);
+        eprintln!("[trace] prefix={}", prefix_str);
+        eprintln!("[trace] parent WINEPREFIX={:?}", std::env::var("WINEPREFIX"));
+        eprintln!("[trace] parent WINEDLLPATH={:?}", std::env::var("WINEDLLPATH"));
+        eprintln!("[trace] parent DYLD_FALLBACK_LIBRARY_PATH={:?}", std::env::var("DYLD_FALLBACK_LIBRARY_PATH"));
+        eprintln!("[trace] parent WINESERVER={:?}", std::env::var("WINESERVER"));
+    }
 
     ensure_wine_prefix(&prefix)?;
 
@@ -457,5 +561,108 @@ mod tests {
         assert!(ensure_steam_env_handoff_supported(true, &env).is_err());
         assert!(ensure_steam_env_handoff_supported(true, &[]).is_ok());
         assert!(ensure_steam_env_handoff_supported(false, &env).is_ok());
+    }
+
+    #[test]
+    fn controller_input_defaults_to_off_when_unset_or_unknown() {
+        let temp = std::env::temp_dir().join(format!("ms-controller-default-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        // No config file at all -> off
+        assert_eq!(controller_input_mode_for(&temp), "off");
+
+        // Unknown / invalid value -> off
+        let configs = temp.join(".metalsharp").join("configs");
+        std::fs::create_dir_all(&configs).unwrap();
+        std::fs::write(configs.join("config.json"), r#"{"controllerInput": "bogus"}"#).unwrap();
+        assert_eq!(controller_input_mode_for(&temp), "off");
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn controller_input_accepts_x_d_off() {
+        let temp = std::env::temp_dir().join(format!("ms-controller-modes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let configs = temp.join(".metalsharp").join("configs");
+        std::fs::create_dir_all(&configs).unwrap();
+
+        for (raw, expected) in [("x", "x"), ("X", "x"), ("d", "d"), ("off", "off"), (" OFF ", "off")] {
+            std::fs::write(configs.join("config.json"), serde_json::json!({ "controllerInput": raw }).to_string())
+                .unwrap();
+            assert_eq!(controller_input_mode_for(&temp), expected, "raw={raw}");
+        }
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn set_config_persists_and_whitelists_controller_input() {
+        let temp = std::env::temp_dir().join(format!("ms-controller-set-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let mut body = serde_json::Map::new();
+        body.insert("controllerInput".into(), json!("x"));
+        let result = set_config_for_home(&temp, &body).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("x"));
+
+        // Invalid values are rejected (not persisted), stay off.
+        let mut bad = serde_json::Map::new();
+        bad.insert("controllerInput".into(), json!("hax"));
+        let result = set_config_for_home(&temp, &bad).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("x"));
+
+        // Switching to d works, then back to off.
+        let mut d = serde_json::Map::new();
+        d.insert("controllerInput".into(), json!("d"));
+        let result = set_config_for_home(&temp, &d).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("d"));
+
+        let mut off = serde_json::Map::new();
+        off.insert("controllerInput".into(), json!("off"));
+        let result = set_config_for_home(&temp, &off).expect("set_config");
+        assert_eq!(result.get("controllerInput").and_then(|v| v.as_str()), Some("off"));
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn find_wine_never_falls_back_to_system_wine_when_ms_runtime_missing() {
+        // Isolation contract: with no MetalSharp runtime, find_wine must fail
+        // loudly instead of resolving a system/third-party wine (CrossOver,
+        // SakuraGiri, GPTK/Homebrew all install into the candidate paths).
+        let temp = std::env::temp_dir().join(format!("ms-findwine-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let result = find_wine_for(&temp);
+        let err = result.expect_err("find_wine must fail when MS runtime is missing");
+        let msg = err.to_string();
+        assert!(msg.contains("run setup"), "error must direct user to setup: {}", msg);
+        assert!(!msg.contains("wine not found"), "error must not be the old generic message");
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn find_wine_returns_ms_runtime_when_present() {
+        let temp = std::env::temp_dir().join(format!("ms-findwine-present-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let bin = temp.join(".metalsharp").join("runtime").join("wine").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let wrapper = bin.join("metalsharp-wine");
+        std::fs::write(&wrapper, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let found = find_wine_for(&temp).expect("find_wine must return the MS runtime wrapper");
+        assert_eq!(found, wrapper.to_string_lossy().to_string());
+
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }

@@ -1,8 +1,8 @@
 # asset	root	bytes_required_by	notes
 metalsharp-electron.tar.zst	electron	mac	Electron application payload.
-metalsharp-graphics-dll.tar.zst	Graphics/dll	mac	DXMT D3D10/D3D11/D3D12 pipeline DLLs and winemetal bridge payload.
+metalsharp-graphics-dll.tar.zst	Graphics/dll	mac	DXMT and DXMT-M12 lanes plus independent DXVK and VKD3D-Proton Vulkan-lane DLL payloads.
 metalsharp-runtime.tar.zst	runtime	mac	Wine runtime, host runtime ABI, and backend executable.
-metalsharp-assets.tar.zst	assets	mac	Mono, GPTK, DXVK, Goldberg, shims, FNA kickstart (universal MonoKickstart + fnalibs), and runtime support assets.
+metalsharp-assets.tar.zst	assets	mac	Mono, GPTK, DXVK, Goldberg, shims, FNA kickstart (universal MonoKickstart + fnalibs), XNA 4.0 assembly set, version-matched Unity Mono runtimes (2020.3/2021.3/2022.3/6000.0), SDL3, and runtime support assets.
 fnalibs.tar.zst	fnalibs	mac	SDL2-linked FNA3D, FAudio, SDL2, theorafile, and real FMOD native payloads for FNA repair.
 metalsharp-scripts-tools.tar.zst	scripts/tools	mac	Updater scripts, configs, native tools, and CEF compatibility helpers.
 metalsharp-steam.tar.zst	steam	mac	Steam installer and Steam CEF wrapper assets.

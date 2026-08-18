@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "child_process";
+import { type ChildProcess, execFile, spawn } from "child_process";
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
@@ -60,6 +60,11 @@ export class RustBridge {
   async ensureRunning(maxMs = 15000): Promise<{ ok: boolean; error?: string }> {
     if (await this.isAlive()) return { ok: true };
 
+    // A slow but healthy backend can time out its /status request while a
+    // Steam library scan is in progress. The listening-process check avoids
+    // treating that queued response as a dead backend.
+    if (await this.getListeningBackendPid()) return { ok: true };
+
     // In dev mode, auto-restart the backend so binary swaps "just work".
     // In production, the app owns the lifecycle — only start() spawns.
     if (this.devMode) {
@@ -89,6 +94,13 @@ export class RustBridge {
       await this.killProcess();
     } else if (await this.isAlive()) {
       console.log("Backend already running and up to date");
+      return { ok: true };
+    } else if (await this.getListeningBackendPid()) {
+      // The tiny_http backend handles one request at a time. A library scan
+      // can legitimately occupy it longer than the health-check timeout; do
+      // not start a second backend or kill the healthy process just because
+      // /status was queued behind that scan.
+      console.log("Backend is already listening and busy; keeping it running");
       return { ok: true };
     }
 
@@ -169,7 +181,9 @@ export class RustBridge {
         resolve(true);
       });
       req.on("error", () => resolve(false));
-      req.setTimeout(1500, () => {
+      // Dev backends can be busy with a first-run bottle scan; don't treat a
+      // slow /status as dead or ensureRunning will kill and restart it forever.
+      req.setTimeout(this.devMode ? 10000 : 1500, () => {
         req.destroy();
         resolve(false);
       });
@@ -280,7 +294,12 @@ export class RustBridge {
   }
 
   private async shouldRestart(binPath: string): Promise<boolean> {
-    if (!(await this.isAlive())) return true;
+    if (!(await this.isAlive())) {
+      // /status can be queued behind the synchronous library route. If the
+      // expected backend still owns the port, preserve it and let the caller
+      // wait for the queued response instead of replacing it.
+      return !(await this.getListeningBackendPid());
+    }
 
     try {
       const binStat = fs.statSync(binPath);
@@ -314,6 +333,29 @@ export class RustBridge {
       } catch {}
     }
     return "";
+  }
+
+  private async getListeningBackendPid(): Promise<number | null> {
+    const pids = await new Promise<number[]>((resolve) => {
+      execFile("lsof", ["-nP", `-tiTCP:${this.port}`, "-sTCP:LISTEN"], (err, stdout) => {
+        if (err) {
+          resolve([]);
+          return;
+        }
+        resolve(
+          stdout
+            .split(/\s+/)
+            .map((value) => Number.parseInt(value, 10))
+            .filter((pid) => Number.isInteger(pid) && pid > 0),
+        );
+      });
+    });
+
+    for (const pid of pids) {
+      const processPath = await this.getProcessPath(pid);
+      if (processPath?.endsWith("metalsharp-backend")) return pid;
+    }
+    return null;
   }
 
   private async getBackendVersion(): Promise<string | null> {

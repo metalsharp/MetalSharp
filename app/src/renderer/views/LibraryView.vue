@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, inject, onMounted, onUnmounted, watch, type Ref } from "vue";
+import { computed, ref, inject, onMounted, onUnmounted, watch, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
 import { api } from "../composables/useApi";
+import { themedNavIcon } from "../composables/useTheme";
 import GameCard from "../components/GameCard.vue";
-import IconCrosshair from "~icons/lucide/crosshair";
-import IconRefreshCcw from "~icons/lucide/refresh-ccw";
 import IconBattery from "~icons/lucide/battery";
+
+const steamIcon = computed(() => themedNavIcon("steam"));
+const refreshIcon = computed(() => themedNavIcon("refresh"));
 
 interface SteamGame {
   appid: number;
@@ -45,15 +47,40 @@ const reloadLibrary = inject<() => Promise<void>>("loadLibrary")!;
 
 const toast = useToast();
 const search = ref("");
-const filter = ref<"all" | "installed" | "not_installed">("all");
+const filter = ref<"all" | "installed" | "not_installed">("installed");
 
 const runningAppId = ref<number | null>(null);
 const runningPid = ref<number | null>(null);
+let runningPollTimer: number | null = null;
+let runningMisses = 0;
 const launchingAppId = ref<number | null>(null);
 let artworkRetryTimer: number | null = null;
 const artworkRetryRequestedAppIds = new Set<number>();
 
 const filteredGames = ref<SteamGame[]>([]);
+
+const GRID_GAP = 18;
+const GRID_MIN_COLUMN = 300;
+const gameGridEl = ref<HTMLElement | null>(null);
+const columnCount = ref(1);
+let gridResizeObserver: ResizeObserver | null = null;
+
+function updateColumnCount() {
+  const width = gameGridEl.value?.clientWidth ?? 0;
+  if (width <= 0) return;
+  columnCount.value = Math.max(1, Math.floor((width + GRID_GAP) / (GRID_MIN_COLUMN + GRID_GAP)));
+}
+
+// Split games into per-column stacks (round-robin keeps row-major order).
+// A card that grows (e.g. bottle panel) only pushes cards below it in its
+// own column, instead of stretching the whole grid row.
+const gameColumns = computed(() => {
+  const columns: SteamGame[][] = Array.from({ length: columnCount.value }, () => []);
+  filteredGames.value.forEach((game, index) => {
+    columns[index % columnCount.value].push(game);
+  });
+  return columns;
+});
 
 function gameNameSort(a: SteamGame, b: SteamGame) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
@@ -75,6 +102,7 @@ function isWineSteamRouteId(launchMethod: string) {
     "m11",
     "m11_32",
     "m12",
+    "vkd3d",
     "m32",
     "dx9",
     "dx10",
@@ -218,10 +246,15 @@ async function launchGame(game: SteamGame, launchMethod = "auto") {
     gameType?: string;
     offline_mode?: boolean;
     steam_runtime?: string;
-  }>("POST", launchEndpoint, {
-    appid: game.appid,
-    launchMethod: selectedLaunchMethod,
-  }, 10 * 60 * 1000);
+  }>(
+    "POST",
+    launchEndpoint,
+    {
+      appid: game.appid,
+      launchMethod: selectedLaunchMethod,
+    },
+    10 * 60 * 1000,
+  );
 
   launchingAppId.value = null;
 
@@ -243,11 +276,61 @@ function markD3DMetalLaunched(game: SteamGame, pid: number) {
   launchingAppId.value = null;
 }
 
+function updateGameBottle(
+  game: SteamGame,
+  update: { preferredPipeline: string | null },
+) {
+  // Keep the card reactive immediately after Save Bottle. The library is
+  // refreshed as well so the displayed route and the backend's persisted
+  // manifest cannot drift apart after a later navigation or refresh.
+  game.preferred_pipeline = update.preferredPipeline;
+  if (update.preferredPipeline) {
+    game.launch_method = update.preferredPipeline;
+    game.launch_method_name = pipelineDisplayName(update.preferredPipeline);
+  }
+  void reloadLibrary();
+}
+
+function pipelineDisplayName(id: string): string {
+  const names: Record<string, string> = {
+    d3dmetal: "D3DMetal",
+    m12: "M12",
+    vkd3d: "VKD3D",
+    m11: "M11",
+    m11_32: "M11(32)",
+    m10: "M10",
+    m10_32: "M10(32)",
+    m9: "M9",
+    fna_arm64: "Mono/FNA",
+  };
+  return names[id.toLowerCase()] ?? id;
+}
+
 async function stopGame(game: SteamGame) {
   await api("POST", "/kill", { pid: runningPid.value, appid: game.appid });
   runningPid.value = null;
   runningAppId.value = null;
   toast.show(`Stopped ${game.name}`);
+}
+
+async function pollRunningGames() {
+  if (runningAppId.value === null) return;
+  const result = await api<{ ok: boolean; running: { appid: number; pid: number }[] }>("GET", "/game/running");
+  if (!result?.ok) return;
+  const running = result.running ?? [];
+  if (running.some((r) => r.appid === runningAppId.value)) {
+    runningMisses = 0;
+    return;
+  }
+  // A game we thought was running is no longer reported: it exited on its own
+  // (in-game quit) or was force-quit via Cmd+Opt+Q. Debounce two misses, then
+  // revert the button to Play and refresh the library to reflect it stopped.
+  runningMisses += 1;
+  if (runningMisses < 2) return;
+  runningMisses = 0;
+  runningPid.value = null;
+  runningAppId.value = null;
+  void reloadLibrary();
 }
 
 async function installGame(game: SteamGame) {
@@ -281,12 +364,32 @@ async function uninstallGame(game: SteamGame) {
 
 onMounted(() => {
   applyFilter();
+  gridResizeObserver = new ResizeObserver(updateColumnCount);
+  if (gameGridEl.value) gridResizeObserver.observe(gameGridEl.value);
+  updateColumnCount();
+  runningPollTimer = window.setInterval(pollRunningGames, 2000);
 });
 
 onUnmounted(() => {
+  if (gridResizeObserver) {
+    gridResizeObserver.disconnect();
+    gridResizeObserver = null;
+  }
+  if (runningPollTimer !== null) {
+    window.clearInterval(runningPollTimer);
+    runningPollTimer = null;
+  }
   if (artworkRetryTimer !== null) {
     window.clearTimeout(artworkRetryTimer);
     artworkRetryTimer = null;
+  }
+});
+
+watch(gameGridEl, (el, prev) => {
+  if (prev) gridResizeObserver?.unobserve(prev);
+  if (el) {
+    gridResizeObserver?.observe(el);
+    updateColumnCount();
   }
 });
 
@@ -297,7 +400,7 @@ watch([library, search, filter], () => {
 
 <template>
   <div class="library-view">
-    <div class="library-header">
+    <div class="library-header glass-header">
       <div class="library-title-row">
         <div>
           <h1>Library</h1>
@@ -317,7 +420,7 @@ watch([library, search, filter], () => {
       <div class="library-controls">
         <div class="library-launch-actions">
           <button class="btn btn-secondary library-control-button" title="Wine Steam" @click="toggleSteam">
-            <IconCrosshair class="control-icon" width="15" height="15" />
+            <component :is="steamIcon" class="control-icon" width="15" height="15" />
             <span class="control-label">{{ wineSteamRunning ? "Stop Wine Steam" : "Start Wine Steam" }}</span>
           </button>
           <button
@@ -325,7 +428,7 @@ watch([library, search, filter], () => {
             title="Refresh"
             @click="reloadLibrary()"
           >
-            <IconRefreshCcw class="control-icon" width="15" height="15" />
+            <component :is="refreshIcon" class="control-icon" width="15" height="15" />
             <span class="control-label">Refresh</span>
           </button>
         </div>
@@ -340,33 +443,34 @@ watch([library, search, filter], () => {
       </div>
     </div>
 
-    <div v-if="!library || library.games.length === 0" class="empty-state">
-      <div class="empty-icon">
-        <IconBattery width="48" height="48" />
+    <div class="library-body view-body-surface">
+      <div v-if="!library || library.games.length === 0" class="empty-state">
+        <div class="empty-icon">
+          <IconBattery width="48" height="48" />
+        </div>
+        <h2>No games found</h2>
+        <p>Add your Steam API key in Settings to load your library, or download a game manually.</p>
       </div>
-      <h2>No games found</h2>
-      <p>Add your Steam API key in Settings to load your library, or download a game manually.</p>
-    </div>
 
-    <div v-else class="game-grid">
-      <div
-        v-for="game in filteredGames"
-        :key="game.appid"
-        class="game-grid-item"
-      >
-        <GameCard
-          :game="game"
-          :running="runningAppId === game.appid"
-          :launching="launchingAppId === game.appid"
-          :steam-installed="wineSteamInstalled"
-          :developer-mode="developerMode"
-          @play="launchGame(game, $event)"
-          @d3dmetal-launched="markD3DMetalLaunched(game, $event)"
-          @stop="stopGame(game)"
-          @install="installGame(game)"
-          @uninstall="uninstallGame(game)"
-          @artwork-missing="requestArtworkRetry"
-        />
+      <div v-else ref="gameGridEl" class="game-grid">
+        <div v-for="(column, columnIndex) in gameColumns" :key="columnIndex" class="game-grid-column">
+          <div v-for="game in column" :key="game.appid" class="game-grid-item">
+          <GameCard
+            :game="game"
+            :running="runningAppId === game.appid"
+            :launching="launchingAppId === game.appid"
+            :steam-installed="wineSteamInstalled"
+            :developer-mode="developerMode"
+            @play="launchGame(game, $event)"
+            @d3dmetal-launched="markD3DMetalLaunched(game, $event)"
+            @bottle-updated="updateGameBottle(game, $event)"
+            @stop="stopGame(game)"
+            @install="installGame(game)"
+            @uninstall="uninstallGame(game)"
+            @artwork-missing="requestArtworkRetry"
+          />
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -374,48 +478,39 @@ watch([library, search, filter], () => {
 
 <style scoped>
 .library-view {
-  padding: 0 28px 32px;
+  padding: 0 28px;
   height: 100%;
   width: 100%;
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--bg-deep);
+  display: flex;
+  flex-direction: column;
+  background: transparent;
 }
-:global(:root[data-theme="developer"] .library-view) {
-  background:
-    radial-gradient(circle at 18% 4%, rgba(255, 46, 247, 0.15), transparent 30%),
-    radial-gradient(circle at 90% 16%, rgba(0, 245, 255, 0.13), transparent 32%),
-    linear-gradient(180deg, rgba(185, 255, 77, 0.04), transparent 240px),
-    var(--bg-deep);
-}
-
 .library-header {
-  margin: 0 -28px 20px;
+  flex-shrink: 0;
+  margin: 0 -28px;
   padding: 44px 28px 14px;
   min-width: 0;
-  background: var(--page-header-bg);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   position: relative;
   overflow: hidden;
 }
-:global(:root[data-theme="developer"] .library-header) {
-  border-bottom-color: rgba(185, 255, 77, 0.28);
-  box-shadow:
-    inset 0 -1px 0 rgba(0, 245, 255, 0.22),
-    0 20px 56px rgba(0, 0, 0, 0.22);
+.library-body {
+  flex: 1;
+  margin: 0 -28px;
+  padding: 20px 28px 32px;
 }
 .library-header::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
-              radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
+  background:
+    radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
   pointer-events: none;
-}
-:global(:root[data-theme="developer"] .library-header::after) {
-  background: linear-gradient(90deg, rgba(255, 46, 247, 0.10), transparent 34%, rgba(0, 245, 255, 0.09) 78%, transparent);
 }
 .library-title-row {
   display: grid;
@@ -433,11 +528,6 @@ watch([library, search, filter], () => {
   font-size: 24px;
   font-weight: 750;
   line-height: 1.1;
-}
-:global(:root[data-theme="developer"] .library-header h1) {
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-weight: 800;
 }
 .library-counts {
   margin-top: 6px;
@@ -505,15 +595,6 @@ watch([library, search, filter], () => {
 }
 
 @media (max-width: 1040px) {
-  .library-title-row {
-    grid-template-columns: 1fr;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .library-status-strip {
-    justify-self: start;
-    justify-content: flex-start;
-  }
   .library-controls {
     grid-template-columns: 1fr;
   }
@@ -559,18 +640,27 @@ watch([library, search, filter], () => {
     grid-template-columns: 1fr;
   }
   .library-status-strip .badge {
-    max-width: calc(100vw - var(--sidebar-width-collapsed) - 48px);
+    max-width: min(180px, calc(50vw - 32px));
+    padding-inline: 6px;
+    font-size: 9px;
   }
 }
 
 .game-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  display: flex;
+  align-items: flex-start;
   gap: 18px;
-  align-items: start;
   min-width: 0;
   width: 100%;
   max-width: 100%;
+}
+
+.game-grid-column {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .game-grid-item {

@@ -285,6 +285,14 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     if m12_root.exists():
         copy_tree(m12_root / "x86_64-unix", roots["graphics"] / "dxmt_m12" / "x86_64-unix")
         copy_tree(m12_root / "x86_64-windows", roots["graphics"] / "dxmt_m12" / "x86_64-windows")
+    dxvk_root_env = os.environ.get("METALSHARP_DXVK_ROOT")
+    dxvk_root = Path(dxvk_root_env).expanduser() if dxvk_root_env else Path.home() / ".metalsharp" / "runtime" / "wine" / "lib" / "dxvk"
+    if dxvk_root.exists():
+        copy_tree(dxvk_root, roots["graphics"] / "dxvk")
+    vkd3d_root_env = os.environ.get("METALSHARP_VKD3D_ROOT")
+    vkd3d_root = Path(vkd3d_root_env).expanduser() if vkd3d_root_env else Path.home() / ".metalsharp" / "runtime" / "wine" / "lib" / "vkd3d-proton"
+    if vkd3d_root.exists():
+        copy_tree(vkd3d_root, roots["graphics"] / "vkd3d-proton")
 
     for name in ["mono-arm64", "goldberg", "shims", "shader-cache"]:
         copy_tree(source2 / name, roots["assets"] / name)
@@ -295,6 +303,16 @@ def build_staging(tmp: Path) -> dict[str, Path]:
         "mono-x86.tar.zst": ("mono-x86", "mono-x86"),
         "fnalibs.tar.zst": ("fnalibs", "fnalibs"),
         "fna-kickstart.tar.zst": ("fna-kickstart", "fna-kickstart"),
+        # Unity Mono runtimes (arm64, per Unity LTS line) for version-matched
+        # deployment to Unity-Mono games (DREDGE 2021.3 etc.).
+        "unity-mono.tar.zst": ("unity-mono", "unity-mono"),
+        # Improved XNA 4.0 managed assembly set.
+        "xna.tar.zst": ("xna", "xna"),
+        # SDL3 native dependency (modern FNA/MonoGame/Unity games).
+        "sdl3.tar.zst": ("sdl3", "sdl3"),
+        # Prebuilt launcher/patcher binaries (Terraria launcher, offline
+        # patcher, Xact stub) — the app never compiles at launch.
+        "prebuilt-launchers.tar.zst": ("prebuilt-launchers", "prebuilt-launchers"),
     }
     for archive_name, (extract_name, target_name) in optional_archives.items():
         archive = SOURCE_BUNDLES / archive_name
