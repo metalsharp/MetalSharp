@@ -41,7 +41,7 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 | **M11(32)** | D3D11 i386 to Metal (DXMT) |
 | **M10** | D3D10 to Metal (DXMT) |
 | **M10(32)** | D3D10 i386 to Metal (DXMT) |
-| **M9** | D3D9 i386 Wine, DXMT Overrides|
+| **M9** | D3D9 To Metal, DXMT Overrides|
 | **Mono/FNA** | Windows XNA/FNA via native Mono |
 | **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with Homebrew-matched D3DMetal route DLLs. |
 
