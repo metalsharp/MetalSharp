@@ -2222,6 +2222,7 @@ fn route(req: &HttpRequest) -> RouteResponse {
             )
         },
         (HttpMethod::Post, "/processes/force-kill") => resp(200, force_kill_metalsharp_processes()),
+        (HttpMethod::Post, "/games/force-quit") => resp(200, force_quit_running_games()),
         (HttpMethod::Post, "/kill") => {
             let body = read_body(req);
             let pid_param = body.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
@@ -2345,6 +2346,32 @@ fn query_param(url: &str, key: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Force-quit every running game tracked by MetalSharp. This only targets
+/// registered game PIDs — the Wine Steam client is never registered as a game
+/// and is intentionally left running.
+fn force_quit_running_games() -> Value {
+    let appids: Vec<u32> = running_games().lock().map(|m| m.keys().copied().collect()).unwrap_or_default();
+    let mut terminated = Vec::new();
+    let mut errors = Vec::new();
+    for appid in appids {
+        let Some(pid) = get_game_pid(appid) else {
+            unregister_game_pid(appid);
+            continue;
+        };
+        match crate::launch::kill_game_with_pid(appid, pid) {
+            Ok(_) => {
+                unregister_game_pid(appid);
+                terminated.push(json!({ "appid": appid, "pid": pid }));
+            },
+            Err(error) => {
+                unregister_game_pid(appid);
+                errors.push(json!({ "appid": appid, "pid": pid, "error": error.to_string() }));
+            },
+        }
+    }
+    json!({ "ok": true, "terminated": terminated, "errors": errors, "count": terminated.len() })
 }
 
 fn force_kill_metalsharp_processes() -> Value {

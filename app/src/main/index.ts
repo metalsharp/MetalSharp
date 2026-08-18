@@ -555,6 +555,31 @@ function registerProcessManagerShortcut(): void {
   }
 }
 
+function forceQuitRunningGames(): void {
+  const port = bridge ? bridge.getPort() : 9274;
+  const req = http.request(
+    { hostname: "127.0.0.1", port, path: "/games/force-quit", method: "POST", headers: { "Content-Length": 0 } },
+    (res) => res.resume(),
+  );
+  req.on("error", (e) => console.warn("Force-quit games request failed:", e));
+  req.end();
+}
+
+// Cmd+Opt+Q force-quits all running games but leaves the Wine Steam client up.
+function registerForceQuitGamesShortcut(): void {
+  if (process.platform !== "darwin") return;
+  for (const accelerator of ["Command+Option+Q", "Command+Alt+Q"]) {
+    let ok = false;
+    try {
+      ok = globalShortcut.register(accelerator, forceQuitRunningGames);
+    } catch {
+      ok = false;
+    }
+    if (ok || globalShortcut.isRegistered(accelerator)) return;
+    console.warn(`MetalSharp force-quit games shortcut not registered: ${accelerator}`);
+  }
+}
+
 async function checkNeedsMigration(): Promise<boolean> {
   const marker = hasPostUpdateMigrationMarker();
   return new Promise((resolve) => {
@@ -658,6 +683,7 @@ app.whenReady().then(async () => {
     migrationMode = false;
     registerIpc();
     registerProcessManagerShortcut();
+    registerForceQuitGamesShortcut();
     await createProcessManagerWindow();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) void createProcessManagerWindow();
@@ -670,6 +696,7 @@ app.whenReady().then(async () => {
     migrationMode = false;
     registerIpc();
     registerProcessManagerShortcut();
+    registerForceQuitGamesShortcut();
     await createWindow(false);
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow(false);
@@ -708,6 +735,7 @@ app.whenReady().then(async () => {
 
   registerIpc();
   registerProcessManagerShortcut();
+  registerForceQuitGamesShortcut();
 
   await createWindow(needsMigration);
 
