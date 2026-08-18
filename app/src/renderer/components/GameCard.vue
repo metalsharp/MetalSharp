@@ -96,6 +96,7 @@ interface D3DMetalGptkState {
   gptk_payload: string;
   x64_redist: string;
   seed: string;
+  gptk3: string;
   play_ready: boolean;
   last_error?: string | null;
 }
@@ -113,6 +114,11 @@ interface D3DMetalGptkResponse {
   state?: D3DMetalGptkState;
   actions?: D3DMetalGptkAction[];
   launch?: D3DMetalLaunchReport;
+  gptk3_installed?: boolean;
+  gptk3_dmg_found?: boolean;
+  download_opened?: boolean;
+  download_required?: boolean;
+  download_url?: string;
   error?: string;
 }
 
@@ -149,6 +155,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   play: [launchMethod: string];
   d3dmetalLaunched: [pid: number];
+  bottleUpdated: [update: { preferredPipeline: string | null }];
   stop: [];
   install: [];
   uninstall: [];
@@ -171,7 +178,9 @@ const runtimeLoading = ref(false);
 const runtimeReport = ref<SteamRuntimeReport | null>(null);
 const d3dmetalState = ref<D3DMetalGptkState | null>(null);
 const d3dmetalActions = ref<D3DMetalGptkAction[]>([]);
-const d3dmetalLoading = ref(false);
+const d3dmetalActiveActionId = ref<string | null>(null);
+const gptk3Installed = ref(false);
+const gptk3DmgFound = ref(false);
 const bottleName = ref("");
 const bottlePreferredMode = ref("auto");
 const bottleSaving = ref(false);
@@ -192,9 +201,13 @@ const currentIsDefaultRule = computed(() => {
 });
 const artworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
-const userSelectablePipelineOrder = ["d3dmetal", "m12", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
+// M12 remains a valid backend route and must continue to display for existing
+// bottles, but it is intentionally not offered as a new frontend selection.
+const hiddenUserPipelineIds = new Set(["m12"]);
+const userSelectablePipelineOrder = ["d3dmetal", "m12", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
   m12: "M12",
+  vkd3d: "VKD3D",
   d3dmetal: "D3DMetal",
   m11: "M11",
   m11_32: "M11(32)",
@@ -203,46 +216,63 @@ const userSelectablePipelineNames: Record<string, string> = {
   m9: "M9",
   fna_arm64: "Mono/FNA",
 };
+function pipelineDisplayName(id: string | null | undefined, fallback = pipelineName.value): string {
+  const normalized = id?.trim().toLowerCase();
+  return (normalized && userSelectablePipelineNames[normalized]) || fallback;
+}
+
+const displayedPipelineName = computed(() => {
+  const routeId = props.game.preferred_pipeline || props.game.launch_method || "";
+  if (props.game.installed) return pipelineDisplayName(routeId, pipelineName.value);
+  return pipelineDisplayName(routeId, props.game.launch_method_name || pipelineName.value);
+});
 
 const componentDisplayName: Record<string, string> = {
   "mono-arm64": "Mono ARM64",
   "mono-x86": "Mono x86_64",
-  "fna": "FNA Runtime",
-  "xna": "XNA Assemblies",
-  "sdl2": "SDL2",
-  "fna3d": "FNA3D",
-  "faudio": "FAudio",
-  "fmod": "FMOD Audio",
-  "m12_d3d12": "M12 d3d12.dll",
-  "m12_d3d11": "M12 d3d11.dll",
-  "m12_d3d10core": "M12 d3d10core.dll",
-  "m12_dxgi_dxmt": "M12 dxgi_dxmt.dll",
-  "m12_dxgi": "M12 dxgi.dll",
-  "m12_winemetal": "M12 winemetal.dll / .so",
-  "m12_gpu_stubs": "M12 GPU Stubs",
-  "d3d12_agility": "D3D12 Agility",
-  "gpu_vendor_stubs": "GPU Stubs",
-  "gptk_amd_stub": "GPTK AMD Stub",
-  "d3d10core": "D3D10core",
-  "winemetal": "Winemetal",
-  "gptk": "GPTK",
-  "gptk_prefix": "GPTK Prefix",
-  "rosetta": "Rosetta",
-  "corefonts": "Core Fonts",
-  "vcrun2019_x64": "VC++ 2015-2022 x64",
-  "vcrun2019_x86": "VC++ 2015-2022 x86",
-  "vcrun2019": "VC++ 2015-2022",
-  "vcrun2010": "VC++ 2010",
-  "vcrun2013": "VC++ 2013",
-  "dotnet40": ".NET 4.0",
-  "dotnet48": ".NET 4.8",
-  "webview2": "WebView2",
-  "directx_jun2010": "DX Jun2010",
-  "openal": "OpenAL",
-  "physx": "PhysX",
+  fna: "FNA Runtime",
+  xna: "XNA Assemblies",
+  sdl2: "SDL2",
+  fna3d: "FNA3D",
+  faudio: "FAudio",
+  fmod: "FMOD Audio",
+  m12_d3d12: "M12 d3d12.dll",
+  m12_d3d11: "M12 d3d11.dll",
+  m12_d3d10core: "M12 d3d10core.dll",
+  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
+  m12_dxgi: "M12 dxgi.dll",
+  m12_winemetal: "M12 winemetal.dll / .so",
+  m12_gpu_stubs: "M12 GPU Stubs",
+  vkd3d_d3d12: "VKD3D d3d12.dll",
+  vkd3d_d3d12core: "VKD3D d3d12core.dll",
+  vkd3d_dxgi: "VKD3D dxgi.dll",
+  dxvk_d3d11: "DXVK d3d11.dll",
+  dxvk_d3d10core: "DXVK d3d10core.dll",
+  d3d12_agility: "D3D12 Agility",
+  gpu_vendor_stubs: "GPU Stubs",
+  gptk_amd_stub: "GPTK AMD Stub",
+  d3d10core: "D3D10core",
+  winemetal: "Winemetal",
+  gptk: "GPTK",
+  gptk_prefix: "GPTK Prefix",
+  rosetta: "Rosetta",
+  corefonts: "Core Fonts",
+  vcrun2019_x64: "VC++ 2015-2022 x64",
+  vcrun2019_x86: "VC++ 2015-2022 x86",
+  vcrun2019: "VC++ 2015-2022",
+  vcrun2010: "VC++ 2010",
+  vcrun2013: "VC++ 2013",
+  dotnet40: ".NET 4.0",
+  dotnet48: ".NET 4.8",
+  webview2: "WebView2",
+  directx_jun2010: "DX Jun2010",
+  openal: "OpenAL",
+  physx: "PhysX",
 };
 
 const runtimeProfileDisplayName: Record<string, string> = {
+  m12: "M12",
+  vkd3d: "VKD3D",
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
   d3dmetal: "D3DMetal (GPTK)",
@@ -268,7 +298,8 @@ function bottleComponentLabel(id: string): string {
 }
 
 function runtimeProfileLabel(id: string): string {
-  return runtimeProfileDisplayName[id] ?? id;
+  const normalized = id.trim().toLowerCase();
+  return runtimeProfileDisplayName[normalized] ?? id;
 }
 
 function componentStateIcon(state: string): string {
@@ -300,11 +331,11 @@ const launchModeOptions = computed(() => {
   byId.set("auto", { id: "auto", name: `Auto${pipelineName.value !== "Auto" ? ` (${pipelineName.value})` : ""}` });
   for (const option of pipelineOptions.value) {
     const normalized = normalizePipelineOption(option);
-    if (normalized) byId.set(normalized.id, normalized);
+    if (normalized && !hiddenUserPipelineIds.has(normalized.id)) byId.set(normalized.id, normalized);
   }
   for (const option of props.game.available_pipelines ?? []) {
     const normalized = normalizePipelineOption(option);
-    if (normalized) byId.set(normalized.id, normalized);
+    if (normalized && !hiddenUserPipelineIds.has(normalized.id)) byId.set(normalized.id, normalized);
   }
   return [...byId.values()];
 });
@@ -316,11 +347,20 @@ const displayedArtworkUrl = computed(() =>
 const usingFallbackArtwork = computed(() => !primaryArtworkUrl.value || artworkLoadFailed.value);
 
 const bottlePipelineOptions = computed(() =>
-  userSelectablePipelineOrder.map((id) => ({ id, name: userSelectablePipelineNames[id] })),
+  userSelectablePipelineOrder
+    .filter((id) => !hiddenUserPipelineIds.has(id))
+    .map((id) => ({ id, name: userSelectablePipelineNames[id] })),
 );
 
 function preferredBottlePipeline(report: SteamRuntimeReport) {
-  const candidates = [report.preferred_pipeline, report.pipeline, report.runtime_profile, props.game.preferred_pipeline, props.game.launch_method, selectedLaunchMode.value];
+  const candidates = [
+    report.preferred_pipeline,
+    report.pipeline,
+    report.runtime_profile,
+    props.game.preferred_pipeline,
+    props.game.launch_method,
+    selectedLaunchMode.value,
+  ];
   return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "m11";
 }
 
@@ -356,7 +396,7 @@ function runtimeReportFromD3DMetalState(state: D3DMetalGptkState, actions: D3DMe
   const requiredActions = state.play_ready
     ? []
     : actions
-        .filter((action) => action.id !== "play_d3dmetal")
+        .filter((action) => action.id !== "play_d3dmetal" && !d3dmetalStateReady(action.state))
         .map((action) => ({ id: action.id, status: d3dmetalComponentState(action.state), detail: action.detail }));
   return {
     appid: state.appid,
@@ -379,12 +419,10 @@ function runtimeReportFromD3DMetalState(state: D3DMetalGptkState, actions: D3DMe
   };
 }
 
-const visibleD3DMetalActions = computed(() =>
-  d3dmetalActions.value.filter((action) => action.id !== "play_d3dmetal"),
-);
+const visibleD3DMetalActions = computed(() => d3dmetalActions.value.filter((action) => action.id !== "play_d3dmetal"));
 
 const pendingD3DMetalActions = computed(() =>
-  visibleD3DMetalActions.value.filter((action) => !d3dmetalActionReady(action)),
+  visibleD3DMetalActions.value.filter((action) => action.enabled && !d3dmetalActionReady(action)),
 );
 
 const d3dmetalStatusItems = computed(() => {
@@ -457,7 +495,6 @@ onMounted(async () => {
       }
       goldbergCacheOk.value = gs.cache_files_ok === true;
     }
-
   }
 });
 
@@ -498,7 +535,7 @@ watch(
     if (pipelineResolvedLocally.value) return;
     const routeId = props.game.preferred_pipeline || props.game.launch_method;
     if (routeId && userSelectablePipelineOrder.includes(routeId)) {
-      pipelineName.value = props.game.launch_method_name || userSelectablePipelineNames[routeId] || pipelineName.value;
+      pipelineName.value = pipelineDisplayName(routeId, props.game.launch_method_name || pipelineName.value);
     }
   },
 );
@@ -513,21 +550,23 @@ async function refreshPipelineMetadata() {
     pipelines: PipelineOption[];
   }>("GET", `/mtsp/pipelines?appid=${props.game.appid}`);
   if (gp?.ok && gp.recommended_name) {
-    pipelineName.value = gp.preferred_name || gp.recommended_name;
+    const routeId = gp.preferred || gp.recommended;
+    pipelineName.value = pipelineDisplayName(routeId, gp.preferred_name || gp.recommended_name);
     pipelineResolvedLocally.value = true;
     pipelineOptions.value = gp.pipelines ?? [];
   }
 }
 
 async function toggleGoldberg(enable: boolean) {
-  const result = await api<{ ok: boolean; goldberg_active: boolean; cache_files_ok?: boolean; backed_up_at?: number | null }>(
-    "POST",
-    "/goldberg/toggle",
-    {
-      appid: props.game.appid,
-      enable,
-    },
-  );
+  const result = await api<{
+    ok: boolean;
+    goldberg_active: boolean;
+    cache_files_ok?: boolean;
+    backed_up_at?: number | null;
+  }>("POST", "/goldberg/toggle", {
+    appid: props.game.appid,
+    enable,
+  });
   if (result?.ok) {
     goldbergActive.value = result.goldberg_active;
     if (typeof result.backed_up_at === "number") {
@@ -636,17 +675,50 @@ async function loadD3DMetalStatus() {
   if (result?.ok && result.state) {
     d3dmetalState.value = result.state;
     d3dmetalActions.value = result.actions ?? [];
+    gptk3Installed.value = result.gptk3_installed === true;
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
     syncD3DMetalRuntimeReport();
   } else {
     d3dmetalState.value = null;
     d3dmetalActions.value = [];
+    gptk3Installed.value = false;
+    gptk3DmgFound.value = false;
+  }
+}
+
+async function repairGptk3() {
+  if (gptk3Installed.value || d3dmetalActiveActionId.value) return;
+  d3dmetalActiveActionId.value = "gptk3";
+  const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    "/d3dmetal/bottles/repair-gptk3",
+    { appid: props.game.appid, bottleId },
+    10 * 60 * 1000,
+  );
+  d3dmetalActiveActionId.value = null;
+  if (result?.ok) {
+    if (result.download_opened || result.download_required) {
+      toast.show("Apple Developer downloads opened — download GPTK 3.0, then click Repair again", "success");
+      return;
+    }
+    if (result.state) {
+      d3dmetalState.value = result.state;
+      d3dmetalActions.value = result.actions ?? [];
+    }
+    gptk3Installed.value = result.gptk3_installed === true || result.state?.gptk3 === "installed";
+    gptk3DmgFound.value = result.gptk3_dmg_found === true;
+    toast.show(gptk3Installed.value ? "GPTK 3.0 overlay installed" : "GPTK 3.0 setup complete", "success");
+  } else {
+    toast.show(result?.error ?? "GPTK 3.0 repair failed", "error");
+    await loadD3DMetalStatus();
   }
 }
 
 async function playSelectedLaunchMode() {
   const launchMode = effectivePlayLaunchMode();
   if (launchMode !== "d3dmetal") {
-    emit('play', launchMode);
+    emit("play", launchMode);
     return;
   }
   if (!d3dmetalState.value) await loadD3DMetalStatus();
@@ -662,12 +734,12 @@ async function playSelectedLaunchMode() {
     return;
   }
   const pid = await runD3DMetalAction(playAction);
-  if (pid) emit('d3dmetalLaunched', pid);
+  if (pid) emit("d3dmetalLaunched", pid);
 }
 
 async function runD3DMetalPanelAction(action: D3DMetalGptkAction) {
   const pid = await runD3DMetalAction(action);
-  if (action.id === "play_d3dmetal" && pid) emit('d3dmetalLaunched', pid);
+  if (action.id === "play_d3dmetal" && pid) emit("d3dmetalLaunched", pid);
 }
 
 function d3dmetalActionRoute(actionId: string) {
@@ -688,16 +760,22 @@ function d3dmetalActionRoute(actionId: string) {
 }
 
 async function runD3DMetalAction(action: D3DMetalGptkAction): Promise<number | null> {
+  if (d3dmetalActiveActionId.value) return null;
   const bottleId = runtimeReport.value?.bottle_id ?? props.game.bottle_id ?? `steam_${props.game.appid}`;
   const gameDir = runtimeReport.value?.game_install_path;
-  d3dmetalLoading.value = true;
+  d3dmetalActiveActionId.value = action.id;
   const route = d3dmetalActionRoute(action.id);
-  const result = await api<D3DMetalGptkResponse>("POST", route, {
-    appid: props.game.appid,
-    bottleId,
-    gameDir,
-  }, 10 * 60 * 1000);
-  d3dmetalLoading.value = false;
+  const result = await api<D3DMetalGptkResponse>(
+    "POST",
+    route,
+    {
+      appid: props.game.appid,
+      bottleId,
+      gameDir,
+    },
+    10 * 60 * 1000,
+  );
+  d3dmetalActiveActionId.value = null;
   if (result?.ok) {
     toast.show(action.id === "play_d3dmetal" ? "D3DMetal launch started" : `${action.label}: complete`, "success");
     if (result.state) {
@@ -798,22 +876,36 @@ async function saveBottleEdit() {
     // take several minutes. Surface a bottom-right toast so the bottle
     // doesn't look stale while the request is in flight.
     toast.show("Saving D3DMetal bottle — downloading GPTK runtime on first save…", "success");
-    const d3dmetalResult = await api<D3DMetalGptkResponse>("POST", "/d3dmetal/bottles/save", {
-      appid: props.game.appid,
-      bottleId,
-      name: bottleName.value || props.game.name,
-      gameDir,
-    }, 10 * 60 * 1000);
+    const d3dmetalResult = await api<D3DMetalGptkResponse>(
+      "POST",
+      "/d3dmetal/bottles/save",
+      {
+        appid: props.game.appid,
+        bottleId,
+        name: bottleName.value || props.game.name,
+        gameDir,
+      },
+      10 * 60 * 1000,
+    );
     bottleSaving.value = false;
     if (d3dmetalResult?.ok && d3dmetalResult.state) {
       d3dmetalState.value = d3dmetalResult.state;
       d3dmetalActions.value = d3dmetalResult.actions ?? [];
+      gptk3Installed.value = d3dmetalResult.state.gptk3 === "installed";
       selectedLaunchMode.value = "d3dmetal";
       runtimeReport.value = runtimeReportFromD3DMetalState(d3dmetalState.value, d3dmetalActions.value);
       localStorage.setItem(launchModeStorageKey.value, "d3dmetal");
       pipelineName.value = "D3DMetal";
       pipelineResolvedLocally.value = true;
-      toast.show("D3DMetal bottle saved; seed VC runtime DLLs and seed prefix when ready", "success");
+      emit("bottleUpdated", {
+        preferredPipeline: "d3dmetal",
+      });
+      toast.show(
+        d3dmetalResult.state.play_ready
+          ? "D3DMetal bottle saved and ready"
+          : "D3DMetal bottle saved; seed the prefix when ready",
+        "success",
+      );
       return;
     }
     toast.show(d3dmetalResult?.error ?? "D3DMetal bottle save failed", "error");
@@ -847,22 +939,27 @@ async function saveBottleEdit() {
     // that launch uses. It validates the isolated DLL lane, Unix sidecars,
     // and M12 environment without deploying or spawning the game.
     const isM12 = bottlePreferredMode.value === "m12";
-    const m12DryRun = isM12
-      ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`)
-      : null;
+    const m12DryRun = isM12 ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`) : null;
     bottleName.value = result.bottle.name;
-    bottlePreferredMode.value = result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
-      ? result.bottle.preferred_pipeline
-      : bottlePreferredMode.value;
+    bottlePreferredMode.value =
+      result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
+        ? result.bottle.preferred_pipeline
+        : bottlePreferredMode.value;
     selectedLaunchMode.value = bottlePreferredMode.value;
     pipelineName.value = userSelectablePipelineNames[bottlePreferredMode.value] || pipelineName.value;
     pipelineResolvedLocally.value = true;
+    emit("bottleUpdated", {
+      preferredPipeline: result.bottle.preferred_pipeline || null,
+    });
     if (runtimeReport.value) {
       runtimeReport.value.bottle_name = result.bottle.name;
       runtimeReport.value.preferred_pipeline = result.bottle.preferred_pipeline || null;
     }
     if (isM12 && m12DryRun?.ok === false) {
-      const missing = m12DryRun.missing?.map((entry) => entry.filename).filter(Boolean).join(", ");
+      const missing = m12DryRun.missing
+        ?.map((entry) => entry.filename)
+        .filter(Boolean)
+        .join(", ");
       toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
     } else if (isM12 && !m12DryRun) {
       toast.show("M12 bottle saved, but its dry run could not be completed", "error");
@@ -920,7 +1017,7 @@ function formatBytes(bytes: number): string {
         </span>
       </div>
       <div class="game-card-meta">
-        <span v-if="game.installed" class="route-chip">{{ pipelineName }}</span>
+        <span class="route-chip">{{ displayedPipelineName }}</span>
 
         <label v-if="game.installed" class="tool-chip toggle-label steam-emu-toggle" title="gbe_fork Steam emulator">
           <input
@@ -935,9 +1032,13 @@ function formatBytes(bytes: number): string {
           v-if="game.installed && goldbergActive"
           class="tool-chip steam-emu-cache"
           :class="goldbergCacheOk ? 'cache-ok' : 'cache-missing'"
-          :title="goldbergCacheOk
-            ? 'Original Steam DLLs are cached at ~/.metalsharp/cache/goldberg/' + props.game.appid + '/. Toggling OFF will restore them even if the in-game .orig files were deleted.'
-            : 'Original Steam DLLs are NOT cached. Toggling OFF relies on the in-game .orig files only — restore may be incomplete if Steam or a manual edit has overwritten them.'"
+          :title="
+            goldbergCacheOk
+              ? 'Original Steam DLLs are cached at ~/.metalsharp/cache/goldberg/' +
+                props.game.appid +
+                '/. Toggling OFF will restore them even if the in-game .orig files were deleted.'
+              : 'Original Steam DLLs are NOT cached. Toggling OFF relies on the in-game .orig files only — restore may be incomplete if Steam or a manual edit has overwritten them.'
+          "
         >
           <span class="cache-dot"></span>
           {{ goldbergCacheOk ? "Backup cached" : "Backup missing" }}
@@ -962,6 +1063,9 @@ function formatBytes(bytes: number): string {
             </button>
             <button class="btn btn-play" @click="playSelectedLaunchMode">Play</button>
             <select v-if="developerMode" v-model="selectedLaunchMode" class="launch-mode-select" title="Launch mode">
+              <option v-if="hiddenUserPipelineIds.has(selectedLaunchMode)" :value="selectedLaunchMode" hidden>
+                {{ userSelectablePipelineNames[selectedLaunchMode] }}
+              </option>
               <option v-for="option in launchModeOptions" :key="option.id" :value="option.id">
                 {{ option.name }}
               </option>
@@ -973,11 +1077,7 @@ function formatBytes(bytes: number): string {
               title="Run Launch Doctor"
               @click="runDoctor"
             >
-              <IconShieldPlus
-                v-if="!doctorLoading"
-                width="16"
-                height="16"
-              />
+              <IconShieldPlus v-if="!doctorLoading" width="16" height="16" />
               <span v-else class="spinner"></span>
             </button>
             <button
@@ -987,11 +1087,7 @@ function formatBytes(bytes: number): string {
               title="Run Runtime Doctor"
               @click="runRuntimeDoctor"
             >
-              <IconBox
-                v-if="!runtimeLoading"
-                width="16"
-                height="16"
-              />
+              <IconBox v-if="!runtimeLoading" width="16" height="16" />
               <span v-else class="spinner"></span>
             </button>
           </div>
@@ -1034,13 +1130,18 @@ function formatBytes(bytes: number): string {
           </div>
           <div v-if="runtimeOpen" class="doctor-panel">
             <div v-if="runtimeLoading" class="doctor-loading">Checking bottle runtime...</div>
-            <div v-else-if="bottleSaving && bottlePreferredMode === 'd3dmetal'" class="doctor-loading">Saving D3DMetal bottle — GPTK may download…</div>
+            <div v-else-if="bottleSaving && bottlePreferredMode === 'd3dmetal'" class="doctor-loading">
+              Saving D3DMetal bottle — GPTK may download…
+            </div>
             <template v-else-if="runtimeReport">
               <div class="doctor-summary">
                 <span class="badge" :class="runtimeReport.actions.length ? 'badge-warn' : 'badge-ok'">
                   {{ runtimeReport.actions.length ? "Bottle Repair" : "Bottle Ready" }}
                 </span>
-                <span>{{ runtimeReport.bottle_id ?? "steam prefix" }} / {{ runtimeProfileLabel(runtimeReport.runtime_profile) }}</span>
+                <span
+                  >{{ runtimeReport.bottle_id ?? "steam prefix" }} /
+                  {{ runtimeProfileLabel(runtimeReport.runtime_profile) }}</span
+                >
               </div>
               <div class="bottle-edit-row">
                 <span>Bottle Name</span>
@@ -1054,6 +1155,9 @@ function formatBytes(bytes: number): string {
               <div class="bottle-edit-row">
                 <span>Graphics Backend</span>
                 <select v-model="bottlePreferredMode" class="launch-mode-select" title="Bottle graphics backend">
+                  <option v-if="hiddenUserPipelineIds.has(bottlePreferredMode)" :value="bottlePreferredMode" hidden>
+                    {{ userSelectablePipelineNames[bottlePreferredMode] }}
+                  </option>
                   <option v-for="option in bottlePipelineOptions" :key="option.id" :value="option.id">
                     {{ option.name }}
                   </option>
@@ -1062,9 +1166,7 @@ function formatBytes(bytes: number): string {
               <button class="btn btn-secondary btn-sm" :disabled="bottleSaving" @click="saveBottleEdit">
                 {{ bottleSaving ? "Saving..." : "Save Bottle" }}
               </button>
-              <div v-if="defaultRule && !currentIsDefaultRule" class="compact-runtime-note">
-                Custom route
-              </div>
+              <div v-if="defaultRule && !currentIsDefaultRule" class="compact-runtime-note">Custom route</div>
               <div v-if="isD3DMetalBottleSelected() && d3dmetalState" class="compact-runtime-status">
                 <div class="runtime-status-chips" aria-label="D3DMetal runtime status">
                   <span
@@ -1077,28 +1179,40 @@ function formatBytes(bytes: number): string {
                   </span>
                 </div>
                 <div v-if="d3dmetalState.last_error" class="doctor-notes blocked">{{ d3dmetalState.last_error }}</div>
-                <div v-for="action in pendingD3DMetalActions" :key="action.id" class="runtime-action-row compact-repair-row">
+                <div v-if="!gptk3Installed" class="runtime-action-row compact-repair-row">
+                  <span>Add GPTK 3.0 overlay (optional){{ gptk3DmgFound ? "" : " — download DMG to ~/Downloads" }}</span>
+                  <button class="btn btn-secondary btn-sm" :disabled="gptk3Installed || d3dmetalActiveActionId !== null" @click="repairGptk3">
+                    {{ d3dmetalActiveActionId === "gptk3" ? "Working..." : "Repair" }}
+                  </button>
+                </div>
+                <div
+                  v-for="action in pendingD3DMetalActions"
+                  :key="action.id"
+                  class="runtime-action-row compact-repair-row"
+                >
                   <span>{{ action.label }}</span>
                   <button
                     class="btn btn-secondary btn-sm"
-                    :disabled="d3dmetalLoading || !action.enabled"
+                    :disabled="d3dmetalActiveActionId !== null || !action.enabled"
                     @click="runD3DMetalPanelAction(action)"
                   >
-                    {{ d3dmetalLoading ? "Working..." : "Fix" }}
+                    {{ d3dmetalActiveActionId === action.id ? "Working..." : "Fix" }}
                   </button>
                 </div>
               </div>
               <div v-if="!isD3DMetalBottleSelected() && unresolvedRuntimeComponents.length" class="doctor-checks">
-                <div v-for="component in unresolvedRuntimeComponents" :key="component.id" class="doctor-check" :class="componentStateClass(component.state)">
+                <div
+                  v-for="component in unresolvedRuntimeComponents"
+                  :key="component.id"
+                  class="doctor-check"
+                  :class="componentStateClass(component.state)"
+                >
                   <span class="doctor-check-state">{{ componentStateIcon(component.state) }}</span>
                   <span class="doctor-check-label">{{ bottleComponentLabel(component.id) }}</span>
                   <span class="doctor-check-detail">{{ component.state }}</span>
                 </div>
               </div>
-              <div
-                v-else-if="!isD3DMetalBottleSelected() && runtimeComponentsVerified"
-                class="compact-runtime-note"
-              >
+              <div v-else-if="!isD3DMetalBottleSelected() && runtimeComponentsVerified" class="compact-runtime-note">
                 Runtime verified
               </div>
               <div v-if="runtimeReport.actions.length && !isD3DMetalBottleSelected()" class="doctor-notes blocked">
@@ -1146,38 +1260,17 @@ function formatBytes(bytes: number): string {
     0 0 24px color-mix(in srgb, var(--accent) 16%, transparent),
     0 16px 36px color-mix(in srgb, var(--bg-deep) 34%, transparent);
 }
-:global(:root[data-theme="developer"] .game-card) {
-  border-color: rgba(0, 245, 255, 0.22);
-  border-radius: 20px;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 0 0 1px rgba(185, 255, 77, 0.14),
-    0 0 34px rgba(255, 46, 247, 0.14),
-    0 22px 56px rgba(0, 0, 0, 0.36);
-}
 .game-card.installed {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--card-installed-glow-color) 35%, transparent),
     0 0 40px color-mix(in srgb, var(--card-installed-glow-color) 48%, transparent),
     0 18px 40px color-mix(in srgb, var(--bg-deep) 36%, transparent);
 }
-:global(:root[data-theme="developer"] .game-card.installed) {
-  border-color: rgba(185, 255, 77, 0.34);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 0 0 1px rgba(185, 255, 77, 0.24),
-    0 0 42px rgba(185, 255, 77, 0.20),
-    0 24px 58px rgba(0, 0, 0, 0.38);
-}
 .game-card.uninstalled {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent),
     0 0 24px color-mix(in srgb, var(--accent) 14%, transparent),
     0 14px 34px color-mix(in srgb, var(--bg-deep) 30%, transparent);
-}
-:global(:root[data-theme="developer"] .game-card.uninstalled) {
-  opacity: 0.92;
-  filter: saturate(0.9);
 }
 .game-card:hover {
   border-color: var(--border-strong);
@@ -1187,15 +1280,6 @@ function formatBytes(bytes: number): string {
     0 22px 48px color-mix(in srgb, var(--bg-deep) 42%, transparent);
   transform: translateY(-1px);
 }
-:global(:root[data-theme="developer"] .game-card:hover) {
-  border-color: rgba(185, 255, 77, 0.58);
-  box-shadow:
-    inset 0 0 0 1px rgba(0, 245, 255, 0.14),
-    0 0 0 1px rgba(185, 255, 77, 0.28),
-    0 0 46px rgba(0, 245, 255, 0.20),
-    0 26px 64px rgba(0, 0, 0, 0.44);
-  transform: translateY(-3px);
-}
 .game-card.running {
   border-color: var(--success);
   box-shadow:
@@ -1203,15 +1287,6 @@ function formatBytes(bytes: number): string {
     0 0 38px color-mix(in srgb, var(--success) 30%, transparent),
     0 22px 48px color-mix(in srgb, var(--bg-deep) 42%, transparent);
 }
-:global(:root[data-theme="developer"] .game-card.running) {
-  border-color: var(--success);
-  box-shadow:
-    0 0 0 1px rgba(112, 255, 140, 0.38),
-    0 0 46px rgba(112, 255, 140, 0.24),
-    0 0 80px rgba(0, 245, 255, 0.10),
-    0 26px 64px rgba(0, 0, 0, 0.42);
-}
-
 .game-card-banner {
   width: 100%;
   aspect-ratio: 16 / 6.25;
@@ -1223,13 +1298,6 @@ function formatBytes(bytes: number): string {
   justify-content: center;
   overflow: hidden;
   position: relative;
-}
-:global(:root[data-theme="developer"] .game-card-banner) {
-  border-radius: 18px 18px 0 0;
-  background:
-    linear-gradient(135deg, rgba(185, 255, 77, 0.15), rgba(255, 46, 247, 0.13)),
-    var(--bg-surface);
-  box-shadow: inset 0 0 0 1px rgba(0, 245, 255, 0.18);
 }
 .game-card-cover {
   width: 100%;
@@ -1245,15 +1313,6 @@ function formatBytes(bytes: number): string {
   background:
     radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 48%),
     var(--bg-surface);
-}
-:global(:root[data-theme="developer"] .game-card-cover) {
-  filter: saturate(1.18) contrast(1.03);
-}
-:global(:root[data-theme="developer"] .game-card-cover.fallback) {
-  background:
-    radial-gradient(circle at 26% 32%, rgba(255, 46, 247, 0.24), transparent 36%),
-    radial-gradient(circle at 76% 64%, rgba(0, 245, 255, 0.20), transparent 40%),
-    linear-gradient(135deg, rgba(185, 255, 77, 0.13), rgba(9, 7, 15, 0.92));
 }
 .game-card:hover .game-card-cover {
   transform: scale(1.015);
@@ -1287,9 +1346,6 @@ function formatBytes(bytes: number): string {
   color: var(--game-card-text, var(--text-primary));
   padding: 14px;
 }
-:global(:root[data-theme="developer"] .game-card-body) {
-  padding: 14px;
-}
 .game-card-heading {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, auto);
@@ -1304,10 +1360,6 @@ function formatBytes(bytes: number): string {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-:global(:root[data-theme="developer"] .game-card-title) {
-  color: #f8ffe7;
-  font-family: var(--font-mono);
 }
 .game-card-meta {
   display: flex;
@@ -1334,13 +1386,6 @@ function formatBytes(bytes: number): string {
   color: var(--success);
   font-size: 11px;
   font-weight: 700;
-}
-:global(:root[data-theme="developer"] .route-chip),
-:global(:root[data-theme="developer"] .tool-chip),
-:global(:root[data-theme="developer"] .launch-mode-select),
-:global(:root[data-theme="developer"] .icon-button),
-:global(:root[data-theme="developer"] .danger-link) {
-  border-radius: 999px;
 }
 .bottle-chip {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -1516,12 +1561,6 @@ function formatBytes(bytes: number): string {
 }
 
 @media (max-width: 760px) {
-  :global(:root[data-theme="developer"] .game-card-banner) {
-    min-height: 102px;
-  }
-  :global(:root[data-theme="developer"] .game-card-body) {
-    padding: 12px;
-  }
   .primary-action-row,
   .secondary-action-grid {
     gap: 8px;

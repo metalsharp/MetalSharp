@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { computed, ref, type Component } from "vue";
+import { computed, nextTick, onMounted, ref, watch, type Component } from "vue";
 import IconMenu from "~icons/lucide/menu";
-import IconServer from "~icons/lucide/server";
-import IconLayers from "~icons/lucide/layers";
-import IconFileText from "~icons/lucide/file-text";
 import IconMoon from "~icons/lucide/moon";
 import IconSun from "~icons/lucide/sun";
 import IconSettings from "~icons/lucide/settings";
-import IconTerminal from "~icons/lucide/terminal";
-import type { ThemeName } from "../composables/useTheme";
+import IconBone from "~icons/lucide/bone";
+import IconTreePine from "~icons/lucide/tree-pine";
+import IconCitrus from "~icons/lucide/citrus";
+import IconSparkles from "~icons/lucide/sparkles";
+import IconBanana from "~icons/lucide/banana";
+import IconFlame from "~icons/lucide/flame";
+import IconTreePalm from "~icons/lucide/tree-palm";
+import IconScanLine from "~icons/lucide/scan-line";
+import IconActivity from "~icons/lucide/activity";
+import IconGamepad from "~icons/lucide/gamepad-2";
+import { themedNavIcon, type ThemeName } from "../composables/useTheme";
+import { api } from "../composables/useApi";
+import { useToast } from "../composables/useToast";
 
 const props = defineProps<{
   currentView: string;
@@ -17,15 +25,137 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   navigate: [view: string];
-  toggleTheme: [];
+  selectTheme: [theme: ThemeName];
 }>();
 
-const collapsed = ref(false);
+const toast = useToast();
 
-const themeToggleLabel = computed(() => {
-  if (props.theme === "developer") return "Dev Mode";
-  return props.theme === "light" ? "Light Mode" : "Dark Mode";
+const collapsed = ref(false);
+const themePickerOpen = ref(false);
+const themePickerRef = ref<HTMLElement | null>(null);
+
+type ControllerInput = "off" | "x" | "d";
+const controllerInput = ref<ControllerInput>("off");
+const controllerInputBusy = ref(false);
+
+// MetalFX Spatial upscaling (DXMT routes only: M10/M10(32)/M11/M11(32)).
+// Drives the existing /metalfx/state + /metalfx/toggle overlay system
+// (metalfx.overlay.json + dxmt.conf); the launcher reconciles the DXMT env
+// from that state at launch.
+type MetalFxMode = "1.75" | "1.50" | "off";
+const metalFx = ref<MetalFxMode>("1.50");
+const metalFxBusy = ref(false);
+
+// Wine msync (Mach-synchronized Wine sync primitives). Applies to every
+// route; the launcher sets WINEMSYNC from this config at launch.
+const msyncEnabled = ref(true);
+const msyncBusy = ref(false);
+
+onMounted(async () => {
+  const config = await api<AppConfig>("GET", "/config");
+  if (config?.ok && (config.controllerInput === "x" || config.controllerInput === "d")) {
+    controllerInput.value = config.controllerInput;
+  }
+  if (config?.ok && typeof config.msync === "boolean") {
+    msyncEnabled.value = config.msync;
+  }
+  const state = await api<MetalFxState>("GET", "/metalfx/state");
+  if (state?.ok) {
+    metalFx.value = !state.enabled ? "off" : Math.abs((state.factor ?? 1.5) - 1.75) < 0.01 ? "1.75" : "1.50";
+  }
 });
+
+async function setMetalFxMode(mode: MetalFxMode) {
+  if (metalFxBusy.value || mode === metalFx.value) return;
+  const previous = metalFx.value;
+  metalFxBusy.value = true;
+  metalFx.value = mode; // optimistic
+  const body = mode === "off" ? { enabled: false } : { enabled: true, factor: mode === "1.75" ? 1.75 : 1.5 };
+  const result = await api<MetalFxState>("POST", "/metalfx/toggle", body);
+  if (result?.ok) {
+    toast.show(
+      mode === "off"
+        ? "MetalFX disabled for DXMT routes — applies on next launch"
+        : `MetalFX set to ${mode}× for DXMT routes — applies on next launch`,
+      "success",
+    );
+  } else {
+    metalFx.value = previous;
+    toast.show("Failed to update MetalFX", "error");
+  }
+  metalFxBusy.value = false;
+}
+
+async function setMsyncEnabled(enabled: boolean) {
+  if (msyncBusy.value || enabled === msyncEnabled.value) return;
+  const previous = msyncEnabled.value;
+  msyncBusy.value = true;
+  msyncEnabled.value = enabled; // optimistic
+  const result = await api<AppConfig>("POST", "/config", { msync: enabled });
+  if (result?.ok) {
+    toast.show(
+      enabled ? "msync enabled — applies on next launch" : "msync disabled — applies on next launch",
+      "success",
+    );
+  } else {
+    msyncEnabled.value = previous;
+    toast.show("Failed to update msync", "error");
+  }
+  msyncBusy.value = false;
+}
+
+async function setControllerInput(mode: ControllerInput) {
+  if (controllerInputBusy.value || mode === controllerInput.value) return;
+  const previous = controllerInput.value;
+  controllerInputBusy.value = true;
+  controllerInput.value = mode; // optimistic
+  const result = await api<AppConfig>("POST", "/config", { controllerInput: mode });
+  if (result?.ok) {
+    toast.show(
+      mode === "off"
+        ? "Controller input shims removed"
+        : `Controller input shims set to ${mode === "x" ? "XInput" : "DInput"} — applied on next launch`,
+      "success",
+    );
+  } else {
+    controllerInput.value = previous;
+    toast.show("Failed to update controller input", "error");
+  }
+  controllerInputBusy.value = false;
+}
+
+watch(themePickerOpen, async (open) => {
+  if (!open) return;
+  await nextTick();
+  themePickerRef.value?.querySelector(".theme-picker-item.active")?.scrollIntoView({ block: "nearest" });
+});
+
+interface ThemeOption {
+  name: ThemeName;
+  label: string;
+  icon: Component;
+}
+
+const themeOptions: ThemeOption[] = [
+  { name: "dark", label: "Dark", icon: IconMoon },
+  { name: "light", label: "Light", icon: IconSun },
+  { name: "skeleton", label: "Skeleton", icon: IconBone },
+  { name: "forest", label: "Forest", icon: IconTreePine },
+  { name: "orange-peel", label: "Orange Peel", icon: IconCitrus },
+  { name: "dragonfruit", label: "Dragonfruit", icon: IconSparkles },
+  { name: "banana", label: "Banana", icon: IconBanana },
+  { name: "lava", label: "Lava", icon: IconFlame },
+  { name: "beach", label: "Beach", icon: IconTreePalm },
+  { name: "xray", label: "Xray", icon: IconScanLine },
+];
+
+const currentThemeOption = computed(() => themeOptions.find((o) => o.name === props.theme) ?? themeOptions[0]);
+const themeToggleLabel = computed(() => currentThemeOption.value.label);
+
+function chooseTheme(name: ThemeName) {
+  emit("selectTheme", name);
+  themePickerOpen.value = false;
+}
 
 interface NavItem {
   view: string;
@@ -33,11 +163,11 @@ interface NavItem {
   icon: Component;
 }
 
-const navItems: NavItem[] = [
-  { view: "library", label: "Library", icon: IconServer },
-  { view: "sharp-library", label: "Sharp", icon: IconLayers },
-  { view: "logs", label: "Logs", icon: IconFileText },
-];
+const navItems = computed<NavItem[]>(() => [
+  { view: "library", label: "Library", icon: themedNavIcon("library") },
+  { view: "sharp-library", label: "Sharp", icon: themedNavIcon("sharp") },
+  { view: "logs", label: "Logs", icon: themedNavIcon("logs") },
+]);
 </script>
 
 <template>
@@ -66,17 +196,139 @@ const navItems: NavItem[] = [
       </button>
     </div>
 
+    <div class="sidebar-center-controls">
+      <div class="sidebar-input-selector" :title="collapsed ? 'msync' : undefined">
+        <div v-if="!collapsed" class="sidebar-input-label">
+          <IconActivity class="sidebar-input-icon" width="14" height="14" />
+          <span>msync</span>
+        </div>
+        <div class="sidebar-input-options" role="group" aria-label="Wine msync">
+          <button
+            class="sidebar-input-option"
+            :class="{ active: msyncEnabled }"
+            :disabled="msyncBusy"
+            :aria-pressed="msyncEnabled"
+            :title="collapsed ? 'On' : undefined"
+            @click="setMsyncEnabled(true)"
+          >
+            On
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: !msyncEnabled }"
+            :disabled="msyncBusy"
+            :aria-pressed="!msyncEnabled"
+            :title="collapsed ? 'Off' : undefined"
+            @click="setMsyncEnabled(false)"
+          >
+            Off
+          </button>
+        </div>
+      </div>
+      <div class="sidebar-input-selector" :title="collapsed ? 'MetalFX' : undefined">
+        <div v-if="!collapsed" class="sidebar-input-label">
+          <IconScanLine class="sidebar-input-icon" width="14" height="14" />
+          <span>MetalFX</span>
+        </div>
+        <div class="sidebar-input-options" role="group" aria-label="MetalFX upscaling">
+          <button
+            class="sidebar-input-option"
+            :class="{ active: metalFx === '1.75' }"
+            :disabled="metalFxBusy"
+            :aria-pressed="metalFx === '1.75'"
+            :title="collapsed ? '1.75' : undefined"
+            @click="setMetalFxMode('1.75')"
+          >
+            1.75
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: metalFx === '1.50' }"
+            :disabled="metalFxBusy"
+            :aria-pressed="metalFx === '1.50'"
+            :title="collapsed ? '1.50' : undefined"
+            @click="setMetalFxMode('1.50')"
+          >
+            1.50
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: metalFx === 'off' }"
+            :disabled="metalFxBusy"
+            :aria-pressed="metalFx === 'off'"
+            :title="collapsed ? 'Off' : undefined"
+            @click="setMetalFxMode('off')"
+          >
+            Off
+          </button>
+        </div>
+      </div>
+      <div class="sidebar-input-selector" :title="collapsed ? 'Controller input' : undefined">
+        <div v-if="!collapsed" class="sidebar-input-label">
+          <IconGamepad class="sidebar-input-icon" width="14" height="14" />
+          <span>Controller</span>
+        </div>
+        <div class="sidebar-input-options" role="group" aria-label="Controller input shims">
+          <button
+            class="sidebar-input-option"
+            :class="{ active: controllerInput === 'off' }"
+            :disabled="controllerInputBusy"
+            :aria-pressed="controllerInput === 'off'"
+            :title="collapsed ? 'Off' : undefined"
+            @click="setControllerInput('off')"
+          >
+            Off
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: controllerInput === 'x' }"
+            :disabled="controllerInputBusy"
+            :aria-pressed="controllerInput === 'x'"
+            :title="collapsed ? 'XInput' : undefined"
+            @click="setControllerInput('x')"
+          >
+            X
+          </button>
+          <button
+            class="sidebar-input-option"
+            :class="{ active: controllerInput === 'd' }"
+            :disabled="controllerInputBusy"
+            :aria-pressed="controllerInput === 'd'"
+            :title="collapsed ? 'DInput' : undefined"
+            @click="setControllerInput('d')"
+          >
+            D
+          </button>
+        </div>
+      </div>
+    </div>
     <div class="sidebar-bottom">
       <button
         class="sidebar-nav-item sidebar-theme-toggle"
-        @click="emit('toggleTheme')"
+        @click="themePickerOpen = !themePickerOpen"
         :title="collapsed ? themeToggleLabel : undefined"
       >
-        <IconTerminal v-if="theme === 'developer'" class="sidebar-nav-icon" width="18" height="18" />
-        <IconSun v-else-if="theme === 'light'" class="sidebar-nav-icon" width="18" height="18" />
-        <IconMoon v-else class="sidebar-nav-icon" width="18" height="18" />
+        <component :is="currentThemeOption.icon" class="sidebar-nav-icon" width="18" height="18" />
         <span v-if="!collapsed" class="sidebar-nav-label">{{ themeToggleLabel }}</span>
       </button>
+      <Teleport to="body">
+        <div v-if="themePickerOpen" class="theme-picker-backdrop" @click="themePickerOpen = false"></div>
+        <div v-if="themePickerOpen" class="theme-picker-popover">
+          <div class="theme-picker-header">Theme</div>
+          <div ref="themePickerRef" class="theme-picker-list">
+            <button
+              v-for="option in themeOptions"
+              :key="option.name"
+              class="theme-picker-item"
+              :class="{ active: option.name === theme }"
+              @click="chooseTheme(option.name)"
+            >
+              <component :is="option.icon" class="theme-picker-icon" width="16" height="16" />
+              <span class="theme-picker-label">{{ option.label }}</span>
+            </button>
+          </div>
+        </div>
+      </Teleport>
       <button
         class="sidebar-nav-item"
         :class="{ active: currentView === 'settings' }"
@@ -136,8 +388,36 @@ const navItems: NavItem[] = [
   background-color: rgba(255, 255, 255, 0.32);
 }
 
-:global(:root[data-theme="developer"] .sidebar) {
-  background-color: rgba(9, 7, 15, 0.32);
+:global(:root[data-theme="skeleton"] .sidebar) {
+  background-color: rgba(19, 19, 19, 0.32);
+}
+
+:global(:root[data-theme="forest"] .sidebar) {
+  background-color: rgba(13, 21, 16, 0.32);
+}
+
+:global(:root[data-theme="orange-peel"] .sidebar) {
+  background-color: rgba(18, 11, 8, 0.32);
+}
+
+:global(:root[data-theme="dragonfruit"] .sidebar) {
+  background-color: rgba(26, 14, 24, 0.32);
+}
+
+:global(:root[data-theme="banana"] .sidebar) {
+  background-color: rgba(74, 61, 22, 0.32);
+}
+
+:global(:root[data-theme="lava"] .sidebar) {
+  background-color: rgba(26, 6, 6, 0.32);
+}
+
+:global(:root[data-theme="beach"] .sidebar) {
+  background-color: rgba(138, 116, 78, 0.32);
+}
+
+:global(:root[data-theme="xray"] .sidebar) {
+  background-color: rgba(4, 8, 6, 0.32);
 }
 
 :global(:root[data-low-performance="true"] .sidebar) {
@@ -231,20 +511,27 @@ const navItems: NavItem[] = [
 }
 
 .sidebar-nav {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   padding: 10px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  overflow-y: auto;
+}
+
+.sidebar-center-controls {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .sidebar-nav-item {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
   min-height: 36px;
   padding: 8px 10px;
@@ -256,7 +543,7 @@ const navItems: NavItem[] = [
   cursor: pointer;
   transition: all var(--transition);
   width: 100%;
-  text-align: center;
+  text-align: left;
   font-size: 13px;
   -webkit-app-region: no-drag;
   white-space: nowrap;
@@ -350,34 +637,6 @@ const navItems: NavItem[] = [
     inset 0 0 10px rgba(52, 127, 186, 0.03);
 }
 
-:global(:root[data-theme="developer"] .sidebar::before) {
-  background:
-    linear-gradient(180deg, rgba(255, 46, 247, 0.16) 0%, transparent 34%),
-    linear-gradient(115deg, rgba(185, 255, 77, 0.1), transparent 42%, rgba(0, 245, 255, 0.08));
-}
-
-:global(:root[data-theme="developer"] .sidebar-nav-item.active) {
-  border-color: rgba(185, 255, 77, 0.24);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.09),
-    inset 0 0 14px rgba(255, 46, 247, 0.06),
-    0 0 0 1px rgba(0, 245, 255, 0.07);
-}
-
-:global(:root[data-theme="developer"] .sidebar-nav-item.active::before) {
-  background:
-    linear-gradient(90deg, transparent 0%, rgba(185, 255, 77, 0.45) 45%, rgba(0, 245, 255, 0.28) 52%, transparent 100%),
-    linear-gradient(180deg, rgba(255, 46, 247, 0.16), transparent 64%);
-  opacity: 0.18;
-}
-
-:global(:root[data-theme="developer"] .sidebar-nav-item.active::after) {
-  border-color: rgba(0, 245, 255, 0.18);
-  box-shadow:
-    inset 0 0 0 1px rgba(185, 255, 77, 0.07),
-    inset 0 0 12px rgba(255, 46, 247, 0.05);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .sidebar-nav-item.active::before {
     animation: none;
@@ -388,6 +647,154 @@ const navItems: NavItem[] = [
 
 .sidebar-theme-toggle {
   margin-bottom: 4px;
+}
+
+.sidebar-input-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-surface) 38%, transparent);
+}
+
+.sidebar-input-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.sidebar-input-icon {
+  flex-shrink: 0;
+}
+
+.sidebar-input-options {
+  display: flex;
+  gap: 4px;
+}
+
+.sidebar-input-option {
+  flex: 1;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--sidebar-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-input-option:hover:not(:disabled) {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-hover);
+  border-color: var(--border);
+}
+
+.sidebar-input-option.active {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 60%), var(--sidebar-active);
+  color: var(--sidebar-text-active);
+  border-color: rgba(95, 183, 232, 0.18);
+}
+
+.sidebar-input-option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.theme-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 89;
+}
+
+.theme-picker-popover {
+  position: fixed;
+  left: 8px;
+  bottom: 96px;
+  width: calc(var(--sidebar-width-expanded) - 8px);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px var(--card-glow);
+  -webkit-app-region: no-drag;
+}
+
+.theme-picker-header {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.theme-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 288px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-dim) transparent;
+}
+.theme-picker-list::-webkit-scrollbar {
+  width: 4px;
+}
+.theme-picker-list::-webkit-scrollbar-thumb {
+  background: var(--accent-dim);
+  border-radius: 2px;
+}
+
+.theme-picker-item {
+  scroll-snap-align: start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition);
+}
+.theme-picker-item:hover {
+  background: var(--sidebar-hover);
+  border-color: var(--border);
+}
+.theme-picker-item.active {
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.theme-picker-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar-bottom {

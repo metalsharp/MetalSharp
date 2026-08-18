@@ -257,6 +257,7 @@ pub enum RuntimeProfile {
     M11,
     M11_32,
     M12,
+    Vkd3d,
     M13,
     #[serde(rename = "d3dmetal")]
     D3DMetal,
@@ -634,6 +635,7 @@ fn normalize_loaded_runtime_profile_components(manifest: &mut BottleManifest) {
         RuntimeProfile::D3DMetal => {
             manifest.installed_components.iter().any(|component| is_m12_runtime_component(&component.id))
         },
+        RuntimeProfile::Vkd3d => false,
         _ => false,
     };
 
@@ -645,6 +647,50 @@ fn normalize_loaded_runtime_profile_components(manifest: &mut BottleManifest) {
 
 const M12_RUNTIME_COMPONENT_IDS: &[&str] =
     &["m12_d3d12", "m12_d3d11", "m12_d3d10core", "m12_dxgi_dxmt", "m12_dxgi", "m12_winemetal", "m12_gpu_stubs"];
+const VKD3D_RUNTIME_COMPONENT_IDS: &[&str] =
+    &["vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "dxvk_d3d9", "dxvk_d3d11", "dxvk_d3d10core"];
+
+fn vkd3d_runtime_component_artifacts(component_id: &str) -> Option<&'static [&'static str]> {
+    match component_id {
+        "vkd3d_d3d12" => Some(&["vkd3d-proton/x86_64-windows/d3d12.dll"]),
+        "vkd3d_d3d12core" => Some(&["vkd3d-proton/x86_64-windows/d3d12core.dll"]),
+        "vkd3d_dxgi" => Some(&["vkd3d-proton/x86_64-windows/dxgi.dll"]),
+        "dxvk_d3d9" => Some(&["dxvk/x86_64-windows/d3d9.dll"]),
+        "dxvk_d3d11" => Some(&["dxvk/x86_64-windows/d3d11.dll"]),
+        "dxvk_d3d10core" => Some(&["dxvk/x86_64-windows/d3d10core.dll"]),
+        _ => None,
+    }
+}
+
+fn is_vkd3d_runtime_component(component_id: &str) -> bool {
+    vkd3d_runtime_component_artifacts(component_id).is_some()
+}
+
+fn inspect_vkd3d_runtime_component(component_id: &str) -> Option<ComponentState> {
+    let artifacts = vkd3d_runtime_component_artifacts(component_id)?;
+    let home = dirs::home_dir()?;
+    let valid_count = artifacts
+        .iter()
+        .filter(|artifact| crate::installer::vkd3d_runtime_artifact_valid_for_home(&home, artifact))
+        .count();
+    if valid_count == artifacts.len() {
+        Some(ComponentState::Installed)
+    } else if valid_count > 0 || crate::installer::vkd3d_runtime_current_for_home(&home) {
+        Some(ComponentState::NeedsRepair)
+    } else {
+        Some(ComponentState::Missing)
+    }
+}
+
+fn vkd3d_runtime_component_detail(component_id: &str) -> String {
+    let artifacts = vkd3d_runtime_component_artifacts(component_id).unwrap_or(&[]);
+    let home = dirs::home_dir().unwrap_or_default();
+    let paths = artifacts
+        .iter()
+        .map(|artifact| crate::installer::vkd3d_runtime_artifact_path_for_home(&home, artifact).display().to_string())
+        .collect::<Vec<_>>();
+    format!("VKD3D-Proton/DXVK runtime artifact(s): {}", paths.join(", "))
+}
 
 fn m12_runtime_component_artifacts(component_id: &str) -> Option<&'static [&'static str]> {
     match component_id {
@@ -724,6 +770,7 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
             ("dxmt", &["d3d11", "dxgi"])
         },
         RuntimeProfile::M12 => ("dxmt_m12", M12_RUNTIME_COMPONENT_IDS),
+        RuntimeProfile::Vkd3d => ("vkd3d-proton", VKD3D_RUNTIME_COMPONENT_IDS),
         _ => return,
     };
 
@@ -739,6 +786,12 @@ fn refresh_dxmt_runtime_before_save(manifest: &mut BottleManifest) {
             },
             RuntimeProfile::M12 => crate::installer::ensure_dxmt_m12_runtime_ready(&home)
                 .map(|_| crate::installer::dxmt_m12_runtime_current_for_home(&home)),
+            // The VKD3D-Proton / DXVK lanes are installed once by the installer
+            // / migration and deployed from the already-installed lane on save.
+            // They must never be re-staged here: ensure_vkd3d_runtime_ready would
+            // re-extract the runtime bundle and spawn wine on every bottle save,
+            // hanging the pipeline. Keep this a read-only currency check.
+            RuntimeProfile::Vkd3d => Ok(crate::installer::vkd3d_runtime_current_for_home(&home)),
             _ => Ok(false),
         })
         .unwrap_or_else(|e| {
@@ -837,6 +890,7 @@ fn pipeline_preference_id(pipeline: crate::mtsp::engine::PipelineId) -> &'static
         crate::mtsp::engine::PipelineId::M11 => "m11",
         crate::mtsp::engine::PipelineId::M11_32 => "m11_32",
         crate::mtsp::engine::PipelineId::M12 => "m12",
+        crate::mtsp::engine::PipelineId::Vkd3d => "vkd3d",
         crate::mtsp::engine::PipelineId::M13 => "m13",
         crate::mtsp::engine::PipelineId::D3DMetal => "d3dmetal",
         crate::mtsp::engine::PipelineId::M32 => "m32",
@@ -991,7 +1045,8 @@ pub fn steam_route_contract_for(pipeline: crate::mtsp::engine::PipelineId) -> St
 }
 
 /// The full route-contract table covering every protected and first-class
-/// Steam game lane. M9/M10/M11 are protected compatibility lanes; M12/M13,
+/// Steam game lane. M9/M10/M11 are protected compatibility lanes; M12,
+/// VKD3D-Proton, and M13,
 /// FnaArm64, WineBare, and D3DMetal cover the remaining route families the
 /// contract must exercise.
 pub fn steam_route_contracts() -> Vec<SteamRouteContract> {
@@ -1001,6 +1056,7 @@ pub fn steam_route_contracts() -> Vec<SteamRouteContract> {
         steam_route_contract_for(M10),
         steam_route_contract_for(M11),
         steam_route_contract_for(M12),
+        steam_route_contract_for(Vkd3d),
         steam_route_contract_for(M13),
         steam_route_contract_for(FnaArm64),
         steam_route_contract_for(WineBare),
@@ -1194,6 +1250,12 @@ pub fn prepare_steam_game_launch(
             crate::mtsp::engine::PipelineId::M12 => {
                 crate::installer::ensure_dxmt_m12_runtime_ready(&home)
                     .map_err(|e| format!("M12 runtime setup failed before Steam launch: {}", e))?;
+            },
+            crate::mtsp::engine::PipelineId::Vkd3d => {
+                // VKD3D-Proton prepares by removing stale DLLs and deploying the
+                // correct set from the already-installed lane (preparation runs
+                // immediately below via prepare_steam_pipeline_env). It does not
+                // re-run the installer on launch.
             },
             _ => {},
         }
@@ -1439,6 +1501,7 @@ pub fn classify_installer(source_installer: &Path) -> InstallerClassification {
             crate::mtsp::engine::PipelineId::M11 => RuntimeProfile::M11,
             crate::mtsp::engine::PipelineId::M11_32 => RuntimeProfile::M11_32,
             crate::mtsp::engine::PipelineId::M12 => RuntimeProfile::M12,
+            crate::mtsp::engine::PipelineId::Vkd3d => RuntimeProfile::Vkd3d,
             crate::mtsp::engine::PipelineId::M13 => RuntimeProfile::M13,
             crate::mtsp::engine::PipelineId::D3DMetal => RuntimeProfile::D3DMetal,
             _ => RuntimeProfile::Plain,
@@ -1537,6 +1600,7 @@ pub fn set_runtime_profile(id: &str, profile: RuntimeProfile) -> Result<BottleMa
         let pipeline = runtime_profile_definition(profile).launch_pipeline;
         manifest.preferred_pipeline = pipeline.user_selectable_id().map(|id| id.to_string());
     }
+    prepare_start_protected_game_for_bottle_save(&manifest);
     manifest.updated_at = timestamp_secs();
     save_bottle(&manifest)?;
     if let Some(game_dir) = stage_route_dlls_for_saved_steam_bottle(&manifest)? {
@@ -1552,6 +1616,27 @@ pub fn set_runtime_profile(id: &str, profile: RuntimeProfile) -> Result<BottleMa
         let _ = save_steam_compatdata(&manifest, pipeline);
     }
     Ok(manifest)
+}
+
+/// Seed the DXMT config for a bottle save on a DXMT-family route.
+///
+/// The runtime-completeness gate (see `recipe.rs`) treats the literal line
+/// `dxmt.shaderMetalVersion = 310` in `runtime/wine/etc/dxmt.conf` as a
+/// required asset, and the save path reaches that validation via
+/// `deploy_recipe_dlls` *before* the launch-time seeding would run. So on the
+/// first bottle save we ensure the config carries the shader-metal version and
+/// drop a marker recording that the seed was applied (idempotent afterwards).
+fn ensure_dxmt_config_seeded_for_save(home: &Path, pipeline: crate::mtsp::engine::PipelineId) -> Result<bool, String> {
+    if !pipeline.is_dxmt_family() {
+        return Ok(false);
+    }
+    let changed = crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home)?;
+    let wine_etc = crate::platform::metalsharp_home_dir_for(home).join("runtime").join("wine").join("etc");
+    fs::create_dir_all(&wine_etc).map_err(|e| format!("create DXMT config dir {}: {}", wine_etc.display(), e))?;
+    let marker = wine_etc.join("metalsharp.dxmt-seeded");
+    fs::write(&marker, format!("dxmt.shaderMetalVersion = {}\n", crate::mtsp::launcher::DXMT_SHADER_METAL_VERSION))
+        .map_err(|e| format!("write DXMT seed marker {}: {}", marker.display(), e))?;
+    Ok(changed)
 }
 
 fn stage_m12_dlls_for_saved_steam_bottle(
@@ -1573,6 +1658,7 @@ fn stage_m12_dlls_for_saved_steam_bottle(
     let home = dirs::home_dir().ok_or("no home dir")?;
     crate::installer::ensure_dxmt_m12_runtime_ready(&home)
         .map_err(|e| format!("M12 runtime setup failed while saving bottle: {}", e))?;
+    ensure_dxmt_config_seeded_for_save(&home, crate::mtsp::engine::PipelineId::M12)?;
 
     let (_env, recipe) = crate::mtsp::launcher::prepare_steam_pipeline_env(appid, crate::mtsp::engine::PipelineId::M12)
         .map_err(|e| format!("M12 DLL deployment failed while saving bottle: {}", e))?;
@@ -1588,7 +1674,7 @@ fn stage_m12_dlls_for_saved_steam_bottle(
 ///
 /// M12 is handled by `stage_m12_dlls_for_saved_steam_bottle` (which also
 /// ensures the isolated M12 runtime is ready). This helper covers the other
-/// DXMT-family routes (M9/M10/M10_32/M11/M11_32); non-DXMT profiles return
+/// graphics routes (M9/M10/M10_32/M11/M11_32 and VKD3D-Proton); non-graphics profiles return
 /// `None` and are staged at launch time as before.
 fn stage_route_dlls_for_saved_steam_bottle(
     manifest: &BottleManifest,
@@ -1600,9 +1686,12 @@ fn stage_route_dlls_for_saved_steam_bottle(
         return Ok(None);
     };
     let pipeline = runtime_profile_definition(manifest.runtime_profile).launch_pipeline;
-    if !pipeline.is_dxmt_family() {
+    if !pipeline.is_graphics_route() {
         return Ok(None);
     }
+
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    ensure_dxmt_config_seeded_for_save(&home, pipeline)?;
 
     let manifest_game_dir = manifest.game_install_path.as_ref().map(PathBuf::from).filter(|path| path.exists());
     let scan_game_dir = crate::scan::resolve_dual_game_dir(appid).wine_dir.filter(|path| path.exists());
@@ -1614,6 +1703,17 @@ fn stage_route_dlls_for_saved_steam_bottle(
         format!("{} DLL deployment failed while saving bottle: {}", pipeline.user_selectable_id().unwrap_or("route"), e)
     })?;
     Ok(recipe.game_dir)
+}
+
+fn prepare_start_protected_game_for_bottle_save(manifest: &BottleManifest) {
+    let Some(appid) = manifest.steam_app_id else {
+        return;
+    };
+    let manifest_dir = manifest.game_install_path.as_deref().map(Path::new).filter(|path| path.is_dir());
+    let scanned_dir = crate::scan::resolve_dual_game_dir(appid).wine_dir;
+    if let Some(game_dir) = manifest_dir.or(scanned_dir.as_deref()) {
+        crate::mtsp::launcher::prepare_start_protected_game_for_bottle_save(appid, game_dir);
+    }
 }
 
 pub fn edit_bottle(
@@ -1659,6 +1759,7 @@ pub fn edit_bottle(
         manifest.installed_components =
             rebuild_components_for_profile(&manifest.installed_components, manifest.runtime_profile);
     }
+    prepare_start_protected_game_for_bottle_save(&manifest);
     manifest.updated_at = timestamp_secs();
     save_bottle(&manifest)?;
     if let Some(game_dir) = stage_route_dlls_for_saved_steam_bottle(&manifest)? {
@@ -2564,6 +2665,63 @@ pub fn repair_component(
         });
     }
 
+    if matches!(manifest.runtime_profile, RuntimeProfile::Vkd3d) && is_vkd3d_runtime_component(component_id) {
+        let home = dirs::home_dir().ok_or("no home dir")?;
+        let state = inspect_vkd3d_runtime_component(component_id).unwrap_or(ComponentState::Missing);
+        if dry_run {
+            return Ok(ComponentRepairReport {
+                id: component_id.to_string(),
+                status: if state == ComponentState::Installed {
+                    "already_installed"
+                } else {
+                    "runtime_repair_available"
+                }
+                .to_string(),
+                detail: if state == ComponentState::Installed {
+                    format!("{} is already current", vkd3d_runtime_component_detail(component_id))
+                } else {
+                    "Refreshes the pinned VKD3D-Proton and DXVK Vulkan runtime lanes".to_string()
+                },
+                asset_path: vkd3d_runtime_component_artifacts(component_id)
+                    .and_then(|artifacts| artifacts.first().copied())
+                    .map(|artifact| {
+                        crate::installer::vkd3d_runtime_artifact_path_for_home(&home, artifact).display().to_string()
+                    }),
+                log_path: None,
+                pid: None,
+            });
+        }
+
+        crate::installer::ensure_vkd3d_runtime_ready(&home)?;
+        for id in VKD3D_RUNTIME_COMPONENT_IDS {
+            let state = inspect_vkd3d_runtime_component(id).unwrap_or(ComponentState::Missing);
+            mark_component_state(&mut manifest, id, state);
+        }
+        manifest.health = if components_ready(&manifest.installed_components) {
+            BottleHealth::Ready
+        } else {
+            BottleHealth::NeedsRepair
+        };
+        manifest.updated_at = timestamp_secs();
+        save_bottle(&manifest)?;
+        let state = inspect_vkd3d_runtime_component(component_id).unwrap_or(ComponentState::Missing);
+        return Ok(ComponentRepairReport {
+            id: component_id.to_string(),
+            status: if state == ComponentState::Installed { "installed" } else { "needs_repair" }.to_string(),
+            detail: format!(
+                "Refreshed VKD3D-Proton/DXVK Vulkan runtime surface; {}",
+                vkd3d_runtime_component_detail(component_id)
+            ),
+            asset_path: vkd3d_runtime_component_artifacts(component_id)
+                .and_then(|artifacts| artifacts.first().copied())
+                .map(|artifact| {
+                    crate::installer::vkd3d_runtime_artifact_path_for_home(&home, artifact).display().to_string()
+                }),
+            log_path: None,
+            pid: None,
+        });
+    }
+
     if component_id == "d3d12_agility" {
         let home = dirs::home_dir().ok_or("no home dir")?;
         let appid = manifest.steam_app_id.ok_or("D3D12 Agility repair requires a Steam app id")?;
@@ -3250,9 +3408,20 @@ pub fn handle_steam_runtime_doctor(body: &serde_json::Map<String, Value>) -> Val
         .map(|r| {
             let system32 = prefix.join("drive_c/windows/system32");
             let syswow64 = prefix.join("drive_c/windows/syswow64");
+            // VKD3D-Proton / DXVK DLLs are deployed to the game folder, not the
+            // Wine prefix system32 — treat the game install dir as the source of
+            // truth for installed route DLLs on the vkd3d lane.
+            let game_dir = if pipeline == crate::mtsp::engine::PipelineId::Vkd3d {
+                bottle.as_ref().and_then(|b| b.game_install_path.as_deref()).map(PathBuf::from)
+            } else {
+                None
+            };
             r.check_dlls
                 .iter()
-                .filter(|dll| !system32.join(dll).exists() && !syswow64.join(dll).exists())
+                .filter(|dll| {
+                    let in_game = game_dir.as_ref().map(|d| d.join(dll).exists()).unwrap_or(false);
+                    !system32.join(dll).exists() && !syswow64.join(dll).exists() && !in_game
+                })
                 .cloned()
                 .collect::<Vec<_>>()
         })
@@ -3459,6 +3628,23 @@ fn runtime_profile_definition(profile: RuntimeProfile) -> RuntimeProfileDefiniti
             ][..],
             crate::mtsp::engine::PipelineId::M12,
         ),
+        RuntimeProfile::Vkd3d => (
+            "VKD3D-Proton",
+            BottleArch::Win64,
+            true,
+            &[
+                "vkd3d_d3d12",
+                "vkd3d_d3d12core",
+                "vkd3d_dxgi",
+                "dxvk_d3d9",
+                "dxvk_d3d11",
+                "dxvk_d3d10core",
+                "vcrun2019_x64",
+                "vcrun2019_x86",
+                "corefonts",
+            ][..],
+            crate::mtsp::engine::PipelineId::Vkd3d,
+        ),
         RuntimeProfile::M13 => (
             "GPTK D3DMetal",
             BottleArch::Win64,
@@ -3578,6 +3764,7 @@ fn runtime_profile_for_pipeline(pipeline: crate::mtsp::engine::PipelineId) -> Ru
         crate::mtsp::engine::PipelineId::M11 => RuntimeProfile::M11,
         crate::mtsp::engine::PipelineId::M11_32 => RuntimeProfile::M11_32,
         crate::mtsp::engine::PipelineId::M12 => RuntimeProfile::M12,
+        crate::mtsp::engine::PipelineId::Vkd3d => RuntimeProfile::Vkd3d,
         crate::mtsp::engine::PipelineId::M13 => RuntimeProfile::M13,
         crate::mtsp::engine::PipelineId::D3DMetal => RuntimeProfile::D3DMetal,
         crate::mtsp::engine::PipelineId::FnaArm64 => RuntimeProfile::FnaArm64,
@@ -3609,6 +3796,7 @@ fn parse_runtime_profile(value: &str) -> Option<RuntimeProfile> {
         "m11" => Some(RuntimeProfile::M11),
         "m11_32" => Some(RuntimeProfile::M11_32),
         "m12" => Some(RuntimeProfile::M12),
+        "vkd3d" | "vkd3d_proton" | "vulkan_d3d12" => Some(RuntimeProfile::Vkd3d),
         "m13" | "gptk" => Some(RuntimeProfile::M13),
         "d3dmetal" | "d3dmetal_native" => Some(RuntimeProfile::D3DMetal),
         "dotnet" => Some(RuntimeProfile::Dotnet),
@@ -3910,6 +4098,10 @@ fn inspect_components_for_manifest(
             let state =
                 if matches!(manifest.runtime_profile, RuntimeProfile::M12) && is_m12_runtime_component(&component.id) {
                     inspect_m12_runtime_component(&component.id).unwrap_or(fallback)
+                } else if matches!(manifest.runtime_profile, RuntimeProfile::Vkd3d)
+                    && is_vkd3d_runtime_component(&component.id)
+                {
+                    inspect_vkd3d_runtime_component(&component.id).unwrap_or(fallback)
                 } else if component.id == "d3d12_agility" {
                     inspect_d3d12_agility_component_for_manifest(manifest).unwrap_or(fallback)
                 } else if matches!(component.id.as_str(), "fna" | "xna" | "sdl2" | "fna3d" | "faudio" | "fmod") {
@@ -4011,6 +4203,7 @@ fn inspect_component_state(prefix: &Path, id: &str, fallback: ComponentState) ->
 
     match id {
         id if is_m12_runtime_component(id) => inspect_m12_runtime_component(id).unwrap_or(fallback),
+        id if is_vkd3d_runtime_component(id) => inspect_vkd3d_runtime_component(id).unwrap_or(fallback),
         "wine-mono" => {
             if windows.join("mono").exists() {
                 ComponentState::Installed
@@ -4518,8 +4711,8 @@ fn inspect_runtime_dll_component(id: &str) -> Option<ComponentState> {
     let candidates = [
         runtime_wine.join("lib").join("dxmt").join("x86_64-windows").join(&filename),
         runtime_wine.join("lib").join("wine").join("x86_64-windows").join(&filename),
-        runtime_wine.join("lib").join("dxvk").join("x64-windows").join(&filename),
-        runtime_wine.join("lib").join("dxvk").join("i386-windows").join(&filename),
+        crate::installer::vkd3d_lane_root_for_home(&home).join("dxvk").join("x86_64-windows").join(&filename),
+        crate::installer::vkd3d_lane_root_for_home(&home).join("dxvk").join("i386-windows").join(&filename),
     ];
     Some(if candidates.iter().any(|path| path.exists()) { ComponentState::Installed } else { ComponentState::Missing })
 }
@@ -5242,6 +5435,20 @@ fn component_source_policy(id: &str, arch: BottleArch) -> ComponentSourcePolicy 
             path: path.map(|p| p.to_string_lossy().to_string()),
         };
     }
+    if is_vkd3d_runtime_component(id) {
+        let state = inspect_vkd3d_runtime_component(id).unwrap_or(ComponentState::Unknown);
+        let home = dirs::home_dir().unwrap_or_default();
+        let path = vkd3d_runtime_component_artifacts(id)
+            .and_then(|artifacts| artifacts.first().copied())
+            .map(|artifact| crate::installer::vkd3d_runtime_artifact_path_for_home(&home, artifact));
+        return ComponentSourcePolicy {
+            id: id.to_string(),
+            source: "metalsharp_vkd3d_proton_dxvk_runtime".to_string(),
+            available: state == ComponentState::Installed,
+            detail: vkd3d_runtime_component_detail(id),
+            path: path.map(|p| p.to_string_lossy().to_string()),
+        };
+    }
     if matches!(id, "wine-mono" | "gecko") {
         return ComponentSourcePolicy {
             id: id.to_string(),
@@ -5380,6 +5587,11 @@ fn component_action_detail(id: &str) -> String {
         "m12_dxgi" => "Refresh PR230 M12 dxgi.dll from the bundled dxmt_m12 runtime".to_string(),
         "m12_winemetal" => "Refresh PR230 M12 winemetal.dll, winemetal.so, and required Unix sidecars".to_string(),
         "m12_gpu_stubs" => "Refresh PR230 M12 NVAPI/NVNGX GPU stub DLLs".to_string(),
+        "vkd3d_d3d12" => "Refresh VKD3D-Proton d3d12.dll from the bundled Vulkan lane".to_string(),
+        "vkd3d_d3d12core" => "Refresh VKD3D-Proton d3d12core.dll from the bundled Vulkan lane".to_string(),
+        "vkd3d_dxgi" => "Refresh VKD3D-Proton dxgi.dll from the bundled Vulkan lane".to_string(),
+        "dxvk_d3d11" => "Refresh DXVK d3d11.dll from the bundled Vulkan lane".to_string(),
+        "dxvk_d3d10core" => "Refresh DXVK d3d10core.dll from the bundled Vulkan lane".to_string(),
         "d3d12_agility" => "Download and stage the D3D12 Agility SDK payload".to_string(),
         "gecko" => "Install Wine Gecko for embedded browser surfaces".to_string(),
         "dotnet40" => "Install the native .NET Framework 4.0 runtime for CLR v4 titles".to_string(),
@@ -6452,7 +6664,7 @@ mod tests {
         // The contract table is the protected-lane gate. These ids must all be
         // present so a future refactor cannot silently drop a lane.
         let ids: Vec<&'static str> = steam_route_contracts().iter().map(|c| c.pipeline).collect();
-        for required in ["m9", "m10", "m11", "m12", "fna_arm64", "wine_bare", "d3dmetal"] {
+        for required in ["m9", "m10", "m11", "m12", "vkd3d", "fna_arm64", "wine_bare", "d3dmetal"] {
             assert!(ids.contains(&required), "route contract table must cover {} (got {:?})", required, ids);
         }
     }

@@ -78,6 +78,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
             | PipelineId::M11
             | PipelineId::M11_32
             | PipelineId::M12
+            | PipelineId::Vkd3d
             | PipelineId::M13
             | PipelineId::D3DMetal
             | PipelineId::M32
@@ -98,6 +99,7 @@ pub fn build_launch_recipe(appid: u32, node: &PipelineNode) -> Result<LaunchReci
         | PipelineId::M11
         | PipelineId::M11_32
         | PipelineId::M12
+        | PipelineId::Vkd3d
         | PipelineId::M13
         | PipelineId::D3DMetal
         | PipelineId::M32
@@ -392,12 +394,24 @@ pub fn selected_deploy_dlls_for_pipeline(
 ) -> Vec<RecipeDll> {
     let d3d9_subpath = if node.id == PipelineId::M9 { m9_d3d9_source_subpath(game_dir, exe_path) } else { "" };
     let target_dirs = deploy_target_dirs_for_pipeline(game_dir, exe_path, node);
+    // The VKD3D-Proton / DXVK lanes live in a dedicated deploy lane OUTSIDE
+    // the Wine runtime (`<ms>/vkd3d`, resolved via the non-"lib/" subpaths), so
+    // deploy sources resolve against that lane rather than the wine tree.
+    let lane_root = ms_root
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|ms_home| ms_home.join("vkd3d"))
+        .unwrap_or_else(|| ms_root.to_path_buf());
 
     node.deploy_dlls
         .iter()
         .filter(|dll| node.id != PipelineId::M9 || dll.source_subpath == d3d9_subpath)
         .flat_map(|dll| {
-            let source_path = ms_root.join(dll.source_subpath).join(dll.filename);
+            let source_path = if dll.source_subpath.starts_with("lib/") {
+                ms_root.join(dll.source_subpath).join(dll.filename)
+            } else {
+                lane_root.join(dll.source_subpath).join(dll.filename)
+            };
             let dest_name = dll.dest_filename.unwrap_or(dll.filename);
             target_dirs.iter().map(move |target_dir| RecipeDll {
                 source_subpath: dll.source_subpath.to_string(),
@@ -910,6 +924,15 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
                 });
             }
         },
+        PipelineId::Vkd3d => {
+            let icd = ms_root.join("etc").join("vulkan").join("icd.d").join("MoltenVK_icd.json");
+            assets.push(RuntimeAsset {
+                name: "MoltenVK ICD".into(),
+                present: runtime_file_present(&icd),
+                path: icd,
+                required: true,
+            });
+        },
         PipelineId::M11 => {
             let path = ms_root.join("lib").join("dxmt").join("x86_64-unix").join("winemetal.so");
             assets.push(RuntimeAsset {
@@ -932,7 +955,18 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
     }
 
     for deploy in &node.deploy_dlls {
-        let path = ms_root.join(deploy.source_subpath).join(deploy.filename);
+        // VKD3D-Proton / DXVK lanes live outside runtime/wine (non-"lib/"
+        // subpaths); resolve them against that lane for runtime-asset checks.
+        let lane_root = ms_root
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|ms_home| ms_home.join("vkd3d"))
+            .unwrap_or_else(|| ms_root.to_path_buf());
+        let path = if deploy.source_subpath.starts_with("lib/") {
+            ms_root.join(deploy.source_subpath).join(deploy.filename)
+        } else {
+            lane_root.join(deploy.source_subpath).join(deploy.filename)
+        };
         let required = node.id == PipelineId::M12 || !optional_runtime_stub(deploy.filename);
         assets.push(RuntimeAsset {
             name: format!("{}/{}", deploy.source_subpath, deploy.filename),
@@ -944,11 +978,17 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
 
     if node.backend == "dxmt" {
         let conf = ms_root.join("etc").join("dxmt.conf");
+        // Ensure the required DXMT shader-metal-version line exists rather than
+        // failing validation when a freshly-installed/bundled config lacks it.
+        let home = ms_root.parent().and_then(|p| p.parent()).unwrap_or(ms_root);
+        let _ = crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home);
         assets.push(RuntimeAsset {
             name: "dxmt.conf".into(),
-            present: runtime_file_present(&conf),
+            present: std::fs::read_to_string(&conf)
+                .map(|contents| contents.lines().any(|line| line.trim() == "dxmt.shaderMetalVersion = 310"))
+                .unwrap_or(false),
             path: conf,
-            required: false,
+            required: true,
         });
     }
 
@@ -981,7 +1021,14 @@ fn runtime_assets_for_node(node: &PipelineNode, ms_root: &Path) -> Vec<RuntimeAs
     }
 
     for dir in &node.winedllpath_dirs {
-        let p = ms_root.join(dir);
+        // VKD3D-Proton / DXVK winedllpath dirs are lane-relative (no "lib/"
+        // prefix) and live outside runtime/wine; resolve them against that lane.
+        let lane_root = ms_root
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|ms_home| ms_home.join("vkd3d"))
+            .unwrap_or_else(|| ms_root.to_path_buf());
+        let p = if dir.starts_with("lib/") { ms_root.join(dir) } else { lane_root.join(dir) };
         assets.push(RuntimeAsset { name: dir.to_string(), present: p.exists(), path: p, required: true });
     }
 

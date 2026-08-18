@@ -21,7 +21,7 @@ pub struct GameRecipe {
 impl Default for GameRecipe {
     fn default() -> Self {
         Self {
-            pipeline: PipelineId::M12,
+            pipeline: PipelineId::Vkd3d,
             name: String::new(),
             components: Vec::new(),
             env: HashMap::new(),
@@ -159,6 +159,35 @@ pub fn resolve_pipeline(appid: u32) -> PipelineId {
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid));
     if let Some(ref dir) = game_dir {
         if dir.exists() {
+            // Mono-profile discovery first: Unity-Mono / FNA / MonoGame /
+            // XNA / MonoKickstart games route to the FNA lane. IL2CPP games
+            // (native GameAssembly.dll) are NOT mono-runnable — route through
+            // PE analysis so 32-bit IL2CPP still lands on M11_32, falling
+            // back to the 64-bit Wine/DXMT lane.
+            let profile = crate::mono_profile::discover_mono_profile(dir);
+            match profile.kind {
+                crate::mono_profile::MonoProfileKind::Il2Cpp => {
+                    if let Some(pe_info) = super::pe::analyze_game_exe(dir) {
+                        if let Some(pipeline) = pe_info_to_pipeline(&pe_info) {
+                            return pipeline;
+                        }
+                    }
+                    return PipelineId::M11;
+                },
+                crate::mono_profile::MonoProfileKind::BareDotnet => {
+                    // Weakest signal: a game with managed assemblies but no
+                    // FNA/XNA/MonoGame/Unity markers. Keep the historical
+                    // native-DLL guard (detect_dotnet_game refuses games with
+                    // native Windows DLLs at the root) so a native game with a
+                    // stray *_Data/Managed dir is not mono-routed.
+                    if crate::setup::detect_dotnet_game(dir) {
+                        return PipelineId::FnaArm64;
+                    }
+                },
+                crate::mono_profile::MonoProfileKind::None => {},
+                _ => return PipelineId::FnaArm64,
+            }
+
             if crate::setup::detect_dotnet_game(dir) {
                 return PipelineId::FnaArm64;
             }
@@ -194,6 +223,11 @@ fn resolve_dxmt_alias(appid: u32, pipeline: PipelineId) -> PipelineId {
 
 fn detect_dxmt_pipeline(appid: u32) -> Option<PipelineId> {
     let game_dir = crate::setup::resolve_windows_game_dir(appid).or_else(|| crate::setup::resolve_game_dir(appid))?;
+    // .NET Core / .NET 5+ apps (runtimeconfig.json) cannot run on the bundled
+    // Mono runtime — send them to the Wine lane instead of the mono route.
+    if crate::mono_profile::is_dotnet_core_game(&game_dir) {
+        return Some(PipelineId::M11);
+    }
     if crate::setup::detect_dotnet_game(&game_dir) {
         return Some(PipelineId::FnaArm64);
     }
@@ -271,7 +305,7 @@ fn recipe_component_satisfied(component_id: &str, prefix: &Path) -> bool {
 }
 
 fn default_pipeline() -> PipelineId {
-    PipelineId::M12
+    PipelineId::Vkd3d
 }
 
 fn detect_from_directory(dir: &PathBuf) -> Option<PipelineId> {
@@ -349,7 +383,7 @@ fn pe_info_to_pipeline(pe: &PeInfo) -> Option<PipelineId> {
         return Some(PipelineId::M9);
     }
     match pe.detected_api {
-        D3dApi::D3D12 => Some(PipelineId::M12),
+        D3dApi::D3D12 => Some(PipelineId::Vkd3d),
         D3dApi::D3D11 => Some(PipelineId::M11),
         D3dApi::D3D10 => Some(PipelineId::M10),
         D3dApi::D3D9 => Some(PipelineId::M9),
@@ -362,7 +396,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn d3d12_pe_maps_to_m12() {
+    fn d3d12_pe_maps_to_vkd3d() {
         let pe = PeInfo {
             machine_type: 0x8664,
             is_64_bit: true,
@@ -370,7 +404,75 @@ mod tests {
             detected_api: D3dApi::D3D12,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M12));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Vkd3d));
+    }
+
+    #[test]
+    fn mono_profile_discovery_drives_fallback_routing() {
+        // Unity-Mono shaped dir (DREDGE-like): discovery routes to FnaArm64
+        // even though detect_dotnet_game returns false (native UnityPlayer.dll).
+        let dir = std::env::temp_dir().join(format!("ms-rules-unity-mono-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::create_dir_all(dir.join("MonoBleedingEdge").join("EmbedRuntime")).unwrap();
+        std::fs::write(dir.join("MonoBleedingEdge").join("EmbedRuntime").join("mono-2.0-bdwgc.dll"), b"m").unwrap();
+        let data_dir = dir.join("Game_Data").join("Managed");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(data_dir.join("Assembly-CSharp.dll"), b"m").unwrap();
+        let mut ggm = vec![0u8; 48];
+        ggm.extend_from_slice(b"2021.3.5f1\0");
+        std::fs::write(dir.join("Game_Data").join("globalgamemanagers"), &ggm).unwrap();
+
+        let profile = crate::mono_profile::discover_mono_profile(&dir);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::UnityMono);
+
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // IL2CPP shaped dir: discovery routes to M11 (Wine/DXMT), never FNA.
+        let dir2 = std::env::temp_dir().join(format!("ms-rules-il2cpp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir2);
+        std::fs::create_dir_all(&dir2).unwrap();
+        std::fs::write(dir2.join("UnityPlayer.dll"), b"u").unwrap();
+        std::fs::write(dir2.join("GameAssembly.dll"), b"g").unwrap();
+        let profile2 = crate::mono_profile::discover_mono_profile(&dir2);
+        assert_eq!(profile2.kind, crate::mono_profile::MonoProfileKind::Il2Cpp);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn bare_dotnet_profile_keeps_native_dll_guard() {
+        // A native game with a stray *_Data/Managed dir: discovery classifies
+        // BareDotnet, but the routing guard must defer to the historical
+        // detect_dotnet_game behavior (refuses games with native Windows DLLs
+        // at the root). Fixture 1: managed dir + NO native root DLL -> dotnet
+        // (would route FnaArm64). Fixture 2: managed dir + native root DLL ->
+        // not dotnet (falls through to PE/directory heuristics).
+        let dir = std::env::temp_dir().join(format!("ms-rules-bare-net-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Game_Data").join("Managed")).unwrap();
+        std::fs::write(dir.join("Game_Data").join("Managed").join("Newtonsoft.Json.dll"), b"m").unwrap();
+        std::fs::write(dir.join("game.exe"), b"mz-pe").unwrap();
+
+        let profile = crate::mono_profile::discover_mono_profile(&dir);
+        assert_eq!(profile.kind, crate::mono_profile::MonoProfileKind::BareDotnet);
+        // No native root DLLs -> detect_dotnet_game says yes (historical
+        // FNA-routing behavior preserved for genuine managed games).
+        assert!(crate::setup::detect_dotnet_game(&dir));
+
+        // Native root DLL -> not dotnet: the guard defers to PE heuristics.
+        // Build a real PE32 DLL (file(1) must report "PE32"): MZ + PE header
+        // + optional header magic PE32 (0x10b) at 0x98.
+        let mut native = vec![0u8; 0x200];
+        native[0..2].copy_from_slice(b"MZ");
+        native[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        native[0x80..0x84].copy_from_slice(b"PE\0\0");
+        native[0x84..0x86].copy_from_slice(&0x014cu16.to_le_bytes());
+        native[0x98..0x9a].copy_from_slice(&0x10bu16.to_le_bytes());
+        std::fs::write(dir.join("some_native.dll"), &native).unwrap();
+        assert!(!crate::setup::detect_dotnet_game(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -382,12 +484,12 @@ mod tests {
             detected_api: D3dApi::D3D12,
         };
 
-        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::M12));
+        assert_eq!(pe_info_to_pipeline(&pe), Some(PipelineId::Vkd3d));
     }
 
     #[test]
-    fn unresolved_games_default_to_main_m12_engine() {
-        assert_eq!(default_pipeline(), PipelineId::M12);
+    fn unresolved_games_default_to_main_vkd3d_engine() {
+        assert_eq!(default_pipeline(), PipelineId::Vkd3d);
     }
 
     #[test]
@@ -490,22 +592,22 @@ mod tests {
             (774361, PipelineId::M9),
             (1169040, PipelineId::WineBare),
             (1237320, PipelineId::M11),
-            (1245620, PipelineId::M12),
+            (1245620, PipelineId::D3DMetal),
             (1562430, PipelineId::FnaArm64),
-            (1623730, PipelineId::M12),
+            (1623730, PipelineId::Vkd3d),
             (1868140, PipelineId::M11),
-            (1928870, PipelineId::M12),
-            (1962700, PipelineId::M12),
+            (1928870, PipelineId::Vkd3d),
+            (1962700, PipelineId::Vkd3d),
             (2358720, PipelineId::M11),
-            (2456740, PipelineId::M12),
+            (2456740, PipelineId::Vkd3d),
             (275850, PipelineId::WineBare),
-            (284160, PipelineId::M11),
+            (284160, PipelineId::Vkd3d),
             (1326470, PipelineId::M11),
-            (1583230, PipelineId::M12),
+            (1583230, PipelineId::Vkd3d),
             (3164500, PipelineId::M11),
-            (3527290, PipelineId::M12),
+            (3527290, PipelineId::Vkd3d),
             (22380, PipelineId::M9),
-            (1030300, PipelineId::M12),
+            (1030300, PipelineId::Vkd3d),
             (222880, PipelineId::M11),
             (305620, PipelineId::M11),
             (1260320, PipelineId::M11),
@@ -541,7 +643,7 @@ mod tests {
         assert!(!recipes.is_empty());
 
         let elden = recipes.get(&1245620).expect("elden ring recipe");
-        assert_eq!(elden.pipeline, PipelineId::M12);
+        assert_eq!(elden.pipeline, PipelineId::D3DMetal);
         assert_eq!(elden.name, "ELDEN RING");
         assert!(elden.components.contains(&"vcrun2019".to_string()));
         assert!(elden.components.contains(&"directx_jun2010".to_string()));
@@ -554,10 +656,10 @@ mod tests {
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
 
-        let m12_required = ["d3d12.dll", "d3d11.dll", "dxgi_dxmt.dll", "dxgi.dll", "winemetal.dll"];
+        let vkd3d_required = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"];
         let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
         let required_by_pipeline =
-            [(PipelineId::M12, m12_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
+            [(PipelineId::Vkd3d, vkd3d_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
 
         for (pipeline, required) in required_by_pipeline {
             let matching_recipes = recipes.iter().filter(|(_, recipe)| recipe.pipeline == pipeline).collect::<Vec<_>>();
@@ -640,7 +742,7 @@ mod tests {
     fn game_recipes_parse_resident_evil_4_exe_override() {
         let (_, recipes) = parse_rules_full(include_str!("../../../../configs/mtsp-rules.toml"));
         let re4 = recipes.get(&2050650).expect("resident evil 4 recipe");
-        assert_eq!(re4.pipeline, PipelineId::M12);
+        assert_eq!(re4.pipeline, PipelineId::Vkd3d);
         assert_eq!(re4.name, "Resident Evil 4");
         assert_eq!(re4.exe_names, vec!["re4.exe".to_string()]);
         assert!(re4.offline_capable);
@@ -783,5 +885,16 @@ mod tests {
             let summary = format!("{} shipped-rules TOML validation error(s):", errors.len());
             panic!("{summary}\n  {}", errors.join("\n  "));
         }
+    }
+
+    /// Stardew Valley (1.6+, net6 MonoGame) must default to the mono/fna
+    /// route — the shipped config regression-guards the fna_arm64 rule.
+    #[test]
+    fn shipped_rules_route_stardew_to_fna_arm64() {
+        const SOURCE: &str = include_str!("../../../../configs/mtsp-rules.toml");
+        let (_, recipes) = parse_rules_full(SOURCE);
+        let recipe = recipes.get(&413150).expect("shipped rules must contain a Stardew Valley override (appid 413150)");
+        assert_eq!(recipe.pipeline, PipelineId::FnaArm64);
+        assert_eq!(recipe.name, "Stardew Valley");
     }
 }

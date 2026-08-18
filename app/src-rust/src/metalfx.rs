@@ -46,7 +46,7 @@ fn now_ts() -> u64 {
 }
 
 fn read_state(home: &Path) -> MetalFxState {
-    let default = MetalFxState { enabled: false, factor: 2.0, ts: 0 };
+    let default = MetalFxState { enabled: true, factor: 1.5, ts: 0 };
     let Ok(txt) = fs::read_to_string(state_path_for(home)) else {
         return default;
     };
@@ -54,10 +54,19 @@ fn read_state(home: &Path) -> MetalFxState {
         return default;
     };
     MetalFxState {
-        enabled: v.get("enabled").and_then(|x| x.as_bool()).unwrap_or(false),
-        factor: v.get("factor").and_then(|x| x.as_f64()).map(|f| f as f32).unwrap_or(2.0),
+        enabled: v.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
+        factor: v.get("factor").and_then(|x| x.as_f64()).map(|f| f as f32).unwrap_or(1.5),
         ts: v.get("ts").and_then(|x| x.as_u64()).unwrap_or(0),
     }
+}
+
+/// The effective MetalFX state: enabled + factor, defaulting to enabled at
+/// 1.50x when no state file exists. Path-based for tests. Used by the launcher
+/// to reconcile the DXMT env at launch (the node's hardcoded 1.43 DXMT_CONFIG
+/// must not shadow the overlay choice).
+pub(crate) fn effective_state_for(home: &Path) -> (bool, f32) {
+    let s = read_state(home);
+    (s.enabled, s.factor)
 }
 
 fn write_state(home: &Path, state: MetalFxState) -> Result<(), String> {
@@ -110,7 +119,8 @@ fn write_conf_factor(home: &Path, factor: f32) -> Result<(), String> {
     if !content.ends_with('\n') {
         content.push('\n');
     }
-    fs::write(&path, content).map_err(|e| format!("write dxmt.conf: {e}"))
+    fs::write(&path, content).map_err(|e| format!("write dxmt.conf: {e}"))?;
+    crate::mtsp::launcher::ensure_dxmt_conf_shader_metal_version(home).map(|_| ())
 }
 
 /// `GET /metalfx/state` — current toggle + factor + how it applies.
@@ -122,7 +132,7 @@ pub fn get_state() -> Value {
 /// Path-parameterized core (testable without mutating process-global env).
 pub fn get_state_for(home: &Path) -> Value {
     let s = read_state(home);
-    let conf_factor = read_conf_factor(home).unwrap_or(2.0);
+    let conf_factor = read_conf_factor(home).unwrap_or(1.5);
     json!({
         "ok": true,
         "enabled": s.enabled,
@@ -194,38 +204,41 @@ mod tests {
     #[test]
     fn toggle_roundtrips_state_and_dxmt_conf_factor() {
         let home = isolated_home();
-        // initial: no state, no conf -> defaults
+        // initial: no state, no conf -> defaults (enabled at 1.50)
         let s0 = get_state_for(&home);
-        assert_eq!(s0["enabled"], false);
-        assert_eq!(s0["factor"], 2.0);
+        assert_eq!(s0["enabled"], true);
+        assert_eq!(s0["factor"], 1.5);
+        assert_eq!(effective_state_for(&home), (true, 1.5));
 
-        // enable with factor 1.5
+        // change factor to 1.75 (stays enabled)
         let mut body = serde_json::Map::new();
         body.insert("enabled".into(), true.into());
-        body.insert("factor".into(), 1.5.into());
+        body.insert("factor".into(), 1.75.into());
         let r = set_state_for(&home, &body);
         assert_eq!(r["ok"], true);
         assert_eq!(r["enabled"], true);
-        assert_eq!(r["factor"], 1.5);
+        assert_eq!(r["factor"], 1.75);
+        assert_eq!(effective_state_for(&home), (true, 1.75));
 
         // state file + dxmt.conf both written
         assert!(state_path_for(&home).exists());
         let conf = fs::read_to_string(dxmt_conf_path_for(&home)).unwrap();
-        assert!(conf.contains("d3d11.metalSpatialUpscaleFactor = 1.50"));
-        assert_eq!(read_conf_factor(&home), Some(1.5));
+        assert!(conf.contains("d3d11.metalSpatialUpscaleFactor = 1.75"));
+        assert_eq!(read_conf_factor(&home), Some(1.75));
 
         // flip off without changing factor
         let mut body2 = serde_json::Map::new();
         body2.insert("enabled".into(), false.into());
         let r2 = set_state_for(&home, &body2);
         assert_eq!(r2["enabled"], false);
-        assert_eq!(r2["factor"], 1.5);
+        assert_eq!(r2["factor"], 1.75);
+        assert_eq!(effective_state_for(&home), (false, 1.75));
 
         // reject out-of-range factor
         let mut body3 = serde_json::Map::new();
         body3.insert("factor".into(), 0.5.into());
         let r3 = set_state_for(&home, &body3);
-        assert_eq!(r3["factor"], 1.5, "out-of-range factor must be ignored");
+        assert_eq!(r3["factor"], 1.75, "out-of-range factor must be ignored");
 
         let _ = fs::remove_dir_all(&home);
     }
