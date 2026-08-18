@@ -1,7 +1,7 @@
 <div align="center">
 
 # MetalSharp
-**Updated:** 2026-07-08
+**Updated:** 2026-07-18 
 
 **Run Windows games on macOS Silicon with Metal.**
 
