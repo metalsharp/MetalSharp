@@ -9,6 +9,7 @@ import LibraryView from "./views/LibraryView.vue";
 import SharpView from "./views/SharpView.vue";
 import LogsView from "./views/LogsView.vue";
 import SettingsView from "./views/SettingsView.vue";
+import { marked } from "marked";
 import { useTheme } from "./composables/useTheme";
 import { useToast } from "./composables/useToast";
 import { getAPI, api } from "./composables/useApi";
@@ -89,6 +90,11 @@ const updateChangelog = computed(() => {
 });
 
 const fullUpdateChangelog = computed(() => updateStatus.value?.release_notes?.trim() ?? "");
+
+const renderedChangelog = computed(() => {
+  const src = fullUpdateChangelog.value;
+  return src ? (marked.parse(src, { gfm: true, breaks: true }) as string) : "";
+});
 
 provide("library", library);
 provide("config", config);
@@ -441,7 +447,7 @@ onMounted(async () => {
             x
           </button>
         </header>
-        <pre class="update-changelog-body">{{ fullUpdateChangelog }}</pre>
+        <div class="update-changelog-body" v-html="renderedChangelog"></div>
       </section>
     </div>
   </Teleport>
@@ -595,17 +601,80 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
 }
-.update-changelog-modal pre,
 .update-changelog-body {
   margin: 0;
   padding: 18px;
   overflow: auto;
-  white-space: pre-wrap;
   word-break: break-word;
-  font: inherit;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.55;
   flex: 1;
   min-height: 0;
+}
+.update-changelog-body :deep(h1),
+.update-changelog-body :deep(h2),
+.update-changelog-body :deep(h3) {
+  margin: 16px 0 8px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+.update-changelog-body :deep(h1:first-child),
+.update-changelog-body :deep(h2:first-child),
+.update-changelog-body :deep(h3:first-child) {
+  margin-top: 0;
+}
+.update-changelog-body :deep(h1) { font-size: 18px; }
+.update-changelog-body :deep(h2) { font-size: 16px; }
+.update-changelog-body :deep(h3) { font-size: 14px; }
+.update-changelog-body :deep(p) {
+  margin: 8px 0;
+}
+.update-changelog-body :deep(ul) {
+  margin: 8px 0;
+  padding-left: 22px;
+  list-style: disc;
+}
+.update-changelog-body :deep(ol) {
+  margin: 8px 0;
+  padding-left: 22px;
+  list-style: decimal;
+}
+.update-changelog-body :deep(li) {
+  margin: 3px 0;
+}
+.update-changelog-body :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.update-changelog-body :deep(pre) {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.update-changelog-body :deep(pre code) {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.update-changelog-body :deep(a) {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.update-changelog-body :deep(blockquote) {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
 }
 .content {
   flex: 1;
