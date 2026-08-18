@@ -169,9 +169,9 @@ async fn bind_with_retry(addr: &str) -> tokio::net::TcpListener {
 /// per-request work (filesystem, tar/zstd, wine, scans) runs off the async
 /// workers, so one slow or stuck request can no longer stall the whole backend.
 async fn handle_request(req: Request) -> Response {
-    let method = match req.method() {
-        &axum::http::Method::GET => HttpMethod::Get,
-        &axum::http::Method::POST => HttpMethod::Post,
+    let method = match *req.method() {
+        axum::http::Method::GET => HttpMethod::Get,
+        axum::http::Method::POST => HttpMethod::Post,
         _ => {
             return resp_to_axum(RouteResponse::Json(
                 405,
