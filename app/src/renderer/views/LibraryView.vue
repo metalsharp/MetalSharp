@@ -51,6 +51,8 @@ const filter = ref<"all" | "installed" | "not_installed">("installed");
 
 const runningAppId = ref<number | null>(null);
 const runningPid = ref<number | null>(null);
+let runningPollTimer: number | null = null;
+let runningMisses = 0;
 const launchingAppId = ref<number | null>(null);
 let artworkRetryTimer: number | null = null;
 const artworkRetryRequestedAppIds = new Set<number>();
@@ -311,6 +313,26 @@ async function stopGame(game: SteamGame) {
   toast.show(`Stopped ${game.name}`);
 }
 
+async function pollRunningGames() {
+  if (runningAppId.value === null) return;
+  const result = await api<{ ok: boolean; running: { appid: number; pid: number }[] }>("GET", "/game/running");
+  if (!result?.ok) return;
+  const running = result.running ?? [];
+  if (running.some((r) => r.appid === runningAppId.value)) {
+    runningMisses = 0;
+    return;
+  }
+  // A game we thought was running is no longer reported: it exited on its own
+  // (in-game quit) or was force-quit via Cmd+Opt+Q. Debounce two misses, then
+  // revert the button to Play and refresh the library to reflect it stopped.
+  runningMisses += 1;
+  if (runningMisses < 2) return;
+  runningMisses = 0;
+  runningPid.value = null;
+  runningAppId.value = null;
+  void reloadLibrary();
+}
+
 async function installGame(game: SteamGame) {
   if (!wineSteamInstalled.value) {
     toast.show("Install Windows Steam first (Settings)", "error");
@@ -345,12 +367,17 @@ onMounted(() => {
   gridResizeObserver = new ResizeObserver(updateColumnCount);
   if (gameGridEl.value) gridResizeObserver.observe(gameGridEl.value);
   updateColumnCount();
+  runningPollTimer = window.setInterval(pollRunningGames, 2000);
 });
 
 onUnmounted(() => {
   if (gridResizeObserver) {
     gridResizeObserver.disconnect();
     gridResizeObserver = null;
+  }
+  if (runningPollTimer !== null) {
+    window.clearInterval(runningPollTimer);
+    runningPollTimer = null;
   }
   if (artworkRetryTimer !== null) {
     window.clearTimeout(artworkRetryTimer);
