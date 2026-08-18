@@ -592,7 +592,7 @@ mod tests {
             (774361, PipelineId::M9),
             (1169040, PipelineId::WineBare),
             (1237320, PipelineId::M11),
-            (1245620, PipelineId::Vkd3d),
+            (1245620, PipelineId::D3DMetal),
             (1562430, PipelineId::FnaArm64),
             (1623730, PipelineId::Vkd3d),
             (1868140, PipelineId::M11),
@@ -601,7 +601,7 @@ mod tests {
             (2358720, PipelineId::M11),
             (2456740, PipelineId::Vkd3d),
             (275850, PipelineId::WineBare),
-            (284160, PipelineId::M11),
+            (284160, PipelineId::Vkd3d),
             (1326470, PipelineId::M11),
             (1583230, PipelineId::Vkd3d),
             (3164500, PipelineId::M11),
@@ -643,7 +643,7 @@ mod tests {
         assert!(!recipes.is_empty());
 
         let elden = recipes.get(&1245620).expect("elden ring recipe");
-        assert_eq!(elden.pipeline, PipelineId::Vkd3d);
+        assert_eq!(elden.pipeline, PipelineId::D3DMetal);
         assert_eq!(elden.name, "ELDEN RING");
         assert!(elden.components.contains(&"vcrun2019".to_string()));
         assert!(elden.components.contains(&"directx_jun2010".to_string()));
@@ -656,7 +656,7 @@ mod tests {
         assert!(!shipped_rules.contains("anticheat"), "shipped rules must not contain anti-cheat metadata");
         let (_, recipes) = parse_rules_full(shipped_rules);
 
-        let vkd3d_required = ["d3d12.dll", "d3d11.dll", "dxgi.dll"];
+        let vkd3d_required = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"];
         let m11_required = ["d3d11.dll", "dxgi.dll", "winemetal.dll"];
         let required_by_pipeline =
             [(PipelineId::Vkd3d, vkd3d_required.as_slice()), (PipelineId::M11, m11_required.as_slice())];
