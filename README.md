@@ -38,12 +38,12 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 |---|---|
 | **VKD3D** | D3D12/D3D11/D3D10/D3D9 through Vulkan |
 | **M11** | D3D11 to Metal (DXMT) |
-| **M11(32)** | D3D11 i386 to Metal (DXMT) |
+| **M11(32)** | D3D11 32Bit to Metal (DXMT) |
 | **M10** | D3D10 to Metal (DXMT) |
-| **M10(32)** | D3D10 i386 to Metal (DXMT) |
-| **M9** | D3D9 To Metal, DXMT Overrides|
+| **M10(32)** | D3D10 32Bit to Metal (DXMT) |
+| **M9** | D3D9 To Metal, DXMT Overrides |
 | **Mono/FNA** | Windows XNA/FNA via native Mono |
-| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with Homebrew-matched D3DMetal route DLLs. |
+| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. Optional upgrade to GPTK 3 |
 
 ## Features
 
