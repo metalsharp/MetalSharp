@@ -149,20 +149,13 @@ jobs:
       - name: Download bundles for DMG
         run: |
           METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REPAIR_M12=0 tools/dmg/create-bundles.sh
-          tools/dmg/stage-release-bundles.sh app/bundles dist/staged-bundles
           for required in \
-            metalsharp-electron.tar.zst \
-            metalsharp-graphics-dll.tar.zst \
-            metalsharp-runtime.tar.zst \
-            metalsharp-assets.tar.zst \
-            metalsharp-scripts-tools.tar.zst \
             metalsharp-steam.tar.zst \
-            metalsharp-d3d12-developer-sdk.tar.zst
+            goldberg.tar.zst
           do
             test -s "app/bundles/$required"
           done
           ls -lh app/bundles/
-          find dist/staged-bundles -type d | sort | sed -n '1,120p'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -99,6 +99,32 @@ repair_assets_fnalibs_bundle() {
   echo "repaired assets payload: $assets_archive (fnalibs refreshed, eac-toggle removed)"
 }
 
+create_goldberg_bundle() {
+  local assets_archive="$BUNDLE_DIR/metalsharp-assets.tar.zst"
+  local goldberg_archive="$BUNDLE_DIR/goldberg.tar.zst"
+  local tmp assets_root source
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-goldberg-bundle.XXXXXX")"
+  assets_root="$tmp/assets"
+  mkdir -p "$assets_root"
+
+  tar --use-compress-program=unzstd -xf "$assets_archive" -C "$assets_root"
+  source="$assets_root/assets/goldberg"
+  if [ ! -s "$source/x86/steam_api.dll" ] || [ ! -s "$source/x64/steam_api64.dll" ]; then
+    echo "Goldberg payload is missing from metalsharp-assets.tar.zst" >&2
+    rm -rf "$tmp"
+    exit 1
+  fi
+
+  (
+    cd "$source"
+    tar -cf "$tmp/goldberg.tar" .
+  )
+  zstd -q -19 -T0 -f "$tmp/goldberg.tar" -o "$goldberg_archive"
+  chmod 0644 "$goldberg_archive"
+  rm -rf "$tmp"
+  echo "created Goldberg bundle: $goldberg_archive"
+}
+
 while IFS=$'\t' read -r asset _root _platforms _notes; do
   case "$asset" in
     ""|\#*) continue ;;
@@ -126,6 +152,8 @@ else
   echo "bundle repair disabled; using verified release bundles as downloaded"
 fi
 
+create_goldberg_bundle
+
 VERIFY_ARGS=(--bundle-dir "$BUNDLE_DIR" --require mac)
 if [ "$SKIP_DEVELOPER_SDK" = "1" ]; then
   while IFS=$'\t' read -r asset _root _platforms _notes; do
@@ -148,6 +176,8 @@ while IFS=$'\t' read -r asset _root _platforms _notes; do
   cp "$BUNDLE_DIR/$asset" "$OUT_DIR/$asset"
 done < "$MANIFEST"
 
+cp "$BUNDLE_DIR/goldberg.tar.zst" "$OUT_DIR/goldberg.tar.zst"
+
 {
   printf 'asset\troot\tsha256\tsize\tnotes\n'
   while IFS=$'\t' read -r asset root _platforms notes; do
@@ -163,7 +193,8 @@ done < "$MANIFEST"
     printf '%s\t%s\t%s\t%s\t%s\n' "$asset" "$root" "$hash" "$size" "$notes"
   done < "$MANIFEST"
 } > "$OUT_DIR/metalsharp-bundle-manifest.tsv"
+	echo "goldberg.tar.zst	goldberg	$(shasum -a 256 "$BUNDLE_DIR/goldberg.tar.zst" | awk '{print $1}')	$(wc -c < "$BUNDLE_DIR/goldberg.tar.zst" | tr -d ' ')	generated Goldberg-only bootstrap bundle" >> "$OUT_DIR/metalsharp-bundle-manifest.tsv"
 
 echo ""
 echo "=== Split Bundle Summary ==="
-ls -lh "$BUNDLE_DIR"/metalsharp-*.tar.zst
+ls -lh "$BUNDLE_DIR"/metalsharp-*.tar.zst "$BUNDLE_DIR/goldberg.tar.zst"

@@ -38,20 +38,22 @@ for required in \
   "$HOST/HostRuntimeABI.h" \
   "$RESOURCES/scripts/tools/updater/update.py" \
   "$RESOURCES/scripts/tools/updater/update.sh" \
-  "$BUNDLES/metalsharp-electron.tar.zst" \
-  "$BUNDLES/metalsharp-graphics-dll.tar.zst" \
-  "$BUNDLES/metalsharp-runtime.tar.zst" \
-  "$BUNDLES/metalsharp-assets.tar.zst" \
-  "$BUNDLES/fnalibs.tar.zst" \
-  "$BUNDLES/metalsharp-scripts-tools.tar.zst" \
+  "$RESOURCES/scripts/tools/migrator/migrate-to-vkmt-runtime.sh" \
   "$BUNDLES/metalsharp-steam.tar.zst" \
-  "$BUNDLES/metalsharp-d3d12-developer-sdk.tar.zst"
+  "$BUNDLES/goldberg.tar.zst"
 do
   if [ ! -s "$required" ]; then
-    echo "DMG missing required runtime asset: ${required#$APP_DIR/}" >&2
+    echo "DMG missing required runtime asset: ${required#"$APP_DIR"/}" >&2
     exit 1
   fi
 done
+
+bundle_count="$(find "$BUNDLES" -maxdepth 1 -type f -name '*.tar.zst' | wc -l | tr -d ' ')"
+if [ "$bundle_count" -ne 2 ]; then
+  echo "DMG must contain exactly two runtime bundles (Steam and Goldberg); found $bundle_count" >&2
+  find "$BUNDLES" -maxdepth 1 -type f -name '*.tar.zst' -print >&2
+  exit 1
+fi
 
 if [ ! -s "$HOST/libmetalsharp_host_runtime.dylib" ] \
   && [ ! -s "$HOST/libmetalsharp_host_runtime.so" ] \
@@ -60,7 +62,20 @@ if [ ! -s "$HOST/libmetalsharp_host_runtime.dylib" ] \
   exit 1
 fi
 
-cp "$BUNDLES"/*.tar.zst "$LIST_DIR"/
-"$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$LIST_DIR" --require mac
+cp "$BUNDLES/metalsharp-steam.tar.zst" "$LIST_DIR"/
+cp "$BUNDLES/goldberg.tar.zst" "$LIST_DIR"/
+"$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$LIST_DIR" --require mac metalsharp-steam.tar.zst
+
+goldberg_tmp="$LIST_DIR/goldberg"
+mkdir -p "$goldberg_tmp"
+tar --use-compress-program=unzstd -xf "$BUNDLES/goldberg.tar.zst" -C "$goldberg_tmp"
+for required in \
+  "$goldberg_tmp/x86/steam_api.dll" \
+  "$goldberg_tmp/x64/steam_api64.dll"; do
+  if [ ! -s "$required" ]; then
+    echo "DMG Goldberg bundle missing: ${required#"$goldberg_tmp"/}" >&2
+    exit 1
+  fi
+done
 
 echo "DMG runtime assets verified: $DMG"
