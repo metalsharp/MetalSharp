@@ -6,6 +6,10 @@ bootstrap archives; the script downloads the pinned VKMT-Wine release
 installer, verifies it, installs the complete runtime, and then performs the
 prefix migration.
 
+The default installer release is `VKMT-1.0` and its installer SHA-256 is
+pinned in the script. A future VKMT release must update the tag and pinned
+installer digest together.
+
 For an existing installation it creates a fresh `~/.metalsharp/prefix-steam`,
 restores Steam, `steamapps`, `userdata`, configuration, drive mappings, and
 permissions, and preserves MetalSharp caches and UI storage (including the
