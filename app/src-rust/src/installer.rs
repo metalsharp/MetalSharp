@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -337,12 +337,92 @@ pub fn start_install_all() -> Result<Value, Box<dyn std::error::Error>> {
         return Ok(json!({"ok": false, "error": "installation already in progress"}));
     }
 
-    std::thread::spawn(|| {
-        run_install_all();
+    let vkmt_script = vkmt_migration_script_path();
+    std::thread::spawn(move || {
+        if let Some(script) = vkmt_script {
+            run_vkmt_install(&script);
+        } else {
+            run_install_all();
+        }
         INSTALLING.store(false, Ordering::SeqCst);
     });
 
     Ok(json!({"ok": true}))
+}
+
+fn vkmt_migration_script_path() -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var("METALSHARP_VKMT_MIGRATION_SCRIPT") {
+        let path = PathBuf::from(explicit);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Some(resources) = crate::platform::app_resources_dir() {
+        let path = resources.join("scripts/tools/migrator/migrate-to-vkmt-runtime.sh");
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    [
+        PathBuf::from("tools/migrator/migrate-to-vkmt-runtime.sh"),
+        PathBuf::from("../tools/migrator/migrate-to-vkmt-runtime.sh"),
+        PathBuf::from("../../tools/migrator/migrate-to-vkmt-runtime.sh"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+}
+
+fn run_vkmt_install(script: &Path) {
+    let home = match dirs::home_dir() {
+        Some(home) => home,
+        None => {
+            write_progress(0, 0, "VKMT Wine", "error", "no home directory", Some("no_home"));
+            return;
+        },
+    };
+    let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+    let total = 4;
+    write_progress(0, total, "VKMT Wine", "installing", "Downloading and verifying VKMT Wine...", None);
+
+    if let Err(error) = ensure_zstd() {
+        write_progress(1, total, "VKMT Wine", "error", &error, Some(&error));
+        return;
+    }
+
+    let _ = fs::create_dir_all(ms_dir.join("logs"));
+    let log_path = ms_dir.join("logs/vkmt-install.log");
+    let log = fs::OpenOptions::new().create(true).write(true).truncate(true).open(&log_path).ok();
+    let log_stderr = log.as_ref().and_then(|file| file.try_clone().ok());
+
+    let mut command = Command::new("/bin/bash");
+    command.arg(script).arg("--apply").env("METALSHARP_HOME", &ms_dir).env("METALSHARP_VKMT_PRIMARY", "1");
+    if let Some(file) = log {
+        command.stdout(Stdio::from(file));
+    } else {
+        command.stdout(Stdio::null());
+    }
+    if let Some(file) = log_stderr {
+        command.stderr(Stdio::from(file));
+    } else {
+        command.stderr(Stdio::null());
+    }
+    let status = command.status();
+
+    match status {
+        Ok(result) if result.success() => {
+            write_progress(total, total, "Complete", "complete", "VKMT Wine and fresh Steam prefix installed.", None);
+        },
+        Ok(result) => {
+            let error = format!("VKMT migration script exited with status {}", result);
+            write_progress(1, total, "VKMT Wine", "error", &error, Some(&error));
+        },
+        Err(error) => {
+            let message = format!("failed to run VKMT migration script: {}", error);
+            write_progress(1, total, "VKMT Wine", "error", &message, Some(&message));
+        },
+    }
 }
 
 fn run_install_all() {

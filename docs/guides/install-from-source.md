@@ -40,9 +40,11 @@ cd app/src-rust && cargo build --release && cd ../..
 cd app && npm install && npm run build && cd ..
 ```
 
-## Fetch Runtime Bundles
+## Fetch bootstrap bundles
 
-Downloads MetalSharp-owned runtime assets from the GitHub release: Wine, DXMT/M12 graphics DLLs, Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
+The DMG/bootstrap build fetches the small Steam and Goldberg archives. The
+complete VKMT-Wine runtime is downloaded and verified by the migration script
+after installation, rather than embedded in the DMG.
 
 GPTK/D3DMetal is not bundled in MetalSharp release assets. When you save a D3DMetal bottle, MetalSharp installs/trusts Homebrew GPTK separately and uses `/Applications/Game Porting Toolkit.app` directly.
 
@@ -76,5 +78,5 @@ cd app && npm run dmg
 
 - **`cmake` fails**: Ensure Xcode CLI tools are installed (`xcode-select -p` should return a path)
 - **`npm install` fails**: Make sure Node 18+ is installed (`brew install node`)
-- **Missing bundles**: Run `./tools/dmg/create-bundles.sh` — this downloads MetalSharp-owned runtime assets from GitHub. It does not download GPTK; D3DMetal uses Homebrew GPTK.
+- **Missing bootstrap bundles**: Run `./tools/dmg/create-bundles.sh` — this downloads the build inputs and generates `app/bundles/goldberg.tar.zst` plus the Steam bootstrap archive. VKMT-Wine is downloaded during migration. It does not download GPTK; D3DMetal uses Homebrew GPTK.
 - **App won't open**: If you see a Gatekeeper warning, run `xattr -cr /path/to/MetalSharp.app`

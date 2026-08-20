@@ -38,7 +38,7 @@ def manifest_assets() -> list[str]:
     return assets
 
 
-def check_package_resources(assets: list[str]) -> None:
+def check_package_resources() -> None:
     package = json.loads(read("app/package.json"))
     build = package.get("build", {})
     resources = build.get("extraResources", [])
@@ -54,12 +54,24 @@ def check_package_resources(assets: list[str]) -> None:
         ("src-rust/target/release/metalsharp-backend", "runtime/metalsharp-backend"),
         ("native/host", "runtime/host"),
         ("updater", "scripts/tools/updater"),
+        ("../tools/migrator/migrate-to-vkmt-runtime.sh", "scripts/tools/migrator/migrate-to-vkmt-runtime.sh"),
+        ("bundles/metalsharp-steam.tar.zst", "bundles/metalsharp-steam.tar.zst"),
+        ("bundles/goldberg.tar.zst", "bundles/goldberg.tar.zst"),
     }
-    required_pairs.update((f"bundles/{asset}", f"bundles/{asset}") for asset in assets)
 
     missing = sorted(required_pairs - pairs)
     if missing:
         fail(f"app/package.json missing extraResources entries: {missing}")
+
+    allowed_bundles = {
+        ("bundles/metalsharp-steam.tar.zst", "bundles/metalsharp-steam.tar.zst"),
+        ("bundles/goldberg.tar.zst", "bundles/goldberg.tar.zst"),
+    }
+    legacy_bundles = sorted(
+        pair for pair in pairs if isinstance(pair[0], str) and pair[0].startswith("bundles/") and pair not in allowed_bundles
+    )
+    if legacy_bundles:
+        fail(f"app/package.json still embeds legacy DMG bundles: {legacy_bundles}")
 
     if build.get("afterPack") != "build/adhoc-deep-sign.cjs":
         fail("app/package.json must keep afterPack=build/adhoc-deep-sign.cjs")
@@ -67,7 +79,7 @@ def check_package_resources(assets: list[str]) -> None:
         fail("app/package.json must keep afterSign=build/notarize.cjs")
 
 
-def check_dmg_verifier(assets: list[str]) -> None:
+def check_dmg_verifier() -> None:
     verifier = read("tools/dmg/verify-dmg-runtime-assets.sh")
     for needle in [
         "Contents/Resources",
@@ -75,14 +87,25 @@ def check_dmg_verifier(assets: list[str]) -> None:
         "runtime/host",
         "scripts/tools/updater/update.py",
         "scripts/tools/updater/update.sh",
+        "scripts/tools/migrator/migrate-to-vkmt-runtime.sh",
         "tools/bundles/verify-bundles.sh",
+        "metalsharp-steam.tar.zst",
+        "goldberg.tar.zst",
     ]:
         if needle not in verifier:
             fail(f"DMG verifier no longer checks {needle}")
 
-    for asset in assets:
-        if asset not in verifier:
-            fail(f"DMG verifier no longer checks bundle asset {asset}")
+    for asset in [
+        "metalsharp-electron.tar.zst",
+        "metalsharp-graphics-dll.tar.zst",
+        "metalsharp-runtime.tar.zst",
+        "metalsharp-assets.tar.zst",
+        "fnalibs.tar.zst",
+        "metalsharp-scripts-tools.tar.zst",
+        "metalsharp-d3d12-developer-sdk.tar.zst",
+    ]:
+        if asset in verifier:
+            fail(f"DMG verifier must not require legacy bundle asset {asset}")
 
 
 def check_updater_handoff() -> None:
@@ -99,6 +122,7 @@ def check_bundle_scripts() -> None:
     for needle in [
         "tools/dmg/repair-runtime-bundle.py",
         "repair_assets_fnalibs_bundle",
+        "create_goldberg_bundle",
         "tools/bundles/verify-bundles.sh",
         "--bundle-dir \"$BUNDLE_DIR\" \"$asset\"",
         "Refreshing stale bundle",
@@ -182,8 +206,8 @@ def check_workflows() -> None:
 
 def main() -> int:
     assets = manifest_assets()
-    check_package_resources(assets)
-    check_dmg_verifier(assets)
+    check_package_resources()
+    check_dmg_verifier()
     check_updater_handoff()
     check_bundle_scripts()
     check_workflows()

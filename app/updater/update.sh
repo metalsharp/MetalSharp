@@ -142,7 +142,8 @@ verify_app_bundle() {
         "$app_path/Contents/Info.plist" \
         "$app_path/Contents/MacOS/MetalSharp" \
         "$app_path/Contents/Resources/runtime/metalsharp-backend" \
-        "$app_path/Contents/Resources/scripts/tools/updater/update.sh"
+        "$app_path/Contents/Resources/scripts/tools/updater/update.sh" \
+        "$app_path/Contents/Resources/scripts/tools/migrator/migrate-to-vkmt-runtime.sh"
     do
         if [ ! -s "$required" ]; then
             return 1

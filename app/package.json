@@ -139,36 +139,16 @@
         ]
       },
       {
-        "from": "bundles/metalsharp-electron.tar.zst",
-        "to": "bundles/metalsharp-electron.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-graphics-dll.tar.zst",
-        "to": "bundles/metalsharp-graphics-dll.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-runtime.tar.zst",
-        "to": "bundles/metalsharp-runtime.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-assets.tar.zst",
-        "to": "bundles/metalsharp-assets.tar.zst"
-      },
-      {
-        "from": "bundles/fnalibs.tar.zst",
-        "to": "bundles/fnalibs.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-scripts-tools.tar.zst",
-        "to": "bundles/metalsharp-scripts-tools.tar.zst"
+        "from": "../tools/migrator/migrate-to-vkmt-runtime.sh",
+        "to": "scripts/tools/migrator/migrate-to-vkmt-runtime.sh"
       },
       {
         "from": "bundles/metalsharp-steam.tar.zst",
         "to": "bundles/metalsharp-steam.tar.zst"
       },
       {
-        "from": "bundles/metalsharp-d3d12-developer-sdk.tar.zst",
-        "to": "bundles/metalsharp-d3d12-developer-sdk.tar.zst"
+        "from": "bundles/goldberg.tar.zst",
+        "to": "bundles/goldberg.tar.zst"
       }
     ],
     "directories": {

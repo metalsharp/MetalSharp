@@ -2,11 +2,11 @@ use serde_json::json;
 use std::cmp::Ordering as CmpOrdering;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 const MIGRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MIGRATE_SCHEMA_VERSION: u64 = 5;
+const MIGRATE_SCHEMA_VERSION: u64 = 6;
 const GOG_PREFIX_BOTTLE_ID: &str = "gog-prefix";
 const MIGRATION_PAYLOAD_DENY_NAMES: &[&str] = &[
     "steamapps",
@@ -339,6 +339,10 @@ fn parse_version_parts(value: &str) -> Vec<u32> {
 }
 
 fn runtime_core_ready(ms_dir: &Path) -> bool {
+    if vkmt_runtime_current_for_ms_dir(ms_dir) {
+        return true;
+    }
+
     let runtime_wine = ms_dir.join("runtime").join("wine");
     let runtime_host = ms_dir.join("runtime").join("host");
     let wine = crate::platform::runtime_wine_binary(&runtime_wine);
@@ -427,6 +431,16 @@ fn run_migration() {
     if let Some(error) = post_update_target_error(post_update_marker.as_ref()) {
         write_migrate_progress("error", 0, MIGRATION_TOTAL_STEPS, &error, Some("post_update_target_version_mismatch"));
         log_to_file(&format!("Migration blocked before runtime work: {}", error));
+        return;
+    }
+
+    // New DMG builds carry only the Steam and Goldberg bootstrap archives.
+    // Their migration path downloads and verifies VKMT-Wine itself, creates a
+    // fresh VKMT prefix, and restores only Steam/state data. Keep the legacy
+    // Rust bundle migration below as a compatibility fallback for older app
+    // resources and developer trees.
+    if let Some(script) = vkmt_migration_script_path() {
+        run_vkmt_migration_script(&script, &ms_dir);
         return;
     }
 
@@ -562,6 +576,180 @@ fn run_migration() {
 
     write_migrate_progress("complete", total_steps, total_steps, "MetalSharp is updated and ready.", None);
     log_to_file(&format!("Migration to v{} finished (install_ok=true)", MIGRATE_VERSION));
+}
+
+fn vkmt_migration_script_path() -> Option<PathBuf> {
+    let relative = Path::new("scripts/tools/migrator/migrate-to-vkmt-runtime.sh");
+    if let Ok(explicit) = std::env::var("METALSHARP_VKMT_MIGRATION_SCRIPT") {
+        let path = PathBuf::from(explicit);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Some(resources) = crate::platform::app_resources_dir() {
+        let path = resources.join(relative);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    [
+        PathBuf::from("tools/migrator/migrate-to-vkmt-runtime.sh"),
+        PathBuf::from("../tools/migrator/migrate-to-vkmt-runtime.sh"),
+        PathBuf::from("../../tools/migrator/migrate-to-vkmt-runtime.sh"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+}
+
+/// Readiness check for the VKMT runtime installed by the MetalSharp migration
+/// script. The legacy bundle checks remain separate because old app resources
+/// may still be running during a staged update.
+pub fn vkmt_runtime_current_for_ms_dir(ms_dir: &Path) -> bool {
+    let runtime = ms_dir.join("runtime");
+    let prefix = ms_dir.join("prefix-steam");
+    [
+        runtime.join(".metalsharp-runtime-install"),
+        runtime.join("wine/build-ec/wine"),
+        runtime.join("wine/build-ec/server/wineserver"),
+        runtime.join("wine/bin/metalsharp-wine"),
+        runtime.join("scripts/vkmt-runtime-env.sh"),
+        runtime.join("metadata/SHA256SUMS"),
+        runtime.join("providers/xtajit-arm64-known-good.dll"),
+        runtime.join("providers/xtajit64-arm64ec-known-good.dll"),
+        runtime.join("graphics/dxvk/aarch64/dxgi.dll"),
+        runtime.join("graphics/vkd3d-proton/aarch64/d3d12.dll"),
+        runtime.join("dxmt.conf"),
+        prefix.join("drive_c/Program Files (x86)/Steam/steam.exe"),
+    ]
+    .iter()
+    .all(|path| path.is_file())
+}
+
+fn run_vkmt_migration_script(script: &Path, ms_dir: &Path) {
+    write_migrate_progress(
+        "running",
+        1,
+        MIGRATION_TOTAL_STEPS,
+        "Downloading and installing the verified VKMT Wine runtime...",
+        None,
+    );
+
+    let logs = ms_dir.join("logs");
+    if let Err(error) = fs::create_dir_all(&logs) {
+        write_migrate_progress(
+            "error",
+            1,
+            MIGRATION_TOTAL_STEPS,
+            &error.to_string(),
+            Some("migration_log_create_failed"),
+        );
+        return;
+    }
+    let log_path = logs.join("vkmt-migration.log");
+    let log = match fs::OpenOptions::new().create(true).write(true).truncate(true).open(&log_path) {
+        Ok(file) => file,
+        Err(error) => {
+            write_migrate_progress(
+                "error",
+                1,
+                MIGRATION_TOTAL_STEPS,
+                &error.to_string(),
+                Some("migration_log_open_failed"),
+            );
+            return;
+        },
+    };
+    let log_stderr = match log.try_clone() {
+        Ok(file) => file,
+        Err(error) => {
+            write_migrate_progress(
+                "error",
+                1,
+                MIGRATION_TOTAL_STEPS,
+                &error.to_string(),
+                Some("migration_log_clone_failed"),
+            );
+            return;
+        },
+    };
+
+    let status = Command::new("/bin/bash")
+        .arg(script)
+        .arg("--apply")
+        .env("METALSHARP_HOME", ms_dir)
+        .env("METALSHARP_VKMT_PRIMARY", "1")
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log_stderr))
+        .status();
+
+    match status {
+        Ok(result) if result.success() && vkmt_runtime_current_for_ms_dir(ms_dir) => {
+            let mut report = MigrationReport::new();
+            report.record(
+                "vkmt",
+                "preserved",
+                "steam",
+                Some(ms_dir.join("prefix-steam").display().to_string()),
+                "Steam installation and files restored into a fresh VKMT prefix",
+            );
+            report.record(
+                "vkmt",
+                "preserved",
+                "cache",
+                Some(ms_dir.join("cache").display().to_string()),
+                "MetalSharp cache and Steam API-key cache retained",
+            );
+            report.record(
+                "vkmt",
+                "preserved",
+                "user-settings",
+                None,
+                "MetalSharp application storage, theme, and permissions retained",
+            );
+            report.record(
+                "vkmt",
+                "skipped",
+                "bottles",
+                Some(ms_dir.join("bottles").display().to_string()),
+                "Existing bottles were not copied or migrated",
+            );
+            write_migration_report_in(ms_dir, &report);
+            update_migration_metadata(ms_dir);
+            let _ = fs::remove_file(post_update_marker_path(ms_dir));
+            write_migrate_progress(
+                "complete",
+                MIGRATION_TOTAL_STEPS,
+                MIGRATION_TOTAL_STEPS,
+                "VKMT Wine installed; Steam migration complete.",
+                None,
+            );
+            log_to_file("VKMT migration completed successfully");
+        },
+        Ok(result) => {
+            let error = format!("VKMT migration exited with status {}", result);
+            write_migrate_progress(
+                "error",
+                MIGRATION_TOTAL_STEPS,
+                MIGRATION_TOTAL_STEPS,
+                &error,
+                Some("vkmt_migration_failed"),
+            );
+            log_to_file(&format!("{}; see {}", error, log_path.display()));
+        },
+        Err(error) => {
+            let message = format!("failed to run VKMT migration script: {}", error);
+            write_migrate_progress(
+                "error",
+                MIGRATION_TOTAL_STEPS,
+                MIGRATION_TOTAL_STEPS,
+                &message,
+                Some("vkmt_migration_spawn_failed"),
+            );
+            log_to_file(&message);
+        },
+    }
 }
 
 fn update_migration_metadata(ms_dir: &Path) {
@@ -3089,6 +3277,38 @@ mod tests {
             "runtime bundle is still incomplete after install",
             "stale M12 hashes must not satisfy migration readiness"
         );
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn vkmt_runtime_readiness_requires_runtime_and_restored_steam() {
+        let home = test_dir("vkmt-runtime-ready");
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        let required = [
+            "runtime/.metalsharp-runtime-install",
+            "runtime/wine/build-ec/wine",
+            "runtime/wine/build-ec/server/wineserver",
+            "runtime/wine/bin/metalsharp-wine",
+            "runtime/scripts/vkmt-runtime-env.sh",
+            "runtime/metadata/SHA256SUMS",
+            "runtime/providers/xtajit-arm64-known-good.dll",
+            "runtime/providers/xtajit64-arm64ec-known-good.dll",
+            "runtime/graphics/dxvk/aarch64/dxgi.dll",
+            "runtime/graphics/vkd3d-proton/aarch64/d3d12.dll",
+            "runtime/dxmt.conf",
+            "prefix-steam/drive_c/Program Files (x86)/Steam/steam.exe",
+        ];
+        for relative in required {
+            let path = ms_dir.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).expect("create VKMT readiness parent");
+            fs::write(path, b"ready").expect("write VKMT readiness file");
+        }
+
+        assert!(vkmt_runtime_current_for_ms_dir(&ms_dir));
+        fs::remove_file(ms_dir.join("prefix-steam/drive_c/Program Files (x86)/Steam/steam.exe"))
+            .expect("remove Steam marker");
+        assert!(!vkmt_runtime_current_for_ms_dir(&ms_dir));
+
         let _ = fs::remove_dir_all(home);
     }
 

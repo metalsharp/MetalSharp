@@ -28,7 +28,9 @@ pub fn state() -> Value {
     let dxmt_m12_current = dxmt_runtime.get("m12Current").and_then(|v| v.as_bool()).unwrap_or(false);
     let wine_dir = crate::platform::metalsharp_home_dir_for(&home).join("runtime").join("wine");
     let metalsharp_runtime_lib_ready = crate::installer::metalsharp_runtime_lib_ready(&wine_dir);
-    let runtime_current = dxmt_current && dxmt_m12_current && metalsharp_runtime_lib_ready;
+    let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+    let runtime_current = (dxmt_current && dxmt_m12_current && metalsharp_runtime_lib_ready)
+        || crate::migrate::vkmt_runtime_current_for_ms_dir(&ms_dir);
 
     if config_path.exists() {
         if let Ok(contents) = std::fs::read_to_string(&config_path) {
