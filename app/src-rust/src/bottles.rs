@@ -51,6 +51,15 @@ fn vcpp_download(url: &str, dest: &Path) -> Result<(), String> {
         let _ = fs::remove_file(&tmp);
         return Err(format!("downloaded file too small or missing: {}", dest.display()));
     }
+    let file_type = Command::new("/usr/bin/file")
+        .args(["-b", tmp.to_string_lossy().as_ref()])
+        .output()
+        .map_err(|e| format!("file type check failed: {}", e))?;
+    let file_type = String::from_utf8_lossy(&file_type.stdout).to_ascii_lowercase();
+    if !file_type.contains("pe32") && !file_type.contains("ms-dos") {
+        let _ = fs::remove_file(&tmp);
+        return Err(format!("downloaded VC++ installer is not a Windows executable: {}", file_type.trim()));
+    }
     let _ = fs::rename(&tmp, dest);
     Ok(())
 }
@@ -170,15 +179,18 @@ fn run_interactive_vcpp_installer(prefix: &Path, installer: &Path, arch: &str) -
         return Err("MetalSharp Wine not found".into());
     }
     let prefix_str = prefix.to_string_lossy().to_string();
-    eprintln!("vcredist: launching interactive VC++ 2015-2022 {} installer into {} ...", arch, prefix.display());
+    eprintln!("vcredist: launching VC++ 2015-2022 {} installer into {} ...", arch, prefix.display());
     let mut cmd = Command::new(&wine);
-    cmd.arg("start")
-        .arg("/wait")
-        .arg("/unix")
-        .arg(installer)
+    // Invoke the PE directly through the VKMT Wine launcher. `wine start
+    // /wait /unix` returns status 1 on this WoW64/FEX runtime even when it
+    // successfully opens the redistributable, and setting WINEARCH=win64 on
+    // an existing prefix can make both x86 and x64 installers exit before
+    // doing any work. The direct invocation plus wineserver drain gives us a
+    // reliable completion boundary, and the DLL checks below remain the
+    // authoritative success test.
+    cmd.arg(installer)
         .args(vcpp_setup_install_args())
         .env("WINEPREFIX", &prefix_str)
-        .env("WINEARCH", "win64")
         .env("WINEDEBUG", "-all")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -188,7 +200,13 @@ fn run_interactive_vcpp_installer(prefix: &Path, installer: &Path, arch: &str) -
     }
     crate::platform::set_runtime_library_env(&mut cmd, &ms_root);
     let status = cmd.status().map_err(|e| format!("wine {} failed: {}", arch, e))?;
-    if vcpp_installer_status_ok(status.code()) {
+    let _ = Command::new(ms_root.join("bin").join("wineserver")).env("WINEPREFIX", &prefix_str).arg("-w").status();
+    let verified = match arch {
+        "x64" => vcpp_prefix_has_x64(prefix),
+        "x86" => vcpp_prefix_has_x86(prefix),
+        _ => false,
+    };
+    if vcpp_installer_status_ok(status.code()) || verified {
         Ok(())
     } else {
         Err(format!("VC++ {} installer exited with status {:?}", arch, status.code()))
