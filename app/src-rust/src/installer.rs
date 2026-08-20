@@ -383,21 +383,58 @@ fn run_vkmt_install(script: &Path) {
         },
     };
     let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
-    let total = 4;
-    write_progress(0, total, "VKMT Wine", "installing", "Downloading and verifying VKMT Wine...", None);
+    let total = 100;
+    write_progress(0, total, "MetalSharp Wine", "installing", "Preparing MetalSharp Wine installation...", None);
 
-    if let Err(error) = ensure_zstd() {
-        write_progress(1, total, "VKMT Wine", "error", &error, Some(&error));
+    write_progress(2, total, "Xcode Command Line Tools", "installing", "Checking Xcode Command Line Tools...", None);
+    if let Err(error) = install_xcode_cli() {
+        write_progress(
+            2,
+            total,
+            "Xcode Command Line Tools",
+            "error",
+            &format!("Xcode Command Line Tools check failed: {}", error),
+            Some(&error),
+        );
+        return;
+    }
+    write_progress(
+        5,
+        total,
+        "Xcode Command Line Tools",
+        "done",
+        "Xcode Command Line Tools are installed and functional.",
+        None,
+    );
+
+    if !check_command("brew") {
+        let error = "Homebrew is required to install zstd; return to the Homebrew step and install it first";
+        write_progress(5, total, "Homebrew", "error", error, Some(error));
         return;
     }
 
+    write_progress(7, total, "zstd", "installing", "Checking for zstd...", None);
+
+    if let Err(error) = ensure_zstd() {
+        write_progress(7, total, "zstd", "error", &error, Some(&error));
+        return;
+    }
+    write_progress(10, total, "zstd", "done", "zstd is installed and ready.", None);
+
     let _ = fs::create_dir_all(ms_dir.join("logs"));
     let log_path = ms_dir.join("logs/vkmt-install.log");
+    let progress_path = ms_dir.join("install_progress.json");
     let log = fs::OpenOptions::new().create(true).write(true).truncate(true).open(&log_path).ok();
     let log_stderr = log.as_ref().and_then(|file| file.try_clone().ok());
 
     let mut command = Command::new("/bin/bash");
-    command.arg(script).arg("--apply").env("METALSHARP_HOME", &ms_dir).env("METALSHARP_VKMT_PRIMARY", "1");
+    command
+        .arg(script)
+        .arg("--apply")
+        .env("METALSHARP_HOME", &ms_dir)
+        .env("METALSHARP_VKMT_PRIMARY", "1")
+        .env("METALSHARP_INSTALL_PROGRESS_FILE", &progress_path);
+    write_progress(12, total, "MetalSharp Wine", "downloading", "Downloading and verifying MetalSharp Wine...", None);
     if let Some(file) = log {
         command.stdout(Stdio::from(file));
     } else {
@@ -411,16 +448,27 @@ fn run_vkmt_install(script: &Path) {
     let status = command.status();
 
     match status {
-        Ok(result) if result.success() => {
-            write_progress(total, total, "Complete", "complete", "VKMT Wine and fresh Steam prefix installed.", None);
+        Ok(result) if result.success() && crate::migrate::vkmt_runtime_current_for_ms_dir(&ms_dir) => {
+            write_progress(
+                total,
+                total,
+                "Complete",
+                "complete",
+                "MetalSharp Wine and the VKMT Steam prefix are ready.",
+                None,
+            );
         },
         Ok(result) => {
-            let error = format!("VKMT migration script exited with status {}", result);
-            write_progress(1, total, "VKMT Wine", "error", &error, Some(&error));
+            let error = if result.success() {
+                "MetalSharp Wine installer finished, but the runtime or Steam prefix is incomplete".to_string()
+            } else {
+                format!("MetalSharp Wine installer exited with status {}", result)
+            };
+            write_progress(95, total, "MetalSharp Wine", "error", &error, Some(&error));
         },
         Err(error) => {
             let message = format!("failed to run VKMT migration script: {}", error);
-            write_progress(1, total, "VKMT Wine", "error", &message, Some(&message));
+            write_progress(12, total, "MetalSharp Wine", "error", &message, Some(&message));
         },
     }
 }
@@ -659,11 +707,23 @@ fn install_xcode_cli() -> Result<bool, String> {
 }
 
 fn xcode_cli_functional() -> bool {
-    let clang = match find_system_command("clang") {
-        Some(p) => p,
-        None => return false,
+    let developer_dir = match Command::new("/usr/bin/xcode-select").arg("-p").output() {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        _ => return false,
     };
-    Command::new(&clang)
+    if developer_dir.is_empty() || !Path::new(&developer_dir).is_dir() {
+        return false;
+    }
+
+    let clang = match Command::new("/usr/bin/xcrun").args(["--sdk", "macosx", "--find", "clang"]).output() {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        _ => return false,
+    };
+    if clang.is_empty() || !Path::new(&clang).is_file() {
+        return false;
+    }
+
+    Command::new(clang)
         .args(["-x", "c", "-c", "-o", "/dev/null", "-"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
@@ -2481,7 +2541,7 @@ fn make_executable(path: &PathBuf) {
 }
 
 pub fn ensure_zstd() -> Result<bool, String> {
-    if check_command("unzstd") {
+    if check_command("zstd") && check_command("unzstd") {
         return Ok(false);
     }
     brew_install("zstd")

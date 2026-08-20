@@ -19,6 +19,7 @@ const installStatus = ref("");
 const installing = ref(false);
 const installLogs = ref<{ text: string; cls: string }[]>([]);
 const steamInstalled = ref(false);
+const steamInstallPath = ref("");
 const steamInstalling = ref(false);
 const installingSteam = ref(false);
 const brewChecking = ref(true);
@@ -88,6 +89,8 @@ async function startInstall() {
 
   let lastStep = -1;
   let lastStatusText = "";
+  let lastCurrent = "";
+  let lastLog = "";
 
   const poll = setInterval(async () => {
     const progress = await api<{
@@ -103,7 +106,12 @@ async function startInstall() {
     const pct = progress.total > 0 ? Math.round((progress.step / progress.total) * 100) : 0;
     installProgress.value = pct;
 
-    if (progress.step !== lastStep || progress.status !== lastStatusText) {
+    if (
+      progress.step !== lastStep ||
+      progress.status !== lastStatusText ||
+      progress.current !== lastCurrent ||
+      progress.log !== lastLog
+    ) {
       if (progress.status === "done" || progress.status === "skipped") {
         installLogs.value.push({ text: progress.log, cls: progress.status === "done" ? "success" : "warn" });
       } else if (progress.status === "error") {
@@ -112,8 +120,17 @@ async function startInstall() {
         clearInterval(poll);
         installing.value = false;
         return;
-      } else if (progress.status === "installing" && progress.step !== lastStep) {
-        installLogs.value.push({ text: progress.log, cls: "active" });
+      } else if (
+        progress.status === "installing" ||
+        progress.status === "downloading" ||
+        progress.status === "verifying"
+      ) {
+        if (progress.log) {
+          installLogs.value.push({
+            text: `${progress.current ? `${progress.current}: ` : ""}${progress.log}`,
+            cls: progress.status === "verifying" ? "info" : "active",
+          });
+        }
       } else if (progress.status === "complete") {
         installLogs.value.push({ text: "Runtime installed!", cls: "success" });
         clearInterval(poll);
@@ -127,15 +144,16 @@ async function startInstall() {
 
     lastStep = progress.step;
     lastStatusText = progress.status;
+    lastCurrent = progress.current;
+    lastLog = progress.log;
   }, 500);
 }
 
 async function checkSteam() {
-  const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-  if (s?.installed || s?.running) {
-    steamInstalled.value = true;
-  }
-  installingSteam.value = true;
+  const s = await api<{ installed: boolean; running: boolean; installing?: boolean; path?: string | null }>("GET", "/steam/status");
+  steamInstalled.value = s?.installed === true;
+  steamInstallPath.value = s?.path ?? "";
+  steamInstalling.value = s?.installing === true;
 }
 
 async function installSteam() {
@@ -147,11 +165,16 @@ async function installSteam() {
     return;
   }
   const poll = setInterval(async () => {
-    const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-    if (s?.installed || s?.running) {
+    const s = await api<{ installed: boolean; running: boolean; installing?: boolean; path?: string | null }>("GET", "/steam/status");
+    steamInstallPath.value = s?.path ?? "";
+    if (s?.installed === true) {
       clearInterval(poll);
       steamInstalled.value = true;
       steamInstalling.value = false;
+    } else if (s?.installing === false) {
+      clearInterval(poll);
+      steamInstalling.value = false;
+      toast.show("Steam installation did not produce a Steam prefix. Check the install log and retry.", "error");
     }
   }, 3000);
   setTimeout(() => {
@@ -334,8 +357,12 @@ async function installVcppX86() {
         <div v-if="installStatus === 'complete'" class="setup-steam-section">
           <h2>Steam</h2>
           <p>Install Windows Steam to download and play games through MetalSharp's Wine runtime.</p>
-          <span v-if="steamInstalled" class="badge badge-ok" style="font-size:13px;padding:10px 20px;">Steam installed</span>
-          <button v-else class="btn btn-primary" :disabled="steamInstalling" @click="installSteam">
+          <div v-if="steamInstalled">
+            <span class="badge badge-ok" style="font-size:13px;padding:10px 20px;">Steam installed in the VKMT prefix</span>
+            <p v-if="steamInstallPath" class="setup-hint">{{ steamInstallPath }}</p>
+          </div>
+          <p v-else class="setup-hint">Steam is not installed in the new VKMT prefix yet.</p>
+          <button v-if="!steamInstalled" class="btn btn-primary" :disabled="steamInstalling" @click="installSteam">
             {{ steamInstalling ? "Installing Steam..." : "Install Steam" }}
           </button>
         </div>

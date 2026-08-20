@@ -27,6 +27,7 @@ APPLY=0
 KEEP_OLD_PREFIX=0
 LOCAL_ONLY=0
 FRESH=0
+INSTALL_PROGRESS_FILE="${METALSHARP_INSTALL_PROGRESS_FILE:-}"
 
 STATE_STAGE=""
 PREFIX_STAGE=""
@@ -68,13 +69,41 @@ made before migration remains independent of this script.
 USAGE
 }
 
-die() {
-  echo "migrate-to-vkmt-runtime: ERROR: $*" >&2
-  exit 1
-}
-
 info() {
   echo "migrate-to-vkmt-runtime: $*" >&2
+}
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/ }"
+  printf '%s' "$value"
+}
+
+write_install_progress() {
+  local step="$1" status="$2" message="$3" error="${4:-}"
+  local escaped_message escaped_error error_json tmp
+  [ -n "$INSTALL_PROGRESS_FILE" ] || return 0
+
+  escaped_message="$(json_escape "$message")"
+  error_json="null"
+  if [ -n "$error" ]; then
+    escaped_error="$(json_escape "$error")"
+    error_json="\"$escaped_error\""
+  fi
+
+  mkdir -p "$(dirname "$INSTALL_PROGRESS_FILE")"
+  tmp="${INSTALL_PROGRESS_FILE}.tmp.$$"
+  printf '{"step":%s,"total":100,"current":"MetalSharp Wine","status":"%s","log":"%s","error":%s}\n' \
+    "$step" "$status" "$escaped_message" "$error_json" > "$tmp"
+  mv -f -- "$tmp" "$INSTALL_PROGRESS_FILE"
+}
+
+die() {
+  write_install_progress 95 error "MetalSharp Wine installation failed: $*" "$*"
+  echo "migrate-to-vkmt-runtime: ERROR: $*" >&2
+  exit 1
 }
 
 cleanup() {
@@ -162,14 +191,19 @@ resolve_installer() {
     [ "$LOCAL_ONLY" -eq 0 ] || die "VKMT installer is not cached and --local-only was supplied"
     local partial="$cached.partial"
     rm -f -- "$partial"
-    info "Downloading VKMT runtime installer ($VKMT_TAG)"
+    write_install_progress 14 downloading "Downloading and verifying MetalSharp Wine..."
+    info "Downloading MetalSharp Wine installer ($VKMT_TAG)"
     curl --fail --location --retry 4 --retry-delay 2 --output "$partial" "$url"
+    write_install_progress 28 verifying "Verifying MetalSharp Wine installer..."
     [ "$(/usr/bin/shasum -a 256 "$partial" | awk '{print $1}')" = "$VKMT_INSTALLER_SHA256" ] \
       || die "downloaded VKMT installer failed SHA-256 verification"
     mv "$partial" "$cached"
+  else
+    write_install_progress 28 verifying "Verifying cached MetalSharp Wine installer..."
   fi
   chmod 0755 "$cached"
   VKMT_INSTALLER="$cached"
+  write_install_progress 32 "done" "MetalSharp Wine installer verified."
 }
 
 find_wine_user() {
@@ -265,6 +299,7 @@ initialize_prefix() {
   [ -x "$wine" ] || die "VKMT Wine launcher is missing: $wine"
   [ -x "$wineserver" ] || die "VKMT wineserver is missing: $wineserver"
 
+  write_install_progress 92 installing "Creating the fresh VKMT Steam prefix..."
   info "Creating fresh VKMT Wine prefix"
   if ! (
     unset WINEARCH
@@ -290,6 +325,7 @@ initialize_prefix() {
 stage_goldberg() {
   local bundle extract destination
   bundle="$(find_bundle "$GOLDBERG_BUNDLE" goldberg.tar.zst)"
+  write_install_progress 88 installing "Staging Goldberg Steam support..."
   extract="$STATE_STAGE/goldberg-bundle"
   destination="$METALSHARP_HOME/runtime/goldberg"
   mkdir -p "$extract"
@@ -317,6 +353,7 @@ install_fresh_steam() {
   tar --use-compress-program=unzstd -xf "$bundle" -C "$extract"
   [ -s "$installer" ] || die "Steam bundle is missing steam/SteamSetup.exe"
 
+  write_install_progress 96 installing "Installing Steam into the fresh VKMT Wine prefix..."
   info "Installing Steam into the fresh VKMT Wine prefix"
   if ! (
     unset WINEARCH
@@ -449,8 +486,47 @@ run_migration() {
     installer_args+=(--local-only)
   fi
 
+  write_install_progress 40 installing "Downloading and verifying MetalSharp Wine runtime parts..."
   info "Installing current VKMT runtime"
-  "$VKMT_INSTALLER" "${installer_args[@]}"
+
+  # The VKMT installer downloads four verified runtime parts plus the native
+  # GOG support archive. It predates this installer progress protocol, so
+  # watch its log and advance the UI as each major download/verification stage
+  # appears instead of leaving the setup bar at 0% for the whole job.
+  local runtime_log="$STATE_STAGE/vkmt-runtime-install.log" runtime_pid runtime_status=0
+  : > "$runtime_log"
+  "$VKMT_INSTALLER" "${installer_args[@]}" >"$runtime_log" 2>&1 &
+  runtime_pid=$!
+  while kill -0 "$runtime_pid" >/dev/null 2>&1; do
+    if grep -q "Downloading .*part01" "$runtime_log"; then
+      write_install_progress 45 downloading "Downloading MetalSharp Wine (part 1 of 4)..."
+    elif grep -q "Downloading .*part02" "$runtime_log"; then
+      write_install_progress 54 downloading "Downloading MetalSharp Wine (part 2 of 4)..."
+    elif grep -q "Downloading .*part03" "$runtime_log"; then
+      write_install_progress 63 downloading "Downloading MetalSharp Wine (part 3 of 4)..."
+    elif grep -q "Downloading .*part04" "$runtime_log"; then
+      write_install_progress 72 downloading "Downloading MetalSharp Wine (part 4 of 4)..."
+    elif grep -q "Downloading MetalSharp-GOG" "$runtime_log"; then
+      write_install_progress 78 downloading "Downloading native support assets..."
+    elif grep -q "Verified part" "$runtime_log"; then
+      write_install_progress 82 verifying "Verifying MetalSharp Wine download parts..."
+    elif grep -q "Reassembling" "$runtime_log"; then
+      write_install_progress 85 verifying "Reassembling and verifying MetalSharp Wine..."
+    elif grep -q "Extracting into transactional" "$runtime_log"; then
+      write_install_progress 90 installing "Installing the verified MetalSharp Wine runtime..."
+    elif grep -q "Verifying extracted payload" "$runtime_log"; then
+      write_install_progress 91 verifying "Verifying the installed MetalSharp Wine runtime..."
+    fi
+    sleep 1
+  done
+  if wait "$runtime_pid"; then
+    runtime_status=0
+  else
+    runtime_status=$?
+  fi
+  cat "$runtime_log" >&2
+  [ "$runtime_status" -eq 0 ] || die "MetalSharp Wine runtime installer failed (status $runtime_status)"
+  write_install_progress 91 "done" "MetalSharp Wine runtime verified and installed."
   verify_runtime
   restore_state
   stage_goldberg
