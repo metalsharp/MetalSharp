@@ -3,7 +3,7 @@
 # MetalSharp
 **Updated:** 2026-07-18 
 
-**Run Windows games on macOS Silicon with Metal.**
+**Run Windows games on MacOS Silicon.**
 
 <a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.60.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.60.0&style=for-the-badge" alt="Release"></a>
@@ -15,7 +15,7 @@
 
 ---
 
-MetalSharp is an application designed to run Windows Steam and Windows Steam games natively on Apple Silicon macOS. Now includes GOG-Games Support. MetalSharp builds and includes its own custom Wine 11.5 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling. 
+MetalSharp is an application designed to run Windows Steam and Windows Steam games natively on Apple Silicon macOS. MetalSharp builds and includes its own custom Wine 11.5 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
 
 
 
@@ -34,15 +34,15 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 
 ## Routes
 
-| Route | Engine |
+| Route | Engine | Notes |
 |---|---|
-| **VKD3D** | D3D12/D3D11/D3D10/D3D9 through Vulkan |
-| **M11** | D3D11 to Metal (DXMT) |
-| **M11(32)** | D3D11 32Bit to Metal (DXMT) |
-| **M10** | D3D10 to Metal (DXMT) |
-| **M10(32)** | D3D10 32Bit to Metal (DXMT) |
-| **M9** | D3D9 To Metal, DXMT Overrides |
-| **Mono/FNA** | Windows XNA/FNA via native Mono |
+| **VKD3D** | D3D12/D3D11/D3D10/D3D9 through Vulkan | D3D12 Still In Development |
+| **M11** | D3D11 to Metal (DXMT) | |
+| **M11(32)** | D3D11 32Bit to Metal (DXMT) | |
+| **M10** | D3D10 to Metal (DXMT) | |
+| **M10(32)** | D3D10 32Bit to Metal (DXMT) | |
+| **M9** | D3D9 To Metal, DXMT Overrides | |
+| **Mono/FNA** | Windows XNA/FNA via native Mono | |
 | **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. Optional upgrade to GPTK 3 |
 
 ## Features
