@@ -153,12 +153,10 @@ static void mtsp_catalog_entry(ms_json_writer* writer, unsigned long long appid,
 }
 
 char* ms_mtsp_default_rules_json_legacy(void) {
-    const char* candidates[16] = {"configs/mtsp-rules.toml", "app/configs/mtsp-rules.toml",
-                                  "/Volumes/AverySSD/MetalSharp/configs/mtsp-rules.toml",
-                                  "/Volumes/AverySSD/MetalSharp/app/configs/mtsp-rules.toml", NULL};
+    const char* candidates[16] = {"configs/mtsp-rules.toml", "app/configs/mtsp-rules.toml", NULL};
     char home_candidate[1024], ancestor_paths[8][1024];
     const char* home = getenv("METALSHARP_HOME");
-    size_t candidate_count = 4;
+    size_t candidate_count = 2;
     if (home && *home) {
         snprintf(home_candidate, sizeof(home_candidate), "%s/configs/mtsp-rules.toml", home);
         candidates[candidate_count++] = home_candidate;
