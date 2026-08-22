@@ -67,3 +67,19 @@ make
 make test
 make asan-test
 ```
+
+Compare all Rust-discovered routes against a separately built Rust reference;
+semantic mode masks only process-generated values and requires zero remaining
+mismatches:
+
+```sh
+make RUST_BACKEND=/path/to/rust/metalsharp-backend parity-test
+```
+
+For raw diagnostics, preserving generated PIDs, paths, timestamps, ports, and
+addresses, run the comparator directly with `--raw`:
+
+```sh
+python3 tests/differential_parity.py --c build/metalsharp-backend \
+  --rust /path/to/rust/metalsharp-backend --raw
+```

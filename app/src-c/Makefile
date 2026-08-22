@@ -50,7 +50,7 @@ SOURCES := \
 	runtime/main.c
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/c-backend/%.o)
 
-.PHONY: all clean install test asan-test
+.PHONY: all clean install test asan-test parity-test
 
 all: $(TARGET)
 
@@ -69,6 +69,10 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c "$<" -o "$@"
 
 -include $(OBJECTS:.o=.d)
+
+parity-test: $(TARGET)
+	@test -n "$(RUST_BACKEND)" || (echo "set RUST_BACKEND to the Rust reference executable" >&2; exit 2)
+	python3 "$(CURDIR)/tests/differential_parity.py" --c "$(TARGET)" --rust "$(RUST_BACKEND)"
 
 test: $(TARGET) $(JSON_TEST)
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); HOME="$$test_home" METALSHARP_PORT="$$test_port" METALSHARP_HOME="$$ms_home" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
