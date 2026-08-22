@@ -1,4 +1,4 @@
-#include "metalsharp_backend/diagnostics_basic.h"
+#include "metalsharp_backend/diagnostics.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include <CommonCrypto/CommonDigest.h>

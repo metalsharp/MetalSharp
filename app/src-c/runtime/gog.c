@@ -1,4 +1,4 @@
-#include "metalsharp_backend/gog_basic.h"
+#include "metalsharp_backend/gog.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include <ctype.h>

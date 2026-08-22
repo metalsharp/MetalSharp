@@ -1,8 +1,8 @@
 #include "metalsharp_backend/bottle_actions.h"
-#include "metalsharp_backend/bottles_basic.h"
+#include "metalsharp_backend/bottles.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
-#include "metalsharp_backend/steam_basic.h"
+#include "metalsharp_backend/steam.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
