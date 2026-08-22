@@ -1,7 +1,7 @@
 #include "metalsharp_backend/scan.h"
 
 #include "metalsharp_backend/json_writer.h"
-#include "metalsharp_backend/steam_basic.h"
+#include "metalsharp_backend/steam.h"
 
 #include <ctype.h>
 #include <dirent.h>

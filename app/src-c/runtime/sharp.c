@@ -1,4 +1,4 @@
-#include "metalsharp_backend/sharp_basic.h"
+#include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include <errno.h>

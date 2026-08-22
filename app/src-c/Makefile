@@ -17,33 +17,33 @@ SOURCES := \
 	runtime/cache.c \
 	runtime/logs.c \
 	runtime/metalfx.c \
-	runtime/mtsp_basic.c \
+	runtime/mtsp.c \
 	runtime/mtsp_catalog.c \
 	runtime/setup.c \
 	runtime/scan.c \
-	runtime/steam_basic.c \
-	runtime/updater_basic.c \
+	runtime/steam.c \
+	runtime/updater.c \
 	runtime/kernel_handles.c \
 	runtime/kernel_apc.c \
 	runtime/kernel_integrity.c \
 	runtime/kernel_driver.c \
-	runtime/process_basic.c \
+	runtime/process.c \
 	runtime/steam_actions.c \
-	runtime/bottles_basic.c \
-	runtime/mono_basic.c \
-	runtime/sharp_basic.c \
-	runtime/gog_basic.c \
-	runtime/game_basic.c \
-	runtime/diagnostics_basic.c \
-	runtime/antidebug_basic.c \
-	runtime/kernel_extra_basic.c \
+	runtime/bottles.c \
+	runtime/mono.c \
+	runtime/sharp.c \
+	runtime/gog.c \
+	runtime/game.c \
+	runtime/diagnostics.c \
+	runtime/antidebug.c \
+	runtime/kernel_extra.c \
 	runtime/bottle_actions.c \
 	runtime/ob_callbacks.c \
-	runtime/es_bridge_basic.c \
-	runtime/thread_basic.c \
-	runtime/integration_basic.c \
-	runtime/d3dmetal_basic.c \
-	runtime/migration_basic.c \
+	runtime/es_bridge.c \
+	runtime/thread.c \
+	runtime/integration.c \
+	runtime/d3dmetal.c \
+	runtime/migration.c \
 	runtime/http_server.c \
 	runtime/json.c \
 	runtime/json_writer.c \
