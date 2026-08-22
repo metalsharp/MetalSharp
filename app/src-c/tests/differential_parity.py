@@ -30,14 +30,14 @@ EXCLUDED = (
 )
 
 DYNAMIC_KEYS = {
-    "pid", "own_pid", "watch_pid", "protected_pid", "parent_pid", "backend_pid",
+    "pid", "own_pid", "watch_pid", "protected_pid", "parent_pid", "backend_pid", "backendpid",
     "created_at", "updated_at", "installed_at", "activated_at", "last_heartbeat",
     "timestamp", "generated_at_unix", "at", "launch_id", "request_id", "last_event",
     "registered_at", "last_fired", "protected_at", "last_activity", "last_crash",
     "page_address", "pageaddress", "base_address", "baseaddress", "trampoline_address",
     "trampolineaddress", "port", "ipc_port", "ipcport", "listen_port", "listenport",
-    "ports", "fds", "merged", "backendpid",
 }
+DYNAMIC_COUNT_KEYS = {"fds", "merged", "ports"}
 
 
 def route_list() -> list[tuple[str, str]]:
@@ -88,7 +88,9 @@ def request(port: int, method: str, path: str) -> tuple[str, object]:
         return status, ("raw", body[:500])
 
 
-def canonical(value: object, route: str, roots: tuple[str, str], raw: bool) -> object:
+def canonical(
+    value: object, route: str, roots: tuple[str, ...], raw: bool, fd_context: bool = False
+) -> object:
     if raw:
         return value
     if isinstance(value, dict):
@@ -97,13 +99,20 @@ def canonical(value: object, route: str, roots: tuple[str, str], raw: bool) -> o
             normalized_key = key.lower().replace("-", "_")
             if normalized_key in DYNAMIC_KEYS or "address" in normalized_key:
                 result[key] = "<dynamic>"
+            elif normalized_key in DYNAMIC_COUNT_KEYS:
+                if isinstance(child, (int, float)) and not isinstance(child, bool):
+                    result[key] = "<dynamic>"
+                else:
+                    result[key] = canonical(child, route, roots, raw, fd_context=True)
+            elif fd_context and normalized_key in {"count", "fd_count"}:
+                result[key] = "<dynamic>"
             elif route == "/setup/device-name" and key == "name":
                 result[key] = "<dynamic>"
             else:
-                result[key] = canonical(child, route, roots, raw)
+                result[key] = canonical(child, route, roots, raw, fd_context)
         return result
     if isinstance(value, list):
-        return [canonical(child, route, roots, raw) for child in value]
+        return [canonical(child, route, roots, raw, fd_context) for child in value]
     if isinstance(value, str):
         result = value
         for root in roots:
