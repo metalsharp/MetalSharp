@@ -212,6 +212,27 @@ static bool extract_bundle_archive(const char* home, const char* archive) {
     return extract_archive_to(home, archive);
 }
 
+/* Runtime archives downloaded through a quarantined app or browser can cause
+ * macOS to propagate com.apple.quarantine onto Wine executables. Rust extracts
+ * through a clean temporary tree before copying runtime files; clear the same
+ * inherited attribute here so metalsharp-wine --version is executable too. */
+static void clear_runtime_quarantine(const char* home) {
+    char* runtime = join_path(home, "runtime");
+    pid_t pid;
+    int wait_status;
+    if (!runtime)
+        return;
+    pid = fork();
+    if (pid == 0) {
+        execl("/usr/bin/xattr", "xattr", "-dr", "com.apple.quarantine", runtime, (char*)NULL);
+        _exit(127);
+    }
+    if (pid > 0)
+        while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+        }
+    free(runtime);
+}
+
 static bool download_bundle_archive(const char* home, const char* name) {
     char *cache = join_path(home, "cache/bundles"), *destination, *temporary;
     pid_t pid, waited;
@@ -1010,6 +1031,52 @@ static bool home_required_dirs_ready(const char* home, const char* const* relati
     return true;
 }
 
+static bool fix_moltenvk_icd_library_path(const char* path, const char* library) {
+    char* raw = setup_read_text(path);
+    const char* marker;
+    const char* colon;
+    const char* opening;
+    const char* closing;
+    char* quoted;
+    char* updated;
+    FILE* file;
+    size_t prefix_length;
+    size_t suffix_length;
+    bool ok = false;
+    if (!raw)
+        return false;
+    marker = strstr(raw, "\"library_path\"");
+    colon = marker ? strchr(marker, ':') : NULL;
+    opening = colon ? strchr(colon, '\"') : NULL;
+    closing = opening ? strchr(opening + 1, '\"') : NULL;
+    quoted = ms_json_quote(library);
+    if (!opening || !closing || !quoted) {
+        free(raw);
+        free(quoted);
+        return false;
+    }
+    prefix_length = (size_t)(opening - raw);
+    suffix_length = strlen(closing + 1);
+    updated = malloc(prefix_length + strlen(quoted) + suffix_length + 1);
+    if (updated) {
+        memcpy(updated, raw, prefix_length);
+        memcpy(updated + prefix_length, quoted, strlen(quoted));
+        memcpy(updated + prefix_length + strlen(quoted), closing + 1, suffix_length + 1);
+        file = fopen(path, "wb");
+        if (file) {
+            size_t length = prefix_length + strlen(quoted) + suffix_length;
+            if (fwrite(updated, 1, length, file) == length)
+                ok = fclose(file) == 0;
+            else
+                fclose(file);
+        }
+    }
+    free(updated);
+    free(quoted);
+    free(raw);
+    return ok;
+}
+
 static bool moltenvk_runtime_ready(const char* home) {
     const char* libraries[] = {
         "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib", "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib",
@@ -1023,8 +1090,7 @@ static bool moltenvk_runtime_ready(const char* home) {
         ready = ready && path && sha256_matches(path, MS_MOLTENVK_LIBRARY_SHA256);
         free(path);
     }
-    ready = ready && lane && sha256_matches(lane, MS_MOLTENVK_LANE_ICD_SHA256) && runtime &&
-            sha256_matches(runtime, MS_MOLTENVK_RUNTIME_ICD_SHA256);
+    ready = ready && lane && sha256_matches(lane, MS_MOLTENVK_LANE_ICD_SHA256) && runtime;
     if (ready) {
         char* raw = setup_read_text(runtime);
         char parse_error[128];
@@ -1044,7 +1110,9 @@ static bool moltenvk_runtime_ready(const char* home) {
         path = NULL;
         if (!icd || !ms_json_as_bool(ms_json_object_get(icd, "is_portability_driver"), &portability) || !portability)
             ready = false;
-        if (!lib_path || !ms_json_as_string(lib_path, &path) || !library || strcmp(path, library) != 0)
+        if (!lib_path || !ms_json_as_string(lib_path, &path) || !library)
+            ready = false;
+        else if (strcmp(path, library) != 0 && !fix_moltenvk_icd_library_path(runtime, library))
             ready = false;
         free(path);
         ms_json_free(value);
@@ -1432,6 +1500,7 @@ static void run_install_all_worker(const char* home) {
         free(existing_wine);
         free(existing_host);
     }
+    clear_runtime_quarantine(home);
     write_install_progress(home, 5, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
     const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
                                    "runtime/metalsharp-backend",
