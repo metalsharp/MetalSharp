@@ -35,7 +35,7 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 ## Routes
 
 | Route | Engine | Notes |
-|---|---|
+|---|---|---|
 | **VKD3D** | D3D12/D3D11/D3D10/D3D9 through Vulkan | D3D12 Still In Development |
 | **M11** | D3D11 to Metal (DXMT) | |
 | **M11(32)** | D3D11 32Bit to Metal (DXMT) | |
