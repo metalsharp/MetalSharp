@@ -165,7 +165,7 @@ static bool bundle_archive_paths_safe(const char* archive) {
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
-        execlp("tar", "tar", "--zstd", "-tf", archive, (char*)NULL);
+        execl("/usr/bin/tar", "tar", "--zstd", "-tf", archive, (char*)NULL);
         _exit(127);
     }
     close(fds[1]);
@@ -200,7 +200,7 @@ static bool extract_archive_to(const char* destination, const char* archive) {
     if (pid < 0)
         return false;
     if (pid == 0) {
-        execlp("tar", "tar", "--zstd", "-xf", archive, "-C", destination, (char*)NULL);
+        execl("/usr/bin/tar", "tar", "--zstd", "-xf", archive, "-C", destination, (char*)NULL);
         _exit(127);
     }
     while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
@@ -262,8 +262,8 @@ static bool download_bundle_archive(const char* home, const char* name) {
     if (pid == 0) {
         char url[512];
         snprintf(url, sizeof(url), "https://github.com/aaf2tbz/metalsharp/releases/download/bundles/%s", name);
-        execlp("curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2", "--connect-timeout",
-               "30", "--max-time", "600", "-o", temporary, url, (char*)NULL);
+        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2",
+              "--connect-timeout", "30", "--max-time", "600", "-o", temporary, url, (char*)NULL);
         _exit(127);
     }
     do
@@ -295,7 +295,7 @@ static bool copy_directory_contents(const char* source, const char* destination)
         return false;
     }
     if (pid == 0) {
-        execlp("cp", "cp", "-R", source_contents, destination, (char*)NULL);
+        execl("/bin/cp", "cp", "-R", source_contents, destination, (char*)NULL);
         _exit(127);
     }
     free(source_contents);
@@ -466,7 +466,7 @@ static bool copy_file_path(const char* source, const char* destination) {
     if (pid < 0)
         return false;
     if (pid == 0) {
-        execlp("cp", "cp", source, destination, (char*)NULL);
+        execl("/bin/cp", "cp", source, destination, (char*)NULL);
         _exit(127);
     }
     while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
@@ -510,7 +510,7 @@ static void remove_path_tree(const char* path) {
     if (pid < 0)
         return;
     if (pid == 0) {
-        execlp("rm", "rm", "-rf", path, (char*)NULL);
+        execl("/bin/rm", "rm", "-rf", path, (char*)NULL);
         _exit(127);
     }
     while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
