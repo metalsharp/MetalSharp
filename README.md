@@ -43,7 +43,7 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 | **M10(32)** | D3D10 32Bit to Metal (DXMT) | |
 | **M9** | D3D9 To Metal, DXMT Overrides | |
 | **Mono/FNA** | Windows XNA/FNA via native Mono | |
-| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. Optional upgrade to GPTK 3 |
+| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. | Optional upgrade to GPTK 3 |
 
 ## Features
 
