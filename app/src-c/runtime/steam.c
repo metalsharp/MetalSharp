@@ -14,6 +14,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static char* join_path(const char* left, const char* right) {
@@ -95,6 +96,53 @@ static char* saved_key(const char* home) {
         (void)ms_json_as_string(ms_json_object_get(json, "steam_api_key"), &key);
     ms_json_free(json);
     return key == NULL ? strdup("") : key;
+}
+
+static char* steam_id_from_loginusers(const char* path) {
+    char* text = read_file(path, NULL);
+    char* line;
+    if (text == NULL)
+        return NULL;
+    line = text;
+    while (line != NULL && *line != '\0') {
+        char* end = strchr(line, '\n');
+        char* start = line;
+        char* quote;
+        size_t length;
+        while (*start == ' ' || *start == '\t' || *start == '\r')
+            start++;
+        quote = *start == '"' ? strchr(start + 1, '"') : NULL;
+        length = quote == NULL ? 0 : (size_t)(quote - start - 1);
+        if (quote != NULL && length == 17 && !strncmp(start + 1, "7656", 4)) {
+            bool digits = true;
+            for (size_t i = 0; i < length; i++) {
+                if (!isdigit((unsigned char)start[1 + i])) {
+                    digits = false;
+                    break;
+                }
+            }
+            if (digits) {
+                char* result = strndup(start + 1, length);
+                free(text);
+                return result;
+            }
+        }
+        line = end == NULL ? NULL : end + 1;
+    }
+    free(text);
+    return NULL;
+}
+
+static char* detected_steam_id(const char* metalsharp_home) {
+    const char* home = getenv("HOME");
+    char* native = home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/config/loginusers.vdf");
+    char* wine = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam/config/loginusers.vdf");
+    char* result = native == NULL ? NULL : steam_id_from_loginusers(native);
+    if (result == NULL && wine != NULL)
+        result = steam_id_from_loginusers(wine);
+    free(native);
+    free(wine);
+    return result;
 }
 
 char* ms_steam_api_key_json(const char* metalsharp_home) {
@@ -269,6 +317,185 @@ static void collect_steam_library_tree(const char* steamapps, steam_game** games
     free(folders);
 }
 
+static bool append_owned_game(steam_game** games, size_t* count, size_t* capacity, unsigned appid, const char* name) {
+    steam_game* resized;
+    if (appid == 0 || !name || !name[0] || game_seen(*games, *count, appid))
+        return true;
+    if (*count == *capacity) {
+        size_t next = *capacity == 0 ? 16 : *capacity * 2;
+        resized = realloc(*games, next * sizeof(**games));
+        if (!resized)
+            return false;
+        *games = resized;
+        *capacity = next;
+    }
+    (*games)[*count].appid = appid;
+    (*games)[*count].name = strdup(name);
+    (*games)[*count].game_dir = NULL;
+    (*games)[*count].installed = false;
+    if (!(*games)[*count].name)
+        return false;
+    (*count)++;
+    return true;
+}
+
+static void append_owned_array(const ms_json* array, steam_game** games, size_t* count, size_t* capacity) {
+    if (!array || ms_json_type_of(array) != MS_JSON_ARRAY)
+        return;
+    for (size_t i = 0; i < ms_json_array_length(array); i++) {
+        const ms_json* item = ms_json_array_get(array, i);
+        long long appid;
+        char* name = NULL;
+        if (!ms_json_as_i64(ms_json_object_get(item, "appid"), &appid) || appid <= 0 || appid > 0xffffffffLL ||
+            !ms_json_as_string(ms_json_object_get(item, "name"), &name)) {
+            free(name);
+            continue;
+        }
+        (void)append_owned_game(games, count, capacity, (unsigned)appid, name);
+        free(name);
+    }
+}
+
+static bool steam_query_value_safe(const char* value) {
+    if (!value || !value[0])
+        return false;
+    for (const unsigned char* p = (const unsigned char*)value; *p; p++)
+        if (!isalnum(*p))
+            return false;
+    return true;
+}
+
+static char* fetch_owned_games_json(const char* key, const char* steam_id) {
+    char command[1024];
+    FILE* pipe;
+    char* output;
+    size_t length = 0, capacity = 65536;
+    int status;
+    if (!steam_query_value_safe(key) || !steam_query_value_safe(steam_id))
+        return NULL;
+    snprintf(command, sizeof(command),
+             "curl -sL -m 15 'https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=%s&steamid=%s&include_appinfo=1&include_played_free_games=1&format=json'",
+             key, steam_id);
+    pipe = popen(command, "r");
+    if (!pipe)
+        return NULL;
+    output = malloc(capacity);
+    if (!output) {
+        (void)pclose(pipe);
+        return NULL;
+    }
+    while (length + 1 < capacity) {
+        size_t read_count = fread(output + length, 1, capacity - length - 1, pipe);
+        length += read_count;
+        if (read_count == 0)
+            break;
+        if (length + 1 == capacity) {
+            char* resized;
+            capacity *= 2;
+            resized = realloc(output, capacity);
+            if (!resized) {
+                free(output);
+                (void)pclose(pipe);
+                return NULL;
+            }
+            output = resized;
+        }
+    }
+    status = pclose(pipe);
+    if (status != 0) {
+        free(output);
+        return NULL;
+    }
+    output[length] = '\0';
+    return output;
+}
+
+static void save_owned_games_cache(const char* path, const ms_json* array) {
+    ms_json_writer writer;
+    char* text;
+    FILE* file;
+    if (!path || !array)
+        return;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "timestamp");
+    ms_json_writer_u64(&writer, (unsigned long long)time(NULL));
+    ms_json_writer_key(&writer, "games");
+    ms_json_writer_array_begin(&writer);
+    for (size_t i = 0; i < ms_json_array_length(array); i++) {
+        const ms_json* item = ms_json_array_get(array, i);
+        long long appid;
+        char* name = NULL;
+        if (!ms_json_as_i64(ms_json_object_get(item, "appid"), &appid) || appid <= 0 || appid > 0xffffffffLL ||
+            !ms_json_as_string(ms_json_object_get(item, "name"), &name)) {
+            free(name);
+            continue;
+        }
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "appid");
+        ms_json_writer_u64(&writer, (unsigned long long)appid);
+        ms_json_writer_key(&writer, "name");
+        ms_json_writer_string(&writer, name);
+        ms_json_writer_object_end(&writer);
+        free(name);
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_object_end(&writer);
+    text = ms_json_writer_take(&writer);
+    file = text ? fopen(path, "wb") : NULL;
+    if (file) {
+        (void)fputs(text, file);
+        (void)fclose(file);
+    }
+    free(text);
+}
+
+static bool load_owned_games(const char* home, const char* key, const char* steam_id, steam_game** games, size_t* count,
+                             size_t* capacity) {
+    char* path = join_path(home, "cache/owned_games.json");
+    char* text = path ? read_file(path, NULL) : NULL;
+    char error[128];
+    ms_json* json = text ? ms_json_parse(text, strlen(text), error, sizeof(error)) : NULL;
+    long long timestamp;
+    time_t now = time(NULL);
+    const ms_json* array = json ? ms_json_object_get(json, "games") : NULL;
+    bool valid_cache = json && ms_json_as_i64(ms_json_object_get(json, "timestamp"), &timestamp) && timestamp >= 0 &&
+                       now >= (time_t)timestamp && (unsigned long long)(now - (time_t)timestamp) < 3600 && array &&
+                       ms_json_type_of(array) == MS_JSON_ARRAY;
+    if (valid_cache) {
+        append_owned_array(array, games, count, capacity);
+        ms_json_free(json);
+        free(text);
+        free(path);
+        return true;
+    }
+    ms_json_free(json);
+    free(text);
+    if (!path || !steam_query_value_safe(key) || !steam_query_value_safe(steam_id)) {
+        free(path);
+        return false;
+    }
+    text = fetch_owned_games_json(key, steam_id);
+    if (!text) {
+        free(path);
+        return false;
+    }
+    json = ms_json_parse(text, strlen(text), error, sizeof(error));
+    array = json ? ms_json_object_get(ms_json_object_get(json, "response"), "games") : NULL;
+    if (!array || ms_json_type_of(array) != MS_JSON_ARRAY) {
+        ms_json_free(json);
+        free(text);
+        free(path);
+        return false;
+    }
+    append_owned_array(array, games, count, capacity);
+    save_owned_games_cache(path, array);
+    ms_json_free(json);
+    free(text);
+    free(path);
+    return true;
+}
+
 static bool hidden_library_game(const steam_game* game) {
     return game->appid == 228980 ||
            (game->name != NULL && strcasecmp(game->name, "Steamworks Common Redistributables") == 0);
@@ -430,8 +657,9 @@ char* ms_steam_library_json(const char* metalsharp_home) {
     steam_game* games = NULL;
     size_t count = 0, capacity = 0, i;
     char* path;
+    char* api_key = saved_key(metalsharp_home);
     ms_json_writer w;
-    char* sync_text = NULL;
+    char* steam_id = detected_steam_id(metalsharp_home);
     char* result;
     if (home != NULL) {
         const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
@@ -449,6 +677,8 @@ char* ms_steam_library_json(const char* metalsharp_home) {
         collect_steam_library_tree(path, &games, &count, &capacity);
         free(path);
     }
+    if (api_key && steam_id)
+        (void)load_owned_games(metalsharp_home, api_key, steam_id, &games, &count, &capacity);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -460,25 +690,30 @@ char* ms_steam_library_json(const char* metalsharp_home) {
     ms_json_writer_key(&w, "total");
     ms_json_writer_u64(&w, visible_count);
     ms_json_writer_key(&w, "installed_count");
-    ms_json_writer_u64(&w, visible_count);
+    {
+        size_t installed_count = 0;
+        for (i = 0; i < count; ++i)
+            if (!hidden_library_game(&games[i]) && games[i].installed)
+                installed_count++;
+        ms_json_writer_u64(&w, installed_count);
+    }
     ms_json_writer_key(&w, "sync");
-    sync_text =
-        ms_steam_api_key_json(metalsharp_home); /* Replace the key response with the library sync object below. */
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "api_key_set");
-    {
-        char* key = saved_key(metalsharp_home);
-        ms_json_writer_bool(&w, key != NULL && key[0] != '\0');
-        free(key);
-    }
+    ms_json_writer_bool(&w, api_key != NULL && api_key[0] != '\0');
     ms_json_writer_key(&w, "steam_id_detected");
-    ms_json_writer_bool(&w, false);
+    ms_json_writer_bool(&w, steam_id != NULL && steam_id[0] != '\0');
     ms_json_writer_key(&w, "steam_id");
-    ms_json_writer_string(&w, "");
+    ms_json_writer_string(&w, steam_id == NULL ? "" : steam_id);
     ms_json_writer_key(&w, "owned_games_cache");
-    ms_json_writer_bool(&w, false);
+    {
+        char* cache_path = join_path(metalsharp_home, "cache/owned_games.json");
+        ms_json_writer_bool(&w, cache_path != NULL && access(cache_path, R_OK) == 0);
+        free(cache_path);
+    }
     ms_json_writer_object_end(&w);
-    free(sync_text);
+    free(steam_id);
+    free(api_key);
     ms_json_writer_key(&w, "games");
     ms_json_writer_array_begin(&w);
     for (i = 0; i < count; ++i)
@@ -689,6 +924,7 @@ char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned cha
     char* cache = join_path(metalsharp_home, "cache");
     char* path = join_path(metalsharp_home, "cache/steam_config.json");
     char* owned = join_path(metalsharp_home, "cache/owned_games.json");
+    char* steam_id = NULL;
     FILE* file;
     ms_json_writer writer;
     char* json;
@@ -701,6 +937,7 @@ char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned cha
         (void)ms_json_as_string(ms_json_object_get(request, "key"), &key);
     if (key == NULL)
         key = strdup("");
+    steam_id = detected_steam_id(metalsharp_home);
     if (cache == NULL || path == NULL || owned == NULL || !mkdir_p(cache))
         goto fail;
     ms_json_writer_init(&writer);
@@ -708,7 +945,7 @@ char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned cha
     ms_json_writer_key(&writer, "steam_api_key");
     ms_json_writer_string(&writer, key);
     ms_json_writer_key(&writer, "steam_id");
-    ms_json_writer_string(&writer, "");
+    ms_json_writer_string(&writer, steam_id == NULL ? "" : steam_id);
     ms_json_writer_object_end(&writer);
     json = ms_json_writer_take(&writer);
     if (json == NULL)
@@ -736,9 +973,9 @@ char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned cha
         ms_json_writer_key(&writer, "api_key_set");
         ms_json_writer_bool(&writer, key[0] != '\0');
         ms_json_writer_key(&writer, "steam_id_detected");
-        ms_json_writer_bool(&writer, false);
+        ms_json_writer_bool(&writer, steam_id != NULL && steam_id[0] != '\0');
         ms_json_writer_key(&writer, "steam_id");
-        ms_json_writer_string(&writer, "");
+        ms_json_writer_string(&writer, steam_id == NULL ? "" : steam_id);
         ms_json_writer_key(&writer, "owned_games_cache");
         ms_json_writer_bool(&writer, false);
         ms_json_writer_object_end(&writer);
@@ -752,6 +989,7 @@ char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned cha
     free(path);
     free(owned);
     free(key);
+    free(steam_id);
     ms_json_free(request);
     return result;
 fail:
@@ -761,6 +999,7 @@ fail:
     free(path);
     free(owned);
     free(key);
+    free(steam_id);
     ms_json_free(request);
     return strdup("{\"ok\":false,\"error\":\"failed to save Steam API key\"}");
 }

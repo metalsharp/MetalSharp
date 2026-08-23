@@ -1,10 +1,12 @@
 #include "metalsharp_backend/logs.h"
 
+#include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +25,22 @@ typedef struct {
     size_t length;
     size_t capacity;
 } log_list;
+
+typedef struct {
+    char* file;
+    char* name;
+    char* source;
+    char* pipeline;
+    char* timestamp;
+    unsigned long long size;
+    time_t modified;
+} crash_report;
+
+typedef struct {
+    crash_report* entries;
+    size_t length;
+    size_t capacity;
+} crash_list;
 
 static char* join_path(const char* left, const char* right) {
     size_t a = strlen(left), b = strlen(right);
@@ -392,7 +410,265 @@ char* ms_logs_stream_json(const char* metalsharp_home, const char* query) {
     return result;
 }
 
+static bool crash_name(const char* name) {
+    char lower[PATH_MAX];
+    size_t length = strlen(name);
+    if (length >= sizeof(lower))
+        length = sizeof(lower) - 1;
+    for (size_t i = 0; i < length; i++)
+        lower[i] = (char)tolower((unsigned char)name[i]);
+    lower[length] = '\0';
+    return strstr(lower, "crash") != NULL || strstr(lower, ".dmp") != NULL || strstr(lower, ".mdmp") != NULL ||
+           strstr(lower, "crashdump") != NULL || strstr(lower, "crash_report") != NULL;
+}
+
+static void format_report_time(time_t modified, char* output, size_t capacity) {
+    struct tm local;
+    if (localtime_r(&modified, &local) == NULL || strftime(output, capacity, "%Y-%m-%d %H:%M:%S %Z", &local) == 0)
+        snprintf(output, capacity, "%lld", (long long)modified);
+}
+
+static bool add_crash_report(crash_list* list, const char* file, const char* source, const char* pipeline,
+                             const struct stat* info) {
+    crash_report* entry;
+    char timestamp[64];
+    if (list->length == list->capacity) {
+        size_t next = list->capacity == 0 ? 32 : list->capacity * 2;
+        crash_report* grown = realloc(list->entries, next * sizeof(*grown));
+        if (!grown)
+            return false;
+        list->entries = grown;
+        list->capacity = next;
+    }
+    format_report_time(info->st_mtime, timestamp, sizeof(timestamp));
+    entry = &list->entries[list->length];
+    memset(entry, 0, sizeof(*entry));
+    entry->file = strdup(file);
+    entry->name = strdup(strrchr(file, '/') ? strrchr(file, '/') + 1 : file);
+    entry->source = strdup(source);
+    entry->pipeline = strdup(pipeline);
+    entry->timestamp = strdup(timestamp);
+    entry->size = (unsigned long long)(info->st_size < 0 ? 0 : info->st_size);
+    entry->modified = info->st_mtime;
+    if (!entry->file || !entry->name || !entry->source || !entry->pipeline || !entry->timestamp) {
+        free(entry->file);
+        free(entry->name);
+        free(entry->source);
+        free(entry->pipeline);
+        free(entry->timestamp);
+        memset(entry, 0, sizeof(*entry));
+        return false;
+    }
+    list->length++;
+    return true;
+}
+
+static void free_crash_list(crash_list* list) {
+    for (size_t i = 0; i < list->length; i++) {
+        free(list->entries[i].file);
+        free(list->entries[i].name);
+        free(list->entries[i].source);
+        free(list->entries[i].pipeline);
+        free(list->entries[i].timestamp);
+    }
+    free(list->entries);
+    memset(list, 0, sizeof(*list));
+}
+
+static int newest_crash_first(const void* left, const void* right) {
+    const crash_report* a = left;
+    const crash_report* b = right;
+    if (a->modified < b->modified)
+        return 1;
+    if (a->modified > b->modified)
+        return -1;
+    return strcmp(a->file, b->file);
+}
+
+static bool mkdirs(const char* path) {
+    char* copy = strdup(path);
+    if (!copy)
+        return false;
+    for (char* p = copy + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(copy, 0755) != 0 && errno != EEXIST) {
+                free(copy);
+                return false;
+            }
+            *p = '/';
+        }
+    }
+    if (mkdir(copy, 0755) != 0 && errno != EEXIST) {
+        free(copy);
+        return false;
+    }
+    free(copy);
+    return true;
+}
+
+static void persist_crash_report(const char* home, const crash_report* report) {
+    char* root = join_path(home, "logs/crash-reports");
+    char source[96], name[128], timestamp[128], path[PATH_MAX];
+    FILE* file;
+    if (!root || !mkdirs(root)) {
+        free(root);
+        return;
+    }
+    log_slug(report->source, source, sizeof(source));
+    log_slug(report->name, name, sizeof(name));
+    log_slug(report->timestamp, timestamp, sizeof(timestamp));
+    snprintf(path, sizeof(path), "%s/crash-%s-%s-%s.log", root, source, name, timestamp);
+    if (access(path, F_OK) != 0 && (file = fopen(path, "w")) != NULL) {
+        fprintf(file, "timestamp: %s\ncrash_timestamp: %s\nsource: %s\nfile: %s\nsize_bytes: %llu\n", report->timestamp,
+                report->timestamp, report->source, report->file, report->size);
+        fclose(file);
+    }
+    free(root);
+}
+
+static void scan_crash_directory(const char* home, const char* path, const char* source, const char* pipeline,
+                                 unsigned depth, crash_list* reports) {
+    DIR* dir;
+    struct dirent* entry;
+    if (depth > 2 || !path || !(dir = opendir(path)))
+        return;
+    while ((entry = readdir(dir)) != NULL) {
+        char* child;
+        struct stat info;
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+        child = join_path(path, entry->d_name);
+        if (!child || lstat(child, &info) != 0) {
+            free(child);
+            continue;
+        }
+        if (S_ISREG(info.st_mode) && crash_name(entry->d_name) && add_crash_report(reports, child, source, pipeline, &info))
+            persist_crash_report(home, &reports->entries[reports->length - 1]);
+        if (S_ISDIR(info.st_mode))
+            scan_crash_directory(home, child, source, pipeline, depth + 1, reports);
+        free(child);
+    }
+    closedir(dir);
+}
+
+static char* bottle_pipeline_label(const char* home, const char* bottle_id) {
+    char* bottle = join_path(home, "bottles");
+    char* path;
+    FILE* file;
+    char raw[1024 * 1024];
+    size_t length;
+    char error[96];
+    ms_json* json;
+    char* pipeline = NULL;
+    char* result;
+    if (!bottle)
+        return strdup("System");
+    path = join_path(bottle, bottle_id);
+    free(bottle);
+    bottle = path ? join_path(path, "bottle.json") : NULL;
+    free(path);
+    file = bottle ? fopen(bottle, "rb") : NULL;
+    if (!file) {
+        free(bottle);
+        return strdup("System");
+    }
+    length = fread(raw, 1, sizeof(raw) - 1, file);
+    fclose(file);
+    raw[length] = '\0';
+    json = ms_json_parse(raw, length, error, sizeof(error));
+    if (json) {
+        (void)ms_json_as_string(ms_json_object_get(json, "preferred_pipeline"), &pipeline);
+        if (!pipeline)
+            (void)ms_json_as_string(ms_json_object_get(json, "runtime_profile"), &pipeline);
+    }
+    result = pipeline ? strdup(pipeline) : strdup("System");
+    free(pipeline);
+    ms_json_free(json);
+    free(bottle);
+    return result;
+}
+
 char* ms_crash_reports_json(const char* metalsharp_home) {
-    (void)metalsharp_home;
-    return strdup("{\"ok\":true,\"reports\":[]}");
+    crash_list reports = {0};
+    char* root = join_path(metalsharp_home, "games");
+    char* bottles = join_path(metalsharp_home, "bottles");
+    char* prefix = join_path(metalsharp_home, "prefix-steam/drive_c");
+    ms_json_writer writer;
+    char* result;
+    if (root) {
+        DIR* dir = opendir(root);
+        struct dirent* entry;
+        if (dir) {
+            while ((entry = readdir(dir)) != NULL) {
+                char* game = join_path(root, entry->d_name);
+                if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..") && game)
+                    scan_crash_directory(metalsharp_home, game, entry->d_name, "Other", 0, &reports);
+                free(game);
+            }
+            closedir(dir);
+        }
+    }
+    if (bottles) {
+        DIR* dir = opendir(bottles);
+        struct dirent* entry;
+        if (dir) {
+            while ((entry = readdir(dir)) != NULL) {
+                char* logs = join_path(bottles, entry->d_name);
+                char* log_dir = logs ? join_path(logs, "logs") : NULL;
+                char* pipeline = NULL;
+                if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..") && log_dir) {
+                    pipeline = bottle_pipeline_label(metalsharp_home, entry->d_name);
+                    scan_crash_directory(metalsharp_home, log_dir, entry->d_name, pipeline ? pipeline : "System", 0, &reports);
+                }
+                free(pipeline);
+                free(log_dir);
+                free(logs);
+            }
+            closedir(dir);
+        }
+    }
+    if (prefix) {
+        char* dumps = join_path(prefix, "Program Files (x86)/Steam/dumps");
+        char* local = join_path(prefix, "users/steamuser/AppData/Local/CrashDumps");
+        char* program = join_path(prefix, "ProgramData/CrashDumps");
+        scan_crash_directory(metalsharp_home, dumps, "steam-dumps", "System", 0, &reports);
+        scan_crash_directory(metalsharp_home, local, "system", "System", 0, &reports);
+        scan_crash_directory(metalsharp_home, program, "system", "System", 0, &reports);
+        free(dumps);
+        free(local);
+        free(program);
+    }
+    qsort(reports.entries, reports.length, sizeof(*reports.entries), newest_crash_first);
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "reports");
+    ms_json_writer_array_begin(&writer);
+    for (size_t i = 0; i < reports.length; i++) {
+        crash_report* report = &reports.entries[i];
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "file");
+        ms_json_writer_string(&writer, report->file);
+        ms_json_writer_key(&writer, "name");
+        ms_json_writer_string(&writer, report->name);
+        ms_json_writer_key(&writer, "source");
+        ms_json_writer_string(&writer, report->source);
+        ms_json_writer_key(&writer, "pipeline");
+        ms_json_writer_string(&writer, report->pipeline);
+        ms_json_writer_key(&writer, "timestamp");
+        ms_json_writer_string(&writer, report->timestamp);
+        ms_json_writer_key(&writer, "size_bytes");
+        ms_json_writer_u64(&writer, report->size);
+        ms_json_writer_object_end(&writer);
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    free_crash_list(&reports);
+    free(root);
+    free(bottles);
+    free(prefix);
+    return result;
 }
