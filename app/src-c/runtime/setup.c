@@ -1216,6 +1216,90 @@ static bool command_available(const char* name) {
     return false;
 }
 
+static bool xcode_cli_functional(void) {
+    int input[2];
+    pid_t pid;
+    int wait_status;
+    const char source[] = "int main(void) { return 0; }\n";
+    if (!command_available("clang") || pipe(input) != 0)
+        return false;
+    pid = fork();
+    if (pid == 0) {
+        dup2(input[0], STDIN_FILENO);
+        close(input[0]);
+        close(input[1]);
+        execl("/usr/bin/clang", "clang", "-x", "c", "-c", "-o", "/dev/null", "-", (char*)NULL);
+        _exit(127);
+    }
+    close(input[0]);
+    if (pid < 0) {
+        close(input[1]);
+        return false;
+    }
+    (void)write(input[1], source, sizeof(source) - 1);
+    close(input[1]);
+    while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+    }
+    return WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
+}
+
+static bool install_xcode_cli(void) {
+    pid_t pid;
+    int wait_status;
+    if (xcode_cli_functional())
+        return true;
+    pid = fork();
+    if (pid == 0) {
+        execl("/usr/bin/xcode-select", "xcode-select", "--install", (char*)NULL);
+        _exit(127);
+    }
+    if (pid > 0)
+        while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+        }
+    for (unsigned i = 0; i < 120; i++) {
+        sleep(5);
+        if (xcode_cli_functional())
+            return true;
+    }
+    pid = fork();
+    if (pid == 0) {
+        execl("/usr/sbin/softwareupdate", "softwareupdate", "--install", "*Command Line Tools*", (char*)NULL);
+        _exit(127);
+    }
+    if (pid > 0)
+        while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+        }
+    return xcode_cli_functional();
+}
+
+static bool install_homebrew(void) {
+    const char* configured = getenv("METALSHARP_HOMEBREW_INSTALLER");
+    char* script = configured && access(configured, R_OK) == 0 ? strdup(configured) : NULL;
+    pid_t pid;
+    int wait_status;
+    if (command_available("brew")) {
+        free(script);
+        return true;
+    }
+    if (script == NULL)
+        script = find_setup_source("scripts/tools/install-homebrew.sh");
+    if (script == NULL)
+        script = find_setup_source("tools/install-homebrew.sh");
+    if (script == NULL)
+        return false;
+    pid = fork();
+    if (pid == 0) {
+        execl("/bin/bash", "bash", script, (char*)NULL);
+        _exit(127);
+    }
+    free(script);
+    if (pid < 0)
+        return false;
+    while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+    }
+    return WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0 && command_available("brew");
+}
+
 static void dependency_begin(ms_json_writer* writer, const char* id, const char* name, const char* desc, bool installed,
                              bool required, const char* install_command) {
     ms_json_writer_object_begin(writer);
@@ -1271,7 +1355,7 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_array_begin(&writer);
     dependency_begin(
         &writer, "homebrew", "Homebrew", "Package manager — required to install other dependencies", homebrew, true,
-        "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"");
+        "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
                      "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
@@ -1444,7 +1528,7 @@ static void* install_parent_monitor(void* unused) {
 
 static void run_install_all_worker(const char* home) {
     pthread_t parent_monitor;
-    const unsigned total = 16;
+    const unsigned total = 17;
     if (pthread_create(&parent_monitor, NULL, install_parent_monitor, NULL) == 0)
         pthread_detach(parent_monitor);
     char missing[256] = {0};
@@ -1462,23 +1546,27 @@ static void run_install_all_worker(const char* home) {
         snprintf(missing + strlen(missing), sizeof(missing) - strlen(missing), "%scurl", missing[0] ? ", " : "");
         ok = false;
     }
-    if (!command_available("brew")) {
-        snprintf(missing + strlen(missing), sizeof(missing) - strlen(missing), "%sHomebrew", missing[0] ? ", " : "");
-        ok = false;
-    }
     if (!ok) {
         write_install_progress(home, 0, total, "Prerequisites", "error", "Required prerequisites are missing", missing);
         _exit(0);
     }
 
-    write_install_progress(home, 1, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
-    if (!command_available("xcode-select")) {
-        write_install_progress(home, 1, total, "System Tools", "error", "Xcode Command Line Tools are required",
-                               "xcode-select command not found");
+    write_install_progress(home, 1, total, "Homebrew", "installing", "Installing Homebrew...", NULL);
+    if (!install_homebrew()) {
+        write_install_progress(home, 1, total, "Homebrew", "error", "Homebrew installation failed",
+                               "run tools/install-homebrew.sh to retry");
         _exit(0);
     }
-    write_install_progress(home, 1, total, "System Tools", "done", "System tools ready", NULL);
-    write_install_progress(home, 2, total, "Rosetta 2", "installing", "Checking Rosetta 2...", NULL);
+    write_install_progress(home, 1, total, "Homebrew", "done", "Homebrew ready", NULL);
+
+    write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
+    if (!install_xcode_cli()) {
+        write_install_progress(home, 2, total, "System Tools", "error", "Xcode Command Line Tools installation failed",
+                               "install manually with: xcode-select --install");
+        _exit(0);
+    }
+    write_install_progress(home, 2, total, "System Tools", "done", "System tools ready", NULL);
+    write_install_progress(home, 3, total, "Rosetta 2", "installing", "Checking Rosetta 2...", NULL);
     if (access("/Library/Apple/System/Library/LaunchDaemons/com.apple.oahd.plist", F_OK) != 0 &&
         !command_available("oahd")) {
         pid_t rosetta_pid = fork();
@@ -1493,20 +1581,20 @@ static void run_install_all_worker(const char* home) {
             while (waitpid(rosetta_pid, &rosetta_status, 0) < 0 && errno == EINTR) {
             }
         if (rosetta_pid < 0 || !WIFEXITED(rosetta_status) || WEXITSTATUS(rosetta_status) != 0) {
-            write_install_progress(home, 2, total, "Rosetta 2", "error", "Rosetta 2 installation failed",
+            write_install_progress(home, 3, total, "Rosetta 2", "error", "Rosetta 2 installation failed",
                                    "softwareupdate --install-rosetta failed");
             _exit(0);
         }
     }
-    write_install_progress(home, 2, total, "Rosetta 2", "done", "Rosetta 2 ready", NULL);
+    write_install_progress(home, 3, total, "Rosetta 2", "done", "Rosetta 2 ready", NULL);
 
-    write_install_progress(home, 3, total, "Extract Tools (zstd)", "installing", "Checking zstd...", NULL);
-    if (!command_available("zstd")) {
-        write_install_progress(home, 3, total, "Extract Tools (zstd)", "error",
-                               "zstd is required to extract runtime bundles", "zstd command not found");
+    write_install_progress(home, 4, total, "Extract Tools (zstd)", "installing", "Checking zstd...", NULL);
+    if (!command_available("zstd") && (!command_available("brew") || !run_brew_install("zstd"))) {
+        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error",
+                               "zstd installation failed", "brew install zstd failed");
         _exit(0);
     }
-    write_install_progress(home, 3, total, "Extract Tools (zstd)", "done", "zstd ready", NULL);
+    write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "zstd ready", NULL);
     {
         const char* bundles[] = {"metalsharp-runtime.tar.zst",       "metalsharp-graphics-dll.tar.zst",
                                  "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
@@ -1516,19 +1604,19 @@ static void run_install_all_worker(const char* home) {
             bool available = archive != NULL;
             free(archive);
             if (!available) {
-                write_install_progress(home, 4, total, "Runtime Bundle Downloads", "downloading",
+                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "downloading",
                                        "Downloading required runtime bundles...", NULL);
                 available = download_bundle_archive(home, bundles[i]);
             }
             if (!available) {
-                write_install_progress(home, 4, total, "Runtime Bundle Downloads", "error",
+                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
                                        "Required runtime bundle could not be downloaded", bundles[i]);
                 _exit(0);
             }
         }
     }
 
-    write_install_progress(home, 4, total, "Runtime Bundle Downloads", "installing", "Locating runtime bundles...",
+    write_install_progress(home, 5, total, "Runtime Bundle Downloads", "installing", "Locating runtime bundles...",
                            NULL);
     {
         char* archive = find_bundle_archive(home, "metalsharp-runtime.tar.zst");
@@ -1537,7 +1625,7 @@ static void run_install_all_worker(const char* home) {
         bool already_ready = file_nonempty(existing_wine) && file_nonempty(existing_host);
         if (archive) {
             if (!extract_bundle_archive(home, archive)) {
-                write_install_progress(home, 4, total, "Runtime Bundle Downloads", "error",
+                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
                                        "Failed to extract the MetalSharp runtime bundle",
                                        "runtime bundle extraction failed");
                 free(archive);
@@ -1546,13 +1634,13 @@ static void run_install_all_worker(const char* home) {
                 _exit(0);
             }
             free(archive);
-            write_install_progress(home, 4, total, "Runtime Bundle Downloads", "done", "Runtime bundle extracted",
+            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done", "Runtime bundle extracted",
                                    NULL);
         } else if (already_ready) {
-            write_install_progress(home, 4, total, "Runtime Bundle Downloads", "done", "Runtime bundle already present",
+            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done", "Runtime bundle already present",
                                    NULL);
         } else {
-            write_install_progress(home, 4, total, "Runtime Bundle Downloads", "error",
+            write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
                                    "Required runtime bundle is missing", "missing metalsharp-runtime.tar.zst");
             free(existing_wine);
             free(existing_host);
@@ -1562,7 +1650,7 @@ static void run_install_all_worker(const char* home) {
         free(existing_host);
     }
     clear_runtime_quarantine(home);
-    write_install_progress(home, 5, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
+    write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
     const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
                                    "runtime/metalsharp-backend",
                                    "runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll",
@@ -1570,7 +1658,7 @@ static void run_install_all_worker(const char* home) {
     char* wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
     char* host = join_path(home, "runtime/host/manifest.json");
     if (!home_required_files_ready(home, runtime_files, sizeof(runtime_files) / sizeof(runtime_files[0]))) {
-        write_install_progress(home, 5, total, "Runtime Assets", "error",
+        write_install_progress(home, 6, total, "Runtime Assets", "error",
                                "Runtime assets are missing; install or download the MetalSharp runtime bundle first",
                                "missing runtime assets");
         free(wine);
@@ -1590,7 +1678,7 @@ static void run_install_all_worker(const char* home) {
             while (waitpid(wine_pid, &wine_status, 0) < 0 && errno == EINTR) {
             }
         if (wine_pid < 0 || !WIFEXITED(wine_status) || WEXITSTATUS(wine_status) != 0) {
-            write_install_progress(home, 5, total, "Runtime Assets", "error", "Wine runtime validation failed",
+            write_install_progress(home, 6, total, "Runtime Assets", "error", "Wine runtime validation failed",
                                    "metalsharp-wine --version failed");
             free(wine);
             free(host);
@@ -1599,19 +1687,19 @@ static void run_install_all_worker(const char* home) {
     }
     free(wine);
     free(host);
-    write_install_progress(home, 5, total, "Runtime Assets", "done", "Runtime assets ready", NULL);
+    write_install_progress(home, 6, total, "Runtime Assets", "done", "Runtime assets ready", NULL);
     if (!moltenvk_runtime_ready(home)) {
-        write_install_progress(home, 6, total, "VKD3D MoltenVK Runtime", "error",
+        write_install_progress(home, 7, total, "VKD3D MoltenVK Runtime", "error",
                                "VKD3D/MoltenVK runtime is incomplete", "missing or invalid MoltenVK runtime artifacts");
         _exit(0);
     }
-    write_install_progress(home, 6, total, "VKD3D MoltenVK Runtime", "done", "VKD3D/MoltenVK runtime ready", NULL);
+    write_install_progress(home, 7, total, "VKD3D MoltenVK Runtime", "done", "VKD3D/MoltenVK runtime ready", NULL);
     if (!host_runtime_installed(home)) {
-        write_install_progress(home, 7, total, "Host Runtime ABI", "error", "Host runtime ABI is incomplete",
+        write_install_progress(home, 8, total, "Host Runtime ABI", "error", "Host runtime ABI is incomplete",
                                "missing host runtime ABI artifacts");
         _exit(0);
     }
-    write_install_progress(home, 7, total, "Host Runtime ABI", "done", "Host runtime ABI ready", NULL);
+    write_install_progress(home, 8, total, "Host Runtime ABI", "done", "Host runtime ABI ready", NULL);
     {
         const char* const mapping[][2] = {{"assets/mono-x86", "runtime/mono-x86"},
                                           {"assets/mono-arm64", "runtime/mono-arm64"},
@@ -1624,7 +1712,7 @@ static void run_install_all_worker(const char* home) {
                                           {"assets/shader-cache", "shader-cache"}};
         const char* support_dirs[] = {"runtime/mono-x86", "runtime/mono-arm64", "runtime/shims", "runtime/fnalibs",
                                       "runtime/fna-kickstart"};
-        write_install_progress(home, 8, total, "Support Assets", "installing", "Staging support assets...", NULL);
+        write_install_progress(home, 9, total, "Support Assets", "installing", "Staging support assets...", NULL);
         char* support_archive = find_bundle_archive(home, "metalsharp-assets.tar.zst");
         bool support_ready =
             home_required_dirs_ready(home, support_dirs, sizeof(support_dirs) / sizeof(support_dirs[0]));
@@ -1634,16 +1722,16 @@ static void run_install_all_worker(const char* home) {
                           home_required_dirs_ready(home, support_dirs, sizeof(support_dirs) / sizeof(support_dirs[0]));
         free(support_archive);
         if (!support_ok) {
-            write_install_progress(home, 8, total, "Support Assets", "error",
+            write_install_progress(home, 9, total, "Support Assets", "error",
                                    "Support asset bundle is missing or incomplete",
                                    "missing or invalid metalsharp-assets.tar.zst");
             _exit(0);
         }
     }
-    write_install_progress(home, 8, total, "Support Assets", "done", "Support assets ready", NULL);
+    write_install_progress(home, 9, total, "Support Assets", "done", "Support assets ready", NULL);
     {
         const char* const mapping[][2] = {{"scripts/tools", "scripts/tools"}};
-        write_install_progress(home, 9, total, "Scripts and Tools", "installing", "Staging scripts and tools...", NULL);
+        write_install_progress(home, 10, total, "Scripts and Tools", "installing", "Staging scripts and tools...", NULL);
         char* scripts_archive = find_bundle_archive(home, "metalsharp-scripts-tools.tar.zst");
         bool scripts_ready = home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);
         bool scripts_ok =
@@ -1652,15 +1740,15 @@ static void run_install_all_worker(const char* home) {
             home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);
         free(scripts_archive);
         if (!scripts_ok) {
-            write_install_progress(home, 9, total, "Scripts and Tools", "error",
+            write_install_progress(home, 10, total, "Scripts and Tools", "error",
                                    "Scripts/tools bundle is missing or incomplete",
                                    "missing or invalid metalsharp-scripts-tools.tar.zst");
             _exit(0);
         }
     }
-    write_install_progress(home, 9, total, "Scripts and Tools", "done", "Scripts and tools ready", NULL);
+    write_install_progress(home, 10, total, "Scripts and Tools", "done", "Scripts and tools ready", NULL);
 
-    write_install_progress(home, 10, total, "DXMT Graphics Runtimes", "installing", "Extracting graphics runtimes...",
+    write_install_progress(home, 11, total, "DXMT Graphics Runtimes", "installing", "Extracting graphics runtimes...",
                            NULL);
     {
         char* archive = find_bundle_archive(home, "metalsharp-graphics-dll.tar.zst");
@@ -1709,7 +1797,7 @@ static void run_install_all_worker(const char* home) {
             graphics_ok = false;
         }
         if (!graphics_ok) {
-            write_install_progress(home, 10, total, "DXMT Graphics Runtimes", "error",
+            write_install_progress(home, 11, total, "DXMT Graphics Runtimes", "error",
                                    "DXMT graphics bundle is missing or could not be staged",
                                    "missing or invalid metalsharp-graphics-dll.tar.zst");
             _exit(0);
@@ -1721,20 +1809,20 @@ static void run_install_all_worker(const char* home) {
     free(runtime);
     ms_json_free(json);
     if (!dxmt) {
-        write_install_progress(home, 10, total, "DXMT Graphics Runtimes", "error", "DXMT runtimes are not ready",
+        write_install_progress(home, 11, total, "DXMT Graphics Runtimes", "error", "DXMT runtimes are not ready",
                                "missing DXMT runtime");
         _exit(0);
     }
-    write_install_progress(home, 10, total, "DXMT Graphics Runtimes", "done", "DXMT runtimes ready", NULL);
+    write_install_progress(home, 11, total, "DXMT Graphics Runtimes", "done", "DXMT runtimes ready", NULL);
     {
         const char* goldberg[] = {"runtime/goldberg/x86/steam_api.dll", "runtime/goldberg/x64/steam_api64.dll"};
         if (!home_required_files_ready(home, goldberg, 2)) {
-            write_install_progress(home, 11, total, "Goldberg Steam Emulator", "error",
+            write_install_progress(home, 12, total, "Goldberg Steam Emulator", "error",
                                    "Goldberg Steam emulator is incomplete", "missing Goldberg DLLs");
             _exit(0);
         }
     }
-    write_install_progress(home, 11, total, "Goldberg Steam Emulator", "done", "Goldberg Steam emulator ready", NULL);
+    write_install_progress(home, 12, total, "Goldberg Steam Emulator", "done", "Goldberg Steam emulator ready", NULL);
     {
         char* source = join_path(home, "runtime/shims/libsteam_api.dylib");
         char* destination = join_path(home, "runtime/steam-bridge/libsteam_api.dylib");
@@ -1743,7 +1831,7 @@ static void run_install_all_worker(const char* home) {
         free(source);
         free(destination);
     }
-    write_install_progress(home, 12, total, "Steam Bridge Shim", "done", "Steam bridge check complete", NULL);
+    write_install_progress(home, 13, total, "Steam Bridge Shim", "done", "Steam bridge check complete", NULL);
     {
         char* source = join_path(home, "scripts/tools/configs/mtsp-rules.toml");
         char* destination = join_path(home, "configs/mtsp-rules.toml");
@@ -1756,7 +1844,7 @@ static void run_install_all_worker(const char* home) {
         free(source);
         free(destination);
     }
-    write_install_progress(home, 13, total, "Pipeline Rules", "done", "Pipeline rules staged", NULL);
+    write_install_progress(home, 14, total, "Pipeline Rules", "done", "Pipeline rules staged", NULL);
     {
         const char* names[] = {"terraria-mono.config", "celeste-x86-mono.config", "stardew-mono.config",
                                "generic-fna-mono.config"};
@@ -1773,19 +1861,19 @@ static void run_install_all_worker(const char* home) {
             free(destination);
         }
     }
-    write_install_progress(home, 14, total, "Mono Configs", "done", "Mono configuration staged", NULL);
+    write_install_progress(home, 15, total, "Mono Configs", "done", "Mono configuration staged", NULL);
     if (!home_required_files_ready(home, (const char*[]){"runtime/mono-arm64/bin/mono"}, 1) &&
         !command_available("mono"))
         (void)run_brew_install("mono");
     if (!home_required_files_ready(home, (const char*[]){"runtime/mono-arm64/bin/mono"}, 1) &&
         !command_available("mono")) {
-        write_install_progress(home, 15, total, "Runtime Support", "error", "Mono arm64 runtime is incomplete",
+        write_install_progress(home, 16, total, "Runtime Support", "error", "Mono arm64 runtime is incomplete",
                                "missing runtime/mono-arm64/bin/mono");
         _exit(0);
     }
-    write_install_progress(home, 15, total, "Runtime Support", "done", "Runtime support ready", NULL);
+    write_install_progress(home, 16, total, "Runtime Support", "done", "Runtime support ready", NULL);
     precompile_fna_shims(home);
-    write_install_progress(home, 16, total, "FNA Shim Precompile", "done", "FNA shim precompile complete", NULL);
+    write_install_progress(home, 17, total, "FNA Shim Precompile", "done", "FNA shim precompile complete", NULL);
     write_install_progress(home, total, total, "Complete", "complete", "All assets installed!", NULL);
     _exit(0);
 }

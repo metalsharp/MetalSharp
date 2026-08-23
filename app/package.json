@@ -131,6 +131,10 @@
         "to": "scripts/tools/updater"
       },
       {
+        "from": "../tools/install-homebrew.sh",
+        "to": "scripts/tools/install-homebrew.sh"
+      },
+      {
         "from": "../configs",
         "to": "configs",
         "filter": [

@@ -251,10 +251,12 @@ export class RustBridge {
   }
 
   private spawnBackend(binPath: string) {
+    const homebrewInstaller = path.resolve(path.dirname(binPath), "..", "scripts/tools/install-homebrew.sh");
     this.proc = spawn(binPath, [], {
       env: {
         ...process.env,
         PATH: shellPath,
+        METALSHARP_HOMEBREW_INSTALLER: homebrewInstaller,
         METALSHARP_PORT: String(this.port),
         ...(this.metalsharpHome ? { METALSHARP_HOME: this.metalsharpHome } : {}),
         ...(this.devMode ? { METALSHARP_DEV: "1" } : {}),

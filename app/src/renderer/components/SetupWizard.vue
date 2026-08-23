@@ -50,24 +50,24 @@ async function installHomebrew() {
   brewInstalling.value = true;
   const result = await getAPI().installHomebrew();
   if (!result?.ok) {
-    toast.show(result?.error ?? "Failed to open Terminal", "error");
+    toast.show(result?.error ?? "Failed to install Homebrew", "error");
     brewInstalling.value = false;
     return;
   }
   if (result.installed) {
     brewInstalled.value = true;
     brewInstalling.value = false;
-    toast.show("Homebrew is already installed", "success");
+    toast.show(result.message ?? "Homebrew installed successfully", "success");
     return;
   }
   brewInstalling.value = false;
-  toast.show("Terminal opened — complete the Homebrew install, then click Continue", "success");
+  toast.show("Homebrew installed — click Continue", "success");
 }
 
 async function goToRuntimeStep() {
   await checkBrew();
   if (!brewInstalled.value) {
-    toast.show("Homebrew not detected yet. Install it in Terminal first.", "error");
+    toast.show("Homebrew not detected yet. Complete the administrator password dialog first.", "error");
     return;
   }
   step.value = 2;
