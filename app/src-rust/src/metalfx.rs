@@ -158,10 +158,17 @@ pub fn set_state_for(home: &Path, body: &serde_json::Map<String, Value>) -> Valu
     let mut current = read_state(home);
     if let Some(e) = enabled {
         current.enabled = e;
+        // Keep the DXMT config at its neutral 2.00x factor while MetalFX is
+        // off; the overlay/hook uses enabled=false for the actual disable.
+        if !e {
+            current.factor = 2.0;
+        }
     }
-    if let Some(f) = factor {
-        if f.is_finite() && (1.0..=3.0).contains(&f) {
-            current.factor = f;
+    if current.enabled {
+        if let Some(f) = factor {
+            if f.is_finite() && (1.0..=3.0).contains(&f) {
+                current.factor = f;
+            }
         }
     }
     current.ts = now_ts();
@@ -226,19 +233,21 @@ mod tests {
         assert!(conf.contains("d3d11.metalSpatialUpscaleFactor = 1.75"));
         assert_eq!(read_conf_factor(&home), Some(1.75));
 
-        // flip off without changing factor
+        // flip off: the neutral DXMT factor is restored to 2.00.
         let mut body2 = serde_json::Map::new();
         body2.insert("enabled".into(), false.into());
         let r2 = set_state_for(&home, &body2);
         assert_eq!(r2["enabled"], false);
-        assert_eq!(r2["factor"], 1.75);
-        assert_eq!(effective_state_for(&home), (false, 1.75));
+        assert_eq!(r2["factor"], 2.0);
+        assert_eq!(effective_state_for(&home), (false, 2.0));
+        let conf_off = fs::read_to_string(dxmt_conf_path_for(&home)).unwrap();
+        assert!(conf_off.contains("d3d11.metalSpatialUpscaleFactor = 2.00"));
 
         // reject out-of-range factor
         let mut body3 = serde_json::Map::new();
         body3.insert("factor".into(), 0.5.into());
         let r3 = set_state_for(&home, &body3);
-        assert_eq!(r3["factor"], 1.75, "out-of-range factor must be ignored");
+        assert_eq!(r3["factor"], 2.0, "out-of-range factor must be ignored");
 
         let _ = fs::remove_dir_all(&home);
     }

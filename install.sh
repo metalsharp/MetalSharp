@@ -39,6 +39,15 @@ fi
 ARCH=$(uname -m)
 info "Detected: macOS $(sw_vers -productVersion) on $ARCH"
 
+# ── Homebrew ──
+step "Checking Homebrew"
+"$METALSHARP_DIR/tools/install-homebrew.sh"
+if [[ -x /opt/homebrew/bin/brew ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [[ -x /usr/local/bin/brew ]]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+fi
+
 # ── Xcode CLI Tools ──
 step "Checking Xcode Command Line Tools"
 if xcode-select -p &>/dev/null; then
@@ -48,16 +57,6 @@ else
     xcode-select --install 2>/dev/null || true
     info "After installation completes, re-run this script."
     exit 0
-fi
-
-# ── Homebrew ──
-step "Checking Homebrew"
-if cmd_exists brew; then
-    ok "Homebrew $(brew --version | head -1 | awk '{print $2}')"
-else
-    info "Installing Homebrew..."
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)"
 fi
 
 # ── CMake ──
