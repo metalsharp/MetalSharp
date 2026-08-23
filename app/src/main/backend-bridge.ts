@@ -397,9 +397,7 @@ export class BackendBridge {
   }
 
   private findBinary(): string | null {
-    const devCandidates = [
-      path.join(__dirname, "..", "..", "src-c", "build", "metalsharp-backend"),
-    ];
+    const devCandidates = [path.join(__dirname, "..", "..", "src-c", "build", "metalsharp-backend")];
     const packagedCandidates = [
       path.join(process.resourcesPath || "", "runtime", "metalsharp-backend"),
       path.join(__dirname, "..", "..", "src-c", "build", "metalsharp-backend"),
