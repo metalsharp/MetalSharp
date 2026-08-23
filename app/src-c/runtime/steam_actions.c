@@ -743,6 +743,71 @@ static void stage_celeste_steam_api(const char* home, const char* game_dir) {
     free(target);
 }
 
+static bool steam_launch_model_app(unsigned id) {
+    return id == 620 || id == 4000 || id == 1260320 || id == 440 || id == 730 || id == 252490 || id == 271590 ||
+           id == 284160 || id == 292030 || id == 1172380 || id == 3241660;
+}
+
+static bool steam_secure_launch_model_app(unsigned id) {
+    return id == 440 || id == 730 || id == 252490 || id == 271590 || id == 284160 || id == 292030 || id == 1172380 ||
+           id == 3241660;
+}
+
+/* Rust prepares the real Steam client contract before every direct launch.
+ * In particular, source-style games need steam_appid.txt even when the
+ * graphics route is M9 and the executable is launched directly through Wine. */
+static void prepare_real_steam_launch(const char* home, const char* game_dir, const char* executable, unsigned id,
+                                      const char* pipeline) {
+    char* steam_dir;
+    char* target_dirs[4] = {NULL, NULL, NULL, NULL};
+    size_t target_count = 0;
+    const char* files[] = {"steam_api.dll", "steam_api64.dll", "steamclient.dll", "steamclient64.dll",
+                           "GameOverlayRenderer.dll", "GameOverlayRenderer64.dll"};
+    if (!game_dir || !steam_launch_model_app(id) || !strcmp(pipeline, "m13") || !strcmp(pipeline, "d3dmetal"))
+        return;
+    steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+    if (!steam_dir)
+        return;
+    target_dirs[target_count++] = strdup(game_dir);
+    target_dirs[target_count++] = join(game_dir, "bin");
+    if (executable) {
+        char* exe_dir = strdup(executable);
+        char* slash = exe_dir ? strrchr(exe_dir, '/') : NULL;
+        if (slash) {
+            *slash = '\0';
+            target_dirs[target_count++] = exe_dir;
+            exe_dir = NULL;
+        }
+        free(exe_dir);
+    }
+    for (size_t i = 0; i < target_count; i++) {
+        if (!target_dirs[i] || access(target_dirs[i], F_OK) != 0)
+            continue;
+        for (size_t j = 0; j < sizeof(files) / sizeof(files[0]); j++) {
+            char* source = join(steam_dir, files[j]);
+            char* target = join(target_dirs[i], files[j]);
+            bool model_file = j >= 2;
+            bool should_deploy = j < 2 || (model_file && steam_secure_launch_model_app(id));
+            if (should_deploy && source && target && access(target, F_OK) != 0 && access(source, R_OK) == 0)
+                (void)copy_file_path(source, target);
+            free(source);
+            free(target);
+        }
+        {
+            char* appid_path = join(target_dirs[i], "steam_appid.txt");
+            FILE* appid_file = appid_path ? fopen(appid_path, "wb") : NULL;
+            if (appid_file) {
+                fprintf(appid_file, "%u\n", id);
+                fclose(appid_file);
+            }
+            free(appid_path);
+        }
+    }
+    for (size_t i = 0; i < target_count; i++)
+        free(target_dirs[i]);
+    free(steam_dir);
+}
+
 static char* fna_game_executable(const char* game_dir, unsigned id) {
     const char* preferred[2] = {NULL, NULL};
     if (id == 105600) {
@@ -1980,8 +2045,10 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "Subnautica2.exe";
     else if (id == 220)
         preferred[count++] = "hl2.exe";
-    else if (id == 440)
+    else if (id == 440) {
         preferred[count++] = "tf/win32/tf.exe";
+        preferred[count++] = "tf.exe";
+    }
     else if (id == 620)
         preferred[count++] = "portal2.exe";
     else if (id == 475150)
@@ -3640,6 +3707,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     }
     game_dir = ms_steam_game_dir(home, id);
     deploy_controller_input_shims(home, game_dir);
+    prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
     remove_stale_route_dlls(home, pipeline, game_dir, executable);
     if (!stage_route_dlls(home, id, pipeline, executable)) {
         free(game_dir);
