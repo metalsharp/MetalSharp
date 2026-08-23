@@ -318,6 +318,7 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.2767030]
 pipeline = "vkd3d"
 name = "Marvel Rivals"
+exe_names = ["MarvelGame/Marvel/Binaries/Win64/Marvel-Win64-Shipping.exe"]
 
 [overrides.2767030.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
@@ -6200,6 +6201,12 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.2357570]
 pipeline = "m11"
 name = "AppID 2357570"
+exe_names = ["Overwatch.exe"]
+
+[overrides.321040]
+pipeline = "m9"
+name = "DiRT 3 Complete Edition"
+exe_names = ["dirt3_game.exe"]
 
 [overrides.2357570.dependencies]
 components = ["vcrun2019", "directx_jun2010"]

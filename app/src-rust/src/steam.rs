@@ -73,13 +73,10 @@ pub fn status() -> Value {
 
     let login_state = detect_login_state();
 
-    let mac_paths = [
-        home.join(".steam/steam/steamapps"),
-        home.join(".local/share/Steam/steamapps"),
-        home.join("Library/Application Support/Steam/steamapps"),
-    ];
+    // A Steam data directory can remain after Steam.app is removed. Treat
+    // the application bundle, not leftover steamapps data, as installation.
     let mac_app = macos_steam_app();
-    let mac_installed = mac_app.is_some() || mac_paths.iter().any(|p| p.exists());
+    let mac_installed = mac_app.is_some();
     let mac_running = is_macos_steam_running();
 
     let running = is_wine_steam_running();
@@ -1692,17 +1689,25 @@ pub fn watch_steamapps() -> Vec<u32> {
     let current = get_installed_appids();
     let cached = read_installed_appid_snapshot();
 
-    let mut new_appids = Vec::new();
+    // The renderer uses this response as a refresh trigger. Report both
+    // additions and removals so uninstalling a game updates the visible
+    // installed library without requiring an application restart.
+    let mut changed_appids = Vec::new();
     for &id in &current {
         if !cached.contains(&id) {
-            new_appids.push(id);
+            changed_appids.push(id);
+        }
+    }
+    for &id in &cached {
+        if !current.contains(&id) {
+            changed_appids.push(id);
         }
     }
 
     // Do not update the snapshot here. The renderer may fail to consume the
     // subsequent library refresh; retaining the old snapshot makes the next
     // 15-second poll retry instead of silently losing the new game.
-    new_appids
+    changed_appids
 }
 
 #[cfg(test)]

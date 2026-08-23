@@ -16,9 +16,11 @@
     "dev:vite": "vite",
     "preview": "npm run build && METALSHARP_PREVIEW=1 METALSHARP_HOME=\"$HOME/.metalsharp\" electron .",
     "preview:dev": "npm run build && METALSHARP_PREVIEW=1 METALSHARP_DEV_LIBRARY=1 METALSHARP_HOME=\"$HOME/.metalsharp\" electron .",
+    "c:build": "make -C src-c",
+    "c:test": "make -C src-c test",
     "rust:build": "cd src-rust && cargo build --release",
     "rust:dev": "cd src-rust && cargo build",
-    "build:all": "npm run rust:build && npm run build",
+    "build:all": "npm run c:build && npm run build",
     "build:native": "bash ../scripts/tools/native/build-helper.sh",
     "pack": "npm run build:all && electron-builder --dir",
     "prepare:native": "../tools/package/prepare-native-placeholders.sh",
@@ -102,7 +104,7 @@
     ],
     "extraResources": [
       {
-        "from": "src-rust/target/release/metalsharp-backend",
+        "from": "src-c/build/metalsharp-backend",
         "to": "runtime/metalsharp-backend"
       },
       {
@@ -129,6 +131,10 @@
       {
         "from": "updater",
         "to": "scripts/tools/updater"
+      },
+      {
+        "from": "../tools/install-homebrew.sh",
+        "to": "scripts/tools/install-homebrew.sh"
       },
       {
         "from": "../configs",
