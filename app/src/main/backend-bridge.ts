@@ -22,12 +22,12 @@ function getShellPath(): string {
 
 const shellPath = getShellPath();
 
-interface RustBridgeOptions {
+interface BackendBridgeOptions {
   devMode?: boolean;
   metalsharpHome?: string;
 }
 
-export class RustBridge {
+export class BackendBridge {
   private proc: ChildProcess | null = null;
   private port: number = 9274;
   private base: string;
@@ -35,7 +35,7 @@ export class RustBridge {
   private devMode: boolean;
   private metalsharpHome?: string;
 
-  constructor(options: RustBridgeOptions = {}) {
+  constructor(options: BackendBridgeOptions = {}) {
     this.devMode = options.devMode === true || process.env.METALSHARP_DEV === "1";
     this.metalsharpHome = options.metalsharpHome || process.env.METALSHARP_HOME;
     const defaultPort = this.devMode ? "9276" : "9274";
@@ -398,13 +398,11 @@ export class RustBridge {
 
   private findBinary(): string | null {
     const devCandidates = [
-      path.join(__dirname, "..", "..", "src-rust", "target", "debug", "metalsharp-backend"),
-      path.join(__dirname, "..", "..", "src-rust", "target", "release", "metalsharp-backend"),
+      path.join(__dirname, "..", "..", "src-c", "build", "metalsharp-backend"),
     ];
     const packagedCandidates = [
       path.join(process.resourcesPath || "", "runtime", "metalsharp-backend"),
-      path.join(__dirname, "..", "..", "src-rust", "target", "release", "metalsharp-backend"),
-      path.join(__dirname, "..", "..", "src-rust", "target", "debug", "metalsharp-backend"),
+      path.join(__dirname, "..", "..", "src-c", "build", "metalsharp-backend"),
       "/usr/local/bin/metalsharp-backend",
       "/usr/bin/metalsharp-backend",
     ];

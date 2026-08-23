@@ -2,7 +2,7 @@ CC ?= clang
 PROJECT_ROOT := $(abspath ../..)
 BUILD_DIR ?= $(CURDIR)/build
 TARGET ?= $(BUILD_DIR)/metalsharp-backend
-INSTALL_TARGET ?= $(PROJECT_ROOT)/app/src-rust/target/release/metalsharp-backend
+INSTALL_TARGET ?= $(TARGET)
 VERSION ?= 0.60.0
 JSON_TEST ?= $(BUILD_DIR)/json-test
 MIGRATION_TEST ?= $(BUILD_DIR)/migration-test
@@ -56,8 +56,10 @@ OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/c-backend/%.o)
 all: $(TARGET)
 
 install: $(TARGET)
-	@mkdir -p "$(dir $(INSTALL_TARGET))"
-	cp "$(TARGET)" "$(INSTALL_TARGET)"
+	@if [ "$(TARGET)" != "$(INSTALL_TARGET)" ]; then \
+		mkdir -p "$(dir $(INSTALL_TARGET))"; \
+		cp "$(TARGET)" "$(INSTALL_TARGET)"; \
+	fi
 	chmod 755 "$(INSTALL_TARGET)"
 
 $(TARGET): $(OBJECTS)
