@@ -1148,12 +1148,16 @@ static bool files_match(const char* left, const char* right) {
 }
 
 static void remove_stale_route_dlls(const char* home, const char* pipeline, const char* game_dir, const char* executable) {
-    static const char* const names[] = {"d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll",
-                                        "dxgi.dll", "dxgi_dxmt.dll", "nvapi64.dll", "nvngx.dll", "winemetal.dll",
-                                        "metalsharp_ntdll_hook.dll"};
+    static const char* const names[] = {"d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10.dll", "d3d10_1.dll",
+                                        "d3d10core.dll", "d3d9.dll", "dxgi.dll", "dxgi_dxmt.dll", "nvapi64.dll",
+                                        "nvngx.dll", "winemetal.dll", "metalsharp_ntdll_hook.dll"};
     const char* source_subpaths[] = {"runtime/wine/lib/dxmt/x86_64-windows",
                                      "runtime/wine/lib/dxmt/i386-windows",
                                      "runtime/wine/lib/dxmt_m12/x86_64-windows",
+                                     "runtime/wine/lib/metalsharp/x86_64-windows",
+                                     "runtime/wine/lib/metalsharp/i386-windows",
+                                     "runtime/wine/lib/wine/x86_64-windows",
+                                     "runtime/wine/lib/wine/i386-windows",
                                      "vkd3d/vkd3d-proton/x86_64-windows", "vkd3d/dxvk/x86_64-windows"};
     char* exe_dir = executable ? strdup(executable) : NULL;
     char* slash = exe_dir ? strrchr(exe_dir, '/') : NULL;
@@ -1883,7 +1887,7 @@ static char* acf_install_dir(const char* manifest_path) {
 static bool executable_helper_name(const char* name) {
     static const char* const ignored[] = {"bootstrapper", "crash", "easyanticheat", "installer", "uninstall",
                                           "setup", "redist", "vcredist", "server", "start_protected", "d3dconfig",
-                                          "steamwebhelper"};
+                                          "steamwebhelper", "oalinst"};
     char lower[256];
     size_t length = strlen(name);
     if (length >= sizeof(lower))
@@ -2043,6 +2047,8 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "armoredcore6.exe";
     else if (id == 1962700)
         preferred[count++] = "Subnautica2.exe";
+    else if (id == 2767030)
+        preferred[count++] = "MarvelGame/Marvel/Binaries/Win64/Marvel-Win64-Shipping.exe";
     else if (id == 220)
         preferred[count++] = "hl2.exe";
     else if (id == 440) {
@@ -2057,6 +2063,10 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "b1-Win64-Shipping.exe";
         preferred[count++] = "b1.exe";
     }
+    else if (id == 2357570)
+        preferred[count++] = "Overwatch.exe";
+    else if (id == 321040)
+        preferred[count++] = "dirt3_game.exe";
     for (size_t i = 0; i < count; i++) {
         char* path = join(game_dir, preferred[i]);
         if (path && access(path, R_OK) == 0)

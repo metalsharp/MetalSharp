@@ -600,7 +600,10 @@ char* ms_steam_watch_json(const char* metalsharp_home) {
     char* result;
     const char* home = getenv("HOME");
     if (old != NULL) {
-        char* p = old;
+        char* p = strstr(old, "\"appids\"");
+        p = p == NULL ? old : strchr(p, '[');
+        if (p == NULL)
+            p = old;
         while (*p != '\0' && old_count < 1024) {
             while (*p != '\0' && !isdigit((unsigned char)*p))
                 p++;
@@ -641,6 +644,15 @@ char* ms_steam_watch_json(const char* metalsharp_home) {
                 found = true;
         if (!found)
             ms_json_writer_u64(&w, games[i].appid);
+    }
+    for (i = 0; i < old_count; ++i) {
+        size_t j;
+        bool found = false;
+        for (j = 0; j < count; ++j)
+            if (old_ids[i] == games[j].appid)
+                found = true;
+        if (!found)
+            ms_json_writer_u64(&w, old_ids[i]);
     }
     ms_json_writer_array_end(&w);
     ms_json_writer_object_end(&w);
