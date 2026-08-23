@@ -1689,17 +1689,25 @@ pub fn watch_steamapps() -> Vec<u32> {
     let current = get_installed_appids();
     let cached = read_installed_appid_snapshot();
 
-    let mut new_appids = Vec::new();
+    // The renderer uses this response as a refresh trigger. Report both
+    // additions and removals so uninstalling a game updates the visible
+    // installed library without requiring an application restart.
+    let mut changed_appids = Vec::new();
     for &id in &current {
         if !cached.contains(&id) {
-            new_appids.push(id);
+            changed_appids.push(id);
+        }
+    }
+    for &id in &cached {
+        if !current.contains(&id) {
+            changed_appids.push(id);
         }
     }
 
     // Do not update the snapshot here. The renderer may fail to consume the
     // subsequent library refresh; retaining the old snapshot makes the next
     // 15-second poll retry instead of silently losing the new game.
-    new_appids
+    changed_appids
 }
 
 #[cfg(test)]
