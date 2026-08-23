@@ -285,8 +285,19 @@ static char* gog_access_token(const char* home) {
         return NULL;
     value = ms_json_parse(raw, strlen(raw), error, sizeof(error));
     free(raw);
-    if (value)
+    if (value) {
         ms_json_as_string(ms_json_object_get(value, "access_token"), &token);
+        /* gogdl persists auth.json keyed by its client id, while `gogdl
+         * auth` prints the inner credential object. Accept both forms so a
+         * successful OAuth flow remains usable after the app restarts. */
+        if (!token && ms_json_type_of(value) == MS_JSON_OBJECT) {
+            for (size_t i = 0; i < ms_json_object_length(value) && !token; i++) {
+                const ms_json* credential = ms_json_object_value_at(value, i);
+                if (credential && ms_json_type_of(credential) == MS_JSON_OBJECT)
+                    ms_json_as_string(ms_json_object_get(credential, "access_token"), &token);
+            }
+        }
+    }
     ms_json_free(value);
     return token;
 }
@@ -1103,6 +1114,65 @@ static char* game_json(const char* id, const char* title, const char* status) {
     return game_json_ex(id, title, status, "windows", NULL, NULL, 0, 0, NULL);
 }
 
+static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadata) {
+    char error[96];
+    ms_json* game = ms_json_parse(raw_game ? raw_game : "{}", raw_game ? strlen(raw_game) : 2, error, sizeof(error));
+    const ms_json* images = metadata ? ms_json_object_get(metadata, "images") : NULL;
+    char *background = NULL, *icon = NULL, *slug = NULL;
+    ms_json_writer writer;
+    char* result;
+    if (!game || ms_json_type_of(game) != MS_JSON_OBJECT) {
+        ms_json_free(game);
+        return strdup(raw_game ? raw_game : "{}");
+    }
+    if (images && ms_json_type_of(images) == MS_JSON_OBJECT) {
+        (void)ms_json_as_string(ms_json_object_get(images, "background"), &background);
+        (void)ms_json_as_string(ms_json_object_get(images, "icon"), &icon);
+    }
+    (void)ms_json_as_string(metadata ? ms_json_object_get(metadata, "slug") : NULL, &slug);
+    if (background && background[0] == '/' && background[1] == '/') {
+        char* normalized = malloc(strlen(background) + 7);
+        if (normalized) {
+            sprintf(normalized, "https:%s", background);
+            free(background);
+            background = normalized;
+        }
+    }
+    if (icon && icon[0] == '/' && icon[1] == '/') {
+        char* normalized = malloc(strlen(icon) + 7);
+        if (normalized) {
+            sprintf(normalized, "https:%s", icon);
+            free(icon);
+            icon = normalized;
+        }
+    }
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    for (size_t i = 0; i < ms_json_object_length(game); i++) {
+        const char* key = ms_json_object_key_at(game, i);
+        const ms_json* value = ms_json_object_value_at(game, i);
+        ms_json_writer_key(&writer, key);
+        if (!strcmp(key, "imageUrl") && background)
+            ms_json_writer_string(&writer, background);
+        else if (!strcmp(key, "iconUrl") && icon)
+            ms_json_writer_string(&writer, icon);
+        else if (!strcmp(key, "slug") && slug)
+            ms_json_writer_string(&writer, slug);
+        else {
+            char* encoded = ms_json_stringify(value);
+            ms_json_writer_raw(&writer, encoded ? encoded : "null");
+            free(encoded);
+        }
+    }
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    free(background);
+    free(icon);
+    free(slug);
+    ms_json_free(game);
+    return result;
+}
+
 static char* refresh_game_json(const char* home, const ms_json* game) {
     char *id = field(game, "productId", ""), *root = field(game, "installRoot", ""), *folder = NULL,
          *status = field(game, "status", ""), *serialized;
@@ -1205,16 +1275,14 @@ static char* gog_sync_library(const char* home) {
             if (previous)
                 break;
         }
-        if (previous) {
-            char* raw = ms_json_stringify(previous);
-            ms_json_writer_raw(&writer, raw ? raw : "{}");
-            free(raw);
-        } else {
+        {
             char title[190];
             char url[256];
             char metadata_error[160];
             char* metadata_raw;
             char* metadata_title = NULL;
+            char* base = NULL;
+            char* enriched = NULL;
             ms_json* metadata = NULL;
             snprintf(title, sizeof(title), "GOG %s", id);
             snprintf(url, sizeof(url), "https://api.gog.com/products/%s", id);
@@ -1222,14 +1290,20 @@ static char* gog_sync_library(const char* home) {
             if (metadata_raw) {
                 metadata = ms_json_parse(metadata_raw, strlen(metadata_raw), parse_error, sizeof(parse_error));
                 free(metadata_raw);
-                if (metadata)
+                if (metadata) {
                     metadata_title = field(metadata, "title", "");
-                if (metadata_title && *metadata_title)
-                    snprintf(title, sizeof(title), "%s", metadata_title);
+                    if (metadata_title && *metadata_title)
+                        snprintf(title, sizeof(title), "%s", metadata_title);
+                }
             }
-            char* fresh = game_json(id, title, "not_installed");
-            ms_json_writer_raw(&writer, fresh ? fresh : "{}");
-            free(fresh);
+            if (previous)
+                base = ms_json_stringify(previous);
+            else
+                base = game_json(id, title, "not_installed");
+            enriched = metadata ? gog_metadata_game_json(base, metadata) : NULL;
+            ms_json_writer_raw(&writer, enriched ? enriched : (base ? base : "{}"));
+            free(enriched);
+            free(base);
             free(metadata_title);
             ms_json_free(metadata);
         }

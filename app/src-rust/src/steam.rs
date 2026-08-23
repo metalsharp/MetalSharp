@@ -73,13 +73,10 @@ pub fn status() -> Value {
 
     let login_state = detect_login_state();
 
-    let mac_paths = [
-        home.join(".steam/steam/steamapps"),
-        home.join(".local/share/Steam/steamapps"),
-        home.join("Library/Application Support/Steam/steamapps"),
-    ];
+    // A Steam data directory can remain after Steam.app is removed. Treat
+    // the application bundle, not leftover steamapps data, as installation.
     let mac_app = macos_steam_app();
-    let mac_installed = mac_app.is_some() || mac_paths.iter().any(|p| p.exists());
+    let mac_installed = mac_app.is_some();
     let mac_running = is_macos_steam_running();
 
     let running = is_wine_steam_running();

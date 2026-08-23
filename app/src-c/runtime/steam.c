@@ -760,13 +760,13 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     char* wine = join_path(metalsharp_home, "runtime/wine/bin/wine");
     char* wine_wrapper = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
     char* install_lock = join_path(metalsharp_home, ".steam-installing");
-    char* mac_path = home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/steamapps");
     char* mac_app = home == NULL ? NULL : join_path(home, "Applications/Steam.app");
+    char* mac_bundle = home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/Steam.AppBundle/Steam/Steam.app");
     bool windows_installed = wine_exe != NULL && access(wine_exe, F_OK) == 0;
     bool installing = install_lock != NULL && access(install_lock, F_OK) == 0;
-    bool mac_installed =
-        (mac_path != NULL && access(mac_path, F_OK) == 0) || access("/Applications/Steam.app", F_OK) == 0 ||
-        (mac_app != NULL && access(mac_app, F_OK) == 0);
+    bool mac_installed = access("/Applications/Steam.app", F_OK) == 0 ||
+                         (mac_app != NULL && access(mac_app, F_OK) == 0) ||
+                         (mac_bundle != NULL && access(mac_bundle, F_OK) == 0);
     bool running = false;
     bool mac_running = false;
     FILE* process_pipe = popen("/bin/ps axo command=", "r");
@@ -807,6 +807,8 @@ char* ms_steam_status_json(const char* metalsharp_home) {
         ms_json_writer_string(&writer, "/Applications/Steam.app");
     else if (mac_app && access(mac_app, F_OK) == 0)
         ms_json_writer_string(&writer, mac_app);
+    else if (mac_bundle && access(mac_bundle, F_OK) == 0)
+        ms_json_writer_string(&writer, mac_bundle);
     else
         ms_json_writer_null(&writer);
     ms_json_writer_key(&writer, "mac_install_url");
@@ -827,7 +829,7 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     free(wine);
     free(wine_wrapper);
     free(install_lock);
-    free(mac_path);
     free(mac_app);
+    free(mac_bundle);
     return result;
 }

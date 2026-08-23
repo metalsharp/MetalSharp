@@ -249,6 +249,14 @@ int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0)
         return -1;
+    /* Backend children (Wine, curl, installers) are forked from request
+     * handlers. Never let them inherit the listener, otherwise the port can
+     * remain occupied after the backend exits and a later app launch cannot
+     * restart the backend. */
+    if (fcntl(server_fd, F_SETFD, FD_CLOEXEC) < 0) {
+        close(server_fd);
+        return -1;
+    }
     (void)setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
@@ -280,6 +288,10 @@ int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http
             }
             close(server_fd);
             return -1;
+        }
+        if (fcntl(client_fd, F_SETFD, FD_CLOEXEC) < 0) {
+            close(client_fd);
+            continue;
         }
         (void)fcntl(client_fd, F_SETFL, 0);
         {
