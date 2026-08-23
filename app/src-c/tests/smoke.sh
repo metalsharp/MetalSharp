@@ -101,8 +101,8 @@ install_progress=$(curl --silent --fail "http://127.0.0.1:$port/setup/install-pr
 printf '%s' "$install_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "idle" and v["step"] == 0 and v["total"] == 0'
 installing=$(curl --silent --fail "http://127.0.0.1:$port/setup/installing")
 printf '%s' "$installing" | python3 -c 'import json, sys; assert json.load(sys.stdin) == {"installing": False}'
-mtsp=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appid":1234,"pipeline":"m12"}' "http://127.0.0.1:$port/mtsp/prepare")
-printf '%s' "$mtsp" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["appid"] == 1234'
+mtsp=$(curl --silent --request POST --header 'Content-Type: application/json' --data '{"appid":1234,"pipeline":"m12"}' "http://127.0.0.1:$port/mtsp/prepare")
+printf '%s' "$mtsp" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is False and v["appid"] == 1234'
 bottles=$(curl --silent --fail "http://127.0.0.1:$port/bottles")
 printf '%s' "$bottles" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and isinstance(v["bottles"], list)'
 mkdir -p "$home/smoke-input"
@@ -119,8 +119,9 @@ sharp_library=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library")
 printf '%s' "$sharp_library" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["apps"]) == 1'
 gog_import=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"smoke-gog","title":"Smoke GOG"}' "http://127.0.0.1:$port/sharp-library/gog/import")
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
-mkdir -p "$home/d3d-game"
+mkdir -p "$home/d3d-game" "$home/bottles/steam_1234"
 printf 'smoke' > "$home/d3d-game/game.exe"
+printf '%s' '{"id":"steam_1234","name":"Smoke Game","bottle_type":"steam","steam_app_id":1234,"prefix_path":"'$home'/prefix-steam","arch":"wow64","runtime_profile":"d3dmetal","preferred_pipeline":"d3dmetal","installed_components":[],"health":"new"}' > "$home/bottles/steam_1234/bottle.json"
 d3d_save=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"appid\":1234,\"gameDir\":\"$home/d3d-game\",\"name\":\"Smoke D3DMetal\"}" "http://127.0.0.1:$port/d3dmetal/bottles/steam_1234/save")
 printf '%s' "$d3d_save" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["state"]["name"] == "Smoke D3DMetal"'
 d3d_status=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appid":1234}' "http://127.0.0.1:$port/d3dmetal/bottles/steam_1234/status")
@@ -202,9 +203,9 @@ printf '%s' "$crashes" | python3 -c 'import json, sys; assert json.load(sys.stdi
 scan=$(curl --silent --fail "http://127.0.0.1:$port/scan")
 printf '%s' "$scan" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and isinstance(v["data"]["games"], list) and "steam" in v["data"]'
 pipelines=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/pipelines?appid=620")
-printf '%s' "$pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 9 and v["recommended"] == "m12"'
+printf '%s' "$pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 9 and v["recommended"] == "vkd3d"'
 shape=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/launch-shape?appid=620")
-printf '%s' "$shape" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and v["pipeline"] == "m12"'
+printf '%s' "$shape" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and v["pipeline"] == "vkd3d"'
 rules=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/default-rules")
 printf '%s' "$rules" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and isinstance(v["rules"], list)'
 
@@ -246,8 +247,8 @@ printf '%s' "$fx_after" | python3 -c '
 import json, sys
 v = json.load(sys.stdin)
 assert v["enabled"] is False
-assert v["factor"] == 1.75
-assert v["conf_factor"] == 1.75
+assert v["factor"] == 2.0
+assert v["conf_factor"] == 2.0
 '
 
 handle_created=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"pid":4242,"object_type":"File","name":"\\\\Device\\\\test"}' "http://127.0.0.1:$port/kernel-translation/handle/create")

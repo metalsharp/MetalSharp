@@ -1,6 +1,7 @@
 #include "metalsharp_backend/game.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/steam.h"
 #include <dirent.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -411,6 +412,9 @@ static bool goldberg_active(const char* home, unsigned long long id) {
 }
 static char* goldberg_source(const char* home) {
     char p[2048];
+    snprintf(p, sizeof(p), "%s/runtime/goldberg/x64/steam_api64.dll", home);
+    if (access(p, R_OK) == 0)
+        return strdup(p);
     snprintf(p, sizeof(p), "%s/assets/goldberg/x64/steam_api64.dll", home);
     if (access(p, R_OK) == 0)
         return strdup(p);
@@ -462,6 +466,7 @@ char* ms_goldberg_toggle_json(const char* home, const unsigned char* body, size_
     ms_json* j = NULL;
     bool enable = true;
     char game_dir[2048], marker_dir[2048], marker[2048];
+    char* discovered_game_dir = NULL;
     FILE* f;
     if (!parse_appid(body, len, &id, &j)) {
         if (status)
@@ -469,7 +474,12 @@ char* ms_goldberg_toggle_json(const char* home, const unsigned char* body, size_
         return bad("appid required");
     }
     ms_json_as_bool(ms_json_object_get(j, "enable"), &enable);
-    snprintf(game_dir, sizeof(game_dir), "%s/games/%llu", home, id);
+    discovered_game_dir = ms_steam_game_dir(home, (unsigned)id);
+    if (discovered_game_dir) {
+        snprintf(game_dir, sizeof(game_dir), "%s", discovered_game_dir);
+        free(discovered_game_dir);
+    } else
+        snprintf(game_dir, sizeof(game_dir), "%s/games/%llu", home, id);
     if (access(game_dir, F_OK) != 0) {
         ms_json_free(j);
         if (status)

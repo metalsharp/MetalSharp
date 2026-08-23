@@ -2,7 +2,9 @@
 #include "metalsharp_backend/bottles.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam.h"
+#include "metalsharp_backend/steam_actions.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -263,7 +265,11 @@ static char* rewrite_manifest(const char* home, const char* id, const ms_json* r
         ms_json_free(j);
         return NULL;
     }
-    char *profile = NULL, *name = NULL, *preferred = NULL;
+    char *profile = NULL, *name = NULL, *preferred = NULL, *detected_game_dir = NULL;
+    long long appid = 0;
+    bool wrote_game_dir = false;
+    if (ms_json_as_i64(ms_json_object_get(j, "steam_app_id"), &appid) && appid > 0 && appid <= 0xffffffffLL)
+        detected_game_dir = ms_steam_game_dir(home, (unsigned)appid);
     if (!strcmp(action, "set-runtime-profile"))
         profile = NULL, ms_json_as_string(ms_json_object_get(request, "profile"), &profile);
     if (!strcmp(action, "edit")) {
@@ -283,6 +289,9 @@ static char* rewrite_manifest(const char* home, const char* id, const ms_json* r
             ms_json_writer_string(&w, profile_arch(profile));
         } else if (profile && !strcmp(key, "health")) {
             ms_json_writer_string(&w, "needs_repair");
+        } else if (!strcmp(key, "game_install_path") && detected_game_dir) {
+            ms_json_writer_string(&w, detected_game_dir);
+            wrote_game_dir = true;
         } else if (name && !strcmp(key, "name")) {
             ms_json_writer_string(&w, name);
         } else if (preferred && !strcmp(key, "preferred_pipeline")) {
@@ -302,6 +311,10 @@ static char* rewrite_manifest(const char* home, const char* id, const ms_json* r
             ms_json_writer_raw(&w, v ? v : "null");
             free(v);
         }
+    }
+    if (detected_game_dir && !wrote_game_dir) {
+        ms_json_writer_key(&w, "game_install_path");
+        ms_json_writer_string(&w, detected_game_dir);
     }
     ms_json_writer_object_end(&w);
     serial = ms_json_writer_take(&w);
@@ -325,6 +338,7 @@ static char* rewrite_manifest(const char* home, const char* id, const ms_json* r
     free(profile);
     free(name);
     free(preferred);
+    free(detected_game_dir);
     ms_json_free(j);
     return serial;
 }
@@ -1465,8 +1479,137 @@ done:
     return ok;
 }
 
+static bool vcpp_prefix_ready(const char* prefix) {
+    const char* x64[] = {"vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"};
+    const char* x86[] = {"vcruntime140.dll", "msvcp140.dll"};
+    char* system32 = join(prefix, "drive_c/windows/system32");
+    char* syswow64 = join(prefix, "drive_c/windows/syswow64");
+    bool ready = system32 && syswow64;
+    for (size_t i = 0; ready && i < sizeof(x64) / sizeof(x64[0]); i++) {
+        char* path = join(system32, x64[i]);
+        struct stat info;
+        ready = path && stat(path, &info) == 0 && info.st_size > 10000;
+        free(path);
+    }
+    for (size_t i = 0; ready && i < sizeof(x86) / sizeof(x86[0]); i++) {
+        char* path = join(syswow64, x86[i]);
+        struct stat info;
+        ready = path && stat(path, &info) == 0 && info.st_size > 10000;
+        free(path);
+    }
+    free(system32);
+    free(syswow64);
+    return ready;
+}
+
+static bool seed_vcpp_runtime_dlls(const char* home, const char* prefix) {
+    const char* x64_required[] = {"vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"};
+    const char* x86_required[] = {"vcruntime140.dll", "msvcp140.dll"};
+    const char* seed_names[] = {"concrt140.dll",       "msvcp140.dll",       "msvcp140_1.dll",
+                                "msvcp140_2.dll",       "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
+                                "vcomp140.dll",         "vcruntime140.dll",   "vcruntime140_1.dll"};
+    char *x64_source = join(home, "runtime/wine/lib/wine/x86_64-windows"),
+         *x86_source = join(home, "runtime/wine/lib/wine/i386-windows"),
+         *system32 = join(prefix, "drive_c/windows/system32"), *syswow64 = join(prefix, "drive_c/windows/syswow64");
+    bool ok = x64_source && x86_source && system32 && syswow64 && mkdir_p(system32) && mkdir_p(syswow64);
+    for (size_t i = 0; ok && i < sizeof(x64_required) / sizeof(x64_required[0]); i++) {
+        char* source = join(x64_source, x64_required[i]);
+        ok = source && access(source, R_OK) == 0;
+        free(source);
+    }
+    for (size_t i = 0; ok && i < sizeof(x86_required) / sizeof(x86_required[0]); i++) {
+        char* source = join(x86_source, x86_required[i]);
+        ok = source && access(source, R_OK) == 0;
+        free(source);
+    }
+    for (size_t i = 0; ok && i < sizeof(seed_names) / sizeof(seed_names[0]); i++) {
+        char *source = join(x64_source, seed_names[i]), *target = join(system32, seed_names[i]);
+        if (source && access(source, R_OK) == 0)
+            ok = copy_component_file(source, target);
+        free(source);
+        free(target);
+        source = join(x86_source, seed_names[i]);
+        target = join(syswow64, seed_names[i]);
+        if (source && access(source, R_OK) == 0)
+            ok = ok && copy_component_file(source, target);
+        free(source);
+        free(target);
+    }
+    free(x64_source);
+    free(x86_source);
+    free(system32);
+    free(syswow64);
+    return ok;
+}
+
+static char* seed_vcpp_for_steam_bottle(const char* home, const char* id) {
+    char *raw = manifest(home, id), *prefix = NULL, *pipeline = NULL;
+    char error[96];
+    ms_json* j;
+    if (!raw)
+        return NULL;
+    j = ms_json_parse(raw, strlen(raw), error, sizeof(error));
+    free(raw);
+    if (!j || ms_json_type_of(j) != MS_JSON_OBJECT)
+        goto done;
+    ms_json_as_string(ms_json_object_get(j, "prefix_path"), &prefix);
+    ms_json_as_string(ms_json_object_get(j, "preferred_pipeline"), &pipeline);
+    if (!prefix || (pipeline && !strcmp(pipeline, "d3dmetal")) || vcpp_prefix_ready(prefix))
+        goto done;
+    if (!seed_vcpp_runtime_dlls(home, prefix)) {
+        char* failure = strdup("VC++ x64/x86 runtime DLLs were not available while saving the bottle");
+        free(prefix);
+        free(pipeline);
+        ms_json_free(j);
+        return failure;
+    }
+done:
+    free(prefix);
+    free(pipeline);
+    ms_json_free(j);
+    return NULL;
+}
+
 static bool component_artifact_available(const char* home, const char* component) {
     const char* installer = NULL;
+    const char* runtime_file = NULL;
+    if (!strcmp(component, "mono-arm64"))
+        runtime_file = "runtime/mono-arm64/bin/mono";
+    else if (!strcmp(component, "mono-x86"))
+        runtime_file = "runtime/mono-x86/bin/mono";
+    else if (!strcmp(component, "fna"))
+        runtime_file = "runtime/fnalibs/libFNA3D.0.dylib";
+    else if (!strcmp(component, "xna"))
+        runtime_file = "runtime/fnalibs/libFAudio.0.dylib";
+    else if (!strcmp(component, "sdl2"))
+        runtime_file = "runtime/fnalibs/libSDL2-2.0.0.dylib";
+    else if (!strcmp(component, "fna3d"))
+        runtime_file = "runtime/fnalibs/libFNA3D.0.dylib";
+    else if (!strcmp(component, "faudio"))
+        runtime_file = "runtime/fnalibs/libFAudio.0.dylib";
+    if (runtime_file) {
+        char* path = join(home, runtime_file);
+        bool available = path && access(path, R_OK) == 0;
+        free(path);
+        return available;
+    }
+    if (!strcmp(component, "vkd3d_d3d12") || !strcmp(component, "vkd3d_d3d12core") ||
+        !strcmp(component, "vkd3d_dxgi") || !strcmp(component, "dxvk_d3d9") || !strcmp(component, "dxvk_d3d11") ||
+        !strcmp(component, "dxvk_d3d10core")) {
+        const char* dir = strstr(component, "vkd3d_") ? "vkd3d/vkd3d-proton/x86_64-windows" : "vkd3d/dxvk/x86_64-windows";
+        const char* filename = !strcmp(component, "vkd3d_d3d12") ? "d3d12.dll"
+                              : !strcmp(component, "vkd3d_d3d12core") ? "d3d12core.dll"
+                              : !strcmp(component, "vkd3d_dxgi") ? "dxgi.dll"
+                              : !strcmp(component, "dxvk_d3d9") ? "d3d9.dll"
+                              : !strcmp(component, "dxvk_d3d10core") ? "d3d10core.dll"
+                                                                       : "d3d11.dll";
+        char* root = join(home, dir);
+        char* file = root ? join(root, filename) : NULL;
+        bool available = file && access(file, R_OK) == 0;
+        free(root);
+        free(file);
+        return available;
+    }
     if (!strcmp(component, "directx_jun2010"))
         installer = "runtime/redist/DirectX/Jun2010/DXSETUP.exe";
     else if (!strcmp(component, "vcrun2019_x64"))
@@ -1489,21 +1632,21 @@ static bool component_artifact_available(const char* home, const char* component
     }
     if (!strcmp(component, "d3d11") || !strcmp(component, "dxgi") || !strcmp(component, "d3d10core") ||
         !strcmp(component, "d3d10_1") || !strcmp(component, "winemetal")) {
+        const char* dirs[] = {"runtime/wine/lib/dxmt/x86_64-windows", "runtime/wine/lib/dxmt/i386-windows",
+                              "runtime/wine/lib/dxmt_m12/x86_64-windows", "runtime/wine/lib/wine/x86_64-windows",
+                              "runtime/wine/lib/wine/i386-windows"};
         char name[128];
-        char* dxmt;
-        char* wine;
-        bool available;
         snprintf(name, sizeof(name), "%s.dll", component);
-        dxmt = join(home, "runtime/wine/lib/dxmt");
-        wine = join(home, "runtime/wine/lib/wine/x86_64-windows");
-        char* dxmt_file = dxmt ? join(dxmt, name) : NULL;
-        char* wine_file = wine ? join(wine, name) : NULL;
-        available = (dxmt_file && access(dxmt_file, F_OK) == 0) || (wine_file && access(wine_file, F_OK) == 0);
-        free(dxmt);
-        free(wine);
-        free(dxmt_file);
-        free(wine_file);
-        return available;
+        for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+            char* dir = join(home, dirs[i]);
+            char* file = dir ? join(dir, name) : NULL;
+            bool found = file && access(file, F_OK) == 0;
+            free(dir);
+            free(file);
+            if (found)
+                return true;
+        }
+        return false;
     }
     return true;
 }
@@ -1980,6 +2123,12 @@ char* ms_bottle_action_json(const char* home, const char* action, const unsigned
             free(id);
             return fail("bottle not found");
         }
+        char* vcpp_error = NULL;
+        char* route_error = NULL;
+        if (!strcmp(action, "edit"))
+            vcpp_error = seed_vcpp_for_steam_bottle(home, id);
+        if (!strcmp(action, "edit") || !strcmp(action, "set-runtime-profile") || !strcmp(action, "refresh"))
+            route_error = ms_steam_prepare_bottle_route_json(home, id);
         ms_json_writer rw;
         ms_json_writer_init(&rw);
         ms_json_writer_object_begin(&rw);
@@ -2001,15 +2150,22 @@ char* ms_bottle_action_json(const char* home, const char* action, const unsigned
             ms_json_writer_key(&rw, "preflight");
             ms_json_writer_object_begin(&rw);
             ms_json_writer_key(&rw, "ok");
-            ms_json_writer_bool(&rw, true);
-            ms_json_writer_key(&rw, "skipped");
-            ms_json_writer_bool(&rw, true);
-            ms_json_writer_key(&rw, "reason");
-            ms_json_writer_string(&rw, "C backend manifest preflight");
+            ms_json_writer_bool(&rw, vcpp_error == NULL && route_error == NULL);
+            if (vcpp_error || route_error) {
+                ms_json_writer_key(&rw, "error");
+                ms_json_writer_string(&rw, vcpp_error ? vcpp_error : route_error);
+            } else {
+                ms_json_writer_key(&rw, "skipped");
+                ms_json_writer_bool(&rw, true);
+                ms_json_writer_key(&rw, "reason");
+                ms_json_writer_string(&rw, "VC++ runtime already seeded or not applicable");
+            }
             ms_json_writer_object_end(&rw);
         }
         ms_json_writer_object_end(&rw);
         o = ms_json_writer_take(&rw);
+        free(vcpp_error);
+        free(route_error);
         free(updated);
         free(profile);
         free(version);
