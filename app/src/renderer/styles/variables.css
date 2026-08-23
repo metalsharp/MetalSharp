@@ -144,13 +144,13 @@
   --accent: #5cb870;
   --accent-hover: #7ed494;
   --accent-dim: #3d8452;
-  --accent-glow: rgba(92, 184, 112, 0.2);
-  --card-glow: rgba(92, 184, 112, 0.1);
-  --card-installed-glow-color: #6fce88;
+  --accent-glow: rgba(190, 145, 91, 0.2);
+  --card-glow: rgba(190, 145, 91, 0.12);
+  --card-installed-glow-color: #be915b;
   --success: #6fce88;
   --success-bg: rgba(111, 206, 136, 0.14);
-  --play-color: #4d9e62;
-  --play-color-hover: #35704a;
+  --play-color: #183d2a;
+  --play-color-hover: #0d281b;
   --error: #d66a5a;
   --error-bg: rgba(214, 106, 90, 0.13);
   --warn: #d8b24b;
@@ -169,7 +169,7 @@
   --sidebar-text-hover: #7ed494;
   --sidebar-logo-color: #dce8dc;
   --sidebar-logo-accent: #a87a4a;
-  --page-header-bg: linear-gradient(90deg, #121c15 0%, #1a2e1c 30%, #213a22 60%, #1a2e1c 100%);
+  --page-header-bg: linear-gradient(90deg, #121c15 0%, #2a241a 30%, #3a2d1c 60%, #2a241a 100%);
 }
 
 :root[data-theme="orange-peel"] {
