@@ -5,6 +5,7 @@ TARGET ?= $(BUILD_DIR)/metalsharp-backend
 INSTALL_TARGET ?= $(PROJECT_ROOT)/app/src-rust/target/release/metalsharp-backend
 VERSION ?= 0.60.0
 JSON_TEST ?= $(BUILD_DIR)/json-test
+MIGRATION_TEST ?= $(BUILD_DIR)/migration-test
 
 CFLAGS ?= -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L
 CFLAGS += -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong
@@ -74,9 +75,10 @@ parity-test: $(TARGET)
 	@test -n "$(RUST_BACKEND)" || (echo "set RUST_BACKEND to the Rust reference executable" >&2; exit 2)
 	python3 "$(CURDIR)/tests/differential_parity.py" --c "$(TARGET)" --rust "$(RUST_BACKEND)"
 
-test: $(TARGET) $(JSON_TEST)
+test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST)
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); HOME="$$test_home" METALSHARP_PORT="$$test_port" METALSHARP_HOME="$$ms_home" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
+	@"$(MIGRATION_TEST)"
 
 asan-test:
 	@set -eu; trap 'rm -rf "$(CURDIR)/build-asan"' EXIT INT TERM; \
@@ -97,6 +99,10 @@ asan-test:
 $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/json_test.c
+
+$(MIGRATION_TEST): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_test.c include/metalsharp_backend/migration.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/migration_test.c -lpthread
 
 clean:
 	rm -rf "$(BUILD_DIR)"
