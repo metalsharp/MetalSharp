@@ -358,13 +358,13 @@
   --accent: #2fa8e0;
   --accent-hover: #5cc2ee;
   --accent-dim: #1f7fae;
-  --accent-glow: rgba(56, 189, 248, 0.24);
-  --card-glow: rgba(56, 189, 248, 0.16);
+  --accent-glow: rgba(56, 189, 248, 0.36);
+  --card-glow: rgba(56, 189, 248, 0.24);
   --card-installed-glow-color: #38bdf8;
   --success: #4d9e62;
   --success-bg: rgba(77, 158, 98, 0.16);
-  --play-color: #d9b97c;
-  --play-color-hover: #c4a35f;
+  --play-color: #168fc4;
+  --play-color-hover: #38bdf8;
   --error: #d65a4a;
   --error-bg: rgba(214, 90, 74, 0.16);
   --warn: #b8860b;
@@ -384,7 +384,7 @@
   --sidebar-logo-color: #fffdf6;
   --sidebar-logo-accent: #38bdf8;
   --page-header-bg:
-    radial-gradient(circle at 20% 18%, rgba(56, 189, 248, 0.22), transparent 36%),
+    radial-gradient(circle at 20% 18%, rgba(56, 189, 248, 0.5), transparent 42%),
     radial-gradient(circle at 84% 12%, rgba(255, 253, 246, 0.14), transparent 30%),
     linear-gradient(100deg, #8a744e 0%, #a8906040 36%, #b89d6a 66%, #9c845c 100%);
 }
