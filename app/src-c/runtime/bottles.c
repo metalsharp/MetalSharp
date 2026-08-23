@@ -1,11 +1,13 @@
 #include "metalsharp_backend/bottles.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/steam.h"
 #include <dirent.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 static char* path_join(const char* a, const char* b) {
@@ -45,18 +47,86 @@ static void obj_string(ms_json_writer* w, const char* k, const char* v) {
     ms_json_writer_key(w, k);
     ms_json_writer_string(w, v);
 }
+
+/* Older bottle manifests may predate Steam game-path discovery.  Keep the
+ * manifest on disk untouched here, but expose the discovered path to the UI
+ * so profile saves (especially D3DMetal) can proceed without requiring a
+ * manual refresh first. */
+static char* enrich_game_install_path(const char* home, const char* raw) {
+    char error[96];
+    ms_json* object;
+    long long appid;
+    char* detected;
+    bool has_path = false;
+    bool wrote_path = false;
+    ms_json_writer writer;
+    char* result;
+
+    object = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    if (!object || ms_json_type_of(object) != MS_JSON_OBJECT ||
+        !ms_json_as_i64(ms_json_object_get(object, "steam_app_id"), &appid) || appid <= 0 || appid > 0xffffffffLL) {
+        ms_json_free(object);
+        return NULL;
+    }
+    {
+        char* existing = NULL;
+        has_path = ms_json_as_string(ms_json_object_get(object, "game_install_path"), &existing) && existing[0];
+        free(existing);
+    }
+    detected = has_path ? NULL : ms_steam_game_dir(home, (unsigned)appid);
+    if (!detected) {
+        ms_json_free(object);
+        return NULL;
+    }
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    for (size_t i = 0; i < ms_json_object_length(object); i++) {
+        const char* key = ms_json_object_key_at(object, i);
+        ms_json_writer_key(&writer, key);
+        if (!strcmp(key, "game_install_path")) {
+            ms_json_writer_string(&writer, detected);
+            wrote_path = true;
+        } else {
+            char* value = ms_json_stringify(ms_json_object_value_at(object, i));
+            ms_json_writer_raw(&writer, value ? value : "null");
+            free(value);
+        }
+    }
+    if (!wrote_path) {
+        ms_json_writer_key(&writer, "game_install_path");
+        ms_json_writer_string(&writer, detected);
+    }
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    free(detected);
+    ms_json_free(object);
+    return result;
+}
+
+typedef struct {
+    char* raw;
+    char* name;
+    char* id;
+} bottle_list_entry;
+
+static int bottle_list_entry_compare(const void* left, const void* right) {
+    const bottle_list_entry* a = (const bottle_list_entry*)left;
+    const bottle_list_entry* b = (const bottle_list_entry*)right;
+    int name_order = strcasecmp(a->name ? a->name : "", b->name ? b->name : "");
+    if (name_order != 0)
+        return name_order;
+    return strcasecmp(a->id ? a->id : "", b->id ? b->id : "");
+}
+
 char* ms_bottles_list_json(const char* home) {
     char *root = path_join(home, "bottles"), *p, *raw, *o;
+    bottle_list_entry* entries = NULL;
+    size_t entry_count = 0, entry_capacity = 0;
     DIR* d;
     struct dirent* e;
     struct stat st;
+    char error[96];
     ms_json_writer w;
-    ms_json_writer_init(&w);
-    ms_json_writer_object_begin(&w);
-    ms_json_writer_key(&w, "ok");
-    ms_json_writer_bool(&w, true);
-    ms_json_writer_key(&w, "bottles");
-    ms_json_writer_array_begin(&w);
     d = root ? opendir(root) : NULL;
     if (d) {
         while ((e = readdir(d)) != NULL) {
@@ -69,10 +139,34 @@ char* ms_bottles_list_json(const char* home) {
                 char* m = path_join(p, "bottle.json");
                 raw = m ? read_text(m) : NULL;
                 if (raw) {
-                    char er[96];
-                    ms_json* j = ms_json_parse(raw, strlen(raw), er, sizeof(er));
-                    if (j && ms_json_type_of(j) == MS_JSON_OBJECT)
-                        ms_json_writer_raw(&w, raw);
+                    ms_json* j = ms_json_parse(raw, strlen(raw), error, sizeof(error));
+                    if (j && ms_json_type_of(j) == MS_JSON_OBJECT) {
+                        char* enriched = enrich_game_install_path(home, raw);
+                        if (enriched) {
+                            free(raw);
+                            raw = enriched;
+                        }
+                        if (entry_count == entry_capacity) {
+                            size_t next_capacity = entry_capacity == 0 ? 16 : entry_capacity * 2;
+                            bottle_list_entry* next = realloc(entries, next_capacity * sizeof(*next));
+                            if (next == NULL) {
+                                ms_json_free(j);
+                                free(raw);
+                                free(m);
+                                free(p);
+                                continue;
+                            }
+                            entries = next;
+                            entry_capacity = next_capacity;
+                        }
+                        entries[entry_count].raw = raw;
+                        entries[entry_count].name = NULL;
+                        entries[entry_count].id = NULL;
+                        (void)ms_json_as_string(ms_json_object_get(j, "name"), &entries[entry_count].name);
+                        (void)ms_json_as_string(ms_json_object_get(j, "id"), &entries[entry_count].id);
+                        entry_count++;
+                        raw = NULL;
+                    }
                     ms_json_free(j);
                     free(raw);
                 }
@@ -82,9 +176,23 @@ char* ms_bottles_list_json(const char* home) {
         }
         closedir(d);
     }
+    qsort(entries, entry_count, sizeof(*entries), bottle_list_entry_compare);
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, true);
+    ms_json_writer_key(&w, "bottles");
+    ms_json_writer_array_begin(&w);
+    for (size_t i = 0; i < entry_count; i++) {
+        ms_json_writer_raw(&w, entries[i].raw);
+        free(entries[i].raw);
+        free(entries[i].name);
+        free(entries[i].id);
+    }
     ms_json_writer_array_end(&w);
     ms_json_writer_object_end(&w);
     o = ms_json_writer_take(&w);
+    free(entries);
     free(root);
     return o;
 }

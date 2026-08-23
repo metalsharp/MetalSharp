@@ -11,5 +11,6 @@ char* ms_steam_bridge_status_json(const char* metalsharp_home);
 char* ms_steam_watch_json(const char* metalsharp_home);
 char* ms_steam_status_json(const char* metalsharp_home);
 char* ms_steam_library_json(const char* metalsharp_home);
+char* ms_steam_game_dir(const char* metalsharp_home, unsigned appid);
 
 #endif

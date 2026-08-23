@@ -146,34 +146,74 @@ static char* find_bundle_archive(const char* home, const char* name) {
     return NULL;
 }
 
+static const char* fixed_zstd_path(void) {
+    if (access("/opt/homebrew/bin/zstd", X_OK) == 0)
+        return "/opt/homebrew/bin/zstd";
+    if (access("/usr/local/bin/zstd", X_OK) == 0)
+        return "/usr/local/bin/zstd";
+    return NULL;
+}
+
+static bool child_succeeded(pid_t pid, int* wait_status) {
+    while (waitpid(pid, wait_status, 0) < 0 && errno == EINTR) {
+    }
+    return WIFEXITED(*wait_status) && WEXITSTATUS(*wait_status) == 0;
+}
+
 static bool bundle_archive_paths_safe(const char* archive) {
-    int fds[2];
-    pid_t pid;
-    int wait_status;
+    int compressed[2], listed[2];
+    pid_t zstd_pid, tar_pid;
+    int zstd_status = 0, tar_status = 0;
     FILE* output;
     char line[PATH_MAX * 2];
     bool safe = true;
-    if (pipe(fds) != 0)
+    const char* zstd = fixed_zstd_path();
+    if (!zstd || pipe(compressed) != 0 || pipe(listed) != 0)
         return false;
-    pid = fork();
-    if (pid < 0) {
-        close(fds[0]);
-        close(fds[1]);
-        return false;
-    }
-    if (pid == 0) {
-        dup2(fds[1], STDOUT_FILENO);
-        close(fds[0]);
-        close(fds[1]);
-        execl("/usr/bin/tar", "tar", "--zstd", "-tf", archive, (char*)NULL);
+    zstd_pid = fork();
+    if (zstd_pid == 0) {
+        dup2(compressed[1], STDOUT_FILENO);
+        close(compressed[0]);
+        close(compressed[1]);
+        close(listed[0]);
+        close(listed[1]);
+        execl(zstd, "zstd", "-d", "-c", archive, (char*)NULL);
         _exit(127);
     }
-    close(fds[1]);
-    output = fdopen(fds[0], "r");
+    if (zstd_pid < 0) {
+        close(compressed[0]);
+        close(compressed[1]);
+        close(listed[0]);
+        close(listed[1]);
+        return false;
+    }
+    tar_pid = fork();
+    if (tar_pid == 0) {
+        dup2(compressed[0], STDIN_FILENO);
+        dup2(listed[1], STDOUT_FILENO);
+        close(compressed[0]);
+        close(compressed[1]);
+        close(listed[0]);
+        close(listed[1]);
+        execl("/usr/bin/tar", "tar", "-tf", "-", (char*)NULL);
+        _exit(127);
+    }
+    close(compressed[0]);
+    close(compressed[1]);
+    close(listed[1]);
+    if (tar_pid < 0) {
+        close(listed[0]);
+        kill(zstd_pid, SIGTERM);
+        (void)child_succeeded(zstd_pid, &zstd_status);
+        return false;
+    }
+    output = fdopen(listed[0], "r");
     if (!output) {
-        close(fds[0]);
-        kill(pid, SIGTERM);
-        waitpid(pid, &wait_status, 0);
+        close(listed[0]);
+        kill(zstd_pid, SIGTERM);
+        kill(tar_pid, SIGTERM);
+        (void)child_succeeded(zstd_pid, &zstd_status);
+        (void)child_succeeded(tar_pid, &tar_status);
         return false;
     }
     while (safe && fgets(line, sizeof(line), output)) {
@@ -185,27 +225,48 @@ static bool bundle_archive_paths_safe(const char* archive) {
     }
     fclose(output);
     if (!safe)
-        kill(pid, SIGTERM);
-    if (waitpid(pid, &wait_status, 0) < 0)
+        kill(tar_pid, SIGTERM);
+    if (!child_succeeded(zstd_pid, &zstd_status) || !child_succeeded(tar_pid, &tar_status))
         return false;
-    return safe && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
+    return safe;
 }
 
 static bool extract_archive_to(const char* destination, const char* archive) {
-    pid_t pid;
-    int wait_status;
-    if (!bundle_archive_paths_safe(archive) || !mkdir_p(destination))
+    int compressed[2];
+    pid_t zstd_pid, tar_pid;
+    int zstd_status = 0, tar_status = 0;
+    const char* zstd = fixed_zstd_path();
+    if (!zstd || !bundle_archive_paths_safe(archive) || !mkdir_p(destination) || pipe(compressed) != 0)
         return false;
-    pid = fork();
-    if (pid < 0)
-        return false;
-    if (pid == 0) {
-        execl("/usr/bin/tar", "tar", "--zstd", "-xf", archive, "-C", destination, (char*)NULL);
+    zstd_pid = fork();
+    if (zstd_pid == 0) {
+        dup2(compressed[1], STDOUT_FILENO);
+        close(compressed[0]);
+        close(compressed[1]);
+        execl(zstd, "zstd", "-d", "-c", archive, (char*)NULL);
         _exit(127);
     }
-    while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+    if (zstd_pid < 0) {
+        close(compressed[0]);
+        close(compressed[1]);
+        return false;
     }
-    return WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
+    tar_pid = fork();
+    if (tar_pid == 0) {
+        dup2(compressed[0], STDIN_FILENO);
+        close(compressed[0]);
+        close(compressed[1]);
+        execl("/usr/bin/tar", "tar", "-xf", "-", "-C", destination, (char*)NULL);
+        _exit(127);
+    }
+    close(compressed[0]);
+    close(compressed[1]);
+    if (tar_pid < 0) {
+        kill(zstd_pid, SIGTERM);
+        (void)child_succeeded(zstd_pid, &zstd_status);
+        return false;
+    }
+    return child_succeeded(zstd_pid, &zstd_status) && child_succeeded(tar_pid, &tar_status);
 }
 
 static bool extract_bundle_archive(const char* home, const char* archive) {
@@ -1856,16 +1917,61 @@ char* ms_setup_install_all_json(const char* metalsharp_home, int* status) {
     return strdup("{\"ok\":true}");
 }
 
+static bool vcpp_installer_downloaded(const char* path) {
+    struct stat info;
+    return path && stat(path, &info) == 0 && S_ISREG(info.st_mode) && info.st_size > 1000000;
+}
+
+static bool download_vcpp_installer(const char* home, bool x86, char** result) {
+    const char* filename = x86 ? "vc_redist.x86.exe" : "vc_redist.x64.exe";
+    const char* url =
+        x86 ? "https://aka.ms/vs/17/release/vc_redist.x86.exe" : "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+    char* directory = join_path(home, "runtime/redist/vcredist");
+    char* path = directory ? join_path(directory, filename) : NULL;
+    char* temporary = path ? malloc(strlen(path) + 10) : NULL;
+    pid_t pid;
+    if (temporary)
+        snprintf(temporary, strlen(path) + 10, "%s.download", path);
+    if (!directory || !path || !temporary || !mkdir_p(directory))
+        goto fail;
+    if (vcpp_installer_downloaded(path)) {
+        *result = path;
+        free(directory);
+        free(temporary);
+        return true;
+    }
+    unlink(temporary);
+    pid = fork();
+    if (pid < 0)
+        goto fail;
+    if (pid == 0) {
+        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "3", "-o",
+              temporary, url, (char*)NULL);
+        _exit(127);
+    }
+    if (!child_succeeded(pid, &(int){0}) || !vcpp_installer_downloaded(temporary) || rename(temporary, path) != 0)
+        goto fail;
+    *result = path;
+    free(directory);
+    free(temporary);
+    return true;
+fail:
+    if (temporary)
+        unlink(temporary);
+    free(directory);
+    free(path);
+    free(temporary);
+    return false;
+}
+
 char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
-    const char* installer_rel =
-        x86 ? "runtime/redist/vcredist/vc_redist.x86.exe" : "runtime/redist/vcredist/vc_redist.x64.exe";
     const char* const dlls_x64[] = {"vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"};
     const char* const dlls_x86[] = {"vcruntime140.dll", "msvcp140.dll"};
     const char* const* dlls = x86 ? dlls_x86 : dlls_x64;
     size_t dll_count = x86 ? 2 : 3;
-    char *prefix = join_path(home, "prefix-steam"), *system32 = NULL, *syswow64 = NULL, *wine = NULL,
-         *installer = join_path(home, installer_rel), *out = NULL;
-    int child_status;
+    char *prefix = join_path(home, "prefix-steam"), *system32 = NULL, *syswow64 = NULL, *wine = NULL, *installer = NULL,
+         *installer_dir = NULL, *out = NULL;
+    int child_status = 0;
     pid_t pid, waited;
     bool verified = true;
     if (status)
@@ -1879,16 +1985,42 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
     }
     if (x86)
         syswow64 = prefix ? join_path(prefix, "drive_c/windows/syswow64") : NULL;
+    /* Match Rust's vcpp_ensure_downloaded: ensure both cached redists before
+     * launching either architecture's installer. */
+    {
+        char* unused = NULL;
+        bool x64_ok = download_vcpp_installer(home, false, &unused);
+        free(unused);
+        unused = NULL;
+        bool x86_ok = download_vcpp_installer(home, true, &unused);
+        free(unused);
+        if (!x64_ok || !x86_ok) {
+            if (status)
+                *status = 500;
+            out = setup_error(x86 ? "VC++ x86 installer not found" : "VC++ x64 installer not found");
+            goto done;
+        }
+    }
+    installer = join_path(home, x86 ? "runtime/redist/vcredist/vc_redist.x86.exe"
+                                    : "runtime/redist/vcredist/vc_redist.x64.exe");
     wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
     if (!wine || access(wine, X_OK) != 0) {
         free(wine);
         wine = join_path(home, "runtime/wine/bin/wine");
     }
-    if (!wine || access(wine, X_OK) != 0 || !installer || access(installer, F_OK) != 0) {
+    if (!wine || access(wine, X_OK) != 0 || !installer || !vcpp_installer_downloaded(installer)) {
         if (status)
             *status = 500;
-        out = setup_error(x86 ? "VC++ x86 installer not found" : "VC++ x64 installer not found");
+        out = setup_error(!wine || access(wine, X_OK) != 0
+                              ? "MetalSharp Wine not found"
+                              : (x86 ? "VC++ x86 installer not found" : "VC++ x64 installer not found"));
         goto done;
+    }
+    installer_dir = strdup(installer);
+    if (installer_dir) {
+        char* slash = strrchr(installer_dir, '/');
+        if (slash)
+            *slash = '\0';
     }
     pid = fork();
     if (pid < 0) {
@@ -1898,10 +2030,20 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
         goto done;
     }
     if (pid == 0) {
+        char library_env[PATH_MAX * 2];
         char* args[] = {wine, "start", "/wait", "/unix", installer, "/install", NULL};
         setenv("WINEPREFIX", prefix, 1);
         setenv("WINEARCH", "win64", 1);
         setenv("WINEDEBUG", "-all", 1);
+        snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
+                 home);
+#ifdef __APPLE__
+        setenv("DYLD_FALLBACK_LIBRARY_PATH", library_env, 1);
+#else
+        setenv("LD_LIBRARY_PATH", library_env, 1);
+#endif
+        if (installer_dir)
+            chdir(installer_dir);
         execv(wine, args);
         _exit(127);
     }
@@ -1936,5 +2078,6 @@ done:
     free(syswow64);
     free(wine);
     free(installer);
+    free(installer_dir);
     return out;
 }

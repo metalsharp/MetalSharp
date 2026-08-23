@@ -2,8 +2,10 @@
 
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/steam_actions.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,21 +17,36 @@ struct pipeline {
     const char* name;
     const char* description;
     const char* backend;
+    const char* graphics_backend;
     bool experimental;
     bool requires_wine;
 };
 
 static const struct pipeline pipelines[] = {
-    {"m12", "M12", "D3D12 -> Metal via DXMT", "dxmt", false, true},
-    {"vkd3d", "VKD3D", "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver", "vulkan", false, true},
-    {"m11", "M11", "D3D11 -> Metal via DXMT", "dxmt", false, true},
-    {"m11_32", "M11(32)", "D3D11 -> Metal via DXMT (32-bit / i386)", "dxmt", false, true},
-    {"m10", "M10", "D3D10 -> Metal via DXMT", "dxmt", false, true},
-    {"m10_32", "M10(32)", "D3D10 -> Metal via DXMT (32-bit / i386)", "dxmt", false, true},
-    {"m9", "M9", "D3D9 -> Metal via DXMT launch family", "dxmt", false, true},
-    {"d3dmetal", "D3DMetal", "D3D11/D3D12 via Apple D3DMetal 4.0 (GPTK Wine)", "d3dmetal", true, false},
-    {"fna_arm64", "Mono/FNA", "Windows XNA/FNA via MetalSharp Mono runtime", "mono", false, false},
+    {"dxmt", "DXMT", "Auto-selected D3D9/D3D10/D3D11/D3D12 -> Metal via unified DXMT runtime", "dxmt", "dxmt", false, true},
+    {"m12", "M12", "D3D12 -> Metal via DXMT", "dxmt", "dxmt", false, true},
+    {"vkd3d", "VKD3D", "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver", "vulkan", "vulkan", false, true},
+    {"m11", "M11", "D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
+    {"m11_32", "M11(32)", "D3D11 -> Metal via DXMT (32-bit / i386)", "dxmt", "dxmt", false, true},
+    {"m10", "M10", "D3D10 -> Metal via DXMT", "dxmt", "dxmt", false, true},
+    {"m10_32", "M10(32)", "D3D10 -> Metal via DXMT (32-bit / i386)", "dxmt", "dxmt", false, true},
+    {"m9", "M9", "D3D9 -> Metal via DXMT launch family", "dxmt", "dxmt", false, true},
+    {"m13", "M13", "D3D11/D3D12 via Apple Game Porting Toolkit", "gptk", "gptk", false, true},
+    {"d3dmetal", "D3DMetal", "D3D11/D3D12 via Apple D3DMetal 4.0 (GPTK Wine)", "d3dmetal", "d3dmetal", true, false},
+    {"m32", "M32", "32-bit Wine fallback", "wine32", "wine", false, true},
+    {"fna_arm64", "Mono/FNA", "Windows XNA/FNA via MetalSharp Mono runtime", "mono", "native", false, false},
+    {"steam", "Steam", "Wine Steam", "wine-steam", "wine", false, false},
+    {"mac_steam", "MacOS Steam", "Native macOS Steam", "macos-steam", "native", false, false},
+    {"wine_bare", "Wine", "Plain Wine (Custom Library)", "wine", "wine", false, true},
 };
+
+static const char* mtsp_pipeline_name(const char* id);
+
+static bool mtsp_pipeline_user_selectable(const char* id) {
+    return !strcmp(id, "m12") || !strcmp(id, "vkd3d") || !strcmp(id, "m11") || !strcmp(id, "m11_32") ||
+           !strcmp(id, "m10") || !strcmp(id, "m10_32") || !strcmp(id, "m9") || !strcmp(id, "d3dmetal") ||
+           !strcmp(id, "fna_arm64");
+}
 
 static unsigned long long query_appid(const char* query) {
     const char* p = query == NULL ? NULL : strstr(query, "appid=");
@@ -40,12 +57,77 @@ static unsigned long long query_appid(const char* query) {
     return strtoull(p, &end, 10);
 }
 
+static bool mtsp_bottle_preferred(unsigned appid, char* out, size_t out_size) {
+    char path[PATH_MAX], raw[1024 * 1024], error[96];
+    FILE* file;
+    size_t length;
+    ms_json* manifest;
+    char* value = NULL;
+    const char* home = getenv("METALSHARP_HOME");
+    if (!home || !*home)
+        return false;
+    snprintf(path, sizeof(path), "%s/bottles/steam_%u/bottle.json", home, appid);
+    file = fopen(path, "rb");
+    if (!file)
+        return false;
+    length = fread(raw, 1, sizeof(raw) - 1, file);
+    fclose(file);
+    raw[length] = '\0';
+    manifest = ms_json_parse(raw, length, error, sizeof(error));
+    if (!manifest || ms_json_type_of(manifest) != MS_JSON_OBJECT) {
+        ms_json_free(manifest);
+        return false;
+    }
+    if (!ms_json_as_string(ms_json_object_get(manifest, "preferred_pipeline"), &value) || !value || !value[0]) {
+        free(value);
+        ms_json_free(manifest);
+        return false;
+    }
+    snprintf(out, out_size, "%s", value);
+    free(value);
+    ms_json_free(manifest);
+    return true;
+}
+
+static const char* mtsp_default_pipeline(unsigned appid) {
+    static char pipeline[64];
+    char* raw = ms_mtsp_default_rules_json();
+    char error[96];
+    ms_json* root;
+    const ms_json* rules;
+    pipeline[0] = '\0';
+    if (!raw)
+        return "vkd3d";
+    root = ms_json_parse(raw, strlen(raw), error, sizeof(error));
+    free(raw);
+    rules = root ? ms_json_object_get(root, "rules") : NULL;
+    if (rules && ms_json_type_of(rules) == MS_JSON_ARRAY) {
+        for (size_t i = 0; i < ms_json_array_length(rules); i++) {
+            const ms_json* rule = ms_json_array_get(rules, i);
+            long long rule_appid;
+            char* value = NULL;
+            if (!ms_json_as_i64(ms_json_object_get(rule, "appid"), &rule_appid) || rule_appid != (long long)appid)
+                continue;
+            if (ms_json_as_string(ms_json_object_get(rule, "default_pipeline"), &value) && value) {
+                snprintf(pipeline, sizeof(pipeline), "%s", value);
+                free(value);
+                break;
+            }
+            free(value);
+        }
+    }
+    ms_json_free(root);
+    return pipeline[0] ? pipeline : "vkd3d";
+}
+
 char* ms_mtsp_pipelines_json(const char* query) {
     ms_json_writer writer;
     char* result;
     size_t i;
     unsigned long long appid = query_appid(query);
-    (void)appid;
+    char preferred[64] = "";
+    const char* recommended = mtsp_default_pipeline((unsigned)appid);
+    bool has_preferred = mtsp_bottle_preferred((unsigned)appid, preferred, sizeof(preferred));
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
@@ -53,16 +135,24 @@ char* ms_mtsp_pipelines_json(const char* query) {
     ms_json_writer_key(&writer, "appid");
     ms_json_writer_u64(&writer, appid);
     ms_json_writer_key(&writer, "recommended");
-    ms_json_writer_string(&writer, appid == 620 ? "m12" : "vkd3d");
+    ms_json_writer_string(&writer, recommended);
     ms_json_writer_key(&writer, "recommended_name");
-    ms_json_writer_string(&writer, appid == 620 ? "M12" : "VKD3D");
+    ms_json_writer_string(&writer, mtsp_pipeline_name(recommended));
     ms_json_writer_key(&writer, "preferred");
-    ms_json_writer_null(&writer);
+    if (has_preferred)
+        ms_json_writer_string(&writer, preferred);
+    else
+        ms_json_writer_null(&writer);
     ms_json_writer_key(&writer, "preferred_name");
-    ms_json_writer_null(&writer);
+    if (has_preferred)
+        ms_json_writer_string(&writer, mtsp_pipeline_name(preferred));
+    else
+        ms_json_writer_null(&writer);
     ms_json_writer_key(&writer, "pipelines");
     ms_json_writer_array_begin(&writer);
     for (i = 0; i < sizeof(pipelines) / sizeof(pipelines[0]); ++i) {
+        if (!mtsp_pipeline_user_selectable(pipelines[i].id))
+            continue;
         ms_json_writer_object_begin(&writer);
         ms_json_writer_key(&writer, "id");
         ms_json_writer_string(&writer, pipelines[i].id);
@@ -72,6 +162,8 @@ char* ms_mtsp_pipelines_json(const char* query) {
         ms_json_writer_string(&writer, pipelines[i].description);
         ms_json_writer_key(&writer, "backend");
         ms_json_writer_string(&writer, pipelines[i].backend);
+        ms_json_writer_key(&writer, "graphics_backend");
+        ms_json_writer_string(&writer, pipelines[i].graphics_backend);
         ms_json_writer_key(&writer, "experimental");
         ms_json_writer_bool(&writer, pipelines[i].experimental);
         ms_json_writer_key(&writer, "requires_wine");
@@ -85,6 +177,8 @@ char* ms_mtsp_pipelines_json(const char* query) {
 }
 
 static const char* mtsp_pipeline_name(const char* id) {
+    if (!strcmp(id, "dxmt"))
+        return "DXMT";
     if (!strcmp(id, "m11_32"))
         return "M11(32)";
     if (!strcmp(id, "m10_32"))
@@ -97,6 +191,14 @@ static const char* mtsp_pipeline_name(const char* id) {
         return "VKD3D";
     if (!strcmp(id, "d3dmetal"))
         return "D3DMetal";
+    if (!strcmp(id, "m13"))
+        return "M13";
+    if (!strcmp(id, "m32"))
+        return "M32";
+    if (!strcmp(id, "steam"))
+        return "Steam";
+    if (!strcmp(id, "mac_steam") || !strcmp(id, "macos_steam"))
+        return "MacOS Steam";
     if (!strcmp(id, "m11"))
         return "M11";
     if (!strcmp(id, "m10"))
@@ -283,175 +385,18 @@ char* ms_mtsp_default_rules_json_legacy(void) {
     return result;
 }
 
-static char* mtsp_error(const char* message) {
-    ms_json_writer w;
-    char* o;
-    ms_json_writer_init(&w);
-    ms_json_writer_object_begin(&w);
-    ms_json_writer_key(&w, "ok");
-    ms_json_writer_bool(&w, false);
-    ms_json_writer_key(&w, "error");
-    ms_json_writer_string(&w, message);
-    ms_json_writer_object_end(&w);
-    o = ms_json_writer_take(&w);
-    return o;
-}
-static bool mtsp_body(const unsigned char* body, size_t length, unsigned long long* appid, char* pipeline,
-                      size_t pipeline_size, int* status) {
-    char error[128];
-    ms_json* v;
-    const ms_json* x;
-    long long n;
-    char* s = NULL;
-    v = ms_json_parse((const char*)(body == NULL ? (const unsigned char*)"{}" : body), body == NULL ? 2 : length, error,
-                      sizeof(error));
-    if (!v || ms_json_type_of(v) != MS_JSON_OBJECT) {
-        ms_json_free(v);
-        if (status)
-            *status = 400;
-        return false;
-    }
-    x = ms_json_object_get(v, "appid");
-    if (!ms_json_as_i64(x, &n) || n <= 0) {
-        ms_json_free(v);
-        if (status)
-            *status = 400;
-        return false;
-    }
-    *appid = (unsigned long long)n;
-    x = ms_json_object_get(v, "launchMethod");
-    if (!x)
-        x = ms_json_object_get(v, "pipeline");
-    if (x && ms_json_as_string(x, &s))
-        snprintf(pipeline, pipeline_size, "%s", s);
-    else
-        snprintf(pipeline, pipeline_size, "m12");
-    free(s);
-    ms_json_free(v);
-    if (status)
-        *status = 200;
-    return true;
-}
-static bool known_pipeline(const char* id) {
-    size_t i;
-    for (i = 0; i < sizeof(pipelines) / sizeof(pipelines[0]); i++)
-        if (strcmp(id, pipelines[i].id) == 0)
-            return true;
-    return strcmp(id, "auto") == 0 || strcmp(id, "wine_bare") == 0 || strcmp(id, "steam") == 0 ||
-           strcmp(id, "mac_steam") == 0;
-}
-static char* mtsp_simple_result(const unsigned char* body, size_t length, int* status, const char* kind) {
-    unsigned long long appid;
-    char pipeline[64];
-    ms_json_writer w;
-    char* o;
-    if (!mtsp_body(body, length, &appid, pipeline, sizeof(pipeline), status))
-        return mtsp_error("appid required");
-    if (!known_pipeline(pipeline)) {
-        if (status)
-            *status = 400;
-        return mtsp_error("unknown pipeline");
-    }
-    ms_json_writer_init(&w);
-    ms_json_writer_object_begin(&w);
-    ms_json_writer_key(&w, "ok");
-    ms_json_writer_bool(&w, true);
-    ms_json_writer_key(&w, "appid");
-    ms_json_writer_u64(&w, appid);
-    ms_json_writer_key(&w, kind);
-    if (strcmp(kind, "recipe") == 0) {
-        ms_json_writer_object_begin(&w);
-        ms_json_writer_key(&w, "pipeline");
-        ms_json_writer_string(&w, pipeline);
-        ms_json_writer_key(&w, "env");
-        ms_json_writer_object_begin(&w);
-        ms_json_writer_object_end(&w);
-        ms_json_writer_key(&w, "dlls");
-        ms_json_writer_array_begin(&w);
-        ms_json_writer_array_end(&w);
-        ms_json_writer_object_end(&w);
-    } else if (strcmp(kind, "report") == 0) {
-        ms_json_writer_object_begin(&w);
-        ms_json_writer_key(&w, "pipeline");
-        ms_json_writer_string(&w, pipeline);
-        ms_json_writer_key(&w, "ready");
-        ms_json_writer_bool(&w, true);
-        ms_json_writer_key(&w, "issues");
-        ms_json_writer_array_begin(&w);
-        ms_json_writer_array_end(&w);
-        ms_json_writer_object_end(&w);
-    } else {
-        ms_json_writer_object_begin(&w);
-        ms_json_writer_key(&w, "pipeline");
-        ms_json_writer_string(&w, pipeline);
-        ms_json_writer_key(&w, "prepared");
-        ms_json_writer_bool(&w, true);
-        ms_json_writer_object_end(&w);
-    }
-    ms_json_writer_object_end(&w);
-    o = ms_json_writer_take(&w);
-    return o;
-}
 char* ms_mtsp_prepare_json(const unsigned char* body, size_t length, int* status) {
-    return mtsp_simple_result(body, length, status, "result");
+    return ms_steam_mtsp_inspect_json(getenv("METALSHARP_HOME"), body, length, status, 0);
 }
 char* ms_mtsp_recipe_json(const unsigned char* body, size_t length, int* status) {
-    return mtsp_simple_result(body, length, status, "recipe");
+    return ms_steam_mtsp_inspect_json(getenv("METALSHARP_HOME"), body, length, status, 1);
 }
 char* ms_mtsp_doctor_json(const unsigned char* body, size_t length, int* status) {
-    return mtsp_simple_result(body, length, status, "report");
+    return ms_steam_mtsp_inspect_json(getenv("METALSHARP_HOME"), body, length, status, 2);
 }
 
 static void mtsp_default_pipeline_for(unsigned long long appid, char* output, size_t output_size) {
-    snprintf(output, output_size, "%s",
-             appid == 620                            ? "m12"
-             : (appid == 1145360 || appid == 475150) ? "m11_32"
-                                                     : "vkd3d");
-    if (appid == 620)
-        return;
-    const char* paths[] = {"configs/mtsp-rules.toml", "app/configs/mtsp-rules.toml"};
-    FILE* file = NULL;
-    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
-        file = fopen(paths[i], "r");
-        if (file)
-            break;
-    }
-    if (!file)
-        return;
-    char line[512];
-    bool matching = false;
-    while (fgets(line, sizeof(line), file)) {
-        char section_id[64];
-        char* section = strstr(line, "[overrides.");
-        bool root = false;
-        if (section && sscanf(section, "[overrides.%63[^]]]", section_id) == 1 && section_id[0]) {
-            root = true;
-            for (size_t k = 0; section_id[k]; k++)
-                if (!isdigit((unsigned char)section_id[k]))
-                    root = false;
-        }
-        if (root) {
-            unsigned long long current = strtoull(section_id, NULL, 10);
-            matching = current == appid;
-            continue;
-        }
-        if (matching && (!strncmp(line, "pipeline", 8) || !strncmp(line, "pipeline ", 9))) {
-            char* q = strchr(line, '"');
-            if (q) {
-                q++;
-                char* end = strchr(q, '"');
-                if (end) {
-                    size_t n = (size_t)(end - q);
-                    if (n >= output_size)
-                        n = output_size - 1;
-                    memcpy(output, q, n);
-                    output[n] = 0;
-                    break;
-                }
-            }
-        }
-    }
-    fclose(file);
+    snprintf(output, output_size, "%s", mtsp_default_pipeline((unsigned)appid));
 }
 
 char* ms_mtsp_launch_shape_json(const char* query) {

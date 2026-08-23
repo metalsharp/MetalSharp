@@ -1,6 +1,7 @@
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/steam_actions.h"
 #include <dirent.h>
 #include <errno.h>
 #include <signal.h>
@@ -107,6 +108,11 @@ static void remember(unsigned appid, pid_t pid) {
         g_running = g;
     }
 }
+
+void ms_process_register_game(unsigned appid, pid_t pid) {
+    if (appid > 0 && pid > 0)
+        remember(appid, pid);
+}
 static void forget(unsigned appid) {
     running_game** p = &g_running;
     while (*p) {
@@ -120,8 +126,20 @@ static void forget(unsigned appid) {
     }
 }
 static bool active(pid_t pid) {
+    int status;
+    pid_t waited;
     if (pid <= 0)
         return false;
+    /* Games are launched by a backend-owned child. Once that wrapper exits,
+     * it can remain a zombie until reaped; kill(pid, 0) still succeeds for a
+     * zombie and used to leave the Library Stop button stuck forever. */
+    waited = waitpid(pid, &status, WNOHANG);
+    if (waited == pid)
+        return false;
+    if (waited == 0)
+        return true;
+    if (waited < 0 && errno != ECHILD)
+        return errno == EINTR || errno == EPERM;
     if (kill(pid, 0) == 0)
         return true;
     return errno == EPERM;
@@ -268,54 +286,9 @@ char* ms_process_launch_json(const char* home, const char* body, size_t len, int
 }
 
 char* ms_process_launch_auto_json(const char* home, const char* body, size_t len, int* status) {
-    ms_json* r = parse_root(body, len);
-    unsigned long long aid;
-    char *exe, *err;
-    pid_t pid;
-    ms_json_writer w;
-    char* out;
-    if (status)
-        *status = 400;
-    if (!r || !u64(r, "appid", &aid) || aid == 0) {
-        ms_json_free(r);
-        return error_json("appid required");
-    }
-    if (status)
-        *status = 500;
-    exe = appid_exe(home, (unsigned)aid);
-    if (!exe) {
-        ms_json_free(r);
-        return error_json("game directory not found");
-    }
-    err = spawn_exe(home, exe, &pid);
-    if (err) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "%s", err);
-        free(err);
-        free(exe);
-        ms_json_free(r);
-        return error_json(msg);
-    }
-    remember((unsigned)aid, pid);
-    ms_json_writer_init(&w);
-    ms_json_writer_object_begin(&w);
-    ms_json_writer_key(&w, "ok");
-    ms_json_writer_bool(&w, true);
-    ms_json_writer_key(&w, "pid");
-    ms_json_writer_u64(&w, (unsigned)pid);
-    ms_json_writer_key(&w, "gameType");
-    ms_json_writer_string(&w, "wine");
-    ms_json_writer_key(&w, "appid");
-    ms_json_writer_u64(&w, aid);
-    ms_json_writer_key(&w, "engine");
-    ms_json_writer_string(&w, "Wine");
-    ms_json_writer_object_end(&w);
-    out = ms_json_writer_take(&w);
-    if (status)
-        *status = 200;
-    free(exe);
-    ms_json_free(r);
-    return out;
+    /* Rust's /game/launch-auto is the direct pipeline entry point.  It is not
+     * the same operation as /steam/launch-game with its default Steam route. */
+    return ms_steam_launch_auto_json(home, body, len, status);
 }
 
 char* ms_process_running_json(void) {

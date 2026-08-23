@@ -336,10 +336,15 @@ char* ms_metalfx_set_json(const char* metalsharp_home, const unsigned char* body
     if (body != NULL && body_length > 0)
         request = ms_json_parse((const char*)body, body_length, error, sizeof(error));
     if (request != NULL) {
-        if (ms_json_as_bool(ms_json_object_get(request, "enabled"), &enabled))
+        if (ms_json_as_bool(ms_json_object_get(request, "enabled"), &enabled)) {
             state.enabled = enabled;
-        if (ms_json_as_number(ms_json_object_get(request, "factor"), &factor) && isfinite(factor) && factor >= 1.0 &&
-            factor <= 3.0)
+            /* MetalFX off is represented by the neutral 2.00x DXMT factor;
+             * the overlay/hook uses enabled=false for the actual disable. */
+            if (!enabled)
+                state.factor = 2.0;
+        }
+        if (state.enabled && ms_json_as_number(ms_json_object_get(request, "factor"), &factor) && isfinite(factor) &&
+            factor >= 1.0 && factor <= 3.0)
             state.factor = factor;
     }
     ms_json_free(request);
