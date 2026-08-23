@@ -7,7 +7,7 @@ The current hand-written slice owns the process boundary, readiness contracts, a
 
 - executable name: `metalsharp-backend`;
 - backend filename: `metalsharp-backend`;
-- integration/install output path: `app/src-rust/target/release/metalsharp-backend`;
+- integration/install output path: `app/src-c/build/metalsharp-backend`;
 - packaged resource path: `runtime/metalsharp-backend`;
 - `METALSHARP_PORT`, `METALSHARP_HOME`, `METALSHARP_DEV`, and
   `METALSHARP_STEAM_BRIDGE_PORT` behavior;
@@ -49,16 +49,14 @@ The current hand-written slice owns the process boundary, readiness contracts, a
 - Windows-version changes launch the bundled Wine `reg add` operation and
   write bottle-scoped logs with the child PID.
 
-This list is not a parity claim: the remaining Rust side-effect domains must
-still be ported before the C backend can replace Rust. Unported kernel,
-bottle, and installer requests currently have explicit compatibility responses
-so the HTTP surface remains stable, but those responses are not a substitute
-for the Rust implementations.
+This list is the active C backend's implementation inventory. Rust remains
+available temporarily as a differential parity oracle, but it is no longer the
+application's build, package, or runtime reference. Any remaining compatibility
+responses are tracked as C parity work rather than delegated to Rust at runtime.
 
-The output path intentionally retains the repository's existing backend path so
-Electron, the DMG scripts, and updater discovery do not silently change while
-service domains are ported one at a time. The Rust backend remains the active
-build until the C implementation has equivalent route and state coverage.
+The backend filename and packaged resource path remain stable so Electron, the
+DMG scripts, and updater discovery do not change when the implementation changes.
+The C backend is now the active build and runtime reference.
 
 Build and smoke-test from this directory:
 

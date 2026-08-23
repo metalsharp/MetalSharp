@@ -51,7 +51,7 @@ def check_package_resources(assets: list[str]) -> None:
         if isinstance(entry, dict)
     }
     required_pairs = {
-        ("src-rust/target/release/metalsharp-backend", "runtime/metalsharp-backend"),
+        ("src-c/build/metalsharp-backend", "runtime/metalsharp-backend"),
         ("native/host", "runtime/host"),
         ("updater", "scripts/tools/updater"),
     }
