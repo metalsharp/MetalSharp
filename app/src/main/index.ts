@@ -1012,37 +1012,29 @@ function registerIpc() {
     }
 
     return new Promise((resolve) => {
-      const commandPath = path.join(app.getPath("temp"), `metalsharp-homebrew-${process.pid}-${Date.now()}.command`);
-      const command = [
-        "#!/bin/bash",
-        `trap 'rm -f "${commandPath.replace(/'/g, "'\\\\''")}"' EXIT`,
-        '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
-        "",
-      ].join("\n");
-
-      try {
-        fs.writeFileSync(commandPath, command, { mode: 0o700 });
-      } catch (err) {
-        resolve({ ok: false, error: `Failed to prepare Homebrew installer: ${(err as Error).message}` });
+      const candidates = [
+        path.join(process.resourcesPath, "scripts/tools/install-homebrew.sh"),
+        path.join(app.getAppPath(), "../tools/install-homebrew.sh"),
+        path.join(__dirname, "../../../tools/install-homebrew.sh"),
+      ];
+      const script = candidates.find((candidate) => fs.existsSync(candidate));
+      if (!script) {
+        resolve({ ok: false, error: "Homebrew installer script is missing from this build." });
         return;
       }
 
-      execFile("/usr/bin/open", ["-a", "Terminal", commandPath], { timeout: 15000 }, (err: Error | null) => {
-        if (err) {
-          try {
-            fs.unlinkSync(commandPath);
-          } catch {}
-          resolve({
-            ok: false,
-            error: `Failed to open Terminal for Homebrew install: ${err.message}`,
-          });
-        } else {
-          resolve({
-            ok: true,
-            message: "Terminal opened — complete the Homebrew install there",
-          });
-        }
-      });
+      execFile(
+        "/bin/bash",
+        [script],
+        { env: { ...process.env, PATH: ensureShellPath() }, timeout: 10 * 60 * 1000, maxBuffer: 1024 * 1024 },
+        (err: Error | null, _stdout: string, stderr: string) => {
+          if (err) {
+            resolve({ ok: false, error: stderr.trim() || `Homebrew installation failed: ${err.message}` });
+          } else {
+            resolve({ ok: true, installed: true, message: "Homebrew installed successfully" });
+          }
+        },
+      );
     });
   });
 
