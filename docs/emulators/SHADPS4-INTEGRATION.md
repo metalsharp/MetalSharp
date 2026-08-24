@@ -27,7 +27,8 @@ Intel Macs are not supported by the current upstream runtime. MetalSharp derives
 │   ├── libvulkan_kosmickrisp.dylib
 │   ├── kosmickrisp_mesa_icd.json
 │   ├── LICENSE
-│   └── source.json
+│   ├── source.json
+│   └── capabilities.json
 ├── home/Library/Application Support/shadPS4/
 ├── downloads/
 ├── staging/
