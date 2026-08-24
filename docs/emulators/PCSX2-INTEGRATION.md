@@ -11,7 +11,8 @@ MetalSharp provides an isolated, managed environment for the official stable PCS
 - Versioned, read-only activation with pin, skip, repair, rollback, and configuration backup.
 - A private PCSX2 home at `~/.metalsharp/emulators/pcsx2/home`.
 - User-owned BIOS validation and atomic import.
-- Bounded discovery of owned disc dumps and homebrew ELF files in user-selected folders.
+- Exact indexing of individually selected disc images, plus bounded discovery in explicitly selected game folders.
+- Allowlisted PCSX2 controller-type and renderer settings written atomically to the isolated upstream configuration.
 - Direct, shell-free launch and restart-safe process supervision.
 - Preservation of BIOS, memory cards, saves, savestates, settings, controller profiles, covers, caches, screenshots, logs, and games during runtime updates and removal.
 
@@ -31,12 +32,14 @@ The currently managed stable app is x86_64. Apple Silicon launches use Rosetta e
 1. Open **Sharp Library → PCSX2**.
 2. Install the verified official stable runtime.
 3. Follow PCSX2's [official BIOS dumping guide](https://pcsx2.net/docs/setup/bios/) and import a BIOS dumped from a PlayStation 2 you own.
-4. Open **PCSX2 Setup** to select controller, graphics, language, and audio settings.
-5. Add a folder containing owned disc dumps. The [official disc-dumping guide](https://pcsx2.net/docs/setup/discs/) explains supported dumping methods.
+4. Expand **PCSX2 Setup** in MetalSharp and select the virtual controller type for ports 1 and 2 and the renderer. These settings are saved directly to PCSX2 without opening its application.
+5. Add an owned disc image or a dedicated game folder. The [official disc-dumping guide](https://pcsx2.net/docs/setup/discs/) explains supported dumping methods.
 
 Supported library files are ISO, BIN, IMG, MDF, GZ, CSO, ZSO, CHD, and homebrew ELF. CUE, TOC, and CDR sidecars are not launchable PCSX2 library entries.
 
-Removing a folder removes only its reference. It never deletes or rewrites external content.
+Selecting one file indexes only that file; MetalSharp does not scan the file's parent directory. Selecting a folder opts that folder into bounded recursive discovery. Removing a location removes only its reference and never deletes or rewrites external content.
+
+PCSX2 Setup exposes the exact upstream controller values DualShock 2, Guitar, JogCon, NeGcon, and Pop'n Music for both emulated ports. Renderer choices are Automatic, Metal, OpenGL, Vulkan, and Software—the methods present in the verified macOS runtime. Each change is allowlisted, written atomically, and reloaded whenever MetalSharp opens the page. Settings changes are blocked while PCSX2 or a runtime transaction is active to prevent configuration races. Advanced input mapping and other expert options remain available through **Open PCSX2**, but they are not required for these baseline choices.
 
 ## Data layout
 
@@ -98,6 +101,7 @@ Read endpoints:
 GET /emulators
 GET /sharp-library/pcsx2/status
 GET /sharp-library/pcsx2/games
+GET /sharp-library/pcsx2/settings
 GET /sharp-library/pcsx2/cover?id=<id>
 GET /sharp-library/pcsx2/update/check
 GET /sharp-library/pcsx2/update/progress
@@ -107,6 +111,7 @@ Mutation endpoints:
 
 ```text
 POST /sharp-library/pcsx2/initialize
+POST /sharp-library/pcsx2/configure
 POST /sharp-library/pcsx2/import-bios
 POST /sharp-library/pcsx2/scan
 POST /sharp-library/pcsx2/add-root
@@ -125,10 +130,10 @@ POST /sharp-library/pcsx2/clear-skip
 POST /sharp-library/pcsx2/remove-runtime
 ```
 
-No endpoint accepts an arbitrary executable, URL, command, shell fragment, PCSX2 configuration key, or file-open target.
+No endpoint accepts an arbitrary executable, URL, command, shell fragment, PCSX2 configuration key, or file-open target. The configure endpoint accepts only the documented controller and renderer identifiers and maps them to audited upstream INI sections and values.
 
 ## Trust boundary
 
-Electron exposes only a BIOS picker, a game-folder picker, the two official PCSX2 guides, and contained path reveals. Every reveal is resolved again in the main process and must remain inside the PCSX2 environment or a registered game root. Revealing a file selects it in Finder; it does not open or execute the content.
+Electron exposes only a BIOS picker, a game-file-or-folder picker, the two official PCSX2 guides, and contained path reveals. Every reveal is resolved again in the main process and must remain inside the PCSX2 environment or a registered game root. Revealing a file selects it in Finder; it does not open or execute the content.
 
 The complete release, host, CLI, isolation, BIOS, discovery, update, and process contract is in [PCSX2-UPSTREAM-CONTRACT.md](PCSX2-UPSTREAM-CONTRACT.md). Historical phase gates and research evidence remain in [PCSX2-INTEGRATION-ROADMAP.md](PCSX2-INTEGRATION-ROADMAP.md).

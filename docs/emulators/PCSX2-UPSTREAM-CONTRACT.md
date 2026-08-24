@@ -107,6 +107,8 @@ RecursivePaths = /canonical/user/root
 
 Unknown sections and unrelated values are preserved. Configuration is never changed while a managed PCSX2 process is active.
 
+The inspected `v2.6.3` source and runtime define controller type under `[Pad1] Type` and `[Pad2] Type`. MetalSharp accepts only the upstream values `DualShock2`, `Guitar`, `Jogcon`, `NeGcon`, and `Popn`. The global renderer is `[EmuCore/GS] Renderer`; the verified macOS runtime contains Automatic (`-1`), Metal (`17`), OpenGL (`12`), Vulkan (`14`), and Software (`13`). Null rendering is intentionally not exposed. Baseline setup writes only these exact allowlisted values, `[UI] SetupWizardIncomplete = false`, and the disabled updater value in one atomic replacement. Advanced bindings and all other emulator settings remain PCSX2-owned.
+
 ## BIOS contract
 
 Upstream `pcsx2/ps2/BiosTools.cpp` identifies normal BIOS files between 4 MiB and 8 MiB and validates the ROM directory plus `ROMVER`. MetalSharp mirrors the bounded ROMDIR/ROMVER checks for import and requires a recognized region marker and valid version/date digits.
@@ -132,7 +134,7 @@ The inspected stable source supports:
 
 PCSX2 also loads homebrew `.elf` files. MetalSharp verifies ELF magic and recognizes no other executable type. `.cue`, `.toc`, `.cdr`, GS dumps, block dumps, and savestates are not normal library entries.
 
-Discovery is bounded to 32 roots, depth 8, 20,000 entries, and 512 displayed games. It never follows directory or file symlinks and never hashes complete multi-gigabyte images during scanning. A bounded 32 MiB read may recover a normalized PS2 serial from an uncompressed disc image; otherwise the sanitized filename is authoritative fallback metadata. Compressed images remain filename-based unless a later versioned upstream contract supplies safe metadata.
+Discovery is bounded to 32 registered locations, depth 8, 20,000 entries, and 512 displayed games. An individually selected disc image is indexed exactly and does not opt its parent directory into scanning; a selected directory enables bounded recursive discovery. MetalSharp never follows directory or file symlinks and never hashes complete multi-gigabyte images during scanning. A bounded 32 MiB read may recover a normalized PS2 serial from an uncompressed disc image; otherwise the sanitized filename is authoritative fallback metadata. Compressed images remain filename-based unless a later versioned upstream contract supplies safe metadata.
 
 Official disc-dumping instructions: <https://pcsx2.net/docs/setup/discs/>.
 

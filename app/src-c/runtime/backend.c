@@ -1313,6 +1313,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/settings") == 0) {
+        body = ms_pcsx2_settings_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/update/check") == 0) {
         body = ms_pcsx2_update_json(context->metalsharp_home, "check");
         if (body == NULL)
@@ -1350,11 +1357,11 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/pcsx2/", 21) == 0) {
         const char* action = request->path + 21;
-        if (!strcmp(action, "initialize") || !strcmp(action, "scan") || !strcmp(action, "add-root") ||
-            !strcmp(action, "remove-root") || !strcmp(action, "import-bios") || !strcmp(action, "launch") ||
-            !strcmp(action, "stop") || !strcmp(action, "open-ui") || !strcmp(action, "open-setup") ||
-            !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") || !strcmp(action, "unpin") ||
-            !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
+        if (!strcmp(action, "initialize") || !strcmp(action, "configure") || !strcmp(action, "scan") ||
+            !strcmp(action, "add-root") || !strcmp(action, "remove-root") || !strcmp(action, "import-bios") ||
+            !strcmp(action, "launch") || !strcmp(action, "stop") || !strcmp(action, "open-ui") ||
+            !strcmp(action, "open-setup") || !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") ||
+            !strcmp(action, "unpin") || !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
             body = ms_pcsx2_action_json(context->metalsharp_home, action, request->body, request->body_length);
             if (body == NULL)
                 return false;

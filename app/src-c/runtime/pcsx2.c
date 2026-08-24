@@ -2581,6 +2581,278 @@ static bool setup_complete(const char* home) {
     return ini_has_value(home, "SetupWizardIncomplete", "false");
 }
 
+typedef struct {
+    const char* id;
+    const char* label;
+    const char* value;
+} pcsx2_setting_option;
+
+static const pcsx2_setting_option g_controller_options[] = {
+    {"DualShock2", "DualShock 2", "DualShock2"},
+    {"Guitar", "Guitar", "Guitar"},
+    {"Jogcon", "JogCon", "Jogcon"},
+    {"NeGcon", "NeGcon", "NeGcon"},
+    {"Popn", "Pop'n Music", "Popn"},
+};
+
+static const pcsx2_setting_option g_renderer_options[] = {
+    {"automatic", "Automatic", "-1"}, {"metal", "Metal", "17"},       {"opengl", "OpenGL", "12"},
+    {"vulkan", "Vulkan", "14"},       {"software", "Software", "13"},
+};
+
+static bool ini_section_line(const char* line, size_t length, const char* section) {
+    size_t section_length = strlen(section);
+    if (length > 0 && line[length - 1] == '\r')
+        length--;
+    return length == section_length + 2 && line[0] == '[' && line[length - 1] == ']' &&
+           !strncmp(line + 1, section, section_length);
+}
+
+static bool ini_key_line(const char* line, size_t length, const char* key, const char** value, size_t* value_length) {
+    const char* end = line + length;
+    while (end > line && (end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
+        end--;
+    while (line < end && (*line == ' ' || *line == '\t'))
+        line++;
+    size_t key_length = strlen(key);
+    if ((size_t)(end - line) < key_length || strncmp(line, key, key_length))
+        return false;
+    line += key_length;
+    while (line < end && (*line == ' ' || *line == '\t'))
+        line++;
+    if (line >= end || *line++ != '=')
+        return false;
+    while (line < end && (*line == ' ' || *line == '\t'))
+        line++;
+    if (value)
+        *value = line;
+    if (value_length)
+        *value_length = (size_t)(end - line);
+    return true;
+}
+
+static bool ini_get_section_value(const char* text, const char* section, const char* key, char* output,
+                                  size_t output_size) {
+    bool in_section = false;
+    const char* line = text;
+    while (line && *line) {
+        const char* newline = strchr(line, '\n');
+        size_t length = newline ? (size_t)(newline - line) : strlen(line);
+        if (length > 0 && line[0] == '[') {
+            if (in_section)
+                break;
+            in_section = ini_section_line(line, length, section);
+        } else if (in_section) {
+            const char* value = NULL;
+            size_t value_length = 0;
+            if (ini_key_line(line, length, key, &value, &value_length)) {
+                if (!output || output_size == 0 || value_length >= output_size)
+                    return false;
+                memcpy(output, value, value_length);
+                output[value_length] = '\0';
+                return true;
+            }
+        }
+        line = newline ? newline + 1 : NULL;
+    }
+    return false;
+}
+
+static char* ini_set_section_value(const char* text, const char* section, const char* key, const char* value) {
+    const char* text_end = text + strlen(text);
+    const char *section_end = NULL, *key_start = NULL, *key_after = NULL;
+    bool found_section = false, in_section = false;
+    const char* line = text;
+    while (line < text_end) {
+        const char* newline = memchr(line, '\n', (size_t)(text_end - line));
+        const char* after = newline ? newline + 1 : text_end;
+        size_t length = newline ? (size_t)(newline - line) : (size_t)(text_end - line);
+        if (length > 0 && line[0] == '[') {
+            if (in_section) {
+                section_end = line;
+                break;
+            }
+            in_section = ini_section_line(line, length, section);
+            if (in_section)
+                found_section = true;
+        } else if (in_section && ini_key_line(line, length, key, NULL, NULL)) {
+            key_start = line;
+            key_after = after;
+            break;
+        }
+        line = after;
+    }
+    if (in_section && !section_end)
+        section_end = text_end;
+
+    size_t setting_length = strlen(key) + strlen(value) + 4;
+    if (key_start) {
+        size_t prefix = (size_t)(key_start - text), suffix = strlen(key_after);
+        char* replacement = malloc(prefix + setting_length + suffix + 1);
+        if (!replacement)
+            return NULL;
+        memcpy(replacement, text, prefix);
+        int written = snprintf(replacement + prefix, setting_length + 1, "%s = %s\n", key, value);
+        if (written < 0 || (size_t)written != setting_length) {
+            free(replacement);
+            return NULL;
+        }
+        memcpy(replacement + prefix + setting_length, key_after, suffix + 1);
+        return replacement;
+    }
+
+    const char* insert = found_section ? section_end : text_end;
+    size_t prefix = (size_t)(insert - text), suffix = strlen(insert);
+    bool needs_newline = prefix > 0 && text[prefix - 1] != '\n';
+    size_t section_length = found_section ? 0 : strlen(section) + 3;
+    char* replacement = malloc(prefix + (needs_newline ? 1 : 0) + section_length + setting_length + suffix + 1);
+    if (!replacement)
+        return NULL;
+    memcpy(replacement, text, prefix);
+    size_t offset = prefix;
+    if (needs_newline)
+        replacement[offset++] = '\n';
+    if (!found_section)
+        offset += (size_t)sprintf(replacement + offset, "[%s]\n", section);
+    offset += (size_t)sprintf(replacement + offset, "%s = %s\n", key, value);
+    memcpy(replacement + offset, insert, suffix + 1);
+    return replacement;
+}
+
+static const pcsx2_setting_option* find_setting_option(const pcsx2_setting_option* options, size_t count,
+                                                       const char* id) {
+    if (!id)
+        return NULL;
+    for (size_t i = 0; i < count; ++i)
+        if (!strcmp(options[i].id, id))
+            return &options[i];
+    return NULL;
+}
+
+static char* pcsx2_settings_path(const char* home) {
+    char* root = emulator_root(home);
+    char* path = root ? join_path(root, "home/Library/Application Support/PCSX2/inis/PCSX2.ini") : NULL;
+    free(root);
+    return path;
+}
+
+char* ms_pcsx2_settings_json(const char* home) {
+    char* path = pcsx2_settings_path(home);
+    char* text = path ? read_file(path, 2 * 1024 * 1024, NULL) : NULL;
+    if (!path || !text) {
+        free(path);
+        free(text);
+        return error_json("initialize the isolated PCSX2 settings before configuring controllers or rendering");
+    }
+    char controller1[32] = "DualShock2", controller2[32] = "DualShock2", renderer_value[32] = "-1";
+    (void)ini_get_section_value(text, "Pad1", "Type", controller1, sizeof(controller1));
+    (void)ini_get_section_value(text, "Pad2", "Type", controller2, sizeof(controller2));
+    (void)ini_get_section_value(text, "EmuCore/GS", "Renderer", renderer_value, sizeof(renderer_value));
+    const pcsx2_setting_option* renderer = &g_renderer_options[0];
+    for (size_t i = 0; i < sizeof(g_renderer_options) / sizeof(g_renderer_options[0]); ++i)
+        if (!strcmp(renderer_value, g_renderer_options[i].value))
+            renderer = &g_renderer_options[i];
+
+    ms_json_writer w;
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, true);
+    ms_json_writer_key(&w, "controller1");
+    ms_json_writer_string(&w, controller1);
+    ms_json_writer_key(&w, "controller2");
+    ms_json_writer_string(&w, controller2);
+    ms_json_writer_key(&w, "renderer");
+    ms_json_writer_string(&w, renderer->id);
+    ms_json_writer_key(&w, "controllerOptions");
+    ms_json_writer_array_begin(&w);
+    for (size_t i = 0; i < sizeof(g_controller_options) / sizeof(g_controller_options[0]); ++i) {
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "id");
+        ms_json_writer_string(&w, g_controller_options[i].id);
+        ms_json_writer_key(&w, "label");
+        ms_json_writer_string(&w, g_controller_options[i].label);
+        ms_json_writer_object_end(&w);
+    }
+    ms_json_writer_array_end(&w);
+    ms_json_writer_key(&w, "rendererOptions");
+    ms_json_writer_array_begin(&w);
+    for (size_t i = 0; i < sizeof(g_renderer_options) / sizeof(g_renderer_options[0]); ++i) {
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "id");
+        ms_json_writer_string(&w, g_renderer_options[i].id);
+        ms_json_writer_key(&w, "label");
+        ms_json_writer_string(&w, g_renderer_options[i].label);
+        ms_json_writer_object_end(&w);
+    }
+    ms_json_writer_array_end(&w);
+    ms_json_writer_object_end(&w);
+    free(path);
+    free(text);
+    return ms_json_writer_take(&w);
+}
+
+static char* configure_pcsx2(const char* home, const ms_json* root) {
+    char *controller1 = json_string(root, "controller1"), *controller2 = json_string(root, "controller2");
+    char* renderer_id = json_string(root, "renderer");
+    const pcsx2_setting_option* controller1_option =
+        controller1 ? find_setting_option(g_controller_options,
+                                          sizeof(g_controller_options) / sizeof(g_controller_options[0]), controller1)
+                    : NULL;
+    const pcsx2_setting_option* controller2_option =
+        controller2 ? find_setting_option(g_controller_options,
+                                          sizeof(g_controller_options) / sizeof(g_controller_options[0]), controller2)
+                    : NULL;
+    const pcsx2_setting_option* renderer =
+        renderer_id ? find_setting_option(g_renderer_options,
+                                          sizeof(g_renderer_options) / sizeof(g_renderer_options[0]), renderer_id)
+                    : NULL;
+    char* result = NULL;
+    if ((!controller1 && !controller2 && !renderer_id) || (controller1 && !controller1_option) ||
+        (controller2 && !controller2_option) || (renderer_id && !renderer)) {
+        result = error_json("a supported PCSX2 controller or renderer selection is required");
+    } else if (update_running()) {
+        result = error_json("wait for the PCSX2 runtime transaction before changing settings");
+    } else if (any_session_running(home)) {
+        result = error_json("stop PCSX2 before changing controllers or rendering");
+    } else {
+        char* path = pcsx2_settings_path(home);
+        char* text = path ? read_file(path, 2 * 1024 * 1024, NULL) : NULL;
+        char* updated = text ? strdup(text) : NULL;
+        const struct {
+            const char* section;
+            const char* key;
+            const char* value;
+        } changes[] = {
+            {"Pad1", "Type", controller1_option ? controller1_option->value : NULL},
+            {"Pad2", "Type", controller2_option ? controller2_option->value : NULL},
+            {"EmuCore/GS", "Renderer", renderer ? renderer->value : NULL},
+            {"UI", "SetupWizardIncomplete", "false"},
+            {"AutoUpdater", "CheckAtStartup", "false"},
+        };
+        for (size_t i = 0; updated && i < sizeof(changes) / sizeof(changes[0]); ++i) {
+            if (!changes[i].value)
+                continue;
+            char* next = ini_set_section_value(updated, changes[i].section, changes[i].key, changes[i].value);
+            free(updated);
+            updated = next;
+        }
+        if (!path || !text)
+            result = error_json("initialize the isolated PCSX2 settings before configuring controllers or rendering");
+        else if (!updated || !write_atomic(path, updated))
+            result = error_json("failed to save the isolated PCSX2 settings atomically");
+        else
+            result = ms_pcsx2_settings_json(home);
+        free(path);
+        free(text);
+        free(updated);
+    }
+    free(controller1);
+    free(controller2);
+    free(renderer_id);
+    return result;
+}
+
 static bool disable_upstream_updater(const char* home) {
     char *root = emulator_root(home),
          *path = root ? join_path(root, "home/Library/Application Support/PCSX2/inis/PCSX2.ini") : NULL;
@@ -3630,8 +3902,10 @@ char* ms_pcsx2_action_json(const char* home, const char* action, const unsigned 
     id = json_string(root, "id");
     path = json_string(root, "path");
     tag = json_string(root, "tag");
-    if (!strcmp(action, "pin-current") || !strcmp(action, "unpin") || !strcmp(action, "skip-update") ||
-        !strcmp(action, "clear-skip")) {
+    if (!strcmp(action, "configure")) {
+        result = configure_pcsx2(home, root);
+    } else if (!strcmp(action, "pin-current") || !strcmp(action, "unpin") || !strcmp(action, "skip-update") ||
+               !strcmp(action, "clear-skip")) {
         pcsx2_update_policy policy;
         load_update_policy(home, &policy);
         bool valid = true;

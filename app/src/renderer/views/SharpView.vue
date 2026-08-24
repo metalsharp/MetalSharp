@@ -384,6 +384,21 @@ interface Pcsx2Status {
   executablePath?: string | null;
 }
 
+interface Pcsx2SettingOption {
+  id: string;
+  label: string;
+}
+
+interface Pcsx2Settings {
+  ok: boolean;
+  controller1: string;
+  controller2: string;
+  renderer: string;
+  controllerOptions: Pcsx2SettingOption[];
+  rendererOptions: Pcsx2SettingOption[];
+  error?: string;
+}
+
 interface Pcsx2Game {
   id: string;
   serial?: string | null;
@@ -489,6 +504,7 @@ const pcsx2Games = ref<Pcsx2Game[]>([]);
 const pcsx2Roots = ref<string[]>([]);
 const pcsx2Update = ref<Rpcs3Update | null>(null);
 const pcsx2UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const pcsx2Settings = ref<Pcsx2Settings | null>(null);
 const pcsx2Loading = ref<Record<string, boolean>>({});
 const pcsx2BuildLabel = computed(() => pcsx2Status.value?.currentTag ?? "Not installed");
 const pcsx2StateLabel = computed(() => {
@@ -1062,15 +1078,17 @@ function endGameJoltBrowserDrag(event: PointerEvent) {
 }
 
 async function refreshPcsx2(showResult = false) {
-  const [statusResult, gamesResult] = await Promise.all([
+  const [statusResult, gamesResult, settingsResult] = await Promise.all([
     api<Pcsx2Status>("GET", "/sharp-library/pcsx2/status"),
     api<{ ok: boolean; games: Pcsx2Game[]; roots: string[] }>(
       showResult ? "POST" : "GET",
       showResult ? "/sharp-library/pcsx2/scan" : "/sharp-library/pcsx2/games",
       showResult ? {} : undefined,
     ),
+    api<Pcsx2Settings>("GET", "/sharp-library/pcsx2/settings"),
   ]);
   if (statusResult?.ok) pcsx2Status.value = statusResult;
+  if (settingsResult?.ok) pcsx2Settings.value = settingsResult;
   if (gamesResult?.ok) {
     pcsx2Games.value = [...(gamesResult.games ?? [])].sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
@@ -1079,6 +1097,30 @@ async function refreshPcsx2(showResult = false) {
   }
   if (showResult)
     toast.show(`Found ${pcsx2Games.value.length} PCSX2 game${pcsx2Games.value.length === 1 ? "" : "s"}`, "success");
+}
+
+async function savePcsx2Setting(field: "controller1" | "controller2" | "renderer", event: Event) {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement) || pcsx2Loading.value.settings) return;
+  const value = target.value;
+  pcsx2Loading.value.settings = true;
+  const result = await api<Pcsx2Settings>("POST", "/sharp-library/pcsx2/configure", { [field]: value });
+  pcsx2Loading.value.settings = false;
+  if (!result?.ok) {
+    toast.show(result?.error ?? "Could not save the PCSX2 setting", "error");
+    const persisted = await api<Pcsx2Settings>("GET", "/sharp-library/pcsx2/settings");
+    if (persisted?.ok) pcsx2Settings.value = persisted;
+    return;
+  }
+  pcsx2Settings.value = result;
+  const option =
+    field === "renderer"
+      ? result.rendererOptions.find((entry) => entry.id === result.renderer)
+      : result.controllerOptions.find((entry) => entry.id === result[field]);
+  const label = field === "controller1" ? "Controller 1" : field === "controller2" ? "Controller 2" : "Renderer";
+  toast.show(`${label} saved as ${option?.label ?? value}`, "success");
+  const status = await api<Pcsx2Status>("GET", "/sharp-library/pcsx2/status");
+  if (status?.ok) pcsx2Status.value = status;
 }
 
 async function checkPcsx2Update(showResult = true, force = showResult) {
@@ -3652,9 +3694,56 @@ onUnmounted(() => {
                     ><strong>Import BIOS</strong><small>From your console</small></span
                   >
                 </button>
-                <button class="rpcs3-command" :disabled="!pcsx2Status?.installed" @click="openPcsx2(true)">
+                <details v-if="pcsx2Status?.installed" class="pcsx2-setup-dropdown">
+                  <summary class="rpcs3-command">
+                    <IconMonitor width="17" height="17" /><span
+                      ><strong>PCSX2 Setup</strong><small>Controllers &amp; renderer</small></span
+                    >
+                  </summary>
+                  <div v-if="pcsx2Settings" class="pcsx2-setup-fields" :aria-busy="pcsx2Loading.settings">
+                    <label>
+                      <span>Controller 1</span>
+                      <select
+                        :value="pcsx2Settings.controller1"
+                        :disabled="pcsx2Loading.settings || pcsx2Status?.state === 'running'"
+                        @change="savePcsx2Setting('controller1', $event)"
+                      >
+                        <option v-for="option in pcsx2Settings.controllerOptions" :key="option.id" :value="option.id">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Controller 2</span>
+                      <select
+                        :value="pcsx2Settings.controller2"
+                        :disabled="pcsx2Loading.settings || pcsx2Status?.state === 'running'"
+                        @change="savePcsx2Setting('controller2', $event)"
+                      >
+                        <option v-for="option in pcsx2Settings.controllerOptions" :key="option.id" :value="option.id">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Renderer</span>
+                      <select
+                        :value="pcsx2Settings.renderer"
+                        :disabled="pcsx2Loading.settings || pcsx2Status?.state === 'running'"
+                        @change="savePcsx2Setting('renderer', $event)"
+                      >
+                        <option v-for="option in pcsx2Settings.rendererOptions" :key="option.id" :value="option.id">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <small>Selections are saved directly to the isolated PCSX2 configuration.</small>
+                  </div>
+                  <p v-else class="emulator-sidebar-empty">Loading PCSX2 settings…</p>
+                </details>
+                <button v-else class="rpcs3-command" disabled>
                   <IconMonitor width="17" height="17" /><span
-                    ><strong>PCSX2 Setup</strong><small>Controllers & renderer</small></span
+                    ><strong>PCSX2 Setup</strong><small>Install PCSX2 first</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="addPcsx2Folder">
@@ -5624,6 +5713,67 @@ details[open] > .drawer-summary {
 .emulator-sidebar .rpcs3-command {
   width: 100%;
   min-height: 54px;
+}
+.pcsx2-setup-dropdown {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.pcsx2-setup-dropdown > summary {
+  list-style: none;
+}
+.pcsx2-setup-dropdown > summary::-webkit-details-marker {
+  display: none;
+}
+.pcsx2-setup-dropdown[open] {
+  border: 1px solid var(--border);
+}
+.pcsx2-setup-dropdown[open] > summary {
+  min-height: 53px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  transform: none;
+}
+.pcsx2-setup-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px;
+}
+.pcsx2-setup-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pcsx2-setup-fields select {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 28px 7px 9px;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: var(--bg-input);
+  cursor: pointer;
+}
+.pcsx2-setup-fields select:focus {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+}
+.pcsx2-setup-fields select:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.pcsx2-setup-fields > small {
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.45;
 }
 .emulator-sidebar .emulator-update-card,
 .emulator-sidebar .gog-download-progress,

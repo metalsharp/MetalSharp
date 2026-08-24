@@ -368,6 +368,46 @@ def test_success_repair_rollback_and_preservation() -> None:
             assert capabilities["dataPathFlag"] is False and capabilities["runtimeArchitecture"] == "x86_64"
             ini = environment / "home/Library/Application Support/PCSX2/inis/PCSX2.ini"
             assert "CheckAtStartup = false" in ini.read_text()
+            defaults = request(backend.port, "GET", "/sharp-library/pcsx2/settings")
+            assert defaults["ok"] and defaults["controller1"] == "DualShock2", defaults
+            assert defaults["controller2"] == "DualShock2" and defaults["renderer"] == "automatic", defaults
+            assert [option["label"] for option in defaults["controllerOptions"]] == [
+                "DualShock 2",
+                "Guitar",
+                "JogCon",
+                "NeGcon",
+                "Pop'n Music",
+            ]
+            assert [option["label"] for option in defaults["rendererOptions"]] == [
+                "Automatic",
+                "Metal",
+                "OpenGL",
+                "Vulkan",
+                "Software",
+            ]
+            configured = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/configure",
+                {"controller1": "Guitar", "controller2": "Popn", "renderer": "metal"},
+            )
+            assert configured["ok"] and configured["controller1"] == "Guitar", configured
+            assert configured["controller2"] == "Popn" and configured["renderer"] == "metal", configured
+            settings_text = ini.read_text()
+            assert "[Pad1]\nType = Guitar\n" in settings_text
+            assert "[Pad2]\nType = Popn\n" in settings_text
+            assert "Renderer = 17" in settings_text
+            assert "SetupWizardIncomplete = false" in settings_text
+            persisted = request(backend.port, "GET", "/sharp-library/pcsx2/settings")
+            assert persisted["controller1"] == "Guitar" and persisted["controller2"] == "Popn", persisted
+            rejected = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/configure",
+                {"controller1": "UnsupportedController"},
+            )
+            assert not rejected["ok"] and "supported PCSX2 controller" in rejected["error"], rejected
+            assert ini.read_text() == settings_text
             marker = environment / "home/Library/Application Support/PCSX2/memcards/preserve.ps2"
             marker.parent.mkdir(parents=True)
             marker.write_text("preserve")
@@ -377,6 +417,13 @@ def test_success_repair_rollback_and_preservation() -> None:
             assert opened["ok"] and opened["pid"] > 0
             time.sleep(0.2)
             assert request(backend.port, "GET", "/sharp-library/pcsx2/status")["state"] == "running"
+            blocked_settings = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/configure",
+                {"renderer": "vulkan"},
+            )
+            assert not blocked_settings["ok"] and "stop PCSX2" in blocked_settings["error"], blocked_settings
             os.chmod(version, 0o755)
             executable = version / "PCSX2.app/Contents/MacOS/PCSX2"
             os.chmod(executable.parent, 0o755)
