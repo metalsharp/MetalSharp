@@ -2787,21 +2787,21 @@ onUnmounted(() => {
           <div v-else-if="!rpcs3Status.firmwareInstalled" class="rpcs3-onboarding">
             <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
             <div>
-              <div class="rpcs3-step-row">
-                <span class="rpcs3-step">Step 2 of 3</span>
-                <a
-                  class="rpcs3-firmware-link"
-                  href="https://www.playstation.com/en-us/support/hardware/ps3/system-software/"
-                  title="Open the official PlayStation 3 system software page"
-                  @click.prevent="getAPI().openRpcs3FirmwarePage()"
-                >
-                  Official firmware <IconExternalLink width="11" height="11" />
-                </a>
-              </div>
+              <span class="rpcs3-step">Step 2 of 3</span>
               <h2>Add PlayStation 3 firmware</h2>
               <p>Select your legally acquired PS3UPDAT.PUP. MetalSharp never downloads or bundles Sony firmware.</p>
             </div>
-            <button class="btn btn-primary" @click="installRpcs3Content('firmware')">Select Firmware</button>
+            <div class="rpcs3-onboarding-actions">
+              <button
+                class="btn btn-secondary"
+                type="button"
+                title="Open the official PlayStation 3 system software page"
+                @click="getAPI().openRpcs3FirmwarePage()"
+              >
+                <IconExternalLink width="13" height="13" /> Firmware Link
+              </button>
+              <button class="btn btn-primary" @click="installRpcs3Content('firmware')">Select Firmware</button>
+            </div>
           </div>
           <div v-else-if="rpcs3Games.length === 0" class="rpcs3-onboarding">
             <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
@@ -4140,25 +4140,10 @@ details[open] > .drawer-summary {
   height: 46px;
   border-radius: 13px;
 }
-.rpcs3-step-row {
+.rpcs3-onboarding-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
+  gap: 8px;
   align-items: center;
-}
-.rpcs3-firmware-link {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1;
-  text-decoration: none;
-}
-.rpcs3-firmware-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 .rpcs3-onboarding h2 {
   margin: 3px 0 4px;
@@ -4200,9 +4185,17 @@ details[open] > .drawer-summary {
   .rpcs3-onboarding {
     grid-template-columns: auto minmax(0, 1fr);
   }
-  .rpcs3-onboarding .btn {
+  .rpcs3-onboarding > .btn {
     grid-column: 1 / -1;
     justify-self: stretch;
+  }
+  .rpcs3-onboarding-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-column: 1 / -1;
+  }
+  .rpcs3-onboarding-actions .btn {
+    justify-content: center;
   }
 }
 .gamejolt-panel {
