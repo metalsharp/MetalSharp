@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-08-23
+Updated: 2026-08-24
 
 Tested and working games organized by pipeline. Only games confirmed playable are listed.
 
@@ -11,6 +11,7 @@ Tested and working games organized by pipeline. Only games confirmed playable ar
 | GameJolt | The Joy of Creation: Reborn | GameJolt card Play action through its configured Windows bottle |
 | GOG | Fall of Porcupine: Prologue | GOG card Play action through its selected bottle pipeline |
 
+PCSX2 is available as an isolated emulator provider, but no PlayStation 2 title is listed here until a user-owned dump has been manually confirmed playable. Runtime installation and synthetic homebrew/process fixtures do not count as a game compatibility claim.
 
 ## Test System
 

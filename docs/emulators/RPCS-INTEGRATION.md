@@ -107,4 +107,4 @@ POST /sharp-library/rpcs3/clear-skip
 ## Other emulator plans
 
 - The managed shadPS4 provider and its completion evidence are documented in [SHADPS4-INTEGRATION-ROADMAP.md](SHADPS4-INTEGRATION-ROADMAP.md).
-- The gated plan for an isolated PCSX2 environment is documented in [PCSX2-INTEGRATION-ROADMAP.md](PCSX2-INTEGRATION-ROADMAP.md). PCSX2 is not yet exposed as a MetalSharp provider.
+- The managed PCSX2 provider is documented in [PCSX2-INTEGRATION.md](PCSX2-INTEGRATION.md), with its upstream contract in [PCSX2-UPSTREAM-CONTRACT.md](PCSX2-UPSTREAM-CONTRACT.md).

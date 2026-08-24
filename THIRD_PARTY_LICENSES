@@ -18,6 +18,15 @@ source folders, or the referenced upstream/runtime packages.
   distributed with MetalSharp under LGPL-2.1 section 6.
 - Source code available at the repository URL above.
 
+## PCSX2 — PlayStation 2 emulator
+
+- Repository and corresponding source: https://github.com/PCSX2/pcsx2
+- Stable binary releases: https://github.com/PCSX2/pcsx2/releases
+- License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
+- Used as: Optional user-initiated official stable Qt app download managed under `~/.metalsharp/emulators/pcsx2/`.
+- Runtime components: The official macOS app includes Qt, SDL, MoltenVK, FFmpeg, and other components whose exact notices are preserved from `Contents/Resources/docs/ThirdPartyLicenses.html` beside each installed version.
+- Notes: PCSX2 is not bundled in the MetalSharp application. MetalSharp verifies the published size and SHA-256, x86_64 architecture, minimum macOS version, Developer ID team `PTMR35SWS3`, hardened runtime, notarization, bundle identity, dependencies, and command-line capabilities before atomic activation. The upstream app signature is preserved. Sony BIOS files, games, disc images, licenses, and other console content are never bundled, downloaded, or uploaded by MetalSharp.
+
 ## RPCS3 — PlayStation 3 emulator
 
 - Repository: https://github.com/RPCS3/rpcs3

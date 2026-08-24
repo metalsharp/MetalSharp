@@ -48,6 +48,7 @@ The current hand-written slice owns the process boundary, readiness contracts, a
   post-wineboot seeding now perform filesystem/Wine operations and return PIDs;
 - Windows-version changes launch the bundled Wine `reg add` operation and
   write bottle-scoped logs with the child PID;
+- isolated PCSX2 environment management with Intel/SSE4.1 and Apple Silicon/Rosetta gates, official stable `.tar.xz` size/digest and path-safety checks, preserved Developer ID/notarization, atomic update/rollback, validated user-owned BIOS import, bounded disc-image/homebrew discovery, and restart-safe supervision. See `docs/emulators/PCSX2-INTEGRATION.md` for the production contract;
 - isolated RPCS3 environment management, official architecture-specific
   release checks, digest/signature-verified atomic updates and rollback,
   firmware/PKG installation, `PARAM.SFO` game discovery, artwork, launch logs,

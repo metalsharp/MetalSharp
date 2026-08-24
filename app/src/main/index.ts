@@ -1252,6 +1252,57 @@ function registerIpc() {
     return error ? { ok: false, error } : { ok: true };
   });
 
+  ipcMain.handle("app:open-pcsx2-guide", async (_event, kind: "bios" | "discs") => {
+    if (kind !== "bios" && kind !== "discs") return { ok: false, error: "Unknown PCSX2 guide" };
+    const url = kind === "bios" ? "https://pcsx2.net/docs/setup/bios/" : "https://pcsx2.net/docs/setup/discs/";
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("app:open-pcsx2-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "pcsx2");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(path.join(environment, "library.json"), "utf8")) as {
+        roots?: unknown;
+      };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(root);
+      }
+    } catch {}
+    if (!fs.existsSync(inputPath)) return { ok: false, error: "Path does not exist" };
+    let target: string;
+    try {
+      target = fs.realpathSync(inputPath);
+    } catch {
+      return { ok: false, error: "Path could not be resolved" };
+    }
+    const allowedRoots = [environment, ...roots].flatMap((root) => {
+      try {
+        return [fs.realpathSync(root)];
+      } catch {
+        return [];
+      }
+    });
+    const within = (root: string) => {
+      const relative = path.relative(root, target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!allowedRoots.some(within))
+      return { ok: false, error: "Path is outside the PCSX2 environment and registered game folders" };
+    if (fs.statSync(target).isFile()) {
+      shell.showItemInFolder(target);
+      return { ok: true };
+    }
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
   ipcMain.handle("app:open-shadps4-path", async (_event, inputPath: string) => {
     if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
     const environment = path.join(getMetalsharpDir(), "emulators", "shadps4");
@@ -1616,6 +1667,16 @@ webview{flex:1;border:none}
       filters: [
         { name: firmware ? "PlayStation 3 Firmware" : "PlayStation 3 Package", extensions: [firmware ? "PUP" : "pkg"] },
       ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-pcsx2-bios", async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a PlayStation 2 BIOS dumped from your console",
+      properties: ["openFile"],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
