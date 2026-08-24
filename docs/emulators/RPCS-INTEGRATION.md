@@ -103,3 +103,7 @@ POST /sharp-library/rpcs3/unpin
 POST /sharp-library/rpcs3/skip-update
 POST /sharp-library/rpcs3/clear-skip
 ```
+
+## Planned PlayStation 4 work
+
+shadPS4 is not currently exposed as a MetalSharp provider. Its gated production roadmap is documented in [SHADPS4-INTEGRATION-ROADMAP.md](SHADPS4-INTEGRATION-ROADMAP.md), using the project's accurate upstream identity.
