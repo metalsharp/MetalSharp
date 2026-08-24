@@ -8,6 +8,14 @@ import IconUpload from "~icons/lucide/upload";
 import IconMonitor from "~icons/lucide/monitor";
 import IconX from "~icons/lucide/x";
 import IconPencil from "~icons/lucide/pencil";
+import IconDownload from "~icons/lucide/download";
+import IconExternalLink from "~icons/lucide/external-link";
+import IconFolderPlus from "~icons/lucide/folder-plus";
+import IconGamepad2 from "~icons/lucide/gamepad-2";
+import IconHardDrive from "~icons/lucide/hard-drive";
+import IconPackage from "~icons/lucide/package";
+import IconScanLine from "~icons/lucide/scan-line";
+import IconShieldCheck from "~icons/lucide/shield-check";
 import sharpLogoUrl from "../icon.png";
 
 const refreshIcon = computed(() => themedNavIcon("refresh"));
@@ -271,7 +279,8 @@ const headerTitle = computed(() => {
 const headerSubtitle = computed(() => {
   if (sourceMode.value === "gog") return "Connect, sync, install, and play GOG games through MetalSharp.";
   if (sourceMode.value === "gamejolt") return "Play GameJolt games from internal or external GameJolt storage.";
-  if (sourceMode.value === "rpcs3") return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
+  if (sourceMode.value === "rpcs3")
+    return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
   return "Install and manage Windows applications outside Steam.";
 });
 const apps = ref<SharpApp[]>([]);
@@ -315,6 +324,17 @@ const rpcs3Roots = ref<string[]>([]);
 const rpcs3Update = ref<Rpcs3Update | null>(null);
 const rpcs3UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
 const rpcs3Loading = ref<Record<string, boolean>>({});
+const rpcs3BuildLabel = computed(() => {
+  const tag = rpcs3Status.value?.currentTag;
+  if (!tag) return "Not installed";
+  const normalized = tag.startsWith("build-") ? tag.slice(6) : tag;
+  return `Build ${normalized.slice(0, 10)}`;
+});
+const rpcs3StateLabel = computed(() => {
+  if (rpcs3Status.value?.state === "ready") return "Ready to play";
+  if (rpcs3Status.value?.installed) return "Firmware required";
+  return "Setup required";
+});
 let rpcs3ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let rpcs3UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
 const editingGameJoltName = ref<string | null>(null);
@@ -609,7 +629,10 @@ function sharpAppNameSort(a: SharpApp, b: SharpApp) {
 async function loadGameJolt() {
   const [gamesResult, storageResult] = await Promise.all([
     api<{ ok: boolean; games: GameJoltGame[]; storage?: GameJoltStorage }>("GET", "/gamejolt"),
-    api<{ ok: boolean; mode: "internal" | "external"; rootPath: string; gamejoltDir: string }>("GET", "/gamejolt/storage"),
+    api<{ ok: boolean; mode: "internal" | "external"; rootPath: string; gamejoltDir: string }>(
+      "GET",
+      "/gamejolt/storage",
+    ),
   ]);
   if (gamesResult?.ok) {
     gamejoltGames.value = [...(gamesResult.games ?? [])].sort((a, b) =>
@@ -634,17 +657,22 @@ async function syncGameJolt(showResult = true) {
   gamejoltGames.value = [...(result.games ?? [])].sort((a, b) => a.name.localeCompare(b.name));
   if (result.storage) gamejoltStorage.value = result.storage;
   if (showResult)
-    toast.show(`Found ${gamejoltGames.value.length} GameJolt game${gamejoltGames.value.length === 1 ? "" : "s"}`, "success");
+    toast.show(
+      `Found ${gamejoltGames.value.length} GameJolt game${gamejoltGames.value.length === 1 ? "" : "s"}`,
+      "success",
+    );
 }
 
 async function chooseGameJoltStorage() {
   const rootPath = await getAPI().pickDirectory("Choose the parent folder for GameJolt games");
   if (!rootPath) return;
-  const result = await api<{ ok: boolean; mode: "internal" | "external"; rootPath: string; gamejoltDir: string; error?: string }>(
-    "POST",
-    "/gamejolt/storage",
-    { rootPath },
-  );
+  const result = await api<{
+    ok: boolean;
+    mode: "internal" | "external";
+    rootPath: string;
+    gamejoltDir: string;
+    error?: string;
+  }>("POST", "/gamejolt/storage", { rootPath });
   if (result?.ok) {
     gamejoltStorage.value = result;
     await syncGameJolt();
@@ -810,7 +838,8 @@ async function refreshRpcs3(showResult = false) {
     );
     rpcs3Roots.value = gamesResult.roots ?? [];
   }
-  if (showResult) toast.show(`Found ${rpcs3Games.value.length} RPCS3 game${rpcs3Games.value.length === 1 ? "" : "s"}`, "success");
+  if (showResult)
+    toast.show(`Found ${rpcs3Games.value.length} RPCS3 game${rpcs3Games.value.length === 1 ? "" : "s"}`, "success");
 }
 
 async function checkRpcs3Update(showResult = true, force = showResult) {
@@ -880,7 +909,12 @@ async function installOrUpdateRpcs3() {
     return;
   }
   const action = rpcs3Status.value?.installed ? "Update" : "Install";
-  if (!window.confirm(`${action} RPCS3 ${release.latestVersion}? MetalSharp will verify and retain the previous version for rollback.`)) return;
+  if (
+    !window.confirm(
+      `${action} RPCS3 ${release.latestVersion}? MetalSharp will verify and retain the previous version for rollback.`,
+    )
+  )
+    return;
   rpcs3Loading.value.update = true;
   const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/rpcs3/update/install", {}, 35 * 1000);
   if (!result?.ok) {
@@ -911,7 +945,12 @@ async function setRpcs3UpdatePolicy(action: "pin-current" | "unpin" | "skip-upda
 }
 
 async function rollbackRpcs3() {
-  if (!window.confirm("Roll back to the previously installed RPCS3 build? Your firmware, saves, games, and settings will be preserved.")) return;
+  if (
+    !window.confirm(
+      "Roll back to the previously installed RPCS3 build? Your firmware, saves, games, and settings will be preserved.",
+    )
+  )
+    return;
   const result = await api<Rpcs3Status & { error?: string }>("POST", "/sharp-library/rpcs3/update/rollback", {});
   if (result?.ok) {
     rpcs3Status.value = result;
@@ -956,7 +995,10 @@ async function installRpcs3Content(kind: "firmware" | "package") {
     { path },
   );
   if (result?.ok) {
-    toast.show(kind === "firmware" ? "RPCS3 firmware installation started" : "RPCS3 package installation started", "success");
+    toast.show(
+      kind === "firmware" ? "RPCS3 firmware installation started" : "RPCS3 package installation started",
+      "success",
+    );
     window.setTimeout(() => void refreshRpcs3(), 3000);
   } else toast.show(result?.error ?? `Could not install RPCS3 ${kind}`, "error");
 }
@@ -986,8 +1028,15 @@ async function stopRpcs3Game(game: Rpcs3Game) {
 }
 
 async function removeRpcs3Runtime() {
-  if (!window.confirm("Remove managed RPCS3 runtime versions? Firmware, saves, games, settings, and caches will be preserved.")) return;
-  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/rpcs3/remove-runtime", { confirm: true });
+  if (
+    !window.confirm(
+      "Remove managed RPCS3 runtime versions? Firmware, saves, games, settings, and caches will be preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/rpcs3/remove-runtime", {
+    confirm: true,
+  });
   if (result?.ok) {
     toast.show("RPCS3 runtime removed; user data was preserved", "success");
     rpcs3Update.value = null;
@@ -2096,27 +2145,6 @@ onUnmounted(() => {
           <span class="btn-label-short">{{ gamejoltStorage ? "Change" : "Folder" }}</span>
         </button>
         <button
-          v-if="sourceMode === 'rpcs3'"
-          class="btn btn-primary"
-          :disabled="rpcs3Loading.update || rpcs3Loading.check"
-          @click="installOrUpdateRpcs3"
-        >
-          <span class="btn-label-long">{{ rpcs3Loading.update ? "Installing…" : rpcs3Status?.installed ? "Update RPCS3" : "Install RPCS3" }}</span>
-          <span class="btn-label-short">{{ rpcs3Status?.installed ? "Update" : "Install" }}</span>
-        </button>
-        <button v-if="sourceMode === 'rpcs3'" class="btn btn-secondary" :disabled="!rpcs3Status?.installed" @click="installRpcs3Content('firmware')">
-          <span class="btn-label-long">Install Firmware</span><span class="btn-label-short">Firmware</span>
-        </button>
-        <button v-if="sourceMode === 'rpcs3'" class="btn btn-secondary" :disabled="!rpcs3Status?.installed" @click="installRpcs3Content('package')">
-          <span class="btn-label-long">Install PKG</span><span class="btn-label-short">PKG</span>
-        </button>
-        <button v-if="sourceMode === 'rpcs3'" class="btn btn-secondary" @click="addRpcs3Folder">
-          <span class="btn-label-long">Add Games Folder</span><span class="btn-label-short">Add Folder</span>
-        </button>
-        <button v-if="sourceMode === 'rpcs3'" class="btn btn-secondary" :disabled="!rpcs3Status?.installed" @click="openRpcs3">
-          <span class="btn-label-long">Open RPCS3</span><span class="btn-label-short">Open</span>
-        </button>
-        <button
           v-if="sourceMode === 'gog'"
           class="btn btn-primary"
           :disabled="gogLoading.login || !gogStatus?.prefixInitialized"
@@ -2133,21 +2161,26 @@ onUnmounted(() => {
           ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
         </button>
         <button
+          v-if="sourceMode !== 'rpcs3'"
           class="btn btn-secondary"
-          :disabled="(sourceMode === 'gog' && gogLoading.sync) || (sourceMode === 'rpcs3' && rpcs3Loading.check)"
+          :disabled="sourceMode === 'gog' && gogLoading.sync"
           @click="sourceMode === 'gamejolt' ? syncGameJolt() : refreshCurrentSource()"
         >
           <component :is="refreshIcon" class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">{{
             sourceMode === "gog"
-              ? (gogLoading.sync ? "Syncing…" : "Sync GOG")
+              ? gogLoading.sync
+                ? "Syncing…"
+                : "Sync GOG"
               : sourceMode === "gamejolt"
-                ? (gamejoltLoading ? "Scanning…" : "Sync GameJolt")
-                : sourceMode === "rpcs3"
-                  ? "Scan Games"
-                  : "Refresh"
+                ? gamejoltLoading
+                  ? "Scanning…"
+                  : "Sync GameJolt"
+                : "Refresh"
           }}</span
-          ><span class="btn-label-short">{{ sourceMode === "gog" || sourceMode === "gamejolt" ? "Sync" : sourceMode === "rpcs3" ? "Scan" : "Refresh" }}</span>
+          ><span class="btn-label-short">{{
+            sourceMode === "gog" || sourceMode === "gamejolt" ? "Sync" : "Refresh"
+          }}</span>
         </button>
       </div>
     </div>
@@ -2538,18 +2571,18 @@ onUnmounted(() => {
                     </span>
                   </div>
                   <div class="gamejolt-actions-main">
-                    <button
-                      v-if="gamejoltRunningPids[game.id]"
-                      class="btn btn-stop"
-                      @click="stopGameJolt(game)"
-                    >Stop</button>
+                    <button v-if="gamejoltRunningPids[game.id]" class="btn btn-stop" @click="stopGameJolt(game)">
+                      Stop
+                    </button>
                     <button v-else class="btn btn-play" @click="launchGameJolt(game)">Play</button>
                     <button
                       class="btn btn-uninstall"
                       type="button"
                       :disabled="!!gamejoltRunningPids[game.id]"
                       @click="uninstallGameJolt(game)"
-                    >Uninstall</button>
+                    >
+                      Uninstall
+                    </button>
                     <select
                       v-if="!game.native"
                       class="control-input gamejolt-pipeline-select"
@@ -2577,51 +2610,102 @@ onUnmounted(() => {
             >
               <span class="gamejolt-browser-arrow" aria-hidden="true">↕</span>
             </div>
-            <webview
-              class="gamejolt-browser"
-              src="https://gamejolt.com/games"
-              partition="persist:gamejolt"
-            ></webview>
+            <webview class="gamejolt-browser" src="https://gamejolt.com/games" partition="persist:gamejolt"></webview>
           </div>
         </section>
       </template>
 
       <template v-else-if="sourceMode === 'rpcs3'">
-        <section class="emulator-panel">
-          <div class="emulator-status-card">
-            <div>
-              <div class="emulator-status-title">
-                <h2>RPCS3 Environment</h2>
-                <span class="badge" :class="rpcs3Status?.state === 'ready' ? 'badge-ok' : rpcs3Status?.installed ? 'badge-warn' : 'badge-muted'">
-                  {{ rpcs3Status?.state === "ready" ? "Ready" : rpcs3Status?.installed ? "Firmware required" : "Not installed" }}
-                </span>
+        <section class="emulator-panel rpcs3-dashboard">
+          <div class="rpcs3-overview">
+            <div class="rpcs3-overview-main">
+              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+              <div class="rpcs3-overview-copy">
+                <div class="rpcs3-eyebrow">Managed PlayStation 3 environment</div>
+                <div class="rpcs3-title-row">
+                  <h2>RPCS3</h2>
+                  <span
+                    class="rpcs3-state-pill"
+                    :class="rpcs3Status?.state === 'ready' ? 'ready' : rpcs3Status?.installed ? 'attention' : 'muted'"
+                  >
+                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ rpcs3StateLabel }}
+                  </span>
+                </div>
+                <p>A verified, isolated emulator environment with atomic updates and protected user data.</p>
               </div>
-              <p>
-                {{ rpcs3Status?.currentTag ?? "No managed build" }} · {{ rpcs3Status?.architecture ?? "Unknown architecture" }} ·
-                {{ rpcs3Status?.firmwareInstalled ? "Firmware installed" : "Firmware missing" }}
-              </p>
-              <small v-if="rpcs3Update">
-                Latest: {{ rpcs3Update.latestVersion }} · {{ formatBytes(rpcs3Update.downloadSize) }} · SHA-256 verified
-              </small>
             </div>
-            <div class="emulator-status-actions">
-              <button class="btn btn-secondary btn-sm" :disabled="rpcs3Loading.check" @click="checkRpcs3Update()">
-                {{ rpcs3Loading.check ? "Checking…" : "Check Updates" }}
-              </button>
+            <div class="rpcs3-primary-actions">
               <button
-                v-if="rpcs3Status?.installed && rpcs3Update"
-                class="btn btn-secondary btn-sm"
-                @click="setRpcs3UpdatePolicy(rpcs3Update.pinnedTag ? 'unpin' : 'pin-current')"
-              >{{ rpcs3Update.pinnedTag ? "Unpin Build" : "Pin Current" }}</button>
-              <button v-if="rpcs3Update?.available" class="btn btn-secondary btn-sm" @click="setRpcs3UpdatePolicy('skip-update')">Skip Update</button>
-              <button v-if="rpcs3Update?.skippedTag" class="btn btn-secondary btn-sm" @click="setRpcs3UpdatePolicy('clear-skip')">Clear Skip</button>
-              <button v-if="rpcs3Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackRpcs3">Rollback</button>
-              <button v-if="rpcs3Status?.environmentPath" class="btn btn-secondary btn-sm" @click="getAPI().openRpcs3Path(rpcs3Status.environmentPath)">Open Environment</button>
-              <button v-if="rpcs3Status?.installed" class="btn btn-danger btn-sm" @click="removeRpcs3Runtime">Remove Runtime</button>
+                class="btn btn-primary rpcs3-primary-button"
+                :disabled="rpcs3Loading.update || rpcs3Loading.check"
+                @click="installOrUpdateRpcs3"
+              >
+                <IconDownload width="15" height="15" />
+                {{ rpcs3Loading.update ? "Installing…" : rpcs3Status?.installed ? "Update RPCS3" : "Install RPCS3" }}
+              </button>
+              <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
+                <IconExternalLink width="14" height="14" /> Open RPCS3
+              </button>
+            </div>
+            <div class="rpcs3-stats">
+              <div class="rpcs3-stat">
+                <IconHardDrive width="16" height="16" />
+                <span
+                  ><small>Runtime</small
+                  ><strong :title="rpcs3Status?.currentTag ?? ''">{{ rpcs3BuildLabel }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconShieldCheck width="16" height="16" />
+                <span
+                  ><small>Firmware</small
+                  ><strong>{{ rpcs3Status?.firmwareInstalled ? "Installed" : "Required" }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconGamepad2 width="16" height="16" />
+                <span
+                  ><small>Library</small
+                  ><strong>{{ rpcs3Games.length }} game{{ rpcs3Games.length === 1 ? "" : "s" }}</strong></span
+                >
+              </div>
+              <div v-if="rpcs3Update" class="rpcs3-stat rpcs3-stat-wide">
+                <IconShieldCheck width="16" height="16" />
+                <span
+                  ><small>Latest verified release</small
+                  ><strong>{{ rpcs3Update.latestVersion }} · {{ formatBytes(rpcs3Update.downloadSize) }}</strong></span
+                >
+              </div>
             </div>
           </div>
 
-          <div v-if="rpcs3UpdateProgress?.running || rpcs3UpdateProgress?.status === 'failed'" class="emulator-update-card">
+          <div class="rpcs3-command-bar" aria-label="RPCS3 library actions">
+            <button class="rpcs3-command" :disabled="!rpcs3Status?.installed" @click="installRpcs3Content('firmware')">
+              <IconShieldCheck width="17" height="17" /><span
+                ><strong>Firmware</strong><small>Install PS3UPDAT.PUP</small></span
+              >
+            </button>
+            <button class="rpcs3-command" :disabled="!rpcs3Status?.installed" @click="installRpcs3Content('package')">
+              <IconPackage width="17" height="17" /><span
+                ><strong>Install package</strong><small>Add an owned PKG</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="addRpcs3Folder">
+              <IconFolderPlus width="17" height="17" /><span
+                ><strong>Add games</strong><small>Choose a library folder</small></span
+              >
+            </button>
+            <button class="rpcs3-command" :disabled="rpcs3Loading.check" @click="refreshRpcs3(true)">
+              <IconScanLine width="17" height="17" /><span
+                ><strong>Scan library</strong><small>Refresh games and artwork</small></span
+              >
+            </button>
+          </div>
+
+          <div
+            v-if="rpcs3UpdateProgress?.running || rpcs3UpdateProgress?.status === 'failed'"
+            class="emulator-update-card"
+          >
             <div class="emulator-progress-row">
               <strong>{{ rpcs3UpdateProgress.message }}</strong>
               <span>{{ rpcs3UpdateProgress.percent }}%</span>
@@ -2630,30 +2714,102 @@ onUnmounted(() => {
             <small v-if="rpcs3UpdateProgress.error" class="launch-failure">{{ rpcs3UpdateProgress.error }}</small>
           </div>
 
-          <details v-if="rpcs3Roots.length" class="emulator-roots" open>
-            <summary>Game folders ({{ rpcs3Roots.length }})</summary>
+          <details class="rpcs3-management">
+            <summary>
+              <span>Environment management</span>
+              <small>Updates, rollback, storage, and advanced controls</small>
+            </summary>
+            <div class="rpcs3-management-actions">
+              <button class="btn btn-secondary btn-sm" :disabled="rpcs3Loading.check" @click="checkRpcs3Update()">
+                {{ rpcs3Loading.check ? "Checking…" : "Check Updates" }}
+              </button>
+              <button
+                v-if="rpcs3Status?.installed && rpcs3Update"
+                class="btn btn-secondary btn-sm"
+                @click="setRpcs3UpdatePolicy(rpcs3Update.pinnedTag ? 'unpin' : 'pin-current')"
+              >
+                {{ rpcs3Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
+              </button>
+              <button
+                v-if="rpcs3Update?.available"
+                class="btn btn-secondary btn-sm"
+                @click="setRpcs3UpdatePolicy('skip-update')"
+              >
+                Skip Update
+              </button>
+              <button
+                v-if="rpcs3Update?.skippedTag"
+                class="btn btn-secondary btn-sm"
+                @click="setRpcs3UpdatePolicy('clear-skip')"
+              >
+                Clear Skip
+              </button>
+              <button v-if="rpcs3Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackRpcs3">
+                Rollback
+              </button>
+              <button
+                v-if="rpcs3Status?.environmentPath"
+                class="btn btn-secondary btn-sm"
+                @click="getAPI().openRpcs3Path(rpcs3Status.environmentPath)"
+              >
+                Open Environment
+              </button>
+              <button v-if="rpcs3Status?.installed" class="btn btn-danger btn-sm" @click="removeRpcs3Runtime">
+                Remove Runtime
+              </button>
+            </div>
+          </details>
+
+          <details v-if="rpcs3Roots.length" class="emulator-roots">
+            <summary>
+              Game folders <span>{{ rpcs3Roots.length }}</span>
+            </summary>
             <div v-for="root in rpcs3Roots" :key="root" class="emulator-root-row">
               <button class="emulator-root-path" type="button" @click="getAPI().openRpcs3Path(root)">{{ root }}</button>
               <button class="btn btn-secondary btn-sm" type="button" @click="removeRpcs3Root(root)">Remove</button>
             </div>
           </details>
 
-          <div v-if="!rpcs3Status?.installed" class="empty-state compact">
-            <h2>Install RPCS3 to begin</h2>
-            <p>MetalSharp downloads the official build for this Mac, verifies its SHA-256 digest and signature, and installs it atomically.</p>
+          <div v-if="!rpcs3Status?.installed" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 1 of 3</span>
+              <h2>Install the verified RPCS3 runtime</h2>
+              <p>
+                MetalSharp selects the official build for this Mac, verifies its digest and signature, then activates it
+                atomically.
+              </p>
+            </div>
+            <button class="btn btn-primary" :disabled="rpcs3Loading.update" @click="installOrUpdateRpcs3">
+              Install RPCS3
+            </button>
           </div>
-          <div v-else-if="!rpcs3Status.firmwareInstalled" class="empty-state compact">
-            <h2>Install PlayStation 3 firmware</h2>
-            <p>Select your legally acquired PS3UPDAT.PUP. MetalSharp never downloads or bundles Sony firmware.</p>
+          <div v-else-if="!rpcs3Status.firmwareInstalled" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 2 of 3</span>
+              <h2>Add PlayStation 3 firmware</h2>
+              <p>Select your legally acquired PS3UPDAT.PUP. MetalSharp never downloads or bundles Sony firmware.</p>
+            </div>
             <button class="btn btn-primary" @click="installRpcs3Content('firmware')">Select Firmware</button>
           </div>
-          <div v-else-if="rpcs3Games.length === 0" class="empty-state compact">
-            <h2>No PlayStation 3 games indexed</h2>
-            <p>Add a folder containing disc layouts or install a legally acquired PKG.</p>
+          <div v-else-if="rpcs3Games.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 3 of 3</span>
+              <h2>Build your PlayStation 3 library</h2>
+              <p>Add a folder containing disc layouts or install a legally acquired package.</p>
+            </div>
+            <button class="btn btn-primary" @click="addRpcs3Folder">Add Games Folder</button>
           </div>
 
           <div v-else class="sharp-grid">
-            <article v-for="game in rpcs3Games" :key="game.id" class="sharp-card emulator-game-card" :class="{ running: game.running }">
+            <article
+              v-for="game in rpcs3Games"
+              :key="game.id"
+              class="sharp-card emulator-game-card"
+              :class="{ running: game.running }"
+            >
               <div class="sharp-card-banner">
                 <img
                   v-if="game.hasArtwork"
@@ -2668,14 +2824,29 @@ onUnmounted(() => {
               <div class="sharp-card-body">
                 <div class="sharp-card-title">{{ game.title }}</div>
                 <div class="sharp-card-meta">
-                  <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{ game.running ? "Running" : game.titleId || "PS3" }}</span>
+                  <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                    game.running ? "Running" : game.titleId || "PS3"
+                  }}</span>
                   <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
                 </div>
                 <div class="sharp-card-actions-row">
                   <button v-if="game.running" class="btn btn-stop" @click="stopRpcs3Game(game)">Stop</button>
-                  <button v-else class="btn btn-play" :disabled="!rpcs3Status?.firmwareInstalled" @click="launchRpcs3Game(game)">Play</button>
+                  <button
+                    v-else
+                    class="btn btn-play"
+                    :disabled="!rpcs3Status?.firmwareInstalled"
+                    @click="launchRpcs3Game(game)"
+                  >
+                    Play
+                  </button>
                   <button class="btn btn-secondary" @click="getAPI().openRpcs3Path(game.path)">Open Folder</button>
-                  <button v-if="game.lastLogPath" class="btn btn-secondary" @click="getAPI().openRpcs3Path(game.lastLogPath)">Log</button>
+                  <button
+                    v-if="game.lastLogPath"
+                    class="btn btn-secondary"
+                    @click="getAPI().openRpcs3Path(game.lastLogPath)"
+                  >
+                    Log
+                  </button>
                 </div>
               </div>
             </article>
@@ -3626,43 +3797,263 @@ details[open] > .drawer-summary {
 .emulator-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
-.emulator-status-card,
-.emulator-update-card,
-.emulator-roots {
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+.rpcs3-dashboard {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
 }
-.emulator-status-card {
+.rpcs3-overview {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px 28px;
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--bg-card) 94%, var(--accent) 6%),
+      color-mix(in srgb, var(--bg-card) 98%, transparent)
+    ),
+    var(--bg-card);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.16),
+    inset 0 1px rgba(255, 255, 255, 0.035);
+}
+.rpcs3-overview::after {
+  content: "";
+  position: absolute;
+  top: -110px;
+  right: -70px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  filter: blur(10px);
+  pointer-events: none;
+}
+.rpcs3-overview-main,
+.rpcs3-primary-actions,
+.rpcs3-stats {
+  position: relative;
+  z-index: 1;
+}
+.rpcs3-overview-main {
   display: flex;
+  gap: 14px;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  min-width: 0;
 }
-.emulator-status-title,
-.emulator-status-actions,
+.rpcs3-brand-mark,
+.rpcs3-onboarding-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg-card));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+}
+.rpcs3-brand-mark {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+}
+.rpcs3-overview-copy {
+  min-width: 0;
+}
+.rpcs3-eyebrow,
+.rpcs3-step {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.rpcs3-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 3px 0 5px;
+}
+.rpcs3-title-row h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  line-height: 1.1;
+}
+.rpcs3-state-pill {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-input) 80%, transparent);
+}
+.rpcs3-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.rpcs3-state-pill.ready {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+}
+.rpcs3-state-pill.ready .rpcs3-state-dot {
+  background: var(--success);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--success) 70%, transparent);
+}
+.rpcs3-state-pill.attention {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.rpcs3-state-pill.attention .rpcs3-state-dot {
+  background: var(--warn);
+}
+.rpcs3-overview-copy p {
+  max-width: 650px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.rpcs3-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+  justify-content: flex-end;
+}
+.rpcs3-primary-actions .btn {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+.rpcs3-primary-button {
+  min-width: 132px;
+}
+.rpcs3-stats {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(130px, 0.72fr)) minmax(220px, 1.35fr);
+  gap: 8px;
+}
+.rpcs3-stat {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-input) 58%, transparent);
+}
+.rpcs3-stat > svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-secondary));
+}
+.rpcs3-stat span {
+  min-width: 0;
+}
+.rpcs3-stat small,
+.rpcs3-stat strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rpcs3-stat small {
+  margin-bottom: 2px;
+  color: var(--text-dim);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rpcs3-stat strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.rpcs3-command-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.rpcs3-command {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 11px 12px;
+  color: var(--text-secondary);
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.rpcs3-command:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent) 12%);
+  transform: translateY(-1px);
+}
+.rpcs3-command:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+.rpcs3-command > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.rpcs3-command span,
+.rpcs3-command strong,
+.rpcs3-command small {
+  display: block;
+  min-width: 0;
+}
+.rpcs3-command strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rpcs3-command small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.emulator-update-card,
+.emulator-roots,
+.rpcs3-management {
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
 .emulator-progress-row,
 .emulator-root-row {
   display: flex;
-  align-items: center;
   gap: 8px;
-}
-.emulator-status-title h2 {
-  margin: 0;
-}
-.emulator-status-card p {
-  margin: 6px 0;
-  color: var(--text-secondary);
-}
-.emulator-status-card small {
-  color: var(--text-dim);
-}
-.emulator-status-actions {
-  justify-content: flex-end;
-  flex-wrap: wrap;
+  align-items: center;
 }
 .emulator-progress-row {
   justify-content: space-between;
@@ -3672,10 +4063,36 @@ details[open] > .drawer-summary {
   display: block;
   margin-top: 8px;
 }
+.rpcs3-management summary,
 .emulator-roots summary {
-  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
   color: var(--text-secondary);
+  font-size: 11px;
   font-weight: 700;
+  cursor: pointer;
+}
+.rpcs3-management summary small {
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 500;
+}
+.emulator-roots summary span {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 9px;
+  border-radius: 999px;
+  background: var(--bg-input);
+}
+.rpcs3-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 12px;
 }
 .emulator-root-row {
   margin-top: 8px;
@@ -3683,7 +4100,7 @@ details[open] > .drawer-summary {
 .emulator-root-path {
   min-width: 0;
   flex: 1;
-  padding: 6px 8px;
+  padding: 7px 9px;
   overflow: hidden;
   color: var(--text-secondary);
   text-align: left;
@@ -3694,15 +4111,68 @@ details[open] > .drawer-summary {
   background: var(--bg-input);
   cursor: pointer;
 }
+.rpcs3-onboarding {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 22px 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 14px;
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--bg-card) 93%, var(--accent) 7%),
+    color-mix(in srgb, var(--bg-card) 96%, transparent)
+  );
+}
+.rpcs3-onboarding-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+}
+.rpcs3-onboarding h2 {
+  margin: 3px 0 4px;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+.rpcs3-onboarding p {
+  max-width: 670px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
 .emulator-game-card .sharp-card-actions-row .btn {
   flex: 1;
 }
-@media (max-width: 760px) {
-  .emulator-status-card {
-    flex-direction: column;
+@media (max-width: 920px) {
+  .rpcs3-overview {
+    grid-template-columns: 1fr;
   }
-  .emulator-status-actions {
+  .rpcs3-primary-actions {
     justify-content: flex-start;
+  }
+  .rpcs3-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rpcs3-command-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .rpcs3-overview {
+    padding: 18px;
+  }
+  .rpcs3-stats,
+  .rpcs3-command-bar {
+    grid-template-columns: 1fr;
+  }
+  .rpcs3-onboarding {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .rpcs3-onboarding .btn {
+    grid-column: 1 / -1;
+    justify-self: stretch;
   }
 }
 .gamejolt-panel {
