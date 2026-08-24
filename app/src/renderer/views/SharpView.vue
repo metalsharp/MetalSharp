@@ -228,10 +228,13 @@ interface Rpcs3Game {
   category: string;
   path: string;
   installedTitle: boolean;
+  hasUpdate?: boolean;
   hasArtwork: boolean;
   running: boolean;
   pid?: number | null;
   lastLogPath?: string | null;
+  lastExitCode?: number | null;
+  lastExitSignal?: number | null;
 }
 
 interface Rpcs3Update {
@@ -250,6 +253,37 @@ interface Rpcs3Update {
   error?: string;
 }
 
+interface Shadps4Status {
+  ok: boolean;
+  experimental: boolean;
+  supported: boolean;
+  unsupportedReason?: "intel_mac" | "macos_too_old" | "rosetta_missing" | "runtime_probe_failed" | null;
+  installed: boolean;
+  state: "unsupported_host" | "missing_runtime" | "no_game_folders" | "ready" | "running";
+  hostArchitecture: string;
+  runtimeArchitecture: string;
+  rosettaAvailable: boolean;
+  hostMacosMajor: number;
+  hostMemoryBytes: number;
+  hostLogicalCpu: number;
+  warnings: string[];
+  runtimeMinimumMacos?: number | null;
+  currentTag?: string | null;
+  rollbackAvailable: boolean;
+  moduleCount: number;
+  modulesReady: boolean;
+  fontFileCount: number;
+  fontsReady: boolean;
+  gameRootCount: number;
+  environmentPath: string;
+  dataPath: string;
+  cachePath: string;
+  executablePath?: string | null;
+}
+
+type Shadps4Game = Rpcs3Game;
+type Shadps4Update = Rpcs3Update;
+
 interface Rpcs3UpdateProgress {
   ok: boolean;
   status: string;
@@ -260,7 +294,7 @@ interface Rpcs3UpdateProgress {
   targetTag?: string | null;
 }
 
-type SharpSource = "installers" | "gog" | "gamejolt" | "rpcs3";
+type SharpSource = "installers" | "gog" | "gamejolt" | "rpcs3" | "shadps4";
 
 const toast = useToast();
 const sourceMode = ref<SharpSource>("installers");
@@ -269,11 +303,13 @@ const sourceTabs = [
   { id: "gog" as const, label: "GOG" },
   { id: "gamejolt" as const, label: "GameJolt" },
   { id: "rpcs3" as const, label: "RPCS3" },
+  { id: "shadps4" as const, label: "shadPS4" },
 ];
 const headerTitle = computed(() => {
   if (sourceMode.value === "gog") return "GOG Games Library";
   if (sourceMode.value === "gamejolt") return "GameJolt Library";
   if (sourceMode.value === "rpcs3") return "RPCS3 Library";
+  if (sourceMode.value === "shadps4") return "shadPS4 Library";
   return "Sharp Library";
 });
 const headerSubtitle = computed(() => {
@@ -281,6 +317,8 @@ const headerSubtitle = computed(() => {
   if (sourceMode.value === "gamejolt") return "Play GameJolt games from internal or external GameJolt storage.";
   if (sourceMode.value === "rpcs3")
     return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
+  if (sourceMode.value === "shadps4")
+    return "Experiment with compatible PlayStation 4 games through an isolated, verified shadPS4 environment.";
   return "Install and manage Windows applications outside Steam.";
 });
 const apps = ref<SharpApp[]>([]);
@@ -337,6 +375,26 @@ const rpcs3StateLabel = computed(() => {
 });
 let rpcs3ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let rpcs3UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
+const shadps4Status = ref<Shadps4Status | null>(null);
+const shadps4Games = ref<Shadps4Game[]>([]);
+const shadps4Roots = ref<string[]>([]);
+const shadps4Update = ref<Shadps4Update | null>(null);
+const shadps4UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const shadps4Loading = ref<Record<string, boolean>>({});
+const shadps4BuildLabel = computed(() => shadps4Status.value?.currentTag ?? "Not installed");
+const shadps4StateLabel = computed(() => {
+  if (!shadps4Status.value) return "Checking host…";
+  if (!shadps4Status.value.supported) {
+    if (shadps4Status.value?.unsupportedReason === "macos_too_old") return "Newer macOS required";
+    if (shadps4Status.value?.unsupportedReason === "rosetta_missing") return "Rosetta required";
+    return "Unsupported Mac";
+  }
+  if (shadps4Status.value.state === "running") return "Game running";
+  if (shadps4Status.value.state === "ready") return "Experimental · Ready";
+  return "Experimental · Setup required";
+});
+let shadps4ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let shadps4UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
 const editingGameJoltName = ref<string | null>(null);
 const gameJoltNameDraft = ref("");
 const gogLoading = ref<Record<string, boolean>>({});
@@ -1044,6 +1102,201 @@ async function removeRpcs3Runtime() {
   } else toast.show(result?.error ?? "Could not remove RPCS3 runtime", "error");
 }
 
+async function refreshShadps4(showResult = false) {
+  const [statusResult, gamesResult] = await Promise.all([
+    api<Shadps4Status>("GET", "/sharp-library/shadps4/status"),
+    api<{ ok: boolean; games: Shadps4Game[]; roots: string[] }>("GET", "/sharp-library/shadps4/games"),
+  ]);
+  if (statusResult?.ok) shadps4Status.value = statusResult;
+  if (gamesResult?.ok) {
+    shadps4Games.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    shadps4Roots.value = gamesResult.roots ?? [];
+  }
+  if (showResult)
+    toast.show(
+      `Found ${shadps4Games.value.length} shadPS4 game${shadps4Games.value.length === 1 ? "" : "s"}`,
+      "success",
+    );
+}
+
+async function checkShadps4Update(showResult = true, force = showResult) {
+  shadps4Loading.value.check = true;
+  const result = await api<Shadps4Update>(
+    force ? "POST" : "GET",
+    force ? "/sharp-library/shadps4/update/refresh" : "/sharp-library/shadps4/update/check",
+    force ? {} : undefined,
+    30 * 1000,
+  );
+  shadps4Loading.value.check = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "Could not check shadPS4 updates", "error");
+    return null;
+  }
+  shadps4Update.value = result;
+  if (showResult)
+    toast.show(result.available ? `${result.latestVersion} is available` : "shadPS4 is up to date", "info");
+  return result;
+}
+
+function stopShadps4UpdatePoll() {
+  if (shadps4UpdatePollTimer) clearInterval(shadps4UpdatePollTimer);
+  shadps4UpdatePollTimer = null;
+}
+
+function beginShadps4UpdatePoll() {
+  stopShadps4UpdatePoll();
+  shadps4UpdatePollTimer = setInterval(async () => {
+    const progress = await api<Rpcs3UpdateProgress>("GET", "/sharp-library/shadps4/update/progress");
+    if (!progress?.ok) return;
+    shadps4UpdateProgress.value = progress;
+    if (progress.status === "completed" || progress.status === "failed") {
+      stopShadps4UpdatePoll();
+      shadps4Loading.value.update = false;
+      if (progress.status === "completed") {
+        toast.show("shadPS4 installed successfully", "success");
+        await refreshShadps4();
+        await checkShadps4Update(false);
+      } else toast.show(progress.error ?? "shadPS4 update failed", "error");
+    }
+  }, 1000);
+}
+
+async function installOrUpdateShadps4() {
+  if (shadps4Status.value && !shadps4Status.value.supported) {
+    toast.show(shadps4StateLabel.value, "error");
+    return;
+  }
+  const release = await checkShadps4Update(false);
+  if (!release) return;
+  if (shadps4Status.value?.installed && !release.available) {
+    toast.show("shadPS4 is already up to date", "info");
+    return;
+  }
+  const action = shadps4Status.value?.installed ? "Update" : "Install";
+  if (
+    !window.confirm(
+      `${action} experimental shadPS4 ${release.latestVersion}? MetalSharp verifies the official stable asset and preserves the previous runtime for rollback.`,
+    )
+  )
+    return;
+  shadps4Loading.value.update = true;
+  const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/shadps4/update/install", {}, 35 * 1000);
+  if (!result?.ok) {
+    shadps4Loading.value.update = false;
+    toast.show(result?.error ?? `Could not ${action.toLowerCase()} shadPS4`, "error");
+    return;
+  }
+  shadps4UpdateProgress.value = result;
+  beginShadps4UpdatePoll();
+}
+
+async function setShadps4UpdatePolicy(action: "pin-current" | "unpin" | "skip-update" | "clear-skip") {
+  const result = await api<Shadps4Update>("POST", `/sharp-library/shadps4/${action}`, {
+    tag: shadps4Update.value?.latestTag,
+  });
+  if (result?.ok) {
+    shadps4Update.value = result;
+    toast.show("shadPS4 update preference saved", "success");
+  } else toast.show(result?.error ?? "Could not save shadPS4 update preference", "error");
+}
+
+async function rollbackShadps4() {
+  if (!window.confirm("Roll back only the shadPS4 runtime? Saves, settings, caches, modules, fonts, and games remain."))
+    return;
+  const result = await api<Shadps4Status & { error?: string }>("POST", "/sharp-library/shadps4/update/rollback", {});
+  if (result?.ok) {
+    shadps4Status.value = result;
+    toast.show("shadPS4 rolled back", "success");
+  } else toast.show(result?.error ?? "shadPS4 rollback failed", "error");
+}
+
+async function addShadps4Folder() {
+  const path = await getAPI().pickDirectory("Choose a folder containing dumped PlayStation 4 games");
+  if (!path) return;
+  const result = await api<{ ok: boolean; games: Shadps4Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/shadps4/add-root",
+    { path },
+  );
+  if (result?.ok) {
+    shadps4Games.value = result.games ?? [];
+    shadps4Roots.value = result.roots ?? [];
+    await refreshShadps4();
+    toast.show("shadPS4 game folder added", "success");
+  } else toast.show(result?.error ?? "Could not add shadPS4 game folder", "error");
+}
+
+async function removeShadps4Root(path: string) {
+  const result = await api<{ ok: boolean; games: Shadps4Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/shadps4/remove-root",
+    { path },
+  );
+  if (result?.ok) {
+    shadps4Games.value = result.games ?? [];
+    shadps4Roots.value = result.roots ?? [];
+  } else toast.show(result?.error ?? "Could not remove shadPS4 game folder", "error");
+}
+
+async function importShadps4Content(kind: "modules" | "fonts") {
+  const path = await getAPI().pickDirectory(
+    kind === "modules" ? "Choose a folder of console-dumped PS4 modules" : "Choose dumped PS4 font content",
+  );
+  if (!path) return;
+  const result = await api<{ ok: boolean; imported?: number; files?: number; rejected?: number; error?: string }>(
+    "POST",
+    `/sharp-library/shadps4/import-${kind}`,
+    { path },
+  );
+  if (result?.ok) {
+    await refreshShadps4();
+    toast.show(
+      kind === "modules"
+        ? `Imported ${result.imported ?? 0} supported modules`
+        : `Imported ${result.files ?? 0} font files`,
+      "success",
+    );
+  } else toast.show(result?.error ?? `Could not import shadPS4 ${kind}`, "error");
+}
+
+async function launchShadps4Game(game: Shadps4Game) {
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/sharp-library/shadps4/launch", {
+    id: game.id,
+    fullscreen: true,
+  });
+  if (result?.ok) {
+    game.running = true;
+    game.pid = result.pid;
+  } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+}
+
+async function stopShadps4Game(game: Shadps4Game) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/shadps4/stop", { id: game.id });
+  if (result?.ok) {
+    game.running = false;
+    game.pid = null;
+  } else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+}
+
+async function removeShadps4Runtime() {
+  if (
+    !window.confirm(
+      "Remove managed shadPS4 runtime versions? Saves, trophies, settings, caches, modules, fonts, and games are preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/shadps4/remove-runtime", {
+    confirm: true,
+  });
+  if (result?.ok) {
+    shadps4Update.value = null;
+    await refreshShadps4();
+    toast.show("shadPS4 runtime removed; user data was preserved", "success");
+  } else toast.show(result?.error ?? "Could not remove shadPS4 runtime", "error");
+}
+
 async function load() {
   const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
     api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
@@ -1068,7 +1321,7 @@ async function load() {
     }
   }
   if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
-  await Promise.all([loadGameJolt(), refreshRpcs3()]);
+  await Promise.all([loadGameJolt(), refreshRpcs3(), refreshShadps4()]);
   await syncGameJolt(false);
 }
 
@@ -1364,9 +1617,24 @@ async function refreshSharpLibrary() {
   toast.show("Sharp Library refreshed", "success");
 }
 
+function selectSource(mode: SharpSource) {
+  sourceMode.value = mode;
+  if (mode === "shadps4") {
+    void refreshShadps4();
+    if (!shadps4Update.value) void checkShadps4Update(false);
+  } else if (mode === "rpcs3") {
+    void refreshRpcs3();
+    if (!rpcs3Update.value) void checkRpcs3Update(false);
+  }
+}
+
 async function refreshCurrentSource() {
   if (sourceMode.value === "rpcs3") {
     await refreshRpcs3(true);
+    return;
+  }
+  if (sourceMode.value === "shadps4") {
+    await refreshShadps4(true);
     return;
   }
   if (sourceMode.value === "gog") {
@@ -2048,6 +2316,9 @@ onMounted(() => {
   rpcs3ProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "rpcs3" && rpcs3Status.value?.installed) void refreshRpcs3();
   }, 3000);
+  shadps4ProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "shadps4" && shadps4Status.value?.installed) void refreshShadps4();
+  }, 3000);
   removeGameJoltDownloadListener = getAPI().onGameJoltDownload(handleGameJoltDownload);
 });
 onUnmounted(() => {
@@ -2057,6 +2328,9 @@ onUnmounted(() => {
   if (rpcs3ProcessPollTimer) clearInterval(rpcs3ProcessPollTimer);
   rpcs3ProcessPollTimer = null;
   stopRpcs3UpdatePoll();
+  if (shadps4ProcessPollTimer) clearInterval(shadps4ProcessPollTimer);
+  shadps4ProcessPollTimer = null;
+  stopShadps4UpdatePoll();
   removeGameJoltDownloadListener?.();
   removeGameJoltDownloadListener = null;
   if (gamejoltDragPointerId !== null) {
@@ -2086,7 +2360,7 @@ onUnmounted(() => {
             type="button"
             role="tab"
             :aria-selected="sourceMode === tab.id"
-            @click="sourceMode = tab.id"
+            @click="selectSource(tab.id)"
           >
             {{ tab.label }}
           </button>
@@ -2864,6 +3138,293 @@ onUnmounted(() => {
                     v-if="game.lastLogPath"
                     class="btn btn-secondary"
                     @click="getAPI().openRpcs3Path(game.lastLogPath)"
+                  >
+                    Log
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="sourceMode === 'shadps4'">
+        <section class="emulator-panel rpcs3-dashboard shadps4-dashboard">
+          <div class="rpcs3-overview">
+            <div class="rpcs3-overview-main">
+              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+              <div class="rpcs3-overview-copy">
+                <div class="rpcs3-eyebrow">Experimental PlayStation 4 environment</div>
+                <div class="rpcs3-title-row">
+                  <h2>shadPS4</h2>
+                  <span
+                    class="rpcs3-state-pill"
+                    :class="
+                      shadps4Status?.state === 'ready' || shadps4Status?.state === 'running'
+                        ? 'ready'
+                        : shadps4Status?.supported
+                          ? 'attention'
+                          : 'muted'
+                    "
+                  >
+                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ shadps4StateLabel }}
+                  </span>
+                </div>
+                <p>
+                  Official stable core, isolated state, atomic rollback, and protected user-owned content. Compatibility
+                  remains experimental.
+                </p>
+                <p v-if="shadps4Status?.warnings?.length" class="shadps4-host-warning">
+                  Host advisory: {{ shadps4Status.warnings.join(", ").replaceAll("_", " ") }}
+                </p>
+              </div>
+            </div>
+            <div class="rpcs3-primary-actions">
+              <button
+                class="btn btn-primary rpcs3-primary-button"
+                :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
+                @click="installOrUpdateShadps4"
+              >
+                <IconDownload width="15" height="15" />
+                {{
+                  shadps4Loading.update
+                    ? "Installing…"
+                    : shadps4Status?.installed
+                      ? "Update shadPS4"
+                      : "Install shadPS4"
+                }}
+              </button>
+            </div>
+            <div class="rpcs3-stats">
+              <div class="rpcs3-stat">
+                <IconHardDrive width="16" height="16" />
+                <span
+                  ><small>Runtime</small
+                  ><strong :title="shadps4Status?.currentTag ?? ''">{{ shadps4BuildLabel }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconMonitor width="16" height="16" />
+                <span
+                  ><small>Host</small
+                  ><strong>{{ shadps4Status?.supported ? "Apple Silicon · Rosetta" : shadps4StateLabel }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconGamepad2 width="16" height="16" />
+                <span
+                  ><small>Library</small
+                  ><strong>{{ shadps4Games.length }} game{{ shadps4Games.length === 1 ? "" : "s" }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconShieldCheck width="16" height="16" />
+                <span
+                  ><small>Optional compatibility files</small
+                  ><strong
+                    >{{ shadps4Status?.moduleCount ?? 0 }} modules ·
+                    {{ shadps4Status?.fontFileCount ?? 0 }} fonts</strong
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="rpcs3-command-bar" aria-label="shadPS4 library actions">
+            <button class="rpcs3-command" @click="addShadps4Folder">
+              <IconFolderPlus width="17" height="17" /><span
+                ><strong>Add games</strong><small>Choose dumped CUSA folders</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="importShadps4Content('modules')">
+              <IconShieldCheck width="17" height="17" /><span
+                ><strong>Import modules</strong><small>Console-dumped SPRX files</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="importShadps4Content('fonts')">
+              <IconPackage width="17" height="17" /><span
+                ><strong>Import fonts</strong><small>Console-dumped font content</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="refreshShadps4(true)">
+              <IconScanLine width="17" height="17" /><span
+                ><strong>Scan library</strong><small>Refresh metadata and artwork</small></span
+              >
+            </button>
+          </div>
+
+          <div
+            v-if="shadps4UpdateProgress?.running || shadps4UpdateProgress?.status === 'failed'"
+            class="emulator-update-card"
+          >
+            <div class="emulator-progress-row">
+              <strong>{{ shadps4UpdateProgress.message }}</strong
+              ><span>{{ shadps4UpdateProgress.percent }}%</span>
+            </div>
+            <div class="gog-progress-bar"><span :style="{ width: `${shadps4UpdateProgress.percent}%` }"></span></div>
+            <small v-if="shadps4UpdateProgress.error" class="launch-failure">{{ shadps4UpdateProgress.error }}</small>
+          </div>
+
+          <details class="rpcs3-management">
+            <summary>
+              <span>Environment management</span><small>Stable updates, rollback, storage, and preservation</small>
+            </summary>
+            <div class="rpcs3-management-actions">
+              <button class="btn btn-secondary btn-sm" :disabled="shadps4Loading.check" @click="checkShadps4Update()">
+                {{ shadps4Loading.check ? "Checking…" : "Check Stable Updates" }}
+              </button>
+              <button
+                v-if="shadps4Status?.installed && shadps4Update"
+                class="btn btn-secondary btn-sm"
+                @click="setShadps4UpdatePolicy(shadps4Update.pinnedTag ? 'unpin' : 'pin-current')"
+              >
+                {{ shadps4Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
+              </button>
+              <button
+                v-if="shadps4Update?.available"
+                class="btn btn-secondary btn-sm"
+                @click="setShadps4UpdatePolicy('skip-update')"
+              >
+                Skip Update
+              </button>
+              <button
+                v-if="shadps4Update?.skippedTag"
+                class="btn btn-secondary btn-sm"
+                @click="setShadps4UpdatePolicy('clear-skip')"
+              >
+                Clear Skip
+              </button>
+              <button v-if="shadps4Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackShadps4">
+                Rollback Runtime
+              </button>
+              <button
+                v-if="shadps4Status?.environmentPath"
+                class="btn btn-secondary btn-sm"
+                @click="getAPI().openShadps4Path(shadps4Status.environmentPath)"
+              >
+                Open Environment
+              </button>
+              <button v-if="shadps4Status?.installed" class="btn btn-danger btn-sm" @click="removeShadps4Runtime">
+                Remove Runtime
+              </button>
+            </div>
+          </details>
+
+          <details v-if="shadps4Roots.length" class="emulator-roots">
+            <summary>
+              Game folders <span>{{ shadps4Roots.length }}</span>
+            </summary>
+            <div v-for="root in shadps4Roots" :key="root" class="emulator-root-row">
+              <button class="emulator-root-path" type="button" @click="getAPI().openShadps4Path(root)">
+                {{ root }}
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="removeShadps4Root(root)">Remove</button>
+            </div>
+          </details>
+
+          <div v-if="!shadps4Status" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Checking host readiness</span>
+              <h2>Inspecting shadPS4 requirements…</h2>
+              <p>MetalSharp is checking architecture, macOS, Rosetta, and the isolated environment.</p>
+            </div>
+          </div>
+          <div v-else-if="!shadps4Status.supported" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Host readiness blocked</span>
+              <h2>{{ shadps4StateLabel }}</h2>
+              <p>
+                shadPS4 currently requires Apple Silicon, Rosetta 2, and a host compatible with its deployment target.
+              </p>
+            </div>
+          </div>
+          <div v-else-if="!shadps4Status?.installed" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 1 of 2</span>
+              <h2>Install the verified stable shadPS4 core</h2>
+              <p>
+                MetalSharp verifies the official ZIP digest, architecture, deployment target, local signature, and CLI
+                capabilities before atomic activation.
+              </p>
+            </div>
+            <button class="btn btn-primary" :disabled="shadps4Loading.update" @click="installOrUpdateShadps4">
+              Install shadPS4
+            </button>
+          </div>
+          <div v-else-if="shadps4Roots.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 2 of 2</span>
+              <h2>Add your dumped PlayStation 4 games</h2>
+              <p>
+                Select a folder containing legally dumped CUSA directories with eboot.bin and sce_sys/param.sfo.
+                MetalSharp does not extract packages.
+              </p>
+            </div>
+            <button class="btn btn-primary" @click="addShadps4Folder">Add Games Folder</button>
+          </div>
+          <div v-else-if="shadps4Games.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Library folder added</span>
+              <h2>No supported CUSA game layouts found</h2>
+              <p>
+                Your folder is saved. Add a dumped game containing eboot.bin and sce_sys/param.sfo, then scan again.
+              </p>
+            </div>
+            <button class="btn btn-primary" @click="refreshShadps4(true)">Scan Library</button>
+          </div>
+
+          <div v-else class="sharp-grid">
+            <article
+              v-for="game in shadps4Games"
+              :key="game.id"
+              class="sharp-card emulator-game-card"
+              :class="{ running: game.running }"
+            >
+              <div class="sharp-card-banner">
+                <img
+                  v-if="game.hasArtwork"
+                  :src="`http://127.0.0.1:9274/sharp-library/shadps4/cover?id=${encodeURIComponent(game.id)}`"
+                  :alt="game.title"
+                />
+                <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
+                <button
+                  v-if="game.running"
+                  class="running-close-button"
+                  title="Stop game"
+                  @click="stopShadps4Game(game)"
+                >
+                  <IconX width="14" height="14" />
+                </button>
+              </div>
+              <div class="sharp-card-body">
+                <div class="sharp-card-title">{{ game.title }}</div>
+                <div class="sharp-card-meta">
+                  <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                    game.running ? "Running" : game.titleId || "PS4"
+                  }}</span>
+                  <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
+                  <span v-if="game.hasUpdate" class="sharp-card-size">Update dump found</span>
+                </div>
+                <div class="sharp-card-actions-row">
+                  <button v-if="game.running" class="btn btn-stop" @click="stopShadps4Game(game)">Stop</button>
+                  <button v-else class="btn btn-play" @click="launchShadps4Game(game)">Play</button>
+                  <button class="btn btn-secondary" @click="getAPI().openShadps4Path(game.path)">Open Folder</button>
+                  <button
+                    v-if="/^CUSA\d{5}$/i.test(game.titleId)"
+                    class="btn btn-secondary"
+                    @click="getAPI().openShadps4Compatibility(game.titleId)"
+                  >
+                    Compatibility
+                  </button>
+                  <button
+                    v-if="game.lastLogPath"
+                    class="btn btn-secondary"
+                    @click="getAPI().openShadps4Path(game.lastLogPath)"
                   >
                     Log
                   </button>
@@ -3901,6 +4462,10 @@ details[open] > .drawer-summary {
   align-items: center;
   margin: 3px 0 5px;
 }
+.shadps4-host-warning {
+  margin-top: 6px !important;
+  color: var(--warning, #f4c15d) !important;
+}
 .rpcs3-title-row h2 {
   margin: 0;
   color: var(--text-primary);
@@ -4325,6 +4890,22 @@ details[open] > .drawer-summary {
   border: 0;
   border-radius: calc(var(--radius-md) - 3px);
   background: #fff;
+}
+.source-tab:focus-visible,
+.rpcs3-dashboard button:focus-visible,
+.rpcs3-dashboard summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rpcs3-dashboard *,
+  .rpcs3-dashboard *::before,
+  .rpcs3-dashboard *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 @media (max-width: 800px) {
   .gamejolt-panel {

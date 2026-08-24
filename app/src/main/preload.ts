@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld("metalsharp", {
   },
   openInFinder: (path: string) => ipcRenderer.invoke("app:open-in-finder", path),
   openRpcs3Path: (path: string) => ipcRenderer.invoke("app:open-rpcs3-path", path),
+  openShadps4Path: (path: string) => ipcRenderer.invoke("app:open-shadps4-path", path),
+  openShadps4Compatibility: (titleId: string) => ipcRenderer.invoke("app:open-shadps4-compatibility", titleId),
   openRpcs3FirmwarePage: () => ipcRenderer.invoke("app:open-rpcs3-firmware-page"),
   openLogsFolder: () => ipcRenderer.invoke("app:open-logs-folder"),
   openMetalsharpFolder: () => ipcRenderer.invoke("app:open-metalsharp-folder"),
