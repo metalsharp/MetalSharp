@@ -1,7 +1,7 @@
 //! Parity contracts for the native emulator providers.
 //!
 //! The packaged runtime is the C backend. These serde models keep the Rust
-//! reference explicit about the supported RPCS3 and experimental shadPS4 provider states.
+//! reference explicit about the supported PCSX2, RPCS3, and experimental shadPS4 provider states.
 
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +34,73 @@ pub struct Rpcs3StatusContract {
     pub data_path: String,
     pub cache_path: String,
     pub executable_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Pcsx2StatusContract {
+    pub ok: bool,
+    pub provider: String,
+    pub name: String,
+    pub platform: String,
+    pub supported: bool,
+    pub unsupported_reason: Option<String>,
+    pub installed: bool,
+    pub runtime_valid: bool,
+    pub state: String,
+    pub host_architecture: String,
+    pub runtime_architecture: String,
+    pub rosetta_available: bool,
+    pub sse41_available: bool,
+    pub host_macos_major: i32,
+    pub host_memory_bytes: u64,
+    pub host_logical_cpu: u64,
+    pub warnings: Vec<String>,
+    pub runtime_minimum_macos: Option<i32>,
+    pub current_tag: Option<String>,
+    pub rollback_available: bool,
+    pub setup_complete: bool,
+    pub bios_installed: bool,
+    pub bios_count: u64,
+    pub bios_region: Option<String>,
+    pub bios_description: Option<String>,
+    pub game_root_count: u64,
+    pub active_session_count: u64,
+    pub data_path_flag: bool,
+    pub upstream_updater_disabled: bool,
+    pub environment_path: String,
+    pub data_path: String,
+    pub cache_path: String,
+    pub executable_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Pcsx2GameContract {
+    pub id: String,
+    pub serial: Option<String>,
+    pub title: String,
+    pub region: Option<String>,
+    pub format: String,
+    pub size: u64,
+    pub path: String,
+    pub has_artwork: bool,
+    pub running: bool,
+    pub pid: Option<i32>,
+    pub last_log_path: Option<String>,
+    pub last_exit_code: Option<i32>,
+    pub last_exit_signal: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Pcsx2GamesContract {
+    pub ok: bool,
+    pub provider: String,
+    pub roots: Vec<String>,
+    pub scanned_entries: u64,
+    pub truncated: bool,
+    pub games: Vec<Pcsx2GameContract>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -133,11 +200,20 @@ pub struct EmulatorSessionContract {
     pub game_path: String,
     pub runtime_tag: Option<String>,
     pub log_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pcsx2_log_path: Option<String>,
     pub started_at: i64,
 }
 
 pub fn providers() -> Vec<EmulatorProvider> {
     vec![
+        EmulatorProvider {
+            id: "pcsx2".into(),
+            name: "PCSX2".into(),
+            platform: "PlayStation 2".into(),
+            supported: true,
+            experimental: None,
+        },
         EmulatorProvider {
             id: "rpcs3".into(),
             name: "RPCS3".into(),
@@ -160,14 +236,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_contract_exposes_rpcs3_and_experimental_shadps4() {
+    fn provider_contract_exposes_pcsx2_rpcs3_and_experimental_shadps4() {
         let values = providers();
-        assert_eq!(values.len(), 2);
-        assert_eq!(values[0].id, "rpcs3");
+        assert_eq!(values.len(), 3);
+        assert_eq!(values[0].id, "pcsx2");
+        assert_eq!(values[0].platform, "PlayStation 2");
         assert!(values[0].supported);
-        assert_eq!(values[1].id, "shadps4");
-        assert_eq!(values[1].name, "shadPS4");
-        assert_eq!(values[1].experimental, Some(true));
+        assert_eq!(values[1].id, "rpcs3");
+        assert!(values[1].supported);
+        assert_eq!(values[2].id, "shadps4");
+        assert_eq!(values[2].name, "shadPS4");
+        assert_eq!(values[2].experimental, Some(true));
     }
 
     #[test]
@@ -190,6 +269,50 @@ mod tests {
         let value = serde_json::to_value(update).unwrap();
         assert!(value["digest"].as_str().unwrap().starts_with("sha256:"));
         assert_eq!(value["downloadSize"], 123);
+    }
+
+    #[test]
+    fn pcsx2_contract_preserves_bios_isolation_and_host_readiness() {
+        let status = Pcsx2StatusContract {
+            ok: true,
+            provider: "pcsx2".into(),
+            name: "PCSX2".into(),
+            platform: "PlayStation 2".into(),
+            supported: true,
+            unsupported_reason: None,
+            installed: true,
+            runtime_valid: true,
+            state: "ready".into(),
+            host_architecture: "arm64".into(),
+            runtime_architecture: "x86_64".into(),
+            rosetta_available: true,
+            sse41_available: false,
+            host_macos_major: 26,
+            host_memory_bytes: 16 * 1024 * 1024 * 1024,
+            host_logical_cpu: 8,
+            warnings: vec![],
+            runtime_minimum_macos: Some(11),
+            current_tag: Some("v2.6.3".into()),
+            rollback_available: true,
+            setup_complete: true,
+            bios_installed: true,
+            bios_count: 1,
+            bios_region: Some("USA".into()),
+            bios_description: Some("USA v02.30".into()),
+            game_root_count: 1,
+            active_session_count: 0,
+            data_path_flag: false,
+            upstream_updater_disabled: true,
+            environment_path: "/tmp/pcsx2".into(),
+            data_path: "/tmp/pcsx2/home/Library/Application Support/PCSX2".into(),
+            cache_path: "/tmp/pcsx2/home/Library/Application Support/PCSX2/cache".into(),
+            executable_path: Some("/tmp/pcsx2/current/PCSX2.app/Contents/MacOS/PCSX2".into()),
+        };
+        let value = serde_json::to_value(status).unwrap();
+        assert_eq!(value["provider"], "pcsx2");
+        assert_eq!(value["biosInstalled"], true);
+        assert_eq!(value["dataPathFlag"], false);
+        assert_eq!(value["runtimeArchitecture"], "x86_64");
     }
 
     #[test]

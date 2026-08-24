@@ -1,6 +1,8 @@
 # PCSX2 integration roadmap
 
-Status: **research complete; provider not implemented**
+Status: **production phases 0–7 complete; Phase 8 remains intentionally deferred**
+
+Implemented on 2026-08-24. The active provider contract is documented in [PCSX2-INTEGRATION.md](PCSX2-INTEGRATION.md) and [PCSX2-UPSTREAM-CONTRACT.md](PCSX2-UPSTREAM-CONTRACT.md). Phase 8 lists optional future work which this roadmap explicitly defines as non-blocking; none of those features is advertised as available.
 
 MetalSharp will identify this provider by its accurate upstream name: **PCSX2**.
 
@@ -480,4 +482,4 @@ PCSX2 becomes a production provider only when all of the following are true:
 - Normal, ASAN, Rust, frontend, packaging, and installed-app tests pass.
 - A prompt-to-artifact audit maps every requirement above to concrete evidence.
 
-Until every production gate passes, PCSX2 remains a documented roadmap only and must not appear as an installable MetalSharp provider.
+All production gates above now pass. PCSX2 is exposed as a managed stable provider. Deferred Phase 8 features remain unavailable until their separate security, privacy, compatibility, and state-migration gates are completed.

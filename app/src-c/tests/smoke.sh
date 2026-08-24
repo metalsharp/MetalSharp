@@ -126,7 +126,107 @@ gog_import=$(curl --silent --fail --request POST --header 'Content-Type: applica
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
 
 emulators=$(curl --silent --fail "http://127.0.0.1:$port/emulators")
-printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["rpcs3", "shadps4"] and all(p["supported"] for p in v["providers"]); assert v["providers"][1]["experimental"]'
+printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["pcsx2", "rpcs3", "shadps4"] and all(p["supported"] for p in v["providers"]); assert v["providers"][2]["experimental"]'
+
+pcsx2_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/status")
+printf '%s' "$pcsx2_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["supported"] and not v["installed"] and v["state"] == "missing_runtime" and v["runtimeArchitecture"] == "x86_64" and not v["biosInstalled"]'
+pcsx2_update=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/update/check")
+printf '%s' "$pcsx2_update" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["available"] and v["latestVersion"] == "v2.6.3" and v["downloadSize"] == 4 and v["digest"].startswith("sha256:")'
+mkdir -p "$home/pcsx2-games"
+printf 'disc-data-SLUS_123.45' > "$home/pcsx2-games/Smoke Game.iso"
+printf '\177ELFhomebrew' > "$home/pcsx2-games/Homebrew.elf"
+printf 'unsupported' > "$home/pcsx2-games/Track.cue"
+ln -s /tmp "$home/pcsx2-games/outside"
+pcsx2_add=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-games\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/add-root")
+printf '%s' "$pcsx2_add" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["roots"]) == 1 and len(v["games"]) == 2; g=next(x for x in v["games"] if x["format"] == "iso"); assert g["title"] == "Smoke Game" and g["serial"] == "SLUS-12345" and g["size"] > 0'
+pcsx2_id=$(printf '%s' "$pcsx2_add" | python3 -c 'import json, sys; print(next(x for x in json.load(sys.stdin)["games"] if x["format"] == "iso")["id"])')
+pcsx2_root=$(printf '%s' "$pcsx2_add" | python3 -c 'import json, sys; print(json.load(sys.stdin)["roots"][0])')
+protected_pcsx2_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"path":"/"}' "http://127.0.0.1:$port/sharp-library/pcsx2/add-root")
+printf '%s' "$protected_pcsx2_root" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+
+pcsx2_env="$home/emulators/pcsx2"
+mkdir -p "$pcsx2_env/versions/smoke-build/PCSX2.app/Contents/MacOS" "$pcsx2_env/home/Library/Application Support/PCSX2/inis"
+printf '#include <signal.h>\n#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\nint main(int c,char**v){for(int i=1;i<c;i++){if(!strcmp(v[i],"-version")){puts("PCSX2 v2.6.3");return 0;}if(!strcmp(v[i],"-help")){puts("-batch -nogui -logfile -testconfig -setupwizard --");return 0;}if(!strcmp(v[i],"-testconfig"))return 0;}signal(SIGTERM,SIG_DFL);sleep(30);return 0;}\n' > "$home/pcsx2-smoke.c"
+${CC:-cc} -arch x86_64 -mmacosx-version-min=11.0 "$home/pcsx2-smoke.c" -o "$pcsx2_env/versions/smoke-build/PCSX2.app/Contents/MacOS/PCSX2"
+printf '{"schemaVersion":1,"provider":"pcsx2","runtimeTag":"smoke-build","dataPathFlag":false}' > "$pcsx2_env/versions/smoke-build/capabilities.json"
+ln -s "versions/smoke-build" "$pcsx2_env/current"
+printf '[UI]\nSetupWizardIncomplete = false\n\n[AutoUpdater]\nCheckAtStartup = true\n' > "$pcsx2_env/home/Library/Application Support/PCSX2/inis/PCSX2.ini"
+pcsx2_initialized=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/pcsx2/initialize")
+printf '%s' "$pcsx2_initialized" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["upstreamUpdaterDisabled"] and not v["biosInstalled"]'
+grep -F "RecursivePaths = $pcsx2_root" "$pcsx2_env/home/Library/Application Support/PCSX2/inis/PCSX2.ini" >/dev/null
+mkdir -p "$pcsx2_env/home/Library/Application Support/PCSX2/covers"
+printf 'not-png' > "$pcsx2_env/home/Library/Application Support/PCSX2/covers/SLUS-12345.png"
+pcsx2_bad_cover_scan=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/pcsx2/scan")
+printf '%s' "$pcsx2_bad_cover_scan" | python3 -c 'import json, sys; g=next(x for x in json.load(sys.stdin)["games"] if x["format"] == "iso"); assert not g["hasArtwork"]'
+PCSX2_COVER="$pcsx2_env/home/Library/Application Support/PCSX2/covers/SLUS-12345.png" python3 - <<'PY'
+import base64, os
+open(os.environ['PCSX2_COVER'],'wb').write(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))
+PY
+pcsx2_cover_scan=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/pcsx2/scan")
+printf '%s' "$pcsx2_cover_scan" | python3 -c 'import json, sys; g=next(x for x in json.load(sys.stdin)["games"] if x["format"] == "iso"); assert g["hasArtwork"] and g["region"] == "USA"'
+curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/cover?id=$pcsx2_id" -o "$home/pcsx2-cover.png"
+cmp "$home/pcsx2-cover.png" "$pcsx2_env/home/Library/Application Support/PCSX2/covers/SLUS-12345.png"
+rm "$pcsx2_env/home/Library/Application Support/PCSX2/covers/SLUS-12345.png"
+ln -s /etc/passwd "$pcsx2_env/home/Library/Application Support/PCSX2/covers/SLUS-12345.png"
+if curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/cover?id=$pcsx2_id" -o "$home/pcsx2-cover-escaped"; then
+    echo "PCSX2 cover endpoint followed a replaced symlink" >&2
+    exit 1
+fi
+rm "$pcsx2_env/home/Library/Application Support/PCSX2/covers/SLUS-12345.png"
+PCSX2_BIOS="$home/pcsx2-bios.bin" python3 - <<'PY'
+import os, struct
+p=os.environ['PCSX2_BIOS']; data=bytearray(4*1024*1024)
+data[0x20:0x20+14]=b'0230AC20260101'
+def entry(name,size): return name.encode().ljust(10,b'\0')+struct.pack('<HI',0,size)
+data[0x1000:0x1010]=entry('RESET',0x20)
+data[0x1010:0x1020]=entry('ROMVER',14)
+open(p,'wb').write(data)
+PY
+dd if=/dev/zero of="$home/pcsx2-invalid-bios.bin" bs=1048576 count=4 status=none
+pcsx2_invalid_bios=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-invalid-bios.bin\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/import-bios")
+printf '%s' "$pcsx2_invalid_bios" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+ln -s "$home/pcsx2-bios.bin" "$home/pcsx2-bios-link.bin"
+pcsx2_linked_bios=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-bios-link.bin\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/import-bios")
+printf '%s' "$pcsx2_linked_bios" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+pcsx2_bios=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-bios.bin\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/import-bios")
+printf '%s' "$pcsx2_bios" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["biosCount"] == 1 and v["region"] == "USA"'
+pcsx2_failed_replacement=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-invalid-bios.bin\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/import-bios")
+printf '%s' "$pcsx2_failed_replacement" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+[ -f "$pcsx2_env/home/Library/Application Support/PCSX2/bios/pcsx2-bios.bin" ]
+pcsx2_ready=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/status")
+printf '%s' "$pcsx2_ready" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["installed"] and v["runtimeValid"] and v["setupComplete"] and v["biosInstalled"] and v["state"] == "ready" and v["gameRootCount"] == 1'
+mv "$home/pcsx2-games/Smoke Game.iso" "$home/pcsx2-games/Smoke Game.iso.saved"
+ln -s /etc/passwd "$home/pcsx2-games/Smoke Game.iso"
+pcsx2_replaced_launch=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$pcsx2_id\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/launch")
+printf '%s' "$pcsx2_replaced_launch" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "changed" in v["error"]'
+rm "$home/pcsx2-games/Smoke Game.iso"
+mv "$home/pcsx2-games/Smoke Game.iso.saved" "$home/pcsx2-games/Smoke Game.iso"
+pcsx2_launch=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$pcsx2_id\",\"fullscreen\":true}" "http://127.0.0.1:$port/sharp-library/pcsx2/launch")
+printf '%s' "$pcsx2_launch" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pid"] > 0 and v["logPath"].endswith(".log")'
+sleep 0.1
+pcsx2_running=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/games")
+printf '%s' "$pcsx2_running" | python3 -c 'import json, sys; assert any(g["running"] for g in json.load(sys.stdin)["games"])'
+pcsx2_remove_running=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"confirm":true}' "http://127.0.0.1:$port/sharp-library/pcsx2/remove-runtime")
+printf '%s' "$pcsx2_remove_running" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "stop PCSX2" in v["error"]'
+pcsx2_stop=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$pcsx2_id\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/stop")
+printf '%s' "$pcsx2_stop" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
+pcsx2_remove=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"confirm":true}' "http://127.0.0.1:$port/sharp-library/pcsx2/remove-runtime")
+printf '%s' "$pcsx2_remove" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["preservedData"]'
+[ -f "$pcsx2_env/home/Library/Application Support/PCSX2/bios/pcsx2-bios.bin" ]
+[ -f "$home/pcsx2-games/Smoke Game.iso" ]
+pcsx2_bad_update=$(curl --silent --fail --request POST "http://127.0.0.1:$port/sharp-library/pcsx2/update/install")
+printf '%s' "$pcsx2_bad_update" | python3 -c 'import json, sys; assert json.load(sys.stdin)["running"]'
+for _ in $(seq 1 100); do
+    pcsx2_bad_progress=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/update/progress")
+    pcsx2_bad_status=$(printf '%s' "$pcsx2_bad_progress" | python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])')
+    [ "$pcsx2_bad_status" = "failed" ] && break
+    sleep 0.05
+done
+printf '%s' "$pcsx2_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "archive" in v["error"].lower()'
+[ ! -e "$pcsx2_env/current" ]
+pcsx2_remove_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-games\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/remove-root")
+printf '%s' "$pcsx2_remove_root" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["roots"] == [] and v["games"] == []'
+[ -d "$home/pcsx2-games" ]
 
 shadps4_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/status")
 printf '%s' "$shadps4_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["supported"] and v["experimental"] and not v["installed"] and v["state"] == "missing_runtime" and v["runtimeArchitecture"] == "x86_64"'

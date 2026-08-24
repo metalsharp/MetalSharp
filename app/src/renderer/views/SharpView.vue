@@ -281,6 +281,64 @@ interface Shadps4Status {
   executablePath?: string | null;
 }
 
+interface Pcsx2Status {
+  ok: boolean;
+  supported: boolean;
+  unsupportedReason?:
+    "unsupported_architecture" | "macos_too_old" | "rosetta_missing" | "sse41_missing" | "runtime_probe_failed" | null;
+  installed: boolean;
+  runtimeValid: boolean;
+  state:
+    | "unsupported_host"
+    | "missing_runtime"
+    | "runtime_probe_failed"
+    | "setup_required"
+    | "missing_bios"
+    | "no_game_folders"
+    | "ready"
+    | "running";
+  hostArchitecture: string;
+  runtimeArchitecture: string;
+  rosettaAvailable: boolean;
+  sse41Available: boolean;
+  hostMacosMajor: number;
+  hostMemoryBytes: number;
+  hostLogicalCpu: number;
+  warnings: string[];
+  runtimeMinimumMacos?: number | null;
+  currentTag?: string | null;
+  rollbackAvailable: boolean;
+  setupComplete: boolean;
+  biosInstalled: boolean;
+  biosCount: number;
+  biosRegion?: string | null;
+  biosDescription?: string | null;
+  gameRootCount: number;
+  activeSessionCount: number;
+  dataPathFlag: boolean;
+  upstreamUpdaterDisabled: boolean;
+  environmentPath: string;
+  dataPath: string;
+  cachePath: string;
+  executablePath?: string | null;
+}
+
+interface Pcsx2Game {
+  id: string;
+  serial?: string | null;
+  title: string;
+  region?: string | null;
+  format: string;
+  size: number;
+  path: string;
+  hasArtwork: boolean;
+  running: boolean;
+  pid?: number | null;
+  lastLogPath?: string | null;
+  lastExitCode?: number | null;
+  lastExitSignal?: number | null;
+}
+
 type Shadps4Game = Rpcs3Game;
 type Shadps4Update = Rpcs3Update;
 
@@ -294,7 +352,7 @@ interface Rpcs3UpdateProgress {
   targetTag?: string | null;
 }
 
-type SharpSource = "installers" | "gog" | "gamejolt" | "rpcs3" | "shadps4";
+type SharpSource = "installers" | "gog" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4";
 
 const toast = useToast();
 const sourceMode = ref<SharpSource>("installers");
@@ -302,12 +360,14 @@ const sourceTabs = [
   { id: "installers" as const, label: "Installers" },
   { id: "gog" as const, label: "GOG" },
   { id: "gamejolt" as const, label: "GameJolt" },
+  { id: "pcsx2" as const, label: "PCSX2" },
   { id: "rpcs3" as const, label: "RPCS3" },
   { id: "shadps4" as const, label: "ShadPS4" },
 ];
 const headerTitle = computed(() => {
   if (sourceMode.value === "gog") return "GOG Games Library";
   if (sourceMode.value === "gamejolt") return "GameJolt Library";
+  if (sourceMode.value === "pcsx2") return "PCSX2 Library";
   if (sourceMode.value === "rpcs3") return "RPCS3 Library";
   if (sourceMode.value === "shadps4") return "shadPS4 Library";
   return "Sharp Library";
@@ -315,6 +375,8 @@ const headerTitle = computed(() => {
 const headerSubtitle = computed(() => {
   if (sourceMode.value === "gog") return "Connect, sync, install, and play GOG games through MetalSharp.";
   if (sourceMode.value === "gamejolt") return "Play GameJolt games from internal or external GameJolt storage.";
+  if (sourceMode.value === "pcsx2")
+    return "Install, configure, and launch owned PlayStation 2 disc dumps through an isolated PCSX2 environment.";
   if (sourceMode.value === "rpcs3")
     return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
   if (sourceMode.value === "shadps4")
@@ -356,6 +418,31 @@ const gamejoltPanel = ref<HTMLElement | null>(null);
 let gamejoltDragPointerId: number | null = null;
 const gamejoltDownloadToastIds = new Map<string, number>();
 let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+const pcsx2Status = ref<Pcsx2Status | null>(null);
+const pcsx2Games = ref<Pcsx2Game[]>([]);
+const pcsx2Roots = ref<string[]>([]);
+const pcsx2Update = ref<Rpcs3Update | null>(null);
+const pcsx2UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const pcsx2Loading = ref<Record<string, boolean>>({});
+const pcsx2BuildLabel = computed(() => pcsx2Status.value?.currentTag ?? "Not installed");
+const pcsx2StateLabel = computed(() => {
+  const status = pcsx2Status.value;
+  if (!status) return "Checking host…";
+  if (!status.supported) {
+    if (status.unsupportedReason === "macos_too_old") return "Newer macOS required";
+    if (status.unsupportedReason === "rosetta_missing") return "Rosetta required";
+    if (status.unsupportedReason === "sse41_missing") return "SSE4.1 required";
+    return "Unsupported Mac";
+  }
+  if (status.state === "running") return "PCSX2 running";
+  if (status.state === "ready") return "Ready to play";
+  if (status.state === "setup_required") return "PCSX2 setup required";
+  if (status.state === "missing_bios") return "BIOS required";
+  if (status.state === "runtime_probe_failed") return "Runtime repair required";
+  return "Setup required";
+});
+let pcsx2ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let pcsx2UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
 const rpcs3Status = ref<Rpcs3Status | null>(null);
 const rpcs3Games = ref<Rpcs3Game[]>([]);
 const rpcs3Roots = ref<string[]>([]);
@@ -882,6 +969,262 @@ function endGameJoltBrowserDrag(event: PointerEvent) {
   window.removeEventListener("pointermove", moveGameJoltBrowserDrag);
   window.removeEventListener("pointerup", endGameJoltBrowserDrag);
   window.removeEventListener("pointercancel", endGameJoltBrowserDrag);
+}
+
+async function refreshPcsx2(showResult = false) {
+  const [statusResult, gamesResult] = await Promise.all([
+    api<Pcsx2Status>("GET", "/sharp-library/pcsx2/status"),
+    api<{ ok: boolean; games: Pcsx2Game[]; roots: string[] }>(
+      showResult ? "POST" : "GET",
+      showResult ? "/sharp-library/pcsx2/scan" : "/sharp-library/pcsx2/games",
+      showResult ? {} : undefined,
+    ),
+  ]);
+  if (statusResult?.ok) pcsx2Status.value = statusResult;
+  if (gamesResult?.ok) {
+    pcsx2Games.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    pcsx2Roots.value = gamesResult.roots ?? [];
+  }
+  if (showResult)
+    toast.show(`Found ${pcsx2Games.value.length} PCSX2 game${pcsx2Games.value.length === 1 ? "" : "s"}`, "success");
+}
+
+async function checkPcsx2Update(showResult = true, force = showResult) {
+  pcsx2Loading.value.check = true;
+  const result = await api<Rpcs3Update>(
+    force ? "POST" : "GET",
+    force ? "/sharp-library/pcsx2/update/refresh" : "/sharp-library/pcsx2/update/check",
+    force ? {} : undefined,
+  );
+  pcsx2Loading.value.check = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "Could not check PCSX2 updates", "error");
+    return null;
+  }
+  pcsx2Update.value = result;
+  if (showResult) {
+    toast.show(
+      result.available
+        ? `${pcsx2Status.value?.installed ? "PCSX2 update" : "PCSX2"} ${result.latestVersion} is available`
+        : result.suppressed === "pinned"
+          ? "The current PCSX2 version is pinned"
+          : result.suppressed === "skipped"
+            ? "The latest PCSX2 version is skipped"
+            : "PCSX2 is up to date",
+      result.available ? "success" : "info",
+    );
+  }
+  return result;
+}
+
+function stopPcsx2UpdatePolling() {
+  if (pcsx2UpdatePollTimer) clearInterval(pcsx2UpdatePollTimer);
+  pcsx2UpdatePollTimer = null;
+}
+
+function beginPcsx2UpdatePolling() {
+  stopPcsx2UpdatePolling();
+  pcsx2UpdatePollTimer = setInterval(async () => {
+    const progress = await api<Rpcs3UpdateProgress>("GET", "/sharp-library/pcsx2/update/progress");
+    if (!progress?.ok) return;
+    pcsx2UpdateProgress.value = progress;
+    if (!progress.running && (progress.status === "completed" || progress.status === "failed")) {
+      stopPcsx2UpdatePolling();
+      pcsx2Loading.value.update = false;
+      toast.show(
+        progress.status === "completed" ? "PCSX2 is ready" : progress.error || "PCSX2 update failed",
+        progress.status === "completed" ? "success" : "error",
+      );
+      await refreshPcsx2();
+      await checkPcsx2Update(false);
+    }
+  }, 650);
+}
+
+async function installOrUpdatePcsx2() {
+  if (pcsx2Status.value && !pcsx2Status.value.supported) {
+    toast.show(pcsx2StateLabel.value, "error");
+    return;
+  }
+  const release = pcsx2Update.value ?? (await checkPcsx2Update(false));
+  if (!release?.ok) return;
+  if (pcsx2Status.value?.installed && !release.available) {
+    toast.show("PCSX2 is already up to date", "info");
+    return;
+  }
+  const action = pcsx2Status.value?.installed ? "Update" : "Install";
+  if (
+    !confirm(
+      `${action} official PCSX2 ${release.latestVersion} (${formatBytes(release.downloadSize)})?\n\nMetalSharp verifies the official SHA-256, Developer ID signature, hardened runtime, and notarization before activation. BIOS, memory cards, saves, states, settings, profiles, caches, and games are preserved.`,
+    )
+  )
+    return;
+  pcsx2Loading.value.update = true;
+  const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/pcsx2/update/install", {}, 35 * 1000);
+  if (!result?.ok) {
+    pcsx2Loading.value.update = false;
+    toast.show(result?.error ?? "Could not start the PCSX2 install", "error");
+    return;
+  }
+  pcsx2UpdateProgress.value = result;
+  beginPcsx2UpdatePolling();
+}
+
+async function setPcsx2UpdatePolicy(action: "pin-current" | "unpin" | "skip-update" | "clear-skip") {
+  const result = await api<Rpcs3Update>("POST", `/sharp-library/pcsx2/${action}`, {
+    tag: pcsx2Update.value?.latestTag,
+  });
+  if (result?.ok) {
+    pcsx2Update.value = result;
+    toast.show(
+      action === "pin-current"
+        ? "Current PCSX2 version pinned"
+        : action === "unpin"
+          ? "PCSX2 version unpinned"
+          : action === "skip-update"
+            ? "PCSX2 update skipped"
+            : "Skipped PCSX2 update cleared",
+      "success",
+    );
+  } else toast.show(result?.error ?? "Could not save PCSX2 update preference", "error");
+}
+
+async function rollbackPcsx2() {
+  if (
+    !confirm(
+      "Switch to the previous PCSX2 runtime? Mutable user data is preserved, but savestates may not be compatible across versions.",
+    )
+  )
+    return;
+  const result = await api<Pcsx2Status & { error?: string }>("POST", "/sharp-library/pcsx2/update/rollback", {});
+  if (result?.ok) {
+    pcsx2Status.value = result;
+    toast.show(
+      "PCSX2 runtime rolled back; BIOS, saves, settings, profiles, caches, and games were preserved",
+      "success",
+    );
+    await refreshPcsx2();
+  } else toast.show(result?.error ?? "PCSX2 rollback failed", "error");
+}
+
+async function addPcsx2Folder() {
+  const path = await getAPI().pickDirectory("Select a folder containing owned PlayStation 2 disc dumps");
+  if (!path) return;
+  const result = await api<{ ok: boolean; games: Pcsx2Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/pcsx2/add-root",
+    { path },
+  );
+  if (result?.ok) {
+    pcsx2Games.value = result.games ?? [];
+    pcsx2Roots.value = result.roots ?? [];
+    toast.show("PCSX2 game folder added. External game files remain in place.", "success");
+  } else toast.show(result?.error ?? "Could not add the PCSX2 game folder", "error");
+}
+
+async function removePcsx2Root(path: string) {
+  if (!confirm(`Remove this PCSX2 library reference?\n\n${path}\n\nNo game files will be deleted.`)) return;
+  const result = await api<{ ok: boolean; games: Pcsx2Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/pcsx2/remove-root",
+    { path },
+  );
+  if (result?.ok) {
+    pcsx2Games.value = result.games ?? [];
+    pcsx2Roots.value = result.roots ?? [];
+    toast.show("PCSX2 folder reference removed; game files were preserved", "success");
+  } else toast.show(result?.error ?? "Could not remove the PCSX2 folder", "error");
+}
+
+async function importPcsx2Bios() {
+  const path = await getAPI().pickPcsx2Bios();
+  if (!path) return;
+  if (
+    !confirm(
+      "Import this BIOS dumped from a PlayStation 2 console you own? MetalSharp copies it only into the isolated PCSX2 environment and never uploads it.",
+    )
+  )
+    return;
+  pcsx2Loading.value.bios = true;
+  const result = await api<{ ok: boolean; region?: string; description?: string; error?: string }>(
+    "POST",
+    "/sharp-library/pcsx2/import-bios",
+    { path },
+  );
+  pcsx2Loading.value.bios = false;
+  if (result?.ok) {
+    toast.show(`Validated ${result.description ?? result.region ?? "PlayStation 2 BIOS"}`, "success");
+    await refreshPcsx2();
+  } else toast.show(result?.error ?? "PCSX2 rejected this BIOS dump", "error");
+}
+
+async function initializePcsx2() {
+  pcsx2Loading.value.initialize = true;
+  const result = await api<Pcsx2Status & { error?: string }>("POST", "/sharp-library/pcsx2/initialize", {});
+  pcsx2Loading.value.initialize = false;
+  if (result?.ok) {
+    pcsx2Status.value = result;
+    toast.show("PCSX2 isolated state initialized", "success");
+  } else toast.show(result?.error ?? "PCSX2 initialization failed", "error");
+}
+
+async function openPcsx2(setup = false) {
+  const result = await api<{ ok: boolean; error?: string }>(
+    "POST",
+    setup ? "/sharp-library/pcsx2/open-setup" : "/sharp-library/pcsx2/open-ui",
+    {},
+  );
+  if (!result?.ok) toast.show(result?.error ?? "Could not open PCSX2", "error");
+  else await refreshPcsx2();
+}
+
+async function launchPcsx2(game: Pcsx2Game) {
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/sharp-library/pcsx2/launch", {
+    id: game.id,
+    fullscreen: true,
+  });
+  if (!result?.ok) toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+  else {
+    toast.show(`${game.title} started in PCSX2`, "success");
+    await refreshPcsx2();
+  }
+}
+
+async function stopPcsx2(game: Pcsx2Game) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/pcsx2/stop", { id: game.id });
+  if (!result?.ok) toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+  else {
+    toast.show(`${game.title} stopped`, "success");
+    await refreshPcsx2();
+  }
+}
+
+async function stopManagedPcsx2() {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/pcsx2/stop", {});
+  if (!result?.ok) toast.show(result?.error ?? "Could not stop PCSX2", "error");
+  else {
+    toast.show("PCSX2 stopped", "success");
+    await refreshPcsx2();
+  }
+}
+
+async function removePcsx2Runtime() {
+  if (
+    !confirm(
+      "Remove only the managed PCSX2 runtime? BIOS, memory cards, saves, savestates, settings, controller profiles, covers, caches, logs, and external games will be preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/pcsx2/remove-runtime", {
+    confirm: true,
+  });
+  if (result?.ok) {
+    pcsx2Update.value = null;
+    toast.show("PCSX2 runtime removed; all mutable user data and games were preserved", "success");
+    await refreshPcsx2();
+  } else toast.show(result?.error ?? "Could not remove PCSX2", "error");
 }
 
 async function refreshRpcs3(showResult = false) {
@@ -1619,7 +1962,10 @@ async function refreshSharpLibrary() {
 
 function selectSource(mode: SharpSource) {
   sourceMode.value = mode;
-  if (mode === "shadps4") {
+  if (mode === "pcsx2") {
+    void refreshPcsx2();
+    if (!pcsx2Update.value) void checkPcsx2Update(false);
+  } else if (mode === "shadps4") {
     void refreshShadps4();
     if (!shadps4Update.value) void checkShadps4Update(false);
   } else if (mode === "rpcs3") {
@@ -1629,6 +1975,10 @@ function selectSource(mode: SharpSource) {
 }
 
 async function refreshCurrentSource() {
+  if (sourceMode.value === "pcsx2") {
+    await refreshPcsx2(true);
+    return;
+  }
   if (sourceMode.value === "rpcs3") {
     await refreshRpcs3(true);
     return;
@@ -2313,6 +2663,9 @@ onMounted(() => {
   void load();
   void refreshGameJoltProcessState();
   gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  pcsx2ProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "pcsx2" && pcsx2Status.value?.installed) void refreshPcsx2();
+  }, 3000);
   rpcs3ProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "rpcs3" && rpcs3Status.value?.installed) void refreshRpcs3();
   }, 3000);
@@ -2325,6 +2678,9 @@ onUnmounted(() => {
   stopGogMonoPoll();
   if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
   gamejoltProcessPollTimer = null;
+  if (pcsx2ProcessPollTimer) clearInterval(pcsx2ProcessPollTimer);
+  pcsx2ProcessPollTimer = null;
+  stopPcsx2UpdatePolling();
   if (rpcs3ProcessPollTimer) clearInterval(rpcs3ProcessPollTimer);
   rpcs3ProcessPollTimer = null;
   stopRpcs3UpdatePoll();
@@ -2435,7 +2791,7 @@ onUnmounted(() => {
           ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
         </button>
         <button
-          v-if="sourceMode !== 'rpcs3'"
+          v-if="sourceMode !== 'pcsx2' && sourceMode !== 'rpcs3' && sourceMode !== 'shadps4'"
           class="btn btn-secondary"
           :disabled="sourceMode === 'gog' && gogLoading.sync"
           @click="sourceMode === 'gamejolt' ? syncGameJolt() : refreshCurrentSource()"
@@ -2886,6 +3242,352 @@ onUnmounted(() => {
             </div>
             <webview class="gamejolt-browser" src="https://gamejolt.com/games" partition="persist:gamejolt"></webview>
           </div>
+        </section>
+      </template>
+
+      <template v-else-if="sourceMode === 'pcsx2'">
+        <section class="emulator-panel rpcs3-dashboard pcsx2-dashboard">
+          <div class="rpcs3-overview">
+            <div class="rpcs3-overview-main">
+              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+              <div class="rpcs3-overview-copy">
+                <div class="rpcs3-eyebrow">Managed PlayStation 2 environment</div>
+                <div class="rpcs3-title-row">
+                  <h2>PCSX2</h2>
+                  <span
+                    class="rpcs3-state-pill"
+                    :class="
+                      pcsx2Status?.state === 'ready' || pcsx2Status?.state === 'running'
+                        ? 'ready'
+                        : pcsx2Status?.supported
+                          ? 'attention'
+                          : 'muted'
+                    "
+                  >
+                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ pcsx2StateLabel }}
+                  </span>
+                </div>
+                <p>
+                  Official stable PCSX2, isolated from your normal home folder. MetalSharp never downloads a Sony BIOS
+                  or games and preserves all mutable emulator data across updates and runtime removal.
+                </p>
+                <p v-if="pcsx2Status?.warnings?.length" class="shadps4-host-warning">
+                  Host advisory: {{ pcsx2Status.warnings.join(", ").replaceAll("_", " ") }}
+                </p>
+              </div>
+            </div>
+            <div class="rpcs3-primary-actions">
+              <button
+                class="btn btn-primary rpcs3-primary-button"
+                :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
+                @click="installOrUpdatePcsx2"
+              >
+                <IconDownload width="16" height="16" />
+                {{
+                  pcsx2Loading.update
+                    ? "Installing…"
+                    : pcsx2Status?.installed
+                      ? pcsx2Update && !pcsx2Update.available
+                        ? "PCSX2 Up to Date"
+                        : "Update PCSX2"
+                      : "Install PCSX2"
+                }}
+              </button>
+              <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
+                <IconX width="15" height="15" /> Stop PCSX2
+              </button>
+              <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
+                <IconExternalLink width="15" height="15" /> Open PCSX2
+              </button>
+            </div>
+            <div class="rpcs3-stats">
+              <div class="rpcs3-stat">
+                <IconPackage width="17" height="17" />
+                <span
+                  ><small>Stable runtime</small
+                  ><strong :title="pcsx2Status?.currentTag ?? ''">{{ pcsx2BuildLabel }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconMonitor width="17" height="17" />
+                <span
+                  ><small>Host</small
+                  ><strong>{{
+                    pcsx2Status?.hostArchitecture === "arm64"
+                      ? "Apple Silicon · Rosetta"
+                      : pcsx2Status?.hostArchitecture === "x86_64"
+                        ? "Intel · SSE4.1"
+                        : pcsx2Status?.hostArchitecture || "Checking…"
+                  }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconShieldCheck width="17" height="17" />
+                <span
+                  ><small>User BIOS</small
+                  ><strong>{{
+                    pcsx2Status?.biosInstalled ? pcsx2Status.biosRegion || "Validated" : "Required"
+                  }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconGamepad2 width="17" height="17" />
+                <span
+                  ><small>Library</small
+                  ><strong>{{ pcsx2Games.length }} game{{ pcsx2Games.length === 1 ? "" : "s" }}</strong></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="rpcs3-command-bar" aria-label="PCSX2 library actions">
+            <button
+              class="rpcs3-command"
+              :disabled="!pcsx2Status?.installed || pcsx2Loading.bios"
+              @click="importPcsx2Bios"
+            >
+              <IconShieldCheck width="17" height="17" /><span
+                ><strong>Import BIOS</strong><small>From your console</small></span
+              >
+            </button>
+            <button class="rpcs3-command" :disabled="!pcsx2Status?.installed" @click="openPcsx2(true)">
+              <IconMonitor width="17" height="17" /><span
+                ><strong>PCSX2 Setup</strong><small>Controllers & renderer</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="addPcsx2Folder">
+              <IconFolderPlus width="17" height="17" /><span
+                ><strong>Add Games</strong><small>Owned disc dumps</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="refreshPcsx2(true)">
+              <component :is="refreshIcon" width="17" height="17" /><span
+                ><strong>Scan Library</strong><small>Refresh metadata</small></span
+              >
+            </button>
+          </div>
+
+          <div
+            v-if="pcsx2UpdateProgress?.running || pcsx2UpdateProgress?.status === 'failed'"
+            class="gog-download-progress rpcs3-update-progress"
+          >
+            <div class="gog-progress-meta">
+              <strong>{{ pcsx2UpdateProgress.message }}</strong
+              ><span>{{ pcsx2UpdateProgress.percent }}%</span>
+            </div>
+            <div class="gog-progress-bar"><span :style="{ width: `${pcsx2UpdateProgress.percent}%` }"></span></div>
+            <small v-if="pcsx2UpdateProgress.error" class="launch-failure">{{ pcsx2UpdateProgress.error }}</small>
+          </div>
+
+          <details class="rpcs3-management">
+            <summary>
+              <span>Runtime & support</span>
+              <small>Version policy, rollback, official guides, and isolated data</small>
+            </summary>
+            <div class="rpcs3-management-actions">
+              <button class="btn btn-secondary btn-sm" :disabled="pcsx2Loading.check" @click="checkPcsx2Update()">
+                {{ pcsx2Loading.check ? "Checking…" : "Check Stable Updates" }}
+              </button>
+              <button
+                v-if="pcsx2Status?.installed && pcsx2Update"
+                class="btn btn-secondary btn-sm"
+                @click="setPcsx2UpdatePolicy(pcsx2Update.pinnedTag ? 'unpin' : 'pin-current')"
+              >
+                {{ pcsx2Update.pinnedTag ? "Unpin Version" : "Pin Current" }}
+              </button>
+              <button
+                v-if="pcsx2Update?.available"
+                class="btn btn-secondary btn-sm"
+                @click="setPcsx2UpdatePolicy('skip-update')"
+              >
+                Skip {{ pcsx2Update.latestVersion }}
+              </button>
+              <button
+                v-if="pcsx2Update?.skippedTag"
+                class="btn btn-secondary btn-sm"
+                @click="setPcsx2UpdatePolicy('clear-skip')"
+              >
+                Clear Skipped Update
+              </button>
+              <button v-if="pcsx2Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackPcsx2">
+                Roll Back Runtime
+              </button>
+              <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('bios')">BIOS Dump Guide</button>
+              <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('discs')">
+                Disc Dumping Guide
+              </button>
+              <button
+                v-if="pcsx2Status?.environmentPath"
+                class="btn btn-secondary btn-sm"
+                @click="getAPI().openPcsx2Path(pcsx2Status.environmentPath)"
+              >
+                Open Isolated Data
+              </button>
+              <button v-if="pcsx2Status?.installed" class="btn btn-danger btn-sm" @click="removePcsx2Runtime">
+                Remove Runtime
+              </button>
+            </div>
+          </details>
+
+          <details v-if="pcsx2Roots.length" class="emulator-roots">
+            <summary>
+              Game folders <span>{{ pcsx2Roots.length }}</span>
+            </summary>
+            <div v-for="root in pcsx2Roots" :key="root" class="emulator-root-row">
+              <code>{{ root }}</code>
+              <button class="btn btn-secondary btn-sm" @click="removePcsx2Root(root)">Remove Reference</button>
+            </div>
+          </details>
+
+          <div v-if="!pcsx2Status" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Checking host readiness</span>
+              <h2>Preparing PCSX2 status…</h2>
+            </div>
+          </div>
+          <div v-else-if="!pcsx2Status.supported" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Host readiness blocked</span>
+              <h2>{{ pcsx2StateLabel }}</h2>
+              <p>PCSX2 requires macOS 11+, x86-64/SSE4.1 on Intel, or working Rosetta 2 on Apple Silicon.</p>
+            </div>
+          </div>
+          <div v-else-if="!pcsx2Status.installed" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 1 of 4</span>
+              <h2>Install verified PCSX2</h2>
+              <p>
+                MetalSharp downloads the official stable signed and notarized macOS app, verifies it, and activates it
+                atomically.
+              </p>
+            </div>
+            <button class="btn btn-primary" :disabled="pcsx2Loading.update" @click="installOrUpdatePcsx2">
+              Install PCSX2
+            </button>
+          </div>
+          <div v-else-if="!pcsx2Status.biosInstalled" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 2 of 4</span>
+              <h2>Import your own PS2 BIOS</h2>
+              <p>
+                PCSX2 requires a BIOS dumped from a console you own. MetalSharp never downloads, bundles, or uploads it.
+              </p>
+            </div>
+            <div class="rpcs3-onboarding-actions">
+              <button class="btn btn-primary" :disabled="pcsx2Loading.bios" @click="importPcsx2Bios">
+                {{ pcsx2Loading.bios ? "Validating…" : "Import BIOS" }}
+              </button>
+              <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('bios')">Official Guide</button>
+            </div>
+          </div>
+          <div v-else-if="!pcsx2Status.setupComplete" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 3 of 4</span>
+              <h2>Finish isolated PCSX2 setup</h2>
+              <p>
+                Use PCSX2's upstream wizard for controller mapping, graphics, language, and audio. Its updater remains
+                disabled because MetalSharp manages versions atomically.
+              </p>
+            </div>
+            <div class="rpcs3-onboarding-actions">
+              <button class="btn btn-primary" @click="openPcsx2(true)">Open PCSX2 Setup</button>
+              <button
+                v-if="!pcsx2Status.upstreamUpdaterDisabled"
+                class="btn btn-secondary"
+                :disabled="pcsx2Loading.initialize"
+                @click="initializePcsx2"
+              >
+                Initialize State
+              </button>
+            </div>
+          </div>
+          <div v-else-if="pcsx2Roots.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 4 of 4</span>
+              <h2>Add owned PlayStation 2 disc dumps</h2>
+              <p>
+                Supported: ISO, BIN, IMG, MDF, GZ, CSO, ZSO, CHD, and homebrew ELF. CUE, TOC, and CDR sidecars are not
+                launchable.
+              </p>
+            </div>
+            <div class="rpcs3-onboarding-actions">
+              <button class="btn btn-primary" @click="addPcsx2Folder">Add Game Folder</button>
+              <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('discs')">
+                Official Dumping Guide
+              </button>
+            </div>
+          </div>
+          <div v-else-if="pcsx2Games.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Library folder added</span>
+              <h2>No PlayStation 2 games found yet</h2>
+              <p>Add a supported owned dump to a registered folder, then scan again.</p>
+            </div>
+            <button class="btn btn-secondary" @click="refreshPcsx2(true)">Scan Again</button>
+          </div>
+          <div v-else class="emulator-game-grid">
+            <article
+              v-for="game in pcsx2Games"
+              :key="game.id"
+              class="emulator-game-card"
+              :class="{ running: game.running }"
+            >
+              <div class="emulator-game-art">
+                <img
+                  v-if="game.hasArtwork"
+                  :src="`http://127.0.0.1:9274/sharp-library/pcsx2/cover?id=${encodeURIComponent(game.id)}`"
+                  :alt="`${game.title} cover`"
+                />
+                <div v-else class="emulator-art-fallback"><IconGamepad2 width="34" height="34" /></div>
+                <span v-if="game.running" class="emulator-running-badge">Running</span>
+              </div>
+              <div class="emulator-game-body">
+                <div>
+                  <h3>{{ game.title }}</h3>
+                  <p>
+                    {{ game.serial || "Serial unavailable" }} · {{ game.format.toUpperCase() }} ·
+                    {{ formatBytes(game.size) }}
+                  </p>
+                </div>
+                <div class="emulator-game-actions">
+                  <button
+                    v-if="!game.running"
+                    class="btn btn-primary btn-sm"
+                    :disabled="pcsx2Status?.state !== 'ready'"
+                    @click="launchPcsx2(game)"
+                  >
+                    Play
+                  </button>
+                  <button v-else class="btn btn-danger btn-sm" @click="stopPcsx2(game)">Stop</button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Path(game.path)">
+                    Open Folder
+                  </button>
+                  <button
+                    v-if="game.lastLogPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openPcsx2Path(game.lastLogPath)"
+                  >
+                    Open Log
+                  </button>
+                </div>
+                <small v-if="game.lastExitCode !== null && game.lastExitCode !== undefined"
+                  >Last exit: {{ game.lastExitCode }}</small
+                >
+                <small v-else-if="game.lastExitSignal">Last signal: {{ game.lastExitSignal }}</small>
+              </div>
+            </article>
+          </div>
+          <p class="emulator-affiliation-note">
+            MetalSharp is not affiliated with the PCSX2 project or Sony Interactive Entertainment. Compatibility and
+            performance vary by game.
+          </p>
         </section>
       </template>
 
@@ -4467,6 +5169,12 @@ details[open] > .drawer-summary {
 .shadps4-host-warning {
   margin-top: 6px !important;
   color: var(--warning, #f4c15d) !important;
+}
+.emulator-affiliation-note {
+  margin: 2px 4px 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
 }
 .rpcs3-title-row h2 {
   margin: 0;
