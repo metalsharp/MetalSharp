@@ -126,11 +126,7 @@ gog_import=$(curl --silent --fail --request POST --header 'Content-Type: applica
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
 
 emulators=$(curl --silent --fail "http://127.0.0.1:$port/emulators")
-printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["rpcs3", "rpcs4"] and v["providers"][0]["supported"] and not v["providers"][1]["supported"]'
-rpcs4_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs4/status")
-printf '%s' "$rpcs4_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and not v["supported"] and not v["installAvailable"] and v["state"] == "unsupported_upstream" and len(v["readinessGate"]) == 7'
-rpcs4_action=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/rpcs4/install")
-printf '%s' "$rpcs4_action" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["state"] == "unsupported_upstream"'
+printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["rpcs3"] and v["providers"][0]["supported"]'
 rpcs3_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/status")
 printf '%s' "$rpcs3_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and not v["installed"] and v["state"] == "not_installed" and not v["firmwareInstalled"]'
 rpcs3_update=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/update/check")

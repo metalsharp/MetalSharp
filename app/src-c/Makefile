@@ -34,7 +34,6 @@ SOURCES := \
 	runtime/mono.c \
 	runtime/emulators.c \
 	runtime/rpcs3.c \
-	runtime/rpcs4.c \
 	runtime/sharp.c \
 	runtime/gamejolt.c \
 	runtime/gog.c \

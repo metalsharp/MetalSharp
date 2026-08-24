@@ -1,8 +1,7 @@
 //! Parity contracts for the native emulator providers.
 //!
 //! The packaged runtime is the C backend. These serde models keep the Rust
-//! reference explicit about the same provider states without pretending that
-//! dormant RPCS4 code is installable.
+//! reference explicit about the supported RPCS3 provider state.
 
 use serde::{Deserialize, Serialize};
 
@@ -65,63 +64,13 @@ pub struct EmulatorUpdateContract {
     pub published_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Rpcs4StatusContract {
-    pub ok: bool,
-    pub provider: String,
-    pub name: String,
-    pub platform: String,
-    pub supported: bool,
-    pub install_available: bool,
-    pub state: String,
-    pub repository: String,
-    pub last_upstream_commit: String,
-    pub reason: String,
-    pub readiness_gate: Vec<String>,
-}
-
 pub fn providers() -> Vec<EmulatorProvider> {
-    vec![
-        EmulatorProvider {
-            id: "rpcs3".into(),
-            name: "RPCS3".into(),
-            platform: "PlayStation 3".into(),
-            supported: true,
-        },
-        EmulatorProvider {
-            id: "rpcs4".into(),
-            name: "RPCS4".into(),
-            platform: "PlayStation 4".into(),
-            supported: false,
-        },
-    ]
-}
-
-pub fn rpcs4_status() -> Rpcs4StatusContract {
-    Rpcs4StatusContract {
-        ok: true,
-        provider: "rpcs4".into(),
-        name: "RPCS4".into(),
-        platform: "PlayStation 4".into(),
-        supported: false,
-        install_available: false,
-        state: "unsupported_upstream".into(),
-        repository: "https://github.com/xYaroslavGTx/rpcs4".into(),
-        last_upstream_commit: "2016-05-18".into(),
-        reason:
-            "The candidate repository has one Windows-only skeleton commit, no releases, no CI, and no macOS runtime."
-                .into(),
-        readiness_gate: vec![
-            "Maintained upstream".into(),
-            "Native macOS build".into(),
-            "Versioned releases".into(),
-            "Stable launch CLI".into(),
-            "Documented game layout".into(),
-            "Integrity-verifiable artifacts".into(),
-            "Boot evidence".into(),
-        ],
-    }
+    vec![EmulatorProvider {
+        id: "rpcs3".into(),
+        name: "RPCS3".into(),
+        platform: "PlayStation 3".into(),
+        supported: true,
+    }]
 }
 
 #[cfg(test)]
@@ -129,22 +78,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_contract_keeps_rpcs3_and_rpcs4_separate() {
+    fn provider_contract_exposes_supported_rpcs3() {
         let values = providers();
-        assert_eq!(values.len(), 2);
+        assert_eq!(values.len(), 1);
         assert_eq!(values[0].id, "rpcs3");
         assert!(values[0].supported);
-        assert_eq!(values[1].id, "rpcs4");
-        assert!(!values[1].supported);
-    }
-
-    #[test]
-    fn rpcs4_fails_closed_until_every_gate_is_met() {
-        let status = rpcs4_status();
-        assert!(!status.supported);
-        assert!(!status.install_available);
-        assert_eq!(status.state, "unsupported_upstream");
-        assert_eq!(status.readiness_gate.len(), 7);
     }
 
     #[test]
