@@ -3546,1223 +3546,1360 @@ onUnmounted(() => {
 
       <template v-else-if="sourceMode === 'pcsx2'">
         <section class="emulator-panel rpcs3-dashboard pcsx2-dashboard">
-          <div class="rpcs3-overview">
-            <div class="rpcs3-overview-main">
-              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
-              <div class="rpcs3-overview-copy">
-                <div class="rpcs3-eyebrow">Managed PlayStation 2 environment</div>
-                <div class="rpcs3-title-row">
-                  <h2>PCSX2</h2>
-                  <span
-                    class="rpcs3-state-pill"
-                    :class="
-                      pcsx2Status?.state === 'ready' || pcsx2Status?.state === 'running'
-                        ? 'ready'
-                        : pcsx2Status?.supported
-                          ? 'attention'
-                          : 'muted'
-                    "
-                  >
-                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ pcsx2StateLabel }}
-                  </span>
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Managed PlayStation 2 environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>PCSX2</h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          pcsx2Status?.state === 'ready' || pcsx2Status?.state === 'running'
+                            ? 'ready'
+                            : pcsx2Status?.supported
+                              ? 'attention'
+                              : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ pcsx2StateLabel }}
+                      </span>
+                    </div>
+                    <p>
+                      Official stable PCSX2, isolated from your normal home folder. MetalSharp never downloads a Sony
+                      BIOS or games and preserves all mutable emulator data across updates and runtime removal.
+                    </p>
+                    <p v-if="pcsx2Status?.warnings?.length" class="shadps4-host-warning">
+                      Host advisory: {{ pcsx2Status.warnings.join(", ").replaceAll("_", " ") }}
+                    </p>
+                  </div>
                 </div>
-                <p>
-                  Official stable PCSX2, isolated from your normal home folder. MetalSharp never downloads a Sony BIOS
-                  or games and preserves all mutable emulator data across updates and runtime removal.
-                </p>
-                <p v-if="pcsx2Status?.warnings?.length" class="shadps4-host-warning">
-                  Host advisory: {{ pcsx2Status.warnings.join(", ").replaceAll("_", " ") }}
-                </p>
+                <div class="rpcs3-primary-actions">
+                  <button
+                    class="btn btn-primary rpcs3-primary-button"
+                    :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
+                    @click="installOrUpdatePcsx2"
+                  >
+                    <IconDownload width="16" height="16" />
+                    {{
+                      pcsx2Loading.update
+                        ? "Installing…"
+                        : pcsx2Status?.installed
+                          ? pcsx2Update && !pcsx2Update.available
+                            ? "PCSX2 Up to Date"
+                            : "Update PCSX2"
+                          : "Install PCSX2"
+                    }}
+                  </button>
+                  <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
+                    <IconX width="15" height="15" /> Stop PCSX2
+                  </button>
+                  <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
+                    <IconExternalLink width="15" height="15" /> Open PCSX2
+                  </button>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconPackage width="17" height="17" />
+                    <span
+                      ><small>Stable runtime</small
+                      ><strong :title="pcsx2Status?.currentTag ?? ''">{{ pcsx2BuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconMonitor width="17" height="17" />
+                    <span
+                      ><small>Host</small
+                      ><strong>{{
+                        pcsx2Status?.hostArchitecture === "arm64"
+                          ? "Apple Silicon · Rosetta"
+                          : pcsx2Status?.hostArchitecture === "x86_64"
+                            ? "Intel · SSE4.1"
+                            : pcsx2Status?.hostArchitecture || "Checking…"
+                      }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="17" height="17" />
+                    <span
+                      ><small>User BIOS</small
+                      ><strong>{{
+                        pcsx2Status?.biosInstalled ? pcsx2Status.biosRegion || "Validated" : "Required"
+                      }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="17" height="17" />
+                    <span
+                      ><small>Library</small
+                      ><strong>{{ pcsx2Games.length }} game{{ pcsx2Games.length === 1 ? "" : "s" }}</strong></span
+                    >
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="rpcs3-primary-actions">
-              <button
-                class="btn btn-primary rpcs3-primary-button"
-                :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
-                @click="installOrUpdatePcsx2"
-              >
-                <IconDownload width="16" height="16" />
-                {{
-                  pcsx2Loading.update
-                    ? "Installing…"
-                    : pcsx2Status?.installed
-                      ? pcsx2Update && !pcsx2Update.available
-                        ? "PCSX2 Up to Date"
-                        : "Update PCSX2"
-                      : "Install PCSX2"
-                }}
-              </button>
-              <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
-                <IconX width="15" height="15" /> Stop PCSX2
-              </button>
-              <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
-                <IconExternalLink width="15" height="15" /> Open PCSX2
-              </button>
-            </div>
-            <div class="rpcs3-stats">
-              <div class="rpcs3-stat">
-                <IconPackage width="17" height="17" />
-                <span
-                  ><small>Stable runtime</small
-                  ><strong :title="pcsx2Status?.currentTag ?? ''">{{ pcsx2BuildLabel }}</strong></span
+            <aside class="emulator-sidebar" aria-label="PCSX2 tools">
+              <div class="rpcs3-command-bar" aria-label="PCSX2 library actions">
+                <button
+                  class="rpcs3-command"
+                  :disabled="!pcsx2Status?.installed || pcsx2Loading.bios"
+                  @click="importPcsx2Bios"
                 >
+                  <IconShieldCheck width="17" height="17" /><span
+                    ><strong>Import BIOS</strong><small>From your console</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" :disabled="!pcsx2Status?.installed" @click="openPcsx2(true)">
+                  <IconMonitor width="17" height="17" /><span
+                    ><strong>PCSX2 Setup</strong><small>Controllers & renderer</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="addPcsx2Folder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add Games</strong><small>Owned disc dumps</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="refreshPcsx2(true)">
+                  <component :is="refreshIcon" width="17" height="17" /><span
+                    ><strong>Scan Library</strong><small>Refresh metadata</small></span
+                  >
+                </button>
               </div>
-              <div class="rpcs3-stat">
-                <IconMonitor width="17" height="17" />
-                <span
-                  ><small>Host</small
-                  ><strong>{{
-                    pcsx2Status?.hostArchitecture === "arm64"
-                      ? "Apple Silicon · Rosetta"
-                      : pcsx2Status?.hostArchitecture === "x86_64"
-                        ? "Intel · SSE4.1"
-                        : pcsx2Status?.hostArchitecture || "Checking…"
-                  }}</strong></span
-                >
+
+              <div
+                v-if="pcsx2UpdateProgress?.running || pcsx2UpdateProgress?.status === 'failed'"
+                class="gog-download-progress rpcs3-update-progress"
+              >
+                <div class="gog-progress-meta">
+                  <strong>{{ pcsx2UpdateProgress.message }}</strong
+                  ><span>{{ pcsx2UpdateProgress.percent }}%</span>
+                </div>
+                <div class="gog-progress-bar"><span :style="{ width: `${pcsx2UpdateProgress.percent}%` }"></span></div>
+                <small v-if="pcsx2UpdateProgress.error" class="launch-failure">{{ pcsx2UpdateProgress.error }}</small>
               </div>
-              <div class="rpcs3-stat">
-                <IconShieldCheck width="17" height="17" />
-                <span
-                  ><small>User BIOS</small
-                  ><strong>{{
-                    pcsx2Status?.biosInstalled ? pcsx2Status.biosRegion || "Validated" : "Required"
-                  }}</strong></span
-                >
-              </div>
-              <div class="rpcs3-stat">
-                <IconGamepad2 width="17" height="17" />
-                <span
-                  ><small>Library</small
-                  ><strong>{{ pcsx2Games.length }} game{{ pcsx2Games.length === 1 ? "" : "s" }}</strong></span
-                >
-              </div>
-            </div>
-          </div>
 
-          <div class="rpcs3-command-bar" aria-label="PCSX2 library actions">
-            <button
-              class="rpcs3-command"
-              :disabled="!pcsx2Status?.installed || pcsx2Loading.bios"
-              @click="importPcsx2Bios"
-            >
-              <IconShieldCheck width="17" height="17" /><span
-                ><strong>Import BIOS</strong><small>From your console</small></span
-              >
-            </button>
-            <button class="rpcs3-command" :disabled="!pcsx2Status?.installed" @click="openPcsx2(true)">
-              <IconMonitor width="17" height="17" /><span
-                ><strong>PCSX2 Setup</strong><small>Controllers & renderer</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="addPcsx2Folder">
-              <IconFolderPlus width="17" height="17" /><span
-                ><strong>Add Games</strong><small>Owned disc dumps</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="refreshPcsx2(true)">
-              <component :is="refreshIcon" width="17" height="17" /><span
-                ><strong>Scan Library</strong><small>Refresh metadata</small></span
-              >
-            </button>
-          </div>
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
+                  >
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button class="btn btn-secondary btn-sm" :disabled="pcsx2Loading.check" @click="checkPcsx2Update()">
+                    {{ pcsx2Loading.check ? "Checking…" : "Check Stable Updates" }}
+                  </button>
+                  <button
+                    v-if="pcsx2Status?.installed && pcsx2Update"
+                    class="btn btn-secondary btn-sm"
+                    @click="setPcsx2UpdatePolicy(pcsx2Update.pinnedTag ? 'unpin' : 'pin-current')"
+                  >
+                    {{ pcsx2Update.pinnedTag ? "Unpin Version" : "Pin Current" }}
+                  </button>
+                  <button
+                    v-if="pcsx2Update?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setPcsx2UpdatePolicy('skip-update')"
+                  >
+                    Skip {{ pcsx2Update.latestVersion }}
+                  </button>
+                  <button
+                    v-if="pcsx2Update?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setPcsx2UpdatePolicy('clear-skip')"
+                  >
+                    Clear Skipped Update
+                  </button>
+                  <button v-if="pcsx2Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackPcsx2">
+                    Roll Back Runtime
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('bios')">
+                    BIOS Dump Guide
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('discs')">
+                    Disc Dumping Guide
+                  </button>
+                  <button
+                    v-if="pcsx2Status?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openPcsx2Path(pcsx2Status.environmentPath)"
+                  >
+                    Open Isolated Data
+                  </button>
+                  <button v-if="pcsx2Status?.installed" class="btn btn-danger btn-sm" @click="removePcsx2Runtime">
+                    Remove Runtime
+                  </button>
+                </div>
+              </details>
 
-          <div
-            v-if="pcsx2UpdateProgress?.running || pcsx2UpdateProgress?.status === 'failed'"
-            class="gog-download-progress rpcs3-update-progress"
-          >
-            <div class="gog-progress-meta">
-              <strong>{{ pcsx2UpdateProgress.message }}</strong
-              ><span>{{ pcsx2UpdateProgress.percent }}%</span>
-            </div>
-            <div class="gog-progress-bar"><span :style="{ width: `${pcsx2UpdateProgress.percent}%` }"></span></div>
-            <small v-if="pcsx2UpdateProgress.error" class="launch-failure">{{ pcsx2UpdateProgress.error }}</small>
-          </div>
-
-          <details class="rpcs3-management">
-            <summary>
-              <span>Runtime & support</span>
-              <small>Version policy, rollback, official guides, and isolated data</small>
-            </summary>
-            <div class="rpcs3-management-actions">
-              <button class="btn btn-secondary btn-sm" :disabled="pcsx2Loading.check" @click="checkPcsx2Update()">
-                {{ pcsx2Loading.check ? "Checking…" : "Check Stable Updates" }}
-              </button>
-              <button
-                v-if="pcsx2Status?.installed && pcsx2Update"
-                class="btn btn-secondary btn-sm"
-                @click="setPcsx2UpdatePolicy(pcsx2Update.pinnedTag ? 'unpin' : 'pin-current')"
-              >
-                {{ pcsx2Update.pinnedTag ? "Unpin Version" : "Pin Current" }}
-              </button>
-              <button
-                v-if="pcsx2Update?.available"
-                class="btn btn-secondary btn-sm"
-                @click="setPcsx2UpdatePolicy('skip-update')"
-              >
-                Skip {{ pcsx2Update.latestVersion }}
-              </button>
-              <button
-                v-if="pcsx2Update?.skippedTag"
-                class="btn btn-secondary btn-sm"
-                @click="setPcsx2UpdatePolicy('clear-skip')"
-              >
-                Clear Skipped Update
-              </button>
-              <button v-if="pcsx2Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackPcsx2">
-                Roll Back Runtime
-              </button>
-              <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('bios')">BIOS Dump Guide</button>
-              <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('discs')">
-                Disc Dumping Guide
-              </button>
-              <button
-                v-if="pcsx2Status?.environmentPath"
-                class="btn btn-secondary btn-sm"
-                @click="getAPI().openPcsx2Path(pcsx2Status.environmentPath)"
-              >
-                Open Isolated Data
-              </button>
-              <button v-if="pcsx2Status?.installed" class="btn btn-danger btn-sm" @click="removePcsx2Runtime">
-                Remove Runtime
-              </button>
-            </div>
-          </details>
-
-          <details v-if="pcsx2Roots.length" class="emulator-roots">
-            <summary>
-              Game folders <span>{{ pcsx2Roots.length }}</span>
-            </summary>
-            <div v-for="root in pcsx2Roots" :key="root" class="emulator-root-row">
-              <code>{{ root }}</code>
-              <button class="btn btn-secondary btn-sm" @click="removePcsx2Root(root)">Remove Reference</button>
-            </div>
-          </details>
-
-          <div v-if="!pcsx2Status" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Checking host readiness</span>
-              <h2>Preparing PCSX2 status…</h2>
-            </div>
-          </div>
-          <div v-else-if="!pcsx2Status.supported" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Host readiness blocked</span>
-              <h2>{{ pcsx2StateLabel }}</h2>
-              <p>PCSX2 requires macOS 11+, x86-64/SSE4.1 on Intel, or working Rosetta 2 on Apple Silicon.</p>
-            </div>
-          </div>
-          <div v-else-if="!pcsx2Status.installed" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 1 of 4</span>
-              <h2>Install verified PCSX2</h2>
-              <p>
-                MetalSharp downloads the official stable signed and notarized macOS app, verifies it, and activates it
-                atomically.
-              </p>
-            </div>
-            <button class="btn btn-primary" :disabled="pcsx2Loading.update" @click="installOrUpdatePcsx2">
-              Install PCSX2
-            </button>
-          </div>
-          <div v-else-if="!pcsx2Status.biosInstalled" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 2 of 4</span>
-              <h2>Import your own PS2 BIOS</h2>
-              <p>
-                PCSX2 requires a BIOS dumped from a console you own. MetalSharp never downloads, bundles, or uploads it.
-              </p>
-            </div>
-            <div class="rpcs3-onboarding-actions">
-              <button class="btn btn-primary" :disabled="pcsx2Loading.bios" @click="importPcsx2Bios">
-                {{ pcsx2Loading.bios ? "Validating…" : "Import BIOS" }}
-              </button>
-              <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('bios')">Official Guide</button>
-            </div>
-          </div>
-          <div v-else-if="!pcsx2Status.setupComplete" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 3 of 4</span>
-              <h2>Finish isolated PCSX2 setup</h2>
-              <p>
-                Use PCSX2's upstream wizard for controller mapping, graphics, language, and audio. Its updater remains
-                disabled because MetalSharp manages versions atomically.
-              </p>
-            </div>
-            <div class="rpcs3-onboarding-actions">
-              <button class="btn btn-primary" @click="openPcsx2(true)">Open PCSX2 Setup</button>
-              <button
-                v-if="!pcsx2Status.upstreamUpdaterDisabled"
-                class="btn btn-secondary"
-                :disabled="pcsx2Loading.initialize"
-                @click="initializePcsx2"
-              >
-                Initialize State
-              </button>
-            </div>
-          </div>
-          <div v-else-if="pcsx2Roots.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 4 of 4</span>
-              <h2>Add owned PlayStation 2 disc dumps</h2>
-              <p>
-                Supported: ISO, BIN, IMG, MDF, GZ, CSO, ZSO, CHD, and homebrew ELF. CUE, TOC, and CDR sidecars are not
-                launchable.
-              </p>
-            </div>
-            <div class="rpcs3-onboarding-actions">
-              <button class="btn btn-primary" @click="addPcsx2Folder">Add Game Folder</button>
-              <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('discs')">
-                Official Dumping Guide
-              </button>
-            </div>
-          </div>
-          <div v-else-if="pcsx2Games.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Library folder added</span>
-              <h2>No PlayStation 2 games found yet</h2>
-              <p>Add a supported owned dump to a registered folder, then scan again.</p>
-            </div>
-            <button class="btn btn-secondary" @click="refreshPcsx2(true)">Scan Again</button>
-          </div>
-          <div v-else class="emulator-game-grid">
-            <article
-              v-for="game in pcsx2Games"
-              :key="game.id"
-              class="emulator-game-card"
-              :class="{ running: game.running }"
-            >
-              <div class="emulator-game-art">
-                <img
-                  v-if="game.hasArtwork"
-                  :src="`http://127.0.0.1:9274/sharp-library/pcsx2/cover?id=${encodeURIComponent(game.id)}`"
-                  :alt="`${game.title} cover`"
-                />
-                <div v-else class="emulator-art-fallback"><IconGamepad2 width="34" height="34" /></div>
-                <span v-if="game.running" class="emulator-running-badge">Running</span>
-              </div>
-              <div class="emulator-game-body">
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                  >
+                  <span class="emulator-root-count">{{ pcsx2Roots.length }}</span>
+                </summary>
+                <p v-if="pcsx2Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <div v-for="root in pcsx2Roots" :key="root" class="emulator-root-row">
+                  <code>{{ root }}</code>
+                  <button class="btn btn-secondary btn-sm" @click="removePcsx2Root(root)">Remove Reference</button>
+                </div>
+              </details>
+            </aside>
+            <div class="emulator-library-column">
+              <div v-if="!pcsx2Status" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
                 <div>
-                  <h3>{{ game.title }}</h3>
+                  <span class="rpcs3-step">Checking host readiness</span>
+                  <h2>Preparing PCSX2 status…</h2>
+                </div>
+              </div>
+              <div v-else-if="!pcsx2Status.supported" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Host readiness blocked</span>
+                  <h2>{{ pcsx2StateLabel }}</h2>
+                  <p>PCSX2 requires macOS 11+, x86-64/SSE4.1 on Intel, or working Rosetta 2 on Apple Silicon.</p>
+                </div>
+              </div>
+              <div v-else-if="!pcsx2Status.installed" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 1 of 4</span>
+                  <h2>Install verified PCSX2</h2>
                   <p>
-                    {{ game.serial || "Serial unavailable" }} · {{ game.format.toUpperCase() }} ·
-                    {{ formatBytes(game.size) }}
+                    MetalSharp downloads the official stable signed and notarized macOS app, verifies it, and activates
+                    it atomically.
                   </p>
                 </div>
-                <div class="emulator-game-actions">
-                  <button
-                    v-if="!game.running"
-                    class="btn btn-primary btn-sm"
-                    :disabled="pcsx2Status?.state !== 'ready'"
-                    @click="launchPcsx2(game)"
-                  >
-                    Play
+                <button class="btn btn-primary" :disabled="pcsx2Loading.update" @click="installOrUpdatePcsx2">
+                  Install PCSX2
+                </button>
+              </div>
+              <div v-else-if="!pcsx2Status.biosInstalled" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 2 of 4</span>
+                  <h2>Import your own PS2 BIOS</h2>
+                  <p>
+                    PCSX2 requires a BIOS dumped from a console you own. MetalSharp never downloads, bundles, or uploads
+                    it.
+                  </p>
+                </div>
+                <div class="rpcs3-onboarding-actions">
+                  <button class="btn btn-primary" :disabled="pcsx2Loading.bios" @click="importPcsx2Bios">
+                    {{ pcsx2Loading.bios ? "Validating…" : "Import BIOS" }}
                   </button>
-                  <button v-else class="btn btn-danger btn-sm" @click="stopPcsx2(game)">Stop</button>
-                  <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Path(game.path)">
-                    Open Folder
-                  </button>
+                  <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('bios')">Official Guide</button>
+                </div>
+              </div>
+              <div v-else-if="!pcsx2Status.setupComplete" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 3 of 4</span>
+                  <h2>Finish isolated PCSX2 setup</h2>
+                  <p>
+                    Use PCSX2's upstream wizard for controller mapping, graphics, language, and audio. Its updater
+                    remains disabled because MetalSharp manages versions atomically.
+                  </p>
+                </div>
+                <div class="rpcs3-onboarding-actions">
+                  <button class="btn btn-primary" @click="openPcsx2(true)">Open PCSX2 Setup</button>
                   <button
-                    v-if="game.lastLogPath"
-                    class="btn btn-secondary btn-sm"
-                    @click="getAPI().openPcsx2Path(game.lastLogPath)"
+                    v-if="!pcsx2Status.upstreamUpdaterDisabled"
+                    class="btn btn-secondary"
+                    :disabled="pcsx2Loading.initialize"
+                    @click="initializePcsx2"
                   >
-                    Open Log
+                    Initialize State
                   </button>
                 </div>
-                <small v-if="game.lastExitCode !== null && game.lastExitCode !== undefined"
-                  >Last exit: {{ game.lastExitCode }}</small
-                >
-                <small v-else-if="game.lastExitSignal">Last signal: {{ game.lastExitSignal }}</small>
               </div>
-            </article>
+              <div v-else-if="pcsx2Roots.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 4 of 4</span>
+                  <h2>Add owned PlayStation 2 disc dumps</h2>
+                  <p>
+                    Supported: ISO, BIN, IMG, MDF, GZ, CSO, ZSO, CHD, and homebrew ELF. CUE, TOC, and CDR sidecars are
+                    not launchable.
+                  </p>
+                </div>
+                <div class="rpcs3-onboarding-actions">
+                  <button class="btn btn-primary" @click="addPcsx2Folder">Add Game Folder</button>
+                  <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('discs')">
+                    Official Dumping Guide
+                  </button>
+                </div>
+              </div>
+              <div v-else-if="pcsx2Games.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Library folder added</span>
+                  <h2>No PlayStation 2 games found yet</h2>
+                  <p>Add a supported owned dump to a registered folder, then scan again.</p>
+                </div>
+                <button class="btn btn-secondary" @click="refreshPcsx2(true)">Scan Again</button>
+              </div>
+              <div v-else class="sharp-grid">
+                <article
+                  v-for="game in pcsx2Games"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/pcsx2/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="`${game.title} cover`"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopPcsx2(game)">
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.serial || "PS2"
+                      }}</span>
+                      <span class="sharp-card-size"
+                        >{{ game.format.toUpperCase() }} · {{ formatBytes(game.size) }}</span
+                      >
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button
+                        v-if="!game.running"
+                        class="btn btn-play"
+                        :disabled="pcsx2Status?.state !== 'ready'"
+                        @click="launchPcsx2(game)"
+                      >
+                        Play
+                      </button>
+                      <button v-else class="btn btn-stop" @click="stopPcsx2(game)">Stop</button>
+                      <button class="btn btn-secondary" @click="getAPI().openPcsx2Path(game.path)">Open Folder</button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="getAPI().openPcsx2Path(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                    <small v-if="game.lastExitCode !== null && game.lastExitCode !== undefined"
+                      >Last exit: {{ game.lastExitCode }}</small
+                    >
+                    <small v-else-if="game.lastExitSignal">Last signal: {{ game.lastExitSignal }}</small>
+                  </div>
+                </article>
+              </div>
+              <p class="emulator-affiliation-note">
+                MetalSharp is not affiliated with the PCSX2 project or Sony Interactive Entertainment. Compatibility and
+                performance vary by game.
+              </p>
+            </div>
           </div>
-          <p class="emulator-affiliation-note">
-            MetalSharp is not affiliated with the PCSX2 project or Sony Interactive Entertainment. Compatibility and
-            performance vary by game.
-          </p>
         </section>
       </template>
 
       <template v-else-if="sourceMode === 'rpcs3'">
         <section class="emulator-panel rpcs3-dashboard">
-          <div class="rpcs3-overview">
-            <div class="rpcs3-overview-main">
-              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
-              <div class="rpcs3-overview-copy">
-                <div class="rpcs3-eyebrow">Managed PlayStation 3 environment</div>
-                <div class="rpcs3-title-row">
-                  <h2>RPCS3</h2>
-                  <span
-                    class="rpcs3-state-pill"
-                    :class="rpcs3Status?.state === 'ready' ? 'ready' : rpcs3Status?.installed ? 'attention' : 'muted'"
-                  >
-                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ rpcs3StateLabel }}
-                  </span>
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Managed PlayStation 3 environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>RPCS3</h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          rpcs3Status?.state === 'ready' ? 'ready' : rpcs3Status?.installed ? 'attention' : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ rpcs3StateLabel }}
+                      </span>
+                    </div>
+                    <p>A verified, isolated emulator environment with atomic updates and protected user data.</p>
+                  </div>
                 </div>
-                <p>A verified, isolated emulator environment with atomic updates and protected user data.</p>
+                <div class="rpcs3-primary-actions">
+                  <button
+                    class="btn btn-primary rpcs3-primary-button"
+                    :disabled="rpcs3Loading.update || rpcs3Loading.check"
+                    @click="installOrUpdateRpcs3"
+                  >
+                    <IconDownload width="15" height="15" />
+                    {{
+                      rpcs3Loading.update ? "Installing…" : rpcs3Status?.installed ? "Update RPCS3" : "Install RPCS3"
+                    }}
+                  </button>
+                  <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
+                    <IconExternalLink width="14" height="14" /> Open RPCS3
+                  </button>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconHardDrive width="16" height="16" />
+                    <span
+                      ><small>Runtime</small
+                      ><strong :title="rpcs3Status?.currentTag ?? ''">{{ rpcs3BuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Firmware</small
+                      ><strong>{{ rpcs3Status?.firmwareInstalled ? "Installed" : "Required" }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="16" height="16" />
+                    <span
+                      ><small>Library</small
+                      ><strong>{{ rpcs3Games.length }} game{{ rpcs3Games.length === 1 ? "" : "s" }}</strong></span
+                    >
+                  </div>
+                  <div v-if="rpcs3Update" class="rpcs3-stat rpcs3-stat-wide">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Latest verified release</small
+                      ><strong
+                        >{{ rpcs3Update.latestVersion }} · {{ formatBytes(rpcs3Update.downloadSize) }}</strong
+                      ></span
+                    >
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="rpcs3-primary-actions">
-              <button
-                class="btn btn-primary rpcs3-primary-button"
-                :disabled="rpcs3Loading.update || rpcs3Loading.check"
-                @click="installOrUpdateRpcs3"
-              >
-                <IconDownload width="15" height="15" />
-                {{ rpcs3Loading.update ? "Installing…" : rpcs3Status?.installed ? "Update RPCS3" : "Install RPCS3" }}
-              </button>
-              <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
-                <IconExternalLink width="14" height="14" /> Open RPCS3
-              </button>
-            </div>
-            <div class="rpcs3-stats">
-              <div class="rpcs3-stat">
-                <IconHardDrive width="16" height="16" />
-                <span
-                  ><small>Runtime</small
-                  ><strong :title="rpcs3Status?.currentTag ?? ''">{{ rpcs3BuildLabel }}</strong></span
+            <aside class="emulator-sidebar" aria-label="RPCS3 tools">
+              <div class="rpcs3-command-bar" aria-label="RPCS3 library actions">
+                <button
+                  class="rpcs3-command"
+                  :disabled="!rpcs3Status?.installed"
+                  @click="installRpcs3Content('firmware')"
                 >
-              </div>
-              <div class="rpcs3-stat">
-                <IconShieldCheck width="16" height="16" />
-                <span
-                  ><small>Firmware</small
-                  ><strong>{{ rpcs3Status?.firmwareInstalled ? "Installed" : "Required" }}</strong></span
+                  <IconShieldCheck width="17" height="17" /><span
+                    ><strong>Firmware</strong><small>Install PS3UPDAT.PUP</small></span
+                  >
+                </button>
+                <button
+                  class="rpcs3-command"
+                  :disabled="!rpcs3Status?.installed"
+                  @click="installRpcs3Content('package')"
                 >
-              </div>
-              <div class="rpcs3-stat">
-                <IconGamepad2 width="16" height="16" />
-                <span
-                  ><small>Library</small
-                  ><strong>{{ rpcs3Games.length }} game{{ rpcs3Games.length === 1 ? "" : "s" }}</strong></span
-                >
-              </div>
-              <div v-if="rpcs3Update" class="rpcs3-stat rpcs3-stat-wide">
-                <IconShieldCheck width="16" height="16" />
-                <span
-                  ><small>Latest verified release</small
-                  ><strong>{{ rpcs3Update.latestVersion }} · {{ formatBytes(rpcs3Update.downloadSize) }}</strong></span
-                >
-              </div>
-            </div>
-          </div>
-
-          <div class="rpcs3-command-bar" aria-label="RPCS3 library actions">
-            <button class="rpcs3-command" :disabled="!rpcs3Status?.installed" @click="installRpcs3Content('firmware')">
-              <IconShieldCheck width="17" height="17" /><span
-                ><strong>Firmware</strong><small>Install PS3UPDAT.PUP</small></span
-              >
-            </button>
-            <button class="rpcs3-command" :disabled="!rpcs3Status?.installed" @click="installRpcs3Content('package')">
-              <IconPackage width="17" height="17" /><span
-                ><strong>Install package</strong><small>Add an owned PKG</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="addRpcs3Folder">
-              <IconFolderPlus width="17" height="17" /><span
-                ><strong>Add games</strong><small>Choose a library folder</small></span
-              >
-            </button>
-            <button class="rpcs3-command" :disabled="rpcs3Loading.check" @click="refreshRpcs3(true)">
-              <IconScanLine width="17" height="17" /><span
-                ><strong>Scan library</strong><small>Refresh games and artwork</small></span
-              >
-            </button>
-          </div>
-
-          <div
-            v-if="rpcs3UpdateProgress?.running || rpcs3UpdateProgress?.status === 'failed'"
-            class="emulator-update-card"
-          >
-            <div class="emulator-progress-row">
-              <strong>{{ rpcs3UpdateProgress.message }}</strong>
-              <span>{{ rpcs3UpdateProgress.percent }}%</span>
-            </div>
-            <div class="gog-progress-bar"><span :style="{ width: `${rpcs3UpdateProgress.percent}%` }"></span></div>
-            <small v-if="rpcs3UpdateProgress.error" class="launch-failure">{{ rpcs3UpdateProgress.error }}</small>
-          </div>
-
-          <details class="rpcs3-management">
-            <summary>
-              <span>Environment management</span>
-              <small>Updates, rollback, storage, and advanced controls</small>
-            </summary>
-            <div class="rpcs3-management-actions">
-              <button class="btn btn-secondary btn-sm" :disabled="rpcs3Loading.check" @click="checkRpcs3Update()">
-                {{ rpcs3Loading.check ? "Checking…" : "Check Updates" }}
-              </button>
-              <button
-                v-if="rpcs3Status?.installed && rpcs3Update"
-                class="btn btn-secondary btn-sm"
-                @click="setRpcs3UpdatePolicy(rpcs3Update.pinnedTag ? 'unpin' : 'pin-current')"
-              >
-                {{ rpcs3Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
-              </button>
-              <button
-                v-if="rpcs3Update?.available"
-                class="btn btn-secondary btn-sm"
-                @click="setRpcs3UpdatePolicy('skip-update')"
-              >
-                Skip Update
-              </button>
-              <button
-                v-if="rpcs3Update?.skippedTag"
-                class="btn btn-secondary btn-sm"
-                @click="setRpcs3UpdatePolicy('clear-skip')"
-              >
-                Clear Skip
-              </button>
-              <button v-if="rpcs3Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackRpcs3">
-                Rollback
-              </button>
-              <button
-                v-if="rpcs3Status?.environmentPath"
-                class="btn btn-secondary btn-sm"
-                @click="getAPI().openRpcs3Path(rpcs3Status.environmentPath)"
-              >
-                Open Environment
-              </button>
-              <button v-if="rpcs3Status?.installed" class="btn btn-danger btn-sm" @click="removeRpcs3Runtime">
-                Remove Runtime
-              </button>
-            </div>
-          </details>
-
-          <details v-if="rpcs3Roots.length" class="emulator-roots">
-            <summary>
-              Game folders <span>{{ rpcs3Roots.length }}</span>
-            </summary>
-            <div v-for="root in rpcs3Roots" :key="root" class="emulator-root-row">
-              <button class="emulator-root-path" type="button" @click="getAPI().openRpcs3Path(root)">{{ root }}</button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="removeRpcs3Root(root)">Remove</button>
-            </div>
-          </details>
-
-          <div v-if="!rpcs3Status?.installed" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 1 of 3</span>
-              <h2>Install the verified RPCS3 runtime</h2>
-              <p>
-                MetalSharp selects the official build for this Mac, verifies its digest and signature, then activates it
-                atomically.
-              </p>
-            </div>
-            <button class="btn btn-primary" :disabled="rpcs3Loading.update" @click="installOrUpdateRpcs3">
-              Install RPCS3
-            </button>
-          </div>
-          <div v-else-if="!rpcs3Status.firmwareInstalled" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 2 of 3</span>
-              <h2>Add PlayStation 3 firmware</h2>
-              <p>Select your legally acquired PS3UPDAT.PUP. MetalSharp never downloads or bundles Sony firmware.</p>
-            </div>
-            <div class="rpcs3-onboarding-actions">
-              <button
-                class="btn btn-secondary"
-                type="button"
-                title="Open the official PlayStation 3 system software page"
-                @click="getAPI().openRpcs3FirmwarePage()"
-              >
-                <IconExternalLink width="13" height="13" /> Firmware Link
-              </button>
-              <button class="btn btn-primary" @click="installRpcs3Content('firmware')">Select Firmware</button>
-            </div>
-          </div>
-          <div v-else-if="rpcs3Roots.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 3 of 3</span>
-              <h2>Build your PlayStation 3 library</h2>
-              <p>Add a folder containing disc layouts or install a legally acquired package.</p>
-            </div>
-            <button class="btn btn-primary" @click="addRpcs3Folder">Add Games Folder</button>
-          </div>
-
-          <div v-else-if="rpcs3Games.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Library folder added</span>
-              <h2>No PlayStation 3 games found yet</h2>
-              <p>MetalSharp saved your game folder. Add a supported disc layout to it, then scan the library again.</p>
-            </div>
-            <button class="btn btn-primary" @click="refreshRpcs3(true)">Scan Library</button>
-          </div>
-
-          <div v-else class="sharp-grid">
-            <article
-              v-for="game in rpcs3Games"
-              :key="game.id"
-              class="sharp-card emulator-game-card"
-              :class="{ running: game.running }"
-            >
-              <div class="sharp-card-banner">
-                <img
-                  v-if="game.hasArtwork"
-                  :src="`http://127.0.0.1:9274/sharp-library/rpcs3/cover?id=${encodeURIComponent(game.id)}`"
-                  :alt="game.title"
-                />
-                <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
-                <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopRpcs3Game(game)">
-                  <IconX width="14" height="14" />
+                  <IconPackage width="17" height="17" /><span
+                    ><strong>Install package</strong><small>Add an owned PKG</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="addRpcs3Folder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add games</strong><small>Choose a library folder</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" :disabled="rpcs3Loading.check" @click="refreshRpcs3(true)">
+                  <IconScanLine width="17" height="17" /><span
+                    ><strong>Scan library</strong><small>Refresh games and artwork</small></span
+                  >
                 </button>
               </div>
-              <div class="sharp-card-body">
-                <div class="sharp-card-title">{{ game.title }}</div>
-                <div class="sharp-card-meta">
-                  <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
-                    game.running ? "Running" : game.titleId || "PS3"
-                  }}</span>
-                  <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
+
+              <div
+                v-if="rpcs3UpdateProgress?.running || rpcs3UpdateProgress?.status === 'failed'"
+                class="emulator-update-card"
+              >
+                <div class="emulator-progress-row">
+                  <strong>{{ rpcs3UpdateProgress.message }}</strong>
+                  <span>{{ rpcs3UpdateProgress.percent }}%</span>
                 </div>
-                <div class="sharp-card-actions-row">
-                  <button v-if="game.running" class="btn btn-stop" @click="stopRpcs3Game(game)">Stop</button>
-                  <button
-                    v-else
-                    class="btn btn-play"
-                    :disabled="!rpcs3Status?.firmwareInstalled"
-                    @click="launchRpcs3Game(game)"
+                <div class="gog-progress-bar"><span :style="{ width: `${rpcs3UpdateProgress.percent}%` }"></span></div>
+                <small v-if="rpcs3UpdateProgress.error" class="launch-failure">{{ rpcs3UpdateProgress.error }}</small>
+              </div>
+
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
                   >
-                    Play
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button class="btn btn-secondary btn-sm" :disabled="rpcs3Loading.check" @click="checkRpcs3Update()">
+                    {{ rpcs3Loading.check ? "Checking…" : "Check Updates" }}
                   </button>
-                  <button class="btn btn-secondary" @click="getAPI().openRpcs3Path(game.path)">Open Folder</button>
                   <button
-                    v-if="game.lastLogPath"
+                    v-if="rpcs3Status?.installed && rpcs3Update"
+                    class="btn btn-secondary btn-sm"
+                    @click="setRpcs3UpdatePolicy(rpcs3Update.pinnedTag ? 'unpin' : 'pin-current')"
+                  >
+                    {{ rpcs3Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
+                  </button>
+                  <button
+                    v-if="rpcs3Update?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setRpcs3UpdatePolicy('skip-update')"
+                  >
+                    Skip Update
+                  </button>
+                  <button
+                    v-if="rpcs3Update?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setRpcs3UpdatePolicy('clear-skip')"
+                  >
+                    Clear Skip
+                  </button>
+                  <button v-if="rpcs3Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackRpcs3">
+                    Rollback
+                  </button>
+                  <button
+                    v-if="rpcs3Status?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openRpcs3Path(rpcs3Status.environmentPath)"
+                  >
+                    Open Environment
+                  </button>
+                  <button v-if="rpcs3Status?.installed" class="btn btn-danger btn-sm" @click="removeRpcs3Runtime">
+                    Remove Runtime
+                  </button>
+                </div>
+              </details>
+
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                  >
+                  <span class="emulator-root-count">{{ rpcs3Roots.length }}</span>
+                </summary>
+                <p v-if="rpcs3Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <div v-for="root in rpcs3Roots" :key="root" class="emulator-root-row">
+                  <button class="emulator-root-path" type="button" @click="getAPI().openRpcs3Path(root)">
+                    {{ root }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="removeRpcs3Root(root)">Remove</button>
+                </div>
+              </details>
+            </aside>
+            <div class="emulator-library-column">
+              <div v-if="!rpcs3Status?.installed" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 1 of 3</span>
+                  <h2>Install the verified RPCS3 runtime</h2>
+                  <p>
+                    MetalSharp selects the official build for this Mac, verifies its digest and signature, then
+                    activates it atomically.
+                  </p>
+                </div>
+                <button class="btn btn-primary" :disabled="rpcs3Loading.update" @click="installOrUpdateRpcs3">
+                  Install RPCS3
+                </button>
+              </div>
+              <div v-else-if="!rpcs3Status.firmwareInstalled" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 2 of 3</span>
+                  <h2>Add PlayStation 3 firmware</h2>
+                  <p>Select your legally acquired PS3UPDAT.PUP. MetalSharp never downloads or bundles Sony firmware.</p>
+                </div>
+                <div class="rpcs3-onboarding-actions">
+                  <button
                     class="btn btn-secondary"
-                    @click="getAPI().openRpcs3Path(game.lastLogPath)"
+                    type="button"
+                    title="Open the official PlayStation 3 system software page"
+                    @click="getAPI().openRpcs3FirmwarePage()"
                   >
-                    Log
+                    <IconExternalLink width="13" height="13" /> Firmware Link
                   </button>
+                  <button class="btn btn-primary" @click="installRpcs3Content('firmware')">Select Firmware</button>
                 </div>
               </div>
-            </article>
+              <div v-else-if="rpcs3Roots.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 3 of 3</span>
+                  <h2>Build your PlayStation 3 library</h2>
+                  <p>Add a folder containing disc layouts or install a legally acquired package.</p>
+                </div>
+                <button class="btn btn-primary" @click="addRpcs3Folder">Add Games Folder</button>
+              </div>
+
+              <div v-else-if="rpcs3Games.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Library folder added</span>
+                  <h2>No PlayStation 3 games found yet</h2>
+                  <p>
+                    MetalSharp saved your game folder. Add a supported disc layout to it, then scan the library again.
+                  </p>
+                </div>
+                <button class="btn btn-primary" @click="refreshRpcs3(true)">Scan Library</button>
+              </div>
+
+              <div v-else class="sharp-grid">
+                <article
+                  v-for="game in rpcs3Games"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/rpcs3/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="game.title"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button
+                      v-if="game.running"
+                      class="running-close-button"
+                      title="Stop game"
+                      @click="stopRpcs3Game(game)"
+                    >
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.titleId || "PS3"
+                      }}</span>
+                      <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button v-if="game.running" class="btn btn-stop" @click="stopRpcs3Game(game)">Stop</button>
+                      <button
+                        v-else
+                        class="btn btn-play"
+                        :disabled="!rpcs3Status?.firmwareInstalled"
+                        @click="launchRpcs3Game(game)"
+                      >
+                        Play
+                      </button>
+                      <button class="btn btn-secondary" @click="getAPI().openRpcs3Path(game.path)">Open Folder</button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="getAPI().openRpcs3Path(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
           </div>
         </section>
       </template>
 
       <template v-else-if="sourceMode === 'shadps4'">
         <section class="emulator-panel rpcs3-dashboard shadps4-dashboard">
-          <div class="rpcs3-overview">
-            <div class="rpcs3-overview-main">
-              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
-              <div class="rpcs3-overview-copy">
-                <div class="rpcs3-eyebrow">Experimental PlayStation 4 environment</div>
-                <div class="rpcs3-title-row">
-                  <h2>shadPS4</h2>
-                  <span
-                    class="rpcs3-state-pill"
-                    :class="
-                      shadps4Status?.state === 'ready' || shadps4Status?.state === 'running'
-                        ? 'ready'
-                        : shadps4Status?.supported
-                          ? 'attention'
-                          : 'muted'
-                    "
-                  >
-                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ shadps4StateLabel }}
-                  </span>
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Experimental PlayStation 4 environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>shadPS4</h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          shadps4Status?.state === 'ready' || shadps4Status?.state === 'running'
+                            ? 'ready'
+                            : shadps4Status?.supported
+                              ? 'attention'
+                              : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ shadps4StateLabel }}
+                      </span>
+                    </div>
+                    <p>
+                      Official stable core, isolated state, atomic rollback, and protected user-owned content.
+                      Compatibility remains experimental.
+                    </p>
+                    <p v-if="shadps4Status?.warnings?.length" class="shadps4-host-warning">
+                      Host advisory: {{ shadps4Status.warnings.join(", ").replaceAll("_", " ") }}
+                    </p>
+                  </div>
                 </div>
-                <p>
-                  Official stable core, isolated state, atomic rollback, and protected user-owned content. Compatibility
-                  remains experimental.
-                </p>
-                <p v-if="shadps4Status?.warnings?.length" class="shadps4-host-warning">
-                  Host advisory: {{ shadps4Status.warnings.join(", ").replaceAll("_", " ") }}
-                </p>
+                <div class="rpcs3-primary-actions">
+                  <button
+                    class="btn btn-primary rpcs3-primary-button"
+                    :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
+                    @click="installOrUpdateShadps4"
+                  >
+                    <IconDownload width="15" height="15" />
+                    {{
+                      shadps4Loading.update
+                        ? "Installing…"
+                        : shadps4Status?.installed
+                          ? shadps4Update && !shadps4Update.available
+                            ? "Check shadPS4"
+                            : "Update shadPS4"
+                          : "Install shadPS4"
+                    }}
+                  </button>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconHardDrive width="16" height="16" />
+                    <span
+                      ><small>Runtime</small
+                      ><strong :title="shadps4Status?.currentTag ?? ''">{{ shadps4BuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconMonitor width="16" height="16" />
+                    <span
+                      ><small>Host</small
+                      ><strong>{{
+                        shadps4Status?.supported ? "Apple Silicon · Rosetta" : shadps4StateLabel
+                      }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="16" height="16" />
+                    <span
+                      ><small>Library</small
+                      ><strong>{{ shadps4Games.length }} game{{ shadps4Games.length === 1 ? "" : "s" }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Optional compatibility files</small
+                      ><strong
+                        >{{ shadps4Status?.moduleCount ?? 0 }} modules ·
+                        {{ shadps4Status?.fontFileCount ?? 0 }} fonts</strong
+                      ></span
+                    >
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="rpcs3-primary-actions">
-              <button
-                class="btn btn-primary rpcs3-primary-button"
-                :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
-                @click="installOrUpdateShadps4"
-              >
-                <IconDownload width="15" height="15" />
-                {{
-                  shadps4Loading.update
-                    ? "Installing…"
-                    : shadps4Status?.installed
-                      ? shadps4Update && !shadps4Update.available
-                        ? "Check shadPS4"
-                        : "Update shadPS4"
-                      : "Install shadPS4"
-                }}
-              </button>
-            </div>
-            <div class="rpcs3-stats">
-              <div class="rpcs3-stat">
-                <IconHardDrive width="16" height="16" />
-                <span
-                  ><small>Runtime</small
-                  ><strong :title="shadps4Status?.currentTag ?? ''">{{ shadps4BuildLabel }}</strong></span
-                >
-              </div>
-              <div class="rpcs3-stat">
-                <IconMonitor width="16" height="16" />
-                <span
-                  ><small>Host</small
-                  ><strong>{{ shadps4Status?.supported ? "Apple Silicon · Rosetta" : shadps4StateLabel }}</strong></span
-                >
-              </div>
-              <div class="rpcs3-stat">
-                <IconGamepad2 width="16" height="16" />
-                <span
-                  ><small>Library</small
-                  ><strong>{{ shadps4Games.length }} game{{ shadps4Games.length === 1 ? "" : "s" }}</strong></span
-                >
-              </div>
-              <div class="rpcs3-stat">
-                <IconShieldCheck width="16" height="16" />
-                <span
-                  ><small>Optional compatibility files</small
-                  ><strong
-                    >{{ shadps4Status?.moduleCount ?? 0 }} modules ·
-                    {{ shadps4Status?.fontFileCount ?? 0 }} fonts</strong
-                  ></span
-                >
-              </div>
-            </div>
-          </div>
-
-          <div class="rpcs3-command-bar" aria-label="shadPS4 library actions">
-            <button class="rpcs3-command" @click="addShadps4Folder">
-              <IconFolderPlus width="17" height="17" /><span
-                ><strong>Add games</strong><small>Choose dumped CUSA folders</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="importShadps4Content('modules')">
-              <IconShieldCheck width="17" height="17" /><span
-                ><strong>Import modules</strong><small>Console-dumped SPRX files</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="importShadps4Content('fonts')">
-              <IconPackage width="17" height="17" /><span
-                ><strong>Import fonts</strong><small>Console-dumped font content</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="refreshShadps4(true)">
-              <IconScanLine width="17" height="17" /><span
-                ><strong>Scan library</strong><small>Refresh metadata and artwork</small></span
-              >
-            </button>
-          </div>
-
-          <div
-            v-if="shadps4UpdateProgress?.running || shadps4UpdateProgress?.status === 'failed'"
-            class="emulator-update-card"
-          >
-            <div class="emulator-progress-row">
-              <strong>{{ shadps4UpdateProgress.message }}</strong
-              ><span>{{ shadps4UpdateProgress.percent }}%</span>
-            </div>
-            <div class="gog-progress-bar"><span :style="{ width: `${shadps4UpdateProgress.percent}%` }"></span></div>
-            <small v-if="shadps4UpdateProgress.error" class="launch-failure">{{ shadps4UpdateProgress.error }}</small>
-          </div>
-
-          <details class="rpcs3-management">
-            <summary>
-              <span>Environment management</span><small>Stable updates, rollback, storage, and preservation</small>
-            </summary>
-            <div class="rpcs3-management-actions">
-              <button class="btn btn-secondary btn-sm" :disabled="shadps4Loading.check" @click="checkShadps4Update()">
-                {{ shadps4Loading.check ? "Checking…" : "Check Stable Updates" }}
-              </button>
-              <button
-                v-if="shadps4Status?.installed && shadps4Update"
-                class="btn btn-secondary btn-sm"
-                @click="setShadps4UpdatePolicy(shadps4Update.pinnedTag ? 'unpin' : 'pin-current')"
-              >
-                {{ shadps4Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
-              </button>
-              <button
-                v-if="shadps4Update?.available"
-                class="btn btn-secondary btn-sm"
-                @click="setShadps4UpdatePolicy('skip-update')"
-              >
-                Skip Update
-              </button>
-              <button
-                v-if="shadps4Update?.skippedTag"
-                class="btn btn-secondary btn-sm"
-                @click="setShadps4UpdatePolicy('clear-skip')"
-              >
-                Clear Skip
-              </button>
-              <button v-if="shadps4Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackShadps4">
-                Rollback Runtime
-              </button>
-              <button
-                v-if="shadps4Status?.environmentPath"
-                class="btn btn-secondary btn-sm"
-                @click="getAPI().openShadps4Path(shadps4Status.environmentPath)"
-              >
-                Open Environment
-              </button>
-              <button v-if="shadps4Status?.installed" class="btn btn-danger btn-sm" @click="removeShadps4Runtime">
-                Remove Runtime
-              </button>
-            </div>
-          </details>
-
-          <details v-if="shadps4Roots.length" class="emulator-roots">
-            <summary>
-              Game folders <span>{{ shadps4Roots.length }}</span>
-            </summary>
-            <div v-for="root in shadps4Roots" :key="root" class="emulator-root-row">
-              <button class="emulator-root-path" type="button" @click="getAPI().openShadps4Path(root)">
-                {{ root }}
-              </button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="removeShadps4Root(root)">Remove</button>
-            </div>
-          </details>
-
-          <div v-if="!shadps4Status" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Checking host readiness</span>
-              <h2>Inspecting shadPS4 requirements…</h2>
-              <p>MetalSharp is checking architecture, macOS, Rosetta, and the isolated environment.</p>
-            </div>
-          </div>
-          <div v-else-if="!shadps4Status.supported" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Host readiness blocked</span>
-              <h2>{{ shadps4StateLabel }}</h2>
-              <p>
-                shadPS4 currently requires Apple Silicon, Rosetta 2, and a host compatible with its deployment target.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="!shadps4Status?.installed" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 1 of 2</span>
-              <h2>Install the verified stable shadPS4 core</h2>
-              <p>
-                MetalSharp verifies the official ZIP digest, architecture, deployment target, local signature, and CLI
-                capabilities before atomic activation.
-              </p>
-            </div>
-            <button class="btn btn-primary" :disabled="shadps4Loading.update" @click="installOrUpdateShadps4">
-              Install shadPS4
-            </button>
-          </div>
-          <div v-else-if="shadps4Roots.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 2 of 2</span>
-              <h2>Add your dumped PlayStation 4 games</h2>
-              <p>
-                Select a folder containing legally dumped CUSA directories with eboot.bin and sce_sys/param.sfo.
-                MetalSharp does not extract packages.
-              </p>
-            </div>
-            <button class="btn btn-primary" @click="addShadps4Folder">Add Games Folder</button>
-          </div>
-          <div v-else-if="shadps4Games.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Library folder added</span>
-              <h2>No supported CUSA game layouts found</h2>
-              <p>
-                Your folder is saved. Add a dumped game containing eboot.bin and sce_sys/param.sfo, then scan again.
-              </p>
-            </div>
-            <button class="btn btn-primary" @click="refreshShadps4(true)">Scan Library</button>
-          </div>
-
-          <div v-else class="sharp-grid">
-            <article
-              v-for="game in shadps4Games"
-              :key="game.id"
-              class="sharp-card emulator-game-card"
-              :class="{ running: game.running }"
-            >
-              <div class="sharp-card-banner">
-                <img
-                  v-if="game.hasArtwork"
-                  :src="`http://127.0.0.1:9274/sharp-library/shadps4/cover?id=${encodeURIComponent(game.id)}`"
-                  :alt="game.title"
-                />
-                <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
-                <button
-                  v-if="game.running"
-                  class="running-close-button"
-                  title="Stop game"
-                  @click="stopShadps4Game(game)"
-                >
-                  <IconX width="14" height="14" />
+            <aside class="emulator-sidebar" aria-label="shadPS4 tools">
+              <div class="rpcs3-command-bar" aria-label="shadPS4 library actions">
+                <button class="rpcs3-command" @click="addShadps4Folder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add games</strong><small>Choose dumped CUSA folders</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="importShadps4Content('modules')">
+                  <IconShieldCheck width="17" height="17" /><span
+                    ><strong>Import modules</strong><small>Console-dumped SPRX files</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="importShadps4Content('fonts')">
+                  <IconPackage width="17" height="17" /><span
+                    ><strong>Import fonts</strong><small>Console-dumped font content</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="refreshShadps4(true)">
+                  <IconScanLine width="17" height="17" /><span
+                    ><strong>Scan library</strong><small>Refresh metadata and artwork</small></span
+                  >
                 </button>
               </div>
-              <div class="sharp-card-body">
-                <div class="sharp-card-title">{{ game.title }}</div>
-                <div class="sharp-card-meta">
-                  <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
-                    game.running ? "Running" : game.titleId || "PS4"
-                  }}</span>
-                  <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
-                  <span v-if="game.hasUpdate" class="sharp-card-size">Update dump found</span>
+
+              <div
+                v-if="shadps4UpdateProgress?.running || shadps4UpdateProgress?.status === 'failed'"
+                class="emulator-update-card"
+              >
+                <div class="emulator-progress-row">
+                  <strong>{{ shadps4UpdateProgress.message }}</strong
+                  ><span>{{ shadps4UpdateProgress.percent }}%</span>
                 </div>
-                <div class="sharp-card-actions-row">
-                  <button v-if="game.running" class="btn btn-stop" @click="stopShadps4Game(game)">Stop</button>
-                  <button v-else class="btn btn-play" @click="launchShadps4Game(game)">Play</button>
-                  <button class="btn btn-secondary" @click="getAPI().openShadps4Path(game.path)">Open Folder</button>
-                  <button
-                    v-if="/^CUSA\d{5}$/i.test(game.titleId)"
-                    class="btn btn-secondary"
-                    @click="getAPI().openShadps4Compatibility(game.titleId)"
+                <div class="gog-progress-bar">
+                  <span :style="{ width: `${shadps4UpdateProgress.percent}%` }"></span>
+                </div>
+                <small v-if="shadps4UpdateProgress.error" class="launch-failure">{{
+                  shadps4UpdateProgress.error
+                }}</small>
+              </div>
+
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
                   >
-                    Compatibility
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :disabled="shadps4Loading.check"
+                    @click="checkShadps4Update()"
+                  >
+                    {{ shadps4Loading.check ? "Checking…" : "Check Stable Updates" }}
                   </button>
                   <button
-                    v-if="game.lastLogPath"
-                    class="btn btn-secondary"
-                    @click="getAPI().openShadps4Path(game.lastLogPath)"
+                    v-if="shadps4Status?.installed && shadps4Update"
+                    class="btn btn-secondary btn-sm"
+                    @click="setShadps4UpdatePolicy(shadps4Update.pinnedTag ? 'unpin' : 'pin-current')"
                   >
-                    Log
+                    {{ shadps4Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
                   </button>
+                  <button
+                    v-if="shadps4Update?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setShadps4UpdatePolicy('skip-update')"
+                  >
+                    Skip Update
+                  </button>
+                  <button
+                    v-if="shadps4Update?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setShadps4UpdatePolicy('clear-skip')"
+                  >
+                    Clear Skip
+                  </button>
+                  <button
+                    v-if="shadps4Status?.rollbackAvailable"
+                    class="btn btn-secondary btn-sm"
+                    @click="rollbackShadps4"
+                  >
+                    Rollback Runtime
+                  </button>
+                  <button
+                    v-if="shadps4Status?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openShadps4Path(shadps4Status.environmentPath)"
+                  >
+                    Open Environment
+                  </button>
+                  <button v-if="shadps4Status?.installed" class="btn btn-danger btn-sm" @click="removeShadps4Runtime">
+                    Remove Runtime
+                  </button>
+                </div>
+              </details>
+
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                  >
+                  <span class="emulator-root-count">{{ shadps4Roots.length }}</span>
+                </summary>
+                <p v-if="shadps4Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <div v-for="root in shadps4Roots" :key="root" class="emulator-root-row">
+                  <button class="emulator-root-path" type="button" @click="getAPI().openShadps4Path(root)">
+                    {{ root }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="removeShadps4Root(root)">
+                    Remove
+                  </button>
+                </div>
+              </details>
+            </aside>
+            <div class="emulator-library-column">
+              <div v-if="!shadps4Status" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Checking host readiness</span>
+                  <h2>Inspecting shadPS4 requirements…</h2>
+                  <p>MetalSharp is checking architecture, macOS, Rosetta, and the isolated environment.</p>
                 </div>
               </div>
-            </article>
+              <div v-else-if="!shadps4Status.supported" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Host readiness blocked</span>
+                  <h2>{{ shadps4StateLabel }}</h2>
+                  <p>
+                    shadPS4 currently requires Apple Silicon, Rosetta 2, and a host compatible with its deployment
+                    target.
+                  </p>
+                </div>
+              </div>
+              <div v-else-if="!shadps4Status?.installed" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 1 of 2</span>
+                  <h2>Install the verified stable shadPS4 core</h2>
+                  <p>
+                    MetalSharp verifies the official ZIP digest, architecture, deployment target, local signature, and
+                    CLI capabilities before atomic activation.
+                  </p>
+                </div>
+                <button class="btn btn-primary" :disabled="shadps4Loading.update" @click="installOrUpdateShadps4">
+                  Install shadPS4
+                </button>
+              </div>
+              <div v-else-if="shadps4Roots.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 2 of 2</span>
+                  <h2>Add your dumped PlayStation 4 games</h2>
+                  <p>
+                    Select a folder containing legally dumped CUSA directories with eboot.bin and sce_sys/param.sfo.
+                    MetalSharp does not extract packages.
+                  </p>
+                </div>
+                <button class="btn btn-primary" @click="addShadps4Folder">Add Games Folder</button>
+              </div>
+              <div v-else-if="shadps4Games.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Library folder added</span>
+                  <h2>No supported CUSA game layouts found</h2>
+                  <p>
+                    Your folder is saved. Add a dumped game containing eboot.bin and sce_sys/param.sfo, then scan again.
+                  </p>
+                </div>
+                <button class="btn btn-primary" @click="refreshShadps4(true)">Scan Library</button>
+              </div>
+
+              <div v-else class="sharp-grid">
+                <article
+                  v-for="game in shadps4Games"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/shadps4/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="game.title"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button
+                      v-if="game.running"
+                      class="running-close-button"
+                      title="Stop game"
+                      @click="stopShadps4Game(game)"
+                    >
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.titleId || "PS4"
+                      }}</span>
+                      <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
+                      <span v-if="game.hasUpdate" class="sharp-card-size">Update dump found</span>
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button v-if="game.running" class="btn btn-stop" @click="stopShadps4Game(game)">Stop</button>
+                      <button v-else class="btn btn-play" @click="launchShadps4Game(game)">Play</button>
+                      <button class="btn btn-secondary" @click="getAPI().openShadps4Path(game.path)">
+                        Open Folder
+                      </button>
+                      <button
+                        v-if="/^CUSA\d{5}$/i.test(game.titleId)"
+                        class="btn btn-secondary"
+                        @click="getAPI().openShadps4Compatibility(game.titleId)"
+                      >
+                        Compatibility
+                      </button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="getAPI().openShadps4Path(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
           </div>
         </section>
       </template>
       <template v-else-if="sourceMode === 'sharpemu'">
         <section class="emulator-panel rpcs3-dashboard shadps4-dashboard sharpemu-dashboard">
-          <div class="rpcs3-overview">
-            <div class="rpcs3-overview-main">
-              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
-              <div class="rpcs3-overview-copy">
-                <div class="rpcs3-eyebrow">Experimental PlayStation 5 research environment</div>
-                <div class="rpcs3-title-row">
-                  <h2>SharpEmu</h2>
-                  <span
-                    class="rpcs3-state-pill"
-                    :class="
-                      sharpemuStatus?.state === 'ready' || sharpemuStatus?.state === 'running'
-                        ? 'ready'
-                        : sharpemuStatus?.supported
-                          ? 'attention'
-                          : 'muted'
-                    "
-                  >
-                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ sharpemuStateLabel }}
-                  </span>
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Experimental PlayStation 5 research environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>SharpEmu</h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          sharpemuStatus?.state === 'ready' || sharpemuStatus?.state === 'running'
+                            ? 'ready'
+                            : sharpemuStatus?.supported
+                              ? 'attention'
+                              : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ sharpemuStateLabel }}
+                      </span>
+                    </div>
+                    <p>
+                      SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary
+                      target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.
+                    </p>
+                    <p class="shadps4-host-warning">
+                      MetalSharp never downloads firmware, keys, games, licenses, modules, fonts, updates, DLC, or
+                      decryption material. Register only user-owned, already decrypted or fake-signed layouts.
+                    </p>
+                  </div>
                 </div>
-                <p>
-                  SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary
-                  target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.
-                </p>
-                <p class="shadps4-host-warning">
-                  MetalSharp never downloads firmware, keys, games, licenses, modules, fonts, updates, DLC, or
-                  decryption material. Register only user-owned, already decrypted or fake-signed layouts.
-                </p>
+                <div class="rpcs3-primary-actions">
+                  <button
+                    class="btn btn-primary rpcs3-primary-button"
+                    :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
+                    @click="installOrUpdateSharpemu"
+                  >
+                    <IconDownload width="15" height="15" />
+                    {{
+                      sharpemuLoading.update
+                        ? "Installing…"
+                        : sharpemuStatus?.installed
+                          ? sharpemuUpdate && !sharpemuUpdate.available
+                            ? "Check SharpEmu"
+                            : "Update SharpEmu"
+                          : "Install SharpEmu"
+                    }}
+                  </button>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconHardDrive width="16" height="16" />
+                    <span
+                      ><small>Runtime</small
+                      ><strong :title="sharpemuStatus?.currentTag ?? ''">{{ sharpemuBuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconMonitor width="16" height="16" />
+                    <span
+                      ><small>Host</small
+                      ><strong
+                        >{{ sharpemuStatus?.hostArchitecture ?? "Checking…" }} · macOS
+                        {{ sharpemuStatus?.hostMacosMajor ?? "…" }}</strong
+                      ></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="16" height="16" />
+                    <span
+                      ><small>Library</small
+                      ><strong
+                        >{{ sharpemuGames.length }} layout{{ sharpemuGames.length === 1 ? "" : "s" }}</strong
+                      ></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Guest network</small
+                      ><strong>{{ sharpemuNetworkOptIn ? "Explicitly enabled" : "Denied by default" }}</strong></span
+                    >
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="rpcs3-primary-actions">
-              <button
-                class="btn btn-primary rpcs3-primary-button"
-                :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
-                @click="installOrUpdateSharpemu"
-              >
-                <IconDownload width="15" height="15" />
-                {{
-                  sharpemuLoading.update
-                    ? "Installing…"
-                    : sharpemuStatus?.installed
-                      ? sharpemuUpdate && !sharpemuUpdate.available
-                        ? "Check SharpEmu"
-                        : "Update SharpEmu"
-                      : "Install SharpEmu"
-                }}
-              </button>
-            </div>
-            <div class="rpcs3-stats">
-              <div class="rpcs3-stat">
-                <IconHardDrive width="16" height="16" />
-                <span
-                  ><small>Runtime</small
-                  ><strong :title="sharpemuStatus?.currentTag ?? ''">{{ sharpemuBuildLabel }}</strong></span
-                >
-              </div>
-              <div class="rpcs3-stat">
-                <IconMonitor width="16" height="16" />
-                <span
-                  ><small>Host</small
-                  ><strong
-                    >{{ sharpemuStatus?.hostArchitecture ?? "Checking…" }} · macOS
-                    {{ sharpemuStatus?.hostMacosMajor ?? "…" }}</strong
-                  ></span
-                >
-              </div>
-              <div class="rpcs3-stat">
-                <IconGamepad2 width="16" height="16" />
-                <span
-                  ><small>Library</small
-                  ><strong>{{ sharpemuGames.length }} layout{{ sharpemuGames.length === 1 ? "" : "s" }}</strong></span
-                >
-              </div>
-              <div class="rpcs3-stat">
-                <IconShieldCheck width="16" height="16" />
-                <span
-                  ><small>Guest network</small
-                  ><strong>{{ sharpemuNetworkOptIn ? "Explicitly enabled" : "Denied by default" }}</strong></span
-                >
-              </div>
-            </div>
-          </div>
-
-          <div class="rpcs3-command-bar" aria-label="SharpEmu library actions">
-            <button class="rpcs3-command" @click="addSharpemuFolder">
-              <IconFolderPlus width="17" height="17" /><span
-                ><strong>Add layouts</strong><small>Reference owned eboot.bin folders</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="refreshSharpemu(true)">
-              <IconScanLine width="17" height="17" /><span
-                ><strong>Scan library</strong><small>Refresh bounded local metadata</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="getAPI().openSharpemuLink('faq')">
-              <IconExternalLink width="17" height="17" /><span
-                ><strong>Official FAQ</strong><small>Open sharpemu.app</small></span
-              >
-            </button>
-            <button class="rpcs3-command" @click="getAPI().openSharpemuLink('compatibility')">
-              <IconExternalLink width="17" height="17" /><span
-                ><strong>Compatibility</strong><small>View upstream reports</small></span
-              >
-            </button>
-          </div>
-
-          <div class="sharpemu-network-policy" :class="{ enabled: sharpemuNetworkOptIn }">
-            <label>
-              <input v-model="sharpemuNetworkOptIn" type="checkbox" />
-              <span>
-                <strong>Allow unrestricted guest networking for launches</strong>
-                <small>
-                  Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact local
-                  or internet services. Every network-enabled launch asks again.
-                </small>
-              </span>
-            </label>
-          </div>
-
-          <div
-            v-if="sharpemuUpdateProgress?.running || sharpemuUpdateProgress?.status === 'failed'"
-            class="emulator-update-card"
-          >
-            <div class="emulator-progress-row">
-              <strong>{{ sharpemuUpdateProgress.message }}</strong
-              ><span>{{ sharpemuUpdateProgress.percent }}%</span>
-            </div>
-            <div class="gog-progress-bar"><span :style="{ width: `${sharpemuUpdateProgress.percent}%` }"></span></div>
-            <small v-if="sharpemuUpdateProgress.error" class="launch-failure">{{ sharpemuUpdateProgress.error }}</small>
-          </div>
-
-          <details class="rpcs3-management">
-            <summary>
-              <span>Environment management</span><small>Integrity, rollback, storage, and preservation</small>
-            </summary>
-            <div class="rpcs3-management-actions">
-              <button class="btn btn-secondary btn-sm" :disabled="sharpemuLoading.check" @click="checkSharpemuUpdate()">
-                {{ sharpemuLoading.check ? "Checking…" : "Check Stable Updates" }}
-              </button>
-              <button
-                v-if="sharpemuStatus?.installed && sharpemuUpdate"
-                class="btn btn-secondary btn-sm"
-                @click="setSharpemuUpdatePolicy(sharpemuUpdate.pinnedTag ? 'unpin' : 'pin-current')"
-              >
-                {{ sharpemuUpdate.pinnedTag ? "Unpin Version" : "Pin Current" }}
-              </button>
-              <button
-                v-if="sharpemuUpdate?.available"
-                class="btn btn-secondary btn-sm"
-                @click="setSharpemuUpdatePolicy('skip-update')"
-              >
-                Skip Update
-              </button>
-              <button
-                v-if="sharpemuUpdate?.skippedTag"
-                class="btn btn-secondary btn-sm"
-                @click="setSharpemuUpdatePolicy('clear-skip')"
-              >
-                Clear Skip
-              </button>
-              <button
-                v-if="sharpemuStatus?.rollbackAvailable"
-                class="btn btn-secondary btn-sm"
-                @click="rollbackSharpemu"
-              >
-                Rollback Runtime
-              </button>
-              <button
-                v-if="sharpemuStatus?.environmentPath"
-                class="btn btn-secondary btn-sm"
-                @click="getAPI().openSharpemuPath(sharpemuStatus.environmentPath)"
-              >
-                Open Environment
-              </button>
-              <button
-                v-if="sharpemuStatus?.logsPath"
-                class="btn btn-secondary btn-sm"
-                @click="openSharpemuLog(sharpemuStatus.logsPath)"
-              >
-                Open Logs
-              </button>
-              <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('repository')">
-                Source &amp; GPL License
-              </button>
-              <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('releases')">
-                Official Releases
-              </button>
-              <button v-if="sharpemuStatus?.installed" class="btn btn-danger btn-sm" @click="removeSharpemuRuntime">
-                Remove Runtime
-              </button>
-            </div>
-            <p class="sharpemu-signing-note">
-              The upstream macOS archive is not Developer ID signed or notarized. MetalSharp verifies its GitHub SHA-256
-              and structure before applying local ad-hoc signatures. Runtime removal preserves state and games.
-            </p>
-          </details>
-
-          <details v-if="sharpemuRoots.length" class="emulator-roots">
-            <summary>
-              Game folders <span>{{ sharpemuRoots.length }}</span>
-            </summary>
-            <div v-for="root in sharpemuRoots" :key="root" class="emulator-root-row">
-              <button class="emulator-root-path" type="button" @click="getAPI().openSharpemuPath(root)">
-                {{ root }}
-              </button>
-              <button class="btn btn-secondary btn-sm" type="button" @click="removeSharpemuRoot(root)">
-                Remove reference
-              </button>
-            </div>
-          </details>
-
-          <div v-if="!sharpemuStatus" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Checking host readiness</span>
-              <h2>Inspecting SharpEmu requirements…</h2>
-              <p>MetalSharp is checking architecture, macOS, Rosetta, network containment, and archive tools.</p>
-            </div>
-          </div>
-          <div v-else-if="!sharpemuStatus.supported" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Host readiness blocked</span>
-              <h2>{{ sharpemuStateLabel }}</h2>
-              <p>
-                The current full payload requires macOS 26 or newer and x86-64 execution. Apple Silicon also requires
-                Rosetta 2.
-              </p>
-            </div>
-          </div>
-          <div v-else-if="!sharpemuStatus.installed" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 1 of 2</span>
-              <h2>Install the verified stable SharpEmu runtime</h2>
-              <p>
-                MetalSharp verifies the exact release identity, mutable-asset metadata, archive, Mach-O dependencies,
-                local signatures, and CLI probe before atomic activation.
-              </p>
-            </div>
-            <button class="btn btn-primary" :disabled="sharpemuLoading.update" @click="installOrUpdateSharpemu">
-              Install SharpEmu
-            </button>
-          </div>
-          <div v-else-if="sharpemuRoots.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Step 2 of 2</span>
-              <h2>Add your owned PlayStation 5 layouts</h2>
-              <p>
-                Select an existing folder containing eboot.bin and optional sce_sys/param.json. MetalSharp does not
-                decrypt, fake-sign, copy, merge, download, or delete game content.
-              </p>
-            </div>
-            <button class="btn btn-primary" @click="addSharpemuFolder">Add Game Folder</button>
-          </div>
-          <div v-else-if="sharpemuGames.length === 0" class="rpcs3-onboarding">
-            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-            <div>
-              <span class="rpcs3-step">Library folder added</span>
-              <h2>No PlayStation 5 layouts found yet</h2>
-              <p>
-                Your folder reference is preserved. Add a recognized decrypted ELF or fake-signed SELF, then scan again.
-              </p>
-            </div>
-            <button class="btn btn-primary" @click="refreshSharpemu(true)">Scan Library</button>
-          </div>
-
-          <div v-else class="sharp-grid">
-            <article
-              v-for="game in sharpemuGames"
-              :key="game.id"
-              class="sharp-card emulator-game-card"
-              :class="{ running: game.running }"
-            >
-              <div class="sharp-card-banner">
-                <img
-                  v-if="game.hasArtwork"
-                  :src="`http://127.0.0.1:9274/sharp-library/sharpemu/cover?id=${encodeURIComponent(game.id)}`"
-                  :alt="game.title"
-                />
-                <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
-                <button
-                  v-if="game.running"
-                  class="running-close-button"
-                  title="Stop game"
-                  @click="stopSharpemuGame(game)"
-                >
-                  <IconX width="14" height="14" />
+            <aside class="emulator-sidebar" aria-label="SharpEmu tools">
+              <div class="rpcs3-command-bar" aria-label="SharpEmu library actions">
+                <button class="rpcs3-command" @click="addSharpemuFolder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add layouts</strong><small>Reference owned eboot.bin folders</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="refreshSharpemu(true)">
+                  <IconScanLine width="17" height="17" /><span
+                    ><strong>Scan library</strong><small>Refresh bounded local metadata</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openSharpemuLink('faq')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Official FAQ</strong><small>Open sharpemu.app</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openSharpemuLink('compatibility')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Compatibility</strong><small>View upstream reports</small></span
+                  >
                 </button>
               </div>
-              <div class="sharp-card-body">
-                <div class="sharp-card-title">{{ game.title }}</div>
-                <div class="sharp-card-meta">
-                  <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
-                    game.running ? "Running" : game.titleId || "PS5"
-                  }}</span>
-                  <span v-if="game.contentVersion || game.masterVersion" class="sharp-card-size"
-                    >v{{ game.contentVersion || game.masterVersion }}</span
-                  >
-                </div>
-                <div class="sharp-card-actions-row">
-                  <button v-if="game.running" class="btn btn-stop" @click="stopSharpemuGame(game)">Stop</button>
-                  <button
-                    v-else
-                    class="btn btn-play"
-                    :disabled="sharpemuStatus?.state !== 'ready'"
-                    @click="launchSharpemuGame(game)"
-                  >
-                    Play
-                  </button>
-                  <button class="btn btn-secondary" @click="getAPI().openSharpemuPath(game.path)">Open Folder</button>
-                  <button class="btn btn-secondary" @click="getAPI().openSharpemuLink('compatibility', game.titleId)">
-                    Compatibility
-                  </button>
-                  <button v-if="game.lastLogPath" class="btn btn-secondary" @click="openSharpemuLog(game.lastLogPath)">
-                    Log
-                  </button>
-                </div>
-                <small v-if="game.lastExitCode !== null && game.lastExitCode !== undefined" class="sharpemu-last-exit">
-                  Last exit: {{ game.lastExitCode }}
-                </small>
+
+              <div class="sharpemu-network-policy" :class="{ enabled: sharpemuNetworkOptIn }">
+                <label>
+                  <input v-model="sharpemuNetworkOptIn" type="checkbox" />
+                  <span>
+                    <strong>Allow unrestricted guest networking for launches</strong>
+                    <small>
+                      Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact
+                      local or internet services. Every network-enabled launch asks again.
+                    </small>
+                  </span>
+                </label>
               </div>
-            </article>
+
+              <div
+                v-if="sharpemuUpdateProgress?.running || sharpemuUpdateProgress?.status === 'failed'"
+                class="emulator-update-card"
+              >
+                <div class="emulator-progress-row">
+                  <strong>{{ sharpemuUpdateProgress.message }}</strong
+                  ><span>{{ sharpemuUpdateProgress.percent }}%</span>
+                </div>
+                <div class="gog-progress-bar">
+                  <span :style="{ width: `${sharpemuUpdateProgress.percent}%` }"></span>
+                </div>
+                <small v-if="sharpemuUpdateProgress.error" class="launch-failure">{{
+                  sharpemuUpdateProgress.error
+                }}</small>
+              </div>
+
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
+                  >
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :disabled="sharpemuLoading.check"
+                    @click="checkSharpemuUpdate()"
+                  >
+                    {{ sharpemuLoading.check ? "Checking…" : "Check Stable Updates" }}
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.installed && sharpemuUpdate"
+                    class="btn btn-secondary btn-sm"
+                    @click="setSharpemuUpdatePolicy(sharpemuUpdate.pinnedTag ? 'unpin' : 'pin-current')"
+                  >
+                    {{ sharpemuUpdate.pinnedTag ? "Unpin Version" : "Pin Current" }}
+                  </button>
+                  <button
+                    v-if="sharpemuUpdate?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setSharpemuUpdatePolicy('skip-update')"
+                  >
+                    Skip Update
+                  </button>
+                  <button
+                    v-if="sharpemuUpdate?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setSharpemuUpdatePolicy('clear-skip')"
+                  >
+                    Clear Skip
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.rollbackAvailable"
+                    class="btn btn-secondary btn-sm"
+                    @click="rollbackSharpemu"
+                  >
+                    Rollback Runtime
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openSharpemuPath(sharpemuStatus.environmentPath)"
+                  >
+                    Open Environment
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.logsPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="openSharpemuLog(sharpemuStatus.logsPath)"
+                  >
+                    Open Logs
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('repository')">
+                    Source &amp; GPL License
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('releases')">
+                    Official Releases
+                  </button>
+                  <button v-if="sharpemuStatus?.installed" class="btn btn-danger btn-sm" @click="removeSharpemuRuntime">
+                    Remove Runtime
+                  </button>
+                </div>
+                <p class="sharpemu-signing-note">
+                  The upstream macOS archive is not Developer ID signed or notarized. MetalSharp verifies its GitHub
+                  SHA-256 and structure before applying local ad-hoc signatures. Runtime removal preserves state and
+                  games.
+                </p>
+              </details>
+
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                  >
+                  <span class="emulator-root-count">{{ sharpemuRoots.length }}</span>
+                </summary>
+                <p v-if="sharpemuRoots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <div v-for="root in sharpemuRoots" :key="root" class="emulator-root-row">
+                  <button class="emulator-root-path" type="button" @click="getAPI().openSharpemuPath(root)">
+                    {{ root }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="removeSharpemuRoot(root)">
+                    Remove reference
+                  </button>
+                </div>
+              </details>
+            </aside>
+            <div class="emulator-library-column">
+              <div v-if="!sharpemuStatus" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Checking host readiness</span>
+                  <h2>Inspecting SharpEmu requirements…</h2>
+                  <p>MetalSharp is checking architecture, macOS, Rosetta, network containment, and archive tools.</p>
+                </div>
+              </div>
+              <div v-else-if="!sharpemuStatus.supported" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Host readiness blocked</span>
+                  <h2>{{ sharpemuStateLabel }}</h2>
+                  <p>
+                    The current full payload requires macOS 26 or newer and x86-64 execution. Apple Silicon also
+                    requires Rosetta 2.
+                  </p>
+                </div>
+              </div>
+              <div v-else-if="!sharpemuStatus.installed" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 1 of 2</span>
+                  <h2>Install the verified stable SharpEmu runtime</h2>
+                  <p>
+                    MetalSharp verifies the exact release identity, mutable-asset metadata, archive, Mach-O
+                    dependencies, local signatures, and CLI probe before atomic activation.
+                  </p>
+                </div>
+                <button class="btn btn-primary" :disabled="sharpemuLoading.update" @click="installOrUpdateSharpemu">
+                  Install SharpEmu
+                </button>
+              </div>
+              <div v-else-if="sharpemuRoots.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Step 2 of 2</span>
+                  <h2>Add your owned PlayStation 5 layouts</h2>
+                  <p>
+                    Select an existing folder containing eboot.bin and optional sce_sys/param.json. MetalSharp does not
+                    decrypt, fake-sign, copy, merge, download, or delete game content.
+                  </p>
+                </div>
+                <button class="btn btn-primary" @click="addSharpemuFolder">Add Game Folder</button>
+              </div>
+              <div v-else-if="sharpemuGames.length === 0" class="rpcs3-onboarding">
+                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+                <div>
+                  <span class="rpcs3-step">Library folder added</span>
+                  <h2>No PlayStation 5 layouts found yet</h2>
+                  <p>
+                    Your folder reference is preserved. Add a recognized decrypted ELF or fake-signed SELF, then scan
+                    again.
+                  </p>
+                </div>
+                <button class="btn btn-primary" @click="refreshSharpemu(true)">Scan Library</button>
+              </div>
+
+              <div v-else class="sharp-grid">
+                <article
+                  v-for="game in sharpemuGames"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/sharpemu/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="game.title"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button
+                      v-if="game.running"
+                      class="running-close-button"
+                      title="Stop game"
+                      @click="stopSharpemuGame(game)"
+                    >
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.titleId || "PS5"
+                      }}</span>
+                      <span v-if="game.contentVersion || game.masterVersion" class="sharp-card-size"
+                        >v{{ game.contentVersion || game.masterVersion }}</span
+                      >
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button v-if="game.running" class="btn btn-stop" @click="stopSharpemuGame(game)">Stop</button>
+                      <button
+                        v-else
+                        class="btn btn-play"
+                        :disabled="sharpemuStatus?.state !== 'ready'"
+                        @click="launchSharpemuGame(game)"
+                      >
+                        Play
+                      </button>
+                      <button class="btn btn-secondary" @click="getAPI().openSharpemuPath(game.path)">
+                        Open Folder
+                      </button>
+                      <button
+                        class="btn btn-secondary"
+                        @click="getAPI().openSharpemuLink('compatibility', game.titleId)"
+                      >
+                        Compatibility
+                      </button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="openSharpemuLog(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                    <small
+                      v-if="game.lastExitCode !== null && game.lastExitCode !== undefined"
+                      class="sharpemu-last-exit"
+                    >
+                      Last exit: {{ game.lastExitCode }}
+                    </small>
+                  </div>
+                </article>
+              </div>
+            </div>
           </div>
         </section>
       </template>
@@ -5717,6 +5854,122 @@ details[open] > .drawer-summary {
   max-width: 1180px;
   margin: 0 auto;
 }
+.emulator-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 238px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+.emulator-main-header,
+.emulator-library-column {
+  min-width: 0;
+  grid-column: 1;
+}
+.emulator-main-header {
+  grid-row: 1;
+}
+.emulator-library-column {
+  display: flex;
+  grid-row: 2;
+  flex-direction: column;
+  gap: 14px;
+}
+.emulator-sidebar {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.emulator-sidebar .rpcs3-command-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.emulator-sidebar .rpcs3-command {
+  width: 100%;
+  min-height: 54px;
+}
+.emulator-sidebar .emulator-update-card,
+.emulator-sidebar .gog-download-progress,
+.emulator-sidebar .emulator-roots,
+.emulator-sidebar .rpcs3-management,
+.emulator-sidebar .sharpemu-network-policy {
+  width: 100%;
+}
+.emulator-sidebar .emulator-update-card,
+.emulator-sidebar .gog-download-progress {
+  padding: 11px 12px;
+}
+.emulator-sidebar .rpcs3-management,
+.emulator-sidebar .emulator-roots {
+  padding: 0;
+  overflow: hidden;
+}
+.emulator-sidebar .rpcs3-management summary,
+.emulator-sidebar .emulator-roots summary {
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 12px;
+  list-style-position: inside;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.emulator-sidebar .rpcs3-management[open] summary,
+.emulator-sidebar .emulator-roots[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+.emulator-sidebar-summary-label {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+}
+.emulator-sidebar-summary-label > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.emulator-sidebar .rpcs3-management-actions {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+.emulator-sidebar .rpcs3-management-actions .btn {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+.emulator-sidebar .emulator-root-row {
+  align-items: stretch;
+  flex-direction: column;
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.emulator-sidebar .emulator-root-row:first-of-type {
+  border-top: 0;
+}
+.emulator-sidebar .emulator-root-row code,
+.emulator-sidebar .emulator-root-path {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.emulator-sidebar-empty {
+  margin: 0;
+  padding: 12px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.emulator-sidebar .sharpemu-signing-note {
+  margin: 0;
+  padding: 0 10px 10px;
+  font-size: 9px;
+}
 .rpcs3-overview {
   position: relative;
   display: grid;
@@ -6001,7 +6254,7 @@ details[open] > .drawer-summary {
   font-size: 9px;
   font-weight: 500;
 }
-.emulator-roots summary span {
+.emulator-roots summary .emulator-root-count {
   display: inline-grid;
   min-width: 18px;
   height: 18px;
@@ -6074,6 +6327,25 @@ details[open] > .drawer-summary {
   flex: 1;
 }
 @media (max-width: 920px) {
+  .emulator-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  .emulator-main-header,
+  .emulator-sidebar,
+  .emulator-library-column {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .emulator-sidebar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .emulator-sidebar .rpcs3-command-bar {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .rpcs3-overview {
     grid-template-columns: 1fr;
   }
@@ -6088,6 +6360,10 @@ details[open] > .drawer-summary {
   }
 }
 @media (max-width: 620px) {
+  .emulator-sidebar,
+  .emulator-sidebar .rpcs3-command-bar {
+    grid-template-columns: 1fr;
+  }
   .rpcs3-overview {
     padding: 18px;
   }
