@@ -5689,6 +5689,7 @@ details[open] > .drawer-summary {
   grid-column: 1;
 }
 .emulator-main-header {
+  container-type: inline-size;
   grid-row: 1;
 }
 .emulator-library-column {
@@ -6163,6 +6164,34 @@ details[open] > .drawer-summary {
 }
 .emulator-game-card .sharp-card-actions-row .btn {
   flex: 1;
+}
+@container (max-width: 680px) {
+  .rpcs3-overview {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .rpcs3-primary-actions {
+    justify-content: flex-start;
+  }
+  .rpcs3-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (max-width: 430px) {
+  .rpcs3-overview {
+    padding: 18px;
+  }
+  .rpcs3-primary-actions,
+  .rpcs3-primary-actions .btn,
+  .rpcs3-stats {
+    width: 100%;
+  }
+  .rpcs3-primary-actions .btn {
+    justify-content: center;
+  }
+  .rpcs3-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 @media (max-width: 920px) {
   .emulator-workspace {
