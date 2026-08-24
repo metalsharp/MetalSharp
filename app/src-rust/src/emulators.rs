@@ -105,6 +105,24 @@ pub struct Pcsx2GamesContract {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct Pcsx2SettingOptionContract {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Pcsx2SettingsContract {
+    pub ok: bool,
+    pub controller1: String,
+    pub controller2: String,
+    pub renderer: String,
+    pub controller_options: Vec<Pcsx2SettingOptionContract>,
+    pub renderer_options: Vec<Pcsx2SettingOptionContract>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct Shadps4StatusContract {
     pub ok: bool,
     pub provider: String,
@@ -395,6 +413,26 @@ mod tests {
         assert_eq!(value["biosInstalled"], true);
         assert_eq!(value["dataPathFlag"], false);
         assert_eq!(value["runtimeArchitecture"], "x86_64");
+    }
+
+    #[test]
+    fn pcsx2_settings_contract_preserves_upstream_values() {
+        let settings = Pcsx2SettingsContract {
+            ok: true,
+            controller1: "DualShock2".into(),
+            controller2: "Guitar".into(),
+            renderer: "metal".into(),
+            controller_options: vec![Pcsx2SettingOptionContract {
+                id: "DualShock2".into(),
+                label: "DualShock 2".into(),
+            }],
+            renderer_options: vec![Pcsx2SettingOptionContract { id: "metal".into(), label: "Metal".into() }],
+        };
+        let value = serde_json::to_value(settings).unwrap();
+        assert_eq!(value["controller1"], "DualShock2");
+        assert_eq!(value["controller2"], "Guitar");
+        assert_eq!(value["renderer"], "metal");
+        assert_eq!(value["controllerOptions"][0]["label"], "DualShock 2");
     }
 
     #[test]

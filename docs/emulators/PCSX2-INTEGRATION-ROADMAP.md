@@ -66,7 +66,7 @@ and creates `bios`, `cache`, `cheats`, `covers`, `gamesettings`, `inis`, `inputp
 2. **Stable channel first.** Nightly releases remain unavailable until stable installation, state migration, update, and rollback are proven.
 3. **Support Intel and Apple Silicon hosts.** The current app is x86_64. Intel requires SSE4.1; Apple Silicon requires a working Rosetta 2 translation probe.
 4. **Isolate data from runtime.** Set an isolated `HOME` for every PCSX2 command. Use `-datapath` only when capability-probed. Never use `-portable`.
-5. **Let PCSX2 own emulator-specific configuration.** MetalSharp owns installation, library, preservation, and process supervision; the upstream UI owns controller mapping, renderer tuning, memory-card management, per-game settings, and its setup wizard.
+5. **Keep PCSX2 as the configuration authority through audited values.** MetalSharp owns installation, library, preservation, and process supervision and may write only the tested upstream controller-type and renderer keys through an allowlisted atomic API. PCSX2 retains advanced input mapping, memory-card management, per-game settings, language, audio, and diagnostics.
 6. **MetalSharp manages runtime updates.** Disable PCSX2's startup update check in isolated configuration after a versioned schema probe, and verify the app signature before every launch. Upstream self-update must not mutate `current` outside MetalSharp's transaction.
 7. **BIOS acquisition is user-directed.** MetalSharp links the official dumping guide and imports a user-selected dump. It never downloads, bundles, suggests search terms for, or transmits a Sony BIOS.
 8. **Games remain external references.** MetalSharp scans user-selected roots and launches supported files in place. Removing a root never deletes a disc image or game directory.
@@ -243,8 +243,9 @@ Exit gate:
 - If the capability manifest proves `-datapath`, pass the exact isolated PCSX2 data path as an additional defense; otherwise omit it.
 - Never pass `-portable` or let mutable state enter the signed app bundle.
 - Disable `[AutoUpdater] CheckAtStartup` only through a version-tested, atomic INI mutation that preserves unknown sections, comments where possible, and unrelated user settings.
-- Treat `SetupWizardIncomplete` as a real `setup_required` state. Provide **Open PCSX2 Setup** rather than guessing controller, language, renderer, or audio preferences.
-- Never edit PCSX2 configuration while a PCSX2 process is active.
+- Treat `SetupWizardIncomplete` as a real `setup_required` state. MetalSharp's contained **PCSX2 Setup** writes the user-selected controller types for ports 1 and 2 and the renderer using exact upstream identifiers, then completes baseline setup without launching the upstream wizard.
+- Allow only DualShock2, Guitar, Jogcon, NeGcon, and Popn controller values and the Automatic, Metal, OpenGL, Vulkan, and Software renderer values verified in the stable macOS runtime.
+- Never edit PCSX2 configuration while a PCSX2 process is active, and commit each allowlisted change atomically without replacing unrelated settings.
 
 ### BIOS import
 
@@ -328,7 +329,7 @@ For every process:
 - preserve exit code/signal and recover stale/crashed sessions after backend restart;
 - reject duplicate launches and block runtime/configuration mutations while any PCSX2 process is active.
 
-Provide **Open PCSX2** and **Open Setup** actions for controller mapping, renderer settings, memory cards, per-game settings, and diagnostics. These UI processes use the same isolated home and are supervised separately from game sessions. MetalSharp must not race PCSX2 for INI or game-list cache writes.
+Provide **Open PCSX2** for advanced input mapping, memory cards, per-game settings, language, audio, and diagnostics. The contained MetalSharp **PCSX2 Setup** dropdown owns the baseline controller-type and renderer selectors and writes PCSX2's real isolated INI values. Any upstream UI process uses the same isolated home and is supervised separately from game sessions; MetalSharp must not race PCSX2 for INI or game-list cache writes.
 
 Exit gate:
 
@@ -341,6 +342,7 @@ Proposed read endpoints:
 ```text
 GET /sharp-library/pcsx2/status
 GET /sharp-library/pcsx2/games
+GET /sharp-library/pcsx2/settings
 GET /sharp-library/pcsx2/cover?id=<id>
 GET /sharp-library/pcsx2/update/check
 GET /sharp-library/pcsx2/update/progress
@@ -350,6 +352,7 @@ Proposed mutations:
 
 ```text
 POST /sharp-library/pcsx2/initialize
+POST /sharp-library/pcsx2/configure
 POST /sharp-library/pcsx2/import-bios
 POST /sharp-library/pcsx2/scan
 POST /sharp-library/pcsx2/add-root
@@ -385,8 +388,8 @@ First-run flow:
 1. **Host readiness** — show macOS, Intel/Rosetta, CPU, and memory facts without performance guarantees.
 2. **Install verified PCSX2** — show official source, stable version, size, digest, Developer ID, and notarization result.
 3. **Import your PS2 BIOS** — explain ownership, link the official dump guide, and select a user dump.
-4. **Finish PCSX2 setup** — open the isolated upstream wizard for controller, renderer, language, and audio choices.
-5. **Add game folder** — explain supported dump formats and link the official disc-dumping guide.
+4. **Finish baseline PCSX2 setup** — choose controller types for ports 1 and 2 and a renderer from contained MetalSharp dropdowns backed by exact upstream settings.
+5. **Add games** — select an individual owned disc image or a dedicated game folder, explain supported dump formats, and link the official disc-dumping guide.
 
 Dashboard requirements:
 
@@ -395,7 +398,7 @@ Dashboard requirements:
 - game, root, and active-session counts;
 - install, repair, check, pin, skip, rollback, and runtime-removal controls;
 - explicit preservation language beside update, rollback, root removal, and runtime removal;
-- **Open PCSX2**, **Open Setup**, **BIOS Guide**, and **Disc Dumping Guide** actions;
+- **Open PCSX2**, contained **PCSX2 Setup**, **BIOS Guide**, and **Disc Dumping Guide** actions;
 - cards with safe title fallback, serial/region when known, format, file size, local cover, running state, Play/Stop, Open Folder, and Open Log;
 - clear missing-Rosetta, missing-runtime, setup-required, missing-BIOS, no-roots, empty-library, offline, corrupt-runtime, update-failed, and running states;
 - warnings that compatibility and performance vary by game;
