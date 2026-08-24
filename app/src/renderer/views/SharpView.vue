@@ -2803,7 +2803,7 @@ onUnmounted(() => {
               <button class="btn btn-primary" @click="installRpcs3Content('firmware')">Select Firmware</button>
             </div>
           </div>
-          <div v-else-if="rpcs3Games.length === 0" class="rpcs3-onboarding">
+          <div v-else-if="rpcs3Roots.length === 0" class="rpcs3-onboarding">
             <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
             <div>
               <span class="rpcs3-step">Step 3 of 3</span>
@@ -2811,6 +2811,16 @@ onUnmounted(() => {
               <p>Add a folder containing disc layouts or install a legally acquired package.</p>
             </div>
             <button class="btn btn-primary" @click="addRpcs3Folder">Add Games Folder</button>
+          </div>
+
+          <div v-else-if="rpcs3Games.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Library folder added</span>
+              <h2>No PlayStation 3 games found yet</h2>
+              <p>MetalSharp saved your game folder. Add a supported disc layout to it, then scan the library again.</p>
+            </div>
+            <button class="btn btn-primary" @click="refreshRpcs3(true)">Scan Library</button>
           </div>
 
           <div v-else class="sharp-grid">
