@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   pickExeFile: () => ipcRenderer.invoke("app:pick-exe-file"),
   pickRpcs3File: (kind: "firmware" | "package") => ipcRenderer.invoke("app:pick-rpcs3-file", kind),
   pickPcsx2Bios: () => ipcRenderer.invoke("app:pick-pcsx2-bios"),
+  pickPcsx2Game: () => ipcRenderer.invoke("app:pick-pcsx2-game"),
   pickSharpemuRoot: () => ipcRenderer.invoke("app:pick-sharpemu-root"),
   pickImageFile: () => ipcRenderer.invoke("app:pick-image-file"),
   pickDirectory: (title?: string) => ipcRenderer.invoke("app:pick-directory", title),

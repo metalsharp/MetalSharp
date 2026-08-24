@@ -257,6 +257,7 @@ type MetalsharpAPI = {
   pickExeFile: () => Promise<string | null>;
   pickRpcs3File: (kind: "firmware" | "package") => Promise<string | null>;
   pickPcsx2Bios: () => Promise<string | null>;
+  pickPcsx2Game: () => Promise<string | null>;
   pickSharpemuRoot: () => Promise<string | null>;
   pickImageFile: () => Promise<string | null>;
   pickDirectory: (title?: string) => Promise<string | null>;

@@ -1744,6 +1744,22 @@ webview{flex:1;border:none}
     return result.filePaths[0];
   });
 
+  ipcMain.handle("app:pick-pcsx2-game", async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a PlayStation 2 disc image or game folder",
+      properties: ["openFile", "openDirectory"],
+      filters: [
+        {
+          name: "PlayStation 2 Games",
+          extensions: ["iso", "bin", "img", "mdf", "gz", "cso", "zso", "chd", "elf"],
+        },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
   ipcMain.handle("app:pick-sharpemu-root", async () => {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {

@@ -3537,6 +3537,29 @@ static bool protected_game_root(const char* resolved, const char* environment) {
            (resolved[strlen(environment)] == '\0' || resolved[strlen(environment)] == '/');
 }
 
+static bool resolve_game_root(const char* path, char resolved[4096]) {
+    char selected[4096];
+    struct stat st;
+    if (!path || !realpath(path, selected) || strchr(selected, '\n') || strchr(selected, '\r') ||
+        lstat(selected, &st) != 0 || S_ISLNK(st.st_mode))
+        return false;
+    if (S_ISDIR(st.st_mode))
+        return snprintf(resolved, 4096, "%s", selected) < 4096;
+    if (!S_ISREG(st.st_mode) || st.st_size <= 0 || !supported_extension(selected))
+        return false;
+    char* separator = strrchr(selected, '/');
+    if (!separator)
+        return false;
+    if (separator == selected)
+        separator[1] = '\0';
+    else
+        *separator = '\0';
+    if (snprintf(resolved, 4096, "%s", selected) >= 4096 || lstat(resolved, &st) != 0 || !S_ISDIR(st.st_mode) ||
+        S_ISLNK(st.st_mode))
+        return false;
+    return true;
+}
+
 static bool valid_launch_target(const char* home, const char* path) {
     char resolved[4096];
     struct stat st;
@@ -3643,16 +3666,15 @@ char* ms_pcsx2_action_json(const char* home, const char* action, const unsigned 
         char resolved[4096];
         char* roots[PCSX2_MAX_ROOTS] = {0};
         size_t count = load_roots(home, roots);
-        struct stat st;
         char* environment = emulator_root(home);
-        bool protected = path && realpath(path, resolved) && protected_game_root(resolved, environment);
+        bool resolved_ok = resolve_game_root(path, resolved);
+        bool protected = resolved_ok && protected_game_root(resolved, environment);
         if (update_running())
             result = error_json("wait for the PCSX2 runtime transaction before changing game folders");
         else if (any_session_running(home))
             result = error_json("stop PCSX2 before changing game folders");
-        else if (!path || !realpath(path, resolved) || strchr(resolved, '\n') || strchr(resolved, '\r') ||
-                 lstat(resolved, &st) != 0 || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode) || protected)
-            result = error_json("a safe existing PlayStation 2 game folder is required");
+        else if (!resolved_ok || protected)
+            result = error_json("a safe existing PlayStation 2 game folder or supported disc image is required");
         else {
             bool exists = false;
             for (size_t i = 0; i < count; ++i)

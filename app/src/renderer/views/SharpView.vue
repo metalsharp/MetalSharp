@@ -1200,7 +1200,7 @@ async function rollbackPcsx2() {
 }
 
 async function addPcsx2Folder() {
-  const path = await getAPI().pickDirectory("Select a folder containing owned PlayStation 2 disc dumps");
+  const path = await getAPI().pickPcsx2Game();
   if (!path) return;
   const result = await api<{ ok: boolean; games: Pcsx2Game[]; roots: string[]; error?: string }>(
     "POST",
@@ -1210,7 +1210,7 @@ async function addPcsx2Folder() {
   if (result?.ok) {
     pcsx2Games.value = result.games ?? [];
     pcsx2Roots.value = result.roots ?? [];
-    toast.show("PCSX2 game folder added. External game files remain in place.", "success");
+    toast.show("PCSX2 game location added. External game files remain in place.", "success");
   } else toast.show(result?.error ?? "Could not add the PCSX2 game folder", "error");
 }
 
@@ -3659,7 +3659,7 @@ onUnmounted(() => {
                 </button>
                 <button class="rpcs3-command" @click="addPcsx2Folder">
                   <IconFolderPlus width="17" height="17" /><span
-                    ><strong>Add Games</strong><small>Owned disc dumps</small></span
+                    ><strong>Add Games</strong><small>Disc image or folder</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="refreshPcsx2(true)">
@@ -3748,102 +3748,8 @@ onUnmounted(() => {
                 </div>
               </details>
             </aside>
-            <div class="emulator-library-column">
-              <div v-if="!pcsx2Status" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Checking host readiness</span>
-                  <h2>Preparing PCSX2 status…</h2>
-                </div>
-              </div>
-              <div v-else-if="!pcsx2Status.supported" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Host readiness blocked</span>
-                  <h2>{{ pcsx2StateLabel }}</h2>
-                  <p>PCSX2 requires macOS 11+, x86-64/SSE4.1 on Intel, or working Rosetta 2 on Apple Silicon.</p>
-                </div>
-              </div>
-              <div v-else-if="!pcsx2Status.installed" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 1 of 4</span>
-                  <h2>Install verified PCSX2</h2>
-                  <p>
-                    MetalSharp downloads the official stable signed and notarized macOS app, verifies it, and activates
-                    it atomically.
-                  </p>
-                </div>
-                <button class="btn btn-primary" :disabled="pcsx2Loading.update" @click="installOrUpdatePcsx2">
-                  Install PCSX2
-                </button>
-              </div>
-              <div v-else-if="!pcsx2Status.biosInstalled" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 2 of 4</span>
-                  <h2>Import your own PS2 BIOS</h2>
-                  <p>
-                    PCSX2 requires a BIOS dumped from a console you own. MetalSharp never downloads, bundles, or uploads
-                    it.
-                  </p>
-                </div>
-                <div class="rpcs3-onboarding-actions">
-                  <button class="btn btn-primary" :disabled="pcsx2Loading.bios" @click="importPcsx2Bios">
-                    {{ pcsx2Loading.bios ? "Validating…" : "Import BIOS" }}
-                  </button>
-                  <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('bios')">Official Guide</button>
-                </div>
-              </div>
-              <div v-else-if="!pcsx2Status.setupComplete" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 3 of 4</span>
-                  <h2>Finish isolated PCSX2 setup</h2>
-                  <p>
-                    Use PCSX2's upstream wizard for controller mapping, graphics, language, and audio. Its updater
-                    remains disabled because MetalSharp manages versions atomically.
-                  </p>
-                </div>
-                <div class="rpcs3-onboarding-actions">
-                  <button class="btn btn-primary" @click="openPcsx2(true)">Open PCSX2 Setup</button>
-                  <button
-                    v-if="!pcsx2Status.upstreamUpdaterDisabled"
-                    class="btn btn-secondary"
-                    :disabled="pcsx2Loading.initialize"
-                    @click="initializePcsx2"
-                  >
-                    Initialize State
-                  </button>
-                </div>
-              </div>
-              <div v-else-if="pcsx2Roots.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 4 of 4</span>
-                  <h2>Add owned PlayStation 2 disc dumps</h2>
-                  <p>
-                    Supported: ISO, BIN, IMG, MDF, GZ, CSO, ZSO, CHD, and homebrew ELF. CUE, TOC, and CDR sidecars are
-                    not launchable.
-                  </p>
-                </div>
-                <div class="rpcs3-onboarding-actions">
-                  <button class="btn btn-primary" @click="addPcsx2Folder">Add Game Folder</button>
-                  <button class="btn btn-secondary" @click="getAPI().openPcsx2Guide('discs')">
-                    Official Dumping Guide
-                  </button>
-                </div>
-              </div>
-              <div v-else-if="pcsx2Games.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Library folder added</span>
-                  <h2>No PlayStation 2 games found yet</h2>
-                  <p>Add a supported owned dump to a registered folder, then scan again.</p>
-                </div>
-                <button class="btn btn-secondary" @click="refreshPcsx2(true)">Scan Again</button>
-              </div>
-              <div v-else class="sharp-grid">
+            <div v-if="pcsx2Games.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
                 <article
                   v-for="game in pcsx2Games"
                   :key="game.id"
@@ -3902,10 +3808,6 @@ onUnmounted(() => {
                   </div>
                 </article>
               </div>
-              <p class="emulator-affiliation-note">
-                MetalSharp is not affiliated with the PCSX2 project or Sony Interactive Entertainment. Compatibility and
-                performance vary by game.
-              </p>
             </div>
           </div>
         </section>
@@ -4090,63 +3992,8 @@ onUnmounted(() => {
                 </div>
               </details>
             </aside>
-            <div class="emulator-library-column">
-              <div v-if="!rpcs3Status?.installed" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 1 of 3</span>
-                  <h2>Install the verified RPCS3 runtime</h2>
-                  <p>
-                    MetalSharp selects the official build for this Mac, verifies its digest and signature, then
-                    activates it atomically.
-                  </p>
-                </div>
-                <button class="btn btn-primary" :disabled="rpcs3Loading.update" @click="installOrUpdateRpcs3">
-                  Install RPCS3
-                </button>
-              </div>
-              <div v-else-if="!rpcs3Status.firmwareInstalled" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconShieldCheck width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 2 of 3</span>
-                  <h2>Add PlayStation 3 firmware</h2>
-                  <p>Select your legally acquired PS3UPDAT.PUP. MetalSharp never downloads or bundles Sony firmware.</p>
-                </div>
-                <div class="rpcs3-onboarding-actions">
-                  <button
-                    class="btn btn-secondary"
-                    type="button"
-                    title="Open the official PlayStation 3 system software page"
-                    @click="getAPI().openRpcs3FirmwarePage()"
-                  >
-                    <IconExternalLink width="13" height="13" /> Firmware Link
-                  </button>
-                  <button class="btn btn-primary" @click="installRpcs3Content('firmware')">Select Firmware</button>
-                </div>
-              </div>
-              <div v-else-if="rpcs3Roots.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 3 of 3</span>
-                  <h2>Build your PlayStation 3 library</h2>
-                  <p>Add a folder containing disc layouts or install a legally acquired package.</p>
-                </div>
-                <button class="btn btn-primary" @click="addRpcs3Folder">Add Games Folder</button>
-              </div>
-
-              <div v-else-if="rpcs3Games.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Library folder added</span>
-                  <h2>No PlayStation 3 games found yet</h2>
-                  <p>
-                    MetalSharp saved your game folder. Add a supported disc layout to it, then scan the library again.
-                  </p>
-                </div>
-                <button class="btn btn-primary" @click="refreshRpcs3(true)">Scan Library</button>
-              </div>
-
-              <div v-else class="sharp-grid">
+            <div v-if="rpcs3Games.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
                 <article
                   v-for="game in rpcs3Games"
                   :key="game.id"
@@ -4410,65 +4257,8 @@ onUnmounted(() => {
                 </div>
               </details>
             </aside>
-            <div class="emulator-library-column">
-              <div v-if="!shadps4Status" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Checking host readiness</span>
-                  <h2>Inspecting shadPS4 requirements…</h2>
-                  <p>MetalSharp is checking architecture, macOS, Rosetta, and the isolated environment.</p>
-                </div>
-              </div>
-              <div v-else-if="!shadps4Status.supported" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Host readiness blocked</span>
-                  <h2>{{ shadps4StateLabel }}</h2>
-                  <p>
-                    shadPS4 currently requires Apple Silicon, Rosetta 2, and a host compatible with its deployment
-                    target.
-                  </p>
-                </div>
-              </div>
-              <div v-else-if="!shadps4Status?.installed" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 1 of 2</span>
-                  <h2>Install the verified stable shadPS4 core</h2>
-                  <p>
-                    MetalSharp verifies the official ZIP digest, architecture, deployment target, local signature, and
-                    CLI capabilities before atomic activation.
-                  </p>
-                </div>
-                <button class="btn btn-primary" :disabled="shadps4Loading.update" @click="installOrUpdateShadps4">
-                  Install shadPS4
-                </button>
-              </div>
-              <div v-else-if="shadps4Roots.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 2 of 2</span>
-                  <h2>Add your dumped PlayStation 4 games</h2>
-                  <p>
-                    Select a folder containing legally dumped CUSA directories with eboot.bin and sce_sys/param.sfo.
-                    MetalSharp does not extract packages.
-                  </p>
-                </div>
-                <button class="btn btn-primary" @click="addShadps4Folder">Add Games Folder</button>
-              </div>
-              <div v-else-if="shadps4Games.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Library folder added</span>
-                  <h2>No supported CUSA game layouts found</h2>
-                  <p>
-                    Your folder is saved. Add a dumped game containing eboot.bin and sce_sys/param.sfo, then scan again.
-                  </p>
-                </div>
-                <button class="btn btn-primary" @click="refreshShadps4(true)">Scan Library</button>
-              </div>
-
-              <div v-else class="sharp-grid">
+            <div v-if="shadps4Games.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
                 <article
                   v-for="game in shadps4Games"
                   :key="game.id"
@@ -4766,66 +4556,8 @@ onUnmounted(() => {
                 </div>
               </details>
             </aside>
-            <div class="emulator-library-column">
-              <div v-if="!sharpemuStatus" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Checking host readiness</span>
-                  <h2>Inspecting SharpEmu requirements…</h2>
-                  <p>MetalSharp is checking architecture, macOS, Rosetta, network containment, and archive tools.</p>
-                </div>
-              </div>
-              <div v-else-if="!sharpemuStatus.supported" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Host readiness blocked</span>
-                  <h2>{{ sharpemuStateLabel }}</h2>
-                  <p>
-                    The current full payload requires macOS 26 or newer and x86-64 execution. Apple Silicon also
-                    requires Rosetta 2.
-                  </p>
-                </div>
-              </div>
-              <div v-else-if="!sharpemuStatus.installed" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 1 of 2</span>
-                  <h2>Install the verified stable SharpEmu runtime</h2>
-                  <p>
-                    MetalSharp verifies the exact release identity, mutable-asset metadata, archive, Mach-O
-                    dependencies, local signatures, and CLI probe before atomic activation.
-                  </p>
-                </div>
-                <button class="btn btn-primary" :disabled="sharpemuLoading.update" @click="installOrUpdateSharpemu">
-                  Install SharpEmu
-                </button>
-              </div>
-              <div v-else-if="sharpemuRoots.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Step 2 of 2</span>
-                  <h2>Add your owned PlayStation 5 layouts</h2>
-                  <p>
-                    Select an existing folder containing eboot.bin and optional sce_sys/param.json. MetalSharp does not
-                    decrypt, fake-sign, copy, merge, download, or delete game content.
-                  </p>
-                </div>
-                <button class="btn btn-primary" @click="addSharpemuFolder">Add Game Folder</button>
-              </div>
-              <div v-else-if="sharpemuGames.length === 0" class="rpcs3-onboarding">
-                <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
-                <div>
-                  <span class="rpcs3-step">Library folder added</span>
-                  <h2>No PlayStation 5 layouts found yet</h2>
-                  <p>
-                    Your folder reference is preserved. Add a recognized decrypted ELF or fake-signed SELF, then scan
-                    again.
-                  </p>
-                </div>
-                <button class="btn btn-primary" @click="refreshSharpemu(true)">Scan Library</button>
-              </div>
-
-              <div v-else class="sharp-grid">
+            <div v-if="sharpemuGames.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
                 <article
                   v-for="game in sharpemuGames"
                   :key="game.id"
@@ -6014,8 +5746,7 @@ details[open] > .drawer-summary {
   align-items: flex-start;
   min-width: 0;
 }
-.rpcs3-brand-mark,
-.rpcs3-onboarding-icon {
+.rpcs3-brand-mark {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
@@ -6032,8 +5763,7 @@ details[open] > .drawer-summary {
 .rpcs3-overview-copy {
   min-width: 0;
 }
-.rpcs3-eyebrow,
-.rpcs3-step {
+.rpcs3-eyebrow {
   color: var(--text-dim);
   font-size: 10px;
   font-weight: 750;
@@ -6050,12 +5780,6 @@ details[open] > .drawer-summary {
 .shadps4-host-warning {
   margin-top: 6px !important;
   color: var(--warning, #f4c15d) !important;
-}
-.emulator-affiliation-note {
-  margin: 2px 4px 0;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  line-height: 1.45;
 }
 .rpcs3-title-row h2 {
   margin: 0;
@@ -6287,42 +6011,6 @@ details[open] > .drawer-summary {
   background: var(--bg-input);
   cursor: pointer;
 }
-.rpcs3-onboarding {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  padding: 22px 24px;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-  border-radius: 14px;
-  background: linear-gradient(
-    110deg,
-    color-mix(in srgb, var(--bg-card) 93%, var(--accent) 7%),
-    color-mix(in srgb, var(--bg-card) 96%, transparent)
-  );
-}
-.rpcs3-onboarding-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
-}
-.rpcs3-onboarding-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.rpcs3-onboarding h2 {
-  margin: 3px 0 4px;
-  color: var(--text-primary);
-  font-size: 15px;
-}
-.rpcs3-onboarding p {
-  max-width: 670px;
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.5;
-}
 .emulator-game-card .sharp-card-actions-row .btn {
   flex: 1;
 }
@@ -6370,21 +6058,6 @@ details[open] > .drawer-summary {
   .rpcs3-stats,
   .rpcs3-command-bar {
     grid-template-columns: 1fr;
-  }
-  .rpcs3-onboarding {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .rpcs3-onboarding > .btn {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-  }
-  .rpcs3-onboarding-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-column: 1 / -1;
-  }
-  .rpcs3-onboarding-actions .btn {
-    justify-content: center;
   }
 }
 .gamejolt-panel {
