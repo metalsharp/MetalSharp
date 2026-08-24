@@ -126,7 +126,113 @@ gog_import=$(curl --silent --fail --request POST --header 'Content-Type: applica
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
 
 emulators=$(curl --silent --fail "http://127.0.0.1:$port/emulators")
-printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["rpcs3"] and v["providers"][0]["supported"]'
+printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["rpcs3", "shadps4"] and all(p["supported"] for p in v["providers"]); assert v["providers"][1]["experimental"]'
+
+shadps4_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/status")
+printf '%s' "$shadps4_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["supported"] and v["experimental"] and not v["installed"] and v["state"] == "missing_runtime" and v["runtimeArchitecture"] == "x86_64"'
+shadps4_update=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/update/check")
+printf '%s' "$shadps4_update" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["available"] and v["latestVersion"] == "v.0.18.0" and v["downloadSize"] == 4 and v["digest"].startswith("sha256:")'
+
+mkdir -p "$home/shadps4-games/CUSA12345/sce_sys"
+printf 'fake-eboot' > "$home/shadps4-games/CUSA12345/eboot.bin"
+SHADPS4_SFO="$home/shadps4-games/CUSA12345/sce_sys/param.sfo" python3 - <<'PY'
+import os, struct
+values = [("TITLE_ID", "CUSA12345"), ("TITLE", "Smoke shadPS4 Game"), ("APP_VER", "01.23"), ("CATEGORY", "gd")]
+keys = b""
+entries = []
+data = b""
+for key, value in values:
+    key_offset = len(keys)
+    keys += key.encode() + b"\0"
+    raw = value.encode() + b"\0"
+    entries.append((key_offset, 0x0204, len(raw), len(raw), len(data)))
+    data += raw
+key_start = 20 + 16 * len(entries)
+data_start = key_start + len(keys)
+blob = struct.pack("<4sIIII", b"\0PSF", 0x101, key_start, data_start, len(entries))
+blob += b"".join(struct.pack("<HHIII", *entry) for entry in entries) + keys + data
+with open(os.environ["SHADPS4_SFO"], "wb") as handle:
+    handle.write(blob)
+PY
+printf 'png-smoke' > "$home/shadps4-games/CUSA12345/sce_sys/icon0.png"
+mkdir -p "$home/shadps4-games/CUSA12345-patch/sce_sys" "$home/shadps4-games/Malformed/sce_sys" "$home/shadps4-outside/CUSA77777/sce_sys"
+cp "$home/shadps4-games/CUSA12345/sce_sys/param.sfo" "$home/shadps4-games/CUSA12345-patch/sce_sys/param.sfo"
+printf 'patch-eboot' > "$home/shadps4-games/CUSA12345-patch/eboot.bin"
+printf 'not-an-sfo' > "$home/shadps4-games/Malformed/sce_sys/param.sfo"
+printf 'malformed-eboot' > "$home/shadps4-games/Malformed/eboot.bin"
+cp "$home/shadps4-games/CUSA12345/sce_sys/param.sfo" "$home/shadps4-outside/CUSA77777/sce_sys/param.sfo"
+printf 'outside-eboot' > "$home/shadps4-outside/CUSA77777/eboot.bin"
+ln -s "$home/shadps4-outside" "$home/shadps4-games/symlinked-outside"
+shadps4_add=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/shadps4-games\"}" "http://127.0.0.1:$port/sharp-library/shadps4/add-root")
+printf '%s' "$shadps4_add" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["roots"]) == 1 and len(v["games"]) == 1; g=v["games"][0]; assert g["title"] == "Smoke shadPS4 Game" and g["titleId"] == "CUSA12345" and g["version"] == "01.23" and g["hasArtwork"] and g["hasUpdate"]'
+shadps4_id=$(printf '%s' "$shadps4_add" | python3 -c 'import json, sys; print(json.load(sys.stdin)["games"][0]["id"])')
+curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/cover?id=$shadps4_id" -o "$home/shadps4-cover.png"
+cmp "$home/shadps4-cover.png" "$home/shadps4-games/CUSA12345/sce_sys/icon0.png"
+protected_shadps4_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"path":"/"}' "http://127.0.0.1:$port/sharp-library/shadps4/add-root")
+printf '%s' "$protected_shadps4_root" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+
+mkdir -p "$home/shadps4-modules" "$home/shadps4-fonts/font" "$home/shadps4-fonts/font2"
+printf '\177ELFmodule-smoke' > "$home/shadps4-modules/libSceFont.sprx"
+printf '\177ELFunknown' > "$home/shadps4-modules/unknown.sprx"
+printf 'font-smoke' > "$home/shadps4-fonts/font/test.ttf"
+printf 'font2-smoke' > "$home/shadps4-fonts/font2/test.otf"
+shadps4_modules=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/shadps4-modules\"}" "http://127.0.0.1:$port/sharp-library/shadps4/import-modules")
+printf '%s' "$shadps4_modules" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["imported"] == 1 and v["rejected"] == 1'
+shadps4_fonts=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/shadps4-fonts\"}" "http://127.0.0.1:$port/sharp-library/shadps4/import-fonts")
+printf '%s' "$shadps4_fonts" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["files"] == 2'
+mkdir -p "$home/shadps4-bad-fonts"
+ln -s /tmp "$home/shadps4-bad-fonts/font"
+shadps4_bad_fonts=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/shadps4-bad-fonts\"}" "http://127.0.0.1:$port/sharp-library/shadps4/import-fonts")
+printf '%s' "$shadps4_bad_fonts" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+[ -f "$home/emulators/shadps4/home/Library/Application Support/shadPS4/fonts/font/test.ttf" ]
+
+shadps4_env="$home/emulators/shadps4"
+mkdir -p "$shadps4_env/versions/smoke-build"
+printf '#include <signal.h>\n#include <unistd.h>\nint main(void){signal(SIGTERM, SIG_DFL); sleep(30); return 0;}\n' > "$home/shadps4-smoke.c"
+${CC:-cc} -arch x86_64 -mmacosx-version-min=13.0 "$home/shadps4-smoke.c" -o "$shadps4_env/versions/smoke-build/shadps4"
+printf '{"ICD":{"api_version":"1.3.0","library_path":"./libvulkan_kosmickrisp.dylib"},"file_format_version":"1.0.1"}' > "$shadps4_env/versions/smoke-build/kosmickrisp_mesa_icd.json"
+printf 'loader' > "$shadps4_env/versions/smoke-build/libvulkan.dylib"
+printf 'driver' > "$shadps4_env/versions/smoke-build/libvulkan_kosmickrisp.dylib"
+ln -s "versions/smoke-build" "$shadps4_env/current"
+shadps4_ready=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/status")
+printf '%s' "$shadps4_ready" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["installed"] and v["state"] == "ready" and v["moduleCount"] == 1 and v["modulesReady"] and v["fontsReady"] and v["gameRootCount"] == 1'
+shadps4_pin=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/shadps4/pin-current")
+printf '%s' "$shadps4_pin" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pinnedTag"] == "smoke-build" and v["suppressed"] == "pinned"'
+shadps4_unpin=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/shadps4/unpin")
+printf '%s' "$shadps4_unpin" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pinnedTag"] is None'
+shadps4_launch=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$shadps4_id\",\"fullscreen\":true}" "http://127.0.0.1:$port/sharp-library/shadps4/launch")
+printf '%s' "$shadps4_launch" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pid"] > 0 and v["logPath"].endswith(".log")'
+sleep 0.2
+shadps4_running=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/games")
+printf '%s' "$shadps4_running" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["games"][0]["running"] and v["games"][0]["lastLogPath"].endswith(".log")'
+shadps4_remove_running=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"confirm":true}' "http://127.0.0.1:$port/sharp-library/shadps4/remove-runtime")
+printf '%s' "$shadps4_remove_running" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "stop" in v["error"].lower()'
+shadps4_stop=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$shadps4_id\"}" "http://127.0.0.1:$port/sharp-library/shadps4/stop")
+printf '%s' "$shadps4_stop" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
+shadps4_stopped=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/games")
+printf '%s' "$shadps4_stopped" | python3 -c 'import json, sys; g=json.load(sys.stdin)["games"][0]; assert not g["running"] and g["lastExitSignal"] == 15'
+shadps4_remove=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"confirm":true}' "http://127.0.0.1:$port/sharp-library/shadps4/remove-runtime")
+printf '%s' "$shadps4_remove" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["preservedData"]'
+[ -f "$shadps4_env/home/Library/Application Support/shadPS4/sys_modules/libSceFont.sprx" ]
+[ -f "$shadps4_env/home/Library/Application Support/shadPS4/fonts/font/test.ttf" ]
+[ -f "$home/shadps4-games/CUSA12345/eboot.bin" ]
+shadps4_bad_update=$(curl --silent --fail --request POST "http://127.0.0.1:$port/sharp-library/shadps4/update/install")
+printf '%s' "$shadps4_bad_update" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["running"]'
+i=0
+while [ "$i" -lt 50 ]; do
+    shadps4_bad_progress=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/update/progress")
+    shadps4_bad_status=$(printf '%s' "$shadps4_bad_progress" | python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])')
+    [ "$shadps4_bad_status" = "failed" ] && break
+    i=$((i + 1))
+    sleep 0.1
+done
+printf '%s' "$shadps4_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "digest" in v["error"]'
+[ ! -e "$shadps4_env/current" ]
+[ -z "$(find "$shadps4_env/downloads" -name '*.part' -print -quit)" ]
+shadps4_remove_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/shadps4-games\"}" "http://127.0.0.1:$port/sharp-library/shadps4/remove-root")
+printf '%s' "$shadps4_remove_root" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["roots"] == [] and v["games"] == []'
+[ -d "$home/shadps4-games" ]
+
 rpcs3_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/status")
 printf '%s' "$rpcs3_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and not v["installed"] and v["state"] == "not_installed" and not v["firmwareInstalled"]'
 rpcs3_update=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/update/check")

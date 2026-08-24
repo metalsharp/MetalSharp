@@ -1,6 +1,6 @@
 # shadPS4 integration roadmap
 
-Status: **planned; not yet a supported MetalSharp provider**
+Status: **implementation in progress; production verification pending**
 
 MetalSharp will identify this provider by its accurate upstream name: **shadPS4**.
 
