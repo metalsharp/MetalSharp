@@ -117,6 +117,11 @@ curl --silent --fail "http://127.0.0.1:$port/sharp-library/cover?id=$sharp_id" -
 cmp "$home/smoke-cover.png" "$home/sharp-library/$sharp_id.png"
 sharp_library=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library")
 printf '%s' "$sharp_library" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["apps"]) == 1'
+mkdir -p "$home/GameJolt/Smoke Windows Game/bin" "$home/GameJolt/Smoke Mac.app"
+printf 'smoke' > "$home/GameJolt/Smoke Windows Game/bin/game.exe"
+printf 'cover' > "$home/GameJolt/Smoke Windows Game/cover.png"
+gamejolt=$(curl --silent --fail "http://127.0.0.1:$port/gamejolt")
+printf '%s' "$gamejolt" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["games"]) == 2 and any(g["native"] for g in v["games"]) and any(g["cover_path"] for g in v["games"])'
 gog_import=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"smoke-gog","title":"Smoke GOG"}' "http://127.0.0.1:$port/sharp-library/gog/import")
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
 mkdir -p "$home/d3d-game" "$home/bottles/steam_1234"

@@ -16,6 +16,7 @@ interface SteamGame {
   state: "installed" | "not_installed" | "downloading";
   cover_url: string;
   header_url: string;
+  embedded_icon_path?: string | null;
   size_bytes?: number | null;
   launch_method?: string;
   launch_method_name?: string;
@@ -200,6 +201,7 @@ const currentIsDefaultRule = computed(() => {
   return defaultRule.value.default_pipeline === bottlePreferredMode.value;
 });
 const artworkLoadFailed = ref(false);
+const embeddedArtworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
 // M12 remains a valid backend route and must continue to display for existing
 // bottles, but it is intentionally not offered as a new frontend selection.
@@ -341,10 +343,18 @@ const launchModeOptions = computed(() => {
 });
 
 const primaryArtworkUrl = computed(() => props.game.header_url || props.game.cover_url || "");
-const displayedArtworkUrl = computed(() =>
-  primaryArtworkUrl.value && !artworkLoadFailed.value ? primaryArtworkUrl.value : sharpLogoUrl,
+const embeddedArtworkUrl = computed(() => {
+  const path = props.game.embedded_icon_path;
+  return path ? `file://${encodeURI(path)}` : "";
+});
+const displayedArtworkUrl = computed(() => {
+  if (primaryArtworkUrl.value && !artworkLoadFailed.value) return primaryArtworkUrl.value;
+  if (embeddedArtworkUrl.value && !embeddedArtworkLoadFailed.value) return embeddedArtworkUrl.value;
+  return sharpLogoUrl;
+});
+const usingFallbackArtwork = computed(
+  () => (!primaryArtworkUrl.value || artworkLoadFailed.value) && (!embeddedArtworkUrl.value || embeddedArtworkLoadFailed.value),
 );
-const usingFallbackArtwork = computed(() => !primaryArtworkUrl.value || artworkLoadFailed.value);
 
 const bottlePipelineOptions = computed(() =>
   userSelectablePipelineOrder
@@ -500,13 +510,17 @@ onMounted(async () => {
 
 watch(primaryArtworkUrl, (url) => {
   artworkLoadFailed.value = false;
+  embeddedArtworkLoadFailed.value = false;
   if (!url) emit("artworkMissing", props.game.appid);
 });
 
 function onArtworkError() {
-  if (!primaryArtworkUrl.value || artworkLoadFailed.value) return;
-  artworkLoadFailed.value = true;
-  emit("artworkMissing", props.game.appid);
+  if (primaryArtworkUrl.value && !artworkLoadFailed.value) {
+    artworkLoadFailed.value = true;
+    emit("artworkMissing", props.game.appid);
+  } else if (embeddedArtworkUrl.value && !embeddedArtworkLoadFailed.value) {
+    embeddedArtworkLoadFailed.value = true;
+  }
 }
 
 watch(selectedLaunchMode, (mode) => {
@@ -1041,7 +1055,8 @@ function formatBytes(bytes: number): string {
           "
         >
           <span class="cache-dot"></span>
-          {{ goldbergCacheOk ? "Backup cached" : "Backup missing" }}
+          <span class="cache-label-wide">{{ goldbergCacheOk ? "Backup cached" : "Backup missing" }}</span>
+          <span class="cache-label-short">Backup</span>
         </span>
         <span v-if="game.bottle_runtime_assets" class="game-card-size">{{ game.bottle_runtime_assets }} assets</span>
         <span v-if="game.size_bytes" class="game-card-size">{{ formatBytes(game.size_bytes) }}</span>
@@ -1242,6 +1257,7 @@ function formatBytes(bytes: number): string {
 <style scoped>
 .game-card {
   align-self: start;
+  container-type: inline-size;
   min-width: 0;
   width: 100%;
   height: fit-content;
@@ -1451,6 +1467,10 @@ function formatBytes(bytes: number): string {
   align-items: center;
   gap: 4px;
   min-height: 22px;
+  white-space: nowrap;
+}
+.cache-label-short {
+  display: none;
 }
 .steam-emu-cache .cache-dot {
   width: 7px;
@@ -1560,6 +1580,15 @@ function formatBytes(bytes: number): string {
   color: var(--text-dim);
 }
 
+@container (max-width: 340px) {
+  .cache-label-wide {
+    display: none;
+  }
+  .cache-label-short {
+    display: inline;
+  }
+}
+
 @media (max-width: 760px) {
   .primary-action-row,
   .secondary-action-grid {
@@ -1576,6 +1605,12 @@ function formatBytes(bytes: number): string {
   .steam-emu-toggle,
   .game-card-size {
     font-size: 10px;
+  }
+  .cache-label-wide {
+    display: none;
+  }
+  .cache-label-short {
+    display: inline;
   }
 }
 

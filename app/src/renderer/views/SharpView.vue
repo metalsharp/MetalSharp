@@ -7,6 +7,7 @@ import { themedNavIcon } from "../composables/useTheme";
 import IconUpload from "~icons/lucide/upload";
 import IconMonitor from "~icons/lucide/monitor";
 import IconX from "~icons/lucide/x";
+import IconPencil from "~icons/lucide/pencil";
 import sharpLogoUrl from "../icon.png";
 
 const refreshIcon = computed(() => themedNavIcon("refresh"));
@@ -156,6 +157,25 @@ interface GogStatus {
   winePath: string;
 }
 
+interface GameJoltStorage {
+  mode: "internal" | "external";
+  rootPath: string;
+  gamejoltDir: string;
+}
+
+interface GameJoltGame {
+  id: string;
+  name: string;
+  install_dir: string;
+  exe_path: string;
+  installed: boolean;
+  native: boolean;
+  engine: string;
+  cover_path?: string | null;
+  bottle_id?: string;
+  available_pipelines: { id: string; name: string; recommended?: boolean }[];
+}
+
 interface GogGame {
   productId: string;
   title: string;
@@ -179,12 +199,21 @@ interface GogGame {
 }
 
 const toast = useToast();
-const sourceMode = ref<"installers" | "gog">("installers");
-const headerTitle = computed(() => (sourceMode.value === "gog" ? "GOG Games Library" : "Sharp Library"));
+const sourceMode = ref<"installers" | "gog" | "gamejolt">("installers");
+const sourceTabs = [
+  { id: "installers" as const, label: "Installers" },
+  { id: "gog" as const, label: "GOG" },
+  { id: "gamejolt" as const, label: "GameJolt" },
+];
+const headerTitle = computed(() =>
+  sourceMode.value === "gog" ? "GOG Games Library" : sourceMode.value === "gamejolt" ? "GameJolt Library" : "Sharp Library",
+);
 const headerSubtitle = computed(() =>
   sourceMode.value === "gog"
     ? "Connect, sync, install, and play GOG games through MetalSharp."
-    : "Install and manage Windows applications outside Steam.",
+    : sourceMode.value === "gamejolt"
+      ? "Play GameJolt games from internal or external GameJolt storage."
+      : "Install and manage Windows applications outside Steam.",
 );
 const apps = ref<SharpApp[]>([]);
 const cardToolsOpen = ref<Record<string, boolean>>({});
@@ -206,6 +235,23 @@ const recentLogLines = ref<Record<string, string[]>>({});
 const recentCrashReports = ref<Record<string, CrashReport[]>>({});
 const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
+let savedGogEngines: Record<string, string> = {};
+try {
+  savedGogEngines = JSON.parse(localStorage.getItem("metalsharp-gog-engines") ?? "{}");
+} catch {}
+const gogEngines = ref<Record<string, string>>(savedGogEngines);
+const gamejoltGames = ref<GameJoltGame[]>([]);
+const gamejoltStorage = ref<GameJoltStorage | null>(null);
+const gamejoltLoading = ref(false);
+const gamejoltRunningPids = ref<Record<string, number>>({});
+const gamejoltBrowserHeight = ref(24);
+const gamejoltBrowserDragging = ref(false);
+const gamejoltPanel = ref<HTMLElement | null>(null);
+let gamejoltDragPointerId: number | null = null;
+const gamejoltDownloadToastIds = new Map<string, number>();
+let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+const editingGameJoltName = ref<string | null>(null);
+const gameJoltNameDraft = ref("");
 const gogLoading = ref<Record<string, boolean>>({});
 const gogProgress = ref<Record<string, number>>({});
 
@@ -493,6 +539,198 @@ function sharpAppNameSort(a: SharpApp, b: SharpApp) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
+async function loadGameJolt() {
+  const [gamesResult, storageResult] = await Promise.all([
+    api<{ ok: boolean; games: GameJoltGame[]; storage?: GameJoltStorage }>("GET", "/gamejolt"),
+    api<{ ok: boolean; mode: "internal" | "external"; rootPath: string; gamejoltDir: string }>("GET", "/gamejolt/storage"),
+  ]);
+  if (gamesResult?.ok) {
+    gamejoltGames.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }),
+    );
+    if (gamesResult.storage) gamejoltStorage.value = gamesResult.storage;
+  }
+  if (storageResult?.ok) gamejoltStorage.value = storageResult;
+}
+
+async function syncGameJolt(showResult = true) {
+  gamejoltLoading.value = true;
+  const result = await api<{ ok: boolean; games: GameJoltGame[]; storage?: GameJoltStorage; error?: string }>(
+    "POST",
+    "/gamejolt/sync",
+  );
+  gamejoltLoading.value = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "GameJolt scan failed", "error");
+    return;
+  }
+  gamejoltGames.value = [...(result.games ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  if (result.storage) gamejoltStorage.value = result.storage;
+  if (showResult)
+    toast.show(`Found ${gamejoltGames.value.length} GameJolt game${gamejoltGames.value.length === 1 ? "" : "s"}`, "success");
+}
+
+async function chooseGameJoltStorage() {
+  const rootPath = await getAPI().pickDirectory("Choose the parent folder for GameJolt games");
+  if (!rootPath) return;
+  const result = await api<{ ok: boolean; mode: "internal" | "external"; rootPath: string; gamejoltDir: string; error?: string }>(
+    "POST",
+    "/gamejolt/storage",
+    { rootPath },
+  );
+  if (result?.ok) {
+    gamejoltStorage.value = result;
+    await syncGameJolt();
+  } else {
+    toast.show(result?.error ?? "Could not change GameJolt storage", "error");
+  }
+}
+
+function beginGameJoltNameEdit(game: GameJoltGame) {
+  editingGameJoltName.value = game.id;
+  gameJoltNameDraft.value = game.name;
+}
+
+async function saveGameJoltName(game: GameJoltGame) {
+  if (editingGameJoltName.value !== game.id) return;
+  const name = gameJoltNameDraft.value.trim();
+  editingGameJoltName.value = null;
+  if (!name || name === game.name) return;
+  const result = await api<{ ok: boolean; name?: string; error?: string }>("POST", "/gamejolt/name", {
+    id: game.id,
+    name,
+  });
+  if (result?.ok && result.name) game.name = result.name;
+  else toast.show(result?.error ?? "Could not save GameJolt name", "error");
+}
+
+async function launchGameJolt(game: GameJoltGame) {
+  toast.show(`Launching ${game.name}...`);
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/gamejolt/launch", {
+    id: game.id,
+    exePath: game.exe_path,
+    engine: game.native ? "native" : game.engine,
+  });
+  if (result?.ok && result.pid) {
+    gamejoltRunningPids.value[game.id] = result.pid;
+    toast.show(`Launched ${game.name}`, "success");
+  } else {
+    toast.show(result?.error ?? `Failed to launch ${game.name}`, "error");
+  }
+}
+
+async function stopGameJolt(game: GameJoltGame) {
+  const pid = gamejoltRunningPids.value[game.id];
+  if (!pid) return;
+  await api("POST", "/kill", { pid });
+  delete gamejoltRunningPids.value[game.id];
+}
+
+async function uninstallGameJolt(game: GameJoltGame) {
+  if (gamejoltRunningPids.value[game.id]) return;
+  if (!window.confirm(`Uninstall ${game.name}? This removes its GameJolt folder and cannot be undone.`)) return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/gamejolt/uninstall", {
+    id: game.id,
+    installDir: game.install_dir,
+  });
+  if (!result?.ok) {
+    toast.show(result?.error ?? `Could not uninstall ${game.name}`, "error");
+    return;
+  }
+  delete gamejoltRunningPids.value[game.id];
+  await syncGameJolt(false);
+  toast.show(`${game.name} uninstalled`, "success");
+}
+
+async function refreshGameJoltProcessState() {
+  const entries = Object.entries(gamejoltRunningPids.value);
+  await Promise.all(
+    entries.map(async ([id, pid]) => {
+      const result = await api<{ ok: boolean; running: boolean }>("POST", "/gamejolt/status", { pid });
+      if (!result?.running) delete gamejoltRunningPids.value[id];
+    }),
+  );
+}
+
+async function updateGameJoltEngine(game: GameJoltGame, engine: string) {
+  const previous = game.engine;
+  game.engine = engine;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/gamejolt/engine", {
+    id: game.id,
+    engine,
+  });
+  if (!result?.ok) {
+    game.engine = previous;
+    toast.show(result?.error ?? "Could not save GameJolt launch option", "error");
+  }
+}
+
+function handleGameJoltDownload(update: GameJoltDownloadUpdate) {
+  let toastId = gamejoltDownloadToastIds.get(update.id);
+  const total = update.totalBytes ?? 0;
+  const received = update.receivedBytes ?? 0;
+  const progress = total > 0 ? Math.min(0.99, received / total) : update.state === "organizing" ? 0.99 : 0;
+  if (toastId === undefined) {
+    toastId = toast.showDownload(`Downloading ${update.filename}...`, progress);
+    gamejoltDownloadToastIds.set(update.id, toastId);
+  }
+  if (update.state === "downloading") {
+    const percent = total > 0 ? `${Math.round((received / total) * 100)}%` : "Starting...";
+    toast.updateDownload(toastId, `Downloading ${update.filename} — ${percent}`, progress);
+  } else if (update.state === "organizing") {
+    toast.updateDownload(toastId, `Finishing ${update.filename}...`, 0.99);
+  } else if (update.state === "completed") {
+    toast.finishDownload(toastId, `${update.filename} downloaded`, true);
+    gamejoltDownloadToastIds.delete(update.id);
+    void loadGameJolt();
+  } else if (update.state === "failed") {
+    toast.finishDownload(toastId, update.error ?? `Could not download ${update.filename}`, false);
+    gamejoltDownloadToastIds.delete(update.id);
+  }
+}
+
+function beginGameJoltBrowserDrag(event: PointerEvent) {
+  if (!gamejoltPanel.value) return;
+  event.preventDefault();
+  gamejoltBrowserDragging.value = true;
+  gamejoltDragPointerId = event.pointerId;
+  updateGameJoltBrowserHeight(event.clientY);
+  window.addEventListener("pointermove", moveGameJoltBrowserDrag);
+  window.addEventListener("pointerup", endGameJoltBrowserDrag);
+  window.addEventListener("pointercancel", endGameJoltBrowserDrag);
+}
+
+function updateGameJoltBrowserHeight(clientY: number) {
+  const panel = gamejoltPanel.value;
+  if (!panel) return;
+  const bounds = panel.getBoundingClientRect();
+  const height = ((bounds.bottom - clientY) / bounds.height) * 100;
+  gamejoltBrowserHeight.value = Math.max(10, Math.min(100, height));
+}
+
+function gameJoltPanelStyle() {
+  const panelHeight = gamejoltPanel.value?.getBoundingClientRect().height ?? window.innerHeight - 220;
+  const browserSpace = Math.ceil((panelHeight * gamejoltBrowserHeight.value) / 100) + 24;
+  return {
+    "--gamejolt-browser-height": `${gamejoltBrowserHeight.value}%`,
+    "--gamejolt-browser-space": `${browserSpace}px`,
+  };
+}
+
+function moveGameJoltBrowserDrag(event: PointerEvent) {
+  if (!gamejoltBrowserDragging.value || event.pointerId !== gamejoltDragPointerId) return;
+  updateGameJoltBrowserHeight(event.clientY);
+}
+
+function endGameJoltBrowserDrag(event: PointerEvent) {
+  if (event.pointerId !== gamejoltDragPointerId) return;
+  gamejoltBrowserDragging.value = false;
+  gamejoltDragPointerId = null;
+  window.removeEventListener("pointermove", moveGameJoltBrowserDrag);
+  window.removeEventListener("pointerup", endGameJoltBrowserDrag);
+  window.removeEventListener("pointercancel", endGameJoltBrowserDrag);
+}
+
 async function load() {
   const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
     api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
@@ -517,10 +755,28 @@ async function load() {
     }
   }
   if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
+  await loadGameJolt();
+  await syncGameJolt(false);
 }
 
 function setGogGames(games: GogGame[]) {
-  gogGames.value = [...games].sort((a, b) =>
+  const unique = new Map<string, GogGame>();
+  for (const game of games) {
+    const previous = unique.get(game.productId);
+    unique.set(
+      game.productId,
+      previous
+        ? {
+            ...previous,
+            ...game,
+            title: !game.title || game.title === game.productId ? previous.title : game.title,
+            imageUrl: game.imageUrl ?? previous.imageUrl,
+            iconUrl: game.iconUrl ?? previous.iconUrl,
+          }
+        : game,
+    );
+  }
+  gogGames.value = [...unique.values()].sort((a, b) =>
     a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
   );
 }
@@ -541,8 +797,16 @@ async function refreshGog() {
 function upsertGogGame(game: GogGame) {
   const idx = gogGames.value.findIndex((item) => item.productId === game.productId);
   const games = [...gogGames.value];
-  if (idx >= 0) games[idx] = game;
-  else games.push(game);
+  if (idx >= 0) {
+    const previous = games[idx];
+    games[idx] = {
+      ...previous,
+      ...game,
+      title: !game.title || game.title === game.productId ? previous.title : game.title,
+      imageUrl: game.imageUrl ?? previous.imageUrl,
+      iconUrl: game.iconUrl ?? previous.iconUrl,
+    };
+  } else games.push(game);
   setGogGames(games);
 }
 
@@ -694,6 +958,7 @@ async function installGogGame(game: GogGame) {
     "/sharp-library/gog/install",
     {
       productId: game.productId,
+      title: game.title,
       platform: game.platform || "windows",
       installPath,
     },
@@ -732,7 +997,7 @@ async function playGogGame(game: GogGame) {
   const result = await api<{ ok: boolean; game?: GogGame; pid?: number; error?: string }>(
     "POST",
     "/sharp-library/gog/play",
-    { productId: game.productId },
+    { productId: game.productId, engine: gogEngines.value[game.productId] ?? "auto" },
     90 * 1000,
   );
   gogLoading.value[`${game.productId}:play`] = false;
@@ -742,6 +1007,11 @@ async function playGogGame(game: GogGame) {
   } else {
     toast.show(result?.error ?? `Failed to launch ${game.title}`, "error");
   }
+}
+
+function updateGogEngine(game: GogGame, engine: string) {
+  gogEngines.value[game.productId] = engine;
+  localStorage.setItem("metalsharp-gog-engines", JSON.stringify(gogEngines.value));
 }
 
 async function stopGogGame(game: GogGame) {
@@ -1453,8 +1723,27 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-onMounted(load);
-onUnmounted(stopGogMonoPoll);
+let removeGameJoltDownloadListener: (() => void) | null = null;
+onMounted(() => {
+  void load();
+  void refreshGameJoltProcessState();
+  gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  removeGameJoltDownloadListener = getAPI().onGameJoltDownload(handleGameJoltDownload);
+});
+onUnmounted(() => {
+  stopGogMonoPoll();
+  if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
+  gamejoltProcessPollTimer = null;
+  removeGameJoltDownloadListener?.();
+  removeGameJoltDownloadListener = null;
+  if (gamejoltDragPointerId !== null) {
+    gamejoltDragPointerId = null;
+    gamejoltBrowserDragging.value = false;
+  }
+  window.removeEventListener("pointermove", moveGameJoltBrowserDrag);
+  window.removeEventListener("pointerup", endGameJoltBrowserDrag);
+  window.removeEventListener("pointercancel", endGameJoltBrowserDrag);
+});
 </script>
 
 <template>
@@ -1465,12 +1754,20 @@ onUnmounted(stopGogMonoPoll);
         <p>{{ headerSubtitle }}</p>
       </div>
       <div class="sharp-header-controls">
-        <label class="source-selector">
-          <select v-model="sourceMode" class="control-input" aria-label="Library source">
-            <option value="installers">Installers</option>
-            <option value="gog">GOG</option>
-          </select>
-        </label>
+        <nav class="source-tabs" role="tablist" aria-label="Sharp Library sources">
+          <button
+            v-for="tab in sourceTabs"
+            :key="tab.id"
+            class="source-tab"
+            :class="{ active: sourceMode === tab.id }"
+            type="button"
+            role="tab"
+            :aria-selected="sourceMode === tab.id"
+            @click="sourceMode = tab.id"
+          >
+            {{ tab.label }}
+          </button>
+        </nav>
         <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
           <IconUpload class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
@@ -1520,6 +1817,10 @@ onUnmounted(stopGogMonoPoll);
         >
           <span class="btn-label-long">Reset</span><span class="btn-label-short">Reset</span>
         </button>
+        <button v-if="sourceMode === 'gamejolt'" class="btn btn-secondary" @click="chooseGameJoltStorage">
+          <span class="btn-label-long">{{ gamejoltStorage ? "Change Folder" : "Choose GameJolt Folder" }}</span>
+          <span class="btn-label-short">{{ gamejoltStorage ? "Change" : "Folder" }}</span>
+        </button>
         <button
           v-if="sourceMode === 'gog'"
           class="btn btn-primary"
@@ -1539,13 +1840,13 @@ onUnmounted(stopGogMonoPoll);
         <button
           class="btn btn-secondary"
           :disabled="sourceMode === 'gog' && gogLoading.sync"
-          @click="refreshCurrentSource"
+          @click="sourceMode === 'gamejolt' ? syncGameJolt() : refreshCurrentSource()"
         >
           <component :is="refreshIcon" class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">{{
-            sourceMode === "gog" ? (gogLoading.sync ? "Syncing…" : "Sync GOG") : "Refresh"
+            sourceMode === "gog" ? (gogLoading.sync ? "Syncing…" : "Sync GOG") : sourceMode === "gamejolt" ? (gamejoltLoading ? "Scanning…" : "Sync GameJolt") : "Refresh"
           }}</span
-          ><span class="btn-label-short">{{ sourceMode === "gog" ? "Sync" : "Refresh" }}</span>
+          ><span class="btn-label-short">{{ sourceMode === "gog" ? "Sync" : sourceMode === "gamejolt" ? "Sync" : "Refresh" }}</span>
         </button>
       </div>
     </div>
@@ -1751,7 +2052,7 @@ onUnmounted(stopGogMonoPoll);
         </div>
       </template>
 
-      <template v-else>
+      <template v-else-if="sourceMode === 'gog'">
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
             <h2>gogdl is not installed</h2>
@@ -1853,6 +2154,18 @@ onUnmounted(stopGogMonoPoll);
                     >
                       Uninstall
                     </button>
+                    <select
+                      v-if="game.installed"
+                      class="control-input gog-pipeline-select"
+                      :value="gogEngines[game.productId] ?? 'auto'"
+                      aria-label="GOG bottle pipeline"
+                      @change="updateGogEngine(game, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="auto">Auto</option>
+                      <option v-for="option in engineOptions" :key="option.id" :value="option.id">
+                        {{ option.name }}
+                      </option>
+                    </select>
                   </div>
                   <div v-if="game.status === 'install_failed' && game.lastError" class="gog-card-meta">
                     <strong class="launch-failure">{{ game.lastError }}</strong>
@@ -1860,6 +2173,114 @@ onUnmounted(stopGogMonoPoll);
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+      </template>
+
+      <template v-else>
+        <section
+          ref="gamejoltPanel"
+          class="gamejolt-panel"
+          :class="{ dragging: gamejoltBrowserDragging }"
+          :style="gameJoltPanelStyle()"
+          @pointermove="moveGameJoltBrowserDrag"
+          @pointerup="endGameJoltBrowserDrag"
+          @pointercancel="endGameJoltBrowserDrag"
+        >
+          <div class="gamejolt-games-pane">
+            <div v-if="gamejoltGames.length === 0" class="empty-state compact">
+              <h2>No GameJolt games found</h2>
+              <p>Place each game in its own folder inside the GameJolt directory, then sync.</p>
+            </div>
+            <div v-else class="gamejolt-grid">
+              <article
+                v-for="game in gamejoltGames"
+                :key="game.id"
+                class="sharp-card gamejolt-card"
+                :class="{ running: gamejoltRunningPids[game.id] }"
+              >
+                <div class="sharp-card-banner">
+                  <img
+                    v-if="game.cover_path"
+                    :src="`http://127.0.0.1:9274/gamejolt/cover?id=${encodeURIComponent(game.id)}`"
+                    :alt="game.name"
+                  />
+                  <img v-else :src="sharpLogoUrl" :alt="`${game.name} default artwork`" class="sharp-cover-fallback" />
+                </div>
+                <div class="sharp-card-body">
+                  <div class="sharp-card-title gamejolt-card-title">
+                    <input
+                      v-if="editingGameJoltName === game.id"
+                      v-model="gameJoltNameDraft"
+                      class="gamejolt-name-input"
+                      maxlength="160"
+                      autofocus
+                      @keydown.enter.prevent="saveGameJoltName(game)"
+                      @keydown.esc="editingGameJoltName = null"
+                      @blur="saveGameJoltName(game)"
+                    />
+                    <span v-else>{{ game.name }}</span>
+                    <button
+                      v-if="editingGameJoltName !== game.id"
+                      class="gamejolt-edit-name"
+                      type="button"
+                      title="Rename game"
+                      aria-label="Rename game"
+                      @click.stop="beginGameJoltNameEdit(game)"
+                    >
+                      <IconPencil width="13" height="13" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-meta">
+                    <span class="badge" :class="game.native ? 'badge-ok' : 'badge-muted'">
+                      {{ game.native ? "Native macOS" : "Windows" }}
+                    </span>
+                  </div>
+                  <div class="gamejolt-actions-main">
+                    <button
+                      v-if="gamejoltRunningPids[game.id]"
+                      class="btn btn-stop"
+                      @click="stopGameJolt(game)"
+                    >Stop</button>
+                    <button v-else class="btn btn-play" @click="launchGameJolt(game)">Play</button>
+                    <button
+                      class="btn btn-uninstall"
+                      type="button"
+                      :disabled="!!gamejoltRunningPids[game.id]"
+                      @click="uninstallGameJolt(game)"
+                    >Uninstall</button>
+                    <select
+                      v-if="!game.native"
+                      class="control-input gamejolt-pipeline-select"
+                      v-model="game.engine"
+                      aria-label="GameJolt bottle pipeline"
+                      @change="updateGameJoltEngine(game, game.engine)"
+                    >
+                      <option v-for="option in game.available_pipelines" :key="option.id" :value="option.id">
+                        {{ option.name }}
+                      </option>
+                    </select>
+                    <span v-else class="gamejolt-native-note">No bottle required</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+          <div class="gamejolt-browser-frame">
+            <div
+              class="gamejolt-browser-handle"
+              role="separator"
+              aria-label="Resize GameJolt browser"
+              aria-orientation="horizontal"
+              @pointerdown="beginGameJoltBrowserDrag"
+            >
+              <span class="gamejolt-browser-arrow" aria-hidden="true">↕</span>
+            </div>
+            <webview
+              class="gamejolt-browser"
+              src="https://gamejolt.com/games"
+              partition="persist:gamejolt"
+            ></webview>
           </div>
         </section>
       </template>
@@ -1963,16 +2384,41 @@ onUnmounted(stopGogMonoPoll);
   overflow: visible;
   -webkit-app-region: no-drag;
 }
-.source-selector {
+.source-tabs {
   display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 700;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--border-strong);
 }
-.source-selector .control-input {
-  min-width: 112px;
+.source-tab {
+  position: relative;
+  padding: 0 12px;
+  color: var(--text-secondary);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.source-tab::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  content: "";
+  background: transparent;
+}
+.source-tab:hover {
+  color: var(--text-primary);
+}
+.source-tab.active {
+  color: var(--text-primary);
+}
+.source-tab.active::after {
+  background: var(--accent);
 }
 
 .support-drawer {
@@ -2445,6 +2891,44 @@ onUnmounted(stopGogMonoPoll);
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.gamejolt-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.gamejolt-card-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gamejolt-edit-name {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+.gamejolt-edit-name:hover {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--sidebar-hover);
+}
+.gamejolt-name-input {
+  min-width: 0;
+  width: 100%;
+  padding: 3px 6px;
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font: inherit;
+}
 .sharp-card-meta {
   display: flex;
   align-items: center;
@@ -2732,5 +3216,129 @@ details[open] > .drawer-summary {
 }
 .empty-state p {
   font-size: 13px;
+}
+.gamejolt-panel {
+  position: relative;
+  min-height: calc(100vh - 220px);
+  height: calc(100vh - 220px);
+  overflow: hidden;
+}
+.gamejolt-games-pane {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+  padding-bottom: var(--gamejolt-browser-space);
+}
+.gamejolt-storage-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.gamejolt-storage-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gamejolt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.gamejolt-card .sharp-card-banner {
+  aspect-ratio: 16 / 5.6;
+}
+.gamejolt-native-note {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.gamejolt-actions-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gamejolt-actions-main .btn {
+  flex: 0 1 auto;
+}
+.gamejolt-actions-main .gamejolt-pipeline-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.btn-uninstall {
+  color: var(--error);
+  border-color: var(--error-bg);
+}
+.btn-uninstall:hover:not(:disabled) {
+  background: var(--error-bg);
+  border-color: var(--error);
+}
+.gamejolt-native-note {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: right;
+}
+.gamejolt-browser-frame {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--gamejolt-browser-height);
+  overflow: hidden;
+  padding: 5px;
+  border: 1px solid #fff;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: #fff;
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.12);
+  transition: height 120ms ease;
+}
+.gamejolt-panel.dragging .gamejolt-browser-frame {
+  transition: none;
+}
+.gamejolt-browser-handle {
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  right: 0;
+  left: 0;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.gamejolt-browser-handle span {
+  width: 54px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: #222;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  border-radius: 99px;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.35);
+}
+.gamejolt-browser {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: #fff;
+}
+@media (max-width: 800px) {
+  .gamejolt-panel {
+    min-height: calc(100vh - 260px);
+    height: calc(100vh - 260px);
+  }
 }
 </style>

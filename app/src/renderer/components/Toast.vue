@@ -8,7 +8,10 @@ const { toasts } = useToast();
   <div class="toast-container">
     <TransitionGroup name="toast">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
-        {{ t.text }}
+        <div class="toast-text">{{ t.text }}</div>
+        <div v-if="t.type === 'download' || t.progress !== undefined" class="toast-progress-track">
+          <div class="toast-progress" :style="{ width: `${Math.round((t.progress ?? 0) * 100)}%` }"></div>
+        </div>
       </div>
     </TransitionGroup>
   </div>
@@ -32,6 +35,29 @@ const { toasts } = useToast();
   pointer-events: auto;
   max-width: 360px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+.toast-text {
+  line-height: 1.35;
+}
+.toast-progress-track {
+  width: 100%;
+  height: 4px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+.toast-progress {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+.toast.download {
+  min-width: 280px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
 }
 .toast.success {
   background: var(--success);

@@ -10,6 +10,7 @@
 #include "metalsharp_backend/es_bridge.h"
 #include "metalsharp_backend/game.h"
 #include "metalsharp_backend/gog.h"
+#include "metalsharp_backend/gamejolt.h"
 #include "metalsharp_backend/integration.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/kernel_apc.h"
@@ -1171,6 +1172,106 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt/storage") == 0) {
+        body = ms_gamejolt_storage_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/storage") == 0) {
+        body = ms_gamejolt_set_storage_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/name") == 0) {
+        body = ms_gamejolt_set_name_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/engine") == 0) {
+        body = ms_gamejolt_set_engine_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/uninstall") == 0) {
+        body = ms_gamejolt_uninstall_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt") == 0) {
+        body = ms_gamejolt_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/sync") == 0) {
+        body = ms_gamejolt_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/launch") == 0) {
+        body = ms_gamejolt_launch_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/status") == 0) {
+        body = ms_gamejolt_pid_status_json(request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt/cover") == 0) {
+        const char* query = request->query == NULL ? "" : request->query;
+        const char* q = strstr(query, "id=");
+        char id[129];
+        size_t id_len = 0, bytes = 0;
+        char* cover_path;
+        unsigned char* image;
+        if (!q) {
+            body = strdup("{\"ok\":false,\"error\":\"cover not found\"}");
+            if (body == NULL)
+                return false;
+            set_json_response(response, 404, body);
+            return true;
+        }
+        q += 3;
+        while (q[id_len] && q[id_len] != '&' && id_len < sizeof(id) - 1)
+            id_len++;
+        memcpy(id, q, id_len);
+        id[id_len] = '\0';
+        cover_path = ms_gamejolt_cover_path(context->metalsharp_home, id);
+        image = cover_path ? read_binary(cover_path, &bytes) : NULL;
+        if (!image) {
+            free(cover_path);
+            body = strdup("{\"ok\":false,\"error\":\"cover not found\"}");
+            if (body == NULL)
+                return false;
+            set_json_response(response, 404, body);
+            return true;
+        }
+        response->status = 200;
+        response->content_type = image_type(cover_path);
+        response->body = image;
+        response->body_length = bytes;
+        response->owns_body = true;
+        free(cover_path);
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/cover") == 0) {
