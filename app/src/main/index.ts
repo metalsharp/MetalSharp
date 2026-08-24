@@ -1236,7 +1236,8 @@ function registerIpc() {
       const relative = path.relative(path.resolve(root), target);
       return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
     };
-    if (!within(environment) && !roots.some(within)) return { ok: false, error: "Path is outside the RPCS3 environment and registered game folders" };
+    if (!within(environment) && !roots.some(within))
+      return { ok: false, error: "Path is outside the RPCS3 environment and registered game folders" };
     if (!fs.existsSync(target)) return { ok: false, error: "Path does not exist" };
     const error = await shell.openPath(target);
     return error ? { ok: false, error } : { ok: true };
@@ -1556,7 +1557,9 @@ webview{flex:1;border:none}
     const result = await dialog.showOpenDialog(mainWindow, {
       title: firmware ? "Select PS3UPDAT.PUP" : "Select a PlayStation 3 package",
       properties: ["openFile"],
-      filters: [{ name: firmware ? "PlayStation 3 Firmware" : "PlayStation 3 Package", extensions: [firmware ? "PUP" : "pkg"] }],
+      filters: [
+        { name: firmware ? "PlayStation 3 Firmware" : "PlayStation 3 Package", extensions: [firmware ? "PUP" : "pkg"] },
+      ],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
