@@ -18,6 +18,20 @@ source folders, or the referenced upstream/runtime packages.
   distributed with MetalSharp under LGPL-2.1 section 6.
 - Source code available at the repository URL above.
 
+## RPCS3 — PlayStation 3 emulator
+
+- Repository: https://github.com/RPCS3/rpcs3
+- Binary releases: https://github.com/RPCS3/rpcs3-binaries-mac-arm64 and https://github.com/RPCS3/rpcs3-binaries-mac
+- License: GNU General Public License v2.0 (GPL-2.0)
+- Used as: Optional user-initiated runtime download managed under `~/.metalsharp/emulators/rpcs3/`.
+- Notes: RPCS3 is not bundled in the MetalSharp application. MetalSharp downloads an official architecture-specific release only after user confirmation, verifies its upstream SHA-256 digest and app signature, and links to the corresponding source repository. Sony firmware, games, keys, and licenses are never bundled or downloaded by MetalSharp.
+
+## RPCS4 research provider
+
+- Candidate repository: https://github.com/xYaroslavGTx/rpcs4
+- License: GNU General Public License v2.0 (GPL-2.0)
+- Used as: Status/readiness metadata only. No candidate RPCS4 source or binary is bundled, downloaded, built, or launched.
+
 ## MojoShader — SDL shader bytecode parser
 
 - Repository: https://github.com/icculus/mojoshader

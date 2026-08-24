@@ -47,7 +47,14 @@ The current hand-written slice owns the process boundary, readiness contracts, a
 - bottle preparation, dry-run component repair, font substitutions, and
   post-wineboot seeding now perform filesystem/Wine operations and return PIDs;
 - Windows-version changes launch the bundled Wine `reg add` operation and
-  write bottle-scoped logs with the child PID.
+  write bottle-scoped logs with the child PID;
+- isolated RPCS3 environment management, official architecture-specific
+  release checks, digest/signature-verified atomic updates and rollback,
+  firmware/PKG installation, `PARAM.SFO` game discovery, artwork, launch logs,
+  and restart-safe process supervision;
+- a fail-closed RPCS4 provider contract that exposes its upstream readiness
+  gate without offering unsupported installation or launch controls. See
+  `docs/emulators/RPCS-INTEGRATION.md` for paths, security rules, and API details.
 
 This list is the active C backend's implementation inventory. Rust remains
 available temporarily as a differential parity oracle, but it is no longer the

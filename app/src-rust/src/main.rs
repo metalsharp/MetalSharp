@@ -23,6 +23,7 @@ mod command_contract;
 mod d3d12_runtime_doctor;
 mod d3dmetal_gptk;
 mod diagnostics;
+mod emulators;
 mod fna_profile;
 mod gog;
 mod installer;
