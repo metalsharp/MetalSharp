@@ -2127,8 +2127,10 @@ char* ms_shadps4_status_json(const char* home) {
     if (installed && root && tag) {
         char* version_path = join_path(root, "current");
         char* capability_path = version_path ? join_path(version_path, "capabilities.json") : NULL;
-        if (capability_path)
+        char* capabilities = capability_path ? read_file(capability_path, 256 * 1024, NULL) : NULL;
+        if (capability_path && (!capabilities || !strstr(capabilities, "\"supportedModules\"")))
             (void)write_capability_manifest(version_path, tag);
+        free(capabilities);
         free(version_path);
         free(capability_path);
     }
