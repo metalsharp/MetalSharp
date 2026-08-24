@@ -73,6 +73,40 @@ typedef struct {
 
 static shadps4_update_state g_update = {PTHREAD_MUTEX_INITIALIZER, false, 0, "idle", "", "", "", 0};
 
+static const char* SHADPS4_SUPPORTED_MODULES[] = {
+    "libSceAt9Enc.sprx",
+    "libSceAudiodec.sprx",
+    "libSceAudiodecCpu.sprx",
+    "libSceAudiodecCpuDdp.sprx",
+    "libSceAudiodecCpuDtsHdLbr.sprx",
+    "libSceAudiodecCpuHevag.sprx",
+    "libSceAudiodecCpuM4aac.sprx",
+    "libSceAvPlayer.sprx",
+    "libSceAvPlayerStreaming.sprx",
+    "libSceBeisobmf.sprx",
+    "libSceBemp2sys.sprx",
+    "libSceCesCs.sprx",
+    "libSceFont.sprx",
+    "libSceFontFt.sprx",
+    "libSceFreeTypeOl.sprx",
+    "libSceFreeTypeOptOl.sprx",
+    "libSceFreeTypeOt.sprx",
+    "libSceJpegDec.sprx",
+    "libSceJpegEnc.sprx",
+    "libSceJson.sprx",
+    "libSceJson2.sprx",
+    "libSceLibcInternal.sprx",
+    "libSceNgs2.sprx",
+    "libScePngEnc.sprx",
+    "libScePsmKitSystem.sprx",
+    "libSceRtc.sprx",
+    "libSceRudp.sprx",
+    "libSceSystemGesture.sprx",
+    "libSceUlt.sprx",
+    "libSceWkFontConfig.sprx",
+    "libSceXml.sprx",
+};
+
 static char* join_path(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
     bool slash = x > 0 && a[x - 1] != '/';
@@ -1020,6 +1054,11 @@ static bool write_capability_manifest(const char* version_dir, const char* tag) 
     ms_json_writer_string(&w, "update-directory");
     ms_json_writer_string(&w, "console-dumped-modules");
     ms_json_writer_string(&w, "console-dumped-fonts");
+    ms_json_writer_array_end(&w);
+    ms_json_writer_key(&w, "supportedModules");
+    ms_json_writer_array_begin(&w);
+    for (size_t i = 0; i < sizeof(SHADPS4_SUPPORTED_MODULES) / sizeof(SHADPS4_SUPPORTED_MODULES[0]); ++i)
+        ms_json_writer_string(&w, SHADPS4_SUPPORTED_MODULES[i]);
     ms_json_writer_array_end(&w);
     ms_json_writer_key(&w, "packageExtraction");
     ms_json_writer_bool(&w, false);
@@ -2088,7 +2127,7 @@ char* ms_shadps4_status_json(const char* home) {
     if (installed && root && tag) {
         char* version_path = join_path(root, "current");
         char* capability_path = version_path ? join_path(version_path, "capabilities.json") : NULL;
-        if (capability_path && access(capability_path, R_OK) != 0)
+        if (capability_path)
             (void)write_capability_manifest(version_path, tag);
         free(version_path);
         free(capability_path);
@@ -2359,41 +2398,8 @@ done:
 }
 
 static bool supported_module_name(const char* name) {
-    static const char* names[] = {
-        "libSceAt9Enc.sprx",
-        "libSceAudiodec.sprx",
-        "libSceAudiodecCpu.sprx",
-        "libSceAudiodecCpuDdp.sprx",
-        "libSceAudiodecCpuDtsHdLbr.sprx",
-        "libSceAudiodecCpuHevag.sprx",
-        "libSceAudiodecCpuM4aac.sprx",
-        "libSceAvPlayer.sprx",
-        "libSceAvPlayerStreaming.sprx",
-        "libSceBeisobmf.sprx",
-        "libSceBemp2sys.sprx",
-        "libSceCesCs.sprx",
-        "libSceFont.sprx",
-        "libSceFontFt.sprx",
-        "libSceFreeTypeOl.sprx",
-        "libSceFreeTypeOptOl.sprx",
-        "libSceFreeTypeOt.sprx",
-        "libSceJpegDec.sprx",
-        "libSceJpegEnc.sprx",
-        "libSceJson.sprx",
-        "libSceJson2.sprx",
-        "libSceLibcInternal.sprx",
-        "libSceNgs2.sprx",
-        "libScePngEnc.sprx",
-        "libScePsmKitSystem.sprx",
-        "libSceRtc.sprx",
-        "libSceRudp.sprx",
-        "libSceSystemGesture.sprx",
-        "libSceUlt.sprx",
-        "libSceWkFontConfig.sprx",
-        "libSceXml.sprx",
-    };
-    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
-        if (!strcmp(name, names[i]))
+    for (size_t i = 0; i < sizeof(SHADPS4_SUPPORTED_MODULES) / sizeof(SHADPS4_SUPPORTED_MODULES[0]); ++i)
+        if (!strcmp(name, SHADPS4_SUPPORTED_MODULES[i]))
             return true;
     return false;
 }

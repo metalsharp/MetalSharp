@@ -251,6 +251,7 @@ def main() -> None:
             capabilities = json.loads((current / "capabilities.json").read_text())
             assert capabilities["runtimeTag"] == "v.0.18.0"
             assert {"--game", "--fullscreen", "--config-global"} <= set(capabilities["cli"])
+            assert "libSceFont.sprx" in capabilities["supportedModules"]
             assert capabilities["packageExtraction"] is False and capabilities["zarDiscovery"] is False
             subprocess.run(["codesign", "--verify", "--strict", str(current / "shadps4")], check=True)
 
