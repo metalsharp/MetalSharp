@@ -706,7 +706,7 @@ Implementation is not complete until a final audit maps every item below to file
 - [x] Real official artifact acceptance passes.
 - [x] Packaged `/Applications/MetalSharp.app` acceptance passes.
 - [x] Repository and packaged searches find no forbidden Sony content or residue from removed providers.
-- [ ] Every CI and CodeQL job is terminal and successful.
+- [x] Every CI and CodeQL job is terminal and successful.
 
 ## Primary sources
 
