@@ -279,6 +279,10 @@ def test_disc_image_selection_registers_parent_folder() -> None:
         games.mkdir()
         disc = games / "Selected Game.iso"
         disc.write_bytes(b"synthetic owned disc image")
+        other_disc = games / "Other Game.iso"
+        other_disc.write_bytes(b"other synthetic disc image")
+        unrelated = games / "unrelated.bin"
+        unrelated.write_bytes(b"unrelated binary data")
         unsupported = games / "notes.txt"
         unsupported.write_text("not a game")
         with Backend(root, archive, release) as backend:
@@ -288,8 +292,8 @@ def test_disc_image_selection_registers_parent_folder() -> None:
                 "/sharp-library/pcsx2/add-root",
                 {"path": str(disc)},
             )
-            assert added["ok"] and added["roots"] == [str(games.resolve())], added
-            assert any(game["path"] == str(disc.resolve()) for game in added["games"]), added
+            assert added["ok"] and added["roots"] == [str(disc.resolve())], added
+            assert [game["path"] for game in added["games"]] == [str(disc.resolve())], added
             rejected = request(
                 backend.port,
                 "POST",
@@ -297,6 +301,30 @@ def test_disc_image_selection_registers_parent_folder() -> None:
                 {"path": str(unsupported)},
             )
             assert not rejected["ok"] and "supported disc image" in rejected["error"], rejected
+
+            removed = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/remove-root",
+                {"path": str(disc)},
+            )
+            assert removed["ok"] and not removed["roots"] and not removed["games"], removed
+            folder = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/add-root",
+                {"path": str(games)},
+            )
+            assert folder["ok"] and folder["roots"] == [str(games.resolve())], folder
+            assert len(folder["games"]) == 3, folder
+            narrowed = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/add-root",
+                {"path": str(disc)},
+            )
+            assert narrowed["ok"] and narrowed["roots"] == [str(disc.resolve())], narrowed
+            assert [game["path"] for game in narrowed["games"]] == [str(disc.resolve())], narrowed
 
 
 def test_data_path_capability_probe() -> None:

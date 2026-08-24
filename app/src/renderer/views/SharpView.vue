@@ -3737,11 +3737,11 @@ onUnmounted(() => {
               <details class="emulator-roots">
                 <summary>
                   <span class="emulator-sidebar-summary-label"
-                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                    ><IconFolderPlus width="16" height="16" />Game locations</span
                   >
                   <span class="emulator-root-count">{{ pcsx2Roots.length }}</span>
                 </summary>
-                <p v-if="pcsx2Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <p v-if="pcsx2Roots.length === 0" class="emulator-sidebar-empty">No game locations added yet.</p>
                 <div v-for="root in pcsx2Roots" :key="root" class="emulator-root-row">
                   <code>{{ root }}</code>
                   <button class="btn btn-secondary btn-sm" @click="removePcsx2Root(root)">Remove Reference</button>
