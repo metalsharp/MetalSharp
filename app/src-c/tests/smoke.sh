@@ -130,6 +130,11 @@ printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin);
 
 shadps4_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/status")
 printf '%s' "$shadps4_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["supported"] and v["experimental"] and not v["installed"] and v["state"] == "missing_runtime" and v["runtimeArchitecture"] == "x86_64"'
+mkdir -p "$home/emulators/shadps4/staging/update-interrupted"
+printf 'partial' > "$home/emulators/shadps4/downloads/interrupted.zip.part"
+curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/status" >/dev/null
+[ ! -e "$home/emulators/shadps4/staging/update-interrupted" ]
+[ ! -e "$home/emulators/shadps4/downloads/interrupted.zip.part" ]
 shadps4_update=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/update/check")
 printf '%s' "$shadps4_update" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["available"] and v["latestVersion"] == "v.0.18.0" and v["downloadSize"] == 4 and v["digest"].startswith("sha256:")'
 
