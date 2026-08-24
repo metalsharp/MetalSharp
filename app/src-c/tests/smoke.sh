@@ -186,6 +186,10 @@ assert game["primaryExe"] == "Game.exe"
 assert game["primaryTaskName"] == "Play"
 assert game["downloadSizeBytes"] == 12 and game["diskSizeBytes"] == 34
 PY
+gog_stop=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242"}' "http://127.0.0.1:$port/sharp-library/gog/stop")
+printf '%s' "$gog_stop" | python3 -c 'import json, sys; v=json.load(sys.stdin); g=v["game"]; assert v["ok"] and g["installed"] and not g["running"] and g["status"] == "installed" and g["installRoot"].endswith("/gog-play") and g["gameFolder"].endswith("/gog-play/Game")'
+gog_after_stop=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/gog/games")
+printf '%s' "$gog_after_stop" | python3 -c 'import json, sys; g=json.load(sys.stdin)["games"][0]; assert g["installed"] and not g["running"] and g["status"] == "installed" and g["slug"] == "gog_launch_regression" and g["primaryExe"] == "Game.exe"'
 gog_launch_log=$(printf '%s' "$gog_play" | python3 -c 'import json, sys; print(json.load(sys.stdin)["logPath"])')
 i=0
 while ! grep -q 'gogdl exited' "$gog_launch_log" 2>/dev/null && [ "$i" -lt 50 ]; do
