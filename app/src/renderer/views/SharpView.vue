@@ -3190,7 +3190,9 @@ onUnmounted(() => {
                   shadps4Loading.update
                     ? "Installing…"
                     : shadps4Status?.installed
-                      ? "Update shadPS4"
+                      ? shadps4Update && !shadps4Update.available
+                        ? "Check shadPS4"
+                        : "Update shadPS4"
                       : "Install shadPS4"
                 }}
               </button>
