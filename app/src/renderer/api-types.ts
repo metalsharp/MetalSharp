@@ -193,7 +193,17 @@ interface ProcessManagerActionResult {
   mode?: string;
 }
 
+interface GameJoltDownloadUpdate {
+  id: string;
+  filename: string;
+  state: "downloading" | "organizing" | "completed" | "failed";
+  receivedBytes?: number;
+  totalBytes?: number;
+  error?: string;
+}
+
 type MetalsharpAPI = {
+  onGameJoltDownload: (callback: (update: GameJoltDownloadUpdate) => void) => () => void;
   request: (
     method: string,
     url: string,

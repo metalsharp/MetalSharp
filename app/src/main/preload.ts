@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld("metalsharp", {
   installHomebrew: () => ipcRenderer.invoke("app:install-homebrew"),
   homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
+  onGameJoltDownload: (callback: (update: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, update: unknown) => callback(update);
+    ipcRenderer.on("gamejolt:download", listener);
+    return () => ipcRenderer.removeListener("gamejolt:download", listener);
+  },
   openInFinder: (path: string) => ipcRenderer.invoke("app:open-in-finder", path),
   openLogsFolder: () => ipcRenderer.invoke("app:open-logs-folder"),
   openMetalsharpFolder: () => ipcRenderer.invoke("app:open-metalsharp-folder"),

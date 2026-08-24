@@ -33,6 +33,7 @@ SOURCES := \
 	runtime/bottles.c \
 	runtime/mono.c \
 	runtime/sharp.c \
+	runtime/gamejolt.c \
 	runtime/gog.c \
 	runtime/game.c \
 	runtime/diagnostics.c \

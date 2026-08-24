@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "child_process";
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, session, shell } from "electron";
 import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
@@ -61,6 +61,8 @@ let processManagerWindow: BrowserWindow | null = null;
 let bridge: BackendBridge;
 let updaterBridge: UpdaterBridge;
 let steamappsWatcher: fs.FSWatcher | null = null;
+let gamejoltDownloadsConfigured = false;
+let nextGameJoltDownloadId = 1;
 
 function isDevRuntime(): boolean {
   return process.env.METALSHARP_DEV === "1" || !app.isPackaged;
@@ -626,13 +628,173 @@ async function createWindow(migrating = false) {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      webviewTag: true,
     },
+  });
+
+  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    try {
+      const url = new URL(params.src);
+      if (url.protocol !== "https:" || !(url.hostname === "gamejolt.com" || url.hostname.endsWith(".gamejolt.com"))) {
+        event.preventDefault();
+      }
+    } catch {
+      event.preventDefault();
+    }
   });
 
   const query: Record<string, string> = uiOnly ? { theme: "dark" } : {};
   if (process.env.METALSHARP_DEV_LIBRARY === "1") query["skip-to"] = "library";
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
     query,
+  });
+}
+
+function gameJoltDirectoryForDownloads(): string {
+  let root = getMetalsharpDir();
+  const configPath = path.join(root, "gamejolt", "storage.json");
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as { rootPath?: string };
+    if (config.rootPath?.trim()) root = path.resolve(config.rootPath);
+  } catch {
+    // Use internal storage when GameJolt storage has not been configured yet.
+  }
+  return path.join(root, "GameJolt");
+}
+
+function safeDownloadStem(filename: string): string {
+  const base =
+    path
+      .basename(filename)
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .trim() || "GameJolt Game";
+  return (
+    base
+      .replace(/\.(zip|rar|tar|tgz|gz|bz2|xz|7z|exe|msi|dmg)$/i, "")
+      .replace(/\.(tar)$/i, "")
+      .trim() || "GameJolt Game"
+  );
+}
+
+function uniqueDownloadPath(directory: string, filename: string): string {
+  const original = path.basename(filename).replace(/[\\/:*?"<>|]/g, "_") || "download";
+  const extension = path.extname(original);
+  const stem = extension ? original.slice(0, -extension.length) : original;
+  let candidate = path.join(directory, original);
+  let suffix = 2;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(directory, `${stem} (${suffix++})${extension}`);
+  }
+  return candidate;
+}
+
+function runProcess(command: string, args: string[]): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    execFile(command, args, { timeout: 15 * 60 * 1000 }, (error, _stdout, stderr) => {
+      resolve(error ? { ok: false, error: stderr.trim() || error.message } : { ok: true });
+    });
+  });
+}
+
+function sendGameJoltDownload(update: {
+  id: string;
+  filename: string;
+  state: "downloading" | "organizing" | "completed" | "failed";
+  receivedBytes?: number;
+  totalBytes?: number;
+  error?: string;
+}) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("gamejolt:download", update);
+}
+
+async function organizeGameJoltDownload(
+  downloadId: string,
+  downloadPath: string,
+  filename: string,
+  gamejoltDir: string,
+) {
+  const gameDir = path.join(gamejoltDir, safeDownloadStem(filename));
+  const lower = filename.toLowerCase();
+  fs.mkdirSync(gameDir, { recursive: true });
+  let result: { ok: boolean; error?: string };
+  if (lower.endsWith(".zip")) {
+    result = await runProcess("/usr/bin/ditto", ["-x", "-k", downloadPath, gameDir]);
+  } else if (lower.endsWith(".rar")) {
+    result = await runProcess("/usr/bin/bsdtar", ["-xf", downloadPath, "-C", gameDir]);
+  } else if (lower.endsWith(".tar") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) {
+    result = await runProcess("/usr/bin/tar", ["-xf", downloadPath, "-C", gameDir]);
+  } else {
+    const destination = uniqueDownloadPath(gameDir, filename);
+    try {
+      fs.renameSync(downloadPath, destination);
+      result = { ok: true };
+    } catch (error) {
+      result = { ok: false, error: (error as Error).message };
+    }
+  }
+
+  if (result.ok) {
+    try {
+      fs.rmSync(downloadPath, { force: true });
+    } catch {}
+  } else {
+    console.warn(`GameJolt download organization failed for ${filename}: ${result.error ?? "unknown error"}`);
+  }
+
+  const synced = await requestBackend("POST", "/gamejolt/sync");
+  const syncFailed =
+    typeof synced === "object" && synced !== null && "ok" in synced && (synced as { ok?: boolean }).ok === false;
+  sendGameJoltDownload({
+    id: downloadId,
+    filename,
+    state: result.ok && !syncFailed ? "completed" : "failed",
+    receivedBytes: result.ok ? 1 : 0,
+    totalBytes: 1,
+    error: result.error,
+  });
+}
+
+function configureGameJoltDownloads() {
+  if (gamejoltDownloadsConfigured) return;
+  gamejoltDownloadsConfigured = true;
+  const gamejoltSession = session.fromPartition("persist:gamejolt");
+  gamejoltSession.on("will-download", (_event, item) => {
+    const gamejoltDir = gameJoltDirectoryForDownloads();
+    const incoming = path.join(gamejoltDir, ".downloads");
+    fs.mkdirSync(incoming, { recursive: true });
+    const filename = item.getFilename();
+    const downloadId = `gamejolt-download-${nextGameJoltDownloadId++}`;
+    const downloadPath = uniqueDownloadPath(incoming, filename);
+    item.setSavePath(downloadPath);
+    const reportProgress = () =>
+      sendGameJoltDownload({
+        id: downloadId,
+        filename,
+        state: "downloading",
+        receivedBytes: item.getReceivedBytes(),
+        totalBytes: item.getTotalBytes(),
+      });
+    reportProgress();
+    item.on("updated", reportProgress);
+    item.once("done", (_doneEvent, state) => {
+      item.removeListener("updated", reportProgress);
+      if (state === "completed") {
+        sendGameJoltDownload({
+          id: downloadId,
+          filename,
+          state: "organizing",
+          receivedBytes: item.getTotalBytes(),
+          totalBytes: item.getTotalBytes(),
+        });
+        void organizeGameJoltDownload(downloadId, downloadPath, filename, gamejoltDir);
+      } else {
+        sendGameJoltDownload({ id: downloadId, filename, state: "failed", error: `Download ${state}` });
+        console.warn(`GameJolt download did not complete: ${filename} (${state})`);
+      }
+    });
   });
 }
 
@@ -707,6 +869,7 @@ app.whenReady().then(async () => {
   process.env.METALSHARP_HOME = getMetalsharpDir();
   if (isDevRuntime()) process.env.METALSHARP_DEV = "1";
   ensureMetalsharpDirs();
+  configureGameJoltDownloads();
   bridge = new BackendBridge({ devMode: isDevRuntime(), metalsharpHome: getMetalsharpDir() });
   updaterBridge = new UpdaterBridge(bridge.getPort());
   const backendStart = await bridge.start();
