@@ -1,6 +1,14 @@
 # shadPS4 integration roadmap
 
-Status: **implementation in progress; production verification pending**
+Status: **implemented and production-verified on PR #551**
+
+Implementation evidence:
+
+- Phase 0: `SHADPS4-UPSTREAM-CONTRACT.md` records the real v.0.18.0 asset, digest, architecture, deployment target, unsigned state, CLI surface, and isolated-home probe.
+- Phases 1–2: the C provider, Rust parity contracts, secure stable update transaction, provenance, pin/skip, rollback, repair, removal, and comprehensive corrupt-archive/runtime fixtures are implemented.
+- Phases 3–4: bounded CUSA discovery, patch association, artwork, safe roots, optional module/font import, process groups, PID/start-time validation, restart recovery, logs, and exit records are implemented.
+- Phases 5–6: typed backend routes, restricted Electron IPC, experimental Sharp Library dashboard, loading/empty/unsupported states, accessibility behavior, and installed-app verification are implemented.
+- Phase 7's safe production slice includes update-dump association and official macOS compatibility-report links. Nightly channels, `.zar` parsing, Big Picture, direct controller-profile editing, automated report uploads, and trophy-key storage remain intentionally unavailable under the roadmap's explicit non-blocking/defer-until-safe rules.
 
 MetalSharp will identify this provider by its accurate upstream name: **shadPS4**.
 
@@ -351,4 +359,4 @@ shadPS4 becomes a supported provider only when all of the following are true:
 - Normal, ASAN, Rust, frontend, packaging, and installed-app tests pass.
 - A prompt-to-artifact audit maps every requirement above to concrete evidence.
 
-Until then, the repository may contain this roadmap and gated development code, but the production provider list and Sharp Library must remain RPCS3-only.
+The production provider list now exposes shadPS4 with an explicit experimental flag after the required runtime, discovery, supervision, preservation, API, UI, licensing, packaging, and installed-app gates passed.
