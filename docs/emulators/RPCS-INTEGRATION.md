@@ -104,6 +104,7 @@ POST /sharp-library/rpcs3/skip-update
 POST /sharp-library/rpcs3/clear-skip
 ```
 
-## Planned PlayStation 4 work
+## Other emulator plans
 
-shadPS4 is not currently exposed as a MetalSharp provider. Its gated production roadmap is documented in [SHADPS4-INTEGRATION-ROADMAP.md](SHADPS4-INTEGRATION-ROADMAP.md), using the project's accurate upstream identity.
+- The managed shadPS4 provider and its completion evidence are documented in [SHADPS4-INTEGRATION-ROADMAP.md](SHADPS4-INTEGRATION-ROADMAP.md).
+- The gated plan for an isolated PCSX2 environment is documented in [PCSX2-INTEGRATION-ROADMAP.md](PCSX2-INTEGRATION-ROADMAP.md). PCSX2 is not yet exposed as a MetalSharp provider.
