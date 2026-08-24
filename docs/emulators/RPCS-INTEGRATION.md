@@ -1,6 +1,6 @@
-# RPCS3 and RPCS4 environments
+# RPCS3 environment
 
-MetalSharp exposes RPCS3 and RPCS4 as separate Sharp Library tabs and provider contracts. RPCS3 is a supported managed environment. RPCS4 is a fail-closed readiness view because the candidate upstream does not provide a maintained or usable macOS emulator.
+MetalSharp exposes RPCS3 as a supported, managed Sharp Library environment for PlayStation 3 games.
 
 ## RPCS3 ownership and paths
 
@@ -70,22 +70,6 @@ It reads bounded `PARAM.SFO` metadata for title, title ID, version, and category
 
 Each launch receives its own process group and log. A session record stores its PID, provider executable, log path, and start time. Status and stop operations validate that the PID still belongs to RPCS3 before reporting or signaling it. Session records permit recovery after a MetalSharp backend restart.
 
-## RPCS4 readiness gate
-
-The inspected candidate, <https://github.com/xYaroslavGTx/rpcs4>, contains one 2016 Windows-only skeleton commit and no releases, CI, macOS runtime, stable CLI, documented game layout, or boot evidence. MetalSharp therefore exposes no install or launch action for it.
-
-The provider can only be enabled after all of these are available:
-
-1. Maintained upstream
-2. Native macOS build
-3. Versioned releases
-4. Stable launch CLI
-5. Documented game layout
-6. Integrity-verifiable artifacts
-7. Boot evidence
-
-A different PS4 emulator must be introduced under its own accurate provider identity rather than being silently labeled RPCS4.
-
 ## Backend API
 
 Read endpoints:
@@ -97,8 +81,6 @@ GET /sharp-library/rpcs3/games
 GET /sharp-library/rpcs3/cover?id=<id>
 GET /sharp-library/rpcs3/update/check
 GET /sharp-library/rpcs3/update/progress
-GET /sharp-library/rpcs4/status
-GET /sharp-library/rpcs4/games
 ```
 
 RPCS3 mutation endpoints:
@@ -121,5 +103,3 @@ POST /sharp-library/rpcs3/unpin
 POST /sharp-library/rpcs3/skip-update
 POST /sharp-library/rpcs3/clear-skip
 ```
-
-RPCS4 mutation requests return `unsupported_upstream`.

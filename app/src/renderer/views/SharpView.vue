@@ -252,18 +252,7 @@ interface Rpcs3UpdateProgress {
   targetTag?: string | null;
 }
 
-interface Rpcs4Status {
-  ok: boolean;
-  supported: boolean;
-  installAvailable: boolean;
-  state: string;
-  repository: string;
-  lastUpstreamCommit: string;
-  reason: string;
-  readinessGate: string[];
-}
-
-type SharpSource = "installers" | "gog" | "gamejolt" | "rpcs3" | "rpcs4";
+type SharpSource = "installers" | "gog" | "gamejolt" | "rpcs3";
 
 const toast = useToast();
 const sourceMode = ref<SharpSource>("installers");
@@ -272,20 +261,17 @@ const sourceTabs = [
   { id: "gog" as const, label: "GOG" },
   { id: "gamejolt" as const, label: "GameJolt" },
   { id: "rpcs3" as const, label: "RPCS3" },
-  { id: "rpcs4" as const, label: "RPCS4" },
 ];
 const headerTitle = computed(() => {
   if (sourceMode.value === "gog") return "GOG Games Library";
   if (sourceMode.value === "gamejolt") return "GameJolt Library";
   if (sourceMode.value === "rpcs3") return "RPCS3 Library";
-  if (sourceMode.value === "rpcs4") return "RPCS4 Environment";
   return "Sharp Library";
 });
 const headerSubtitle = computed(() => {
   if (sourceMode.value === "gog") return "Connect, sync, install, and play GOG games through MetalSharp.";
   if (sourceMode.value === "gamejolt") return "Play GameJolt games from internal or external GameJolt storage.";
   if (sourceMode.value === "rpcs3") return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
-  if (sourceMode.value === "rpcs4") return "Track the experimental PlayStation 4 provider readiness gate.";
   return "Install and manage Windows applications outside Steam.";
 });
 const apps = ref<SharpApp[]>([]);
@@ -329,7 +315,6 @@ const rpcs3Roots = ref<string[]>([]);
 const rpcs3Update = ref<Rpcs3Update | null>(null);
 const rpcs3UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
 const rpcs3Loading = ref<Record<string, boolean>>({});
-const rpcs4Status = ref<Rpcs4Status | null>(null);
 let rpcs3ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let rpcs3UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
 const editingGameJoltName = ref<string | null>(null);
@@ -828,11 +813,6 @@ async function refreshRpcs3(showResult = false) {
   if (showResult) toast.show(`Found ${rpcs3Games.value.length} RPCS3 game${rpcs3Games.value.length === 1 ? "" : "s"}`, "success");
 }
 
-async function refreshRpcs4() {
-  const result = await api<Rpcs4Status>("GET", "/sharp-library/rpcs4/status");
-  if (result?.ok) rpcs4Status.value = result;
-}
-
 async function checkRpcs3Update(showResult = true, force = showResult) {
   rpcs3Loading.value.check = true;
   const result = await api<Rpcs3Update>(
@@ -1039,7 +1019,7 @@ async function load() {
     }
   }
   if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
-  await Promise.all([loadGameJolt(), refreshRpcs3(), refreshRpcs4()]);
+  await Promise.all([loadGameJolt(), refreshRpcs3()]);
   await syncGameJolt(false);
 }
 
@@ -1338,11 +1318,6 @@ async function refreshSharpLibrary() {
 async function refreshCurrentSource() {
   if (sourceMode.value === "rpcs3") {
     await refreshRpcs3(true);
-    return;
-  }
-  if (sourceMode.value === "rpcs4") {
-    await refreshRpcs4();
-    toast.show("RPCS4 readiness status refreshed", "info");
     return;
   }
   if (sourceMode.value === "gog") {
@@ -2707,33 +2682,6 @@ onUnmounted(() => {
           </div>
         </section>
       </template>
-
-      <template v-else-if="sourceMode === 'rpcs4'">
-        <section class="emulator-panel">
-          <div class="emulator-status-card experimental">
-            <div>
-              <div class="emulator-status-title">
-                <h2>RPCS4 Experimental Environment</h2>
-                <span class="badge badge-warn">Labs · Unavailable</span>
-              </div>
-              <p>{{ rpcs4Status?.reason ?? "Checking upstream readiness…" }}</p>
-              <small>Candidate upstream last changed {{ rpcs4Status?.lastUpstreamCommit ?? "unknown" }}.</small>
-            </div>
-            <button v-if="rpcs4Status?.repository" class="btn btn-secondary" type="button" @click="getAPI().copyText(rpcs4Status.repository)">Copy Repository URL</button>
-          </div>
-          <div class="rpcs4-gate-card">
-            <h3>Production readiness gate</h3>
-            <p>Installation and launch controls remain disabled until a trustworthy macOS emulator satisfies every requirement.</p>
-            <ul>
-              <li v-for="gate in rpcs4Status?.readinessGate ?? []" :key="gate"><span aria-hidden="true">○</span>{{ gate }}</li>
-            </ul>
-          </div>
-          <div class="empty-state compact">
-            <h2>No runtime is installed</h2>
-            <p>MetalSharp will not download dormant Windows-only skeleton code or present it as a functional PlayStation 4 emulator.</p>
-          </div>
-        </section>
-      </template>
     </div>
   </div>
 </template>
@@ -3682,8 +3630,7 @@ details[open] > .drawer-summary {
 }
 .emulator-status-card,
 .emulator-update-card,
-.emulator-roots,
-.rpcs4-gate-card {
+.emulator-roots {
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -3695,9 +3642,6 @@ details[open] > .drawer-summary {
   justify-content: space-between;
   gap: 16px;
 }
-.emulator-status-card.experimental {
-  border-color: color-mix(in srgb, var(--color-yellow, #facc15) 35%, var(--border));
-}
 .emulator-status-title,
 .emulator-status-actions,
 .emulator-progress-row,
@@ -3706,12 +3650,10 @@ details[open] > .drawer-summary {
   align-items: center;
   gap: 8px;
 }
-.emulator-status-title h2,
-.rpcs4-gate-card h3 {
+.emulator-status-title h2 {
   margin: 0;
 }
-.emulator-status-card p,
-.rpcs4-gate-card p {
+.emulator-status-card p {
   margin: 6px 0;
   color: var(--text-secondary);
 }
@@ -3754,26 +3696,6 @@ details[open] > .drawer-summary {
 }
 .emulator-game-card .sharp-card-actions-row .btn {
   flex: 1;
-}
-.rpcs4-gate-card ul {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  padding: 0;
-  margin: 12px 0 0;
-  list-style: none;
-}
-.rpcs4-gate-card li {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 8px;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.rpcs4-gate-card li span {
-  color: var(--color-yellow, #facc15);
 }
 @media (max-width: 760px) {
   .emulator-status-card {

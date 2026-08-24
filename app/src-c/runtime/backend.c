@@ -27,7 +27,6 @@
 #include "metalsharp_backend/ob_callbacks.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/rpcs3.h"
-#include "metalsharp_backend/rpcs4.h"
 #include "metalsharp_backend/scan.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/sharp.h"
@@ -1155,27 +1154,6 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
             set_json_response(response, 200, body);
             return true;
         }
-    }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/rpcs4/status") == 0) {
-        body = ms_rpcs4_status_json(context->metalsharp_home);
-        if (body == NULL)
-            return false;
-        set_json_response(response, 200, body);
-        return true;
-    }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/rpcs4/games") == 0) {
-        body = ms_rpcs4_games_json(context->metalsharp_home);
-        if (body == NULL)
-            return false;
-        set_json_response(response, 200, body);
-        return true;
-    }
-    if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/rpcs4/", 21) == 0) {
-        body = ms_rpcs4_action_json(context->metalsharp_home, request->path + 21, request->body, request->body_length);
-        if (body == NULL)
-            return false;
-        set_json_response(response, 200, body);
-        return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/gog/status") == 0) {
         body = ms_gog_status_json(context->metalsharp_home);
