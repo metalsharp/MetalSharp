@@ -2179,11 +2179,18 @@ static void collect_games_uncached(const char* home, pcsx2_games* games) {
     for (size_t i = 0; i < count; ++i) {
         char resolved[4096];
         struct stat st;
-        if (lstat(roots[i], &st) == 0 && S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && realpath(roots[i], resolved) &&
-            !strcmp(resolved, roots[i]))
-            scan_directory(home, games, roots[i], 0);
-        else
+        if (lstat(roots[i], &st) != 0 || S_ISLNK(st.st_mode) || !realpath(roots[i], resolved) ||
+            strcmp(resolved, roots[i])) {
             games->truncated = true;
+        } else if (S_ISDIR(st.st_mode)) {
+            scan_directory(home, games, roots[i], 0);
+        } else if (S_ISREG(st.st_mode) && st.st_size > 0 && supported_extension(roots[i])) {
+            const char* name = strrchr(roots[i], '/');
+            games->scanned_entries++;
+            add_game_file(home, games, roots[i], name ? name + 1 : roots[i], &st);
+        } else {
+            games->truncated = true;
+        }
         free(roots[i]);
     }
 }
@@ -2706,7 +2713,8 @@ static bool sync_game_list_roots(const char* home) {
     size_t count = load_roots(home, roots);
     bool ok = true;
     for (size_t i = 0; i < count; ++i) {
-        if (!update_game_list_path(home, roots[i], true))
+        struct stat st;
+        if (lstat(roots[i], &st) == 0 && S_ISDIR(st.st_mode) && !update_game_list_path(home, roots[i], true))
             ok = false;
         free(roots[i]);
     }
@@ -3537,26 +3545,19 @@ static bool protected_game_root(const char* resolved, const char* environment) {
            (resolved[strlen(environment)] == '\0' || resolved[strlen(environment)] == '/');
 }
 
-static bool resolve_game_root(const char* path, char resolved[4096]) {
-    char selected[4096];
+static bool resolve_game_location(const char* path, char resolved[4096], bool* is_file) {
     struct stat st;
-    if (!path || !realpath(path, selected) || strchr(selected, '\n') || strchr(selected, '\r') ||
-        lstat(selected, &st) != 0 || S_ISLNK(st.st_mode))
+    if (is_file)
+        *is_file = false;
+    if (!path || !realpath(path, resolved) || strchr(resolved, '\n') || strchr(resolved, '\r') ||
+        lstat(resolved, &st) != 0 || S_ISLNK(st.st_mode))
         return false;
     if (S_ISDIR(st.st_mode))
-        return snprintf(resolved, 4096, "%s", selected) < 4096;
-    if (!S_ISREG(st.st_mode) || st.st_size <= 0 || !supported_extension(selected))
+        return true;
+    if (!S_ISREG(st.st_mode) || st.st_size <= 0 || !supported_extension(resolved))
         return false;
-    char* separator = strrchr(selected, '/');
-    if (!separator)
-        return false;
-    if (separator == selected)
-        separator[1] = '\0';
-    else
-        *separator = '\0';
-    if (snprintf(resolved, 4096, "%s", selected) >= 4096 || lstat(resolved, &st) != 0 || !S_ISDIR(st.st_mode) ||
-        S_ISLNK(st.st_mode))
-        return false;
+    if (is_file)
+        *is_file = true;
     return true;
 }
 
@@ -3570,8 +3571,11 @@ static bool valid_launch_target(const char* home, const char* path) {
     size_t count = load_roots(home, roots);
     bool within = false;
     for (size_t i = 0; i < count; ++i) {
+        struct stat root_st;
         size_t n = strlen(roots[i]);
-        if (!strncmp(path, roots[i], n) && path[n] == '/')
+        if (lstat(roots[i], &root_st) == 0 && !S_ISLNK(root_st.st_mode) &&
+            ((S_ISREG(root_st.st_mode) && !strcmp(path, roots[i])) ||
+             (S_ISDIR(root_st.st_mode) && !strncmp(path, roots[i], n) && path[n] == '/')))
             within = true;
         free(roots[i]);
     }
@@ -3663,41 +3667,68 @@ char* ms_pcsx2_action_json(const char* home, const char* action, const unsigned 
             result = release_json(home, false);
         free_update_policy(&policy);
     } else if (!strcmp(action, "add-root")) {
-        char resolved[4096];
+        char resolved[4096], parent[4096] = "";
         char* roots[PCSX2_MAX_ROOTS] = {0};
         size_t count = load_roots(home, roots);
         char* environment = emulator_root(home);
-        bool resolved_ok = resolve_game_root(path, resolved);
+        bool is_file = false;
+        bool resolved_ok = resolve_game_location(path, resolved, &is_file);
         bool protected = resolved_ok && protected_game_root(resolved, environment);
+        if (is_file) {
+            snprintf(parent, sizeof(parent), "%s", resolved);
+            char* separator = strrchr(parent, '/');
+            if (separator == parent)
+                separator[1] = '\0';
+            else if (separator)
+                *separator = '\0';
+            else
+                resolved_ok = false;
+        }
         if (update_running())
-            result = error_json("wait for the PCSX2 runtime transaction before changing game folders");
+            result = error_json("wait for the PCSX2 runtime transaction before changing game locations");
         else if (any_session_running(home))
-            result = error_json("stop PCSX2 before changing game folders");
+            result = error_json("stop PCSX2 before changing game locations");
         else if (!resolved_ok || protected)
             result = error_json("a safe existing PlayStation 2 game folder or supported disc image is required");
         else {
-            bool exists = false;
-            for (size_t i = 0; i < count; ++i)
+            bool exists = false, removed_parent = false;
+            size_t out = 0;
+            for (size_t i = 0; i < count; ++i) {
                 if (!strcmp(roots[i], resolved))
                     exists = true;
+                if (is_file && !strcmp(roots[i], parent)) {
+                    removed_parent = true;
+                    free(roots[i]);
+                } else {
+                    roots[out++] = roots[i];
+                }
+            }
+            count = out;
             if (!exists && count >= PCSX2_MAX_ROOTS)
-                result = error_json("the PCSX2 game-folder limit has been reached");
-            else if (exists)
+                result = error_json("the PCSX2 game-location limit has been reached");
+            else if (exists && !removed_parent)
                 result = ms_pcsx2_games_json(home);
             else {
-                char* added = strdup(resolved);
-                if (!added)
-                    result = error_json("failed to allocate the PCSX2 game folder");
+                char* added = exists ? NULL : strdup(resolved);
+                if (!exists && !added)
+                    result = error_json("failed to allocate the PCSX2 game location");
                 else {
-                    roots[count++] = added;
-                    bool config_saved = update_game_list_path(home, resolved, true);
+                    if (added)
+                        roots[count++] = added;
+                    bool config_saved = removed_parent ? update_game_list_path(home, parent, false)
+                                        : is_file      ? true
+                                                       : update_game_list_path(home, resolved, true);
                     bool library_saved = config_saved && save_roots(home, roots, count);
-                    if (config_saved && !library_saved)
-                        (void)update_game_list_path(home, resolved, false);
+                    if (config_saved && !library_saved) {
+                        if (removed_parent)
+                            (void)update_game_list_path(home, parent, true);
+                        else if (!is_file)
+                            (void)update_game_list_path(home, resolved, false);
+                    }
                     if (library_saved)
                         invalidate_game_cache();
-                    result =
-                        library_saved ? ms_pcsx2_games_json(home) : error_json("failed to save the PCSX2 game folder");
+                    result = library_saved ? ms_pcsx2_games_json(home)
+                                           : error_json("failed to save the PCSX2 game location");
                 }
             }
         }
@@ -3718,22 +3749,25 @@ char* ms_pcsx2_action_json(const char* home, const char* action, const unsigned 
                 free(roots[i]);
             }
         }
+        struct stat requested_st;
+        bool requested_is_directory = requested && lstat(requested, &requested_st) == 0 &&
+                                      S_ISDIR(requested_st.st_mode) && !S_ISLNK(requested_st.st_mode);
         if (update_running())
-            result = error_json("wait for the PCSX2 runtime transaction before changing game folders");
+            result = error_json("wait for the PCSX2 runtime transaction before changing game locations");
         else if (any_session_running(home))
-            result = error_json("stop PCSX2 before changing game folders");
+            result = error_json("stop PCSX2 before changing game locations");
         else if (!requested)
-            result = error_json("a PCSX2 game folder is required");
+            result = error_json("a PCSX2 game location is required");
         else if (!found)
             result = ms_pcsx2_games_json(home);
         else {
-            bool config_saved = update_game_list_path(home, requested, false);
+            bool config_saved = !requested_is_directory || update_game_list_path(home, requested, false);
             bool library_saved = config_saved && save_roots(home, roots, out);
-            if (config_saved && !library_saved)
+            if (config_saved && !library_saved && requested_is_directory)
                 (void)update_game_list_path(home, requested, true);
             if (library_saved)
                 invalidate_game_cache();
-            result = library_saved ? ms_pcsx2_games_json(home) : error_json("failed to update PCSX2 game folders");
+            result = library_saved ? ms_pcsx2_games_json(home) : error_json("failed to update PCSX2 game locations");
         }
         for (size_t i = 0; i < out; ++i)
             free(roots[i]);
