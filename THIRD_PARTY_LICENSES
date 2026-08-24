@@ -44,6 +44,15 @@ source folders, or the referenced upstream/runtime packages.
 - Runtime components: The official macOS asset includes the shadPS4 core, SDL, Khronos Vulkan loader, and the KosmicKrisp Mesa Vulkan driver, together with statically linked upstream components documented by the exact shadPS4 source tag and its `externals/` tree. SDL uses the zlib license, Vulkan-Loader uses Apache-2.0, and Mesa/KosmicKrisp uses MIT-family terms; all remaining component-specific terms are preserved by the corresponding upstream source tree.
 - Notes: shadPS4 is not bundled or redistributed in the MetalSharp application. After explicit user confirmation, MetalSharp downloads the official stable asset directly from upstream, verifies its published size and SHA-256, records the exact source tag, saves the upstream GPL license beside the runtime, and locally ad-hoc signs the already verified Mach-O files for macOS execution. Sony firmware modules, fonts, trophy keys, games, updates, DLC, decryption material, keys, and licenses are never bundled or downloaded by MetalSharp.
 
+## SharpEmu — experimental PlayStation 5 emulator
+
+- Repository and corresponding source: https://github.com/sharpemu/sharpemu
+- Stable binary releases: https://github.com/sharpemu/sharpemu/releases
+- License: GNU General Public License v2.0 or later (GPL-2.0-or-later)
+- Used as: Optional user-initiated official stable macOS runtime download managed under `~/.metalsharp/emulators/sharpemu/` and launched out of process.
+- Runtime components: The inspected official archive includes SharpEmu, .NET 10, Avalonia, MoltenVK (Apache-2.0), FFmpeg libraries (LGPL-2.1 and component-specific configuration terms), LibAtrac9 (MIT), and dependency notices preserved in `LICENSE.txt` and `licenses/` beside every installed version. Exact corresponding source is the release tag and commit recorded in `source-manifest.json`.
+- Notes: SharpEmu is not bundled in the MetalSharp application or DMG. MetalSharp verifies the official GitHub release identity, asset ID, byte size, SHA-256, archive structure, x86-64 architecture, deployment targets, and Mach-O dependencies before applying local ad-hoc signatures and atomic activation. The upstream archive is not Developer ID signed or notarized. Guest networking is denied by default; users may explicitly opt in per launch after a security warning. MetalSharp never downloads, bundles, imports, decrypts, patches, uploads, or provides acquisition instructions for Sony firmware, keys, licenses, games, modules, fonts, updates, DLC, or decryption material.
+
 ## MojoShader — SDL shader bytecode parser
 
 - Repository: https://github.com/icculus/mojoshader

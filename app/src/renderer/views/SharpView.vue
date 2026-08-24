@@ -281,6 +281,67 @@ interface Shadps4Status {
   executablePath?: string | null;
 }
 
+interface SharpemuStatus {
+  ok: boolean;
+  experimental: true;
+  supported: boolean;
+  unsupportedReason?: "unsupported_architecture" | "macos_too_old" | "rosetta_missing" | null;
+  installed: boolean;
+  runtimeValid: boolean;
+  state:
+    | "unsupported_host"
+    | "missing_runtime"
+    | "runtime_probe_failed"
+    | "no_game_roots"
+    | "no_games"
+    | "ready"
+    | "running";
+  hostArchitecture: string;
+  runtimeArchitecture: "x86_64";
+  rosettaAvailable: boolean;
+  hostMacosMajor: number;
+  runtimeMinimumMacos: number;
+  hostMemoryBytes: number;
+  hostLogicalCpu: number;
+  availableDiskBytes: number;
+  archiveToolsAvailable: boolean;
+  gpuProbeReady: boolean;
+  networkIsolationAvailable: boolean;
+  networkDefault: "denied";
+  networkOptInAvailable: boolean;
+  upstreamNotarized: false;
+  locallyAdHocSigned: boolean;
+  cliOnly: true;
+  graphicsBackend: string;
+  updateRunning: boolean;
+  warnings: string[];
+  currentTag?: string | null;
+  rollbackAvailable: boolean;
+  gameRootCount: number;
+  gameCount: number;
+  environmentPath: string;
+  dataPath: string;
+  cachePath: string;
+  logsPath: string;
+  executablePath?: string | null;
+}
+
+interface SharpemuGame {
+  id: string;
+  titleId: string;
+  title: string;
+  contentVersion: string;
+  masterVersion: string;
+  path: string;
+  executableSize: number;
+  hasArtwork: boolean;
+  running: boolean;
+  pid?: number | null;
+  lastLogPath?: string | null;
+  lastExitCode?: number | null;
+  lastExitSignal?: number | null;
+}
+
 interface Pcsx2Status {
   ok: boolean;
   supported: boolean;
@@ -341,6 +402,7 @@ interface Pcsx2Game {
 
 type Shadps4Game = Rpcs3Game;
 type Shadps4Update = Rpcs3Update;
+type SharpemuUpdate = Rpcs3Update;
 
 interface Rpcs3UpdateProgress {
   ok: boolean;
@@ -352,7 +414,7 @@ interface Rpcs3UpdateProgress {
   targetTag?: string | null;
 }
 
-type SharpSource = "installers" | "gog" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4";
+type SharpSource = "installers" | "gog" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4" | "sharpemu";
 
 const toast = useToast();
 const sourceMode = ref<SharpSource>("installers");
@@ -363,6 +425,7 @@ const sourceTabs = [
   { id: "pcsx2" as const, label: "PCSX2" },
   { id: "rpcs3" as const, label: "RPCS3" },
   { id: "shadps4" as const, label: "ShadPS4" },
+  { id: "sharpemu" as const, label: "SharpEmu" },
 ];
 const headerTitle = computed(() => {
   if (sourceMode.value === "gog") return "GOG Games Library";
@@ -370,6 +433,7 @@ const headerTitle = computed(() => {
   if (sourceMode.value === "pcsx2") return "PCSX2 Library";
   if (sourceMode.value === "rpcs3") return "RPCS3 Library";
   if (sourceMode.value === "shadps4") return "shadPS4 Library";
+  if (sourceMode.value === "sharpemu") return "SharpEmu Research Library";
   return "Sharp Library";
 });
 const headerSubtitle = computed(() => {
@@ -381,6 +445,8 @@ const headerSubtitle = computed(() => {
     return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
   if (sourceMode.value === "shadps4")
     return "Experiment with compatible PlayStation 4 games through an isolated, verified shadPS4 environment.";
+  if (sourceMode.value === "sharpemu")
+    return "Experiment with owned PlayStation 5 layouts through an isolated, verified SharpEmu environment.";
   return "Install and manage Windows applications outside Steam.";
 });
 const apps = ref<SharpApp[]>([]);
@@ -482,6 +548,30 @@ const shadps4StateLabel = computed(() => {
 });
 let shadps4ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let shadps4UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
+const sharpemuStatus = ref<SharpemuStatus | null>(null);
+const sharpemuGames = ref<SharpemuGame[]>([]);
+const sharpemuRoots = ref<string[]>([]);
+const sharpemuUpdate = ref<Rpcs3Update | null>(null);
+const sharpemuUpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const sharpemuLoading = ref<Record<string, boolean>>({});
+const sharpemuNetworkOptIn = ref(false);
+const sharpemuBuildLabel = computed(() => sharpemuStatus.value?.currentTag ?? "Not installed");
+const sharpemuStateLabel = computed(() => {
+  const status = sharpemuStatus.value;
+  if (!status) return "Checking host…";
+  if (!status.supported) {
+    if (status.unsupportedReason === "macos_too_old") return "macOS 26 or newer required";
+    if (status.unsupportedReason === "rosetta_missing") return "Rosetta required";
+    return "Unsupported Mac";
+  }
+  if (status.state === "running") return "Experimental · Game running";
+  if (status.state === "ready") return "Experimental · Ready";
+  if (status.state === "runtime_probe_failed") return "Runtime repair required";
+  if (status.state === "no_games") return "Experimental · No layouts found";
+  return "Experimental · Setup required";
+});
+let sharpemuProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let sharpemuUpdatePollTimer: ReturnType<typeof setInterval> | null = null;
 const editingGameJoltName = ref<string | null>(null);
 const gameJoltNameDraft = ref("");
 const gogLoading = ref<Record<string, boolean>>({});
@@ -1640,6 +1730,200 @@ async function removeShadps4Runtime() {
   } else toast.show(result?.error ?? "Could not remove shadPS4 runtime", "error");
 }
 
+async function refreshSharpemu(showResult = false) {
+  const [statusResult, gamesResult] = await Promise.all([
+    api<SharpemuStatus>("GET", "/sharp-library/sharpemu/status"),
+    api<{ ok: boolean; games: SharpemuGame[]; roots: string[] }>("GET", "/sharp-library/sharpemu/games"),
+  ]);
+  if (statusResult?.ok) sharpemuStatus.value = statusResult;
+  if (gamesResult?.ok) {
+    sharpemuGames.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    sharpemuRoots.value = gamesResult.roots ?? [];
+  }
+  if (showResult)
+    toast.show(
+      `Found ${sharpemuGames.value.length} SharpEmu game${sharpemuGames.value.length === 1 ? "" : "s"}`,
+      "success",
+    );
+}
+
+async function checkSharpemuUpdate(showResult = true, force = showResult) {
+  sharpemuLoading.value.check = true;
+  const result = await api<SharpemuUpdate>(
+    force ? "POST" : "GET",
+    force ? "/sharp-library/sharpemu/update/refresh" : "/sharp-library/sharpemu/update/check",
+    force ? {} : undefined,
+    30 * 1000,
+  );
+  sharpemuLoading.value.check = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "Could not check SharpEmu updates", "error");
+    return null;
+  }
+  sharpemuUpdate.value = result;
+  if (showResult)
+    toast.show(result.available ? `${result.latestVersion} is available` : "SharpEmu is up to date", "info");
+  return result;
+}
+
+function stopSharpemuUpdatePoll() {
+  if (sharpemuUpdatePollTimer) clearInterval(sharpemuUpdatePollTimer);
+  sharpemuUpdatePollTimer = null;
+}
+
+function beginSharpemuUpdatePoll() {
+  stopSharpemuUpdatePoll();
+  sharpemuUpdatePollTimer = setInterval(async () => {
+    const progress = await api<Rpcs3UpdateProgress>("GET", "/sharp-library/sharpemu/update/progress");
+    if (!progress?.ok) return;
+    sharpemuUpdateProgress.value = progress;
+    if (progress.status === "completed" || progress.status === "failed") {
+      stopSharpemuUpdatePoll();
+      sharpemuLoading.value.update = false;
+      if (progress.status === "completed") {
+        toast.show("SharpEmu installed successfully", "success");
+        await refreshSharpemu();
+        await checkSharpemuUpdate(false);
+      } else toast.show(progress.error ?? "SharpEmu update failed", "error");
+    }
+  }, 1000);
+}
+
+async function installOrUpdateSharpemu() {
+  if (sharpemuStatus.value && !sharpemuStatus.value.supported) {
+    toast.show(sharpemuStateLabel.value, "error");
+    return;
+  }
+  const release = await checkSharpemuUpdate(false);
+  if (!release) return;
+  if (sharpemuStatus.value?.installed && !release.available) {
+    toast.show("SharpEmu is already up to date", "info");
+    return;
+  }
+  const action = sharpemuStatus.value?.installed ? "Update" : "Install";
+  if (
+    !window.confirm(
+      `${action} experimental SharpEmu ${release.latestVersion}? MetalSharp verifies the official stable asset, records its digest, locally ad-hoc signs the unnotarized runtime, and preserves the previous runtime for rollback.`,
+    )
+  )
+    return;
+  sharpemuLoading.value.update = true;
+  const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/sharpemu/update/install", {}, 35 * 1000);
+  if (!result?.ok) {
+    sharpemuLoading.value.update = false;
+    toast.show(result?.error ?? `Could not ${action.toLowerCase()} SharpEmu`, "error");
+    return;
+  }
+  sharpemuUpdateProgress.value = result;
+  beginSharpemuUpdatePoll();
+}
+
+async function setSharpemuUpdatePolicy(action: "pin-current" | "unpin" | "skip-update" | "clear-skip") {
+  const result = await api<SharpemuUpdate>("POST", `/sharp-library/sharpemu/${action}`, {
+    tag: sharpemuUpdate.value?.latestTag,
+  });
+  if (result?.ok) {
+    sharpemuUpdate.value = result;
+    toast.show("SharpEmu update preference saved", "success");
+  } else toast.show(result?.error ?? "Could not save SharpEmu update preference", "error");
+}
+
+async function rollbackSharpemu() {
+  if (!window.confirm("Roll back only the SharpEmu runtime? Saves, settings, caches, logs, and external games remain."))
+    return;
+  const result = await api<SharpemuStatus & { error?: string }>("POST", "/sharp-library/sharpemu/update/rollback", {});
+  if (result?.ok) {
+    sharpemuStatus.value = result;
+    toast.show("SharpEmu rolled back", "success");
+  } else toast.show(result?.error ?? "SharpEmu rollback failed", "error");
+}
+
+async function addSharpemuFolder() {
+  const path = await getAPI().pickSharpemuRoot();
+  if (!path) return;
+  const result = await api<{ ok: boolean; games: SharpemuGame[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/sharpemu/add-root",
+    { path },
+  );
+  if (result?.ok) {
+    sharpemuGames.value = result.games ?? [];
+    sharpemuRoots.value = result.roots ?? [];
+    await refreshSharpemu();
+    toast.show("SharpEmu game folder added", "success");
+  } else toast.show(result?.error ?? "Could not add SharpEmu game folder", "error");
+}
+
+async function removeSharpemuRoot(path: string) {
+  const result = await api<{ ok: boolean; games: SharpemuGame[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/sharpemu/remove-root",
+    { path },
+  );
+  if (result?.ok) {
+    sharpemuGames.value = result.games ?? [];
+    sharpemuRoots.value = result.roots ?? [];
+  } else toast.show(result?.error ?? "Could not remove SharpEmu game folder", "error");
+}
+
+async function launchSharpemuGame(game: SharpemuGame) {
+  const allowNetwork = sharpemuNetworkOptIn.value;
+  if (
+    allowNetwork &&
+    !window.confirm(
+      "Enable unrestricted guest networking for this launch? Emulated game code may open host sockets, use DNS, and contact local or internet services.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/sharp-library/sharpemu/launch", {
+    id: game.id,
+    fullscreen: false,
+    allowNetwork,
+  });
+  if (result?.ok) {
+    game.running = true;
+    game.pid = result.pid;
+  } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+}
+
+async function stopSharpemuGame(game: SharpemuGame) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/sharpemu/stop", { id: game.id });
+  if (result?.ok) {
+    game.running = false;
+    game.pid = null;
+  } else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+}
+
+async function openSharpemuLog(path: string) {
+  if (
+    !window.confirm(
+      "SharpEmu logs can contain game titles, title IDs, local paths, module names, and crash details. Open this local log location?",
+    )
+  )
+    return;
+  const result = await getAPI().openSharpemuPath(path);
+  if (!result?.ok) toast.show(result?.error ?? "Could not open the SharpEmu log location", "error");
+}
+
+async function removeSharpemuRuntime() {
+  if (
+    !window.confirm(
+      "Remove managed SharpEmu runtime versions? Saves, settings, caches, logs, and external games are preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/sharpemu/remove-runtime", {
+    confirm: true,
+  });
+  if (result?.ok) {
+    sharpemuUpdate.value = null;
+    await refreshSharpemu();
+    toast.show("SharpEmu runtime removed; user data was preserved", "success");
+  } else toast.show(result?.error ?? "Could not remove SharpEmu runtime", "error");
+}
+
 async function load() {
   const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
     api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
@@ -1968,6 +2252,9 @@ function selectSource(mode: SharpSource) {
   } else if (mode === "shadps4") {
     void refreshShadps4();
     if (!shadps4Update.value) void checkShadps4Update(false);
+  } else if (mode === "sharpemu") {
+    void refreshSharpemu();
+    if (!sharpemuUpdate.value) void checkSharpemuUpdate(false);
   } else if (mode === "rpcs3") {
     void refreshRpcs3();
     if (!rpcs3Update.value) void checkRpcs3Update(false);
@@ -1985,6 +2272,10 @@ async function refreshCurrentSource() {
   }
   if (sourceMode.value === "shadps4") {
     await refreshShadps4(true);
+    return;
+  }
+  if (sourceMode.value === "sharpemu") {
+    await refreshSharpemu(true);
     return;
   }
   if (sourceMode.value === "gog") {
@@ -2672,6 +2963,9 @@ onMounted(() => {
   shadps4ProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "shadps4" && shadps4Status.value?.installed) void refreshShadps4();
   }, 3000);
+  sharpemuProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "sharpemu" && sharpemuStatus.value?.installed) void refreshSharpemu();
+  }, 3000);
   removeGameJoltDownloadListener = getAPI().onGameJoltDownload(handleGameJoltDownload);
 });
 onUnmounted(() => {
@@ -2687,6 +2981,9 @@ onUnmounted(() => {
   if (shadps4ProcessPollTimer) clearInterval(shadps4ProcessPollTimer);
   shadps4ProcessPollTimer = null;
   stopShadps4UpdatePoll();
+  if (sharpemuProcessPollTimer) clearInterval(sharpemuProcessPollTimer);
+  sharpemuProcessPollTimer = null;
+  stopSharpemuUpdatePoll();
   removeGameJoltDownloadListener?.();
   removeGameJoltDownloadListener = null;
   if (gamejoltDragPointerId !== null) {
@@ -2791,7 +3088,9 @@ onUnmounted(() => {
           ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
         </button>
         <button
-          v-if="sourceMode !== 'pcsx2' && sourceMode !== 'rpcs3' && sourceMode !== 'shadps4'"
+          v-if="
+            sourceMode !== 'pcsx2' && sourceMode !== 'rpcs3' && sourceMode !== 'shadps4' && sourceMode !== 'sharpemu'
+          "
           class="btn btn-secondary"
           :disabled="sourceMode === 'gog' && gogLoading.sync"
           @click="sourceMode === 'gamejolt' ? syncGameJolt() : refreshCurrentSource()"
@@ -4133,6 +4432,335 @@ onUnmounted(() => {
                     Log
                   </button>
                 </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </template>
+      <template v-else-if="sourceMode === 'sharpemu'">
+        <section class="emulator-panel rpcs3-dashboard shadps4-dashboard sharpemu-dashboard">
+          <div class="rpcs3-overview">
+            <div class="rpcs3-overview-main">
+              <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+              <div class="rpcs3-overview-copy">
+                <div class="rpcs3-eyebrow">Experimental PlayStation 5 research environment</div>
+                <div class="rpcs3-title-row">
+                  <h2>SharpEmu</h2>
+                  <span
+                    class="rpcs3-state-pill"
+                    :class="
+                      sharpemuStatus?.state === 'ready' || sharpemuStatus?.state === 'running'
+                        ? 'ready'
+                        : sharpemuStatus?.supported
+                          ? 'attention'
+                          : 'muted'
+                    "
+                  >
+                    <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ sharpemuStateLabel }}
+                  </span>
+                </div>
+                <p>
+                  SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary
+                  target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.
+                </p>
+                <p class="shadps4-host-warning">
+                  MetalSharp never downloads firmware, keys, games, licenses, modules, fonts, updates, DLC, or
+                  decryption material. Register only user-owned, already decrypted or fake-signed layouts.
+                </p>
+              </div>
+            </div>
+            <div class="rpcs3-primary-actions">
+              <button
+                class="btn btn-primary rpcs3-primary-button"
+                :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
+                @click="installOrUpdateSharpemu"
+              >
+                <IconDownload width="15" height="15" />
+                {{
+                  sharpemuLoading.update
+                    ? "Installing…"
+                    : sharpemuStatus?.installed
+                      ? sharpemuUpdate && !sharpemuUpdate.available
+                        ? "Check SharpEmu"
+                        : "Update SharpEmu"
+                      : "Install SharpEmu"
+                }}
+              </button>
+            </div>
+            <div class="rpcs3-stats">
+              <div class="rpcs3-stat">
+                <IconHardDrive width="16" height="16" />
+                <span
+                  ><small>Runtime</small
+                  ><strong :title="sharpemuStatus?.currentTag ?? ''">{{ sharpemuBuildLabel }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconMonitor width="16" height="16" />
+                <span
+                  ><small>Host</small
+                  ><strong
+                    >{{ sharpemuStatus?.hostArchitecture ?? "Checking…" }} · macOS
+                    {{ sharpemuStatus?.hostMacosMajor ?? "…" }}</strong
+                  ></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconGamepad2 width="16" height="16" />
+                <span
+                  ><small>Library</small
+                  ><strong>{{ sharpemuGames.length }} layout{{ sharpemuGames.length === 1 ? "" : "s" }}</strong></span
+                >
+              </div>
+              <div class="rpcs3-stat">
+                <IconShieldCheck width="16" height="16" />
+                <span
+                  ><small>Guest network</small
+                  ><strong>{{ sharpemuNetworkOptIn ? "Explicitly enabled" : "Denied by default" }}</strong></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="rpcs3-command-bar" aria-label="SharpEmu library actions">
+            <button class="rpcs3-command" @click="addSharpemuFolder">
+              <IconFolderPlus width="17" height="17" /><span
+                ><strong>Add layouts</strong><small>Reference owned eboot.bin folders</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="refreshSharpemu(true)">
+              <IconScanLine width="17" height="17" /><span
+                ><strong>Scan library</strong><small>Refresh bounded local metadata</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="getAPI().openSharpemuLink('faq')">
+              <IconExternalLink width="17" height="17" /><span
+                ><strong>Official FAQ</strong><small>Open sharpemu.app</small></span
+              >
+            </button>
+            <button class="rpcs3-command" @click="getAPI().openSharpemuLink('compatibility')">
+              <IconExternalLink width="17" height="17" /><span
+                ><strong>Compatibility</strong><small>View upstream reports</small></span
+              >
+            </button>
+          </div>
+
+          <div class="sharpemu-network-policy" :class="{ enabled: sharpemuNetworkOptIn }">
+            <label>
+              <input v-model="sharpemuNetworkOptIn" type="checkbox" />
+              <span>
+                <strong>Allow unrestricted guest networking for launches</strong>
+                <small>
+                  Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact local
+                  or internet services. Every network-enabled launch asks again.
+                </small>
+              </span>
+            </label>
+          </div>
+
+          <div
+            v-if="sharpemuUpdateProgress?.running || sharpemuUpdateProgress?.status === 'failed'"
+            class="emulator-update-card"
+          >
+            <div class="emulator-progress-row">
+              <strong>{{ sharpemuUpdateProgress.message }}</strong
+              ><span>{{ sharpemuUpdateProgress.percent }}%</span>
+            </div>
+            <div class="gog-progress-bar"><span :style="{ width: `${sharpemuUpdateProgress.percent}%` }"></span></div>
+            <small v-if="sharpemuUpdateProgress.error" class="launch-failure">{{ sharpemuUpdateProgress.error }}</small>
+          </div>
+
+          <details class="rpcs3-management">
+            <summary>
+              <span>Environment management</span><small>Integrity, rollback, storage, and preservation</small>
+            </summary>
+            <div class="rpcs3-management-actions">
+              <button class="btn btn-secondary btn-sm" :disabled="sharpemuLoading.check" @click="checkSharpemuUpdate()">
+                {{ sharpemuLoading.check ? "Checking…" : "Check Stable Updates" }}
+              </button>
+              <button
+                v-if="sharpemuStatus?.installed && sharpemuUpdate"
+                class="btn btn-secondary btn-sm"
+                @click="setSharpemuUpdatePolicy(sharpemuUpdate.pinnedTag ? 'unpin' : 'pin-current')"
+              >
+                {{ sharpemuUpdate.pinnedTag ? "Unpin Version" : "Pin Current" }}
+              </button>
+              <button
+                v-if="sharpemuUpdate?.available"
+                class="btn btn-secondary btn-sm"
+                @click="setSharpemuUpdatePolicy('skip-update')"
+              >
+                Skip Update
+              </button>
+              <button
+                v-if="sharpemuUpdate?.skippedTag"
+                class="btn btn-secondary btn-sm"
+                @click="setSharpemuUpdatePolicy('clear-skip')"
+              >
+                Clear Skip
+              </button>
+              <button
+                v-if="sharpemuStatus?.rollbackAvailable"
+                class="btn btn-secondary btn-sm"
+                @click="rollbackSharpemu"
+              >
+                Rollback Runtime
+              </button>
+              <button
+                v-if="sharpemuStatus?.environmentPath"
+                class="btn btn-secondary btn-sm"
+                @click="getAPI().openSharpemuPath(sharpemuStatus.environmentPath)"
+              >
+                Open Environment
+              </button>
+              <button
+                v-if="sharpemuStatus?.logsPath"
+                class="btn btn-secondary btn-sm"
+                @click="openSharpemuLog(sharpemuStatus.logsPath)"
+              >
+                Open Logs
+              </button>
+              <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('repository')">
+                Source &amp; GPL License
+              </button>
+              <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('releases')">
+                Official Releases
+              </button>
+              <button v-if="sharpemuStatus?.installed" class="btn btn-danger btn-sm" @click="removeSharpemuRuntime">
+                Remove Runtime
+              </button>
+            </div>
+            <p class="sharpemu-signing-note">
+              The upstream macOS archive is not Developer ID signed or notarized. MetalSharp verifies its GitHub SHA-256
+              and structure before applying local ad-hoc signatures. Runtime removal preserves state and games.
+            </p>
+          </details>
+
+          <details v-if="sharpemuRoots.length" class="emulator-roots">
+            <summary>
+              Game folders <span>{{ sharpemuRoots.length }}</span>
+            </summary>
+            <div v-for="root in sharpemuRoots" :key="root" class="emulator-root-row">
+              <button class="emulator-root-path" type="button" @click="getAPI().openSharpemuPath(root)">
+                {{ root }}
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="removeSharpemuRoot(root)">
+                Remove reference
+              </button>
+            </div>
+          </details>
+
+          <div v-if="!sharpemuStatus" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Checking host readiness</span>
+              <h2>Inspecting SharpEmu requirements…</h2>
+              <p>MetalSharp is checking architecture, macOS, Rosetta, network containment, and archive tools.</p>
+            </div>
+          </div>
+          <div v-else-if="!sharpemuStatus.supported" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconMonitor width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Host readiness blocked</span>
+              <h2>{{ sharpemuStateLabel }}</h2>
+              <p>
+                The current full payload requires macOS 26 or newer and x86-64 execution. Apple Silicon also requires
+                Rosetta 2.
+              </p>
+            </div>
+          </div>
+          <div v-else-if="!sharpemuStatus.installed" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconDownload width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 1 of 2</span>
+              <h2>Install the verified stable SharpEmu runtime</h2>
+              <p>
+                MetalSharp verifies the exact release identity, mutable-asset metadata, archive, Mach-O dependencies,
+                local signatures, and CLI probe before atomic activation.
+              </p>
+            </div>
+            <button class="btn btn-primary" :disabled="sharpemuLoading.update" @click="installOrUpdateSharpemu">
+              Install SharpEmu
+            </button>
+          </div>
+          <div v-else-if="sharpemuRoots.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconFolderPlus width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Step 2 of 2</span>
+              <h2>Add your owned PlayStation 5 layouts</h2>
+              <p>
+                Select an existing folder containing eboot.bin and optional sce_sys/param.json. MetalSharp does not
+                decrypt, fake-sign, copy, merge, download, or delete game content.
+              </p>
+            </div>
+            <button class="btn btn-primary" @click="addSharpemuFolder">Add Game Folder</button>
+          </div>
+          <div v-else-if="sharpemuGames.length === 0" class="rpcs3-onboarding">
+            <div class="rpcs3-onboarding-icon"><IconScanLine width="24" height="24" /></div>
+            <div>
+              <span class="rpcs3-step">Library folder added</span>
+              <h2>No PlayStation 5 layouts found yet</h2>
+              <p>
+                Your folder reference is preserved. Add a recognized decrypted ELF or fake-signed SELF, then scan again.
+              </p>
+            </div>
+            <button class="btn btn-primary" @click="refreshSharpemu(true)">Scan Library</button>
+          </div>
+
+          <div v-else class="sharp-grid">
+            <article
+              v-for="game in sharpemuGames"
+              :key="game.id"
+              class="sharp-card emulator-game-card"
+              :class="{ running: game.running }"
+            >
+              <div class="sharp-card-banner">
+                <img
+                  v-if="game.hasArtwork"
+                  :src="`http://127.0.0.1:9274/sharp-library/sharpemu/cover?id=${encodeURIComponent(game.id)}`"
+                  :alt="game.title"
+                />
+                <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
+                <button
+                  v-if="game.running"
+                  class="running-close-button"
+                  title="Stop game"
+                  @click="stopSharpemuGame(game)"
+                >
+                  <IconX width="14" height="14" />
+                </button>
+              </div>
+              <div class="sharp-card-body">
+                <div class="sharp-card-title">{{ game.title }}</div>
+                <div class="sharp-card-meta">
+                  <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                    game.running ? "Running" : game.titleId || "PS5"
+                  }}</span>
+                  <span v-if="game.contentVersion || game.masterVersion" class="sharp-card-size"
+                    >v{{ game.contentVersion || game.masterVersion }}</span
+                  >
+                </div>
+                <div class="sharp-card-actions-row">
+                  <button v-if="game.running" class="btn btn-stop" @click="stopSharpemuGame(game)">Stop</button>
+                  <button
+                    v-else
+                    class="btn btn-play"
+                    :disabled="sharpemuStatus?.state !== 'ready'"
+                    @click="launchSharpemuGame(game)"
+                  >
+                    Play
+                  </button>
+                  <button class="btn btn-secondary" @click="getAPI().openSharpemuPath(game.path)">Open Folder</button>
+                  <button class="btn btn-secondary" @click="getAPI().openSharpemuLink('compatibility', game.titleId)">
+                    Compatibility
+                  </button>
+                  <button v-if="game.lastLogPath" class="btn btn-secondary" @click="openSharpemuLog(game.lastLogPath)">
+                    Log
+                  </button>
+                </div>
+                <small v-if="game.lastExitCode !== null && game.lastExitCode !== undefined" class="sharpemu-last-exit">
+                  Last exit: {{ game.lastExitCode }}
+                </small>
               </div>
             </article>
           </div>
@@ -5600,6 +6228,36 @@ details[open] > .drawer-summary {
   border: 0;
   border-radius: calc(var(--radius-md) - 3px);
   background: #fff;
+}
+.sharpemu-network-policy {
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, #f59e0b);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 92%, #f59e0b);
+}
+.sharpemu-network-policy.enabled {
+  border-color: color-mix(in srgb, #ef4444 65%, var(--border));
+  background: color-mix(in srgb, var(--surface) 88%, #ef4444);
+}
+.sharpemu-network-policy label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.sharpemu-network-policy input {
+  margin-top: 3px;
+}
+.sharpemu-network-policy span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.sharpemu-network-policy small,
+.sharpemu-signing-note,
+.sharpemu-last-exit {
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 .source-tab:focus-visible,
 .rpcs3-dashboard button:focus-visible,
