@@ -269,6 +269,36 @@ def test_host_gates() -> None:
                 assert not update["ok"], update
 
 
+def test_disc_image_selection_registers_parent_folder() -> None:
+    with tempfile.TemporaryDirectory(prefix="pcsx2-disc-image-") as temporary:
+        root = Path(temporary)
+        archive = make_archive(root)
+        release = root / "release.json"
+        write_release(archive, release)
+        games = root / "owned-games"
+        games.mkdir()
+        disc = games / "Selected Game.iso"
+        disc.write_bytes(b"synthetic owned disc image")
+        unsupported = games / "notes.txt"
+        unsupported.write_text("not a game")
+        with Backend(root, archive, release) as backend:
+            added = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/add-root",
+                {"path": str(disc)},
+            )
+            assert added["ok"] and added["roots"] == [str(games.resolve())], added
+            assert any(game["path"] == str(disc.resolve()) for game in added["games"]), added
+            rejected = request(
+                backend.port,
+                "POST",
+                "/sharp-library/pcsx2/add-root",
+                {"path": str(unsupported)},
+            )
+            assert not rejected["ok"] and "supported disc image" in rejected["error"], rejected
+
+
 def test_data_path_capability_probe() -> None:
     with tempfile.TemporaryDirectory(prefix="pcsx2-datapath-") as temporary:
         root = Path(temporary)
@@ -405,6 +435,7 @@ def main() -> None:
     ):
         run_failure_case(kind)
     test_host_gates()
+    test_disc_image_selection_registers_parent_folder()
     test_data_path_capability_probe()
     test_success_repair_rollback_and_preservation()
     test_interrupted_activation_preserves_current()
