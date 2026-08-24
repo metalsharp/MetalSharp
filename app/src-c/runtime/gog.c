@@ -1165,7 +1165,7 @@ static char* game_json_ex(const char* id, const char* title, const char* status,
     ms_json_writer_key(&w, "primaryTaskName");
     ms_json_writer_null(&w);
     ms_json_writer_key(&w, "installed");
-    ms_json_writer_bool(&w, !strcmp(status, "installed"));
+    ms_json_writer_bool(&w, !strcmp(status, "installed") || !strcmp(status, "running"));
     ms_json_writer_key(&w, "running");
     ms_json_writer_bool(&w, !strcmp(status, "running"));
     ms_json_writer_key(&w, "status");
@@ -1281,7 +1281,8 @@ static char* refresh_game_json(const char* home, const ms_json* game) {
     if (running) {
         free(status);
         status = strdup("running");
-    } else if (installed && (!*status || !strcmp(status, "not_installed") || !strcmp(status, "downloading"))) {
+    } else if (installed && (!*status || !strcmp(status, "not_installed") || !strcmp(status, "downloading") ||
+                             !strcmp(status, "running"))) {
         free(status);
         status = strdup("installed");
     } else if (!*status) {
@@ -1637,13 +1638,17 @@ static char* gog_stop_json(const char* home, const char* id) {
         char* candidate = field(ms_json_array_get(games, i), "productId", "");
         if (!strcmp(candidate, id)) {
             pid_t tracked = gog_tracked_pid(id);
-            bool installed = false;
-            ms_json_as_bool(ms_json_object_get(ms_json_array_get(games, i), "installed"), &installed);
+            char *title = NULL, *platform = NULL, *install_root = NULL, *game_folder = NULL;
+            bool installed = gog_launch_record(home, id, &title, &platform, &install_root, &game_folder);
             if (tracked > 0) {
                 kill(tracked, SIGTERM);
             }
-            char* title = field(ms_json_array_get(games, i), "title", id);
-            char* stopped_game = game_json(id, title, installed ? "installed" : "not_installed");
+            if (!title)
+                title = field(ms_json_array_get(games, i), "title", id);
+            if (!platform)
+                platform = field(ms_json_array_get(games, i), "platform", "windows");
+            char* stopped_game = game_json_ex(id, title, installed ? "installed" : "not_installed", platform,
+                                              install_root, game_folder, 0, 0, NULL);
             if (stopped_game)
                 append_game(home, stopped_game);
             ms_json_writer w;
@@ -1664,6 +1669,9 @@ static char* gog_stop_json(const char* home, const char* id) {
             ms_json_writer_object_end(&w);
             free(stopped_game);
             free(title);
+            free(platform);
+            free(install_root);
+            free(game_folder);
             free(candidate);
             ms_json_free(games);
             return ms_json_writer_take(&w);
