@@ -303,7 +303,7 @@ const sourceTabs = [
   { id: "gog" as const, label: "GOG" },
   { id: "gamejolt" as const, label: "GameJolt" },
   { id: "rpcs3" as const, label: "RPCS3" },
-  { id: "shadps4" as const, label: "shadPS4" },
+  { id: "shadps4" as const, label: "ShadPS4" },
 ];
 const headerTitle = computed(() => {
   if (sourceMode.value === "gog") return "GOG Games Library";
