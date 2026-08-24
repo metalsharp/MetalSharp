@@ -1,8 +1,16 @@
 # Games Supported
 
-Updated: 2026-07-08
+Updated: 2026-08-23
 
 Tested and working games organized by pipeline. Only games confirmed playable are listed.
+
+## Sharp Library Sources
+
+| Source | Tested game | Launch path |
+|---|---|---|
+| GameJolt | The Joy of Creation: Reborn | GameJolt card Play action through its configured Windows bottle |
+| GOG | Fall of Porcupine: Prologue | GOG card Play action through its selected bottle pipeline |
+
 
 ## Test System
 
