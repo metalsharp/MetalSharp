@@ -707,6 +707,68 @@ static char* gog_import_folder(const char* root, const char* product_id) {
     return NULL;
 }
 
+/* Resolve launch inputs from MetalSharp's persisted library rather than from
+ * renderer-supplied paths.  The renderer intentionally sends only a product
+ * ID, and accepting an arbitrary gameFolder here would also let a local IPC
+ * caller redirect gogdl outside the registered installation. */
+static bool gog_launch_record(const char* home, const char* product_id, char** title_out, char** platform_out,
+                              char** install_root_out, char** game_folder_out) {
+    ms_json* games = load_games(home);
+    bool found = false;
+    if (title_out)
+        *title_out = NULL;
+    if (platform_out)
+        *platform_out = NULL;
+    if (install_root_out)
+        *install_root_out = NULL;
+    if (game_folder_out)
+        *game_folder_out = NULL;
+    if (!games)
+        return false;
+    for (size_t i = 0; i < ms_json_array_length(games); i++) {
+        const ms_json* game = ms_json_array_get(games, i);
+        char *candidate = field(game, "productId", ""), *stored_folder = NULL, *resolved_folder = NULL;
+        if (strcmp(candidate, product_id)) {
+            free(candidate);
+            continue;
+        }
+        free(candidate);
+        if (title_out)
+            *title_out = field(game, "title", product_id);
+        if (platform_out)
+            *platform_out = field(game, "platform", "windows");
+        if (install_root_out)
+            *install_root_out = field(game, "installRoot", "");
+        stored_folder = field(game, "gameFolder", "");
+        if (*stored_folder)
+            resolved_folder = gog_import_folder(stored_folder, product_id);
+        if (!resolved_folder && install_root_out && *install_root_out && **install_root_out)
+            resolved_folder = gog_import_folder(*install_root_out, product_id);
+        if (game_folder_out)
+            *game_folder_out = resolved_folder;
+        else
+            free(resolved_folder);
+        free(stored_folder);
+        found = resolved_folder != NULL;
+        break;
+    }
+    ms_json_free(games);
+    if (!found) {
+        free(title_out ? *title_out : NULL);
+        free(platform_out ? *platform_out : NULL);
+        free(install_root_out ? *install_root_out : NULL);
+        if (title_out)
+            *title_out = NULL;
+        if (platform_out)
+            *platform_out = NULL;
+        if (install_root_out)
+            *install_root_out = NULL;
+        if (game_folder_out)
+            *game_folder_out = NULL;
+    }
+    return found;
+}
+
 static bool run_gogdl_auth(const char* home, const char* code) {
     char *binary = gogdl_path(home), *auth = auth_path(home), *auth_dir = join(home, "gog_store");
     char *config = join(home, "gogdl"), *support = join(home, "gogdl/gog-support");
@@ -1380,13 +1442,15 @@ static bool append_game(const char* home, const char* raw) {
                 const ms_json* value = ms_json_object_value_at(incoming, j);
                 const ms_json* preserved = value;
                 if ((!strcmp(key, "title") && ms_json_type_of(value) == MS_JSON_STRING) ||
-                    ((!strcmp(key, "imageUrl") || !strcmp(key, "iconUrl")) && ms_json_type_of(value) == MS_JSON_NULL)) {
+                    ((!strcmp(key, "slug") || !strcmp(key, "imageUrl") || !strcmp(key, "iconUrl") ||
+                      !strcmp(key, "primaryExe") || !strcmp(key, "primaryTaskName") ||
+                      !strcmp(key, "downloadSizeBytes") || !strcmp(key, "diskSizeBytes")) &&
+                     ms_json_type_of(value) == MS_JSON_NULL)) {
                     char* incoming_value = NULL;
                     if (!strcmp(key, "title") && ms_json_as_string(value, &incoming_value) &&
                         !strcmp(incoming_value, incoming_id))
                         preserved = ms_json_object_get(old_game, key);
-                    else if ((!strcmp(key, "imageUrl") || !strcmp(key, "iconUrl")) &&
-                             ms_json_object_get(old_game, key))
+                    else if (ms_json_type_of(value) == MS_JSON_NULL && ms_json_object_get(old_game, key))
                         preserved = ms_json_object_get(old_game, key);
                     free(incoming_value);
                 }
@@ -1795,17 +1859,23 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             return err("gogdl binary not found; install it or set METALSHARP_GOGDL_BIN");
         }
         if (!strcmp(action, "play")) {
-            char* folder = field(j, "gameFolder", "");
-            char* install_root = field(j, "installPath", "");
-            char* platform = field(j, "platform", "windows");
+            char *folder = NULL, *install_root = NULL, *platform = NULL, *stored_title = NULL;
             char* engine = field(j, "engine", "auto");
             pid_t launch_pid;
             char* log_path = NULL;
-            struct stat folder_stat;
-            if (!*folder && *install_root) {
+            if (!gog_launch_record(home, s, &stored_title, &platform, &install_root, &folder)) {
+                free(stored_title);
                 free(folder);
-                folder = strdup(install_root);
+                free(install_root);
+                free(platform);
+                free(engine);
+                free(s);
+                free(title);
+                ms_json_free(j);
+                return err("game is not installed or imported");
             }
+            free(title);
+            title = stored_title;
             if (!platform || (strcmp(platform, "windows") && strcmp(platform, "osx") && strcmp(platform, "linux"))) {
                 free(folder);
                 free(install_root);
@@ -1816,19 +1886,9 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 ms_json_free(j);
                 return err("platform must be windows, osx, or linux");
             }
-            if (!folder || stat(folder, &folder_stat) != 0 || !S_ISDIR(folder_stat.st_mode)) {
-                free(folder);
-                free(install_root);
-                free(platform);
-                free(engine);
-                free(s);
-                free(title);
-                ms_json_free(j);
-                return err("game is not installed or imported");
-            }
             char* prefix = join(home, "bottles/gog-prefix/prefix");
-            bool started =
-                prefix && mkdir_p(prefix) && spawn_gogdl_launch(home, s, platform, folder, engine, &launch_pid, &log_path);
+            bool started = prefix && mkdir_p(prefix) &&
+                           spawn_gogdl_launch(home, s, platform, folder, engine, &launch_pid, &log_path);
             if (!started) {
                 free(prefix);
                 free(folder);
