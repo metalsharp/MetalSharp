@@ -59,7 +59,15 @@ The current hand-written slice owns the process boundary, readiness contracts, a
   safe extraction, Mach-O/ICD/CLI validation, local ad-hoc signing, atomic
   rollback, bounded CUSA discovery, optional console-dumped module/font import,
   and restart-safe launch supervision. See
-  `docs/emulators/SHADPS4-INTEGRATION.md` for the production contract.
+  `docs/emulators/SHADPS4-INTEGRATION.md` for the production contract;
+- experimental SharpEmu PlayStation 5 research environment management with
+  macOS/Rosetta/deployment-target gates, exact GitHub release and mutable-asset
+  identity checks, bounded tar extraction, recursive Mach-O validation, local
+  ad-hoc signing, read-only atomic versions, isolated saves/caches/logs,
+  bounded `param.json` discovery, network denial by default with confirmed
+  per-launch opt-in, and restart-safe process supervision. See
+  `docs/emulators/SHARPEMU-INTEGRATION.md` and
+  `docs/emulators/SHARPEMU-UPSTREAM-CONTRACT.md`.
 
 This list is the active C backend's implementation inventory. Rust remains
 available temporarily as a differential parity oracle, but it is no longer the

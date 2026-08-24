@@ -1350,6 +1350,68 @@ function registerIpc() {
     }
   });
 
+  ipcMain.handle("app:open-sharpemu-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "sharpemu");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(path.join(environment, "state", "roots.json"), "utf8")) as {
+        roots?: unknown;
+      };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(root);
+      }
+    } catch {}
+    if (!fs.existsSync(inputPath)) return { ok: false, error: "Path does not exist" };
+    let target: string;
+    try {
+      target = fs.realpathSync(inputPath);
+    } catch {
+      return { ok: false, error: "Path could not be resolved" };
+    }
+    const allowedRoots = [environment, ...roots].flatMap((root) => {
+      try {
+        return [fs.realpathSync(root)];
+      } catch {
+        return [];
+      }
+    });
+    const within = (root: string) => {
+      const relative = path.relative(root, target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!allowedRoots.some(within))
+      return { ok: false, error: "Path is outside the SharpEmu environment and registered game folders" };
+    if (fs.statSync(target).isFile()) {
+      shell.showItemInFolder(target);
+      return { ok: true };
+    }
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
+  ipcMain.handle(
+    "app:open-sharpemu-link",
+    async (_event, kind: "faq" | "compatibility" | "repository" | "releases", titleId?: string) => {
+      let url: string;
+      if (kind === "faq") url = "https://sharpemu.app/faq/";
+      else if (kind === "repository") url = "https://github.com/sharpemu/sharpemu";
+      else if (kind === "releases") url = "https://github.com/sharpemu/sharpemu/releases";
+      else if (kind === "compatibility") {
+        url =
+          typeof titleId === "string" && /^PPSA\d{5}$/.test(titleId)
+            ? `https://sharpemu.app/game/${titleId}/`
+            : "https://sharpemu.app/compatibility/";
+      } else return { ok: false, error: "Unknown SharpEmu link" };
+      try {
+        await shell.openExternal(url);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  );
+
   ipcMain.handle("app:open-logs-folder", async () => {
     if (isUiOnlyRuntime()) return { ok: true, path: "ui-only://logs" };
     const logsPath = path.join(getMetalsharpDir(), "logs");
@@ -1677,6 +1739,16 @@ webview{flex:1;border:none}
     const result = await dialog.showOpenDialog(mainWindow, {
       title: "Select a PlayStation 2 BIOS dumped from your console",
       properties: ["openFile"],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-sharpemu-root", async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a folder containing your owned PlayStation 5 game layouts",
+      properties: ["openDirectory"],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];

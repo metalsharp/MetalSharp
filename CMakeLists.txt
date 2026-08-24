@@ -150,6 +150,7 @@ add_library(metalsharp_host_runtime SHARED
 )
 target_include_directories(metalsharp_host_runtime PUBLIC include)
 set_target_properties(metalsharp_host_runtime PROPERTIES OUTPUT_NAME "metalsharp_host_runtime")
+metalsharp_host_target(metalsharp_host_runtime)
 
 add_library(metalsharp_d3d11 SHARED
     src/d3d/d3d11/D3D11Device.cpp

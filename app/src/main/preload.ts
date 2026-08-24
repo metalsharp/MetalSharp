@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld("metalsharp", {
   openPcsx2Guide: (kind: "bios" | "discs") => ipcRenderer.invoke("app:open-pcsx2-guide", kind),
   openShadps4Path: (path: string) => ipcRenderer.invoke("app:open-shadps4-path", path),
   openShadps4Compatibility: (titleId: string) => ipcRenderer.invoke("app:open-shadps4-compatibility", titleId),
+  openSharpemuPath: (path: string) => ipcRenderer.invoke("app:open-sharpemu-path", path),
+  openSharpemuLink: (kind: "faq" | "compatibility" | "repository" | "releases", titleId?: string) =>
+    ipcRenderer.invoke("app:open-sharpemu-link", kind, titleId),
   openRpcs3FirmwarePage: () => ipcRenderer.invoke("app:open-rpcs3-firmware-page"),
   openLogsFolder: () => ipcRenderer.invoke("app:open-logs-folder"),
   openMetalsharpFolder: () => ipcRenderer.invoke("app:open-metalsharp-folder"),
@@ -44,6 +47,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   pickExeFile: () => ipcRenderer.invoke("app:pick-exe-file"),
   pickRpcs3File: (kind: "firmware" | "package") => ipcRenderer.invoke("app:pick-rpcs3-file", kind),
   pickPcsx2Bios: () => ipcRenderer.invoke("app:pick-pcsx2-bios"),
+  pickSharpemuRoot: () => ipcRenderer.invoke("app:pick-sharpemu-root"),
   pickImageFile: () => ipcRenderer.invoke("app:pick-image-file"),
   pickDirectory: (title?: string) => ipcRenderer.invoke("app:pick-directory", title),
   gogOAuthLogin: (authUrl: string) => ipcRenderer.invoke("gog:oauth-login", authUrl),

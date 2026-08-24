@@ -126,7 +126,9 @@ gog_import=$(curl --silent --fail --request POST --header 'Content-Type: applica
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
 
 emulators=$(curl --silent --fail "http://127.0.0.1:$port/emulators")
-printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["pcsx2", "rpcs3", "shadps4"] and all(p["supported"] for p in v["providers"]); assert v["providers"][2]["experimental"]'
+printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["pcsx2", "rpcs3", "shadps4", "sharpemu"] and all(p["supported"] for p in v["providers"]); assert v["providers"][2]["experimental"] and v["providers"][3]["experimental"] and v["providers"][3]["platform"] == "PlayStation 5"'
+sharpemu_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/sharpemu/status")
+printf '%s' "$sharpemu_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["experimental"] and not v["installed"] and v["state"] == "missing_runtime" and v["runtimeArchitecture"] == "x86_64" and v["networkDefault"] == "denied"'
 
 pcsx2_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/pcsx2/status")
 printf '%s' "$pcsx2_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["supported"] and not v["installed"] and v["state"] == "missing_runtime" and v["runtimeArchitecture"] == "x86_64" and not v["biosInstalled"]'

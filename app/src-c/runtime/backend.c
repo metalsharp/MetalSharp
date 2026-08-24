@@ -32,6 +32,7 @@
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/shadps4.h"
 #include "metalsharp_backend/sharp.h"
+#include "metalsharp_backend/sharpemu.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/thread.h"
@@ -1229,6 +1230,75 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
             return true;
         }
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/status") == 0) {
+        body = ms_sharpemu_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/games") == 0) {
+        body = ms_sharpemu_games_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/sessions") == 0) {
+        body = ms_sharpemu_sessions_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/check") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "check");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/refresh") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "refresh");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/progress") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "progress");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/install") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "install");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/rollback") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "rollback");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/sharpemu/", 24) == 0) {
+        const char* action = request->path + 24;
+        if (!strcmp(action, "scan") || !strcmp(action, "add-root") || !strcmp(action, "remove-root") ||
+            !strcmp(action, "import-modules") || !strcmp(action, "import-fonts") || !strcmp(action, "launch") ||
+            !strcmp(action, "stop") || !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") ||
+            !strcmp(action, "unpin") || !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
+            body = ms_sharpemu_action_json(context->metalsharp_home, action, request->body, request->body_length);
+            if (body == NULL)
+                return false;
+            set_json_response(response, 200, body);
+            return true;
+        }
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/status") == 0) {
         body = ms_pcsx2_status_json(context->metalsharp_home);
         if (body == NULL)
@@ -1485,6 +1555,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "GET") == 0 && (strcmp(request->path, "/sharp-library/rpcs3/cover") == 0 ||
                                                 strcmp(request->path, "/sharp-library/shadps4/cover") == 0 ||
+                                                strcmp(request->path, "/sharp-library/sharpemu/cover") == 0 ||
                                                 strcmp(request->path, "/sharp-library/pcsx2/cover") == 0)) {
         const char* query = request->query == NULL ? "" : request->query;
         const char* q = strstr(query, "id=");
@@ -1506,6 +1577,8 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         id[id_len] = '\0';
         if (strcmp(request->path, "/sharp-library/shadps4/cover") == 0)
             cover_path = ms_shadps4_cover_path(context->metalsharp_home, id);
+        else if (strcmp(request->path, "/sharp-library/sharpemu/cover") == 0)
+            cover_path = ms_sharpemu_cover_path(context->metalsharp_home, id);
         else if (strcmp(request->path, "/sharp-library/pcsx2/cover") == 0)
             cover_path = ms_pcsx2_cover_path(context->metalsharp_home, id);
         else

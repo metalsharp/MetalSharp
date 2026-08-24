@@ -223,6 +223,11 @@ type MetalsharpAPI = {
   openPcsx2Guide: (kind: "bios" | "discs") => Promise<{ ok: boolean; error?: string }>;
   openShadps4Path: (path: string) => Promise<{ ok: boolean; error?: string }>;
   openShadps4Compatibility: (titleId: string) => Promise<{ ok: boolean; error?: string }>;
+  openSharpemuPath: (path: string) => Promise<{ ok: boolean; error?: string }>;
+  openSharpemuLink: (
+    kind: "faq" | "compatibility" | "repository" | "releases",
+    titleId?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   openRpcs3FirmwarePage: () => Promise<{ ok: boolean; error?: string }>;
   openLogsFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   openMetalsharpFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
@@ -252,6 +257,7 @@ type MetalsharpAPI = {
   pickExeFile: () => Promise<string | null>;
   pickRpcs3File: (kind: "firmware" | "package") => Promise<string | null>;
   pickPcsx2Bios: () => Promise<string | null>;
+  pickSharpemuRoot: () => Promise<string | null>;
   pickImageFile: () => Promise<string | null>;
   pickDirectory: (title?: string) => Promise<string | null>;
   gogOAuthLogin: (authUrl: string) => Promise<{ ok: boolean; code?: string; redirectUrl?: string; error?: string }>;

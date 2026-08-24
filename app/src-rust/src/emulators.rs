@@ -1,7 +1,7 @@
 //! Parity contracts for the native emulator providers.
 //!
 //! The packaged runtime is the C backend. These serde models keep the Rust
-//! reference explicit about the supported PCSX2, RPCS3, and experimental shadPS4 provider states.
+//! reference explicit about the supported PCSX2, RPCS3, and experimental shadPS4 and SharpEmu provider states.
 
 use serde::{Deserialize, Serialize};
 
@@ -138,6 +138,78 @@ pub struct Shadps4StatusContract {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct SharpemuStatusContract {
+    pub ok: bool,
+    pub provider: String,
+    pub name: String,
+    pub platform: String,
+    pub experimental: bool,
+    pub supported: bool,
+    pub unsupported_reason: Option<String>,
+    pub installed: bool,
+    pub runtime_valid: bool,
+    pub state: String,
+    pub host_architecture: String,
+    pub runtime_architecture: String,
+    pub rosetta_available: bool,
+    pub host_macos_major: i32,
+    pub runtime_minimum_macos: i32,
+    pub host_memory_bytes: u64,
+    pub host_logical_cpu: u64,
+    pub available_disk_bytes: u64,
+    pub archive_tools_available: bool,
+    pub gpu_probe_ready: bool,
+    pub network_isolation_available: bool,
+    pub network_default: String,
+    pub network_opt_in_available: bool,
+    pub upstream_notarized: bool,
+    pub locally_ad_hoc_signed: bool,
+    pub cli_only: bool,
+    pub graphics_backend: String,
+    pub update_running: bool,
+    pub warnings: Vec<String>,
+    pub current_tag: Option<String>,
+    pub rollback_available: bool,
+    pub game_root_count: u64,
+    pub game_count: u64,
+    pub environment_path: String,
+    pub data_path: String,
+    pub cache_path: String,
+    pub logs_path: String,
+    pub executable_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SharpemuGameContract {
+    pub id: String,
+    pub title_id: String,
+    pub title: String,
+    pub content_version: String,
+    pub master_version: String,
+    pub path: String,
+    pub executable_size: u64,
+    pub has_artwork: bool,
+    pub running: bool,
+    pub pid: Option<i32>,
+    pub last_log_path: Option<String>,
+    pub last_exit_code: Option<i32>,
+    pub last_exit_signal: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SharpemuGamesContract {
+    pub ok: bool,
+    pub provider: String,
+    pub roots: Vec<String>,
+    pub scanned_entries: u64,
+    pub truncated: bool,
+    pub games: Vec<SharpemuGameContract>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct EmulatorGameContract {
     pub id: String,
     pub title_id: String,
@@ -228,6 +300,13 @@ pub fn providers() -> Vec<EmulatorProvider> {
             supported: true,
             experimental: Some(true),
         },
+        EmulatorProvider {
+            id: "sharpemu".into(),
+            name: "SharpEmu".into(),
+            platform: "PlayStation 5".into(),
+            supported: true,
+            experimental: Some(true),
+        },
     ]
 }
 
@@ -236,9 +315,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_contract_exposes_pcsx2_rpcs3_and_experimental_shadps4() {
+    fn provider_contract_exposes_managed_console_environments() {
         let values = providers();
-        assert_eq!(values.len(), 3);
+        assert_eq!(values.len(), 4);
         assert_eq!(values[0].id, "pcsx2");
         assert_eq!(values[0].platform, "PlayStation 2");
         assert!(values[0].supported);
@@ -247,6 +326,9 @@ mod tests {
         assert_eq!(values[2].id, "shadps4");
         assert_eq!(values[2].name, "shadPS4");
         assert_eq!(values[2].experimental, Some(true));
+        assert_eq!(values[3].id, "sharpemu");
+        assert_eq!(values[3].platform, "PlayStation 5");
+        assert_eq!(values[3].experimental, Some(true));
     }
 
     #[test]
@@ -350,6 +432,55 @@ mod tests {
         let value = serde_json::to_value(status).unwrap();
         assert_eq!(value["provider"], "shadps4");
         assert_eq!(value["unsupportedReason"], "rosetta_missing");
+        assert_eq!(value["runtimeArchitecture"], "x86_64");
+    }
+
+    #[test]
+    fn sharpemu_contract_preserves_network_and_runtime_boundaries() {
+        let status = SharpemuStatusContract {
+            ok: true,
+            provider: "sharpemu".into(),
+            name: "SharpEmu".into(),
+            platform: "PlayStation 5".into(),
+            experimental: true,
+            supported: true,
+            unsupported_reason: None,
+            installed: true,
+            runtime_valid: true,
+            state: "ready".into(),
+            host_architecture: "arm64".into(),
+            runtime_architecture: "x86_64".into(),
+            rosetta_available: true,
+            host_macos_major: 27,
+            runtime_minimum_macos: 26,
+            host_memory_bytes: 16 * 1024 * 1024 * 1024,
+            host_logical_cpu: 10,
+            available_disk_bytes: 20 * 1024 * 1024 * 1024,
+            archive_tools_available: true,
+            gpu_probe_ready: true,
+            network_isolation_available: true,
+            network_default: "denied".into(),
+            network_opt_in_available: true,
+            upstream_notarized: false,
+            locally_ad_hoc_signed: true,
+            cli_only: true,
+            graphics_backend: "Vulkan · MoltenVK".into(),
+            update_running: false,
+            warnings: vec!["experimental_emulator".into()],
+            current_tag: Some("v0.0.3-release.3".into()),
+            rollback_available: false,
+            game_root_count: 1,
+            game_count: 1,
+            environment_path: "/tmp/sharpemu".into(),
+            data_path: "/tmp/sharpemu/state".into(),
+            cache_path: "/tmp/sharpemu/cache".into(),
+            logs_path: "/tmp/sharpemu/logs".into(),
+            executable_path: Some("/tmp/sharpemu/current/SharpEmu".into()),
+        };
+        let value = serde_json::to_value(status).unwrap();
+        assert_eq!(value["provider"], "sharpemu");
+        assert_eq!(value["networkDefault"], "denied");
+        assert_eq!(value["upstreamNotarized"], false);
         assert_eq!(value["runtimeArchitecture"], "x86_64");
     }
 }
