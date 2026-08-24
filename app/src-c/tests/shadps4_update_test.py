@@ -248,6 +248,10 @@ def main() -> None:
             assert current.is_symlink()
             assert (current / "source.json").is_file()
             assert (current / "LICENSE").is_file()
+            capabilities = json.loads((current / "capabilities.json").read_text())
+            assert capabilities["runtimeTag"] == "v.0.18.0"
+            assert {"--game", "--fullscreen", "--config-global"} <= set(capabilities["cli"])
+            assert capabilities["packageExtraction"] is False and capabilities["zarDiscovery"] is False
             subprocess.run(["codesign", "--verify", "--strict", str(current / "shadps4")], check=True)
 
             game = valid_root / "games" / "CUSA99999"

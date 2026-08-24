@@ -59,7 +59,8 @@ Upstream's README and wiki currently disagree about the minimum supported macOS 
 │   ├── libvulkan_kosmickrisp.dylib
 │   ├── kosmickrisp_mesa_icd.json
 │   ├── LICENSE
-│   └── source.json
+│   ├── source.json
+│   └── capabilities.json
 ├── home/
 │   └── Library/Application Support/shadPS4/
 │       ├── config.json

@@ -990,6 +990,49 @@ static bool write_source_manifest(const char* version_dir, const shadps4_release
     return ok;
 }
 
+static bool write_capability_manifest(const char* version_dir, const char* tag) {
+    char* path = join_path(version_dir, "capabilities.json");
+    if (!path)
+        return false;
+    ms_json_writer w;
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "schemaVersion");
+    ms_json_writer_i64(&w, 1);
+    ms_json_writer_key(&w, "provider");
+    ms_json_writer_string(&w, "shadps4");
+    ms_json_writer_key(&w, "runtimeTag");
+    ms_json_writer_string(&w, tag);
+    ms_json_writer_key(&w, "runtimeArchitecture");
+    ms_json_writer_string(&w, "x86_64");
+    ms_json_writer_key(&w, "cli");
+    ms_json_writer_array_begin(&w);
+    ms_json_writer_string(&w, "--game");
+    ms_json_writer_string(&w, "--fullscreen");
+    ms_json_writer_string(&w, "--config-global");
+    ms_json_writer_string(&w, "--add-game-folder");
+    ms_json_writer_string(&w, "--set-addon-folder");
+    ms_json_writer_string(&w, "--override-root");
+    ms_json_writer_array_end(&w);
+    ms_json_writer_key(&w, "content");
+    ms_json_writer_array_begin(&w);
+    ms_json_writer_string(&w, "cusa-directory");
+    ms_json_writer_string(&w, "update-directory");
+    ms_json_writer_string(&w, "console-dumped-modules");
+    ms_json_writer_string(&w, "console-dumped-fonts");
+    ms_json_writer_array_end(&w);
+    ms_json_writer_key(&w, "packageExtraction");
+    ms_json_writer_bool(&w, false);
+    ms_json_writer_key(&w, "zarDiscovery");
+    ms_json_writer_bool(&w, false);
+    ms_json_writer_object_end(&w);
+    char* text = ms_json_writer_take(&w);
+    bool ok = text && write_atomic(path, text);
+    free(text);
+    free(path);
+    return ok;
+}
+
 static bool icd_manifest_valid(const char* path) {
     char* text = read_file(path, 64 * 1024, NULL);
     bool valid = false;
@@ -1194,7 +1237,7 @@ static void* update_worker(void* raw) {
     int license_status =
         license_fixture && license_fixture[0] ? run_wait(license_copy, NULL, NULL) : run_wait(license_curl, NULL, NULL);
     if (license_status != 0 || !write_source_manifest(version_dir, release) ||
-        !probe_runtime(dest_exe, version_dir, isolated_home)) {
+        !probe_runtime(dest_exe, version_dir, isolated_home) || !write_capability_manifest(version_dir, release->tag)) {
         snprintf(error, sizeof(error), "shadPS4 provenance or CLI capability validation failed");
         goto done;
     }
@@ -2042,6 +2085,14 @@ char* ms_shadps4_status_json(const char* home) {
                          : !rosetta        ? "rosetta_missing"
                                            : NULL;
     bool installed = exe && access(exe, X_OK) == 0;
+    if (installed && root && tag) {
+        char* version_path = join_path(root, "current");
+        char* capability_path = version_path ? join_path(version_path, "capabilities.json") : NULL;
+        if (capability_path && access(capability_path, R_OK) != 0)
+            (void)write_capability_manifest(version_path, tag);
+        free(version_path);
+        free(capability_path);
+    }
     unsigned long long memory_bytes = host_sysctl_u64("hw.memsize");
     unsigned long long logical_cpu = host_sysctl_u64("hw.logicalcpu");
     size_t module_count = modules ? count_regular_files(modules, ".sprx", 0) : 0;
