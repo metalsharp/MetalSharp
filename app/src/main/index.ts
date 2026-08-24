@@ -1220,6 +1220,15 @@ function registerIpc() {
     shell.openPath(fullPath);
   });
 
+  ipcMain.handle("app:open-rpcs3-firmware-page", async () => {
+    try {
+      await shell.openExternal("https://www.playstation.com/en-us/support/hardware/ps3/system-software/");
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcMain.handle("app:open-rpcs3-path", async (_event, inputPath: string) => {
     if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
     const environment = path.join(getMetalsharpDir(), "emulators", "rpcs3");

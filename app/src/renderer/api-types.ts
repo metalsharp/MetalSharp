@@ -219,6 +219,7 @@ type MetalsharpAPI = {
   homebrewStatus: () => Promise<{ installed: boolean; path?: string }>;
   openInFinder: (path: string) => Promise<void>;
   openRpcs3Path: (path: string) => Promise<{ ok: boolean; error?: string }>;
+  openRpcs3FirmwarePage: () => Promise<{ ok: boolean; error?: string }>;
   openLogsFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   openMetalsharpFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   repairDataAccess: () => Promise<{
