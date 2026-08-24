@@ -186,8 +186,43 @@ static bool json_bool(const ms_json* root, const char* key, bool fallback) {
     return ms_json_as_bool(ms_json_object_get(root, key), &value) ? value : fallback;
 }
 
+static bool remove_tree(const char* path);
+
 static char* emulator_root(const char* home) {
     return join_path(home, "emulators/shadps4");
+}
+
+static void cleanup_interrupted_updates(const char* root) {
+    bool running;
+    pthread_mutex_lock(&g_update.mutex);
+    running = g_update.running;
+    pthread_mutex_unlock(&g_update.mutex);
+    if (running)
+        return;
+    const char* names[] = {"downloads", "staging"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        char* directory = join_path(root, names[i]);
+        DIR* d = directory ? opendir(directory) : NULL;
+        struct dirent* entry;
+        if (!d) {
+            free(directory);
+            continue;
+        }
+        while ((entry = readdir(d))) {
+            size_t n = strlen(entry->d_name);
+            bool stale = (i == 0 && n > 5 && !strcmp(entry->d_name + n - 5, ".part")) ||
+                         (i == 1 && !strncmp(entry->d_name, "update-", 7));
+            if (stale) {
+                char* path = join_path(directory, entry->d_name);
+                if (path) {
+                    (void)remove_tree(path);
+                    free(path);
+                }
+            }
+        }
+        closedir(d);
+        free(directory);
+    }
 }
 
 static bool ensure_environment(const char* home) {
@@ -204,6 +239,8 @@ static bool ensure_environment(const char* home) {
     manifest = join_path(root, "environment.json");
     ok = versions && downloads && staging && logs && sessions && state_home && mkdir_p(versions) &&
          mkdir_p(downloads) && mkdir_p(staging) && mkdir_p(logs) && mkdir_p(sessions) && mkdir_p(state_home);
+    if (ok)
+        cleanup_interrupted_updates(root);
     if (ok && manifest && access(manifest, F_OK) != 0)
         ok = write_atomic(manifest, "{\"schemaVersion\":1,\"provider\":\"shadps4\",\"managedRuntime\":true,"
                                     "\"isolatedHome\":true,\"channel\":\"stable\"}\n");
