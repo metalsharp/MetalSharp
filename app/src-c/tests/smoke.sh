@@ -124,6 +124,105 @@ gamejolt=$(curl --silent --fail "http://127.0.0.1:$port/gamejolt")
 printf '%s' "$gamejolt" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["games"]) == 2 and any(g["native"] for g in v["games"]) and any(g["cover_path"] for g in v["games"])'
 gog_import=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"smoke-gog","title":"Smoke GOG"}' "http://127.0.0.1:$port/sharp-library/gog/import")
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
+
+emulators=$(curl --silent --fail "http://127.0.0.1:$port/emulators")
+printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["rpcs3", "rpcs4"] and v["providers"][0]["supported"] and not v["providers"][1]["supported"]'
+rpcs4_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs4/status")
+printf '%s' "$rpcs4_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and not v["supported"] and not v["installAvailable"] and v["state"] == "unsupported_upstream" and len(v["readinessGate"]) == 7'
+rpcs4_action=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/rpcs4/install")
+printf '%s' "$rpcs4_action" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["state"] == "unsupported_upstream"'
+rpcs3_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/status")
+printf '%s' "$rpcs3_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and not v["installed"] and v["state"] == "not_installed" and not v["firmwareInstalled"]'
+rpcs3_update=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/update/check")
+printf '%s' "$rpcs3_update" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["available"] and v["latestVersion"] == "0.0.42-19000-01234567" and v["downloadSize"] == 123 and v["digest"].startswith("sha256:")'
+rpcs3_refresh=$(curl --silent --fail --request POST "http://127.0.0.1:$port/sharp-library/rpcs3/update/refresh")
+printf '%s' "$rpcs3_refresh" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["latestTag"].startswith("build-")'
+
+mkdir -p "$home/rpcs3-games/Smoke Disc/PS3_GAME"
+RPCS3_SFO="$home/rpcs3-games/Smoke Disc/PS3_GAME/PARAM.SFO" python3 - <<'PY'
+import os, struct
+values = [("TITLE_ID", "TEST12345"), ("TITLE", "Smoke RPCS3 Game"), ("APP_VER", "01.23"), ("CATEGORY", "DG")]
+keys = b""
+entries = []
+data = b""
+for key, value in values:
+    key_offset = len(keys)
+    keys += key.encode() + b"\0"
+    raw = value.encode() + b"\0"
+    entries.append((key_offset, 0x0204, len(raw), len(raw), len(data)))
+    data += raw
+key_start = 20 + 16 * len(entries)
+data_start = key_start + len(keys)
+blob = struct.pack("<4sIIII", b"\0PSF", 0x101, key_start, data_start, len(entries))
+blob += b"".join(struct.pack("<HHIII", *entry) for entry in entries) + keys + data
+with open(os.environ["RPCS3_SFO"], "wb") as handle:
+    handle.write(blob)
+PY
+printf 'png-smoke' > "$home/rpcs3-games/Smoke Disc/PS3_GAME/ICON0.PNG"
+rpcs3_add=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/rpcs3-games\"}" "http://127.0.0.1:$port/sharp-library/rpcs3/add-root")
+printf '%s' "$rpcs3_add" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["roots"]) == 1 and len(v["games"]) == 1; g=v["games"][0]; assert g["title"] == "Smoke RPCS3 Game" and g["titleId"] == "TEST12345" and g["version"] == "01.23" and g["hasArtwork"]'
+rpcs3_id=$(printf '%s' "$rpcs3_add" | python3 -c 'import json, sys; print(json.load(sys.stdin)["games"][0]["id"])')
+curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/cover?id=$rpcs3_id" -o "$home/rpcs3-cover.png"
+cmp "$home/rpcs3-cover.png" "$home/rpcs3-games/Smoke Disc/PS3_GAME/ICON0.PNG"
+invalid_rpcs3_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"path":"/definitely/not/a/real/rpcs3/root"}' "http://127.0.0.1:$port/sharp-library/rpcs3/add-root")
+printf '%s' "$invalid_rpcs3_root" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+
+rpcs3_env="$home/emulators/rpcs3"
+mkdir -p "$rpcs3_env/versions/smoke-build/RPCS3.app/Contents/MacOS" "$rpcs3_env/home/Library/Application Support/rpcs3/dev_flash/vsh/module" "$rpcs3_env/home/Library/Application Support/rpcs3/dev_hdd0/home/00000001/savedata"
+printf 'firmware-smoke' > "$rpcs3_env/home/Library/Application Support/rpcs3/dev_flash/vsh/module/vsh.self"
+printf '#!/bin/sh\ntrap "exit 0" TERM INT\nsleep 30\n' > "$rpcs3_env/versions/smoke-build/RPCS3.app/Contents/MacOS/rpcs3"
+chmod +x "$rpcs3_env/versions/smoke-build/RPCS3.app/Contents/MacOS/rpcs3"
+ln -s "versions/smoke-build" "$rpcs3_env/current"
+printf 'preserve-me' > "$rpcs3_env/home/Library/Application Support/rpcs3/dev_hdd0/home/00000001/savedata/marker"
+rpcs3_ready=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/status")
+printf '%s' "$rpcs3_ready" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["installed"] and v["firmwareInstalled"] and v["state"] == "ready" and v["currentTag"] == "smoke-build"'
+rpcs3_pin=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/rpcs3/pin-current")
+printf '%s' "$rpcs3_pin" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pinnedTag"] == "smoke-build" and v["suppressed"] == "pinned" and not v["available"]'
+rpcs3_unpin=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/rpcs3/unpin")
+printf '%s' "$rpcs3_unpin" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pinnedTag"] is None and v["available"]'
+rpcs3_skip=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"tag":"build-0123456789abcdef0123456789abcdef01234567"}' "http://127.0.0.1:$port/sharp-library/rpcs3/skip-update")
+printf '%s' "$rpcs3_skip" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["suppressed"] == "skipped" and not v["available"]'
+rpcs3_clear_skip=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/rpcs3/clear-skip")
+printf '%s' "$rpcs3_clear_skip" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["skippedTag"] is None and v["available"]'
+mkdir -p "$rpcs3_env/versions/old-build"
+cp -R "$rpcs3_env/versions/smoke-build/RPCS3.app" "$rpcs3_env/versions/old-build/RPCS3.app"
+ln -s "versions/old-build" "$rpcs3_env/previous"
+rpcs3_rollback=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/rpcs3/update/rollback")
+printf '%s' "$rpcs3_rollback" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["currentTag"] == "old-build" and v["rollbackAvailable"]'
+rpcs3_rollforward=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/rpcs3/update/rollback")
+printf '%s' "$rpcs3_rollforward" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["currentTag"] == "smoke-build"'
+rpcs3_launch=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$rpcs3_id\",\"fullscreen\":true}" "http://127.0.0.1:$port/sharp-library/rpcs3/launch")
+printf '%s' "$rpcs3_launch" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pid"] > 0 and v["logPath"].endswith(".log")'
+sleep 0.2
+rpcs3_running=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/games")
+printf '%s' "$rpcs3_running" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["games"][0]["running"] and v["games"][0]["pid"] > 0 and v["games"][0]["lastLogPath"].endswith(".log")'
+rpcs3_remove_running=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"confirm":true}' "http://127.0.0.1:$port/sharp-library/rpcs3/remove-runtime")
+printf '%s' "$rpcs3_remove_running" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "stop RPCS3" in v["error"]'
+rpcs3_stop=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$rpcs3_id\"}" "http://127.0.0.1:$port/sharp-library/rpcs3/stop")
+printf '%s' "$rpcs3_stop" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
+rpcs3_remove=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"confirm":true}' "http://127.0.0.1:$port/sharp-library/rpcs3/remove-runtime")
+printf '%s' "$rpcs3_remove" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["preservedData"]'
+[ -f "$rpcs3_env/home/Library/Application Support/rpcs3/dev_hdd0/home/00000001/savedata/marker" ]
+[ -f "$home/rpcs3-games/Smoke Disc/PS3_GAME/PARAM.SFO" ]
+rpcs3_removed=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/status")
+printf '%s' "$rpcs3_removed" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["installed"] and v["firmwareInstalled"] and v["state"] == "not_installed"'
+rpcs3_remove_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/rpcs3-games\"}" "http://127.0.0.1:$port/sharp-library/rpcs3/remove-root")
+printf '%s' "$rpcs3_remove_root" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["roots"] == [] and v["games"] == []'
+[ -d "$home/rpcs3-games" ]
+rpcs3_bad_update=$(curl --silent --fail --request POST "http://127.0.0.1:$port/sharp-library/rpcs3/update/install")
+printf '%s' "$rpcs3_bad_update" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["running"]'
+i=0
+while [ "$i" -lt 50 ]; do
+    rpcs3_bad_progress=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/rpcs3/update/progress")
+    rpcs3_bad_status=$(printf '%s' "$rpcs3_bad_progress" | python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])')
+    [ "$rpcs3_bad_status" = "failed" ] && break
+    i=$((i + 1))
+    sleep 0.1
+done
+printf '%s' "$rpcs3_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "digest" in v["error"]'
+[ ! -e "$rpcs3_env/current" ]
+[ -z "$(find "$rpcs3_env/downloads" -name '*.part' -print -quit)" ]
+
 mkdir -p "$home/d3d-game" "$home/bottles/steam_1234"
 printf 'smoke' > "$home/d3d-game/game.exe"
 printf '%s' '{"id":"steam_1234","name":"Smoke Game","bottle_type":"steam","steam_app_id":1234,"prefix_path":"'$home'/prefix-steam","arch":"wow64","runtime_profile":"d3dmetal","preferred_pipeline":"d3dmetal","installed_components":[],"health":"new"}' > "$home/bottles/steam_1234/bottle.json"

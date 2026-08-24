@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
     return () => ipcRenderer.removeListener("gamejolt:download", listener);
   },
   openInFinder: (path: string) => ipcRenderer.invoke("app:open-in-finder", path),
+  openRpcs3Path: (path: string) => ipcRenderer.invoke("app:open-rpcs3-path", path),
   openLogsFolder: () => ipcRenderer.invoke("app:open-logs-folder"),
   openMetalsharpFolder: () => ipcRenderer.invoke("app:open-metalsharp-folder"),
   repairDataAccess: () => ipcRenderer.invoke("app:repair-data-access"),
@@ -36,6 +37,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   quitApp: () => ipcRenderer.send("app:quit"),
   uninstallApp: () => ipcRenderer.send("app:uninstall"),
   pickExeFile: () => ipcRenderer.invoke("app:pick-exe-file"),
+  pickRpcs3File: (kind: "firmware" | "package") => ipcRenderer.invoke("app:pick-rpcs3-file", kind),
   pickImageFile: () => ipcRenderer.invoke("app:pick-image-file"),
   pickDirectory: (title?: string) => ipcRenderer.invoke("app:pick-directory", title),
   gogOAuthLogin: (authUrl: string) => ipcRenderer.invoke("gog:oauth-login", authUrl),

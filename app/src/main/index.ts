@@ -1220,6 +1220,28 @@ function registerIpc() {
     shell.openPath(fullPath);
   });
 
+  ipcMain.handle("app:open-rpcs3-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "rpcs3");
+    const libraryPath = path.join(environment, "library.json");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(libraryPath, "utf8")) as { roots?: unknown };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(path.resolve(root));
+      }
+    } catch {}
+    const target = path.resolve(inputPath);
+    const within = (root: string) => {
+      const relative = path.relative(path.resolve(root), target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!within(environment) && !roots.some(within)) return { ok: false, error: "Path is outside the RPCS3 environment and registered game folders" };
+    if (!fs.existsSync(target)) return { ok: false, error: "Path does not exist" };
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
   ipcMain.handle("app:open-logs-folder", async () => {
     if (isUiOnlyRuntime()) return { ok: true, path: "ui-only://logs" };
     const logsPath = path.join(getMetalsharpDir(), "logs");
@@ -1523,6 +1545,18 @@ webview{flex:1;border:none}
       title: "Select a Windows installer or executable",
       properties: ["openFile"],
       filters: [{ name: "Windows App", extensions: ["exe", "msi"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-rpcs3-file", async (_event, kind: "firmware" | "package") => {
+    if (!mainWindow || (kind !== "firmware" && kind !== "package")) return null;
+    const firmware = kind === "firmware";
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: firmware ? "Select PS3UPDAT.PUP" : "Select a PlayStation 3 package",
+      properties: ["openFile"],
+      filters: [{ name: firmware ? "PlayStation 3 Firmware" : "PlayStation 3 Package", extensions: [firmware ? "PUP" : "pkg"] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
