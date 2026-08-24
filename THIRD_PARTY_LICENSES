@@ -26,6 +26,15 @@ source folders, or the referenced upstream/runtime packages.
 - Used as: Optional user-initiated runtime download managed under `~/.metalsharp/emulators/rpcs3/`.
 - Notes: RPCS3 is not bundled in the MetalSharp application. MetalSharp downloads an official architecture-specific release only after user confirmation, verifies its upstream SHA-256 digest and app signature, and links to the corresponding source repository. Sony firmware, games, keys, and licenses are never bundled or downloaded by MetalSharp.
 
+## shadPS4 — PlayStation 4 emulator
+
+- Repository and corresponding source: https://github.com/shadps4-emu/shadPS4
+- Stable binary releases: https://github.com/shadps4-emu/shadPS4/releases
+- License: GNU General Public License v2.0 or later (GPL-2.0-or-later)
+- Used as: Optional user-initiated stable SDL-core download managed under `~/.metalsharp/emulators/shadps4/`.
+- Runtime components: The official macOS asset includes the shadPS4 core, SDL, Khronos Vulkan loader, and the KosmicKrisp Mesa Vulkan driver, together with statically linked upstream components documented by the exact shadPS4 source tag and its `externals/` tree. SDL uses the zlib license, Vulkan-Loader uses Apache-2.0, and Mesa/KosmicKrisp uses MIT-family terms; all remaining component-specific terms are preserved by the corresponding upstream source tree.
+- Notes: shadPS4 is not bundled or redistributed in the MetalSharp application. After explicit user confirmation, MetalSharp downloads the official stable asset directly from upstream, verifies its published size and SHA-256, records the exact source tag, saves the upstream GPL license beside the runtime, and locally ad-hoc signs the already verified Mach-O files for macOS execution. Sony firmware modules, fonts, trophy keys, games, updates, DLC, decryption material, keys, and licenses are never bundled or downloaded by MetalSharp.
+
 ## MojoShader — SDL shader bytecode parser
 
 - Repository: https://github.com/icculus/mojoshader

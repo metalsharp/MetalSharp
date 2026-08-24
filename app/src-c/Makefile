@@ -34,6 +34,7 @@ SOURCES := \
 	runtime/mono.c \
 	runtime/emulators.c \
 	runtime/rpcs3.c \
+	runtime/shadps4.c \
 	runtime/sharp.c \
 	runtime/gamejolt.c \
 	runtime/gog.c \
@@ -81,9 +82,10 @@ parity-test: $(TARGET)
 	python3 "$(CURDIR)/tests/differential_parity.py" --c "$(TARGET)" --rust "$(RUST_BACKEND)"
 
 test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST)
-	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); HOME="$$test_home" METALSHARP_PORT="$$test_port" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
+	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); HOME="$$test_home" METALSHARP_PORT="$$test_port" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
 	@"$(MIGRATION_TEST)"
+	@python3 "$(CURDIR)/tests/shadps4_update_test.py" "$(TARGET)"
 
 asan-test:
 	@set -eu; trap 'rm -rf "$(CURDIR)/build-asan"' EXIT INT TERM; \
@@ -95,7 +97,11 @@ asan-test:
 		test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); \
 		if ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 HOME="$$test_home" METALSHARP_PORT="$$test_port" \
 			METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" \
-			METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" "$(CURDIR)/tests/smoke.sh" "$(CURDIR)/build-asan/metalsharp-backend"; then \
+			METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" \
+			METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" \
+			METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" \
+			METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 \
+			"$(CURDIR)/tests/smoke.sh" "$(CURDIR)/build-asan/metalsharp-backend"; then \
 			exit 0; \
 		fi; \
 		rm -rf "$$test_home" "$$ms_home"; \

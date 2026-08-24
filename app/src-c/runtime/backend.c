@@ -29,6 +29,7 @@
 #include "metalsharp_backend/rpcs3.h"
 #include "metalsharp_backend/scan.h"
 #include "metalsharp_backend/setup.h"
+#include "metalsharp_backend/shadps4.h"
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
@@ -1155,6 +1156,68 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
             return true;
         }
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/status") == 0) {
+        body = ms_shadps4_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/games") == 0) {
+        body = ms_shadps4_games_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/check") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "check");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/refresh") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "refresh");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/progress") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "progress");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/install") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "install");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/rollback") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "rollback");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/shadps4/", 23) == 0) {
+        const char* action = request->path + 23;
+        if (!strcmp(action, "scan") || !strcmp(action, "add-root") || !strcmp(action, "remove-root") ||
+            !strcmp(action, "import-modules") || !strcmp(action, "import-fonts") || !strcmp(action, "launch") ||
+            !strcmp(action, "stop") || !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") ||
+            !strcmp(action, "unpin") || !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
+            body = ms_shadps4_action_json(context->metalsharp_home, action, request->body, request->body_length);
+            if (body == NULL)
+                return false;
+            set_json_response(response, 200, body);
+            return true;
+        }
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/gog/status") == 0) {
         body = ms_gog_status_json(context->metalsharp_home);
         if (body == NULL)
@@ -1346,7 +1409,8 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         free(cover_path);
         return true;
     }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/rpcs3/cover") == 0) {
+    if (strcmp(request->method, "GET") == 0 && (strcmp(request->path, "/sharp-library/rpcs3/cover") == 0 ||
+                                                strcmp(request->path, "/sharp-library/shadps4/cover") == 0)) {
         const char* query = request->query == NULL ? "" : request->query;
         const char* q = strstr(query, "id=");
         char id[129];
@@ -1365,7 +1429,9 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
             id_len++;
         memcpy(id, q, id_len);
         id[id_len] = '\0';
-        cover_path = ms_rpcs3_cover_path(context->metalsharp_home, id);
+        cover_path = strcmp(request->path, "/sharp-library/shadps4/cover") == 0
+                         ? ms_shadps4_cover_path(context->metalsharp_home, id)
+                         : ms_rpcs3_cover_path(context->metalsharp_home, id);
         image = cover_path ? read_binary(cover_path, &bytes) : NULL;
         if (!image) {
             free(cover_path);

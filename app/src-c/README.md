@@ -52,7 +52,13 @@ The current hand-written slice owns the process boundary, readiness contracts, a
   release checks, digest/signature-verified atomic updates and rollback,
   firmware/PKG installation, `PARAM.SFO` game discovery, artwork, launch logs,
   and restart-safe process supervision. See `docs/emulators/RPCS-INTEGRATION.md`
-  for paths, security rules, and API details.
+  for paths, security rules, and API details;
+- experimental shadPS4 management for supported Apple Silicon hosts, including
+  Rosetta/macOS readiness gates, official stable ZIP size/digest verification,
+  safe extraction, Mach-O/ICD/CLI validation, local ad-hoc signing, atomic
+  rollback, bounded CUSA discovery, optional console-dumped module/font import,
+  and restart-safe launch supervision. See
+  `docs/emulators/SHADPS4-INTEGRATION.md` for the production contract.
 
 This list is the active C backend's implementation inventory. Rust remains
 available temporarily as a differential parity oracle, but it is no longer the
