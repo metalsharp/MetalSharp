@@ -1252,6 +1252,53 @@ function registerIpc() {
     return error ? { ok: false, error } : { ok: true };
   });
 
+  ipcMain.handle("app:open-shadps4-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "shadps4");
+    const libraryPath = path.join(environment, "library.json");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(libraryPath, "utf8")) as { roots?: unknown };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(path.resolve(root));
+      }
+    } catch {}
+    if (!fs.existsSync(inputPath)) return { ok: false, error: "Path does not exist" };
+    let target: string;
+    try {
+      target = fs.realpathSync(inputPath);
+    } catch {
+      return { ok: false, error: "Path could not be resolved" };
+    }
+    const allowedRoots = [environment, ...roots].flatMap((root) => {
+      try {
+        return [fs.realpathSync(root)];
+      } catch {
+        return [];
+      }
+    });
+    const within = (root: string) => {
+      const relative = path.relative(root, target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!allowedRoots.some(within))
+      return { ok: false, error: "Path is outside the shadPS4 environment and registered game folders" };
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
+  ipcMain.handle("app:open-shadps4-compatibility", async (_event, titleId: string) => {
+    if (typeof titleId !== "string" || !/^CUSA\d{5}$/i.test(titleId))
+      return { ok: false, error: "A valid CUSA title ID is required" };
+    const query = encodeURIComponent(`${titleId.toUpperCase()} label:os-macOS`);
+    try {
+      await shell.openExternal(`https://github.com/shadps4-compatibility/shadps4-game-compatibility/issues?q=${query}`);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcMain.handle("app:open-logs-folder", async () => {
     if (isUiOnlyRuntime()) return { ok: true, path: "ui-only://logs" };
     const logsPath = path.join(getMetalsharpDir(), "logs");
