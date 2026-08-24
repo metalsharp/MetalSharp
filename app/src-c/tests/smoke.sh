@@ -124,6 +124,76 @@ gamejolt=$(curl --silent --fail "http://127.0.0.1:$port/gamejolt")
 printf '%s' "$gamejolt" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["games"]) == 2 and any(g["native"] for g in v["games"]) and any(g["cover_path"] for g in v["games"])'
 gog_import=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"smoke-gog","title":"Smoke GOG"}' "http://127.0.0.1:$port/sharp-library/gog/import")
 printf '%s' "$gog_import" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["productId"] == "smoke-gog"'
+mkdir -p "$home/tools" "$home/gog-play/Game" "$home/gog"
+printf '{}' > "$home/gog-play/Game/goggame-424242.info"
+cat > "$home/tools/gogdl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$METALSHARP_HOME/gog-launch-args"
+EOF
+chmod +x "$home/tools/gogdl"
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+home = Path(os.environ["METALSHARP_HOME"])
+game = home / "gog-play" / "Game"
+(home / "gog" / "library.json").write_text(json.dumps({
+    "games": [{
+        "productId": "424242",
+        "title": "GOG Launch Regression",
+        "platform": "windows",
+        "slug": "gog_launch_regression",
+        "imageUrl": "https://example.invalid/cover.jpg",
+        "iconUrl": None,
+        "installRoot": str(home / "gog-play"),
+        "gameFolder": str(game),
+        "primaryExe": "Game.exe",
+        "primaryTaskName": "Play",
+        "installed": True,
+        "running": False,
+        "status": "installed",
+        "downloadSizeBytes": 12,
+        "diskSizeBytes": 34,
+        "lastInstallPid": None,
+        "lastLaunchPid": None,
+        "lastLogPath": None,
+        "lastError": None,
+    }],
+    "lastSyncAt": 1,
+}))
+PY
+gog_play=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242","engine":"auto"}' "http://127.0.0.1:$port/sharp-library/gog/play")
+printf '%s' "$gog_play" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["title"] == "GOG Launch Regression" and v["game"]["gameFolder"].endswith("/gog-play/Game")'
+i=0
+while [ ! -f "$home/gog-launch-args" ] && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.02
+done
+[ -f "$home/gog-launch-args" ]
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+home = Path(os.environ["METALSHARP_HOME"])
+args = (home / "gog-launch-args").read_text().splitlines()
+assert args[:3] == ["--auth-config-path", str(home / "gog_store" / "auth.json"), "launch"]
+assert args[3:5] == [str(home / "gog-play" / "Game"), "424242"]
+game = json.loads((home / "gog" / "library.json").read_text())["games"][0]
+assert game["slug"] == "gog_launch_regression"
+assert game["primaryExe"] == "Game.exe"
+assert game["primaryTaskName"] == "Play"
+assert game["downloadSizeBytes"] == 12 and game["diskSizeBytes"] == 34
+PY
+gog_launch_log=$(printf '%s' "$gog_play" | python3 -c 'import json, sys; print(json.load(sys.stdin)["logPath"])')
+i=0
+while ! grep -q 'gogdl exited' "$gog_launch_log" 2>/dev/null && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.02
+done
+grep -q 'gogdl exited with Some(0)' "$gog_launch_log"
+rm -rf "$home/logs/gog" "$home/gog-launch-args"
 
 emulators=$(curl --silent --fail "http://127.0.0.1:$port/emulators")
 printf '%s' "$emulators" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert [p["id"] for p in v["providers"]] == ["pcsx2", "rpcs3", "shadps4", "sharpemu"] and all(p["supported"] for p in v["providers"]); assert v["providers"][2]["experimental"] and v["providers"][3]["experimental"] and v["providers"][3]["platform"] == "PlayStation 5"'
