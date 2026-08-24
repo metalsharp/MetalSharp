@@ -2542,8 +2542,9 @@ char* ms_shadps4_action_json(const char* home, const char* action, const unsigne
         char* environment = emulator_root(home);
         bool protected = false;
         if (path && realpath(path, resolved)) {
-            protected = !strcmp(resolved, "/") || !strcmp(resolved, "/System") || !strcmp(resolved, "/Library") ||
-                        !strcmp(resolved, "/Applications") ||
+            protected = !strcmp(resolved, "/") || !strcmp(resolved, "/System") || !strncmp(resolved, "/System/", 8) ||
+                        !strcmp(resolved, "/Library") || !strncmp(resolved, "/Library/", 9) ||
+                        !strcmp(resolved, "/Applications") || !strncmp(resolved, "/Applications/", 14) ||
                         (environment && !strncmp(resolved, environment, strlen(environment)) &&
                          (resolved[strlen(environment)] == '\0' || resolved[strlen(environment)] == '/'));
         }

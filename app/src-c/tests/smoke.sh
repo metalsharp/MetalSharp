@@ -170,6 +170,8 @@ curl --silent --fail "http://127.0.0.1:$port/sharp-library/shadps4/cover?id=$sha
 cmp "$home/shadps4-cover.png" "$home/shadps4-games/CUSA12345/sce_sys/icon0.png"
 protected_shadps4_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"path":"/"}' "http://127.0.0.1:$port/sharp-library/shadps4/add-root")
 printf '%s' "$protected_shadps4_root" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
+protected_shadps4_system=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"path":"/System/Library"}' "http://127.0.0.1:$port/sharp-library/shadps4/add-root")
+printf '%s' "$protected_shadps4_system" | python3 -c 'import json, sys; assert not json.load(sys.stdin)["ok"]'
 
 mkdir -p "$home/shadps4-modules" "$home/shadps4-fonts/font" "$home/shadps4-fonts/font2"
 printf '\177ELFmodule-smoke' > "$home/shadps4-modules/libSceFont.sprx"
