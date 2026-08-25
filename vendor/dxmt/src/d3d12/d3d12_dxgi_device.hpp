@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "dxgi_interfaces.h"
 #include "dxmt_device.hpp"
 #include "d3d12.h"
@@ -61,6 +62,7 @@ private:
   Com<IMTLDXGIAdapter> m_adapter;
   MTLD3D12Device *m_d3d12_device;
   D3DKMT_HANDLE m_kmt = 0;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
 

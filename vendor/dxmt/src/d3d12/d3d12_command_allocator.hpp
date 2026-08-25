@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include <atomic>
 
@@ -35,6 +36,7 @@ public:
 private:
   MTLD3D12Device *m_device;
   D3D12_COMMAND_LIST_TYPE m_type;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};
 };

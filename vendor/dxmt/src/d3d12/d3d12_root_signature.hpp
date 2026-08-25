@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "Metal.hpp"
 #include <atomic>
@@ -100,6 +101,7 @@ private:
   uint32_t m_num_static_samplers = 0;
   D3D12_ROOT_SIGNATURE_FLAGS m_flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
   size_t m_blob_hash = 0;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
 

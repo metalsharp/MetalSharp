@@ -6180,18 +6180,17 @@ ULONG STDMETHODCALLTYPE MTLD3D12CommandQueue::Release() {
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetPrivateData(REFGUID guid,
                                                                UINT *data_size,
                                                                void *data) {
-  QTRACE("CmdQueue::GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetPrivateData(
     REFGUID guid, UINT data_size, const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetPrivateDataInterface(
     REFGUID guid, const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetName(LPCWSTR name) {

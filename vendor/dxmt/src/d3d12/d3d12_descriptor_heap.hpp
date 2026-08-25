@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "Metal.hpp"
 #include <atomic>
@@ -89,6 +90,7 @@ private:
   D3D12Descriptor *m_data = nullptr;
   bool m_data_is_virtual = false;
   size_t m_data_size = 0;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
 

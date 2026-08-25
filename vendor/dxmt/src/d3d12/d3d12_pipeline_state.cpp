@@ -2796,17 +2796,17 @@ ULONG STDMETHODCALLTYPE MTLD3D12PipelineState::Release() {
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::GetPrivateData(REFGUID guid,
                                                                 UINT *data_size,
                                                                 void *data) {
-  return E_NOTIMPL;
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetPrivateData(
     REFGUID guid, UINT data_size, const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetPrivateDataInterface(
     REFGUID guid, const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetName(LPCWSTR name) {

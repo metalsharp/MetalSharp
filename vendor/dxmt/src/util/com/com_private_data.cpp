@@ -96,6 +96,7 @@ void ComPrivateDataEntry::destroy() {
 }
 
 HRESULT ComPrivateData::setData(REFGUID guid, UINT size, const void *data) {
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (!data) {
     for (auto it = m_entries.begin(); it != m_entries.end(); ++it) {
       if (it->hasGuid(guid)) {
@@ -110,11 +111,13 @@ HRESULT ComPrivateData::setData(REFGUID guid, UINT size, const void *data) {
 }
 
 HRESULT ComPrivateData::setInterface(REFGUID guid, const IUnknown *iface) {
+  std::lock_guard<std::mutex> lock(m_mutex);
   this->insertEntry(ComPrivateDataEntry(guid, iface));
   return S_OK;
 }
 
 HRESULT ComPrivateData::getData(REFGUID guid, UINT *size, void *data) {
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (!size)
     return E_INVALIDARG;
 

@@ -170,6 +170,9 @@ The default required probe groups prove:
   11_0, 11_1, 12_0, 12_1, and 12_2 plus the full FL12_2/SM6.7 capability
   matrix. It is opt-in with `run-isolated-probes.sh --feature-levels-only`
   until the implementation phases make it green.
+- `probe-object-contracts`: private-data byte-copy, size-query, short-buffer,
+  interface lifetime, deletion, and debug-name semantics across D3D12 object
+  categories. Run it with `run-source-probes.sh --object-contracts-only`.
 - `probe-dxgi-factory`: factory, adapter, output, GPU-preference, and LUID
   behavior.
 - `probe-resources`: committed resources, heaps, upload/readback, and basic

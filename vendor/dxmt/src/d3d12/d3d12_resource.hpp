@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "Metal.hpp"
 #include "winemetal.h"
@@ -123,6 +124,7 @@ private:
   uint32_t m_swapchain_buffer_index = 0;
   MTLD3D12SwapChain *m_swapchain = nullptr;
   D3D12SwapchainBackbufferWork m_swapchain_work = {};
+  ComPrivateData m_private_data;
 
   void *m_cpu_addr = nullptr;
   uint64_t m_gpu_addr = 0;

@@ -93,6 +93,10 @@ build_probe \
   -o "$OUT_DIR/probe_feature_levels.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_object_contracts/probe_object_contracts.cpp" \
+  -o "$OUT_DIR/probe_object_contracts.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_dxgi_factory/probe_dxgi_factory.cpp" \
   -o "$OUT_DIR/probe_dxgi_factory.exe"
 
@@ -209,6 +213,7 @@ echo "$OUT_DIR/probe_loader.exe"
 echo "$OUT_DIR/probe_agility_ue5.exe"
 echo "$OUT_DIR/probe_device_caps.exe"
 echo "$OUT_DIR/probe_feature_levels.exe"
+echo "$OUT_DIR/probe_object_contracts.exe"
 echo "$OUT_DIR/probe_dxgi_factory.exe"
 echo "$OUT_DIR/probe_m12_runtime_identity.exe"
 echo "$OUT_DIR/probe_resources.exe"
