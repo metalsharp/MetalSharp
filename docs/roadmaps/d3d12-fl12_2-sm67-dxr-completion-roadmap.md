@@ -857,3 +857,27 @@ Before declaring the goal complete, map each item below to actual evidence:
 
 Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
+
+## 10. Progress log
+
+### 2026-08-25 — Baseline and object-contract foundation
+
+- Installed and verified the Xcode 27 beta 6 Metal toolchain.
+- Fixed the clean external-tree build for Xcode 27 beta 6 and current MinGW.
+- Added `run-isolated-probes.sh` to pin MetalSharp Wine 11.5 and always remove
+  the disposable prefix.
+- Added `run-source-probes.sh` to stage the current external-tree build into the
+  internal MetalSharp Wine runtime temporarily and remove it after the probe.
+- Added `probe_feature_levels`; it now records exact creation results for 11_0,
+  11_1, 12_0, 12_1, and 12_2 plus the official FL12_2/SM6.7 target matrix.
+- Corrected `D3D12CreateDevice` so invalid levels return `E_INVALIDARG` and the
+  not-yet-proven 12_2 level returns `DXGI_ERROR_UNSUPPORTED` instead of false
+  success. The maximum level remains centrally capped at 12_1 until the target
+  gate is complete.
+- Made COM private-data storage thread-safe and implemented it for 13 D3D12
+  object categories.
+- `probe_object_contracts` passes for device, queue, allocator, command list,
+  fence, descriptor heap, heap, resource, query heap, command signature, root
+  signature, pipeline library, and shader cache session.
+- Both the temporary source runtime and temporary Wine prefix were confirmed
+  absent after the object-contract gate.

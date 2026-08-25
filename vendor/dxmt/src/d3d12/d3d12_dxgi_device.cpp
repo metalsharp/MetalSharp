@@ -45,18 +45,19 @@ ULONG STDMETHODCALLTYPE MTLD3D12DXGIDevice::Release() {
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12DXGIDevice::GetPrivateData(REFGUID Name, UINT *pDataSize, void *pData) {
-  DDTRACE("GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+  return m_private_data.getData(Name, pDataSize, pData);
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::SetPrivateData(REFGUID Name, UINT DataSize, const void *pData) {
-  return S_OK;
+MTLD3D12DXGIDevice::SetPrivateData(REFGUID Name, UINT DataSize,
+                                   const void *pData) {
+  return m_private_data.setData(Name, DataSize, pData);
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::SetPrivateDataInterface(REFGUID Name, const IUnknown *pUnknown) {
-  return S_OK;
+MTLD3D12DXGIDevice::SetPrivateDataInterface(REFGUID Name,
+                                            const IUnknown *pUnknown) {
+  return m_private_data.setInterface(Name, pUnknown);
 }
 
 HRESULT STDMETHODCALLTYPE

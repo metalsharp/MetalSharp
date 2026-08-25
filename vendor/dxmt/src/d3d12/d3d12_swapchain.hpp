@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "dxgi_interfaces.h"
 #include "dxmt_presenter.hpp"
@@ -140,6 +141,7 @@ private:
   std::unique_ptr<InternalCommandLibrary> m_present_library;
   Rc<Presenter> m_presenter;
   uint64_t m_last_present_wait_seq = 0;
+  ComPrivateData m_private_data;
 };
 
 HRESULT CreateD3D12SwapChain(IDXGIFactory1 *factory, MTLD3D12Device *device,

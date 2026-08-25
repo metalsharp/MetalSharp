@@ -1083,16 +1083,17 @@ public:
     }
     return E_NOINTERFACE;
   }
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
   HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
@@ -1102,6 +1103,7 @@ public:
 
 private:
   MTLD3D12Device *m_device;
+  ComPrivateData m_private_data;
   D3D12_COMMAND_SIGNATURE_DESC m_desc;
   std::vector<D3D12_INDIRECT_ARGUMENT_DESC> m_argument_descs;
 };
@@ -1155,16 +1157,17 @@ public:
     return E_NOINTERFACE;
   }
 
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
   HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
 
@@ -1263,6 +1266,7 @@ private:
   }
 
   MTLD3D12Device *m_device;
+  ComPrivateData m_private_data;
   std::unordered_map<std::wstring, ID3D12PipelineState *> m_entries;
 };
 
@@ -1325,16 +1329,17 @@ public:
     return count;
   }
 
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
   HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
 
@@ -1411,6 +1416,7 @@ public:
 private:
   MTLD3D12Device *m_device = nullptr;
   ID3D12StateObject *m_base = nullptr;
+  ComPrivateData m_private_data;
   std::atomic<ULONG> m_ref_count{1};
   D3D12_STATE_OBJECT_TYPE m_type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
   std::vector<D3D12_STATE_SUBOBJECT_TYPE> m_subobject_types;
@@ -1446,16 +1452,17 @@ public:
     return E_NOINTERFACE;
   }
 
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
   HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
 
@@ -1541,6 +1548,7 @@ private:
   }
 
   MTLD3D12Device *m_device;
+  ComPrivateData m_private_data;
   D3D12_SHADER_CACHE_SESSION_DESC m_desc;
   std::unordered_map<std::string, std::vector<uint8_t>> m_values;
   bool m_delete_on_destroy = false;

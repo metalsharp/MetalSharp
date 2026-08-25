@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "Metal.hpp"
 #include <atomic>
@@ -43,6 +44,7 @@ private:
   WMT::Reference<WMT::Buffer> m_buffer;
   void *m_cpu_addr = nullptr;
   uint64_t m_gpu_addr = 0;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
 

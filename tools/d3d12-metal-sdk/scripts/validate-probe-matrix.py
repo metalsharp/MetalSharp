@@ -16,6 +16,7 @@ REQUIRED_GROUPS = {
     "loader_runtime_route": ["probe-loader"],
     "device_caps_feature_reports": ["probe-device-caps"],
     "feature_levels_11_0_through_12_2": ["probe-feature-levels"],
+    "d3d12_object_private_data_com": ["probe-object-contracts"],
     "dxgi_factory_swapchain": ["probe-dxgi-factory", "probe-mini-swapchain-present"],
     "queues_fences_command_lists": ["probe-queues", "probe-command-replay", "probe-mini-command-queue"],
     "resources_heaps_views_mapping_copies": ["probe-resources", "probe-resource-views-formats", "probe-mini-texture-sample"],

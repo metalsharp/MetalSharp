@@ -515,19 +515,18 @@ ULONG STDMETHODCALLTYPE MTLD3D12SwapChain::Release() {
 HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::GetPrivateData(REFGUID Name,
                                                             UINT *pDataSize,
                                                             void *pData) {
-  SCTRACE("GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+  return m_private_data.getData(Name, pDataSize, pData);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::SetPrivateData(REFGUID Name,
                                                             UINT DataSize,
                                                             const void *pData) {
-  return S_OK;
+  return m_private_data.setData(Name, DataSize, pData);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::SetPrivateDataInterface(
     REFGUID Name, const IUnknown *pUnknown) {
-  return S_OK;
+  return m_private_data.setInterface(Name, pUnknown);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::GetDevice(REFIID riid,

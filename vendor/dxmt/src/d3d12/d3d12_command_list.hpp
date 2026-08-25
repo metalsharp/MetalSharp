@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12_command_defs.hpp"
 #include "d3d12.h"
 #include "Metal.hpp"
@@ -297,6 +298,7 @@ private:
   uint64_t m_debug_id = 0;
   std::vector<uint8_t> m_cmds;
   std::vector<ID3D12PipelineState *> m_referenced_pipeline_states;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "dxgi_interfaces.h"
 #include "dxmt_command_queue.hpp"
@@ -85,6 +86,7 @@ private:
   WMT::Reference<WMT::CommandQueue> m_wmt_queue;
   WMT::Reference<WMT::Event> m_barrier_event;
   uint64_t m_barrier_seq = 0;
+  ComPrivateData m_private_data;
 };
 
 } // namespace dxmt
