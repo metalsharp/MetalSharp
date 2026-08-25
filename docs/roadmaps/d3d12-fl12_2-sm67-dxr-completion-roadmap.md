@@ -902,3 +902,11 @@ the goal is not complete.
   to Metal quad votes and pass a 32-thread UAV readback even though the installed
   Metal Shader Converter 3.0.6 rejects `dx.op.quadVote.i1`; the custom Xcode 27
   MSL fallback path supplies the working implementation.
+- Corrected the source-probe loader so each staged PE `winemetal.dll` is paired
+  with the matching staged `winemetal.so` through a unique temporary Wine Unix
+  module registration. The previous search order silently loaded Wine's bundled
+  stale Unix call table and returned uninitialized values from `SM50Initialize`.
+- Split legacy SM5 buffer metadata from Metal Shader Converter buffer descriptor
+  lengths in the compute argument ABI. The resource/view gate now reads back
+  `[13,15,17,19]`, the synthetic SM5.0–SM6.6 shader corpus passes, and the mini
+  compute, first-use compute, graphics PSO, and texture-sampling gates all pass.
