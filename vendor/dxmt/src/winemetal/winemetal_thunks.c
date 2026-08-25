@@ -1403,3 +1403,12 @@ MTLCommandBuffer_buildInstanceAccelerationStructure(
   UNIX_CALL(140, &params);
   return params.ret_success;
 }
+
+WINEMETAL_API uint64_t
+MTLAccelerationStructure_gpuResourceID(obj_handle_t acceleration_structure) {
+  struct unixcall_generic_obj_uint64_ret params;
+  params.handle = acceleration_structure;
+  params.ret = 0;
+  UNIX_CALL(141, &params);
+  return params.ret;
+}

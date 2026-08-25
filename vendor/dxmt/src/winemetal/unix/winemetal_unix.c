@@ -2022,6 +2022,18 @@ _MTLCommandBuffer_buildInstanceAccelerationStructure(void *obj) {
 }
 
 static NTSTATUS
+_MTLAccelerationStructure_gpuResourceID(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  params->ret = 0;
+  if (!params->handle)
+    return STATUS_SUCCESS;
+  MTLResourceID resource_id =
+      [(id<MTLAccelerationStructure>)params->handle gpuResourceID];
+  params->ret = resource_id._impl;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLDevice_supportsTextureSampleCount(void *obj) {
   struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
   params->ret = [(id<MTLDevice>)params->handle supportsTextureSampleCount:params->arg];
@@ -3897,6 +3909,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandBuffer_buildTriangleAccelerationStructure,
     &_MTLDevice_accelerationStructureSizesForInstances,
     &_MTLCommandBuffer_buildInstanceAccelerationStructure,
+    &_MTLAccelerationStructure_gpuResourceID,
 };
 
 #ifndef DXMT_NATIVE
@@ -4042,5 +4055,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandBuffer_buildTriangleAccelerationStructure,
     &_MTLDevice_accelerationStructureSizesForInstances,
     &_MTLCommandBuffer_buildInstanceAccelerationStructure,
+    &_MTLAccelerationStructure_gpuResourceID,
 };
 #endif

@@ -2763,6 +2763,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
   CheckVtable("CreateShaderResourceView");
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    if (!resource && desc &&
+        desc->ViewDimension ==
+            D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE) {
+      resource = LookupResourceByGPUAddress(
+          desc->RaytracingAccelerationStructure.Location);
+      TRACE("CreateShaderResourceView resolved acceleration structure "
+            "location=0x%llx resource=%p",
+            (unsigned long long)
+                desc->RaytracingAccelerationStructure.Location,
+            (void *)resource);
+    }
     d->resource = resource;
     d->metal_texture_view = {};
     d->metal_texture_gpu_id = 0;

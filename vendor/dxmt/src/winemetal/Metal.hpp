@@ -292,6 +292,10 @@ public:
 
 class AccelerationStructure : public Resource {
 public:
+  uint64_t
+  gpuResourceID() const {
+    return MTLAccelerationStructure_gpuResourceID(handle);
+  }
 };
 
 class SamplerState : public Object {

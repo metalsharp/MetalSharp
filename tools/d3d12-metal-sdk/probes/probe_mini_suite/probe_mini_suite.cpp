@@ -2048,6 +2048,11 @@ static ProbeResult probe_mesh_shader_pso() {
 }
 
 static ProbeResult probe_dxr_acceleration_structures() {
+    std::vector<uint8_t> ray_query_shader;
+    if (!read_binary_file("probe_dxr_inline.cso", ray_query_shader)) {
+        return {false, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND),
+                "inline ray-query shader blob is missing", ""};
+    }
     ID3D12Device* device = nullptr;
     HRESULT hr = create_device(&device);
     if (FAILED(hr))
@@ -2058,6 +2063,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12GraphicsCommandList* list = nullptr;
     ID3D12GraphicsCommandList4* list4 = nullptr;
+    ID3D12RootSignature* compute_root = nullptr;
+    ID3D12PipelineState* compute_pso = nullptr;
+    ID3D12DescriptorHeap* ray_query_heap = nullptr;
     ID3D12Resource* vertices = nullptr;
     ID3D12Resource* acceleration_structure = nullptr;
     ID3D12Resource* scratch = nullptr;
@@ -2066,6 +2074,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* top_level_acceleration_structure = nullptr;
     ID3D12Resource* top_level_scratch = nullptr;
     ID3D12Resource* top_level_postbuild = nullptr;
+    ID3D12Resource* ray_query_output = nullptr;
+    ID3D12Resource* ray_query_readback = nullptr;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
@@ -2077,6 +2087,41 @@ static ProbeResult probe_dxr_acceleration_structures() {
                                        allocator, nullptr, IID_PPV_ARGS(&list));
     if (SUCCEEDED(hr))
         hr = list->QueryInterface(IID_PPV_ARGS(&list4));
+
+    D3D12_DESCRIPTOR_RANGE compute_ranges[2] = {};
+    compute_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    compute_ranges[0].NumDescriptors = 1;
+    compute_ranges[0].BaseShaderRegister = 0;
+    compute_ranges[0].OffsetInDescriptorsFromTableStart = 0;
+    compute_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    compute_ranges[1].NumDescriptors = 1;
+    compute_ranges[1].BaseShaderRegister = 0;
+    compute_ranges[1].OffsetInDescriptorsFromTableStart = 1;
+    D3D12_ROOT_PARAMETER compute_param = {};
+    compute_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    compute_param.DescriptorTable.NumDescriptorRanges = 2;
+    compute_param.DescriptorTable.pDescriptorRanges = compute_ranges;
+    compute_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_ROOT_SIGNATURE_DESC compute_root_desc = {};
+    compute_root_desc.NumParameters = 1;
+    compute_root_desc.pParameters = &compute_param;
+    ID3DBlob* compute_root_blob = nullptr;
+    std::string compute_detail;
+    if (SUCCEEDED(hr))
+        hr = serialize_root_signature(compute_root_desc, &compute_root_blob,
+                                      compute_detail);
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(
+            0, compute_root_blob->GetBufferPointer(),
+            compute_root_blob->GetBufferSize(), IID_PPV_ARGS(&compute_root));
+    if (SUCCEEDED(hr)) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
+        compute_desc.pRootSignature = compute_root;
+        compute_desc.CS = {ray_query_shader.data(), ray_query_shader.size()};
+        hr = device->CreateComputePipelineState(&compute_desc,
+                                                IID_PPV_ARGS(&compute_pso));
+    }
+    safe_release(compute_root_blob);
 
     const float triangle[9] = {
         -0.75f, -0.75f, 0.0f,
@@ -2157,6 +2202,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     instance.Transform[2][2] = 1.0f;
     instance.InstanceID = 7;
     instance.InstanceMask = 0xff;
+    instance.Flags =
+        D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
     instance.AccelerationStructure =
         acceleration_structure ? acceleration_structure->GetGPUVirtualAddress() : 0;
     if (SUCCEEDED(hr)) {
@@ -2221,6 +2268,54 @@ static ProbeResult probe_dxr_acceleration_structures() {
             IID_PPV_ARGS(&top_level_postbuild));
     }
     if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heap_desc.NumDescriptors = 2;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&heap_desc,
+                                          IID_PPV_ARGS(&ray_query_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC output_desc = buffer_desc(256);
+        output_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&ray_query_output));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&ray_query_readback));
+    }
+    if (SUCCEEDED(hr)) {
+        const UINT increment = device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu =
+            ray_query_heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_SHADER_RESOURCE_VIEW_DESC acceleration_srv = {};
+        acceleration_srv.ViewDimension =
+            D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+        acceleration_srv.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        acceleration_srv.RaytracingAccelerationStructure.Location =
+            top_level_acceleration_structure->GetGPUVirtualAddress();
+        device->CreateShaderResourceView(nullptr, &acceleration_srv, cpu);
+
+        cpu.ptr += increment;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC output_uav = {};
+        output_uav.Format = DXGI_FORMAT_R32_TYPELESS;
+        output_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        output_uav.Buffer.NumElements = 64;
+        output_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(ray_query_output, nullptr,
+                                          &output_uav, cpu);
+    }
+    if (SUCCEEDED(hr)) {
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build = {};
         build.DestAccelerationStructureData =
             acceleration_structure->GetGPUVirtualAddress();
@@ -2249,11 +2344,26 @@ static ProbeResult probe_dxr_acceleration_structures() {
         source = top_level_acceleration_structure->GetGPUVirtualAddress();
         list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
                                                                  &source);
+
+        ID3D12DescriptorHeap* heaps[] = {ray_query_heap};
+        list4->SetDescriptorHeaps(1, heaps);
+        list4->SetComputeRootSignature(compute_root);
+        list4->SetPipelineState(compute_pso);
+        list4->SetComputeRootDescriptorTable(
+            0, ray_query_heap->GetGPUDescriptorHandleForHeapStart());
+        list4->Dispatch(1, 1, 1);
+        D3D12_RESOURCE_BARRIER output_barrier = transition_barrier(
+            ray_query_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list4->ResourceBarrier(1, &output_barrier);
+        list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
+                                sizeof(uint32_t));
         hr = execute_and_wait(queue, list4);
     }
 
     uint64_t current_size = 0;
     uint64_t top_level_current_size = 0;
+    uint32_t ray_hit = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(current_size)};
@@ -2273,14 +2383,26 @@ static ProbeResult probe_dxr_acceleration_structures() {
             top_level_postbuild->Unmap(0, nullptr);
         }
     }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(ray_hit)};
+        hr = ray_query_readback->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&ray_hit, mapped, sizeof(ray_hit));
+            ray_query_readback->Unmap(0, nullptr);
+        }
+    }
     const HRESULT removed_reason = device->GetDeviceRemovedReason();
     const bool verified = SUCCEEDED(hr) && SUCCEEDED(removed_reason) &&
                           current_size > 0 &&
                           current_size <= prebuild.ResultDataMaxSizeInBytes &&
                           top_level_current_size > 0 &&
                           top_level_current_size <=
-                              top_level_prebuild.ResultDataMaxSizeInBytes;
+                              top_level_prebuild.ResultDataMaxSizeInBytes &&
+                          ray_hit == 1;
 
+    safe_release(ray_query_readback);
+    safe_release(ray_query_output);
     safe_release(top_level_postbuild);
     safe_release(top_level_scratch);
     safe_release(top_level_acceleration_structure);
@@ -2289,6 +2411,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(scratch);
     safe_release(acceleration_structure);
     safe_release(vertices);
+    safe_release(ray_query_heap);
+    safe_release(compute_pso);
+    safe_release(compute_root);
     safe_release(list4);
     safe_release(list);
     safe_release(allocator);
@@ -2296,10 +2421,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal triangle BLAS and one-instance TLAS built with postbuild info"
-                     : "DXR BLAS/TLAS build and postbuild gate failed",
+            verified ? "Metal BLAS/TLAS built and inline RayQuery hit the triangle"
+                     : "DXR acceleration-structure or inline-ray gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
+                ",\"ray_query_pso_created\":true" +
                 ",\"prebuild_scratch_bytes\":" +
                 std::to_string(prebuild.ScratchDataSizeInBytes) +
                 ",\"current_size_bytes\":" + std::to_string(current_size) +
@@ -2309,6 +2435,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 std::to_string(top_level_prebuild.ScratchDataSizeInBytes) +
                 ",\"tlas_current_size_bytes\":" +
                 std::to_string(top_level_current_size) +
+                ",\"inline_ray_hit\":" + std::to_string(ray_hit) +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
 }
 
