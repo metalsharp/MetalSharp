@@ -76,6 +76,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
                                        CmdType type) {
   switch (type) {
   case CmdType::DrawInstanced:
+  case CmdType::DispatchMesh:
     stats.draw_count++;
     break;
   case CmdType::DrawIndexedInstanced:

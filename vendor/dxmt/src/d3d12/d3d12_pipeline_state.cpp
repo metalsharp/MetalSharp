@@ -1535,7 +1535,8 @@ bool MTLD3D12PipelineState::CompileShader(
     PSTRACE("CompileShader: %s hash=0x%zx size=%zu cache_entries=%zu",
             func_name, hash, size, s_shader_cache.size());
     auto it = s_shader_cache.find(hash);
-    if (it != s_shader_cache.end() && !out_shader_handle && !out_reflection) {
+    if (it != s_shader_cache.end() && !out_shader_handle && !out_reflection &&
+        type != ShaderType::Amplification && type != ShaderType::Mesh) {
       out_func = it->second;
       PSTRACE("CompileShader: %s CACHE HIT hash=0x%zx", func_name, hash);
       return true;
@@ -1923,6 +1924,32 @@ bool MTLD3D12PipelineState::CompileShader(
                     m_threadgroup_size.depth = td;
                     PSTRACE("  threadgroup_size from reflection: %dx%dx%d", tw,
                             th, td);
+                  }
+                }
+                if (type == ShaderType::Amplification ||
+                    type == ShaderType::Mesh) {
+                  char *num_threads = strstr(rbuf, "\"num_threads\"");
+                  char *num_threads_values =
+                      num_threads ? strchr(num_threads, '[') : nullptr;
+                  int tw = 1, th = 1, td = 1;
+                  if (num_threads_values &&
+                      sscanf(num_threads_values, "[ %d , %d , %d ]", &tw,
+                             &th, &td) == 3) {
+                    m_threadgroup_size.width = tw;
+                    m_threadgroup_size.height = th;
+                    m_threadgroup_size.depth = td;
+                    PSTRACE("  mesh threadgroup size from reflection: %dx%dx%d",
+                            tw, th, td);
+                  }
+                  char *payload = strstr(rbuf, "\"max_payload_size_in_bytes\"");
+                  unsigned payload_size = 0;
+                  if (payload &&
+                      sscanf(payload, "\"max_payload_size_in_bytes\": %u",
+                             &payload_size) == 1) {
+                    m_mesh_payload_size =
+                        std::max(m_mesh_payload_size, payload_size);
+                    PSTRACE("  mesh payload size from reflection: %u",
+                            payload_size);
                   }
                 }
                 if (type == ShaderType::Compute) {
@@ -2590,19 +2617,27 @@ bool MTLD3D12PipelineState::Compile() {
   }
 
   WMT::Reference<WMT::Function> vs_func, ps_func, gs_func;
-  size_t vs_hash =
-      m_vs.empty()
-          ? 0
-          : ComputeShaderCacheHash(m_vs.data(), m_vs.size(), ShaderType::Vertex,
-                                   &m_input_layout);
+  size_t vs_hash = !m_as.empty()
+                       ? ComputeShaderCacheHash(m_as.data(), m_as.size(),
+                                                ShaderType::Amplification,
+                                                nullptr)
+                       : (m_vs.empty()
+                              ? 0
+                              : ComputeShaderCacheHash(
+                                    m_vs.data(), m_vs.size(),
+                                    ShaderType::Vertex, &m_input_layout));
   size_t ps_hash = m_ps.empty()
                        ? 0
                        : ComputeShaderCacheHash(m_ps.data(), m_ps.size(),
                                                 ShaderType::Pixel, nullptr);
-  size_t gs_hash = m_gs.empty()
-                       ? 0
-                       : ComputeShaderCacheHash(m_gs.data(), m_gs.size(),
-                                                ShaderType::Geometry, nullptr);
+  size_t gs_hash = !m_ms.empty()
+                       ? ComputeShaderCacheHash(m_ms.data(), m_ms.size(),
+                                                ShaderType::Mesh, nullptr)
+                       : (m_gs.empty()
+                              ? 0
+                              : ComputeShaderCacheHash(
+                                    m_gs.data(), m_gs.size(),
+                                    ShaderType::Geometry, nullptr));
 
   const bool native_tessellation_required = !m_hs.empty() || !m_ds.empty();
   m_uses_native_tessellation_path = false;
@@ -2618,7 +2653,40 @@ bool MTLD3D12PipelineState::Compile() {
         "Graphics PSO uses stream output, which is not implemented");
   }
 
-  if (!m_gs.empty()) {
+  m_uses_geometry_mesh_pipeline = false;
+  m_uses_native_mesh_pipeline = false;
+  if (!m_ms.empty()) {
+    if (!m_vs.empty() || !m_gs.empty() || !m_hs.empty() || !m_ds.empty()) {
+      return RecordCompileFailure(
+          "pso/mesh_with_legacy_stages",
+          "Mesh PSO cannot contain VS, GS, HS, or DS bytecode");
+    }
+    if (!m_as.empty()) {
+      if (!CompileShader(m_as.data(), m_as.size(), ShaderType::Amplification,
+                         "as_main", vs_func))
+        return false;
+      m_object_threadgroup_size = {m_threadgroup_size.width,
+                                   m_threadgroup_size.height,
+                                   m_threadgroup_size.depth};
+    } else {
+      m_object_threadgroup_size = {1, 1, 1};
+    }
+    if (!CompileShader(m_ms.data(), m_ms.size(), ShaderType::Mesh, "ms_main",
+                       gs_func))
+      return false;
+    m_mesh_threadgroup_size = {m_threadgroup_size.width,
+                               m_threadgroup_size.height,
+                               m_threadgroup_size.depth};
+    m_uses_geometry_mesh_pipeline = true;
+    m_uses_native_mesh_pipeline = true;
+    PSTRACE("D3D12 native mesh pipeline compiled object=%llu mesh=%llu "
+            "object_tg=%ux%ux%u mesh_tg=%ux%ux%u",
+            (unsigned long long)vs_func.handle,
+            (unsigned long long)gs_func.handle,
+            m_object_threadgroup_size.width, m_object_threadgroup_size.height,
+            m_object_threadgroup_size.depth, m_mesh_threadgroup_size.width,
+            m_mesh_threadgroup_size.height, m_mesh_threadgroup_size.depth);
+  } else if (!m_gs.empty()) {
     if (m_vs.empty()) {
       return RecordCompileFailure(
           "pso/geometry_without_vertex",
@@ -2949,7 +3017,8 @@ bool MTLD3D12PipelineState::Compile() {
     mesh_info.object_function = vs_func.handle;
     mesh_info.mesh_function = gs_func.handle;
     mesh_info.fragment_function = ps_func.handle;
-    mesh_info.payload_memory_length = 16256;
+    mesh_info.payload_memory_length =
+        m_uses_native_mesh_pipeline ? m_mesh_payload_size : 16256;
     mesh_info.immutable_object_buffers =
         (1u << 16) | (1u << 21) | (1u << 29) | (1u << 30);
     mesh_info.immutable_mesh_buffers = (1u << 29) | (1u << 30);
@@ -2979,8 +3048,10 @@ bool MTLD3D12PipelineState::Compile() {
   if (!m_render_pso.handle) {
     Logger::err(str::format("Failed to create render PSO: ", render_err_desc));
     return RecordCompileFailure(
-        m_uses_geometry_mesh_pipeline ? "pso/metal_geometry_mesh_pso"
-                                      : "pso/metal_render_pso",
+        m_uses_native_mesh_pipeline
+            ? "pso/metal_native_mesh_pso"
+            : (m_uses_geometry_mesh_pipeline ? "pso/metal_geometry_mesh_pso"
+                                             : "pso/metal_render_pso"),
         str::format("Metal render PSO creation failed: ", render_err_desc));
   }
   {
@@ -3108,6 +3179,18 @@ bool MTLD3D12PipelineState::Compile() {
                            " DSV=", (int)m_dsv_format,
                            " samples=", m_sample_count));
   return true;
+}
+
+void MTLD3D12PipelineState::SetMeshShaders(
+    const D3D12_SHADER_BYTECODE &as, const D3D12_SHADER_BYTECODE &ms) {
+  if (as.pShaderBytecode && as.BytecodeLength) {
+    m_as.resize(as.BytecodeLength);
+    memcpy(m_as.data(), as.pShaderBytecode, as.BytecodeLength);
+  }
+  if (ms.pShaderBytecode && ms.BytecodeLength) {
+    m_ms.resize(ms.BytecodeLength);
+    memcpy(m_ms.data(), ms.pShaderBytecode, ms.BytecodeLength);
+  }
 }
 
 void MTLD3D12PipelineState::SetGraphicsDesc(

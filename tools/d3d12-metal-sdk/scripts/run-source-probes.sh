@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SDK_DIR="$ROOT_DIR/tools/d3d12-metal-sdk"
 BUILD_DIR="${METALSHARP_DXMT_BUILD_DIR:-$ROOT_DIR/vendor/dxmt/build-metalsharp-x64}"
-WINE_ROOT="${METALSHARP_WINE_ROOT:-$HOME/.metalsharp/runtime/wine}"
+SOURCE_WINE_ROOT="${METALSHARP_WINE_ROOT:-$HOME/.metalsharp/runtime/wine}"
 TOOLCHAIN_ROOT="${METALSHARP_X86_LLVM_ROOT:-/Volumes/AverySSD/toolchains}"
 LLVM_NAME="clang+llvm-15.0.7-x86_64-apple-darwin21.0"
 LLVM_LIB="$TOOLCHAIN_ROOT/$LLVM_NAME/lib"
@@ -13,10 +13,10 @@ usage() {
   cat <<'EOF'
 Usage: run-source-probes.sh [run-isolated-probes.sh options]
 
-Stages the current external-tree DXMT build into a temporary runtime directory
-under MetalSharp's internal Wine lib directory, invokes run-isolated-probes.sh,
-and removes the staged runtime afterward. The child wrapper separately creates,
-stops, and removes its disposable Wine prefix.
+Clones MetalSharp's vendored Wine 11.5 with APFS copy-on-write, stages the
+current external-tree DXMT build into that disposable clone, invokes
+run-isolated-probes.sh, and removes the clone afterward. The child wrapper
+separately creates, stops, and removes its disposable Wine prefix.
 
 Environment overrides:
   METALSHARP_DXMT_BUILD_DIR   DXMT Meson build directory
@@ -63,6 +63,13 @@ for sidecar in "${sidecars[@]}"; do
   fi
 done
 
+# Wine classifies DXMT's PE modules as builtins and resolves those modules from
+# <wine>/lib/wine/x86_64-windows before app-local or WINEDLLPATH copies. Clone
+# the vendored Wine 11.5 tree with APFS copy-on-write, replace modules only in
+# the disposable clone, and remove it after the isolated-prefix wrapper exits.
+wine_clone_parent="$(mktemp -d /private/tmp/metalsharp-source-wine.XXXXXX)"
+WINE_ROOT="$wine_clone_parent/wine"
+cp -cR "$SOURCE_WINE_ROOT" "$WINE_ROOT"
 mkdir -p "$WINE_ROOT/lib"
 runtime_dir="$(mktemp -d "$WINE_ROOT/lib/.dxmt-source-probe.XXXXXX")"
 cleanup_started=0
@@ -70,12 +77,14 @@ cleanup() {
   status=$?
   if [[ "$cleanup_started" == "0" ]]; then
     cleanup_started=1
-    rm -rf "$runtime_dir"
-    if [[ -e "$runtime_dir" ]]; then
-      echo "error: failed to remove staged source runtime: $runtime_dir" >&2
+    WINEPREFIX="$wine_clone_parent/prefix" "$WINE_ROOT/bin/wineserver" -k \
+      >/dev/null 2>&1 || true
+    rm -rf "$wine_clone_parent"
+    if [[ -e "$wine_clone_parent" ]]; then
+      echo "error: failed to remove disposable source Wine: $wine_clone_parent" >&2
       status=1
     else
-      echo "source probe runtime removed: $runtime_dir"
+      echo "source probe Wine clone removed: $wine_clone_parent"
     fi
   fi
   exit "$status"
@@ -88,11 +97,16 @@ for entry in "${windows_artifacts[@]}"; do
   source_rel="${entry%%:*}"
   destination="${entry#*:}"
   cp "$BUILD_DIR/$source_rel" "$runtime_dir/x86_64-windows/$destination"
+  cp "$BUILD_DIR/$source_rel" \
+    "$WINE_ROOT/lib/wine/x86_64-windows/$destination"
 done
 cp "$BUILD_DIR/$unix_artifact" "$runtime_dir/x86_64-unix/winemetal.so"
+cp "$BUILD_DIR/$unix_artifact" \
+  "$WINE_ROOT/lib/wine/x86_64-unix/winemetal.so"
 for sidecar in "${sidecars[@]}"; do
   cp "$LLVM_LIB/$sidecar" "$runtime_dir/x86_64-unix/$sidecar"
 done
 
+METALSHARP_WINE_ROOT="$WINE_ROOT" \
 METALSHARP_DXMT_RUNTIME="$runtime_dir" \
   "$SDK_DIR/scripts/run-isolated-probes.sh" "$@"

@@ -9,6 +9,7 @@ enum class CmdType : uint32_t {
   DrawInstanced,
   DrawIndexedInstanced,
   Dispatch,
+  DispatchMesh,
   ExecuteIndirect,
   CopyBufferRegion,
   CopyTextureRegion,
@@ -69,6 +70,11 @@ struct CmdDrawIndexedInstanced {
 };
 
 struct CmdDispatch {
+  CmdHeader header;
+  uint32_t x, y, z;
+};
+
+struct CmdDispatchMesh {
   CmdHeader header;
   uint32_t x, y, z;
 };

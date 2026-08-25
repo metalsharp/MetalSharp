@@ -3658,6 +3658,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
 
   D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_desc = {};
   D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
+  D3D12_SHADER_BYTECODE amplification_shader = {};
+  D3D12_SHADER_BYTECODE mesh_shader = {};
   bool has_cs = false;
   bool is_compute = true;
   ID3D12RootSignature *created_stream_root_signature = nullptr;
@@ -3934,14 +3936,21 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
       advanced = advance_pipeline_stream<D3D12_SHADER_BYTECODE>(&stream, end);
       break;
     }
-    case 24:   // AS
-    case 25: { // MS
-      D3D12_SHADER_BYTECODE shader = {};
-      if (!read_pipeline_stream_subobject(subobject, end, &shader))
+    case 24: { // AS
+      if (!read_pipeline_stream_subobject(subobject, end,
+                                          &amplification_shader))
         return E_INVALIDARG;
-      TRACE("CreatePipelineState: mesh/amplification shader subobject type=%u "
-            "ignored",
-            type);
+      TRACE("CreatePipelineState: amplification shader bytes=%zu",
+            amplification_shader.BytecodeLength);
+      is_compute = false;
+      advanced = advance_pipeline_stream<D3D12_SHADER_BYTECODE>(&stream, end);
+      break;
+    }
+    case 25: { // MS
+      if (!read_pipeline_stream_subobject(subobject, end, &mesh_shader))
+        return E_INVALIDARG;
+      TRACE("CreatePipelineState: mesh shader bytes=%zu",
+            mesh_shader.BytecodeLength);
       is_compute = false;
       advanced = advance_pipeline_stream<D3D12_SHADER_BYTECODE>(&stream, end);
       break;
@@ -3964,6 +3973,34 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
           "CreateComputePSO CS=%p",
           compute_desc.CS.pShaderBytecode);
     return CreateComputePipelineState(&compute_desc, riid, ppPipelineState);
+  }
+
+  if (mesh_shader.pShaderBytecode && mesh_shader.BytecodeLength) {
+    if (has_cs) {
+      TRACE("CreatePipelineState: mesh and compute shaders are mutually exclusive");
+      return E_INVALIDARG;
+    }
+    auto *pso = new MTLD3D12PipelineState(this, false);
+    pso->SetGraphicsDesc(graphics_desc);
+    pso->SetMeshShaders(amplification_shader, mesh_shader);
+    bool compiled = pso->RequestCompile(false);
+    TRACE("ID3D12Device2::CreatePipelineState mesh compile=%d stage=%s "
+          "detail=%s",
+          compiled, pso->GetCompileFailureStage().c_str(),
+          pso->GetCompileFailureDetail().c_str());
+    if (!compiled) {
+      pso->Release();
+      return E_FAIL;
+    }
+    HRESULT hr = pso->QueryInterface(riid, ppPipelineState);
+    pso->Release();
+    return hr;
+  }
+
+  if (amplification_shader.pShaderBytecode &&
+      amplification_shader.BytecodeLength) {
+    TRACE("CreatePipelineState: amplification shader without mesh shader");
+    return E_INVALIDARG;
   }
 
   TRACE("ID3D12Device2::CreatePipelineState -> delegating to CreateGraphicsPSO "

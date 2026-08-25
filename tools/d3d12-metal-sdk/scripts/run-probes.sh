@@ -39,6 +39,8 @@ RUN_MINI=1
 RUN_WINEMETAL_ABI=1
 RUN_PRESENT_WINDOWED=0
 RUN_FULL_STRESS=0
+MINI_PROBE_FILTER="${METALSHARP_MINI_PROBE_FILTER:-}"
+DLL_OVERRIDES="${DXMT_PROBE_DLL_OVERRIDES:-d3d12,dxgi,d3d11,d3d10core,winemetal=n,b}"
 MINI_PROBES=(
   create_device
   command_queue
@@ -55,6 +57,10 @@ MINI_PROBES=(
   dxil_texture_color_output
   compute_first_use_dispatch
 )
+
+mini_probe_selected() {
+  [[ -z "$MINI_PROBE_FILTER" || "$1" == "$MINI_PROBE_FILTER" ]]
+}
 
 usage() {
   cat <<'USAGE'
@@ -748,6 +754,9 @@ fi
 
 WINDOWS_DIR="$DXMT_RUNTIME/x86_64-windows"
 UNIX_DIR="$DXMT_RUNTIME/x86_64-unix"
+# Wine's builtin-module search expects a route root containing the architecture
+# subdirectories, not the x86_64-windows directory itself.
+PROBE_WINEDLLPATH="${DXMT_PROBE_WINEDLLPATH:-$DXMT_RUNTIME}"
 RUNTIME_LIB_DIR="$(dirname "$DXMT_RUNTIME")"
 WINE_RUNTIME_ROOT="$(dirname "$RUNTIME_LIB_DIR")"
 WINE_UNIX_DIR="$RUNTIME_LIB_DIR/wine/x86_64-unix"
@@ -850,7 +859,8 @@ if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" |
 fi
 
 for mini_probe in "${MINI_PROBES[@]}"; do
-  if [[ ! -f "$SDK_DIR/out/bin/probe_mini_${mini_probe}.exe" ]]; then
+  if mini_probe_selected "$mini_probe" &&
+     [[ ! -f "$SDK_DIR/out/bin/probe_mini_${mini_probe}.exe" ]]; then
     NEED_BUILD=1
   fi
 done
@@ -941,8 +951,8 @@ run_probe_exe() {
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1050,8 +1060,8 @@ HLSL
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1059,6 +1069,76 @@ HLSL
     "$WINE_BIN" probe_mini_dxil_texture_color_output.exe >/dev/null || true
   )
   convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+}
+
+prepare_mesh_shader_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_mesh_shader.hlsl"
+
+  cat > "$hlsl" <<'HLSL'
+struct MeshVertex {
+  float4 position : SV_Position;
+};
+
+struct MeshPayload {
+  float horizontal_offset;
+};
+
+groupshared MeshPayload payload;
+
+[numthreads(1, 1, 1)]
+void as_main(uint3 group_id : SV_GroupID) {
+  payload.horizontal_offset = (group_id.x & 1) ? 0.05 : 0.0;
+  DispatchMesh(1, 1, 1, payload);
+}
+
+[outputtopology("triangle")]
+[numthreads(1, 1, 1)]
+void ms_main(in payload MeshPayload payload,
+             out vertices MeshVertex vertices[3],
+             out indices uint3 triangles[1]) {
+  SetMeshOutputCounts(3, 1);
+  vertices[0].position = float4(-0.8 + payload.horizontal_offset, -0.8, 0.0, 1.0);
+  vertices[1].position = float4( 0.0 + payload.horizontal_offset,  0.8, 0.0, 1.0);
+  vertices[2].position = float4( 0.8 + payload.horizontal_offset, -0.8, 0.0, 1.0);
+  triangles[0] = uint3(0, 1, 2);
+}
+
+float4 ps_main() : SV_Target0 {
+  return float4(0.2, 0.8, 0.4, 1.0);
+}
+HLSL
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E as_main -T as_6_5 -Fo probe_mesh_shader_as.cso probe_mesh_shader.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ms_main -T ms_6_5 -Fo probe_mesh_shader_ms.cso probe_mesh_shader.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 -Fo probe_mesh_shader_ps.cso probe_mesh_shader.hlsl >/dev/null
+  )
+
+  mkdir -p "$SHADER_CACHE_DIR"
+  # Each failed stage emits its DXIL blob before PSO construction stops. Walk
+  # AS -> MS -> PS in bounded warm-up passes, converting newly emitted blobs
+  # after each pass, so the final mini gate executes the complete pipeline.
+  for _mesh_warmup_pass in 1 2 3; do
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      "$WINE_BIN" probe_mini_mesh_object_shader_pso.exe >/dev/null || true
+    )
+    convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+  done
 }
 
 prepare_dxil_semantic_probes() {
@@ -1133,8 +1213,8 @@ HLSL
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1185,14 +1265,19 @@ if [[ "$RUN_WINEMETAL_ABI" == "1" ]]; then
 fi
 
 if [[ "$RUN_MINI" == "1" ]]; then
-  prepare_dxil_color_probe
+  if mini_probe_selected dxil_texture_color_output; then
+    prepare_dxil_color_probe
+  fi
+  if mini_probe_selected mesh_object_shader_pso; then
+    prepare_mesh_shader_probe
+  fi
 fi
 
 if [[ "$RUN_LOADER" == "1" ]]; then
   # DXMT is shipped as PE DLLs; native-first avoids Wine resolving stale builtin shims.
   WINEPREFIX="$WINE_PREFIX" \
-  WINEDLLPATH="$WINDOWS_DIR" \
-  WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+  WINEDLLPATH="$PROBE_WINEDLLPATH" \
+  WINEDLLOVERRIDES="$DLL_OVERRIDES" \
   DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
   DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
   D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1205,8 +1290,8 @@ if [[ "$RUN_AGILITY" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1226,8 +1311,8 @@ if [[ "$RUN_CAPS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1243,8 +1328,8 @@ if [[ "$RUN_FEATURE_LEVELS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1259,8 +1344,8 @@ if [[ "$RUN_OBJECT_CONTRACTS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1273,8 +1358,8 @@ if [[ "$RUN_DXGI" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1287,8 +1372,8 @@ if [[ "$RUN_RESOURCES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1301,8 +1386,8 @@ if [[ "$RUN_QUEUES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1315,8 +1400,8 @@ if [[ "$RUN_DESCRIPTORS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1329,8 +1414,8 @@ if [[ "$RUN_SHADERS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1344,8 +1429,8 @@ if [[ "$RUN_SHADERS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1364,8 +1449,8 @@ if [[ "$RUN_DXIL_SEMANTICS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1380,8 +1465,8 @@ if [[ "$RUN_SHADER_CORPUS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1393,8 +1478,8 @@ if [[ "$RUN_SHADER_CORPUS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1409,8 +1494,8 @@ if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1422,8 +1507,8 @@ if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1438,8 +1523,8 @@ if [[ "$RUN_WAVE_OPS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1451,8 +1536,8 @@ if [[ "$RUN_WAVE_OPS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1467,8 +1552,8 @@ if [[ "$RUN_REFLECTION_ABI" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1480,8 +1565,8 @@ if [[ "$RUN_REFLECTION_ABI" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1496,8 +1581,8 @@ if [[ "$RUN_GRAPHICS_PSO" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1511,8 +1596,8 @@ if [[ "$RUN_COMPUTE_PSO" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1526,8 +1611,8 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1540,8 +1625,8 @@ if [[ "$RUN_BARRIERS_RENDER_PASS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1554,8 +1639,8 @@ if [[ "$RUN_RESOURCE_VIEWS_FORMATS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1568,8 +1653,8 @@ if [[ "$RUN_RENDER_HEADLESS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1580,6 +1665,9 @@ fi
 
 if [[ "$RUN_MINI" == "1" ]]; then
   for mini_probe in "${MINI_PROBES[@]}"; do
+    if ! mini_probe_selected "$mini_probe"; then
+      continue
+    fi
     run_probe_exe \
       "$SDK_DIR/out/bin/probe_mini_${mini_probe}.exe" \
       "$RESULTS_DIR/probe-mini-${mini_probe}-${PROFILE}.json"
@@ -1590,8 +1678,8 @@ if [[ "$RUN_PRESENT_WINDOWED" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1608,8 +1696,8 @@ if [[ "$RUN_FULL_STRESS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \

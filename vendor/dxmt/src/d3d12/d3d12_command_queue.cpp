@@ -3947,6 +3947,41 @@ struct ReplayState {
     return true;
   }
 
+  bool EncodeNativeMeshDispatch(uint32_t x, uint32_t y, uint32_t z) {
+    if (!pso || !pso->UsesNativeMeshPipeline() || !render_enc_open || !x ||
+        !y || !z)
+      return false;
+
+    auto object_size = pso->GetObjectThreadgroupSize();
+    auto mesh_size = pso->GetMeshThreadgroupSize();
+    if (!object_size.width || !object_size.height || !object_size.depth)
+      object_size = {1, 1, 1};
+    if (!mesh_size.width || !mesh_size.height || !mesh_size.depth)
+      mesh_size = {1, 1, 1};
+
+    struct wmtcmd_render_draw_meshthreadgroups draw = {};
+    draw.type = WMTRenderCommandDrawMeshThreadgroups;
+    draw.next.set(nullptr);
+    draw.threadgroup_per_grid = {(uint64_t)x, (uint64_t)y, (uint64_t)z};
+    draw.object_threadgroup_size = object_size;
+    draw.mesh_threadgroup_size = mesh_size;
+    if (!EncodeRenderCommands(
+            reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+            "native_mesh_dispatch"))
+      return false;
+
+    QTRACE("EncodeNativeMeshDispatch groups=%ux%ux%u object=%llux%llux%llu "
+           "mesh=%llux%llux%llu",
+           x, y, z, (unsigned long long)object_size.width,
+           (unsigned long long)object_size.height,
+           (unsigned long long)object_size.depth,
+           (unsigned long long)mesh_size.width,
+           (unsigned long long)mesh_size.height,
+           (unsigned long long)mesh_size.depth);
+    MarkSwapchainWorkEncoded();
+    return true;
+  }
+
   bool EncodeNativeTessellationDraw(MTLD3D12Device *device,
                                     uint32_t vertex_count,
                                     uint32_t instance_count,
@@ -6858,6 +6893,26 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                               "Dispatch");
         break;
       }
+      case CmdType::DispatchMesh: {
+        auto *cmd = reinterpret_cast<const CmdDispatchMesh *>(header);
+        QTRACE("DispatchMesh groups=%ux%ux%u pso=%p", cmd->x, cmd->y, cmd->z,
+               (void *)st.pso);
+        st.EnsureRenderEncoder();
+        st.ApplyRootBindings(m_device);
+        st.BuildConstantBufferTable(m_device);
+        st.BuildArgumentBuffer(m_device);
+        st.BindDirectFragmentCompleteness(m_device, "dispatch_mesh");
+        if (!st.EncodeNativeMeshDispatch(cmd->x, cmd->y, cmd->z)) {
+          QTRACE("DispatchMesh SKIPPED groups=%ux%ux%u enc_open=%d pso=%p "
+                 "compiled=%d native_mesh=%d stage=%s detail=%s",
+                 cmd->x, cmd->y, cmd->z, st.render_enc_open, (void *)st.pso,
+                 st.pso ? st.pso->IsCompiled() : 0,
+                 st.pso ? st.pso->UsesNativeMeshPipeline() : 0,
+                 TraceCompileFailureStage(st.pso),
+                 TraceCompileFailureDetail(st.pso));
+        }
+        break;
+      }
       case CmdType::ExecuteIndirect: {
         auto *cmd = reinterpret_cast<const CmdExecuteIndirect *>(header);
         const auto *sig_desc = GetD3D12CommandSignatureDesc(cmd->signature);
@@ -7129,6 +7184,29 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                     st, m_device, cmdbuf, args.ThreadGroupCountX,
                     args.ThreadGroupCountY, args.ThreadGroupCountZ,
                     "ExecuteIndirect DISPATCH");
+              }
+              break;
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+              if (!can_read(sizeof(D3D12_DISPATCH_MESH_ARGUMENTS))) {
+                valid_record = false;
+                break;
+              }
+              {
+                D3D12_DISPATCH_MESH_ARGUMENTS args = {};
+                memcpy(&args, src, sizeof(args));
+                cursor += sizeof(args);
+                QTRACE("ExecuteIndirect DISPATCH_MESH groups=%ux%ux%u",
+                       args.ThreadGroupCountX, args.ThreadGroupCountY,
+                       args.ThreadGroupCountZ);
+                st.EnsureRenderEncoder();
+                st.ApplyRootBindings(m_device);
+                st.BuildConstantBufferTable(m_device);
+                st.BuildArgumentBuffer(m_device);
+                st.BindDirectFragmentCompleteness(
+                    m_device, "execute_indirect_dispatch_mesh");
+                st.EncodeNativeMeshDispatch(args.ThreadGroupCountX,
+                                            args.ThreadGroupCountY,
+                                            args.ThreadGroupCountZ);
               }
               break;
             case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW: {

@@ -293,12 +293,15 @@ Findings:
   them before the current probe policy accepts runtime correctness.
 - The source tracks unsupported intrinsic/opcode counts and rejects those
   shaders; this is useful diagnostics but not full SM6.7 coverage.
-- Mesh and amplification shader kinds are recognized by metadata, but D3D12
-  pipeline-state stream subobjects are currently read and ignored.
-- `DispatchMesh` is empty.
-- A Metal mesh pipeline exists for geometry-shader emulation and tessellation
-  proof shapes. This is reusable infrastructure, not proof of D3D12 mesh shader
-  support.
+- D3D12 AS/MS pipeline-state stream subobjects now compile through Metal Shader
+  Converter into Metal object/mesh functions. A four-byte amplification payload,
+  direct `DispatchMesh`, and indirect `DISPATCH_MESH` each execute in separate
+  scissor regions and produce 676 nonzero pixels per path.
+- Mesh tier 1 remains conservatively unreported while object/mesh resource
+  binding, mixed render-state matrices, statistics, render-target arrays, and
+  broader shader/payload coverage are still gated.
+- The same Metal mesh pipeline infrastructure also executes geometry-shader
+  emulation and tessellation proof shapes.
 - General geometry shader support remains limited.
 - Stream output is explicitly rejected.
 - Native tessellation is restricted to a proof shape; unsupported shapes are
@@ -932,3 +935,13 @@ the goal is not complete.
   SM5 vertex/geometry AIR functions now become a Metal object/mesh pipeline,
   use the D3D12 resource-binding bridge, dispatch through the geometry draw
   encoder, and render 1,352 nonzero pixels in the readback gate.
+- Corrected source-runtime isolation again after proving Wine 11.5 resolves
+  builtin PE modules from `<wine>/lib/wine/x86_64-windows` ahead of app-local
+  copies. Source probes now use an APFS copy-on-write clone of vendored Wine,
+  replace builtins only inside that disposable clone, validate the current
+  source hashes, and remove the clone and prefix after every run.
+- Implemented native amplification/mesh pipeline streams and command replay.
+  Metal Shader Converter reflection supplies object/mesh threadgroup and payload
+  sizes; direct and indirect `DispatchMesh` render 676 pixels in separate halves
+  of the readback target through a four-byte AS-to-MS payload. Tier 1 remains
+  unreported pending the remaining phase-6 breadth gates.
