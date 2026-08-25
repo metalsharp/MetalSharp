@@ -136,17 +136,6 @@
       "tier": "unsupported"
     },
     {
-      "api": "D3D12 WaveOps feature report",
-      "evidence": [
-        "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-        "tools/d3d12-metal-sdk/probes/probe_wave_ops",
-        "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
-      ],
-      "reason": "The WaveOps audit compiles the compute-first DXIL wave corpus, but wave intrinsic runtime correctness is not proven; the device must report WaveOps false.",
-      "state": "not_reported",
-      "tier": "unsupported"
-    },
-    {
       "api": "D3D12 Shader Model 6.6 feature report",
       "evidence": [
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",

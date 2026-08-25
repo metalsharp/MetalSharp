@@ -126,6 +126,15 @@ def feature_support_contract() -> dict[str, Any]:
             },
         ],
         "features": {
+            "D3D12_FEATURE_LEVEL_12_2_TARGET": {
+                "state": "required",
+                "tier": "required",
+                "reported": "unsupported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_feature_levels",
+                "expected_levels": ["11_0", "11_1", "12_0", "12_1", "12_2"],
+                "current_target": "12_2",
+                "risk": "Raising the central maximum before every FL12_2 behavior gate passes would recreate false-success device creation.",
+            },
             "D3D12_FEATURE_FEATURE_LEVELS": {
                 "state": "required",
                 "tier": "required",
@@ -172,10 +181,11 @@ def feature_support_contract() -> dict[str, Any]:
             "D3D12_FEATURE_D3D12_OPTIONS1": {
                 "state": "required",
                 "tier": "required",
-                "reported": "partial",
+                "reported": "supported",
                 "probe": "tools/d3d12-metal-sdk/probes/probe_wave_ops",
-                "required_fields": ["Int64ShaderOps"],
-                "risk": "WaveOps must stay unreported until compute-first DXIL wave probes execute and validate results.",
+                "probe_status": "passed",
+                "required_fields": ["WaveOps", "WaveLaneCountMin", "WaveLaneCountMax", "Int64ShaderOps"],
+                "risk": "WaveOps reporting must remain coupled to the 32-lane dispatch/readback corpus.",
             },
             "D3D12_FEATURE_D3D12_OPTIONS9": {
                 "state": "stub_safe",
@@ -354,17 +364,6 @@ def unsupported_ledger() -> dict[str, Any]:
                 "tier": "unsupported",
                 "reason": "No Metal tessellation translation path is proven; hull/domain PSOs remain rejected.",
                 "evidence": ["tools/d3d12-metal-sdk/probes/probe_graphics_pso"],
-            },
-            {
-                "api": "D3D12 WaveOps feature report",
-                "state": "not_reported",
-                "tier": "unsupported",
-                "reason": "The WaveOps audit compiles the compute-first DXIL wave corpus, but wave intrinsic runtime correctness is not proven; the device must report WaveOps false.",
-                "evidence": [
-                    "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-                    "tools/d3d12-metal-sdk/probes/probe_wave_ops",
-                    "tools/d3d12-metal-sdk/contracts/feature-support-contract.json",
-                ],
             },
             {
                 "api": "D3D12 Shader Model 6.6 feature report",

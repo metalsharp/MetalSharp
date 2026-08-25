@@ -26,11 +26,15 @@
     },
     "D3D12_FEATURE_D3D12_OPTIONS1": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_wave_ops",
-      "reported": "partial",
+      "probe_status": "passed",
+      "reported": "supported",
       "required_fields": [
+        "WaveOps",
+        "WaveLaneCountMin",
+        "WaveLaneCountMax",
         "Int64ShaderOps"
       ],
-      "risk": "WaveOps must stay unreported until compute-first DXIL wave probes execute and validate results.",
+      "risk": "WaveOps reporting must remain coupled to the 32-lane dispatch/readback corpus.",
       "state": "required",
       "tier": "required"
     },
