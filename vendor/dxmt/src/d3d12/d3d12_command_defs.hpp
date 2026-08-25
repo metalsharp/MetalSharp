@@ -45,6 +45,8 @@ enum class CmdType : uint32_t {
   BeginQuery,
   EndQuery,
   ResolveQueryData,
+  BuildRaytracingAccelerationStructure,
+  EmitRaytracingAccelerationStructurePostbuildInfo,
 };
 
 struct CmdHeader {
@@ -77,6 +79,25 @@ struct CmdDispatch {
 struct CmdDispatchMesh {
   CmdHeader header;
   uint32_t x, y, z;
+};
+
+struct CmdEmitRaytracingAccelerationStructurePostbuildInfo {
+  CmdHeader header;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_TYPE info_type;
+  D3D12_GPU_VIRTUAL_ADDRESS dest_buffer;
+  D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure;
+};
+
+struct CmdBuildRaytracingAccelerationStructure {
+  CmdHeader header;
+  D3D12_GPU_VIRTUAL_ADDRESS dest_acceleration_structure;
+  D3D12_GPU_VIRTUAL_ADDRESS scratch_acceleration_structure;
+  D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags;
+  D3D12_ELEMENTS_LAYOUT descs_layout;
+  UINT num_descs;
+  D3D12_RAYTRACING_GEOMETRY_DESC geometry;
 };
 
 struct CmdExecuteIndirect {

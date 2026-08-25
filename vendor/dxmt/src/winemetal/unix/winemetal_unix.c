@@ -1842,6 +1842,104 @@ _MTLDevice_supportsRaytracing(void *obj) {
   return STATUS_SUCCESS;
 }
 
+static MTLPrimitiveAccelerationStructureDescriptor *
+create_triangle_acceleration_structure_descriptor(
+    const struct WMTPrimitiveAccelerationStructureInfo *info) {
+  if (!info || !info->vertex_buffer || !info->triangle_count)
+    return nil;
+
+  MTLAccelerationStructureTriangleGeometryDescriptor *geometry =
+      [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+  geometry.vertexBuffer = (id<MTLBuffer>)info->vertex_buffer;
+  geometry.vertexBufferOffset = info->vertex_buffer_offset;
+  geometry.vertexStride = info->vertex_stride;
+  geometry.vertexFormat = MTLAttributeFormatFloat3;
+  geometry.triangleCount = info->triangle_count;
+  geometry.opaque = info->opaque != 0;
+
+  if (info->index_buffer &&
+      info->index_type != WMTAccelerationStructureIndexTypeNone) {
+    geometry.indexBuffer = (id<MTLBuffer>)info->index_buffer;
+    geometry.indexBufferOffset = info->index_buffer_offset;
+    geometry.indexType =
+        info->index_type == WMTAccelerationStructureIndexTypeUInt32
+            ? MTLIndexTypeUInt32
+            : MTLIndexTypeUInt16;
+  }
+
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+  descriptor.geometryDescriptors = @[ geometry ];
+  return descriptor;
+}
+
+static NTSTATUS
+_MTLDevice_accelerationStructureSizesForTriangles(void *obj) {
+  struct unixcall_mtldevice_acceleration_structure_sizes *params = obj;
+  const struct WMTPrimitiveAccelerationStructureInfo *info = params->info.ptr;
+  struct WMTAccelerationStructureSizes *sizes = params->sizes.ptr;
+  params->ret_success = 0;
+  if (!params->device || !sizes)
+    return STATUS_SUCCESS;
+
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_triangle_acceleration_structure_descriptor(info);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+
+  MTLAccelerationStructureSizes metal_sizes =
+      [(id<MTLDevice>)params->device
+          accelerationStructureSizesWithDescriptor:descriptor];
+  sizes->acceleration_structure_size = metal_sizes.accelerationStructureSize;
+  sizes->build_scratch_buffer_size = metal_sizes.buildScratchBufferSize;
+  sizes->refit_scratch_buffer_size = metal_sizes.refitScratchBufferSize;
+  params->ret_success = sizes->acceleration_structure_size != 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newAccelerationStructure(void *obj) {
+  struct unixcall_mtldevice_new_acceleration_structure *params = obj;
+  params->ret_acceleration_structure = 0;
+  if (!params->device || !params->size)
+    return STATUS_SUCCESS;
+  params->ret_acceleration_structure = (obj_handle_t)[
+      (id<MTLDevice>)params->device
+      newAccelerationStructureWithSize:params->size];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_buildTriangleAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structure
+      *params = obj;
+  const struct WMTPrimitiveAccelerationStructureInfo *info = params->info.ptr;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->acceleration_structure ||
+      !params->scratch_buffer)
+    return STATUS_SUCCESS;
+
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_triangle_acceleration_structure_descriptor(info);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      buildAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->acceleration_structure
+                       descriptor:descriptor
+                     scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
+               scratchBufferOffset:params->scratch_buffer_offset];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
 static NTSTATUS
 _MTLDevice_supportsTextureSampleCount(void *obj) {
   struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
@@ -3713,6 +3811,9 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLLibrary_newFunctionWithDescriptor,
     &_MTLCommandBuffer_retainObjectsUntilCompleted,
     &_MTLDevice_supportsRaytracing,
+    &_MTLDevice_accelerationStructureSizesForTriangles,
+    &_MTLDevice_newAccelerationStructure,
+    &_MTLCommandBuffer_buildTriangleAccelerationStructure,
 };
 
 #ifndef DXMT_NATIVE
@@ -3853,5 +3954,8 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLLibrary_newFunctionWithDescriptor,
     &_MTLCommandBuffer_retainObjectsUntilCompleted,
     &_MTLDevice_supportsRaytracing,
+    &_MTLDevice_accelerationStructureSizesForTriangles,
+    &_MTLDevice_newAccelerationStructure,
+    &_MTLCommandBuffer_buildTriangleAccelerationStructure,
 };
 #endif

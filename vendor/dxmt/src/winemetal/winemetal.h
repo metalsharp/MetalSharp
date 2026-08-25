@@ -206,6 +206,43 @@ STATIC_ASSERT(sizeof(WMTBufferInfo) == 32);
 
 WINEMETAL_API obj_handle_t MTLDevice_newBuffer(obj_handle_t device, struct WMTBufferInfo *info);
 
+enum WMTAccelerationStructureIndexType : uint32_t {
+  WMTAccelerationStructureIndexTypeNone = 0,
+  WMTAccelerationStructureIndexTypeUInt16 = 1,
+  WMTAccelerationStructureIndexTypeUInt32 = 2,
+};
+
+struct WMTPrimitiveAccelerationStructureInfo {
+  obj_handle_t vertex_buffer;
+  uint64_t vertex_buffer_offset;
+  uint64_t vertex_stride;
+  uint64_t triangle_count;
+  obj_handle_t index_buffer;
+  uint64_t index_buffer_offset;
+  enum WMTAccelerationStructureIndexType index_type;
+  uint32_t opaque;
+};
+
+struct WMTAccelerationStructureSizes {
+  uint64_t acceleration_structure_size;
+  uint64_t build_scratch_buffer_size;
+  uint64_t refit_scratch_buffer_size;
+};
+
+STATIC_ASSERT(sizeof(WMTPrimitiveAccelerationStructureInfo) == 56);
+STATIC_ASSERT(sizeof(WMTAccelerationStructureSizes) == 24);
+
+WINEMETAL_API bool MTLDevice_accelerationStructureSizesForTriangles(
+    obj_handle_t device,
+    const struct WMTPrimitiveAccelerationStructureInfo *info,
+    struct WMTAccelerationStructureSizes *sizes);
+WINEMETAL_API obj_handle_t MTLDevice_newAccelerationStructure(
+    obj_handle_t device, uint64_t size);
+WINEMETAL_API bool MTLCommandBuffer_buildTriangleAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTPrimitiveAccelerationStructureInfo *info,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
+
 enum WMTSamplerBorderColor : uint8_t {
   WMTSamplerBorderColorTransparentBlack = 0,
   WMTSamplerBorderColorOpaqueBlack = 1,

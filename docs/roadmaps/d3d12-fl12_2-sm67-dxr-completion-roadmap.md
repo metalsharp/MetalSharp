@@ -953,3 +953,9 @@ the goal is not complete.
   hardware support, while D3D12 OPTIONS5 intentionally remains at no DXR tier
   until acceleration structures, state objects, shader tables, synchronization,
   and `DispatchRays` pass behavior gates.
+- Added the first DXR execution gate: D3D12 triangle geometry is translated into
+  a Metal primitive acceleration-structure descriptor, sized through Metal,
+  allocated, encoded on the D3D12 command buffer, and retained through
+  completion. A non-indexed one-triangle BLAS builds successfully and returns
+  640 bytes through `CURRENT_SIZE` postbuild info against a 768-byte prebuild
+  allocation. RaytracingTier remains unreported pending TLAS and ray dispatch.

@@ -1,6 +1,6 @@
 {
   "schema": "metalsharp.d3d12-metal.winemetal-bridge-contract.v1",
-  "abi_version": 2,
+  "abi_version": 3,
   "source_audit": {
     "pe_header": "vendor/dxmt/src/winemetal/winemetal.h",
     "cxx_facade": "vendor/dxmt/src/winemetal/Metal.hpp",
@@ -35,6 +35,9 @@
     "MTLCommandBuffer_property",
     "MTLDevice_newSharedTexture",
     "MTLDevice_supportsRaytracing",
+    "MTLDevice_accelerationStructureSizesForTriangles",
+    "MTLDevice_newAccelerationStructure",
+    "MTLCommandBuffer_buildTriangleAccelerationStructure",
     "WMTSetMetalShaderCachePath",
     "WMTBootstrapRegister",
     "WMTBootstrapLookUp",
@@ -67,6 +70,9 @@
     "_MTLCommandBuffer_property",
     "_MTLDevice_newSharedTexture",
     "_MTLDevice_supportsRaytracing",
+    "_MTLDevice_accelerationStructureSizesForTriangles",
+    "_MTLDevice_newAccelerationStructure",
+    "_MTLCommandBuffer_buildTriangleAccelerationStructure",
     "_WMTSetMetalShaderCachePath",
     "_WMTBootstrapRegister",
     "_WMTBootstrapLookUp",
@@ -88,7 +94,10 @@
     "unixcall_mtlsharedevent_waituntilsignaledvalue": 32,
     "unixcall_mtlcountersamplebuffer_newtimestampbuffer": 24,
     "unixcall_mtlcountersamplebuffer_resolvecounterrange": 32,
-    "unixcall_mtlcommandbuffer_blitcommandencoderwithsamplebuffers": 32
+    "unixcall_mtlcommandbuffer_blitcommandencoderwithsamplebuffers": 32,
+    "unixcall_mtldevice_acceleration_structure_sizes": 32,
+    "unixcall_mtldevice_new_acceleration_structure": 24,
+    "unixcall_mtlcommandbuffer_build_triangle_acceleration_structure": 48
   },
   "deferred_until_claimed": [
     {

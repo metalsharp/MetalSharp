@@ -290,6 +290,10 @@ public:
   }
 };
 
+class AccelerationStructure : public Resource {
+public:
+};
+
 class SamplerState : public Object {
 public:
 };
@@ -710,6 +714,16 @@ public:
     return MTLCommandBuffer_encodeWaitForEvent(handle, event.handle, value);
   }
 
+  bool
+  buildTriangleAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      const WMTPrimitiveAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildTriangleAccelerationStructure(
+        handle, acceleration_structure.handle, &info, scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
   RenderCommandEncoder
   renderCommandEncoder(WMTRenderPassInfo &info) {
     return RenderCommandEncoder{MTLCommandBuffer_renderCommandEncoder(handle, &info)};
@@ -841,6 +855,20 @@ public:
   Reference<Buffer>
   newBuffer(WMTBufferInfo &info) {
     return Reference<Buffer>(MTLDevice_newBuffer(handle, &info));
+  }
+
+  bool
+  accelerationStructureSizesForTriangles(
+      const WMTPrimitiveAccelerationStructureInfo &info,
+      WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForTriangles(handle, &info,
+                                                            &sizes);
+  }
+
+  Reference<AccelerationStructure>
+  newAccelerationStructure(uint64_t size) {
+    return Reference<AccelerationStructure>(
+        MTLDevice_newAccelerationStructure(handle, size));
   }
 
   Reference<SamplerState>

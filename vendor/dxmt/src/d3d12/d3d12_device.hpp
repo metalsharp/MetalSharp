@@ -62,6 +62,11 @@ struct ID3D12Device12Compat : public ID3D12Device11Compat {
 const D3D12_COMMAND_SIGNATURE_DESC *
 GetD3D12CommandSignatureDesc(ID3D12CommandSignature *signature);
 
+bool D3D12ResolveTriangleAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTPrimitiveAccelerationStructureInfo &info);
+
 class MTLD3D12Device : public ID3D12Device12Compat {
 public:
   MTLD3D12Device(std::unique_ptr<Device> &&device,

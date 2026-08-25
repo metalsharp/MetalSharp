@@ -6904,6 +6904,100 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
         break;
       }
+      case CmdType::BuildRaytracingAccelerationStructure: {
+        auto *cmd = reinterpret_cast<
+            const CmdBuildRaytracingAccelerationStructure *>(header);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+        inputs.Type = cmd->type;
+        inputs.Flags = cmd->flags;
+        inputs.NumDescs = cmd->num_descs;
+        inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        inputs.pGeometryDescs = &cmd->geometry;
+        WMTPrimitiveAccelerationStructureInfo metal_info = {};
+        auto *dest = m_device->LookupResourceByGPUAddress(
+            cmd->dest_acceleration_structure);
+        auto *scratch = m_device->LookupResourceByGPUAddress(
+            cmd->scratch_acceleration_structure);
+        if (!m_device->SupportsMetalRaytracing() || !dest || !scratch ||
+            !D3D12ResolveTriangleAccelerationStructureInfo(
+                m_device, &inputs, metal_info)) {
+          QTRACE("BuildRaytracingAS SKIPPED type=%u dest=%p scratch=%p",
+                 (unsigned)cmd->type, (void *)dest, (void *)scratch);
+          break;
+        }
+        WMTAccelerationStructureSizes sizes = {};
+        auto metal_device = m_device->GetMTLDevice();
+        if (!metal_device.accelerationStructureSizesForTriangles(metal_info,
+                                                                 sizes)) {
+          QTRACE("BuildRaytracingAS SKIPPED size query failed");
+          break;
+        }
+        auto acceleration_structure =
+            metal_device.newAccelerationStructure(
+                sizes.acceleration_structure_size);
+        uint64_t scratch_offset = cmd->scratch_acceleration_structure -
+                                  scratch->GetGPUVirtualAddress();
+        st.CloseRenderEncoder();
+        bool encoded =
+            acceleration_structure.handle && scratch->GetMTLBuffer().handle &&
+            cmdbuf.buildTriangleAccelerationStructure(
+                acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                scratch_offset);
+        if (encoded) {
+          dest->SetMTLAccelerationStructure(
+              acceleration_structure, sizes.acceleration_structure_size);
+          st.RetainMTLObjectForCompletion(acceleration_structure);
+          st.RetainResourceMetalObjectsForCompletion(dest);
+          st.RetainResourceMetalObjectsForCompletion(scratch);
+          if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                  cmd->geometry.Triangles.VertexBuffer.StartAddress))
+            st.RetainResourceMetalObjectsForCompletion(vertex);
+          if (cmd->geometry.Triangles.IndexBuffer) {
+            if (auto *index = m_device->LookupResourceByGPUAddress(
+                    cmd->geometry.Triangles.IndexBuffer))
+              st.RetainResourceMetalObjectsForCompletion(index);
+          }
+          QTRACE("BuildRaytracingAS encoded triangles=%llu as=%llu "
+                 "result_bytes=%llu scratch_bytes=%llu",
+                 (unsigned long long)metal_info.triangle_count,
+                 (unsigned long long)acceleration_structure.handle,
+                 (unsigned long long)sizes.acceleration_structure_size,
+                 (unsigned long long)sizes.build_scratch_buffer_size);
+        } else {
+          QTRACE("BuildRaytracingAS SKIPPED Metal encoder failed");
+        }
+        break;
+      }
+      case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo: {
+        auto *cmd = reinterpret_cast<const
+            CmdEmitRaytracingAccelerationStructurePostbuildInfo *>(header);
+        auto *source = m_device->LookupResourceByGPUAddress(
+            cmd->source_acceleration_structure);
+        auto *dest = m_device->LookupResourceByGPUAddress(cmd->dest_buffer);
+        if (cmd->info_type !=
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE ||
+            !source || !source->GetMTLAccelerationStructure().handle || !dest ||
+            !dest->GetMTLBuffer().handle) {
+          QTRACE("EmitRaytracingPostbuildInfo SKIPPED type=%u source=%p "
+                 "dest=%p",
+                 (unsigned)cmd->info_type, (void *)source, (void *)dest);
+          break;
+        }
+        uint64_t current_size = source->GetMTLAccelerationStructureSize();
+        uint64_t dest_offset = cmd->dest_buffer - dest->GetGPUVirtualAddress();
+        if (dest_offset + sizeof(current_size) > dest->GetBufferByteLength()) {
+          QTRACE("EmitRaytracingPostbuildInfo SKIPPED out-of-bounds");
+          break;
+        }
+        dest->GetMTLBuffer().updateContents(dest_offset, &current_size,
+                                            sizeof(current_size));
+        st.RetainResourceMetalObjectsForCompletion(source);
+        st.RetainResourceMetalObjectsForCompletion(dest);
+        QTRACE("EmitRaytracingPostbuildInfo current_size=%llu dest=0x%llx",
+               (unsigned long long)current_size,
+               (unsigned long long)cmd->dest_buffer);
+        break;
+      }
       case CmdType::Dispatch: {
         auto *cmd = reinterpret_cast<const CmdDispatch *>(header);
         ReplayComputeDispatch(st, m_device, cmdbuf, cmd->x, cmd->y, cmd->z,

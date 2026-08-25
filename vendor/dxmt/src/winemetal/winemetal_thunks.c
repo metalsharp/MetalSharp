@@ -1325,3 +1325,43 @@ MTLDevice_supportsRaytracing(obj_handle_t device) {
   UNIX_CALL(135, &params);
   return params.ret;
 }
+
+WINEMETAL_API bool
+MTLDevice_accelerationStructureSizesForTriangles(
+    obj_handle_t device,
+    const struct WMTPrimitiveAccelerationStructureInfo *info,
+    struct WMTAccelerationStructureSizes *sizes) {
+  struct unixcall_mtldevice_acceleration_structure_sizes params;
+  params.device = device;
+  WMT_MEMPTR_SET(params.info, info);
+  WMT_MEMPTR_SET(params.sizes, sizes);
+  params.ret_success = 0;
+  UNIX_CALL(136, &params);
+  return params.ret_success;
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newAccelerationStructure(obj_handle_t device, uint64_t size) {
+  struct unixcall_mtldevice_new_acceleration_structure params;
+  params.device = device;
+  params.size = size;
+  params.ret_acceleration_structure = 0;
+  UNIX_CALL(137, &params);
+  return params.ret_acceleration_structure;
+}
+
+WINEMETAL_API bool
+MTLCommandBuffer_buildTriangleAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTPrimitiveAccelerationStructureInfo *info,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structure params;
+  params.cmdbuf = cmdbuf;
+  params.acceleration_structure = acceleration_structure;
+  WMT_MEMPTR_SET(params.info, info);
+  params.scratch_buffer = scratch_buffer;
+  params.scratch_buffer_offset = scratch_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(138, &params);
+  return params.ret_success;
+}

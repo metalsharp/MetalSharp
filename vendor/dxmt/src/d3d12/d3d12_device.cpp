@@ -4153,14 +4153,98 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateStateObject(
   return E_NOTIMPL;
 }
 
+bool D3D12ResolveTriangleAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTPrimitiveAccelerationStructureInfo &info) {
+  info = {};
+  if (!device || !inputs ||
+      inputs->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ||
+      inputs->NumDescs != 1)
+    return false;
+
+  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+  if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY) {
+    geometry = inputs->pGeometryDescs;
+  } else if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+             inputs->ppGeometryDescs) {
+    geometry = inputs->ppGeometryDescs[0];
+  }
+  if (!geometry ||
+      geometry->Type != D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES ||
+      geometry->Triangles.VertexFormat != DXGI_FORMAT_R32G32B32_FLOAT ||
+      !geometry->Triangles.VertexBuffer.StartAddress ||
+      !geometry->Triangles.VertexBuffer.StrideInBytes)
+    return false;
+
+  auto *vertex_resource = device->LookupResourceByGPUAddress(
+      geometry->Triangles.VertexBuffer.StartAddress);
+  if (!vertex_resource || !vertex_resource->GetMTLBuffer().handle)
+    return false;
+
+  info.vertex_buffer = vertex_resource->GetMTLBuffer().handle;
+  info.vertex_buffer_offset = geometry->Triangles.VertexBuffer.StartAddress -
+                              vertex_resource->GetGPUVirtualAddress();
+  info.vertex_stride = geometry->Triangles.VertexBuffer.StrideInBytes;
+  info.opaque =
+      (geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) != 0;
+
+  if (geometry->Triangles.IndexFormat == DXGI_FORMAT_UNKNOWN) {
+    info.index_type = WMTAccelerationStructureIndexTypeNone;
+    info.triangle_count = geometry->Triangles.VertexCount / 3;
+  } else {
+    if (geometry->Triangles.IndexFormat != DXGI_FORMAT_R16_UINT &&
+        geometry->Triangles.IndexFormat != DXGI_FORMAT_R32_UINT)
+      return false;
+    auto *index_resource = device->LookupResourceByGPUAddress(
+        geometry->Triangles.IndexBuffer);
+    if (!index_resource || !index_resource->GetMTLBuffer().handle)
+      return false;
+    info.index_buffer = index_resource->GetMTLBuffer().handle;
+    info.index_buffer_offset = geometry->Triangles.IndexBuffer -
+                               index_resource->GetGPUVirtualAddress();
+    info.index_type = geometry->Triangles.IndexFormat == DXGI_FORMAT_R32_UINT
+                          ? WMTAccelerationStructureIndexTypeUInt32
+                          : WMTAccelerationStructureIndexTypeUInt16;
+    info.triangle_count = geometry->Triangles.IndexCount / 3;
+  }
+  return info.triangle_count != 0;
+}
+
 void STDMETHODCALLTYPE
 MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info) {
   TRACE("ID3D12Device5::GetRaytracingAccelerationStructurePrebuildInfo");
-  if (info) {
-    memset(info, 0, sizeof(*info));
+  if (!info)
+    return;
+  memset(info, 0, sizeof(*info));
+  if (!m_metal_raytracing_supported)
+    return;
+
+  WMTPrimitiveAccelerationStructureInfo metal_info = {};
+  if (!D3D12ResolveTriangleAccelerationStructureInfo(this, desc, metal_info)) {
+    TRACE("  prebuild unsupported input shape");
+    return;
   }
+  WMTAccelerationStructureSizes sizes = {};
+  if (!GetMTLDevice().accelerationStructureSizesForTriangles(metal_info,
+                                                             sizes)) {
+    TRACE("  prebuild Metal size query failed");
+    return;
+  }
+  auto align_256 = [](uint64_t value) { return (value + 255ull) & ~255ull; };
+  info->ResultDataMaxSizeInBytes =
+      align_256(sizes.acceleration_structure_size);
+  info->ScratchDataSizeInBytes =
+      align_256(sizes.build_scratch_buffer_size);
+  info->UpdateScratchDataSizeInBytes =
+      align_256(sizes.refit_scratch_buffer_size);
+  TRACE("  prebuild BLAS triangles=%llu result=%llu scratch=%llu update=%llu",
+        (unsigned long long)metal_info.triangle_count,
+        (unsigned long long)info->ResultDataMaxSizeInBytes,
+        (unsigned long long)info->ScratchDataSizeInBytes,
+        (unsigned long long)info->UpdateScratchDataSizeInBytes);
 }
 
 D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE
