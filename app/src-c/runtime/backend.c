@@ -8,6 +8,7 @@
 #include "metalsharp_backend/d3dmetal.h"
 #include "metalsharp_backend/diagnostics.h"
 #include "metalsharp_backend/emulators.h"
+#include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/es_bridge.h"
 #include "metalsharp_backend/game.h"
 #include "metalsharp_backend/gamejolt.h"
@@ -1653,6 +1654,125 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/install") == 0) {
         body = ms_sharp_action_json(context->metalsharp_home, request->body, request->body_length, "install");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/epic/status") == 0) {
+        body = ms_epic_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/epic/games") == 0) {
+        body = ms_epic_games_json(context->metalsharp_home, 0);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/install-tool") == 0) {
+        body = ms_epic_install_tool_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/auth") == 0) {
+        body = ms_epic_auth_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/logout") == 0) {
+        body = ms_epic_logout_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/sync") == 0) {
+        body = ms_epic_games_json(context->metalsharp_home, 1);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/install") == 0) {
+        body = ms_epic_install_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/progress") == 0) {
+        body = ms_epic_progress_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/cancel") == 0) {
+        body = ms_epic_cancel_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/initialize") == 0) {
+        body = ms_epic_initialize_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/play") == 0) {
+        body = ms_epic_launch_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/stop") == 0) {
+        body = ms_epic_stop_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/stop-all") == 0) {
+        body = ms_epic_stop_all_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/uninstall") == 0) {
+        body = ms_epic_uninstall_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/launchers/install") == 0) {
+        body = ms_sharp_launcher_install_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/launchers/status") == 0) {
+        body = ms_sharp_launcher_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/launchers/launch") == 0) {
+        body = ms_sharp_launcher_launch_json(context->metalsharp_home, request->body, request->body_length);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

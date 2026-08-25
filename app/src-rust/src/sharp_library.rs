@@ -2,7 +2,8 @@ use serde_json::{json, Value};
 use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use walkdir::WalkDir;
@@ -12,6 +13,61 @@ const MANIFEST_FILE: &str = "library.json";
 const DEFAULT_EPIC_COVER: &str = "default-cover-epic-games-launcher.svg";
 const DEFAULT_ROCKSTAR_COVER: &str = "default-cover-rockstar-games-launcher.svg";
 const DEFAULT_UBISOFT_COVER: &str = "default-cover-ubisoft-connect.svg";
+
+#[derive(Clone, Copy)]
+struct LauncherInstaller {
+    id: &'static str,
+    name: &'static str,
+    bottle_id: &'static str,
+    url: &'static str,
+    filename: &'static str,
+    msi: bool,
+    executable_path: &'static str,
+    fallback_executable_path: Option<&'static str>,
+}
+
+const LAUNCHER_INSTALLERS: &[LauncherInstaller] = &[
+    LauncherInstaller {
+        id: "ea",
+        name: "EA App",
+        bottle_id: "EA-Prefix",
+        url: "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
+        filename: "EAappInstaller.exe",
+        msi: false,
+        executable_path: "drive_c/Program Files/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe",
+        fallback_executable_path: Some("drive_c/Program Files/Electronic Arts/EA Desktop/EA Desktop/EALauncher.exe"),
+    },
+    LauncherInstaller {
+        id: "rockstar",
+        name: "Rockstar Games Launcher",
+        bottle_id: "Rockstar-Prefix",
+        url: "https://gamedownloads.rockstargames.com/public/installer/Rockstar-Games-Launcher.exe",
+        filename: "Rockstar-Games-Launcher.exe",
+        msi: false,
+        executable_path: "drive_c/Program Files/Rockstar Games/Launcher/Launcher.exe",
+        fallback_executable_path: None,
+    },
+    LauncherInstaller {
+        id: "ubisoft",
+        name: "Ubisoft Connect",
+        bottle_id: "Ubisoft-Prefix",
+        url: "https://ubi.li/4vxt9",
+        filename: "UbisoftConnectInstaller.exe",
+        msi: false,
+        executable_path: "drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe",
+        fallback_executable_path: Some("drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/upc.exe"),
+    },
+    LauncherInstaller {
+        id: "battlenet",
+        name: "Battle.net",
+        bottle_id: "Battle-Net-Prefix",
+        url: "https://us.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe",
+        filename: "Battle.net-Setup.exe",
+        msi: false,
+        executable_path: "drive_c/Program Files (x86)/Battle.net/Battle.net.exe",
+        fallback_executable_path: Some("drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe"),
+    },
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StoreLauncherKind {
@@ -76,6 +132,775 @@ pub struct SharpLaunchResult {
 pub enum SharpInstallOutcome {
     Imported(Box<SharpApp>),
     InstallerStarted { pid: u32, message: String },
+}
+
+fn launcher_installer(id: &str) -> Option<LauncherInstaller> {
+    LAUNCHER_INSTALLERS.iter().copied().find(|launcher| launcher.id == id)
+}
+
+fn launcher_payload_is_valid(path: &Path, msi: bool) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() < 4096 {
+        return false;
+    }
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    if msi {
+        let mut magic = [0_u8; 4];
+        return file.read_exact(&mut magic).is_ok() && magic == [0xd0, 0xcf, 0x11, 0xe0];
+    }
+    let mut magic = [0_u8; 2];
+    file.read_exact(&mut magic).is_ok() && magic == *b"MZ"
+}
+
+fn ensure_launcher_bottle(
+    launcher: LauncherInstaller,
+    prefix: &Path,
+    installer_path: &Path,
+    log_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_path = crate::bottles::bottle_manifest_path(launcher.bottle_id);
+    if manifest_path.is_file() {
+        fs::create_dir_all(prefix)?;
+        fs::create_dir_all(crate::bottles::installer_payload_dir(launcher.bottle_id))?;
+        fs::create_dir_all(crate::bottles::bottle_logs_dir(launcher.bottle_id))?;
+        return Ok(());
+    }
+    let timestamp = chrono_now();
+    crate::bottles::save_bottle(&crate::bottles::BottleManifest {
+        id: launcher.bottle_id.to_string(),
+        name: launcher.name.to_string(),
+        custom_name: None,
+        bottle_type: crate::bottles::BottleType::Installer,
+        steam_app_id: None,
+        prefix_path: prefix.to_string_lossy().to_string(),
+        arch: crate::bottles::BottleArch::Win64,
+        runtime_profile: crate::bottles::RuntimeProfile::Webview,
+        preferred_pipeline: Some("wine_bare".to_string()),
+        installed_components: Vec::new(),
+        source_installer_path: Some(installer_path.to_string_lossy().to_string()),
+        installer_kind: Some(if launcher.msi {
+            crate::bottles::InstallerKind::Msi
+        } else {
+            crate::bottles::InstallerKind::Exe
+        }),
+        game_install_path: None,
+        runtime_assets: Vec::new(),
+        installed_app_detections: Vec::new(),
+        health: crate::bottles::BottleHealth::NeedsRepair,
+        last_launch_log: Some(log_path.to_string_lossy().to_string()),
+        last_launch_pid: None,
+        last_launch_status: Some("downloading".to_string()),
+        last_launch_finished_at: None,
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
+    })?;
+    Ok(())
+}
+
+fn append_launcher_log(log: &mut fs::File, line: impl AsRef<str>) {
+    let _ = writeln!(log, "{}", line.as_ref());
+    let _ = log.flush();
+}
+
+fn run_logged(
+    command: &mut Command,
+    log: &mut fs::File,
+) -> Result<std::process::ExitStatus, Box<dyn std::error::Error>> {
+    let stdout = log.try_clone()?;
+    let stderr = log.try_clone()?;
+    Ok(command.stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr)).status()?)
+}
+
+fn windows_z_path(path: &Path) -> String {
+    format!("Z:{}", path.to_string_lossy().replace('/', "\\"))
+}
+
+fn capture_eos_msi(extraction_root: &Path, destination: &Path) -> bool {
+    for _ in 0..750 {
+        if let Some(source) = WalkDir::new(extraction_root)
+            .min_depth(1)
+            .max_depth(2)
+            .into_iter()
+            .filter_map(Result::ok)
+            .find(|entry| {
+                entry.file_type().is_file()
+                    && entry
+                        .path()
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        .is_some_and(|value| value.eq_ignore_ascii_case("msi"))
+            })
+            .map(|entry| entry.into_path())
+        {
+            if let Ok(first) = fs::metadata(&source) {
+                if first.len() > 16 * 1024 * 1024 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    if fs::metadata(&source).is_ok_and(|second| second.len() == first.len()) {
+                        let temporary = destination.with_extension(format!("msi.tmp.{}", std::process::id()));
+                        if fs::copy(&source, &temporary).is_ok() && fs::rename(&temporary, destination).is_ok() {
+                            return true;
+                        }
+                        let _ = fs::remove_file(temporary);
+                    }
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+fn patch_eos_custom_actions(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut raw = fs::read_to_string(path)?;
+    for action in ["InitializeComponents", "CreateRegistryKeys", "RegisterProductID"] {
+        let original = format!("{action}\t3073\t");
+        let replacement = format!("{action}\t3137\t");
+        if !raw.contains(&original) {
+            return Err(format!("EOS MSI custom action missing: {action}").into());
+        }
+        raw = raw.replacen(&original, &replacement, 1);
+    }
+    fs::write(path, raw)?;
+    Ok(())
+}
+
+fn idt_property(path: &Path, key: &str) -> Result<String, Box<dyn std::error::Error>> {
+    fs::read_to_string(path)?
+        .lines()
+        .find_map(|line| line.strip_prefix(key).and_then(|value| value.strip_prefix('\t')).map(str::to_owned))
+        .ok_or_else(|| format!("EOS MSI property missing: {key}").into())
+}
+
+fn eos_session_guid() -> Result<String, Box<dyn std::error::Error>> {
+    let mut bytes = [0_u8; 16];
+    fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Ok(format!(
+        "{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    ))
+}
+
+fn epic_online_services_ready(prefix: &Path, installers: &Path) -> bool {
+    installers.join("EpicOnlineServices.ready").is_file()
+        && prefix
+            .join("drive_c/Program Files (x86)/Epic Games/Epic Online Services/EpicOnlineServicesUserHelper.exe")
+            .is_file()
+        && prefix
+            .join("drive_c/Program Files (x86)/Epic Games/Epic Online Services/service/EpicOnlineServicesHost.exe")
+            .is_file()
+}
+
+fn prepare_epic_online_services(
+    wine: &Path,
+    prefix: &Path,
+    installers: &Path,
+    log: &mut fs::File,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if epic_online_services_ready(prefix, installers) {
+        append_launcher_log(log, "status=epic_online_services_already_ready");
+        return Ok(());
+    }
+    let eos_installer =
+        prefix.join("drive_c/Program Files/Epic Games/Launcher/Portal/Extras/EOS/EpicOnlineServicesInstaller.exe");
+    for _ in 0..3000 {
+        if eos_installer.is_file() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    if !eos_installer.is_file() {
+        return Err("Epic Online Services installer is missing".into());
+    }
+    let extraction_root = prefix.join("drive_c/ProgramData/Epic/EpicOnlineServices/EOSInstaller");
+    let captured = installers.join("EpicOnlineServices.msi");
+    let patched = installers.join("EpicOnlineServices-wine.msi");
+    let workspace = installers.join("eos-msidb");
+    let _ = fs::remove_dir_all(&workspace);
+    fs::create_dir_all(&workspace)?;
+    append_launcher_log(log, "stage=epic_online_services_capture");
+    let watcher_root = extraction_root.clone();
+    let watcher_destination = captured.clone();
+    let watcher = std::thread::spawn(move || capture_eos_msi(&watcher_root, &watcher_destination));
+    let probe = run_logged(
+        Command::new(wine)
+            .arg(&eos_installer)
+            .args(["/upgrade", "productid=EpicGamesLauncher", "minversion=5.3.0", "/quiet"])
+            .env("WINEPREFIX", prefix),
+        log,
+    )?;
+    append_launcher_log(log, format!("eos_probe_exit={:?}", probe.code()));
+    if !watcher.join().unwrap_or(false) || !launcher_payload_is_valid(&captured, true) {
+        return Err("failed to capture Epic Online Services MSI".into());
+    }
+    fs::copy(&captured, &patched)?;
+    append_launcher_log(log, "stage=epic_online_services_patch");
+    let patched_windows = windows_z_path(&patched);
+    let workspace_windows = windows_z_path(&workspace);
+    let export = run_logged(
+        Command::new(wine)
+            .args([
+                "C:\\windows\\system32\\msidb.exe",
+                "-d",
+                &patched_windows,
+                "-f",
+                &workspace_windows,
+                "-s",
+                "-e",
+                "CustomAction",
+                "Property",
+            ])
+            .env("WINEPREFIX", prefix),
+        log,
+    )?;
+    if !export.success() {
+        return Err("failed to export EOS MSI tables".into());
+    }
+    let custom_action = workspace.join("CustomAc.idt");
+    let property = workspace.join("Property.idt");
+    patch_eos_custom_actions(&custom_action)?;
+    let product_code = idt_property(&property, "ProductCode")?;
+    let build_version = idt_property(&property, "EOSHBuildVersion")?;
+    let import = run_logged(
+        Command::new(wine)
+            .args([
+                "C:\\windows\\system32\\msidb.exe",
+                "-d",
+                &patched_windows,
+                "-f",
+                &workspace_windows,
+                "-i",
+                "CustomAction",
+            ])
+            .env("WINEPREFIX", prefix),
+        log,
+    )?;
+    if !import.success() {
+        return Err("failed to patch EOS MSI".into());
+    }
+    append_launcher_log(log, "stage=epic_online_services_install");
+    let install = run_logged(
+        Command::new(wine)
+            .args(["msiexec", "/i", &patched_windows, "/qn", "EOSPRODUCTID=EpicGamesLauncher", "REBOOT=ReallySuppress"])
+            .env("WINEPREFIX", prefix),
+        log,
+    )?;
+    if !install.success() {
+        return Err("patched EOS MSI installation failed".into());
+    }
+    let user_helper =
+        prefix.join("drive_c/Program Files (x86)/Epic Games/Epic Online Services/EpicOnlineServicesUserHelper.exe");
+    let service_host =
+        prefix.join("drive_c/Program Files (x86)/Epic Games/Epic Online Services/service/EpicOnlineServicesHost.exe");
+    if !user_helper.is_file() || !service_host.is_file() {
+        return Err("EOS installation did not produce its runtime".into());
+    }
+    append_launcher_log(log, "stage=epic_online_services_register");
+    let mut reg_add =
+        |reg: &str, key: &str, value: &str, kind: &str, data: &str| -> Result<(), Box<dyn std::error::Error>> {
+            let status = run_logged(
+                Command::new(wine)
+                    .args([reg, "add", key, "/v", value, "/t", kind, "/d", data, "/f"])
+                    .env("WINEPREFIX", prefix),
+                log,
+            )?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("failed to register EOS value: {key}\\{value}").into())
+            }
+        };
+    let reg32 = "C:\\windows\\syswow64\\reg.exe";
+    reg_add(reg32, "HKLM\\SOFTWARE\\Epic Games\\EOS", "MSIProductCode", "REG_SZ", &product_code)?;
+    for (component, executable, version) in [
+        ("UserHelper", "EpicOnlineServicesUserHelper.exe", "1.0.0"),
+        ("UIHelper", "EpicOnlineServicesUIHelper.exe", "1.0.0"),
+        ("InstallHelper", "EpicOnlineServicesInstallHelper.exe", "1.0.0"),
+        ("MainService", "service\\EpicOnlineServicesHost.exe", build_version.as_str()),
+    ] {
+        let key = format!("HKLM\\SOFTWARE\\Epic Games\\EOS\\{component}");
+        let path = format!("C:\\Program Files (x86)\\Epic Games\\Epic Online Services\\{executable}");
+        reg_add(reg32, &key, "Path", "REG_SZ", &path)?;
+        reg_add(reg32, &key, "Version", "REG_SZ", version)?;
+    }
+    reg_add(
+        "C:\\windows\\system32\\reg.exe",
+        "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+        "EOS_SESSION_GUID",
+        "REG_SZ",
+        &eos_session_guid()?,
+    )?;
+    let sc = "C:\\windows\\system32\\sc.exe";
+    let query =
+        run_logged(Command::new(wine).args([sc, "query", "EpicOnlineServices"]).env("WINEPREFIX", prefix), log)?;
+    if !query.success() {
+        let create = run_logged(
+            Command::new(wine)
+                .args([
+                    sc,
+                    "create",
+                    "EpicOnlineServices",
+                    "binPath=",
+                    "C:\\Program Files (x86)\\Epic Games\\Epic Online Services\\service\\EpicOnlineServicesHost.exe",
+                    "start=",
+                    "demand",
+                    "DisplayName=",
+                    "Epic Online Services",
+                ])
+                .env("WINEPREFIX", prefix),
+            log,
+        )?;
+        if !create.success() {
+            return Err("failed to create EOS service".into());
+        }
+    }
+    let _ = run_logged(
+        Command::new(wine)
+            .args([
+                sc,
+                "description",
+                "EpicOnlineServices",
+                "Runs background processes for applications using Epic Games services",
+            ])
+            .env("WINEPREFIX", prefix),
+        log,
+    );
+    let setup = run_logged(
+        Command::new(wine).arg(&user_helper).args(["--setup", "--msimode=NewInstall"]).env("WINEPREFIX", prefix),
+        log,
+    )?;
+    if !setup.success() && setup.code() != Some(15) {
+        return Err("EOS user helper setup failed unexpectedly".into());
+    }
+    let verify = run_logged(
+        Command::new(wine)
+            .arg(&eos_installer)
+            .args(["/upgrade", "productid=EpicGamesLauncher", "minversion=5.3.0", "/quiet"])
+            .env("WINEPREFIX", prefix),
+        log,
+    )?;
+    if !verify.success() {
+        return Err("EOS registration verification failed".into());
+    }
+    let wineserver = crate::platform::metalsharp_home_dir().join("runtime/wine/bin/wineserver");
+    let _ = run_logged(Command::new(&wineserver).arg("-k").env("WINEPREFIX", prefix), log);
+    let start =
+        run_logged(Command::new(wine).args([sc, "start", "EpicOnlineServices"]).env("WINEPREFIX", prefix), log)?;
+    if !start.success() {
+        return Err("failed to start EOS service".into());
+    }
+    fs::write(
+        installers.join("EpicOnlineServices.ready"),
+        format!("product={product_code}\nversion={build_version}\n"),
+    )?;
+    append_launcher_log(log, "status=epic_online_services_ready");
+    let _ = fs::remove_dir_all(workspace);
+    Ok(())
+}
+
+fn epic_game_root() -> PathBuf {
+    let home = crate::platform::metalsharp_home_dir();
+    let base = home.join("launcher-games/epic");
+    if let Ok(configured) = fs::read_to_string(base.join("location.txt")) {
+        let path = PathBuf::from(configured.trim());
+        if path.is_absolute() && (path.starts_with(&home) || path.starts_with("/Volumes")) {
+            return path;
+        }
+    }
+    base.join("games")
+}
+
+fn prepare_epic_game_install_permissions(
+    wine: &Path,
+    prefix: &Path,
+    installers: &Path,
+    log: &mut fs::File,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let marker = installers.join("EpicGameInstalls-v2.ready");
+    let game_root = epic_game_root();
+    let dosdevices = prefix.join("dosdevices");
+    let game_drive = dosdevices.join("g:");
+    if marker.is_file() && game_root.is_dir() {
+        return Ok(());
+    }
+    append_launcher_log(log, "stage=epic_game_install_permissions");
+    fs::create_dir_all(&game_root)?;
+    fs::set_permissions(&game_root, fs::Permissions::from_mode(0o775))?;
+    fs::create_dir_all(&dosdevices)?;
+    match fs::symlink_metadata(&game_drive) {
+        Ok(metadata) if metadata.file_type().is_symlink() => fs::remove_file(&game_drive)?,
+        Ok(_) => return Err("Epic game drive mapping is occupied by a non-symlink".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+        Err(error) => return Err(error.into()),
+    }
+    std::os::unix::fs::symlink(&game_root, &game_drive)?;
+    let installer_drive = dosdevices.join("d:");
+    if fs::read_link(&installer_drive).ok().as_deref() == Some(Path::new("/Volumes/Epic Games Launcher")) {
+        let _ = fs::remove_file(installer_drive);
+        let _ = fs::remove_file(dosdevices.join("d::"));
+    }
+    let reg = "C:\\windows\\system32\\reg.exe";
+    let policy = "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
+    for (name, value) in [("EnableLUA", "0"), ("ConsentPromptBehaviorAdmin", "0")] {
+        let status = run_logged(
+            Command::new(wine)
+                .args([reg, "add", policy, "/v", name, "/t", "REG_DWORD", "/d", value, "/f"])
+                .env("WINEPREFIX", prefix),
+            log,
+        )?;
+        if !status.success() {
+            return Err(format!("failed to configure Epic game install permission: {name}").into());
+        }
+    }
+    let wineserver = crate::platform::metalsharp_home_dir().join("runtime/wine/bin/wineserver");
+    let _ = run_logged(Command::new(wineserver).arg("-k").env("WINEPREFIX", prefix), log);
+    let service = run_logged(
+        Command::new(wine)
+            .args(["C:\\windows\\system32\\sc.exe", "start", "EpicOnlineServices"])
+            .env("WINEPREFIX", prefix),
+        log,
+    )?;
+    if !service.success() {
+        return Err("failed to restart Epic Online Services after applying game install permissions".into());
+    }
+    fs::write(&marker, format!("uac=disabled\ngameDrive=G:\\\ngameRoot={}\n", game_root.display()))?;
+    append_launcher_log(log, "status=epic_game_install_permissions_ready");
+    Ok(())
+}
+
+fn run_epic_client_with_online_services(
+    wine: &Path,
+    prefix: &Path,
+    installers: &Path,
+    executable: &Path,
+    log: &mut fs::File,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let eos_installer =
+        prefix.join("drive_c/Program Files/Epic Games/Launcher/Portal/Extras/EOS/EpicOnlineServicesInstaller.exe");
+    let mut bootstrap = None;
+    if !epic_online_services_ready(prefix, installers) && !eos_installer.is_file() {
+        append_launcher_log(log, "stage=epic_online_services_bootstrap");
+        bootstrap = Some(
+            Command::new(wine)
+                .arg(executable)
+                .env("WINEPREFIX", prefix)
+                .stdout(Stdio::from(log.try_clone()?))
+                .stderr(Stdio::from(log.try_clone()?))
+                .spawn()?,
+        );
+    }
+    if !epic_online_services_ready(prefix, installers) {
+        if let Err(error) = prepare_epic_online_services(wine, prefix, installers, log) {
+            let wineserver = crate::platform::metalsharp_home_dir().join("runtime/wine/bin/wineserver");
+            let _ = run_logged(Command::new(wineserver).arg("-k").env("WINEPREFIX", prefix), log);
+            if let Some(child) = bootstrap.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Err(error);
+        }
+    }
+    prepare_epic_game_install_permissions(wine, prefix, installers, log)?;
+    if let Some(child) = bootstrap.as_mut() {
+        for _ in 0..100 {
+            if child.try_wait()?.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if child.try_wait()?.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    append_launcher_log(log, "stage=epic_client_launch");
+    let status = run_logged(Command::new(wine).arg(executable).env("WINEPREFIX", prefix), log)?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Epic Games Launcher exited unsuccessfully".into())
+    }
+}
+
+fn run_launcher_installer_worker(
+    launcher: LauncherInstaller,
+    prefix: PathBuf,
+    installer_path: PathBuf,
+    log_path: PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut log = OpenOptions::new().create(true).truncate(true).write(true).open(&log_path)?;
+    append_launcher_log(&mut log, format!("launcher={}", launcher.id));
+    append_launcher_log(&mut log, format!("bottle={}", launcher.bottle_id));
+    append_launcher_log(&mut log, format!("prefix={}", prefix.display()));
+    append_launcher_log(&mut log, format!("url={}", launcher.url));
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let partial = installer_path.with_extension(format!(
+        "{}.part.{}.{}",
+        installer_path.extension().and_then(|value| value.to_str()).unwrap_or("download"),
+        std::process::id(),
+        nonce
+    ));
+    OpenOptions::new().write(true).create_new(true).open(&partial)?;
+    append_launcher_log(&mut log, "stage=download");
+    let curl_stdout = log.try_clone()?;
+    let curl_stderr = log.try_clone()?;
+    let status = Command::new("/usr/bin/curl")
+        .args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "--retry",
+            "2",
+            "--connect-timeout",
+            "20",
+            "--max-time",
+            "1800",
+            "--max-filesize",
+            "2147483648",
+            "-A",
+            concat!("MetalSharp/", env!("CARGO_PKG_VERSION")),
+            "-o",
+        ])
+        .arg(&partial)
+        .arg(launcher.url)
+        .stdout(Stdio::from(curl_stdout))
+        .stderr(Stdio::from(curl_stderr))
+        .status()?;
+    if !status.success() || !launcher_payload_is_valid(&partial, launcher.msi) {
+        let _ = fs::remove_file(&partial);
+        return Err("launcher download failed validation".into());
+    }
+    fs::rename(&partial, &installer_path)?;
+
+    let wine = crate::platform::metalsharp_home_dir().join("runtime/wine/bin/metalsharp-wine");
+    append_launcher_log(&mut log, "stage=prefix");
+    if wine.is_file() {
+        let wineboot_stdout = log.try_clone()?;
+        let wineboot_stderr = log.try_clone()?;
+        let wineboot = Command::new(&wine)
+            .arg("wineboot")
+            .arg("-u")
+            .env("WINEPREFIX", &prefix)
+            .stdout(Stdio::from(wineboot_stdout))
+            .stderr(Stdio::from(wineboot_stderr))
+            .status()?;
+        append_launcher_log(&mut log, format!("wineboot_exit={:?}", wineboot.code()));
+        if !wineboot.success() {
+            return Err("launcher prefix initialization failed".into());
+        }
+    } else {
+        return Err("MetalSharp Wine runtime not found".into());
+    }
+
+    append_launcher_log(&mut log, "stage=launch");
+    let launch_stdout = log.try_clone()?;
+    let launch_stderr = log.try_clone()?;
+    let launch = if launcher.msi {
+        let mut command = Command::new(&wine);
+        command.args(["msiexec", "/i"]).arg(&installer_path);
+        if launcher.id == "epic" {
+            command.arg("SKIP_AUTOLAUNCH=1");
+        }
+        command
+            .env("WINEPREFIX", &prefix)
+            .stdout(Stdio::from(launch_stdout))
+            .stderr(Stdio::from(launch_stderr))
+            .status()?
+    } else {
+        Command::new(&wine)
+            .arg(&installer_path)
+            .env("WINEPREFIX", &prefix)
+            .stdout(Stdio::from(launch_stdout))
+            .stderr(Stdio::from(launch_stderr))
+            .status()?
+    };
+    append_launcher_log(&mut log, format!("status=installer_exited\nexit_code={:?}", launch.code()));
+    if !launch.success() {
+        return Err("launcher installer exited unsuccessfully".into());
+    }
+    if launcher.id == "epic" {
+        let installers = installer_path.parent().ok_or("Epic installer directory is missing")?;
+        let executable = launcher_executable(&prefix, launcher).ok_or("Epic Games Launcher executable is missing")?;
+        run_epic_client_with_online_services(&wine, &prefix, installers, &executable, &mut log)?;
+    }
+    Ok(())
+}
+
+pub fn handle_launcher_install(body: &serde_json::Map<String, Value>) -> Value {
+    let Some(id) = body.get("launcher").and_then(Value::as_str) else {
+        return json!({ "ok": false, "error": "launcher required" });
+    };
+    let Some(launcher) = launcher_installer(id) else {
+        return json!({ "ok": false, "error": "unknown launcher" });
+    };
+    let bottle_dir = crate::bottles::bottle_dir(launcher.bottle_id);
+    let prefix = bottle_dir.join("prefix");
+    let installer_path = crate::bottles::installer_payload_dir(launcher.bottle_id).join(launcher.filename);
+    let log_path = crate::bottles::bottle_logs_dir(launcher.bottle_id).join("launcher-install.log");
+    if let Err(error) = ensure_launcher_bottle(launcher, &prefix, &installer_path, &log_path) {
+        return json!({ "ok": false, "error": format!("failed to create launcher prefix: {error}") });
+    }
+    let worker_prefix = prefix.clone();
+    let worker_installer = installer_path.clone();
+    let worker_log = log_path.clone();
+    std::thread::spawn(move || {
+        if let Err(error) = run_launcher_installer_worker(launcher, worker_prefix, worker_installer, worker_log.clone())
+        {
+            if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(worker_log) {
+                append_launcher_log(&mut log, format!("status=failed\nerror={error}"));
+            }
+        }
+    });
+    json!({
+        "ok": true,
+        "launcher": launcher.id,
+        "name": launcher.name,
+        "bottleId": launcher.bottle_id,
+        "prefixPath": prefix,
+        "installerPath": installer_path,
+        "logPath": log_path,
+        "message": "Download started. MetalSharp will launch the installer in its prefix.",
+    })
+}
+
+fn launcher_executable(prefix: &Path, launcher: LauncherInstaller) -> Option<PathBuf> {
+    let primary = prefix.join(launcher.executable_path);
+    if primary.is_file() {
+        return Some(primary);
+    }
+    launcher.fallback_executable_path.map(|path| prefix.join(path)).filter(|path| path.is_file())
+}
+
+pub fn handle_launcher_status() -> Value {
+    let launchers = LAUNCHER_INSTALLERS
+        .iter()
+        .map(|launcher| {
+            let prefix = crate::bottles::bottle_dir(launcher.bottle_id).join("prefix");
+            json!({
+                "id": launcher.id,
+                "prefixCreated": prefix.exists(),
+                "installed": launcher_executable(&prefix, *launcher).is_some(),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({ "ok": true, "launchers": launchers })
+}
+
+fn run_launcher_target_worker(
+    launcher: LauncherInstaller,
+    prefix: PathBuf,
+    target: PathBuf,
+    setup: bool,
+    log_path: PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut log = OpenOptions::new().create(true).truncate(true).write(true).open(log_path)?;
+    append_launcher_log(&mut log, format!("launcher={}", launcher.id));
+    append_launcher_log(&mut log, format!("prefix={}", prefix.display()));
+    append_launcher_log(&mut log, format!("target={}", target.display()));
+    append_launcher_log(&mut log, format!("mode={}", if setup { "setup" } else { "launch" }));
+    let wine = crate::platform::metalsharp_home_dir().join("runtime/wine/bin/metalsharp-wine");
+    if !wine.is_file() {
+        return Err("MetalSharp Wine runtime not found".into());
+    }
+    let installers = crate::bottles::installer_payload_dir(launcher.bottle_id);
+    if setup && launcher.msi {
+        let stdout = log.try_clone()?;
+        let stderr = log.try_clone()?;
+        let mut command = Command::new(&wine);
+        command.args(["msiexec", "/i"]).arg(&target);
+        if launcher.id == "epic" {
+            command.arg("SKIP_AUTOLAUNCH=1");
+        }
+        let status =
+            command.env("WINEPREFIX", &prefix).stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr)).status()?;
+        if !status.success() {
+            return Err("launcher installer exited unsuccessfully".into());
+        }
+        if launcher.id == "epic" {
+            let executable =
+                launcher_executable(&prefix, launcher).ok_or("Epic Games Launcher executable is missing")?;
+            run_epic_client_with_online_services(&wine, &prefix, &installers, &executable, &mut log)?;
+        }
+    } else if launcher.id == "epic" {
+        run_epic_client_with_online_services(&wine, &prefix, &installers, &target, &mut log)?;
+    } else {
+        let status = run_logged(Command::new(&wine).arg(&target).env("WINEPREFIX", &prefix), &mut log)?;
+        if !status.success() {
+            return Err("launcher exited unsuccessfully".into());
+        }
+    }
+    append_launcher_log(&mut log, "status=exited");
+    Ok(())
+}
+
+pub fn handle_launcher_launch(body: &serde_json::Map<String, Value>) -> Value {
+    let Some(id) = body.get("launcher").and_then(Value::as_str) else {
+        return json!({ "ok": false, "error": "launcher required" });
+    };
+    let Some(launcher) = launcher_installer(id) else {
+        return json!({ "ok": false, "error": "unknown launcher" });
+    };
+    let bottle_dir = crate::bottles::bottle_dir(launcher.bottle_id);
+    let prefix = bottle_dir.join("prefix");
+    if !prefix.exists() {
+        return json!({ "ok": false, "error": "launcher prefix has not been created" });
+    }
+    let installer_path = crate::bottles::installer_payload_dir(launcher.bottle_id).join(launcher.filename);
+    let (target, setup) = if let Some(executable) = launcher_executable(&prefix, launcher) {
+        (executable, false)
+    } else if launcher_payload_is_valid(&installer_path, launcher.msi) {
+        (installer_path, true)
+    } else {
+        return json!({ "ok": false, "error": "launcher is still being prepared" });
+    };
+    let log_path = crate::bottles::bottle_logs_dir(launcher.bottle_id).join("launcher-launch.log");
+    let worker_log = log_path.clone();
+    let worker_prefix = prefix.clone();
+    let worker_target = target.clone();
+    std::thread::spawn(move || {
+        if let Err(error) =
+            run_launcher_target_worker(launcher, worker_prefix, worker_target, setup, worker_log.clone())
+        {
+            if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(worker_log) {
+                append_launcher_log(&mut log, format!("status=failed\nerror={error}"));
+            }
+        }
+    });
+    json!({
+        "ok": true,
+        "launcher": launcher.id,
+        "setup": setup,
+        "logPath": log_path,
+        "message": if setup {
+            format!("{} is not installed yet; its cached installer was reopened.", launcher.name)
+        } else {
+            format!("Launching {}.", launcher.name)
+        },
+    })
 }
 
 fn ensure_base_dir() -> Result<(), Box<dyn std::error::Error>> {
@@ -2005,6 +2830,75 @@ pub fn handle_set_engine(body: &serde_json::Map<String, Value>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launcher_installer_catalog_is_fixed_and_complete() {
+        let entries = LAUNCHER_INSTALLERS
+            .iter()
+            .map(|launcher| (launcher.id, launcher.bottle_id, launcher.url))
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0].0, "ea");
+        assert_eq!(entries[0].1, "EA-Prefix");
+        assert_eq!(entries[1].1, "Rockstar-Prefix");
+        assert_eq!(entries[2].1, "Ubisoft-Prefix");
+        assert_eq!(entries[3].1, "Battle-Net-Prefix");
+        assert!(entries.iter().all(|entry| entry.2.starts_with("https://")));
+        assert!(launcher_installer("epic").is_none());
+        assert!(launcher_installer("unknown").is_none());
+    }
+
+    #[test]
+    fn epic_online_services_msi_patch_is_narrow_and_version_aware() {
+        let dir = test_dir("epic-eos-msi-patch");
+        fs::create_dir_all(&dir).expect("create test directory");
+        let custom_actions = dir.join("CustomAc.idt");
+        let properties = dir.join("Property.idt");
+        fs::write(
+            &custom_actions,
+            concat!(
+                "Action\tType\tSource\tTarget\n",
+                "InitializeComponents\t3073\tCABinaryManaged\tExecuteComponents\n",
+                "CreateRegistryKeys\t3073\tCABinaryManaged\tCreateRegistryKeys\n",
+                "RegisterProductID\t3073\tCABinaryManaged\tRegisterProductID\n",
+                "TelemetrySendStart\t65\tCABinaryManaged\tTelemetrySendStart\n",
+            ),
+        )
+        .expect("write custom-action fixture");
+        fs::write(&properties, "Property\tValue\nProductCode\t{TEST-PRODUCT}\nEOSHBuildVersion\t5.6.0-test\n")
+            .expect("write property fixture");
+
+        patch_eos_custom_actions(&custom_actions).expect("patch EOS custom actions");
+        let patched = fs::read_to_string(&custom_actions).expect("read patched fixture");
+        assert!(patched.contains("InitializeComponents\t3137\t"));
+        assert!(patched.contains("CreateRegistryKeys\t3137\t"));
+        assert!(patched.contains("RegisterProductID\t3137\t"));
+        assert!(patched.contains("TelemetrySendStart\t65\t"));
+        assert_eq!(idt_property(&properties, "ProductCode").expect("product code"), "{TEST-PRODUCT}");
+        assert_eq!(idt_property(&properties, "EOSHBuildVersion").expect("build version"), "5.6.0-test");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn launcher_payload_validation_checks_exe_and_msi_signatures() {
+        let dir = test_dir("launcher-payload-validation");
+        fs::create_dir_all(&dir).expect("create test directory");
+        let exe = dir.join("installer.exe");
+        let msi = dir.join("installer.msi");
+        let invalid = dir.join("installer.html");
+        let mut exe_bytes = vec![0_u8; 4096];
+        exe_bytes[..2].copy_from_slice(b"MZ");
+        fs::write(&exe, exe_bytes).expect("write EXE fixture");
+        let mut msi_bytes = vec![0_u8; 4096];
+        msi_bytes[..4].copy_from_slice(&[0xd0, 0xcf, 0x11, 0xe0]);
+        fs::write(&msi, msi_bytes).expect("write MSI fixture");
+        fs::write(&invalid, vec![b'x'; 4096]).expect("write invalid fixture");
+        assert!(launcher_payload_is_valid(&exe, false));
+        assert!(launcher_payload_is_valid(&msi, true));
+        assert!(!launcher_payload_is_valid(&invalid, false));
+        assert!(!launcher_payload_is_valid(&invalid, true));
+        let _ = fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn rejects_path_like_library_ids() {

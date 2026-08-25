@@ -1,6 +1,6 @@
 # MetalSharp Launcher Runtime
-**Updated:** 2026-07-08
 
+**Updated:** 2026-08-25
 
 Status: Phase 3 foundation
 
@@ -21,6 +21,39 @@ The installer classifier recognizes these launcher families before generic .NET,
 Known launcher hints are stored in the classifier output as `known_launcher:<id>` and `launcher_name:<display name>`. These hints make installer bottles more predictable, especially when launcher bootstrapper binaries also contain generic .NET or WebView strings.
 
 Known launchers default to the bare Wine pipeline during install/bootstrap. That keeps store launchers from inheriting game-specific graphics routes such as M9 before the actual child game executable exists. Once a launcher installs or starts a game, that child executable still gets its own bottle/runtime route.
+
+## Sharp Library Launcher Surface
+
+The main Sharp Library **Installers** tab exposes fixed right-side actions for four official launcher installers. Each action creates or reuses one stable bottle and downloads into its `installers/` directory before launch:
+
+| Action     | Bottle              | Official installer source                                         |
+| ---------- | ------------------- | ----------------------------------------------------------------- |
+| EA App     | `EA-Prefix`         | `origin-a.akamaihd.net/.../EAappInstaller.exe`                    |
+| Rockstar   | `Rockstar-Prefix`   | `gamedownloads.rockstargames.com/.../Rockstar-Games-Launcher.exe` |
+| Ubisoft    | `Ubisoft-Prefix`    | `https://ubi.li/4vxt9`                                            |
+| Battle Net | `Battle-Net-Prefix` | Battle.net's Windows setup endpoint                               |
+
+The backend owns this allowlist; the renderer sends only the launcher identifier. Downloads require HTTPS, use fixed local filenames, land atomically, and are checked for an EXE or MSI signature before launch. Every installer runs with `WINEPREFIX` set to its dedicated bottle prefix. Once a prefix exists, its Installers-tab action becomes `Launch <app>` and launches the installed client. If setup has not completed yet, MetalSharp reopens the already verified cached installer rather than downloading it again.
+
+Install and launch runs write `~/.metalsharp/bottles/<bottle>/logs/launcher-install.log` and `launcher-launch.log` so compatibility passes can be diagnosed without sharing prefix state between launchers.
+
+The Installers sidebar also exposes **Set Disk Access** until MetalSharp Wine can read a macOS-protected location. It verifies Wine 11.5, reveals and copies the exact host process image at `~/.metalsharp/runtime/wine/lib/wine/x86_64-unix/wine`, and opens macOS Full Disk Access settings. This is deliberately not the `bin/wine` loader, MetalSharp.app, or GPTK's `wine64-preloader`. macOS requires the user to add and enable the revealed executable; applications cannot modify TCC consent directly. MetalSharp probes access through that Wine build and removes the button after consent becomes effective.
+
+## Native Epic Library Path
+
+The Sharp Library **Epic** tab is the supported game-download path when the Windows launcher reaches `DP-06`. It uses upstream [Legendary](https://github.com/legendary-gl/legendary) 0.21.0 out of process rather than patching Wine, ADVAPI32, NTDLL, or Epic binaries.
+
+- MetalSharp downloads the official native arm64 release only after the user selects **Install Epic Support**.
+- The release URL, version, 64 MiB size ceiling, arm64 Mach-O identity, and SHA-256 `28f5f7d0eb8c029679d4faaa483ec85888af17a9a75977ae9170c21d8ce3428b` are backend-owned and verified before atomic activation at `~/.metalsharp/tools/legendary/legendary-0.21.0`.
+- Epic authentication occurs in a sandboxed, context-isolated Electron window restricted to Epic, Legendary, and explicit identity-provider HTTPS hosts. The backend receives only the resulting authorization code. Legendary state is isolated under `~/.metalsharp/epic/legendary/`.
+- Library sync requests Windows-installable account entries as JSON on login and manual **Sync**. The backend also starts a serialized background sync when it launches. Successful catalogs are atomically cached at `~/.metalsharp/epic/library.json`, and normal Epic-tab loads read that cache immediately so navigation never clears the library while a network refresh is running or unavailable.
+- Downloads use Legendary's manifest/CDN pipeline. Each install prompts for an existing writable location constrained to the user's home or `/Volumes`; the configured root from `~/.metalsharp/launcher-games/epic/location.txt` remains the backend fallback. Per-title progress and logs live under `~/.metalsharp/epic/processes/`.
+- Installed games require an explicit **Initialize Bottle** action before first launch. Each title owns `~/.metalsharp/bottles/epic_<appName>/prefix` plus a managed manifest recording its selected pipeline and mouse mode. **No Recenter** is the default; **Mouse Auto** restores Wine cursor warping for games that need relative capture.
+- Pipeline and mouse selectors remain beside Play/Uninstall like the GOG library. Launches inherit the selected MetalSharp graphics backend, and supervision waits on the prefix's real Wineserver. Stop, the card close action, and **Cmd+Opt+Q** terminate the isolated Epic Wineserver. Uninstall removes Legendary's registered game files and that title's bottle.
+- Epic account data, the cached catalog, configured game location, per-game bottle manifests, and each Epic bottle's registry/user settings are explicitly preserved and restored by runtime migration.
+- MetalSharp does not use or redistribute CrossOver code or binaries for this path. The unsupported Windows Epic Launcher card and its legacy `Epic-Games-Prefix` have been removed.
+
+Backend routes are `GET /sharp-library/epic/status`, `GET /sharp-library/epic/games`, and POST actions for `install-tool`, `auth`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, and `uninstall`.
 
 ## Runtime Behavior
 

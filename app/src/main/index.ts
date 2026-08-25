@@ -565,6 +565,19 @@ function forceQuitRunningGames(): void {
   );
   req.on("error", (e) => console.warn("Force-quit games request failed:", e));
   req.end();
+
+  const epicReq = http.request(
+    {
+      hostname: "127.0.0.1",
+      port,
+      path: "/sharp-library/epic/stop-all",
+      method: "POST",
+      headers: { "Content-Length": 0 },
+    },
+    (res) => res.resume(),
+  );
+  epicReq.on("error", (e) => console.warn("Force-quit Epic games request failed:", e));
+  epicReq.end();
 }
 
 // Cmd+Opt+Q force-quits all running games but leaves the Wine Steam client up.
@@ -1447,6 +1460,95 @@ function registerIpc() {
     return verifyMetalsharpDataAccess();
   });
 
+  const metalsharpWineDiskAccess = async () => {
+    const metalsharpDir = getMetalsharpDir();
+    // Windows processes execute in this Wine 11.5 host image after the small bin/wine loader hands off.
+    // Full Disk Access must target this exact Mach-O, not MetalSharp.app or a GPTK preloader.
+    const wine = path.join(metalsharpDir, "runtime/wine/lib/wine/x86_64-unix/wine");
+    const wrapper = path.join(metalsharpDir, "runtime/wine/bin/metalsharp-wine");
+    const prefix = path.join(metalsharpDir, "prefix-steam");
+    if (!fs.existsSync(wine) || !fs.existsSync(wrapper) || !fs.existsSync(prefix)) {
+      return { ok: true, available: false, granted: false, path: wine };
+    }
+    let version = "";
+    try {
+      version = execFileSync(wine, ["--version"], { encoding: "utf8", timeout: 10_000 }).trim();
+    } catch (error) {
+      return {
+        ok: false,
+        available: false,
+        granted: false,
+        path: wine,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (version !== "wine-11.5") {
+      return {
+        ok: false,
+        available: false,
+        granted: false,
+        path: wine,
+        version,
+        error: `Expected MetalSharp Wine 11.5, found ${version || "an unknown build"}`,
+      };
+    }
+    const protectedPath = `Z:${path.join(os.homedir(), "Library/Safari").replaceAll("/", "\\")}`;
+    const granted = await new Promise<boolean>((resolve) => {
+      execFile(
+        wrapper,
+        ["cmd.exe", "/d", "/c", `dir "${protectedPath}" >nul`],
+        {
+          env: { ...process.env, WINEPREFIX: prefix },
+          timeout: 20_000,
+          windowsHide: true,
+          maxBuffer: 256 * 1024,
+        },
+        (error) => resolve(!error),
+      );
+    });
+    return { ok: true, available: true, granted, path: wine, version };
+  };
+
+  ipcMain.handle("app:wine-disk-access-status", async () => {
+    if (isUiOnlyRuntime()) return { ok: true, available: true, granted: false, version: "wine-11.5" };
+    return metalsharpWineDiskAccess();
+  });
+
+  ipcMain.handle("app:set-wine-disk-access", async () => {
+    if (process.platform !== "darwin") return { ok: false, error: "Full Disk Access is only available on macOS." };
+    const status = await metalsharpWineDiskAccess();
+    if (!status.ok || !status.available || !status.path) {
+      return { ok: false, error: status.error ?? "MetalSharp Wine 11.5 is not installed." };
+    }
+    if (status.granted) return { ok: true, path: status.path, version: status.version, message: "Access is enabled." };
+    const prefix = path.join(getMetalsharpDir(), "prefix-steam");
+    const wineserver = path.join(getMetalsharpDir(), "runtime/wine/bin/wineserver");
+    if (fs.existsSync(prefix) && fs.existsSync(wineserver)) {
+      try {
+        execFileSync(wineserver, ["-k"], {
+          env: { ...process.env, WINEPREFIX: prefix },
+          stdio: "ignore",
+          timeout: 10_000,
+        });
+      } catch {
+        // A stopped or absent prefix server is already the desired state.
+      }
+    }
+    clipboard.writeText(status.path);
+    shell.showItemInFolder(status.path);
+    try {
+      await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    return {
+      ok: true,
+      path: status.path,
+      version: status.version,
+      message: "Add the revealed Wine executable to Full Disk Access and turn it on.",
+    };
+  });
+
   ipcMain.handle("app:copy-text", async (_e, text: string) => {
     clipboard.writeText(text);
     return { ok: true };
@@ -1568,6 +1670,118 @@ function registerIpc() {
     }
 
     app.quit();
+  });
+
+  ipcMain.handle("epic:oauth-login", async () => {
+    if (!mainWindow) return { ok: false, error: "Main window is not ready." };
+
+    const loginUrl = "https://legendary.gl/epiclogin";
+    const allowedHost = (urlText: string) => {
+      try {
+        const url = new URL(urlText);
+        if (url.protocol !== "https:") return false;
+        const host = url.hostname.toLowerCase();
+        return (
+          host === "legendary.gl" ||
+          host === "epicgames.com" ||
+          host.endsWith(".epicgames.com") ||
+          host === "accounts.google.com" ||
+          host.endsWith(".google.com") ||
+          host === "appleid.apple.com" ||
+          host === "www.facebook.com" ||
+          host === "facebook.com" ||
+          host === "login.live.com" ||
+          host.endsWith(".playstation.com") ||
+          host.endsWith(".sonyentertainmentnetwork.com") ||
+          host.endsWith(".nintendo.net") ||
+          host === "steamcommunity.com"
+        );
+      } catch {
+        return false;
+      }
+    };
+
+    return new Promise<{ ok: boolean; code?: string; error?: string }>((resolve) => {
+      let settled = false;
+      let inspectionTimer: NodeJS.Timeout | null = null;
+      const win = new BrowserWindow({
+        width: 980,
+        height: 720,
+        minWidth: 760,
+        minHeight: 580,
+        parent: mainWindow ?? undefined,
+        title: "Sign in to Epic Games",
+        autoHideMenuBar: true,
+        backgroundColor: "#18181b",
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          partition: `epic-auth-${Date.now()}`,
+        },
+      });
+
+      const finish = (result: { ok: boolean; code?: string; error?: string }) => {
+        if (settled) return;
+        settled = true;
+        if (inspectionTimer) {
+          clearInterval(inspectionTimer);
+          inspectionTimer = null;
+        }
+        if (!win.isDestroyed()) win.close();
+        resolve(result);
+      };
+      const inspectLoginResult = async () => {
+        if (settled || win.isDestroyed()) return;
+        try {
+          const current = new URL(win.webContents.getURL());
+          const host = current.hostname.toLowerCase();
+          const resultHost = host === "legendary.gl" || host === "epicgames.com" || host.endsWith(".epicgames.com");
+          if (current.protocol !== "https:" || !resultHost) return;
+          const text = await win.webContents.executeJavaScript("document.body ? document.body.innerText : ''", true);
+          if (typeof text !== "string" || !text.trim().startsWith("{")) return;
+          const response = JSON.parse(text) as { authorizationCode?: unknown; code?: unknown; error?: unknown };
+          const code =
+            typeof response.authorizationCode === "string"
+              ? response.authorizationCode
+              : typeof response.code === "string"
+                ? response.code
+                : "";
+          if (code) finish({ ok: true, code });
+          else if (typeof response.error === "string") finish({ ok: false, error: response.error });
+        } catch {
+          // The login document may not contain its JSON result yet.
+        }
+      };
+
+      win.setMenuBarVisibility(false);
+      win.webContents.setWindowOpenHandler(({ url }) => {
+        if (allowedHost(url)) void win.loadURL(url);
+        return { action: "deny" };
+      });
+      win.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+      win.webContents.on("will-navigate", (event, url) => {
+        if (!allowedHost(url)) event.preventDefault();
+      });
+      win.webContents.on("will-redirect", (event, url) => {
+        if (!allowedHost(url)) event.preventDefault();
+      });
+      win.webContents.on("did-finish-load", () => void inspectLoginResult());
+      win.webContents.on("did-navigate", () => void inspectLoginResult());
+      win.webContents.on("did-navigate-in-page", () => void inspectLoginResult());
+      inspectionTimer = setInterval(() => void inspectLoginResult(), 250);
+      win.on("closed", () => {
+        if (inspectionTimer) {
+          clearInterval(inspectionTimer);
+          inspectionTimer = null;
+        }
+        if (!settled) {
+          settled = true;
+          resolve({ ok: false, error: "Epic sign-in was closed before authorization completed." });
+        }
+      });
+      win.loadURL(loginUrl).catch((error: Error) => finish({ ok: false, error: error.message }));
+    });
   });
 
   ipcMain.handle("gog:oauth-login", async (_e, authUrl: string) => {

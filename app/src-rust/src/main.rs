@@ -24,6 +24,7 @@ mod d3d12_runtime_doctor;
 mod d3dmetal_gptk;
 mod diagnostics;
 mod emulators;
+mod epic;
 mod fna_profile;
 mod gog;
 mod installer;
@@ -131,6 +132,7 @@ fn main() {
 
     eprintln!("metalsharp-backend listening on {}", addr);
     app_log(&format!("MetalSharp v{} backend started on {}", env!("CARGO_PKG_VERSION"), addr));
+    epic::sync_on_startup();
 
     if crate::steam::is_wine_steam_running() {
         let _ = kernel_translation::ipc_bridge::start_ipc_listener();
@@ -1149,6 +1151,9 @@ fn route(req: &HttpRequest) -> RouteResponse {
             }
         },
         (HttpMethod::Get, "/sharp-library") => resp(200, sharp_library::handle_get_library()),
+        (HttpMethod::Get, "/sharp-library/epic/status") => resp(200, epic::status()),
+        (HttpMethod::Get, "/sharp-library/epic/games") => resp(200, epic::games(false)),
+        (HttpMethod::Get, "/sharp-library/launchers/status") => resp(200, sharp_library::handle_launcher_status()),
         (HttpMethod::Get, "/bottles") => resp(200, bottles::handle_list_bottles()),
         (HttpMethod::Post, "/d3dmetal/bottles/save") => {
             let body = read_body(req);
@@ -2024,6 +2029,58 @@ fn route(req: &HttpRequest) -> RouteResponse {
             let body = read_body(req);
             app_log(&format!("[SHARP-LIB] install: {}", body.get("srcPath").and_then(|v| v.as_str()).unwrap_or("?")));
             resp(200, sharp_library::handle_install(&body))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/install-tool") => resp(200, epic::install_tool()),
+        (HttpMethod::Post, "/sharp-library/epic/auth") => {
+            let body = read_body(req);
+            resp(200, epic::auth(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/logout") => resp(200, epic::logout()),
+        (HttpMethod::Post, "/sharp-library/epic/sync") => resp(200, epic::games(true)),
+        (HttpMethod::Post, "/sharp-library/epic/install") => {
+            let body = read_body(req);
+            resp(200, epic::install(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/progress") => {
+            let body = read_body(req);
+            resp(200, epic::progress(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/cancel") => {
+            let body = read_body(req);
+            resp(200, epic::cancel(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/initialize") => {
+            let body = read_body(req);
+            resp(200, epic::initialize(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/play") => {
+            let body = read_body(req);
+            resp(200, epic::play(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/stop") => {
+            let body = read_body(req);
+            resp(200, epic::stop(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/epic/stop-all") => resp(200, epic::stop_all()),
+        (HttpMethod::Post, "/sharp-library/epic/uninstall") => {
+            let body = read_body(req);
+            resp(200, epic::uninstall(&Value::Object(body)))
+        },
+        (HttpMethod::Post, "/sharp-library/launchers/install") => {
+            let body = read_body(req);
+            app_log(&format!(
+                "[SHARP-LIB] launcher install: {}",
+                body.get("launcher").and_then(|value| value.as_str()).unwrap_or("?")
+            ));
+            resp(200, sharp_library::handle_launcher_install(&body))
+        },
+        (HttpMethod::Post, "/sharp-library/launchers/launch") => {
+            let body = read_body(req);
+            app_log(&format!(
+                "[SHARP-LIB] launcher launch: {}",
+                body.get("launcher").and_then(|value| value.as_str()).unwrap_or("?")
+            ));
+            resp(200, sharp_library::handle_launcher_launch(&body))
         },
         (HttpMethod::Post, "/sharp-library/import-bottle-app") => {
             let body = read_body(req);

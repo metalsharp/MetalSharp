@@ -53,6 +53,15 @@ source folders, or the referenced upstream/runtime packages.
 - Runtime components: The inspected official archive includes SharpEmu, .NET 10, Avalonia, MoltenVK (Apache-2.0), FFmpeg libraries (LGPL-2.1 and component-specific configuration terms), LibAtrac9 (MIT), and dependency notices preserved in `LICENSE.txt` and `licenses/` beside every installed version. Exact corresponding source is the release tag and commit recorded in `source-manifest.json`.
 - Notes: SharpEmu is not bundled in the MetalSharp application or DMG. MetalSharp verifies the official GitHub release identity, asset ID, byte size, SHA-256, archive structure, x86-64 architecture, deployment targets, and Mach-O dependencies before applying local ad-hoc signatures and atomic activation. The upstream archive is not Developer ID signed or notarized. Guest networking is denied by default; users may explicitly opt in per launch after a security warning. MetalSharp never downloads, bundles, imports, decrypts, patches, uploads, or provides acquisition instructions for Sony firmware, keys, licenses, games, modules, fonts, updates, DLC, or decryption material.
 
+## Legendary — Epic Games library client
+
+- Repository and corresponding source: https://github.com/legendary-gl/legendary
+- Binary releases: https://github.com/legendary-gl/legendary/releases/tag/0.21.0
+- Version: 0.21.0
+- License: GNU General Public License v3.0 (GPL-3.0)
+- Used as: Optional user-initiated native arm64 command-line client download managed under `~/.metalsharp/tools/legendary/` for Epic account authentication, owned-library metadata, game downloads, and launch-token generation.
+- Notes: Legendary is not bundled in the MetalSharp application. MetalSharp downloads only the pinned upstream HTTPS asset, verifies its exact SHA-256 and arm64 Mach-O identity before activation, isolates its account state under `~/.metalsharp/epic/legendary/`, and launches downloaded Windows games through dedicated MetalSharp Wine prefixes. Epic credentials are entered only into Epic Games’ website; MetalSharp receives the resulting short-lived authorization code. Epic games and proprietary launcher components are not bundled or redistributed by MetalSharp.
+
 ## MojoShader — SDL shader bytecode parser
 
 - Repository: https://github.com/icculus/mojoshader

@@ -49,6 +49,7 @@ const MIGRATION_SETTINGS_FILE_NAMES: &[&str] = &[
     "localconfig.vdf",
     "shortcuts.vdf",
     "steam_autocloud.vdf",
+    "location.txt",
 ];
 const MIGRATION_SETTINGS_EXTENSIONS: &[&str] = &["json", "toml", "plist", "vdf", "reg", "ini", "cfg", "conf"];
 const MIGRATION_STEAM_METADATA_EXTENSIONS: &[&str] =
@@ -756,6 +757,8 @@ struct PreservedData {
     cache_tmp: PathBuf,
     games_tmp: PathBuf,
     sharp_library_tmp: PathBuf,
+    epic_tmp: PathBuf,
+    launcher_games_tmp: PathBuf,
     bottles_tmp: PathBuf,
     prefix_steam_dosdevice_links: Vec<(String, PathBuf)>,
     prefix_gptk_dosdevice_links: Vec<(String, PathBuf)>,
@@ -892,6 +895,38 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
         report.record("preserve", "skipped", "sharp-library", None, "sharp-library directory absent");
     }
 
+    let epic_tmp = tmp.join("epic");
+    let epic = ms_dir.join("epic");
+    if epic.exists() {
+        let _ = fs::create_dir_all(&epic_tmp);
+        preserve_settings_only(&epic, &epic_tmp);
+        report.record(
+            "preserve",
+            "preserved",
+            "epic",
+            Some(epic.to_string_lossy().to_string()),
+            "Epic account, cached library, and Legendary settings preserved",
+        );
+    } else {
+        report.record("preserve", "skipped", "epic", None, "Epic state directory absent");
+    }
+
+    let launcher_games_tmp = tmp.join("launcher-games");
+    let launcher_games = ms_dir.join("launcher-games");
+    if launcher_games.exists() {
+        let _ = fs::create_dir_all(&launcher_games_tmp);
+        preserve_settings_only(&launcher_games, &launcher_games_tmp);
+        report.record(
+            "preserve",
+            "preserved",
+            "launcher-games",
+            Some(launcher_games.to_string_lossy().to_string()),
+            "launcher game-library locations preserved",
+        );
+    } else {
+        report.record("preserve", "skipped", "launcher-games", None, "launcher game settings absent");
+    }
+
     write_migrate_progress("running", 2, MIGRATION_TOTAL_STEPS, "Preserving user settings (bottle metadata)...", None);
     preserve_sharp_prefix(ms_dir, &tmp, &mut report);
     let bottles_tmp = tmp.join("bottles");
@@ -900,6 +935,7 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
         let _ = fs::create_dir_all(&bottles_tmp);
         preserve_settings_only(&bottles, &bottles_tmp);
         preserve_steam_bottle_metadata(&bottles, &bottles_tmp, &mut report);
+        preserve_epic_bottle_settings(&bottles, &bottles_tmp, &mut report);
         preserve_gog_bottle_prefix(&bottles, &bottles_tmp, &mut report);
         report.record(
             "preserve",
@@ -945,6 +981,8 @@ fn preserve_user_data(ms_dir: &PathBuf) -> (PreservedData, MigrationReport) {
             cache_tmp,
             games_tmp,
             sharp_library_tmp,
+            epic_tmp,
+            launcher_games_tmp,
             bottles_tmp,
             prefix_steam_dosdevice_links,
             prefix_gptk_dosdevice_links,
@@ -1078,6 +1116,64 @@ fn restore_steam_bottle_metadata(bottles_tmp: &Path, bottles: &Path, report: &mu
         "steam-bottle-metadata",
         Some(bottles.to_string_lossy().to_string()),
         format!("{} Steam bottle prefix metadata payload(s) restored", restored),
+    );
+}
+
+fn preserve_epic_bottle_settings(bottles: &Path, bottles_tmp: &Path, report: &mut MigrationReport) {
+    let entries = match fs::read_dir(bottles) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    let mut preserved = 0usize;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with("epic_") {
+            continue;
+        }
+        let src = entry.path().join("prefix");
+        if !src.exists() {
+            continue;
+        }
+        let dst = bottles_tmp.join(&name).join("prefix");
+        preserve_settings_only(&src, &dst);
+        if dst.exists() {
+            preserved += 1;
+        }
+    }
+    report.record(
+        "preserve",
+        if preserved == 0 { "skipped" } else { "preserved" },
+        "epic-bottle-settings",
+        Some(bottles.to_string_lossy().to_string()),
+        format!("{} Epic bottle registry/settings payload(s) preserved", preserved),
+    );
+}
+
+fn restore_epic_bottle_settings(bottles_tmp: &Path, bottles: &Path, report: &mut MigrationReport) {
+    let entries = match fs::read_dir(bottles_tmp) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    let mut restored = 0usize;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with("epic_") {
+            continue;
+        }
+        let src = entry.path().join("prefix");
+        if !src.exists() {
+            continue;
+        }
+        let dst = bottles.join(&name).join("prefix");
+        preserve_settings_only(&src, &dst);
+        restored += 1;
+    }
+    report.record(
+        "restore",
+        if restored == 0 { "skipped" } else { "restored" },
+        "epic-bottle-settings",
+        Some(bottles.to_string_lossy().to_string()),
+        format!("{} Epic bottle registry/settings payload(s) restored", restored),
     );
 }
 
@@ -2166,6 +2262,29 @@ fn restore_user_data(ms_dir: &PathBuf, preserved: &PreservedData, report: &mut M
         report.record("restore", "skipped", "sharp-library", None, "no preserved sharp-library payload");
     }
 
+    for (category, preserved_dir, destination, reason) in [
+        (
+            "epic",
+            &preserved.epic_tmp,
+            ms_dir.join("epic"),
+            "Epic account, cached library, and Legendary settings restored",
+        ),
+        (
+            "launcher-games",
+            &preserved.launcher_games_tmp,
+            ms_dir.join("launcher-games"),
+            "launcher game-library locations restored",
+        ),
+    ] {
+        if preserved_dir.exists() {
+            let _ = fs::create_dir_all(&destination);
+            preserve_settings_only(preserved_dir, &destination);
+            report.record("restore", "restored", category, Some(destination.to_string_lossy().to_string()), reason);
+        } else {
+            report.record("restore", "skipped", category, None, format!("no preserved {category} payload"));
+        }
+    }
+
     restore_sharp_prefix(&preserved.sharp_prefix_tmp, ms_dir, report);
 
     if preserved.bottles_tmp.exists() {
@@ -2175,6 +2294,7 @@ fn restore_user_data(ms_dir: &PathBuf, preserved: &PreservedData, report: &mut M
         }
         preserve_settings_only(&preserved.bottles_tmp, &dst);
         restore_steam_bottle_metadata(&preserved.bottles_tmp, &dst, report);
+        restore_epic_bottle_settings(&preserved.bottles_tmp, &dst, report);
         restore_gog_bottle_prefix(&preserved.bottles_tmp, &dst, report);
         report.record(
             "restore",
@@ -2587,6 +2707,43 @@ mod tests {
             r#"{"id":"steam_620"}"#
         );
         assert!(!ms_dir.join("bottles").join(GOG_PREFIX_BOTTLE_ID).exists());
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn migration_preserves_epic_catalog_account_location_and_bottle_settings() {
+        let home = test_dir("preserve-epic-state");
+        let ms_dir = crate::platform::metalsharp_home_dir_for(&home);
+        let epic_bottle = ms_dir.join("bottles/epic_TestGame");
+        fs::create_dir_all(epic_bottle.join("prefix/drive_c/windows")).expect("create Epic bottle");
+        fs::write(epic_bottle.join("bottle.json"), br#"{"id":"epic_TestGame","mouse_mode":"no-recenter"}"#)
+            .expect("write Epic bottle manifest");
+        fs::write(epic_bottle.join("prefix/user.reg"), b"MouseWarpOverride=disable").expect("write Epic user reg");
+        fs::write(epic_bottle.join("prefix/system.reg"), b"Wine registry").expect("write Epic system reg");
+        fs::write(epic_bottle.join("prefix/drive_c/windows/runtime.dll"), b"runtime").expect("write runtime payload");
+        fs::create_dir_all(ms_dir.join("epic/legendary")).expect("create Legendary config");
+        fs::write(ms_dir.join("epic/library.json"), b"[]").expect("write Epic catalog");
+        fs::write(ms_dir.join("epic/legendary/user.json"), br#"{"displayName":"Player"}"#).expect("write Epic user");
+        fs::create_dir_all(ms_dir.join("launcher-games/epic")).expect("create Epic location config");
+        fs::write(ms_dir.join("launcher-games/epic/location.txt"), b"/Volumes/Games/Epic\n")
+            .expect("write Epic location");
+
+        let (preserved, mut report) = preserve_user_data(&ms_dir);
+        fs::remove_dir_all(ms_dir.join("bottles")).expect("remove bottles");
+        fs::remove_dir_all(ms_dir.join("epic")).expect("remove Epic state");
+        fs::remove_dir_all(ms_dir.join("launcher-games")).expect("remove launcher locations");
+        restore_user_data(&ms_dir, &preserved, &mut report);
+
+        assert!(ms_dir.join("bottles/epic_TestGame/bottle.json").is_file());
+        assert!(ms_dir.join("bottles/epic_TestGame/prefix/user.reg").is_file());
+        assert!(ms_dir.join("bottles/epic_TestGame/prefix/system.reg").is_file());
+        assert!(!ms_dir.join("bottles/epic_TestGame/prefix/drive_c/windows/runtime.dll").exists());
+        assert!(ms_dir.join("epic/library.json").is_file());
+        assert!(ms_dir.join("epic/legendary/user.json").is_file());
+        assert_eq!(
+            fs::read_to_string(ms_dir.join("launcher-games/epic/location.txt")).unwrap(),
+            "/Volumes/Games/Epic\n"
+        );
         let _ = fs::remove_dir_all(home);
     }
 

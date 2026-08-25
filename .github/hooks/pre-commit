@@ -84,8 +84,8 @@ if [ "$NEED_CARGO" -eq 1 ]; then
 
     # Only run the full test suite if Rust source was changed (not just TOML).
     if printf '%s\n' "${STAGED[@]}" | grep -q '\.rs$'; then
-        log "cargo test --lib (app/src-rust)"
-        (cd app/src-rust && cargo test --lib --quiet) || fail "cargo test failed; fix the failing tests before committing."
+        log "cargo test (app/src-rust)"
+        (cd app/src-rust && cargo test --quiet) || fail "cargo test failed; fix the failing tests before committing."
     fi
 fi
 
@@ -123,7 +123,7 @@ if [ "$NEED_NPM" -eq 1 ]; then
     fi
 
     log "prettier --check on staged app/ files"
-    TS_FILES=$(printf '%s\n' "${STAGED[@]}" | grep -E '^app/.*\.(ts|tsx|js|jsx|html|css|json)$' | tr '\n' ' ')
+    TS_FILES=$(printf '%s\n' "${STAGED[@]}" | grep -E '^app/.*\.(ts|tsx|js|jsx|html|css|json)$' | sed 's#^app/##' | tr '\n' ' ')
     if [ -n "$TS_FILES" ]; then
         (cd app && npx prettier --check $TS_FILES) || fail "prettier failed; run 'cd app && npx prettier --write $TS_FILES'."
     fi
