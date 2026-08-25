@@ -2047,6 +2047,160 @@ static ProbeResult probe_mesh_shader_pso() {
                 ",\"d3d12_loaded_path\":\"" + json_escape(g_d3d12_loaded_path) + "\""};
 }
 
+static ProbeResult probe_dxr_blas() {
+    ID3D12Device* device = nullptr;
+    HRESULT hr = create_device(&device);
+    if (FAILED(hr))
+        return {false, hr, "device creation failed", ""};
+
+    ID3D12Device5* device5 = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12GraphicsCommandList4* list4 = nullptr;
+    ID3D12Resource* vertices = nullptr;
+    ID3D12Resource* acceleration_structure = nullptr;
+    ID3D12Resource* scratch = nullptr;
+    ID3D12Resource* postbuild = nullptr;
+    hr = device->QueryInterface(IID_PPV_ARGS(&device5));
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                            IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       allocator, nullptr, IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr))
+        hr = list->QueryInterface(IID_PPV_ARGS(&list4));
+
+    const float triangle[9] = {
+        -0.75f, -0.75f, 0.0f,
+         0.0f,   0.75f, 0.0f,
+         0.75f, -0.75f, 0.0f,
+    };
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC vertex_desc = buffer_desc(sizeof(triangle));
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &vertex_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&vertices));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = vertices->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, triangle, sizeof(triangle));
+            vertices->Unmap(0, nullptr);
+        }
+    }
+
+    D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
+    geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+    geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+    geometry.Triangles.VertexBuffer.StartAddress =
+        vertices ? vertices->GetGPUVirtualAddress() : 0;
+    geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
+    geometry.Triangles.VertexCount = 3;
+    geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+    geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
+
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+    inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+    inputs.NumDescs = 1;
+    inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    inputs.pGeometryDescs = &geometry;
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuild = {};
+    if (SUCCEEDED(hr)) {
+        device5->GetRaytracingAccelerationStructurePrebuildInfo(&inputs,
+                                                                 &prebuild);
+        if (!prebuild.ResultDataMaxSizeInBytes ||
+            !prebuild.ScratchDataSizeInBytes)
+            hr = E_NOTIMPL;
+    }
+
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC as_desc = buffer_desc(prebuild.ResultDataMaxSizeInBytes);
+        as_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &as_desc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(&acceleration_structure));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC scratch_desc = buffer_desc(prebuild.ScratchDataSizeInBytes);
+        scratch_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &scratch_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&scratch));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC postbuild_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &postbuild_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&postbuild));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build = {};
+        build.DestAccelerationStructureData =
+            acceleration_structure->GetGPUVirtualAddress();
+        build.ScratchAccelerationStructureData = scratch->GetGPUVirtualAddress();
+        build.Inputs = inputs;
+        list4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC post = {};
+        post.DestBuffer = postbuild->GetGPUVirtualAddress();
+        post.InfoType =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+        D3D12_GPU_VIRTUAL_ADDRESS source =
+            acceleration_structure->GetGPUVirtualAddress();
+        list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
+                                                                 &source);
+        hr = execute_and_wait(queue, list4);
+    }
+
+    uint64_t current_size = 0;
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(current_size)};
+        hr = postbuild->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&current_size, mapped, sizeof(current_size));
+            postbuild->Unmap(0, nullptr);
+        }
+    }
+    const HRESULT removed_reason = device->GetDeviceRemovedReason();
+    const bool verified = SUCCEEDED(hr) && SUCCEEDED(removed_reason) &&
+                          current_size > 0 &&
+                          current_size <= prebuild.ResultDataMaxSizeInBytes;
+
+    safe_release(postbuild);
+    safe_release(scratch);
+    safe_release(acceleration_structure);
+    safe_release(vertices);
+    safe_release(list4);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(device5);
+    safe_release(device);
+    return {verified, verified ? S_OK : hr,
+            verified ? "Metal triangle BLAS built and returned current-size postbuild info"
+                     : "DXR triangle BLAS build/prebuild gate failed",
+            "\"prebuild_result_bytes\":" +
+                std::to_string(prebuild.ResultDataMaxSizeInBytes) +
+                ",\"prebuild_scratch_bytes\":" +
+                std::to_string(prebuild.ScratchDataSizeInBytes) +
+                ",\"current_size_bytes\":" + std::to_string(current_size) +
+                ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
+}
+
 static ProbeResult run_probe() {
     switch (MINI_PROBE_CASE) {
     case 1:
@@ -2077,6 +2231,8 @@ static ProbeResult run_probe() {
         return probe_dxil_texture_color_output();
     case 14:
         return probe_compute_first_use_dispatch();
+    case 15:
+        return probe_dxr_blas();
     default:
         return {false, E_INVALIDARG, "unknown mini probe case", ""};
     }

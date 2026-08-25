@@ -898,12 +898,68 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteMetaCommand(
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc,
     UINT num_post_build_info_descs,
-    const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *post_build_info_descs) {}
+    const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *post_build_info_descs) {
+  if (!desc) {
+    CLTRACE("BuildRaytracingAccelerationStructure ignored null descriptor");
+    return;
+  }
+  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+  if (desc->Inputs.NumDescs == 1 &&
+      desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY) {
+    geometry = desc->Inputs.pGeometryDescs;
+  } else if (desc->Inputs.NumDescs == 1 &&
+             desc->Inputs.DescsLayout ==
+                 D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+             desc->Inputs.ppGeometryDescs) {
+    geometry = desc->Inputs.ppGeometryDescs[0];
+  }
+  if (!geometry) {
+    CLTRACE("BuildRaytracingAccelerationStructure unsupported descriptors=%u "
+            "layout=%u",
+            desc->Inputs.NumDescs, (unsigned)desc->Inputs.DescsLayout);
+    return;
+  }
+
+  CmdBuildRaytracingAccelerationStructure cmd = {};
+  cmd.header = {CmdType::BuildRaytracingAccelerationStructure, sizeof(cmd)};
+  cmd.dest_acceleration_structure = desc->DestAccelerationStructureData;
+  cmd.scratch_acceleration_structure = desc->ScratchAccelerationStructureData;
+  cmd.source_acceleration_structure = desc->SourceAccelerationStructureData;
+  cmd.type = desc->Inputs.Type;
+  cmd.flags = desc->Inputs.Flags;
+  cmd.descs_layout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  cmd.num_descs = 1;
+  cmd.geometry = *geometry;
+  Emit(cmd);
+  CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "
+          "scratch=0x%llx postbuild=%u",
+          (unsigned)cmd.type,
+          (unsigned long long)cmd.dest_acceleration_structure,
+          (unsigned long long)cmd.scratch_acceleration_structure,
+          num_post_build_info_descs);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EmitRaytracingAccelerationStructurePostbuildInfo(
     const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *descs,
     UINT num_acceleration_structures,
-    const D3D12_GPU_VIRTUAL_ADDRESS *source_acceleration_structure_data) {}
+    const D3D12_GPU_VIRTUAL_ADDRESS *source_acceleration_structure_data) {
+  if (!descs || !source_acceleration_structure_data ||
+      num_acceleration_structures != 1) {
+    CLTRACE("EmitRaytracingPostbuildInfo unsupported count=%u",
+            num_acceleration_structures);
+    return;
+  }
+  CmdEmitRaytracingAccelerationStructurePostbuildInfo cmd = {};
+  cmd.header = {CmdType::EmitRaytracingAccelerationStructurePostbuildInfo,
+                sizeof(cmd)};
+  cmd.info_type = descs->InfoType;
+  cmd.dest_buffer = descs->DestBuffer;
+  cmd.source_acceleration_structure = source_acceleration_structure_data[0];
+  Emit(cmd);
+  CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",
+          (unsigned)cmd.info_type, (unsigned long long)cmd.dest_buffer,
+          (unsigned long long)cmd.source_acceleration_structure);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
     D3D12_GPU_VIRTUAL_ADDRESS dest_acceleration_structure_data,

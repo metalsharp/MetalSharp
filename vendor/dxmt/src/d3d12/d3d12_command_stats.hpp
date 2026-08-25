@@ -86,6 +86,8 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
     stats.indirect_count++;
     break;
   case CmdType::Dispatch:
+  case CmdType::BuildRaytracingAccelerationStructure:
+  case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo:
     stats.dispatch_count++;
     break;
   case CmdType::ClearRenderTargetView:

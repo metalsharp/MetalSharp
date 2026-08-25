@@ -396,6 +396,28 @@ struct unixcall_mtldevice_newlibrary_source {
   obj_handle_t ret_library;
 };
 
+struct unixcall_mtldevice_acceleration_structure_sizes {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer info;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_new_acceleration_structure {
+  obj_handle_t device;
+  uint64_t size;
+  obj_handle_t ret_acceleration_structure;
+};
+
+struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
 #pragma pack(pop)
 
 #endif

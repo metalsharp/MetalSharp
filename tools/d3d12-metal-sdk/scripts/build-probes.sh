@@ -208,6 +208,7 @@ build_mini_probe 11 texture_sample
 build_mini_probe 12 subnautica_geometry_dxil_replay
 build_mini_probe 13 dxil_texture_color_output
 build_mini_probe 14 compute_first_use_dispatch
+build_mini_probe 15 dxr_blas
 
 echo "$OUT_DIR/probe_loader.exe"
 echo "$OUT_DIR/probe_agility_ue5.exe"

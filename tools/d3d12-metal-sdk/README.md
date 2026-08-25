@@ -93,6 +93,10 @@ The current mini suite isolates:
 - `geometry_shader_pso`
 - `mesh_object_shader_pso`
 - `texture_sample`
+- `subnautica_geometry_dxil_replay`
+- `dxil_texture_color_output`
+- `compute_first_use_dispatch`
+- `dxr_blas`
 
 PRs that touch `vendor/dxmt/src/d3d12`, `vendor/dxmt/src/airconv`,
 `vendor/dxmt/src/winemetal`, or `tools/d3d12-metal-sdk` are expected to keep
@@ -100,10 +104,11 @@ this mini profile green locally. Repository CI validates the contracts and
 probe matrix, then prints this local command as the host-runtime gate for those
 touch paths.
 
-`mesh_object_shader_pso` is intentionally a tracked gap until the SDK has a
-real mesh/object pipeline-state-stream probe. Keeping it as a runnable mini-app
-prevents future UE5/Nanite work from being described as supported without a
-repeatable proof.
+`mesh_object_shader_pso` now proves AS/MS pipeline streams, stage-specific
+CBV/SRV resources, a payload, and direct/indirect split-screen readback while
+keeping MeshShaderTier conservative. `dxr_blas` proves a one-triangle Metal BLAS
+build and current-size postbuild readback while keeping RaytracingTier
+conservative. Both remain breadth gates rather than general feature claims.
 
 For DXIL semantic coverage, run the reduced SM6 opcode-group probe:
 

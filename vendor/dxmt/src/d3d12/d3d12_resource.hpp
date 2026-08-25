@@ -6,6 +6,7 @@
 #include "Metal.hpp"
 #include "winemetal.h"
 #include <atomic>
+#include <utility>
 
 namespace dxmt {
 
@@ -88,6 +89,18 @@ public:
   uint64_t GetTextureGPUResourceID() const { return m_tex_gpu_resource_id; }
   uint32_t GetTextureArrayLength() const;
   uint64_t GetBufferByteLength() const;
+  WMT::Reference<WMT::AccelerationStructure> GetMTLAccelerationStructure() {
+    return m_mtl_acceleration_structure;
+  }
+  void SetMTLAccelerationStructure(
+      WMT::Reference<WMT::AccelerationStructure> acceleration_structure,
+      uint64_t acceleration_structure_size) {
+    m_mtl_acceleration_structure = std::move(acceleration_structure);
+    m_mtl_acceleration_structure_size = acceleration_structure_size;
+  }
+  uint64_t GetMTLAccelerationStructureSize() const {
+    return m_mtl_acceleration_structure_size;
+  }
 
   void MarkSwapchainBackBuffer(uint32_t index, MTLD3D12SwapChain *swapchain) {
     m_is_swapchain_backbuffer = true;
@@ -118,6 +131,8 @@ private:
   WMTBufferInfo m_buf_info = {};
   WMT::Reference<WMT::Buffer> m_mtl_buffer;
   WMT::Reference<WMT::Texture> m_mtl_texture;
+  WMT::Reference<WMT::AccelerationStructure> m_mtl_acceleration_structure;
+  uint64_t m_mtl_acceleration_structure_size = 0;
   uint64_t m_tex_gpu_resource_id = 0;
   uint64_t m_backing_offset = 0;
   bool m_is_swapchain_backbuffer = false;
