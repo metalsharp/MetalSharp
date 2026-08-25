@@ -145,7 +145,6 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                     EnvVar { key: "DXMT_METALFX_SPATIAL", value: "1" },
                     EnvVar { key: "DXMT_METALFX_TEMPORAL", value: "1" },
                     EnvVar { key: "DXMT_ASYNC_PIPELINE_COMPILE", value: "1" },
-                    EnvVar { key: "DXMT_D3D12_UE_SM6_COMPAT", value: "1" },
                     EnvVar { key: "DXMT_D3D12_PSO_WORKERS", value: "6" },
                     EnvVar { key: "DXMT_CONFIG", value: DXMT_M12_SAFE_CONFIG },
                 ],

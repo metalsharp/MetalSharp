@@ -29,15 +29,6 @@
 #include <d3d12sdklayers.h>
 #include <windows.h>
 
-static bool dxmt_d3d12_env_enabled(const char *name) {
-  char value[16] = {};
-  DWORD len = GetEnvironmentVariableA(name, value, sizeof(value));
-  if (!len)
-    return false;
-  return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' ||
-         value[0] == 't' || value[0] == 'T';
-}
-
 static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep) {
   if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION ||
       ep->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
@@ -2240,26 +2231,23 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *sm = (D3D12_FEATURE_DATA_SHADER_MODEL *)feature_data;
     if (feature_data_size < sizeof(*sm))
       return E_INVALIDARG;
-    const bool ue_sm6_compat =
-        dxmt_d3d12_env_enabled("DXMT_D3D12_UE_SM6_COMPAT");
-    const D3D_SHADER_MODEL max_shader_model =
-        ue_sm6_compat ? static_cast<D3D_SHADER_MODEL>(0x66)
-                      : static_cast<D3D_SHADER_MODEL>(0x65);
+    constexpr D3D_SHADER_MODEL max_shader_model =
+        static_cast<D3D_SHADER_MODEL>(0x65);
     if (sm->HighestShaderModel == 0 ||
         sm->HighestShaderModel > max_shader_model)
       sm->HighestShaderModel = max_shader_model;
-    TRACE("  SHADER_MODEL: HighestSM=%u ue_sm6_compat=%d",
-          (unsigned)sm->HighestShaderModel, ue_sm6_compat);
+    TRACE("  SHADER_MODEL: HighestSM=%u behavior-backed maximum=%u",
+          (unsigned)sm->HighestShaderModel, (unsigned)max_shader_model);
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS1: {
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS1 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->WaveOps = TRUE;
-    o->WaveLaneCountMin = 32;
-    o->WaveLaneCountMax = 32;
-    o->TotalLaneCount = 32;
+    o->WaveOps = FALSE;
+    o->WaveLaneCountMin = 0;
+    o->WaveLaneCountMax = 0;
+    o->TotalLaneCount = 0;
     o->ExpandedComputeResourceStates = TRUE;
     o->Int64ShaderOps = TRUE;
     return S_OK;
@@ -2376,19 +2364,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS9 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    const bool ue_sm6_compat =
-        dxmt_d3d12_env_enabled("DXMT_D3D12_UE_SM6_COMPAT");
     o->MeshShaderPipelineStatsSupported = FALSE;
     o->MeshShaderSupportsFullRangeRenderTargetArrayIndex = FALSE;
-    o->AtomicInt64OnTypedResourceSupported = ue_sm6_compat ? TRUE : FALSE;
-    o->AtomicInt64OnGroupSharedSupported = ue_sm6_compat ? TRUE : FALSE;
+    o->AtomicInt64OnTypedResourceSupported = FALSE;
+    o->AtomicInt64OnGroupSharedSupported = FALSE;
     o->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
     TRACE("  OPTIONS9: MeshStats=%d FullRTArray=%d Atomic64Typed=%d "
-          "Atomic64GroupShared=%d ue_sm6_compat=%d",
+          "Atomic64GroupShared=%d",
           o->MeshShaderPipelineStatsSupported,
           o->MeshShaderSupportsFullRangeRenderTargetArrayIndex,
           o->AtomicInt64OnTypedResourceSupported,
-          o->AtomicInt64OnGroupSharedSupported, ue_sm6_compat);
+          o->AtomicInt64OnGroupSharedSupported);
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS10: {
@@ -2403,12 +2389,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS11 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    const bool ue_sm6_compat =
-        dxmt_d3d12_env_enabled("DXMT_D3D12_UE_SM6_COMPAT");
-    o->AtomicInt64OnDescriptorHeapResourceSupported =
-        ue_sm6_compat ? TRUE : FALSE;
-    TRACE("  OPTIONS11: Atomic64DescriptorHeap=%d ue_sm6_compat=%d",
-          o->AtomicInt64OnDescriptorHeapResourceSupported, ue_sm6_compat);
+    o->AtomicInt64OnDescriptorHeapResourceSupported = FALSE;
+    TRACE("  OPTIONS11: Atomic64DescriptorHeap=%d",
+          o->AtomicInt64OnDescriptorHeapResourceSupported);
     return S_OK;
   }
   case 41: { // D3D12_FEATURE_D3D12_OPTIONS12
@@ -3297,23 +3280,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   if (!desc)
     return E_INVALIDARG;
 
-  D3D12_HEAP_PROPERTIES heap_properties = {};
-  heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-  heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-  heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-  heap_properties.CreationNodeMask = 1;
-  heap_properties.VisibleNodeMask = 1;
-
-  auto res = new MTLD3D12Resource(this, *desc, initial_state, heap_properties,
-                                  D3D12_HEAP_FLAG_NONE);
-  HRESULT hr = res->QueryInterface(riid, resource);
-  TRACE("CreateReservedResource sparse-compat out=%p hr=0x%lx",
-        resource ? *resource : nullptr, hr);
-  Logger::info(
-      str::format("M12 sparse reserved resource compat dim=", desc->Dimension,
-                  " width=", desc->Width, " flags=0x", (unsigned)desc->Flags));
-  res->Release();
-  return hr;
+  // A committed-resource substitute violates sparse residency semantics and
+  // can corrupt applications that rely on unmapped tiles reading as zero.
+  // Keep this honest until the Metal sparse mapping implementation lands.
+  TRACE("CreateReservedResource -> E_NOTIMPL (sparse backing unavailable)");
+  return E_NOTIMPL;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
