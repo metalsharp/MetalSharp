@@ -929,6 +929,15 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetShadingRateImage(
 /*** ID3D12GraphicsCommandList6 ***/
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchMesh(
     UINT thread_group_count_x, UINT thread_group_count_y,
-    UINT thread_group_count_z) {}
+    UINT thread_group_count_z) {
+  CLTRACE("DispatchMesh %ux%ux%u", thread_group_count_x,
+          thread_group_count_y, thread_group_count_z);
+  CmdDispatchMesh cmd = {};
+  cmd.header = {CmdType::DispatchMesh, sizeof(cmd)};
+  cmd.x = thread_group_count_x;
+  cmd.y = thread_group_count_y;
+  cmd.z = thread_group_count_z;
+  Emit(cmd);
+}
 
 } // namespace dxmt

@@ -58,9 +58,12 @@ METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh --feature-levels-only
 ```
 
-It stages the built DLLs, `winemetal.so`, and matching x86_64 LLVM sidecars into
-a temporary directory under the internal MetalSharp Wine runtime, delegates to
-the isolated-prefix wrapper, and removes both the staged runtime and prefix.
+Wine 11.5 resolves DXMT's builtin PE modules from its own architecture
+subdirectories before app-local copies. The source wrapper therefore makes an
+APFS copy-on-write clone of vendored Wine, replaces the DXMT builtins only in
+that disposable clone, stages `winemetal.so` and the matching x86_64 LLVM
+sidecars, delegates to the isolated-prefix wrapper, and removes the clone and
+prefix afterward. It never overwrites the installed M12 or Wine routes.
 
 `run-probes.sh --profile metalsharp` remains the low-level runner for controlled
 CI/package environments that provide their own disposable prefix lifecycle.
@@ -74,6 +77,9 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp --mini-only
 
 This builds normal Windows EXEs and runs each under Wine with the DXMT M12
 runtime. Each result is written to `results/probe-mini-*-metalsharp.json`.
+Select one mini executable while debugging with, for example,
+`METALSHARP_MINI_PROBE_FILTER=mesh_object_shader_pso`; an empty filter runs the
+whole mini suite.
 The current mini suite isolates:
 
 - `create_device`

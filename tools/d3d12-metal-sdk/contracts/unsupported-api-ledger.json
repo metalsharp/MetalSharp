@@ -12,11 +12,12 @@
     {
       "api": "D3D12 mesh shader tiers",
       "evidence": [
+        "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "No mesh/amplification shader translation path is proven.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "AS/MS pipeline streams and direct/indirect DispatchMesh pass split-screen readback, but stage-visible resources, mixed state, statistics, render-target arrays, and broad shader coverage remain required before reporting tier 1.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 sampler feedback tier",
@@ -78,12 +79,12 @@
     {
       "api": "D3D12 amplification shader tiers",
       "evidence": [
-        "tools/d3d12-metal-sdk/contracts/feature-support-contract.json",
-        "tools/d3d12-metal-sdk/probes/probe_device_caps"
+        "tools/d3d12-metal-sdk/probes/probe_mini_suite",
+        "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "No amplification shader translation path is proven, and mesh shader tiers remain unsupported.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "A four-byte AS-to-MS payload and object-stage dispatch pass readback; broader payload sizes, object-stage resources, barriers, and amplification patterns remain gated.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 node shaders",

@@ -43,6 +43,12 @@ struct Pixel {
     uint8_t a = 0;
 };
 
+template <D3D12_PIPELINE_STATE_SUBOBJECT_TYPE Type, typename T>
+struct alignas(void*) PipelineStreamSubobject {
+    D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type = Type;
+    T value = {};
+};
+
 template <typename T> static void safe_release(T*& object) {
     if (object) {
         object->Release();
@@ -1689,28 +1695,247 @@ static ProbeResult probe_swapchain_present() {
 }
 
 static ProbeResult probe_mesh_shader_pso() {
+    std::vector<uint8_t> amplification_shader;
+    std::vector<uint8_t> mesh_shader;
+    std::vector<uint8_t> pixel_shader;
+    if (!read_binary_file("probe_mesh_shader_as.cso", amplification_shader) ||
+        !read_binary_file("probe_mesh_shader_ms.cso", mesh_shader) ||
+        !read_binary_file("probe_mesh_shader_ps.cso", pixel_shader)) {
+        return {false, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND),
+                "mesh/pixel shader probe blobs are missing",
+                "\"pso_attempted\":false"};
+    }
+
     ID3D12Device* device = nullptr;
     HRESULT hr = create_device(&device);
     if (FAILED(hr))
         return {false, hr, "device creation failed", ""};
 
-    UINT mesh_tier = 0;
-#if defined(D3D12_FEATURE_D3D12_OPTIONS7)
-    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options = {};
-    HRESULT feature_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &options, sizeof(options));
-    if (SUCCEEDED(feature_hr))
-        mesh_tier = static_cast<UINT>(options.MeshShaderTier);
-#else
-    HRESULT feature_hr = E_NOTIMPL;
-#endif
-    safe_release(device);
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
+    const HRESULT options7_hr = device->CheckFeatureSupport(
+        D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
 
-    std::string extra = "\"feature_hr\":\"" + hr_hex(feature_hr) +
-                        "\",\"mesh_shader_tier\":" + std::to_string(mesh_tier) + ",\"pso_attempted\":false";
-    return {
-        false, feature_hr,
-        "mesh/object shader PSO mini-probe is a tracked gap; current probe records MeshShaderTier before PSO wiring",
-        extra};
+    ID3D12Device2* device2 = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12PipelineState* repeated_pso = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12GraphicsCommandList6* list6 = nullptr;
+    ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12CommandSignature* mesh_signature = nullptr;
+    ID3D12Resource* indirect_args = nullptr;
+    ID3D12Resource* target = nullptr;
+    ID3D12Resource* readback = nullptr;
+    std::string detail;
+    hr = device->QueryInterface(IID_PPV_ARGS(&device2));
+
+    D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+    if (SUCCEEDED(hr))
+        hr = serialize_root_signature(root_desc, &root_blob, detail);
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(), root_blob->GetBufferSize(),
+                                         IID_PPV_ARGS(&root));
+
+    struct alignas(void*) MeshPipelineStream {
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+                                ID3D12RootSignature*> root;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS,
+                                D3D12_SHADER_BYTECODE> amplification;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS,
+                                D3D12_SHADER_BYTECODE> mesh;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS,
+                                D3D12_SHADER_BYTECODE> pixel;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+                                D3D12_BLEND_DESC> blend;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+                                UINT> sample_mask;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+                                D3D12_RASTERIZER_DESC> rasterizer;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
+                                D3D12_DEPTH_STENCIL_DESC> depth_stencil;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+                                D3D12_PRIMITIVE_TOPOLOGY_TYPE> topology;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+                                D3D12_RT_FORMAT_ARRAY> render_targets;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+                                DXGI_SAMPLE_DESC> sample_desc;
+    } stream = {};
+    stream.root.value = root;
+    stream.amplification.value = {amplification_shader.data(), amplification_shader.size()};
+    stream.mesh.value = {mesh_shader.data(), mesh_shader.size()};
+    stream.pixel.value = {pixel_shader.data(), pixel_shader.size()};
+    stream.blend.value.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    stream.sample_mask.value = UINT_MAX;
+    stream.rasterizer.value.FillMode = D3D12_FILL_MODE_SOLID;
+    stream.rasterizer.value.CullMode = D3D12_CULL_MODE_NONE;
+    stream.rasterizer.value.DepthClipEnable = TRUE;
+    stream.topology.value = D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
+    stream.render_targets.value.NumRenderTargets = 1;
+    stream.render_targets.value.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    stream.sample_desc.value.Count = 1;
+
+    if (SUCCEEDED(hr)) {
+        D3D12_PIPELINE_STATE_STREAM_DESC desc = {sizeof(stream), &stream};
+        hr = device2->CreatePipelineState(&desc, IID_PPV_ARGS(&pso));
+        if (SUCCEEDED(hr))
+            hr = device2->CreatePipelineState(&desc, IID_PPV_ARGS(&repeated_pso));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+                                       IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr))
+        hr = list->QueryInterface(IID_PPV_ARGS(&list6));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        heap_desc.NumDescriptors = 1;
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtv_heap));
+    }
+
+    D3D12_RESOURCE_DESC target_desc =
+        texture_desc(64, 64, DXGI_FORMAT_R8G8B8A8_UNORM,
+                     D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+    UINT rows = 0;
+    UINT64 row_bytes = 0;
+    UINT64 readback_bytes = 0;
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_CLEAR_VALUE clear = {};
+        clear.Format = target_desc.Format;
+        hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+                                             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
+                                             IID_PPV_ARGS(&target));
+    }
+    if (SUCCEEDED(hr)) {
+        device->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint, &rows,
+                                      &row_bytes, &readback_bytes);
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(readback_bytes);
+        hr = device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
+                                             &readback_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                             nullptr, IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_INDIRECT_ARGUMENT_DESC argument_desc = {};
+        argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH;
+        D3D12_COMMAND_SIGNATURE_DESC signature_desc = {};
+        signature_desc.ByteStride = sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
+        signature_desc.NumArgumentDescs = 1;
+        signature_desc.pArgumentDescs = &argument_desc;
+        hr = device->CreateCommandSignature(&signature_desc, nullptr,
+                                            IID_PPV_ARGS(&mesh_signature));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC args_desc =
+            buffer_desc(sizeof(D3D12_DISPATCH_MESH_ARGUMENTS));
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &args_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&indirect_args));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = indirect_args->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            const D3D12_DISPATCH_MESH_ARGUMENTS args = {1, 1, 1};
+            std::memcpy(mapped, &args, sizeof(args));
+            indirect_args->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateRenderTargetView(target, nullptr, rtv);
+        list6->SetGraphicsRootSignature(root);
+        list6->SetPipelineState(pso);
+        D3D12_VIEWPORT viewport = {0.0f, 0.0f, 64.0f, 64.0f, 0.0f, 1.0f};
+        D3D12_RECT left_scissor = {0, 0, 32, 64};
+        D3D12_RECT right_scissor = {32, 0, 64, 64};
+        list6->RSSetViewports(1, &viewport);
+        list6->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        const float clear[4] = {};
+        list6->ClearRenderTargetView(rtv, clear, 0, nullptr);
+        list6->RSSetScissorRects(1, &left_scissor);
+        list6->DispatchMesh(1, 1, 1);
+        list6->RSSetScissorRects(1, &right_scissor);
+        list6->ExecuteIndirect(mesh_signature, 1, indirect_args, 0, nullptr, 0);
+        D3D12_RESOURCE_BARRIER barrier = transition_barrier(
+            target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list6->ResourceBarrier(1, &barrier);
+        D3D12_TEXTURE_COPY_LOCATION dst = {};
+        dst.pResource = readback;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dst.PlacedFootprint = footprint;
+        D3D12_TEXTURE_COPY_LOCATION src = {};
+        src.pResource = target;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        hr = execute_and_wait(queue, list6);
+    }
+
+    uint64_t nonzero_pixels = 0;
+    uint64_t direct_pixels = 0;
+    uint64_t indirect_pixels = 0;
+    if (SUCCEEDED(hr)) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
+        hr = readback->Map(0, &read_range, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            for (UINT y = 0; y < 64; y++) {
+                const uint32_t* row = reinterpret_cast<const uint32_t*>(
+                    mapped + footprint.Footprint.RowPitch * y);
+                for (UINT x = 0; x < 64; x++) {
+                    const bool nonzero = row[x] != 0;
+                    nonzero_pixels += nonzero;
+                    if (x < 32)
+                        direct_pixels += nonzero;
+                    else
+                        indirect_pixels += nonzero;
+                }
+            }
+            readback->Unmap(0, nullptr);
+        }
+    }
+
+    safe_release(readback);
+    safe_release(target);
+    safe_release(indirect_args);
+    safe_release(mesh_signature);
+    safe_release(rtv_heap);
+    safe_release(list6);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(root_blob);
+    safe_release(repeated_pso);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(device2);
+    safe_release(device);
+    const bool verified =
+        SUCCEEDED(hr) && SUCCEEDED(options7_hr) &&
+        options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
+        direct_pixels > 0 && indirect_pixels > 0;
+    return {verified, verified ? S_OK : hr,
+            verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered; tier remains conservative"
+                     : (detail.empty() ? "native mesh shader dispatch/readback failed" : detail),
+            "\"pso_attempted\":true,\"repeated_pso_created\":true" +
+                std::string(",\"amplification_shader_bytes\":") +
+                std::to_string(amplification_shader.size()) +
+                ",\"mesh_shader_bytes\":" + std::to_string(mesh_shader.size()) +
+                ",\"mesh_shader_tier\":" +
+                std::to_string(static_cast<UINT>(options7.MeshShaderTier)) +
+                ",\"nonzero_pixels\":" + std::to_string(nonzero_pixels) +
+                ",\"direct_pixels\":" + std::to_string(direct_pixels) +
+                ",\"indirect_pixels\":" + std::to_string(indirect_pixels) +
+                ",\"d3d12_loaded_path\":\"" + json_escape(g_d3d12_loaded_path) + "\""};
 }
 
 static ProbeResult run_probe() {

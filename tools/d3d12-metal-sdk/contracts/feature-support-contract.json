@@ -38,6 +38,18 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS7": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
+      "probe_status": "basic_as_ms_direct_indirect_passed",
+      "reported": "unsupported",
+      "required_fields": [
+        "MeshShaderTier",
+        "SamplerFeedbackTier"
+      ],
+      "risk": "The basic AS/MS payload and direct/indirect DispatchMesh readback gate does not yet prove resource binding, mixed render state, statistics, render-target arrays, or broad shader coverage required to report mesh tier 1.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS11": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
       "reported": "unsupported",

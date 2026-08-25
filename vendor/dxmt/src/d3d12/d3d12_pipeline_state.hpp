@@ -72,6 +72,8 @@ public:
   HRESULT STDMETHODCALLTYPE GetCachedBlob(ID3DBlob **blob) override;
 
   void SetGraphicsDesc(const D3D12_GRAPHICS_PIPELINE_STATE_DESC &desc);
+  void SetMeshShaders(const D3D12_SHADER_BYTECODE &as,
+                      const D3D12_SHADER_BYTECODE &ms);
   void SetComputeDesc(const D3D12_COMPUTE_PIPELINE_STATE_DESC &desc);
 
   bool RequestCompile(bool allow_async);
@@ -127,6 +129,16 @@ public:
     return {(uint64_t)m_threadgroup_size.width,
             (uint64_t)m_threadgroup_size.height,
             (uint64_t)m_threadgroup_size.depth};
+  }
+  struct WMTSize GetObjectThreadgroupSize() const {
+    return {(uint64_t)m_object_threadgroup_size.width,
+            (uint64_t)m_object_threadgroup_size.height,
+            (uint64_t)m_object_threadgroup_size.depth};
+  }
+  struct WMTSize GetMeshThreadgroupSize() const {
+    return {(uint64_t)m_mesh_threadgroup_size.width,
+            (uint64_t)m_mesh_threadgroup_size.height,
+            (uint64_t)m_mesh_threadgroup_size.depth};
   }
 
   const MTL_SHADER_REFLECTION &GetCSReflection() const {
@@ -186,6 +198,7 @@ public:
   bool UsesGeometryMeshPipeline() const {
     return m_uses_geometry_mesh_pipeline;
   }
+  bool UsesNativeMeshPipeline() const { return m_uses_native_mesh_pipeline; }
   bool UsesNativeTessellationPath() const {
     return m_uses_native_tessellation_path;
   }
@@ -234,7 +247,7 @@ private:
   std::string m_compile_failure_stage;
   std::string m_compile_failure_detail;
   ID3D12RootSignature *m_root_sig = nullptr;
-  std::vector<uint8_t> m_vs, m_ps, m_gs, m_hs, m_ds, m_cs;
+  std::vector<uint8_t> m_vs, m_ps, m_gs, m_hs, m_ds, m_cs, m_as, m_ms;
   D3D12_BLEND_DESC m_blend_desc = {};
   D3D12_RASTERIZER_DESC m_rasterizer_desc = {};
   D3D12_DEPTH_STENCIL_DESC m_depth_stencil_desc = {};
@@ -245,6 +258,7 @@ private:
   bool m_vs_uses_stage_in = false;
   bool m_vs_requires_msc_stage_in = false;
   bool m_uses_geometry_mesh_pipeline = false;
+  bool m_uses_native_mesh_pipeline = false;
   bool m_uses_native_tessellation_path = false;
   bool m_uses_tessellation_fallback = false;
   uint32_t m_native_tessellation_control_points = 0;
@@ -263,9 +277,13 @@ private:
       m_native_tessellation_indexed_render_pso;
   WMT::Reference<WMT::ComputePipelineState> m_compute_pso;
   WMT::Reference<WMT::DepthStencilState> m_depth_stencil_state;
-  struct {
+  struct ThreadgroupSize {
     uint32_t width = 1, height = 1, depth = 1;
-  } m_threadgroup_size;
+  };
+  ThreadgroupSize m_threadgroup_size;
+  ThreadgroupSize m_object_threadgroup_size;
+  ThreadgroupSize m_mesh_threadgroup_size;
+  uint32_t m_mesh_payload_size = 0;
 
   MTL_SHADER_REFLECTION m_cs_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_cs_args;
