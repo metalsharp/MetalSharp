@@ -434,17 +434,21 @@ static CaseResult run_resource_binding_case() {
 
     uint32_t got[4] = {};
     bool read_ok = SUCCEEDED(hr) && readback_u32(readback, got, 4);
-    uint32_t expected[4] = {6, 8, 10, 12};
+    // The sampled UNORM texel is (10,20,30,40)/255, so the shader adds a
+    // channel sum of 100 in addition to the input value, CBV addend, and lane.
+    uint32_t expected[4] = {106, 108, 110, 112};
     bool verified = read_ok && std::memcmp(got, expected, sizeof(expected)) == 0;
     result.pass = SUCCEEDED(hr) && verified;
     result.hr = hr;
-    result.detail = verified         ? "CBV/SRV/UAV dispatch verified; compute texture sampler read reports unsupported"
+    result.detail = verified
+                        ? "CBV/SRV/UAV dispatch and compute texture sampling verified"
                     : detail.empty() ? "resource binding mismatch"
                                      : detail;
     char extra[256] = {};
     std::snprintf(extra, sizeof(extra),
-                  "\"shader\":\"sm50\",\"values\":[%u,%u,%u,%u],\"expected\":[6,8,10,12],"
-                  "\"sampler_read_supported\":false",
+                  "\"shader\":\"sm50\",\"values\":[%u,%u,%u,%u],"
+                  "\"expected\":[106,108,110,112],"
+                  "\"sampler_read_supported\":true",
                   got[0], got[1], got[2], got[3]);
     result.extra = extra;
 

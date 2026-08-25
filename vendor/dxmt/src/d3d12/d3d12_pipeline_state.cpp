@@ -43,6 +43,48 @@
 namespace dxmt {
 
 namespace {
+
+class D3D12CachedPipelineBlob final : public ID3DBlob {
+public:
+  explicit D3D12CachedPipelineBlob(const std::vector<uint8_t> &data)
+      : m_data(data) {}
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == IID_ID3D10Blob ||
+        riid == __uuidof(ID3DBlob)) {
+      *object = static_cast<ID3DBlob *>(this);
+      AddRef();
+      return S_OK;
+    }
+    return E_NOINTERFACE;
+  }
+
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+
+  ULONG STDMETHODCALLTYPE Release() override {
+    ULONG ref_count = --m_ref_count;
+    if (!ref_count)
+      delete this;
+    return ref_count;
+  }
+
+  LPVOID STDMETHODCALLTYPE GetBufferPointer() override {
+    return m_data.empty() ? nullptr : m_data.data();
+  }
+
+  SIZE_T STDMETHODCALLTYPE GetBufferSize() override { return m_data.size(); }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
+  std::vector<uint8_t> m_data;
+};
+
+} // namespace
+
+namespace {
 constexpr uint32_t kMetalD3D12VertexBufferSlotCount = 29;
 
 std::string ShaderCacheDir() {
@@ -2903,6 +2945,12 @@ void MTLD3D12PipelineState::SetGraphicsDesc(
   m_dsv_format = desc.DSVFormat;
   m_sample_mask = desc.SampleMask;
   m_sample_count = desc.SampleDesc.Count ? desc.SampleDesc.Count : 1;
+  if (desc.CachedPSO.pCachedBlob && desc.CachedPSO.CachedBlobSizeInBytes) {
+    const auto *cached_data =
+        static_cast<const uint8_t *>(desc.CachedPSO.pCachedBlob);
+    m_cached_pso_blob.assign(
+        cached_data, cached_data + desc.CachedPSO.CachedBlobSizeInBytes);
+  }
 }
 
 void MTLD3D12PipelineState::SetComputeDesc(
@@ -2914,6 +2962,12 @@ void MTLD3D12PipelineState::SetComputeDesc(
   if (desc.CS.pShaderBytecode && desc.CS.BytecodeLength) {
     m_cs.resize(desc.CS.BytecodeLength);
     memcpy(m_cs.data(), desc.CS.pShaderBytecode, desc.CS.BytecodeLength);
+  }
+  if (desc.CachedPSO.pCachedBlob && desc.CachedPSO.CachedBlobSizeInBytes) {
+    const auto *cached_data =
+        static_cast<const uint8_t *>(desc.CachedPSO.pCachedBlob);
+    m_cached_pso_blob.assign(
+        cached_data, cached_data + desc.CachedPSO.CachedBlobSizeInBytes);
   }
   m_ia_slot_mask = 0;
   m_ia_input_elements.clear();
@@ -2970,7 +3024,24 @@ HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::GetDevice(REFIID riid,
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12PipelineState::GetCachedBlob(ID3DBlob **blob) {
-  return E_NOTIMPL;
+  if (!blob)
+    return E_POINTER;
+  *blob = nullptr;
+
+  if (m_cached_pso_blob.empty()) {
+    static constexpr uint8_t empty_cache_blob[] = {
+        'D', 'X', 'M', 'T', 'P', 'S', 'O', 1,
+    };
+    m_cached_pso_blob.assign(std::begin(empty_cache_blob),
+                             std::end(empty_cache_blob));
+  }
+
+  try {
+    *blob = new D3D12CachedPipelineBlob(m_cached_pso_blob);
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
+  return S_OK;
 }
 
 } // namespace dxmt
