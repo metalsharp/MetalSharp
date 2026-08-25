@@ -13,6 +13,10 @@ const MANIFEST_FILE: &str = "library.json";
 const DEFAULT_EPIC_COVER: &str = "default-cover-epic-games-launcher.svg";
 const DEFAULT_ROCKSTAR_COVER: &str = "default-cover-rockstar-games-launcher.svg";
 const DEFAULT_UBISOFT_COVER: &str = "default-cover-ubisoft-connect.svg";
+const BATTLENET_RUNTIME_RELATIVE: &str = "runtime/launchers/battlenet/wine-staging-11.4";
+const BATTLENET_RUNTIME_MANIFEST: &str = "metalsharp-battlenet-runtime.json";
+const BATTLENET_DLL_OVERRIDES: &str = "winemenubuilder.exe=d;mscoree=d;mshtml=d;winedbg=d";
+const BATTLENET_LAUNCH_ARGS: &[&str] = &["--in-process-gpu", "--use-gl=swiftshader", "--disable-gpu-compositing"];
 
 #[derive(Clone, Copy)]
 struct LauncherInstaller {
@@ -64,10 +68,41 @@ const LAUNCHER_INSTALLERS: &[LauncherInstaller] = &[
         url: "https://us.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe",
         filename: "Battle.net-Setup.exe",
         msi: false,
-        executable_path: "drive_c/Program Files (x86)/Battle.net/Battle.net.exe",
-        fallback_executable_path: Some("drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe"),
+        executable_path: "drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe",
+        fallback_executable_path: Some("drive_c/Program Files (x86)/Battle.net/Battle.net.exe"),
     },
 ];
+
+fn battlenet_runtime_dir() -> PathBuf {
+    crate::platform::metalsharp_home_dir().join(BATTLENET_RUNTIME_RELATIVE)
+}
+
+fn battlenet_runtime_ready() -> bool {
+    let runtime = battlenet_runtime_dir();
+    runtime.join("bin/wine").is_file()
+        && runtime.join("bin/wineserver").is_file()
+        && runtime.join(BATTLENET_RUNTIME_MANIFEST).is_file()
+}
+
+fn launcher_wine_path(launcher: LauncherInstaller) -> PathBuf {
+    if launcher.id == "battlenet" {
+        battlenet_runtime_dir().join("bin/wine")
+    } else {
+        crate::platform::metalsharp_home_dir().join("runtime/wine/bin/metalsharp-wine")
+    }
+}
+
+fn configure_launcher_command(command: &mut Command, launcher: LauncherInstaller, prefix: &Path) {
+    command.env("WINEPREFIX", prefix);
+    if launcher.id == "battlenet" {
+        command
+            .env("WINEDEBUG", "-all")
+            .env("WINEMSYNC", "0")
+            .env("WINEESYNC", "1")
+            .env("ROSETTA_ADVERTISE_AVX", "1")
+            .env("WINEDLLOVERRIDES", BATTLENET_DLL_OVERRIDES);
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StoreLauncherKind {
@@ -696,18 +731,16 @@ fn run_launcher_installer_worker(
     }
     fs::rename(&partial, &installer_path)?;
 
-    let wine = crate::platform::metalsharp_home_dir().join("runtime/wine/bin/metalsharp-wine");
+    let wine = launcher_wine_path(launcher);
     append_launcher_log(&mut log, "stage=prefix");
     if wine.is_file() {
         let wineboot_stdout = log.try_clone()?;
         let wineboot_stderr = log.try_clone()?;
-        let wineboot = Command::new(&wine)
-            .arg("wineboot")
-            .arg("-u")
-            .env("WINEPREFIX", &prefix)
-            .stdout(Stdio::from(wineboot_stdout))
-            .stderr(Stdio::from(wineboot_stderr))
-            .status()?;
+        let mut wineboot_command = Command::new(&wine);
+        wineboot_command.args(["wineboot", "-u"]);
+        configure_launcher_command(&mut wineboot_command, launcher, &prefix);
+        let wineboot =
+            wineboot_command.stdout(Stdio::from(wineboot_stdout)).stderr(Stdio::from(wineboot_stderr)).status()?;
         append_launcher_log(&mut log, format!("wineboot_exit={:?}", wineboot.code()));
         if !wineboot.success() {
             return Err("launcher prefix initialization failed".into());
@@ -725,18 +758,13 @@ fn run_launcher_installer_worker(
         if launcher.id == "epic" {
             command.arg("SKIP_AUTOLAUNCH=1");
         }
-        command
-            .env("WINEPREFIX", &prefix)
-            .stdout(Stdio::from(launch_stdout))
-            .stderr(Stdio::from(launch_stderr))
-            .status()?
+        configure_launcher_command(&mut command, launcher, &prefix);
+        command.stdout(Stdio::from(launch_stdout)).stderr(Stdio::from(launch_stderr)).status()?
     } else {
-        Command::new(&wine)
-            .arg(&installer_path)
-            .env("WINEPREFIX", &prefix)
-            .stdout(Stdio::from(launch_stdout))
-            .stderr(Stdio::from(launch_stderr))
-            .status()?
+        let mut command = Command::new(&wine);
+        command.arg(&installer_path);
+        configure_launcher_command(&mut command, launcher, &prefix);
+        command.stdout(Stdio::from(launch_stdout)).stderr(Stdio::from(launch_stderr)).status()?
     };
     append_launcher_log(&mut log, format!("status=installer_exited\nexit_code={:?}", launch.code()));
     if !launch.success() {
@@ -757,6 +785,9 @@ pub fn handle_launcher_install(body: &serde_json::Map<String, Value>) -> Value {
     let Some(launcher) = launcher_installer(id) else {
         return json!({ "ok": false, "error": "unknown launcher" });
     };
+    if launcher.id == "battlenet" && !battlenet_runtime_ready() {
+        return json!({ "ok": false, "error": "Battle.net compatibility runtime is missing; reinstall the MetalSharp runtime bundle" });
+    }
     let bottle_dir = crate::bottles::bottle_dir(launcher.bottle_id);
     let prefix = bottle_dir.join("prefix");
     let installer_path = crate::bottles::installer_payload_dir(launcher.bottle_id).join(launcher.filename);
@@ -804,6 +835,7 @@ pub fn handle_launcher_status() -> Value {
                 "id": launcher.id,
                 "prefixCreated": prefix.exists(),
                 "installed": launcher_executable(&prefix, *launcher).is_some(),
+                "runtimeReady": launcher.id != "battlenet" || battlenet_runtime_ready(),
             })
         })
         .collect::<Vec<_>>();
@@ -822,7 +854,7 @@ fn run_launcher_target_worker(
     append_launcher_log(&mut log, format!("prefix={}", prefix.display()));
     append_launcher_log(&mut log, format!("target={}", target.display()));
     append_launcher_log(&mut log, format!("mode={}", if setup { "setup" } else { "launch" }));
-    let wine = crate::platform::metalsharp_home_dir().join("runtime/wine/bin/metalsharp-wine");
+    let wine = launcher_wine_path(launcher);
     if !wine.is_file() {
         return Err("MetalSharp Wine runtime not found".into());
     }
@@ -835,8 +867,8 @@ fn run_launcher_target_worker(
         if launcher.id == "epic" {
             command.arg("SKIP_AUTOLAUNCH=1");
         }
-        let status =
-            command.env("WINEPREFIX", &prefix).stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr)).status()?;
+        configure_launcher_command(&mut command, launcher, &prefix);
+        let status = command.stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr)).status()?;
         if !status.success() {
             return Err("launcher installer exited unsuccessfully".into());
         }
@@ -848,7 +880,13 @@ fn run_launcher_target_worker(
     } else if launcher.id == "epic" {
         run_epic_client_with_online_services(&wine, &prefix, &installers, &target, &mut log)?;
     } else {
-        let status = run_logged(Command::new(&wine).arg(&target).env("WINEPREFIX", &prefix), &mut log)?;
+        let mut command = Command::new(&wine);
+        command.arg(&target);
+        if launcher.id == "battlenet" && !setup {
+            command.args(BATTLENET_LAUNCH_ARGS);
+        }
+        configure_launcher_command(&mut command, launcher, &prefix);
+        let status = run_logged(&mut command, &mut log)?;
         if !status.success() {
             return Err("launcher exited unsuccessfully".into());
         }
@@ -864,6 +902,9 @@ pub fn handle_launcher_launch(body: &serde_json::Map<String, Value>) -> Value {
     let Some(launcher) = launcher_installer(id) else {
         return json!({ "ok": false, "error": "unknown launcher" });
     };
+    if launcher.id == "battlenet" && !battlenet_runtime_ready() {
+        return json!({ "ok": false, "error": "Battle.net compatibility runtime is missing; reinstall the MetalSharp runtime bundle" });
+    }
     let bottle_dir = crate::bottles::bottle_dir(launcher.bottle_id);
     let prefix = bottle_dir.join("prefix");
     if !prefix.exists() {
@@ -2846,6 +2887,26 @@ mod tests {
         assert!(entries.iter().all(|entry| entry.2.starts_with("https://")));
         assert!(launcher_installer("epic").is_none());
         assert!(launcher_installer("unknown").is_none());
+    }
+
+    #[test]
+    fn battlenet_uses_its_isolated_staging_profile() {
+        let launcher = launcher_installer("battlenet").expect("Battle.net catalog entry");
+        assert_eq!(launcher.executable_path, "drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe");
+        assert_eq!(BATTLENET_LAUNCH_ARGS, ["--in-process-gpu", "--use-gl=swiftshader", "--disable-gpu-compositing"]);
+
+        let mut command = Command::new("wine");
+        configure_launcher_command(&mut command, launcher, Path::new("/tmp/battlenet-prefix"));
+        let env = command
+            .get_envs()
+            .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(env.get("WINEPREFIX"), Some(&"/tmp/battlenet-prefix"));
+        assert_eq!(env.get("WINEDEBUG"), Some(&"-all"));
+        assert_eq!(env.get("WINEMSYNC"), Some(&"0"));
+        assert_eq!(env.get("WINEESYNC"), Some(&"1"));
+        assert_eq!(env.get("ROSETTA_ADVERTISE_AVX"), Some(&"1"));
+        assert_eq!(env.get("WINEDLLOVERRIDES"), Some(&BATTLENET_DLL_OVERRIDES));
     }
 
     #[test]
