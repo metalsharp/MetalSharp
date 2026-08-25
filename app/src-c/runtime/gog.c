@@ -619,7 +619,7 @@ static bool spawn_gogdl_download(const char* home, const char* product_id, const
 }
 
 static bool spawn_gogdl_launch(const char* home, const char* product_id, const char* platform, const char* folder,
-                               pid_t* pid_out, char** log_out) {
+                               const char* engine, pid_t* pid_out, char** log_out) {
     char *binary = gogdl_path(home), *log_dir = join(home, "logs/gog"),
          *wine = join(home, "runtime/wine/bin/metalsharp-wine");
     char* prefix = join(home, "bottles/gog-prefix/prefix");
@@ -655,6 +655,7 @@ static bool spawn_gogdl_launch(const char* home, const char* product_id, const c
             setenv("GOGDL_CONFIG_PATH", config, 1);
         if (support)
             setenv("GOGDL_SUPPORT_PATH", support, 1);
+        setenv("MS_GRAPHICS_BACKEND", engine && *engine ? engine : "auto", 1);
         char* args[] = {binary,       "--auth-config-path", auth ? auth : (char*)"",
                         "launch",     (char*)folder,        (char*)product_id,
                         "--platform", (char*)platform,      "--wine",
@@ -704,6 +705,68 @@ static char* gog_import_folder(const char* root, const char* product_id) {
     }
     closedir(dir);
     return NULL;
+}
+
+/* Resolve launch inputs from MetalSharp's persisted library rather than from
+ * renderer-supplied paths.  The renderer intentionally sends only a product
+ * ID, and accepting an arbitrary gameFolder here would also let a local IPC
+ * caller redirect gogdl outside the registered installation. */
+static bool gog_launch_record(const char* home, const char* product_id, char** title_out, char** platform_out,
+                              char** install_root_out, char** game_folder_out) {
+    ms_json* games = load_games(home);
+    bool found = false;
+    if (title_out)
+        *title_out = NULL;
+    if (platform_out)
+        *platform_out = NULL;
+    if (install_root_out)
+        *install_root_out = NULL;
+    if (game_folder_out)
+        *game_folder_out = NULL;
+    if (!games)
+        return false;
+    for (size_t i = 0; i < ms_json_array_length(games); i++) {
+        const ms_json* game = ms_json_array_get(games, i);
+        char *candidate = field(game, "productId", ""), *stored_folder = NULL, *resolved_folder = NULL;
+        if (strcmp(candidate, product_id)) {
+            free(candidate);
+            continue;
+        }
+        free(candidate);
+        if (title_out)
+            *title_out = field(game, "title", product_id);
+        if (platform_out)
+            *platform_out = field(game, "platform", "windows");
+        if (install_root_out)
+            *install_root_out = field(game, "installRoot", "");
+        stored_folder = field(game, "gameFolder", "");
+        if (*stored_folder)
+            resolved_folder = gog_import_folder(stored_folder, product_id);
+        if (!resolved_folder && install_root_out && *install_root_out && **install_root_out)
+            resolved_folder = gog_import_folder(*install_root_out, product_id);
+        if (game_folder_out)
+            *game_folder_out = resolved_folder;
+        else
+            free(resolved_folder);
+        free(stored_folder);
+        found = resolved_folder != NULL;
+        break;
+    }
+    ms_json_free(games);
+    if (!found) {
+        free(title_out ? *title_out : NULL);
+        free(platform_out ? *platform_out : NULL);
+        free(install_root_out ? *install_root_out : NULL);
+        if (title_out)
+            *title_out = NULL;
+        if (platform_out)
+            *platform_out = NULL;
+        if (install_root_out)
+            *install_root_out = NULL;
+        if (game_folder_out)
+            *game_folder_out = NULL;
+    }
+    return found;
 }
 
 static bool run_gogdl_auth(const char* home, const char* code) {
@@ -816,6 +879,29 @@ static bool remove_tree(const char* path) {
         return rmdir(path) == 0;
     }
     return unlink(path) == 0;
+}
+
+static bool clear_gogdl_manifest(const char* home, const char* product_id) {
+    char* manifests = join(home, "gogdl/heroic_gogdl/manifests");
+    char* manifest = manifests ? join(manifests, product_id) : NULL;
+    bool ok = !manifest || unlink(manifest) == 0 || errno == ENOENT;
+    free(manifest);
+    free(manifests);
+    return ok;
+}
+
+static bool safe_gog_install_path(const char* path, const char* home) {
+    char* resolved;
+    bool safe;
+    if (!path || !*path || !strcmp(path, "/") || !strcmp(path, ".") || !strcmp(path, ".."))
+        return false;
+    resolved = realpath(path, NULL);
+    if (!resolved)
+        return false;
+    safe = strcmp(resolved, "/") != 0 && strcmp(resolved, home) != 0 && strcmp(resolved, "/Applications") != 0 &&
+           strcmp(resolved, "/Users") != 0 && strcmp(resolved, "/Volumes") != 0;
+    free(resolved);
+    return safe;
 }
 static char* status_json(const char* home) {
     char prefix[1024], wine_path[1024];
@@ -1079,7 +1165,7 @@ static char* game_json_ex(const char* id, const char* title, const char* status,
     ms_json_writer_key(&w, "primaryTaskName");
     ms_json_writer_null(&w);
     ms_json_writer_key(&w, "installed");
-    ms_json_writer_bool(&w, !strcmp(status, "installed"));
+    ms_json_writer_bool(&w, !strcmp(status, "installed") || !strcmp(status, "running"));
     ms_json_writer_key(&w, "running");
     ms_json_writer_bool(&w, !strcmp(status, "running"));
     ms_json_writer_key(&w, "status");
@@ -1195,7 +1281,8 @@ static char* refresh_game_json(const char* home, const ms_json* game) {
     if (running) {
         free(status);
         status = strdup("running");
-    } else if (installed && (!*status || !strcmp(status, "not_installed") || !strcmp(status, "downloading"))) {
+    } else if (installed && (!*status || !strcmp(status, "not_installed") || !strcmp(status, "downloading") ||
+                             !strcmp(status, "running"))) {
         free(status);
         status = strdup("installed");
     } else if (!*status) {
@@ -1330,7 +1417,7 @@ static bool append_game(const char* home, const char* raw) {
     ms_json_writer w;
     char *serial, *incoming_id;
     char e[64];
-    bool ok;
+    bool ok, replaced = false;
     if (!a)
         return false;
     incoming = ms_json_parse(raw ? raw : "{}", raw ? strlen(raw) : 2, e, sizeof(e));
@@ -1338,15 +1425,49 @@ static bool append_game(const char* home, const char* raw) {
     ms_json_writer_init(&w);
     ms_json_writer_array_begin(&w);
     for (size_t i = 0; i < ms_json_array_length(a); i++) {
-        char* old_id = field(ms_json_array_get(a, i), "productId", "");
+        const ms_json* old_game = ms_json_array_get(a, i);
+        char* old_id = field(old_game, "productId", "");
         if (strcmp(old_id, incoming_id) != 0) {
-            char* old = ms_json_stringify(ms_json_array_get(a, i));
+            char* old = ms_json_stringify(old_game);
             ms_json_writer_raw(&w, old ? old : "{}");
             free(old);
+        } else if (incoming && old_game) {
+            if (replaced) {
+                free(old_id);
+                continue;
+            }
+            replaced = true;
+            ms_json_writer_object_begin(&w);
+            for (size_t j = 0; j < ms_json_object_length(incoming); j++) {
+                const char* key = ms_json_object_key_at(incoming, j);
+                const ms_json* value = ms_json_object_value_at(incoming, j);
+                const ms_json* preserved = value;
+                if ((!strcmp(key, "title") && ms_json_type_of(value) == MS_JSON_STRING) ||
+                    ((!strcmp(key, "slug") || !strcmp(key, "imageUrl") || !strcmp(key, "iconUrl") ||
+                      !strcmp(key, "primaryExe") || !strcmp(key, "primaryTaskName") ||
+                      !strcmp(key, "downloadSizeBytes") || !strcmp(key, "diskSizeBytes")) &&
+                     ms_json_type_of(value) == MS_JSON_NULL)) {
+                    char* incoming_value = NULL;
+                    if (!strcmp(key, "title") && ms_json_as_string(value, &incoming_value) &&
+                        !strcmp(incoming_value, incoming_id))
+                        preserved = ms_json_object_get(old_game, key);
+                    else if (ms_json_type_of(value) == MS_JSON_NULL && ms_json_object_get(old_game, key))
+                        preserved = ms_json_object_get(old_game, key);
+                    free(incoming_value);
+                }
+                ms_json_writer_key(&w, key);
+                {
+                    char* serialized_value = ms_json_stringify(preserved ? preserved : value);
+                    ms_json_writer_raw(&w, serialized_value ? serialized_value : "null");
+                    free(serialized_value);
+                }
+            }
+            ms_json_writer_object_end(&w);
         }
         free(old_id);
     }
-    ms_json_writer_raw(&w, raw ? raw : "{}");
+    if (!replaced)
+        ms_json_writer_raw(&w, raw ? raw : "{}");
     ms_json_writer_array_end(&w);
     serial = ms_json_writer_take(&w);
     newa = serial ? ms_json_parse(serial, strlen(serial), e, sizeof(e)) : NULL;
@@ -1517,13 +1638,17 @@ static char* gog_stop_json(const char* home, const char* id) {
         char* candidate = field(ms_json_array_get(games, i), "productId", "");
         if (!strcmp(candidate, id)) {
             pid_t tracked = gog_tracked_pid(id);
-            bool installed = false;
-            ms_json_as_bool(ms_json_object_get(ms_json_array_get(games, i), "installed"), &installed);
+            char *title = NULL, *platform = NULL, *install_root = NULL, *game_folder = NULL;
+            bool installed = gog_launch_record(home, id, &title, &platform, &install_root, &game_folder);
             if (tracked > 0) {
                 kill(tracked, SIGTERM);
             }
-            char* title = field(ms_json_array_get(games, i), "title", id);
-            char* stopped_game = game_json(id, title, installed ? "installed" : "not_installed");
+            if (!title)
+                title = field(ms_json_array_get(games, i), "title", id);
+            if (!platform)
+                platform = field(ms_json_array_get(games, i), "platform", "windows");
+            char* stopped_game = game_json_ex(id, title, installed ? "installed" : "not_installed", platform,
+                                              install_root, game_folder, 0, 0, NULL);
             if (stopped_game)
                 append_game(home, stopped_game);
             ms_json_writer w;
@@ -1544,6 +1669,9 @@ static char* gog_stop_json(const char* home, const char* id) {
             ms_json_writer_object_end(&w);
             free(stopped_game);
             free(title);
+            free(platform);
+            free(install_root);
+            free(game_folder);
             free(candidate);
             ms_json_free(games);
             return ms_json_writer_take(&w);
@@ -1645,10 +1773,53 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             return err("missing productId");
         }
         if (!strcmp(action, "uninstall")) {
+            char *root = NULL, *folder = NULL;
+            ms_json* games = load_games(home);
+            if (games) {
+                for (size_t i = 0; i < ms_json_array_length(games); i++) {
+                    char* candidate = field(ms_json_array_get(games, i), "productId", "");
+                    if (!strcmp(candidate, s)) {
+                        root = field(ms_json_array_get(games, i), "installRoot", "");
+                        break;
+                    }
+                    free(candidate);
+                }
+            }
+            if (root && *root)
+                folder = gog_import_folder(root, s);
+            if (folder && !safe_gog_install_path(folder, home)) {
+                free(folder);
+                free(root);
+                ms_json_free(games);
+                free(s);
+                ms_json_free(j);
+                return err("refusing to remove unsafe GOG install path");
+            }
+            if (folder && !remove_tree(folder)) {
+                free(folder);
+                free(root);
+                ms_json_free(games);
+                free(s);
+                ms_json_free(j);
+                return err("failed to remove GOG install folder");
+            }
+            if (!clear_gogdl_manifest(home, s)) {
+                free(folder);
+                free(root);
+                ms_json_free(games);
+                free(s);
+                ms_json_free(j);
+                return err("failed to clear GOG download manifest");
+            }
             bool ok = remove_game(home, s);
+            char* removed_path = folder ? strdup(folder) : NULL;
+            free(folder);
+            free(root);
+            ms_json_free(games);
             if (!ok) {
                 free(s);
                 ms_json_free(j);
+                free(removed_path);
                 return err("game not found");
             }
             char* removed_game = game_json(s, s, "not_installed");
@@ -1660,11 +1831,15 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             ms_json_writer_key(&response, "ok");
             ms_json_writer_bool(&response, true);
             ms_json_writer_key(&response, "removedPath");
-            ms_json_writer_null(&response);
+            if (removed_path)
+                ms_json_writer_string(&response, removed_path);
+            else
+                ms_json_writer_null(&response);
             ms_json_writer_key(&response, "game");
             ms_json_writer_raw(&response, removed_game ? removed_game : "{}");
             ms_json_writer_object_end(&response);
             free(removed_game);
+            free(removed_path);
             return ms_json_writer_take(&response);
         }
         if (!strcmp(action, "progress")) {
@@ -1692,42 +1867,42 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             return err("gogdl binary not found; install it or set METALSHARP_GOGDL_BIN");
         }
         if (!strcmp(action, "play")) {
-            char* folder = field(j, "gameFolder", "");
-            char* install_root = field(j, "installPath", "");
-            char* platform = field(j, "platform", "windows");
+            char *folder = NULL, *install_root = NULL, *platform = NULL, *stored_title = NULL;
+            char* engine = field(j, "engine", "auto");
             pid_t launch_pid;
             char* log_path = NULL;
-            struct stat folder_stat;
-            if (!*folder && *install_root) {
-                free(folder);
-                folder = strdup(install_root);
-            }
-            if (!platform || (strcmp(platform, "windows") && strcmp(platform, "osx") && strcmp(platform, "linux"))) {
+            if (!gog_launch_record(home, s, &stored_title, &platform, &install_root, &folder)) {
+                free(stored_title);
                 free(folder);
                 free(install_root);
                 free(platform);
-                free(s);
-                free(title);
-                ms_json_free(j);
-                return err("platform must be windows, osx, or linux");
-            }
-            if (!folder || stat(folder, &folder_stat) != 0 || !S_ISDIR(folder_stat.st_mode)) {
-                free(folder);
-                free(install_root);
-                free(platform);
+                free(engine);
                 free(s);
                 free(title);
                 ms_json_free(j);
                 return err("game is not installed or imported");
             }
+            free(title);
+            title = stored_title;
+            if (!platform || (strcmp(platform, "windows") && strcmp(platform, "osx") && strcmp(platform, "linux"))) {
+                free(folder);
+                free(install_root);
+                free(platform);
+                free(engine);
+                free(s);
+                free(title);
+                ms_json_free(j);
+                return err("platform must be windows, osx, or linux");
+            }
             char* prefix = join(home, "bottles/gog-prefix/prefix");
-            bool started =
-                prefix && mkdir_p(prefix) && spawn_gogdl_launch(home, s, platform, folder, &launch_pid, &log_path);
+            bool started = prefix && mkdir_p(prefix) &&
+                           spawn_gogdl_launch(home, s, platform, folder, engine, &launch_pid, &log_path);
             if (!started) {
                 free(prefix);
                 free(folder);
                 free(install_root);
                 free(platform);
+                free(engine);
                 free(log_path);
                 free(s);
                 free(title);
@@ -1743,6 +1918,7 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 free(folder);
                 free(install_root);
                 free(platform);
+                free(engine);
                 free(log_path);
                 free(s);
                 free(title);
@@ -1769,6 +1945,7 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             free(folder);
             free(install_root);
             free(platform);
+            free(engine);
             free(log_path);
             free(s);
             free(title);
@@ -1865,8 +2042,17 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 ms_json_free(j);
                 return err("gogdl binary not found; install it or set METALSHARP_GOGDL_BIN");
             }
-            bool started = install_root && mkdir_p(install_root) &&
-                           spawn_gogdl_download(home, s, platform, install_root, language, &install_pid, &log_path);
+            bool started = false;
+            if (install_root && mkdir_p(install_root)) {
+                char* existing_folder = gog_import_folder(install_root, s);
+                /* A previous uninstall could have removed the files but left gogdl's
+                 * product manifest behind.  Let gogdl build a fresh manifest when
+                 * there is no intact installation to resume. */
+                if (!existing_folder)
+                    clear_gogdl_manifest(home, s);
+                free(existing_folder);
+                started = spawn_gogdl_download(home, s, platform, install_root, language, &install_pid, &log_path);
+            }
             free(language);
             if (!started) {
                 free(platform);

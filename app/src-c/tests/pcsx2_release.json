@@ -1,0 +1,15 @@
+{
+  "tag_name": "v2.6.3",
+  "published_at": "2026-01-28T18:00:00Z",
+  "draft": false,
+  "prerelease": false,
+  "assets": [
+    {
+      "id": 1,
+      "name": "pcsx2-v2.6.3-macos-Qt.tar.xz",
+      "browser_download_url": "https://github.com/PCSX2/pcsx2/releases/download/v2.6.3/pcsx2-v2.6.3-macos-Qt.tar.xz",
+      "size": 4,
+      "digest": "sha256:1d7a363ce12430881ec56c9cf1409c49c491043618e598c356e2959040872f5a"
+    }
+  ]
+}

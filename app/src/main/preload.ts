@@ -12,7 +12,23 @@ contextBridge.exposeInMainWorld("metalsharp", {
   installHomebrew: () => ipcRenderer.invoke("app:install-homebrew"),
   homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
+  onGameJoltDownload: (callback: (update: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, update: unknown) => callback(update);
+    ipcRenderer.on("gamejolt:download", listener);
+    return () => ipcRenderer.removeListener("gamejolt:download", listener);
+  },
   openInFinder: (path: string) => ipcRenderer.invoke("app:open-in-finder", path),
+  openRpcs3Path: (path: string) => ipcRenderer.invoke("app:open-rpcs3-path", path),
+  openPcsx2Path: (path: string) => ipcRenderer.invoke("app:open-pcsx2-path", path),
+  openPcsx2Guide: (kind: "bios" | "discs") => ipcRenderer.invoke("app:open-pcsx2-guide", kind),
+  openShadps4Path: (path: string) => ipcRenderer.invoke("app:open-shadps4-path", path),
+  openShadps4Compatibility: (titleId: string) => ipcRenderer.invoke("app:open-shadps4-compatibility", titleId),
+  openSharpemuPath: (path: string) => ipcRenderer.invoke("app:open-sharpemu-path", path),
+  openSharpemuLink: (kind: "faq" | "compatibility" | "repository" | "releases", titleId?: string) =>
+    ipcRenderer.invoke("app:open-sharpemu-link", kind, titleId),
+  openEmulatorResource: (kind: "archive-games" | "pcsx2-firmware") =>
+    ipcRenderer.invoke("app:open-emulator-resource", kind),
+  openRpcs3FirmwarePage: () => ipcRenderer.invoke("app:open-rpcs3-firmware-page"),
   openLogsFolder: () => ipcRenderer.invoke("app:open-logs-folder"),
   openMetalsharpFolder: () => ipcRenderer.invoke("app:open-metalsharp-folder"),
   repairDataAccess: () => ipcRenderer.invoke("app:repair-data-access"),
@@ -31,6 +47,10 @@ contextBridge.exposeInMainWorld("metalsharp", {
   quitApp: () => ipcRenderer.send("app:quit"),
   uninstallApp: () => ipcRenderer.send("app:uninstall"),
   pickExeFile: () => ipcRenderer.invoke("app:pick-exe-file"),
+  pickRpcs3File: (kind: "firmware" | "package") => ipcRenderer.invoke("app:pick-rpcs3-file", kind),
+  pickPcsx2Bios: () => ipcRenderer.invoke("app:pick-pcsx2-bios"),
+  pickPcsx2Game: () => ipcRenderer.invoke("app:pick-pcsx2-game"),
+  pickSharpemuRoot: () => ipcRenderer.invoke("app:pick-sharpemu-root"),
   pickImageFile: () => ipcRenderer.invoke("app:pick-image-file"),
   pickDirectory: (title?: string) => ipcRenderer.invoke("app:pick-directory", title),
   gogOAuthLogin: (authUrl: string) => ipcRenderer.invoke("gog:oauth-login", authUrl),

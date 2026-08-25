@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -14,6 +15,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -24,6 +26,170 @@ static char* join_path(const char* left, const char* right) {
     if (path != NULL)
         (void)snprintf(path, a + b + (slash ? 2 : 1), "%s%s%s", left, slash ? "/" : "", right);
     return path;
+}
+
+static bool mkdir_p(const char* path);
+static bool contains_ci(const char* text, const char* needle);
+
+static bool steam_regular_file(const char* path) {
+    struct stat st;
+    return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static bool steam_exe_name_allowed(const char* name) {
+    return name && strcasecmp(name, "unitycrashhandler64.exe") != 0 &&
+           !contains_ci(name, "crashreport") && !contains_ci(name, "uninstall") && !contains_ci(name, "setup") &&
+           !contains_ci(name, "d3dconfig");
+}
+
+static void find_steam_executable(const char* directory, unsigned depth, char** result, int* score) {
+    DIR* dir;
+    struct dirent* entry;
+    if (!directory || depth > 6 || !result || !score)
+        return;
+    dir = opendir(directory);
+    if (!dir)
+        return;
+    while ((entry = readdir(dir)) != NULL) {
+        char* path;
+        struct stat st;
+        int candidate_score;
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+        path = join_path(directory, entry->d_name);
+        if (!path || stat(path, &st) != 0) {
+            free(path);
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            find_steam_executable(path, depth + 1, result, score);
+            free(path);
+            continue;
+        }
+        if (!S_ISREG(st.st_mode) || strcasecmp(entry->d_name + strlen(entry->d_name) -
+                                                    (strlen(entry->d_name) >= 4 ? 4 : 0), ".exe") != 0 ||
+            !steam_exe_name_allowed(entry->d_name)) {
+            free(path);
+            continue;
+        }
+        candidate_score = 100 - (int)depth * 10;
+        if (contains_ci(entry->d_name, "shipping"))
+            candidate_score -= 5;
+        if (*result == NULL || candidate_score > *score) {
+            free(*result);
+            *result = path;
+            *score = candidate_score;
+        } else {
+            free(path);
+        }
+    }
+    closedir(dir);
+}
+
+static const char* steam_icon_tool(const char* name) {
+    static const char* prefixes[] = {"/opt/homebrew/bin/", "/usr/local/bin/", "/usr/bin/"};
+    static char paths[2][PATH_MAX];
+    size_t slot = !strcmp(name, "icotool");
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        snprintf(paths[slot], sizeof(paths[slot]), "%s%s", prefixes[i], name);
+        if (access(paths[slot], X_OK) == 0)
+            return paths[slot];
+    }
+    return NULL;
+}
+
+static char* steam_embedded_icon(const char* game_directory) {
+    const char* wrestool = steam_icon_tool("wrestool");
+    const char* icotool = steam_icon_tool("icotool");
+    char* cache = join_path(game_directory, ".metalsharp/steam-embedded-icon.png");
+    char* output = join_path(game_directory, ".metalsharp/steam-icon");
+    char* resource = output ? join_path(output, "resource.ico") : NULL;
+    char* executable = NULL;
+    int score = -1;
+    DIR* dir;
+    struct dirent* entry;
+    int status = 0;
+    pid_t pid;
+    if (!game_directory || !wrestool || !icotool || !cache || !output || !resource) {
+        free(cache);
+        free(output);
+        free(resource);
+        return NULL;
+    }
+    if (steam_regular_file(cache)) {
+        free(output);
+        free(resource);
+        return cache;
+    }
+    {
+        char* cache_directory = join_path(game_directory, ".metalsharp");
+        if (cache_directory) {
+            (void)mkdir_p(cache_directory);
+            free(cache_directory);
+        }
+    }
+    find_steam_executable(game_directory, 0, &executable, &score);
+    if (!executable || !mkdir_p(output))
+        goto fail;
+    pid = fork();
+    if (pid == 0) {
+        int fd = open(resource, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        char* const args[] = {(char*)wrestool, "-x", "--type=14", executable, NULL};
+        if (fd < 0 || dup2(fd, STDOUT_FILENO) < 0)
+            _exit(127);
+        close(fd);
+        execv(wrestool, args);
+        _exit(127);
+    }
+    if (pid <= 0)
+        goto fail;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        goto fail;
+    pid = fork();
+    if (pid == 0) {
+        char* const args[] = {(char*)icotool, "-x", "-o", output, resource, NULL};
+        execv(icotool, args);
+        _exit(127);
+    }
+    if (pid <= 0)
+        goto fail;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        goto fail;
+    dir = opendir(output);
+    if (!dir)
+        goto fail;
+    while ((entry = readdir(dir)) != NULL) {
+        char* image;
+        size_t length = strlen(entry->d_name);
+        if (length < 4 || strcasecmp(entry->d_name + length - 4, ".png") != 0)
+            continue;
+        image = join_path(output, entry->d_name);
+        if (image && rename(image, cache) == 0) {
+            free(image);
+            closedir(dir);
+            unlink(resource);
+            rmdir(output);
+            free(executable);
+            free(output);
+            free(resource);
+            return cache;
+        }
+        free(image);
+    }
+    closedir(dir);
+fail:
+    free(executable);
+    unlink(resource);
+    if (output)
+        rmdir(output);
+    free(output);
+    free(resource);
+    free(cache);
+    return NULL;
 }
 
 static bool mkdir_p(const char* path) {
@@ -586,6 +752,7 @@ static const char* pipeline_display_name(const char* pipeline) {
 
 static void write_library_game(ms_json_writer* w, const char* home, const steam_game* game) {
     char cover[256], header[256];
+    char* embedded_icon = game->installed && game->game_dir ? steam_embedded_icon(game->game_dir) : NULL;
     char preferred[64] = "";
     const char* recommended = default_pipeline_for_appid(game->appid);
     const char* effective = bottle_string_value(home, game->appid, "preferred_pipeline", preferred, sizeof(preferred))
@@ -649,7 +816,13 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     ms_json_writer_string(w, cover);
     ms_json_writer_key(w, "header_url");
     ms_json_writer_string(w, header);
+    ms_json_writer_key(w, "embedded_icon_path");
+    if (embedded_icon)
+        ms_json_writer_string(w, embedded_icon);
+    else
+        ms_json_writer_null(w);
     ms_json_writer_object_end(w);
+    free(embedded_icon);
 }
 
 char* ms_steam_library_json(const char* metalsharp_home) {

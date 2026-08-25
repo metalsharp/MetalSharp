@@ -11,6 +11,7 @@ char* ms_steam_install_game_json(const char*, const char*, size_t, int*);
 char* ms_steam_uninstall_game_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_game_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_auto_json(const char*, const char*, size_t, int*);
+char* ms_steam_launch_external_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_d3dmetal_json(const char*, unsigned, const char*, const char*, int*);
 char* ms_steam_prepare_bottle_route_json(const char*, const char*);
 /* Canonical MTSP recipe/prepare/doctor inspection.  mode: 0 prepare, 1 recipe, 2 doctor. */

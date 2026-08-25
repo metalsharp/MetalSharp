@@ -1,0 +1,19 @@
+{
+  "tag_name": "build-0123456789abcdef0123456789abcdef01234567",
+  "published_at": "2026-01-02T03:04:05Z",
+  "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;123B",
+  "assets": [
+    {
+      "name": "rpcs3-v0.0.42-19000-01234567_macos_aarch64.7z",
+      "browser_download_url": "https://github.com/RPCS3/rpcs3-binaries-mac-arm64/releases/download/build-0123456789abcdef0123456789abcdef01234567/rpcs3-v0.0.42-19000-01234567_macos_aarch64.7z",
+      "size": 123,
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "rpcs3-v0.0.42-19000-01234567_macos.7z",
+      "browser_download_url": "https://github.com/RPCS3/rpcs3-binaries-mac/releases/download/build-0123456789abcdef0123456789abcdef01234567/rpcs3-v0.0.42-19000-01234567_macos.7z",
+      "size": 123,
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

@@ -2,11 +2,16 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include <errno.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -129,7 +134,7 @@ static char* new_id(void) {
     snprintf(b, sizeof(b), "sharp_%llu", (unsigned long long)time(NULL) * 1000ULL + (unsigned long long)getpid());
     return strdup(b);
 }
-static char* app_json(const char* id, const char* name, const char* exe, const char* dir) {
+static char* app_json(const char* id, const char* name, const char* exe, const char* dir, const char* bottle_id) {
     ms_json_writer w;
     char* o;
     ms_json_writer_init(&w);
@@ -157,7 +162,10 @@ static char* app_json(const char* id, const char* name, const char* exe, const c
     ms_json_writer_array_begin(&w);
     ms_json_writer_array_end(&w);
     ms_json_writer_key(&w, "bottle_id");
-    ms_json_writer_null(&w);
+    if (bottle_id && bottle_id[0])
+        ms_json_writer_string(&w, bottle_id);
+    else
+        ms_json_writer_null(&w);
     ms_json_writer_key(&w, "installed_at");
     ms_json_writer_u64(&w, (unsigned long long)time(NULL));
     ms_json_writer_key(&w, "size_bytes");
@@ -165,6 +173,246 @@ static char* app_json(const char* id, const char* name, const char* exe, const c
     ms_json_writer_object_end(&w);
     o = ms_json_writer_take(&w);
     return o;
+}
+
+static bool contains_ci(const char* text, const char* needle) {
+    size_t n = needle ? strlen(needle) : 0;
+    if (!text || n == 0)
+        return false;
+    for (; *text; text++)
+        if (!strncasecmp(text, needle, n))
+            return true;
+    return false;
+}
+
+static bool is_moonscraper_installer(const char* path) {
+    const char* name = path ? strrchr(path, '/') : NULL;
+    name = name ? name + 1 : path;
+    return name && !strncasecmp(name, "msce.", 5) && contains_ci(name, ".installer.") &&
+           strlen(name) > 4 && !strcasecmp(name + strlen(name) - 4, ".exe");
+}
+
+static const char* innoextract_binary(void) {
+    static const char* prefixes[] = {"/opt/homebrew/bin/", "/usr/local/bin/", "/usr/bin/"};
+    static char path[PATH_MAX];
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        snprintf(path, sizeof(path), "%sinnoextract", prefixes[i]);
+        if (access(path, X_OK) == 0)
+            return path;
+    }
+    return NULL;
+}
+
+static bool remove_tree(const char* path) {
+    struct stat st;
+    if (!path || lstat(path, &st) != 0)
+        return !path || errno == ENOENT;
+    if (!S_ISDIR(st.st_mode))
+        return unlink(path) == 0;
+    DIR* dir = opendir(path);
+    struct dirent* entry;
+    if (!dir)
+        return false;
+    while ((entry = readdir(dir)) != NULL) {
+        char* child;
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+        child = join(path, entry->d_name);
+        if (!child || !remove_tree(child)) {
+            free(child);
+            closedir(dir);
+            return false;
+        }
+        free(child);
+    }
+    closedir(dir);
+    return rmdir(path) == 0;
+}
+
+static bool write_moonscraper_bottle(const char* home, const char* source, const char* install_dir,
+                                     const char* executable, const char* prefix) {
+    const char* id = "installer_moonscraper";
+    char *root = join(home, "bottles"), *dir = root ? join(root, id) : NULL,
+         *path = dir ? join(dir, "bottle.json") : NULL;
+    FILE* file;
+    ms_json_writer writer;
+    char* raw;
+    char stamp[32];
+    bool ok = false;
+    if (!root || !dir || !path || !mkdir_p(dir))
+        goto done;
+    snprintf(stamp, sizeof(stamp), "%llu", (unsigned long long)time(NULL));
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "id");
+    ms_json_writer_string(&writer, id);
+    ms_json_writer_key(&writer, "name");
+    ms_json_writer_string(&writer, "MoonScraper Chart Editor");
+    ms_json_writer_key(&writer, "custom_name");
+    ms_json_writer_null(&writer);
+    ms_json_writer_key(&writer, "bottle_type");
+    ms_json_writer_string(&writer, "installer");
+    ms_json_writer_key(&writer, "steam_app_id");
+    ms_json_writer_null(&writer);
+    ms_json_writer_key(&writer, "prefix_path");
+    ms_json_writer_string(&writer, prefix);
+    ms_json_writer_key(&writer, "arch");
+    ms_json_writer_string(&writer, "win64");
+    ms_json_writer_key(&writer, "runtime_profile");
+    ms_json_writer_string(&writer, "game_install");
+    ms_json_writer_key(&writer, "preferred_pipeline");
+    ms_json_writer_string(&writer, "wine_bare");
+    ms_json_writer_key(&writer, "installed_components");
+    ms_json_writer_array_begin(&writer);
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_key(&writer, "source_installer_path");
+    ms_json_writer_string(&writer, source);
+    ms_json_writer_key(&writer, "installer_kind");
+    ms_json_writer_string(&writer, "inno");
+    ms_json_writer_key(&writer, "game_install_path");
+    ms_json_writer_string(&writer, install_dir);
+    ms_json_writer_key(&writer, "runtime_assets");
+    ms_json_writer_array_begin(&writer);
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_key(&writer, "installed_app_detections");
+    ms_json_writer_array_begin(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "name");
+    ms_json_writer_string(&writer, "MoonScraper Chart Editor");
+    ms_json_writer_key(&writer, "exe_path");
+    ms_json_writer_string(&writer, executable);
+    ms_json_writer_key(&writer, "source");
+    ms_json_writer_string(&writer, "native_inno_extract");
+    ms_json_writer_object_end(&writer);
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_key(&writer, "health");
+    ms_json_writer_string(&writer, "ready");
+    ms_json_writer_key(&writer, "last_launch_log");
+    ms_json_writer_null(&writer);
+    ms_json_writer_key(&writer, "last_launch_pid");
+    ms_json_writer_null(&writer);
+    ms_json_writer_key(&writer, "last_launch_status");
+    ms_json_writer_null(&writer);
+    ms_json_writer_key(&writer, "last_launch_finished_at");
+    ms_json_writer_null(&writer);
+    ms_json_writer_key(&writer, "created_at");
+    ms_json_writer_string(&writer, stamp);
+    ms_json_writer_key(&writer, "updated_at");
+    ms_json_writer_string(&writer, stamp);
+    ms_json_writer_object_end(&writer);
+    raw = ms_json_writer_take(&writer);
+    file = raw ? fopen(path, "wb") : NULL;
+    if (file && fputs(raw, file) >= 0)
+        ok = true;
+    if (file)
+        fclose(file);
+    free(raw);
+done:
+    free(root);
+    free(dir);
+    free(path);
+    return ok;
+}
+
+static char* bottle_prefix(const char* home, const char* bottle_id) {
+    char *root, *dir, *path, *raw, *prefix = NULL;
+    char error[96];
+    ms_json* object;
+    if (!bottle_id || !bottle_id[0])
+        return NULL;
+    root = join(home, "bottles");
+    dir = root ? join(root, bottle_id) : NULL;
+    path = dir ? join(dir, "bottle.json") : NULL;
+    raw = path ? read_text(path) : NULL;
+    object = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    if (object && ms_json_type_of(object) == MS_JSON_OBJECT)
+        ms_json_as_string(ms_json_object_get(object, "prefix_path"), &prefix);
+    ms_json_free(object);
+    free(raw);
+    free(root);
+    free(dir);
+    free(path);
+    return prefix;
+}
+
+static char* extract_moonscraper(const char* home, const char* source, char** install_dir_out, char** bottle_id_out) {
+    const char* extractor = innoextract_binary();
+    const char* bottle_id = "installer_moonscraper";
+    char *bottle_dir = join(home, "bottles/installer_moonscraper"), *prefix = NULL, *staging = NULL,
+         *app_dir = NULL, *executable = NULL, *install_dir = NULL, *install_parent = NULL, *log_dir = NULL,
+         *log_path = NULL;
+    int status = 0;
+    pid_t pid;
+    FILE* log = NULL;
+    if (!extractor || !source || access(source, R_OK) != 0 || !bottle_dir)
+        goto fail;
+    prefix = join(bottle_dir, "prefix");
+    staging = join(bottle_dir, "native-inno-extract.tmp");
+    app_dir = staging ? join(staging, "app") : NULL;
+    executable = app_dir ? join(app_dir, "Moonscraper Chart Editor.exe") : NULL;
+    install_dir = prefix ? join(prefix, "drive_c/Program Files/Moonscraper Chart Editor") : NULL;
+    install_parent = prefix ? join(prefix, "drive_c/Program Files") : NULL;
+    log_dir = join(bottle_dir, "logs");
+    log_path = log_dir ? join(log_dir, "native-inno-extract.log") : NULL;
+    if (!prefix || !staging || !app_dir || !executable || !install_dir || !install_parent || !log_dir || !log_path ||
+        !mkdir_p(prefix) || !mkdir_p(log_dir) || !remove_tree(staging) || !mkdir_p(staging))
+        goto fail;
+    log = fopen(log_path, "wb");
+    if (!log)
+        goto fail;
+    fprintf(log, "installer_kind=inno\nstrategy=native_inno_extract\nsource=%s\ndestination=%s\n", source, install_dir);
+    fflush(log);
+    pid = fork();
+    if (pid == 0) {
+        char* const args[] = {(char*)extractor, "--extract", "--silent", "--output-dir", staging, (char*)source, NULL};
+        dup2(fileno(log), STDOUT_FILENO);
+        dup2(fileno(log), STDERR_FILENO);
+        execv(extractor, args);
+        _exit(127);
+    }
+    if (pid <= 0)
+        goto fail;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || access(executable, R_OK) != 0)
+        goto fail;
+    if (!remove_tree(install_dir) || !mkdir_p(install_parent) || rename(app_dir, install_dir) != 0)
+        goto fail;
+    {
+        char* installed_executable = join(install_dir, "Moonscraper Chart Editor.exe");
+        bool bottle_ok = installed_executable && write_moonscraper_bottle(home, source, install_dir, installed_executable, prefix);
+        free(installed_executable);
+        if (!bottle_ok)
+            goto fail;
+    }
+    fprintf(log, "status=complete\n");
+    fclose(log);
+    log = NULL;
+    remove_tree(staging);
+    *install_dir_out = install_dir;
+    *bottle_id_out = strdup(bottle_id);
+    free(bottle_dir);
+    free(prefix);
+    free(staging);
+    free(app_dir);
+    free(executable);
+    free(log_dir);
+    free(log_path);
+    free(install_parent);
+    return *install_dir_out && *bottle_id_out ? strdup("Moonscraper Chart Editor") : NULL;
+fail:
+    if (log)
+        fclose(log);
+    free(bottle_dir);
+    free(prefix);
+    free(staging);
+    free(app_dir);
+    free(executable);
+    free(install_dir);
+    free(install_parent);
+    free(log_dir);
+    free(log_path);
+    return NULL;
 }
 static bool has_id(const ms_json* a, const char* id) {
     size_t i;
@@ -318,6 +566,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         return failure("invalid JSON body");
     }
     if (!strcmp(action, "install") || !strcmp(action, "import")) {
+        char* bottle_id = NULL;
         if (!strcmp(action, "install")) {
             src = field(j, "srcPath", "");
             if (!src[0]) {
@@ -325,7 +574,22 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 ms_json_free(j);
                 return failure("srcPath required");
             }
-            exe = strdup(src);
+            if (is_moonscraper_installer(src)) {
+                name = extract_moonscraper(home, src, &dir, &bottle_id);
+                exe = dir ? join(dir, "Moonscraper Chart Editor.exe") : NULL;
+                if (!name || !exe || !dir || !bottle_id) {
+                    free(bottle_id);
+                    free(name);
+                    free(exe);
+                    free(dir);
+                    free(src);
+                    ms_json_free(j);
+                    return failure(!innoextract_binary() ? "innoextract is required for MoonScraper installers" :
+                                                            "MoonScraper native extraction failed");
+                }
+            } else {
+                exe = strdup(src);
+            }
         } else {
             char* bottle = field(j, "bottleId", "");
             exe = field(j, "exePath", "");
@@ -338,11 +602,14 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             free(bottle);
         }
         id = new_id();
-        name = field(j, "name", exe);
-        dir = field(j, "installDir", exe);
-        raw = app_json(id, name, exe, dir);
+        if (!name)
+            name = field(j, "name", exe);
+        if (!dir)
+            dir = field(j, "installDir", exe);
+        raw = app_json(id, name, exe, dir, bottle_id);
         if (!raw || !append_raw(home, raw)) {
             free(id);
+            free(bottle_id);
             free(src);
             free(exe);
             free(name);
@@ -360,6 +627,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         ms_json_writer_object_end(&w);
         o = ms_json_writer_take(&w);
         free(id);
+        free(bottle_id);
         free(src);
         free(exe);
         free(name);
@@ -482,7 +750,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         }
         if (!strcmp(action, "launch") || !strcmp(action, "relaunch")) {
             const ms_json* app = NULL;
-            char* exe_path = NULL;
+            char *exe_path = NULL, *bottle_id = NULL, *prefix = NULL;
             for (size_t i = 0; i < ms_json_array_length(a); i++) {
                 char* item_id = field(ms_json_array_get(a, i), "id", "");
                 if (!strcmp(item_id, id)) {
@@ -492,19 +760,36 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 }
                 free(item_id);
             }
-            if (app)
+            if (app) {
                 exe_path = field(app, "exe_path", "");
+                bottle_id = field(app, "bottle_id", "");
+                if (bottle_id[0])
+                    prefix = bottle_prefix(home, bottle_id);
+            }
             if (!exe_path || !exe_path[0] || access(exe_path, F_OK) != 0) {
                 free(exe_path);
+                free(bottle_id);
+                free(prefix);
                 ms_json_free(a);
                 free(id);
                 ms_json_free(j);
                 return failure("executable not found");
             }
+            if (bottle_id[0] && (!prefix || !prefix[0])) {
+                free(exe_path);
+                free(bottle_id);
+                free(prefix);
+                ms_json_free(a);
+                free(id);
+                ms_json_free(j);
+                return failure("Sharp application bottle prefix not found");
+            }
             char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
             if (!wine || access(wine, X_OK) != 0) {
                 free(wine);
                 free(exe_path);
+                free(bottle_id);
+                free(prefix);
                 ms_json_free(a);
                 free(id);
                 ms_json_free(j);
@@ -514,17 +799,23 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (pid < 0) {
                 free(wine);
                 free(exe_path);
+                free(bottle_id);
+                free(prefix);
                 ms_json_free(a);
                 free(id);
                 ms_json_free(j);
                 return failure("failed to launch application");
             }
             if (pid == 0) {
+                if (prefix)
+                    setenv("WINEPREFIX", prefix, 1);
                 execl(wine, wine, exe_path, (char*)NULL);
                 _exit(127);
             }
             free(wine);
             free(exe_path);
+            free(bottle_id);
+            free(prefix);
             ms_json_free(a);
             ms_json_free(j);
             ms_json_writer_init(&w);

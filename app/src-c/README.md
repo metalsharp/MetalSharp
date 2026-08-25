@@ -47,7 +47,27 @@ The current hand-written slice owns the process boundary, readiness contracts, a
 - bottle preparation, dry-run component repair, font substitutions, and
   post-wineboot seeding now perform filesystem/Wine operations and return PIDs;
 - Windows-version changes launch the bundled Wine `reg add` operation and
-  write bottle-scoped logs with the child PID.
+  write bottle-scoped logs with the child PID;
+- isolated PCSX2 environment management with Intel/SSE4.1 and Apple Silicon/Rosetta gates, official stable `.tar.xz` size/digest and path-safety checks, preserved Developer ID/notarization, atomic update/rollback, validated user-owned BIOS import, bounded disc-image/homebrew discovery, and restart-safe supervision. See `docs/emulators/PCSX2-INTEGRATION.md` for the production contract;
+- isolated RPCS3 environment management, official architecture-specific
+  release checks, digest/signature-verified atomic updates and rollback,
+  firmware/PKG installation, `PARAM.SFO` game discovery, artwork, launch logs,
+  and restart-safe process supervision. See `docs/emulators/RPCS-INTEGRATION.md`
+  for paths, security rules, and API details;
+- experimental shadPS4 management for supported Apple Silicon hosts, including
+  Rosetta/macOS readiness gates, official stable ZIP size/digest verification,
+  safe extraction, Mach-O/ICD/CLI validation, local ad-hoc signing, atomic
+  rollback, bounded CUSA discovery, optional console-dumped module/font import,
+  and restart-safe launch supervision. See
+  `docs/emulators/SHADPS4-INTEGRATION.md` for the production contract;
+- experimental SharpEmu PlayStation 5 research environment management with
+  macOS/Rosetta/deployment-target gates, exact GitHub release and mutable-asset
+  identity checks, bounded tar extraction, recursive Mach-O validation, local
+  ad-hoc signing, read-only atomic versions, isolated saves/caches/logs,
+  bounded `param.json` discovery, network denial by default with confirmed
+  per-launch opt-in, and restart-safe process supervision. See
+  `docs/emulators/SHARPEMU-INTEGRATION.md` and
+  `docs/emulators/SHARPEMU-UPSTREAM-CONTRACT.md`.
 
 This list is the active C backend's implementation inventory. Rust remains
 available temporarily as a differential parity oracle, but it is no longer the

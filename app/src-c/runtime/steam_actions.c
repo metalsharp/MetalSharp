@@ -3755,6 +3755,83 @@ char* ms_steam_launch_auto_json(const char* home, const char* body, size_t len, 
     return ms_steam_launch_game_json_internal(home, body, len, status, false);
 }
 
+char* ms_steam_launch_external_json(const char* home, const char* body, size_t len, int* status) {
+    unsigned id;
+    char pipeline[32] = "auto";
+    char* executable = NULL;
+    char* game_dir = NULL;
+    char parse_error[96];
+    ms_json* request = NULL;
+    char* requested = NULL;
+    pid_t pid;
+    char* error_text;
+    unsigned long long started_at = monotonic_millis();
+    if (status)
+        *status = 400;
+    if (!body_id(body, len, &id) || id == 0)
+        return err("appid required");
+    request = ms_json_parse(body ? body : "", len, parse_error, sizeof(parse_error));
+    if (!request || !ms_json_as_string(ms_json_object_get(request, "exePath"), &executable) || !executable[0]) {
+        ms_json_free(request);
+        free(executable);
+        return err("exePath required");
+    }
+    if (ms_json_as_string(ms_json_object_get(request, "pipeline"), &requested) && requested && requested[0])
+        snprintf(pipeline, sizeof(pipeline), "%s", requested);
+    free(requested);
+    ms_json_free(request);
+    if (!canonical_pipeline(pipeline)) {
+        free(executable);
+        return err("unknown pipeline");
+    }
+    snprintf(pipeline, sizeof(pipeline), "%s", canonical_pipeline(pipeline));
+    if (access(executable, F_OK) != 0) {
+        free(executable);
+        if (status)
+            *status = 404;
+        return err("GameJolt executable not found");
+    }
+    game_dir = strdup(executable);
+    if (game_dir) {
+        char* slash = strrchr(game_dir, '/');
+        if (slash)
+            *slash = '\0';
+    }
+    if (!game_dir) {
+        free(executable);
+        if (status)
+            *status = 500;
+        return err("game directory is missing");
+    }
+    prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
+    remove_stale_route_dlls(home, pipeline, game_dir, executable);
+    if (!stage_route_dlls(home, id, pipeline, executable)) {
+        free(game_dir);
+        free(executable);
+        if (status)
+            *status = 500;
+        return err("required graphics runtime DLLs are missing");
+    }
+    if (!strcmp(pipeline, "m13") || !strcmp(pipeline, "d3dmetal"))
+        error_text = spawn_gptk_game(home, executable, id, pipeline, &pid);
+    else
+        error_text = spawn_direct_game(home, executable, id, pipeline, &pid);
+    free(game_dir);
+    free(executable);
+    if (error_text) {
+        char* result = err(error_text);
+        free(error_text);
+        if (status)
+            *status = 500;
+        return result;
+    }
+    ms_process_register_game(id, pid);
+    record_launch_timing(home, id, started_at, pipeline);
+    if (status)
+        *status = 200;
+    return pipeline_pid_result(pid, id, pipeline, home);
+}
+
 char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, size_t len, int* status, int mode) {
     unsigned id;
     char requested[64] = "auto";
