@@ -960,5 +960,8 @@ the goal is not complete.
   640 bytes through `CURRENT_SIZE` postbuild info against a 768-byte prebuild
   allocation. D3D12 instance descriptors are transposed and translated into
   Metal user-ID descriptors; a one-instance TLAS then builds to 704 bytes and
-  also passes postbuild readback. RaytracingTier remains unreported pending
-  state objects, shader tables, and ray dispatch.
+  also passes postbuild readback. Metal Shader Converter's ray-query ABI is
+  supplied with the translated TLAS header and instance-contribution address;
+  an inline `RayQuery` launched from `(0,0,-2)` returns the expected triangle
+  hit. RaytracingTier remains unreported pending state objects, shader tables,
+  and ray dispatch.

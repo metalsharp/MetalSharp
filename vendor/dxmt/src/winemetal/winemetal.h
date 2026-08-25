@@ -262,6 +262,8 @@ WINEMETAL_API bool MTLCommandBuffer_buildInstanceAccelerationStructure(
     const obj_handle_t *instanced_acceleration_structures,
     uint64_t instanced_acceleration_structure_count,
     obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
+WINEMETAL_API uint64_t MTLAccelerationStructure_gpuResourceID(
+    obj_handle_t acceleration_structure);
 
 enum WMTSamplerBorderColor : uint8_t {
   WMTSamplerBorderColorTransparentBlack = 0,

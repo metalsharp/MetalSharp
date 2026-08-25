@@ -4552,7 +4552,26 @@ struct ReplayState {
                "flags=0x%x offset=%u",
                (int)arg.Type, root_idx, descriptor_offset, (void *)res,
                arg.Flags, arg.StructurePtrOffset);
-        if (MSCArgumentAcceptsBuffer(arg, res) && res->GetMTLBuffer().handle) {
+        if (arg.Type == SM50BindingType::SRV &&
+            desc->srv.ViewDimension ==
+                D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE &&
+            res->GetMTLAccelerationStructure().handle) {
+          uint64_t header_gpu_address =
+              res->GetRaytracingHeaderGPUAddress();
+          comp_arg_buf_data[arg.StructurePtrOffset] = header_gpu_address;
+          comp_arg_buf_data[arg.StructurePtrOffset + 1] = 0;
+          comp_arg_buf_data[arg.StructurePtrOffset + 2] = 0;
+          RetainMTLObjectForCompletion(res->GetMTLAccelerationStructure());
+          RetainMTLObjectForCompletion(res->GetRaytracingHeaderBuffer());
+          RetainMTLObjectForCompletion(
+              res->GetRaytracingInstanceContributionsBuffer());
+          RetainResourceMetalObjectsForCompletion(res);
+          QTRACE("BuildComputeArgBuf: acceleration structure header=0x%llx "
+                 "offset=%u",
+                 (unsigned long long)header_gpu_address,
+                 arg.StructurePtrOffset);
+        } else if (MSCArgumentAcceptsBuffer(arg, res) &&
+                   res->GetMTLBuffer().handle) {
           if (arg.Type == SM50BindingType::UAV) {
             comp_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
@@ -5925,7 +5944,13 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         return;
       auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
       bool writable = range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-      if (res->GetMTLBuffer().handle) {
+      if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV &&
+          desc->srv.ViewDimension ==
+              D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE &&
+          res->GetMTLAccelerationStructure().handle) {
+        append_compute_useresource(res->GetMTLAccelerationStructure().handle,
+                                   WMTResourceUsageRead);
+      } else if (res->GetMTLBuffer().handle) {
         uint64_t offset = 0;
         if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
             desc->cbv.BufferLocation) {
@@ -6995,6 +7020,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               metal_instances(cmd->num_descs);
           std::vector<obj_handle_t> instanced_structures(cmd->num_descs);
           std::vector<MTLD3D12Resource *> blas_resources(cmd->num_descs);
+          std::vector<uint32_t> instance_contributions(cmd->num_descs);
           bool instances_valid = true;
           for (UINT i = 0; i < cmd->num_descs; i++) {
             const auto &source = d3d_instances[i];
@@ -7017,6 +7043,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 source.InstanceContributionToHitGroupIndex;
             target.acceleration_structure_index = i;
             target.user_id = source.InstanceID;
+            instance_contributions[i] =
+                source.InstanceContributionToHitGroupIndex;
             instanced_structures[i] =
                 blas->GetMTLAccelerationStructure().handle;
             blas_resources[i] = blas;
@@ -7053,6 +7081,53 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             st.RetainResourceMetalObjectsForCompletion(instance_resource);
             for (auto *blas : blas_resources)
               st.RetainResourceMetalObjectsForCompletion(blas);
+
+            uint64_t contributions_gpu_address = 0;
+            auto contributions_buffer = st.MakeTransientBuffer(
+                m_device,
+                std::max<uint64_t>(instance_contributions.size() *
+                                       sizeof(instance_contributions[0]),
+                                   16),
+                &contributions_gpu_address);
+            if (contributions_buffer.handle) {
+              contributions_buffer.updateContents(
+                  0, instance_contributions.data(),
+                  instance_contributions.size() *
+                      sizeof(instance_contributions[0]));
+            }
+            struct RaytracingAccelerationStructureHeader {
+              uint64_t acceleration_structure_id;
+              uint64_t instance_contributions_gpu_address;
+              uint64_t reserved[4];
+              uint32_t indirect_dispatch[3];
+              uint32_t padding;
+            } header_data = {};
+            static_assert(sizeof(header_data) == 64);
+            header_data.acceleration_structure_id =
+                acceleration_structure.gpuResourceID();
+            header_data.instance_contributions_gpu_address =
+                contributions_gpu_address;
+            uint64_t header_gpu_address = 0;
+            auto header_buffer = st.MakeTransientBuffer(
+                m_device, sizeof(header_data), &header_gpu_address);
+            if (header_buffer.handle)
+              header_buffer.updateContents(0, &header_data,
+                                           sizeof(header_data));
+            if (header_buffer.handle && contributions_buffer.handle &&
+                header_gpu_address) {
+              dest->SetRaytracingHeaderBuffers(
+                  header_buffer, header_gpu_address, contributions_buffer);
+              st.RetainMTLObjectForCompletion(header_buffer);
+              st.RetainMTLObjectForCompletion(contributions_buffer);
+              QTRACE("BuildRaytracingAS TLAS header gpu=0x%llx id=0x%llx "
+                     "contributions=0x%llx",
+                     (unsigned long long)header_gpu_address,
+                     (unsigned long long)
+                         header_data.acceleration_structure_id,
+                     (unsigned long long)contributions_gpu_address);
+            } else {
+              encoded = false;
+            }
           }
           primitive_count = cmd->num_descs;
           kind = "instances";

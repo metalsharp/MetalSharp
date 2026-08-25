@@ -1155,6 +1155,52 @@ HLSL
   done
 }
 
+prepare_dxr_acceleration_structure_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_dxr_inline.hlsl"
+
+  cat > "$hlsl" <<'HLSL'
+RaytracingAccelerationStructure scene : register(t0);
+RWByteAddressBuffer output : register(u0);
+
+[numthreads(1, 1, 1)]
+void cs_main() {
+  RayQuery<RAY_FLAG_NONE> query;
+  RayDesc ray;
+  ray.Origin = float3(0.0, 0.0, -2.0);
+  ray.TMin = 0.0;
+  ray.Direction = float3(0.0, 0.0, 1.0);
+  ray.TMax = 10.0;
+  query.TraceRayInline(scene, RAY_FLAG_NONE, 0xff, ray);
+  query.Proceed();
+  output.Store(0, query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 1 : 0);
+}
+HLSL
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_5 \
+      -Fo probe_dxr_inline.cso probe_dxr_inline.hlsl >/dev/null
+  )
+
+  mkdir -p "$SHADER_CACHE_DIR"
+  for _dxr_warmup_pass in 1 2; do
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      "$WINE_BIN" probe_mini_dxr_acceleration_structures.exe >/dev/null || true
+    )
+    convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+  done
+}
+
 prepare_dxil_semantic_probes() {
   local hlsl="$SDK_DIR/out/bin/probe_dxil_semantics.hlsl"
 
@@ -1284,6 +1330,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   fi
   if mini_probe_selected mesh_object_shader_pso; then
     prepare_mesh_shader_probe
+  fi
+  if mini_probe_selected dxr_acceleration_structures; then
+    prepare_dxr_acceleration_structure_probe
   fi
 fi
 

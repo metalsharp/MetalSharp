@@ -101,6 +101,23 @@ public:
   uint64_t GetMTLAccelerationStructureSize() const {
     return m_mtl_acceleration_structure_size;
   }
+  void SetRaytracingHeaderBuffers(
+      WMT::Reference<WMT::Buffer> header_buffer, uint64_t header_gpu_address,
+      WMT::Reference<WMT::Buffer> instance_contributions_buffer) {
+    m_raytracing_header_buffer = std::move(header_buffer);
+    m_raytracing_header_gpu_address = header_gpu_address;
+    m_raytracing_instance_contributions_buffer =
+        std::move(instance_contributions_buffer);
+  }
+  uint64_t GetRaytracingHeaderGPUAddress() const {
+    return m_raytracing_header_gpu_address;
+  }
+  WMT::Reference<WMT::Buffer> GetRaytracingHeaderBuffer() {
+    return m_raytracing_header_buffer;
+  }
+  WMT::Reference<WMT::Buffer> GetRaytracingInstanceContributionsBuffer() {
+    return m_raytracing_instance_contributions_buffer;
+  }
 
   void MarkSwapchainBackBuffer(uint32_t index, MTLD3D12SwapChain *swapchain) {
     m_is_swapchain_backbuffer = true;
@@ -133,6 +150,10 @@ private:
   WMT::Reference<WMT::Texture> m_mtl_texture;
   WMT::Reference<WMT::AccelerationStructure> m_mtl_acceleration_structure;
   uint64_t m_mtl_acceleration_structure_size = 0;
+  WMT::Reference<WMT::Buffer> m_raytracing_header_buffer;
+  WMT::Reference<WMT::Buffer>
+      m_raytracing_instance_contributions_buffer;
+  uint64_t m_raytracing_header_gpu_address = 0;
   uint64_t m_tex_gpu_resource_id = 0;
   uint64_t m_backing_offset = 0;
   bool m_is_swapchain_backbuffer = false;
