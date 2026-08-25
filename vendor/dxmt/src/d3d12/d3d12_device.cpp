@@ -1644,6 +1644,10 @@ MTLD3D12Device::MTLD3D12Device(std::unique_ptr<Device> &&device,
                                IMTLDXGIAdapter *pAdapter)
     : m_device(std::move(device)), m_adapter(pAdapter) {
   m_format_inspector.Inspect(GetMTLDevice());
+  m_metal_raytracing_supported = GetMTLDevice().supportsRaytracing();
+  Logger::info(str::format("D3D12 Metal raytracing hardware support=",
+                           m_metal_raytracing_supported ? 1 : 0,
+                           " (DXR tier remains gated on behavior)"));
   if (m_adapter)
     m_adapter->AddRef();
   m_expected_vtable = *(void **)this;

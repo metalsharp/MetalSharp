@@ -1834,6 +1834,15 @@ _MTLDevice_supportsBCTextureCompression(void *obj) {
 }
 
 static NTSTATUS
+_MTLDevice_supportsRaytracing(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  id<MTLDevice> device = (id<MTLDevice>)params->handle;
+  params->ret = [device respondsToSelector:@selector(supportsRaytracing)] &&
+                [device supportsRaytracing];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLDevice_supportsTextureSampleCount(void *obj) {
   struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
   params->ret = [(id<MTLDevice>)params->handle supportsTextureSampleCount:params->arg];
@@ -3703,6 +3712,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_newLibraryWithSource,
     &_MTLLibrary_newFunctionWithDescriptor,
     &_MTLCommandBuffer_retainObjectsUntilCompleted,
+    &_MTLDevice_supportsRaytracing,
 };
 
 #ifndef DXMT_NATIVE
@@ -3842,5 +3852,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_newLibraryWithSource,
     &_MTLLibrary_newFunctionWithDescriptor,
     &_MTLCommandBuffer_retainObjectsUntilCompleted,
+    &_MTLDevice_supportsRaytracing,
 };
 #endif
