@@ -942,8 +942,9 @@ the goal is not complete.
   source hashes, and remove the clone and prefix after every run.
 - Implemented native amplification/mesh pipeline streams and command replay.
   Metal Shader Converter reflection supplies object/mesh threadgroup, payload,
-  and argument-buffer metadata; stage-specific root CBVs control both AS
-  dispatch and MS vertex scale. Direct and indirect `DispatchMesh` render 676
-  pixels in separate halves of the readback target through a four-byte AS-to-MS
+  and argument-buffer metadata; stage-specific root CBVs and raw-buffer SRVs
+  jointly control both AS dispatch and MS vertex scale. Direct and indirect
+  `DispatchMesh` render 676 pixels in separate halves of the readback target
+  through a four-byte AS-to-MS
   payload. Tier 1 remains unreported pending the remaining phase-6 breadth
   gates.
