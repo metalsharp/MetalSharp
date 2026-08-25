@@ -93,12 +93,25 @@ void MTLD3D12GraphicsCommandList::RetainPipelineState(
   m_referenced_pipeline_states.push_back(pipeline_state);
 }
 
+void MTLD3D12GraphicsCommandList::RetainStateObject(
+    ID3D12StateObject *state_object) {
+  if (!state_object)
+    return;
+  state_object->AddRef();
+  m_referenced_state_objects.push_back(state_object);
+}
+
 void MTLD3D12GraphicsCommandList::ReleaseReferencedPipelineStates() {
   for (auto *pipeline_state : m_referenced_pipeline_states) {
     if (pipeline_state)
       pipeline_state->Release();
   }
   m_referenced_pipeline_states.clear();
+  for (auto *state_object : m_referenced_state_objects) {
+    if (state_object)
+      state_object->Release();
+  }
+  m_referenced_state_objects.clear();
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -978,11 +991,28 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationSt
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetPipelineState1(
     ID3D12StateObject *state_object) {
-  CLTRACE("SetPipelineState1 -> noop (raytracing)");
+  CmdSetPipelineState1 cmd = {};
+  cmd.header = {CmdType::SetPipelineState1, sizeof(cmd)};
+  cmd.state_object = state_object;
+  RetainStateObject(state_object);
+  Emit(cmd);
+  CLTRACE("SetPipelineState1 state=%p", (void *)state_object);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchRays(
-    const D3D12_DISPATCH_RAYS_DESC *desc) {}
+    const D3D12_DISPATCH_RAYS_DESC *desc) {
+  if (!desc) {
+    CLTRACE("DispatchRays ignored null descriptor");
+    return;
+  }
+  CmdDispatchRays cmd = {};
+  cmd.header = {CmdType::DispatchRays, sizeof(cmd)};
+  cmd.desc = *desc;
+  Emit(cmd);
+  CLTRACE("DispatchRays dimensions=%ux%ux%u raygen=0x%llx",
+          desc->Width, desc->Height, desc->Depth,
+          (unsigned long long)desc->RayGenerationShaderRecord.StartAddress);
+}
 
 /*** ID3D12GraphicsCommandList5 ***/
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetShadingRate(

@@ -323,6 +323,14 @@ class ComputePipelineState : public Object {
 public:
 };
 
+class VisibleFunctionTable : public Resource {
+public:
+  uint64_t
+  gpuResourceID() const {
+    return MTLVisibleFunctionTable_gpuResourceID(handle);
+  }
+};
+
 class RenderPipelineState : public Object {
 public:
 };
@@ -974,6 +982,18 @@ public:
   Reference<ComputePipelineState>
   newComputePipelineState(const WMTComputePipelineInfo &info, Error &error) {
     return Reference<ComputePipelineState>(MTLDevice_newComputePipelineState(handle, &info, &error.handle));
+  }
+
+  Reference<ComputePipelineState>
+  newRaytracingComputePipelineState(
+      const WMTRaytracingComputePipelineInfo &info,
+      Reference<VisibleFunctionTable> &visible_function_table, Error &error) {
+    obj_handle_t table = 0;
+    auto pipeline = Reference<ComputePipelineState>(
+        MTLDevice_newRaytracingComputePipelineState(
+            handle, &info, &table, &error.handle));
+    visible_function_table = Reference<VisibleFunctionTable>(table);
+    return pipeline;
   }
 
   Reference<RenderPipelineState>

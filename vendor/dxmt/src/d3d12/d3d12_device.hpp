@@ -19,6 +19,7 @@ inline constexpr D3D_FEATURE_LEVEL kD3D12MaximumFeatureLevel =
     D3D_FEATURE_LEVEL_12_1;
 
 class MTLD3D12Resource;
+class MTLD3D12PipelineState;
 
 enum D3D12SamplerFlagsCompat : UINT {
   D3D12SamplerFlagNoneCompat = 0x0,
@@ -66,6 +67,14 @@ bool D3D12ResolveTriangleAccelerationStructureInfo(
     MTLD3D12Device *device,
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
     WMTPrimitiveAccelerationStructureInfo &info);
+
+WMT::Reference<WMT::ComputePipelineState>
+GetD3D12StateObjectRaygenComputePipeline(ID3D12StateObject *state_object);
+WMT::Reference<WMT::VisibleFunctionTable>
+GetD3D12StateObjectRaygenVisibleFunctionTable(
+    ID3D12StateObject *state_object);
+ID3D12RootSignature *
+GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object);
 
 class MTLD3D12Device : public ID3D12Device12Compat {
 public:

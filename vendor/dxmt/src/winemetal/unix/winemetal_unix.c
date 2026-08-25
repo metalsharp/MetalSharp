@@ -781,6 +781,69 @@ _MTLDevice_newComputePipelineState(void *obj) {
 }
 
 static NTSTATUS
+_MTLDevice_newRaytracingComputePipelineState(void *obj) {
+  struct unixcall_mtldevice_new_raytracing_compute_pipeline *params = obj;
+  const struct WMTRaytracingComputePipelineInfo *info = params->info.ptr;
+  params->ret_visible_function_table = 0;
+  params->ret_error = 0;
+  params->ret_pipeline = 0;
+  if (!params->device || !info || !info->dispatch_function ||
+      !info->raygen_function)
+    return STATUS_SUCCESS;
+
+  id<MTLDevice> device = (id<MTLDevice>)params->device;
+  id<MTLFunction> dispatch_function =
+      (id<MTLFunction>)info->dispatch_function;
+  id<MTLFunction> raygen_function = (id<MTLFunction>)info->raygen_function;
+  MTLComputePipelineDescriptor *descriptor =
+      [[MTLComputePipelineDescriptor alloc] init];
+  descriptor.computeFunction = dispatch_function;
+  MTLLinkedFunctions *linked_functions = [[MTLLinkedFunctions alloc] init];
+  linked_functions.functions = @[ raygen_function ];
+  descriptor.linkedFunctions = linked_functions;
+  NSError *error = nil;
+  id<MTLComputePipelineState> pipeline =
+      [device newComputePipelineStateWithDescriptor:descriptor
+                                            options:MTLPipelineOptionNone
+                                         reflection:nil
+                                              error:&error];
+  params->ret_error = (obj_handle_t)error;
+  if (pipeline) {
+    MTLVisibleFunctionTableDescriptor *table_descriptor =
+        [[MTLVisibleFunctionTableDescriptor alloc] init];
+    table_descriptor.functionCount = 2;
+    id<MTLVisibleFunctionTable> table =
+        [pipeline newVisibleFunctionTableWithDescriptor:table_descriptor];
+    id<MTLFunctionHandle> function_handle =
+        [pipeline functionHandleWithFunction:raygen_function];
+    if (table && function_handle) {
+      [table setFunction:function_handle atIndex:1];
+      params->ret_pipeline = (obj_handle_t)pipeline;
+      params->ret_visible_function_table = (obj_handle_t)table;
+    } else {
+      [table release];
+      [pipeline release];
+    }
+    [table_descriptor release];
+  }
+  [linked_functions release];
+  [descriptor release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLVisibleFunctionTable_gpuResourceID(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  params->ret = 0;
+  if (!params->handle)
+    return STATUS_SUCCESS;
+  MTLResourceID resource_id =
+      [(id<MTLVisibleFunctionTable>)params->handle gpuResourceID];
+  params->ret = resource_id._impl;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLCommandBuffer_blitCommandEncoder(void *obj) {
   struct unixcall_generic_obj_obj_ret *params = obj;
   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle blitCommandEncoder];
@@ -3910,6 +3973,8 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForInstances,
     &_MTLCommandBuffer_buildInstanceAccelerationStructure,
     &_MTLAccelerationStructure_gpuResourceID,
+    &_MTLDevice_newRaytracingComputePipelineState,
+    &_MTLVisibleFunctionTable_gpuResourceID,
 };
 
 #ifndef DXMT_NATIVE
@@ -4056,5 +4121,7 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForInstances,
     &_MTLCommandBuffer_buildInstanceAccelerationStructure,
     &_MTLAccelerationStructure_gpuResourceID,
+    &_MTLDevice_newRaytracingComputePipelineState,
+    &_MTLVisibleFunctionTable_gpuResourceID,
 };
 #endif

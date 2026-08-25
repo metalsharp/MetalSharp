@@ -86,6 +86,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
     stats.indirect_count++;
     break;
   case CmdType::Dispatch:
+  case CmdType::DispatchRays:
   case CmdType::BuildRaytracingAccelerationStructure:
   case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo:
     stats.dispatch_count++;
@@ -100,6 +101,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
     stats.clear_uav_count++;
     break;
   case CmdType::SetPipelineState:
+  case CmdType::SetPipelineState1:
     stats.set_pso_count++;
     break;
   case CmdType::SetGraphicsRootSignature:

@@ -1157,6 +1157,9 @@ HLSL
 
 prepare_dxr_acceleration_structure_probe() {
   local hlsl="$SDK_DIR/out/bin/probe_dxr_inline.hlsl"
+  local raygen_hlsl="$SDK_DIR/out/bin/probe_dxr_raygen.hlsl"
+  local raygen_cso="$SDK_DIR/out/bin/probe_dxr_raygen.cso"
+  local raygen_root="$SDK_DIR/out/bin/probe_dxr_raygen_root.json"
 
   cat > "$hlsl" <<'HLSL'
 RaytracingAccelerationStructure scene : register(t0);
@@ -1176,12 +1179,59 @@ void cs_main() {
 }
 HLSL
 
+  cat > "$raygen_root" <<'JSON'
+{
+  "RootSignature": {
+    "Flags": "IRRootSignatureFlagNone",
+    "NumParameters": 1,
+    "NumStaticSamplers": 0,
+    "Parameters": [{
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeSRV",
+          "RegisterSpace": 0
+        }, {
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 1,
+          "RangeType": "IRDescriptorRangeTypeUAV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 2
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }],
+    "StaticSamplers": []
+  },
+  "version": "IRRootSignatureVersion_1_1"
+}
+JSON
+
+  cat > "$raygen_hlsl" <<'HLSL'
+RWByteAddressBuffer output : register(u0);
+
+[shader("raygeneration")]
+void raygen() {
+  output.Store(4, 42);
+}
+HLSL
+
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_5 \
       -Fo probe_dxr_inline.cso probe_dxr_inline.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -T lib_6_5 \
+      -Fo probe_dxr_raygen.cso probe_dxr_raygen.hlsl >/dev/null
   )
 
   mkdir -p "$SHADER_CACHE_DIR"
@@ -1198,6 +1248,38 @@ HLSL
       "$WINE_BIN" probe_mini_dxr_acceleration_structures.exe >/dev/null || true
     )
     convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+    local converter="$METAL_SHADER_CONVERTER"
+    if [[ -z "$converter" ]]; then
+      converter="$(command -v metal-shaderconverter || true)"
+    fi
+    if [[ -n "$converter" && -x "$converter" ]]; then
+      local dxbc
+      shopt -s nullglob
+      for dxbc in "$SHADER_CACHE_DIR"/*.dxbc; do
+        if ! cmp -s "$dxbc" "$raygen_cso"; then
+          continue
+        fi
+        local base="${dxbc%.dxbc}"
+        if "$converter" -o "$base.metallib" "$dxbc" \
+          --entry-point=raygen \
+          --rt-ray-generation-compilation=visibleFunction \
+          --root-signature="$raygen_root" \
+          --output-reflection-file="$base.json" \
+          --deployment-os=macOS \
+          --minimum-os-build-version=15.0.0 \
+          >"$base.raygen-msc.log" 2>&1 &&
+          "$converter" -o "$base.raydispatch.metallib" "$dxbc" \
+          --entry-point=raygen \
+          --synthesize-indirect-ray-dispatch \
+          --root-signature="$raygen_root" \
+          --deployment-os=macOS \
+          --minimum-os-build-version=15.0.0 \
+          >"$base.raydispatch-msc.log" 2>&1; then
+          rm -f "$base.msc.fail"
+        fi
+      done
+      shopt -u nullglob
+    fi
   done
 }
 

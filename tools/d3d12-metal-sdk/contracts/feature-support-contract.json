@@ -51,16 +51,18 @@
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "triangle_blas_single_instance_tlas_and_inline_ray_hit_passed",
+      "probe_status": "blas_tlas_inline_ray_and_raygen_dispatch_passed",
       "reported": "partial",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
         "BLAS BuildRaytracingAccelerationStructure",
         "TLAS BuildRaytracingAccelerationStructure",
         "CURRENT_SIZE postbuild info",
-        "inline RayQuery triangle hit"
+        "inline RayQuery triangle hit",
+        "raygen state object and shader identifier",
+        "DispatchRays raygen kernel"
       ],
-      "risk": "One-triangle BLAS, one-instance TLAS, and inline RayQuery hit gates prove basic DXR 1.1 geometry traversal only; indexed/multi-geometry/instance builds, update/copy/serialization, state objects, shader tables, and DispatchRays remain gated.",
+      "risk": "One-triangle BLAS, one-instance TLAS, inline RayQuery hit, and raygen-only DispatchRays gates prove foundational DXR execution; indexed/multi-geometry builds, updates/copies, miss/hit/callable shaders, recursive TraceRay, and full shader-table semantics remain gated.",
       "state": "required",
       "tier": "required"
     },
