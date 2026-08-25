@@ -96,7 +96,7 @@ The current mini suite isolates:
 - `subnautica_geometry_dxil_replay`
 - `dxil_texture_color_output`
 - `compute_first_use_dispatch`
-- `dxr_blas`
+- `dxr_acceleration_structures`
 
 PRs that touch `vendor/dxmt/src/d3d12`, `vendor/dxmt/src/airconv`,
 `vendor/dxmt/src/winemetal`, or `tools/d3d12-metal-sdk` are expected to keep
@@ -106,9 +106,10 @@ touch paths.
 
 `mesh_object_shader_pso` now proves AS/MS pipeline streams, stage-specific
 CBV/SRV resources, a payload, and direct/indirect split-screen readback while
-keeping MeshShaderTier conservative. `dxr_blas` proves a one-triangle Metal BLAS
-build and current-size postbuild readback while keeping RaytracingTier
-conservative. Both remain breadth gates rather than general feature claims.
+keeping MeshShaderTier conservative. `dxr_acceleration_structures` proves a
+one-triangle Metal BLAS, one-instance TLAS, and current-size postbuild readbacks
+while keeping RaytracingTier conservative. Both remain breadth gates rather
+than general feature claims.
 
 For DXIL semantic coverage, run the reduced SM6 opcode-group probe:
 

@@ -1940,6 +1940,87 @@ _MTLCommandBuffer_buildTriangleAccelerationStructure(void *obj) {
   return STATUS_SUCCESS;
 }
 
+static MTLInstanceAccelerationStructureDescriptor *
+create_instance_acceleration_structure_descriptor(uint64_t instance_count) {
+  if (!instance_count)
+    return nil;
+  MTLInstanceAccelerationStructureDescriptor *descriptor =
+      [MTLInstanceAccelerationStructureDescriptor descriptor];
+  descriptor.instanceCount = instance_count;
+  descriptor.instanceDescriptorType =
+      MTLAccelerationStructureInstanceDescriptorTypeUserID;
+  return descriptor;
+}
+
+static NTSTATUS
+_MTLDevice_accelerationStructureSizesForInstances(void *obj) {
+  struct unixcall_mtldevice_acceleration_structure_sizes_for_instances
+      *params = obj;
+  struct WMTAccelerationStructureSizes *sizes = params->sizes.ptr;
+  params->ret_success = 0;
+  if (!params->device || !sizes)
+    return STATUS_SUCCESS;
+  MTLInstanceAccelerationStructureDescriptor *descriptor =
+      create_instance_acceleration_structure_descriptor(params->instance_count);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  MTLAccelerationStructureSizes metal_sizes =
+      [(id<MTLDevice>)params->device
+          accelerationStructureSizesWithDescriptor:descriptor];
+  sizes->acceleration_structure_size = metal_sizes.accelerationStructureSize;
+  sizes->build_scratch_buffer_size = metal_sizes.buildScratchBufferSize;
+  sizes->refit_scratch_buffer_size = metal_sizes.refitScratchBufferSize;
+  params->ret_success = sizes->acceleration_structure_size != 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_buildInstanceAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_build_instance_acceleration_structure
+      *params = obj;
+  params->ret_success = 0;
+  const obj_handle_t *handles =
+      params->instanced_acceleration_structures.ptr;
+  if (!params->cmdbuf || !params->acceleration_structure ||
+      !params->instance_descriptor_buffer || !params->scratch_buffer ||
+      !handles || !params->instanced_acceleration_structure_count)
+    return STATUS_SUCCESS;
+
+  MTLInstanceAccelerationStructureDescriptor *descriptor =
+      create_instance_acceleration_structure_descriptor(params->instance_count);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  descriptor.instanceDescriptorBuffer =
+      (id<MTLBuffer>)params->instance_descriptor_buffer;
+  descriptor.instanceDescriptorBufferOffset =
+      params->instance_descriptor_buffer_offset;
+  NSMutableArray<id<MTLAccelerationStructure>> *structures =
+      [NSMutableArray
+          arrayWithCapacity:params->instanced_acceleration_structure_count];
+  for (uint64_t i = 0; i < params->instanced_acceleration_structure_count;
+       i++) {
+    if (!handles[i])
+      return STATUS_SUCCESS;
+    [structures addObject:(id<MTLAccelerationStructure>)handles[i]];
+  }
+  descriptor.instancedAccelerationStructures = structures;
+
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      buildAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->acceleration_structure
+                       descriptor:descriptor
+                     scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
+               scratchBufferOffset:params->scratch_buffer_offset];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
 static NTSTATUS
 _MTLDevice_supportsTextureSampleCount(void *obj) {
   struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
@@ -3814,6 +3895,8 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForTriangles,
     &_MTLDevice_newAccelerationStructure,
     &_MTLCommandBuffer_buildTriangleAccelerationStructure,
+    &_MTLDevice_accelerationStructureSizesForInstances,
+    &_MTLCommandBuffer_buildInstanceAccelerationStructure,
 };
 
 #ifndef DXMT_NATIVE
@@ -3957,5 +4040,7 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForTriangles,
     &_MTLDevice_newAccelerationStructure,
     &_MTLCommandBuffer_buildTriangleAccelerationStructure,
+    &_MTLDevice_accelerationStructureSizesForInstances,
+    &_MTLCommandBuffer_buildInstanceAccelerationStructure,
 };
 #endif

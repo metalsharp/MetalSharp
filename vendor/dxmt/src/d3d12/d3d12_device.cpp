@@ -4222,16 +4222,32 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
   if (!m_metal_raytracing_supported)
     return;
 
-  WMTPrimitiveAccelerationStructureInfo metal_info = {};
-  if (!D3D12ResolveTriangleAccelerationStructureInfo(this, desc, metal_info)) {
-    TRACE("  prebuild unsupported input shape");
+  if (!desc)
     return;
-  }
   WMTAccelerationStructureSizes sizes = {};
-  if (!GetMTLDevice().accelerationStructureSizesForTriangles(metal_info,
-                                                             sizes)) {
-    TRACE("  prebuild Metal size query failed");
-    return;
+  uint64_t primitive_count = 0;
+  const char *kind = "unknown";
+  if (desc->Type ==
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
+    if (!desc->NumDescs ||
+        !GetMTLDevice().accelerationStructureSizesForInstances(desc->NumDescs,
+                                                               sizes)) {
+      TRACE("  prebuild Metal TLAS size query failed");
+      return;
+    }
+    primitive_count = desc->NumDescs;
+    kind = "TLAS instances";
+  } else {
+    WMTPrimitiveAccelerationStructureInfo metal_info = {};
+    if (!D3D12ResolveTriangleAccelerationStructureInfo(this, desc,
+                                                        metal_info) ||
+        !GetMTLDevice().accelerationStructureSizesForTriangles(metal_info,
+                                                               sizes)) {
+      TRACE("  prebuild unsupported input shape");
+      return;
+    }
+    primitive_count = metal_info.triangle_count;
+    kind = "BLAS triangles";
   }
   auto align_256 = [](uint64_t value) { return (value + 255ull) & ~255ull; };
   info->ResultDataMaxSizeInBytes =
@@ -4240,8 +4256,8 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
       align_256(sizes.build_scratch_buffer_size);
   info->UpdateScratchDataSizeInBytes =
       align_256(sizes.refit_scratch_buffer_size);
-  TRACE("  prebuild BLAS triangles=%llu result=%llu scratch=%llu update=%llu",
-        (unsigned long long)metal_info.triangle_count,
+  TRACE("  prebuild %s=%llu result=%llu scratch=%llu update=%llu", kind,
+        (unsigned long long)primitive_count,
         (unsigned long long)info->ResultDataMaxSizeInBytes,
         (unsigned long long)info->ScratchDataSizeInBytes,
         (unsigned long long)info->UpdateScratchDataSizeInBytes);

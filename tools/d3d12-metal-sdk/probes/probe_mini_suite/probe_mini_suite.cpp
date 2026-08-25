@@ -2047,7 +2047,7 @@ static ProbeResult probe_mesh_shader_pso() {
                 ",\"d3d12_loaded_path\":\"" + json_escape(g_d3d12_loaded_path) + "\""};
 }
 
-static ProbeResult probe_dxr_blas() {
+static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Device* device = nullptr;
     HRESULT hr = create_device(&device);
     if (FAILED(hr))
@@ -2062,6 +2062,10 @@ static ProbeResult probe_dxr_blas() {
     ID3D12Resource* acceleration_structure = nullptr;
     ID3D12Resource* scratch = nullptr;
     ID3D12Resource* postbuild = nullptr;
+    ID3D12Resource* instances = nullptr;
+    ID3D12Resource* top_level_acceleration_structure = nullptr;
+    ID3D12Resource* top_level_scratch = nullptr;
+    ID3D12Resource* top_level_postbuild = nullptr;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
@@ -2146,6 +2150,76 @@ static ProbeResult probe_dxr_blas() {
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&postbuild));
     }
+
+    D3D12_RAYTRACING_INSTANCE_DESC instance = {};
+    instance.Transform[0][0] = 1.0f;
+    instance.Transform[1][1] = 1.0f;
+    instance.Transform[2][2] = 1.0f;
+    instance.InstanceID = 7;
+    instance.InstanceMask = 0xff;
+    instance.AccelerationStructure =
+        acceleration_structure ? acceleration_structure->GetGPUVirtualAddress() : 0;
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC instance_desc = buffer_desc(sizeof(instance));
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &instance_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&instances));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = instances->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, &instance, sizeof(instance));
+            instances->Unmap(0, nullptr);
+        }
+    }
+
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS top_level_inputs = {};
+    top_level_inputs.Type =
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+    top_level_inputs.Flags =
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+    top_level_inputs.NumDescs = 1;
+    top_level_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    top_level_inputs.InstanceDescs =
+        instances ? instances->GetGPUVirtualAddress() : 0;
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO top_level_prebuild = {};
+    if (SUCCEEDED(hr)) {
+        device5->GetRaytracingAccelerationStructurePrebuildInfo(
+            &top_level_inputs, &top_level_prebuild);
+        if (!top_level_prebuild.ResultDataMaxSizeInBytes ||
+            !top_level_prebuild.ScratchDataSizeInBytes)
+            hr = E_NOTIMPL;
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC tlas_desc =
+            buffer_desc(top_level_prebuild.ResultDataMaxSizeInBytes);
+        tlas_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &tlas_desc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(&top_level_acceleration_structure));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC scratch_desc =
+            buffer_desc(top_level_prebuild.ScratchDataSizeInBytes);
+        scratch_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &scratch_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&top_level_scratch));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC postbuild_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &postbuild_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&top_level_postbuild));
+    }
     if (SUCCEEDED(hr)) {
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build = {};
         build.DestAccelerationStructureData =
@@ -2162,10 +2236,24 @@ static ProbeResult probe_dxr_blas() {
             acceleration_structure->GetGPUVirtualAddress();
         list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
                                                                  &source);
+
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC top_level_build = {};
+        top_level_build.DestAccelerationStructureData =
+            top_level_acceleration_structure->GetGPUVirtualAddress();
+        top_level_build.ScratchAccelerationStructureData =
+            top_level_scratch->GetGPUVirtualAddress();
+        top_level_build.Inputs = top_level_inputs;
+        list4->BuildRaytracingAccelerationStructure(&top_level_build, 0,
+                                                     nullptr);
+        post.DestBuffer = top_level_postbuild->GetGPUVirtualAddress();
+        source = top_level_acceleration_structure->GetGPUVirtualAddress();
+        list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
+                                                                 &source);
         hr = execute_and_wait(queue, list4);
     }
 
     uint64_t current_size = 0;
+    uint64_t top_level_current_size = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(current_size)};
@@ -2175,11 +2263,28 @@ static ProbeResult probe_dxr_blas() {
             postbuild->Unmap(0, nullptr);
         }
     }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(top_level_current_size)};
+        hr = top_level_postbuild->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&top_level_current_size, mapped,
+                        sizeof(top_level_current_size));
+            top_level_postbuild->Unmap(0, nullptr);
+        }
+    }
     const HRESULT removed_reason = device->GetDeviceRemovedReason();
     const bool verified = SUCCEEDED(hr) && SUCCEEDED(removed_reason) &&
                           current_size > 0 &&
-                          current_size <= prebuild.ResultDataMaxSizeInBytes;
+                          current_size <= prebuild.ResultDataMaxSizeInBytes &&
+                          top_level_current_size > 0 &&
+                          top_level_current_size <=
+                              top_level_prebuild.ResultDataMaxSizeInBytes;
 
+    safe_release(top_level_postbuild);
+    safe_release(top_level_scratch);
+    safe_release(top_level_acceleration_structure);
+    safe_release(instances);
     safe_release(postbuild);
     safe_release(scratch);
     safe_release(acceleration_structure);
@@ -2191,13 +2296,19 @@ static ProbeResult probe_dxr_blas() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal triangle BLAS built and returned current-size postbuild info"
-                     : "DXR triangle BLAS build/prebuild gate failed",
+            verified ? "Metal triangle BLAS and one-instance TLAS built with postbuild info"
+                     : "DXR BLAS/TLAS build and postbuild gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
                 ",\"prebuild_scratch_bytes\":" +
                 std::to_string(prebuild.ScratchDataSizeInBytes) +
                 ",\"current_size_bytes\":" + std::to_string(current_size) +
+                ",\"tlas_prebuild_result_bytes\":" +
+                std::to_string(top_level_prebuild.ResultDataMaxSizeInBytes) +
+                ",\"tlas_prebuild_scratch_bytes\":" +
+                std::to_string(top_level_prebuild.ScratchDataSizeInBytes) +
+                ",\"tlas_current_size_bytes\":" +
+                std::to_string(top_level_current_size) +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
 }
 
@@ -2232,7 +2343,7 @@ static ProbeResult run_probe() {
     case 14:
         return probe_compute_first_use_dispatch();
     case 15:
-        return probe_dxr_blas();
+        return probe_dxr_acceleration_structures();
     default:
         return {false, E_INVALIDARG, "unknown mini probe case", ""};
     }

@@ -1365,3 +1365,41 @@ MTLCommandBuffer_buildTriangleAccelerationStructure(
   UNIX_CALL(138, &params);
   return params.ret_success;
 }
+
+WINEMETAL_API bool
+MTLDevice_accelerationStructureSizesForInstances(
+    obj_handle_t device, uint64_t instance_count,
+    struct WMTAccelerationStructureSizes *sizes) {
+  struct unixcall_mtldevice_acceleration_structure_sizes_for_instances params;
+  params.device = device;
+  params.instance_count = instance_count;
+  WMT_MEMPTR_SET(params.sizes, sizes);
+  params.ret_success = 0;
+  UNIX_CALL(139, &params);
+  return params.ret_success;
+}
+
+WINEMETAL_API bool
+MTLCommandBuffer_buildInstanceAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    obj_handle_t instance_descriptor_buffer,
+    uint64_t instance_descriptor_buffer_offset, uint64_t instance_count,
+    const obj_handle_t *instanced_acceleration_structures,
+    uint64_t instanced_acceleration_structure_count,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_build_instance_acceleration_structure params;
+  params.cmdbuf = cmdbuf;
+  params.acceleration_structure = acceleration_structure;
+  params.instance_descriptor_buffer = instance_descriptor_buffer;
+  params.instance_descriptor_buffer_offset = instance_descriptor_buffer_offset;
+  params.instance_count = instance_count;
+  WMT_MEMPTR_SET(params.instanced_acceleration_structures,
+                 instanced_acceleration_structures);
+  params.instanced_acceleration_structure_count =
+      instanced_acceleration_structure_count;
+  params.scratch_buffer = scratch_buffer;
+  params.scratch_buffer_offset = scratch_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(140, &params);
+  return params.ret_success;
+}

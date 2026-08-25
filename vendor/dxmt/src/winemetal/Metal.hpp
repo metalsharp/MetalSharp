@@ -724,6 +724,22 @@ public:
         scratch_buffer_offset);
   }
 
+  bool
+  buildInstanceAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      Buffer instance_descriptor_buffer,
+      uint64_t instance_descriptor_buffer_offset, uint64_t instance_count,
+      const obj_handle_t *instanced_acceleration_structures,
+      uint64_t instanced_acceleration_structure_count, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildInstanceAccelerationStructure(
+        handle, acceleration_structure.handle, instance_descriptor_buffer.handle,
+        instance_descriptor_buffer_offset, instance_count,
+        instanced_acceleration_structures,
+        instanced_acceleration_structure_count, scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
   RenderCommandEncoder
   renderCommandEncoder(WMTRenderPassInfo &info) {
     return RenderCommandEncoder{MTLCommandBuffer_renderCommandEncoder(handle, &info)};
@@ -862,6 +878,14 @@ public:
       const WMTPrimitiveAccelerationStructureInfo &info,
       WMTAccelerationStructureSizes &sizes) {
     return MTLDevice_accelerationStructureSizesForTriangles(handle, &info,
+                                                            &sizes);
+  }
+
+  bool
+  accelerationStructureSizesForInstances(
+      uint64_t instance_count, WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForInstances(handle,
+                                                            instance_count,
                                                             &sizes);
   }
 

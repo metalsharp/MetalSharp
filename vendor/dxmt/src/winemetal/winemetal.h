@@ -229,8 +229,18 @@ struct WMTAccelerationStructureSizes {
   uint64_t refit_scratch_buffer_size;
 };
 
+struct WMTAccelerationStructureInstanceDescriptor {
+  float transformation_matrix[12];
+  uint32_t options;
+  uint32_t mask;
+  uint32_t intersection_function_table_offset;
+  uint32_t acceleration_structure_index;
+  uint32_t user_id;
+};
+
 STATIC_ASSERT(sizeof(WMTPrimitiveAccelerationStructureInfo) == 56);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureSizes) == 24);
+STATIC_ASSERT(sizeof(WMTAccelerationStructureInstanceDescriptor) == 68);
 
 WINEMETAL_API bool MTLDevice_accelerationStructureSizesForTriangles(
     obj_handle_t device,
@@ -241,6 +251,16 @@ WINEMETAL_API obj_handle_t MTLDevice_newAccelerationStructure(
 WINEMETAL_API bool MTLCommandBuffer_buildTriangleAccelerationStructure(
     obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
     const struct WMTPrimitiveAccelerationStructureInfo *info,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
+WINEMETAL_API bool MTLDevice_accelerationStructureSizesForInstances(
+    obj_handle_t device, uint64_t instance_count,
+    struct WMTAccelerationStructureSizes *sizes);
+WINEMETAL_API bool MTLCommandBuffer_buildInstanceAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    obj_handle_t instance_descriptor_buffer,
+    uint64_t instance_descriptor_buffer_offset, uint64_t instance_count,
+    const obj_handle_t *instanced_acceleration_structures,
+    uint64_t instanced_acceleration_structure_count,
     obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
 
 enum WMTSamplerBorderColor : uint8_t {

@@ -5,7 +5,7 @@
       "evidence": [
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "The target M4 and Winemetal bridge now build a one-triangle Metal BLAS and return current-size postbuild data, but TLAS, indexed/multi-geometry builds, state objects, shader tables, synchronization, and DispatchRays remain unproven.",
+      "reason": "The target M4 and Winemetal bridge now build one-triangle BLAS and one-instance TLAS objects with current-size postbuild data, but indexed/multi-geometry/instance builds, updates/copies, state objects, shader tables, synchronization, and DispatchRays remain unproven.",
       "state": "unsupported",
       "tier": "unsupported"
     },
