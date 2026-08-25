@@ -117,6 +117,30 @@ curl --silent --fail "http://127.0.0.1:$port/sharp-library/cover?id=$sharp_id" -
 cmp "$home/smoke-cover.png" "$home/sharp-library/$sharp_id.png"
 sharp_library=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library")
 printf '%s' "$sharp_library" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["apps"]) == 1'
+launcher_missing=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/launchers/install")
+printf '%s' "$launcher_missing" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "launcher required"'
+launcher_unknown=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"unknown"}' "http://127.0.0.1:$port/sharp-library/launchers/install")
+printf '%s' "$launcher_unknown" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "unknown launcher"'
+launcher_epic_removed=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"epic"}' "http://127.0.0.1:$port/sharp-library/launchers/install")
+printf '%s' "$launcher_epic_removed" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "unknown launcher"'
+launcher_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/launchers/status")
+printf '%s' "$launcher_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and [x["id"] for x in v["launchers"]] == ["ea", "rockstar", "ubisoft", "battlenet"] and not any(x["prefixCreated"] for x in v["launchers"])'
+launcher_launch_missing=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/launchers/launch")
+printf '%s' "$launcher_launch_missing" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "launcher required"'
+launcher_launch_unknown=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"unknown"}' "http://127.0.0.1:$port/sharp-library/launchers/launch")
+printf '%s' "$launcher_launch_unknown" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "unknown launcher"'
+epic_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/epic/status")
+printf '%s' "$epic_status" | python3 -c 'import json, os, sys; v=json.load(sys.stdin); assert v["ok"] and not v["toolAvailable"] and not v["authenticated"] and v["toolVersion"] == "0.21.0" and v["configPath"] == os.environ["METALSHARP_HOME"] + "/epic/legendary"'
+epic_auth_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"code":"short"}' "http://127.0.0.1:$port/sharp-library/epic/auth")
+printf '%s' "$epic_auth_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "authorization code" in v["error"]'
+epic_progress_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appName":"../../escape"}' "http://127.0.0.1:$port/sharp-library/epic/progress")
+printf '%s' "$epic_progress_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "invalid Epic app name"'
+epic_cancel_idle=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appName":"SmokeEpic"}' "http://127.0.0.1:$port/sharp-library/epic/cancel")
+printf '%s' "$epic_cancel_idle" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
+epic_initialize_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appName":"SmokeEpic","pipeline":"unknown","mouseMode":"no-recenter"}' "http://127.0.0.1:$port/sharp-library/epic/initialize")
+printf '%s' "$epic_initialize_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "pipeline" in v["error"]'
+epic_stop_all=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/epic/stop-all")
+printf '%s' "$epic_stop_all" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["stopped"] == 0'
 mkdir -p "$home/GameJolt/Smoke Windows Game/bin" "$home/GameJolt/Smoke Mac.app"
 printf 'smoke' > "$home/GameJolt/Smoke Windows Game/bin/game.exe"
 printf 'cover' > "$home/GameJolt/Smoke Windows Game/cover.png"

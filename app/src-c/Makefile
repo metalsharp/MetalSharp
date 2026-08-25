@@ -38,6 +38,7 @@ SOURCES := \
 	runtime/shadps4.c \
 	runtime/sharpemu.c \
 	runtime/sharp.c \
+	runtime/epic.c \
 	runtime/gamejolt.c \
 	runtime/gog.c \
 	runtime/game.c \
