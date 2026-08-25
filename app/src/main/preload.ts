@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("metalsharp", {
   openSharpemuPath: (path: string) => ipcRenderer.invoke("app:open-sharpemu-path", path),
   openSharpemuLink: (kind: "faq" | "compatibility" | "repository" | "releases", titleId?: string) =>
     ipcRenderer.invoke("app:open-sharpemu-link", kind, titleId),
+  openEmulatorResource: (kind: "archive-games" | "pcsx2-firmware") =>
+    ipcRenderer.invoke("app:open-emulator-resource", kind),
   openRpcs3FirmwarePage: () => ipcRenderer.invoke("app:open-rpcs3-firmware-page"),
   openLogsFolder: () => ipcRenderer.invoke("app:open-logs-folder"),
   openMetalsharpFolder: () => ipcRenderer.invoke("app:open-metalsharp-folder"),

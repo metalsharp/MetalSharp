@@ -27,7 +27,7 @@ Removing the managed runtime only removes `versions`, `current`, `previous`, dow
 
 ## Official releases and updates
 
-MetalSharp selects an official release repository based on the host architecture. Release metadata is cached for 12 hours; the tab's **Check Updates** action bypasses that cache. Users can pin the installed build, skip the current latest build, or clear either preference without modifying emulator state.
+MetalSharp selects an official release repository based on the host architecture. Release metadata is cached for 12 hours; the tab's header-level **Check RPCS3** action bypasses that cache. Users can pin the installed build, skip the current latest build, or clear either preference without modifying emulator state.
 
 - Apple Silicon: <https://github.com/RPCS3/rpcs3-binaries-mac-arm64/releases>
 - Intel: <https://github.com/RPCS3/rpcs3-binaries-mac/releases>
@@ -51,7 +51,7 @@ A failed download, digest, extraction, signature, move, or activation leaves the
 
 ## Firmware and owned content
 
-MetalSharp does not download or bundle Sony firmware, games, keys, or licenses.
+MetalSharp does not download or bundle Sony firmware, games, keys, or licenses. **Download Firmware** opens Sony's exact PlayStation support URL in the user's browser, and **Find Games** opens `https://archive.org/`. Both links are fixed in the Electron main process; no renderer-supplied URL is accepted.
 
 Users can select a legally acquired `PS3UPDAT.PUP`; MetalSharp invokes the managed emulator with `--headless --installfw`. User-selected PS3 packages are installed with `--headless --installpkg`. Games launch through the managed RPCS3 app with `--no-gui`, and fullscreen is enabled by default.
 
