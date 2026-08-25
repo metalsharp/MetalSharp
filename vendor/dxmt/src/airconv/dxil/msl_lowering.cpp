@@ -70,6 +70,7 @@ enum DXIntrinsicOpcode {
   DXOP_WavePrefixOp = 121,
   DXOP_QuadReadLaneAt = 122,
   DXOP_QuadOp = 123,
+  DXOP_QuadVote = 222,
   DXOP_TextureStoreSample = 225,
   DXOP_TextureSampleCmpLevel = 224,
   DXOP_TextureGatherCmp = 74,
@@ -287,6 +288,7 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "wavePrefixOp", 12) == 0) return 121;
     if (strncmp(s, "quadReadLaneAt", 14) == 0) return 122;
     if (strncmp(s, "quadOp", 6) == 0) return 123;
+    if (strncmp(s, "quadVote", 8) == 0) return 222;
     if (strncmp(s, "isSpecialFloat", 14) == 0) return 0;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
@@ -336,6 +338,7 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_WavePrefixOp:
     case DXOP_QuadReadLaneAt:
     case DXOP_QuadOp:
+    case DXOP_QuadVote:
         return true;
     default:
         return false;
@@ -2550,6 +2553,7 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_WaveAnyTrue:
     case DXOP_WaveAllTrue:
     case DXOP_WaveActiveAllEqual:
+    case DXOP_QuadVote:
         return {MSLTypeKind::Bool, 0, {}};
     case DXOP_ThreadId:
     case DXOP_GroupId:
@@ -2855,7 +2859,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         std::ostringstream store;
         uint32_t value_count =
             std::min<uint32_t>(4, static_cast<uint32_t>(args.size()) - 4);
-        uint32_t mask = literalArg(args.size() - 1, 0xf, "buffer_store_mask");
+        size_t mask_index =
+            intrinsic_id == DXOP_RawBufferStore || intrinsic_id == 1026
+                ? args.size() - 2
+                : args.size() - 1;
+        uint32_t mask = literalArg(mask_index, 0xf, "buffer_store_mask");
         bool emitted = false;
         for (uint32_t i = 0; i < value_count; i++) {
             if (!(mask & (1u << i)))
@@ -3141,6 +3149,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     }
     case DXOP_QuadReadLaneAt:
         return "quad_broadcast(" + numericArg(0, "0") + ", (uint)(" + numericArg(1, "0") + "))";
+    case DXOP_QuadVote: {
+        uint32_t op = literalArg(1, 0xFFFFFFFFu, "quad_vote");
+        if (op == 0)
+            return "quad_any(" + numericArg(0, "0") + ")";
+        if (op == 1)
+            return "quad_all(" + numericArg(0, "0") + ")";
+        ctx.unsupported_intrinsics++;
+        return "false";
+    }
     default:
         ctx.unsupported_intrinsics++;
         break;
@@ -4127,9 +4144,38 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             const char *cmp = "==";
             MSLType result_type = {MSLTypeKind::Bool, 0, {}};
             std::string cmp_result;
-            if (pred == 0) {
+            if (inst.opcode == LLVMInstruction::ICmp) {
+                switch (pred) {
+                case 32: cmp = "=="; break; // ICMP_EQ
+                case 33: cmp = "!="; break; // ICMP_NE
+                case 34: cmp = ">"; break;  // ICMP_UGT
+                case 35: cmp = ">="; break; // ICMP_UGE
+                case 36: cmp = "<"; break;  // ICMP_ULT
+                case 37: cmp = "<="; break; // ICMP_ULE
+                case 38: cmp = ">"; break;  // ICMP_SGT
+                case 39: cmp = ">="; break; // ICMP_SGE
+                case 40: cmp = "<"; break;  // ICMP_SLT
+                case 41: cmp = "<="; break; // ICMP_SLE
+                default:
+                    ctx.unsupported_opcodes++;
+                    cmp_result = "false";
+                    break;
+                }
+                if (cmp_result.empty()) {
+                    std::string cmp_expr =
+                        "(" + lhs + " " + cmp + " " + rhs + ")";
+                    bool vector_cmp = DXILIRBuilder::isVectorType(cmp_type) ||
+                                      exprLooksVectorValue(lhs) ||
+                                      exprLooksVectorValue(rhs) ||
+                                      exprContainsBareVectorTypedValue(ctx, lhs) ||
+                                      exprContainsBareVectorTypedValue(ctx, rhs);
+                    cmp_result = vector_cmp
+                                     ? std::string("any((") + cmp_expr + "))"
+                                     : cmp_expr;
+                }
+            } else if (pred == 0) {
                 cmp_result = "false";
-            } else if (pred >= 15) {
+            } else if (pred == 15) {
                 cmp_result = "true";
             } else if (pred == 7) {
                 std::string ilhs = coerceIsNanOperand(lhs, cmp_type);

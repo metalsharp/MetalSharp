@@ -898,3 +898,7 @@ the goal is not complete.
   sum now execute with zero readback mismatches under MetalSharp Wine 11.5.
 - Enabled the WaveOps feature report at a fixed 32-lane range only after that
   runtime proof passed, and removed WaveOps from the unsupported ledger.
+- Added the first Shader Model 6.7 execution gate: `QuadAny`/`QuadAll` now lower
+  to Metal quad votes and pass a 32-thread UAV readback even though the installed
+  Metal Shader Converter 3.0.6 rejects `dx.op.quadVote.i1`; the custom Xcode 27
+  MSL fallback path supplies the working implementation.
