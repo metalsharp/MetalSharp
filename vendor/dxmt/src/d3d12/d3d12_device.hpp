@@ -13,6 +13,11 @@
 
 namespace dxmt {
 
+// Raise this only after the feature-level conformance probe proves every
+// required capability and behavior for the new level.
+inline constexpr D3D_FEATURE_LEVEL kD3D12MaximumFeatureLevel =
+    D3D_FEATURE_LEVEL_12_1;
+
 class MTLD3D12Resource;
 
 enum D3D12SamplerFlagsCompat : UINT {

@@ -1654,6 +1654,24 @@ D3D12CreateDevice(IUnknown *pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel,
     DXMTD3D12Trace("Entry", "D3D12CreateDevice CALLED FL=%d adapter=%p riid=%s",
                    MinimumFeatureLevel, pAdapter, str::format(riid).c_str());
   }
+  const bool known_feature_level =
+      MinimumFeatureLevel == D3D_FEATURE_LEVEL_11_0 ||
+      MinimumFeatureLevel == D3D_FEATURE_LEVEL_11_1 ||
+      MinimumFeatureLevel == D3D_FEATURE_LEVEL_12_0 ||
+      MinimumFeatureLevel == D3D_FEATURE_LEVEL_12_1 ||
+      MinimumFeatureLevel == D3D_FEATURE_LEVEL_12_2;
+  if (!known_feature_level) {
+    DXMTD3D12Trace("Entry", "D3D12CreateDevice INVALID FL=%d",
+                   MinimumFeatureLevel);
+    return E_INVALIDARG;
+  }
+  if (MinimumFeatureLevel > dxmt::kD3D12MaximumFeatureLevel) {
+    DXMTD3D12Trace("Entry",
+                   "D3D12CreateDevice UNSUPPORTED FL=%d max=%d",
+                   MinimumFeatureLevel, dxmt::kD3D12MaximumFeatureLevel);
+    return DXGI_ERROR_UNSUPPORTED;
+  }
+
   const bool support_probe = ppDevice == nullptr;
   if (ppDevice)
     *ppDevice = nullptr;

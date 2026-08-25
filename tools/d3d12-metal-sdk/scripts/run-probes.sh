@@ -16,6 +16,8 @@ GAME_DIR=""
 RUN_LOADER=1
 RUN_AGILITY=1
 RUN_CAPS=1
+# FL12_2/SM6.7 target gate is opt-in until its implementation phases land.
+RUN_FEATURE_LEVELS=0
 RUN_DXGI=1
 RUN_RESOURCES=1
 RUN_QUEUES=1
@@ -74,6 +76,8 @@ Options:
   --agility-only        Run only the Agility SDK surface probe.
   --no-caps             Skip probe_device_caps.
   --caps-only           Run only the feature support / unsupported policy probe.
+  --feature-levels      Run the target FL11_0-through-12_2 and SM6.7 probe.
+  --feature-levels-only Run only the target feature-level and SM6.7 probe.
   --no-dxgi             Skip probe_dxgi_factory.
   --dxgi-only           Run only the DXGI factory probe.
   --no-resources        Skip probe_resources.
@@ -203,6 +207,35 @@ while [[ $# -gt 0 ]]; do
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=1
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_PRESENT_WINDOWED=0
+      shift
+      ;;
+    --feature-levels)
+      RUN_FEATURE_LEVELS=1
+      shift
+      ;;
+    --feature-levels-only)
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=1
       RUN_DXGI=0
       RUN_RESOURCES=0
       RUN_QUEUES=0
@@ -696,6 +729,7 @@ DXMT_WINEMETAL_UNIXLIB_NAME="winemetal.so"
 PROBE_EXE="$SDK_DIR/out/bin/probe_loader.exe"
 AGILITY_PROBE_EXE="$SDK_DIR/out/bin/probe_agility_ue5.exe"
 CAPS_PROBE_EXE="$SDK_DIR/out/bin/probe_device_caps.exe"
+FEATURE_LEVELS_PROBE_EXE="$SDK_DIR/out/bin/probe_feature_levels.exe"
 DXGI_PROBE_EXE="$SDK_DIR/out/bin/probe_dxgi_factory.exe"
 RESOURCES_PROBE_EXE="$SDK_DIR/out/bin/probe_resources.exe"
 QUEUES_PROBE_EXE="$SDK_DIR/out/bin/probe_queues.exe"
@@ -755,7 +789,7 @@ if [[ "$WINDOWS_DIR" == *"/gptk/"* || "$WINDOWS_DIR" == *"/lib/gptk/"* ]]; then
 fi
 
 NEED_BUILD=0
-if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
 
@@ -808,6 +842,7 @@ WINE_BIN="$PROBE_WINE_WRAPPER"
 RESULT_FILE="$RESULTS_DIR/probe-loader-${PROFILE}.json"
 AGILITY_RESULT_FILE="$RESULTS_DIR/probe-agility-ue5-${PROFILE}.json"
 CAPS_RESULT_FILE="$RESULTS_DIR/probe-device-caps-${PROFILE}.json"
+FEATURE_LEVELS_RESULT_FILE="$RESULTS_DIR/probe-feature-levels-${PROFILE}.json"
 DXGI_RESULT_FILE="$RESULTS_DIR/probe-dxgi-factory-${PROFILE}.json"
 RESOURCES_RESULT_FILE="$RESULTS_DIR/probe-resources-${PROFILE}.json"
 QUEUES_RESULT_FILE="$RESULTS_DIR/probe-queues-${PROFILE}.json"
@@ -1140,6 +1175,22 @@ if [[ "$RUN_CAPS" == "1" ]]; then
     "$WINE_BIN" "$CAPS_PROBE_EXE" > "$CAPS_RESULT_FILE"
   )
   echo "$CAPS_RESULT_FILE"
+fi
+
+if [[ "$RUN_FEATURE_LEVELS" == "1" ]]; then
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$WINDOWS_DIR" \
+    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+    D3D12_METAL_SDK_PROFILE="$PROFILE" \
+    D3D12_METAL_SDK_AGILITY_VERSION="$AGILITY_SDK_VERSION" \
+    D3D12_METAL_SDK_AGILITY_PATH="$AGILITY_SDK_PATH" \
+    "$WINE_BIN" "$FEATURE_LEVELS_PROBE_EXE" > "$FEATURE_LEVELS_RESULT_FILE"
+  )
+  echo "$FEATURE_LEVELS_RESULT_FILE"
 fi
 
 if [[ "$RUN_DXGI" == "1" ]]; then

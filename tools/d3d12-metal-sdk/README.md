@@ -49,6 +49,19 @@ DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh --caps-only
 ```
 
+To test the current external-tree build without overwriting the installed M12
+runtime, use the source wrapper:
+
+```bash
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
+  tools/d3d12-metal-sdk/scripts/run-source-probes.sh --feature-levels-only
+```
+
+It stages the built DLLs, `winemetal.so`, and matching x86_64 LLVM sidecars into
+a temporary directory under the internal MetalSharp Wine runtime, delegates to
+the isolated-prefix wrapper, and removes both the staged runtime and prefix.
+
 `run-probes.sh --profile metalsharp` remains the low-level runner for controlled
 CI/package environments that provide their own disposable prefix lifecycle.
 
@@ -153,6 +166,10 @@ The default required probe groups prove:
   interface behavior.
 - `probe-device-caps`: feature reporting, unsupported advanced features, and
   conservative capability denial.
+- `probe-feature-levels`: the explicit target gate for exact device creation at
+  11_0, 11_1, 12_0, 12_1, and 12_2 plus the full FL12_2/SM6.7 capability
+  matrix. It is opt-in with `run-isolated-probes.sh --feature-levels-only`
+  until the implementation phases make it green.
 - `probe-dxgi-factory`: factory, adapter, output, GPU-preference, and LUID
   behavior.
 - `probe-resources`: committed resources, heaps, upload/readback, and basic
