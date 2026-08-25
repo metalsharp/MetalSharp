@@ -1093,10 +1093,14 @@ cbuffer AmplificationConstants : register(b1) {
   uint amplification_enabled;
 };
 
+ByteAddressBuffer mesh_control : register(t0);
+ByteAddressBuffer amplification_control : register(t1);
+
 [numthreads(1, 1, 1)]
 void as_main(uint3 group_id : SV_GroupID) {
   payload.horizontal_offset = (group_id.x & 1) ? 0.05 : 0.0;
-  DispatchMesh(amplification_enabled, 1, 1, payload);
+  DispatchMesh(amplification_enabled * amplification_control.Load(0),
+               1, 1, payload);
 }
 
 [outputtopology("triangle")]
@@ -1105,9 +1109,10 @@ void ms_main(in payload MeshPayload payload,
              out vertices MeshVertex vertices[3],
              out indices uint3 triangles[1]) {
   SetMeshOutputCounts(3, 1);
-  vertices[0].position = float4((-0.8 + payload.horizontal_offset) * mesh_scale, -0.8 * mesh_scale, 0.0, 1.0);
-  vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * mesh_scale,  0.8 * mesh_scale, 0.0, 1.0);
-  vertices[2].position = float4(( 0.8 + payload.horizontal_offset) * mesh_scale, -0.8 * mesh_scale, 0.0, 1.0);
+  float resolved_scale = mesh_scale * asfloat(mesh_control.Load(0));
+  vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
+  vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * resolved_scale,  0.8 * resolved_scale, 0.0, 1.0);
+  vertices[2].position = float4(( 0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
   triangles[0] = uint3(0, 1, 2);
 }
 
