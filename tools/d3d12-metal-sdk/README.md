@@ -152,8 +152,9 @@ The current honest shader feature posture is:
 - Shader Model 6.5 is the reported compliant shader model.
 - Shader Model 6.6 is not reported until the SM 6.6 probe corpus proves the
   required compile, link, reflection, binding, and runtime behavior.
-- WaveOps are not reported until `probe-wave-ops` proves the runtime behavior
-  that feature reporting would advertise.
+- WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
+  dispatches and validates lane/count, ballot, lane read, any/all, reduction,
+  min/max, and prefix behavior through UAV readback.
 
 `dxil_semantics_proven` is supporting evidence only. It must not substitute for
 `dxil_to_msl_proven`, and the contract comparator fails if shader compliance

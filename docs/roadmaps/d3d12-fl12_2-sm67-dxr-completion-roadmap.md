@@ -896,3 +896,5 @@ the goal is not complete.
   reflection into the D3D12 compute argument-buffer ABI.
 - Wave lane/count, ballot, lane reads, any/all, reductions, min/max, and prefix
   sum now execute with zero readback mismatches under MetalSharp Wine 11.5.
+- Enabled the WaveOps feature report at a fixed 32-lane range only after that
+  runtime proof passed, and removed WaveOps from the unsupported ledger.

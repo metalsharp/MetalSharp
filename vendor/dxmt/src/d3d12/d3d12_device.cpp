@@ -2244,10 +2244,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS1 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->WaveOps = FALSE;
-    o->WaveLaneCountMin = 0;
-    o->WaveLaneCountMax = 0;
-    o->TotalLaneCount = 0;
+    o->WaveOps = TRUE;
+    o->WaveLaneCountMin = 32;
+    o->WaveLaneCountMax = 32;
+    o->TotalLaneCount = 32;
     o->ExpandedComputeResourceStates = TRUE;
     o->Int64ShaderOps = TRUE;
     return S_OK;
