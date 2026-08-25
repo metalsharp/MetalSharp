@@ -889,3 +889,10 @@ the goal is not complete.
   an explicit unsupported result until real Metal sparse mapping is complete.
 - The conservative `probe_device_caps` gate now passes from the current source
   build while the separate FL12_2/SM6.7 target gate remains red as intended.
+- Extended the WaveOps probe from compile/PSO-only coverage to six dispatched
+  32-lane runtime readbacks.
+- Fixed DXIL value numbering for valid type-id zero call results, completed the
+  WaveOps lowering used by the corpus, and parsed Metal Shader Converter
+  reflection into the D3D12 compute argument-buffer ABI.
+- Wave lane/count, ballot, lane reads, any/all, reductions, min/max, and prefix
+  sum now execute with zero readback mismatches under MetalSharp Wine 11.5.
