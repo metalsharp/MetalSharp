@@ -564,6 +564,25 @@ static void WriteMSCTextureArgument(uint64_t *data,
   data[arg.StructurePtrOffset + 1] = TextureMetadata(array_length, min_lod);
 }
 
+// Metal Shader Converter's automatic linear layout uses the same three-qword
+// descriptor shape as IRDescriptorTableEntry: buffer address, texture/sampler
+// resource ID, and metadata.  This differs from DXMT's legacy SM50 AIR layout.
+static void WriteMSCLinearTextureArgument(
+    uint64_t *data, const MTL_SM50_SHADER_ARGUMENT &arg,
+    uint64_t texture_view_id, float min_lod = 0.0f) {
+  data[arg.StructurePtrOffset] = 0;
+  data[arg.StructurePtrOffset + 1] = texture_view_id;
+  data[arg.StructurePtrOffset + 2] = TextureMetadata(0, min_lod);
+}
+
+static void WriteMSCLinearSamplerArgument(
+    uint64_t *data, const MTL_SM50_SHADER_ARGUMENT &arg,
+    uint64_t sampler_resource_id, uint64_t lod_bias_bits) {
+  data[arg.StructurePtrOffset] = 0;
+  data[arg.StructurePtrOffset + 1] = sampler_resource_id;
+  data[arg.StructurePtrOffset + 2] = lod_bias_bits;
+}
+
 static bool MSCArgumentAcceptsBuffer(const MTL_SM50_SHADER_ARGUMENT &arg,
                                      const MTLD3D12Resource *res) {
   if (arg.Flags & MTL_SM50_SHADER_ARGUMENT_BUFFER)
@@ -2550,6 +2569,8 @@ struct ReplayState {
       return;
     }
     auto &args = pso->GetPSArguments();
+    const bool msc_linear_abi = pso->PSUsesMSCArgumentABI();
+    const uint32_t buffer_metadata_qword = msc_linear_abi ? 2u : 1u;
     uint32_t qword_count = pso->GetPSReflection().ArgumentTableQwords;
     QTRACE("BuildArgumentBuffer: %u args, %u qwords, NumArguments=%u",
            (unsigned)args.size(), qword_count,
@@ -2635,11 +2656,18 @@ struct ReplayState {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
                   D3D12_SHADER_VISIBILITY_PIXEL)) {
-            arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
-            arg_buf_data[arg.StructurePtrOffset + 1] =
-                sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
-                                             : sampler->sampler_gpu_id;
-            arg_buf_data[arg.StructurePtrOffset + 2] = sampler->lod_bias_bits;
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(arg_buf_data, arg,
+                                            sampler->sampler_gpu_id,
+                                            sampler->lod_bias_bits);
+            } else {
+              arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
+              arg_buf_data[arg.StructurePtrOffset + 1] =
+                  sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
+                                               : sampler->sampler_gpu_id;
+              arg_buf_data[arg.StructurePtrOffset + 2] =
+                  sampler->lod_bias_bits;
+            }
             RetainSamplerPairForCompletion(sampler->sampler,
                                            sampler->sampler_cube);
             QTRACE("BuildArgBuf: StaticSampler slot=%u space=%u gpu_id=0x%llx "
@@ -2678,7 +2706,8 @@ struct ReplayState {
                 res->GetMTLBuffer().handle) {
               arg_buf_data[arg.StructurePtrOffset] =
                   res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-              arg_buf_data[arg.StructurePtrOffset + 1] =
+              arg_buf_data[arg.StructurePtrOffset +
+                           buffer_metadata_qword] =
                   SRVBufferByteLength(desc, res);
               if (render_enc_open) {
                 render_enc.useResource(
@@ -2703,8 +2732,11 @@ struct ReplayState {
                     DescriptorSummary(desc, D3D12_DESCRIPTOR_RANGE_TYPE_SRV),
                     " pso=", (void *)pso, " ", TracePsoShaderSummary(pso)));
               }
-              WriteMSCTextureArgument(arg_buf_data, arg, gpu_id,
-                                      SRVTextureArrayLength(desc, res));
+              if (msc_linear_abi)
+                WriteMSCLinearTextureArgument(arg_buf_data, arg, gpu_id);
+              else
+                WriteMSCTextureArgument(arg_buf_data, arg, gpu_id,
+                                        SRVTextureArrayLength(desc, res));
               if (render_enc_open) {
                 render_enc.useResource(
                     tex,
@@ -2719,7 +2751,8 @@ struct ReplayState {
             } else if (res->GetMTLBuffer().handle) {
               arg_buf_data[arg.StructurePtrOffset] =
                   res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-              arg_buf_data[arg.StructurePtrOffset + 1] =
+              arg_buf_data[arg.StructurePtrOffset +
+                           buffer_metadata_qword] =
                   SRVBufferByteLength(desc, res);
               if (render_enc_open) {
                 render_enc.useResource(
@@ -2738,10 +2771,18 @@ struct ReplayState {
                  arg.StructurePtrOffset);
           if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
               desc->metal_sampler_gpu_id) {
-            arg_buf_data[arg.StructurePtrOffset] = desc->metal_sampler_gpu_id;
-            arg_buf_data[arg.StructurePtrOffset + 1] =
-                SamplerCubeGPUResourceID(desc);
-            arg_buf_data[arg.StructurePtrOffset + 2] = SamplerLodBiasBits(desc);
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(
+                  arg_buf_data, arg, desc->metal_sampler_gpu_id,
+                  SamplerLodBiasBits(desc));
+            } else {
+              arg_buf_data[arg.StructurePtrOffset] =
+                  desc->metal_sampler_gpu_id;
+              arg_buf_data[arg.StructurePtrOffset + 1] =
+                  SamplerCubeGPUResourceID(desc);
+              arg_buf_data[arg.StructurePtrOffset + 2] =
+                  SamplerLodBiasBits(desc);
+            }
             RetainSamplerPairForCompletion(desc->metal_sampler,
                                            desc->metal_sampler_cube);
           }
@@ -2757,7 +2798,8 @@ struct ReplayState {
                 res->GetMTLBuffer().handle) {
               arg_buf_data[arg.StructurePtrOffset] =
                   res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
-              arg_buf_data[arg.StructurePtrOffset + 1] =
+              arg_buf_data[arg.StructurePtrOffset +
+                           buffer_metadata_qword] =
                   UAVBufferByteLength(desc, res);
               if (render_enc_open) {
                 render_enc.useResource(
@@ -2769,9 +2811,12 @@ struct ReplayState {
               }
               RetainResourceMetalObjectsForCompletion(res);
             } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-              WriteMSCTextureArgument(arg_buf_data, arg,
-                                      DescriptorTextureGPUResourceID(desc, res),
-                                      UAVTextureArrayLength(desc, res));
+              uint64_t gpu_id = DescriptorTextureGPUResourceID(desc, res);
+              if (msc_linear_abi)
+                WriteMSCLinearTextureArgument(arg_buf_data, arg, gpu_id);
+              else
+                WriteMSCTextureArgument(arg_buf_data, arg, gpu_id,
+                                        UAVTextureArrayLength(desc, res));
               if (render_enc_open) {
                 render_enc.useResource(
                     tex,
@@ -4294,8 +4339,8 @@ struct ReplayState {
       return 0;
     }
     memset(comp_arg_buf_data, 0, qword_count * 8);
-    const uint32_t buffer_metadata_qword =
-        pso->CSUsesMSCArgumentABI() ? 2u : 1u;
+    const bool msc_linear_abi = pso->CSUsesMSCArgumentABI();
+    const uint32_t buffer_metadata_qword = msc_linear_abi ? 2u : 1u;
 
     auto *dxmt_sig =
         compute_root_sig
@@ -4368,12 +4413,19 @@ struct ReplayState {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
                   D3D12_SHADER_VISIBILITY_ALL)) {
-            comp_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
-                sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
-                                             : sampler->sampler_gpu_id;
-            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
-                sampler->lod_bias_bits;
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(comp_arg_buf_data, arg,
+                                            sampler->sampler_gpu_id,
+                                            sampler->lod_bias_bits);
+            } else {
+              comp_arg_buf_data[arg.StructurePtrOffset] =
+                  sampler->sampler_gpu_id;
+              comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+                  sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
+                                               : sampler->sampler_gpu_id;
+              comp_arg_buf_data[arg.StructurePtrOffset + 2] =
+                  sampler->lod_bias_bits;
+            }
             RetainSamplerPairForCompletion(sampler->sampler,
                                            sampler->sampler_cube);
             QTRACE("BuildComputeArgBuf: StaticSampler slot=%u space=%u "
@@ -4410,12 +4462,18 @@ struct ReplayState {
                  arg.StructurePtrOffset);
           if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
               desc->metal_sampler_gpu_id) {
-            comp_arg_buf_data[arg.StructurePtrOffset] =
-                desc->metal_sampler_gpu_id;
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
-                SamplerCubeGPUResourceID(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
-                SamplerLodBiasBits(desc);
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(
+                  comp_arg_buf_data, arg, desc->metal_sampler_gpu_id,
+                  SamplerLodBiasBits(desc));
+            } else {
+              comp_arg_buf_data[arg.StructurePtrOffset] =
+                  desc->metal_sampler_gpu_id;
+              comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+                  SamplerCubeGPUResourceID(desc);
+              comp_arg_buf_data[arg.StructurePtrOffset + 2] =
+                  SamplerLodBiasBits(desc);
+            }
             RetainSamplerPairForCompletion(desc->metal_sampler,
                                            desc->metal_sampler_cube);
           }
@@ -4462,11 +4520,15 @@ struct ReplayState {
                  arg.StructurePtrOffset);
           RetainResourceMetalObjectsForCompletion(res);
         } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-          WriteMSCTextureArgument(comp_arg_buf_data, arg,
-                                  DescriptorTextureGPUResourceID(desc, res),
-                                  arg.Type == SM50BindingType::UAV
-                                      ? UAVTextureArrayLength(desc, res)
-                                      : SRVTextureArrayLength(desc, res));
+          uint64_t gpu_id = DescriptorTextureGPUResourceID(desc, res);
+          if (msc_linear_abi)
+            WriteMSCLinearTextureArgument(comp_arg_buf_data, arg, gpu_id);
+          else
+            WriteMSCTextureArgument(
+                comp_arg_buf_data, arg, gpu_id,
+                arg.Type == SM50BindingType::UAV
+                    ? UAVTextureArrayLength(desc, res)
+                    : SRVTextureArrayLength(desc, res));
           RetainMTLObjectForCompletion(tex);
         }
       }

@@ -145,6 +145,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetVSArguments() const {
     return m_vs_args;
   }
+  bool VSUsesMSCArgumentABI() const { return m_vs_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetVSConstantBuffers() const {
     return m_vs_cb_args;
   }
@@ -155,6 +156,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetPSArguments() const {
     return m_ps_args;
   }
+  bool PSUsesMSCArgumentABI() const { return m_ps_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetPSConstantBuffers() const {
     return m_ps_cb_args;
   }
@@ -269,10 +271,12 @@ private:
   sm50_shader_t m_cs_shader = nullptr;
   MTL_SHADER_REFLECTION m_vs_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_vs_args;
+  bool m_vs_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_vs_cb_args;
   sm50_shader_t m_vs_shader = nullptr;
   MTL_SHADER_REFLECTION m_ps_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_ps_args;
+  bool m_ps_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_ps_cb_args;
   sm50_shader_t m_ps_shader = nullptr;
   MTL_SHADER_REFLECTION m_gs_reflection = {};

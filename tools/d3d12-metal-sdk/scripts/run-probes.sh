@@ -930,7 +930,7 @@ run_probe_exe() {
   local result_file="$2"
   local strict_deferred_pso=0
   local enable_geometry_mesh="${DXMT_D3D12_ENABLE_GEOMETRY_MESH:-0}"
-  local d3d12_trace=0
+  local d3d12_trace="${DXMT_D3D12_TRACE:-0}"
   if [[ "$(basename "$exe")" == "probe_mini_subnautica_geometry_dxil_replay.exe" ]]; then
     strict_deferred_pso=1
     enable_geometry_mesh=1

@@ -922,3 +922,9 @@ the goal is not complete.
   container parsing, and a cached primary Metal Shader Converter metallib; it
   also confirms that the debug MSL backend and primary-cache-miss path were not
   used for that proof.
+- Implemented Metal Shader Converter's graphics ABI: reflected vertex inputs
+  now use the required attribute base 11 and vertex-buffer bind base 6, while
+  reflected pixel resources use three-qword linear descriptors
+  `(buffer-address, texture-or-sampler-ID, metadata)` at argument-buffer slot 2.
+  The SM6 DXIL textured full-screen triangle now writes all 4096 pixels of an
+  `R10G10B10A2_UNORM` render target and passes readback.
