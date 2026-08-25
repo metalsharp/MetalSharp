@@ -928,3 +928,7 @@ the goal is not complete.
   `(buffer-address, texture-or-sampler-ID, metadata)` at argument-buffer slot 2.
   The SM6 DXIL textured full-screen triangle now writes all 4096 pixels of an
   `R10G10B10A2_UNORM` render target and passes readback.
+- Connected the existing Airconv geometry translation to D3D12 PSOs: linked
+  SM5 vertex/geometry AIR functions now become a Metal object/mesh pipeline,
+  use the D3D12 resource-binding bridge, dispatch through the geometry draw
+  encoder, and render 1,352 nonzero pixels in the readback gate.

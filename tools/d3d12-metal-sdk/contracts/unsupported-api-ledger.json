@@ -122,7 +122,7 @@
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/contracts/contract-waivers.json"
       ],
-      "reason": "Geometry shaders are allowed only through the explicitly probed emulation path and are not a general feature claim.",
+      "reason": "Linked SM5 vertex/geometry AIR now executes through a Metal object/mesh pipeline and passes triangle readback; broader topology, stream, resource, and captured-title coverage remains required before a general claim.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

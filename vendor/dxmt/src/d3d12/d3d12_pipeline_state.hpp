@@ -213,6 +213,9 @@ private:
                      WMT::Reference<WMT::Function> &out_func,
                      sm50_shader_t *out_shader_handle = nullptr,
                      MTL_SHADER_REFLECTION *out_reflection = nullptr);
+  bool CompileGeometryPipelineShaders(
+      WMT::Reference<WMT::Function> &object_func,
+      WMT::Reference<WMT::Function> &mesh_func);
   void ClearCompileFailure();
   bool RecordCompileFailure(const char *stage, const std::string &detail);
   void BuildIAInputLayout(const void *bytecode, SIZE_T size,
