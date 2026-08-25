@@ -4444,14 +4444,18 @@ struct ReplayState {
           if (arg.Type == SM50BindingType::UAV) {
             comp_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
                 UAVBufferByteLength(desc, res);
           } else {
             comp_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
                 SRVBufferByteLength(desc, res);
           }
+          QTRACE("BuildComputeArgBuf: buffer ptr=0x%llx len=%llu offset=%u",
+                 (unsigned long long)comp_arg_buf_data[arg.StructurePtrOffset],
+                 (unsigned long long)comp_arg_buf_data[arg.StructurePtrOffset + 2],
+                 arg.StructurePtrOffset);
           RetainResourceMetalObjectsForCompletion(res);
         } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
           WriteMSCTextureArgument(comp_arg_buf_data, arg,
