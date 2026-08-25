@@ -46,7 +46,7 @@
         "MeshShaderTier",
         "SamplerFeedbackTier"
       ],
-      "risk": "The basic AS/MS payload and direct/indirect DispatchMesh readback gate does not yet prove resource binding, mixed render state, statistics, render-target arrays, or broad shader coverage required to report mesh tier 1.",
+      "risk": "The AS/MS payload, stage-specific root-CBV, and direct/indirect DispatchMesh readback gate does not yet prove descriptor resources, mixed render state, statistics, render-target arrays, or broad shader coverage required to report mesh tier 1.",
       "state": "required",
       "tier": "required"
     },

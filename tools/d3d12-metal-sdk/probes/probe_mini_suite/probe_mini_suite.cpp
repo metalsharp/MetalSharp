@@ -1727,12 +1727,22 @@ static ProbeResult probe_mesh_shader_pso() {
     ID3D12DescriptorHeap* rtv_heap = nullptr;
     ID3D12CommandSignature* mesh_signature = nullptr;
     ID3D12Resource* indirect_args = nullptr;
+    ID3D12Resource* stage_constants = nullptr;
     ID3D12Resource* target = nullptr;
     ID3D12Resource* readback = nullptr;
     std::string detail;
     hr = device->QueryInterface(IID_PPV_ARGS(&device2));
 
+    D3D12_ROOT_PARAMETER root_params[2] = {};
+    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_params[0].Descriptor.ShaderRegister = 0;
+    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_MESH;
+    root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    root_params[1].Descriptor.ShaderRegister = 1;
+    root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_AMPLIFICATION;
     D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+    root_desc.NumParameters = 2;
+    root_desc.pParameters = root_params;
     if (SUCCEEDED(hr))
         hr = serialize_root_signature(root_desc, &root_blob, detail);
     if (SUCCEEDED(hr))
@@ -1851,9 +1861,32 @@ static ProbeResult probe_mesh_shader_pso() {
         }
     }
     if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC constants_desc = buffer_desc(512);
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &constants_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&stage_constants));
+        uint8_t* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = stage_constants->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            const float mesh_scale = 1.0f;
+            const uint32_t amplification_enabled = 1;
+            std::memcpy(mapped, &mesh_scale, sizeof(mesh_scale));
+            std::memcpy(mapped + 256, &amplification_enabled,
+                        sizeof(amplification_enabled));
+            stage_constants->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
         device->CreateRenderTargetView(target, nullptr, rtv);
         list6->SetGraphicsRootSignature(root);
+        list6->SetGraphicsRootConstantBufferView(
+            0, stage_constants->GetGPUVirtualAddress());
+        list6->SetGraphicsRootConstantBufferView(
+            1, stage_constants->GetGPUVirtualAddress() + 256);
         list6->SetPipelineState(pso);
         D3D12_VIEWPORT viewport = {0.0f, 0.0f, 64.0f, 64.0f, 0.0f, 1.0f};
         D3D12_RECT left_scissor = {0, 0, 32, 64};
@@ -1906,6 +1939,7 @@ static ProbeResult probe_mesh_shader_pso() {
 
     safe_release(readback);
     safe_release(target);
+    safe_release(stage_constants);
     safe_release(indirect_args);
     safe_release(mesh_signature);
     safe_release(rtv_heap);
@@ -1927,6 +1961,7 @@ static ProbeResult probe_mesh_shader_pso() {
             verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered; tier remains conservative"
                      : (detail.empty() ? "native mesh shader dispatch/readback failed" : detail),
             "\"pso_attempted\":true,\"repeated_pso_created\":true" +
+                std::string(",\"stage_cbvs_bound\":true") +
                 std::string(",\"amplification_shader_bytes\":") +
                 std::to_string(amplification_shader.size()) +
                 ",\"mesh_shader_bytes\":" + std::to_string(mesh_shader.size()) +

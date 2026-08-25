@@ -3335,6 +3335,14 @@ struct ReplayState {
     auto *dxmt_sig =
         root_sig ? static_cast<MTLD3D12RootSignature *>(root_sig) : nullptr;
 
+    const auto shader_visibility =
+        pso->UsesNativeMeshPipeline()
+            ? D3D12_SHADER_VISIBILITY_AMPLIFICATION
+            : D3D12_SHADER_VISIBILITY_VERTEX;
+    const auto render_stage = pso->UsesNativeMeshPipeline()
+                                  ? WMTRenderStageObject
+                                  : WMTRenderStageVertex;
+
     for (auto &arg : args) {
       uint32_t root_idx = ~0u;
       uint32_t descriptor_offset = 0;
@@ -3356,7 +3364,7 @@ struct ReplayState {
         if (table_arg) {
           dxmt_sig->FindDescriptorTableRangeForVisibility(
               range_type, arg.SM50BindingSlot, arg.SM50RegisterSpace,
-              D3D12_SHADER_VISIBILITY_VERTEX, &root_idx, &descriptor_offset);
+              shader_visibility, &root_idx, &descriptor_offset);
         }
       }
       if (root_idx == ~0u || !root_table_set[root_idx] ||
@@ -3364,41 +3372,41 @@ struct ReplayState {
         uint32_t root_desc_idx = ~0u;
         if (arg.Type == SM50BindingType::SRV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_SRV,
-                                        arg, D3D12_SHADER_VISIBILITY_VERTEX,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_srv_set[root_desc_idx] &&
             BindRootBufferArgument(device, vs_arg_buf_data, arg,
                                    root_srvs[root_desc_idx],
-                                   WMTResourceUsageRead, WMTRenderStageVertex,
+                                   WMTResourceUsageRead, render_stage,
                                    "BuildVertexArgBuf")) {
           continue;
         }
         if (arg.Type == SM50BindingType::UAV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_UAV,
-                                        arg, D3D12_SHADER_VISIBILITY_VERTEX,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_uav_set[root_desc_idx] &&
             BindRootBufferArgument(device, vs_arg_buf_data, arg,
                                    root_uavs[root_desc_idx],
                                    (WMTResourceUsage)(WMTResourceUsageRead |
                                                       WMTResourceUsageWrite),
-                                   WMTRenderStageVertex, "BuildVertexArgBuf")) {
+                                   render_stage, "BuildVertexArgBuf")) {
           continue;
         }
         if (arg.Type == SM50BindingType::ConstantBuffer &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_CBV,
-                                        arg, D3D12_SHADER_VISIBILITY_VERTEX,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_cbv_set[root_desc_idx] &&
             WriteConstantBufferArgument(
                 device, vs_arg_buf_data, arg, root_cbvs[root_desc_idx], 0,
-                WMTRenderStageVertex, "BuildVertexArgBuf")) {
+                render_stage, "BuildVertexArgBuf")) {
           continue;
         }
         if (arg.Type == SM50BindingType::Sampler && dxmt_sig) {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
-                  D3D12_SHADER_VISIBILITY_VERTEX)) {
+                  shader_visibility)) {
             vs_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
             vs_arg_buf_data[arg.StructurePtrOffset + 1] =
                 sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
@@ -3448,7 +3456,7 @@ struct ReplayState {
               if (render_enc_open)
                 render_enc.useResource(res->GetMTLBuffer(),
                                        WMTResourceUsageRead,
-                                       WMTRenderStageVertex);
+                                       render_stage);
               RetainResourceMetalObjectsForCompletion(res);
             } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
               WriteMSCTextureArgument(vs_arg_buf_data, arg,
@@ -3459,7 +3467,7 @@ struct ReplayState {
                     tex,
                     (WMTResourceUsage)(WMTResourceUsageSample |
                                        WMTResourceUsageRead),
-                    WMTRenderStageVertex);
+                    render_stage);
               RetainMTLObjectForCompletion(tex);
             } else if (res->GetMTLBuffer().handle) {
               vs_arg_buf_data[arg.StructurePtrOffset] =
@@ -3469,7 +3477,7 @@ struct ReplayState {
               if (render_enc_open)
                 render_enc.useResource(res->GetMTLBuffer(),
                                        WMTResourceUsageRead,
-                                       WMTRenderStageVertex);
+                                       render_stage);
               RetainResourceMetalObjectsForCompletion(res);
             }
           }
@@ -3506,7 +3514,7 @@ struct ReplayState {
               render_enc.useResource(res->GetMTLBuffer(),
                                      (WMTResourceUsage)(WMTResourceUsageRead |
                                                         WMTResourceUsageWrite),
-                                     WMTRenderStageVertex);
+                                     render_stage);
             RetainResourceMetalObjectsForCompletion(res);
           } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
             WriteMSCTextureArgument(vs_arg_buf_data, arg,
@@ -3516,7 +3524,7 @@ struct ReplayState {
               render_enc.useResource(tex,
                                      (WMTResourceUsage)(WMTResourceUsageRead |
                                                         WMTResourceUsageWrite),
-                                     WMTRenderStageVertex);
+                                     render_stage);
             RetainMTLObjectForCompletion(tex);
           }
         } else if (arg.Type == SM50BindingType::ConstantBuffer) {
@@ -3527,7 +3535,7 @@ struct ReplayState {
                  desc->cbv.SizeInBytes, arg.StructurePtrOffset);
           WriteConstantBufferArgument(
               device, vs_arg_buf_data, arg, desc->cbv.BufferLocation,
-              desc->cbv.SizeInBytes, WMTRenderStageVertex, "BuildVertexArgBuf");
+              desc->cbv.SizeInBytes, render_stage, "BuildVertexArgBuf");
         }
       }
     }
@@ -3561,9 +3569,14 @@ struct ReplayState {
               (unsigned long long)(qword_count > 8 ? vs_arg_buf_data[8] : 0),
               "]"));
         }
-        SetVertexBufferTracked(vs_arg_buf, 0, bind_index);
-        render_enc.useResource(vs_arg_buf, WMTResourceUsageRead,
-                               WMTRenderStageVertex);
+        if (pso->UsesNativeMeshPipeline()) {
+          render_enc.useResource(vs_arg_buf, WMTResourceUsageRead,
+                                 WMTRenderStageObject);
+        } else {
+          SetVertexBufferTracked(vs_arg_buf, 0, bind_index);
+          render_enc.useResource(vs_arg_buf, WMTResourceUsageRead,
+                                 WMTRenderStageVertex);
+        }
         QTRACE("BuildVertexArgumentBuffer: bound slot=%u qwords=%u handle=%llu",
                bind_index, qword_count, (unsigned long long)vs_arg_buf.handle);
       }
@@ -3741,6 +3754,10 @@ struct ReplayState {
     auto *dxmt_sig =
         root_sig ? static_cast<MTLD3D12RootSignature *>(root_sig) : nullptr;
 
+    const auto shader_visibility =
+        pso->UsesNativeMeshPipeline() ? D3D12_SHADER_VISIBILITY_MESH
+                                      : D3D12_SHADER_VISIBILITY_GEOMETRY;
+
     for (auto &arg : args) {
       uint32_t root_idx = ~0u;
       uint32_t descriptor_offset = 0;
@@ -3760,7 +3777,7 @@ struct ReplayState {
       if (dxmt_sig && table_arg) {
         dxmt_sig->FindDescriptorTableRangeForVisibility(
             range_type, arg.SM50BindingSlot, arg.SM50RegisterSpace,
-            D3D12_SHADER_VISIBILITY_GEOMETRY, &root_idx, &descriptor_offset);
+            shader_visibility, &root_idx, &descriptor_offset);
       }
 
       if (root_idx == ~0u || !root_table_set[root_idx] ||
@@ -3768,7 +3785,7 @@ struct ReplayState {
         uint32_t root_desc_idx = ~0u;
         if (arg.Type == SM50BindingType::SRV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_SRV,
-                                        arg, D3D12_SHADER_VISIBILITY_GEOMETRY,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_srv_set[root_desc_idx] &&
             BindRootBufferArgument(device, gs_arg_buf_data, arg,
@@ -3779,7 +3796,7 @@ struct ReplayState {
         }
         if (arg.Type == SM50BindingType::UAV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_UAV,
-                                        arg, D3D12_SHADER_VISIBILITY_GEOMETRY,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_uav_set[root_desc_idx] &&
             BindRootBufferArgument(device, gs_arg_buf_data, arg,
@@ -3791,7 +3808,7 @@ struct ReplayState {
         }
         if (arg.Type == SM50BindingType::ConstantBuffer &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_CBV,
-                                        arg, D3D12_SHADER_VISIBILITY_GEOMETRY,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_cbv_set[root_desc_idx] &&
             WriteConstantBufferArgument(
@@ -3802,7 +3819,7 @@ struct ReplayState {
         if (arg.Type == SM50BindingType::Sampler && dxmt_sig) {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
-                  D3D12_SHADER_VISIBILITY_GEOMETRY)) {
+                  shader_visibility)) {
             gs_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
             gs_arg_buf_data[arg.StructurePtrOffset + 1] =
                 sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
@@ -6899,8 +6916,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                (void *)st.pso);
         st.EnsureRenderEncoder();
         st.ApplyRootBindings(m_device);
+        st.BuildVertexArgumentBuffer(m_device);
+        st.BuildGeometryArgumentBuffer(m_device);
         st.BuildConstantBufferTable(m_device);
         st.BuildArgumentBuffer(m_device);
+        st.BindGeometryMeshBuffers();
         st.BindDirectFragmentCompleteness(m_device, "dispatch_mesh");
         if (!st.EncodeNativeMeshDispatch(cmd->x, cmd->y, cmd->z)) {
           QTRACE("DispatchMesh SKIPPED groups=%ux%ux%u enc_open=%d pso=%p "
@@ -7200,8 +7220,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                        args.ThreadGroupCountZ);
                 st.EnsureRenderEncoder();
                 st.ApplyRootBindings(m_device);
+                st.BuildVertexArgumentBuffer(m_device);
+                st.BuildGeometryArgumentBuffer(m_device);
                 st.BuildConstantBufferTable(m_device);
                 st.BuildArgumentBuffer(m_device);
+                st.BindGeometryMeshBuffers();
                 st.BindDirectFragmentCompleteness(
                     m_device, "execute_indirect_dispatch_mesh");
                 st.EncodeNativeMeshDispatch(args.ThreadGroupCountX,

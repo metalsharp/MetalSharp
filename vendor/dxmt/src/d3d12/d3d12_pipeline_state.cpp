@@ -1998,16 +1998,34 @@ bool MTLD3D12PipelineState::CompileShader(
                             msc_reflection.ArgumentTableQwords,
                             msc_reflection.ArgumentBufferBindIndex);
                   }
-                } else if (type == ShaderType::Vertex) {
+                } else if (type == ShaderType::Vertex ||
+                           type == ShaderType::Amplification) {
                   MTL_SHADER_REFLECTION msc_reflection = {};
                   std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
                   if (ParseMSCReflection(rbuf, msc_reflection,
                                          msc_arguments)) {
                     if (out_reflection)
                       *out_reflection = msc_reflection;
+                    m_vs_reflection = msc_reflection;
                     m_vs_args = std::move(msc_arguments);
                     m_vs_uses_msc_argument_abi = true;
-                    PSTRACE("  MSC vertex reflection args=%u qwords=%u bind=%u",
+                    PSTRACE("  MSC %s reflection args=%u qwords=%u bind=%u",
+                            type == ShaderType::Amplification ? "object"
+                                                              : "vertex",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
+                  }
+                } else if (type == ShaderType::Mesh) {
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_gs_reflection = msc_reflection;
+                    m_gs_args = std::move(msc_arguments);
+                    PSTRACE("  MSC mesh reflection args=%u qwords=%u bind=%u",
                             msc_reflection.NumArguments,
                             msc_reflection.ArgumentTableQwords,
                             msc_reflection.ArgumentBufferBindIndex);
