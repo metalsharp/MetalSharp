@@ -55,6 +55,21 @@
       "state": "stub_safe",
       "tier": "stubbed-safe"
     },
+    "D3D12_FEATURE_LEVEL_12_2_TARGET": {
+      "current_target": "12_2",
+      "expected_levels": [
+        "11_0",
+        "11_1",
+        "12_0",
+        "12_1",
+        "12_2"
+      ],
+      "probe": "tools/d3d12-metal-sdk/probes/probe_feature_levels",
+      "reported": "unsupported",
+      "risk": "D3D12CreateDevice currently accepts requested levels independently of the behavior-backed capability matrix.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_FEATURE_LEVELS": {
       "current_target": "12_1",
       "expected_minimum": "12_0",

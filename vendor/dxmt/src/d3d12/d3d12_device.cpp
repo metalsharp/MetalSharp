@@ -2027,7 +2027,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return E_INVALIDARG;
     fl->MaxSupportedFeatureLevel = D3D_FEATURE_LEVEL_9_1;
     for (UINT i = 0; i < fl->NumFeatureLevels; i++) {
-      if (fl->pFeatureLevelsRequested[i] <= D3D_FEATURE_LEVEL_12_1 &&
+      if (fl->pFeatureLevelsRequested[i] <= kD3D12MaximumFeatureLevel &&
           fl->pFeatureLevelsRequested[i] > fl->MaxSupportedFeatureLevel) {
         fl->MaxSupportedFeatureLevel = fl->pFeatureLevelsRequested[i];
       }
