@@ -2060,7 +2060,6 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             ENV_PAIR("DXMT_METALFX_SPATIAL", "1");
             ENV_PAIR("DXMT_METALFX_TEMPORAL", "1");
             ENV_PAIR("DXMT_ASYNC_PIPELINE_COMPILE", "1");
-            ENV_PAIR("DXMT_D3D12_UE_SM6_COMPAT", "1");
             ENV_PAIR("DXMT_D3D12_PSO_WORKERS", "6");
             ENV_PAIR("DXMT_CONFIG",
                      "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310");

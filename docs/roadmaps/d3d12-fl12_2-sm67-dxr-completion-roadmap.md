@@ -881,3 +881,11 @@ the goal is not complete.
   signature, pipeline library, and shader cache session.
 - Both the temporary source runtime and temporary Wine prefix were confirmed
   absent after the object-contract gate.
+- Removed the route-level `DXMT_D3D12_UE_SM6_COMPAT` capability override; the
+  Rust and C launch paths no longer force SM6.6/atomic64 reports.
+- Changed WaveOps, atomic64, and shader-model reports to the current
+  behavior-backed posture.
+- Replaced the false-success committed substitute for reserved resources with
+  an explicit unsupported result until real Metal sparse mapping is complete.
+- The conservative `probe_device_caps` gate now passes from the current source
+  build while the separate FL12_2/SM6.7 target gate remains red as intended.
