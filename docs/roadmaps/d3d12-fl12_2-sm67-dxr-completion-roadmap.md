@@ -958,4 +958,7 @@ the goal is not complete.
   allocated, encoded on the D3D12 command buffer, and retained through
   completion. A non-indexed one-triangle BLAS builds successfully and returns
   640 bytes through `CURRENT_SIZE` postbuild info against a 768-byte prebuild
-  allocation. RaytracingTier remains unreported pending TLAS and ray dispatch.
+  allocation. D3D12 instance descriptors are transposed and translated into
+  Metal user-ID descriptors; a one-instance TLAS then builds to 704 bytes and
+  also passes postbuild readback. RaytracingTier remains unreported pending
+  state objects, shader tables, and ray dispatch.

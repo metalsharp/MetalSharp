@@ -49,16 +49,17 @@
       "state": "diagnostic",
       "tier": "required"
     },
-    "D3D12_DXR_BOTTOM_LEVEL_ACCELERATION_STRUCTURE": {
+    "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "triangle_blas_build_postbuild_passed",
+      "probe_status": "triangle_blas_and_single_instance_tlas_postbuild_passed",
       "reported": "partial",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
-        "BuildRaytracingAccelerationStructure",
+        "BLAS BuildRaytracingAccelerationStructure",
+        "TLAS BuildRaytracingAccelerationStructure",
         "CURRENT_SIZE postbuild info"
       ],
-      "risk": "A one-triangle non-indexed BLAS proves the Metal allocation/build bridge only; TLAS, indexed/multi-geometry builds, update/copy/serialization, state objects, shader tables, and DispatchRays remain gated.",
+      "risk": "One-triangle non-indexed BLAS and one-instance TLAS gates prove the basic Metal allocation/build bridge only; indexed/multi-geometry/instance builds, update/copy/serialization, state objects, shader tables, and DispatchRays remain gated.",
       "state": "required",
       "tier": "required"
     },

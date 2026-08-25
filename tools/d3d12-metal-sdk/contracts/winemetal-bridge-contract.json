@@ -1,6 +1,6 @@
 {
   "schema": "metalsharp.d3d12-metal.winemetal-bridge-contract.v1",
-  "abi_version": 3,
+  "abi_version": 4,
   "source_audit": {
     "pe_header": "vendor/dxmt/src/winemetal/winemetal.h",
     "cxx_facade": "vendor/dxmt/src/winemetal/Metal.hpp",
@@ -38,6 +38,8 @@
     "MTLDevice_accelerationStructureSizesForTriangles",
     "MTLDevice_newAccelerationStructure",
     "MTLCommandBuffer_buildTriangleAccelerationStructure",
+    "MTLDevice_accelerationStructureSizesForInstances",
+    "MTLCommandBuffer_buildInstanceAccelerationStructure",
     "WMTSetMetalShaderCachePath",
     "WMTBootstrapRegister",
     "WMTBootstrapLookUp",
@@ -73,6 +75,8 @@
     "_MTLDevice_accelerationStructureSizesForTriangles",
     "_MTLDevice_newAccelerationStructure",
     "_MTLCommandBuffer_buildTriangleAccelerationStructure",
+    "_MTLDevice_accelerationStructureSizesForInstances",
+    "_MTLCommandBuffer_buildInstanceAccelerationStructure",
     "_WMTSetMetalShaderCachePath",
     "_WMTBootstrapRegister",
     "_WMTBootstrapLookUp",
@@ -97,7 +101,9 @@
     "unixcall_mtlcommandbuffer_blitcommandencoderwithsamplebuffers": 32,
     "unixcall_mtldevice_acceleration_structure_sizes": 32,
     "unixcall_mtldevice_new_acceleration_structure": 24,
-    "unixcall_mtlcommandbuffer_build_triangle_acceleration_structure": 48
+    "unixcall_mtlcommandbuffer_build_triangle_acceleration_structure": 48,
+    "unixcall_mtldevice_acceleration_structure_sizes_for_instances": 32,
+    "unixcall_mtlcommandbuffer_build_instance_acceleration_structure": 80
   },
   "deferred_until_claimed": [
     {

@@ -97,6 +97,7 @@ struct CmdBuildRaytracingAccelerationStructure {
   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags;
   D3D12_ELEMENTS_LAYOUT descs_layout;
   UINT num_descs;
+  D3D12_GPU_VIRTUAL_ADDRESS instance_descs;
   D3D12_RAYTRACING_GEOMETRY_DESC geometry;
 };
 

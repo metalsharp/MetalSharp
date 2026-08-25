@@ -56,7 +56,7 @@ MINI_PROBES=(
   subnautica_geometry_dxil_replay
   dxil_texture_color_output
   compute_first_use_dispatch
-  dxr_blas
+  dxr_acceleration_structures
 )
 
 mini_probe_selected() {
