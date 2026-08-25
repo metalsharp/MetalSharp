@@ -1095,7 +1095,9 @@ public:
       REFGUID guid, const IUnknown *data) override {
     return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
   }
@@ -1169,7 +1171,9 @@ public:
       REFGUID guid, const IUnknown *data) override {
     return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
 
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
@@ -1341,7 +1345,9 @@ public:
       REFGUID guid, const IUnknown *data) override {
     return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
 
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
@@ -1464,7 +1470,9 @@ public:
       REFGUID guid, const IUnknown *data) override {
     return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
 
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
@@ -1796,7 +1804,9 @@ MTLD3D12Device::SetPrivateDataInterface(REFGUID guid, const IUnknown *data) {
   return m_private_data.setInterface(guid, data);
 }
 
-HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetName(LPCWSTR name) { return S_OK; }
+HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetName(LPCWSTR name) {
+  return m_private_data.setName(name);
+}
 
 UINT STDMETHODCALLTYPE MTLD3D12Device::GetNodeCount() { return 1; }
 

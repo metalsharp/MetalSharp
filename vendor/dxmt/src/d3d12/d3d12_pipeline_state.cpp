@@ -2810,7 +2810,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetPrivateDataInterface(
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::GetDevice(REFIID riid,

@@ -69,7 +69,7 @@ MTLD3D12CommandAllocator::SetPrivateDataInterface(REFGUID guid,
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12CommandAllocator::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE

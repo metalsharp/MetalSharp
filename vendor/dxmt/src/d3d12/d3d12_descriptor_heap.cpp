@@ -99,7 +99,7 @@ MTLD3D12DescriptorHeap::SetPrivateDataInterface(REFGUID guid,
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12DescriptorHeap::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE

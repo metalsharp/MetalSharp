@@ -23,6 +23,9 @@ static const GUID kPayloadGuid = {
 static const GUID kInterfaceGuid = {
     0x0905e917, 0x82b2, 0x4eaa,
     {0xb2, 0x86, 0x50, 0x3d, 0xd2, 0x9f, 0x7f, 0x0e}};
+static const GUID kDebugObjectNameWGuid = {
+    0x4cca5fd8, 0x921f, 0x42c8,
+    {0x85, 0x66, 0x70, 0xca, 0xf2, 0xa9, 0xb7, 0x41}};
 
 static std::string getenv_string(const char *key) {
   DWORD needed = GetEnvironmentVariableA(key, nullptr, 0);
@@ -66,6 +69,7 @@ struct ObjectResult {
   bool source_copy_isolated = false;
   bool short_size_correct = false;
   bool interface_match = false;
+  bool name_match = false;
   bool pass = false;
 };
 
@@ -117,7 +121,16 @@ static ObjectResult test_object(const char *name, HRESULT create_hr,
   if (readback_interface)
     readback_interface->Release();
 
-  result.set_name_hr = object->SetName(L"MetalSharp D3D12 object contract");
+  static constexpr WCHAR expected_name[] =
+      L"MetalSharp D3D12 object contract";
+  result.set_name_hr = object->SetName(expected_name);
+  WCHAR name_readback[64] = {};
+  UINT name_size = sizeof(name_readback);
+  HRESULT name_get_hr = object->GetPrivateData(
+      kDebugObjectNameWGuid, &name_size, name_readback);
+  result.name_match =
+      SUCCEEDED(name_get_hr) && name_size == sizeof(expected_name) &&
+      std::memcmp(name_readback, expected_name, sizeof(expected_name)) == 0;
   result.delete_hr = object->SetPrivateData(kPayloadGuid, 0, nullptr);
   size = 0;
   result.missing_hr = object->GetPrivateData(kPayloadGuid, &size, nullptr);
@@ -129,7 +142,8 @@ static ObjectResult test_object(const char *name, HRESULT create_hr,
                 result.payload_match && result.source_copy_isolated &&
                 SUCCEEDED(result.interface_set_hr) &&
                 SUCCEEDED(result.interface_get_hr) && result.interface_match &&
-                SUCCEEDED(result.set_name_hr) && SUCCEEDED(result.delete_hr) &&
+                SUCCEEDED(result.set_name_hr) && result.name_match &&
+                SUCCEEDED(result.delete_hr) &&
                 result.missing_hr == DXGI_ERROR_NOT_FOUND;
   return result;
 }
@@ -307,7 +321,7 @@ int main() {
   std::printf("  \"objects\": [\n");
   for (size_t i = 0; i < results.size(); ++i) {
     const auto &r = results[i];
-    std::printf("    {\"name\": \"%s\", \"pass\": %s, \"create_hr\": \"0x%08lx\", \"set_hr\": \"0x%08lx\", \"size_hr\": \"0x%08lx\", \"short_hr\": \"0x%08lx\", \"get_hr\": \"0x%08lx\", \"queried_size\": %u, \"payload_match\": %s, \"source_copy_isolated\": %s, \"short_size_correct\": %s, \"interface_match\": %s, \"delete_hr\": \"0x%08lx\", \"missing_hr\": \"0x%08lx\", \"set_name_hr\": \"0x%08lx\"}%s\n",
+    std::printf("    {\"name\": \"%s\", \"pass\": %s, \"create_hr\": \"0x%08lx\", \"set_hr\": \"0x%08lx\", \"size_hr\": \"0x%08lx\", \"short_hr\": \"0x%08lx\", \"get_hr\": \"0x%08lx\", \"queried_size\": %u, \"payload_match\": %s, \"source_copy_isolated\": %s, \"short_size_correct\": %s, \"interface_match\": %s, \"name_match\": %s, \"delete_hr\": \"0x%08lx\", \"missing_hr\": \"0x%08lx\", \"set_name_hr\": \"0x%08lx\"}%s\n",
                 json_escape(r.name).c_str(), r.pass ? "true" : "false",
                 static_cast<unsigned long>(static_cast<uint32_t>(r.create_hr)),
                 static_cast<unsigned long>(static_cast<uint32_t>(r.set_hr)),
@@ -318,6 +332,7 @@ int main() {
                 r.source_copy_isolated ? "true" : "false",
                 r.short_size_correct ? "true" : "false",
                 r.interface_match ? "true" : "false",
+                r.name_match ? "true" : "false",
                 static_cast<unsigned long>(static_cast<uint32_t>(r.delete_hr)),
                 static_cast<unsigned long>(static_cast<uint32_t>(r.missing_hr)),
                 static_cast<unsigned long>(static_cast<uint32_t>(r.set_name_hr)),

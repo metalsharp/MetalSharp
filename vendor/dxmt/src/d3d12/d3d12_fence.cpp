@@ -98,7 +98,9 @@ MTLD3D12Fence::SetPrivateDataInterface(REFGUID guid, const IUnknown *data) {
   return m_private_data.setInterface(guid, data);
 }
 
-HRESULT STDMETHODCALLTYPE MTLD3D12Fence::SetName(LPCWSTR name) { return S_OK; }
+HRESULT STDMETHODCALLTYPE MTLD3D12Fence::SetName(LPCWSTR name) {
+  return m_private_data.setName(name);
+}
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Fence::GetDevice(REFIID riid, void **device) {
   return m_device->QueryInterface(riid, device);
