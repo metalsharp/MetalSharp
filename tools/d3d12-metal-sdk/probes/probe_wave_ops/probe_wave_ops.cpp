@@ -235,7 +235,8 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         return 0x55555555u;
     if (std::strcmp(name, "read_lane") == 0)
         return 18;
-    if (std::strcmp(name, "active_any_all") == 0)
+    if (std::strcmp(name, "active_any_all") == 0 ||
+        std::strcmp(name, "quad_any_all_sm67") == 0)
         return 3;
     if (std::strcmp(name, "active_sum_min_max") == 0)
         return 63;
@@ -418,6 +419,13 @@ void cs_active_any_all(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) 
 }
 
 [numthreads(32, 1, 1)]
+void cs_quad_any_all_sm67(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  bool any_set = QuadAny((gi & 3u) == 2u);
+  bool all_small = QuadAll((gi & 3u) < 4u);
+  outbuf.Store(gi * 4, (any_set ? 1u : 0u) | (all_small ? 2u : 0u));
+}
+
+[numthreads(32, 1, 1)]
 void cs_active_sum_min_max(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
   uint sum = WaveActiveSum(1u);
   uint lo = WaveActiveMin(gi);
@@ -459,6 +467,7 @@ void cs_prefix(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
         {"active_ballot", "cs_active_ballot", "cs_6_0"},
         {"read_lane", "cs_read_lane", "cs_6_0"},
         {"active_any_all", "cs_active_any_all", "cs_6_0"},
+        {"quad_any_all_sm67", "cs_quad_any_all_sm67", "cs_6_7"},
         {"active_sum_min_max", "cs_active_sum_min_max", "cs_6_0"},
         {"prefix", "cs_prefix", "cs_6_0"},
     };
