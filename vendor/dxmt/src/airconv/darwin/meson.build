@@ -9,8 +9,16 @@ else
   llvm_include_path_darwin = include_directories(join_paths(native_llvm_path, 'include'))
 endif
 
+macos_sdk_path = run_command(
+  'xcrun', '-sdk', 'macosx', '--show-sdk-path',
+  check: true,
+).stdout().strip()
+
 llvm_ld_flags_darwin = [
   '-L'+join_paths(native_llvm_path, 'lib'),
+  # Prefer the selected Xcode SDK stubs over stray host libraries in
+  # /usr/local. The latter may be arm64-only while winemetal.so is x86_64.
+  '-L'+join_paths(macos_sdk_path, 'usr/lib'),
   '-lm', '-lz', '-lcurses', '-lxml2'
 ]
 

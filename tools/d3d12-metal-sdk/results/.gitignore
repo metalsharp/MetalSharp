@@ -1,4 +1,5 @@
 *.json
 *.log
+wine-probe-wrapper.sh
 !.gitkeep
 !.gitignore
