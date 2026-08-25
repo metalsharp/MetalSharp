@@ -262,4 +262,4 @@ The test-only probe bypass works only when:
 
 Packaged binaries reject that bypass.
 
-See [SHARPEMU-UPSTREAM-CONTRACT.md](SHARPEMU-UPSTREAM-CONTRACT.md) for frozen upstream evidence and [SHARPEMU-INTEGRATION-ROADMAP.md](SHARPEMU-INTEGRATION-ROADMAP.md) for phase acceptance.
+See [SHARPEMU-UPSTREAM-CONTRACT.md](SHARPEMU-UPSTREAM-CONTRACT.md) for frozen upstream evidence and the production contract.

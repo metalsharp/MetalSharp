@@ -106,6 +106,6 @@ POST /sharp-library/rpcs3/clear-skip
 
 ## Other emulator plans
 
-- The managed shadPS4 provider and its completion evidence are documented in [SHADPS4-INTEGRATION-ROADMAP.md](SHADPS4-INTEGRATION-ROADMAP.md).
+- The managed shadPS4 provider is documented in [SHADPS4-INTEGRATION.md](SHADPS4-INTEGRATION.md), with its upstream contract in [SHADPS4-UPSTREAM-CONTRACT.md](SHADPS4-UPSTREAM-CONTRACT.md).
 - The managed PCSX2 provider is documented in [PCSX2-INTEGRATION.md](PCSX2-INTEGRATION.md), with its upstream contract in [PCSX2-UPSTREAM-CONTRACT.md](PCSX2-UPSTREAM-CONTRACT.md).
-- The experimental managed SharpEmu provider is documented in [SHARPEMU-INTEGRATION.md](SHARPEMU-INTEGRATION.md), with frozen evidence in [SHARPEMU-UPSTREAM-CONTRACT.md](SHARPEMU-UPSTREAM-CONTRACT.md) and phase acceptance in [SHARPEMU-INTEGRATION-ROADMAP.md](SHARPEMU-INTEGRATION-ROADMAP.md).
+- The experimental managed SharpEmu provider is documented in [SHARPEMU-INTEGRATION.md](SHARPEMU-INTEGRATION.md), with frozen evidence in [SHARPEMU-UPSTREAM-CONTRACT.md](SHARPEMU-UPSTREAM-CONTRACT.md).

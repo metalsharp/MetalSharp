@@ -136,4 +136,4 @@ No endpoint accepts an arbitrary executable, URL, command, shell fragment, PCSX2
 
 Electron exposes only a `.bin` BIOS picker, a game-file-or-folder picker, contained path reveals, and exact allowlisted browser resources. **Find Games** opens `https://archive.org/`; **Download Firmware** opens `https://www.retrostic.com/bios/pcsx2-playstation-2`; the official PCSX2 BIOS and disc-dumping guides remain available under runtime support. No renderer-supplied URL is accepted. Every path reveal is resolved again in the main process and must remain inside the PCSX2 environment or a registered game location. Revealing a file selects it in Finder; it does not open or execute the content.
 
-The complete release, host, CLI, isolation, BIOS, discovery, update, and process contract is in [PCSX2-UPSTREAM-CONTRACT.md](PCSX2-UPSTREAM-CONTRACT.md). Historical phase gates and research evidence remain in [PCSX2-INTEGRATION-ROADMAP.md](PCSX2-INTEGRATION-ROADMAP.md).
+The complete release, host, CLI, isolation, BIOS, discovery, update, and process contract is in [PCSX2-UPSTREAM-CONTRACT.md](PCSX2-UPSTREAM-CONTRACT.md).
