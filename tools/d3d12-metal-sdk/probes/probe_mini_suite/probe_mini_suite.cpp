@@ -878,12 +878,135 @@ static ProbeResult probe_geometry_shader_pso() {
         return {false, hr, "device creation failed", ""};
     ID3D12RootSignature* root = nullptr;
     ID3D12PipelineState* pso = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12Resource* vertices = nullptr;
+    ID3D12Resource* target = nullptr;
+    ID3D12Resource* readback = nullptr;
     std::string detail;
     hr = create_basic_graphics_pso(device, "vs_5_0", "ps_5_0", "gs_5_0", &pso, &root, detail);
+
+    struct Vertex {
+        float position[3];
+        float uv[2];
+    };
+    const Vertex triangle[] = {
+        {{-0.8f, -0.8f, 0.0f}, {0.1f, 0.1f}},
+        {{0.0f, 0.8f, 0.0f}, {0.5f, 0.9f}},
+        {{0.8f, -0.8f, 0.0f}, {0.9f, 0.1f}},
+    };
+    D3D12_RESOURCE_DESC target_desc =
+        texture_desc(64, 64, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+    UINT rows = 0;
+    UINT64 row_bytes = 0;
+    UINT64 readback_bytes = 0;
+
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        heap_desc.NumDescriptors = 1;
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtv_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC vertex_desc = buffer_desc(sizeof(triangle));
+        hr = device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &vertex_desc,
+                                             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertices));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = vertices->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, triangle, sizeof(triangle));
+            vertices->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_CLEAR_VALUE clear = {};
+        clear.Format = target_desc.Format;
+        hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+                                             D3D12_RESOURCE_STATE_RENDER_TARGET, &clear, IID_PPV_ARGS(&target));
+    }
+    if (SUCCEEDED(hr)) {
+        device->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint, &rows, &row_bytes, &readback_bytes);
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(readback_bytes);
+        hr = device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+                                             D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateRenderTargetView(target, nullptr, rtv);
+        list->SetGraphicsRootSignature(root);
+        list->SetPipelineState(pso);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        D3D12_VERTEX_BUFFER_VIEW view = {};
+        view.BufferLocation = vertices->GetGPUVirtualAddress();
+        view.SizeInBytes = sizeof(triangle);
+        view.StrideInBytes = sizeof(Vertex);
+        list->IASetVertexBuffers(0, 1, &view);
+        D3D12_VIEWPORT viewport = {0.0f, 0.0f, 64.0f, 64.0f, 0.0f, 1.0f};
+        D3D12_RECT scissor = {0, 0, 64, 64};
+        list->RSSetViewports(1, &viewport);
+        list->RSSetScissorRects(1, &scissor);
+        list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        const float clear[4] = {};
+        list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+        list->DrawInstanced(3, 1, 0, 0);
+        D3D12_RESOURCE_BARRIER barrier = transition_barrier(
+            target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &barrier);
+        D3D12_TEXTURE_COPY_LOCATION dst = {};
+        dst.pResource = readback;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dst.PlacedFootprint = footprint;
+        D3D12_TEXTURE_COPY_LOCATION src = {};
+        src.pResource = target;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        hr = execute_and_wait(queue, list);
+    }
+
+    uint64_t nonzero_pixels = 0;
+    if (SUCCEEDED(hr)) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
+        hr = readback->Map(0, &read_range, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            for (UINT y = 0; y < 64; y++) {
+                const uint32_t* row = reinterpret_cast<const uint32_t*>(
+                    mapped + footprint.Footprint.RowPitch * y);
+                for (UINT x = 0; x < 64; x++)
+                    nonzero_pixels += row[x] != 0;
+            }
+            readback->Unmap(0, nullptr);
+        }
+    }
+
+    safe_release(readback);
+    safe_release(target);
+    safe_release(vertices);
+    safe_release(rtv_heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
     safe_release(pso);
     safe_release(root);
     safe_release(device);
-    return {SUCCEEDED(hr), hr, SUCCEEDED(hr) ? "geometry shader graphics PSO created" : detail, ""};
+    bool verified = SUCCEEDED(hr) && nonzero_pixels > 0;
+    return {verified, verified ? S_OK : hr,
+            verified ? "geometry shader object/mesh emulation rendered and passed readback"
+                     : (detail.empty() ? "geometry shader render readback stayed empty" : detail),
+            "\"nonzero_pixels\":" + std::to_string(nonzero_pixels)};
 }
 
 static ProbeResult probe_subnautica_geometry_dxil_replay() {

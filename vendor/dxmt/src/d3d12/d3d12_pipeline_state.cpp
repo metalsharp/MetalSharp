@@ -2192,6 +2192,143 @@ bool MTLD3D12PipelineState::CompileShader(
   return true;
 }
 
+bool MTLD3D12PipelineState::CompileGeometryPipelineShaders(
+    WMT::Reference<WMT::Function> &object_func,
+    WMT::Reference<WMT::Function> &mesh_func) {
+  std::vector<SM50_IA_INPUT_ELEMENT> ia_elements;
+  uint32_t ia_slot_mask = 0;
+  BuildIAInputLayout(m_vs.data(), m_vs.size(), ia_elements, ia_slot_mask);
+  m_ia_slot_mask = ia_slot_mask;
+
+  sm50_error_t error = nullptr;
+  sm50_shader_t vertex_shader = nullptr;
+  sm50_shader_t geometry_shader = nullptr;
+  MTL_SHADER_REFLECTION vertex_reflection = {};
+  MTL_SHADER_REFLECTION geometry_reflection = {};
+
+  auto initialize = [&](const std::vector<uint8_t> &bytecode,
+                        sm50_shader_t *shader,
+                        MTL_SHADER_REFLECTION *reflection,
+                        const char *stage) -> bool {
+    if (SM50InitializeWithOptions(bytecode.data(), bytecode.size(), 0, shader,
+                                  reflection, &error) == 0)
+      return true;
+    char message[512] = {};
+    if (error) {
+      SM50GetErrorMessage(error, message, sizeof(message));
+      SM50FreeError(error);
+      error = nullptr;
+    }
+    RecordCompileFailure("shader/sm50_geometry_init",
+                         str::format(stage, " initialization failed: ",
+                                     message));
+    return false;
+  };
+
+  if (!initialize(m_vs, &vertex_shader, &vertex_reflection, "vertex") ||
+      !initialize(m_gs, &geometry_shader, &geometry_reflection, "geometry")) {
+    if (vertex_shader)
+      SM50Destroy(vertex_shader);
+    if (geometry_shader)
+      SM50Destroy(geometry_shader);
+    return false;
+  }
+
+  m_vs_reflection = vertex_reflection;
+  m_gs_reflection = geometry_reflection;
+  m_vs_cb_args.resize(vertex_reflection.NumConstantBuffers);
+  m_vs_args.resize(vertex_reflection.NumArguments);
+  m_gs_cb_args.resize(geometry_reflection.NumConstantBuffers);
+  m_gs_args.resize(geometry_reflection.NumArguments);
+  SM50GetArgumentsInfo(vertex_shader,
+                       m_vs_cb_args.empty() ? nullptr : m_vs_cb_args.data(),
+                       m_vs_args.empty() ? nullptr : m_vs_args.data());
+  SM50GetArgumentsInfo(geometry_shader,
+                       m_gs_cb_args.empty() ? nullptr : m_gs_cb_args.data(),
+                       m_gs_args.empty() ? nullptr : m_gs_args.data());
+
+  SM50_SHADER_COMMON_DATA common = {};
+  common.type = SM50_SHADER_COMMON;
+  common.metal_version = SM50_SHADER_METAL_310;
+
+  SM50_SHADER_IA_INPUT_LAYOUT_DATA ia_layout = {};
+  ia_layout.next = &common;
+  ia_layout.type = SM50_SHADER_IA_INPUT_LAYOUT;
+  ia_layout.index_buffer_format = SM50_INDEX_BUFFER_FORMAT_NONE;
+  ia_layout.slot_mask = ia_slot_mask;
+  ia_layout.num_elements = static_cast<uint32_t>(ia_elements.size());
+  ia_layout.elements = ia_elements.data();
+
+  auto compile_stage = [&](bool vertex,
+                           WMT::Reference<WMT::Function> &function) -> bool {
+    SM50_SHADER_PSO_GEOMETRY_SHADER_DATA geometry = {};
+    geometry.type = SM50_SHADER_PSO_GEOMETRY_SHADER;
+    geometry.next = vertex
+                        ? static_cast<void *>(&ia_layout)
+                        : static_cast<void *>(&common);
+    geometry.strip_topology = true;
+
+    sm50_bitcode_t result = nullptr;
+    const char *name = vertex ? "vs_main" : "gs_main";
+    int failed = vertex
+                     ? SM50CompileGeometryPipelineVertex(
+                           vertex_shader, geometry_shader,
+                           reinterpret_cast<SM50_SHADER_COMPILATION_ARGUMENT_DATA *>(
+                               &geometry),
+                           name, &result, &error)
+                     : SM50CompileGeometryPipelineGeometry(
+                           vertex_shader, geometry_shader,
+                           reinterpret_cast<SM50_SHADER_COMPILATION_ARGUMENT_DATA *>(
+                               &geometry),
+                           name, &result, &error);
+    if (failed) {
+      char message[512] = {};
+      if (error) {
+        SM50GetErrorMessage(error, message, sizeof(message));
+        SM50FreeError(error);
+        error = nullptr;
+      }
+      RecordCompileFailure("shader/sm50_geometry_compile",
+                           str::format(name, " compilation failed: ",
+                                       message));
+      return false;
+    }
+
+    SM50_COMPILED_BITCODE bitcode = {};
+    SM50GetCompiledBitcode(result, &bitcode);
+    auto dispatch_data = WMT::MakeDispatchData(bitcode.Data, bitcode.Size);
+    WMT::Reference<WMT::Error> metal_error;
+    auto library =
+        m_device->GetDXMTDevice().device().newLibrary(dispatch_data,
+                                                       metal_error);
+    if (!metal_error.handle)
+      function = library.newFunction(name);
+    std::string metal_error_text =
+        metal_error.handle ? DescribeNSObject(metal_error.handle) : "";
+    SM50DestroyBitcode(result);
+    if (!function.handle) {
+      RecordCompileFailure(
+          "shader/sm50_geometry_metal_library",
+          str::format(name, " Metal function creation failed",
+                      metal_error_text.empty() ? "" : ": ",
+                      metal_error_text));
+      return false;
+    }
+    return true;
+  };
+
+  bool compiled = compile_stage(true, object_func) &&
+                  compile_stage(false, mesh_func);
+  if (compiled) {
+    m_vs_shader = vertex_shader;
+    m_gs_shader = geometry_shader;
+  } else {
+    SM50Destroy(vertex_shader);
+    SM50Destroy(geometry_shader);
+  }
+  return compiled;
+}
+
 void MTLD3D12PipelineState::BuildIAInputLayout(
     const void *bytecode, SIZE_T size,
     std::vector<SM50_IA_INPUT_ELEMENT> &elements, uint32_t &slot_mask) {
@@ -2452,7 +2589,7 @@ bool MTLD3D12PipelineState::Compile() {
     return true;
   }
 
-  WMT::Reference<WMT::Function> vs_func, ps_func;
+  WMT::Reference<WMT::Function> vs_func, ps_func, gs_func;
   size_t vs_hash =
       m_vs.empty()
           ? 0
@@ -2475,20 +2612,26 @@ bool MTLD3D12PipelineState::Compile() {
     return CompileNativeTessellationProofShape();
   }
 
-  if (!m_gs.empty()) {
-    return RecordCompileFailure(
-        "pso/unsupported_geometry_shader",
-        str::format("Graphics PSO uses GS bytes=", m_gs.size(),
-                    " but D3D12 geometry shaders are not implemented"));
-  }
-
   if (m_has_stream_output) {
     return RecordCompileFailure(
         "pso/unsupported_stream_output",
         "Graphics PSO uses stream output, which is not implemented");
   }
 
-  if (!m_vs.empty()) {
+  if (!m_gs.empty()) {
+    if (m_vs.empty()) {
+      return RecordCompileFailure(
+          "pso/geometry_without_vertex",
+          "Graphics PSO contains a geometry shader without a vertex shader");
+    }
+    if (!CompileGeometryPipelineShaders(vs_func, gs_func))
+      return false;
+    m_uses_geometry_mesh_pipeline = true;
+    PSTRACE("D3D12 geometry pipeline compiled through Metal object/mesh "
+            "emulation object=%llu mesh=%llu",
+            (unsigned long long)vs_func.handle,
+            (unsigned long long)gs_func.handle);
+  } else if (!m_vs.empty()) {
     if (!CompileShader(m_vs.data(), m_vs.size(), ShaderType::Vertex, "vs_main",
                        vs_func, &m_vs_shader, &m_vs_reflection))
       return false;
@@ -2792,10 +2935,33 @@ bool MTLD3D12PipelineState::Compile() {
       (unsigned)m_rasterizer_desc.FrontCounterClockwise,
       (unsigned)m_rasterizer_desc.DepthClipEnable);
 
+  WMTMeshRenderPipelineInfo mesh_info = {};
+  if (m_uses_geometry_mesh_pipeline) {
+    WMT::InitializeMeshRenderPipelineInfo(mesh_info);
+    memcpy(mesh_info.colors, info.colors, sizeof(mesh_info.colors));
+    mesh_info.alpha_to_coverage_enabled = info.alpha_to_coverage_enabled;
+    mesh_info.logic_operation_enabled = info.logic_operation_enabled;
+    mesh_info.logic_operation = info.logic_operation;
+    mesh_info.rasterization_enabled = info.rasterization_enabled;
+    mesh_info.raster_sample_count = info.raster_sample_count;
+    mesh_info.depth_pixel_format = info.depth_pixel_format;
+    mesh_info.stencil_pixel_format = info.stencil_pixel_format;
+    mesh_info.object_function = vs_func.handle;
+    mesh_info.mesh_function = gs_func.handle;
+    mesh_info.fragment_function = ps_func.handle;
+    mesh_info.payload_memory_length = 16256;
+    mesh_info.immutable_object_buffers =
+        (1u << 16) | (1u << 21) | (1u << 29) | (1u << 30);
+    mesh_info.immutable_mesh_buffers = (1u << 29) | (1u << 30);
+    mesh_info.immutable_fragment_buffers = (1u << 29) | (1u << 30);
+  }
+
   std::string render_err_desc = "unknown";
   for (uint32_t attempt = 0; attempt < 4; attempt++) {
     err = nullptr;
-    m_render_pso = wmt_device.newRenderPipelineState(info, err);
+    m_render_pso = m_uses_geometry_mesh_pipeline
+                       ? wmt_device.newRenderPipelineState(mesh_info, err)
+                       : wmt_device.newRenderPipelineState(info, err);
     if (m_render_pso.handle)
       break;
 
@@ -2813,7 +2979,8 @@ bool MTLD3D12PipelineState::Compile() {
   if (!m_render_pso.handle) {
     Logger::err(str::format("Failed to create render PSO: ", render_err_desc));
     return RecordCompileFailure(
-        "pso/metal_render_pso",
+        m_uses_geometry_mesh_pipeline ? "pso/metal_geometry_mesh_pso"
+                                      : "pso/metal_render_pso",
         str::format("Metal render PSO creation failed: ", render_err_desc));
   }
   {
