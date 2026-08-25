@@ -83,7 +83,7 @@ A failed transaction leaves the active version unchanged. Rollback switches only
 
 ## BIOS privacy and validation
 
-BIOS import accepts a regular file or bounded dump directory. The main ROM must be 4–8 MiB and pass PCSX2-compatible ROMDIR/ROMVER validation. Known companion files are accepted from a selected dump directory.
+The contained picker accepts a `.bin` BIOS file. The provider also validates a regular file or bounded dump directory supplied through its API. The main ROM must be 4–8 MiB and pass PCSX2-compatible ROMDIR/ROMVER validation. Known companion files are accepted from a selected dump directory.
 
 Imports are copied through private staging. The previous valid BIOS directory is restored if replacement fails. API responses expose only the detected description and region. BIOS contents, paths, and hashes are not uploaded or included in general diagnostics.
 
@@ -134,6 +134,6 @@ No endpoint accepts an arbitrary executable, URL, command, shell fragment, PCSX2
 
 ## Trust boundary
 
-Electron exposes only a BIOS picker, a game-file-or-folder picker, the two official PCSX2 guides, and contained path reveals. Every reveal is resolved again in the main process and must remain inside the PCSX2 environment or a registered game root. Revealing a file selects it in Finder; it does not open or execute the content.
+Electron exposes only a `.bin` BIOS picker, a game-file-or-folder picker, contained path reveals, and exact allowlisted browser resources. **Find Games** opens `https://archive.org/`; **Download Firmware** opens `https://www.retrostic.com/bios/pcsx2-playstation-2`; the official PCSX2 BIOS and disc-dumping guides remain available under runtime support. No renderer-supplied URL is accepted. Every path reveal is resolved again in the main process and must remain inside the PCSX2 environment or a registered game location. Revealing a file selects it in Finder; it does not open or execute the content.
 
 The complete release, host, CLI, isolation, BIOS, discovery, update, and process contract is in [PCSX2-UPSTREAM-CONTRACT.md](PCSX2-UPSTREAM-CONTRACT.md). Historical phase gates and research evidence remain in [PCSX2-INTEGRATION-ROADMAP.md](PCSX2-INTEGRATION-ROADMAP.md).

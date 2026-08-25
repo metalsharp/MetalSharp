@@ -3060,6 +3060,55 @@ onUnmounted(() => {
             {{ tab.label }}
           </button>
         </nav>
+        <div v-if="sourceMode === 'pcsx2'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
+            @click="installOrUpdatePcsx2"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ pcsx2Loading.update ? "Installing…" : pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+          </button>
+          <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
+            <IconX width="15" height="15" /> Stop PCSX2
+          </button>
+          <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
+            <IconExternalLink width="15" height="15" /> Open PCSX2
+          </button>
+        </div>
+        <div v-else-if="sourceMode === 'rpcs3'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="rpcs3Loading.update || rpcs3Loading.check"
+            @click="installOrUpdateRpcs3"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ rpcs3Loading.update ? "Installing…" : rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
+          </button>
+          <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
+            <IconExternalLink width="14" height="14" /> Open RPCS3
+          </button>
+        </div>
+        <div v-else-if="sourceMode === 'shadps4'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
+            @click="installOrUpdateShadps4"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ shadps4Loading.update ? "Installing…" : shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
+          </button>
+        </div>
+        <div v-else-if="sourceMode === 'sharpemu'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
+            @click="installOrUpdateSharpemu"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ sharpemuLoading.update ? "Installing…" : sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
+          </button>
+        </div>
         <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
           <IconUpload class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
@@ -3596,7 +3645,7 @@ onUnmounted(() => {
                   <div class="rpcs3-overview-copy">
                     <div class="rpcs3-eyebrow">Managed PlayStation 2 environment</div>
                     <div class="rpcs3-title-row">
-                      <h2>PCSX2</h2>
+                      <h2>PCSX2 <span class="emulator-platform-label">- PS2 Emulation</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -3618,30 +3667,6 @@ onUnmounted(() => {
                       Host advisory: {{ pcsx2Status.warnings.join(", ").replaceAll("_", " ") }}
                     </p>
                   </div>
-                </div>
-                <div class="rpcs3-primary-actions">
-                  <button
-                    class="btn btn-primary rpcs3-primary-button"
-                    :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
-                    @click="installOrUpdatePcsx2"
-                  >
-                    <IconDownload width="16" height="16" />
-                    {{
-                      pcsx2Loading.update
-                        ? "Installing…"
-                        : pcsx2Status?.installed
-                          ? pcsx2Update && !pcsx2Update.available
-                            ? "PCSX2 Up to Date"
-                            : "Update PCSX2"
-                          : "Install PCSX2"
-                    }}
-                  </button>
-                  <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
-                    <IconX width="15" height="15" /> Stop PCSX2
-                  </button>
-                  <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
-                    <IconExternalLink width="15" height="15" /> Open PCSX2
-                  </button>
                 </div>
                 <div class="rpcs3-stats">
                   <div class="rpcs3-stat">
@@ -3691,7 +3716,17 @@ onUnmounted(() => {
                   @click="importPcsx2Bios"
                 >
                   <IconShieldCheck width="17" height="17" /><span
-                    ><strong>Import BIOS</strong><small>From your console</small></span
+                    ><strong>Import BIOS</strong><small>Accepts a .bin BIOS file</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openEmulatorResource('pcsx2-firmware')">
+                  <IconDownload width="17" height="17" /><span
+                    ><strong>Download Firmware</strong><small>Open PCSX2 firmware page</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openEmulatorResource('archive-games')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Find Games</strong><small>Open archive.org</small></span
                   >
                 </button>
                 <details v-if="pcsx2Status?.installed" class="pcsx2-setup-dropdown">
@@ -3778,7 +3813,7 @@ onUnmounted(() => {
                 </summary>
                 <div class="rpcs3-management-actions">
                   <button class="btn btn-secondary btn-sm" :disabled="pcsx2Loading.check" @click="checkPcsx2Update()">
-                    {{ pcsx2Loading.check ? "Checking…" : "Check Stable Updates" }}
+                    {{ pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
                   </button>
                   <button
                     v-if="pcsx2Status?.installed && pcsx2Update"
@@ -3830,6 +3865,11 @@ onUnmounted(() => {
                   >
                   <span class="emulator-root-count">{{ pcsx2Roots.length }}</span>
                 </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addPcsx2Folder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
                 <p v-if="pcsx2Roots.length === 0" class="emulator-sidebar-empty">No game locations added yet.</p>
                 <div v-for="root in pcsx2Roots" :key="root" class="emulator-root-row">
                   <code>{{ root }}</code>
@@ -3912,7 +3952,7 @@ onUnmounted(() => {
                   <div class="rpcs3-overview-copy">
                     <div class="rpcs3-eyebrow">Managed PlayStation 3 environment</div>
                     <div class="rpcs3-title-row">
-                      <h2>RPCS3</h2>
+                      <h2>RPCS3 <span class="emulator-platform-label">- PS3 Emulation</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -3924,21 +3964,6 @@ onUnmounted(() => {
                     </div>
                     <p>A verified, isolated emulator environment with atomic updates and protected user data.</p>
                   </div>
-                </div>
-                <div class="rpcs3-primary-actions">
-                  <button
-                    class="btn btn-primary rpcs3-primary-button"
-                    :disabled="rpcs3Loading.update || rpcs3Loading.check"
-                    @click="installOrUpdateRpcs3"
-                  >
-                    <IconDownload width="15" height="15" />
-                    {{
-                      rpcs3Loading.update ? "Installing…" : rpcs3Status?.installed ? "Update RPCS3" : "Install RPCS3"
-                    }}
-                  </button>
-                  <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
-                    <IconExternalLink width="14" height="14" /> Open RPCS3
-                  </button>
                 </div>
                 <div class="rpcs3-stats">
                   <div class="rpcs3-stat">
@@ -3985,6 +4010,16 @@ onUnmounted(() => {
                     ><strong>Firmware</strong><small>Install PS3UPDAT.PUP</small></span
                   >
                 </button>
+                <button class="rpcs3-command" @click="getAPI().openRpcs3FirmwarePage()">
+                  <IconDownload width="17" height="17" /><span
+                    ><strong>Download Firmware</strong><small>Open PlayStation support</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openEmulatorResource('archive-games')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Find Games</strong><small>Open archive.org</small></span
+                  >
+                </button>
                 <button
                   class="rpcs3-command"
                   :disabled="!rpcs3Status?.installed"
@@ -4026,7 +4061,7 @@ onUnmounted(() => {
                 </summary>
                 <div class="rpcs3-management-actions">
                   <button class="btn btn-secondary btn-sm" :disabled="rpcs3Loading.check" @click="checkRpcs3Update()">
-                    {{ rpcs3Loading.check ? "Checking…" : "Check Updates" }}
+                    {{ rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
                   </button>
                   <button
                     v-if="rpcs3Status?.installed && rpcs3Update"
@@ -4072,6 +4107,11 @@ onUnmounted(() => {
                   >
                   <span class="emulator-root-count">{{ rpcs3Roots.length }}</span>
                 </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addRpcs3Folder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
                 <p v-if="rpcs3Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
                 <div v-for="root in rpcs3Roots" :key="root" class="emulator-root-row">
                   <button class="emulator-root-path" type="button" @click="getAPI().openRpcs3Path(root)">
@@ -4155,7 +4195,7 @@ onUnmounted(() => {
                   <div class="rpcs3-overview-copy">
                     <div class="rpcs3-eyebrow">Experimental PlayStation 4 environment</div>
                     <div class="rpcs3-title-row">
-                      <h2>shadPS4</h2>
+                      <h2>shadPS4 <span class="emulator-platform-label">- PS4 Emulation</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4177,24 +4217,6 @@ onUnmounted(() => {
                       Host advisory: {{ shadps4Status.warnings.join(", ").replaceAll("_", " ") }}
                     </p>
                   </div>
-                </div>
-                <div class="rpcs3-primary-actions">
-                  <button
-                    class="btn btn-primary rpcs3-primary-button"
-                    :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
-                    @click="installOrUpdateShadps4"
-                  >
-                    <IconDownload width="15" height="15" />
-                    {{
-                      shadps4Loading.update
-                        ? "Installing…"
-                        : shadps4Status?.installed
-                          ? shadps4Update && !shadps4Update.available
-                            ? "Check shadPS4"
-                            : "Update shadPS4"
-                          : "Install shadPS4"
-                    }}
-                  </button>
                 </div>
                 <div class="rpcs3-stats">
                   <div class="rpcs3-stat">
@@ -4285,7 +4307,7 @@ onUnmounted(() => {
                     :disabled="shadps4Loading.check"
                     @click="checkShadps4Update()"
                   >
-                    {{ shadps4Loading.check ? "Checking…" : "Check Stable Updates" }}
+                    {{ shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
                   </button>
                   <button
                     v-if="shadps4Status?.installed && shadps4Update"
@@ -4335,6 +4357,11 @@ onUnmounted(() => {
                   >
                   <span class="emulator-root-count">{{ shadps4Roots.length }}</span>
                 </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addShadps4Folder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
                 <p v-if="shadps4Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
                 <div v-for="root in shadps4Roots" :key="root" class="emulator-root-row">
                   <button class="emulator-root-path" type="button" @click="getAPI().openShadps4Path(root)">
@@ -4422,7 +4449,7 @@ onUnmounted(() => {
                   <div class="rpcs3-overview-copy">
                     <div class="rpcs3-eyebrow">Experimental PlayStation 5 research environment</div>
                     <div class="rpcs3-title-row">
-                      <h2>SharpEmu</h2>
+                      <h2>SharpEmu <span class="emulator-platform-label">- PS5 Emulation</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4440,29 +4467,7 @@ onUnmounted(() => {
                       SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary
                       target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.
                     </p>
-                    <p class="shadps4-host-warning">
-                      MetalSharp never downloads firmware, keys, games, licenses, modules, fonts, updates, DLC, or
-                      decryption material. Register only user-owned, already decrypted or fake-signed layouts.
-                    </p>
                   </div>
-                </div>
-                <div class="rpcs3-primary-actions">
-                  <button
-                    class="btn btn-primary rpcs3-primary-button"
-                    :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
-                    @click="installOrUpdateSharpemu"
-                  >
-                    <IconDownload width="15" height="15" />
-                    {{
-                      sharpemuLoading.update
-                        ? "Installing…"
-                        : sharpemuStatus?.installed
-                          ? sharpemuUpdate && !sharpemuUpdate.available
-                            ? "Check SharpEmu"
-                            : "Update SharpEmu"
-                          : "Install SharpEmu"
-                    }}
-                  </button>
                 </div>
                 <div class="rpcs3-stats">
                   <div class="rpcs3-stat">
@@ -4566,7 +4571,7 @@ onUnmounted(() => {
                     :disabled="sharpemuLoading.check"
                     @click="checkSharpemuUpdate()"
                   >
-                    {{ sharpemuLoading.check ? "Checking…" : "Check Stable Updates" }}
+                    {{ sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
                   </button>
                   <button
                     v-if="sharpemuStatus?.installed && sharpemuUpdate"
@@ -4634,6 +4639,11 @@ onUnmounted(() => {
                   >
                   <span class="emulator-root-count">{{ sharpemuRoots.length }}</span>
                 </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addSharpemuFolder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
                 <p v-if="sharpemuRoots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
                 <div v-for="root in sharpemuRoots" :key="root" class="emulator-root-row">
                   <button class="emulator-root-path" type="button" @click="getAPI().openSharpemuPath(root)">
@@ -4823,6 +4833,16 @@ onUnmounted(() => {
   flex-wrap: wrap;
   overflow: visible;
   -webkit-app-region: no-drag;
+}
+.emulator-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.emulator-header-actions .btn {
+  gap: 7px;
 }
 .source-tabs {
   display: inline-flex;
@@ -5824,6 +5844,16 @@ details[open] > .drawer-summary {
   justify-content: flex-start;
   text-align: left;
 }
+.emulator-root-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 10px 0;
+}
+.emulator-root-toolbar .btn {
+  gap: 6px;
+  min-width: 72px;
+  justify-content: center;
+}
 .emulator-sidebar .emulator-root-row {
   align-items: stretch;
   flex-direction: column;
@@ -5856,8 +5886,8 @@ details[open] > .drawer-summary {
 .rpcs3-overview {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 20px 28px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
   overflow: hidden;
   padding: 24px;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
@@ -5886,7 +5916,6 @@ details[open] > .drawer-summary {
   pointer-events: none;
 }
 .rpcs3-overview-main,
-.rpcs3-primary-actions,
 .rpcs3-stats {
   position: relative;
   z-index: 1;
@@ -5938,6 +5967,12 @@ details[open] > .drawer-summary {
   font-size: 24px;
   line-height: 1.1;
 }
+.emulator-platform-label {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
 .rpcs3-state-pill {
   display: inline-flex;
   gap: 6px;
@@ -5977,21 +6012,6 @@ details[open] > .drawer-summary {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.55;
-}
-.rpcs3-primary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-content: flex-start;
-  justify-content: flex-end;
-}
-.rpcs3-primary-actions .btn {
-  display: inline-flex;
-  gap: 7px;
-  align-items: center;
-}
-.rpcs3-primary-button {
-  min-width: 132px;
 }
 .rpcs3-stats {
   display: grid;
@@ -6167,11 +6187,7 @@ details[open] > .drawer-summary {
 }
 @container (max-width: 680px) {
   .rpcs3-overview {
-    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
-  }
-  .rpcs3-primary-actions {
-    justify-content: flex-start;
   }
   .rpcs3-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6181,15 +6197,9 @@ details[open] > .drawer-summary {
   .rpcs3-overview {
     padding: 18px;
   }
-  .rpcs3-primary-actions,
-  .rpcs3-primary-actions .btn,
   .rpcs3-stats {
     width: 100%;
-  }
-  .rpcs3-primary-actions .btn {
-    justify-content: center;
-  }
-  .rpcs3-stats {
+
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -6212,12 +6222,6 @@ details[open] > .drawer-summary {
     display: grid;
     grid-column: 1 / -1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .rpcs3-overview {
-    grid-template-columns: 1fr;
-  }
-  .rpcs3-primary-actions {
-    justify-content: flex-start;
   }
   .rpcs3-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));

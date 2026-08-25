@@ -68,7 +68,7 @@ and creates `bios`, `cache`, `cheats`, `covers`, `gamesettings`, `inis`, `inputp
 4. **Isolate data from runtime.** Set an isolated `HOME` for every PCSX2 command. Use `-datapath` only when capability-probed. Never use `-portable`.
 5. **Keep PCSX2 as the configuration authority through audited values.** MetalSharp owns installation, library, preservation, and process supervision and may write only the tested upstream controller-type and renderer keys through an allowlisted atomic API. PCSX2 retains advanced input mapping, memory-card management, per-game settings, language, audio, and diagnostics.
 6. **MetalSharp manages runtime updates.** Disable PCSX2's startup update check in isolated configuration after a versioned schema probe, and verify the app signature before every launch. Upstream self-update must not mutate `current` outside MetalSharp's transaction.
-7. **BIOS acquisition is user-directed.** MetalSharp links the official dumping guide and imports a user-selected dump. It never downloads, bundles, suggests search terms for, or transmits a Sony BIOS.
+7. **BIOS acquisition remains external.** MetalSharp imports only a user-selected dump and never downloads, bundles, or transmits a Sony BIOS. Browser resources use fixed main-process allowlists rather than renderer-supplied URLs.
 8. **Games remain external references.** MetalSharp scans user-selected roots and launches supported files in place. Removing a root never deletes a disc image or game directory.
 9. **Do not build a disc-ripping feature.** Link the official disc-dumping guide. Disk Utility, `dd`, `cdrdao`, and optical-drive access remain outside MetalSharp.
 10. **Do not overclaim metadata.** Uncompressed disc images may receive serial/title metadata from a bounded parser. Compressed formats fall back to a filename title unless a verified upstream contract supplies metadata.
@@ -249,7 +249,7 @@ Exit gate:
 
 ### BIOS import
 
-- Link only the official PCSX2 BIOS dumping guide.
+- Keep the official PCSX2 BIOS dumping guide and expose only explicitly allowlisted external resource pages.
 - Accept a user-selected regular file or dump directory from a console they own.
 - Canonicalize the source, reject symlinks and protected/system locations, and enforce path, file-count, and byte limits.
 - Require at least one valid main ROM image between 4 MiB and 8 MiB, matching the bounded ROMDIR/ROMVER checks used by upstream `BiosTools`.
@@ -258,7 +258,7 @@ Exit gate:
 - Do not log BIOS contents, include them in API responses, upload hashes, or place them in general diagnostics. A local-only integrity record may be stored with restrictive permissions.
 - Preserve the previous valid BIOS set if import fails.
 
-MetalSharp never downloads `biosdrain`, BIOS databases, BIOS files, or console firmware as part of provider setup. It may open the upstream instructions in the user's browser.
+MetalSharp never downloads `biosdrain`, BIOS databases, BIOS files, or console firmware as part of provider setup. It may open exact allowlisted instruction or resource pages in the user's browser.
 
 Exit gate:
 
@@ -398,7 +398,7 @@ Dashboard requirements:
 - game, root, and active-session counts;
 - install, repair, check, pin, skip, rollback, and runtime-removal controls;
 - explicit preservation language beside update, rollback, root removal, and runtime removal;
-- **Open PCSX2**, contained **PCSX2 Setup**, **BIOS Guide**, and **Disc Dumping Guide** actions;
+- header-level **Check PCSX2** and **Open PCSX2** actions, contained **PCSX2 Setup**, **BIOS Guide**, **Disc Dumping Guide**, **Find Games**, and **Download Firmware** actions;
 - cards with safe title fallback, serial/region when known, format, file size, local cover, running state, Play/Stop, Open Folder, and Open Log;
 - clear missing-Rosetta, missing-runtime, setup-required, missing-BIOS, no-roots, empty-library, offline, corrupt-runtime, update-failed, and running states;
 - warnings that compatibility and performance vary by game;

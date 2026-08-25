@@ -228,6 +228,7 @@ type MetalsharpAPI = {
     kind: "faq" | "compatibility" | "repository" | "releases",
     titleId?: string,
   ) => Promise<{ ok: boolean; error?: string }>;
+  openEmulatorResource: (kind: "archive-games" | "pcsx2-firmware") => Promise<{ ok: boolean; error?: string }>;
   openRpcs3FirmwarePage: () => Promise<{ ok: boolean; error?: string }>;
   openLogsFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   openMetalsharpFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;

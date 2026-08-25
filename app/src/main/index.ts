@@ -1220,6 +1220,20 @@ function registerIpc() {
     shell.openPath(fullPath);
   });
 
+  ipcMain.handle("app:open-emulator-resource", async (_event, kind: "archive-games" | "pcsx2-firmware") => {
+    if (kind !== "archive-games" && kind !== "pcsx2-firmware") {
+      return { ok: false, error: "Unknown emulator resource" };
+    }
+    const url =
+      kind === "archive-games" ? "https://archive.org/" : "https://www.retrostic.com/bios/pcsx2-playstation-2";
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcMain.handle("app:open-rpcs3-firmware-page", async () => {
     try {
       await shell.openExternal("https://www.playstation.com/en-us/support/hardware/ps3/system-software/");
@@ -1737,8 +1751,9 @@ webview{flex:1;border:none}
   ipcMain.handle("app:pick-pcsx2-bios", async () => {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Select a PlayStation 2 BIOS dumped from your console",
+      title: "Select a PlayStation 2 .bin BIOS file",
       properties: ["openFile"],
+      filters: [{ name: "PlayStation 2 BIOS", extensions: ["bin"] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
