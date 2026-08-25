@@ -88,6 +88,8 @@ public:
 
   HRESULT setInterface(REFGUID guid, const IUnknown *iface);
 
+  HRESULT setName(LPCWSTR name);
+
   HRESULT getData(REFGUID guid, UINT *size, void *data);
 
 private:

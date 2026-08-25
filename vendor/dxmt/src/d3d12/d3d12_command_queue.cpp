@@ -6194,7 +6194,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetPrivateDataInterface(
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetDevice(REFIID riid,

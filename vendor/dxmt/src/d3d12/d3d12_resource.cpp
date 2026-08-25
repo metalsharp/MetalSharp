@@ -274,7 +274,7 @@ MTLD3D12Resource::SetPrivateDataInterface(REFGUID guid, const IUnknown *data) {
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Resource::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE

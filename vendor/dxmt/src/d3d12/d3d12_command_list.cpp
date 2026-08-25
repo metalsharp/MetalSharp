@@ -158,7 +158,9 @@ MTLD3D12GraphicsCommandList::SetPrivateDataInterface(REFGUID guid,
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12GraphicsCommandList::SetName(LPCWSTR name) { return S_OK; }
+MTLD3D12GraphicsCommandList::SetName(LPCWSTR name) {
+  return m_private_data.setName(name);
+}
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12GraphicsCommandList::GetDevice(REFIID riid, void **device) {

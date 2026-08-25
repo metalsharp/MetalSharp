@@ -58,7 +58,7 @@ MTLD3D12QueryHeap::SetPrivateDataInterface(REFGUID guid,
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12QueryHeap::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE

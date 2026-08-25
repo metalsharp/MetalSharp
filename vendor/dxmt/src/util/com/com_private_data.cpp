@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include <cstdlib>
+#include <cwchar>
 
 #include "com_private_data.hpp"
 
@@ -114,6 +115,19 @@ HRESULT ComPrivateData::setInterface(REFGUID guid, const IUnknown *iface) {
   std::lock_guard<std::mutex> lock(m_mutex);
   this->insertEntry(ComPrivateDataEntry(guid, iface));
   return S_OK;
+}
+
+HRESULT ComPrivateData::setName(LPCWSTR name) {
+  if (!name)
+    return E_INVALIDARG;
+  static constexpr GUID debug_object_name_w = {
+      0x4cca5fd8,
+      0x921f,
+      0x42c8,
+      {0x85, 0x66, 0x70, 0xca, 0xf2, 0xa9, 0xb7, 0x41}};
+  const UINT size =
+      static_cast<UINT>((std::wcslen(name) + 1) * sizeof(WCHAR));
+  return setData(debug_object_name_w, size, name);
 }
 
 HRESULT ComPrivateData::getData(REFGUID guid, UINT *size, void *data) {
