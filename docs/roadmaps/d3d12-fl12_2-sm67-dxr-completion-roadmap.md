@@ -917,3 +917,8 @@ the goal is not complete.
   `(10,20,30,40)` texel. CBV, two SRVs, a static sampler, and a UAV now produce
   `[106,108,110,112]`, proving compute-stage texture sampling rather than
   continuing to label the working path unsupported.
+- Reconnected `probe_shaders` to the current per-executable D3D12 trace file.
+  The gate now passes with observed SM5 vertex/pixel/compute conversion, DXIL
+  container parsing, and a cached primary Metal Shader Converter metallib; it
+  also confirms that the debug MSL backend and primary-cache-miss path were not
+  used for that proof.
