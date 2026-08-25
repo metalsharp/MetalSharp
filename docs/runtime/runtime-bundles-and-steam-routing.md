@@ -16,7 +16,7 @@ Current split bundle roots:
 |---|---|
 | `metalsharp-electron.tar.zst` | Contains `electron/`, the built Electron application payload. |
 | `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the legacy DXMT D3D9/D3D10/D3D11 surface and the isolated M12 D3D12 surface. |
-| `metalsharp-runtime.tar.zst` | Contains `runtime/`, base Wine 11.5, the enclosed Battle.net Wine Staging 11.4 route, host ABI, and backend executable. |
+| `metalsharp-runtime.tar.zst` | Contains `runtime/`, base Wine 11.5, host ABI, and backend executable. |
 | `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, GPTK, DXVK, Goldberg, EAC toggle, shims, and runtime support assets. |
 | `metalsharp-scripts-tools.tar.zst` | Contains `scripts/tools/`, updater scripts, configs, native tools, and CEF helpers. |
 | `metalsharp-steam.tar.zst` | Contains `steam/`, the Steam installer and Steam CEF wrapper assets. |
@@ -55,20 +55,6 @@ Installed DXMT runtime state is recorded in:
 ```
 
 Do not trust a runtime by version string alone. Check the manifest, required DLLs, the `dxmt-m12` sidecars, and source archive hash when diagnosing deployment drift.
-
-The Battle.net runtime is deliberately outside the base Wine tree:
-
-```text
-runtime/launchers/battlenet/wine-staging-11.4/
-  -> ~/.metalsharp/runtime/launchers/battlenet/wine-staging-11.4/
-```
-
-`metalsharp-battlenet-runtime.json` records its pinned archive SHA-256,
-upstream lineage, exact Wine version, and launcher compatibility profile.
-Bundle verification requires the manifest, Wine loader, and dedicated
-Wineserver. Rebuilding the runtime bundle requires a source staged with
-`tools/bundles/stage-battlenet-wine.py`; set
-`METALSHARP_BATTLENET_WINE_ROOT` when invoking the split-bundle builder.
 
 ## Steam Launch Route
 

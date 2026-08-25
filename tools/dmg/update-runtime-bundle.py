@@ -8,8 +8,7 @@ byte-for-byte. Uses the same tar normalization as repair-runtime-bundle.py
 
 Usage:
   update-runtime-bundle.py --archive in.tar.zst --out out.tar.zst \\
-      --metalsharp-lib lib/metalsharp --backend metalsharp-backend \\
-      --battlenet-wine /path/to/staged/wine-staging-11.4
+      --metalsharp-lib lib/metalsharp --backend metalsharp-backend
 """
 
 import argparse
@@ -84,7 +83,6 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--metalsharp-lib", type=Path, required=True)
     parser.add_argument("--backend", type=Path, required=True)
-    parser.add_argument("--battlenet-wine", type=Path, required=True)
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(prefix="runtime-bundle-update-") as tmp_name:
@@ -115,22 +113,13 @@ def main() -> None:
         shutil.copy2(args.backend, backend_dst)
         backend_dst.chmod(0o755)
 
-        battlenet_required = [
-            args.battlenet_wine / "bin" / "wine",
-            args.battlenet_wine / "bin" / "wineserver",
-            args.battlenet_wine / "metalsharp-battlenet-runtime.json",
-        ]
-        for required in battlenet_required:
-            if not required.is_file() or required.stat().st_size == 0:
-                raise FileNotFoundError(f"missing Battle.net runtime file {required}")
-        battlenet_dst = runtime_root / "launchers" / "battlenet" / "wine-staging-11.4"
-        if battlenet_dst.exists():
-            shutil.rmtree(battlenet_dst)
-        shutil.copytree(args.battlenet_wine, battlenet_dst, symlinks=True)
+        launchers = runtime_root / "launchers"
+        if launchers.exists():
+            shutil.rmtree(launchers)
 
         write_archive(extracted, args.out)
         print(f"updated runtime bundle: {args.out}")
-        print(f"  added {len(added)} shim DLLs + refreshed backend + isolated Battle.net Wine Staging 11.4")
+        print(f"  added {len(added)} shim DLLs + refreshed backend")
         for entry in added:
             print(f"    + {entry}")
 

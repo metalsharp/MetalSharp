@@ -124,7 +124,9 @@ printf '%s' "$launcher_unknown" | python3 -c 'import json, sys; v=json.load(sys.
 launcher_epic_removed=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"epic"}' "http://127.0.0.1:$port/sharp-library/launchers/install")
 printf '%s' "$launcher_epic_removed" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "unknown launcher"'
 launcher_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/launchers/status")
-printf '%s' "$launcher_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and [x["id"] for x in v["launchers"]] == ["ea", "rockstar", "ubisoft", "battlenet"] and not any(x["prefixCreated"] for x in v["launchers"]); assert [x["runtimeReady"] for x in v["launchers"]] == [True, True, True, False]'
+printf '%s' "$launcher_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and [x["id"] for x in v["launchers"]] == ["ea", "rockstar", "ubisoft"] and not any(x["prefixCreated"] for x in v["launchers"]); assert all(x["runtimeReady"] for x in v["launchers"])'
+launcher_stop_missing=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/launchers/stop")
+printf '%s' "$launcher_stop_missing" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "launcher required"'
 launcher_launch_missing=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/launchers/launch")
 printf '%s' "$launcher_launch_missing" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "launcher required"'
 launcher_launch_unknown=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"unknown"}' "http://127.0.0.1:$port/sharp-library/launchers/launch")

@@ -2082,6 +2082,14 @@ fn route(req: &HttpRequest) -> RouteResponse {
             ));
             resp(200, sharp_library::handle_launcher_launch(&body))
         },
+        (HttpMethod::Post, "/sharp-library/launchers/stop") => {
+            let body = read_body(req);
+            app_log(&format!(
+                "[SHARP-LIB] launcher stop: {}",
+                body.get("launcher").and_then(|value| value.as_str()).unwrap_or("?")
+            ));
+            resp(200, sharp_library::handle_launcher_stop(&body))
+        },
         (HttpMethod::Post, "/sharp-library/import-bottle-app") => {
             let body = read_body(req);
             app_log(&format!(

@@ -508,30 +508,26 @@ const headerSubtitle = computed(() => {
   return "Install and manage Windows applications outside Steam.";
 });
 const apps = ref<SharpApp[]>([]);
-type LauncherInstallerId = "ea" | "rockstar" | "ubisoft" | "battlenet";
+type LauncherInstallerId = "ea" | "rockstar" | "ubisoft";
 const launcherInstallers: Array<{ id: LauncherInstallerId; name: string; prefix: string; detail: string }> = [
   { id: "ea", name: "EA App", prefix: "EA-Prefix", detail: "EA desktop installer" },
   { id: "rockstar", name: "Rockstar", prefix: "Rockstar-Prefix", detail: "Rockstar Games Launcher" },
   { id: "ubisoft", name: "Ubisoft", prefix: "Ubisoft-Prefix", detail: "Ubisoft Connect installer" },
-  { id: "battlenet", name: "Battle Net", prefix: "Battle-Net-Prefix", detail: "Battle.net desktop installer" },
 ];
 const launcherInstallerLoading = ref<Record<LauncherInstallerId, boolean>>({
   ea: false,
   rockstar: false,
   ubisoft: false,
-  battlenet: false,
 });
 const launcherPrefixCreated = ref<Record<LauncherInstallerId, boolean>>({
   ea: false,
   rockstar: false,
   ubisoft: false,
-  battlenet: false,
 });
 const launcherRuntimeReady = ref<Record<LauncherInstallerId, boolean>>({
   ea: true,
   rockstar: true,
   ubisoft: true,
-  battlenet: false,
 });
 const wineDiskAccessGranted = ref<boolean | null>(null);
 const wineDiskAccessOpening = ref(false);
@@ -3891,13 +3887,7 @@ onUnmounted(() => {
                         ? `Launch ${launcher.name}`
                         : launcher.name
                   }}</strong>
-                  <small v-if="launcher.id === 'battlenet' && !launcherRuntimeReady[launcher.id]">
-                    Compatibility runtime unavailable
-                  </small>
-                  <small v-else-if="launcher.id === 'battlenet' && launcherPrefixCreated[launcher.id]">
-                    Wine Staging 11.4 · {{ launcher.prefix }}
-                  </small>
-                  <small v-else>{{
+                  <small>{{
                     launcherPrefixCreated[launcher.id] ? launcher.prefix : `${launcher.detail} · ${launcher.prefix}`
                   }}</small>
                 </span>
@@ -6376,7 +6366,6 @@ onUnmounted(() => {
   margin-top: 8px;
   width: 100%;
 }
-
 .launch-failure {
   display: flex;
   flex-direction: column;

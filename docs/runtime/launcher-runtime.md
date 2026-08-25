@@ -13,7 +13,6 @@ The installer classifier recognizes these launcher families before generic .NET,
 - Minecraft Launcher -> Java Launcher profile
 - EA App / Origin -> WebView profile
 - Ubisoft Connect / Uplay -> WebView profile
-- Battle.net / Blizzard launcher -> WebView profile
 - Epic Games Launcher -> WebView profile
 - Rockstar Games Launcher / Social Club -> WebView profile
 - GOG Galaxy -> Launcher profile
@@ -24,27 +23,15 @@ Known launchers default to the bare Wine pipeline during install/bootstrap. That
 
 ## Sharp Library Launcher Surface
 
-The main Sharp Library **Installers** tab exposes fixed right-side actions for four official launcher installers. Each action creates or reuses one stable bottle and downloads into its `installers/` directory before launch:
+The main Sharp Library **Installers** tab exposes fixed right-side actions for three official launcher installers. Each action creates or reuses one stable bottle and downloads into its `installers/` directory before launch:
 
 | Action     | Bottle              | Official installer source                                         |
 | ---------- | ------------------- | ----------------------------------------------------------------- |
 | EA App     | `EA-Prefix`         | `origin-a.akamaihd.net/.../EAappInstaller.exe`                    |
 | Rockstar   | `Rockstar-Prefix`   | `gamedownloads.rockstargames.com/.../Rockstar-Games-Launcher.exe` |
 | Ubisoft    | `Ubisoft-Prefix`    | `https://ubi.li/4vxt9`                                            |
-| Battle Net | `Battle-Net-Prefix` | Battle.net's Windows setup endpoint                               |
 
 The backend owns this allowlist; the renderer sends only the launcher identifier. Downloads require HTTPS, use fixed local filenames, land atomically, and are checked for an EXE or MSI signature before launch. Every installer runs with `WINEPREFIX` set to its dedicated bottle prefix. Once a prefix exists, its Installers-tab action becomes `Launch <app>` and launches the installed client. If setup has not completed yet, MetalSharp reopens the already verified cached installer rather than downloading it again.
-
-Battle.net is additionally pinned to an enclosed Wine Staging 11.4 runtime at
-`~/.metalsharp/runtime/launchers/battlenet/wine-staging-11.4`. The runtime is
-shipped inside `metalsharp-runtime.tar.zst`; it never replaces or overlays the
-base MetalSharp Wine 11.5 tree. Both Battle.net setup and launch use the
-dedicated Wineserver and `Battle.net Launcher.exe` in `Battle-Net-Prefix`.
-Launch applies `WINEESYNC=1`, disables msync, advertises Rosetta AVX, and sends
-`--in-process-gpu --use-gl=swiftshader --disable-gpu-compositing` so the
-32-bit Battle.net CEF client avoids both its vanilla-Wine IPC deadlock and the
-white D3D11 login surface. Missing runtime files fail closed rather than
-falling back to Wine 11.5 or GPTK.
 
 Install and launch runs write `~/.metalsharp/bottles/<bottle>/logs/launcher-install.log` and `launcher-launch.log` so compatibility passes can be diagnosed without sharing prefix state between launchers.
 
