@@ -81,6 +81,22 @@ source folders, or the referenced upstream/runtime packages.
   boundaries. The MetalSharp Wine build includes DXMT integration patches and
   macOS-specific runtime adjustments not present in upstream Wine or CrossOver.
 
+## Wine Staging 11.4 — isolated Battle.net runtime
+
+- Upstream source: https://github.com/Gcenx/wine/tree/wine-staging-11.4
+- Binary provenance: https://github.com/dawn-winery/dawn-signed/releases/tag/wine-gcenx-11.4-osx64
+- License: GNU Lesser General Public License v2.1 or later
+- Used as: Battle.net-only Wine runtime enclosed at
+  `runtime/launchers/battlenet/wine-staging-11.4` inside the MetalSharp runtime
+  bundle and installed to the matching isolated location under
+  `~/.metalsharp/runtime/launchers/`.
+- Notes: MetalSharp pins the redistributed archive by SHA-256 and verifies its
+  x86_64 Mach-O loader identity and exact `wine-11.4 (Staging)` version before
+  bundle staging. This runtime carries the macOS Battle.net compatibility fix
+  identified as CodeWeavers hack 19610. It does not replace, patch, or share
+  binaries with MetalSharp Wine 11.5, and no GPTK components are used by this
+  route.
+
 ## Apple Game Porting Toolkit / D3DMetal
 
 - Source: https://developer.apple.com/download/all/?q=game%20porting%20toolkit and the Homebrew `game-porting-toolkit` cask

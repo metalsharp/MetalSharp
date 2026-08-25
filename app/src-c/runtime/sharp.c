@@ -427,6 +427,10 @@ typedef struct {
     const char* fallback_executable_path;
 } launcher_installer;
 
+#define BATTLENET_RUNTIME_RELATIVE "runtime/launchers/battlenet/wine-staging-11.4"
+#define BATTLENET_RUNTIME_MANIFEST "metalsharp-battlenet-runtime.json"
+#define BATTLENET_DLL_OVERRIDES    "winemenubuilder.exe=d;mscoree=d;mshtml=d;winedbg=d"
+
 static const launcher_installer launcher_installers[] = {
     {"ea", "EA App", "EA-Prefix",
      "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
@@ -440,8 +444,8 @@ static const launcher_installer launcher_installers[] = {
      "drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/upc.exe"},
     {"battlenet", "Battle.net", "Battle-Net-Prefix",
      "https://us.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe", "Battle.net-Setup.exe", false,
-     "drive_c/Program Files (x86)/Battle.net/Battle.net.exe",
-     "drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe"},
+     "drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe",
+     "drive_c/Program Files (x86)/Battle.net/Battle.net.exe"},
 };
 
 static const launcher_installer* launcher_installer_for_id(const char* id) {
@@ -451,6 +455,34 @@ static const launcher_installer* launcher_installer_for_id(const char* id) {
         if (!strcmp(launcher_installers[i].id, id))
             return &launcher_installers[i];
     return NULL;
+}
+
+static char* launcher_wine_path(const char* home, const launcher_installer* launcher) {
+    char *runtime = NULL, *wine = NULL;
+    if (launcher && !strcmp(launcher->id, "battlenet")) {
+        runtime = join(home, BATTLENET_RUNTIME_RELATIVE);
+        wine = runtime ? join(runtime, "bin/wine") : NULL;
+        free(runtime);
+        return wine;
+    }
+    return join(home, "runtime/wine/bin/metalsharp-wine");
+}
+
+static bool battlenet_runtime_ready(const char* home) {
+    char *runtime = join(home, BATTLENET_RUNTIME_RELATIVE), *wine = NULL, *wineserver = NULL, *manifest = NULL;
+    bool ready = false;
+    if (!runtime)
+        return false;
+    wine = join(runtime, "bin/wine");
+    wineserver = join(runtime, "bin/wineserver");
+    manifest = join(runtime, BATTLENET_RUNTIME_MANIFEST);
+    ready = wine && wineserver && manifest && access(wine, X_OK) == 0 && access(wineserver, X_OK) == 0 &&
+            access(manifest, R_OK) == 0;
+    free(manifest);
+    free(wineserver);
+    free(wine);
+    free(runtime);
+    return ready;
 }
 
 static bool write_launcher_bottle(const char* bottle_dir, const char* prefix, const char* installer_path,
@@ -552,6 +584,36 @@ static int run_launcher_command(char* const argv[], const char* prefix, int log_
     if (pid == 0) {
         if (prefix)
             setenv("WINEPREFIX", prefix, 1);
+        if (log_fd >= 0) {
+            dup2(log_fd, STDOUT_FILENO);
+            dup2(log_fd, STDERR_FILENO);
+        }
+        execv(argv[0], argv);
+        _exit(127);
+    }
+    if (pid < 0)
+        return -1;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    if (!WIFEXITED(status))
+        return -1;
+    return WEXITSTATUS(status);
+}
+
+static int run_launcher_profile_command(char* const argv[], const char* prefix, int log_fd,
+                                        const launcher_installer* launcher) {
+    int status = 0;
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (prefix)
+            setenv("WINEPREFIX", prefix, 1);
+        if (launcher && !strcmp(launcher->id, "battlenet")) {
+            setenv("WINEDEBUG", "-all", 1);
+            setenv("WINEMSYNC", "0", 1);
+            setenv("WINEESYNC", "1", 1);
+            setenv("ROSETTA_ADVERTISE_AVX", "1", 1);
+            setenv("WINEDLLOVERRIDES", BATTLENET_DLL_OVERRIDES, 1);
+        }
         if (log_fd >= 0) {
             dup2(log_fd, STDOUT_FILENO);
             dup2(log_fd, STDERR_FILENO);
@@ -1221,6 +1283,8 @@ char* ms_sharp_launcher_status_json(const char* home) {
         ms_json_writer_bool(&writer, prefix && access(prefix, F_OK) == 0);
         ms_json_writer_key(&writer, "installed");
         ms_json_writer_bool(&writer, executable != NULL);
+        ms_json_writer_key(&writer, "runtimeReady");
+        ms_json_writer_bool(&writer, strcmp(launcher->id, "battlenet") || battlenet_runtime_ready(home));
         ms_json_writer_object_end(&writer);
         free(executable);
         free(prefix);
@@ -1243,7 +1307,7 @@ static void run_launcher_target_worker(const char* home, const launcher_installe
     log_fd = open(log_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
     if (log_fd < 0)
         _exit(1);
-    wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    wine = launcher_wine_path(home, launcher);
     if (!wine || access(wine, X_OK) != 0) {
         dprintf(log_fd, "status=wine_runtime_missing\n");
         close(log_fd);
@@ -1281,9 +1345,13 @@ static void run_launcher_target_worker(const char* home, const launcher_installe
         }
     } else if (!strcmp(launcher->id, "epic")) {
         status = run_epic_client_with_online_services(home, wine, prefix, installers_dir, target, log_fd);
+    } else if (!strcmp(launcher->id, "battlenet") && !setup) {
+        char* const argv[] = {
+            wine, (char*)target, "--in-process-gpu", "--use-gl=swiftshader", "--disable-gpu-compositing", NULL};
+        status = run_launcher_profile_command(argv, prefix, log_fd, launcher);
     } else {
         char* const argv[] = {wine, (char*)target, NULL};
-        status = run_launcher_command(argv, prefix, log_fd);
+        status = run_launcher_profile_command(argv, prefix, log_fd, launcher);
     }
     dprintf(log_fd, "status=exited\nexit_code=%d\n", status);
 done:
@@ -1316,6 +1384,10 @@ char* ms_sharp_launcher_launch_json(const char* home, const unsigned char* body,
     launcher = launcher_installer_for_id(launcher_id);
     if (!launcher) {
         result = failure("unknown launcher");
+        goto done;
+    }
+    if (!strcmp(launcher->id, "battlenet") && !battlenet_runtime_ready(home)) {
+        result = failure("Battle.net compatibility runtime is missing; reinstall the MetalSharp runtime bundle");
         goto done;
     }
     bottles_dir = join(home, "bottles");
@@ -1448,10 +1520,10 @@ static void run_launcher_installer_worker(const char* home, const launcher_insta
         goto fail;
     }
     dprintf(log_fd, "stage=prefix\n");
-    wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    wine = launcher_wine_path(home, launcher);
     if (wine && access(wine, X_OK) == 0) {
         char* const wineboot_argv[] = {wine, "wineboot", "-u", NULL};
-        status = run_launcher_command(wineboot_argv, prefix, log_fd);
+        status = run_launcher_profile_command(wineboot_argv, prefix, log_fd, launcher);
         dprintf(log_fd, "wineboot_exit=%d\n", status);
         if (status != 0)
             goto fail;
@@ -1464,10 +1536,10 @@ static void run_launcher_installer_worker(const char* home, const launcher_insta
         char* const installer_argv[] = {
             wine, "msiexec", "/i", (char*)installer_path, !strcmp(launcher->id, "epic") ? "SKIP_AUTOLAUNCH=1" : NULL,
             NULL};
-        status = run_launcher_command(installer_argv, prefix, log_fd);
+        status = run_launcher_profile_command(installer_argv, prefix, log_fd, launcher);
     } else {
         char* const installer_argv[] = {wine, (char*)installer_path, NULL};
-        status = run_launcher_command(installer_argv, prefix, log_fd);
+        status = run_launcher_profile_command(installer_argv, prefix, log_fd, launcher);
     }
     dprintf(log_fd, "status=installer_exited\nexit_code=%d\n", status);
     if (status == 0 && !strcmp(launcher->id, "epic")) {
@@ -1521,6 +1593,11 @@ char* ms_sharp_launcher_install_json(const char* home, const unsigned char* body
         ms_json_free(request);
         free(launcher_id);
         return failure("unknown launcher");
+    }
+    if (!strcmp(launcher->id, "battlenet") && !battlenet_runtime_ready(home)) {
+        ms_json_free(request);
+        free(launcher_id);
+        return failure("Battle.net compatibility runtime is missing; reinstall the MetalSharp runtime bundle");
     }
     bottles_dir = join(home, "bottles");
     bottle_dir = bottles_dir ? join(bottles_dir, launcher->bottle_id) : NULL;

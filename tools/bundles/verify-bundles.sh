@@ -148,6 +148,9 @@ verify_required_files() {
 verify_runtime_core() {
   verify_required_files "$1" "RUNTIME" \
     runtime/wine/bin/metalsharp-wine \
+    runtime/launchers/battlenet/wine-staging-11.4/bin/wine \
+    runtime/launchers/battlenet/wine-staging-11.4/bin/wineserver \
+    runtime/launchers/battlenet/wine-staging-11.4/metalsharp-battlenet-runtime.json \
     runtime/metalsharp-backend \
     runtime/host/manifest.json \
     runtime/host/HostRuntimeABI.h \

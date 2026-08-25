@@ -35,6 +35,17 @@ The main Sharp Library **Installers** tab exposes fixed right-side actions for f
 
 The backend owns this allowlist; the renderer sends only the launcher identifier. Downloads require HTTPS, use fixed local filenames, land atomically, and are checked for an EXE or MSI signature before launch. Every installer runs with `WINEPREFIX` set to its dedicated bottle prefix. Once a prefix exists, its Installers-tab action becomes `Launch <app>` and launches the installed client. If setup has not completed yet, MetalSharp reopens the already verified cached installer rather than downloading it again.
 
+Battle.net is additionally pinned to an enclosed Wine Staging 11.4 runtime at
+`~/.metalsharp/runtime/launchers/battlenet/wine-staging-11.4`. The runtime is
+shipped inside `metalsharp-runtime.tar.zst`; it never replaces or overlays the
+base MetalSharp Wine 11.5 tree. Both Battle.net setup and launch use the
+dedicated Wineserver and `Battle.net Launcher.exe` in `Battle-Net-Prefix`.
+Launch applies `WINEESYNC=1`, disables msync, advertises Rosetta AVX, and sends
+`--in-process-gpu --use-gl=swiftshader --disable-gpu-compositing` so the
+32-bit Battle.net CEF client avoids both its vanilla-Wine IPC deadlock and the
+white D3D11 login surface. Missing runtime files fail closed rather than
+falling back to Wine 11.5 or GPTK.
+
 Install and launch runs write `~/.metalsharp/bottles/<bottle>/logs/launcher-install.log` and `launcher-launch.log` so compatibility passes can be diagnosed without sharing prefix state between launchers.
 
 The Installers sidebar also exposes **Set Disk Access** until MetalSharp Wine can read a macOS-protected location. It verifies Wine 11.5, reveals and copies the exact host process image at `~/.metalsharp/runtime/wine/lib/wine/x86_64-unix/wine`, and opens macOS Full Disk Access settings. This is deliberately not the `bin/wine` loader, MetalSharp.app, or GPTK's `wine64-preloader`. macOS requires the user to add and enable the revealed executable; applications cannot modify TCC consent directly. MetalSharp probes access through that Wine build and removes the button after consent becomes effective.

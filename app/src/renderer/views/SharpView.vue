@@ -527,6 +527,12 @@ const launcherPrefixCreated = ref<Record<LauncherInstallerId, boolean>>({
   ubisoft: false,
   battlenet: false,
 });
+const launcherRuntimeReady = ref<Record<LauncherInstallerId, boolean>>({
+  ea: true,
+  rockstar: true,
+  ubisoft: true,
+  battlenet: false,
+});
 const wineDiskAccessGranted = ref<boolean | null>(null);
 const wineDiskAccessOpening = ref(false);
 const wineDiskAccessPending = ref(false);
@@ -2051,7 +2057,12 @@ async function refreshEpic(forceSync = false) {
     gameRoot: string;
     games: EpicGame[];
     error?: string;
-  }>(forceSync ? "POST" : "GET", forceSync ? "/sharp-library/epic/sync" : "/sharp-library/epic/games", {}, 10 * 60 * 1000);
+  }>(
+    forceSync ? "POST" : "GET",
+    forceSync ? "/sharp-library/epic/sync" : "/sharp-library/epic/games",
+    {},
+    10 * 60 * 1000,
+  );
   if (gamesResult?.ok) {
     epicGames.value = [...(gamesResult.games ?? [])].sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
@@ -2087,12 +2098,7 @@ async function loginEpic() {
     toast.show(authorization.error ?? "Epic sign-in cancelled", "error");
     return;
   }
-  const result = await api<EpicStatus>(
-    "POST",
-    "/sharp-library/epic/auth",
-    { code: authorization.code },
-    90 * 1000,
-  );
+  const result = await api<EpicStatus>("POST", "/sharp-library/epic/auth", { code: authorization.code }, 90 * 1000);
   epicLoading.value.login = false;
   if (result?.ok && result.authenticated) {
     epicStatus.value = result;
@@ -2183,7 +2189,10 @@ async function monitorEpicProgress(game: EpicGame) {
         return;
       }
       const installed = epicGames.value.find((candidate) => candidate.appName === game.appName)?.installed;
-      toast.show(installed ? `${game.title} installed` : `${game.title} download stopped; inspect its install log`, installed ? "success" : "error");
+      toast.show(
+        installed ? `${game.title} installed` : `${game.title} download stopped; inspect its install log`,
+        installed ? "success" : "error",
+      );
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -2225,7 +2234,8 @@ async function stopEpicGame(game: EpicGame) {
 }
 
 async function uninstallEpicGame(game: EpicGame) {
-  if (!confirm(`Uninstall ${game.title}? This deletes its downloaded Epic game files and isolated Wine bottle.`)) return;
+  if (!confirm(`Uninstall ${game.title}? This deletes its downloaded Epic game files and isolated Wine bottle.`))
+    return;
   epicLoading.value[`${game.appName}:uninstall`] = true;
   const result = await api<{ ok: boolean; error?: string }>(
     "POST",
@@ -2248,10 +2258,10 @@ async function load() {
       api<{ ok: boolean; profiles: RuntimeProfileDefinition[] }>("GET", "/bottles/profiles"),
       api<{ ok: boolean; status: GogStatus }>("GET", "/sharp-library/gog/status"),
       api<{ ok: boolean; games: GogGame[]; status: GogStatus }>("GET", "/sharp-library/gog/games"),
-      api<{ ok: boolean; launchers: Array<{ id: LauncherInstallerId; prefixCreated: boolean }> }>(
-        "GET",
-        "/sharp-library/launchers/status",
-      ),
+      api<{
+        ok: boolean;
+        launchers: Array<{ id: LauncherInstallerId; prefixCreated: boolean; runtimeReady: boolean }>;
+      }>("GET", "/sharp-library/launchers/status"),
     ]);
   if (result?.ok) {
     apps.value = [...result.apps].sort(sharpAppNameSort);
@@ -2271,6 +2281,7 @@ async function load() {
   if (launcherStatusResult?.ok) {
     for (const launcher of launcherStatusResult.launchers) {
       launcherPrefixCreated.value[launcher.id] = launcher.prefixCreated;
+      launcherRuntimeReady.value[launcher.id] = launcher.runtimeReady;
     }
   }
   if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
@@ -2574,7 +2585,9 @@ async function toggleSourcePicker() {
   sourcePickerOpen.value = !sourcePickerOpen.value;
   if (!sourcePickerOpen.value) return;
   await nextTick();
-  sourcePickerList.value?.querySelector<HTMLElement>(".sharp-source-option.active")?.scrollIntoView({ block: "nearest" });
+  sourcePickerList.value
+    ?.querySelector<HTMLElement>(".sharp-source-option.active")
+    ?.scrollIntoView({ block: "nearest" });
 }
 
 function chooseSource(mode: SharpSource) {
@@ -2660,6 +2673,10 @@ async function installExe() {
 
 async function runLauncherAction(launcher: (typeof launcherInstallers)[number]) {
   const launching = launcherPrefixCreated.value[launcher.id];
+  if (!launcherRuntimeReady.value[launcher.id]) {
+    toast.show(`${launcher.name} compatibility runtime is unavailable. Reinstall MetalSharp.`, "error");
+    return;
+  }
   launcherInstallerLoading.value[launcher.id] = true;
   toast.show(launching ? `Launching ${launcher.name}…` : `Preparing ${launcher.name} in ${launcher.prefix}…`);
   const result = await api<{
@@ -3634,11 +3651,11 @@ onUnmounted(() => {
                   ? epicLoading.sync
                     ? "Syncing…"
                     : "Sync Epic"
-                : sourceMode === "gamejolt"
-                  ? gamejoltLoading
-                    ? "Scanning…"
-                    : "Sync GameJolt"
-                  : "Refresh"
+                  : sourceMode === "gamejolt"
+                    ? gamejoltLoading
+                      ? "Scanning…"
+                      : "Sync GameJolt"
+                    : "Refresh"
             }}</span
             ><span class="btn-label-short">{{
               sourceMode === "gog" || sourceMode === "epic" || sourceMode === "gamejolt" ? "Sync" : "Refresh"
@@ -3874,7 +3891,13 @@ onUnmounted(() => {
                         ? `Launch ${launcher.name}`
                         : launcher.name
                   }}</strong>
-                  <small>{{
+                  <small v-if="launcher.id === 'battlenet' && !launcherRuntimeReady[launcher.id]">
+                    Compatibility runtime unavailable
+                  </small>
+                  <small v-else-if="launcher.id === 'battlenet' && launcherPrefixCreated[launcher.id]">
+                    Wine Staging 11.4 · {{ launcher.prefix }}
+                  </small>
+                  <small v-else>{{
                     launcherPrefixCreated[launcher.id] ? launcher.prefix : `${launcher.detail} · ${launcher.prefix}`
                   }}</small>
                 </span>
@@ -4039,7 +4062,9 @@ onUnmounted(() => {
           </div>
           <div v-else-if="epicGames.length === 0" class="empty-state compact">
             <h2>No installable Epic games found</h2>
-            <p>Sync your library after adding games to your Epic account. Third-party launcher-only titles are omitted.</p>
+            <p>
+              Sync your library after adding games to your Epic account. Third-party launcher-only titles are omitted.
+            </p>
           </div>
 
           <div v-else class="sharp-grid">
@@ -4060,7 +4085,15 @@ onUnmounted(() => {
                 <div class="sharp-card-title">{{ game.title }}</div>
                 <div class="sharp-card-meta">
                   <span class="badge" :class="game.running || game.installed ? 'badge-ok' : 'badge-muted'">
-                    {{ game.running ? "Running" : game.downloading ? "Downloading" : game.installed ? "Installed" : "Epic" }}
+                    {{
+                      game.running
+                        ? "Running"
+                        : game.downloading
+                          ? "Downloading"
+                          : game.installed
+                            ? "Installed"
+                            : "Epic"
+                    }}
                   </span>
                   <span v-if="game.version" class="sharp-card-size">{{ game.version }}</span>
                   <span v-else-if="game.installSize" class="sharp-card-size">{{ formatBytes(game.installSize) }}</span>
@@ -4132,29 +4165,29 @@ onUnmounted(() => {
                     </div>
                     <label class="epic-bottle-field">
                       <span>Graphics Backend</span>
-                    <select
-                      v-model="game.pipeline"
-                      class="control-input gog-pipeline-select"
-                      aria-label="Epic bottle pipeline"
-                      @change="updateEpicBottle(game)"
-                    >
-                      <option value="auto">Auto</option>
-                      <option v-for="option in engineOptions" :key="option.id" :value="option.id">
-                        {{ option.name }}
-                      </option>
-                    </select>
+                      <select
+                        v-model="game.pipeline"
+                        class="control-input gog-pipeline-select"
+                        aria-label="Epic bottle pipeline"
+                        @change="updateEpicBottle(game)"
+                      >
+                        <option value="auto">Auto</option>
+                        <option v-for="option in engineOptions" :key="option.id" :value="option.id">
+                          {{ option.name }}
+                        </option>
+                      </select>
                     </label>
                     <label class="epic-bottle-field">
                       <span>Mouse</span>
-                    <select
-                      v-model="game.mouseMode"
-                      class="control-input gog-pipeline-select"
-                      aria-label="Epic bottle mouse mode"
-                      @change="updateEpicBottle(game)"
-                    >
-                      <option value="no-recenter">No Recenter</option>
-                      <option value="auto">Mouse Auto</option>
-                    </select>
+                      <select
+                        v-model="game.mouseMode"
+                        class="control-input gog-pipeline-select"
+                        aria-label="Epic bottle mouse mode"
+                        @change="updateEpicBottle(game)"
+                      >
+                        <option value="no-recenter">No Recenter</option>
+                        <option value="auto">Mouse Auto</option>
+                      </select>
                     </label>
                   </div>
                 </div>
@@ -5570,7 +5603,9 @@ onUnmounted(() => {
 }
 .sharp-source-chevron {
   color: var(--text-dim);
-  transition: transform var(--transition), color var(--transition);
+  transition:
+    transform var(--transition),
+    color var(--transition);
 }
 .sharp-source-trigger.open .sharp-source-chevron {
   color: var(--accent);
