@@ -38,6 +38,17 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_METAL_RAYTRACING_HARDWARE": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+      "probe_status": "metal_hardware_query_passed",
+      "reported": "supported",
+      "required_fields": [
+        "MTLDevice.supportsRaytracing"
+      ],
+      "risk": "Metal hardware support is only a prerequisite; DXR tier must remain unreported until acceleration structures, state objects, shader tables, synchronization, and DispatchRays pass behavior gates.",
+      "state": "diagnostic",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS7": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
       "probe_status": "basic_as_ms_direct_indirect_passed",

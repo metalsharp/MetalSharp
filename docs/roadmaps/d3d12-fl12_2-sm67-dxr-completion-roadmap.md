@@ -948,3 +948,8 @@ the goal is not complete.
   through a four-byte AS-to-MS
   payload. Tier 1 remains unreported pending the remaining phase-6 breadth
   gates.
+- Added an ABI-validated `MTLDevice_supportsRaytracing` Winemetal query. The
+  Xcode 27 beta 6 source runtime proves the target M4 reports Metal ray-tracing
+  hardware support, while D3D12 OPTIONS5 intentionally remains at no DXR tier
+  until acceleration structures, state objects, shader tables, synchronization,
+  and `DispatchRays` pass behavior gates.

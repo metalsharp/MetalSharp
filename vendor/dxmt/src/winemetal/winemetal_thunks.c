@@ -1316,3 +1316,12 @@ MTLDevice_newTileRenderPipelineState(
     *err_out = params.ret_error;
   return params.ret_pso;
 }
+
+WINEMETAL_API bool
+MTLDevice_supportsRaytracing(obj_handle_t device) {
+  struct unixcall_generic_obj_uint64_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(135, &params);
+  return params.ret;
+}

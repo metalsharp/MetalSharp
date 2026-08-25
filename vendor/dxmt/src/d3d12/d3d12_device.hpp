@@ -81,6 +81,9 @@ public:
 
   WMT::Device GetMTLDevice();
   Device &GetDXMTDevice();
+  bool SupportsMetalRaytracing() const {
+    return m_metal_raytracing_supported;
+  }
 
   void RegisterResource(MTLD3D12Resource *res);
   void UnregisterResource(MTLD3D12Resource *res);
@@ -441,6 +444,7 @@ public:
 private:
   std::unique_ptr<Device> m_device;
   FormatCapabilityInspector m_format_inspector;
+  bool m_metal_raytracing_supported = false;
   Com<IMTLDXGIAdapter> m_adapter;
   IMTLDXGIDevice *m_dxgi_device = nullptr;
   std::atomic_bool m_dxgi_owner_released = false;
