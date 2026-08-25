@@ -254,7 +254,7 @@ static std::vector<uint8_t> build_synthetic_dxil_container() {
 }
 
 int main() {
-    const char* shader_trace_path = "Z:\\tmp\\dxmt_d3d12_trace.log";
+    const char* shader_trace_path = "probe_shaders_dxmt-d3d12-trace.log";
     const char* dxil_trace_path = "Z:\\tmp\\dxmt_dxil_trace.log";
     const char* shader_args_path = "Z:\\tmp\\dxmt_ps_args_debug.log";
     const char* dxc_hlsl_path = "Z:\\tmp\\dxmt_dxc_sm6_compute.hlsl";
