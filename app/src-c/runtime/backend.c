@@ -7,8 +7,10 @@
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/d3dmetal.h"
 #include "metalsharp_backend/diagnostics.h"
+#include "metalsharp_backend/emulators.h"
 #include "metalsharp_backend/es_bridge.h"
 #include "metalsharp_backend/game.h"
+#include "metalsharp_backend/gamejolt.h"
 #include "metalsharp_backend/gog.h"
 #include "metalsharp_backend/integration.h"
 #include "metalsharp_backend/json.h"
@@ -23,23 +25,33 @@
 #include "metalsharp_backend/mono.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/ob_callbacks.h"
+#include "metalsharp_backend/pcsx2.h"
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/rpcs3.h"
 #include "metalsharp_backend/scan.h"
 #include "metalsharp_backend/setup.h"
+#include "metalsharp_backend/shadps4.h"
 #include "metalsharp_backend/sharp.h"
-#include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/sharpemu.h"
 #include "metalsharp_backend/steam.h"
+#include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/thread.h"
 #include "metalsharp_backend/updater.h"
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <unistd.h>
+
+#ifndef O_NOFOLLOW
+#define O_NOFOLLOW 0x00000100
+#endif
 
 static char* home_path(void) {
     const char* configured = getenv("METALSHARP_HOME");
@@ -146,35 +158,39 @@ static void set_json_response(ms_http_response* response, int status, char* body
     response->owns_body = body != NULL;
 }
 static unsigned char* read_binary(const char* path, size_t* length) {
-    FILE* f;
-    long n;
-    size_t got;
+    struct stat st;
     unsigned char* data;
+    size_t used = 0;
     if (!path || !length)
         return NULL;
-    f = fopen(path, "rb");
-    if (!f || fseek(f, 0, SEEK_END) != 0) {
-        if (f)
-            fclose(f);
+    int fd = open(path, O_RDONLY | O_NOFOLLOW);
+    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > 16 * 1024 * 1024) {
+        if (fd >= 0)
+            close(fd);
         return NULL;
     }
-    n = ftell(f);
-    if (n < 0 || n > 16 * 1024 * 1024 || fseek(f, 0, SEEK_SET) != 0) {
-        fclose(f);
-        return NULL;
-    }
-    data = malloc((size_t)n);
+    data = malloc((size_t)st.st_size);
     if (!data) {
-        fclose(f);
+        close(fd);
         return NULL;
     }
-    got = fread(data, 1, (size_t)n, f);
-    fclose(f);
-    if (got != (size_t)n) {
+    while (used < (size_t)st.st_size) {
+        ssize_t got = read(fd, data + used, (size_t)st.st_size - used);
+        if (got < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (got == 0)
+            break;
+        used += (size_t)got;
+    }
+    close(fd);
+    if (used != (size_t)st.st_size) {
         free(data);
         return NULL;
     }
-    *length = got;
+    *length = used;
     return data;
 }
 static const char* image_type(const char* path) {
@@ -1082,6 +1098,277 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, status, body);
         return true;
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/emulators") == 0) {
+        body = ms_emulators_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/rpcs3/status") == 0) {
+        body = ms_rpcs3_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/rpcs3/games") == 0) {
+        body = ms_rpcs3_games_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/rpcs3/update/check") == 0) {
+        body = ms_rpcs3_update_json(context->metalsharp_home, "check");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/rpcs3/update/refresh") == 0) {
+        body = ms_rpcs3_update_json(context->metalsharp_home, "refresh");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/rpcs3/update/progress") == 0) {
+        body = ms_rpcs3_update_json(context->metalsharp_home, "progress");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/rpcs3/update/install") == 0) {
+        body = ms_rpcs3_update_json(context->metalsharp_home, "install");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/rpcs3/update/rollback") == 0) {
+        body = ms_rpcs3_update_json(context->metalsharp_home, "rollback");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/rpcs3/", 21) == 0) {
+        const char* action = request->path + 21;
+        if (!strcmp(action, "scan") || !strcmp(action, "add-root") || !strcmp(action, "remove-root") ||
+            !strcmp(action, "launch") || !strcmp(action, "stop") || !strcmp(action, "open-ui") ||
+            !strcmp(action, "install-firmware") || !strcmp(action, "install-package") ||
+            !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") || !strcmp(action, "unpin") ||
+            !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
+            body = ms_rpcs3_action_json(context->metalsharp_home, action, request->body, request->body_length);
+            if (body == NULL)
+                return false;
+            set_json_response(response, 200, body);
+            return true;
+        }
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/status") == 0) {
+        body = ms_shadps4_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/games") == 0) {
+        body = ms_shadps4_games_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/check") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "check");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/refresh") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "refresh");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/progress") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "progress");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/install") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "install");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/shadps4/update/rollback") == 0) {
+        body = ms_shadps4_update_json(context->metalsharp_home, "rollback");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/shadps4/", 23) == 0) {
+        const char* action = request->path + 23;
+        if (!strcmp(action, "scan") || !strcmp(action, "add-root") || !strcmp(action, "remove-root") ||
+            !strcmp(action, "import-modules") || !strcmp(action, "import-fonts") || !strcmp(action, "launch") ||
+            !strcmp(action, "stop") || !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") ||
+            !strcmp(action, "unpin") || !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
+            body = ms_shadps4_action_json(context->metalsharp_home, action, request->body, request->body_length);
+            if (body == NULL)
+                return false;
+            set_json_response(response, 200, body);
+            return true;
+        }
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/status") == 0) {
+        body = ms_sharpemu_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/games") == 0) {
+        body = ms_sharpemu_games_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/sessions") == 0) {
+        body = ms_sharpemu_sessions_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/check") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "check");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/refresh") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "refresh");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/progress") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "progress");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/install") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "install");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/sharpemu/update/rollback") == 0) {
+        body = ms_sharpemu_update_json(context->metalsharp_home, "rollback");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/sharpemu/", 24) == 0) {
+        const char* action = request->path + 24;
+        if (!strcmp(action, "scan") || !strcmp(action, "add-root") || !strcmp(action, "remove-root") ||
+            !strcmp(action, "import-modules") || !strcmp(action, "import-fonts") || !strcmp(action, "launch") ||
+            !strcmp(action, "stop") || !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") ||
+            !strcmp(action, "unpin") || !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
+            body = ms_sharpemu_action_json(context->metalsharp_home, action, request->body, request->body_length);
+            if (body == NULL)
+                return false;
+            set_json_response(response, 200, body);
+            return true;
+        }
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/status") == 0) {
+        body = ms_pcsx2_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/games") == 0) {
+        body = ms_pcsx2_games_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/settings") == 0) {
+        body = ms_pcsx2_settings_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/update/check") == 0) {
+        body = ms_pcsx2_update_json(context->metalsharp_home, "check");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/pcsx2/update/refresh") == 0) {
+        body = ms_pcsx2_update_json(context->metalsharp_home, "refresh");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/pcsx2/update/progress") == 0) {
+        body = ms_pcsx2_update_json(context->metalsharp_home, "progress");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/pcsx2/update/install") == 0) {
+        body = ms_pcsx2_update_json(context->metalsharp_home, "install");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/pcsx2/update/rollback") == 0) {
+        body = ms_pcsx2_update_json(context->metalsharp_home, "rollback");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strncmp(request->path, "/sharp-library/pcsx2/", 21) == 0) {
+        const char* action = request->path + 21;
+        if (!strcmp(action, "initialize") || !strcmp(action, "configure") || !strcmp(action, "scan") ||
+            !strcmp(action, "add-root") || !strcmp(action, "remove-root") || !strcmp(action, "import-bios") ||
+            !strcmp(action, "launch") || !strcmp(action, "stop") || !strcmp(action, "open-ui") ||
+            !strcmp(action, "open-setup") || !strcmp(action, "remove-runtime") || !strcmp(action, "pin-current") ||
+            !strcmp(action, "unpin") || !strcmp(action, "skip-update") || !strcmp(action, "clear-skip")) {
+            body = ms_pcsx2_action_json(context->metalsharp_home, action, request->body, request->body_length);
+            if (body == NULL)
+                return false;
+            set_json_response(response, 200, body);
+            return true;
+        }
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/gog/status") == 0) {
         body = ms_gog_status_json(context->metalsharp_home);
         if (body == NULL)
@@ -1171,6 +1458,153 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt/storage") == 0) {
+        body = ms_gamejolt_storage_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/storage") == 0) {
+        body = ms_gamejolt_set_storage_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/name") == 0) {
+        body = ms_gamejolt_set_name_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/engine") == 0) {
+        body = ms_gamejolt_set_engine_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/uninstall") == 0) {
+        body = ms_gamejolt_uninstall_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt") == 0) {
+        body = ms_gamejolt_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/sync") == 0) {
+        body = ms_gamejolt_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/launch") == 0) {
+        body = ms_gamejolt_launch_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/status") == 0) {
+        body = ms_gamejolt_pid_status_json(request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt/cover") == 0) {
+        const char* query = request->query == NULL ? "" : request->query;
+        const char* q = strstr(query, "id=");
+        char id[129];
+        size_t id_len = 0, bytes = 0;
+        char* cover_path;
+        unsigned char* image;
+        if (!q) {
+            body = strdup("{\"ok\":false,\"error\":\"cover not found\"}");
+            if (body == NULL)
+                return false;
+            set_json_response(response, 404, body);
+            return true;
+        }
+        q += 3;
+        while (q[id_len] && q[id_len] != '&' && id_len < sizeof(id) - 1)
+            id_len++;
+        memcpy(id, q, id_len);
+        id[id_len] = '\0';
+        cover_path = ms_gamejolt_cover_path(context->metalsharp_home, id);
+        image = cover_path ? read_binary(cover_path, &bytes) : NULL;
+        if (!image) {
+            free(cover_path);
+            body = strdup("{\"ok\":false,\"error\":\"cover not found\"}");
+            if (body == NULL)
+                return false;
+            set_json_response(response, 404, body);
+            return true;
+        }
+        response->status = 200;
+        response->content_type = image_type(cover_path);
+        response->body = image;
+        response->body_length = bytes;
+        response->owns_body = true;
+        free(cover_path);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && (strcmp(request->path, "/sharp-library/rpcs3/cover") == 0 ||
+                                                strcmp(request->path, "/sharp-library/shadps4/cover") == 0 ||
+                                                strcmp(request->path, "/sharp-library/sharpemu/cover") == 0 ||
+                                                strcmp(request->path, "/sharp-library/pcsx2/cover") == 0)) {
+        const char* query = request->query == NULL ? "" : request->query;
+        const char* q = strstr(query, "id=");
+        char id[129];
+        size_t id_len = 0, bytes = 0;
+        char* cover_path;
+        unsigned char* image;
+        if (!q) {
+            body = strdup("{\"ok\":false,\"error\":\"cover not found\"}");
+            if (body == NULL)
+                return false;
+            set_json_response(response, 404, body);
+            return true;
+        }
+        q += 3;
+        while (q[id_len] && q[id_len] != '&' && id_len < sizeof(id) - 1)
+            id_len++;
+        memcpy(id, q, id_len);
+        id[id_len] = '\0';
+        if (strcmp(request->path, "/sharp-library/shadps4/cover") == 0)
+            cover_path = ms_shadps4_cover_path(context->metalsharp_home, id);
+        else if (strcmp(request->path, "/sharp-library/sharpemu/cover") == 0)
+            cover_path = ms_sharpemu_cover_path(context->metalsharp_home, id);
+        else if (strcmp(request->path, "/sharp-library/pcsx2/cover") == 0)
+            cover_path = ms_pcsx2_cover_path(context->metalsharp_home, id);
+        else
+            cover_path = ms_rpcs3_cover_path(context->metalsharp_home, id);
+        image = cover_path ? read_binary(cover_path, &bytes) : NULL;
+        if (!image) {
+            free(cover_path);
+            body = strdup("{\"ok\":false,\"error\":\"cover not found\"}");
+            if (body == NULL)
+                return false;
+            set_json_response(response, 404, body);
+            return true;
+        }
+        response->status = 200;
+        response->content_type = image_type(cover_path);
+        response->body = image;
+        response->body_length = bytes;
+        response->owns_body = true;
+        free(cover_path);
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/cover") == 0) {

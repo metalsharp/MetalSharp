@@ -1557,7 +1557,19 @@ static void run_install_all_worker(const char* home) {
                                "run tools/install-homebrew.sh to retry");
         _exit(0);
     }
-    write_install_progress(home, 1, total, "Homebrew", "done", "Homebrew ready", NULL);
+    write_install_progress(home, 1, total, "Homebrew Packages", "installing",
+                           "Installing GameJolt archive and icon tools...", NULL);
+    if ((!command_available("wrestool") || !command_available("icotool")) && !run_brew_install("icoutils")) {
+        write_install_progress(home, 1, total, "Homebrew Packages", "error", "GameJolt icon tools installation failed",
+                               "brew install icoutils failed");
+        _exit(0);
+    }
+    if (!command_available("unar") && !run_brew_install("unar")) {
+        write_install_progress(home, 1, total, "Homebrew Packages", "error", "RAR extraction tool installation failed",
+                               "brew install unar failed");
+        _exit(0);
+    }
+    write_install_progress(home, 1, total, "Homebrew Packages", "done", "Homebrew and GameJolt tools ready", NULL);
 
     write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
     if (!install_xcode_cli()) {

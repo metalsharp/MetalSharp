@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "child_process";
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, session, shell } from "electron";
 import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
@@ -61,6 +61,8 @@ let processManagerWindow: BrowserWindow | null = null;
 let bridge: BackendBridge;
 let updaterBridge: UpdaterBridge;
 let steamappsWatcher: fs.FSWatcher | null = null;
+let gamejoltDownloadsConfigured = false;
+let nextGameJoltDownloadId = 1;
 
 function isDevRuntime(): boolean {
   return process.env.METALSHARP_DEV === "1" || !app.isPackaged;
@@ -626,13 +628,173 @@ async function createWindow(migrating = false) {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      webviewTag: true,
     },
+  });
+
+  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    try {
+      const url = new URL(params.src);
+      if (url.protocol !== "https:" || !(url.hostname === "gamejolt.com" || url.hostname.endsWith(".gamejolt.com"))) {
+        event.preventDefault();
+      }
+    } catch {
+      event.preventDefault();
+    }
   });
 
   const query: Record<string, string> = uiOnly ? { theme: "dark" } : {};
   if (process.env.METALSHARP_DEV_LIBRARY === "1") query["skip-to"] = "library";
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"), {
     query,
+  });
+}
+
+function gameJoltDirectoryForDownloads(): string {
+  let root = getMetalsharpDir();
+  const configPath = path.join(root, "gamejolt", "storage.json");
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as { rootPath?: string };
+    if (config.rootPath?.trim()) root = path.resolve(config.rootPath);
+  } catch {
+    // Use internal storage when GameJolt storage has not been configured yet.
+  }
+  return path.join(root, "GameJolt");
+}
+
+function safeDownloadStem(filename: string): string {
+  const base =
+    path
+      .basename(filename)
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .trim() || "GameJolt Game";
+  return (
+    base
+      .replace(/\.(zip|rar|tar|tgz|gz|bz2|xz|7z|exe|msi|dmg)$/i, "")
+      .replace(/\.(tar)$/i, "")
+      .trim() || "GameJolt Game"
+  );
+}
+
+function uniqueDownloadPath(directory: string, filename: string): string {
+  const original = path.basename(filename).replace(/[\\/:*?"<>|]/g, "_") || "download";
+  const extension = path.extname(original);
+  const stem = extension ? original.slice(0, -extension.length) : original;
+  let candidate = path.join(directory, original);
+  let suffix = 2;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(directory, `${stem} (${suffix++})${extension}`);
+  }
+  return candidate;
+}
+
+function runProcess(command: string, args: string[]): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    execFile(command, args, { timeout: 15 * 60 * 1000 }, (error, _stdout, stderr) => {
+      resolve(error ? { ok: false, error: stderr.trim() || error.message } : { ok: true });
+    });
+  });
+}
+
+function sendGameJoltDownload(update: {
+  id: string;
+  filename: string;
+  state: "downloading" | "organizing" | "completed" | "failed";
+  receivedBytes?: number;
+  totalBytes?: number;
+  error?: string;
+}) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("gamejolt:download", update);
+}
+
+async function organizeGameJoltDownload(
+  downloadId: string,
+  downloadPath: string,
+  filename: string,
+  gamejoltDir: string,
+) {
+  const gameDir = path.join(gamejoltDir, safeDownloadStem(filename));
+  const lower = filename.toLowerCase();
+  fs.mkdirSync(gameDir, { recursive: true });
+  let result: { ok: boolean; error?: string };
+  if (lower.endsWith(".zip")) {
+    result = await runProcess("/usr/bin/ditto", ["-x", "-k", downloadPath, gameDir]);
+  } else if (lower.endsWith(".rar")) {
+    result = await runProcess("/usr/bin/bsdtar", ["-xf", downloadPath, "-C", gameDir]);
+  } else if (lower.endsWith(".tar") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) {
+    result = await runProcess("/usr/bin/tar", ["-xf", downloadPath, "-C", gameDir]);
+  } else {
+    const destination = uniqueDownloadPath(gameDir, filename);
+    try {
+      fs.renameSync(downloadPath, destination);
+      result = { ok: true };
+    } catch (error) {
+      result = { ok: false, error: (error as Error).message };
+    }
+  }
+
+  if (result.ok) {
+    try {
+      fs.rmSync(downloadPath, { force: true });
+    } catch {}
+  } else {
+    console.warn(`GameJolt download organization failed for ${filename}: ${result.error ?? "unknown error"}`);
+  }
+
+  const synced = await requestBackend("POST", "/gamejolt/sync");
+  const syncFailed =
+    typeof synced === "object" && synced !== null && "ok" in synced && (synced as { ok?: boolean }).ok === false;
+  sendGameJoltDownload({
+    id: downloadId,
+    filename,
+    state: result.ok && !syncFailed ? "completed" : "failed",
+    receivedBytes: result.ok ? 1 : 0,
+    totalBytes: 1,
+    error: result.error,
+  });
+}
+
+function configureGameJoltDownloads() {
+  if (gamejoltDownloadsConfigured) return;
+  gamejoltDownloadsConfigured = true;
+  const gamejoltSession = session.fromPartition("persist:gamejolt");
+  gamejoltSession.on("will-download", (_event, item) => {
+    const gamejoltDir = gameJoltDirectoryForDownloads();
+    const incoming = path.join(gamejoltDir, ".downloads");
+    fs.mkdirSync(incoming, { recursive: true });
+    const filename = item.getFilename();
+    const downloadId = `gamejolt-download-${nextGameJoltDownloadId++}`;
+    const downloadPath = uniqueDownloadPath(incoming, filename);
+    item.setSavePath(downloadPath);
+    const reportProgress = () =>
+      sendGameJoltDownload({
+        id: downloadId,
+        filename,
+        state: "downloading",
+        receivedBytes: item.getReceivedBytes(),
+        totalBytes: item.getTotalBytes(),
+      });
+    reportProgress();
+    item.on("updated", reportProgress);
+    item.once("done", (_doneEvent, state) => {
+      item.removeListener("updated", reportProgress);
+      if (state === "completed") {
+        sendGameJoltDownload({
+          id: downloadId,
+          filename,
+          state: "organizing",
+          receivedBytes: item.getTotalBytes(),
+          totalBytes: item.getTotalBytes(),
+        });
+        void organizeGameJoltDownload(downloadId, downloadPath, filename, gamejoltDir);
+      } else {
+        sendGameJoltDownload({ id: downloadId, filename, state: "failed", error: `Download ${state}` });
+        console.warn(`GameJolt download did not complete: ${filename} (${state})`);
+      }
+    });
   });
 }
 
@@ -707,6 +869,7 @@ app.whenReady().then(async () => {
   process.env.METALSHARP_HOME = getMetalsharpDir();
   if (isDevRuntime()) process.env.METALSHARP_DEV = "1";
   ensureMetalsharpDirs();
+  configureGameJoltDownloads();
   bridge = new BackendBridge({ devMode: isDevRuntime(), metalsharpHome: getMetalsharpDir() });
   updaterBridge = new UpdaterBridge(bridge.getPort());
   const backendStart = await bridge.start();
@@ -1057,6 +1220,212 @@ function registerIpc() {
     shell.openPath(fullPath);
   });
 
+  ipcMain.handle("app:open-emulator-resource", async (_event, kind: "archive-games" | "pcsx2-firmware") => {
+    if (kind !== "archive-games" && kind !== "pcsx2-firmware") {
+      return { ok: false, error: "Unknown emulator resource" };
+    }
+    const url =
+      kind === "archive-games" ? "https://archive.org/" : "https://www.retrostic.com/bios/pcsx2-playstation-2";
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("app:open-rpcs3-firmware-page", async () => {
+    try {
+      await shell.openExternal("https://www.playstation.com/en-us/support/hardware/ps3/system-software/");
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("app:open-rpcs3-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "rpcs3");
+    const libraryPath = path.join(environment, "library.json");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(libraryPath, "utf8")) as { roots?: unknown };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(path.resolve(root));
+      }
+    } catch {}
+    const target = path.resolve(inputPath);
+    const within = (root: string) => {
+      const relative = path.relative(path.resolve(root), target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!within(environment) && !roots.some(within))
+      return { ok: false, error: "Path is outside the RPCS3 environment and registered game folders" };
+    if (!fs.existsSync(target)) return { ok: false, error: "Path does not exist" };
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
+  ipcMain.handle("app:open-pcsx2-guide", async (_event, kind: "bios" | "discs") => {
+    if (kind !== "bios" && kind !== "discs") return { ok: false, error: "Unknown PCSX2 guide" };
+    const url = kind === "bios" ? "https://pcsx2.net/docs/setup/bios/" : "https://pcsx2.net/docs/setup/discs/";
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("app:open-pcsx2-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "pcsx2");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(path.join(environment, "library.json"), "utf8")) as {
+        roots?: unknown;
+      };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(root);
+      }
+    } catch {}
+    if (!fs.existsSync(inputPath)) return { ok: false, error: "Path does not exist" };
+    let target: string;
+    try {
+      target = fs.realpathSync(inputPath);
+    } catch {
+      return { ok: false, error: "Path could not be resolved" };
+    }
+    const allowedRoots = [environment, ...roots].flatMap((root) => {
+      try {
+        return [fs.realpathSync(root)];
+      } catch {
+        return [];
+      }
+    });
+    const within = (root: string) => {
+      const relative = path.relative(root, target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!allowedRoots.some(within))
+      return { ok: false, error: "Path is outside the PCSX2 environment and registered game folders" };
+    if (fs.statSync(target).isFile()) {
+      shell.showItemInFolder(target);
+      return { ok: true };
+    }
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
+  ipcMain.handle("app:open-shadps4-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "shadps4");
+    const libraryPath = path.join(environment, "library.json");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(libraryPath, "utf8")) as { roots?: unknown };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(path.resolve(root));
+      }
+    } catch {}
+    if (!fs.existsSync(inputPath)) return { ok: false, error: "Path does not exist" };
+    let target: string;
+    try {
+      target = fs.realpathSync(inputPath);
+    } catch {
+      return { ok: false, error: "Path could not be resolved" };
+    }
+    const allowedRoots = [environment, ...roots].flatMap((root) => {
+      try {
+        return [fs.realpathSync(root)];
+      } catch {
+        return [];
+      }
+    });
+    const within = (root: string) => {
+      const relative = path.relative(root, target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!allowedRoots.some(within))
+      return { ok: false, error: "Path is outside the shadPS4 environment and registered game folders" };
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
+  ipcMain.handle("app:open-shadps4-compatibility", async (_event, titleId: string) => {
+    if (typeof titleId !== "string" || !/^CUSA\d{5}$/i.test(titleId))
+      return { ok: false, error: "A valid CUSA title ID is required" };
+    const query = encodeURIComponent(`${titleId.toUpperCase()} label:os-macOS`);
+    try {
+      await shell.openExternal(`https://github.com/shadps4-compatibility/shadps4-game-compatibility/issues?q=${query}`);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("app:open-sharpemu-path", async (_event, inputPath: string) => {
+    if (typeof inputPath !== "string" || !inputPath.trim()) return { ok: false, error: "A path is required" };
+    const environment = path.join(getMetalsharpDir(), "emulators", "sharpemu");
+    const roots: string[] = [];
+    try {
+      const library = JSON.parse(fs.readFileSync(path.join(environment, "state", "roots.json"), "utf8")) as {
+        roots?: unknown;
+      };
+      if (Array.isArray(library.roots)) {
+        for (const root of library.roots) if (typeof root === "string") roots.push(root);
+      }
+    } catch {}
+    if (!fs.existsSync(inputPath)) return { ok: false, error: "Path does not exist" };
+    let target: string;
+    try {
+      target = fs.realpathSync(inputPath);
+    } catch {
+      return { ok: false, error: "Path could not be resolved" };
+    }
+    const allowedRoots = [environment, ...roots].flatMap((root) => {
+      try {
+        return [fs.realpathSync(root)];
+      } catch {
+        return [];
+      }
+    });
+    const within = (root: string) => {
+      const relative = path.relative(root, target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    };
+    if (!allowedRoots.some(within))
+      return { ok: false, error: "Path is outside the SharpEmu environment and registered game folders" };
+    if (fs.statSync(target).isFile()) {
+      shell.showItemInFolder(target);
+      return { ok: true };
+    }
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
+  ipcMain.handle(
+    "app:open-sharpemu-link",
+    async (_event, kind: "faq" | "compatibility" | "repository" | "releases", titleId?: string) => {
+      let url: string;
+      if (kind === "faq") url = "https://sharpemu.app/faq/";
+      else if (kind === "repository") url = "https://github.com/sharpemu/sharpemu";
+      else if (kind === "releases") url = "https://github.com/sharpemu/sharpemu/releases";
+      else if (kind === "compatibility") {
+        url =
+          typeof titleId === "string" && /^PPSA\d{5}$/.test(titleId)
+            ? `https://sharpemu.app/game/${titleId}/`
+            : "https://sharpemu.app/compatibility/";
+      } else return { ok: false, error: "Unknown SharpEmu link" };
+      try {
+        await shell.openExternal(url);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  );
+
   ipcMain.handle("app:open-logs-folder", async () => {
     if (isUiOnlyRuntime()) return { ok: true, path: "ui-only://logs" };
     const logsPath = path.join(getMetalsharpDir(), "logs");
@@ -1360,6 +1729,57 @@ webview{flex:1;border:none}
       title: "Select a Windows installer or executable",
       properties: ["openFile"],
       filters: [{ name: "Windows App", extensions: ["exe", "msi"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-rpcs3-file", async (_event, kind: "firmware" | "package") => {
+    if (!mainWindow || (kind !== "firmware" && kind !== "package")) return null;
+    const firmware = kind === "firmware";
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: firmware ? "Select PS3UPDAT.PUP" : "Select a PlayStation 3 package",
+      properties: ["openFile"],
+      filters: [
+        { name: firmware ? "PlayStation 3 Firmware" : "PlayStation 3 Package", extensions: [firmware ? "PUP" : "pkg"] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-pcsx2-bios", async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a PlayStation 2 .bin BIOS file",
+      properties: ["openFile"],
+      filters: [{ name: "PlayStation 2 BIOS", extensions: ["bin"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-pcsx2-game", async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a PlayStation 2 disc image or game folder",
+      properties: ["openFile", "openDirectory"],
+      filters: [
+        {
+          name: "PlayStation 2 Games",
+          extensions: ["iso", "bin", "img", "mdf", "gz", "cso", "zso", "chd", "elf"],
+        },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("app:pick-sharpemu-root", async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select a folder containing your owned PlayStation 5 game layouts",
+      properties: ["openDirectory"],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];

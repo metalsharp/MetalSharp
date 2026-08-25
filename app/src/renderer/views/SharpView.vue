@@ -7,6 +7,15 @@ import { themedNavIcon } from "../composables/useTheme";
 import IconUpload from "~icons/lucide/upload";
 import IconMonitor from "~icons/lucide/monitor";
 import IconX from "~icons/lucide/x";
+import IconPencil from "~icons/lucide/pencil";
+import IconDownload from "~icons/lucide/download";
+import IconExternalLink from "~icons/lucide/external-link";
+import IconFolderPlus from "~icons/lucide/folder-plus";
+import IconGamepad2 from "~icons/lucide/gamepad-2";
+import IconHardDrive from "~icons/lucide/hard-drive";
+import IconPackage from "~icons/lucide/package";
+import IconScanLine from "~icons/lucide/scan-line";
+import IconShieldCheck from "~icons/lucide/shield-check";
 import sharpLogoUrl from "../icon.png";
 
 const refreshIcon = computed(() => themedNavIcon("refresh"));
@@ -156,6 +165,25 @@ interface GogStatus {
   winePath: string;
 }
 
+interface GameJoltStorage {
+  mode: "internal" | "external";
+  rootPath: string;
+  gamejoltDir: string;
+}
+
+interface GameJoltGame {
+  id: string;
+  name: string;
+  install_dir: string;
+  exe_path: string;
+  installed: boolean;
+  native: boolean;
+  engine: string;
+  cover_path?: string | null;
+  bottle_id?: string;
+  available_pipelines: { id: string; name: string; recommended?: boolean }[];
+}
+
 interface GogGame {
   productId: string;
   title: string;
@@ -178,14 +206,264 @@ interface GogGame {
   lastError?: string | null;
 }
 
+interface Rpcs3Status {
+  ok: boolean;
+  installed: boolean;
+  state: "ready" | "missing_firmware" | "not_installed";
+  architecture: string;
+  currentTag?: string | null;
+  rollbackAvailable: boolean;
+  firmwareInstalled: boolean;
+  environmentPath: string;
+  dataPath: string;
+  cachePath: string;
+  executablePath?: string | null;
+}
+
+interface Rpcs3Game {
+  id: string;
+  titleId: string;
+  title: string;
+  version: string;
+  category: string;
+  path: string;
+  installedTitle: boolean;
+  hasUpdate?: boolean;
+  hasArtwork: boolean;
+  running: boolean;
+  pid?: number | null;
+  lastLogPath?: string | null;
+  lastExitCode?: number | null;
+  lastExitSignal?: number | null;
+}
+
+interface Rpcs3Update {
+  ok: boolean;
+  currentTag?: string | null;
+  latestTag: string;
+  latestVersion: string;
+  available: boolean;
+  pinnedTag?: string | null;
+  skippedTag?: string | null;
+  suppressed?: "pinned" | "skipped" | "none";
+  assetName: string;
+  downloadSize: number;
+  digest: string;
+  publishedAt: string;
+  error?: string;
+}
+
+interface Shadps4Status {
+  ok: boolean;
+  experimental: boolean;
+  supported: boolean;
+  unsupportedReason?: "intel_mac" | "macos_too_old" | "rosetta_missing" | "runtime_probe_failed" | null;
+  installed: boolean;
+  state: "unsupported_host" | "missing_runtime" | "no_game_folders" | "ready" | "running";
+  hostArchitecture: string;
+  runtimeArchitecture: string;
+  rosettaAvailable: boolean;
+  hostMacosMajor: number;
+  hostMemoryBytes: number;
+  hostLogicalCpu: number;
+  warnings: string[];
+  runtimeMinimumMacos?: number | null;
+  currentTag?: string | null;
+  rollbackAvailable: boolean;
+  moduleCount: number;
+  modulesReady: boolean;
+  fontFileCount: number;
+  fontsReady: boolean;
+  gameRootCount: number;
+  environmentPath: string;
+  dataPath: string;
+  cachePath: string;
+  executablePath?: string | null;
+}
+
+interface SharpemuStatus {
+  ok: boolean;
+  experimental: true;
+  supported: boolean;
+  unsupportedReason?: "unsupported_architecture" | "macos_too_old" | "rosetta_missing" | null;
+  installed: boolean;
+  runtimeValid: boolean;
+  state:
+    | "unsupported_host"
+    | "missing_runtime"
+    | "runtime_probe_failed"
+    | "no_game_roots"
+    | "no_games"
+    | "ready"
+    | "running";
+  hostArchitecture: string;
+  runtimeArchitecture: "x86_64";
+  rosettaAvailable: boolean;
+  hostMacosMajor: number;
+  runtimeMinimumMacos: number;
+  hostMemoryBytes: number;
+  hostLogicalCpu: number;
+  availableDiskBytes: number;
+  archiveToolsAvailable: boolean;
+  gpuProbeReady: boolean;
+  networkIsolationAvailable: boolean;
+  networkDefault: "denied";
+  networkOptInAvailable: boolean;
+  upstreamNotarized: false;
+  locallyAdHocSigned: boolean;
+  cliOnly: true;
+  graphicsBackend: string;
+  updateRunning: boolean;
+  warnings: string[];
+  currentTag?: string | null;
+  rollbackAvailable: boolean;
+  gameRootCount: number;
+  gameCount: number;
+  environmentPath: string;
+  dataPath: string;
+  cachePath: string;
+  logsPath: string;
+  executablePath?: string | null;
+}
+
+interface SharpemuGame {
+  id: string;
+  titleId: string;
+  title: string;
+  contentVersion: string;
+  masterVersion: string;
+  path: string;
+  executableSize: number;
+  hasArtwork: boolean;
+  running: boolean;
+  pid?: number | null;
+  lastLogPath?: string | null;
+  lastExitCode?: number | null;
+  lastExitSignal?: number | null;
+}
+
+interface Pcsx2Status {
+  ok: boolean;
+  supported: boolean;
+  unsupportedReason?:
+    "unsupported_architecture" | "macos_too_old" | "rosetta_missing" | "sse41_missing" | "runtime_probe_failed" | null;
+  installed: boolean;
+  runtimeValid: boolean;
+  state:
+    | "unsupported_host"
+    | "missing_runtime"
+    | "runtime_probe_failed"
+    | "setup_required"
+    | "missing_bios"
+    | "no_game_folders"
+    | "ready"
+    | "running";
+  hostArchitecture: string;
+  runtimeArchitecture: string;
+  rosettaAvailable: boolean;
+  sse41Available: boolean;
+  hostMacosMajor: number;
+  hostMemoryBytes: number;
+  hostLogicalCpu: number;
+  warnings: string[];
+  runtimeMinimumMacos?: number | null;
+  currentTag?: string | null;
+  rollbackAvailable: boolean;
+  setupComplete: boolean;
+  biosInstalled: boolean;
+  biosCount: number;
+  biosRegion?: string | null;
+  biosDescription?: string | null;
+  gameRootCount: number;
+  activeSessionCount: number;
+  dataPathFlag: boolean;
+  upstreamUpdaterDisabled: boolean;
+  environmentPath: string;
+  dataPath: string;
+  cachePath: string;
+  executablePath?: string | null;
+}
+
+interface Pcsx2SettingOption {
+  id: string;
+  label: string;
+}
+
+interface Pcsx2Settings {
+  ok: boolean;
+  controller1: string;
+  controller2: string;
+  renderer: string;
+  controllerOptions: Pcsx2SettingOption[];
+  rendererOptions: Pcsx2SettingOption[];
+  error?: string;
+}
+
+interface Pcsx2Game {
+  id: string;
+  serial?: string | null;
+  title: string;
+  region?: string | null;
+  format: string;
+  size: number;
+  path: string;
+  hasArtwork: boolean;
+  running: boolean;
+  pid?: number | null;
+  lastLogPath?: string | null;
+  lastExitCode?: number | null;
+  lastExitSignal?: number | null;
+}
+
+type Shadps4Game = Rpcs3Game;
+type Shadps4Update = Rpcs3Update;
+type SharpemuUpdate = Rpcs3Update;
+
+interface Rpcs3UpdateProgress {
+  ok: boolean;
+  status: string;
+  running: boolean;
+  percent: number;
+  message: string;
+  error?: string | null;
+  targetTag?: string | null;
+}
+
+type SharpSource = "installers" | "gog" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4" | "sharpemu";
+
 const toast = useToast();
-const sourceMode = ref<"installers" | "gog">("installers");
-const headerTitle = computed(() => (sourceMode.value === "gog" ? "GOG Games Library" : "Sharp Library"));
-const headerSubtitle = computed(() =>
-  sourceMode.value === "gog"
-    ? "Connect, sync, install, and play GOG games through MetalSharp."
-    : "Install and manage Windows applications outside Steam.",
-);
+const sourceMode = ref<SharpSource>("installers");
+const sourceTabs = [
+  { id: "installers" as const, label: "Installers" },
+  { id: "gog" as const, label: "GOG" },
+  { id: "gamejolt" as const, label: "GameJolt" },
+  { id: "pcsx2" as const, label: "PCSX2" },
+  { id: "rpcs3" as const, label: "RPCS3" },
+  { id: "shadps4" as const, label: "ShadPS4" },
+  { id: "sharpemu" as const, label: "SharpEmu" },
+];
+const headerTitle = computed(() => {
+  if (sourceMode.value === "gog") return "GOG Games Library";
+  if (sourceMode.value === "gamejolt") return "GameJolt Library";
+  if (sourceMode.value === "pcsx2") return "PCSX2 Library";
+  if (sourceMode.value === "rpcs3") return "RPCS3 Library";
+  if (sourceMode.value === "shadps4") return "shadPS4 Library";
+  if (sourceMode.value === "sharpemu") return "SharpEmu Research Library";
+  return "Sharp Library";
+});
+const headerSubtitle = computed(() => {
+  if (sourceMode.value === "gog") return "Connect, sync, install, and play GOG games through MetalSharp.";
+  if (sourceMode.value === "gamejolt") return "Play GameJolt games from internal or external GameJolt storage.";
+  if (sourceMode.value === "pcsx2")
+    return "Install, configure, and launch owned PlayStation 2 disc dumps through an isolated PCSX2 environment.";
+  if (sourceMode.value === "rpcs3")
+    return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
+  if (sourceMode.value === "shadps4")
+    return "Experiment with compatible PlayStation 4 games through an isolated, verified shadPS4 environment.";
+  if (sourceMode.value === "sharpemu")
+    return "Experiment with owned PlayStation 5 layouts through an isolated, verified SharpEmu environment.";
+  return "Install and manage Windows applications outside Steam.";
+});
 const apps = ref<SharpApp[]>([]);
 const cardToolsOpen = ref<Record<string, boolean>>({});
 const bottles = ref<BottleManifest[]>([]);
@@ -206,6 +484,112 @@ const recentLogLines = ref<Record<string, string[]>>({});
 const recentCrashReports = ref<Record<string, CrashReport[]>>({});
 const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
+let savedGogEngines: Record<string, string> = {};
+try {
+  savedGogEngines = JSON.parse(localStorage.getItem("metalsharp-gog-engines") ?? "{}");
+} catch {}
+const gogEngines = ref<Record<string, string>>(savedGogEngines);
+const gamejoltGames = ref<GameJoltGame[]>([]);
+const gamejoltStorage = ref<GameJoltStorage | null>(null);
+const gamejoltLoading = ref(false);
+const gamejoltRunningPids = ref<Record<string, number>>({});
+const gamejoltBrowserHeight = ref(24);
+const gamejoltBrowserDragging = ref(false);
+const gamejoltPanel = ref<HTMLElement | null>(null);
+let gamejoltDragPointerId: number | null = null;
+const gamejoltDownloadToastIds = new Map<string, number>();
+let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+const pcsx2Status = ref<Pcsx2Status | null>(null);
+const pcsx2Games = ref<Pcsx2Game[]>([]);
+const pcsx2Roots = ref<string[]>([]);
+const pcsx2Update = ref<Rpcs3Update | null>(null);
+const pcsx2UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const pcsx2Settings = ref<Pcsx2Settings | null>(null);
+const pcsx2Loading = ref<Record<string, boolean>>({});
+const pcsx2BuildLabel = computed(() => pcsx2Status.value?.currentTag ?? "Not installed");
+const pcsx2StateLabel = computed(() => {
+  const status = pcsx2Status.value;
+  if (!status) return "Checking host…";
+  if (!status.supported) {
+    if (status.unsupportedReason === "macos_too_old") return "Newer macOS required";
+    if (status.unsupportedReason === "rosetta_missing") return "Rosetta required";
+    if (status.unsupportedReason === "sse41_missing") return "SSE4.1 required";
+    return "Unsupported Mac";
+  }
+  if (status.state === "running") return "PCSX2 running";
+  if (status.state === "ready") return "Ready to play";
+  if (status.state === "setup_required") return "PCSX2 setup required";
+  if (status.state === "missing_bios") return "BIOS required";
+  if (status.state === "runtime_probe_failed") return "Runtime repair required";
+  return "Setup required";
+});
+let pcsx2ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let pcsx2UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
+const rpcs3Status = ref<Rpcs3Status | null>(null);
+const rpcs3Games = ref<Rpcs3Game[]>([]);
+const rpcs3Roots = ref<string[]>([]);
+const rpcs3Update = ref<Rpcs3Update | null>(null);
+const rpcs3UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const rpcs3Loading = ref<Record<string, boolean>>({});
+const rpcs3BuildLabel = computed(() => {
+  const tag = rpcs3Status.value?.currentTag;
+  if (!tag) return "Not installed";
+  const normalized = tag.startsWith("build-") ? tag.slice(6) : tag;
+  return `Build ${normalized.slice(0, 10)}`;
+});
+const rpcs3StateLabel = computed(() => {
+  if (rpcs3Status.value?.state === "ready") return "Ready to play";
+  if (rpcs3Status.value?.installed) return "Firmware required";
+  return "Setup required";
+});
+let rpcs3ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let rpcs3UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
+const shadps4Status = ref<Shadps4Status | null>(null);
+const shadps4Games = ref<Shadps4Game[]>([]);
+const shadps4Roots = ref<string[]>([]);
+const shadps4Update = ref<Shadps4Update | null>(null);
+const shadps4UpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const shadps4Loading = ref<Record<string, boolean>>({});
+const shadps4BuildLabel = computed(() => shadps4Status.value?.currentTag ?? "Not installed");
+const shadps4StateLabel = computed(() => {
+  if (!shadps4Status.value) return "Checking host…";
+  if (!shadps4Status.value.supported) {
+    if (shadps4Status.value?.unsupportedReason === "macos_too_old") return "Newer macOS required";
+    if (shadps4Status.value?.unsupportedReason === "rosetta_missing") return "Rosetta required";
+    return "Unsupported Mac";
+  }
+  if (shadps4Status.value.state === "running") return "Game running";
+  if (shadps4Status.value.state === "ready") return "Experimental · Ready";
+  return "Experimental · Setup required";
+});
+let shadps4ProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let shadps4UpdatePollTimer: ReturnType<typeof setInterval> | null = null;
+const sharpemuStatus = ref<SharpemuStatus | null>(null);
+const sharpemuGames = ref<SharpemuGame[]>([]);
+const sharpemuRoots = ref<string[]>([]);
+const sharpemuUpdate = ref<Rpcs3Update | null>(null);
+const sharpemuUpdateProgress = ref<Rpcs3UpdateProgress | null>(null);
+const sharpemuLoading = ref<Record<string, boolean>>({});
+const sharpemuNetworkOptIn = ref(false);
+const sharpemuBuildLabel = computed(() => sharpemuStatus.value?.currentTag ?? "Not installed");
+const sharpemuStateLabel = computed(() => {
+  const status = sharpemuStatus.value;
+  if (!status) return "Checking host…";
+  if (!status.supported) {
+    if (status.unsupportedReason === "macos_too_old") return "macOS 26 or newer required";
+    if (status.unsupportedReason === "rosetta_missing") return "Rosetta required";
+    return "Unsupported Mac";
+  }
+  if (status.state === "running") return "Experimental · Game running";
+  if (status.state === "ready") return "Experimental · Ready";
+  if (status.state === "runtime_probe_failed") return "Runtime repair required";
+  if (status.state === "no_games") return "Experimental · No layouts found";
+  return "Experimental · Setup required";
+});
+let sharpemuProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let sharpemuUpdatePollTimer: ReturnType<typeof setInterval> | null = null;
+const editingGameJoltName = ref<string | null>(null);
+const gameJoltNameDraft = ref("");
 const gogLoading = ref<Record<string, boolean>>({});
 const gogProgress = ref<Record<string, number>>({});
 
@@ -493,6 +877,1095 @@ function sharpAppNameSort(a: SharpApp, b: SharpApp) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
+async function loadGameJolt() {
+  const [gamesResult, storageResult] = await Promise.all([
+    api<{ ok: boolean; games: GameJoltGame[]; storage?: GameJoltStorage }>("GET", "/gamejolt"),
+    api<{ ok: boolean; mode: "internal" | "external"; rootPath: string; gamejoltDir: string }>(
+      "GET",
+      "/gamejolt/storage",
+    ),
+  ]);
+  if (gamesResult?.ok) {
+    gamejoltGames.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }),
+    );
+    if (gamesResult.storage) gamejoltStorage.value = gamesResult.storage;
+  }
+  if (storageResult?.ok) gamejoltStorage.value = storageResult;
+}
+
+async function syncGameJolt(showResult = true) {
+  gamejoltLoading.value = true;
+  const result = await api<{ ok: boolean; games: GameJoltGame[]; storage?: GameJoltStorage; error?: string }>(
+    "POST",
+    "/gamejolt/sync",
+  );
+  gamejoltLoading.value = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "GameJolt scan failed", "error");
+    return;
+  }
+  gamejoltGames.value = [...(result.games ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  if (result.storage) gamejoltStorage.value = result.storage;
+  if (showResult)
+    toast.show(
+      `Found ${gamejoltGames.value.length} GameJolt game${gamejoltGames.value.length === 1 ? "" : "s"}`,
+      "success",
+    );
+}
+
+async function chooseGameJoltStorage() {
+  const rootPath = await getAPI().pickDirectory("Choose the parent folder for GameJolt games");
+  if (!rootPath) return;
+  const result = await api<{
+    ok: boolean;
+    mode: "internal" | "external";
+    rootPath: string;
+    gamejoltDir: string;
+    error?: string;
+  }>("POST", "/gamejolt/storage", { rootPath });
+  if (result?.ok) {
+    gamejoltStorage.value = result;
+    await syncGameJolt();
+  } else {
+    toast.show(result?.error ?? "Could not change GameJolt storage", "error");
+  }
+}
+
+function beginGameJoltNameEdit(game: GameJoltGame) {
+  editingGameJoltName.value = game.id;
+  gameJoltNameDraft.value = game.name;
+}
+
+async function saveGameJoltName(game: GameJoltGame) {
+  if (editingGameJoltName.value !== game.id) return;
+  const name = gameJoltNameDraft.value.trim();
+  editingGameJoltName.value = null;
+  if (!name || name === game.name) return;
+  const result = await api<{ ok: boolean; name?: string; error?: string }>("POST", "/gamejolt/name", {
+    id: game.id,
+    name,
+  });
+  if (result?.ok && result.name) game.name = result.name;
+  else toast.show(result?.error ?? "Could not save GameJolt name", "error");
+}
+
+async function launchGameJolt(game: GameJoltGame) {
+  toast.show(`Launching ${game.name}...`);
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/gamejolt/launch", {
+    id: game.id,
+    exePath: game.exe_path,
+    engine: game.native ? "native" : game.engine,
+  });
+  if (result?.ok && result.pid) {
+    gamejoltRunningPids.value[game.id] = result.pid;
+    toast.show(`Launched ${game.name}`, "success");
+  } else {
+    toast.show(result?.error ?? `Failed to launch ${game.name}`, "error");
+  }
+}
+
+async function stopGameJolt(game: GameJoltGame) {
+  const pid = gamejoltRunningPids.value[game.id];
+  if (!pid) return;
+  await api("POST", "/kill", { pid });
+  delete gamejoltRunningPids.value[game.id];
+}
+
+async function uninstallGameJolt(game: GameJoltGame) {
+  if (gamejoltRunningPids.value[game.id]) return;
+  if (!window.confirm(`Uninstall ${game.name}? This removes its GameJolt folder and cannot be undone.`)) return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/gamejolt/uninstall", {
+    id: game.id,
+    installDir: game.install_dir,
+  });
+  if (!result?.ok) {
+    toast.show(result?.error ?? `Could not uninstall ${game.name}`, "error");
+    return;
+  }
+  delete gamejoltRunningPids.value[game.id];
+  await syncGameJolt(false);
+  toast.show(`${game.name} uninstalled`, "success");
+}
+
+async function refreshGameJoltProcessState() {
+  const entries = Object.entries(gamejoltRunningPids.value);
+  await Promise.all(
+    entries.map(async ([id, pid]) => {
+      const result = await api<{ ok: boolean; running: boolean }>("POST", "/gamejolt/status", { pid });
+      if (!result?.running) delete gamejoltRunningPids.value[id];
+    }),
+  );
+}
+
+async function updateGameJoltEngine(game: GameJoltGame, engine: string) {
+  const previous = game.engine;
+  game.engine = engine;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/gamejolt/engine", {
+    id: game.id,
+    engine,
+  });
+  if (!result?.ok) {
+    game.engine = previous;
+    toast.show(result?.error ?? "Could not save GameJolt launch option", "error");
+  }
+}
+
+function handleGameJoltDownload(update: GameJoltDownloadUpdate) {
+  let toastId = gamejoltDownloadToastIds.get(update.id);
+  const total = update.totalBytes ?? 0;
+  const received = update.receivedBytes ?? 0;
+  const progress = total > 0 ? Math.min(0.99, received / total) : update.state === "organizing" ? 0.99 : 0;
+  if (toastId === undefined) {
+    toastId = toast.showDownload(`Downloading ${update.filename}...`, progress);
+    gamejoltDownloadToastIds.set(update.id, toastId);
+  }
+  if (update.state === "downloading") {
+    const percent = total > 0 ? `${Math.round((received / total) * 100)}%` : "Starting...";
+    toast.updateDownload(toastId, `Downloading ${update.filename} — ${percent}`, progress);
+  } else if (update.state === "organizing") {
+    toast.updateDownload(toastId, `Finishing ${update.filename}...`, 0.99);
+  } else if (update.state === "completed") {
+    toast.finishDownload(toastId, `${update.filename} downloaded`, true);
+    gamejoltDownloadToastIds.delete(update.id);
+    void loadGameJolt();
+  } else if (update.state === "failed") {
+    toast.finishDownload(toastId, update.error ?? `Could not download ${update.filename}`, false);
+    gamejoltDownloadToastIds.delete(update.id);
+  }
+}
+
+function beginGameJoltBrowserDrag(event: PointerEvent) {
+  if (!gamejoltPanel.value) return;
+  event.preventDefault();
+  gamejoltBrowserDragging.value = true;
+  gamejoltDragPointerId = event.pointerId;
+  updateGameJoltBrowserHeight(event.clientY);
+  window.addEventListener("pointermove", moveGameJoltBrowserDrag);
+  window.addEventListener("pointerup", endGameJoltBrowserDrag);
+  window.addEventListener("pointercancel", endGameJoltBrowserDrag);
+}
+
+function updateGameJoltBrowserHeight(clientY: number) {
+  const panel = gamejoltPanel.value;
+  if (!panel) return;
+  const bounds = panel.getBoundingClientRect();
+  const height = ((bounds.bottom - clientY) / bounds.height) * 100;
+  gamejoltBrowserHeight.value = Math.max(10, Math.min(100, height));
+}
+
+function gameJoltPanelStyle() {
+  const panelHeight = gamejoltPanel.value?.getBoundingClientRect().height ?? window.innerHeight - 220;
+  const browserSpace = Math.ceil((panelHeight * gamejoltBrowserHeight.value) / 100) + 24;
+  return {
+    "--gamejolt-browser-height": `${gamejoltBrowserHeight.value}%`,
+    "--gamejolt-browser-space": `${browserSpace}px`,
+  };
+}
+
+function moveGameJoltBrowserDrag(event: PointerEvent) {
+  if (!gamejoltBrowserDragging.value || event.pointerId !== gamejoltDragPointerId) return;
+  updateGameJoltBrowserHeight(event.clientY);
+}
+
+function endGameJoltBrowserDrag(event: PointerEvent) {
+  if (event.pointerId !== gamejoltDragPointerId) return;
+  gamejoltBrowserDragging.value = false;
+  gamejoltDragPointerId = null;
+  window.removeEventListener("pointermove", moveGameJoltBrowserDrag);
+  window.removeEventListener("pointerup", endGameJoltBrowserDrag);
+  window.removeEventListener("pointercancel", endGameJoltBrowserDrag);
+}
+
+async function refreshPcsx2(showResult = false) {
+  const [statusResult, gamesResult, settingsResult] = await Promise.all([
+    api<Pcsx2Status>("GET", "/sharp-library/pcsx2/status"),
+    api<{ ok: boolean; games: Pcsx2Game[]; roots: string[] }>(
+      showResult ? "POST" : "GET",
+      showResult ? "/sharp-library/pcsx2/scan" : "/sharp-library/pcsx2/games",
+      showResult ? {} : undefined,
+    ),
+    api<Pcsx2Settings>("GET", "/sharp-library/pcsx2/settings"),
+  ]);
+  if (statusResult?.ok) pcsx2Status.value = statusResult;
+  if (settingsResult?.ok) pcsx2Settings.value = settingsResult;
+  if (gamesResult?.ok) {
+    pcsx2Games.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    pcsx2Roots.value = gamesResult.roots ?? [];
+  }
+  if (showResult)
+    toast.show(`Found ${pcsx2Games.value.length} PCSX2 game${pcsx2Games.value.length === 1 ? "" : "s"}`, "success");
+}
+
+async function savePcsx2Setting(field: "controller1" | "controller2" | "renderer", event: Event) {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement) || pcsx2Loading.value.settings) return;
+  const value = target.value;
+  pcsx2Loading.value.settings = true;
+  const result = await api<Pcsx2Settings>("POST", "/sharp-library/pcsx2/configure", { [field]: value });
+  pcsx2Loading.value.settings = false;
+  if (!result?.ok) {
+    toast.show(result?.error ?? "Could not save the PCSX2 setting", "error");
+    const persisted = await api<Pcsx2Settings>("GET", "/sharp-library/pcsx2/settings");
+    if (persisted?.ok) pcsx2Settings.value = persisted;
+    return;
+  }
+  pcsx2Settings.value = result;
+  const option =
+    field === "renderer"
+      ? result.rendererOptions.find((entry) => entry.id === result.renderer)
+      : result.controllerOptions.find((entry) => entry.id === result[field]);
+  const label = field === "controller1" ? "Controller 1" : field === "controller2" ? "Controller 2" : "Renderer";
+  toast.show(`${label} saved as ${option?.label ?? value}`, "success");
+  const status = await api<Pcsx2Status>("GET", "/sharp-library/pcsx2/status");
+  if (status?.ok) pcsx2Status.value = status;
+}
+
+async function checkPcsx2Update(showResult = true, force = showResult) {
+  pcsx2Loading.value.check = true;
+  const result = await api<Rpcs3Update>(
+    force ? "POST" : "GET",
+    force ? "/sharp-library/pcsx2/update/refresh" : "/sharp-library/pcsx2/update/check",
+    force ? {} : undefined,
+  );
+  pcsx2Loading.value.check = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "Could not check PCSX2 updates", "error");
+    return null;
+  }
+  pcsx2Update.value = result;
+  if (showResult) {
+    toast.show(
+      result.available
+        ? `${pcsx2Status.value?.installed ? "PCSX2 update" : "PCSX2"} ${result.latestVersion} is available`
+        : result.suppressed === "pinned"
+          ? "The current PCSX2 version is pinned"
+          : result.suppressed === "skipped"
+            ? "The latest PCSX2 version is skipped"
+            : "PCSX2 is up to date",
+      result.available ? "success" : "info",
+    );
+  }
+  return result;
+}
+
+function stopPcsx2UpdatePolling() {
+  if (pcsx2UpdatePollTimer) clearInterval(pcsx2UpdatePollTimer);
+  pcsx2UpdatePollTimer = null;
+}
+
+function beginPcsx2UpdatePolling() {
+  stopPcsx2UpdatePolling();
+  pcsx2UpdatePollTimer = setInterval(async () => {
+    const progress = await api<Rpcs3UpdateProgress>("GET", "/sharp-library/pcsx2/update/progress");
+    if (!progress?.ok) return;
+    pcsx2UpdateProgress.value = progress;
+    if (!progress.running && (progress.status === "completed" || progress.status === "failed")) {
+      stopPcsx2UpdatePolling();
+      pcsx2Loading.value.update = false;
+      toast.show(
+        progress.status === "completed" ? "PCSX2 is ready" : progress.error || "PCSX2 update failed",
+        progress.status === "completed" ? "success" : "error",
+      );
+      await refreshPcsx2();
+      await checkPcsx2Update(false);
+    }
+  }, 650);
+}
+
+async function installOrUpdatePcsx2() {
+  if (pcsx2Status.value && !pcsx2Status.value.supported) {
+    toast.show(pcsx2StateLabel.value, "error");
+    return;
+  }
+  const release = pcsx2Update.value ?? (await checkPcsx2Update(false));
+  if (!release?.ok) return;
+  if (pcsx2Status.value?.installed && !release.available) {
+    toast.show("PCSX2 is already up to date", "info");
+    return;
+  }
+  const action = pcsx2Status.value?.installed ? "Update" : "Install";
+  if (
+    !confirm(
+      `${action} official PCSX2 ${release.latestVersion} (${formatBytes(release.downloadSize)})?\n\nMetalSharp verifies the official SHA-256, Developer ID signature, hardened runtime, and notarization before activation. BIOS, memory cards, saves, states, settings, profiles, caches, and games are preserved.`,
+    )
+  )
+    return;
+  pcsx2Loading.value.update = true;
+  const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/pcsx2/update/install", {}, 35 * 1000);
+  if (!result?.ok) {
+    pcsx2Loading.value.update = false;
+    toast.show(result?.error ?? "Could not start the PCSX2 install", "error");
+    return;
+  }
+  pcsx2UpdateProgress.value = result;
+  beginPcsx2UpdatePolling();
+}
+
+async function setPcsx2UpdatePolicy(action: "pin-current" | "unpin" | "skip-update" | "clear-skip") {
+  const result = await api<Rpcs3Update>("POST", `/sharp-library/pcsx2/${action}`, {
+    tag: pcsx2Update.value?.latestTag,
+  });
+  if (result?.ok) {
+    pcsx2Update.value = result;
+    toast.show(
+      action === "pin-current"
+        ? "Current PCSX2 version pinned"
+        : action === "unpin"
+          ? "PCSX2 version unpinned"
+          : action === "skip-update"
+            ? "PCSX2 update skipped"
+            : "Skipped PCSX2 update cleared",
+      "success",
+    );
+  } else toast.show(result?.error ?? "Could not save PCSX2 update preference", "error");
+}
+
+async function rollbackPcsx2() {
+  if (
+    !confirm(
+      "Switch to the previous PCSX2 runtime? Mutable user data is preserved, but savestates may not be compatible across versions.",
+    )
+  )
+    return;
+  const result = await api<Pcsx2Status & { error?: string }>("POST", "/sharp-library/pcsx2/update/rollback", {});
+  if (result?.ok) {
+    pcsx2Status.value = result;
+    toast.show(
+      "PCSX2 runtime rolled back; BIOS, saves, settings, profiles, caches, and games were preserved",
+      "success",
+    );
+    await refreshPcsx2();
+  } else toast.show(result?.error ?? "PCSX2 rollback failed", "error");
+}
+
+async function addPcsx2Folder() {
+  const path = await getAPI().pickPcsx2Game();
+  if (!path) return;
+  const result = await api<{ ok: boolean; games: Pcsx2Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/pcsx2/add-root",
+    { path },
+  );
+  if (result?.ok) {
+    pcsx2Games.value = result.games ?? [];
+    pcsx2Roots.value = result.roots ?? [];
+    toast.show("PCSX2 game location added. External game files remain in place.", "success");
+  } else toast.show(result?.error ?? "Could not add the PCSX2 game folder", "error");
+}
+
+async function removePcsx2Root(path: string) {
+  if (!confirm(`Remove this PCSX2 library reference?\n\n${path}\n\nNo game files will be deleted.`)) return;
+  const result = await api<{ ok: boolean; games: Pcsx2Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/pcsx2/remove-root",
+    { path },
+  );
+  if (result?.ok) {
+    pcsx2Games.value = result.games ?? [];
+    pcsx2Roots.value = result.roots ?? [];
+    toast.show("PCSX2 folder reference removed; game files were preserved", "success");
+  } else toast.show(result?.error ?? "Could not remove the PCSX2 folder", "error");
+}
+
+async function importPcsx2Bios() {
+  const path = await getAPI().pickPcsx2Bios();
+  if (!path) return;
+  if (
+    !confirm(
+      "Import this BIOS dumped from a PlayStation 2 console you own? MetalSharp copies it only into the isolated PCSX2 environment and never uploads it.",
+    )
+  )
+    return;
+  pcsx2Loading.value.bios = true;
+  const result = await api<{ ok: boolean; region?: string; description?: string; error?: string }>(
+    "POST",
+    "/sharp-library/pcsx2/import-bios",
+    { path },
+  );
+  pcsx2Loading.value.bios = false;
+  if (result?.ok) {
+    toast.show(`Validated ${result.description ?? result.region ?? "PlayStation 2 BIOS"}`, "success");
+    await refreshPcsx2();
+  } else toast.show(result?.error ?? "PCSX2 rejected this BIOS dump", "error");
+}
+
+async function initializePcsx2() {
+  pcsx2Loading.value.initialize = true;
+  const result = await api<Pcsx2Status & { error?: string }>("POST", "/sharp-library/pcsx2/initialize", {});
+  pcsx2Loading.value.initialize = false;
+  if (result?.ok) {
+    pcsx2Status.value = result;
+    toast.show("PCSX2 isolated state initialized", "success");
+  } else toast.show(result?.error ?? "PCSX2 initialization failed", "error");
+}
+
+async function openPcsx2(setup = false) {
+  const result = await api<{ ok: boolean; error?: string }>(
+    "POST",
+    setup ? "/sharp-library/pcsx2/open-setup" : "/sharp-library/pcsx2/open-ui",
+    {},
+  );
+  if (!result?.ok) toast.show(result?.error ?? "Could not open PCSX2", "error");
+  else await refreshPcsx2();
+}
+
+async function launchPcsx2(game: Pcsx2Game) {
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/sharp-library/pcsx2/launch", {
+    id: game.id,
+    fullscreen: true,
+  });
+  if (!result?.ok) toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+  else {
+    toast.show(`${game.title} started in PCSX2`, "success");
+    await refreshPcsx2();
+  }
+}
+
+async function stopPcsx2(game: Pcsx2Game) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/pcsx2/stop", { id: game.id });
+  if (!result?.ok) toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+  else {
+    toast.show(`${game.title} stopped`, "success");
+    await refreshPcsx2();
+  }
+}
+
+async function stopManagedPcsx2() {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/pcsx2/stop", {});
+  if (!result?.ok) toast.show(result?.error ?? "Could not stop PCSX2", "error");
+  else {
+    toast.show("PCSX2 stopped", "success");
+    await refreshPcsx2();
+  }
+}
+
+async function removePcsx2Runtime() {
+  if (
+    !confirm(
+      "Remove only the managed PCSX2 runtime? BIOS, memory cards, saves, savestates, settings, controller profiles, covers, caches, logs, and external games will be preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/pcsx2/remove-runtime", {
+    confirm: true,
+  });
+  if (result?.ok) {
+    pcsx2Update.value = null;
+    toast.show("PCSX2 runtime removed; all mutable user data and games were preserved", "success");
+    await refreshPcsx2();
+  } else toast.show(result?.error ?? "Could not remove PCSX2", "error");
+}
+
+async function refreshRpcs3(showResult = false) {
+  const [statusResult, gamesResult] = await Promise.all([
+    api<Rpcs3Status>("GET", "/sharp-library/rpcs3/status"),
+    api<{ ok: boolean; games: Rpcs3Game[]; roots: string[] }>("GET", "/sharp-library/rpcs3/games"),
+  ]);
+  if (statusResult?.ok) rpcs3Status.value = statusResult;
+  if (gamesResult?.ok) {
+    rpcs3Games.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    rpcs3Roots.value = gamesResult.roots ?? [];
+  }
+  if (showResult)
+    toast.show(`Found ${rpcs3Games.value.length} RPCS3 game${rpcs3Games.value.length === 1 ? "" : "s"}`, "success");
+}
+
+async function checkRpcs3Update(showResult = true, force = showResult) {
+  rpcs3Loading.value.check = true;
+  const result = await api<Rpcs3Update>(
+    force ? "POST" : "GET",
+    force ? "/sharp-library/rpcs3/update/refresh" : "/sharp-library/rpcs3/update/check",
+    force ? {} : undefined,
+    30 * 1000,
+  );
+  rpcs3Loading.value.check = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "Could not check RPCS3 updates", "error");
+    return null;
+  }
+  rpcs3Update.value = result;
+  if (showResult) {
+    toast.show(
+      result.available
+        ? `${rpcs3Status.value?.installed ? "RPCS3 update" : "RPCS3"} ${result.latestVersion} is available`
+        : result.suppressed === "pinned"
+          ? "RPCS3 updates are pinned to the current build"
+          : result.suppressed === "skipped"
+            ? "The latest RPCS3 build is skipped"
+            : "RPCS3 is up to date",
+      result.available ? "success" : "info",
+    );
+  }
+  return result;
+}
+
+function stopRpcs3UpdatePoll() {
+  if (rpcs3UpdatePollTimer) clearInterval(rpcs3UpdatePollTimer);
+  rpcs3UpdatePollTimer = null;
+}
+
+function beginRpcs3UpdatePoll() {
+  stopRpcs3UpdatePoll();
+  rpcs3UpdatePollTimer = setInterval(async () => {
+    const progress = await api<Rpcs3UpdateProgress>("GET", "/sharp-library/rpcs3/update/progress");
+    if (!progress?.ok) return;
+    rpcs3UpdateProgress.value = progress;
+    if (progress.status === "completed" || progress.status === "failed") {
+      stopRpcs3UpdatePoll();
+      rpcs3Loading.value.update = false;
+      if (progress.status === "completed") {
+        toast.show("RPCS3 installed successfully", "success");
+        await refreshRpcs3();
+        await checkRpcs3Update(false);
+      } else toast.show(progress.error ?? "RPCS3 update failed", "error");
+    }
+  }, 1000);
+}
+
+async function installOrUpdateRpcs3() {
+  const release = await checkRpcs3Update(false);
+  if (!release) return;
+  if (rpcs3Status.value?.installed && !release.available) {
+    toast.show(
+      release.suppressed === "pinned"
+        ? "Unpin the current RPCS3 build before updating"
+        : release.suppressed === "skipped"
+          ? "Clear the skipped RPCS3 update before installing it"
+          : "RPCS3 is already up to date",
+      "info",
+    );
+    return;
+  }
+  const action = rpcs3Status.value?.installed ? "Update" : "Install";
+  if (
+    !window.confirm(
+      `${action} RPCS3 ${release.latestVersion}? MetalSharp will verify and retain the previous version for rollback.`,
+    )
+  )
+    return;
+  rpcs3Loading.value.update = true;
+  const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/rpcs3/update/install", {}, 35 * 1000);
+  if (!result?.ok) {
+    rpcs3Loading.value.update = false;
+    toast.show(result?.error ?? `Could not ${action.toLowerCase()} RPCS3`, "error");
+    return;
+  }
+  rpcs3UpdateProgress.value = result;
+  beginRpcs3UpdatePoll();
+}
+
+async function setRpcs3UpdatePolicy(action: "pin-current" | "unpin" | "skip-update" | "clear-skip") {
+  const result = await api<Rpcs3Update>("POST", `/sharp-library/rpcs3/${action}`, {
+    tag: rpcs3Update.value?.latestTag,
+  });
+  if (result?.ok) {
+    rpcs3Update.value = result;
+    const message =
+      action === "pin-current"
+        ? "RPCS3 pinned to the current build"
+        : action === "unpin"
+          ? "RPCS3 updates unpinned"
+          : action === "skip-update"
+            ? "RPCS3 update skipped"
+            : "Skipped RPCS3 update cleared";
+    toast.show(message, "success");
+  } else toast.show(result?.error ?? "Could not save RPCS3 update preference", "error");
+}
+
+async function rollbackRpcs3() {
+  if (
+    !window.confirm(
+      "Roll back to the previously installed RPCS3 build? Your firmware, saves, games, and settings will be preserved.",
+    )
+  )
+    return;
+  const result = await api<Rpcs3Status & { error?: string }>("POST", "/sharp-library/rpcs3/update/rollback", {});
+  if (result?.ok) {
+    rpcs3Status.value = result;
+    toast.show("RPCS3 rolled back", "success");
+  } else toast.show(result?.error ?? "RPCS3 rollback failed", "error");
+}
+
+async function addRpcs3Folder() {
+  const path = await getAPI().pickDirectory("Choose a folder containing PlayStation 3 games");
+  if (!path) return;
+  const result = await api<{ ok: boolean; games: Rpcs3Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/rpcs3/add-root",
+    { path },
+  );
+  if (result?.ok) {
+    rpcs3Games.value = result.games ?? [];
+    rpcs3Roots.value = result.roots ?? [];
+    toast.show("RPCS3 game folder added", "success");
+  } else toast.show(result?.error ?? "Could not add RPCS3 game folder", "error");
+}
+
+async function removeRpcs3Root(path: string) {
+  const result = await api<{ ok: boolean; games: Rpcs3Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/rpcs3/remove-root",
+    { path },
+  );
+  if (result?.ok) {
+    rpcs3Games.value = result.games ?? [];
+    rpcs3Roots.value = result.roots ?? [];
+  } else toast.show(result?.error ?? "Could not remove RPCS3 game folder", "error");
+}
+
+async function installRpcs3Content(kind: "firmware" | "package") {
+  const path = await getAPI().pickRpcs3File(kind);
+  if (!path) return;
+  const endpoint = kind === "firmware" ? "install-firmware" : "install-package";
+  const result = await api<{ ok: boolean; pid?: number; logPath?: string; error?: string }>(
+    "POST",
+    `/sharp-library/rpcs3/${endpoint}`,
+    { path },
+  );
+  if (result?.ok) {
+    toast.show(
+      kind === "firmware" ? "RPCS3 firmware installation started" : "RPCS3 package installation started",
+      "success",
+    );
+    window.setTimeout(() => void refreshRpcs3(), 3000);
+  } else toast.show(result?.error ?? `Could not install RPCS3 ${kind}`, "error");
+}
+
+async function openRpcs3() {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/rpcs3/open-ui", {});
+  if (!result?.ok) toast.show(result?.error ?? "Could not open RPCS3", "error");
+}
+
+async function launchRpcs3Game(game: Rpcs3Game) {
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/sharp-library/rpcs3/launch", {
+    id: game.id,
+    fullscreen: true,
+  });
+  if (result?.ok) {
+    game.running = true;
+    game.pid = result.pid;
+  } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+}
+
+async function stopRpcs3Game(game: Rpcs3Game) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/rpcs3/stop", { id: game.id });
+  if (result?.ok) {
+    game.running = false;
+    game.pid = null;
+  } else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+}
+
+async function removeRpcs3Runtime() {
+  if (
+    !window.confirm(
+      "Remove managed RPCS3 runtime versions? Firmware, saves, games, settings, and caches will be preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/rpcs3/remove-runtime", {
+    confirm: true,
+  });
+  if (result?.ok) {
+    toast.show("RPCS3 runtime removed; user data was preserved", "success");
+    rpcs3Update.value = null;
+    await refreshRpcs3();
+  } else toast.show(result?.error ?? "Could not remove RPCS3 runtime", "error");
+}
+
+async function refreshShadps4(showResult = false) {
+  const [statusResult, gamesResult] = await Promise.all([
+    api<Shadps4Status>("GET", "/sharp-library/shadps4/status"),
+    api<{ ok: boolean; games: Shadps4Game[]; roots: string[] }>("GET", "/sharp-library/shadps4/games"),
+  ]);
+  if (statusResult?.ok) shadps4Status.value = statusResult;
+  if (gamesResult?.ok) {
+    shadps4Games.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    shadps4Roots.value = gamesResult.roots ?? [];
+  }
+  if (showResult)
+    toast.show(
+      `Found ${shadps4Games.value.length} shadPS4 game${shadps4Games.value.length === 1 ? "" : "s"}`,
+      "success",
+    );
+}
+
+async function checkShadps4Update(showResult = true, force = showResult) {
+  shadps4Loading.value.check = true;
+  const result = await api<Shadps4Update>(
+    force ? "POST" : "GET",
+    force ? "/sharp-library/shadps4/update/refresh" : "/sharp-library/shadps4/update/check",
+    force ? {} : undefined,
+    30 * 1000,
+  );
+  shadps4Loading.value.check = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "Could not check shadPS4 updates", "error");
+    return null;
+  }
+  shadps4Update.value = result;
+  if (showResult)
+    toast.show(result.available ? `${result.latestVersion} is available` : "shadPS4 is up to date", "info");
+  return result;
+}
+
+function stopShadps4UpdatePoll() {
+  if (shadps4UpdatePollTimer) clearInterval(shadps4UpdatePollTimer);
+  shadps4UpdatePollTimer = null;
+}
+
+function beginShadps4UpdatePoll() {
+  stopShadps4UpdatePoll();
+  shadps4UpdatePollTimer = setInterval(async () => {
+    const progress = await api<Rpcs3UpdateProgress>("GET", "/sharp-library/shadps4/update/progress");
+    if (!progress?.ok) return;
+    shadps4UpdateProgress.value = progress;
+    if (progress.status === "completed" || progress.status === "failed") {
+      stopShadps4UpdatePoll();
+      shadps4Loading.value.update = false;
+      if (progress.status === "completed") {
+        toast.show("shadPS4 installed successfully", "success");
+        await refreshShadps4();
+        await checkShadps4Update(false);
+      } else toast.show(progress.error ?? "shadPS4 update failed", "error");
+    }
+  }, 1000);
+}
+
+async function installOrUpdateShadps4() {
+  if (shadps4Status.value && !shadps4Status.value.supported) {
+    toast.show(shadps4StateLabel.value, "error");
+    return;
+  }
+  const release = await checkShadps4Update(false);
+  if (!release) return;
+  if (shadps4Status.value?.installed && !release.available) {
+    toast.show("shadPS4 is already up to date", "info");
+    return;
+  }
+  const action = shadps4Status.value?.installed ? "Update" : "Install";
+  if (
+    !window.confirm(
+      `${action} experimental shadPS4 ${release.latestVersion}? MetalSharp verifies the official stable asset and preserves the previous runtime for rollback.`,
+    )
+  )
+    return;
+  shadps4Loading.value.update = true;
+  const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/shadps4/update/install", {}, 35 * 1000);
+  if (!result?.ok) {
+    shadps4Loading.value.update = false;
+    toast.show(result?.error ?? `Could not ${action.toLowerCase()} shadPS4`, "error");
+    return;
+  }
+  shadps4UpdateProgress.value = result;
+  beginShadps4UpdatePoll();
+}
+
+async function setShadps4UpdatePolicy(action: "pin-current" | "unpin" | "skip-update" | "clear-skip") {
+  const result = await api<Shadps4Update>("POST", `/sharp-library/shadps4/${action}`, {
+    tag: shadps4Update.value?.latestTag,
+  });
+  if (result?.ok) {
+    shadps4Update.value = result;
+    toast.show("shadPS4 update preference saved", "success");
+  } else toast.show(result?.error ?? "Could not save shadPS4 update preference", "error");
+}
+
+async function rollbackShadps4() {
+  if (!window.confirm("Roll back only the shadPS4 runtime? Saves, settings, caches, modules, fonts, and games remain."))
+    return;
+  const result = await api<Shadps4Status & { error?: string }>("POST", "/sharp-library/shadps4/update/rollback", {});
+  if (result?.ok) {
+    shadps4Status.value = result;
+    toast.show("shadPS4 rolled back", "success");
+  } else toast.show(result?.error ?? "shadPS4 rollback failed", "error");
+}
+
+async function addShadps4Folder() {
+  const path = await getAPI().pickDirectory("Choose a folder containing dumped PlayStation 4 games");
+  if (!path) return;
+  const result = await api<{ ok: boolean; games: Shadps4Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/shadps4/add-root",
+    { path },
+  );
+  if (result?.ok) {
+    shadps4Games.value = result.games ?? [];
+    shadps4Roots.value = result.roots ?? [];
+    await refreshShadps4();
+    toast.show("shadPS4 game folder added", "success");
+  } else toast.show(result?.error ?? "Could not add shadPS4 game folder", "error");
+}
+
+async function removeShadps4Root(path: string) {
+  const result = await api<{ ok: boolean; games: Shadps4Game[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/shadps4/remove-root",
+    { path },
+  );
+  if (result?.ok) {
+    shadps4Games.value = result.games ?? [];
+    shadps4Roots.value = result.roots ?? [];
+  } else toast.show(result?.error ?? "Could not remove shadPS4 game folder", "error");
+}
+
+async function importShadps4Content(kind: "modules" | "fonts") {
+  const path = await getAPI().pickDirectory(
+    kind === "modules" ? "Choose a folder of console-dumped PS4 modules" : "Choose dumped PS4 font content",
+  );
+  if (!path) return;
+  const result = await api<{ ok: boolean; imported?: number; files?: number; rejected?: number; error?: string }>(
+    "POST",
+    `/sharp-library/shadps4/import-${kind}`,
+    { path },
+  );
+  if (result?.ok) {
+    await refreshShadps4();
+    toast.show(
+      kind === "modules"
+        ? `Imported ${result.imported ?? 0} supported modules`
+        : `Imported ${result.files ?? 0} font files`,
+      "success",
+    );
+  } else toast.show(result?.error ?? `Could not import shadPS4 ${kind}`, "error");
+}
+
+async function launchShadps4Game(game: Shadps4Game) {
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/sharp-library/shadps4/launch", {
+    id: game.id,
+    fullscreen: true,
+  });
+  if (result?.ok) {
+    game.running = true;
+    game.pid = result.pid;
+  } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+}
+
+async function stopShadps4Game(game: Shadps4Game) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/shadps4/stop", { id: game.id });
+  if (result?.ok) {
+    game.running = false;
+    game.pid = null;
+  } else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+}
+
+async function removeShadps4Runtime() {
+  if (
+    !window.confirm(
+      "Remove managed shadPS4 runtime versions? Saves, trophies, settings, caches, modules, fonts, and games are preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/shadps4/remove-runtime", {
+    confirm: true,
+  });
+  if (result?.ok) {
+    shadps4Update.value = null;
+    await refreshShadps4();
+    toast.show("shadPS4 runtime removed; user data was preserved", "success");
+  } else toast.show(result?.error ?? "Could not remove shadPS4 runtime", "error");
+}
+
+async function refreshSharpemu(showResult = false) {
+  const [statusResult, gamesResult] = await Promise.all([
+    api<SharpemuStatus>("GET", "/sharp-library/sharpemu/status"),
+    api<{ ok: boolean; games: SharpemuGame[]; roots: string[] }>("GET", "/sharp-library/sharpemu/games"),
+  ]);
+  if (statusResult?.ok) sharpemuStatus.value = statusResult;
+  if (gamesResult?.ok) {
+    sharpemuGames.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    sharpemuRoots.value = gamesResult.roots ?? [];
+  }
+  if (showResult)
+    toast.show(
+      `Found ${sharpemuGames.value.length} SharpEmu game${sharpemuGames.value.length === 1 ? "" : "s"}`,
+      "success",
+    );
+}
+
+async function checkSharpemuUpdate(showResult = true, force = showResult) {
+  sharpemuLoading.value.check = true;
+  const result = await api<SharpemuUpdate>(
+    force ? "POST" : "GET",
+    force ? "/sharp-library/sharpemu/update/refresh" : "/sharp-library/sharpemu/update/check",
+    force ? {} : undefined,
+    30 * 1000,
+  );
+  sharpemuLoading.value.check = false;
+  if (!result?.ok) {
+    if (showResult) toast.show(result?.error ?? "Could not check SharpEmu updates", "error");
+    return null;
+  }
+  sharpemuUpdate.value = result;
+  if (showResult)
+    toast.show(result.available ? `${result.latestVersion} is available` : "SharpEmu is up to date", "info");
+  return result;
+}
+
+function stopSharpemuUpdatePoll() {
+  if (sharpemuUpdatePollTimer) clearInterval(sharpemuUpdatePollTimer);
+  sharpemuUpdatePollTimer = null;
+}
+
+function beginSharpemuUpdatePoll() {
+  stopSharpemuUpdatePoll();
+  sharpemuUpdatePollTimer = setInterval(async () => {
+    const progress = await api<Rpcs3UpdateProgress>("GET", "/sharp-library/sharpemu/update/progress");
+    if (!progress?.ok) return;
+    sharpemuUpdateProgress.value = progress;
+    if (progress.status === "completed" || progress.status === "failed") {
+      stopSharpemuUpdatePoll();
+      sharpemuLoading.value.update = false;
+      if (progress.status === "completed") {
+        toast.show("SharpEmu installed successfully", "success");
+        await refreshSharpemu();
+        await checkSharpemuUpdate(false);
+      } else toast.show(progress.error ?? "SharpEmu update failed", "error");
+    }
+  }, 1000);
+}
+
+async function installOrUpdateSharpemu() {
+  if (sharpemuStatus.value && !sharpemuStatus.value.supported) {
+    toast.show(sharpemuStateLabel.value, "error");
+    return;
+  }
+  const release = await checkSharpemuUpdate(false);
+  if (!release) return;
+  if (sharpemuStatus.value?.installed && !release.available) {
+    toast.show("SharpEmu is already up to date", "info");
+    return;
+  }
+  const action = sharpemuStatus.value?.installed ? "Update" : "Install";
+  if (
+    !window.confirm(
+      `${action} experimental SharpEmu ${release.latestVersion}? MetalSharp verifies the official stable asset, records its digest, locally ad-hoc signs the unnotarized runtime, and preserves the previous runtime for rollback.`,
+    )
+  )
+    return;
+  sharpemuLoading.value.update = true;
+  const result = await api<Rpcs3UpdateProgress>("POST", "/sharp-library/sharpemu/update/install", {}, 35 * 1000);
+  if (!result?.ok) {
+    sharpemuLoading.value.update = false;
+    toast.show(result?.error ?? `Could not ${action.toLowerCase()} SharpEmu`, "error");
+    return;
+  }
+  sharpemuUpdateProgress.value = result;
+  beginSharpemuUpdatePoll();
+}
+
+async function setSharpemuUpdatePolicy(action: "pin-current" | "unpin" | "skip-update" | "clear-skip") {
+  const result = await api<SharpemuUpdate>("POST", `/sharp-library/sharpemu/${action}`, {
+    tag: sharpemuUpdate.value?.latestTag,
+  });
+  if (result?.ok) {
+    sharpemuUpdate.value = result;
+    toast.show("SharpEmu update preference saved", "success");
+  } else toast.show(result?.error ?? "Could not save SharpEmu update preference", "error");
+}
+
+async function rollbackSharpemu() {
+  if (!window.confirm("Roll back only the SharpEmu runtime? Saves, settings, caches, logs, and external games remain."))
+    return;
+  const result = await api<SharpemuStatus & { error?: string }>("POST", "/sharp-library/sharpemu/update/rollback", {});
+  if (result?.ok) {
+    sharpemuStatus.value = result;
+    toast.show("SharpEmu rolled back", "success");
+  } else toast.show(result?.error ?? "SharpEmu rollback failed", "error");
+}
+
+async function addSharpemuFolder() {
+  const path = await getAPI().pickSharpemuRoot();
+  if (!path) return;
+  const result = await api<{ ok: boolean; games: SharpemuGame[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/sharpemu/add-root",
+    { path },
+  );
+  if (result?.ok) {
+    sharpemuGames.value = result.games ?? [];
+    sharpemuRoots.value = result.roots ?? [];
+    await refreshSharpemu();
+    toast.show("SharpEmu game folder added", "success");
+  } else toast.show(result?.error ?? "Could not add SharpEmu game folder", "error");
+}
+
+async function removeSharpemuRoot(path: string) {
+  const result = await api<{ ok: boolean; games: SharpemuGame[]; roots: string[]; error?: string }>(
+    "POST",
+    "/sharp-library/sharpemu/remove-root",
+    { path },
+  );
+  if (result?.ok) {
+    sharpemuGames.value = result.games ?? [];
+    sharpemuRoots.value = result.roots ?? [];
+  } else toast.show(result?.error ?? "Could not remove SharpEmu game folder", "error");
+}
+
+async function launchSharpemuGame(game: SharpemuGame) {
+  const allowNetwork = sharpemuNetworkOptIn.value;
+  if (
+    allowNetwork &&
+    !window.confirm(
+      "Enable unrestricted guest networking for this launch? Emulated game code may open host sockets, use DNS, and contact local or internet services.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>("POST", "/sharp-library/sharpemu/launch", {
+    id: game.id,
+    fullscreen: false,
+    allowNetwork,
+  });
+  if (result?.ok) {
+    game.running = true;
+    game.pid = result.pid;
+  } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+}
+
+async function stopSharpemuGame(game: SharpemuGame) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/sharpemu/stop", { id: game.id });
+  if (result?.ok) {
+    game.running = false;
+    game.pid = null;
+  } else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+}
+
+async function openSharpemuLog(path: string) {
+  if (
+    !window.confirm(
+      "SharpEmu logs can contain game titles, title IDs, local paths, module names, and crash details. Open this local log location?",
+    )
+  )
+    return;
+  const result = await getAPI().openSharpemuPath(path);
+  if (!result?.ok) toast.show(result?.error ?? "Could not open the SharpEmu log location", "error");
+}
+
+async function removeSharpemuRuntime() {
+  if (
+    !window.confirm(
+      "Remove managed SharpEmu runtime versions? Saves, settings, caches, logs, and external games are preserved.",
+    )
+  )
+    return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/sharpemu/remove-runtime", {
+    confirm: true,
+  });
+  if (result?.ok) {
+    sharpemuUpdate.value = null;
+    await refreshSharpemu();
+    toast.show("SharpEmu runtime removed; user data was preserved", "success");
+  } else toast.show(result?.error ?? "Could not remove SharpEmu runtime", "error");
+}
+
 async function load() {
   const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
     api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
@@ -517,10 +1990,28 @@ async function load() {
     }
   }
   if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
+  await Promise.all([loadGameJolt(), refreshRpcs3(), refreshShadps4()]);
+  await syncGameJolt(false);
 }
 
 function setGogGames(games: GogGame[]) {
-  gogGames.value = [...games].sort((a, b) =>
+  const unique = new Map<string, GogGame>();
+  for (const game of games) {
+    const previous = unique.get(game.productId);
+    unique.set(
+      game.productId,
+      previous
+        ? {
+            ...previous,
+            ...game,
+            title: !game.title || game.title === game.productId ? previous.title : game.title,
+            imageUrl: game.imageUrl ?? previous.imageUrl,
+            iconUrl: game.iconUrl ?? previous.iconUrl,
+          }
+        : game,
+    );
+  }
+  gogGames.value = [...unique.values()].sort((a, b) =>
     a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
   );
 }
@@ -541,8 +2032,16 @@ async function refreshGog() {
 function upsertGogGame(game: GogGame) {
   const idx = gogGames.value.findIndex((item) => item.productId === game.productId);
   const games = [...gogGames.value];
-  if (idx >= 0) games[idx] = game;
-  else games.push(game);
+  if (idx >= 0) {
+    const previous = games[idx];
+    games[idx] = {
+      ...previous,
+      ...game,
+      title: !game.title || game.title === game.productId ? previous.title : game.title,
+      imageUrl: game.imageUrl ?? previous.imageUrl,
+      iconUrl: game.iconUrl ?? previous.iconUrl,
+    };
+  } else games.push(game);
   setGogGames(games);
 }
 
@@ -694,6 +2193,7 @@ async function installGogGame(game: GogGame) {
     "/sharp-library/gog/install",
     {
       productId: game.productId,
+      title: game.title,
       platform: game.platform || "windows",
       installPath,
     },
@@ -732,7 +2232,7 @@ async function playGogGame(game: GogGame) {
   const result = await api<{ ok: boolean; game?: GogGame; pid?: number; error?: string }>(
     "POST",
     "/sharp-library/gog/play",
-    { productId: game.productId },
+    { productId: game.productId, engine: gogEngines.value[game.productId] ?? "auto" },
     90 * 1000,
   );
   gogLoading.value[`${game.productId}:play`] = false;
@@ -742,6 +2242,11 @@ async function playGogGame(game: GogGame) {
   } else {
     toast.show(result?.error ?? `Failed to launch ${game.title}`, "error");
   }
+}
+
+function updateGogEngine(game: GogGame, engine: string) {
+  gogEngines.value[game.productId] = engine;
+  localStorage.setItem("metalsharp-gog-engines", JSON.stringify(gogEngines.value));
 }
 
 async function stopGogGame(game: GogGame) {
@@ -781,7 +2286,40 @@ async function refreshSharpLibrary() {
   toast.show("Sharp Library refreshed", "success");
 }
 
+function selectSource(mode: SharpSource) {
+  sourceMode.value = mode;
+  if (mode === "pcsx2") {
+    void refreshPcsx2();
+    if (!pcsx2Update.value) void checkPcsx2Update(false);
+  } else if (mode === "shadps4") {
+    void refreshShadps4();
+    if (!shadps4Update.value) void checkShadps4Update(false);
+  } else if (mode === "sharpemu") {
+    void refreshSharpemu();
+    if (!sharpemuUpdate.value) void checkSharpemuUpdate(false);
+  } else if (mode === "rpcs3") {
+    void refreshRpcs3();
+    if (!rpcs3Update.value) void checkRpcs3Update(false);
+  }
+}
+
 async function refreshCurrentSource() {
+  if (sourceMode.value === "pcsx2") {
+    await refreshPcsx2(true);
+    return;
+  }
+  if (sourceMode.value === "rpcs3") {
+    await refreshRpcs3(true);
+    return;
+  }
+  if (sourceMode.value === "shadps4") {
+    await refreshShadps4(true);
+    return;
+  }
+  if (sourceMode.value === "sharpemu") {
+    await refreshSharpemu(true);
+    return;
+  }
   if (sourceMode.value === "gog") {
     if (gogStatus.value?.authenticated) {
       await syncGogLibrary();
@@ -1453,8 +2991,51 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-onMounted(load);
-onUnmounted(stopGogMonoPoll);
+let removeGameJoltDownloadListener: (() => void) | null = null;
+onMounted(() => {
+  void load();
+  void refreshGameJoltProcessState();
+  gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  pcsx2ProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "pcsx2" && pcsx2Status.value?.installed) void refreshPcsx2();
+  }, 3000);
+  rpcs3ProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "rpcs3" && rpcs3Status.value?.installed) void refreshRpcs3();
+  }, 3000);
+  shadps4ProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "shadps4" && shadps4Status.value?.installed) void refreshShadps4();
+  }, 3000);
+  sharpemuProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "sharpemu" && sharpemuStatus.value?.installed) void refreshSharpemu();
+  }, 3000);
+  removeGameJoltDownloadListener = getAPI().onGameJoltDownload(handleGameJoltDownload);
+});
+onUnmounted(() => {
+  stopGogMonoPoll();
+  if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
+  gamejoltProcessPollTimer = null;
+  if (pcsx2ProcessPollTimer) clearInterval(pcsx2ProcessPollTimer);
+  pcsx2ProcessPollTimer = null;
+  stopPcsx2UpdatePolling();
+  if (rpcs3ProcessPollTimer) clearInterval(rpcs3ProcessPollTimer);
+  rpcs3ProcessPollTimer = null;
+  stopRpcs3UpdatePoll();
+  if (shadps4ProcessPollTimer) clearInterval(shadps4ProcessPollTimer);
+  shadps4ProcessPollTimer = null;
+  stopShadps4UpdatePoll();
+  if (sharpemuProcessPollTimer) clearInterval(sharpemuProcessPollTimer);
+  sharpemuProcessPollTimer = null;
+  stopSharpemuUpdatePoll();
+  removeGameJoltDownloadListener?.();
+  removeGameJoltDownloadListener = null;
+  if (gamejoltDragPointerId !== null) {
+    gamejoltDragPointerId = null;
+    gamejoltBrowserDragging.value = false;
+  }
+  window.removeEventListener("pointermove", moveGameJoltBrowserDrag);
+  window.removeEventListener("pointerup", endGameJoltBrowserDrag);
+  window.removeEventListener("pointercancel", endGameJoltBrowserDrag);
+});
 </script>
 
 <template>
@@ -1465,12 +3046,69 @@ onUnmounted(stopGogMonoPoll);
         <p>{{ headerSubtitle }}</p>
       </div>
       <div class="sharp-header-controls">
-        <label class="source-selector">
-          <select v-model="sourceMode" class="control-input" aria-label="Library source">
-            <option value="installers">Installers</option>
-            <option value="gog">GOG</option>
-          </select>
-        </label>
+        <nav class="source-tabs" role="tablist" aria-label="Sharp Library sources">
+          <button
+            v-for="tab in sourceTabs"
+            :key="tab.id"
+            class="source-tab"
+            :class="{ active: sourceMode === tab.id }"
+            type="button"
+            role="tab"
+            :aria-selected="sourceMode === tab.id"
+            @click="selectSource(tab.id)"
+          >
+            {{ tab.label }}
+          </button>
+        </nav>
+        <div v-if="sourceMode === 'pcsx2'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
+            @click="installOrUpdatePcsx2"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ pcsx2Loading.update ? "Installing…" : pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+          </button>
+          <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
+            <IconX width="15" height="15" /> Stop PCSX2
+          </button>
+          <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
+            <IconExternalLink width="15" height="15" /> Open PCSX2
+          </button>
+        </div>
+        <div v-else-if="sourceMode === 'rpcs3'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="rpcs3Loading.update || rpcs3Loading.check"
+            @click="installOrUpdateRpcs3"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ rpcs3Loading.update ? "Installing…" : rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
+          </button>
+          <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
+            <IconExternalLink width="14" height="14" /> Open RPCS3
+          </button>
+        </div>
+        <div v-else-if="sourceMode === 'shadps4'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
+            @click="installOrUpdateShadps4"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ shadps4Loading.update ? "Installing…" : shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
+          </button>
+        </div>
+        <div v-else-if="sourceMode === 'sharpemu'" class="emulator-header-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
+            @click="installOrUpdateSharpemu"
+          >
+            <component :is="refreshIcon" width="15" height="15" />
+            {{ sharpemuLoading.update ? "Installing…" : sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
+          </button>
+        </div>
         <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
           <IconUpload class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
@@ -1520,6 +3158,10 @@ onUnmounted(stopGogMonoPoll);
         >
           <span class="btn-label-long">Reset</span><span class="btn-label-short">Reset</span>
         </button>
+        <button v-if="sourceMode === 'gamejolt'" class="btn btn-secondary" @click="chooseGameJoltStorage">
+          <span class="btn-label-long">{{ gamejoltStorage ? "Change Folder" : "Choose GameJolt Folder" }}</span>
+          <span class="btn-label-short">{{ gamejoltStorage ? "Change" : "Folder" }}</span>
+        </button>
         <button
           v-if="sourceMode === 'gog'"
           class="btn btn-primary"
@@ -1537,15 +3179,28 @@ onUnmounted(stopGogMonoPoll);
           ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
         </button>
         <button
+          v-if="
+            sourceMode !== 'pcsx2' && sourceMode !== 'rpcs3' && sourceMode !== 'shadps4' && sourceMode !== 'sharpemu'
+          "
           class="btn btn-secondary"
           :disabled="sourceMode === 'gog' && gogLoading.sync"
-          @click="refreshCurrentSource"
+          @click="sourceMode === 'gamejolt' ? syncGameJolt() : refreshCurrentSource()"
         >
           <component :is="refreshIcon" class="btn-icon" width="14" height="14" />
           <span class="btn-label-long">{{
-            sourceMode === "gog" ? (gogLoading.sync ? "Syncing…" : "Sync GOG") : "Refresh"
+            sourceMode === "gog"
+              ? gogLoading.sync
+                ? "Syncing…"
+                : "Sync GOG"
+              : sourceMode === "gamejolt"
+                ? gamejoltLoading
+                  ? "Scanning…"
+                  : "Sync GameJolt"
+                : "Refresh"
           }}</span
-          ><span class="btn-label-short">{{ sourceMode === "gog" ? "Sync" : "Refresh" }}</span>
+          ><span class="btn-label-short">{{
+            sourceMode === "gog" || sourceMode === "gamejolt" ? "Sync" : "Refresh"
+          }}</span>
         </button>
       </div>
     </div>
@@ -1751,7 +3406,7 @@ onUnmounted(stopGogMonoPoll);
         </div>
       </template>
 
-      <template v-else>
+      <template v-else-if="sourceMode === 'gog'">
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
             <h2>gogdl is not installed</h2>
@@ -1853,11 +3508,1227 @@ onUnmounted(stopGogMonoPoll);
                     >
                       Uninstall
                     </button>
+                    <select
+                      v-if="game.installed"
+                      class="control-input gog-pipeline-select"
+                      :value="gogEngines[game.productId] ?? 'auto'"
+                      aria-label="GOG bottle pipeline"
+                      @change="updateGogEngine(game, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="auto">Auto</option>
+                      <option v-for="option in engineOptions" :key="option.id" :value="option.id">
+                        {{ option.name }}
+                      </option>
+                    </select>
                   </div>
                   <div v-if="game.status === 'install_failed' && game.lastError" class="gog-card-meta">
                     <strong class="launch-failure">{{ game.lastError }}</strong>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="sourceMode === 'gamejolt'">
+        <section
+          ref="gamejoltPanel"
+          class="gamejolt-panel"
+          :class="{ dragging: gamejoltBrowserDragging }"
+          :style="gameJoltPanelStyle()"
+          @pointermove="moveGameJoltBrowserDrag"
+          @pointerup="endGameJoltBrowserDrag"
+          @pointercancel="endGameJoltBrowserDrag"
+        >
+          <div class="gamejolt-games-pane">
+            <div v-if="gamejoltGames.length === 0" class="empty-state compact">
+              <h2>No GameJolt games found</h2>
+              <p>Place each game in its own folder inside the GameJolt directory, then sync.</p>
+            </div>
+            <div v-else class="gamejolt-grid">
+              <article
+                v-for="game in gamejoltGames"
+                :key="game.id"
+                class="sharp-card gamejolt-card"
+                :class="{ running: gamejoltRunningPids[game.id] }"
+              >
+                <div class="sharp-card-banner">
+                  <img
+                    v-if="game.cover_path"
+                    :src="`http://127.0.0.1:9274/gamejolt/cover?id=${encodeURIComponent(game.id)}`"
+                    :alt="game.name"
+                  />
+                  <img v-else :src="sharpLogoUrl" :alt="`${game.name} default artwork`" class="sharp-cover-fallback" />
+                </div>
+                <div class="sharp-card-body">
+                  <div class="sharp-card-title gamejolt-card-title">
+                    <input
+                      v-if="editingGameJoltName === game.id"
+                      v-model="gameJoltNameDraft"
+                      class="gamejolt-name-input"
+                      maxlength="160"
+                      autofocus
+                      @keydown.enter.prevent="saveGameJoltName(game)"
+                      @keydown.esc="editingGameJoltName = null"
+                      @blur="saveGameJoltName(game)"
+                    />
+                    <span v-else>{{ game.name }}</span>
+                    <button
+                      v-if="editingGameJoltName !== game.id"
+                      class="gamejolt-edit-name"
+                      type="button"
+                      title="Rename game"
+                      aria-label="Rename game"
+                      @click.stop="beginGameJoltNameEdit(game)"
+                    >
+                      <IconPencil width="13" height="13" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-meta">
+                    <span class="badge" :class="game.native ? 'badge-ok' : 'badge-muted'">
+                      {{ game.native ? "Native macOS" : "Windows" }}
+                    </span>
+                  </div>
+                  <div class="gamejolt-actions-main">
+                    <button v-if="gamejoltRunningPids[game.id]" class="btn btn-stop" @click="stopGameJolt(game)">
+                      Stop
+                    </button>
+                    <button v-else class="btn btn-play" @click="launchGameJolt(game)">Play</button>
+                    <button
+                      class="btn btn-uninstall"
+                      type="button"
+                      :disabled="!!gamejoltRunningPids[game.id]"
+                      @click="uninstallGameJolt(game)"
+                    >
+                      Uninstall
+                    </button>
+                    <select
+                      v-if="!game.native"
+                      class="control-input gamejolt-pipeline-select"
+                      v-model="game.engine"
+                      aria-label="GameJolt bottle pipeline"
+                      @change="updateGameJoltEngine(game, game.engine)"
+                    >
+                      <option v-for="option in game.available_pipelines" :key="option.id" :value="option.id">
+                        {{ option.name }}
+                      </option>
+                    </select>
+                    <span v-else class="gamejolt-native-note">No bottle required</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+          <div class="gamejolt-browser-frame">
+            <div
+              class="gamejolt-browser-handle"
+              role="separator"
+              aria-label="Resize GameJolt browser"
+              aria-orientation="horizontal"
+              @pointerdown="beginGameJoltBrowserDrag"
+            >
+              <span class="gamejolt-browser-arrow" aria-hidden="true">↕</span>
+            </div>
+            <webview class="gamejolt-browser" src="https://gamejolt.com/games" partition="persist:gamejolt"></webview>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="sourceMode === 'pcsx2'">
+        <section class="emulator-panel rpcs3-dashboard pcsx2-dashboard">
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Managed PlayStation 2 environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>PCSX2 <span class="emulator-platform-label">- PS2 Emulation</span></h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          pcsx2Status?.state === 'ready' || pcsx2Status?.state === 'running'
+                            ? 'ready'
+                            : pcsx2Status?.supported
+                              ? 'attention'
+                              : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ pcsx2StateLabel }}
+                      </span>
+                    </div>
+                    <p>
+                      Official stable PCSX2, isolated from your normal home folder. MetalSharp never downloads a Sony
+                      BIOS or games and preserves all mutable emulator data across updates and runtime removal.
+                    </p>
+                    <p v-if="pcsx2Status?.warnings?.length" class="shadps4-host-warning">
+                      Host advisory: {{ pcsx2Status.warnings.join(", ").replaceAll("_", " ") }}
+                    </p>
+                  </div>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconPackage width="17" height="17" />
+                    <span
+                      ><small>Stable runtime</small
+                      ><strong :title="pcsx2Status?.currentTag ?? ''">{{ pcsx2BuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconMonitor width="17" height="17" />
+                    <span
+                      ><small>Host</small
+                      ><strong>{{
+                        pcsx2Status?.hostArchitecture === "arm64"
+                          ? "Apple Silicon · Rosetta"
+                          : pcsx2Status?.hostArchitecture === "x86_64"
+                            ? "Intel · SSE4.1"
+                            : pcsx2Status?.hostArchitecture || "Checking…"
+                      }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="17" height="17" />
+                    <span
+                      ><small>User BIOS</small
+                      ><strong>{{
+                        pcsx2Status?.biosInstalled ? pcsx2Status.biosRegion || "Validated" : "Required"
+                      }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="17" height="17" />
+                    <span
+                      ><small>Library</small
+                      ><strong>{{ pcsx2Games.length }} game{{ pcsx2Games.length === 1 ? "" : "s" }}</strong></span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+            <aside class="emulator-sidebar" aria-label="PCSX2 tools">
+              <div class="rpcs3-command-bar" aria-label="PCSX2 library actions">
+                <button
+                  class="rpcs3-command"
+                  :disabled="!pcsx2Status?.installed || pcsx2Loading.bios"
+                  @click="importPcsx2Bios"
+                >
+                  <IconShieldCheck width="17" height="17" /><span
+                    ><strong>Import BIOS</strong><small>Accepts a .bin BIOS file</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openEmulatorResource('pcsx2-firmware')">
+                  <IconDownload width="17" height="17" /><span
+                    ><strong>Download Firmware</strong><small>Open PCSX2 firmware page</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openEmulatorResource('archive-games')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Find Games</strong><small>Open archive.org</small></span
+                  >
+                </button>
+                <details v-if="pcsx2Status?.installed" class="pcsx2-setup-dropdown">
+                  <summary class="rpcs3-command">
+                    <IconMonitor width="17" height="17" /><span
+                      ><strong>PCSX2 Setup</strong><small>Controllers &amp; renderer</small></span
+                    >
+                  </summary>
+                  <div v-if="pcsx2Settings" class="pcsx2-setup-fields" :aria-busy="pcsx2Loading.settings">
+                    <label>
+                      <span>Controller 1</span>
+                      <select
+                        :value="pcsx2Settings.controller1"
+                        :disabled="pcsx2Loading.settings || pcsx2Status?.state === 'running'"
+                        @change="savePcsx2Setting('controller1', $event)"
+                      >
+                        <option v-for="option in pcsx2Settings.controllerOptions" :key="option.id" :value="option.id">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Controller 2</span>
+                      <select
+                        :value="pcsx2Settings.controller2"
+                        :disabled="pcsx2Loading.settings || pcsx2Status?.state === 'running'"
+                        @change="savePcsx2Setting('controller2', $event)"
+                      >
+                        <option v-for="option in pcsx2Settings.controllerOptions" :key="option.id" :value="option.id">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Renderer</span>
+                      <select
+                        :value="pcsx2Settings.renderer"
+                        :disabled="pcsx2Loading.settings || pcsx2Status?.state === 'running'"
+                        @change="savePcsx2Setting('renderer', $event)"
+                      >
+                        <option v-for="option in pcsx2Settings.rendererOptions" :key="option.id" :value="option.id">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <small>Selections are saved directly to the isolated PCSX2 configuration.</small>
+                  </div>
+                  <p v-else class="emulator-sidebar-empty">Loading PCSX2 settings…</p>
+                </details>
+                <button v-else class="rpcs3-command" disabled>
+                  <IconMonitor width="17" height="17" /><span
+                    ><strong>PCSX2 Setup</strong><small>Install PCSX2 first</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="addPcsx2Folder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add Games</strong><small>Disc image or folder</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="refreshPcsx2(true)">
+                  <component :is="refreshIcon" width="17" height="17" /><span
+                    ><strong>Scan Library</strong><small>Refresh metadata</small></span
+                  >
+                </button>
+              </div>
+
+              <div
+                v-if="pcsx2UpdateProgress?.running || pcsx2UpdateProgress?.status === 'failed'"
+                class="gog-download-progress rpcs3-update-progress"
+              >
+                <div class="gog-progress-meta">
+                  <strong>{{ pcsx2UpdateProgress.message }}</strong
+                  ><span>{{ pcsx2UpdateProgress.percent }}%</span>
+                </div>
+                <div class="gog-progress-bar"><span :style="{ width: `${pcsx2UpdateProgress.percent}%` }"></span></div>
+                <small v-if="pcsx2UpdateProgress.error" class="launch-failure">{{ pcsx2UpdateProgress.error }}</small>
+              </div>
+
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
+                  >
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button class="btn btn-secondary btn-sm" :disabled="pcsx2Loading.check" @click="checkPcsx2Update()">
+                    {{ pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+                  </button>
+                  <button
+                    v-if="pcsx2Status?.installed && pcsx2Update"
+                    class="btn btn-secondary btn-sm"
+                    @click="setPcsx2UpdatePolicy(pcsx2Update.pinnedTag ? 'unpin' : 'pin-current')"
+                  >
+                    {{ pcsx2Update.pinnedTag ? "Unpin Version" : "Pin Current" }}
+                  </button>
+                  <button
+                    v-if="pcsx2Update?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setPcsx2UpdatePolicy('skip-update')"
+                  >
+                    Skip {{ pcsx2Update.latestVersion }}
+                  </button>
+                  <button
+                    v-if="pcsx2Update?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setPcsx2UpdatePolicy('clear-skip')"
+                  >
+                    Clear Skipped Update
+                  </button>
+                  <button v-if="pcsx2Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackPcsx2">
+                    Roll Back Runtime
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('bios')">
+                    BIOS Dump Guide
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('discs')">
+                    Disc Dumping Guide
+                  </button>
+                  <button
+                    v-if="pcsx2Status?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openPcsx2Path(pcsx2Status.environmentPath)"
+                  >
+                    Open Isolated Data
+                  </button>
+                  <button v-if="pcsx2Status?.installed" class="btn btn-danger btn-sm" @click="removePcsx2Runtime">
+                    Remove Runtime
+                  </button>
+                </div>
+              </details>
+
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game locations</span
+                  >
+                  <span class="emulator-root-count">{{ pcsx2Roots.length }}</span>
+                </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addPcsx2Folder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
+                <p v-if="pcsx2Roots.length === 0" class="emulator-sidebar-empty">No game locations added yet.</p>
+                <div v-for="root in pcsx2Roots" :key="root" class="emulator-root-row">
+                  <code>{{ root }}</code>
+                  <button class="btn btn-secondary btn-sm" @click="removePcsx2Root(root)">Remove Reference</button>
+                </div>
+              </details>
+            </aside>
+            <div v-if="pcsx2Games.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
+                <article
+                  v-for="game in pcsx2Games"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/pcsx2/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="`${game.title} cover`"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopPcsx2(game)">
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.serial || "PS2"
+                      }}</span>
+                      <span class="sharp-card-size"
+                        >{{ game.format.toUpperCase() }} · {{ formatBytes(game.size) }}</span
+                      >
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button
+                        v-if="!game.running"
+                        class="btn btn-play"
+                        :disabled="pcsx2Status?.state !== 'ready'"
+                        @click="launchPcsx2(game)"
+                      >
+                        Play
+                      </button>
+                      <button v-else class="btn btn-stop" @click="stopPcsx2(game)">Stop</button>
+                      <button class="btn btn-secondary" @click="getAPI().openPcsx2Path(game.path)">Open Folder</button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="getAPI().openPcsx2Path(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                    <small v-if="game.lastExitCode !== null && game.lastExitCode !== undefined"
+                      >Last exit: {{ game.lastExitCode }}</small
+                    >
+                    <small v-else-if="game.lastExitSignal">Last signal: {{ game.lastExitSignal }}</small>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="sourceMode === 'rpcs3'">
+        <section class="emulator-panel rpcs3-dashboard">
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Managed PlayStation 3 environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>RPCS3 <span class="emulator-platform-label">- PS3 Emulation</span></h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          rpcs3Status?.state === 'ready' ? 'ready' : rpcs3Status?.installed ? 'attention' : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ rpcs3StateLabel }}
+                      </span>
+                    </div>
+                    <p>A verified, isolated emulator environment with atomic updates and protected user data.</p>
+                  </div>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconHardDrive width="16" height="16" />
+                    <span
+                      ><small>Runtime</small
+                      ><strong :title="rpcs3Status?.currentTag ?? ''">{{ rpcs3BuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Firmware</small
+                      ><strong>{{ rpcs3Status?.firmwareInstalled ? "Installed" : "Required" }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="16" height="16" />
+                    <span
+                      ><small>Library</small
+                      ><strong>{{ rpcs3Games.length }} game{{ rpcs3Games.length === 1 ? "" : "s" }}</strong></span
+                    >
+                  </div>
+                  <div v-if="rpcs3Update" class="rpcs3-stat rpcs3-stat-wide">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Latest verified release</small
+                      ><strong
+                        >{{ rpcs3Update.latestVersion }} · {{ formatBytes(rpcs3Update.downloadSize) }}</strong
+                      ></span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+            <aside class="emulator-sidebar" aria-label="RPCS3 tools">
+              <div class="rpcs3-command-bar" aria-label="RPCS3 library actions">
+                <button
+                  class="rpcs3-command"
+                  :disabled="!rpcs3Status?.installed"
+                  @click="installRpcs3Content('firmware')"
+                >
+                  <IconShieldCheck width="17" height="17" /><span
+                    ><strong>Firmware</strong><small>Install PS3UPDAT.PUP</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openRpcs3FirmwarePage()">
+                  <IconDownload width="17" height="17" /><span
+                    ><strong>Download Firmware</strong><small>Open PlayStation support</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openEmulatorResource('archive-games')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Find Games</strong><small>Open archive.org</small></span
+                  >
+                </button>
+                <button
+                  class="rpcs3-command"
+                  :disabled="!rpcs3Status?.installed"
+                  @click="installRpcs3Content('package')"
+                >
+                  <IconPackage width="17" height="17" /><span
+                    ><strong>Install package</strong><small>Add an owned PKG</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="addRpcs3Folder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add games</strong><small>Choose a library folder</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" :disabled="rpcs3Loading.check" @click="refreshRpcs3(true)">
+                  <IconScanLine width="17" height="17" /><span
+                    ><strong>Scan library</strong><small>Refresh games and artwork</small></span
+                  >
+                </button>
+              </div>
+
+              <div
+                v-if="rpcs3UpdateProgress?.running || rpcs3UpdateProgress?.status === 'failed'"
+                class="emulator-update-card"
+              >
+                <div class="emulator-progress-row">
+                  <strong>{{ rpcs3UpdateProgress.message }}</strong>
+                  <span>{{ rpcs3UpdateProgress.percent }}%</span>
+                </div>
+                <div class="gog-progress-bar"><span :style="{ width: `${rpcs3UpdateProgress.percent}%` }"></span></div>
+                <small v-if="rpcs3UpdateProgress.error" class="launch-failure">{{ rpcs3UpdateProgress.error }}</small>
+              </div>
+
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
+                  >
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button class="btn btn-secondary btn-sm" :disabled="rpcs3Loading.check" @click="checkRpcs3Update()">
+                    {{ rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
+                  </button>
+                  <button
+                    v-if="rpcs3Status?.installed && rpcs3Update"
+                    class="btn btn-secondary btn-sm"
+                    @click="setRpcs3UpdatePolicy(rpcs3Update.pinnedTag ? 'unpin' : 'pin-current')"
+                  >
+                    {{ rpcs3Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
+                  </button>
+                  <button
+                    v-if="rpcs3Update?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setRpcs3UpdatePolicy('skip-update')"
+                  >
+                    Skip Update
+                  </button>
+                  <button
+                    v-if="rpcs3Update?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setRpcs3UpdatePolicy('clear-skip')"
+                  >
+                    Clear Skip
+                  </button>
+                  <button v-if="rpcs3Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackRpcs3">
+                    Rollback
+                  </button>
+                  <button
+                    v-if="rpcs3Status?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openRpcs3Path(rpcs3Status.environmentPath)"
+                  >
+                    Open Environment
+                  </button>
+                  <button v-if="rpcs3Status?.installed" class="btn btn-danger btn-sm" @click="removeRpcs3Runtime">
+                    Remove Runtime
+                  </button>
+                </div>
+              </details>
+
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                  >
+                  <span class="emulator-root-count">{{ rpcs3Roots.length }}</span>
+                </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addRpcs3Folder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
+                <p v-if="rpcs3Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <div v-for="root in rpcs3Roots" :key="root" class="emulator-root-row">
+                  <button class="emulator-root-path" type="button" @click="getAPI().openRpcs3Path(root)">
+                    {{ root }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="removeRpcs3Root(root)">Remove</button>
+                </div>
+              </details>
+            </aside>
+            <div v-if="rpcs3Games.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
+                <article
+                  v-for="game in rpcs3Games"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/rpcs3/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="game.title"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button
+                      v-if="game.running"
+                      class="running-close-button"
+                      title="Stop game"
+                      @click="stopRpcs3Game(game)"
+                    >
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.titleId || "PS3"
+                      }}</span>
+                      <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button v-if="game.running" class="btn btn-stop" @click="stopRpcs3Game(game)">Stop</button>
+                      <button
+                        v-else
+                        class="btn btn-play"
+                        :disabled="!rpcs3Status?.firmwareInstalled"
+                        @click="launchRpcs3Game(game)"
+                      >
+                        Play
+                      </button>
+                      <button class="btn btn-secondary" @click="getAPI().openRpcs3Path(game.path)">Open Folder</button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="getAPI().openRpcs3Path(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="sourceMode === 'shadps4'">
+        <section class="emulator-panel rpcs3-dashboard shadps4-dashboard">
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Experimental PlayStation 4 environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>shadPS4 <span class="emulator-platform-label">- PS4 Emulation</span></h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          shadps4Status?.state === 'ready' || shadps4Status?.state === 'running'
+                            ? 'ready'
+                            : shadps4Status?.supported
+                              ? 'attention'
+                              : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ shadps4StateLabel }}
+                      </span>
+                    </div>
+                    <p>
+                      Official stable core, isolated state, atomic rollback, and protected user-owned content.
+                      Compatibility remains experimental.
+                    </p>
+                    <p v-if="shadps4Status?.warnings?.length" class="shadps4-host-warning">
+                      Host advisory: {{ shadps4Status.warnings.join(", ").replaceAll("_", " ") }}
+                    </p>
+                  </div>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconHardDrive width="16" height="16" />
+                    <span
+                      ><small>Runtime</small
+                      ><strong :title="shadps4Status?.currentTag ?? ''">{{ shadps4BuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconMonitor width="16" height="16" />
+                    <span
+                      ><small>Host</small
+                      ><strong>{{
+                        shadps4Status?.supported ? "Apple Silicon · Rosetta" : shadps4StateLabel
+                      }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="16" height="16" />
+                    <span
+                      ><small>Library</small
+                      ><strong>{{ shadps4Games.length }} game{{ shadps4Games.length === 1 ? "" : "s" }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Optional compatibility files</small
+                      ><strong
+                        >{{ shadps4Status?.moduleCount ?? 0 }} modules ·
+                        {{ shadps4Status?.fontFileCount ?? 0 }} fonts</strong
+                      ></span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+            <aside class="emulator-sidebar" aria-label="shadPS4 tools">
+              <div class="rpcs3-command-bar" aria-label="shadPS4 library actions">
+                <button class="rpcs3-command" @click="addShadps4Folder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add games</strong><small>Choose dumped CUSA folders</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="importShadps4Content('modules')">
+                  <IconShieldCheck width="17" height="17" /><span
+                    ><strong>Import modules</strong><small>Console-dumped SPRX files</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="importShadps4Content('fonts')">
+                  <IconPackage width="17" height="17" /><span
+                    ><strong>Import fonts</strong><small>Console-dumped font content</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="refreshShadps4(true)">
+                  <IconScanLine width="17" height="17" /><span
+                    ><strong>Scan library</strong><small>Refresh metadata and artwork</small></span
+                  >
+                </button>
+              </div>
+
+              <div
+                v-if="shadps4UpdateProgress?.running || shadps4UpdateProgress?.status === 'failed'"
+                class="emulator-update-card"
+              >
+                <div class="emulator-progress-row">
+                  <strong>{{ shadps4UpdateProgress.message }}</strong
+                  ><span>{{ shadps4UpdateProgress.percent }}%</span>
+                </div>
+                <div class="gog-progress-bar">
+                  <span :style="{ width: `${shadps4UpdateProgress.percent}%` }"></span>
+                </div>
+                <small v-if="shadps4UpdateProgress.error" class="launch-failure">{{
+                  shadps4UpdateProgress.error
+                }}</small>
+              </div>
+
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
+                  >
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :disabled="shadps4Loading.check"
+                    @click="checkShadps4Update()"
+                  >
+                    {{ shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
+                  </button>
+                  <button
+                    v-if="shadps4Status?.installed && shadps4Update"
+                    class="btn btn-secondary btn-sm"
+                    @click="setShadps4UpdatePolicy(shadps4Update.pinnedTag ? 'unpin' : 'pin-current')"
+                  >
+                    {{ shadps4Update.pinnedTag ? "Unpin Build" : "Pin Current" }}
+                  </button>
+                  <button
+                    v-if="shadps4Update?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setShadps4UpdatePolicy('skip-update')"
+                  >
+                    Skip Update
+                  </button>
+                  <button
+                    v-if="shadps4Update?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setShadps4UpdatePolicy('clear-skip')"
+                  >
+                    Clear Skip
+                  </button>
+                  <button
+                    v-if="shadps4Status?.rollbackAvailable"
+                    class="btn btn-secondary btn-sm"
+                    @click="rollbackShadps4"
+                  >
+                    Rollback Runtime
+                  </button>
+                  <button
+                    v-if="shadps4Status?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openShadps4Path(shadps4Status.environmentPath)"
+                  >
+                    Open Environment
+                  </button>
+                  <button v-if="shadps4Status?.installed" class="btn btn-danger btn-sm" @click="removeShadps4Runtime">
+                    Remove Runtime
+                  </button>
+                </div>
+              </details>
+
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                  >
+                  <span class="emulator-root-count">{{ shadps4Roots.length }}</span>
+                </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addShadps4Folder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
+                <p v-if="shadps4Roots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <div v-for="root in shadps4Roots" :key="root" class="emulator-root-row">
+                  <button class="emulator-root-path" type="button" @click="getAPI().openShadps4Path(root)">
+                    {{ root }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="removeShadps4Root(root)">
+                    Remove
+                  </button>
+                </div>
+              </details>
+            </aside>
+            <div v-if="shadps4Games.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
+                <article
+                  v-for="game in shadps4Games"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/shadps4/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="game.title"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button
+                      v-if="game.running"
+                      class="running-close-button"
+                      title="Stop game"
+                      @click="stopShadps4Game(game)"
+                    >
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.titleId || "PS4"
+                      }}</span>
+                      <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
+                      <span v-if="game.hasUpdate" class="sharp-card-size">Update dump found</span>
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button v-if="game.running" class="btn btn-stop" @click="stopShadps4Game(game)">Stop</button>
+                      <button v-else class="btn btn-play" @click="launchShadps4Game(game)">Play</button>
+                      <button class="btn btn-secondary" @click="getAPI().openShadps4Path(game.path)">
+                        Open Folder
+                      </button>
+                      <button
+                        v-if="/^CUSA\d{5}$/i.test(game.titleId)"
+                        class="btn btn-secondary"
+                        @click="getAPI().openShadps4Compatibility(game.titleId)"
+                      >
+                        Compatibility
+                      </button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="getAPI().openShadps4Path(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+      </template>
+      <template v-else-if="sourceMode === 'sharpemu'">
+        <section class="emulator-panel rpcs3-dashboard shadps4-dashboard sharpemu-dashboard">
+          <div class="emulator-workspace">
+            <div class="emulator-main-header">
+              <div class="rpcs3-overview">
+                <div class="rpcs3-overview-main">
+                  <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
+                  <div class="rpcs3-overview-copy">
+                    <div class="rpcs3-eyebrow">Experimental PlayStation 5 research environment</div>
+                    <div class="rpcs3-title-row">
+                      <h2>SharpEmu <span class="emulator-platform-label">- PS5 Emulation</span></h2>
+                      <span
+                        class="rpcs3-state-pill"
+                        :class="
+                          sharpemuStatus?.state === 'ready' || sharpemuStatus?.state === 'running'
+                            ? 'ready'
+                            : sharpemuStatus?.supported
+                              ? 'attention'
+                              : 'muted'
+                        "
+                      >
+                        <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ sharpemuStateLabel }}
+                      </span>
+                    </div>
+                    <p>
+                      SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary
+                      target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.
+                    </p>
+                  </div>
+                </div>
+                <div class="rpcs3-stats">
+                  <div class="rpcs3-stat">
+                    <IconHardDrive width="16" height="16" />
+                    <span
+                      ><small>Runtime</small
+                      ><strong :title="sharpemuStatus?.currentTag ?? ''">{{ sharpemuBuildLabel }}</strong></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconMonitor width="16" height="16" />
+                    <span
+                      ><small>Host</small
+                      ><strong
+                        >{{ sharpemuStatus?.hostArchitecture ?? "Checking…" }} · macOS
+                        {{ sharpemuStatus?.hostMacosMajor ?? "…" }}</strong
+                      ></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconGamepad2 width="16" height="16" />
+                    <span
+                      ><small>Library</small
+                      ><strong
+                        >{{ sharpemuGames.length }} layout{{ sharpemuGames.length === 1 ? "" : "s" }}</strong
+                      ></span
+                    >
+                  </div>
+                  <div class="rpcs3-stat">
+                    <IconShieldCheck width="16" height="16" />
+                    <span
+                      ><small>Guest network</small
+                      ><strong>{{ sharpemuNetworkOptIn ? "Explicitly enabled" : "Denied by default" }}</strong></span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+            <aside class="emulator-sidebar" aria-label="SharpEmu tools">
+              <div class="rpcs3-command-bar" aria-label="SharpEmu library actions">
+                <button class="rpcs3-command" @click="addSharpemuFolder">
+                  <IconFolderPlus width="17" height="17" /><span
+                    ><strong>Add layouts</strong><small>Reference owned eboot.bin folders</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="refreshSharpemu(true)">
+                  <IconScanLine width="17" height="17" /><span
+                    ><strong>Scan library</strong><small>Refresh bounded local metadata</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openSharpemuLink('faq')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Official FAQ</strong><small>Open sharpemu.app</small></span
+                  >
+                </button>
+                <button class="rpcs3-command" @click="getAPI().openSharpemuLink('compatibility')">
+                  <IconExternalLink width="17" height="17" /><span
+                    ><strong>Compatibility</strong><small>View upstream reports</small></span
+                  >
+                </button>
+              </div>
+
+              <div class="sharpemu-network-policy" :class="{ enabled: sharpemuNetworkOptIn }">
+                <label>
+                  <input v-model="sharpemuNetworkOptIn" type="checkbox" />
+                  <span>
+                    <strong>Allow unrestricted guest networking for launches</strong>
+                    <small>
+                      Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact
+                      local or internet services. Every network-enabled launch asks again.
+                    </small>
+                  </span>
+                </label>
+              </div>
+
+              <div
+                v-if="sharpemuUpdateProgress?.running || sharpemuUpdateProgress?.status === 'failed'"
+                class="emulator-update-card"
+              >
+                <div class="emulator-progress-row">
+                  <strong>{{ sharpemuUpdateProgress.message }}</strong
+                  ><span>{{ sharpemuUpdateProgress.percent }}%</span>
+                </div>
+                <div class="gog-progress-bar">
+                  <span :style="{ width: `${sharpemuUpdateProgress.percent}%` }"></span>
+                </div>
+                <small v-if="sharpemuUpdateProgress.error" class="launch-failure">{{
+                  sharpemuUpdateProgress.error
+                }}</small>
+              </div>
+
+              <details class="rpcs3-management">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconHardDrive width="16" height="16" />Runtime &amp; support</span
+                  >
+                </summary>
+                <div class="rpcs3-management-actions">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :disabled="sharpemuLoading.check"
+                    @click="checkSharpemuUpdate()"
+                  >
+                    {{ sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.installed && sharpemuUpdate"
+                    class="btn btn-secondary btn-sm"
+                    @click="setSharpemuUpdatePolicy(sharpemuUpdate.pinnedTag ? 'unpin' : 'pin-current')"
+                  >
+                    {{ sharpemuUpdate.pinnedTag ? "Unpin Version" : "Pin Current" }}
+                  </button>
+                  <button
+                    v-if="sharpemuUpdate?.available"
+                    class="btn btn-secondary btn-sm"
+                    @click="setSharpemuUpdatePolicy('skip-update')"
+                  >
+                    Skip Update
+                  </button>
+                  <button
+                    v-if="sharpemuUpdate?.skippedTag"
+                    class="btn btn-secondary btn-sm"
+                    @click="setSharpemuUpdatePolicy('clear-skip')"
+                  >
+                    Clear Skip
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.rollbackAvailable"
+                    class="btn btn-secondary btn-sm"
+                    @click="rollbackSharpemu"
+                  >
+                    Rollback Runtime
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.environmentPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="getAPI().openSharpemuPath(sharpemuStatus.environmentPath)"
+                  >
+                    Open Environment
+                  </button>
+                  <button
+                    v-if="sharpemuStatus?.logsPath"
+                    class="btn btn-secondary btn-sm"
+                    @click="openSharpemuLog(sharpemuStatus.logsPath)"
+                  >
+                    Open Logs
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('repository')">
+                    Source &amp; GPL License
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="getAPI().openSharpemuLink('releases')">
+                    Official Releases
+                  </button>
+                  <button v-if="sharpemuStatus?.installed" class="btn btn-danger btn-sm" @click="removeSharpemuRuntime">
+                    Remove Runtime
+                  </button>
+                </div>
+                <p class="sharpemu-signing-note">
+                  The upstream macOS archive is not Developer ID signed or notarized. MetalSharp verifies its GitHub
+                  SHA-256 and structure before applying local ad-hoc signatures. Runtime removal preserves state and
+                  games.
+                </p>
+              </details>
+
+              <details class="emulator-roots">
+                <summary>
+                  <span class="emulator-sidebar-summary-label"
+                    ><IconFolderPlus width="16" height="16" />Game folders</span
+                  >
+                  <span class="emulator-root-count">{{ sharpemuRoots.length }}</span>
+                </summary>
+                <div class="emulator-root-toolbar">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="addSharpemuFolder">
+                    <IconFolderPlus width="14" height="14" /> Add
+                  </button>
+                </div>
+                <p v-if="sharpemuRoots.length === 0" class="emulator-sidebar-empty">No game folders added yet.</p>
+                <div v-for="root in sharpemuRoots" :key="root" class="emulator-root-row">
+                  <button class="emulator-root-path" type="button" @click="getAPI().openSharpemuPath(root)">
+                    {{ root }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="removeSharpemuRoot(root)">
+                    Remove reference
+                  </button>
+                </div>
+              </details>
+            </aside>
+            <div v-if="sharpemuGames.length > 0" class="emulator-library-column">
+              <div class="sharp-grid">
+                <article
+                  v-for="game in sharpemuGames"
+                  :key="game.id"
+                  class="sharp-card emulator-game-card"
+                  :class="{ running: game.running }"
+                >
+                  <div class="sharp-card-banner">
+                    <img
+                      v-if="game.hasArtwork"
+                      :src="`http://127.0.0.1:9274/sharp-library/sharpemu/cover?id=${encodeURIComponent(game.id)}`"
+                      :alt="game.title"
+                    />
+                    <img
+                      v-else
+                      :src="sharpLogoUrl"
+                      :alt="`${game.title} default artwork`"
+                      class="sharp-cover-fallback"
+                    />
+                    <button
+                      v-if="game.running"
+                      class="running-close-button"
+                      title="Stop game"
+                      @click="stopSharpemuGame(game)"
+                    >
+                      <IconX width="14" height="14" />
+                    </button>
+                  </div>
+                  <div class="sharp-card-body">
+                    <div class="sharp-card-title">{{ game.title }}</div>
+                    <div class="sharp-card-meta">
+                      <span class="badge" :class="game.running ? 'badge-ok' : 'badge-muted'">{{
+                        game.running ? "Running" : game.titleId || "PS5"
+                      }}</span>
+                      <span v-if="game.contentVersion || game.masterVersion" class="sharp-card-size"
+                        >v{{ game.contentVersion || game.masterVersion }}</span
+                      >
+                    </div>
+                    <div class="sharp-card-actions-row">
+                      <button v-if="game.running" class="btn btn-stop" @click="stopSharpemuGame(game)">Stop</button>
+                      <button
+                        v-else
+                        class="btn btn-play"
+                        :disabled="sharpemuStatus?.state !== 'ready'"
+                        @click="launchSharpemuGame(game)"
+                      >
+                        Play
+                      </button>
+                      <button class="btn btn-secondary" @click="getAPI().openSharpemuPath(game.path)">
+                        Open Folder
+                      </button>
+                      <button
+                        class="btn btn-secondary"
+                        @click="getAPI().openSharpemuLink('compatibility', game.titleId)"
+                      >
+                        Compatibility
+                      </button>
+                      <button
+                        v-if="game.lastLogPath"
+                        class="btn btn-secondary"
+                        @click="openSharpemuLog(game.lastLogPath)"
+                      >
+                        Log
+                      </button>
+                    </div>
+                    <small
+                      v-if="game.lastExitCode !== null && game.lastExitCode !== undefined"
+                      class="sharpemu-last-exit"
+                    >
+                      Last exit: {{ game.lastExitCode }}
+                    </small>
+                  </div>
+                </article>
               </div>
             </div>
           </div>
@@ -1963,16 +4834,59 @@ onUnmounted(stopGogMonoPoll);
   overflow: visible;
   -webkit-app-region: no-drag;
 }
-.source-selector {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 700;
+.emulator-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
 }
-.source-selector .control-input {
-  min-width: 112px;
+.emulator-header-actions .btn {
+  gap: 7px;
+}
+.source-tabs {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 34px;
+  max-width: 100%;
+  overflow-x: auto;
+  flex-shrink: 1;
+  border-bottom: 1px solid var(--border-strong);
+  scrollbar-width: none;
+}
+.source-tabs::-webkit-scrollbar {
+  display: none;
+}
+.source-tab {
+  flex: 0 0 auto;
+  position: relative;
+  padding: 0 12px;
+  color: var(--text-secondary);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.source-tab::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  content: "";
+  background: transparent;
+}
+.source-tab:hover {
+  color: var(--text-primary);
+}
+.source-tab.active {
+  color: var(--text-primary);
+}
+.source-tab.active::after {
+  background: var(--accent);
 }
 
 .support-drawer {
@@ -2445,6 +5359,44 @@ onUnmounted(stopGogMonoPoll);
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.gamejolt-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.gamejolt-card-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gamejolt-edit-name {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+.gamejolt-edit-name:hover {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--sidebar-hover);
+}
+.gamejolt-name-input {
+  min-width: 0;
+  width: 100%;
+  padding: 3px 6px;
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font: inherit;
+}
 .sharp-card-meta {
   display: flex;
   align-items: center;
@@ -2732,5 +5684,733 @@ details[open] > .drawer-summary {
 }
 .empty-state p {
   font-size: 13px;
+}
+.emulator-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rpcs3-dashboard {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.emulator-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 238px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+.emulator-main-header,
+.emulator-library-column {
+  min-width: 0;
+  grid-column: 1;
+}
+.emulator-main-header {
+  container-type: inline-size;
+  grid-row: 1;
+}
+.emulator-library-column {
+  display: flex;
+  grid-row: 2;
+  flex-direction: column;
+  gap: 14px;
+}
+.emulator-sidebar {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.emulator-sidebar .rpcs3-command-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.emulator-sidebar .rpcs3-command {
+  width: 100%;
+  min-height: 54px;
+}
+.pcsx2-setup-dropdown {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.pcsx2-setup-dropdown > summary {
+  list-style: none;
+}
+.pcsx2-setup-dropdown > summary::-webkit-details-marker {
+  display: none;
+}
+.pcsx2-setup-dropdown[open] {
+  border: 1px solid var(--border);
+}
+.pcsx2-setup-dropdown[open] > summary {
+  min-height: 53px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  transform: none;
+}
+.pcsx2-setup-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px;
+}
+.pcsx2-setup-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pcsx2-setup-fields select {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 28px 7px 9px;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: var(--bg-input);
+  cursor: pointer;
+}
+.pcsx2-setup-fields select:focus {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+}
+.pcsx2-setup-fields select:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.pcsx2-setup-fields > small {
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.45;
+}
+.emulator-sidebar .emulator-update-card,
+.emulator-sidebar .gog-download-progress,
+.emulator-sidebar .emulator-roots,
+.emulator-sidebar .rpcs3-management,
+.emulator-sidebar .sharpemu-network-policy {
+  width: 100%;
+}
+.emulator-sidebar .emulator-update-card,
+.emulator-sidebar .gog-download-progress {
+  padding: 11px 12px;
+}
+.emulator-sidebar .rpcs3-management,
+.emulator-sidebar .emulator-roots {
+  padding: 0;
+  overflow: hidden;
+}
+.emulator-sidebar .rpcs3-management summary,
+.emulator-sidebar .emulator-roots summary {
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 12px;
+  list-style-position: inside;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.emulator-sidebar .rpcs3-management[open] summary,
+.emulator-sidebar .emulator-roots[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+.emulator-sidebar-summary-label {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+}
+.emulator-sidebar-summary-label > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.emulator-sidebar .rpcs3-management-actions {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+.emulator-sidebar .rpcs3-management-actions .btn {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+.emulator-root-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 10px 0;
+}
+.emulator-root-toolbar .btn {
+  gap: 6px;
+  min-width: 72px;
+  justify-content: center;
+}
+.emulator-sidebar .emulator-root-row {
+  align-items: stretch;
+  flex-direction: column;
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.emulator-sidebar .emulator-root-row:first-of-type {
+  border-top: 0;
+}
+.emulator-sidebar .emulator-root-row code,
+.emulator-sidebar .emulator-root-path {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.emulator-sidebar-empty {
+  margin: 0;
+  padding: 12px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.emulator-sidebar .sharpemu-signing-note {
+  margin: 0;
+  padding: 0 10px 10px;
+  font-size: 9px;
+}
+.rpcs3-overview {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--bg-card) 94%, var(--accent) 6%),
+      color-mix(in srgb, var(--bg-card) 98%, transparent)
+    ),
+    var(--bg-card);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.16),
+    inset 0 1px rgba(255, 255, 255, 0.035);
+}
+.rpcs3-overview::after {
+  content: "";
+  position: absolute;
+  top: -110px;
+  right: -70px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  filter: blur(10px);
+  pointer-events: none;
+}
+.rpcs3-overview-main,
+.rpcs3-stats {
+  position: relative;
+  z-index: 1;
+}
+.rpcs3-overview-main {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.rpcs3-brand-mark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg-card));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+}
+.rpcs3-brand-mark {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+}
+.rpcs3-overview-copy {
+  min-width: 0;
+}
+.rpcs3-eyebrow {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.rpcs3-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 3px 0 5px;
+}
+.shadps4-host-warning {
+  margin-top: 6px !important;
+  color: var(--warning, #f4c15d) !important;
+}
+.rpcs3-title-row h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  line-height: 1.1;
+}
+.emulator-platform-label {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.rpcs3-state-pill {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-input) 80%, transparent);
+}
+.rpcs3-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.rpcs3-state-pill.ready {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+}
+.rpcs3-state-pill.ready .rpcs3-state-dot {
+  background: var(--success);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--success) 70%, transparent);
+}
+.rpcs3-state-pill.attention {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.rpcs3-state-pill.attention .rpcs3-state-dot {
+  background: var(--warn);
+}
+.rpcs3-overview-copy p {
+  max-width: 650px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.rpcs3-stats {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(130px, 0.72fr)) minmax(220px, 1.35fr);
+  gap: 8px;
+}
+.rpcs3-stat {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-input) 58%, transparent);
+}
+.rpcs3-stat > svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-secondary));
+}
+.rpcs3-stat span {
+  min-width: 0;
+}
+.rpcs3-stat small,
+.rpcs3-stat strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rpcs3-stat small {
+  margin-bottom: 2px;
+  color: var(--text-dim);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rpcs3-stat strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.rpcs3-command-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.rpcs3-command {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 11px 12px;
+  color: var(--text-secondary);
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.rpcs3-command:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent) 12%);
+  transform: translateY(-1px);
+}
+.rpcs3-command:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+.rpcs3-command > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.rpcs3-command span,
+.rpcs3-command strong,
+.rpcs3-command small {
+  display: block;
+  min-width: 0;
+}
+.rpcs3-command strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rpcs3-command small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.emulator-update-card,
+.emulator-roots,
+.rpcs3-management {
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.emulator-progress-row,
+.emulator-root-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.emulator-progress-row {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.emulator-update-card .launch-failure {
+  display: block;
+  margin-top: 8px;
+}
+.rpcs3-management summary,
+.emulator-roots summary {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.rpcs3-management summary small {
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 500;
+}
+.emulator-roots summary .emulator-root-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 9px;
+  border-radius: 999px;
+  background: var(--bg-input);
+}
+.rpcs3-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 12px;
+}
+.emulator-root-row {
+  margin-top: 8px;
+}
+.emulator-root-path {
+  min-width: 0;
+  flex: 1;
+  padding: 7px 9px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  cursor: pointer;
+}
+.emulator-game-card .sharp-card-actions-row .btn {
+  flex: 1;
+}
+@container (max-width: 680px) {
+  .rpcs3-overview {
+    gap: 16px;
+  }
+  .rpcs3-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (max-width: 430px) {
+  .rpcs3-overview {
+    padding: 18px;
+  }
+  .rpcs3-stats {
+    width: 100%;
+
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 920px) {
+  .emulator-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  .emulator-main-header,
+  .emulator-sidebar,
+  .emulator-library-column {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .emulator-sidebar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .emulator-sidebar .rpcs3-command-bar {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rpcs3-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rpcs3-command-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .emulator-sidebar,
+  .emulator-sidebar .rpcs3-command-bar {
+    grid-template-columns: 1fr;
+  }
+  .rpcs3-overview {
+    padding: 18px;
+  }
+  .rpcs3-stats,
+  .rpcs3-command-bar {
+    grid-template-columns: 1fr;
+  }
+}
+.gamejolt-panel {
+  position: relative;
+  min-height: calc(100vh - 220px);
+  height: calc(100vh - 220px);
+  overflow: hidden;
+}
+.gamejolt-games-pane {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+  padding-bottom: var(--gamejolt-browser-space);
+}
+.gamejolt-storage-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.gamejolt-storage-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gamejolt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.gamejolt-card .sharp-card-banner {
+  aspect-ratio: 16 / 5.6;
+}
+.gamejolt-native-note {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.gamejolt-actions-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gamejolt-actions-main .btn {
+  flex: 0 1 auto;
+}
+.gamejolt-actions-main .gamejolt-pipeline-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.btn-uninstall {
+  color: var(--error);
+  border-color: var(--error-bg);
+}
+.btn-uninstall:hover:not(:disabled) {
+  background: var(--error-bg);
+  border-color: var(--error);
+}
+.gamejolt-native-note {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: right;
+}
+.gamejolt-browser-frame {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--gamejolt-browser-height);
+  overflow: hidden;
+  padding: 5px;
+  border: 1px solid #fff;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: #fff;
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.12);
+  transition: height 120ms ease;
+}
+.gamejolt-panel.dragging .gamejolt-browser-frame {
+  transition: none;
+}
+.gamejolt-browser-handle {
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  right: 0;
+  left: 0;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.gamejolt-browser-handle span {
+  width: 54px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: #222;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  border-radius: 99px;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.35);
+}
+.gamejolt-browser {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: #fff;
+}
+.sharpemu-network-policy {
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, #f59e0b);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 92%, #f59e0b);
+}
+.sharpemu-network-policy.enabled {
+  border-color: color-mix(in srgb, #ef4444 65%, var(--border));
+  background: color-mix(in srgb, var(--surface) 88%, #ef4444);
+}
+.sharpemu-network-policy label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.sharpemu-network-policy input {
+  margin-top: 3px;
+}
+.sharpemu-network-policy span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.sharpemu-network-policy small,
+.sharpemu-signing-note,
+.sharpemu-last-exit {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.source-tab:focus-visible,
+.rpcs3-dashboard button:focus-visible,
+.rpcs3-dashboard summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rpcs3-dashboard *,
+  .rpcs3-dashboard *::before,
+  .rpcs3-dashboard *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+@media (max-width: 800px) {
+  .gamejolt-panel {
+    min-height: calc(100vh - 260px);
+    height: calc(100vh - 260px);
+  }
 }
 </style>

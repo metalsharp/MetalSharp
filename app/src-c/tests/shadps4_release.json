@@ -1,0 +1,12 @@
+{
+  "tag_name": "v.0.18.0",
+  "published_at": "2026-08-18T08:23:46Z",
+  "assets": [
+    {
+      "name": "shadps4-macos-sdl-0.18.0.zip",
+      "browser_download_url": "https://github.com/shadps4-emu/shadPS4/releases/download/v.0.18.0/shadps4-macos-sdl-0.18.0.zip",
+      "size": 4,
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

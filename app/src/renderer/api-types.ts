@@ -193,7 +193,17 @@ interface ProcessManagerActionResult {
   mode?: string;
 }
 
+interface GameJoltDownloadUpdate {
+  id: string;
+  filename: string;
+  state: "downloading" | "organizing" | "completed" | "failed";
+  receivedBytes?: number;
+  totalBytes?: number;
+  error?: string;
+}
+
 type MetalsharpAPI = {
+  onGameJoltDownload: (callback: (update: GameJoltDownloadUpdate) => void) => () => void;
   request: (
     method: string,
     url: string,
@@ -208,6 +218,18 @@ type MetalsharpAPI = {
   installHomebrew: () => Promise<{ ok: boolean; installed?: boolean; path?: string; message?: string; error?: string }>;
   homebrewStatus: () => Promise<{ installed: boolean; path?: string }>;
   openInFinder: (path: string) => Promise<void>;
+  openRpcs3Path: (path: string) => Promise<{ ok: boolean; error?: string }>;
+  openPcsx2Path: (path: string) => Promise<{ ok: boolean; error?: string }>;
+  openPcsx2Guide: (kind: "bios" | "discs") => Promise<{ ok: boolean; error?: string }>;
+  openShadps4Path: (path: string) => Promise<{ ok: boolean; error?: string }>;
+  openShadps4Compatibility: (titleId: string) => Promise<{ ok: boolean; error?: string }>;
+  openSharpemuPath: (path: string) => Promise<{ ok: boolean; error?: string }>;
+  openSharpemuLink: (
+    kind: "faq" | "compatibility" | "repository" | "releases",
+    titleId?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  openEmulatorResource: (kind: "archive-games" | "pcsx2-firmware") => Promise<{ ok: boolean; error?: string }>;
+  openRpcs3FirmwarePage: () => Promise<{ ok: boolean; error?: string }>;
   openLogsFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   openMetalsharpFolder: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   repairDataAccess: () => Promise<{
@@ -234,6 +256,10 @@ type MetalsharpAPI = {
   quitApp: () => void;
   uninstallApp: () => void;
   pickExeFile: () => Promise<string | null>;
+  pickRpcs3File: (kind: "firmware" | "package") => Promise<string | null>;
+  pickPcsx2Bios: () => Promise<string | null>;
+  pickPcsx2Game: () => Promise<string | null>;
+  pickSharpemuRoot: () => Promise<string | null>;
   pickImageFile: () => Promise<string | null>;
   pickDirectory: (title?: string) => Promise<string | null>;
   gogOAuthLogin: (authUrl: string) => Promise<{ ok: boolean; code?: string; redirectUrl?: string; error?: string }>;
