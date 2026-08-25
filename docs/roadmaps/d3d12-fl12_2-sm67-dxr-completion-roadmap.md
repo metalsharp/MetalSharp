@@ -910,3 +910,10 @@ the goal is not complete.
   lengths in the compute argument ABI. The resource/view gate now reads back
   `[13,15,17,19]`, the synthetic SM5.0–SM6.6 shader corpus passes, and the mini
   compute, first-use compute, graphics PSO, and texture-sampling gates all pass.
+- Preserved caller-provided pipeline cache blobs and implemented
+  `ID3D12PipelineState::GetCachedBlob`; the graphics PSO cache round-trip gate
+  now passes.
+- Corrected the compute sampler gate's expected value to include the sampled
+  `(10,20,30,40)` texel. CBV, two SRVs, a static sampler, and a UAV now produce
+  `[106,108,110,112]`, proving compute-stage texture sampling rather than
+  continuing to label the working path unsupported.
