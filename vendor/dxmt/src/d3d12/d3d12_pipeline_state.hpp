@@ -135,6 +135,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetCSArguments() const {
     return m_cs_args;
   }
+  bool CSUsesMSCArgumentABI() const { return m_cs_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetCSConstantBuffers() const {
     return m_cs_cb_args;
   }
@@ -263,6 +264,7 @@ private:
 
   MTL_SHADER_REFLECTION m_cs_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_cs_args;
+  bool m_cs_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_cs_cb_args;
   sm50_shader_t m_cs_shader = nullptr;
   MTL_SHADER_REFLECTION m_vs_reflection = {};

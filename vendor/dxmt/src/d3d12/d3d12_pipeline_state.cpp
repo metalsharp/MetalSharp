@@ -1892,6 +1892,7 @@ bool MTLD3D12PipelineState::CompileShader(
                     if (out_reflection)
                       *out_reflection = msc_reflection;
                     m_cs_args = std::move(msc_arguments);
+                    m_cs_uses_msc_argument_abi = true;
                     PSTRACE("  MSC reflection args=%u qwords=%u bind=%u",
                             msc_reflection.NumArguments,
                             msc_reflection.ArgumentTableQwords,

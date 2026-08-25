@@ -4294,6 +4294,8 @@ struct ReplayState {
       return 0;
     }
     memset(comp_arg_buf_data, 0, qword_count * 8);
+    const uint32_t buffer_metadata_qword =
+        pso->CSUsesMSCArgumentABI() ? 2u : 1u;
 
     auto *dxmt_sig =
         compute_root_sig
@@ -4444,12 +4446,14 @@ struct ReplayState {
           if (arg.Type == SM50BindingType::UAV) {
             comp_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
+            comp_arg_buf_data[arg.StructurePtrOffset +
+                              buffer_metadata_qword] =
                 UAVBufferByteLength(desc, res);
           } else {
             comp_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
+            comp_arg_buf_data[arg.StructurePtrOffset +
+                              buffer_metadata_qword] =
                 SRVBufferByteLength(desc, res);
           }
           QTRACE("BuildComputeArgBuf: buffer ptr=0x%llx len=%llu offset=%u",

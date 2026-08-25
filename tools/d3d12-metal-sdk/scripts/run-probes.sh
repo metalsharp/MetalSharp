@@ -758,8 +758,29 @@ if [[ -n "$GAME_DIR" ]]; then
   fi
   WINDOWS_DIR="$GAME_DIR"
 fi
-DXMT_DYLD_LIBRARY_PATH="$WINE_UNIX_DIR:$UNIX_DIR:${DYLD_LIBRARY_PATH:-}"
+# Prefer the selected DXMT runtime's Unix half.  The Wine runtime also ships a
+# winemetal.so, but loading it first silently pairs source-built PE DLLs with a
+# stale Unix call table and corrupts ABI return values (notably SM50Initialize).
+DXMT_DYLD_LIBRARY_PATH="$UNIX_DIR:$WINE_UNIX_DIR:${DYLD_LIBRARY_PATH:-}"
 DXMT_WINEMETAL_UNIXLIB_NAME="winemetal.so"
+PROBE_WINEMETAL_UNIXLIB_LINK=""
+cleanup_probe_winemetal_unixlib() {
+  if [[ -n "$PROBE_WINEMETAL_UNIXLIB_LINK" ]]; then
+    rm -f "$PROBE_WINEMETAL_UNIXLIB_LINK"
+  fi
+}
+trap cleanup_probe_winemetal_unixlib EXIT
+
+# Wine's Unix-library loader resolves module names from its own Unix DLL
+# directory before DYLD_LIBRARY_PATH/WINEDLLPATH.  Register the selected DXMT
+# runtime under a unique temporary module name so the PE and Unix halves always
+# come from the same staged build, then remove the registration on exit.
+if [[ -f "$UNIX_DIR/winemetal.so" ]]; then
+  mkdir -p "$WINE_UNIX_DIR"
+  DXMT_WINEMETAL_UNIXLIB_NAME="winemetal-d3d12-probe-$$-${RANDOM}.so"
+  PROBE_WINEMETAL_UNIXLIB_LINK="$WINE_UNIX_DIR/$DXMT_WINEMETAL_UNIXLIB_NAME"
+  ln -s "$UNIX_DIR/winemetal.so" "$PROBE_WINEMETAL_UNIXLIB_LINK"
+fi
 PROBE_EXE="$SDK_DIR/out/bin/probe_loader.exe"
 AGILITY_PROBE_EXE="$SDK_DIR/out/bin/probe_agility_ue5.exe"
 CAPS_PROBE_EXE="$SDK_DIR/out/bin/probe_device_caps.exe"
