@@ -98,29 +98,51 @@ static ms_json* load_array(const char* home) {
     free(p);
     return j && ms_json_type_of(j) == MS_JSON_ARRAY ? j : (ms_json_free(j), ms_json_parse("[]", 2, e, sizeof(e)));
 }
+static bool write_text_atomic(const char* path, const char* raw) {
+    char* temporary = NULL;
+    FILE* f = NULL;
+    int temporary_fd = -1;
+    bool ok = false;
+    if (!path || !raw)
+        return false;
+    size_t temporary_size = strlen(path) + 48;
+    temporary = malloc(temporary_size);
+    if (temporary)
+        snprintf(temporary, temporary_size, "%s.tmp.XXXXXX", path);
+    temporary_fd = temporary ? mkstemp(temporary) : -1;
+    f = temporary_fd >= 0 ? fdopen(temporary_fd, "wb") : NULL;
+    if (!f || fputs(raw, f) < 0) {
+        if (f)
+            fclose(f);
+        else if (temporary_fd >= 0)
+            close(temporary_fd);
+        if (temporary)
+            unlink(temporary);
+        free(temporary);
+        return false;
+    }
+    bool flushed = fflush(f) == 0 && fsync(fileno(f)) == 0;
+    bool closed = fclose(f) == 0;
+    ok = flushed && closed && chmod(temporary, 0600) == 0 && rename(temporary, path) == 0;
+    if (!ok)
+        unlink(temporary);
+    free(temporary);
+    return ok;
+}
 static bool save_array(const char* home, const ms_json* a) {
     char *d = join(home, "sharp-library"), *p, *raw;
-    FILE* f;
+    bool ok;
     if (!d || !mkdir_p(d)) {
         free(d);
         return false;
     }
     p = join(d, "library.json");
     raw = ms_json_stringify(a);
-    f = p ? fopen(p, "wb") : NULL;
-    if (!f || !raw || fputs(raw, f) < 0) {
-        if (f)
-            fclose(f);
-        free(d);
-        free(p);
-        free(raw);
-        return false;
-    }
-    fclose(f);
+    ok = p && raw && write_text_atomic(p, raw);
     free(d);
     free(p);
     free(raw);
-    return true;
+    return ok;
 }
 static char* field(const ms_json* j, const char* key, const char* fallback) {
     char* s = NULL;
@@ -427,10 +449,6 @@ typedef struct {
     const char* fallback_executable_path;
 } launcher_installer;
 
-#define BATTLENET_RUNTIME_RELATIVE "runtime/launchers/battlenet/wine-staging-11.4"
-#define BATTLENET_RUNTIME_MANIFEST "metalsharp-battlenet-runtime.json"
-#define BATTLENET_DLL_OVERRIDES    "winemenubuilder.exe=d;mscoree=d;mshtml=d;winedbg=d"
-
 static const launcher_installer launcher_installers[] = {
     {"ea", "EA App", "EA-Prefix",
      "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
@@ -442,10 +460,6 @@ static const launcher_installer launcher_installers[] = {
     {"ubisoft", "Ubisoft Connect", "Ubisoft-Prefix", "https://ubi.li/4vxt9", "UbisoftConnectInstaller.exe", false,
      "drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe",
      "drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/upc.exe"},
-    {"battlenet", "Battle.net", "Battle-Net-Prefix",
-     "https://us.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe", "Battle.net-Setup.exe", false,
-     "drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe",
-     "drive_c/Program Files (x86)/Battle.net/Battle.net.exe"},
 };
 
 static const launcher_installer* launcher_installer_for_id(const char* id) {
@@ -458,31 +472,8 @@ static const launcher_installer* launcher_installer_for_id(const char* id) {
 }
 
 static char* launcher_wine_path(const char* home, const launcher_installer* launcher) {
-    char *runtime = NULL, *wine = NULL;
-    if (launcher && !strcmp(launcher->id, "battlenet")) {
-        runtime = join(home, BATTLENET_RUNTIME_RELATIVE);
-        wine = runtime ? join(runtime, "bin/wine") : NULL;
-        free(runtime);
-        return wine;
-    }
+    (void)launcher;
     return join(home, "runtime/wine/bin/metalsharp-wine");
-}
-
-static bool battlenet_runtime_ready(const char* home) {
-    char *runtime = join(home, BATTLENET_RUNTIME_RELATIVE), *wine = NULL, *wineserver = NULL, *manifest = NULL;
-    bool ready = false;
-    if (!runtime)
-        return false;
-    wine = join(runtime, "bin/wine");
-    wineserver = join(runtime, "bin/wineserver");
-    manifest = join(runtime, BATTLENET_RUNTIME_MANIFEST);
-    ready = wine && wineserver && manifest && access(wine, X_OK) == 0 && access(wineserver, X_OK) == 0 &&
-            access(manifest, R_OK) == 0;
-    free(manifest);
-    free(wineserver);
-    free(wine);
-    free(runtime);
-    return ready;
 }
 
 static bool write_launcher_bottle(const char* bottle_dir, const char* prefix, const char* installer_path,
@@ -600,20 +591,18 @@ static int run_launcher_command(char* const argv[], const char* prefix, int log_
     return WEXITSTATUS(status);
 }
 
+static void apply_launcher_profile_environment(const char* prefix, const launcher_installer* launcher) {
+    (void)launcher;
+    if (prefix)
+        setenv("WINEPREFIX", prefix, 1);
+}
+
 static int run_launcher_profile_command(char* const argv[], const char* prefix, int log_fd,
                                         const launcher_installer* launcher) {
     int status = 0;
     pid_t pid = fork();
     if (pid == 0) {
-        if (prefix)
-            setenv("WINEPREFIX", prefix, 1);
-        if (launcher && !strcmp(launcher->id, "battlenet")) {
-            setenv("WINEDEBUG", "-all", 1);
-            setenv("WINEMSYNC", "0", 1);
-            setenv("WINEESYNC", "1", 1);
-            setenv("ROSETTA_ADVERTISE_AVX", "1", 1);
-            setenv("WINEDLLOVERRIDES", BATTLENET_DLL_OVERRIDES, 1);
-        }
+        apply_launcher_profile_environment(prefix, launcher);
         if (log_fd >= 0) {
             dup2(log_fd, STDOUT_FILENO);
             dup2(log_fd, STDERR_FILENO);
@@ -1284,7 +1273,7 @@ char* ms_sharp_launcher_status_json(const char* home) {
         ms_json_writer_key(&writer, "installed");
         ms_json_writer_bool(&writer, executable != NULL);
         ms_json_writer_key(&writer, "runtimeReady");
-        ms_json_writer_bool(&writer, strcmp(launcher->id, "battlenet") || battlenet_runtime_ready(home));
+        ms_json_writer_bool(&writer, true);
         ms_json_writer_object_end(&writer);
         free(executable);
         free(prefix);
@@ -1345,10 +1334,6 @@ static void run_launcher_target_worker(const char* home, const launcher_installe
         }
     } else if (!strcmp(launcher->id, "epic")) {
         status = run_epic_client_with_online_services(home, wine, prefix, installers_dir, target, log_fd);
-    } else if (!strcmp(launcher->id, "battlenet") && !setup) {
-        char* const argv[] = {
-            wine, (char*)target, "--in-process-gpu", "--use-gl=swiftshader", "--disable-gpu-compositing", NULL};
-        status = run_launcher_profile_command(argv, prefix, log_fd, launcher);
     } else {
         char* const argv[] = {wine, (char*)target, NULL};
         status = run_launcher_profile_command(argv, prefix, log_fd, launcher);
@@ -1384,10 +1369,6 @@ char* ms_sharp_launcher_launch_json(const char* home, const unsigned char* body,
     launcher = launcher_installer_for_id(launcher_id);
     if (!launcher) {
         result = failure("unknown launcher");
-        goto done;
-    }
-    if (!strcmp(launcher->id, "battlenet") && !battlenet_runtime_ready(home)) {
-        result = failure("Battle.net compatibility runtime is missing; reinstall the MetalSharp runtime bundle");
         goto done;
     }
     bottles_dir = join(home, "bottles");
@@ -1464,6 +1445,57 @@ done:
     free(executable);
     free(logs_dir);
     free(log_path);
+    return result;
+}
+
+char* ms_sharp_launcher_stop_json(const char* home, const unsigned char* body, size_t length) {
+    char error[96];
+    ms_json* request = ms_json_parse(body ? (const char*)body : "", body ? length : 0, error, sizeof(error));
+    char *launcher_id = NULL, *bottle_dir = NULL, *prefix = NULL, *runtime = NULL, *wineserver = NULL;
+    char* result = NULL;
+    if (!request || ms_json_type_of(request) != MS_JSON_OBJECT ||
+        !ms_json_as_string(ms_json_object_get(request, "launcher"), &launcher_id)) {
+        ms_json_free(request);
+        free(launcher_id);
+        return failure("launcher required");
+    }
+    const launcher_installer* launcher = launcher_installer_for_id(launcher_id);
+    if (!launcher) {
+        result = failure("unknown launcher");
+        goto done;
+    }
+    bottle_dir = join(home, "bottles");
+    char* launcher_bottle = bottle_dir ? join(bottle_dir, launcher->bottle_id) : NULL;
+    prefix = launcher_bottle ? join(launcher_bottle, "prefix") : NULL;
+    free(launcher_bottle);
+    runtime = join(home, "runtime/wine");
+    wineserver = runtime ? join(runtime, "bin/wineserver") : NULL;
+    if (!prefix || access(prefix, F_OK) != 0 || !wineserver || access(wineserver, X_OK) != 0) {
+        result = failure("launcher runtime or prefix not found");
+        goto done;
+    }
+    char* const argv[] = {wineserver, "-k", NULL};
+    int status = run_launcher_profile_command(argv, prefix, -1, launcher);
+    if (status != 0) {
+        result = failure("failed to stop launcher");
+        goto done;
+    }
+    ms_json_writer writer;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "launcher");
+    ms_json_writer_string(&writer, launcher->id);
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+done:
+    free(wineserver);
+    free(runtime);
+    free(prefix);
+    free(bottle_dir);
+    free(launcher_id);
+    ms_json_free(request);
     return result;
 }
 
@@ -1594,11 +1626,6 @@ char* ms_sharp_launcher_install_json(const char* home, const unsigned char* body
         free(launcher_id);
         return failure("unknown launcher");
     }
-    if (!strcmp(launcher->id, "battlenet") && !battlenet_runtime_ready(home)) {
-        ms_json_free(request);
-        free(launcher_id);
-        return failure("Battle.net compatibility runtime is missing; reinstall the MetalSharp runtime bundle");
-    }
     bottles_dir = join(home, "bottles");
     bottle_dir = bottles_dir ? join(bottles_dir, launcher->bottle_id) : NULL;
     prefix = bottle_dir ? join(bottle_dir, "prefix") : NULL;
@@ -1665,6 +1692,7 @@ done:
     free(log_path);
     return result;
 }
+
 static bool has_id(const ms_json* a, const char* id) {
     size_t i;
     for (i = 0; i < ms_json_array_length(a); i++) {
@@ -2001,7 +2029,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         }
         if (!strcmp(action, "launch") || !strcmp(action, "relaunch")) {
             const ms_json* app = NULL;
-            char *exe_path = NULL, *bottle_id = NULL, *prefix = NULL;
+            char *exe_path = NULL, *work_dir = NULL, *bottle_id = NULL, *prefix = NULL;
             for (size_t i = 0; i < ms_json_array_length(a); i++) {
                 char* item_id = field(ms_json_array_get(a, i), "id", "");
                 if (!strcmp(item_id, id)) {
@@ -2013,12 +2041,14 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             }
             if (app) {
                 exe_path = field(app, "exe_path", "");
+                work_dir = field(app, "install_dir", "");
                 bottle_id = field(app, "bottle_id", "");
                 if (bottle_id[0])
                     prefix = bottle_prefix(home, bottle_id);
             }
             if (!exe_path || !exe_path[0] || access(exe_path, F_OK) != 0) {
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -2028,6 +2058,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             }
             if (bottle_id[0] && (!prefix || !prefix[0])) {
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -2039,6 +2070,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (!wine || access(wine, X_OK) != 0) {
                 free(wine);
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -2050,6 +2082,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (pid < 0) {
                 free(wine);
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -2060,11 +2093,14 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (pid == 0) {
                 if (prefix)
                     setenv("WINEPREFIX", prefix, 1);
+                if (work_dir && work_dir[0])
+                    (void)chdir(work_dir);
                 execl(wine, wine, exe_path, (char*)NULL);
                 _exit(127);
             }
             free(wine);
             free(exe_path);
+            free(work_dir);
             free(bottle_id);
             free(prefix);
             ms_json_free(a);

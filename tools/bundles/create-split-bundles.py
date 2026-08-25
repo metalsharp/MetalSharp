@@ -226,22 +226,6 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     wine_src = source1 / "wine-11.5"
     copy_tree(wine_src, roots["runtime"] / "wine")
     copy_tree(source2 / "wine" / "etc", roots["runtime"] / "wine" / "etc")
-    battlenet_wine_env = os.environ.get("METALSHARP_BATTLENET_WINE_ROOT")
-    battlenet_wine = (
-        Path(battlenet_wine_env).expanduser()
-        if battlenet_wine_env
-        else SOURCE_BUNDLES / "battlenet-wine-staging-11.4"
-    )
-    require_file(battlenet_wine / "bin" / "wine", "Battle.net Wine Staging loader")
-    require_file(battlenet_wine / "bin" / "wineserver", "Battle.net Wine Staging Wineserver")
-    require_file(
-        battlenet_wine / "metalsharp-battlenet-runtime.json",
-        "Battle.net Wine Staging runtime manifest",
-    )
-    copy_tree(
-        battlenet_wine,
-        roots["runtime"] / "launchers" / "battlenet" / "wine-staging-11.4",
-    )
     backend = APP_DIR / "build" / "c-backend" / "metalsharp-backend"
     require_file(backend, "runtime backend")
     copy_file(backend, roots["runtime"] / "metalsharp-backend")

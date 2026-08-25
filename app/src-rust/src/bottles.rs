@@ -3844,14 +3844,6 @@ fn known_launcher_recipes() -> &'static [KnownLauncherRecipe] {
             forced_pipeline: None,
         },
         KnownLauncherRecipe {
-            id: "battle_net",
-            label: "Battle.net",
-            tokens: &["battle.net", "battlenet", "battle net", "blizzard app", "blizzard launcher"],
-            installer_kind: InstallerKind::Webview,
-            runtime_profile: RuntimeProfile::Webview,
-            forced_pipeline: None,
-        },
-        KnownLauncherRecipe {
             id: "epic_games",
             label: "Epic Games Launcher",
             tokens: &[
@@ -6815,7 +6807,6 @@ mod tests {
             ("EAappInstaller.exe", RuntimeProfile::Webview, "known_launcher:ea_app"),
             ("UbisoftConnectInstaller.exe", RuntimeProfile::Webview, "known_launcher:ubisoft_connect"),
             ("UplayInstaller.exe", RuntimeProfile::Webview, "known_launcher:ubisoft_connect"),
-            ("Battle.net-Setup.exe", RuntimeProfile::Webview, "known_launcher:battle_net"),
             ("EpicGamesLauncherInstaller.exe", RuntimeProfile::Webview, "known_launcher:epic_games"),
             ("EpicInstaller.exe", RuntimeProfile::Webview, "known_launcher:epic_games"),
             ("Rockstar-Games-Launcher.exe", RuntimeProfile::Webview, "known_launcher:rockstar"),
