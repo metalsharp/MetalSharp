@@ -28,11 +28,29 @@ The SDK exists to make D3D12 changes evidence-driven before game-specific debugg
 
 ## Runtime Profiles
 
-Run the SDK against the local MetalSharp runtime:
+Run the SDK against the local MetalSharp runtime through the mandatory
+isolated-prefix wrapper:
 
 ```bash
-tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh
 ```
+
+The wrapper pins `~/.metalsharp/runtime/wine/bin/wine` and its matching
+`wineserver`, requires the expected Wine 11.5 version, selects the isolated M12
+runtime under `lib/dxmt_m12`, records tool/runtime hashes, and always stops and
+deletes its temporary prefix. It rejects caller-provided `--wine`, `--prefix`,
+`--profile`, and `--dxmt-runtime` overrides so a local gate cannot silently use
+a persistent Steam prefix or another Wine installation. Narrow flags accepted
+by `run-probes.sh` can be passed through directly, for example:
+
+```bash
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh --caps-only
+```
+
+`run-probes.sh --profile metalsharp` remains the low-level runner for controlled
+CI/package environments that provide their own disposable prefix lifecycle.
 
 For fast one-behavior-at-a-time D3D12 validation without launching Steam or a
 game, run the headless mini-app suite:
