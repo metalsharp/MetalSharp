@@ -1895,8 +1895,22 @@ bool MTLD3D12PipelineState::CompileShader(
                   std::lock_guard<std::mutex> lock(s_shader_mutex);
                   s_shader_cache[hash] = out_func;
                 }
-                if (type == ShaderType::Vertex)
-                  m_vs_uses_stage_in = false;
+                if (type == ShaderType::Vertex) {
+                  const char *inputs = strstr(rbuf, "\"vertex_inputs\"");
+                  const char *array = inputs ? strchr(inputs, '[') : nullptr;
+                  if (array) {
+                    do {
+                      array++;
+                    } while (*array == ' ' || *array == '\t' ||
+                             *array == '\r' || *array == '\n');
+                  }
+                  m_vs_uses_stage_in =
+                      m_input_layout.NumElements > 0 && array && *array != ']';
+                  m_vs_requires_msc_stage_in = false;
+                  PSTRACE("  MSC vertex inputs stage_in=%u layout_elements=%u",
+                          m_vs_uses_stage_in ? 1u : 0u,
+                          m_input_layout.NumElements);
+                }
                 char *tg = strstr(rbuf, "\"tg_size\"");
                 if (tg) {
                   int tw = 1, th = 1, td = 1;
@@ -1942,6 +1956,34 @@ bool MTLD3D12PipelineState::CompileShader(
                   } else {
                     PSTRACE("  MSC reflection parse failed: %s",
                             reflection_path);
+                  }
+                } else if (type == ShaderType::Pixel) {
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_ps_args = std::move(msc_arguments);
+                    m_ps_uses_msc_argument_abi = true;
+                    PSTRACE("  MSC pixel reflection args=%u qwords=%u bind=%u",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
+                  }
+                } else if (type == ShaderType::Vertex) {
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_vs_args = std::move(msc_arguments);
+                    m_vs_uses_msc_argument_abi = true;
+                    PSTRACE("  MSC vertex reflection args=%u qwords=%u bind=%u",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
                   }
                 }
                 return true;
@@ -2646,10 +2688,15 @@ bool MTLD3D12PipelineState::Compile() {
         }
       }
 
-      if (attr_index >= WMT_MAX_VERTEX_ATTRIBUTES) {
+      constexpr uint32_t kMSCStageInAttributeStartIndex = 11;
+      constexpr uint32_t kMSCVertexBufferBindPoint = 6;
+      uint32_t metal_attr_index =
+          m_vs_uses_stage_in ? kMSCStageInAttributeStartIndex + attr_index
+                             : attr_index;
+      if (metal_attr_index >= WMT_MAX_VERTEX_ATTRIBUTES) {
         PSTRACE("D3D12 PSO input-layout skip[%u]: mapped attribute %u outside "
                 "cap %u",
-                i, attr_index, WMT_MAX_VERTEX_ATTRIBUTES);
+                i, metal_attr_index, WMT_MAX_VERTEX_ATTRIBUTES);
         continue;
       }
       next_attribute = std::max(next_attribute, attr_index + 1);
@@ -2668,37 +2715,48 @@ bool MTLD3D12PipelineState::Compile() {
       slot_per_vertex[el.InputSlot] =
           (el.InputSlotClass == D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA);
 
-      auto &attr = vtx_desc.attributes[attr_index];
+      auto &attr = vtx_desc.attributes[metal_attr_index];
       attr.format = metal_format.AttributeFormat;
       attr.offset = aligned_offset;
-      attr.buffer_index = el.InputSlot;
-      attribute_count = std::max(attribute_count, attr_index + 1);
+      attr.buffer_index = m_vs_uses_stage_in
+                              ? kMSCVertexBufferBindPoint + el.InputSlot
+                              : el.InputSlot;
+      attribute_count = std::max(attribute_count, metal_attr_index + 1);
 
       PSTRACE("D3D12 PSO input-layout attr[%u]<-desc[%u]: semantic=%s%u fmt=%u "
               "mtl_fmt=%u slot=%u offset=%u stride_end=%u class=%u step=%u",
-              attr_index, i, el.SemanticName ? el.SemanticName : "?",
+              metal_attr_index, i, el.SemanticName ? el.SemanticName : "?",
               el.SemanticIndex, (unsigned)el.Format,
               (unsigned)metal_format.AttributeFormat, el.InputSlot,
               aligned_offset, end, (unsigned)el.InputSlotClass,
               el.InstanceDataStepRate);
     }
     vtx_desc.attribute_count = attribute_count;
-    vtx_desc.layout_count = max_slot;
+    constexpr uint32_t kMSCVertexBufferBindPoint = 6;
+    vtx_desc.layout_count =
+        m_vs_uses_stage_in ? kMSCVertexBufferBindPoint + max_slot : max_slot;
     for (uint32_t s = 0; s < max_slot; s++) {
-      vtx_desc.layouts[s].stride = slot_stride[s];
-      vtx_desc.layouts[s].step_function =
+      uint32_t metal_slot =
+          m_vs_uses_stage_in ? kMSCVertexBufferBindPoint + s : s;
+      vtx_desc.layouts[metal_slot].stride = slot_stride[s];
+      vtx_desc.layouts[metal_slot].step_function =
           slot_per_vertex[s] ? WMTVertexStepFunctionPerVertex
                              : WMTVertexStepFunctionPerInstance;
-      vtx_desc.layouts[s].step_rate = 1;
-      PSTRACE("D3D12 PSO input-layout slot[%u]: stride=%u step=%u", s,
-              slot_stride[s], (unsigned)vtx_desc.layouts[s].step_function);
+      vtx_desc.layouts[metal_slot].step_rate = 1;
+      PSTRACE("D3D12 PSO input-layout slot[%u]->metal[%u]: stride=%u step=%u",
+              s, metal_slot, slot_stride[s],
+              (unsigned)vtx_desc.layouts[metal_slot].step_function);
     }
     if (!m_vs_uses_stage_in) {
       PSTRACE("D3D12 PSO input-layout compiled for SM50 vertex pulling; Metal "
               "vertex descriptor disabled");
     }
   }
-  if (m_vs_uses_stage_in) {
+  if (m_vs_uses_stage_in && vtx_desc.attribute_count > 0) {
+    info.vertex_descriptor = &vtx_desc;
+    PSTRACE("D3D12 PSO stage-in vertex descriptor attached attrs=%u layouts=%u",
+            vtx_desc.attribute_count, vtx_desc.layout_count);
+  } else if (m_vs_uses_stage_in) {
     constexpr uint32_t kSyntheticStageInAttributes = 16;
     constexpr uint32_t kSyntheticStageInStride =
         16 * kSyntheticStageInAttributes;
