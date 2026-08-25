@@ -61,9 +61,15 @@ enum DXIntrinsicOpcode {
   DXOP_WaveGetLaneCount = 112,
   DXOP_WaveAnyTrue = 113,
   DXOP_WaveAllTrue = 114,
+  DXOP_WaveActiveAllEqual = 115,
+  DXOP_WaveActiveBallot = 116,
   DXOP_WaveReadLaneAt = 117,
   DXOP_WaveReadLaneFirst = 118,
+  DXOP_WaveActiveOp = 119,
+  DXOP_WaveActiveBit = 120,
+  DXOP_WavePrefixOp = 121,
   DXOP_QuadReadLaneAt = 122,
+  DXOP_QuadOp = 123,
   DXOP_TextureStoreSample = 225,
   DXOP_TextureSampleCmpLevel = 224,
   DXOP_TextureGatherCmp = 74,
@@ -274,7 +280,13 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "waveGetLaneCount", 16) == 0) return 112;
     if (strncmp(s, "waveAnyTrue", 11) == 0) return 113;
     if (strncmp(s, "waveAllTrue", 11) == 0) return 114;
+    if (strncmp(s, "waveActiveAllEqual", 18) == 0) return 115;
+    if (strncmp(s, "waveActiveBallot", 16) == 0) return 116;
+    if (strncmp(s, "waveActiveOp", 12) == 0) return 119;
+    if (strncmp(s, "waveActiveBit", 13) == 0) return 120;
+    if (strncmp(s, "wavePrefixOp", 12) == 0) return 121;
     if (strncmp(s, "quadReadLaneAt", 14) == 0) return 122;
+    if (strncmp(s, "quadOp", 6) == 0) return 123;
     if (strncmp(s, "isSpecialFloat", 14) == 0) return 0;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
@@ -315,8 +327,15 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_WaveGetLaneCount:
     case DXOP_WaveAnyTrue:
     case DXOP_WaveAllTrue:
+    case DXOP_WaveActiveAllEqual:
+    case DXOP_WaveActiveBallot:
     case DXOP_WaveReadLaneAt:
     case DXOP_WaveReadLaneFirst:
+    case DXOP_WaveActiveOp:
+    case DXOP_WaveActiveBit:
+    case DXOP_WavePrefixOp:
+    case DXOP_QuadReadLaneAt:
+    case DXOP_QuadOp:
         return true;
     default:
         return false;
@@ -2530,6 +2549,7 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_WaveIsFirstLane:
     case DXOP_WaveAnyTrue:
     case DXOP_WaveAllTrue:
+    case DXOP_WaveActiveAllEqual:
         return {MSLTypeKind::Bool, 0, {}};
     case DXOP_ThreadId:
     case DXOP_GroupId:
@@ -2547,9 +2567,15 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_DerivFineX:
     case DXOP_DerivFineY:
         return args.empty() ? MSLType{MSLTypeKind::Float, 0, {}} : valueTypeOrUnknown(ctx, args[0]);
+    case DXOP_WaveActiveBallot:
+        return {MSLTypeKind::UInt4, 0, {}};
     case DXOP_WaveReadLaneAt:
     case DXOP_WaveReadLaneFirst:
+    case DXOP_WaveActiveOp:
+    case DXOP_WaveActiveBit:
+    case DXOP_WavePrefixOp:
     case DXOP_QuadReadLaneAt:
+    case DXOP_QuadOp:
         return !args.empty() ? valueTypeOrUnknown(ctx, args[0]) : declared;
     case DXOP_Unary: {
         uint32_t op = args.empty() ? 0xFFFFFFFFu : literalFromValue(ctx, args[0], 0xFFFFFFFFu);
@@ -2822,13 +2848,22 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "";
         auto idx = ensureScalarIndex(numericArg(1, "0"));
         auto off = ensureScalarIndex(numericArg(2, "0"));
-        std::string base = "(((int)(" + idx + "))*4 + ((int)(" + off + ")))";
+        // BufferStore coordinates are byte offsets for raw/byte-address
+        // resources. Respect the DXIL write mask so undefined components do
+        // not overwrite adjacent lanes.
+        std::string base = "(((int)(" + idx + ")) + ((int)(" + off + ")))";
         std::ostringstream store;
-        uint32_t vc = std::min<uint32_t>(4, (uint32_t)args.size() - 3);
-        for (uint32_t i = 0; i < vc; i++) {
-            if (i) store << ";\n  ";
+        uint32_t value_count =
+            std::min<uint32_t>(4, static_cast<uint32_t>(args.size()) - 4);
+        uint32_t mask = literalArg(args.size() - 1, 0xf, "buffer_store_mask");
+        bool emitted = false;
+        for (uint32_t i = 0; i < value_count; i++) {
+            if (!(mask & (1u << i)))
+                continue;
+            if (emitted) store << ";\n  ";
             store << "reinterpret_cast<device uint&>(" << handle << "[(" << base << ") + " << (i*4)
                   << "]) = (uint)(" << numericArg(3+i, "0") << ")";
+            emitted = true;
         }
         return store.str();
     }
@@ -3067,7 +3102,45 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WaveGetLaneCount: return "simd_count";
     case DXOP_WaveAnyTrue: return "simd_any(" + numericArg(0, "0") + ") ? 1 : 0";
     case DXOP_WaveAllTrue: return "simd_all(" + numericArg(0, "0") + ") ? 1 : 0";
-    case 122: return "quad_broadcast(" + numericArg(1, "0") + ", (uint)(" + numericArg(2, "0") + "))";
+    case DXOP_WaveActiveAllEqual: {
+        auto value = numericArg(0, "0");
+        return "simd_all((" + value + ") == simd_broadcast_first(" + value + "))";
+    }
+    case DXOP_WaveActiveBallot:
+        return "uint4(static_cast<uint>(static_cast<simd_vote::vote_t>(simd_ballot(" +
+               numericArg(0, "0") + "))), 0u, 0u, 0u)";
+    case DXOP_WaveActiveOp: {
+        auto value = numericArg(0, "0");
+        uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_op");
+        switch (op) {
+        case 0: return "simd_sum(" + value + ")";
+        case 1: return "simd_product(" + value + ")";
+        case 2: return "simd_min(" + value + ")";
+        case 3: return "simd_max(" + value + ")";
+        default: ctx.unsupported_intrinsics++; return value;
+        }
+    }
+    case DXOP_WaveActiveBit: {
+        auto value = numericArg(0, "0");
+        uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_bit");
+        switch (op) {
+        case 0: return "simd_and(" + value + ")";
+        case 1: return "simd_or(" + value + ")";
+        case 2: return "simd_xor(" + value + ")";
+        default: ctx.unsupported_intrinsics++; return value;
+        }
+    }
+    case DXOP_WavePrefixOp: {
+        auto value = numericArg(0, "0");
+        uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_prefix_op");
+        switch (op) {
+        case 0: return "simd_prefix_exclusive_sum(" + value + ")";
+        case 1: return "simd_prefix_exclusive_product(" + value + ")";
+        default: ctx.unsupported_intrinsics++; return value;
+        }
+    }
+    case DXOP_QuadReadLaneAt:
+        return "quad_broadcast(" + numericArg(0, "0") + ", (uint)(" + numericArg(1, "0") + "))";
     default:
         ctx.unsupported_intrinsics++;
         break;
@@ -3110,7 +3183,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
     };
 
     auto getTypeForInst = [&](uint32_t type_id) -> MSLType {
-        if (type_id > 0 && type_id < ctx.mod.types.size())
+        if (type_id < ctx.mod.types.size())
             return DXILIRBuilder::resolveType(type_id, ctx.mod);
         return {MSLTypeKind::Unknown, 0, {}};
     };
@@ -3579,19 +3652,6 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 ctx.value_types[value_counter] = typeForHandleKind(ctx, handle.kind);
                 ctx.value_roles[value_counter] = roleForHandleKind(handle.kind);
                 ctx.pending_handle.reset();
-            } else if (inst.type_id == 0 && result_type.kind != MSLTypeKind::Void &&
-                       !exprLooksSideEffectOnly(translated)) {
-                if (!translated.empty()) {
-                    os << "  " << translated << ";\n";
-                    ctx.value_table[value_counter] = translated;
-                } else {
-                    if (ctx.predeclared_names.find(result) != ctx.predeclared_names.end())
-                        os << "  " << result << " = 0; // void call placeholder\n";
-                    else
-                        os << "  int " << result << " = 0; // void call placeholder\n";
-                    ctx.value_table[value_counter] = result;
-                    ctx.value_types[value_counter] = {MSLTypeKind::Int, 0, {}};
-                }
             } else if (result_type.kind == MSLTypeKind::Void || exprLooksSideEffectOnly(translated)) {
                 call_produces_value = false;
                 if (!translated.empty())
@@ -3639,14 +3699,13 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             MSLType result_type = getTypeForInst(inst.type_id);
             if (!isUsableType(result_type))
                 result_type = {MSLTypeKind::Int, 0, {}};
-            if (inst.type_id != 0) {
+            if (result_type.kind != MSLTypeKind::Void) {
                 if (ctx.predeclared_names.find(result) != ctx.predeclared_names.end())
                     os << "  " << result << " = " << defaultForType(result_type) << "; // call " << (callee_name.empty() ? getValue(callee) : callee_name) << "(";
                 else
                     os << "  " << typedDecl(result, result_type) << " = 0; // call " << (callee_name.empty() ? getValue(callee) : callee_name) << "(";
             } else {
                 os << "  // call " << (callee_name.empty() ? getValue(callee) : callee_name) << "(";
-                result_type = {MSLTypeKind::Int, 0, {}};
                 call_produces_value = false;
             }
             for (size_t i = 0; i < call_args.size(); i++) {
@@ -4559,8 +4618,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         if (ctx.shader.kind != DxilShaderKind::Compute &&
             type.kind == MSLTypeKind::RWTexture2D)
             type = {MSLTypeKind::Texture2D, 0, {}};
-        if (type.kind == MSLTypeKind::Void || type.kind == MSLTypeKind::Unknown ||
-            type.kind == MSLTypeKind::Struct)
+        if (type.kind == MSLTypeKind::Unknown || type.kind == MSLTypeKind::Struct)
             type = {MSLTypeKind::Int, 0, {}};
         return type;
     };

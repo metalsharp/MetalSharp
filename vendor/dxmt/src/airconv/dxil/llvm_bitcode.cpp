@@ -1205,7 +1205,10 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
                 cc_info, function_type_id, inst.type_id, callee,
                 inst.operands.size() > 2 ? inst.operands.size() - 2 : 0);
         fn.blocks[cur_block].instructions.push_back(inst);
-        if (inst.type_id != 0)
+        const bool call_returns_value =
+            has_function_type && return_type_id < ctx.module.types.size() &&
+            ctx.module.types[return_type_id].kind != LLVMType::Void;
+        if (call_returns_value)
           noteResult();
       }
       break;

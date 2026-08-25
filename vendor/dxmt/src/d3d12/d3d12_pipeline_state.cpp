@@ -181,6 +181,134 @@ dxmt::dxil::MSLShader ToRuntimeMSLShader(dxmt::dxil::TypedMSLShader &&typed) {
   return shader;
 }
 
+bool ParseJsonUnsigned(const std::string &object, const char *key,
+                       uint32_t &value) {
+  std::string token = str::format("\"", key, "\"");
+  size_t pos = object.find(token);
+  if (pos == std::string::npos)
+    return false;
+  pos = object.find(':', pos + token.size());
+  if (pos == std::string::npos)
+    return false;
+  char *end = nullptr;
+  unsigned long parsed = std::strtoul(object.c_str() + pos + 1, &end, 10);
+  if (!end || end == object.c_str() + pos + 1)
+    return false;
+  value = static_cast<uint32_t>(parsed);
+  return true;
+}
+
+bool ParseJsonString(const std::string &object, const char *key,
+                     std::string &value) {
+  std::string token = str::format("\"", key, "\"");
+  size_t pos = object.find(token);
+  if (pos == std::string::npos)
+    return false;
+  pos = object.find(':', pos + token.size());
+  if (pos == std::string::npos)
+    return false;
+  size_t first = object.find('"', pos + 1);
+  size_t last = first == std::string::npos
+                    ? std::string::npos
+                    : object.find('"', first + 1);
+  if (first == std::string::npos || last == std::string::npos)
+    return false;
+  value = object.substr(first + 1, last - first - 1);
+  return true;
+}
+
+bool ParseMSCReflection(const char *json,
+                        MTL_SHADER_REFLECTION &reflection,
+                        std::vector<MTL_SM50_SHADER_ARGUMENT> &arguments) {
+  if (!json)
+    return false;
+  std::string text(json);
+  size_t label = text.find("\"TopLevelArgumentBuffer\"");
+  size_t array_begin =
+      label == std::string::npos ? std::string::npos : text.find('[', label);
+  size_t array_end = array_begin == std::string::npos
+                         ? std::string::npos
+                         : text.find(']', array_begin);
+  if (array_begin == std::string::npos || array_end == std::string::npos)
+    return false;
+
+  arguments.clear();
+  uint32_t qword_count = 0;
+  size_t cursor = array_begin + 1;
+  while (cursor < array_end) {
+    size_t begin = text.find('{', cursor);
+    if (begin == std::string::npos || begin >= array_end)
+      break;
+    size_t end = text.find('}', begin + 1);
+    if (end == std::string::npos || end > array_end)
+      return false;
+    std::string object = text.substr(begin, end - begin + 1);
+    std::string type;
+    uint32_t slot = 0;
+    uint32_t space = 0;
+    uint32_t offset = 0;
+    uint32_t size = 0;
+    if (!ParseJsonString(object, "Type", type) ||
+        !ParseJsonUnsigned(object, "Slot", slot) ||
+        !ParseJsonUnsigned(object, "Space", space) ||
+        !ParseJsonUnsigned(object, "EltOffset", offset) ||
+        !ParseJsonUnsigned(object, "Size", size))
+      return false;
+
+    MTL_SM50_SHADER_ARGUMENT argument = {};
+    if (type == "CBV")
+      argument.Type = SM50BindingType::ConstantBuffer;
+    else if (type == "SRV")
+      argument.Type = SM50BindingType::SRV;
+    else if (type == "UAV")
+      argument.Type = SM50BindingType::UAV;
+    else if (type == "Sampler")
+      argument.Type = SM50BindingType::Sampler;
+    else
+      return false;
+    argument.SM50BindingSlot = slot;
+    argument.SM50RegisterSpace = space;
+    argument.StructurePtrOffset = offset / sizeof(uint64_t);
+    argument.SizeInVec4 = (size + 15) / 16;
+    if (argument.Type == SM50BindingType::UAV)
+      argument.Flags = static_cast<MTL_SM50_SHADER_ARGUMENT_FLAG>(
+          MTL_SM50_SHADER_ARGUMENT_BUFFER |
+          MTL_SM50_SHADER_ARGUMENT_READ_ACCESS |
+          MTL_SM50_SHADER_ARGUMENT_WRITE_ACCESS);
+    else if (argument.Type == SM50BindingType::SRV ||
+             argument.Type == SM50BindingType::ConstantBuffer)
+      argument.Flags = static_cast<MTL_SM50_SHADER_ARGUMENT_FLAG>(
+          MTL_SM50_SHADER_ARGUMENT_BUFFER |
+          MTL_SM50_SHADER_ARGUMENT_READ_ACCESS);
+    arguments.push_back(argument);
+    qword_count = std::max<uint32_t>(
+        qword_count, (offset + size + sizeof(uint64_t) - 1) /
+                         sizeof(uint64_t));
+    cursor = end + 1;
+  }
+
+  if (arguments.empty())
+    return false;
+  reflection.ArgumentBufferBindIndex = 2;
+  reflection.ArgumentTableQwords = qword_count;
+  reflection.NumArguments = static_cast<uint32_t>(arguments.size());
+  for (const auto &argument : arguments) {
+    if (argument.Type == SM50BindingType::UAV)
+      reflection.UAVSlotMask |= 1ull << std::min<uint32_t>(argument.SM50BindingSlot, 63);
+    else if (argument.Type == SM50BindingType::SRV) {
+      uint32_t slot = std::min<uint32_t>(argument.SM50BindingSlot, 127);
+      if (slot < 64)
+        reflection.SRVSlotMaskLo |= 1ull << slot;
+      else
+        reflection.SRVSlotMaskHi |= 1ull << (slot - 64);
+    } else if (argument.Type == SM50BindingType::Sampler &&
+               argument.SM50BindingSlot < 16) {
+      reflection.SamplerSlotMask |= 1u << argument.SM50BindingSlot;
+    }
+  }
+  return true;
+}
+
 thread_local bool g_async_pipeline_worker_thread = false;
 thread_local uint32_t g_async_pipeline_worker_index = 0;
 
@@ -1750,6 +1878,27 @@ bool MTLD3D12PipelineState::CompileShader(
                     m_threadgroup_size.depth = psv_tg[2];
                     PSTRACE("  threadgroup_size from cached PSV0: %ux%ux%u",
                             psv_tg[0], psv_tg[1], psv_tg[2]);
+                  }
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    msc_reflection.ThreadgroupSize[0] =
+                        m_threadgroup_size.width;
+                    msc_reflection.ThreadgroupSize[1] =
+                        m_threadgroup_size.height;
+                    msc_reflection.ThreadgroupSize[2] =
+                        m_threadgroup_size.depth;
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_cs_args = std::move(msc_arguments);
+                    PSTRACE("  MSC reflection args=%u qwords=%u bind=%u",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
+                  } else {
+                    PSTRACE("  MSC reflection parse failed: %s",
+                            reflection_path);
                   }
                 }
                 return true;
