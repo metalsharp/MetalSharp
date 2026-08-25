@@ -161,6 +161,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetVSConstantBuffers() const {
     return m_vs_cb_args;
   }
+  std::string GetCSCacheHash() const;
   std::string GetVSCacheHash() const;
   const MTL_SHADER_REFLECTION &GetPSReflection() const {
     return m_ps_reflection;

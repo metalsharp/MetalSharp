@@ -108,8 +108,9 @@ touch paths.
 CBV/SRV resources, a payload, and direct/indirect split-screen readback while
 keeping MeshShaderTier conservative. `dxr_acceleration_structures` proves a
 one-triangle Metal BLAS, one-instance TLAS, current-size postbuild readbacks,
-and an inline `RayQuery` triangle hit while keeping RaytracingTier conservative.
-Both remain breadth gates rather than general feature claims.
+an inline `RayQuery` triangle hit, and a raygen-only state object executing via
+`DispatchRays` while keeping RaytracingTier conservative. Both remain breadth
+gates rather than general feature claims.
 
 For DXIL semantic coverage, run the reduced SM6 opcode-group probe:
 

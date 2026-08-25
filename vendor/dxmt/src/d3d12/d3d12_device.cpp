@@ -1291,9 +1291,144 @@ public:
   }
 
   virtual ~MTLD3D12StateObject() {
+    if (m_global_root_signature)
+      m_global_root_signature->Release();
     if (m_base)
       m_base->Release();
     m_device->Release();
+  }
+
+  bool Initialize(const D3D12_STATE_OBJECT_DESC *desc) {
+    if (!desc || desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+      return false;
+
+    D3D12_SHADER_BYTECODE raytracing_library = {};
+    for (UINT i = 0; i < desc->NumSubobjects; i++) {
+      const auto &subobject = desc->pSubobjects[i];
+      if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY &&
+          subobject.pDesc) {
+        const auto *library =
+            static_cast<const D3D12_DXIL_LIBRARY_DESC *>(subobject.pDesc);
+        if (!library->DXILLibrary.pShaderBytecode ||
+            !library->DXILLibrary.BytecodeLength)
+          return false;
+        raytracing_library = library->DXILLibrary;
+        for (UINT e = 0; e < library->NumExports; e++) {
+          if (library->pExports[e].Name)
+            m_exports.emplace_back(library->pExports[e].Name);
+        }
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE &&
+                 subobject.pDesc) {
+        const auto *root = static_cast<const D3D12_GLOBAL_ROOT_SIGNATURE *>(
+            subobject.pDesc);
+        if (root->pGlobalRootSignature) {
+          if (m_global_root_signature)
+            m_global_root_signature->Release();
+          m_global_root_signature = root->pGlobalRootSignature;
+          m_global_root_signature->AddRef();
+        }
+      }
+    }
+    if (!raytracing_library.pShaderBytecode ||
+        !raytracing_library.BytecodeLength)
+      return false;
+    if (m_exports.empty())
+      m_exports.emplace_back(L"raygen");
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
+    compute_desc.pRootSignature = m_global_root_signature;
+    compute_desc.CS = raytracing_library;
+    auto *pipeline = new MTLD3D12PipelineState(m_device, true);
+    pipeline->SetComputeDesc(compute_desc);
+    std::string cache_hash = pipeline->GetCSCacheHash();
+    const char *cache_env = std::getenv("DXMT_SHADER_CACHE_PATH");
+    std::string cache_dir =
+        cache_env && cache_env[0] ? cache_env : "/tmp/dxmt_shader_cache";
+    while (cache_dir.size() > 1 &&
+           (cache_dir.back() == '/' || cache_dir.back() == '\\'))
+      cache_dir.pop_back();
+    std::string raygen_path = cache_dir + "/" + cache_hash + ".metallib";
+    std::string dispatch_path =
+        cache_dir + "/" + cache_hash + ".raydispatch.metallib";
+
+    auto read_file = [](const std::string &path, std::vector<uint8_t> &data) {
+      FILE *file = fopen(path.c_str(), "rb");
+      if (!file)
+        return false;
+      fseek(file, 0, SEEK_END);
+      long size = ftell(file);
+      fseek(file, 0, SEEK_SET);
+      if (size <= 0) {
+        fclose(file);
+        return false;
+      }
+      data.resize(static_cast<size_t>(size));
+      bool ok = fread(data.data(), 1, data.size(), file) == data.size();
+      fclose(file);
+      return ok;
+    };
+    std::vector<uint8_t> raygen_data;
+    std::vector<uint8_t> dispatch_data;
+    if (!read_file(raygen_path, raygen_data) ||
+        !read_file(dispatch_path, dispatch_data)) {
+      pipeline->RequestCompile(false);
+      TRACE("StateObject raygen cache miss visible=%s dispatch=%s",
+            raygen_path.c_str(), dispatch_path.c_str());
+      pipeline->Release();
+      return false;
+    }
+    pipeline->Release();
+
+    auto metal_device = m_device->GetMTLDevice();
+    WMT::Reference<WMT::Error> error;
+    auto raygen_library_handle = metal_device.newLibrary(
+        raygen_data.data(), raygen_data.size(), error);
+    if (!raygen_library_handle.handle || error.handle)
+      return false;
+    error = nullptr;
+    auto dispatch_library_handle = metal_device.newLibrary(
+        dispatch_data.data(), dispatch_data.size(), error);
+    if (!dispatch_library_handle.handle || error.handle)
+      return false;
+    auto raygen_function = raygen_library_handle.newFunction("raygen");
+    auto dispatch_function =
+        dispatch_library_handle.newFunction("RaygenIndirection");
+    if (!raygen_function.handle || !dispatch_function.handle)
+      return false;
+    WMTRaytracingComputePipelineInfo pipeline_info = {};
+    pipeline_info.dispatch_function = dispatch_function.handle;
+    pipeline_info.raygen_function = raygen_function.handle;
+    error = nullptr;
+    m_raygen_compute_pipeline = metal_device.newRaytracingComputePipelineState(
+        pipeline_info, m_raygen_visible_function_table, error);
+    if (!m_raygen_compute_pipeline.handle ||
+        !m_raygen_visible_function_table.handle || error.handle)
+      return false;
+
+    memset(m_shader_identifier, 0, sizeof(m_shader_identifier));
+    const uint64_t raygen_handle = 1;
+    memcpy(m_shader_identifier + sizeof(uint64_t), &raygen_handle,
+           sizeof(raygen_handle));
+    m_shader_identifier[31] = 0x52;
+    TRACE("StateObject raygen pipeline compiled exports=%zu pso=%llu "
+          "visible_table=%llu",
+          m_exports.size(),
+          (unsigned long long)m_raygen_compute_pipeline.handle,
+          (unsigned long long)m_raygen_visible_function_table.handle);
+    return true;
+  }
+
+  WMT::Reference<WMT::ComputePipelineState> RaygenComputePipeline() const {
+    return m_raygen_compute_pipeline;
+  }
+
+  WMT::Reference<WMT::VisibleFunctionTable> RaygenVisibleFunctionTable() const {
+    return m_raygen_visible_function_table;
+  }
+
+  ID3D12RootSignature *GlobalRootSignature() const {
+    return m_global_root_signature;
   }
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
@@ -1347,6 +1482,10 @@ public:
   void *STDMETHODCALLTYPE GetShaderIdentifier(LPCWSTR export_name) override {
     TRACE("StateObjectProperties::GetShaderIdentifier export=%ls",
           export_name ? export_name : L"(null)");
+    if (!export_name ||
+        std::find(m_exports.begin(), m_exports.end(), export_name) ==
+            m_exports.end())
+      return nullptr;
     return m_shader_identifier;
   }
 
@@ -1389,37 +1528,73 @@ public:
   }
 
   HRESULT STDMETHODCALLTYPE GetGlobalRootSignatureForProgram(
-      LPCWSTR program_name, REFIID, void **root_signature) override {
+      LPCWSTR program_name, REFIID riid, void **root_signature) override {
     TRACE("StateObjectProperties2::GetGlobalRootSignatureForProgram "
-          "program=%ls -> E_NOINTERFACE",
-          program_name ? program_name : L"(null)");
+          "program=%ls root=%p",
+          program_name ? program_name : L"(null)",
+          (void *)m_global_root_signature);
     if (!root_signature)
       return E_POINTER;
     *root_signature = nullptr;
-    return E_NOINTERFACE;
+    return m_global_root_signature
+               ? m_global_root_signature->QueryInterface(riid, root_signature)
+               : E_NOINTERFACE;
   }
 
   HRESULT STDMETHODCALLTYPE GetGlobalRootSignatureForShader(
-      LPCWSTR export_name, REFIID, void **root_signature) override {
+      LPCWSTR export_name, REFIID riid, void **root_signature) override {
     TRACE("StateObjectProperties2::GetGlobalRootSignatureForShader export=%ls "
-          "-> E_NOINTERFACE",
-          export_name ? export_name : L"(null)");
+          "root=%p",
+          export_name ? export_name : L"(null)",
+          (void *)m_global_root_signature);
     if (!root_signature)
       return E_POINTER;
     *root_signature = nullptr;
-    return E_NOINTERFACE;
+    return m_global_root_signature
+               ? m_global_root_signature->QueryInterface(riid, root_signature)
+               : E_NOINTERFACE;
   }
 
 private:
   MTLD3D12Device *m_device = nullptr;
   ID3D12StateObject *m_base = nullptr;
+  ID3D12RootSignature *m_global_root_signature = nullptr;
+  WMT::Reference<WMT::ComputePipelineState> m_raygen_compute_pipeline;
+  WMT::Reference<WMT::VisibleFunctionTable>
+      m_raygen_visible_function_table;
   ComPrivateData m_private_data;
   std::atomic<ULONG> m_ref_count{1};
   D3D12_STATE_OBJECT_TYPE m_type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
   std::vector<D3D12_STATE_SUBOBJECT_TYPE> m_subobject_types;
+  std::vector<std::wstring> m_exports;
   uint8_t m_shader_identifier[32] = {};
   UINT64 m_pipeline_stack_size = 0;
 };
+
+WMT::Reference<WMT::ComputePipelineState>
+GetD3D12StateObjectRaygenComputePipeline(ID3D12StateObject *state_object) {
+  if (!state_object)
+    return {};
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->RaygenComputePipeline();
+}
+
+WMT::Reference<WMT::VisibleFunctionTable>
+GetD3D12StateObjectRaygenVisibleFunctionTable(
+    ID3D12StateObject *state_object) {
+  if (!state_object)
+    return {};
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->RaygenVisibleFunctionTable();
+}
+
+ID3D12RootSignature *
+GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object) {
+  if (!state_object)
+    return nullptr;
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->GlobalRootSignature();
+}
 
 class MTLD3D12ShaderCacheSession : public ComObject<ID3D12ShaderCacheSession> {
 public:
@@ -4153,7 +4328,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateMetaCommand(
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateStateObject(
     const D3D12_STATE_OBJECT_DESC *desc, REFIID riid, void **state_object) {
-  TRACE("ID3D12Device5::CreateStateObject type=%u subobjects=%u -> E_NOTIMPL",
+  TRACE("ID3D12Device5::CreateStateObject type=%u subobjects=%u",
         desc ? (unsigned)desc->Type : 0xFFFFFFFFu,
         desc ? desc->NumSubobjects : 0);
   if (!state_object)
@@ -4161,7 +4336,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateStateObject(
   *state_object = nullptr;
   if (!desc || (desc->NumSubobjects && !desc->pSubobjects))
     return E_INVALIDARG;
-  return E_NOTIMPL;
+  auto *object = new MTLD3D12StateObject(this, desc);
+  if (!object->Initialize(desc)) {
+    object->Release();
+    return E_FAIL;
+  }
+  HRESULT hr = object->QueryInterface(riid, state_object);
+  object->Release();
+  return hr;
 }
 
 bool D3D12ResolveTriangleAccelerationStructureInfo(

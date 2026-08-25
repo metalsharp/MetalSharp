@@ -47,6 +47,8 @@ enum class CmdType : uint32_t {
   ResolveQueryData,
   BuildRaytracingAccelerationStructure,
   EmitRaytracingAccelerationStructurePostbuildInfo,
+  SetPipelineState1,
+  DispatchRays,
 };
 
 struct CmdHeader {
@@ -79,6 +81,16 @@ struct CmdDispatch {
 struct CmdDispatchMesh {
   CmdHeader header;
   uint32_t x, y, z;
+};
+
+struct CmdSetPipelineState1 {
+  CmdHeader header;
+  ID3D12StateObject *state_object;
+};
+
+struct CmdDispatchRays {
+  CmdHeader header;
+  D3D12_DISPATCH_RAYS_DESC desc;
 };
 
 struct CmdEmitRaytracingAccelerationStructurePostbuildInfo {

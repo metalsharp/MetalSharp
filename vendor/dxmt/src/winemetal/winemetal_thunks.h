@@ -425,6 +425,14 @@ struct unixcall_mtldevice_acceleration_structure_sizes_for_instances {
   uint64_t ret_success;
 };
 
+struct unixcall_mtldevice_new_raytracing_compute_pipeline {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t ret_visible_function_table;
+  obj_handle_t ret_error;
+  obj_handle_t ret_pipeline;
+};
+
 struct unixcall_mtlcommandbuffer_build_instance_acceleration_structure {
   obj_handle_t cmdbuf;
   obj_handle_t acceleration_structure;

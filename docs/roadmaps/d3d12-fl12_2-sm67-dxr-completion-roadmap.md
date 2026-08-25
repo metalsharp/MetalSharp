@@ -963,5 +963,9 @@ the goal is not complete.
   also passes postbuild readback. Metal Shader Converter's ray-query ABI is
   supplied with the translated TLAS header and instance-contribution address;
   an inline `RayQuery` launched from `(0,0,-2)` returns the expected triangle
-  hit. RaytracingTier remains unreported pending state objects, shader tables,
-  and ray dispatch.
+  hit. Raygen DXIL libraries now create state objects backed by a linked Metal
+  visible-function table and synthesized `RaygenIndirection` kernel;
+  `GetShaderIdentifier`, a 32-byte shader record, `SetPipelineState1`, and
+  `DispatchRays` execute a raygen UAV write of 42. RaytracingTier remains
+  unreported pending miss/hit/callable shaders, recursive `TraceRay`, and full
+  shader-table semantics.

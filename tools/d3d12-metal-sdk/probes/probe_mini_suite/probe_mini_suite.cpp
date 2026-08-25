@@ -2049,9 +2049,11 @@ static ProbeResult probe_mesh_shader_pso() {
 
 static ProbeResult probe_dxr_acceleration_structures() {
     std::vector<uint8_t> ray_query_shader;
-    if (!read_binary_file("probe_dxr_inline.cso", ray_query_shader)) {
+    std::vector<uint8_t> raygen_library;
+    if (!read_binary_file("probe_dxr_inline.cso", ray_query_shader) ||
+        !read_binary_file("probe_dxr_raygen.cso", raygen_library)) {
         return {false, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND),
-                "inline ray-query shader blob is missing", ""};
+                "inline ray-query or raygen shader blob is missing", ""};
     }
     ID3D12Device* device = nullptr;
     HRESULT hr = create_device(&device);
@@ -2065,6 +2067,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12GraphicsCommandList4* list4 = nullptr;
     ID3D12RootSignature* compute_root = nullptr;
     ID3D12PipelineState* compute_pso = nullptr;
+    ID3D12StateObject* raytracing_state = nullptr;
+    ID3D12StateObjectProperties* raytracing_properties = nullptr;
     ID3D12DescriptorHeap* ray_query_heap = nullptr;
     ID3D12Resource* vertices = nullptr;
     ID3D12Resource* acceleration_structure = nullptr;
@@ -2076,6 +2080,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* top_level_postbuild = nullptr;
     ID3D12Resource* ray_query_output = nullptr;
     ID3D12Resource* ray_query_readback = nullptr;
+    ID3D12Resource* raygen_shader_table = nullptr;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
@@ -2122,6 +2127,61 @@ static ProbeResult probe_dxr_acceleration_structures() {
                                                 IID_PPV_ARGS(&compute_pso));
     }
     safe_release(compute_root_blob);
+
+    D3D12_EXPORT_DESC raygen_export = {};
+    raygen_export.Name = L"raygen";
+    D3D12_DXIL_LIBRARY_DESC raygen_library_desc = {};
+    raygen_library_desc.DXILLibrary = {raygen_library.data(),
+                                      raygen_library.size()};
+    raygen_library_desc.NumExports = 1;
+    raygen_library_desc.pExports = &raygen_export;
+    D3D12_GLOBAL_ROOT_SIGNATURE global_root = {compute_root};
+    D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
+    shader_config.MaxPayloadSizeInBytes = 4;
+    shader_config.MaxAttributeSizeInBytes = 8;
+    D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config = {};
+    pipeline_config.MaxTraceRecursionDepth = 1;
+    D3D12_STATE_SUBOBJECT state_subobjects[4] = {};
+    state_subobjects[0] = {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY,
+                           &raygen_library_desc};
+    state_subobjects[1] = {
+        D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE, &global_root};
+    state_subobjects[2] = {D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG,
+                           &shader_config};
+    state_subobjects[3] = {
+        D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG,
+        &pipeline_config};
+    D3D12_STATE_OBJECT_DESC state_desc = {};
+    state_desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    state_desc.NumSubobjects = 4;
+    state_desc.pSubobjects = state_subobjects;
+    if (SUCCEEDED(hr))
+        hr = device5->CreateStateObject(&state_desc,
+                                        IID_PPV_ARGS(&raytracing_state));
+    if (SUCCEEDED(hr))
+        hr = raytracing_state->QueryInterface(
+            IID_PPV_ARGS(&raytracing_properties));
+
+    const void* raygen_identifier =
+        SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen")
+                      : nullptr;
+    if (SUCCEEDED(hr) && !raygen_identifier)
+        hr = E_FAIL;
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC table_desc = buffer_desc(64);
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &table_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&raygen_shader_table));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = raygen_shader_table->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, raygen_identifier, 32);
+            raygen_shader_table->Unmap(0, nullptr);
+        }
+    }
 
     const float triangle[9] = {
         -0.75f, -0.75f, 0.0f,
@@ -2352,18 +2412,28 @@ static ProbeResult probe_dxr_acceleration_structures() {
         list4->SetComputeRootDescriptorTable(
             0, ray_query_heap->GetGPUDescriptorHandleForHeapStart());
         list4->Dispatch(1, 1, 1);
+        list4->SetPipelineState1(raytracing_state);
+        D3D12_DISPATCH_RAYS_DESC dispatch_rays = {};
+        dispatch_rays.RayGenerationShaderRecord.StartAddress =
+            raygen_shader_table->GetGPUVirtualAddress();
+        dispatch_rays.RayGenerationShaderRecord.SizeInBytes = 32;
+        dispatch_rays.Width = 1;
+        dispatch_rays.Height = 1;
+        dispatch_rays.Depth = 1;
+        list4->DispatchRays(&dispatch_rays);
         D3D12_RESOURCE_BARRIER output_barrier = transition_barrier(
             ray_query_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &output_barrier);
         list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
-                                sizeof(uint32_t));
+                                sizeof(uint32_t) * 2);
         hr = execute_and_wait(queue, list4);
     }
 
     uint64_t current_size = 0;
     uint64_t top_level_current_size = 0;
     uint32_t ray_hit = 0;
+    uint32_t raygen_value = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(current_size)};
@@ -2385,10 +2455,13 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(ray_hit)};
+        D3D12_RANGE range = {0, sizeof(ray_hit) + sizeof(raygen_value)};
         hr = ray_query_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&ray_hit, mapped, sizeof(ray_hit));
+            std::memcpy(&raygen_value,
+                        static_cast<const uint8_t*>(mapped) + sizeof(ray_hit),
+                        sizeof(raygen_value));
             ray_query_readback->Unmap(0, nullptr);
         }
     }
@@ -2399,8 +2472,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           top_level_current_size > 0 &&
                           top_level_current_size <=
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
-                          ray_hit == 1;
+                          ray_hit == 1 && raygen_value == 42;
 
+    safe_release(raygen_shader_table);
+    safe_release(raytracing_properties);
+    safe_release(raytracing_state);
     safe_release(ray_query_readback);
     safe_release(ray_query_output);
     safe_release(top_level_postbuild);
@@ -2421,8 +2497,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal BLAS/TLAS built and inline RayQuery hit the triangle"
-                     : "DXR acceleration-structure or inline-ray gate failed",
+            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen DispatchRays passed"
+                     : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
                 ",\"ray_query_pso_created\":true" +
@@ -2436,6 +2512,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"tlas_current_size_bytes\":" +
                 std::to_string(top_level_current_size) +
                 ",\"inline_ray_hit\":" + std::to_string(ray_hit) +
+                ",\"raygen_dispatch_value\":" +
+                std::to_string(raygen_value) +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
 }
 

@@ -812,6 +812,10 @@ struct ReplayState {
   ~ReplayState() { CloseRenderEncoder(); }
 
   MTLD3D12PipelineState *pso = nullptr;
+  ID3D12StateObject *raytracing_state = nullptr;
+  WMT::Reference<WMT::ComputePipelineState> raytracing_compute_pso;
+  WMT::Reference<WMT::VisibleFunctionTable>
+      raytracing_visible_function_table;
   MTLD3D12RootSignature *graphics_root_sig = nullptr;
   D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
   D3D12_VERTEX_BUFFER_VIEW vbs[kVertexBufferSlotCount] = {};
@@ -5630,6 +5634,228 @@ static uint64_t FootprintOffset(uint64_t base_offset, uint32_t row_pitch,
          uint64_t(x / block) * uint64_t(bytes_per_block);
 }
 
+static bool ReplayRaytracingDispatch(
+    ReplayState &st, MTLD3D12Device *device, WMT::CommandBuffer cmdbuf,
+    const D3D12_DISPATCH_RAYS_DESC &desc) {
+  if (!st.raytracing_compute_pso.handle ||
+      !st.raytracing_visible_function_table.handle || st.desc_heap_count == 0)
+    return false;
+
+  auto *root_signature = st.compute_root_sig;
+  if (!root_signature)
+    root_signature = static_cast<MTLD3D12RootSignature *>(
+        GetD3D12StateObjectGlobalRootSignature(st.raytracing_state));
+  if (!root_signature)
+    return false;
+
+  uint32_t root_index = ~0u;
+  uint32_t uav_descriptor_offset = 0;
+  if (!root_signature->FindDescriptorTableRange(
+          D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 0, &root_index,
+          &uav_descriptor_offset) ||
+      root_index >= ReplayState::kRootParameterSlotCount ||
+      !(st.comp_table_set[root_index] || st.root_table_set[root_index]))
+    return false;
+  D3D12_GPU_DESCRIPTOR_HANDLE table_handle = st.comp_table_set[root_index]
+                                                   ? st.comp_tables[root_index]
+                                                   : st.root_tables[root_index];
+  uint32_t acceleration_root_index = ~0u;
+  uint32_t acceleration_descriptor_offset = 0;
+  D3D12_GPU_DESCRIPTOR_HANDLE acceleration_table_handle = {};
+  if (root_signature->FindDescriptorTableRange(
+          D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 0, 0,
+          &acceleration_root_index, &acceleration_descriptor_offset) &&
+      acceleration_root_index < ReplayState::kRootParameterSlotCount &&
+      (st.comp_table_set[acceleration_root_index] ||
+       st.root_table_set[acceleration_root_index])) {
+    acceleration_table_handle =
+        st.comp_table_set[acceleration_root_index]
+            ? st.comp_tables[acceleration_root_index]
+            : st.root_tables[acceleration_root_index];
+  }
+  D3D12Descriptor *output_descriptor = nullptr;
+  D3D12Descriptor *acceleration_descriptor = nullptr;
+  for (uint32_t h = 0; h < st.desc_heap_count; h++) {
+    auto *heap = static_cast<MTLD3D12DescriptorHeap *>(st.desc_heaps[h]);
+    if (!heap)
+      continue;
+    output_descriptor = heap->GetDescriptorFromGPUHandle(
+        table_handle, uav_descriptor_offset);
+    if (acceleration_table_handle.ptr) {
+      acceleration_descriptor = heap->GetDescriptorFromGPUHandle(
+          acceleration_table_handle, acceleration_descriptor_offset);
+    }
+    if (output_descriptor)
+      break;
+  }
+  if (!output_descriptor || !output_descriptor->resource)
+    return false;
+  auto *output =
+      static_cast<MTLD3D12Resource *>(output_descriptor->resource);
+  auto *shader_table = device->LookupResourceByGPUAddress(
+      desc.RayGenerationShaderRecord.StartAddress);
+  if (!output->GetMTLBuffer().handle || !shader_table ||
+      !shader_table->GetMTLBuffer().handle)
+    return false;
+
+  uint64_t descriptor_table_data[6] = {};
+  if (acceleration_descriptor && acceleration_descriptor->resource) {
+    auto *acceleration = static_cast<MTLD3D12Resource *>(
+        acceleration_descriptor->resource);
+    descriptor_table_data[0] = acceleration->GetRaytracingHeaderGPUAddress();
+    st.RetainMTLObjectForCompletion(
+        acceleration->GetMTLAccelerationStructure());
+    st.RetainMTLObjectForCompletion(
+        acceleration->GetRaytracingHeaderBuffer());
+    st.RetainMTLObjectForCompletion(
+        acceleration->GetRaytracingInstanceContributionsBuffer());
+  }
+  descriptor_table_data[3] = output->GetGPUVirtualAddress() +
+                             UAVBufferByteOffset(output_descriptor);
+  descriptor_table_data[5] = UAVBufferByteLength(output_descriptor, output);
+
+  uint64_t descriptor_table_gpu = 0;
+  auto descriptor_table_buffer = st.MakeTransientBuffer(
+      device, sizeof(descriptor_table_data), &descriptor_table_gpu);
+  if (!descriptor_table_buffer.handle || !descriptor_table_gpu)
+    return false;
+  descriptor_table_buffer.updateContents(0, descriptor_table_data,
+                                         sizeof(descriptor_table_data));
+
+  uint64_t global_root_data = descriptor_table_gpu;
+  uint64_t global_root_gpu = 0;
+  auto global_root_buffer =
+      st.MakeTransientBuffer(device, sizeof(global_root_data),
+                             &global_root_gpu);
+  if (!global_root_buffer.handle || !global_root_gpu)
+    return false;
+  global_root_buffer.updateContents(0, &global_root_data,
+                                    sizeof(global_root_data));
+
+  struct RayVirtualAddressRange {
+    uint64_t start_address;
+    uint64_t size_in_bytes;
+  };
+  struct RayVirtualAddressRangeAndStride {
+    uint64_t start_address;
+    uint64_t size_in_bytes;
+    uint64_t stride_in_bytes;
+  };
+  struct RayDispatchDescriptor {
+    RayVirtualAddressRange ray_generation_shader_record;
+    RayVirtualAddressRangeAndStride miss_shader_table;
+    RayVirtualAddressRangeAndStride hit_group_table;
+    RayVirtualAddressRangeAndStride callable_shader_table;
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t padding;
+  };
+  struct RayDispatchArgument {
+    RayDispatchDescriptor dispatch;
+    uint64_t global_root_signature;
+    uint64_t resource_descriptor_heap;
+    uint64_t sampler_descriptor_heap;
+    uint64_t visible_function_table;
+    uint64_t intersection_function_table;
+    uint64_t intersection_function_tables;
+  } dispatch_argument = {};
+  dispatch_argument.dispatch.ray_generation_shader_record = {
+      desc.RayGenerationShaderRecord.StartAddress,
+      desc.RayGenerationShaderRecord.SizeInBytes};
+  dispatch_argument.dispatch.miss_shader_table = {
+      desc.MissShaderTable.StartAddress, desc.MissShaderTable.SizeInBytes,
+      desc.MissShaderTable.StrideInBytes};
+  dispatch_argument.dispatch.hit_group_table = {
+      desc.HitGroupTable.StartAddress, desc.HitGroupTable.SizeInBytes,
+      desc.HitGroupTable.StrideInBytes};
+  dispatch_argument.dispatch.callable_shader_table = {
+      desc.CallableShaderTable.StartAddress,
+      desc.CallableShaderTable.SizeInBytes,
+      desc.CallableShaderTable.StrideInBytes};
+  dispatch_argument.dispatch.width = desc.Width;
+  dispatch_argument.dispatch.height = desc.Height;
+  dispatch_argument.dispatch.depth = desc.Depth;
+  dispatch_argument.global_root_signature = global_root_gpu;
+  dispatch_argument.visible_function_table =
+      st.raytracing_visible_function_table.gpuResourceID();
+
+  uint64_t dispatch_argument_gpu = 0;
+  auto dispatch_argument_buffer = st.MakeTransientBuffer(
+      device, sizeof(dispatch_argument), &dispatch_argument_gpu);
+  if (!dispatch_argument_buffer.handle || !dispatch_argument_gpu)
+    return false;
+  dispatch_argument_buffer.updateContents(0, &dispatch_argument,
+                                          sizeof(dispatch_argument));
+
+  struct wmtcmd_compute_setpso set_pipeline = {};
+  struct wmtcmd_compute_setbuffer set_dispatch_argument = {};
+  struct wmtcmd_compute_useresource use_table = {};
+  struct wmtcmd_compute_useresource use_shader_table = {};
+  struct wmtcmd_compute_useresource use_output = {};
+  struct wmtcmd_compute_useresource use_descriptor_table = {};
+  struct wmtcmd_compute_useresource use_global_root = {};
+  struct wmtcmd_compute_useresource use_dispatch_argument = {};
+  struct wmtcmd_compute_dispatch dispatch = {};
+  set_pipeline.type = WMTComputeCommandSetPSO;
+  set_pipeline.pso = st.raytracing_compute_pso.handle;
+  set_pipeline.threadgroup_size = {1, 1, 1};
+  set_pipeline.next.set(&set_dispatch_argument);
+  set_dispatch_argument.type = WMTComputeCommandSetBuffer;
+  set_dispatch_argument.buffer = dispatch_argument_buffer.handle;
+  set_dispatch_argument.offset = 0;
+  set_dispatch_argument.index = 3;
+  set_dispatch_argument.next.set(&use_table);
+  use_table.type = WMTComputeCommandUseResource;
+  use_table.resource = st.raytracing_visible_function_table.handle;
+  use_table.usage = WMTResourceUsageRead;
+  use_table.next.set(&use_shader_table);
+  use_shader_table.type = WMTComputeCommandUseResource;
+  use_shader_table.resource = shader_table->GetMTLBuffer().handle;
+  use_shader_table.usage = WMTResourceUsageRead;
+  use_shader_table.next.set(&use_output);
+  use_output.type = WMTComputeCommandUseResource;
+  use_output.resource = output->GetMTLBuffer().handle;
+  use_output.usage =
+      (WMTResourceUsage)(WMTResourceUsageRead | WMTResourceUsageWrite);
+  use_output.next.set(&use_descriptor_table);
+  use_descriptor_table.type = WMTComputeCommandUseResource;
+  use_descriptor_table.resource = descriptor_table_buffer.handle;
+  use_descriptor_table.usage = WMTResourceUsageRead;
+  use_descriptor_table.next.set(&use_global_root);
+  use_global_root.type = WMTComputeCommandUseResource;
+  use_global_root.resource = global_root_buffer.handle;
+  use_global_root.usage = WMTResourceUsageRead;
+  use_global_root.next.set(&use_dispatch_argument);
+  use_dispatch_argument.type = WMTComputeCommandUseResource;
+  use_dispatch_argument.resource = dispatch_argument_buffer.handle;
+  use_dispatch_argument.usage = WMTResourceUsageRead;
+  use_dispatch_argument.next.set(&dispatch);
+  dispatch.type = WMTComputeCommandDispatch;
+  dispatch.size = {desc.Width, desc.Height, desc.Depth};
+  dispatch.next.set(nullptr);
+
+  st.CloseRenderEncoder();
+  auto encoder = cmdbuf.computeCommandEncoder(false);
+  ENC_CREATE("dispatch_rays", encoder.handle);
+  ScopedMetalEncoderEnd encoder_guard{encoder, "dispatch_rays"};
+  if (!encoder.handle || !encoder.encodeCommands(
+                             reinterpret_cast<const wmtcmd_compute_nop *>(
+                                 &set_pipeline)))
+    return false;
+  st.RetainMTLObjectForCompletion(st.raytracing_compute_pso);
+  st.RetainMTLObjectForCompletion(st.raytracing_visible_function_table);
+  st.RetainResourceMetalObjectsForCompletion(output);
+  st.RetainResourceMetalObjectsForCompletion(shader_table);
+  QTRACE("DispatchRays encoded dimensions=%ux%ux%u dispatch_arg=0x%llx "
+         "grs=0x%llx table_id=0x%llx",
+         desc.Width, desc.Height, desc.Depth,
+         (unsigned long long)dispatch_argument_gpu,
+         (unsigned long long)global_root_gpu,
+         (unsigned long long)dispatch_argument.visible_function_table);
+  return true;
+}
+
 static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
                                   WMT::CommandBuffer cmdbuf, uint32_t x,
                                   uint32_t y, uint32_t z,
@@ -7178,6 +7404,49 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         QTRACE("EmitRaytracingPostbuildInfo current_size=%llu dest=0x%llx",
                (unsigned long long)current_size,
                (unsigned long long)cmd->dest_buffer);
+        break;
+      }
+      case CmdType::SetPipelineState1: {
+        auto *cmd = reinterpret_cast<const CmdSetPipelineState1 *>(header);
+        auto pipeline = GetD3D12StateObjectRaygenComputePipeline(
+            cmd->state_object);
+        auto visible_table =
+            GetD3D12StateObjectRaygenVisibleFunctionTable(cmd->state_object);
+        if (pipeline.handle && visible_table.handle) {
+          st.raytracing_state = cmd->state_object;
+          st.raytracing_compute_pso = pipeline;
+          st.raytracing_visible_function_table = visible_table;
+          QTRACE("SetPipelineState1 state=%p raygen_pso=%llu table=%llu",
+                 (void *)cmd->state_object,
+                 (unsigned long long)pipeline.handle,
+                 (unsigned long long)visible_table.handle);
+        } else {
+          QTRACE("SetPipelineState1 SKIPPED state=%p pipeline=%llu table=%llu",
+                 (void *)cmd->state_object,
+                 (unsigned long long)pipeline.handle,
+                 (unsigned long long)visible_table.handle);
+        }
+        break;
+      }
+      case CmdType::DispatchRays: {
+        auto *cmd = reinterpret_cast<const CmdDispatchRays *>(header);
+        if (!st.raytracing_compute_pso.handle ||
+            !cmd->desc.RayGenerationShaderRecord.StartAddress ||
+            cmd->desc.RayGenerationShaderRecord.SizeInBytes < 32 ||
+            !cmd->desc.Width || !cmd->desc.Height || !cmd->desc.Depth) {
+          QTRACE("DispatchRays SKIPPED pso=%p dimensions=%ux%ux%u "
+                 "raygen=0x%llx size=%llu",
+                 (void *)(uintptr_t)st.raytracing_compute_pso.handle,
+                 cmd->desc.Width, cmd->desc.Height,
+                 cmd->desc.Depth,
+                 (unsigned long long)
+                     cmd->desc.RayGenerationShaderRecord.StartAddress,
+                 (unsigned long long)
+                     cmd->desc.RayGenerationShaderRecord.SizeInBytes);
+          break;
+        }
+        if (!ReplayRaytracingDispatch(st, m_device, cmdbuf, cmd->desc))
+          QTRACE("DispatchRays SKIPPED ray dispatch encoding failed");
         break;
       }
       case CmdType::Dispatch: {

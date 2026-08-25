@@ -1131,6 +1131,16 @@ bool MTLD3D12PipelineState::IsCompilePending() const {
   return state == CompileState::Pending || state == CompileState::Compiling;
 }
 
+std::string MTLD3D12PipelineState::GetCSCacheHash() const {
+  if (m_cs.empty())
+    return {};
+  char buffer[32];
+  snprintf(buffer, sizeof(buffer), "%016zx",
+           ComputeShaderCacheHash(m_cs.data(), m_cs.size(),
+                                  ShaderType::Compute, nullptr));
+  return buffer;
+}
+
 std::string MTLD3D12PipelineState::GetVSCacheHash() const {
   if (m_vs.empty())
     return {};
