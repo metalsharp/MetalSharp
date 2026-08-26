@@ -472,6 +472,10 @@ public:
       D3D12_RESOURCE_ALLOCATION_INFO1 *resource_allocation_info1) override;
 
 private:
+  HRESULT CreateGraphicsPipelineStateInternal(
+      const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
+      void **pipeline_state, bool depth_bounds_test_enable);
+
   std::unique_ptr<Device> m_device;
   FormatCapabilityInspector m_format_inspector;
   bool m_metal_raytracing_supported = false;

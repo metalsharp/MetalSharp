@@ -816,7 +816,13 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::AtomicCopyBufferUINT64(
     const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges) {}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetDepthBounds(
-    FLOAT min, FLOAT max) {}
+    FLOAT min, FLOAT max) {
+  CmdOMSetDepthBounds cmd = {};
+  cmd.header = {CmdType::OMSetDepthBounds, sizeof(cmd)};
+  cmd.min_depth = min;
+  cmd.max_depth = max;
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetSamplePositions(
     UINT sample_count, UINT pixel_count,

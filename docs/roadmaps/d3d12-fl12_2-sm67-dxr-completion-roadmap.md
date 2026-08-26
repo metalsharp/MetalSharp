@@ -213,7 +213,6 @@ However, these D3D12 command-list methods are empty or compatibility no-ops:
 - marker/event commands
 - `AtomicCopyBufferUINT`
 - `AtomicCopyBufferUINT64`
-- `OMSetDepthBounds`
 - `SetSamplePositions`
 - `SetViewInstanceMask`
 - protected-resource sessions
@@ -318,6 +317,17 @@ Findings:
   writes exactly 76/75 edge pixels in the two layers, versus 338/325 filled
   pixels for the same geometry. All 8,041 background pixels retain the exact
   clear value and no unexpected pixel is present.
+- A fifth layered matrix proves software-emulated D3D12 depth bounds because
+  the Apple M4 Metal validation layer rejects the macOS 26 native encoder API
+  as unsupported. `OMSetDepthBounds` is now retained in the command stream;
+  DEPTH_STENCIL1/2 pipeline streams select an instrumented pixel-shader variant
+  that reads the active DSV mip/array view. Inclusive bounds 0.4–0.6 accept the
+  exact 0.5 stored depth before ordinary 0.25/0.75 depth comparison, producing
+  338/0 pixels. Bounds 0.6–0.9 and inverted bounds 0.9–0.1 each preserve all
+  8,192 clear pixels with zero unexpected output. An otherwise identical PSO
+  with `DepthBoundsTestEnable = FALSE` ignores the inverted dynamic state and
+  restores the exact 338/0 ordinary-depth result. Options2 reports depth-bounds
+  support only after these clean-prefix Wine 11.5 readbacks pass.
 - Mesh tier 1 remains conservatively unreported while mixed render-state
   matrices beyond layered depth/blending/wireframe, pipeline statistics, and
   broader shader/payload coverage are still gated.

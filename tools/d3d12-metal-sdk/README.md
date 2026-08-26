@@ -601,7 +601,11 @@ exact 0.5 clear in layer 0 while depth 0.75 is rejected in layer 1. The final
 pass behavior-checks layered additive color/alpha blending through
 exact source, clear, and output RGBA8 values in both slices. A wireframe pass
 then proves edge-only rasterization through exact per-layer foreground and
-background counts. Mesh tier reporting remains disabled pending pipeline
+background counts. The depth matrix also proves recorded `OMSetDepthBounds`
+state through shader-side emulation: 0.4–0.6 accepts stored depth 0.5,
+0.6–0.9 and inverted 0.9–0.1 reject every fragment, and the same inverted
+state is ignored by a PSO with depth bounds disabled. Every pass validates both
+array slices with zero unexpected pixels. Mesh tier reporting remains disabled pending pipeline
 statistics, broader mixed render-state matrices, and broader shader/payload
 coverage.
 

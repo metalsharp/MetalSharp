@@ -791,6 +791,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os, ctx.vertex_procedural_fullscreen_fallback,
             ctx.binding_plan.direct_buffer_count > 30);
     } else if (ctx.shader.kind == DxilShaderKind::Pixel) {
+        if (ctx.options.depth_bounds_test)
+            ctx.binding_plan.direct_buffer_count =
+                std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
         os << "fragment float4 ps_main(\n";
         os << "  input_v in [[stage_in]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
@@ -799,9 +802,37 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++) {
             os << "  sampler samp" << i << " [[sampler(" << i << ")]]";
-            os << (i + 1 == ctx.binding_plan.direct_sampler_count ? "\n" : ",\n");
+            os << (i + 1 == ctx.binding_plan.direct_sampler_count &&
+                           !ctx.options.depth_bounds_test
+                       ? "\n"
+                       : ",\n");
+        }
+        if (ctx.options.depth_bounds_test) {
+            os << "  constant float4& m12_depth_bounds [[buffer(28)]],\n";
+            os << (ctx.options.depth_bounds_multisample
+                       ? "  depth2d_ms_array<float, access::read> "
+                       : "  depth2d_array<float, access::read> ")
+               <<
+                  "m12_depth_bounds_texture [[texture(126)]],\n";
+            os << "  uint m12_depth_layer [[render_target_array_index]]";
+            if (ctx.options.depth_bounds_multisample)
+                os << ",\n  uint m12_depth_sample [[sample_id]]\n";
+            else
+                os << "\n";
         }
         os << ") {\n";
+        if (ctx.options.depth_bounds_test) {
+            os << "  float m12_stored_depth = m12_depth_bounds_texture.read("
+                  "uint2(in.position.xy), m12_depth_layer + "
+                  "uint(m12_depth_bounds.z)";
+            if (ctx.options.depth_bounds_multisample)
+                os << ", m12_depth_sample";
+            os << ");\n";
+            os << "  if (m12_depth_bounds.w != 0.0f || "
+                  "m12_stored_depth < m12_depth_bounds.x || "
+                  "m12_stored_depth > m12_depth_bounds.y) "
+                  "discard_fragment();\n";
+        }
         os << "  float4 result = float4(0,0,0,1);\n";
     } else {
         os << "kernel void unknown_main() {\n";

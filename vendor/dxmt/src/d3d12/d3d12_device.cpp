@@ -2482,6 +2482,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandAllocator(
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
     void **pipeline_state) {
+  return CreateGraphicsPipelineStateInternal(desc, riid, pipeline_state,
+                                             false);
+}
+
+HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
+    const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
+    void **pipeline_state, bool depth_bounds_test_enable) {
   if (!desc || !pipeline_state)
     return E_POINTER;
   InitReturnPtr(pipeline_state);
@@ -2532,6 +2539,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
 
   auto pso = new MTLD3D12PipelineState(this, false);
   pso->SetGraphicsDesc(*desc);
+  pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
   bool compiled = pso->RequestCompile(!native_tessellation_required);
   auto failure_stage = pso->GetCompileFailureStage();
   auto failure_detail = pso->GetCompileFailureDetail();
@@ -2926,7 +2934,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS2 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->DepthBoundsTestSupported = FALSE;
+    o->DepthBoundsTestSupported = TRUE;
     o->ProgrammableSamplePositionsTier =
         D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
     return S_OK;
@@ -4353,6 +4361,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
   D3D12_SHADER_BYTECODE mesh_shader = {};
   bool has_cs = false;
   bool is_compute = true;
+  bool depth_bounds_test_enable = false;
   ID3D12RootSignature *created_stream_root_signature = nullptr;
   struct CreatedRootSignatureGuard {
     ID3D12RootSignature *&root_signature;
@@ -4459,6 +4468,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
       if (!read_pipeline_stream_subobject(subobject, end,
                                           &graphics_desc.DepthStencilState))
         return E_INVALIDARG;
+      depth_bounds_test_enable = false;
       is_compute = false;
       advanced =
           advance_pipeline_stream<D3D12_DEPTH_STENCIL_DESC>(&stream, end);
@@ -4552,6 +4562,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
         return E_INVALIDARG;
       graphics_desc.DepthStencilState =
           convert_depth_stencil_desc1(depth_stencil);
+      depth_bounds_test_enable = depth_stencil.DepthBoundsTestEnable;
       is_compute = false;
       advanced = advance_pipeline_stream<D3D12DepthStencilDesc1>(&stream, end);
       break;
@@ -4572,6 +4583,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
         return E_INVALIDARG;
       graphics_desc.DepthStencilState =
           convert_depth_stencil_desc2(depth_stencil);
+      depth_bounds_test_enable = depth_stencil.DepthBoundsTestEnable;
       TRACE("CreatePipelineState: depth-stencil2 depth=%d stencil=%d "
             "depth_bounds=%d",
             depth_stencil.DepthEnable, depth_stencil.StencilEnable,
@@ -4673,6 +4685,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
     }
     auto *pso = new MTLD3D12PipelineState(this, false);
     pso->SetGraphicsDesc(graphics_desc);
+    pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
     pso->SetMeshShaders(amplification_shader, mesh_shader);
     bool compiled = pso->RequestCompile(false);
     TRACE("ID3D12Device2::CreatePipelineState mesh compile=%d stage=%s "
@@ -4698,7 +4711,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
         "VS=%p PS=%p NumRT=%u",
         graphics_desc.VS.pShaderBytecode, graphics_desc.PS.pShaderBytecode,
         graphics_desc.NumRenderTargets);
-  return CreateGraphicsPipelineState(&graphics_desc, riid, ppPipelineState);
+  return CreateGraphicsPipelineStateInternal(
+      &graphics_desc, riid, ppPipelineState, depth_bounds_test_enable);
 }
 
 /*** ID3D12Device3 ***/

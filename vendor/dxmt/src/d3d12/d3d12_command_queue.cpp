@@ -17,6 +17,7 @@
 #include "Metal.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -897,6 +898,8 @@ struct ReplayState {
   bool render_enc_open = false;
   bool render_enc_has_dsv = false;
   DXGI_FORMAT render_enc_dsv_format = DXGI_FORMAT_UNKNOWN;
+  WMT::Reference<WMT::Texture> depth_bounds_dsv_texture;
+  uint32_t depth_bounds_dsv_slice = 0;
   uint64_t bound_vertex_buffer_slots = 0;
   uint64_t bound_fragment_buffer_slots = 0;
   uint64_t bound_fragment_texture_slots = 0;
@@ -924,6 +927,9 @@ struct ReplayState {
   uint32_t scissor_count = 0;
   float blend_factor[4] = {1, 1, 1, 1};
   uint32_t stencil_ref = 0;
+  float depth_bounds_min = 0.0f;
+  float depth_bounds_max = 1.0f;
+  bool depth_bounds_inverted = false;
 
   D3D12_CPU_DESCRIPTOR_HANDLE rt_handles[8] = {};
   D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = {};
@@ -2576,6 +2582,22 @@ struct ReplayState {
           continue;
         SetFragmentSamplerTracked(null_direct_sampler, slot, true);
       }
+    }
+
+    if (pso->IsDepthBoundsTestEnabled() &&
+        depth_bounds_dsv_texture.handle) {
+      const float depth_bounds[4] = {
+          depth_bounds_min, depth_bounds_max,
+          static_cast<float>(depth_bounds_dsv_slice),
+          depth_bounds_inverted ? 1.0f : 0.0f};
+      render_enc.setFragmentBytes(depth_bounds, sizeof(depth_bounds), 28);
+      render_enc.setFragmentTexture(depth_bounds_dsv_texture, 126);
+      RetainMTLObjectForCompletion(depth_bounds_dsv_texture);
+      QTRACE("DepthBounds bind min=%.3f max=%.3f slice=%u inverted=%u "
+             "texture=%p",
+             depth_bounds_min, depth_bounds_max, depth_bounds_dsv_slice,
+             depth_bounds_inverted ? 1u : 0u,
+             (void *)depth_bounds_dsv_texture.handle);
     }
 
     if (HasSwapchainRenderTarget() &&
@@ -4935,6 +4957,8 @@ struct ReplayState {
     rp.stencil.texture = NULL_OBJECT_HANDLE;
     rp.stencil.load_action = WMTLoadActionLoad;
     rp.stencil.store_action = WMTStoreActionStore;
+    depth_bounds_dsv_texture = nullptr;
+    depth_bounds_dsv_slice = 0;
 
     bool has_valid_rt = false;
     uint16_t render_target_array_length = 1;
@@ -4997,6 +5021,23 @@ struct ReplayState {
           has_valid_rt = true;
           render_enc_has_dsv = true;
           render_enc_dsv_format = effective_dsv_format;
+          uint64_t view_gpu_id = 0;
+          WMTTextureSwizzleChannels swizzle = {
+              WMTTextureSwizzleRed, WMTTextureSwizzleGreen,
+              WMTTextureSwizzleBlue, WMTTextureSwizzleAlpha};
+          const bool multisampled =
+              desc->dsv.ViewDimension == D3D12_DSV_DIMENSION_TEXTURE2DMS ||
+              desc->dsv.ViewDimension ==
+                  D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY;
+          depth_bounds_dsv_texture = dsv_tex.newTextureView(
+              dsv_tex.pixelFormat(),
+              multisampled ? WMTTextureType2DMultisampleArray
+                           : WMTTextureType2DArray,
+              DSVMipLevel(desc), 1, DSVArraySlice(desc),
+              DSVArrayLength(desc), swizzle, view_gpu_id);
+          // The texture view begins at the DSV's first array slice, so the
+          // fragment's render-target array index is already view-relative.
+          depth_bounds_dsv_slice = 0;
         }
       }
     }
@@ -5065,6 +5106,17 @@ struct ReplayState {
                                  (uint64_t)(right - left),
                                  (uint64_t)(bottom - top)});
     }
+
+    if (pso && pso->IsDepthBoundsTestEnabled() &&
+        depth_bounds_dsv_texture.handle) {
+      const float depth_bounds[4] = {
+          depth_bounds_min, depth_bounds_max,
+          static_cast<float>(depth_bounds_dsv_slice),
+          depth_bounds_inverted ? 1.0f : 0.0f};
+      render_enc.setFragmentBytes(depth_bounds, sizeof(depth_bounds), 28);
+      render_enc.setFragmentTexture(depth_bounds_dsv_texture, 126);
+      RetainMTLObjectForCompletion(depth_bounds_dsv_texture);
+    }
   }
 
   void ApplyFixedFunctionState() {
@@ -5094,10 +5146,13 @@ struct ReplayState {
         rast.SlopeScaledDepthBias, rast.DepthBiasClamp);
     render_enc.setBlendFactorAndStencilRef(blend_factor, stencil_ref);
     QTRACE("ApplyFixedFunctionState: fill=%u cull=%u depth_clip=%u winding=%u "
-           "blend=(%.3f,%.3f,%.3f,%.3f) stencil=%u",
+           "blend=(%.3f,%.3f,%.3f,%.3f) stencil=%u depth_bounds=%u "
+           "range=(%.3f,%.3f) inverted=%u",
            (unsigned)fill_mode, (unsigned)cull_mode, (unsigned)depth_clip,
            (unsigned)winding, blend_factor[0], blend_factor[1], blend_factor[2],
-           blend_factor[3], stencil_ref);
+           blend_factor[3], stencil_ref,
+           pso->IsDepthBoundsTestEnabled() ? 1u : 0u, depth_bounds_min,
+           depth_bounds_max, depth_bounds_inverted ? 1u : 0u);
   }
 
   WMTCullMode EffectiveCullMode() const {
@@ -9743,6 +9798,30 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::OMSetStencilRef: {
         auto *cmd = reinterpret_cast<const CmdOMStencilRef *>(header);
         st.stencil_ref = cmd->stencil_ref;
+        break;
+      }
+      case CmdType::OMSetDepthBounds: {
+        auto *cmd = reinterpret_cast<const CmdOMSetDepthBounds *>(header);
+        float min_depth = std::isnan(cmd->min_depth) ? 0.0f : cmd->min_depth;
+        float max_depth = std::isnan(cmd->max_depth) ? 0.0f : cmd->max_depth;
+        min_depth = std::clamp(min_depth, 0.0f, 1.0f);
+        max_depth = std::clamp(max_depth, 0.0f, 1.0f);
+        st.depth_bounds_inverted = min_depth > max_depth;
+        st.depth_bounds_min = st.depth_bounds_inverted ? 0.0f : min_depth;
+        st.depth_bounds_max = st.depth_bounds_inverted ? 0.0f : max_depth;
+        if (st.render_enc_open && st.pso &&
+            st.pso->IsDepthBoundsTestEnabled()) {
+          const float depth_bounds[4] = {
+              st.depth_bounds_min, st.depth_bounds_max,
+              static_cast<float>(st.depth_bounds_dsv_slice),
+              st.depth_bounds_inverted ? 1.0f : 0.0f};
+          st.render_enc.setFragmentBytes(depth_bounds, sizeof(depth_bounds),
+                                         28);
+        }
+        QTRACE("OMSetDepthBounds requested=(%.3f,%.3f) applied=(%.3f,%.3f) "
+               "inverted=%u",
+               cmd->min_depth, cmd->max_depth, st.depth_bounds_min,
+               st.depth_bounds_max, st.depth_bounds_inverted ? 1u : 0u);
         break;
       }
       case CmdType::SetDescriptorHeaps: {
