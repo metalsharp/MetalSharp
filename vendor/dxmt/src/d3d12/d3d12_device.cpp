@@ -4676,6 +4676,9 @@ bool D3D12ResolveAABBAccelerationStructureInfo(
   // Entry zero hosts the triangle indirection wrapper. Procedural geometry
   // selects the procedural indirection wrapper at entry one.
   info.intersection_function_table_offset = 1;
+  info.allow_refit =
+      (inputs->Flags &
+       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) != 0;
   return true;
 }
 

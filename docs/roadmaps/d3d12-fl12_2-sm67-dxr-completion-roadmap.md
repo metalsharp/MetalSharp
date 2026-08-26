@@ -997,8 +997,10 @@ the goal is not complete.
   index 3 for closest-hit. Closest-hit launches a depth-2 recursive `TraceRay`
   away from the TLAS, observes the nested miss payload, and combines it with
   the any-hit marker to return `0x52454332`. Procedural AABB geometry is now
-  translated to a Metal bounding-box geometry
-  descriptor and built as a 576-byte BLAS against a 768-byte allocation. The
+  translated to a Metal bounding-box geometry descriptor. Its update-enabled
+  BLAS starts translated by x=10 and is refit to centered geometry before
+  traversal, producing a 704-byte current size against a 768-byte allocation.
+  The
   update-enabled triangle BLAS is cloned through `COPY_MODE_CLONE` and reports
   the same 768-byte current size. Its source geometry starts translated by
   x=10; an in-place
@@ -1024,6 +1026,6 @@ the goal is not complete.
   across every ray-tracing stage. A callable table at offset 256 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  mixed triangle/AABB geometry, larger geometry/instance arrays, AABB updates,
+  mixed triangle/AABB geometry, larger geometry/instance arrays,
   serialization/deserialization, and
   complete local-root/shader-table semantics.

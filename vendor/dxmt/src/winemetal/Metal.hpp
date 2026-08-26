@@ -814,6 +814,16 @@ public:
   }
 
   bool
+  refitAABBAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      const WMTAABBAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitAABBAccelerationStructure(
+        handle, source.handle, destination.handle, &info,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
   copyAccelerationStructure(AccelerationStructure source,
                             AccelerationStructure destination) {
     return MTLCommandBuffer_copyAccelerationStructure(

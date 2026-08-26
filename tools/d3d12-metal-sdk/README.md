@@ -113,7 +113,7 @@ one-indexed-triangle and one-procedural-AABB Metal BLAS, a cloned triangle BLAS 
 then refit from an x=10 translation, queried for its compacted size, compacted,
 and traversed through a three-instance TLAS refit from an x=10 instance
 translation alongside a two-geometry
-indexed/non-indexed triangle BLAS and a procedural AABB BLAS. Current-size
+indexed/non-indexed triangle BLAS and a procedural AABB BLAS refit from an x=10 geometry translation. Current-size
 postbuild readbacks and a mask-isolated inline `RayQuery`
 triangle hit, stable
 export identifiers, and raygen/miss/triangle-any-hit/closest-hit/procedural-

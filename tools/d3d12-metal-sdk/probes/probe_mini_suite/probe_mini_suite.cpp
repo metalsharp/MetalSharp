@@ -2268,6 +2268,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* multi_geometry_scratch = nullptr;
     ID3D12Resource* multi_geometry_postbuild = nullptr;
     ID3D12Resource* aabbs = nullptr;
+    ID3D12Resource* initial_aabbs = nullptr;
     ID3D12Resource* aabb_acceleration_structure = nullptr;
     ID3D12Resource* aabb_scratch = nullptr;
     ID3D12Resource* aabb_postbuild = nullptr;
@@ -2602,6 +2603,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
 
     const D3D12_RAYTRACING_AABB aabb = {
         -0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 1.0f};
+    const D3D12_RAYTRACING_AABB initial_aabb = {
+        9.5f, -0.5f, 0.0f, 10.5f, 0.5f, 1.0f};
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
         D3D12_RESOURCE_DESC aabb_desc = buffer_desc(sizeof(aabb));
@@ -2617,19 +2620,35 @@ static ProbeResult probe_dxr_acceleration_structures() {
             aabbs->Unmap(0, nullptr);
         }
     }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC aabb_desc = buffer_desc(sizeof(initial_aabb));
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &aabb_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&initial_aabbs));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = initial_aabbs->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, &initial_aabb, sizeof(initial_aabb));
+            initial_aabbs->Unmap(0, nullptr);
+        }
+    }
     D3D12_RAYTRACING_GEOMETRY_DESC aabb_geometry = {};
     aabb_geometry.Type =
         D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
     aabb_geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
     aabb_geometry.AABBs.AABBCount = 1;
     aabb_geometry.AABBs.AABBs.StartAddress =
-        aabbs ? aabbs->GetGPUVirtualAddress() : 0;
+        initial_aabbs ? initial_aabbs->GetGPUVirtualAddress() : 0;
     aabb_geometry.AABBs.AABBs.StrideInBytes = sizeof(aabb);
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS aabb_inputs = {};
     aabb_inputs.Type =
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
     aabb_inputs.Flags =
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
     aabb_inputs.NumDescs = 1;
     aabb_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     aabb_inputs.pGeometryDescs = &aabb_geometry;
@@ -2653,8 +2672,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        D3D12_RESOURCE_DESC scratch_desc =
-            buffer_desc(aabb_prebuild.ScratchDataSizeInBytes);
+        D3D12_RESOURCE_DESC scratch_desc = buffer_desc(std::max(
+            aabb_prebuild.ScratchDataSizeInBytes,
+            aabb_prebuild.UpdateScratchDataSizeInBytes));
         scratch_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         hr = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_NONE, &scratch_desc,
@@ -2949,6 +2969,19 @@ static ProbeResult probe_dxr_acceleration_structures() {
             aabb_scratch->GetGPUVirtualAddress();
         aabb_build.Inputs = aabb_inputs;
         list4->BuildRaytracingAccelerationStructure(&aabb_build, 0, nullptr);
+        D3D12_RAYTRACING_GEOMETRY_DESC aabb_update_geometry = aabb_geometry;
+        aabb_update_geometry.AABBs.AABBs.StartAddress =
+            aabbs->GetGPUVirtualAddress();
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC aabb_update =
+            aabb_build;
+        aabb_update.SourceAccelerationStructureData =
+            aabb_acceleration_structure->GetGPUVirtualAddress();
+        aabb_update.Inputs.Flags =
+            static_cast<D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS>(
+                aabb_inputs.Flags |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE);
+        aabb_update.Inputs.pGeometryDescs = &aabb_update_geometry;
+        list4->BuildRaytracingAccelerationStructure(&aabb_update, 0, nullptr);
         post.DestBuffer = aabb_postbuild->GetGPUVirtualAddress();
         source = aabb_acceleration_structure->GetGPUVirtualAddress();
         list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
@@ -3167,6 +3200,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(aabb_scratch);
     safe_release(aabb_acceleration_structure);
     safe_release(aabbs);
+    safe_release(initial_aabbs);
     safe_release(scratch);
     safe_release(acceleration_structure);
     safe_release(cloned_acceleration_structure);
@@ -3184,7 +3218,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, AABB BLAS, clone, shifted BLAS/TLAS updates, compacted-size query, compact copy/three-instance TLAS traversal, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compacted-size query, compact copy/three-instance TLAS traversal, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -3201,6 +3235,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 std::to_string(aabb_prebuild.ResultDataMaxSizeInBytes) +
                 ",\"aabb_current_size_bytes\":" +
                 std::to_string(aabb_current_size) +
+                ",\"aabb_update_geometry_shift_x\":10" +
                 ",\"multi_geometry_count\":2" +
                 ",\"multi_geometry_prebuild_result_bytes\":" +
                 std::to_string(multi_prebuild.ResultDataMaxSizeInBytes) +
