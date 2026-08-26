@@ -73,10 +73,10 @@
         "TLAS BuildRaytracingAccelerationStructure",
         "CURRENT_SIZE postbuild info",
         "inline RayQuery triangle hit",
-        "raygen state object and shader identifier",
+        "raygen/miss state-object exports with stable distinct shader identifiers",
         "DispatchRays raygen kernel"
       ],
-      "risk": "One-triangle BLAS, one-instance TLAS, inline RayQuery hit, and raygen-only DispatchRays gates prove foundational DXR execution; indexed/multi-geometry builds, updates/copies, miss/hit/callable shaders, recursive TraceRay, and full shader-table semantics remain gated.",
+      "risk": "One-triangle BLAS, one-instance TLAS, inline RayQuery hit, stable distinct raygen/miss identifiers, and raygen-only DispatchRays gates prove foundational DXR execution; indexed/multi-geometry builds, updates/copies, executed miss/hit/callable shaders, recursive TraceRay, and full shader-table semantics remain gated.",
       "state": "required",
       "tier": "required"
     },

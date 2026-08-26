@@ -21,6 +21,7 @@
 #include "util_string.hpp"
 #include "d3d12_resource.hpp"
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <unordered_map>
 #include <vector>
@@ -1284,8 +1285,6 @@ public:
         m_subobject_types.push_back(desc->pSubobjects[i].Type);
       }
     }
-    for (size_t i = 0; i < sizeof(m_shader_identifier); i++)
-      m_shader_identifier[i] = static_cast<uint8_t>(0xA5u ^ (i * 17u));
     TRACE("StateObject create type=%u subobjects=%zu base=%p", (unsigned)m_type,
           m_subobject_types.size(), base);
   }
@@ -1406,11 +1405,25 @@ public:
         !m_raygen_visible_function_table.handle || error.handle)
       return false;
 
-    memset(m_shader_identifier, 0, sizeof(m_shader_identifier));
-    const uint64_t raygen_handle = 1;
-    memcpy(m_shader_identifier + sizeof(uint64_t), &raygen_handle,
-           sizeof(raygen_handle));
-    m_shader_identifier[31] = 0x52;
+    for (const auto &export_name : m_exports) {
+      std::array<uint8_t, 32> identifier = {};
+      uint64_t hash = 1469598103934665603ull;
+      for (WCHAR ch : export_name) {
+        hash ^= static_cast<uint16_t>(ch);
+        hash *= 1099511628211ull;
+      }
+      for (uint32_t word_index = 0; word_index < 4; word_index++) {
+        uint64_t word = hash ^
+                        (0x9e3779b97f4a7c15ull * (uint64_t)(word_index + 1));
+        memcpy(identifier.data() + word_index * sizeof(uint64_t), &word,
+               sizeof(word));
+      }
+      const uint64_t visible_function_index =
+          export_name == L"raygen" ? 1ull : 0ull;
+      memcpy(identifier.data() + sizeof(uint64_t),
+             &visible_function_index, sizeof(visible_function_index));
+      m_shader_identifiers.emplace(export_name, identifier);
+    }
     TRACE("StateObject raygen pipeline compiled exports=%zu pso=%llu "
           "visible_table=%llu",
           m_exports.size(),
@@ -1482,11 +1495,12 @@ public:
   void *STDMETHODCALLTYPE GetShaderIdentifier(LPCWSTR export_name) override {
     TRACE("StateObjectProperties::GetShaderIdentifier export=%ls",
           export_name ? export_name : L"(null)");
-    if (!export_name ||
-        std::find(m_exports.begin(), m_exports.end(), export_name) ==
-            m_exports.end())
+    if (!export_name)
       return nullptr;
-    return m_shader_identifier;
+    auto identifier = m_shader_identifiers.find(export_name);
+    return identifier == m_shader_identifiers.end()
+               ? nullptr
+               : identifier->second.data();
   }
 
   UINT64 STDMETHODCALLTYPE GetShaderStackSize(LPCWSTR export_name) override {
@@ -1567,7 +1581,8 @@ private:
   D3D12_STATE_OBJECT_TYPE m_type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
   std::vector<D3D12_STATE_SUBOBJECT_TYPE> m_subobject_types;
   std::vector<std::wstring> m_exports;
-  uint8_t m_shader_identifier[32] = {};
+  std::unordered_map<std::wstring, std::array<uint8_t, 32>>
+      m_shader_identifiers;
   UINT64 m_pipeline_stack_size = 0;
 };
 
