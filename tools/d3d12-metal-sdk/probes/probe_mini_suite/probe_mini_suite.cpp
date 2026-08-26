@@ -2245,6 +2245,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         return {false, hr, "device creation failed", ""};
 
     ID3D12Device5* device5 = nullptr;
+    ID3D12Device7* device7 = nullptr;
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12GraphicsCommandList* list = nullptr;
@@ -2252,7 +2253,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12RootSignature* compute_root = nullptr;
     ID3D12PipelineState* compute_pso = nullptr;
     ID3D12StateObject* raytracing_state = nullptr;
+    ID3D12StateObject* grown_raytracing_state = nullptr;
     ID3D12StateObjectProperties* raytracing_properties = nullptr;
+    ID3D12StateObjectProperties* grown_raytracing_properties = nullptr;
     ID3D12DescriptorHeap* ray_query_heap = nullptr;
     ID3D12Resource* vertices = nullptr;
     ID3D12Resource* updated_vertices = nullptr;
@@ -2281,6 +2284,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* ray_query_readback = nullptr;
     ID3D12Resource* raygen_shader_table = nullptr;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
+    if (SUCCEEDED(hr))
+        hr = device->QueryInterface(IID_PPV_ARGS(&device7));
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
     if (SUCCEEDED(hr))
@@ -2380,6 +2385,21 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = raytracing_state->QueryInterface(
             IID_PPV_ARGS(&raytracing_properties));
 
+    D3D12_HIT_GROUP_DESC grown_hit_group = hit_group;
+    grown_hit_group.HitGroupExport = L"grown_hit_group";
+    D3D12_STATE_SUBOBJECT grown_subobject = {
+        D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP, &grown_hit_group};
+    D3D12_STATE_OBJECT_DESC grown_desc = {};
+    grown_desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    grown_desc.NumSubobjects = 1;
+    grown_desc.pSubobjects = &grown_subobject;
+    if (SUCCEEDED(hr))
+        hr = device7->AddToStateObject(&grown_desc, raytracing_state,
+                                       IID_PPV_ARGS(&grown_raytracing_state));
+    if (SUCCEEDED(hr))
+        hr = grown_raytracing_state->QueryInterface(
+            IID_PPV_ARGS(&grown_raytracing_properties));
+
     const void* raygen_identifier =
         SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen")
                       : nullptr;
@@ -2390,6 +2410,15 @@ static ProbeResult probe_dxr_acceleration_structures() {
     const void* hit_group_identifier =
         SUCCEEDED(hr)
             ? raytracing_properties->GetShaderIdentifier(L"hit_group")
+            : nullptr;
+    const void* grown_hit_group_identifier =
+        SUCCEEDED(hr)
+            ? grown_raytracing_properties->GetShaderIdentifier(
+                  L"grown_hit_group")
+            : nullptr;
+    const void* inherited_hit_group_identifier =
+        SUCCEEDED(hr)
+            ? grown_raytracing_properties->GetShaderIdentifier(L"hit_group")
             : nullptr;
     const void* callable_identifier =
         SUCCEEDED(hr)
@@ -2422,8 +2451,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
         raygen_identifier && repeated_raygen_identifier &&
         std::memcmp(raygen_identifier, repeated_raygen_identifier, 32) == 0 &&
         unknown_identifier == nullptr;
+    const bool add_to_state_object_created = grown_raytracing_state != nullptr;
+    const bool grown_state_identifiers =
+        grown_hit_group_identifier && inherited_hit_group_identifier &&
+        hit_group_identifier &&
+        std::memcmp(inherited_hit_group_identifier, hit_group_identifier, 32) ==
+            0 &&
+        std::memcmp(grown_hit_group_identifier, hit_group_identifier, 32) != 0;
     if (SUCCEEDED(hr) &&
-        (!distinct_shader_identifiers || !stable_shader_identifiers))
+        (!distinct_shader_identifiers || !stable_shader_identifiers ||
+         !grown_state_identifiers))
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -2440,7 +2477,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
             std::memcpy(static_cast<uint8_t*>(mapped) + 64, miss_identifier,
                         32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 128,
-                        hit_group_identifier, 32);
+                        grown_hit_group_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 192,
                         procedural_hit_group_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 256,
@@ -3031,7 +3068,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         list4->SetComputeRootDescriptorTable(
             0, ray_query_heap->GetGPUDescriptorHandleForHeapStart());
         list4->Dispatch(1, 1, 1);
-        list4->SetPipelineState1(raytracing_state);
+        list4->SetPipelineState1(grown_raytracing_state);
         D3D12_DISPATCH_RAYS_DESC dispatch_rays = {};
         dispatch_rays.RayGenerationShaderRecord.StartAddress =
             raygen_shader_table->GetGPUVirtualAddress();
@@ -3181,6 +3218,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           procedural_hit_value == 0x50524f43;
 
     safe_release(raygen_shader_table);
+    safe_release(grown_raytracing_properties);
+    safe_release(grown_raytracing_state);
     safe_release(raytracing_properties);
     safe_release(raytracing_state);
     safe_release(ray_query_readback);
@@ -3216,9 +3255,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(allocator);
     safe_release(queue);
     safe_release(device5);
+    safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compacted-size query, compact copy/three-instance TLAS traversal, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compacted-size query, compact copy/three-instance TLAS traversal, grown hit-group alias state object, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -3265,6 +3305,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 (distinct_shader_identifiers ? "true" : "false") +
                 ",\"stable_shader_identifiers\":" +
                 (stable_shader_identifiers ? "true" : "false") +
+                ",\"add_to_state_object_created\":" +
+                (add_to_state_object_created ? "true" : "false") +
+                ",\"grown_state_identifiers\":" +
+                (grown_state_identifiers ? "true" : "false") +
                 ",\"unknown_identifier_null\":" +
                 (!unknown_identifier ? "true" : "false") +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};

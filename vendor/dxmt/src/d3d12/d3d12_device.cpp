@@ -1277,8 +1277,21 @@ public:
     if (base) {
       base->AddRef();
       m_base = base;
+      auto *source = static_cast<MTLD3D12StateObject *>(base);
+      m_type = source->m_type;
+      m_subobject_types = source->m_subobject_types;
+      m_exports = source->m_exports;
+      m_shader_identifiers = source->m_shader_identifiers;
+      m_pipeline_stack_size = source->m_pipeline_stack_size;
+      m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
+      m_raygen_visible_function_table =
+          source->m_raygen_visible_function_table;
+      m_intersection_function_table = source->m_intersection_function_table;
+      m_global_root_signature = source->m_global_root_signature;
+      if (m_global_root_signature)
+        m_global_root_signature->AddRef();
     }
-    if (desc) {
+    if (desc && !base) {
       m_type = desc->Type;
       m_subobject_types.reserve(desc->NumSubobjects);
       for (UINT i = 0; i < desc->NumSubobjects; i++) {
@@ -1615,6 +1628,62 @@ public:
           m_exports.size(),
           (unsigned long long)m_raygen_compute_pipeline.handle,
           (unsigned long long)m_raygen_visible_function_table.handle);
+    return true;
+  }
+
+  bool InitializeAddition(const D3D12_STATE_OBJECT_DESC *desc) {
+    if (!desc || !m_base ||
+        desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ||
+        !m_raygen_compute_pipeline.handle ||
+        !m_raygen_visible_function_table.handle)
+      return false;
+    for (UINT i = 0; i < desc->NumSubobjects; i++) {
+      const auto &subobject = desc->pSubobjects[i];
+      m_subobject_types.push_back(subobject.Type);
+      if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
+          subobject.pDesc) {
+        const auto *hit_group =
+            static_cast<const D3D12_HIT_GROUP_DESC *>(subobject.pDesc);
+        if (!hit_group->HitGroupExport)
+          return false;
+        const wchar_t *template_name =
+            hit_group->Type == D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE
+                ? L"procedural_hit_group"
+                : L"hit_group";
+        auto template_identifier = m_shader_identifiers.find(template_name);
+        if (template_identifier == m_shader_identifiers.end())
+          return false;
+        std::array<uint8_t, 32> identifier = template_identifier->second;
+        uint64_t export_hash = 1469598103934665603ull;
+        for (const WCHAR *p = hit_group->HitGroupExport; *p; p++) {
+          export_hash ^= static_cast<uint16_t>(*p);
+          export_hash *= 1099511628211ull;
+        }
+        memcpy(identifier.data() + 16, &export_hash, sizeof(export_hash));
+        m_exports.emplace_back(hit_group->HitGroupExport);
+        m_shader_identifiers[hit_group->HitGroupExport] = identifier;
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE &&
+                 subobject.pDesc) {
+        const auto *root = static_cast<const D3D12_GLOBAL_ROOT_SIGNATURE *>(
+            subobject.pDesc);
+        if (root->pGlobalRootSignature != m_global_root_signature)
+          return false;
+      } else if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
+        // New Metal functions require relinking the visible-function tables;
+        // alias growth only accepts hit groups assembled from base exports.
+        return false;
+      } else if (subobject.Type !=
+                     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG &&
+                 subobject.Type !=
+                     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG &&
+                 subobject.Type !=
+                     D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG) {
+        return false;
+      }
+    }
+    TRACE("StateObject addition initialized base=%p exports=%zu subobjects=%zu",
+          (void *)m_base, m_exports.size(), m_subobject_types.size());
     return true;
   }
 
@@ -4806,16 +4875,24 @@ HRESULT STDMETHODCALLTYPE
 MTLD3D12Device::AddToStateObject(const D3D12_STATE_OBJECT_DESC *addition,
                                  ID3D12StateObject *state_object_to_grow_from,
                                  REFIID riid, void **new_state_object) {
-  TRACE("ID3D12Device7::AddToStateObject type=%u subobjects=%u base=%p -> "
-        "E_NOTIMPL",
+  TRACE("ID3D12Device7::AddToStateObject type=%u subobjects=%u base=%p",
         addition ? (unsigned)addition->Type : 0xFFFFFFFFu,
         addition ? addition->NumSubobjects : 0, state_object_to_grow_from);
   if (!new_state_object)
     return E_POINTER;
   *new_state_object = nullptr;
-  if (!addition || (addition->NumSubobjects && !addition->pSubobjects))
+  if (!addition || !state_object_to_grow_from ||
+      (addition->NumSubobjects && !addition->pSubobjects))
     return E_INVALIDARG;
-  return E_NOTIMPL;
+  auto *object =
+      new MTLD3D12StateObject(this, addition, state_object_to_grow_from);
+  if (!object->InitializeAddition(addition)) {
+    object->Release();
+    return E_NOTIMPL;
+  }
+  HRESULT hr = object->QueryInterface(riid, new_state_object);
+  object->Release();
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateProtectedResourceSession1(
