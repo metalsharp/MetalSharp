@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "electron-store": "^10.0.0",
-    "marked": "^18.0.9"
+    "marked": "^18.0.10"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
