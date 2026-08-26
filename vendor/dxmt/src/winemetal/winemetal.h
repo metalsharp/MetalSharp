@@ -238,6 +238,8 @@ struct WMTAABBAccelerationStructureInfo {
   uint64_t bounding_box_count;
   uint32_t opaque;
   uint32_t intersection_function_table_offset;
+  uint32_t allow_refit;
+  uint32_t reserved;
 };
 
 struct WMTAccelerationStructureSizes {
@@ -256,7 +258,7 @@ struct WMTAccelerationStructureInstanceDescriptor {
 };
 
 STATIC_ASSERT(sizeof(WMTPrimitiveAccelerationStructureInfo) == 64);
-STATIC_ASSERT(sizeof(WMTAABBAccelerationStructureInfo) == 40);
+STATIC_ASSERT(sizeof(WMTAABBAccelerationStructureInfo) == 48);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureSizes) == 24);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureInstanceDescriptor) == 68);
 
@@ -275,6 +277,11 @@ WINEMETAL_API bool MTLDevice_accelerationStructureSizesForAABBs(
     struct WMTAccelerationStructureSizes *sizes);
 WINEMETAL_API bool MTLCommandBuffer_buildAABBAccelerationStructure(
     obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTAABBAccelerationStructureInfo *info,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
+WINEMETAL_API bool MTLCommandBuffer_refitAABBAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_acceleration_structure,
     const struct WMTAABBAccelerationStructureInfo *info,
     obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
 WINEMETAL_API bool MTLCommandBuffer_copyAccelerationStructure(

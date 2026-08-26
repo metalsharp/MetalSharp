@@ -7417,14 +7417,35 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               QTRACE("BuildRaytracingAS SKIPPED AABB descriptor/size query");
               break;
             }
-            acceleration_structure = metal_device.newAccelerationStructure(
-                sizes.acceleration_structure_size);
-            encoded = acceleration_structure.handle &&
-                      cmdbuf.buildAABBAccelerationStructure(
-                          acceleration_structure, metal_info,
-                          scratch->GetMTLBuffer(), scratch_offset);
+            const bool perform_update =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                0;
+            if (perform_update) {
+              auto *source = m_device->LookupResourceByGPUAddress(
+                  cmd->source_acceleration_structure);
+              acceleration_structure = dest->GetMTLAccelerationStructure();
+              if (!source || !source->GetMTLAccelerationStructure().handle ||
+                  !acceleration_structure.handle || !metal_info.allow_refit) {
+                QTRACE("BuildRaytracingAS SKIPPED AABB update state");
+                break;
+              }
+              encoded = cmdbuf.refitAABBAccelerationStructure(
+                  source->GetMTLAccelerationStructure(),
+                  acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                  scratch_offset);
+              if (encoded)
+                st.RetainResourceMetalObjectsForCompletion(source);
+            } else {
+              acceleration_structure = metal_device.newAccelerationStructure(
+                  sizes.acceleration_structure_size);
+              encoded = acceleration_structure.handle &&
+                        cmdbuf.buildAABBAccelerationStructure(
+                            acceleration_structure, metal_info,
+                            scratch->GetMTLBuffer(), scratch_offset);
+            }
             primitive_count = metal_info.bounding_box_count;
-            kind = "AABBs";
+            kind = perform_update ? "AABB update" : "AABBs";
             if (auto *aabbs = m_device->LookupResourceByGPUAddress(
                     cmd->geometries[0].AABBs.AABBs.StartAddress))
               st.RetainResourceMetalObjectsForCompletion(aabbs);
