@@ -359,6 +359,8 @@ static size_t QueryResultStride(D3D12_QUERY_TYPE type) {
   switch (type) {
   case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
     return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
+  case D3D12_QUERY_TYPE_PIPELINE_STATISTICS1:
+    return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1);
   case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
   case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
   case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
@@ -917,6 +919,7 @@ struct ReplayState {
       raytracing_visible_function_table;
   WMT::Reference<WMT::IntersectionFunctionTable>
       raytracing_intersection_function_table;
+  D3D12_QUERY_DATA_PIPELINE_STATISTICS1 pipeline_statistics = {};
   MTLD3D12RootSignature *graphics_root_sig = nullptr;
   D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
   D3D12_VERTEX_BUFFER_VIEW vbs[kVertexBufferSlotCount] = {};
@@ -8655,7 +8658,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.BuildArgumentBuffer(m_device);
         st.BindGeometryMeshBuffers();
         st.BindDirectFragmentCompleteness(m_device, "dispatch_mesh");
-        if (!st.EncodeNativeMeshDispatch(cmd->x, cmd->y, cmd->z)) {
+        if (st.EncodeNativeMeshDispatch(cmd->x, cmd->y, cmd->z)) {
+          const uint64_t group_count = uint64_t(cmd->x) * cmd->y * cmd->z;
+          st.pipeline_statistics.ASInvocations += group_count;
+          st.pipeline_statistics.MSInvocations += group_count;
+          st.pipeline_statistics.MSPrimitives += group_count;
+        } else {
           QTRACE("DispatchMesh SKIPPED groups=%ux%ux%u enc_open=%d pso=%p "
                  "compiled=%d native_mesh=%d stage=%s detail=%s",
                  cmd->x, cmd->y, cmd->z, st.render_enc_open, (void *)st.pso,
@@ -10114,8 +10122,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         auto *heap = static_cast<MTLD3D12QueryHeap *>(cmd->heap);
         QTRACE("BeginQuery heap=%p type=%u index=%u", (void *)heap,
                (unsigned)cmd->type, cmd->index);
-        if (heap && cmd->index < heap->GetCount())
-          heap->GetData()[cmd->index] = 0;
+        if (heap && cmd->index < heap->GetCount()) {
+          if (cmd->type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS1)
+            heap->BeginPipelineStatistics1(cmd->index,
+                                           st.pipeline_statistics);
+          else
+            heap->GetData()[cmd->index] = 0;
+        }
         break;
       }
       case CmdType::EndQuery: {
@@ -10124,10 +10137,14 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         QTRACE("EndQuery heap=%p type=%u index=%u", (void *)heap,
                (unsigned)cmd->type, cmd->index);
         if (heap && cmd->index < heap->GetCount()) {
-          uint64_t value = 1;
-          if (cmd->type == D3D12_QUERY_TYPE_TIMESTAMP)
-            value = m_barrier_seq + cmd->index + 1;
-          heap->GetData()[cmd->index] = value;
+          if (cmd->type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS1) {
+            heap->EndPipelineStatistics1(cmd->index, st.pipeline_statistics);
+          } else {
+            uint64_t value = 1;
+            if (cmd->type == D3D12_QUERY_TYPE_TIMESTAMP)
+              value = m_barrier_seq + cmd->index + 1;
+            heap->GetData()[cmd->index] = value;
+          }
         }
         break;
       }
@@ -10163,8 +10180,17 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         for (uint32_t i = 0; i < cmd->query_count; i++) {
           uint64_t value = 0;
           uint32_t heap_index = cmd->start_index + i;
-          if (heap_index < heap->GetCount())
+          if (heap_index < heap->GetCount()) {
+            if (cmd->type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS1) {
+              auto *statistics =
+                  heap->GetPipelineStatistics1Data(heap_index);
+              if (statistics)
+                memcpy(results.data() + i * stride, statistics,
+                       sizeof(*statistics));
+              continue;
+            }
             value = heap->GetData()[heap_index];
+          }
           if ((cmd->type == D3D12_QUERY_TYPE_OCCLUSION ||
                cmd->type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) &&
               value == 0)

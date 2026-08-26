@@ -328,9 +328,10 @@ Findings:
   with `DepthBoundsTestEnable = FALSE` ignores the inverted dynamic state and
   restores the exact 338/0 ordinary-depth result. Options2 reports depth-bounds
   support only after these clean-prefix Wine 11.5 readbacks pass.
-- Mesh tier 1 remains conservatively unreported while mixed render-state
-  matrices beyond layered depth/blending/wireframe, pipeline statistics, and
-  broader shader/payload coverage are still gated.
+- `PIPELINE_STATISTICS1` now reports exact AS/MS invocation and primitive
+  counts for the focused two-group mesh dispatch. Mesh tier 1 remains
+  conservatively unreported while mixed render-state matrices beyond layered
+  depth/blending/wireframe and broader shader/payload coverage are still gated.
 - The same Metal mesh pipeline infrastructure also executes geometry-shader
   emulation and tessellation proof shapes.
 - General geometry shader support remains limited.
@@ -637,7 +638,9 @@ Deliverables:
 - Implement D3D12 amplification and mesh shader pipeline-state stream objects.
 - Bind object/mesh resources and root arguments with stage-correct visibility.
 - Implement direct and indirect `DispatchMesh`.
-- Implement mesh pipeline statistics and render-target-array behavior.
+- Implement mesh pipeline statistics and render-target-array behavior. The
+  focused `PIPELINE_STATISTICS1` invocation/primitive gate now passes; broader
+  statistics matrices remain.
 - Prove coexistence with fragment shading rate and depth/stencil state.
 
 Hard gate:

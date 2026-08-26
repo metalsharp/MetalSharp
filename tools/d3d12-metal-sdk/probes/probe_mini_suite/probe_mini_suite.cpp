@@ -1736,6 +1736,7 @@ static ProbeResult probe_mesh_shader_pso() {
     ID3D12DescriptorHeap* dsv_heap = nullptr;
     ID3D12DescriptorHeap* resource_heap = nullptr;
     ID3D12DescriptorHeap* sampler_heap = nullptr;
+    ID3D12QueryHeap* pipeline_statistics1_heap = nullptr;
     ID3D12CommandSignature* mesh_signature = nullptr;
     ID3D12Resource* indirect_args = nullptr;
     ID3D12Resource* stage_constants = nullptr;
@@ -1755,6 +1756,7 @@ static ProbeResult probe_mesh_shader_pso() {
     ID3D12Resource* blend_target_readback = nullptr;
     ID3D12Resource* wireframe_target = nullptr;
     ID3D12Resource* wireframe_target_readback = nullptr;
+    ID3D12Resource* pipeline_statistics1_readback = nullptr;
     std::string detail;
     hr = device->QueryInterface(IID_PPV_ARGS(&device2));
 
@@ -1940,6 +1942,23 @@ static ProbeResult probe_mesh_shader_pso() {
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc,
                                           IID_PPV_ARGS(&sampler_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_QUERY_HEAP_DESC query_desc = {};
+        query_desc.Type = D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS1;
+        query_desc.Count = 1;
+        hr = device->CreateQueryHeap(
+            &query_desc, IID_PPV_ARGS(&pipeline_statistics1_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC stats_desc =
+            buffer_desc(sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1));
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &stats_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&pipeline_statistics1_readback));
     }
 
     D3D12_RESOURCE_DESC target_desc =
@@ -2293,7 +2312,14 @@ static ProbeResult probe_mesh_shader_pso() {
         const float clear[4] = {1.0f, 0.0f, 0.0f, 1.0f};
         list6->ClearRenderTargetView(rtv, clear, 0, nullptr);
         list6->RSSetScissorRects(1, &left_scissor);
+        list6->BeginQuery(pipeline_statistics1_heap,
+                          D3D12_QUERY_TYPE_PIPELINE_STATISTICS1, 0);
         list6->DispatchMesh(2, 1, 1);
+        list6->EndQuery(pipeline_statistics1_heap,
+                        D3D12_QUERY_TYPE_PIPELINE_STATISTICS1, 0);
+        list6->ResolveQueryData(
+            pipeline_statistics1_heap, D3D12_QUERY_TYPE_PIPELINE_STATISTICS1, 0,
+            1, pipeline_statistics1_readback, 0);
         list6->RSSetScissorRects(1, &right_scissor);
         list6->ExecuteIndirect(mesh_signature, 1, indirect_args, 0, nullptr, 0);
         D3D12_RESOURCE_BARRIER output_barrier = transition_barrier(
@@ -2497,6 +2523,20 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t wireframe_unexpected_pixels = 0;
     uint32_t mesh_output_value = 0;
     uint32_t mesh_lane_values[32] = {};
+    D3D12_QUERY_DATA_PIPELINE_STATISTICS1 pipeline_statistics1 = {};
+    bool pipeline_statistics1_readback_ok = false;
+    if (SUCCEEDED(hr)) {
+        void *mapped = nullptr;
+        D3D12_RANGE stats_range = {
+            0, sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1)};
+        hr = pipeline_statistics1_readback->Map(0, &stats_range, &mapped);
+        if (SUCCEEDED(hr) && mapped) {
+            std::memcpy(&pipeline_statistics1, mapped,
+                        sizeof(pipeline_statistics1));
+            pipeline_statistics1_readback->Unmap(0, nullptr);
+            pipeline_statistics1_readback_ok = true;
+        }
+    }
     if (SUCCEEDED(hr)) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
@@ -2670,6 +2710,8 @@ static ProbeResult probe_mesh_shader_pso() {
         }
     }
 
+    safe_release(pipeline_statistics1_readback);
+    safe_release(pipeline_statistics1_heap);
     safe_release(mesh_texture_upload);
     safe_release(mesh_texture);
     safe_release(mesh_output_readback);
@@ -2748,9 +2790,13 @@ static ProbeResult probe_mesh_shader_pso() {
                 wireframe_layer_pixels[1] ==
             64u * 64u * 2u &&
         wireframe_unexpected_pixels == 0 &&
-        mesh_output_value == 0x4d534831 && mesh_lane_values_verified;
+        mesh_output_value == 0x4d534831 && mesh_lane_values_verified &&
+        pipeline_statistics1_readback_ok &&
+        pipeline_statistics1.ASInvocations == 2 &&
+        pipeline_statistics1.MSInvocations == 2 &&
+        pipeline_statistics1.MSPrimitives == 2;
     return {verified, verified ? S_OK : hr,
-            verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered; tier remains conservative"
+            verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered with PIPELINE_STATISTICS1; tier remains conservative"
                      : (detail.empty() ? "native mesh shader dispatch/readback failed" : detail),
             "\"pso_attempted\":true,\"repeated_pso_created\":true" +
                 std::string(",\"depth_pso_created\":true") +
@@ -2849,6 +2895,14 @@ static ProbeResult probe_mesh_shader_pso() {
                 std::string(",\"dispatch_mesh_groups_x\":2") +
                 ",\"mesh_lane_values_verified\":" +
                 (mesh_lane_values_verified ? "true" : "false") +
+                ",\"pipeline_statistics1_readback_ok\":" +
+                (pipeline_statistics1_readback_ok ? "true" : "false") +
+                ",\"pipeline_statistics1_as_invocations\":" +
+                std::to_string(pipeline_statistics1.ASInvocations) +
+                ",\"pipeline_statistics1_ms_invocations\":" +
+                std::to_string(pipeline_statistics1.MSInvocations) +
+                ",\"pipeline_statistics1_ms_primitives\":" +
+                std::to_string(pipeline_statistics1.MSPrimitives) +
                 ",\"d3d12_loaded_path\":\"" + json_escape(g_d3d12_loaded_path) + "\""};
 }
 
