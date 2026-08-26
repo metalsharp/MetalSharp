@@ -1503,6 +1503,36 @@ MTLCommandBuffer_copyAccelerationStructure(
 }
 
 WINEMETAL_API bool
+MTLCommandBuffer_copyAndCompactAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_acceleration_structure) {
+  struct unixcall_mtlcommandbuffer_copy_and_compact_acceleration_structure
+      params;
+  params.cmdbuf = cmdbuf;
+  params.source_acceleration_structure = source_acceleration_structure;
+  params.destination_acceleration_structure =
+      destination_acceleration_structure;
+  params.ret_success = 0;
+  UNIX_CALL(149, &params);
+  return params.ret_success;
+}
+
+WINEMETAL_API bool
+MTLCommandBuffer_writeCompactedAccelerationStructureSize(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_buffer, uint64_t destination_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_write_compacted_acceleration_structure_size
+      params;
+  params.cmdbuf = cmdbuf;
+  params.source_acceleration_structure = source_acceleration_structure;
+  params.destination_buffer = destination_buffer;
+  params.destination_buffer_offset = destination_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(150, &params);
+  return params.ret_success;
+}
+
+WINEMETAL_API bool
 MTLCommandBuffer_refitTriangleAccelerationStructure(
     obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
     obj_handle_t destination_acceleration_structure,

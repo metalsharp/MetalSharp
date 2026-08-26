@@ -1004,8 +1004,11 @@ the goal is not complete.
   x=10; an in-place
   `PERFORM_UPDATE` Metal refit substitutes centered vertex geometry before the
   following TLAS traversal, proving update behavior rather than only accepting
-  update flags. A two-instance TLAS containing the updated clone and translated
-  AABB builds to 896 bytes. Its second 64-byte hit-group record selects a
+  update flags. Metal reports a 616-byte compacted size for the updated
+  768-byte allocation; `COPY_MODE_COMPACT` creates the BLAS used by a
+  two-instance TLAS alongside the translated AABB, proving the compact output
+  remains traversable. The TLAS builds to 896 bytes. Its second 64-byte
+  hit-group record selects a
   procedural intersection
   wrapper, invokes visible-function index 6 to call `ReportHit`, and then invokes
   visible-function index 7 for procedural closest-hit, returning `0x50524f43`.
@@ -1015,5 +1018,5 @@ the goal is not complete.
   across every ray-tracing stage. A callable table at offset 256 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  multi-geometry builds, TLAS/AABB updates, compaction/serialization, and
+  multi-geometry builds, TLAS/AABB updates, serialization/deserialization, and
   complete local-root/shader-table semantics.

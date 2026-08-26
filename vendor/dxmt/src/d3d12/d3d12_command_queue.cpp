@@ -7611,8 +7611,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             cmd->source_acceleration_structure);
         auto *destination = m_device->LookupResourceByGPUAddress(
             cmd->destination_acceleration_structure);
-        if (cmd->mode !=
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE ||
+        const bool compact =
+            cmd->mode ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT;
+        if ((!compact && cmd->mode !=
+                             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE) ||
             !source || !destination ||
             !source->GetMTLAccelerationStructure().handle ||
             !source->GetMTLAccelerationStructureSize()) {
@@ -7623,10 +7626,15 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.CloseRenderEncoder();
         auto copied = m_device->GetMTLDevice().newAccelerationStructure(
             source->GetMTLAccelerationStructureSize());
-        if (!copied.handle ||
-            !cmdbuf.copyAccelerationStructure(
-                source->GetMTLAccelerationStructure(), copied)) {
-          QTRACE("CopyRaytracingAS SKIPPED Metal clone failed");
+        const bool copied_ok =
+            copied.handle &&
+            (compact ? cmdbuf.copyAndCompactAccelerationStructure(
+                           source->GetMTLAccelerationStructure(), copied)
+                     : cmdbuf.copyAccelerationStructure(
+                           source->GetMTLAccelerationStructure(), copied));
+        if (!copied_ok) {
+          QTRACE("CopyRaytracingAS SKIPPED Metal copy failed mode=%u",
+                 (unsigned)cmd->mode);
           break;
         }
         destination->SetMTLAccelerationStructure(
@@ -7634,7 +7642,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.RetainMTLObjectForCompletion(copied);
         st.RetainResourceMetalObjectsForCompletion(source);
         st.RetainResourceMetalObjectsForCompletion(destination);
-        QTRACE("CopyRaytracingAS cloned bytes=%llu source=%p destination=%p",
+        QTRACE("CopyRaytracingAS mode=%u allocation_bytes=%llu source=%p destination=%p",
+               (unsigned)cmd->mode,
                (unsigned long long)
                    source->GetMTLAccelerationStructureSize(),
                (void *)source, (void *)destination);
@@ -7646,26 +7655,42 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         auto *source = m_device->LookupResourceByGPUAddress(
             cmd->source_acceleration_structure);
         auto *dest = m_device->LookupResourceByGPUAddress(cmd->dest_buffer);
-        if (cmd->info_type !=
-                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE ||
-            !source || !source->GetMTLAccelerationStructure().handle || !dest ||
+        const bool current_size_info =
+            cmd->info_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+        const bool compacted_size_info =
+            cmd->info_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+        if ((!current_size_info && !compacted_size_info) || !source ||
+            !source->GetMTLAccelerationStructure().handle || !dest ||
             !dest->GetMTLBuffer().handle) {
           QTRACE("EmitRaytracingPostbuildInfo SKIPPED type=%u source=%p "
                  "dest=%p",
                  (unsigned)cmd->info_type, (void *)source, (void *)dest);
           break;
         }
-        uint64_t current_size = source->GetMTLAccelerationStructureSize();
         uint64_t dest_offset = cmd->dest_buffer - dest->GetGPUVirtualAddress();
-        if (dest_offset + sizeof(current_size) > dest->GetBufferByteLength()) {
+        if (dest_offset + sizeof(uint64_t) > dest->GetBufferByteLength()) {
           QTRACE("EmitRaytracingPostbuildInfo SKIPPED out-of-bounds");
           break;
         }
-        dest->GetMTLBuffer().updateContents(dest_offset, &current_size,
-                                            sizeof(current_size));
+        uint64_t current_size = source->GetMTLAccelerationStructureSize();
+        if (current_size_info) {
+          dest->GetMTLBuffer().updateContents(dest_offset, &current_size,
+                                              sizeof(current_size));
+        } else {
+          st.CloseRenderEncoder();
+          if (!cmdbuf.writeCompactedAccelerationStructureSize(
+                  source->GetMTLAccelerationStructure(), dest->GetMTLBuffer(),
+                  dest_offset)) {
+            QTRACE("EmitRaytracingPostbuildInfo SKIPPED compacted-size encoder");
+            break;
+          }
+        }
         st.RetainResourceMetalObjectsForCompletion(source);
         st.RetainResourceMetalObjectsForCompletion(dest);
-        QTRACE("EmitRaytracingPostbuildInfo current_size=%llu dest=0x%llx",
+        QTRACE("EmitRaytracingPostbuildInfo type=%u current_allocation=%llu dest=0x%llx",
+               (unsigned)cmd->info_type,
                (unsigned long long)current_size,
                (unsigned long long)cmd->dest_buffer);
         break;

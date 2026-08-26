@@ -989,7 +989,8 @@ MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
     D3D12_GPU_VIRTUAL_ADDRESS dest_acceleration_structure_data,
     D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure_data,
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) {
-  if (mode != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE) {
+  if (mode != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE &&
+      mode != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT) {
     CLTRACE("CopyRaytracingAccelerationStructure unsupported mode=%u",
             (unsigned)mode);
     return;
@@ -1000,8 +1001,9 @@ MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
   cmd.source_acceleration_structure = source_acceleration_structure_data;
   cmd.mode = mode;
   Emit(cmd);
-  CLTRACE("CopyRaytracingAccelerationStructure clone source=0x%llx "
+  CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "
           "destination=0x%llx",
+          (unsigned)mode,
           (unsigned long long)source_acceleration_structure_data,
           (unsigned long long)dest_acceleration_structure_data);
 }

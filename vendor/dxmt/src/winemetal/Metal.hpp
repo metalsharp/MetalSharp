@@ -811,6 +811,21 @@ public:
   }
 
   bool
+  copyAndCompactAccelerationStructure(AccelerationStructure source,
+                                      AccelerationStructure destination) {
+    return MTLCommandBuffer_copyAndCompactAccelerationStructure(
+        handle, source.handle, destination.handle);
+  }
+
+  bool
+  writeCompactedAccelerationStructureSize(AccelerationStructure source,
+                                           Buffer destination,
+                                           uint64_t destination_offset) {
+    return MTLCommandBuffer_writeCompactedAccelerationStructureSize(
+        handle, source.handle, destination.handle, destination_offset);
+  }
+
+  bool
   refitTriangleAccelerationStructure(
       AccelerationStructure source, AccelerationStructure destination,
       const WMTPrimitiveAccelerationStructureInfo &info, Buffer scratch_buffer,
