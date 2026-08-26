@@ -107,6 +107,11 @@
     },
     "D3D12_FEATURE_D3D12_OPTIONS7": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
+        "tools/d3d12-metal-sdk/probes/probe_mini_suite",
+        "tools/d3d12-metal-sdk/probes/probe_device_caps"
+      ],
       "probe_status": "sampler_feedback_tier_0_9_passed_mesh_pipeline_statistics1_proven_mesh_tier_gated",
       "reported": "partial",
       "required_fields": [
