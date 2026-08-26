@@ -201,6 +201,15 @@ def feature_support_contract() -> dict[str, Any]:
                 ],
                 "risk": "Copy-queue timestamps are coalesced to the Metal command buffer GPU end time and resolved through a completion handler; write-immediate flags are coupled to exact default, marker-in, and marker-out GPU virtual-address readback coverage on direct, compute, and inlined bundle command lists.",
             },
+            "D3D12_FEATURE_D3D12_OPTIONS8": {
+                "state": "required",
+                "tier": "required",
+                "reported": "supported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_resources",
+                "probe_status": "unaligned_bc1_copy_readback_passed",
+                "required_fields": ["UnalignedBlockTexturesSupported"],
+                "risk": "The support report is backed by creation and upload/readback of a 7x5 BC1 texture with exact two-row block payload validation.",
+            },
             "D3D12_FEATURE_D3D12_OPTIONS9": {
                 "state": "stub_safe",
                 "tier": "stubbed-safe",
