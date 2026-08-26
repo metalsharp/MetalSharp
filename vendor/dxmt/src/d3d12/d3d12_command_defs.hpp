@@ -51,6 +51,7 @@ enum class CmdType : uint32_t {
   EmitRaytracingAccelerationStructurePostbuildInfo,
   SetPipelineState1,
   DispatchRays,
+  OMSetDepthBounds,
 };
 
 struct CmdHeader {
@@ -306,6 +307,12 @@ struct CmdResolveSubresource {
   D3D12_RESOLVE_MODE mode;
   uint8_t has_src_rect;
   D3D12_RECT src_rect;
+};
+
+struct CmdOMSetDepthBounds {
+  CmdHeader header;
+  float min_depth;
+  float max_depth;
 };
 
 struct CmdWriteBufferImmediateEntry {

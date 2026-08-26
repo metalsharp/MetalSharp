@@ -1715,12 +1715,16 @@ static ProbeResult probe_mesh_shader_pso() {
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
     const HRESULT options7_hr = device->CheckFeatureSupport(
         D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
+    D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2 = {};
+    const HRESULT options2_hr = device->CheckFeatureSupport(
+        D3D12_FEATURE_D3D12_OPTIONS2, &options2, sizeof(options2));
 
     ID3D12Device2* device2 = nullptr;
     ID3D12RootSignature* root = nullptr;
     ID3D12PipelineState* pso = nullptr;
     ID3D12PipelineState* repeated_pso = nullptr;
     ID3D12PipelineState* depth_pso = nullptr;
+    ID3D12PipelineState* depth_disabled_pso = nullptr;
     ID3D12PipelineState* blend_pso = nullptr;
     ID3D12PipelineState* wireframe_pso = nullptr;
     ID3DBlob* root_blob = nullptr;
@@ -1744,6 +1748,8 @@ static ProbeResult probe_mesh_shader_pso() {
     ID3D12Resource* readback = nullptr;
     ID3D12Resource* depth_target = nullptr;
     ID3D12Resource* depth_target_readback = nullptr;
+    ID3D12Resource* depth_reject_readback = nullptr;
+    ID3D12Resource* depth_disabled_readback = nullptr;
     ID3D12Resource* depth_texture = nullptr;
     ID3D12Resource* blend_target = nullptr;
     ID3D12Resource* blend_target_readback = nullptr;
@@ -1824,8 +1830,8 @@ static ProbeResult probe_mesh_shader_pso() {
                                 UINT> sample_mask;
         PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
                                 D3D12_RASTERIZER_DESC> rasterizer;
-        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
-                                D3D12_DEPTH_STENCIL_DESC> depth_stencil;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1,
+                                D3D12_DEPTH_STENCIL_DESC1> depth_stencil;
         PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
                                 DXGI_FORMAT> depth_stencil_format;
         PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
@@ -1857,6 +1863,7 @@ static ProbeResult probe_mesh_shader_pso() {
         if (SUCCEEDED(hr)) {
             MeshPipelineStream depth_stream = stream;
             depth_stream.depth_stencil.value.DepthEnable = TRUE;
+            depth_stream.depth_stencil.value.DepthBoundsTestEnable = TRUE;
             depth_stream.depth_stencil.value.DepthWriteMask =
                 D3D12_DEPTH_WRITE_MASK_ALL;
             depth_stream.depth_stencil.value.DepthFunc =
@@ -1866,6 +1873,11 @@ static ProbeResult probe_mesh_shader_pso() {
                 sizeof(depth_stream), &depth_stream};
             hr = device2->CreatePipelineState(&depth_desc,
                                               IID_PPV_ARGS(&depth_pso));
+            if (SUCCEEDED(hr)) {
+                depth_stream.depth_stencil.value.DepthBoundsTestEnable = FALSE;
+                hr = device2->CreatePipelineState(
+                    &depth_desc, IID_PPV_ARGS(&depth_disabled_pso));
+            }
         }
         if (SUCCEEDED(hr)) {
             MeshPipelineStream blend_stream = stream;
@@ -1972,6 +1984,22 @@ static ProbeResult probe_mesh_shader_pso() {
             &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&depth_target_readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(readback_bytes);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&depth_reject_readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(readback_bytes * 2);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&depth_disabled_readback));
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
@@ -2299,6 +2327,7 @@ static ProbeResult probe_mesh_shader_pso() {
                                       0, nullptr);
         D3D12_RECT full_scissor = {0, 0, 64, 64};
         list6->RSSetScissorRects(1, &full_scissor);
+        list6->OMSetDepthBounds(0.4f, 0.6f);
         list6->DispatchMesh(2, 1, 1);
         D3D12_RESOURCE_BARRIER depth_target_barrier = transition_barrier(
             depth_target, D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -2309,6 +2338,88 @@ static ProbeResult probe_mesh_shader_pso() {
             dst.pResource = depth_target_readback;
             dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             dst.PlacedFootprint = footprints[slice];
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = depth_target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = slice;
+            list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
+        D3D12_RESOURCE_BARRIER depth_target_reset_barrier = transition_barrier(
+            depth_target, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+        list6->ResourceBarrier(1, &depth_target_reset_barrier);
+        list6->OMSetRenderTargets(1, &depth_rtv, FALSE, &dsv);
+        list6->ClearRenderTargetView(depth_rtv, clear, 0, nullptr);
+        list6->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0,
+                                      0, nullptr);
+        list6->OMSetDepthBounds(0.6f, 0.9f);
+        list6->DispatchMesh(2, 1, 1);
+        D3D12_RESOURCE_BARRIER depth_reject_target_barrier = transition_barrier(
+            depth_target, D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list6->ResourceBarrier(1, &depth_reject_target_barrier);
+        for (UINT slice = 0; slice < 2; slice++) {
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = depth_reject_readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint = footprints[slice];
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = depth_target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = slice;
+            list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
+        D3D12_RESOURCE_BARRIER depth_disabled_target_reset =
+            transition_barrier(depth_target,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE,
+                               D3D12_RESOURCE_STATE_RENDER_TARGET);
+        list6->ResourceBarrier(1, &depth_disabled_target_reset);
+        list6->SetPipelineState(depth_pso);
+        list6->OMSetRenderTargets(1, &depth_rtv, FALSE, &dsv);
+        list6->ClearRenderTargetView(depth_rtv, clear, 0, nullptr);
+        list6->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0,
+                                    0, nullptr);
+        list6->OMSetDepthBounds(0.9f, 0.1f);
+        list6->DispatchMesh(2, 1, 1);
+        D3D12_RESOURCE_BARRIER depth_inverted_target_barrier =
+            transition_barrier(depth_target,
+                               D3D12_RESOURCE_STATE_RENDER_TARGET,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list6->ResourceBarrier(1, &depth_inverted_target_barrier);
+        for (UINT slice = 0; slice < 2; slice++) {
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = depth_disabled_readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint = footprints[slice];
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = depth_target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = slice;
+            list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
+        D3D12_RESOURCE_BARRIER depth_disabled_target_reset2 =
+            transition_barrier(depth_target,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE,
+                               D3D12_RESOURCE_STATE_RENDER_TARGET);
+        list6->ResourceBarrier(1, &depth_disabled_target_reset2);
+        list6->SetPipelineState(depth_disabled_pso);
+        list6->OMSetRenderTargets(1, &depth_rtv, FALSE, &dsv);
+        list6->ClearRenderTargetView(depth_rtv, clear, 0, nullptr);
+        list6->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0,
+                                    0, nullptr);
+        list6->OMSetDepthBounds(0.9f, 0.1f);
+        list6->DispatchMesh(2, 1, 1);
+        D3D12_RESOURCE_BARRIER depth_disabled_target_barrier =
+            transition_barrier(depth_target,
+                               D3D12_RESOURCE_STATE_RENDER_TARGET,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list6->ResourceBarrier(1, &depth_disabled_target_barrier);
+        for (UINT slice = 0; slice < 2; slice++) {
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = depth_disabled_readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint = footprints[slice];
+            dst.PlacedFootprint.Offset += readback_bytes;
             D3D12_TEXTURE_COPY_LOCATION src = {};
             src.pResource = depth_target;
             src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -2371,6 +2482,13 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t depth_layer_pixels[2] = {};
     uint64_t depth_clear_pixels = 0;
     uint64_t depth_unexpected_pixels = 0;
+    uint64_t depth_reject_clear_pixels = 0;
+    uint64_t depth_reject_unexpected_pixels = 0;
+    uint64_t depth_disabled_layer_pixels[2] = {};
+    uint64_t depth_disabled_clear_pixels = 0;
+    uint64_t depth_disabled_unexpected_pixels = 0;
+    uint64_t depth_inverted_clear_pixels = 0;
+    uint64_t depth_inverted_unexpected_pixels = 0;
     uint64_t blend_layer_pixels[2] = {};
     uint64_t blend_clear_pixels = 0;
     uint64_t blend_unexpected_pixels = 0;
@@ -2452,6 +2570,62 @@ static ProbeResult probe_mesh_shader_pso() {
     if (SUCCEEDED(hr)) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
+        hr = depth_reject_readback->Map(
+            0, &read_range, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            for (UINT slice = 0; slice < 2; slice++) {
+                for (UINT y = 0; y < 64; y++) {
+                    const uint32_t* row = reinterpret_cast<const uint32_t*>(
+                        mapped + footprints[slice].Offset +
+                        footprints[slice].Footprint.RowPitch * y);
+                    for (UINT x = 0; x < 64; x++) {
+                        depth_reject_clear_pixels += row[x] == 0xff0000ffu;
+                        depth_reject_unexpected_pixels +=
+                            row[x] != 0xff0000ffu;
+                    }
+                }
+            }
+            depth_reject_readback->Unmap(0, nullptr);
+        }
+    }
+
+    if (SUCCEEDED(hr)) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0,
+                                  static_cast<SIZE_T>(readback_bytes * 2)};
+        hr = depth_disabled_readback->Map(
+            0, &read_range, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            for (UINT slice = 0; slice < 2; slice++) {
+                for (UINT y = 0; y < 64; y++) {
+                    const uint32_t* inverted_row =
+                        reinterpret_cast<const uint32_t*>(
+                            mapped + footprints[slice].Offset +
+                            footprints[slice].Footprint.RowPitch * y);
+                    const uint32_t* row = reinterpret_cast<const uint32_t*>(
+                        mapped + readback_bytes + footprints[slice].Offset +
+                        footprints[slice].Footprint.RowPitch * y);
+                    for (UINT x = 0; x < 64; x++) {
+                        depth_inverted_clear_pixels +=
+                            inverted_row[x] == 0xff0000ffu;
+                        depth_inverted_unexpected_pixels +=
+                            inverted_row[x] != 0xff0000ffu;
+                        depth_disabled_layer_pixels[slice] +=
+                            row[x] == 0x80bf8040u;
+                        depth_disabled_clear_pixels +=
+                            row[x] == 0xff0000ffu;
+                        depth_disabled_unexpected_pixels +=
+                            row[x] != 0x80bf8040u && row[x] != 0xff0000ffu;
+                    }
+                }
+            }
+            depth_disabled_readback->Unmap(0, nullptr);
+        }
+    }
+
+    if (SUCCEEDED(hr)) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
         hr = blend_target_readback->Map(
             0, &read_range, reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr)) {
@@ -2501,6 +2675,8 @@ static ProbeResult probe_mesh_shader_pso() {
     safe_release(mesh_output_readback);
     safe_release(mesh_output);
     safe_release(depth_texture);
+    safe_release(depth_disabled_readback);
+    safe_release(depth_reject_readback);
     safe_release(depth_target_readback);
     safe_release(depth_target);
     safe_release(blend_target_readback);
@@ -2524,6 +2700,7 @@ static ProbeResult probe_mesh_shader_pso() {
     safe_release(root_blob);
     safe_release(wireframe_pso);
     safe_release(blend_pso);
+    safe_release(depth_disabled_pso);
     safe_release(depth_pso);
     safe_release(repeated_pso);
     safe_release(pso);
@@ -2535,7 +2712,8 @@ static ProbeResult probe_mesh_shader_pso() {
         mesh_lane_values_verified &=
             mesh_lane_values[lane] == 0x4153504c + lane;
     const bool verified =
-        SUCCEEDED(hr) && SUCCEEDED(options7_hr) &&
+        SUCCEEDED(hr) && SUCCEEDED(options7_hr) && SUCCEEDED(options2_hr) &&
+        options2.DepthBoundsTestSupported &&
         options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
         layer_direct_pixels[0] >= 100 && layer_direct_pixels[0] <= 400 &&
         layer_direct_pixels[1] >= 100 && layer_direct_pixels[1] <= 400 &&
@@ -2547,6 +2725,16 @@ static ProbeResult probe_mesh_shader_pso() {
         depth_layer_pixels[1] == 0 &&
         depth_clear_pixels + depth_layer_pixels[0] == 64u * 64u * 2u &&
         depth_unexpected_pixels == 0 &&
+        depth_reject_clear_pixels == 64u * 64u * 2u &&
+        depth_reject_unexpected_pixels == 0 &&
+        depth_inverted_clear_pixels == 64u * 64u * 2u &&
+        depth_inverted_unexpected_pixels == 0 &&
+        depth_disabled_layer_pixels[0] >= 300 &&
+        depth_disabled_layer_pixels[0] <= 400 &&
+        depth_disabled_layer_pixels[1] == 0 &&
+        depth_disabled_clear_pixels + depth_disabled_layer_pixels[0] ==
+            64u * 64u * 2u &&
+        depth_disabled_unexpected_pixels == 0 &&
         blend_layer_pixels[0] >= 300 && blend_layer_pixels[0] <= 400 &&
         blend_layer_pixels[1] >= 300 && blend_layer_pixels[1] <= 400 &&
         blend_clear_pixels + blend_layer_pixels[0] + blend_layer_pixels[1] ==
@@ -2566,6 +2754,9 @@ static ProbeResult probe_mesh_shader_pso() {
                      : (detail.empty() ? "native mesh shader dispatch/readback failed" : detail),
             "\"pso_attempted\":true,\"repeated_pso_created\":true" +
                 std::string(",\"depth_pso_created\":true") +
+                std::string(",\"depth_disabled_pso_created\":true") +
+                std::string(",\"depth_bounds_supported\":") +
+                (options2.DepthBoundsTestSupported ? "true" : "false") +
                 std::string(",\"blend_pso_created\":true") +
                 std::string(",\"wireframe_pso_created\":true") +
                 std::string(",\"stage_cbvs_bound\":true") +
@@ -2609,6 +2800,30 @@ static ProbeResult probe_mesh_shader_pso() {
                 std::to_string(depth_clear_pixels) +
                 ",\"depth_unexpected_pixels\":" +
                 std::to_string(depth_unexpected_pixels) +
+                ",\"depth_bounds_accept_min\":0.4" +
+                ",\"depth_bounds_accept_max\":0.6" +
+                ",\"depth_bounds_reject_min\":0.6" +
+                ",\"depth_bounds_reject_max\":0.9" +
+                ",\"depth_reject_clear_pixels\":" +
+                std::to_string(depth_reject_clear_pixels) +
+                ",\"depth_reject_unexpected_pixels\":" +
+                std::to_string(depth_reject_unexpected_pixels) +
+                ",\"depth_inverted_bounds_min\":0.9" +
+                ",\"depth_inverted_bounds_max\":0.1" +
+                ",\"depth_inverted_clear_pixels\":" +
+                std::to_string(depth_inverted_clear_pixels) +
+                ",\"depth_inverted_unexpected_pixels\":" +
+                std::to_string(depth_inverted_unexpected_pixels) +
+                ",\"depth_disabled_bounds_min\":0.9" +
+                ",\"depth_disabled_bounds_max\":0.1" +
+                ",\"depth_disabled_layer0_pixels\":" +
+                std::to_string(depth_disabled_layer_pixels[0]) +
+                ",\"depth_disabled_layer1_pixels\":" +
+                std::to_string(depth_disabled_layer_pixels[1]) +
+                ",\"depth_disabled_clear_pixels\":" +
+                std::to_string(depth_disabled_clear_pixels) +
+                ",\"depth_disabled_unexpected_pixels\":" +
+                std::to_string(depth_disabled_unexpected_pixels) +
                 ",\"blend_source_rgba8\":\"0x80bf8040\"" +
                 ",\"blend_clear_rgba8\":\"0x80408040\"" +
                 ",\"blend_expected_rgba8\":\"0xffffff80\"" +

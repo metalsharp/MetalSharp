@@ -573,10 +573,10 @@
             "translation": "renderEncoder->setBlendColorRed(r, g, b, a)"
           },
           "OMSetDepthBounds": {
-            "difficulty": "easy",
-            "metal": "MTLRenderCommandEncoder::setDepthBound (if supported, Metal 3+)",
-            "notes": "Direct mapping if MTLDevice supports depth bounds test.",
-            "translation": "renderEncoder->setDepthBounds(min, max)"
+            "difficulty": "moderate",
+            "metal": "fragment-stage comparison against a shader-readable view of the active depth attachment",
+            "notes": "Apple M4 rejects the macOS 26 native depth-bounds encoder state. DXMT records OMSetDepthBounds and injects a per-fragment stored-depth comparison only into PSOs whose DEPTH_STENCIL1/2 stream enables DepthBoundsTestEnable.",
+            "translation": "bind clamped bounds at fragment buffer 28 plus the active DSV mip/slice view at texture 126, then discard fragments outside the inclusive range"
           },
           "OMSetRenderTargets": {
             "difficulty": "moderate",

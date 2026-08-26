@@ -1180,6 +1180,15 @@ bool MTLD3D12PipelineState::IsCompilePending() const {
   return state == CompileState::Pending || state == CompileState::Compiling;
 }
 
+size_t MTLD3D12PipelineState::ApplyShaderVariantHash(
+    size_t hash, ShaderType type) const {
+  if (type == ShaderType::Pixel && IsDepthBoundsTestEnabled()) {
+    hash ^= 0xd3b0a7d5e91c2468ull;
+    hash ^= static_cast<size_t>(m_sample_count) * 0x9e3779b97f4a7c15ull;
+  }
+  return hash;
+}
+
 std::string MTLD3D12PipelineState::GetCSCacheHash() const {
   if (m_cs.empty())
     return {};
@@ -1205,8 +1214,10 @@ std::string MTLD3D12PipelineState::GetPSCacheHash() const {
     return {};
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%016zx",
-           ComputeShaderCacheHash(m_ps.data(), m_ps.size(), ShaderType::Pixel,
-                                  nullptr));
+           ApplyShaderVariantHash(
+               ComputeShaderCacheHash(m_ps.data(), m_ps.size(),
+                                      ShaderType::Pixel, nullptr),
+               ShaderType::Pixel));
   return buffer;
 }
 
@@ -1645,6 +1656,7 @@ bool MTLD3D12PipelineState::CompileShader(
   size_t hash = ComputeShaderCacheHash(
       bytecode, size, type,
       type == ShaderType::Vertex ? &m_input_layout : nullptr);
+  hash = ApplyShaderVariantHash(hash, type);
   {
     std::lock_guard<std::mutex> lock(s_shader_mutex);
     PSTRACE("CompileShader: %s hash=0x%zx size=%zu cache_entries=%zu",
@@ -1744,6 +1756,15 @@ bool MTLD3D12PipelineState::CompileShader(
           DumpShaderBlob(dxbc_path, bytecode, size);
 
           FILE *mf = fopen(metallib_path, "rb");
+          if (mf && type == ShaderType::Pixel &&
+              IsDepthBoundsTestEnabled()) {
+            // The offline cache converter sees only the original DXIL and
+            // cannot preserve the injected depth-bounds comparison. Compile
+            // the instrumented MSL once per process instead of accepting an
+            // uninstrumented cached function under this derived hash.
+            fclose(mf);
+            mf = nullptr;
+          }
           if (!mf) {
             PSTRACE("  metallib not cached, attempting DXIL->MSL compilation");
 
@@ -1781,6 +1802,10 @@ bool MTLD3D12PipelineState::CompileShader(
             PSTRACE("  DXIL module summary written to %s", module_summary_path);
 
             dxmt::dxil::MSLLoweringOptions lowering_options = {};
+            lowering_options.depth_bounds_test =
+                type == ShaderType::Pixel && IsDepthBoundsTestEnabled();
+            lowering_options.depth_bounds_multisample =
+                lowering_options.depth_bounds_test && m_sample_count > 1;
             if (type == ShaderType::Vertex) {
               lowering_options.vertex_inputs.reserve(
                   m_ia_input_elements.size());
@@ -2780,8 +2805,11 @@ bool MTLD3D12PipelineState::Compile() {
                                     ShaderType::Vertex, &m_input_layout));
   size_t ps_hash = m_ps.empty()
                        ? 0
-                       : ComputeShaderCacheHash(m_ps.data(), m_ps.size(),
-                                                ShaderType::Pixel, nullptr);
+                       : ApplyShaderVariantHash(
+                             ComputeShaderCacheHash(
+                                 m_ps.data(), m_ps.size(), ShaderType::Pixel,
+                                 nullptr),
+                             ShaderType::Pixel);
   size_t gs_hash = !m_ms.empty()
                        ? ComputeShaderCacheHash(m_ms.data(), m_ms.size(),
                                                 ShaderType::Mesh, nullptr)

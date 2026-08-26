@@ -72,6 +72,9 @@ public:
   HRESULT STDMETHODCALLTYPE GetCachedBlob(ID3DBlob **blob) override;
 
   void SetGraphicsDesc(const D3D12_GRAPHICS_PIPELINE_STATE_DESC &desc);
+  void SetDepthBoundsTestEnable(bool enable) {
+    m_depth_bounds_test_enable = enable;
+  }
   void SetMeshShaders(const D3D12_SHADER_BYTECODE &as,
                       const D3D12_SHADER_BYTECODE &ms);
   void SetComputeDesc(const D3D12_COMPUTE_PIPELINE_STATE_DESC &desc);
@@ -113,6 +116,10 @@ public:
   }
   const D3D12_DEPTH_STENCIL_DESC &GetDepthStencilDesc() const {
     return m_depth_stencil_desc;
+  }
+  bool IsDepthBoundsTestEnabled() const {
+    return m_depth_bounds_test_enable &&
+           m_dsv_format != DXGI_FORMAT_UNKNOWN;
   }
   const D3D12_BLEND_DESC &GetBlendDesc() const { return m_blend_desc; }
   UINT GetNumRenderTargets() const { return m_num_render_targets; }
@@ -236,6 +243,7 @@ private:
   void BuildIAInputLayout(const void *bytecode, SIZE_T size,
                           std::vector<SM50_IA_INPUT_ELEMENT> &elements,
                           uint32_t &slot_mask);
+  size_t ApplyShaderVariantHash(size_t hash, ShaderType type) const;
 
   static std::mutex s_shader_mutex;
   static std::unordered_map<size_t, WMT::Reference<WMT::Function>>
@@ -253,6 +261,7 @@ private:
   D3D12_BLEND_DESC m_blend_desc = {};
   D3D12_RASTERIZER_DESC m_rasterizer_desc = {};
   D3D12_DEPTH_STENCIL_DESC m_depth_stencil_desc = {};
+  bool m_depth_bounds_test_enable = false;
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;
   std::vector<std::string> m_input_semantic_names;
