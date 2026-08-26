@@ -117,7 +117,9 @@ indexed/non-indexed triangle BLAS and a procedural AABB BLAS refit from an x=10 
 postbuild readbacks and a mask-isolated inline `RayQuery` triangle hit, stable
 export identifiers, and an `AddToStateObject` hit-group alias with inherited
 identifiers whose shader-table record supplies the behavior-checked local-root
-constant `0x4c4f434c` and executes the existing closest-hit path.
+constant `0x4c4f434c`, reads CBV marker `0x43425631` and SRV marker
+`0x53525631`, writes UAV marker
+`0x4c525557`, and executes the existing closest-hit path.
 Raygen/miss/triangle-any-hit/closest-hit/procedural-
 intersection/callable shader-table records plus depth-2 closest-hit-to-miss
 recursion executing through

@@ -2284,6 +2284,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* ray_query_output = nullptr;
     ID3D12Resource* ray_query_readback = nullptr;
     ID3D12Resource* raygen_shader_table = nullptr;
+    ID3D12Resource* closest_hit_local_srv = nullptr;
+    ID3D12Resource* closest_hit_local_cbv = nullptr;
+    ID3D12Resource* closest_hit_local_uav = nullptr;
+    ID3D12Resource* closest_hit_local_uav_readback = nullptr;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
     if (SUCCEEDED(hr))
         hr = device->QueryInterface(IID_PPV_ARGS(&device7));
@@ -2333,15 +2337,28 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
-    D3D12_ROOT_PARAMETER local_root_param = {};
-    local_root_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    local_root_param.Constants.ShaderRegister = 1;
-    local_root_param.Constants.RegisterSpace = 0;
-    local_root_param.Constants.Num32BitValues = 1;
-    local_root_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_ROOT_PARAMETER local_root_params[4] = {};
+    local_root_params[0].ParameterType =
+        D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    local_root_params[0].Constants.ShaderRegister = 1;
+    local_root_params[0].Constants.RegisterSpace = 0;
+    local_root_params[0].Constants.Num32BitValues = 1;
+    local_root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    local_root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    local_root_params[1].Descriptor.ShaderRegister = 1;
+    local_root_params[1].Descriptor.RegisterSpace = 0;
+    local_root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    local_root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    local_root_params[2].Descriptor.ShaderRegister = 1;
+    local_root_params[2].Descriptor.RegisterSpace = 0;
+    local_root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    local_root_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    local_root_params[3].Descriptor.ShaderRegister = 2;
+    local_root_params[3].Descriptor.RegisterSpace = 0;
+    local_root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     D3D12_ROOT_SIGNATURE_DESC local_root_desc = {};
-    local_root_desc.NumParameters = 1;
-    local_root_desc.pParameters = &local_root_param;
+    local_root_desc.NumParameters = 4;
+    local_root_desc.pParameters = local_root_params;
     local_root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
     ID3DBlob* local_root_blob = nullptr;
     if (SUCCEEDED(hr))
@@ -2353,6 +2370,55 @@ static ProbeResult probe_dxr_acceleration_structures() {
             local_root_blob->GetBufferSize(),
             IID_PPV_ARGS(&closest_hit_local_root));
     safe_release(local_root_blob);
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC local_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &local_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&closest_hit_local_srv));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = closest_hit_local_srv->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            const uint32_t local_srv_marker = 0x53525631;
+            std::memcpy(mapped, &local_srv_marker, sizeof(local_srv_marker));
+            closest_hit_local_srv->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC local_desc = buffer_desc(256);
+        local_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &local_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&closest_hit_local_uav));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC local_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &local_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&closest_hit_local_cbv));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = closest_hit_local_cbv->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            const uint32_t local_cbv_marker = 0x43425631;
+            std::memcpy(mapped, &local_cbv_marker, sizeof(local_cbv_marker));
+            closest_hit_local_cbv->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC local_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &local_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&closest_hit_local_uav_readback));
+    }
 
     D3D12_EXPORT_DESC raygen_exports[7] = {};
     raygen_exports[0].Name = L"raygen";
@@ -2515,6 +2581,21 @@ static ProbeResult probe_dxr_acceleration_structures() {
             std::memcpy(static_cast<uint8_t*>(mapped) + 160,
                         &closest_hit_local_marker,
                         sizeof(closest_hit_local_marker));
+            const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_srv_address =
+                closest_hit_local_srv->GetGPUVirtualAddress();
+            std::memcpy(static_cast<uint8_t*>(mapped) + 168,
+                        &closest_hit_local_srv_address,
+                        sizeof(closest_hit_local_srv_address));
+            const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_uav_address =
+                closest_hit_local_uav->GetGPUVirtualAddress();
+            std::memcpy(static_cast<uint8_t*>(mapped) + 176,
+                        &closest_hit_local_uav_address,
+                        sizeof(closest_hit_local_uav_address));
+            const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_cbv_address =
+                closest_hit_local_cbv->GetGPUVirtualAddress();
+            std::memcpy(static_cast<uint8_t*>(mapped) + 184,
+                        &closest_hit_local_cbv_address,
+                        sizeof(closest_hit_local_cbv_address));
             std::memcpy(static_cast<uint8_t*>(mapped) + 192,
                         procedural_hit_group_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 256,
@@ -3126,6 +3207,12 @@ static ProbeResult probe_dxr_acceleration_structures() {
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
         list4->DispatchRays(&dispatch_rays);
+        D3D12_RESOURCE_BARRIER local_uav_barrier = transition_barrier(
+            closest_hit_local_uav, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list4->ResourceBarrier(1, &local_uav_barrier);
+        list4->CopyBufferRegion(closest_hit_local_uav_readback, 0,
+                                closest_hit_local_uav, 0, sizeof(uint32_t));
         D3D12_RESOURCE_BARRIER output_barrier = transition_barrier(
             ray_query_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -3147,6 +3234,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     uint32_t callable_value = 0;
     uint32_t raygen_value = 0;
     uint32_t procedural_hit_value = 0;
+    uint32_t local_root_uav_value = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(clone_current_size)};
@@ -3233,6 +3321,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
             ray_query_readback->Unmap(0, nullptr);
         }
     }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(local_root_uav_value)};
+        hr = closest_hit_local_uav_readback->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&local_root_uav_value, mapped,
+                        sizeof(local_root_uav_value));
+            closest_hit_local_uav_readback->Unmap(0, nullptr);
+        }
+    }
     const HRESULT removed_reason = device->GetDeviceRemovedReason();
     const bool verified = SUCCEEDED(hr) && SUCCEEDED(removed_reason) &&
                           current_size > 0 &&
@@ -3252,9 +3350,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           closest_hit_value == 0x52454332 &&
                           callable_value == 0x43414c4c &&
                           raygen_value == 42 &&
-                          procedural_hit_value == 0x50524f43;
+                          procedural_hit_value == 0x50524f43 &&
+                          local_root_uav_value == 0x4c525557;
 
     safe_release(raygen_shader_table);
+    safe_release(closest_hit_local_srv);
+    safe_release(closest_hit_local_cbv);
+    safe_release(closest_hit_local_uav_readback);
+    safe_release(closest_hit_local_uav);
     safe_release(grown_raytracing_properties);
     safe_release(grown_raytracing_state);
     safe_release(raytracing_properties);
@@ -3296,7 +3399,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy/TLAS traversal, grown hit-group alias with local-root shader-record constant, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy/TLAS traversal, grown hit-group alias with local-root constant/CBV/SRV/UAV shader-record data, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -3348,6 +3451,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"grown_state_identifiers\":" +
                 (grown_state_identifiers ? "true" : "false") +
                 ",\"closest_hit_local_root_marker\":1280262988" +
+                ",\"closest_hit_local_srv_marker\":1397904945" +
+                ",\"closest_hit_local_cbv_marker\":1128420913" +
+                ",\"closest_hit_local_uav_value\":" +
+                std::to_string(local_root_uav_value) +
                 ",\"unknown_identifier_null\":" +
                 (!unknown_identifier ? "true" : "false") +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};

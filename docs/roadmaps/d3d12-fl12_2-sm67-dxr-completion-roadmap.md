@@ -1018,9 +1018,12 @@ the goal is not complete.
   paths. The refittable TLAS builds to 1,216 bytes. `AddToStateObject` now
   creates a stable, distinct alias for the inherited triangle hit group; the
   alias identifier is installed in the first shader-table record. The record's
-  four-byte local-root argument `0x4c4f434c` is associated with and read by
-  closest-hit; recursion only returns `0x52454332` when both that local value and
-  the existing any-hit/nested-miss behavior are correct. Its second 64-byte
+  local-root arguments are associated with closest-hit: constant `0x4c4f434c`,
+  CBV marker `0x43425631`, and SRV marker `0x53525631` are read from the record,
+  while a record-local UAV
+  receives exact marker `0x4c525557`. Recursion only returns `0x52454332` when
+  both local reads and the existing any-hit/nested-miss behavior are correct.
+  Its second 64-byte
   hit-group record
   selects a
   procedural intersection
@@ -1034,4 +1037,5 @@ the goal is not complete.
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry, larger geometry/instance arrays,
   serialization/deserialization, new-library state-object growth,
-  descriptor-bearing local roots, and complete shader-table semantics.
+  local descriptor tables/samplers, and complete multi-record shader-table
+  semantics.

@@ -65,7 +65,7 @@
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "two_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_traversal_three_instance_tlas_grown_hit_group_alias_local_root_constant_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
+      "probe_status": "two_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_traversal_three_instance_tlas_grown_hit_group_alias_local_root_constant_cbv_srv_uav_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
       "reported": "partial",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
@@ -84,9 +84,10 @@
         "DispatchRays raygen, miss, any-hit, closest-hit, procedural intersection, and callable execution",
         "recursive closest-hit to miss TraceRay at depth 2",
         "AddToStateObject hit-group alias growth with inherited stable identifiers and execution",
-        "associated local-root constant read from the grown hit-group shader-table record"
+        "associated local-root constant, CBV, and SRV reads from the grown hit-group shader-table record",
+        "associated local-root UAV write and exact readback"
       ],
-      "risk": "A two-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, a three-instance TLAS, mask-isolated inline RayQuery hit, stable distinct export identifiers, executed base/grown hit-group records with an associated local-root constant, raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB BLAS geometry, larger geometry/instance arrays, serialization/deserialization, new-library state-object growth, descriptor-bearing local roots, and complete shader-table semantics remain gated.",
+      "risk": "A two-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, a three-instance TLAS, mask-isolated inline RayQuery hit, stable distinct export identifiers, executed base/grown hit-group records with associated local-root constant/CBV/SRV/UAV data, raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB BLAS geometry, larger geometry/instance arrays, serialization/deserialization, new-library state-object growth, local descriptor tables/samplers, and complete multi-record shader-table semantics remain gated.",
       "state": "required",
       "tier": "required"
     },

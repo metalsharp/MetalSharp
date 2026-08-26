@@ -1299,7 +1299,7 @@ JSON
 {
   "RootSignature": {
     "Flags": "IRRootSignatureFlagLocalRootSignature",
-    "NumParameters": 1,
+    "NumParameters": 4,
     "NumStaticSamplers": 0,
     "Parameters": [{
       "Constants": {
@@ -1308,6 +1308,30 @@ JSON
         "RegisterSpace": 0
       },
       "ParameterType": "IRRootParameterType32BitConstants",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "Descriptor": {
+        "Flags": "IRRootDescriptorFlagNone",
+        "ShaderRegister": 1,
+        "RegisterSpace": 0
+      },
+      "ParameterType": "IRRootParameterTypeSRV",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "Descriptor": {
+        "Flags": "IRRootDescriptorFlagNone",
+        "ShaderRegister": 1,
+        "RegisterSpace": 0
+      },
+      "ParameterType": "IRRootParameterTypeUAV",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "Descriptor": {
+        "Flags": "IRRootDescriptorFlagNone",
+        "ShaderRegister": 2,
+        "RegisterSpace": 0
+      },
+      "ParameterType": "IRRootParameterTypeCBV",
       "ShaderVisibility": "IRShaderVisibilityAll"
     }],
     "StaticSamplers": []
@@ -1321,6 +1345,11 @@ RaytracingAccelerationStructure scene : register(t0);
 RWByteAddressBuffer output : register(u0);
 cbuffer ClosestHitLocalRoot : register(b1) {
   uint closest_hit_local_marker;
+};
+ByteAddressBuffer closest_hit_local_buffer : register(t1);
+RWByteAddressBuffer closest_hit_local_output : register(u1);
+cbuffer ClosestHitLocalCBV : register(b2) {
+  uint closest_hit_local_cbv_marker;
 };
 
 struct MissPayload {
@@ -1372,8 +1401,11 @@ void closest_hit(inout MissPayload payload,
   recursive_payload.value = 0;
   TraceRay(scene, RAY_FLAG_NONE, 0xff, 0, 0, 0,
            recursive_ray, recursive_payload);
+  closest_hit_local_output.Store(0, 0x4c525557);
   payload.value = any_hit_ran && recursive_payload.value == 0x4d495353 &&
-                          closest_hit_local_marker == 0x4c4f434c
+                          closest_hit_local_marker == 0x4c4f434c &&
+                          closest_hit_local_buffer.Load(0) == 0x53525631 &&
+                          closest_hit_local_cbv_marker == 0x43425631
                       ? 0x52454332
                       : 0x48495431;
 }
