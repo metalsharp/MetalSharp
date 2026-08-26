@@ -216,6 +216,9 @@ public:
   }
   bool UsesTessellationFallback() const { return m_uses_tessellation_fallback; }
   bool UsesAtomic64Emulation() const { return m_uses_atomic64_emulation; }
+  bool UsesSamplerFeedbackEmulation() const {
+    return m_uses_sampler_feedback_emulation;
+  }
   bool UsesDirectResourceDescriptorHeap() const {
     return m_uses_direct_resource_descriptor_heap;
   }
@@ -267,6 +270,7 @@ private:
   D3D12_DEPTH_STENCIL_DESC m_depth_stencil_desc = {};
   bool m_depth_bounds_test_enable = false;
   bool m_uses_atomic64_emulation = false;
+  bool m_uses_sampler_feedback_emulation = false;
   bool m_uses_direct_resource_descriptor_heap = false;
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;

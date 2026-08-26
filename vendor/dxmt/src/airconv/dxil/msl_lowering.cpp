@@ -75,6 +75,10 @@ enum DXIntrinsicOpcode {
   DXOP_TextureSampleCmpLevel = 224,
   DXOP_TextureGatherCmp = 74,
   DXOP_TextureGatherRaw = 223,
+  DXOP_WriteSamplerFeedback = 174,
+  DXOP_WriteSamplerFeedbackBias = 175,
+  DXOP_WriteSamplerFeedbackLevel = 176,
+  DXOP_WriteSamplerFeedbackGrad = 177,
 };
 
 enum DXILMathOpcode {
@@ -289,6 +293,10 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "quadReadLaneAt", 14) == 0) return 122;
     if (strncmp(s, "quadOp", 6) == 0) return 123;
     if (strncmp(s, "quadVote", 8) == 0) return 222;
+    if (strncmp(s, "writeSamplerFeedbackLevel", 25) == 0) return 176;
+    if (strncmp(s, "writeSamplerFeedbackGrad", 24) == 0) return 177;
+    if (strncmp(s, "writeSamplerFeedbackBias", 24) == 0) return 175;
+    if (strncmp(s, "writeSamplerFeedback", 20) == 0) return 174;
     if (strncmp(s, "isSpecialFloat", 14) == 0) return 0;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
@@ -339,6 +347,10 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_QuadReadLaneAt:
     case DXOP_QuadOp:
     case DXOP_QuadVote:
+    case DXOP_WriteSamplerFeedback:
+    case DXOP_WriteSamplerFeedbackBias:
+    case DXOP_WriteSamplerFeedbackLevel:
+    case DXOP_WriteSamplerFeedbackGrad:
         return true;
     default:
         return false;
@@ -563,6 +575,7 @@ struct LowerContext {
     bool compute_texture_sample_shader = false;
     bool uses_atomic64_emulation = false;
     bool uses_group_atomic64_emulation = false;
+    bool uses_sampler_feedback = false;
 };
 
 static std::string vertexPullField(LowerContext &ctx, uint32_t sig_id) {
@@ -749,6 +762,76 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  return original;\n";
             os << "}\n\n";
         }
+    }
+    if (ctx.uses_sampler_feedback) {
+        os << "static inline void m12_store_sampler_feedback(device uchar* feedback_bytes, device uint* metadata, uint kind, uint mip, uint level, uint array_slice, float2 clamped_coordinate, float2 wrapped_coordinate) {\n";
+        os << "  uint level_metadata = 10u + level * 4u;\n";
+        os << "  uint data_offset = metadata[level_metadata];\n";
+        os << "  uint width = max(metadata[level_metadata + 1u], 1u);\n";
+        os << "  uint height = max(metadata[level_metadata + 2u], 1u);\n";
+        os << "  uint row_pitch = max(metadata[level_metadata + 3u], width);\n";
+        os << "  uint2 position = min(uint2(clamped_coordinate * float2(width, height)), uint2(width - 1u, height - 1u));\n";
+        os << "  uint byte_offset = data_offset + array_slice * row_pitch * height + position.y * row_pitch + position.x;\n";
+        os << "  uchar old_value = feedback_bytes[byte_offset];\n";
+        os << "  feedback_bytes[byte_offset] = kind == 0u ? uchar(min(uint(old_value), mip)) : uchar(255u);\n";
+        os << "  uint2 wrapped_position = min(uint2(wrapped_coordinate * float2(width, height)), uint2(width - 1u, height - 1u));\n";
+        os << "  uint wrapped_offset = data_offset + array_slice * row_pitch * height + wrapped_position.y * row_pitch + wrapped_position.x;\n";
+        os << "  if (wrapped_offset != byte_offset) {\n";
+        os << "    uchar wrapped_old = feedback_bytes[wrapped_offset];\n";
+        os << "    feedback_bytes[wrapped_offset] = kind == 0u ? uchar(min(uint(wrapped_old), mip)) : uchar(255u);\n";
+        os << "  }\n";
+        os << "}\n\n";
+        os << "static inline void m12_write_sampler_feedback(device char* feedback, float3 coordinate, float lod) {\n";
+        os << "  device uchar* feedback_bytes = reinterpret_cast<device uchar*>(feedback);\n";
+        os << "  device uint* metadata = reinterpret_cast<device uint*>(feedback);\n";
+        os << "  uint kind = metadata[4];\n";
+        os << "  uint array_length = max(metadata[5], 1u);\n";
+        os << "  uint level_count = max(metadata[9], 1u);\n";
+        os << "  uint mip = uint(clamp(floor(lod), 0.0, 254.0));\n";
+        os << "  uint level = kind == 0u ? 0u : min(mip, level_count - 1u);\n";
+        os << "  uint array_slice = min(uint(max(coordinate.z, 0.0)), array_length - 1u);\n";
+        os << "  float2 clamped_coordinate = clamp(coordinate.xy, float2(0.0), float2(0.99999994));\n";
+        os << "  float2 wrapped_coordinate = fract(coordinate.xy);\n";
+        if (ctx.shader.kind == DxilShaderKind::Pixel) {
+            // A spinning lock in every divergent fragment lane can prevent
+            // the lock owner from making progress. Keep the SIMD group
+            // converged, broadcast each active lane's request in turn, and
+            // let one elected lane serialize it against other SIMD groups.
+            os << "  device atomic_uint* lock = reinterpret_cast<device atomic_uint*>(feedback + 32);\n";
+            os << "  uint source_lane_active = simd_is_helper_thread() ? 0u : 1u;\n";
+            os << "  for (ushort source_lane = 0; source_lane < 32; ++source_lane) {\n";
+            os << "    bool source_active = simd_broadcast(source_lane_active, source_lane) != 0u;\n";
+            os << "    uint source_mip = simd_broadcast(mip, source_lane);\n";
+            os << "    uint source_level = simd_broadcast(level, source_lane);\n";
+            os << "    uint source_array_slice = simd_broadcast(array_slice, source_lane);\n";
+            os << "    float2 source_clamped = simd_broadcast(clamped_coordinate, source_lane);\n";
+            os << "    float2 source_wrapped = simd_broadcast(wrapped_coordinate, source_lane);\n";
+            os << "    if (simd_is_first() && source_active) {\n";
+            os << "      uint expected = 0u;\n";
+            os << "      while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1u, memory_order_relaxed, memory_order_relaxed)) expected = 0u;\n";
+            os << "      m12_store_sampler_feedback(feedback_bytes, metadata, kind, source_mip, source_level, source_array_slice, source_clamped, source_wrapped);\n";
+            os << "      if (kind != 0u && source_level + 1u < level_count)\n";
+            os << "        m12_store_sampler_feedback(feedback_bytes, metadata, kind, source_mip, source_level + 1u, source_array_slice, source_clamped, source_wrapped);\n";
+            os << "      atomic_store_explicit(lock, 0u, memory_order_relaxed);\n";
+            os << "    }\n";
+            os << "  }\n";
+        } else {
+            os << "  device atomic_uint* lock = reinterpret_cast<device atomic_uint*>(feedback + 32);\n";
+            os << "  bool pending = true;\n";
+            os << "  while (simd_any(pending)) {\n";
+            os << "    bool selected = pending && simd_prefix_exclusive_sum(uint(pending)) == 0u;\n";
+            os << "    if (selected) {\n";
+            os << "      uint expected = 0u;\n";
+            os << "      while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1u, memory_order_relaxed, memory_order_relaxed)) expected = 0u;\n";
+            os << "      m12_store_sampler_feedback(feedback_bytes, metadata, kind, mip, level, array_slice, clamped_coordinate, wrapped_coordinate);\n";
+            os << "      if (kind != 0u && level + 1u < level_count)\n";
+            os << "        m12_store_sampler_feedback(feedback_bytes, metadata, kind, mip, level + 1u, array_slice, clamped_coordinate, wrapped_coordinate);\n";
+            os << "      atomic_store_explicit(lock, 0u, memory_order_relaxed);\n";
+            os << "      pending = false;\n";
+            os << "    }\n";
+            os << "  }\n";
+        }
+        os << "}\n\n";
     }
     os << "struct input_v {\n";
     os << "  float4 position [[position]];\n";
@@ -3025,6 +3108,40 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_FlattenedThreadIDInGroup:
         ctx.uses_group_thread_id = true; ctx.uses_group_size = true;
         return "(int)(gtid.x + gtid.y * gsz.x + gtid.z * gsz.x * gsz.y)";
+    case DXOP_WriteSamplerFeedback:
+    case DXOP_WriteSamplerFeedbackBias:
+    case DXOP_WriteSamplerFeedbackLevel:
+    case DXOP_WriteSamplerFeedbackGrad: {
+        if (args.size() < 7) return "";
+        ctx.uses_sampler_feedback = true;
+        auto feedback = handleArg(0, "buf", "buf0");
+        auto sampled = handleArg(1, "tex", "tex0");
+        auto sampler = handleArg(2, "samp", "samp0");
+        auto c0 = numericArg(3, "0.0");
+        auto c1 = numericArg(4, "0.0");
+        auto c2 = numericArg(5, "0.0");
+        std::string lod = "0.0";
+        if (intrinsic_id == DXOP_WriteSamplerFeedbackLevel && args.size() >= 8) {
+            lod = numericArg(7, "0.0");
+        } else if (intrinsic_id == DXOP_WriteSamplerFeedbackGrad &&
+                   args.size() >= 13) {
+            auto ddx0 = numericArg(7, "0.0");
+            auto ddx1 = numericArg(8, "0.0");
+            auto ddy0 = numericArg(10, "0.0");
+            auto ddy1 = numericArg(11, "0.0");
+            lod = "max(0.0, log2(max(length(float2(" + ddx0 + ", " + ddx1 + ") * float2(" +
+                  sampled + ".get_width(), " + sampled + ".get_height())), length(float2(" +
+                  ddy0 + ", " + ddy1 + ") * float2(" + sampled + ".get_width(), " +
+                  sampled + ".get_height())))))";
+        } else {
+            lod = sampled + ".calculate_clamped_lod(" + sampler + ", float2(" + c0 + ", " + c1 + "))";
+            if (intrinsic_id == DXOP_WriteSamplerFeedbackBias && args.size() >= 8)
+                lod = "(" + lod + " + " + numericArg(7, "0.0") + ")";
+        }
+        lod = "clamp(" + lod + ", 0.0, float(max(" + sampled +
+              ".get_num_mip_levels(), 1u) - 1u))";
+        return "m12_write_sampler_feedback(" + feedback + ", float3(" + c0 + ", " + c1 + ", " + c2 + "), " + lod + ")";
+    }
     case DXOP_CBufferLoad: case DXOP_CBufferLoadLegacy: {
         if (args.size() < 2) return "float4(0)";
         auto handle = handleArg(0, "buf", "buf0");
@@ -3945,6 +4062,18 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         if (decl_it != ctx.function_decls.end()) callee_name = decl_it->second;
         else if (callee < ctx.value_table.size()) callee_name = ctx.value_table[callee];
         uint32_t intrinsic_id = intrinsicIdFromCalleeName(callee_name);
+        if (callee_name.find("dx.op.writeSamplerFeedbackLevel") !=
+            std::string::npos)
+            intrinsic_id = DXOP_WriteSamplerFeedbackLevel;
+        else if (callee_name.find("dx.op.writeSamplerFeedbackGrad") !=
+                 std::string::npos)
+            intrinsic_id = DXOP_WriteSamplerFeedbackGrad;
+        else if (callee_name.find("dx.op.writeSamplerFeedbackBias") !=
+                 std::string::npos)
+            intrinsic_id = DXOP_WriteSamplerFeedbackBias;
+        else if (callee_name.find("dx.op.writeSamplerFeedback") !=
+                 std::string::npos)
+            intrinsic_id = DXOP_WriteSamplerFeedback;
         bool opcode_prefixed_intrinsic = false;
         if (!call_args.empty() && (callee_name.empty() || startsWith(callee_name, "dx.op."))) {
             uint32_t opcode = literalFromValue(ctx, call_args[0], 0);
@@ -4924,6 +5053,14 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             }
         }
     }
+    ctx.uses_sampler_feedback = options.sampler_feedback;
+    for (const auto &decl : module.functions) {
+        if (decl.name.find("dx.op.writeSamplerFeedback") !=
+            std::string::npos) {
+            ctx.uses_sampler_feedback = true;
+            break;
+        }
+    }
     if (shader.kind == DxilShaderKind::Compute) {
         for (const auto &candidate : module.functions) {
             for (const auto &block : candidate.blocks) {
@@ -4991,6 +5128,13 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         ctx.value_table[dfn.value_id] = dfn.name;
         ctx.value_types[dfn.value_id] = {MSLTypeKind::Unknown, 0, {}};
         ctx.function_decls[dfn.value_id] = dfn.name;
+    }
+    for (const auto &decl : ctx.function_decls) {
+        if (decl.second.find("dx.op.writeSamplerFeedback") !=
+            std::string::npos) {
+            ctx.uses_sampler_feedback = true;
+            break;
+        }
     }
 
     analyzeBindingPlan(ctx, fn);

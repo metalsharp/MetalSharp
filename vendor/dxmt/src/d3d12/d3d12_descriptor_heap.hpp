@@ -30,6 +30,8 @@ struct D3D12Descriptor {
   uint64_t metal_texture_gpu_id = 0;
   ID3D12Resource *resource = nullptr;
   ID3D12Resource *resource_uav_counter = nullptr;
+  ID3D12Resource *sampler_feedback_target = nullptr;
+  bool is_sampler_feedback = false;
 };
 
 class MTLD3D12DescriptorHeap : public ID3D12DescriptorHeap {

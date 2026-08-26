@@ -2,6 +2,7 @@
 #include "d3d12_device.hpp"
 #include "d3d12_native_tessellation_path.hpp"
 #include "d3d12_root_signature.hpp"
+#include "d3d12_resource.hpp"
 #include "d3d12_trace.hpp"
 #include "d3d12_vertex_input.hpp"
 #include "log/log.hpp"
@@ -176,6 +177,30 @@ bool DXBCShaderUsesAtomic64(const void *bytecode, SIZE_T size) {
             return true;
         }
       }
+    }
+  }
+  return false;
+}
+
+bool DXBCShaderUsesSamplerFeedback(const void *bytecode, SIZE_T size) {
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+    for (const auto &fn : module->functions) {
+      if (fn.name.find("dx.op.writeSamplerFeedback") != std::string::npos)
+        return true;
     }
   }
   return false;
@@ -1392,6 +1417,10 @@ WMTPixelFormat MTLD3D12PipelineState::DXGIToMTLPixelFormat(DXGI_FORMAT format) {
     return WMTPixelFormatR8Snorm;
   case DXGI_FORMAT_R8_UINT:
     return WMTPixelFormatR8Uint;
+  case DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE:
+    return WMTPixelFormatR8Uint;
+  case DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE:
+    return WMTPixelFormatR32Uint;
   case DXGI_FORMAT_R8_SINT:
     return WMTPixelFormatR8Sint;
   case DXGI_FORMAT_R16_UNORM:
@@ -1726,8 +1755,12 @@ bool MTLD3D12PipelineState::CompileShader(
   hash = ApplyShaderVariantHash(hash, type);
   const bool requires_int64_custom =
       type == ShaderType::Compute && DXBCShaderUsesAtomic64(bytecode, size);
+  const bool requires_sampler_feedback_custom =
+      DXBCShaderUsesSamplerFeedback(bytecode, size);
   if (requires_int64_custom)
     m_uses_atomic64_emulation = true;
+  if (requires_sampler_feedback_custom)
+    m_uses_sampler_feedback_emulation = true;
   if (type == ShaderType::Compute &&
       DXBCShaderUsesDirectResourceHeap(bytecode, size))
     m_uses_direct_resource_descriptor_heap = true;
@@ -1846,6 +1879,13 @@ bool MTLD3D12PipelineState::CompileShader(
             fclose(mf);
             mf = nullptr;
           }
+          if (mf && requires_sampler_feedback_custom) {
+            // Sampler feedback is represented by a padded software map. The
+            // custom lowering knows that ABI; a converter-produced metallib
+            // does not.
+            fclose(mf);
+            mf = nullptr;
+          }
           if (!mf) {
             PSTRACE("  metallib not cached, attempting DXIL->MSL compilation");
 
@@ -1887,6 +1927,8 @@ bool MTLD3D12PipelineState::CompileShader(
                 type == ShaderType::Pixel && IsDepthBoundsTestEnabled();
             lowering_options.depth_bounds_multisample =
                 lowering_options.depth_bounds_test && m_sample_count > 1;
+            lowering_options.sampler_feedback =
+                requires_sampler_feedback_custom;
             if (type == ShaderType::Vertex) {
               lowering_options.vertex_inputs.reserve(
                   m_ia_input_elements.size());

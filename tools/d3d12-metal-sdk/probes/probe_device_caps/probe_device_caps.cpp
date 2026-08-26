@@ -225,8 +225,9 @@ int main() {
         options11.AtomicInt64OnDescriptorHeapResourceSupported;
     bool advanced_conservative =
         (!SUCCEEDED(options5_hr) || options5.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED) &&
-        (!SUCCEEDED(options7_hr) || (options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
-                                     options7.SamplerFeedbackTier == D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED)) &&
+        (SUCCEEDED(options7_hr) &&
+         options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
+         options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9) &&
         (!SUCCEEDED(options9_hr) || options9.WaveMMATier == D3D12_WAVE_MMA_TIER_NOT_SUPPORTED);
     bool stream_output_conservative =
         SUCCEEDED(stream_output_format_hr) && !(stream_output_format.Support1 & D3D12_FORMAT_SUPPORT1_SO_BUFFER);

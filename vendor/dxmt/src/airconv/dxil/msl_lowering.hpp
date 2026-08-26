@@ -43,6 +43,7 @@ struct MSLLoweringOptions {
     std::vector<MSLVertexInputElement> vertex_inputs;
     bool depth_bounds_test = false;
     bool depth_bounds_multisample = false;
+    bool sampler_feedback = false;
 };
 
 inline uint32_t MSLResolveVertexInputTableIndex(uint32_t shader_register,

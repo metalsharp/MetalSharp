@@ -30,7 +30,6 @@ REQUIRED_UNSUPPORTED_APIS = {
     "D3D12 state objects",
     "D3D12 mesh shader tiers",
     "D3D12 amplification shader tiers",
-    "D3D12 sampler feedback tier",
     "D3D12 work graphs",
     "D3D12 node shaders",
     "D3D12 video encode/decode/process APIs",
