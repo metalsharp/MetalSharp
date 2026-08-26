@@ -1665,10 +1665,12 @@ D3D12CreateDevice(IUnknown *pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel,
                    MinimumFeatureLevel);
     return E_INVALIDARG;
   }
-  if (MinimumFeatureLevel > dxmt::kD3D12MaximumFeatureLevel) {
+  const D3D_FEATURE_LEVEL maximum_feature_level =
+      dxmt::D3D12ConfiguredMaximumFeatureLevel();
+  if (MinimumFeatureLevel > maximum_feature_level) {
     DXMTD3D12Trace("Entry",
                    "D3D12CreateDevice UNSUPPORTED FL=%d max=%d",
-                   MinimumFeatureLevel, dxmt::kD3D12MaximumFeatureLevel);
+                   MinimumFeatureLevel, maximum_feature_level);
     return DXGI_ERROR_UNSUPPORTED;
   }
 
