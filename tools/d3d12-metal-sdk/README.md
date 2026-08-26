@@ -595,9 +595,11 @@ The mesh mini-probe additionally validates amplification-payload-selected
 `SV_RenderTargetArrayIndex` output. Direct and indirect `DispatchMesh` render
 into both slices of a two-layer `TEXTURE2DARRAY` RTV and independently read back
 exact mesh pixels from every layer and scissor half. It also requires every
-remaining pixel in both slices to match the RTV-array clear color. Mesh tier
-reporting remains disabled pending pipeline statistics, mixed render-state
-matrices, and broader shader/payload coverage.
+remaining pixel in both slices to match the RTV-array clear color. The same
+probe then binds a two-layer `D32_FLOAT` DSV: depth 0.25 passes an
+exact 0.5 clear in layer 0 while depth 0.75 is rejected in layer 1. Mesh tier
+reporting remains disabled pending pipeline statistics, broader mixed
+render-state matrices, and broader shader/payload coverage.
 
 Run just the unsupported-policy phase gate with:
 

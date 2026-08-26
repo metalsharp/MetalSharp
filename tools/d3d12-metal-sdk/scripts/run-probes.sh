@@ -1146,6 +1146,7 @@ struct MeshPayload {
   float horizontal_offset;
   uint signature;
   uint render_target_index;
+  float depth;
 };
 
 groupshared MeshPayload payload;
@@ -1169,6 +1170,7 @@ void as_main(uint3 group_id : SV_GroupID) {
   payload.horizontal_offset = (group_id.x & 1) ? 0.05 : 0.0;
   payload.signature = 0x4153504c;
   payload.render_target_index = group_id.x & 1;
+  payload.depth = (group_id.x & 1) ? 0.75 : 0.25;
   DispatchMesh(amplification_enabled * amplification_control.Load(0),
                1, 1, payload);
 }
@@ -1187,13 +1189,13 @@ void ms_main(in payload MeshPayload payload,
   mesh_output.Store(8 + group_thread_id * 4,
                     payload.signature + group_thread_id);
   if (group_thread_id == 0) {
-    vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
+    vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, payload.depth, 1.0);
     primitives[0].render_target_index = payload.render_target_index;
     triangles[0] = uint3(0, 1, 2);
   } else if (group_thread_id == 1) {
-    vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * resolved_scale,  0.8 * resolved_scale, 0.0, 1.0);
+    vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * resolved_scale,  0.8 * resolved_scale, payload.depth, 1.0);
   } else if (group_thread_id == 2) {
-    vertices[2].position = float4(( 0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
+    vertices[2].position = float4(( 0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, payload.depth, 1.0);
   }
 }
 
