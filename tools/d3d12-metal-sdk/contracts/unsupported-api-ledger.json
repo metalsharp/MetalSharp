@@ -135,17 +135,6 @@
       "reason": "No Metal tessellation translation path is proven; hull/domain PSOs remain rejected.",
       "state": "unsupported",
       "tier": "unsupported"
-    },
-    {
-      "api": "D3D12 Shader Model 6.6 feature report",
-      "evidence": [
-        "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-        "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
-        "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
-      ],
-      "reason": "The SM 6.6 audit can compile and link the synthetic corpus, but descriptor indexing, sampler/texture, 64-bit, atomic, barrier, and root-constant cases do not yet have runtime correctness proof; the device must report SM 6.5 instead.",
-      "state": "not_reported",
-      "tier": "unsupported"
     }
   ],
   "purpose": "Track explicit unsupported APIs so games are not misled by optimistic success returns.",

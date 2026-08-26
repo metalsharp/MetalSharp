@@ -72,7 +72,7 @@ Feature level 12_2 requires at least the following public capability posture:
 
 | Capability | Required FL 12_2 value | Current DXMT result | Completion evidence |
 | --- | --- | --- | --- |
-| Shader model | At least 6.5 | 6.5 | SM 6.7 corpus and runtime readback |
+| Shader model | At least 6.5 | 6.7 | SM 6.6 breadth plus SM 6.7 quad-vote runtime readback passed |
 | Ray tracing | Tier 1.1 | Not supported | DXR 1.0/1.1 probes |
 | Variable-rate shading | Tier 2 | Not supported | Per-draw and image VRS probes |
 | Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
@@ -169,8 +169,8 @@ Findings:
   constructs a device regardless of `MinimumFeatureLevel` and even returns a
   successful support-probe result without validating the requested level.
 - `CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS)` hard-caps at `12_1`.
-- Shader model reporting hard-caps at 6.5 by default and has an environment
-  escape hatch for 6.6, not a behavior-derived capability model.
+- Shader model reporting now hard-caps at behavior-proven 6.7 after the SM 6.6
+  breadth corpus and SM 6.7 quad-vote runtime gates pass.
 - The default unhandled feature-query path zeros unknown structures and returns
   `S_OK`. That can incorrectly convert a missing implementation into a valid
   unsupported response and can hide ABI-size mistakes.
@@ -287,8 +287,9 @@ Relevant files:
 
 Findings:
 
-- The current path has substantial DXBC and DXIL support and a useful synthetic
-  corpus, but the contract honestly caps the reported model at 6.5.
+- The DXBC/DXIL path now reports SM 6.7 after runtime-proving SM 6.6 root
+  constants, descriptor indexing, 64-bit arithmetic, atomics/barriers, and
+  texture/sampler access plus SM 6.7 quad votes.
 - Wave operations are partially lowered, but the baseline feature query reports
   them before the current probe policy accepts runtime correctness.
 - The source tracks unsupported intrinsic/opcode counts and rejects those
@@ -845,7 +846,8 @@ Before declaring the goal complete, map each item below to actual evidence:
 - [ ] Every temporary prefix is stopped and deleted after evidence capture.
 - [ ] D3D12 creation and feature query pass for 11_0, 11_1, 12_0, 12_1, 12_2.
 - [ ] Every official FL12_2 requirement has a behavioral probe.
-- [ ] SM6.7 compile/link/PSO/execute/readback corpus passes.
+- [ ] Full SM6.7 compile/link/PSO/execute/readback corpus passes; the reporting
+  breadth and quad-vote gates pass, while advanced texture-op breadth remains.
 - [ ] DXR 1.1 acceleration structure, state object, shader table, and dispatch
       probes pass.
 - [ ] D3D12/DXGI/WineMetal risky stubs and false-success paths are removed.
@@ -901,10 +903,12 @@ the goal is not complete.
   sum now execute with zero readback mismatches under MetalSharp Wine 11.5.
 - Enabled the WaveOps feature report at a fixed 32-lane range only after that
   runtime proof passed, and removed WaveOps from the unsupported ledger.
-- Added the first Shader Model 6.7 execution gate: `QuadAny`/`QuadAll` now lower
-  to Metal quad votes and pass a 32-thread UAV readback even though the installed
-  Metal Shader Converter 3.0.6 rejects `dx.op.quadVote.i1`; the custom Xcode 27
-  MSL fallback path supplies the working implementation.
+- Completed the Shader Model 6.7 reporting gate: the SM 6.6 corpus now
+  dispatches and passes exact readback for root constants, descriptor indexing,
+  64-bit arithmetic, group atomics/barriers, and texture/sampler access;
+  `QuadAny`/`QuadAll` additionally pass a 32-thread SM 6.7 UAV readback. Custom
+  MSL binding manifests now restore resource-use masks on fresh and cached
+  pipelines so unused root ranges cannot overwrite active direct bindings.
 - Corrected the source-probe loader so each staged PE `winemetal.dll` is paired
   with the matching staged `winemetal.so` through a unique temporary Wine Unix
   module registration. The previous search order silently loaded Wine's bundled

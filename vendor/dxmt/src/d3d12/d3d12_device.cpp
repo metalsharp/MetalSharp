@@ -2411,7 +2411,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*sm))
       return E_INVALIDARG;
     constexpr D3D_SHADER_MODEL max_shader_model =
-        static_cast<D3D_SHADER_MODEL>(0x65);
+        static_cast<D3D_SHADER_MODEL>(0x67);
     if (sm->HighestShaderModel == 0 ||
         sm->HighestShaderModel > max_shader_model)
       sm->HighestShaderModel = max_shader_model;

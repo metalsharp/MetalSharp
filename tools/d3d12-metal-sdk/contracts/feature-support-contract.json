@@ -124,10 +124,10 @@
       "tier": "required"
     },
     "D3D12_FEATURE_SHADER_MODEL": {
-      "current_target": "6_5",
+      "current_target": "6_7",
       "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
       "reported": "supported",
-      "risk": "SM 6.6 must stay unreported until the SM 6.6 compiler, descriptor, resource, sampler, 64-bit, atomic, barrier, and runtime corpus is reportable.",
+      "risk": "SM 6.7 is behavior-backed by the SM 6.6 root-constant, descriptor-indexing, 64-bit, atomic/barrier, and texture/sampler runtime corpus plus SM 6.7 QuadAny/QuadAll dispatch/readback; additional SM 6.7 advanced texture operations remain separate optional behavior gates.",
       "state": "required",
       "tier": "required"
     },

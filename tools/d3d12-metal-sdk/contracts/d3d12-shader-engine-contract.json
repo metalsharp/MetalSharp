@@ -4,7 +4,7 @@
     "name": "M12 D3D12 shader engine",
     "purpose": "Define the DXBC/DXIL to Metal shader engine as one reviewed system covering parsing, lowering, binding manifests, PSO creation, cache behavior, runtime binding, offline replay, and probe gates.",
     "status": "active",
-    "reported_shader_model": "6.5"
+    "reported_shader_model": "6.7"
   },
   "source_surfaces": [
     {

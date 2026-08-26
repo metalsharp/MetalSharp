@@ -255,7 +255,9 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
     shader_model_target = shader_model_contract.get("current_target")
     shader_model_ok = shader_model_at_least(observed_shader_model, shader_model_target)
     sm66_reported = shader_model_at_least(observed_shader_model, "6_6")
+    sm67_reported = shader_model_at_least(observed_shader_model, "6_7")
     sm66_reportable = bool(get_nested(sm66_probe, "summary", "sm66_reportable"))
+    sm67_reportable = bool(get_nested(sm66_probe, "summary", "sm67_reportable"))
     dxil_to_msl_ok = bool(get_nested(shader_probe, "dxc", "dxil_to_msl"))
     dxil_semantics_ok = bool(dxil_semantics_probe.get("pass", dxil_semantics_probe.get("ok")))
     synthetic_corpus_ok = bool(get_nested(shader_corpus_probe, "summary", "synthetic_shader_corpus_proven"))
@@ -267,13 +269,17 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
         "target": shader_model_target,
         "sm66_reported": sm66_reported,
         "sm66_reportable": sm66_reportable,
+        "sm67_reported": sm67_reported,
+        "sm67_reportable": sm67_reportable,
         "dxil_to_msl_proven": dxil_to_msl_ok,
         "dxil_semantics_proven": dxil_semantics_ok,
         "synthetic_shader_corpus_proven": synthetic_corpus_ok,
         "dxil_path_proven": dxil_path_proven,
     }
     shader_summary["compliant"] = (
-        shader_model_ok and dxil_path_proven and synthetic_corpus_ok and (not sm66_reported or sm66_reportable)
+        shader_model_ok and dxil_path_proven and synthetic_corpus_ok and
+        (not sm66_reported or sm66_reportable) and
+        (not sm67_reported or sm67_reportable)
     )
     summary.append(shader_summary)
     if not shader_summary["compliant"]:
@@ -282,7 +288,7 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
                 "error",
                 "feature_support",
                 "Shader model report advertises an unproven SM6 path",
-                f"Observed `{observed_shader_model}` against target `{shader_model_target}` with DXIL-to-MSL proof `{dxil_to_msl_ok}`, synthetic corpus `{synthetic_corpus_ok}`, and SM 6.6 reportable `{sm66_reportable}`.",
+                f"Observed `{observed_shader_model}` against target `{shader_model_target}` with DXIL-to-MSL proof `{dxil_to_msl_ok}`, synthetic corpus `{synthetic_corpus_ok}`, SM 6.6 reportable `{sm66_reportable}`, and SM 6.7 reportable `{sm67_reportable}`.",
             )
         )
     if dxil_semantics_ok and not dxil_path_proven:
