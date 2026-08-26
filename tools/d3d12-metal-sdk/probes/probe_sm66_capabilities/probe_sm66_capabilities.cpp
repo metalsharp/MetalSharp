@@ -232,11 +232,11 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     ranges[0].BaseShaderRegister = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[1].NumDescriptors = 3;
+    ranges[1].NumDescriptors = 5;
     ranges[1].BaseShaderRegister = 0;
     ranges[1].OffsetInDescriptorsFromTableStart = 0;
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-    ranges[2].NumDescriptors = 1;
+    ranges[2].NumDescriptors = 2;
     ranges[2].BaseShaderRegister = 0;
     ranges[2].OffsetInDescriptorsFromTableStart = 0;
 
@@ -279,12 +279,16 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
     ID3D12GraphicsCommandList* list = nullptr;
     ID3D12DescriptorHeap* resource_heap = nullptr;
     ID3D12DescriptorHeap* sampler_heap = nullptr;
+    ID3D12DescriptorHeap* dsv_heap = nullptr;
     ID3D12Resource* output = nullptr;
     ID3D12Resource* readback = nullptr;
     ID3D12Resource* input0 = nullptr;
     ID3D12Resource* input1 = nullptr;
     ID3D12Resource* texture = nullptr;
+    ID3D12Resource* raw_texture = nullptr;
+    ID3D12Resource* comparison_texture = nullptr;
     ID3D12Resource* texture_upload = nullptr;
+    ID3D12Device10* device10 = nullptr;
 
     D3D12_COMMAND_QUEUE_DESC queue_desc = {};
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -297,16 +301,22 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heap_desc.NumDescriptors = 4;
+        heap_desc.NumDescriptors = 6;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&resource_heap));
     }
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-        heap_desc.NumDescriptors = 1;
+        heap_desc.NumDescriptors = 2;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&sampler_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        heap_desc.NumDescriptors = 2;
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv_heap));
     }
 
     auto create_buffer = [&](UINT64 bytes, D3D12_HEAP_TYPE heap_type,
@@ -347,7 +357,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
     if (SUCCEEDED(hr)) {
         D3D12_RESOURCE_DESC texture_desc = {};
         texture_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        texture_desc.Width = 1;
+        texture_desc.Width = 8;
         texture_desc.Height = 1;
         texture_desc.DepthOrArraySize = 1;
         texture_desc.MipLevels = 1;
@@ -355,9 +365,21 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         texture_desc.SampleDesc.Count = 1;
         texture_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &texture_desc,
-                                             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
-                                             IID_PPV_ARGS(&texture));
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &texture_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&texture));
+        if (SUCCEEDED(hr))
+            hr = device->QueryInterface(IID_PPV_ARGS(&device10));
+        if (SUCCEEDED(hr)) {
+            texture_desc.Width = 1;
+            D3D12_RESOURCE_DESC1 texture_desc1 = {};
+            std::memcpy(&texture_desc1, &texture_desc, sizeof(texture_desc));
+            DXGI_FORMAT castable_format = DXGI_FORMAT_R32_UINT;
+            hr = device10->CreateCommittedResource3(
+                &props, D3D12_HEAP_FLAG_NONE, &texture_desc1,
+                D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, nullptr, 1,
+                &castable_format, IID_PPV_ARGS(&raw_texture));
+        }
     }
     if (SUCCEEDED(hr)) {
         uint8_t upload_data[256] = {};
@@ -365,9 +387,32 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         upload_data[1] = 20;
         upload_data[2] = 30;
         upload_data[3] = 40;
+        for (uint32_t pixel = 0; pixel < 8; pixel++) {
+            upload_data[pixel * 4 + 0] = static_cast<uint8_t>(10 + pixel * 10);
+            upload_data[pixel * 4 + 1] = static_cast<uint8_t>(20 + pixel * 10);
+            upload_data[pixel * 4 + 2] = static_cast<uint8_t>(30 + pixel * 10);
+            upload_data[pixel * 4 + 3] = static_cast<uint8_t>(40 + pixel * 10);
+        }
         hr = create_buffer(sizeof(upload_data), D3D12_HEAP_TYPE_UPLOAD,
                            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ,
                            upload_data, &texture_upload);
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_RESOURCE_DESC comparison_desc = {};
+        comparison_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        comparison_desc.Width = 4;
+        comparison_desc.Height = 1;
+        comparison_desc.DepthOrArraySize = 1;
+        comparison_desc.MipLevels = 2;
+        comparison_desc.Format = DXGI_FORMAT_D32_FLOAT;
+        comparison_desc.SampleDesc.Count = 1;
+        comparison_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        comparison_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &comparison_desc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr,
+            IID_PPV_ARGS(&comparison_texture));
     }
 
     if (SUCCEEDED(hr)) {
@@ -397,6 +442,25 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         srv.Texture2D.MipLevels = 1;
         device->CreateShaderResourceView(texture, &srv, cpu);
+        cpu.ptr += resource_stride;
+        srv.Format = DXGI_FORMAT_R32_UINT;
+        device->CreateShaderResourceView(raw_texture, &srv, cpu);
+        cpu.ptr += resource_stride;
+        srv.Format = DXGI_FORMAT_R32_FLOAT;
+        srv.Texture2D.MipLevels = 2;
+        device->CreateShaderResourceView(comparison_texture, &srv, cpu);
+
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
+        dsv.Format = DXGI_FORMAT_D32_FLOAT;
+        dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv_cpu =
+            dsv_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateDepthStencilView(comparison_texture, &dsv, dsv_cpu);
+        dsv.Texture2D.MipSlice = 1;
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv_mip1 = dsv_cpu;
+        dsv_mip1.ptr += device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+        device->CreateDepthStencilView(comparison_texture, &dsv, dsv_mip1);
 
         D3D12_SAMPLER_DESC sampler = {};
         sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -405,6 +469,13 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler.MaxLOD = D3D12_FLOAT32_MAX;
         device->CreateSampler(&sampler, sampler_heap->GetCPUDescriptorHandleForHeapStart());
+        sampler.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
+        sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        D3D12_CPU_DESCRIPTOR_HANDLE comparison_sampler =
+            sampler_heap->GetCPUDescriptorHandleForHeapStart();
+        comparison_sampler.ptr += device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+        device->CreateSampler(&sampler, comparison_sampler);
 
         D3D12_TEXTURE_COPY_LOCATION dst = {};
         dst.pResource = texture;
@@ -413,10 +484,17 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         src.pResource = texture_upload;
         src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
         src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        src.PlacedFootprint.Footprint.Width = 1;
+        src.PlacedFootprint.Footprint.Width = 8;
         src.PlacedFootprint.Footprint.Height = 1;
         src.PlacedFootprint.Footprint.Depth = 1;
         src.PlacedFootprint.Footprint.RowPitch = 256;
+        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        list->ClearDepthStencilView(dsv_cpu, D3D12_CLEAR_FLAG_DEPTH, 0.25f, 0,
+                                    0, nullptr);
+        list->ClearDepthStencilView(dsv_mip1, D3D12_CLEAR_FLAG_DEPTH, 0.75f, 0,
+                                    0, nullptr);
+        dst.pResource = raw_texture;
+        src.PlacedFootprint.Footprint.Width = 1;
         list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
         D3D12_RESOURCE_BARRIER texture_barrier = {};
         texture_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -424,7 +502,14 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         texture_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         texture_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
         texture_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-        list->ResourceBarrier(1, &texture_barrier);
+        D3D12_RESOURCE_BARRIER raw_texture_barrier = texture_barrier;
+        raw_texture_barrier.Transition.pResource = raw_texture;
+        D3D12_RESOURCE_BARRIER texture_barriers[] = {
+            texture_barrier, raw_texture_barrier, raw_texture_barrier};
+        texture_barriers[2].Transition.pResource = comparison_texture;
+        texture_barriers[2].Transition.StateBefore =
+            D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        list->ResourceBarrier(3, texture_barriers);
 
         ID3D12DescriptorHeap* heaps[] = {resource_heap, sampler_heap};
         list->SetDescriptorHeaps(2, heaps);
@@ -480,8 +565,18 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
                 std::sort(result.observed, result.observed + 4);
             } else if (std::strcmp(audit_case.name, "quad_vote_sm67") == 0) {
                 std::fill(result.expected, result.expected + 32, 3u);
+            } else if (std::strcmp(audit_case.name, "raw_gather_sm67") == 0) {
+                std::fill(result.expected, result.expected + 4, 0x281e140au);
+            } else if (std::strcmp(audit_case.name,
+                                   "programmable_offset_sm67") == 0) {
+                const uint32_t expected[] = {300, 341, 382, 383};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "sample_cmp_level_sm67") == 0) {
+                const uint32_t expected[] = {25, 75, 0, 1};
+                std::memcpy(result.expected, expected, sizeof(expected));
             } else {
-                const uint32_t expected[] = {100, 101, 102, 103};
+                const uint32_t expected[] = {260, 261, 262, 263};
                 std::memcpy(result.expected, expected, sizeof(expected));
             }
             result.mismatch_count = 0;
@@ -502,12 +597,16 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         result.detail = "runtime dispatch or readback failed";
 
     safe_release(texture_upload);
+    safe_release(comparison_texture);
+    safe_release(raw_texture);
     safe_release(texture);
+    safe_release(device10);
     safe_release(input1);
     safe_release(input0);
     safe_release(readback);
     safe_release(output);
     safe_release(sampler_heap);
+    safe_release(dsv_heap);
     safe_release(resource_heap);
     safe_release(list);
     safe_release(allocator);
@@ -575,7 +674,10 @@ int main() {
 RWByteAddressBuffer outbuf : register(u0);
 ByteAddressBuffer inputs[2] : register(t0);
 Texture2D<float4> tex : register(t2);
+Texture2D<uint> raw_tex : register(t3);
+Texture2D<float> comparison_tex : register(t4);
 SamplerState smp : register(s0);
+SamplerComparisonState comparison_smp : register(s1);
 
 cbuffer RootConstants : register(b0) {
   uint selector;
@@ -624,6 +726,36 @@ void cs_texture_sampler(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(id.x * 4, total + id.x);
 }
 
+[numthreads(4, 1, 1)]
+void cs_programmable_offset_sm67(uint3 id : SV_DispatchThreadID) {
+  int2 dynamic_offset = int2((int)((id.x + selector) & 7u), 0);
+  float4 sample = tex.SampleLevel(smp, float2(0.5, 0.5), 0.0,
+                                  dynamic_offset);
+  uint total = (uint)(sample.r * 255.0 + 0.5) +
+               (uint)(sample.g * 255.0 + 0.5) +
+               (uint)(sample.b * 255.0 + 0.5) +
+               (uint)(sample.a * 255.0 + 0.5);
+  outbuf.Store(id.x * 4, total + id.x);
+}
+
+[numthreads(1, 1, 1)]
+void cs_raw_gather_sm67(uint3 id : SV_DispatchThreadID) {
+  uint4 gathered = raw_tex.GatherRaw(smp, float2(0.5, 0.5));
+  outbuf.Store4(0, gathered);
+}
+
+[numthreads(1, 1, 1)]
+void cs_sample_cmp_level_sm67(uint3 id : SV_DispatchThreadID) {
+  float load0 = comparison_tex.Load(int3(0, 0, 0));
+  float load1 = comparison_tex.Load(int3(0, 0, 1));
+  float mip0 = comparison_tex.SampleCmpLevel(
+      comparison_smp, float2(0.5, 0.5), 0.5, 0.0);
+  float mip1 = comparison_tex.SampleCmpLevel(
+      comparison_smp, float2(0.5, 0.5), 0.5, 1.0);
+  outbuf.Store4(0, uint4((uint)(load0 * 100.0), (uint)(load1 * 100.0),
+                         (uint)mip0, (uint)mip1));
+}
+
 [numthreads(32, 1, 1)]
 void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
   bool any_vote = QuadAny((id.x & 3u) == 2u);
@@ -666,6 +798,9 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"texture_sampler", "cs_texture_sampler", "cs_6_6", "samplers_texture_paths", true},
+        {"programmable_offset_sm67", "cs_programmable_offset_sm67", "cs_6_7", "sm67_programmable_texture_offsets", true},
+        {"raw_gather_sm67", "cs_raw_gather_sm67", "cs_6_7", "sm67_raw_gather", true},
+        {"sample_cmp_level_sm67", "cs_sample_cmp_level_sm67", "cs_6_7", "sm67_sample_cmp_level", true},
         {"quad_vote_sm67", "cs_quad_vote_sm67", "cs_6_7", "sm67_quad_vote", true},
     };
 

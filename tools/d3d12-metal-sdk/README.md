@@ -183,7 +183,12 @@ The current honest shader feature posture is:
 - The SM 6.6 runtime corpus proves root constants, descriptor indexing,
   64-bit arithmetic, atomics/barriers, and texture/sampler behavior through
   UAV readback; the SM 6.7 gate additionally proves 32-lane `QuadAny` and
-  `QuadAll` execution.
+  `QuadAll` execution. Its compute-stage advanced-texture subset now also
+  validates variable `SampleLevel` offsets across distinct texels, exact
+  `GatherRaw` packed values through a declared castable view, and
+  `SampleCmpLevel` selection between independently cleared depth mip levels.
+  Options14 remains conservative pending graphics-stage breadth and writable
+  MSAA texture behavior.
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.
@@ -217,7 +222,8 @@ The default required probe groups prove:
   primary DXIL-to-MSL proof.
 - `probe-dxil-semantics`: reduced SM6 opcode semantics with runtime readback.
 - `probe-shader-corpus`: the permanent synthetic shader proof harness.
-- `probe-sm66-capabilities`: SM 6.6 breadth plus SM 6.7 quad-vote reporting proof.
+- `probe-sm66-capabilities`: SM 6.6 breadth plus SM 6.7 quad-vote,
+  programmable-offset, raw-gather, and comparison-LOD compute readback proof.
 - `probe-wave-ops`: WaveOps audit and reporting denial/proof.
 - `probe-reflection-abi`: reflected shader bindings against the descriptor and
   root-signature ABI.
