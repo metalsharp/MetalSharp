@@ -4698,8 +4698,12 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
   if (desc->Type ==
       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
     if (!desc->NumDescs ||
-        !GetMTLDevice().accelerationStructureSizesForInstances(desc->NumDescs,
-                                                               sizes)) {
+        !GetMTLDevice().accelerationStructureSizesForInstances(
+            desc->NumDescs,
+            (desc->Flags &
+             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+                0,
+            sizes)) {
       TRACE("  prebuild Metal TLAS size query failed");
       return;
     }

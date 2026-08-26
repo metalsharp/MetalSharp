@@ -421,6 +421,7 @@ struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structure {
 struct unixcall_mtldevice_acceleration_structure_sizes_for_instances {
   obj_handle_t device;
   uint64_t instance_count;
+  uint64_t allow_refit;
   struct WMTMemoryPointer sizes;
   uint64_t ret_success;
 };
@@ -437,6 +438,21 @@ struct unixcall_mtldevice_new_raytracing_compute_pipeline {
 struct unixcall_mtlcommandbuffer_build_instance_acceleration_structure {
   obj_handle_t cmdbuf;
   obj_handle_t acceleration_structure;
+  obj_handle_t instance_descriptor_buffer;
+  uint64_t instance_descriptor_buffer_offset;
+  uint64_t instance_count;
+  struct WMTConstMemoryPointer instanced_acceleration_structures;
+  uint64_t instanced_acceleration_structure_count;
+  uint64_t allow_refit;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_refit_instance_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
   obj_handle_t instance_descriptor_buffer;
   uint64_t instance_descriptor_buffer_offset;
   uint64_t instance_count;

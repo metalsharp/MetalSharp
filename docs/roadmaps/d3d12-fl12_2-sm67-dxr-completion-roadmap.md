@@ -1009,9 +1009,11 @@ the goal is not complete.
   three-instance TLAS alongside the translated AABB and a second BLAS containing
   indexed and non-indexed triangle geometries supplied through
   `ARRAY_OF_POINTERS`, proving both the compact output and multi-geometry build
-  remain traversable. Instance masks isolate inline `RayQuery` traversal to the
-  multi-geometry BLAS while `DispatchRays` traverses the compact/AABB paths. The
-  TLAS builds to 1,088 bytes. Its second 64-byte
+  remain traversable. The update-enabled TLAS initially places the compact BLAS
+  at x=10, then an in-place `PERFORM_UPDATE` refit centers that instance before
+  traversal. Instance masks isolate inline `RayQuery` traversal to the
+  multi-geometry BLAS while `DispatchRays` traverses the updated compact/AABB
+  paths. The refittable TLAS builds to 1,216 bytes. Its second 64-byte
   hit-group record selects a
   procedural intersection
   wrapper, invokes visible-function index 6 to call `ReportHit`, and then invokes
@@ -1022,6 +1024,6 @@ the goal is not complete.
   across every ray-tracing stage. A callable table at offset 256 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  mixed triangle/AABB geometry, larger geometry/instance arrays, TLAS/AABB
-  updates, serialization/deserialization, and
+  mixed triangle/AABB geometry, larger geometry/instance arrays, AABB updates,
+  serialization/deserialization, and
   complete local-root/shader-table semantics.

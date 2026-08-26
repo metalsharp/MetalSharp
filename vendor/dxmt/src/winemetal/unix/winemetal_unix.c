@@ -2438,6 +2438,8 @@ _MTLDevice_accelerationStructureSizesForInstances(void *obj) {
     return STATUS_SUCCESS;
   MTLInstanceAccelerationStructureDescriptor *descriptor =
       create_instance_acceleration_structure_descriptor(params->instance_count);
+  if (descriptor && params->allow_refit)
+    descriptor.usage = MTLAccelerationStructureUsageRefit;
   if (!descriptor)
     return STATUS_SUCCESS;
   MTLAccelerationStructureSizes metal_sizes =
@@ -2464,6 +2466,8 @@ _MTLCommandBuffer_buildInstanceAccelerationStructure(void *obj) {
 
   MTLInstanceAccelerationStructureDescriptor *descriptor =
       create_instance_acceleration_structure_descriptor(params->instance_count);
+  if (descriptor && params->allow_refit)
+    descriptor.usage = MTLAccelerationStructureUsageRefit;
   if (!descriptor)
     return STATUS_SUCCESS;
   descriptor.instanceDescriptorBuffer =
@@ -2492,6 +2496,55 @@ _MTLCommandBuffer_buildInstanceAccelerationStructure(void *obj) {
                        descriptor:descriptor
                      scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
                scratchBufferOffset:params->scratch_buffer_offset];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_refitInstanceAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_refit_instance_acceleration_structure
+      *params = obj;
+  params->ret_success = 0;
+  const obj_handle_t *handles =
+      params->instanced_acceleration_structures.ptr;
+  if (!params->cmdbuf || !params->source_acceleration_structure ||
+      !params->destination_acceleration_structure ||
+      !params->instance_descriptor_buffer || !params->scratch_buffer ||
+      !handles || !params->instanced_acceleration_structure_count)
+    return STATUS_SUCCESS;
+  MTLInstanceAccelerationStructureDescriptor *descriptor =
+      create_instance_acceleration_structure_descriptor(params->instance_count);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  descriptor.usage = MTLAccelerationStructureUsageRefit;
+  descriptor.instanceDescriptorBuffer =
+      (id<MTLBuffer>)params->instance_descriptor_buffer;
+  descriptor.instanceDescriptorBufferOffset =
+      params->instance_descriptor_buffer_offset;
+  NSMutableArray<id<MTLAccelerationStructure>> *structures =
+      [NSMutableArray
+          arrayWithCapacity:params->instanced_acceleration_structure_count];
+  for (uint64_t i = 0; i < params->instanced_acceleration_structure_count;
+       i++) {
+    if (!handles[i])
+      return STATUS_SUCCESS;
+    [structures addObject:(id<MTLAccelerationStructure>)handles[i]];
+  }
+  descriptor.instancedAccelerationStructures = structures;
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      refitAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->source_acceleration_structure
+                       descriptor:descriptor
+                      destination:(id<MTLAccelerationStructure>)
+                                      params->destination_acceleration_structure
+                    scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
+              scratchBufferOffset:params->scratch_buffer_offset];
   [encoder endEncoding];
   params->ret_success = 1;
   return STATUS_SUCCESS;
@@ -4397,6 +4450,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandBuffer_writeCompactedAccelerationStructureSize,
     &_MTLDevice_accelerationStructureSizesForTriangleGeometries,
     &_MTLCommandBuffer_buildTriangleAccelerationStructures,
+    &_MTLCommandBuffer_refitInstanceAccelerationStructure,
 };
 
 #ifndef DXMT_NATIVE
@@ -4554,5 +4608,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandBuffer_writeCompactedAccelerationStructureSize,
     &_MTLDevice_accelerationStructureSizesForTriangleGeometries,
     &_MTLCommandBuffer_buildTriangleAccelerationStructures,
+    &_MTLCommandBuffer_refitInstanceAccelerationStructure,
 };
 #endif
