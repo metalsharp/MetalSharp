@@ -89,6 +89,13 @@ struct unixcall_mtlheap_newtexture {
   obj_handle_t ret;
 };
 
+struct unixcall_mtlheap_newtexture_offset {
+  obj_handle_t heap;
+  struct WMTMemoryPointer info;
+  uint64_t offset;
+  obj_handle_t ret;
+};
+
 struct unixcall_mtldevice_newsamplerstate {
   obj_handle_t device;
   struct WMTMemoryPointer info;

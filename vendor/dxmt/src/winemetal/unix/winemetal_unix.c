@@ -664,6 +664,24 @@ _MTLHeap_newTexture(void *obj) {
 }
 
 static NTSTATUS
+_MTLHeap_newTextureAtOffset(void *obj) {
+  struct unixcall_mtlheap_newtexture_offset *params = obj;
+  struct WMTTextureInfo *info = params->info.ptr;
+  params->ret = 0;
+  if (!params->heap || !info || !info->width || !info->height)
+    return STATUS_SUCCESS;
+
+  MTLTextureDescriptor *descriptor = [[MTLTextureDescriptor alloc] init];
+  fill_texture_descriptor(descriptor, info);
+  id<MTLTexture> texture = [(id<MTLHeap>)params->heap
+      newTextureWithDescriptor:descriptor offset:(NSUInteger)params->offset];
+  params->ret = (obj_handle_t)texture;
+  info->gpu_resource_id = texture ? [texture gpuResourceID]._impl : 0;
+  [descriptor release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLCommandBuffer_resourceStateCommandEncoder(void *obj) {
   struct unixcall_generic_obj_obj_ret *params = obj;
   params->ret = 0;
@@ -4567,6 +4585,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLHeap_newTexture,
     &_MTLCommandBuffer_resourceStateCommandEncoder,
     &_MTLResourceStateCommandEncoder_updateTextureMappings,
+    &_MTLHeap_newTextureAtOffset,
 };
 
 #ifndef DXMT_NATIVE
@@ -4730,5 +4749,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLHeap_newTexture,
     &_MTLCommandBuffer_resourceStateCommandEncoder,
     &_MTLResourceStateCommandEncoder_updateTextureMappings,
+    &_MTLHeap_newTextureAtOffset,
 };
 #endif

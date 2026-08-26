@@ -4434,11 +4434,68 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
         heap_offset, " heap_backing=", use_heap_backing ? 1 : 0, " heap_gpu=0x",
         (unsigned long long)(mt_heap ? mt_heap->GetGPUAddress() : 0)));
   }
+
+  WMT::Reference<WMT::Texture> placed_texture;
+  uint64_t placed_texture_gpu_id = 0;
+  if (mt_heap && desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
+    auto placement_heap = mt_heap->GetMTLHeap();
+    if (!placement_heap.handle)
+      return E_NOTIMPL;
+    WMTTextureInfo texture_info = {};
+    texture_info.width = static_cast<uint32_t>(desc->Width);
+    texture_info.height = desc->Height ? desc->Height : 1;
+    texture_info.depth =
+        desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+            ? desc->DepthOrArraySize
+            : 1;
+    texture_info.array_length =
+        desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+            ? desc->DepthOrArraySize
+            : 1;
+    texture_info.mipmap_level_count = desc->MipLevels ? desc->MipLevels : 1;
+    const UINT samples = desc->SampleDesc.Count ? desc->SampleDesc.Count : 1;
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+      texture_info.type = desc->DepthOrArraySize > 1
+                              ? WMTTextureType1DArray
+                              : WMTTextureType1D;
+    else if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+      texture_info.type = WMTTextureType3D;
+    else if (samples > 1)
+      texture_info.type = desc->DepthOrArraySize > 1
+                              ? WMTTextureType2DMultisampleArray
+                              : WMTTextureType2DMultisample;
+    else
+      texture_info.type = desc->DepthOrArraySize > 1
+                              ? WMTTextureType2DArray
+                              : WMTTextureType2D;
+    texture_info.sample_count = samples;
+    if (samples > 1)
+      texture_info.mipmap_level_count = 1;
+    texture_info.usage =
+        (WMTTextureUsage)(WMTTextureUsageRenderTarget |
+                          WMTTextureUsageShaderRead |
+                          WMTTextureUsageShaderWrite |
+                          WMTTextureUsagePixelFormatView);
+    texture_info.options = WMTResourceStorageModePrivate;
+    texture_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(
+        static_cast<DXGI_FORMAT>(desc->Format));
+    if (texture_info.pixel_format == WMTPixelFormatInvalid)
+      return E_INVALIDARG;
+    placed_texture = placement_heap.newTexture(texture_info, heap_offset);
+    placed_texture_gpu_id = texture_info.gpu_resource_id;
+    if (!placed_texture.handle)
+      return E_NOTIMPL;
+  }
   auto res = use_heap_backing
                  ? new MTLD3D12Resource(this, *desc, initial_state, heap_props,
                                         heap_flags, heap_buffer,
                                         mt_heap->GetCPUAddress(),
                                         mt_heap->GetGPUAddress(), heap_offset)
+                 : placed_texture.handle
+                       ? new MTLD3D12Resource(
+                             this, *desc, initial_state, heap_props, heap_flags,
+                             std::move(placed_texture), placed_texture_gpu_id,
+                             heap_offset)
                  : new MTLD3D12Resource(this, *desc, initial_state, heap_props,
                                         heap_flags);
   HRESULT hr = res->QueryInterface(riid, resource);
