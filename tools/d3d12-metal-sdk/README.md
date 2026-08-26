@@ -626,9 +626,10 @@ background counts. The depth matrix also proves recorded `OMSetDepthBounds`
 state through shader-side emulation: 0.4–0.6 accepts stored depth 0.5,
 0.6–0.9 and inverted 0.9–0.1 reject every fragment, and the same inverted
 state is ignored by a PSO with depth bounds disabled. Every pass validates both
-array slices with zero unexpected pixels. Mesh tier reporting remains disabled pending pipeline
-statistics, broader mixed render-state matrices, and broader shader/payload
-coverage.
+array slices with zero unexpected pixels. `PIPELINE_STATISTICS1` is reported
+and verified for the focused AS/MS dispatch; Mesh tier reporting remains
+disabled pending broader mixed render-state matrices and broader
+shader/payload coverage.
 
 Sampler feedback tier 0.9 is behavior-gated by two focused probes. The compute
 probe creates Device8 opaque min-mip and mip-region-used resources, pairs them
