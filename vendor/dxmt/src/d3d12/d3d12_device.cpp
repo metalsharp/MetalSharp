@@ -3030,8 +3030,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return E_INVALIDARG;
     o->MeshShaderPipelineStatsSupported = FALSE;
     o->MeshShaderSupportsFullRangeRenderTargetArrayIndex = FALSE;
-    o->AtomicInt64OnTypedResourceSupported = FALSE;
-    o->AtomicInt64OnGroupSharedSupported = FALSE;
+    o->AtomicInt64OnTypedResourceSupported = TRUE;
+    o->AtomicInt64OnGroupSharedSupported = TRUE;
     o->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
     TRACE("  OPTIONS9: MeshStats=%d FullRTArray=%d Atomic64Typed=%d "
           "Atomic64GroupShared=%d",
@@ -3053,7 +3053,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS11 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->AtomicInt64OnDescriptorHeapResourceSupported = FALSE;
+    o->AtomicInt64OnDescriptorHeapResourceSupported = TRUE;
     TRACE("  OPTIONS11: Atomic64DescriptorHeap=%d",
           o->AtomicInt64OnDescriptorHeapResourceSupported);
     return S_OK;
@@ -3408,6 +3408,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateConstantBufferView(
   if (d) {
     d->cbv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
   }
 }
 
@@ -3462,6 +3463,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
       }
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
   }
 }
 
@@ -3504,6 +3506,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateUnorderedAccessView(
       }
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
   }
 }
 
@@ -3569,6 +3572,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
   if (d && desc) {
     d->sampler = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
 
     WMTSamplerInfo info = {};
     switch (desc->Filter) {

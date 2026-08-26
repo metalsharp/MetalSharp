@@ -188,6 +188,10 @@ static constexpr uint32_t kFuncCode_InstInsertElt = 7;
 static constexpr uint32_t kFuncCode_InstShuffleVec = 8;
 static constexpr uint32_t kFuncCode_InstSwitch = 12;
 static constexpr uint32_t kFuncCode_InstInvoke = 13;
+static constexpr uint32_t kFuncCode_InstAtomicRMW = 59;
+static constexpr uint32_t kFuncCode_InstAtomicRMWOld = 38;
+static constexpr uint32_t kFuncCode_InstCmpXchg = 46;
+static constexpr uint32_t kFuncCode_InstCmpXchgOld = 37;
 
 static constexpr uint32_t kCallFlag_ExplicitType = 15;
 static constexpr uint32_t kCallFlag_FastMathFlags = 17;
@@ -1295,6 +1299,73 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
       }
       break;
     }
+    case kFuncCode_InstAtomicRMW:
+    case kFuncCode_InstAtomicRMWOld: {
+      if (cur_block < fn.blocks.size()) {
+        LLVMInstruction inst;
+        inst.opcode = LLVMInstruction::AtomicRMW;
+        size_t slot = 1;
+        uint32_t ptr_type_id = 0;
+        uint32_t ptr = valueTypePair(ops, slot, ptr_type_id);
+        uint32_t value_type_id = 0;
+        uint32_t atomic_value = 0;
+        if (rec_code == kFuncCode_InstAtomicRMW) {
+          atomic_value = valueTypePair(ops, slot, value_type_id);
+        } else {
+          atomic_value = popValue(ops, slot);
+          if (ptr_type_id < ctx.module.types.size() &&
+              ctx.module.types[ptr_type_id].kind == LLVMType::Pointer &&
+              !ctx.module.types[ptr_type_id].type_refs.empty())
+            value_type_id = ctx.module.types[ptr_type_id].type_refs[0];
+          if (value_type_id == 0) {
+            for (const auto &global : ctx.module.globals) {
+              if (global.value_id == ptr) {
+                value_type_id = global.type_id;
+                break;
+              }
+            }
+          }
+        }
+        uint32_t operation = slot < ops.size() ? (uint32_t)ops[slot] : 0;
+        inst.type_id = value_type_id;
+        inst.operands.push_back(ptr);
+        inst.operands.push_back(atomic_value);
+        inst.operands.push_back(operation);
+        fn.blocks[cur_block].instructions.push_back(inst);
+        noteResult();
+      }
+      break;
+    }
+    case kFuncCode_InstCmpXchg:
+    case kFuncCode_InstCmpXchgOld: {
+      if (cur_block < fn.blocks.size()) {
+        LLVMInstruction inst;
+        inst.opcode = LLVMInstruction::CmpXchg;
+        size_t slot = 1;
+        uint32_t ptr_type_id = 0;
+        uint32_t ptr = valueTypePair(ops, slot, ptr_type_id);
+        uint32_t compare_value = popValue(ops, slot);
+        uint32_t new_value = popValue(ops, slot);
+        uint32_t value_type_id = 0;
+        if (ptr_type_id < ctx.module.types.size() &&
+            ctx.module.types[ptr_type_id].kind == LLVMType::Pointer &&
+            !ctx.module.types[ptr_type_id].type_refs.empty())
+          value_type_id = ctx.module.types[ptr_type_id].type_refs[0];
+        for (const auto &global : ctx.module.globals) {
+          if (global.value_id == ptr) {
+            value_type_id = global.type_id;
+            break;
+          }
+        }
+        inst.type_id = value_type_id;
+        inst.operands.push_back(ptr);
+        inst.operands.push_back(compare_value);
+        inst.operands.push_back(new_value);
+        fn.blocks[cur_block].instructions.push_back(inst);
+        noteResult();
+      }
+      break;
+    }
     case kFuncCode_InstSelect:
     case kFuncCode_InstVSelect: {
       if (cur_block < fn.blocks.size() && ops.size() >= 4) {
@@ -1781,16 +1852,23 @@ std::optional<LLVMModule> BitcodeReader::parse(const uint8_t *data, uint32_t siz
       gv.value_id = next_function_value_id++;
       if (next_module_value_id < next_function_value_id)
         next_module_value_id = next_function_value_id;
-      if (ops.size() > 1)
-        gv.type_id = (uint32_t)ops[1];
-      if (ops.size() > 2)
-        gv.is_constant = (ops[2] & 1) != 0;
+      size_t record_base = 1;
+      if (use_strtab_names && ops.size() > 4 &&
+          ops[3] < module.types.size())
+        record_base = 3;
+      if (ops.size() > record_base)
+        gv.type_id = (uint32_t)ops[record_base];
+      uint64_t global_flags =
+          ops.size() > record_base + 1 ? ops[record_base + 1] : 0;
+      gv.is_constant = (global_flags & 1) != 0;
       if (gv.type_id < module.types.size() &&
           module.types[gv.type_id].kind == LLVMType::Pointer)
         gv.address_space = module.types[gv.type_id].address_space;
-      if (use_strtab_names && ops.size() > 4) {
+      else if (global_flags & 2)
+        gv.address_space = static_cast<uint32_t>(global_flags >> 2);
+      if (use_strtab_names && record_base == 3 && ops.size() > 2) {
         function_name_refs.push_back(
-            {gv.value_id, (uint32_t)ops[3], (uint32_t)ops[4]});
+            {gv.value_id, (uint32_t)ops[1], (uint32_t)ops[2]});
       }
       module.globals.push_back(gv);
       DXTRACE("DXIL module global: value=%u type=%u addr_space=%u",

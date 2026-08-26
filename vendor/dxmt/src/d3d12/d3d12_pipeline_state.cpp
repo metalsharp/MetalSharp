@@ -141,6 +141,70 @@ bool DXBCContainerHasChunk(const void *bytecode, SIZE_T size,
   return false;
 }
 
+bool DXBCShaderUsesAtomic64(const void *bytecode, SIZE_T size) {
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+    for (const auto &fn : module->functions) {
+      if (fn.name.find("dx.op.atomicBinOp.i64") != std::string::npos ||
+          fn.name.find("dx.op.atomicCompareExchange.i64") !=
+              std::string::npos)
+        return true;
+      for (const auto &block : fn.blocks) {
+        for (const auto &inst : block.instructions) {
+          if (inst.opcode != dxmt::dxil::LLVMInstruction::AtomicRMW &&
+              inst.opcode != dxmt::dxil::LLVMInstruction::CmpXchg)
+            continue;
+          const bool is_i64 =
+              inst.type_id < module->types.size() &&
+              module->types[inst.type_id].kind ==
+                  dxmt::dxil::LLVMType::Integer &&
+              module->types[inst.type_id].bit_width == 64;
+          if (is_i64)
+            return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+bool DXBCShaderUsesDirectResourceHeap(const void *bytecode, SIZE_T size) {
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+    for (const auto &fn : module->functions) {
+      if (fn.name.find("dx.op.createHandleFromHeap") != std::string::npos)
+        return true;
+    }
+  }
+  return false;
+}
+
 bool ExtractPSV0ComputeThreadgroupSize(const void *bytecode, SIZE_T size,
                                        uint32_t out[3]) {
   if (!bytecode || size < 36)
@@ -537,6 +601,9 @@ size_t ComputeShaderCacheHash(const void *bytecode, SIZE_T size,
   if (type == ShaderType::Vertex)
     hash = hash * 131 +
            0x4d3132506833ull; // M12 Phase 3 explicit varying contract.
+  if (type == ShaderType::Compute &&
+      DXBCShaderUsesAtomic64(bytecode, size))
+    hash = hash * 131 + 0x4d313241746f6d36ull;
   if (bytecode && size > 0) {
     const uint8_t *p = (const uint8_t *)bytecode;
     for (SIZE_T i = 0; i < size; i++)
@@ -1657,6 +1724,13 @@ bool MTLD3D12PipelineState::CompileShader(
       bytecode, size, type,
       type == ShaderType::Vertex ? &m_input_layout : nullptr);
   hash = ApplyShaderVariantHash(hash, type);
+  const bool requires_int64_custom =
+      type == ShaderType::Compute && DXBCShaderUsesAtomic64(bytecode, size);
+  if (requires_int64_custom)
+    m_uses_atomic64_emulation = true;
+  if (type == ShaderType::Compute &&
+      DXBCShaderUsesDirectResourceHeap(bytecode, size))
+    m_uses_direct_resource_descriptor_heap = true;
   {
     std::lock_guard<std::mutex> lock(s_shader_mutex);
     PSTRACE("CompileShader: %s hash=0x%zx size=%zu cache_entries=%zu",
@@ -1762,6 +1836,13 @@ bool MTLD3D12PipelineState::CompileShader(
             // cannot preserve the injected depth-bounds comparison. Compile
             // the instrumented MSL once per process instead of accepting an
             // uninstrumented cached function under this derived hash.
+            fclose(mf);
+            mf = nullptr;
+          }
+          if (mf && requires_int64_custom) {
+            // Metal Shader Converter may emit native 64-bit atomics that the
+            // Apple GPU/toolchain does not execute. Keep the custom software
+            // lock lowering authoritative for every int64 compute variant.
             fclose(mf);
             mf = nullptr;
           }

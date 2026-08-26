@@ -196,10 +196,17 @@ The current honest shader feature posture is:
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.
-- Full 64-bit atomics remain unreported. The native Metal probe confirms that
-  MSL 3.1 on the target M4 executes device `atomic_ulong` min/max but rejects
-  device add and threadgroup add. Run the exact compiler/runtime gate with the
-  required beta toolchain:
+- Options9 typed-resource/group-shared and Options11 directly-indexed descriptor-
+  heap 64-bit atomics are reported through software locking. The SM 6.6 corpus
+  proves 64-thread add stress and exact add/and/or/xor/signed-min/signed-max/
+  unsigned-min/unsigned-max/exchange/compare-exchange matrices across raw,
+  typed, group-shared, and `ResourceDescriptorHeap` paths. SIMD-cooperative
+  lane selection prevents lanes in one SIMD group from spinning against each
+  other while a persistent 32-bit Metal lock serializes each 64-bit critical
+  section. The native Metal probe remains the hardware rationale: MSL 3.1 on
+  the target M4 executes device `atomic_ulong` min/max but rejects device add
+  and threadgroup add. Run that exact compiler/runtime gate with the required
+  beta toolchain:
 
 ```bash
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \

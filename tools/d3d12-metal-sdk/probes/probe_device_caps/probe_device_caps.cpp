@@ -217,9 +217,12 @@ int main() {
     bool wave_ops_proven_reported =
         SUCCEEDED(options1_hr) && options1.WaveOps &&
         options1.WaveLaneCountMin == 32 && options1.WaveLaneCountMax == 32;
-    bool atomic64_conservative = (!SUCCEEDED(options9_hr) || (!options9.AtomicInt64OnTypedResourceSupported &&
-                                                              !options9.AtomicInt64OnGroupSharedSupported)) &&
-                                 (!SUCCEEDED(options11_hr) || !options11.AtomicInt64OnDescriptorHeapResourceSupported);
+    bool atomic64_conservative =
+        SUCCEEDED(options9_hr) &&
+        options9.AtomicInt64OnTypedResourceSupported &&
+        options9.AtomicInt64OnGroupSharedSupported &&
+        SUCCEEDED(options11_hr) &&
+        options11.AtomicInt64OnDescriptorHeapResourceSupported;
     bool advanced_conservative =
         (!SUCCEEDED(options5_hr) || options5.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED) &&
         (!SUCCEEDED(options7_hr) || (options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&

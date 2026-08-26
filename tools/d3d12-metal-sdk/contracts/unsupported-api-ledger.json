@@ -10,17 +10,6 @@
       "tier": "unsupported"
     },
     {
-      "api": "D3D12 64-bit atomic capability tiers",
-      "evidence": [
-        "tools/d3d12-metal-sdk/results/probe-sm66-capabilities-atomic64-attempt2.json",
-        "tools/d3d12-metal-sdk/scripts/probe-metal-atomic64.mm",
-        "docs/roadmaps/d3d12-fl12_2-sm67-dxr-completion-roadmap.md"
-      ],
-      "reason": "SM6.6 group-shared atomic-add DXIL compiles but fails PSO creation; typed-resource atomic-add creates and dispatches a PSO but returns zeros instead of four exact 20 values. A native MSL 3.1 audit with the Xcode 27 beta 6 toolchain confirms the hardware/compiler surface exposes device atomic_ulong min/max only: device ulong atomic-max executes exactly, while ulong load/store/add and all threadgroup ulong atomic operations are rejected by the Metal standard-library constraints. Full D3D12 atomic64 behavior therefore requires a proven software sidecar/locking model rather than direct Metal lowering.",
-      "state": "unsupported",
-      "tier": "unsupported"
-    },
-    {
       "api": "D3D12 mesh shader tiers",
       "evidence": [
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",

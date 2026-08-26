@@ -257,6 +257,8 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     D3D12_ROOT_SIGNATURE_DESC desc = {};
     desc.NumParameters = 4;
     desc.pParameters = params;
+    desc.Flags =
+        D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
 
     ID3DBlob* blob = nullptr;
     ID3DBlob* error_blob = nullptr;
@@ -419,10 +421,15 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         const UINT resource_stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = resource_heap->GetCPUDescriptorHandleForHeapStart();
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        uav.Format = DXGI_FORMAT_R32_TYPELESS;
+        const bool typed_atomic64 =
+            std::strncmp(audit_case.name, "atomic64_typed_", 15) == 0 ||
+            std::strncmp(audit_case.name, "atomic64_signed_typed_", 22) == 0;
+        uav.Format = typed_atomic64 ? DXGI_FORMAT_R32G32_UINT
+                                    : DXGI_FORMAT_R32_TYPELESS;
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.NumElements = 32;
-        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        uav.Buffer.NumElements = typed_atomic64 ? 16 : 32;
+        uav.Buffer.Flags = typed_atomic64 ? D3D12_BUFFER_UAV_FLAG_NONE
+                                          : D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
 
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
@@ -516,6 +523,12 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         list->SetComputeRootSignature(root);
         D3D12_GPU_DESCRIPTOR_HANDLE gpu = resource_heap->GetGPUDescriptorHandleForHeapStart();
         list->SetComputeRootDescriptorTable(0, gpu);
+        if (std::strncmp(audit_case.name, "atomic64_", 9) == 0) {
+            const uint32_t zero[4] = {};
+            list->ClearUnorderedAccessViewUint(
+                gpu, resource_heap->GetCPUDescriptorHandleForHeapStart(),
+                output, zero, 0, nullptr);
+        }
         gpu.ptr += resource_stride;
         list->SetComputeRootDescriptorTable(1, gpu);
         list->SetComputeRootDescriptorTable(2, sampler_heap->GetGPUDescriptorHandleForHeapStart());
@@ -547,7 +560,33 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
             result.readback_ok = true;
             result.value_count = std::strcmp(audit_case.name, "int64_arithmetic") == 0
                                      ? 8
-                                     : (std::strcmp(audit_case.name, "quad_vote_sm67") == 0 ? 32 : 4);
+                                     : (std::strcmp(audit_case.name, "quad_vote_sm67") == 0
+                                            ? 32
+                                            : (std::strcmp(audit_case.name,
+                                                           "atomic64_raw_ops") == 0 ||
+                                               std::strcmp(audit_case.name,
+                                                           "atomic64_group_ops") == 0
+                                                   ? 16
+                                            : (std::strcmp(audit_case.name,
+                                                           "atomic64_typed_ops") == 0
+                                                   ? 16
+                                            : (std::strcmp(audit_case.name,
+                                                           "atomic64_descriptor_heap_ops") == 0
+                                                   ? 18
+                                            : (std::strcmp(audit_case.name,
+                                                           "atomic64_raw_add") == 0 ||
+                                               std::strcmp(audit_case.name,
+                                                           "atomic64_group_add") == 0 ||
+                                               std::strcmp(audit_case.name,
+                                                           "atomic64_typed_add") == 0 ||
+                                               std::strcmp(audit_case.name,
+                                                           "atomic64_compare_exchange") == 0 ||
+                                               std::strcmp(audit_case.name,
+                                                           "atomic64_group_compare_exchange") == 0 ||
+                                               std::strcmp(audit_case.name,
+                                                           "atomic64_descriptor_heap_add") == 0
+                                                   ? 2
+                                                   : 4)))));
             for (uint32_t i = 0; i < result.value_count; ++i)
                 result.observed[i] = mapped[i];
             if (std::strcmp(audit_case.name, "root_constants_uav") == 0) {
@@ -563,6 +602,67 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
                 const uint32_t expected[] = {4, 5, 6, 7};
                 std::memcpy(result.expected, expected, sizeof(expected));
                 std::sort(result.observed, result.observed + 4);
+            } else if (std::strcmp(audit_case.name, "atomic64_raw_add") == 0) {
+                const uint32_t expected[] = {2080, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "atomic64_group_add") == 0) {
+                const uint32_t expected[] = {2080, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "atomic64_typed_add") == 0) {
+                const uint32_t expected[] = {2080, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "atomic64_typed_ops") == 0) {
+                const uint32_t expected[] = {
+                    10, 0, 0, 0, 15, 0, 15, 0,
+                    0, 0, 4, 0, 4, 0, 4, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+                if (result.observed[12] >= 1 && result.observed[12] <= 4)
+                    result.expected[12] = result.observed[12];
+                if (result.observed[14] >= 1 && result.observed[14] <= 4)
+                    result.expected[14] = result.observed[14];
+            } else if (std::strcmp(audit_case.name,
+                                   "atomic64_signed_typed_ops") == 0) {
+                const uint32_t expected[] = {
+                    0xfffffffcu, 0xffffffffu, 0, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "atomic64_raw_ops") == 0) {
+                const uint32_t expected[] = {
+                    10, 0, 0, 0, 15, 0, 15, 0,
+                    4, 0, 4, 0, 0xfffffffcu, 0xffffffffu, 0, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+                if (result.observed[10] >= 1 && result.observed[10] <= 4)
+                    result.expected[10] = result.observed[10];
+            } else if (std::strcmp(audit_case.name, "atomic64_group_ops") == 0) {
+                const uint32_t expected[] = {
+                    10, 0, 0, 0, 15, 0, 15, 0,
+                    4, 0, 4, 0, 0xfffffffcu, 0xffffffffu, 0, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+                if (result.observed[10] >= 1 && result.observed[10] <= 4)
+                    result.expected[10] = result.observed[10];
+            } else if (std::strcmp(audit_case.name,
+                                   "atomic64_compare_exchange") == 0) {
+                const uint32_t expected[] = {4, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "atomic64_group_compare_exchange") == 0) {
+                const uint32_t expected[] = {4, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+                if (result.observed[0] >= 1 && result.observed[0] <= 4)
+                    result.expected[0] = result.observed[0];
+            } else if (std::strcmp(audit_case.name,
+                                   "atomic64_descriptor_heap_add") == 0) {
+                const uint32_t expected[] = {2080, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "atomic64_descriptor_heap_ops") == 0) {
+                const uint32_t expected[] = {
+                    10, 0, 0, 0, 15, 0, 15, 0, 4, 0, 4, 0,
+                    0xfffffffcu, 0xffffffffu, 0, 0, 4, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+                if (result.observed[10] >= 1 && result.observed[10] <= 4)
+                    result.expected[10] = result.observed[10];
+                if (result.observed[16] >= 1 && result.observed[16] <= 4)
+                    result.expected[16] = result.observed[16];
             } else if (std::strcmp(audit_case.name, "quad_vote_sm67") == 0) {
                 std::fill(result.expected, result.expected + 32, 3u);
             } else if (std::strcmp(audit_case.name, "raw_gather_sm67") == 0) {
@@ -672,6 +772,8 @@ int main() {
     const char* hlsl_path = "Z:\\tmp\\dxmt_sm66_capabilities.hlsl";
     const char* hlsl = R"(
 RWByteAddressBuffer outbuf : register(u0);
+RWBuffer<uint64_t> typed_outbuf : register(u0);
+RWBuffer<int64_t> signed_typed_outbuf : register(u0);
 ByteAddressBuffer inputs[2] : register(t0);
 Texture2D<float4> tex : register(t2);
 Texture2D<uint> raw_tex : register(t3);
@@ -687,6 +789,162 @@ cbuffer RootConstants : register(b0) {
 };
 
 groupshared uint group_counter;
+groupshared uint64_t group_counter64;
+groupshared uint64_t group_and64;
+groupshared uint64_t group_or64;
+groupshared uint64_t group_xor64;
+groupshared uint64_t group_umax64;
+groupshared uint64_t group_exchange64;
+groupshared int64_t group_min64;
+groupshared int64_t group_max64;
+groupshared uint64_t group_compare64;
+
+[numthreads(64, 1, 1)]
+void cs_atomic64_raw_add(uint3 id : SV_DispatchThreadID) {
+  uint64_t original = 0;
+  outbuf.InterlockedAdd64(0, uint64_t(id.x + 1), original);
+}
+
+[numthreads(4, 1, 1)]
+void cs_atomic64_raw_ops(uint3 id : SV_DispatchThreadID) {
+  uint64_t original = 0;
+  uint64_t value = uint64_t(id.x + 1);
+  outbuf.InterlockedAdd64(0, value, original);
+  outbuf.InterlockedAnd64(8, value, original);
+  outbuf.InterlockedOr64(16, 1ull << id.x, original);
+  outbuf.InterlockedXor64(24, 1ull << id.x, original);
+  outbuf.InterlockedMax64(32, value, original);
+  outbuf.InterlockedExchange64(40, value, original);
+  int64_t signed_original = 0;
+  int64_t signed_value = -int64_t(id.x + 1);
+  outbuf.InterlockedMin64(48, signed_value, signed_original);
+  outbuf.InterlockedMax64(56, signed_value, signed_original);
+}
+
+[numthreads(4, 1, 1)]
+void cs_atomic64_compare_exchange(uint3 id : SV_DispatchThreadID) {
+  uint64_t original = 0;
+  outbuf.InterlockedCompareExchange64(
+      0, uint64_t(id.x), uint64_t(id.x + 1), original);
+}
+
+[numthreads(64, 1, 1)]
+void cs_atomic64_descriptor_heap_add(uint3 id : SV_DispatchThreadID) {
+  RWByteAddressBuffer heap_out = ResourceDescriptorHeap[0];
+  uint64_t original = 0;
+  heap_out.InterlockedAdd64(0, uint64_t(id.x + 1), original);
+}
+
+[numthreads(4, 1, 1)]
+void cs_atomic64_descriptor_heap_ops(uint3 id : SV_DispatchThreadID) {
+  RWByteAddressBuffer heap_out = ResourceDescriptorHeap[0];
+  uint64_t original = 0;
+  uint64_t value = uint64_t(id.x + 1);
+  heap_out.InterlockedAdd64(0, value, original);
+  heap_out.InterlockedAnd64(8, value, original);
+  heap_out.InterlockedOr64(16, 1ull << id.x, original);
+  heap_out.InterlockedXor64(24, 1ull << id.x, original);
+  heap_out.InterlockedMax64(32, value, original);
+  heap_out.InterlockedExchange64(40, value, original);
+  int64_t signed_original = 0;
+  int64_t signed_value = -int64_t(id.x + 1);
+  heap_out.InterlockedMin64(48, signed_value, signed_original);
+  heap_out.InterlockedMax64(56, signed_value, signed_original);
+  heap_out.InterlockedCompareExchange64(
+      64, uint64_t(id.x), value, original);
+}
+
+[numthreads(64, 1, 1)]
+void cs_atomic64_typed_add(uint3 id : SV_DispatchThreadID) {
+  uint64_t original = 0;
+  InterlockedAdd(typed_outbuf[0], uint64_t(id.x + 1), original);
+}
+
+[numthreads(4, 1, 1)]
+void cs_atomic64_typed_ops(uint3 id : SV_DispatchThreadID) {
+  uint64_t original = 0;
+  uint64_t value = uint64_t(id.x + 1);
+  InterlockedAdd(typed_outbuf[0], value, original);
+  InterlockedAnd(typed_outbuf[1], value, original);
+  InterlockedOr(typed_outbuf[2], 1ull << id.x, original);
+  InterlockedXor(typed_outbuf[3], 1ull << id.x, original);
+  InterlockedMin(typed_outbuf[4], value, original);
+  InterlockedMax(typed_outbuf[5], value, original);
+  InterlockedExchange(typed_outbuf[6], value, original);
+  InterlockedCompareExchange(typed_outbuf[7], uint64_t(id.x),
+                             value, original);
+}
+
+[numthreads(4, 1, 1)]
+void cs_atomic64_signed_typed_ops(uint3 id : SV_DispatchThreadID) {
+  int64_t original = 0;
+  int64_t value = -int64_t(id.x + 1);
+  InterlockedMin(signed_typed_outbuf[0], value, original);
+  InterlockedMax(signed_typed_outbuf[1], value, original);
+}
+
+[numthreads(64, 1, 1)]
+void cs_atomic64_group_add(uint group_index : SV_GroupIndex) {
+  if (group_index == 0)
+    group_counter64 = 0;
+  GroupMemoryBarrierWithGroupSync();
+  uint64_t original = 0;
+  InterlockedAdd(group_counter64, uint64_t(group_index + 1), original);
+  GroupMemoryBarrierWithGroupSync();
+  if (group_index == 0)
+    outbuf.Store<uint64_t>(0, group_counter64);
+}
+
+[numthreads(4, 1, 1)]
+void cs_atomic64_group_ops(uint group_index : SV_GroupIndex) {
+  if (group_index == 0) {
+    group_counter64 = 0;
+    group_and64 = 0;
+    group_or64 = 0;
+    group_xor64 = 0;
+    group_umax64 = 0;
+    group_exchange64 = 0;
+    group_min64 = 0;
+    group_max64 = 0;
+  }
+  GroupMemoryBarrierWithGroupSync();
+  uint64_t original = 0;
+  uint64_t value = uint64_t(group_index + 1);
+  InterlockedAdd(group_counter64, value, original);
+  InterlockedAnd(group_and64, value, original);
+  InterlockedOr(group_or64, 1ull << group_index, original);
+  InterlockedXor(group_xor64, 1ull << group_index, original);
+  InterlockedMax(group_umax64, value, original);
+  InterlockedExchange(group_exchange64, value, original);
+  int64_t signed_original = 0;
+  int64_t signed_value = -int64_t(group_index + 1);
+  InterlockedMin(group_min64, signed_value, signed_original);
+  InterlockedMax(group_max64, signed_value, signed_original);
+  GroupMemoryBarrierWithGroupSync();
+  if (group_index == 0) {
+    outbuf.Store<uint64_t>(0, group_counter64);
+    outbuf.Store<uint64_t>(8, group_and64);
+    outbuf.Store<uint64_t>(16, group_or64);
+    outbuf.Store<uint64_t>(24, group_xor64);
+    outbuf.Store<uint64_t>(32, group_umax64);
+    outbuf.Store<uint64_t>(40, group_exchange64);
+    outbuf.Store<int64_t>(48, group_min64);
+    outbuf.Store<int64_t>(56, group_max64);
+  }
+}
+
+[numthreads(4, 1, 1)]
+void cs_atomic64_group_compare_exchange(uint group_index : SV_GroupIndex) {
+  if (group_index == 0)
+    group_compare64 = 0;
+  GroupMemoryBarrierWithGroupSync();
+  uint64_t original = 0;
+  InterlockedCompareExchange(group_compare64, uint64_t(group_index),
+                             uint64_t(group_index + 1), original);
+  GroupMemoryBarrierWithGroupSync();
+  if (group_index == 0)
+    outbuf.Store<uint64_t>(0, group_compare64);
+}
 
 [numthreads(4, 1, 1)]
 void cs_root_constants(uint3 id : SV_DispatchThreadID) {
@@ -797,6 +1055,17 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"descriptor_indexing", "cs_descriptor_indexing", "cs_6_6", "descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
+        {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
+        {"atomic64_raw_ops", "cs_atomic64_raw_ops", "cs_6_6", "atomic64_software_lock_operation_matrix", true},
+        {"atomic64_compare_exchange", "cs_atomic64_compare_exchange", "cs_6_6", "atomic64_compare_exchange_software_lock", true},
+        {"atomic64_descriptor_heap_add", "cs_atomic64_descriptor_heap_add", "cs_6_6", "atomic64_resource_descriptor_heap", true},
+        {"atomic64_descriptor_heap_ops", "cs_atomic64_descriptor_heap_ops", "cs_6_6", "atomic64_resource_descriptor_heap_operation_matrix", true},
+        {"atomic64_typed_add", "cs_atomic64_typed_add", "cs_6_6", "atomic64_typed_resource_software_lock", true},
+        {"atomic64_typed_ops", "cs_atomic64_typed_ops", "cs_6_6", "atomic64_typed_resource_operation_matrix", true},
+        {"atomic64_signed_typed_ops", "cs_atomic64_signed_typed_ops", "cs_6_6", "atomic64_signed_typed_resource_operations", true},
+        {"atomic64_group_add", "cs_atomic64_group_add", "cs_6_6", "atomic64_group_shared_software_lock", true},
+        {"atomic64_group_ops", "cs_atomic64_group_ops", "cs_6_6", "atomic64_group_shared_operation_matrix", true},
+        {"atomic64_group_compare_exchange", "cs_atomic64_group_compare_exchange", "cs_6_6", "atomic64_group_shared_compare_exchange", true},
         {"texture_sampler", "cs_texture_sampler", "cs_6_6", "samplers_texture_paths", true},
         {"programmable_offset_sm67", "cs_programmable_offset_sm67", "cs_6_7", "sm67_programmable_texture_offsets", true},
         {"raw_gather_sm67", "cs_raw_gather_sm67", "cs_6_7", "sm67_raw_gather", true},
@@ -822,9 +1091,32 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
                            result.mismatch_count == 0;
     }
 
-    bool atomic64_conservative = (!SUCCEEDED(options9_hr) || (!options9.AtomicInt64OnTypedResourceSupported &&
-                                                              !options9.AtomicInt64OnGroupSharedSupported)) &&
-                                 (!SUCCEEDED(options11_hr) || !options11.AtomicInt64OnDescriptorHeapResourceSupported);
+    auto atomic_case_passed = [&](const char* name) {
+        for (const auto& result : results) {
+            if (result.name == name)
+                return result.compile_ok && result.pso_created &&
+                       result.runtime_executed && result.readback_ok &&
+                       result.mismatch_count == 0;
+        }
+        return false;
+    };
+    bool atomic64_conservative =
+        SUCCEEDED(options9_hr) &&
+        options9.AtomicInt64OnTypedResourceSupported &&
+        options9.AtomicInt64OnGroupSharedSupported &&
+        atomic_case_passed("atomic64_raw_add") &&
+        atomic_case_passed("atomic64_raw_ops") &&
+        atomic_case_passed("atomic64_compare_exchange") &&
+        atomic_case_passed("atomic64_typed_add") &&
+        atomic_case_passed("atomic64_typed_ops") &&
+        atomic_case_passed("atomic64_signed_typed_ops") &&
+        atomic_case_passed("atomic64_group_add") &&
+        atomic_case_passed("atomic64_group_ops") &&
+        atomic_case_passed("atomic64_group_compare_exchange") &&
+        SUCCEEDED(options11_hr) &&
+        options11.AtomicInt64OnDescriptorHeapResourceSupported &&
+        atomic_case_passed("atomic64_descriptor_heap_add") &&
+        atomic_case_passed("atomic64_descriptor_heap_ops");
     bool sm66_reportable = entrypoints_ok && atomic64_conservative;
     bool sm67_reportable = entrypoints_ok && atomic64_conservative;
     for (const auto& result : results) {
