@@ -6014,6 +6014,36 @@ static bool PatchLocalRootDescriptorTables(
 
   auto *root_signature =
       static_cast<MTLD3D12RootSignature *>(local_root_signature);
+  const auto &static_samplers = root_signature->GetStaticSamplers();
+  if (!static_samplers.empty()) {
+    std::vector<D3D12DescriptorTableEntry> sampler_entries(
+        static_samplers.size());
+    for (size_t i = 0; i < static_samplers.size(); i++) {
+      const auto &sampler = static_samplers[i];
+      if (!sampler.sampler.handle || !sampler.sampler_gpu_id)
+        return false;
+      sampler_entries[i].gpu_va = sampler.sampler_gpu_id;
+      sampler_entries[i].metadata = sampler.lod_bias_bits;
+      st.RetainSamplerPairForCompletion(sampler.sampler,
+                                        sampler.sampler_cube);
+    }
+    uint64_t sampler_table_gpu = 0;
+    auto sampler_table = st.MakeTransientBuffer(
+        device,
+        std::max<uint64_t>(256, sampler_entries.size() *
+                                    sizeof(D3D12DescriptorTableEntry)),
+        &sampler_table_gpu);
+    if (!sampler_table.handle || !sampler_table_gpu)
+      return false;
+    sampler_table.updateContents(
+        0, sampler_entries.data(),
+        sampler_entries.size() * sizeof(D3D12DescriptorTableEntry));
+    memcpy(record + 16, &sampler_table_gpu, sizeof(sampler_table_gpu));
+    if (std::find(descriptor_mirror_resources.begin(),
+                  descriptor_mirror_resources.end(), sampler_table.handle) ==
+        descriptor_mirror_resources.end())
+      descriptor_mirror_resources.push_back(sampler_table.handle);
+  }
   uint64_t local_offset = 0;
   for (const auto &parameter : root_signature->GetParameters()) {
     if (parameter.type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS) {
@@ -6168,19 +6198,23 @@ static bool PrepareRayShaderTable(
     bool all_zero_identifier = true;
     for (uint32_t i = 0; i < 32; i++)
       all_zero_identifier &= data[offset + i] == 0;
+    uint8_t original_identifier[32] = {};
     if (!all_zero_identifier) {
+      std::memcpy(original_identifier, data.data() + offset,
+                  sizeof(original_identifier));
       if (!PatchLocalRootDescriptorTables(
-              st, device, data.data() + offset, record_size, data.data() + offset,
-              descriptor_mirror_resources))
+              st, device, data.data() + offset, record_size,
+              original_identifier, descriptor_mirror_resources))
         return false;
       auto *local_root = static_cast<ID3D12RootSignature *>(nullptr);
       if (GetD3D12StateObjectShaderRecordLocalRootSignature(
-              st.raytracing_state, data.data() + offset, &local_root) &&
+              st.raytracing_state, original_identifier, &local_root) &&
           local_root) {
         auto *root = static_cast<MTLD3D12RootSignature *>(local_root);
         for (const auto &parameter : root->GetParameters())
           record_has_local_table |=
               parameter.type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        record_has_local_table |= !root->GetStaticSamplers().empty();
       }
     }
     local_table_seen |= record_has_local_table;

@@ -1407,7 +1407,7 @@ JSON
   "RootSignature": {
     "Flags": "IRRootSignatureFlagLocalRootSignature",
     "NumParameters": 4,
-    "NumStaticSamplers": 0,
+    "NumStaticSamplers": 1,
     "Parameters": [{
       "Constants": {
         "Num32BitValues": 1,
@@ -1480,7 +1480,21 @@ JSON
       "ParameterType": "IRRootParameterTypeDescriptorTable",
       "ShaderVisibility": "IRShaderVisibilityAll"
     }],
-    "StaticSamplers": []
+    "StaticSamplers": [{
+      "AddressU": "IRTextureAddressModeClamp",
+      "AddressV": "IRTextureAddressModeClamp",
+      "AddressW": "IRTextureAddressModeClamp",
+      "BorderColor": "IRStaticBorderColorOpaqueBlack",
+      "ComparisonFunc": "IRComparisonFunctionAlways",
+      "Filter": "IRFilterMinMagMipPoint",
+      "MaxAnisotropy": 1,
+      "MaxLOD": 3.4028234663852886e+38,
+      "MinLOD": 0,
+      "MipLODBias": 0,
+      "RegisterSpace": 0,
+      "ShaderRegister": 1,
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }]
   },
   "version": "IRRootSignatureVersion_1_1"
 }
@@ -1499,6 +1513,7 @@ cbuffer ClosestHitLocalCBV : register(b2) {
 };
 Texture2D<float4> closest_hit_local_texture : register(t2);
 SamplerState closest_hit_local_sampler : register(s0);
+SamplerState closest_hit_local_static_sampler : register(s1);
 
 struct MissPayload {
   uint value;
@@ -1559,7 +1574,10 @@ void closest_hit(inout MissPayload payload,
                           closest_hit_local_cbv_marker == 0x43425631 &&
                           closest_hit_local_texture.SampleLevel(
                               closest_hit_local_sampler, float2(0.5, 0.5), 0).r >
-                              0.9
+                              0.9 &&
+                          closest_hit_local_texture.SampleLevel(
+                              closest_hit_local_static_sampler,
+                              float2(0.5, 0.5), 0).r > 0.9
                       ? 0x52454332
                       : 0x48495431;
 }

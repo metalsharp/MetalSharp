@@ -297,7 +297,7 @@ def unsupported_ledger() -> dict[str, Any]:
                 "api": "D3D12 ray tracing tiers",
                 "state": "limited_to_proven_probe",
                 "tier": "stubbed-safe",
-                "reason": "Foundational DXR acceleration structures, ray queries, state objects, shader tables, local SRV/UAV/CBV/sampler descriptor-table mirrors, and DispatchRays execution are proven on the M4, while mixed primitive BLAS, cross-process reconstruction, static local samplers, new-library growth, and broader shader-table matrices remain gated.",
+                "reason": "Foundational DXR acceleration structures, ray queries, state objects, shader tables, local SRV/UAV/CBV/sampler descriptor-table mirrors, static local sampler records, shader stack-size queries, and DispatchRays execution are proven on the M4, while mixed primitive BLAS, cross-process reconstruction, new-library growth, and broader shader-table matrices remain gated.",
                 "evidence": ["tools/d3d12-metal-sdk/contracts/feature-support-contract.json"],
             },
             {
@@ -345,7 +345,7 @@ def unsupported_ledger() -> dict[str, Any]:
                 "api": "D3D12 state objects",
                 "state": "limited_to_proven_probe",
                 "tier": "stubbed-safe",
-                "reason": "State-object creation, collection filtering/merging, identifiers, local SRV/UAV/CBV/sampler descriptor-table mirrors, and DispatchRays are proven in the focused DXR probe; static local samplers, new-library growth, and broader state-object matrices remain gated.",
+                "reason": "State-object creation, collection filtering/merging, identifiers, local SRV/UAV/CBV/sampler descriptor-table mirrors and static local sampler records and shader stack-size behavior are proven in the focused DXR probe; new-library growth and broader state-object matrices remain gated.",
                 "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_device_caps"],
             },
             {
