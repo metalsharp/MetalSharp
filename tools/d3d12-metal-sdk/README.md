@@ -336,7 +336,8 @@ adapter enumeration, GPU-preference enumeration, LUID lookup, and output
 enumeration. It also validates `IDXGIAdapter3` memory-budget reporting,
 duplicate-handle event registration/unregistration, initially unsignaled event
 state, and safe `DXGI_ERROR_UNSUPPORTED` content-protection notification
-rejection. The swapchain probe validates create, buffer retrieval, render to
+rejection, plus `IDXGIFactory7` adapter-change event ownership, initial state,
+unregistration, and unknown-cookie rejection. The swapchain probe validates create, buffer retrieval, render to
 backbuffer, present, readback, resize, fullscreen-windowed state, color-space
 reporting, frame-latency waitable object behavior, and shared device/resource
 ownership:

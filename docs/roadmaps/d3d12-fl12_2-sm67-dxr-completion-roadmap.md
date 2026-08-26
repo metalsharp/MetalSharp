@@ -340,7 +340,11 @@ Findings:
   budget queries signal registered events only after an observed budget change;
   the focused probe validates registration, initial unsignaled state, query,
   unregister, and rejection behavior.
-- Adapter-changed event registration is a risky stub.
+- Adapter-changed event registration now duplicates and owns caller handles,
+  returns a nonzero cookie, remains unsignaled while the static Metal device
+  list is unchanged, releases the handle on unregister, and rejects unknown
+  cookies with `DXGI_ERROR_INVALID_CALL`; the focused factory probe covers the
+  complete lifecycle.
 - DXGI resource subresource surfaces are stubbed.
 - D3D12 DXGI surface creation is `E_NOTIMPL`.
 - `EnqueueSetEvent` fails.

@@ -30,7 +30,8 @@
       "required_behavior": [
         "QueryInterface succeeds for IDXGIFactory through IDXGIFactory7",
         "EnumAdapterByGpuPreference returns the Metal-backed adapter",
-        "RegisterAdaptersChangedEvent behavior is explicit and probe-covered"
+        "RegisterAdaptersChangedEvent duplicates and owns the caller event until successful unregister",
+        "adapter-change events remain unsignaled while the static Metal device list is unchanged and unknown cookies are rejected"
       ],
       "state": "stub_risky"
     },

@@ -8,6 +8,8 @@
 #include "util_string.hpp"
 #include "wsi_window.hpp"
 #include "Metal.hpp"
+#include <mutex>
+#include <unordered_map>
 
 #define DGTRACE(fmt, ...) DXMTDXGITrace("DXGI", fmt, ##__VA_ARGS__)
 
@@ -30,6 +32,13 @@ class MTLDXGIFactory : public MTLDXGIObject<IDXGIFactory7> {
 
 public:
   MTLDXGIFactory(UINT Flags) : flags_(Flags) {};
+  ~MTLDXGIFactory() {
+    std::lock_guard lock(adapter_event_mutex_);
+    for (const auto &[cookie, event] : adapter_events_) {
+      (void)cookie;
+      CloseHandle(event);
+    }
+  }
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid,
                                            void **ppvObject) final {
@@ -409,13 +418,31 @@ public:
   RegisterAdaptersChangedEvent(HANDLE event, DWORD *cookie) override {
     if (cookie)
       *cookie = 0;
-    WARN("DXGIFactory7::RegisterAdaptersChangedEvent: stub");
-    return E_NOTIMPL;
+    if (!event || !cookie)
+      return DXGI_ERROR_INVALID_CALL;
+    HANDLE duplicate = nullptr;
+    if (!DuplicateHandle(GetCurrentProcess(), event, GetCurrentProcess(),
+                         &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+      return HRESULT_FROM_WIN32(GetLastError());
+    std::lock_guard lock(adapter_event_mutex_);
+    DWORD value = next_adapter_event_cookie_++;
+    while (!value || adapter_events_.contains(value))
+      value = next_adapter_event_cookie_++;
+    adapter_events_.emplace(value, duplicate);
+    *cookie = value;
+    DGTRACE("RegisterAdaptersChangedEvent event=%p cookie=%u", event, value);
+    return S_OK;
   }
 
   HRESULT STDMETHODCALLTYPE
   UnregisterAdaptersChangedEvent(DWORD cookie) override {
-    WARN("DXGIFactory7::UnregisterAdaptersChangedEvent: stub");
+    std::lock_guard lock(adapter_event_mutex_);
+    auto entry = adapter_events_.find(cookie);
+    if (entry == adapter_events_.end())
+      return DXGI_ERROR_INVALID_CALL;
+    CloseHandle(entry->second);
+    adapter_events_.erase(entry);
+    DGTRACE("UnregisterAdaptersChangedEvent cookie=%u", cookie);
     return S_OK;
   }
 
@@ -425,6 +452,9 @@ private:
   HWND associated_window_ = nullptr;
   UINT window_assoc_flags_ = 0;
   DWORD next_status_cookie_ = 1;
+  std::mutex adapter_event_mutex_;
+  std::unordered_map<DWORD, HANDLE> adapter_events_;
+  DWORD next_adapter_event_cookie_ = 1;
 };
 
 extern "C" HRESULT __stdcall CreateDXGIFactory2(UINT Flags, REFIID riid,
