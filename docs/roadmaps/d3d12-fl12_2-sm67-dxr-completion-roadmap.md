@@ -453,8 +453,11 @@ Findings:
   any-hit, closest-hit, procedural-intersection, and callable linkage corpus.
 - D3D12 shader tables are decoded directly during dedicated ray-dispatch replay;
   broader record and local-binding matrices remain gated.
-- No D3D12-facing sparse-resource mapping API is bridged despite Metal 4
-  placement sparse resources being available on the proof host.
+- D3D12 sparse/reserved mapping is now bridged through native Metal sparse
+  heaps, resource-state encoders, and two-tile `CopyTiles` replay for the
+  proven 2D RGBA8 path. Metal 4 placement-sparse heap-page aliasing is not yet
+  connected, so external heap page selection and `CopyTileMappings` remain
+  gated.
 - VRS/rasterization-rate map APIs are not exposed through the current bridge.
 - Winemetal ABI validation currently catches stale PE bridge copies; the
   initial runtime preflight found an outdated prefix `system32/winemetal.dll`.
@@ -568,7 +571,9 @@ Deliverables:
   cross-process Metal sharing is not available.
 - Implement sparse/reserved buffers and textures using Metal sparse/placement
   sparse APIs.
-- Implement update/copy tile mappings and `GetResourceTiling`.
+- Implement update/copy tile mappings and `GetResourceTiling`; the focused
+  native 2D RGBA8 mapping/unmapping and two-tile `CopyTiles` path is now
+  proven, while external heap page selection and `CopyTileMappings` remain.
 - Implement residency accounting and notification behavior.
 - Implement sampler feedback resources/UAVs and resolve behavior.
 - Prove all format support bits against executable operations.
@@ -576,7 +581,9 @@ Deliverables:
 Hard gate:
 
 - Resource/view/format matrix has no unexplained skip.
-- Sparse mapping probe writes, remaps, unmaps, and reads expected tile data.
+- Sparse mapping probe writes, remaps, unmaps, and reads expected tile data;
+  the current proof covers two standard 64 KiB tiles in a 256x128 RGBA8
+  reserved texture.
 - Reserved resources are never silently substituted by committed resources.
 - Shared-handle and residency probes pass or return a documented API-accurate
   platform result without false success.
