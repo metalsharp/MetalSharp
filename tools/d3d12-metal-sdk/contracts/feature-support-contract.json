@@ -65,11 +65,11 @@
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "two_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_traversal_three_instance_tlas_collection_pipeline_grown_hit_group_alias_local_root_constant_cbv_srv_uav_renamed_indexed_miss_callable_records_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
+      "probe_status": "twelve_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_serialize_copy_deserialize_traversal_twelve_instance_tlas_collection_pipeline_grown_hit_group_alias_local_root_constant_cbv_srv_uav_renamed_indexed_miss_callable_records_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
       "reported": "partial",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
-        "two-geometry indexed/non-indexed triangle and procedural AABB BLAS BuildRaytracingAccelerationStructure",
+        "twelve-geometry indexed/non-indexed triangle and procedural AABB BLAS BuildRaytracingAccelerationStructure",
         "ARRAY and ARRAY_OF_POINTERS BLAS descriptor layouts",
         "TLAS BuildRaytracingAccelerationStructure",
         "CURRENT_SIZE postbuild info",
@@ -78,6 +78,11 @@
         "in-place AABB PERFORM_UPDATE refit from translated to centered geometry",
         "in-place TLAS PERFORM_UPDATE refit from translated to centered instance",
         "COMPACTED_SIZE postbuild query and traversed COPY_MODE_COMPACT output",
+        "inline SERIALIZATION postbuild info for BLAS and twelve-instance TLAS",
+        "process-scoped compatible, incompatible-version, unrecognized, and unsupported driver identifier results",
+        "standards-layout serialized BLAS/TLAS headers and exact TLAS bottom-level pointer list",
+        "COPY_MODE_SERIALIZE, opaque buffer copy, COPY_MODE_DESERIALIZE, and traversal through deserialized BLAS and TLAS",
+        "deserialized TLAS traversal after all source D3D12 acceleration-structure resources are released",
         "inline RayQuery triangle hit",
         "raygen/miss state-object exports with stable distinct shader identifiers",
         "raygen, miss, triangle any-hit/closest-hit, procedural intersection/closest-hit, and callable shader-table records",
@@ -90,7 +95,7 @@
         "renamed miss/callable exports with stable distinct identifiers",
         "indexed execution from two-record 64-byte-stride miss and callable shader tables with local constants"
       ],
-      "risk": "A two-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, a three-instance TLAS, mask-isolated inline RayQuery hit, stable distinct export identifiers, executed base/grown hit-group records with associated local-root constant/CBV/SRV/UAV data, renamed and indexed miss/callable table records, raygen/triangle-any-hit/closest-hit/procedural-intersection records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB BLAS geometry, larger geometry/instance arrays, serialization/deserialization, collection export filtering/merging, new-library state-object growth, local descriptor tables/samplers, and broader record-count/stride/local-data shader-table matrices remain gated.",
+      "risk": "A twelve-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, process-scoped BLAS/TLAS serialization and deserialization through a copied opaque blob, a twelve-instance TLAS with exact serialized pointer list, source-resource release before deserialized-TLAS traversal, mask-isolated inline RayQuery hit, stable distinct export identifiers, executed base/grown hit-group records with associated local-root constant/CBV/SRV/UAV data, renamed and indexed miss/callable table records, raygen/triangle-any-hit/closest-hit/procedural-intersection records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB geometry within one BLAS, persistent cross-process serialized reconstruction, collection export filtering/merging, new-library state-object growth, local descriptor tables/samplers, and broader record-count/stride/local-data shader-table matrices remain gated.",
       "state": "required",
       "tier": "required"
     },

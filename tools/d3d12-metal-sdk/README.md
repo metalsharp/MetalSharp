@@ -111,9 +111,13 @@ readback while keeping MeshShaderTier
 conservative. `dxr_acceleration_structures` proves a
 one-indexed-triangle and one-procedural-AABB Metal BLAS, a cloned triangle BLAS used
 then refit from an x=10 translation, queried for its compacted size, compacted,
-and traversed through a three-instance TLAS refit from an x=10 instance
-translation alongside a two-geometry
-indexed/non-indexed triangle BLAS and a procedural AABB BLAS refit from an x=10 geometry translation. Current-size
+serialized through a process-scoped compatible-driver header, copied as an
+opaque buffer, deserialized, and traversed through a twelve-instance TLAS refit
+from an x=10 instance translation alongside a twelve-geometry
+indexed/non-indexed triangle BLAS and a procedural AABB BLAS refit from an x=10 geometry translation. The TLAS itself is serialized with its exact twelve-entry
+BLAS pointer list, deserialized with a rebuilt Metal dispatch header, and used
+for traversal after every source D3D12 acceleration-structure resource has
+been released. Current-size
 postbuild readbacks and a mask-isolated inline `RayQuery` triangle hit, stable
 export identifiers, an executable pipeline inherited through
 `EXISTING_COLLECTION`, and an `AddToStateObject` hit-group alias with inherited

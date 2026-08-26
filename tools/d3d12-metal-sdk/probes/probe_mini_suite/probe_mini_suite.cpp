@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -2265,10 +2266,15 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* acceleration_structure = nullptr;
     ID3D12Resource* cloned_acceleration_structure = nullptr;
     ID3D12Resource* compacted_acceleration_structure = nullptr;
+    ID3D12Resource* deserialized_acceleration_structure = nullptr;
     ID3D12Resource* scratch = nullptr;
     ID3D12Resource* postbuild = nullptr;
     ID3D12Resource* clone_postbuild = nullptr;
     ID3D12Resource* compacted_size_postbuild = nullptr;
+    ID3D12Resource* serialization_postbuild = nullptr;
+    ID3D12Resource* serialization_buffer = nullptr;
+    ID3D12Resource* serialization_copy = nullptr;
+    ID3D12Resource* serialization_readback = nullptr;
     ID3D12Resource* multi_geometry_acceleration_structure = nullptr;
     ID3D12Resource* multi_geometry_scratch = nullptr;
     ID3D12Resource* multi_geometry_postbuild = nullptr;
@@ -2280,8 +2286,12 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* instances = nullptr;
     ID3D12Resource* initial_instances = nullptr;
     ID3D12Resource* top_level_acceleration_structure = nullptr;
+    ID3D12Resource* deserialized_top_level_acceleration_structure = nullptr;
     ID3D12Resource* top_level_scratch = nullptr;
     ID3D12Resource* top_level_postbuild = nullptr;
+    ID3D12Resource* top_level_serialization_postbuild = nullptr;
+    ID3D12Resource* top_level_serialization_buffer = nullptr;
+    ID3D12Resource* top_level_serialization_readback = nullptr;
     ID3D12Resource* ray_query_output = nullptr;
     ID3D12Resource* ray_query_readback = nullptr;
     ID3D12Resource* raygen_shader_table = nullptr;
@@ -2289,6 +2299,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* closest_hit_local_cbv = nullptr;
     ID3D12Resource* closest_hit_local_uav = nullptr;
     ID3D12Resource* closest_hit_local_uav_readback = nullptr;
+    bool source_acceleration_structures_released_before_traversal = false;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
     if (SUCCEEDED(hr))
         hr = device->QueryInterface(IID_PPV_ARGS(&device7));
@@ -2810,6 +2821,53 @@ static ProbeResult probe_dxr_acceleration_structures() {
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&compacted_size_postbuild));
     }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC buffer = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&serialization_postbuild));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC buffer = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&serialization_buffer));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC buffer = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&serialization_copy));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC buffer = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&serialization_readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC as_desc =
+            buffer_desc(prebuild.ResultDataMaxSizeInBytes);
+        as_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &as_desc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(&deserialized_acceleration_structure));
+    }
 
     const D3D12_RAYTRACING_AABB aabb = {
         -0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 1.0f};
@@ -2900,24 +2958,30 @@ static ProbeResult probe_dxr_acceleration_structures() {
             IID_PPV_ARGS(&aabb_postbuild));
     }
 
-    D3D12_RAYTRACING_GEOMETRY_DESC multi_geometry[2] = {geometry, geometry};
-    multi_geometry[0].Triangles.VertexBuffer.StartAddress =
-        updated_vertices ? updated_vertices->GetGPUVirtualAddress() : 0;
-    multi_geometry[1].Triangles.VertexBuffer.StartAddress =
-        updated_vertices ? updated_vertices->GetGPUVirtualAddress() : 0;
-    multi_geometry[1].Triangles.IndexBuffer = 0;
-    multi_geometry[1].Triangles.IndexCount = 0;
-    multi_geometry[1].Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
-    const D3D12_RAYTRACING_GEOMETRY_DESC* multi_geometry_ptrs[2] = {
-        &multi_geometry[0], &multi_geometry[1]};
+    constexpr UINT multi_geometry_count = 12;
+    std::array<D3D12_RAYTRACING_GEOMETRY_DESC, multi_geometry_count>
+        multi_geometry = {};
+    std::array<const D3D12_RAYTRACING_GEOMETRY_DESC*, multi_geometry_count>
+        multi_geometry_ptrs = {};
+    for (UINT i = 0; i < multi_geometry_count; i++) {
+        multi_geometry[i] = geometry;
+        multi_geometry[i].Triangles.VertexBuffer.StartAddress =
+            updated_vertices ? updated_vertices->GetGPUVirtualAddress() : 0;
+        if (i & 1) {
+            multi_geometry[i].Triangles.IndexBuffer = 0;
+            multi_geometry[i].Triangles.IndexCount = 0;
+            multi_geometry[i].Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
+        }
+        multi_geometry_ptrs[i] = &multi_geometry[i];
+    }
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS multi_inputs = {};
     multi_inputs.Type =
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
     multi_inputs.Flags =
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-    multi_inputs.NumDescs = 2;
+    multi_inputs.NumDescs = multi_geometry_count;
     multi_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS;
-    multi_inputs.ppGeometryDescs = multi_geometry_ptrs;
+    multi_inputs.ppGeometryDescs = multi_geometry_ptrs.data();
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO multi_prebuild = {};
     if (SUCCEEDED(hr)) {
         device5->GetRaytracingAccelerationStructurePrebuildInfo(
@@ -2955,7 +3019,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
             IID_PPV_ARGS(&multi_geometry_postbuild));
     }
 
-    D3D12_RAYTRACING_INSTANCE_DESC instance[3] = {};
+    constexpr UINT top_level_instance_count = 12;
+    std::array<D3D12_RAYTRACING_INSTANCE_DESC, top_level_instance_count>
+        instance = {};
     instance[0].Transform[0][0] = 1.0f;
     instance[0].Transform[1][1] = 1.0f;
     instance[0].Transform[2][2] = 1.0f;
@@ -2963,8 +3029,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     instance[0].InstanceMask = 0x02;
     instance[0].Flags =
         D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
-    instance[0].AccelerationStructure = compacted_acceleration_structure
-        ? compacted_acceleration_structure->GetGPUVirtualAddress()
+    instance[0].AccelerationStructure = deserialized_acceleration_structure
+        ? deserialized_acceleration_structure->GetGPUVirtualAddress()
         : 0;
     instance[1].Transform[0][0] = 1.0f;
     instance[1].Transform[1][1] = 1.0f;
@@ -2986,8 +3052,22 @@ static ProbeResult probe_dxr_acceleration_structures() {
     instance[2].AccelerationStructure = multi_geometry_acceleration_structure
         ? multi_geometry_acceleration_structure->GetGPUVirtualAddress()
         : 0;
-    D3D12_RAYTRACING_INSTANCE_DESC initial_instance[3] = {};
-    std::memcpy(initial_instance, instance, sizeof(instance));
+    for (UINT i = 3; i < top_level_instance_count; i++) {
+        instance[i].Transform[0][0] = 1.0f;
+        instance[i].Transform[1][1] = 1.0f;
+        instance[i].Transform[2][2] = 1.0f;
+        instance[i].Transform[0][3] = 100.0f + static_cast<float>(i);
+        instance[i].InstanceID = i + 7;
+        instance[i].InstanceMask = 0;
+        instance[i].AccelerationStructure =
+            multi_geometry_acceleration_structure
+                ? multi_geometry_acceleration_structure->
+                      GetGPUVirtualAddress()
+                : 0;
+    }
+    std::array<D3D12_RAYTRACING_INSTANCE_DESC, top_level_instance_count>
+        initial_instance = {};
+    std::memcpy(initial_instance.data(), instance.data(), sizeof(instance));
     initial_instance[0].Transform[0][3] = 10.0f;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -3000,7 +3080,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
         if (SUCCEEDED(hr))
             hr = initial_instances->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr)) {
-            std::memcpy(mapped, initial_instance, sizeof(initial_instance));
+            std::memcpy(mapped, initial_instance.data(),
+                        sizeof(initial_instance));
             initial_instances->Unmap(0, nullptr);
         }
     }
@@ -3015,7 +3096,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         if (SUCCEEDED(hr))
             hr = instances->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr)) {
-            std::memcpy(mapped, &instance, sizeof(instance));
+            std::memcpy(mapped, instance.data(), sizeof(instance));
             instances->Unmap(0, nullptr);
         }
     }
@@ -3026,7 +3107,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     top_level_inputs.Flags =
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
-    top_level_inputs.NumDescs = 3;
+    top_level_inputs.NumDescs = top_level_instance_count;
     top_level_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     top_level_inputs.InstanceDescs =
         initial_instances ? initial_instances->GetGPUVirtualAddress() : 0;
@@ -3068,6 +3149,44 @@ static ProbeResult probe_dxr_acceleration_structures() {
             IID_PPV_ARGS(&top_level_postbuild));
     }
     if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC tlas_desc =
+            buffer_desc(top_level_prebuild.ResultDataMaxSizeInBytes);
+        tlas_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &tlas_desc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(&deserialized_top_level_acceleration_structure));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC buffer = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&top_level_serialization_postbuild));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC buffer = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&top_level_serialization_buffer));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC buffer = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&top_level_serialization_readback));
+    }
+    if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heap_desc.NumDescriptors = 2;
@@ -3103,7 +3222,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
         acceleration_srv.Shader4ComponentMapping =
             D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         acceleration_srv.RaytracingAccelerationStructure.Location =
-            top_level_acceleration_structure->GetGPUVirtualAddress();
+            deserialized_top_level_acceleration_structure->
+                GetGPUVirtualAddress();
         device->CreateShaderResourceView(nullptr, &acceleration_srv, cpu);
 
         cpu.ptr += increment;
@@ -3121,7 +3241,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
             acceleration_structure->GetGPUVirtualAddress();
         build.ScratchAccelerationStructureData = scratch->GetGPUVirtualAddress();
         build.Inputs = inputs;
-        list4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC
+            inline_serialization_post = {};
+        inline_serialization_post.DestBuffer =
+            serialization_postbuild->GetGPUVirtualAddress();
+        inline_serialization_post.InfoType =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
+        list4->BuildRaytracingAccelerationStructure(
+            &build, 1, &inline_serialization_post);
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC post = {};
         post.DestBuffer = postbuild->GetGPUVirtualAddress();
@@ -3171,6 +3298,18 @@ static ProbeResult probe_dxr_acceleration_structures() {
             compacted_acceleration_structure->GetGPUVirtualAddress(),
             cloned_acceleration_structure->GetGPUVirtualAddress(),
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+        list4->CopyRaytracingAccelerationStructure(
+            serialization_buffer->GetGPUVirtualAddress(),
+            compacted_acceleration_structure->GetGPUVirtualAddress(),
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_SERIALIZE);
+        list4->CopyBufferRegion(serialization_copy, 0, serialization_buffer, 0,
+                                256);
+        list4->CopyRaytracingAccelerationStructure(
+            deserialized_acceleration_structure->GetGPUVirtualAddress(),
+            serialization_copy->GetGPUVirtualAddress(),
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE);
+        list4->CopyBufferRegion(serialization_readback, 0, serialization_copy,
+                                0, 256);
 
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC aabb_build = {};
         aabb_build.DestAccelerationStructureData =
@@ -3227,21 +3366,59 @@ static ProbeResult probe_dxr_acceleration_structures() {
             static_cast<D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS>(
                 top_level_inputs.Flags |
                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE);
-        list4->BuildRaytracingAccelerationStructure(&top_level_update, 0,
-                                                     nullptr);
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC
+            top_level_serialization_post = {};
+        top_level_serialization_post.DestBuffer =
+            top_level_serialization_postbuild->GetGPUVirtualAddress();
+        top_level_serialization_post.InfoType =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
+        list4->BuildRaytracingAccelerationStructure(
+            &top_level_update, 1, &top_level_serialization_post);
         post.DestBuffer = top_level_postbuild->GetGPUVirtualAddress();
         source = top_level_acceleration_structure->GetGPUVirtualAddress();
         list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
                                                                  &source);
+        list4->CopyRaytracingAccelerationStructure(
+            top_level_serialization_buffer->GetGPUVirtualAddress(),
+            top_level_acceleration_structure->GetGPUVirtualAddress(),
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_SERIALIZE);
+        list4->CopyBufferRegion(top_level_serialization_readback, 0,
+                                top_level_serialization_buffer, 0, 256);
+        list4->CopyRaytracingAccelerationStructure(
+            deserialized_top_level_acceleration_structure->
+                GetGPUVirtualAddress(),
+            top_level_serialization_buffer->GetGPUVirtualAddress(),
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE);
+
+        hr = execute_and_wait(queue, list4);
+        if (SUCCEEDED(hr)) {
+            safe_release(acceleration_structure);
+            safe_release(cloned_acceleration_structure);
+            safe_release(compacted_acceleration_structure);
+            safe_release(deserialized_acceleration_structure);
+            safe_release(aabb_acceleration_structure);
+            safe_release(multi_geometry_acceleration_structure);
+            safe_release(top_level_acceleration_structure);
+            source_acceleration_structures_released_before_traversal = true;
+            hr = allocator->Reset();
+        }
+        if (SUCCEEDED(hr))
+            hr = list4->Reset(allocator, nullptr);
 
         ID3D12DescriptorHeap* heaps[] = {ray_query_heap};
-        list4->SetDescriptorHeaps(1, heaps);
-        list4->SetComputeRootSignature(compute_root);
-        list4->SetPipelineState(compute_pso);
-        list4->SetComputeRootDescriptorTable(
-            0, ray_query_heap->GetGPUDescriptorHandleForHeapStart());
-        list4->Dispatch(1, 1, 1);
-        list4->SetPipelineState1(grown_raytracing_state);
+        if (SUCCEEDED(hr))
+            list4->SetDescriptorHeaps(1, heaps);
+        if (SUCCEEDED(hr))
+            list4->SetComputeRootSignature(compute_root);
+        if (SUCCEEDED(hr))
+            list4->SetPipelineState(compute_pso);
+        if (SUCCEEDED(hr))
+            list4->SetComputeRootDescriptorTable(
+                0, ray_query_heap->GetGPUDescriptorHandleForHeapStart());
+        if (SUCCEEDED(hr))
+            list4->Dispatch(1, 1, 1);
+        if (SUCCEEDED(hr))
+            list4->SetPipelineState1(grown_raytracing_state);
         D3D12_DISPATCH_RAYS_DESC dispatch_rays = {};
         dispatch_rays.RayGenerationShaderRecord.StartAddress =
             raygen_shader_table->GetGPUVirtualAddress();
@@ -3283,6 +3460,26 @@ static ProbeResult probe_dxr_acceleration_structures() {
     uint64_t top_level_current_size = 0;
     uint64_t aabb_current_size = 0;
     uint64_t multi_geometry_current_size = 0;
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC
+        serialization_info = {};
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC
+        top_level_serialization_info = {};
+    D3D12_SERIALIZED_RAYTRACING_ACCELERATION_STRUCTURE_HEADER
+        top_level_serialization_header = {};
+    std::array<D3D12_GPU_VIRTUAL_ADDRESS, top_level_instance_count>
+        serialized_bottom_level_pointers = {};
+    bool serialized_pointer_list_matches_instances = true;
+    D3D12_SERIALIZED_RAYTRACING_ACCELERATION_STRUCTURE_HEADER
+        serialization_header = {};
+    uint64_t serialization_magic = 0;
+    D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS serialization_identifier_status =
+        D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
+    D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS serialization_version_status =
+        D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
+    D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS serialization_unknown_status =
+        D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
+    D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS serialization_type_status =
+        D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
     uint32_t ray_hit = 0;
     uint32_t miss_value = 0;
     uint32_t closest_hit_value = 0;
@@ -3340,12 +3537,89 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(top_level_serialization_info)};
+        hr = top_level_serialization_postbuild->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&top_level_serialization_info, mapped,
+                        sizeof(top_level_serialization_info));
+            top_level_serialization_postbuild->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {
+            0, sizeof(top_level_serialization_header) +
+                   sizeof(serialized_bottom_level_pointers)};
+        hr = top_level_serialization_readback->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&top_level_serialization_header, mapped,
+                        sizeof(top_level_serialization_header));
+            std::memcpy(serialized_bottom_level_pointers.data(),
+                        static_cast<const uint8_t*>(mapped) +
+                            sizeof(top_level_serialization_header),
+                        sizeof(serialized_bottom_level_pointers));
+            top_level_serialization_readback->Unmap(0, nullptr);
+            for (UINT i = 0; i < top_level_instance_count; i++) {
+                serialized_pointer_list_matches_instances &=
+                    serialized_bottom_level_pointers[i] ==
+                    instance[i].AccelerationStructure;
+            }
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(multi_geometry_current_size)};
         hr = multi_geometry_postbuild->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&multi_geometry_current_size, mapped,
                         sizeof(multi_geometry_current_size));
             multi_geometry_postbuild->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(serialization_info)};
+        hr = serialization_postbuild->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&serialization_info, mapped,
+                        sizeof(serialization_info));
+            serialization_postbuild->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {
+            0, sizeof(serialization_header) + sizeof(serialization_magic)};
+        hr = serialization_readback->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&serialization_header, mapped,
+                        sizeof(serialization_header));
+            std::memcpy(&serialization_magic,
+                        static_cast<const uint8_t*>(mapped) +
+                            sizeof(serialization_header),
+                        sizeof(serialization_magic));
+            serialization_readback->Unmap(0, nullptr);
+            serialization_identifier_status =
+                device5->CheckDriverMatchingIdentifier(
+                    D3D12_SERIALIZED_DATA_RAYTRACING_ACCELERATION_STRUCTURE,
+                    &serialization_header.DriverMatchingIdentifier);
+            D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER mismatch =
+                serialization_header.DriverMatchingIdentifier;
+            mismatch.DriverOpaqueVersioningData[0] ^= 0x5a;
+            serialization_version_status =
+                device5->CheckDriverMatchingIdentifier(
+                    D3D12_SERIALIZED_DATA_RAYTRACING_ACCELERATION_STRUCTURE,
+                    &mismatch);
+            mismatch = serialization_header.DriverMatchingIdentifier;
+            mismatch.DriverOpaqueGUID.Data1 ^= 0x5a5a5a5a;
+            serialization_unknown_status =
+                device5->CheckDriverMatchingIdentifier(
+                    D3D12_SERIALIZED_DATA_RAYTRACING_ACCELERATION_STRUCTURE,
+                    &mismatch);
+            serialization_type_status =
+                device5->CheckDriverMatchingIdentifier(
+                    static_cast<D3D12_SERIALIZED_DATA_TYPE>(1),
+                    &serialization_header.DriverMatchingIdentifier);
         }
     }
     if (SUCCEEDED(hr)) {
@@ -3388,6 +3662,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     const HRESULT removed_reason = device->GetDeviceRemovedReason();
     const bool verified = SUCCEEDED(hr) && SUCCEEDED(removed_reason) &&
+                          source_acceleration_structures_released_before_traversal &&
                           current_size > 0 &&
                           current_size <= prebuild.ResultDataMaxSizeInBytes &&
                           clone_current_size == current_size &&
@@ -3398,6 +3673,36 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           multi_geometry_current_size > 0 &&
                           multi_geometry_current_size <=
                               multi_prebuild.ResultDataMaxSizeInBytes &&
+                          serialization_info.SerializedSizeInBytes == 256 &&
+                          serialization_info
+                                  .NumBottomLevelAccelerationStructurePointers ==
+                              0 &&
+                          serialization_header
+                                  .SerializedSizeInBytesIncludingHeader ==
+                              serialization_info.SerializedSizeInBytes &&
+                          serialization_header.DeserializedSizeInBytes ==
+                              current_size &&
+                          serialization_header
+                                  .NumBottomLevelAccelerationStructurePointersAfterHeader ==
+                              0 &&
+                          serialization_identifier_status ==
+                              D3D12_DRIVER_MATCHING_IDENTIFIER_COMPATIBLE_WITH_DEVICE &&
+                          serialization_version_status ==
+                              D3D12_DRIVER_MATCHING_IDENTIFIER_INCOMPATIBLE_VERSION &&
+                          serialization_unknown_status ==
+                              D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED &&
+                          serialization_type_status ==
+                              D3D12_DRIVER_MATCHING_IDENTIFIER_UNSUPPORTED_TYPE &&
+                          serialization_magic == 0x4d54534153455231ull &&
+                          top_level_serialization_info.SerializedSizeInBytes ==
+                              256 &&
+                          top_level_serialization_info
+                                  .NumBottomLevelAccelerationStructurePointers ==
+                              top_level_instance_count &&
+                          top_level_serialization_header
+                                  .NumBottomLevelAccelerationStructurePointersAfterHeader ==
+                              top_level_instance_count &&
+                          serialized_pointer_list_matches_instances &&
                           top_level_current_size > 0 &&
                           top_level_current_size <=
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
@@ -3421,13 +3726,21 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(ray_query_readback);
     safe_release(ray_query_output);
     safe_release(top_level_postbuild);
+    safe_release(top_level_serialization_postbuild);
+    safe_release(top_level_serialization_readback);
+    safe_release(top_level_serialization_buffer);
     safe_release(top_level_scratch);
     safe_release(top_level_acceleration_structure);
+    safe_release(deserialized_top_level_acceleration_structure);
     safe_release(instances);
     safe_release(initial_instances);
     safe_release(postbuild);
     safe_release(clone_postbuild);
     safe_release(compacted_size_postbuild);
+    safe_release(serialization_postbuild);
+    safe_release(serialization_readback);
+    safe_release(serialization_copy);
+    safe_release(serialization_buffer);
     safe_release(aabb_postbuild);
     safe_release(multi_geometry_postbuild);
     safe_release(multi_geometry_scratch);
@@ -3440,6 +3753,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(acceleration_structure);
     safe_release(cloned_acceleration_structure);
     safe_release(compacted_acceleration_structure);
+    safe_release(deserialized_acceleration_structure);
     safe_release(vertices);
     safe_release(updated_vertices);
     safe_release(indices);
@@ -3455,7 +3769,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy/TLAS traversal, collection-derived pipeline, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, collection-derived pipeline, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -3473,11 +3787,48 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"aabb_current_size_bytes\":" +
                 std::to_string(aabb_current_size) +
                 ",\"aabb_update_geometry_shift_x\":10" +
-                ",\"multi_geometry_count\":2" +
+                ",\"multi_geometry_count\":" +
+                std::to_string(multi_geometry_count) +
                 ",\"multi_geometry_prebuild_result_bytes\":" +
                 std::to_string(multi_prebuild.ResultDataMaxSizeInBytes) +
                 ",\"multi_geometry_current_size_bytes\":" +
                 std::to_string(multi_geometry_current_size) +
+                ",\"serialized_size_bytes\":" +
+                std::to_string(serialization_info.SerializedSizeInBytes) +
+                ",\"serialization_bottom_level_pointer_count\":" +
+                std::to_string(serialization_info
+                                   .NumBottomLevelAccelerationStructurePointers) +
+                ",\"serialization_blob_magic\":" +
+                std::to_string(serialization_magic) +
+                ",\"serialization_header_deserialized_size_bytes\":" +
+                std::to_string(serialization_header.DeserializedSizeInBytes) +
+                ",\"serialization_identifier_status\":" +
+                std::to_string(static_cast<unsigned>(
+                    serialization_identifier_status)) +
+                ",\"serialization_version_status\":" +
+                std::to_string(static_cast<unsigned>(
+                    serialization_version_status)) +
+                ",\"serialization_unknown_status\":" +
+                std::to_string(static_cast<unsigned>(
+                    serialization_unknown_status)) +
+                ",\"serialization_type_status\":" +
+                std::to_string(static_cast<unsigned>(
+                    serialization_type_status)) +
+                ",\"serialization_blob_copy_deserialized\":true" +
+                ",\"tlas_serialized_size_bytes\":" +
+                std::to_string(
+                    top_level_serialization_info.SerializedSizeInBytes) +
+                ",\"tlas_serialization_bottom_level_pointer_count\":" +
+                std::to_string(top_level_serialization_info
+                                   .NumBottomLevelAccelerationStructurePointers) +
+                ",\"tlas_instance_count\":" +
+                std::to_string(top_level_instance_count) +
+                ",\"tlas_serialized_pointer_list_matches_instances\":true" +
+                ",\"tlas_deserialized_for_traversal\":true" +
+                ",\"source_acceleration_structures_released_before_traversal\":" +
+                (source_acceleration_structures_released_before_traversal
+                     ? "true"
+                     : "false") +
                 ",\"tlas_prebuild_result_bytes\":" +
                 std::to_string(top_level_prebuild.ResultDataMaxSizeInBytes) +
                 ",\"tlas_prebuild_scratch_bytes\":" +

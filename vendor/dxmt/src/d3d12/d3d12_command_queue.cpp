@@ -7396,6 +7396,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         WMT::Reference<WMT::AccelerationStructure> acceleration_structure;
         bool encoded = false;
         uint64_t primitive_count = 0;
+        std::vector<D3D12_GPU_VIRTUAL_ADDRESS> bottom_level_pointers;
         const char *kind = "unknown";
         if (cmd->type ==
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
@@ -7596,6 +7597,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             target.user_id = source.InstanceID;
             instance_contributions[i] =
                 source.InstanceContributionToHitGroupIndex;
+            bottom_level_pointers.push_back(source.AccelerationStructure);
             instanced_structures[i] =
                 blas->GetMTLAccelerationStructure().handle;
             blas_resources[i] = blas;
@@ -7693,7 +7695,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             if (header_buffer.handle && contributions_buffer.handle &&
                 header_gpu_address) {
               dest->SetRaytracingHeaderBuffers(
-                  header_buffer, header_gpu_address, contributions_buffer);
+                  header_buffer, header_gpu_address, contributions_buffer,
+                  contributions_gpu_address);
               st.RetainMTLObjectForCompletion(header_buffer);
               st.RetainMTLObjectForCompletion(contributions_buffer);
               QTRACE("BuildRaytracingAS TLAS header gpu=0x%llx id=0x%llx "
@@ -7713,6 +7716,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (encoded) {
           dest->SetMTLAccelerationStructure(
               acceleration_structure, sizes.acceleration_structure_size);
+          dest->SetRaytracingBuildInfo(
+              cmd->type,
+              cmd->type ==
+                      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
+                  ? cmd->num_descs
+                  : 0,
+              bottom_level_pointers);
           st.RetainMTLObjectForCompletion(acceleration_structure);
           st.RetainResourceMetalObjectsForCompletion(dest);
           st.RetainResourceMetalObjectsForCompletion(scratch);
@@ -7734,41 +7744,198 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             cmd->source_acceleration_structure);
         auto *destination = m_device->LookupResourceByGPUAddress(
             cmd->destination_acceleration_structure);
+        if (cmd->mode ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_SERIALIZE) {
+          const uint64_t bottom_level_pointer_count =
+              source ? source->GetRaytracingBottomLevelPointerCount() : 0;
+          const uint64_t blob_size =
+              MTLD3D12Resource::SerializedAccelerationStructureBlobSize(
+                  bottom_level_pointer_count);
+          if (!source || !destination ||
+              !source->GetMTLAccelerationStructure().handle ||
+              !source->GetMTLAccelerationStructureSize() ||
+              !destination->GetMTLBuffer().handle) {
+            QTRACE("CopyRaytracingAS SERIALIZE skipped source=%p destination=%p",
+                   (void *)source, (void *)destination);
+            break;
+          }
+          const uint64_t destination_offset =
+              cmd->destination_acceleration_structure -
+              destination->GetGPUVirtualAddress();
+          if (destination_offset + blob_size >
+              destination->GetBufferByteLength()) {
+            QTRACE("CopyRaytracingAS SERIALIZE skipped out-of-bounds");
+            break;
+          }
+          struct MetalSharpSerializedAccelerationStructureData {
+            uint64_t magic;
+            uint32_t version;
+            uint32_t type;
+            uint64_t acceleration_structure_size;
+            uint64_t reserved[4];
+          } driver_data = {};
+          D3D12_SERIALIZED_RAYTRACING_ACCELERATION_STRUCTURE_HEADER
+              serialized_header = {};
+          serialized_header.DriverMatchingIdentifier =
+              m_device->GetRaytracingSerializationIdentifier();
+          serialized_header.SerializedSizeInBytesIncludingHeader = blob_size;
+          serialized_header.DeserializedSizeInBytes =
+              source->GetMTLAccelerationStructureSize();
+          serialized_header.NumBottomLevelAccelerationStructurePointersAfterHeader =
+              bottom_level_pointer_count;
+          driver_data.magic = 0x4d54534153455231ull; // "MTSASER1"
+          driver_data.version = 1;
+          driver_data.type = source->GetRaytracingType();
+          driver_data.acceleration_structure_size =
+              source->GetMTLAccelerationStructureSize();
+          std::vector<uint8_t> serialized_blob(blob_size);
+          std::memcpy(serialized_blob.data(), &serialized_header,
+                      sizeof(serialized_header));
+          const uint64_t driver_data_offset =
+              sizeof(serialized_header) +
+              bottom_level_pointer_count *
+                  sizeof(D3D12_GPU_VIRTUAL_ADDRESS);
+          const auto &bottom_level_pointers =
+              source->GetRaytracingBottomLevelPointers();
+          for (uint64_t i = 0; i < bottom_level_pointer_count; i++) {
+            const D3D12_GPU_VIRTUAL_ADDRESS pointer =
+                i < bottom_level_pointers.size() ? bottom_level_pointers[i]
+                                                 : 0;
+            std::memcpy(serialized_blob.data() + sizeof(serialized_header) +
+                            i * sizeof(pointer),
+                        &pointer, sizeof(pointer));
+          }
+          std::memcpy(serialized_blob.data() + driver_data_offset,
+                      &driver_data, sizeof(driver_data));
+          destination->GetMTLBuffer().updateContents(
+              destination_offset, serialized_blob.data(),
+              serialized_blob.size());
+          destination->SetSerializedAccelerationStructure(
+              source->GetMTLAccelerationStructure(),
+              source->GetMTLAccelerationStructureSize(),
+              source->GetRaytracingType(),
+              source->GetRaytracingBottomLevelPointerCount(),
+              source->GetRaytracingBottomLevelPointers(),
+              source->GetRaytracingInstanceContributionsBuffer(),
+              source->GetRaytracingInstanceContributionsGPUAddress(),
+              destination_offset, blob_size);
+          st.RetainResourceMetalObjectsForCompletion(source);
+          st.RetainResourceMetalObjectsForCompletion(destination);
+          QTRACE("CopyRaytracingAS SERIALIZE bytes=%llu source=%p destination=%p+%llu",
+                 (unsigned long long)blob_size, (void *)source,
+                 (void *)destination,
+                 (unsigned long long)destination_offset);
+          break;
+        }
+
+        const bool deserialize =
+            cmd->mode ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE;
+        WMT::Reference<WMT::AccelerationStructure> copy_source;
+        uint64_t copy_source_size = 0;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE copy_source_type =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        uint64_t bottom_level_pointer_count = 0;
+        std::vector<D3D12_GPU_VIRTUAL_ADDRESS> bottom_level_pointers;
+        WMT::Reference<WMT::Buffer> instance_contributions_buffer;
+        uint64_t instance_contributions_gpu_address = 0;
+        if (deserialize && source) {
+          const uint64_t source_offset =
+              cmd->source_acceleration_structure -
+              source->GetGPUVirtualAddress();
+          if (source->HasSerializedAccelerationStructureAt(source_offset)) {
+            copy_source = source->GetSerializedAccelerationStructure();
+            copy_source_size =
+                source->GetSerializedAccelerationStructureSize();
+            copy_source_type = source->GetSerializedRaytracingType();
+            bottom_level_pointer_count =
+                source->GetSerializedBottomLevelPointerCount();
+            bottom_level_pointers =
+                source->GetSerializedBottomLevelPointers();
+            instance_contributions_buffer =
+                source->GetSerializedInstanceContributionsBuffer();
+            instance_contributions_gpu_address =
+                source->GetSerializedInstanceContributionsGPUAddress();
+          }
+        } else if (source) {
+          copy_source = source->GetMTLAccelerationStructure();
+          copy_source_size = source->GetMTLAccelerationStructureSize();
+          copy_source_type = source->GetRaytracingType();
+          bottom_level_pointer_count =
+              source->GetRaytracingBottomLevelPointerCount();
+          bottom_level_pointers = source->GetRaytracingBottomLevelPointers();
+          instance_contributions_buffer =
+              source->GetRaytracingInstanceContributionsBuffer();
+          instance_contributions_gpu_address =
+              source->GetRaytracingInstanceContributionsGPUAddress();
+        }
         const bool compact =
             cmd->mode ==
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT;
-        if ((!compact && cmd->mode !=
-                             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE) ||
-            !source || !destination ||
-            !source->GetMTLAccelerationStructure().handle ||
-            !source->GetMTLAccelerationStructureSize()) {
+        if ((!compact && !deserialize &&
+             cmd->mode !=
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE) ||
+            !source || !destination || !copy_source.handle ||
+            !copy_source_size) {
           QTRACE("CopyRaytracingAS SKIPPED mode=%u source=%p destination=%p",
                  (unsigned)cmd->mode, (void *)source, (void *)destination);
           break;
         }
         st.CloseRenderEncoder();
         auto copied = m_device->GetMTLDevice().newAccelerationStructure(
-            source->GetMTLAccelerationStructureSize());
+            copy_source_size);
         const bool copied_ok =
             copied.handle &&
             (compact ? cmdbuf.copyAndCompactAccelerationStructure(
-                           source->GetMTLAccelerationStructure(), copied)
+                           copy_source, copied)
                      : cmdbuf.copyAccelerationStructure(
-                           source->GetMTLAccelerationStructure(), copied));
+                           copy_source, copied));
         if (!copied_ok) {
           QTRACE("CopyRaytracingAS SKIPPED Metal copy failed mode=%u",
                  (unsigned)cmd->mode);
           break;
         }
         destination->SetMTLAccelerationStructure(
-            copied, source->GetMTLAccelerationStructureSize());
+            copied, copy_source_size);
+        destination->SetRaytracingBuildInfo(copy_source_type,
+                                            bottom_level_pointer_count,
+                                            bottom_level_pointers);
+        if (copy_source_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
+          struct RaytracingAccelerationStructureHeader {
+            uint64_t acceleration_structure_id;
+            uint64_t instance_contributions_gpu_address;
+            uint64_t reserved[4];
+            uint32_t indirect_dispatch[3];
+            uint32_t padding;
+          } header_data = {};
+          static_assert(sizeof(header_data) == 64);
+          header_data.acceleration_structure_id = copied.gpuResourceID();
+          header_data.instance_contributions_gpu_address =
+              instance_contributions_gpu_address;
+          uint64_t header_gpu_address = 0;
+          auto header_buffer = st.MakeTransientBuffer(
+              m_device, sizeof(header_data), &header_gpu_address);
+          if (!header_buffer.handle || !instance_contributions_buffer.handle ||
+              !header_gpu_address) {
+            QTRACE("CopyRaytracingAS SKIPPED TLAS header rebuild mode=%u",
+                   (unsigned)cmd->mode);
+            break;
+          }
+          header_buffer.updateContents(0, &header_data, sizeof(header_data));
+          destination->SetRaytracingHeaderBuffers(
+              header_buffer, header_gpu_address,
+              instance_contributions_buffer,
+              instance_contributions_gpu_address);
+          st.RetainMTLObjectForCompletion(header_buffer);
+          st.RetainMTLObjectForCompletion(instance_contributions_buffer);
+        }
         st.RetainMTLObjectForCompletion(copied);
         st.RetainResourceMetalObjectsForCompletion(source);
         st.RetainResourceMetalObjectsForCompletion(destination);
         QTRACE("CopyRaytracingAS mode=%u allocation_bytes=%llu source=%p destination=%p",
                (unsigned)cmd->mode,
-               (unsigned long long)
-                   source->GetMTLAccelerationStructureSize(),
+               (unsigned long long)copy_source_size,
                (void *)source, (void *)destination);
         break;
       }
@@ -7784,7 +7951,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         const bool compacted_size_info =
             cmd->info_type ==
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
-        if ((!current_size_info && !compacted_size_info) || !source ||
+        const bool serialization_info =
+            cmd->info_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
+        if ((!current_size_info && !compacted_size_info &&
+             !serialization_info) || !source ||
             !source->GetMTLAccelerationStructure().handle || !dest ||
             !dest->GetMTLBuffer().handle) {
           QTRACE("EmitRaytracingPostbuildInfo SKIPPED type=%u source=%p "
@@ -7793,7 +7964,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           break;
         }
         uint64_t dest_offset = cmd->dest_buffer - dest->GetGPUVirtualAddress();
-        if (dest_offset + sizeof(uint64_t) > dest->GetBufferByteLength()) {
+        const uint64_t info_size =
+            serialization_info
+                ? sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC)
+                : sizeof(uint64_t);
+        if (dest_offset + info_size > dest->GetBufferByteLength()) {
           QTRACE("EmitRaytracingPostbuildInfo SKIPPED out-of-bounds");
           break;
         }
@@ -7801,6 +7976,16 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (current_size_info) {
           dest->GetMTLBuffer().updateContents(dest_offset, &current_size,
                                               sizeof(current_size));
+        } else if (serialization_info) {
+          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC
+              serialization = {};
+          serialization.SerializedSizeInBytes =
+              MTLD3D12Resource::SerializedAccelerationStructureBlobSize(
+                  source->GetRaytracingBottomLevelPointerCount());
+          serialization.NumBottomLevelAccelerationStructurePointers =
+              source->GetRaytracingBottomLevelPointerCount();
+          dest->GetMTLBuffer().updateContents(dest_offset, &serialization,
+                                              sizeof(serialization));
         } else {
           st.CloseRenderEncoder();
           if (!cmdbuf.writeCompactedAccelerationStructureSize(
@@ -8315,6 +8500,56 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           auto *src_res = static_cast<MTLD3D12Resource *>(cmd->src);
           if (dst_res->GetMTLBuffer().handle &&
               src_res->GetMTLBuffer().handle) {
+            auto source_serialized_acceleration_structure =
+                src_res->GetSerializedAccelerationStructure();
+            const uint64_t source_serialized_size =
+                src_res->GetSerializedAccelerationStructureSize();
+            const auto source_serialized_type =
+                src_res->GetSerializedRaytracingType();
+            const uint64_t source_serialized_pointer_count =
+                src_res->GetSerializedBottomLevelPointerCount();
+            const auto source_serialized_pointers =
+                src_res->GetSerializedBottomLevelPointers();
+            auto source_serialized_contributions =
+                src_res->GetSerializedInstanceContributionsBuffer();
+            const uint64_t source_serialized_contributions_gpu_address =
+                src_res->GetSerializedInstanceContributionsGPUAddress();
+            const uint64_t existing_serialized_offset =
+                dst_res->GetSerializedAccelerationStructureOffset();
+            const uint64_t existing_serialized_blob_size =
+                dst_res->GetSerializedAccelerationStructureBlobSize();
+            if (dst_res->GetSerializedAccelerationStructure().handle &&
+                cmd->dst_offset <
+                    existing_serialized_offset +
+                        existing_serialized_blob_size &&
+                existing_serialized_offset <
+                    cmd->dst_offset + cmd->byte_count) {
+              dst_res->ClearSerializedAccelerationStructure();
+            }
+            const uint64_t source_serialized_offset =
+                src_res->GetSerializedAccelerationStructureOffset();
+            const uint64_t source_serialized_blob_size =
+                src_res->GetSerializedAccelerationStructureBlobSize();
+            if (source_serialized_acceleration_structure.handle &&
+                cmd->src_offset <= source_serialized_offset &&
+                source_serialized_offset + source_serialized_blob_size <=
+                    cmd->src_offset + cmd->byte_count) {
+              const uint64_t copied_serialized_offset =
+                  cmd->dst_offset +
+                  (source_serialized_offset - cmd->src_offset);
+              if (copied_serialized_offset + source_serialized_blob_size <=
+                  dst_res->GetBufferByteLength()) {
+                dst_res->SetSerializedAccelerationStructure(
+                    source_serialized_acceleration_structure,
+                    source_serialized_size, source_serialized_type,
+                    source_serialized_pointer_count,
+                    source_serialized_pointers,
+                    source_serialized_contributions,
+                    source_serialized_contributions_gpu_address,
+                    copied_serialized_offset,
+                    source_serialized_blob_size);
+              }
+            }
             st.RetainResourceMetalObjectsForCompletion(dst_res);
             st.RetainResourceMetalObjectsForCompletion(src_res);
             auto blit = cmdbuf.blitCommandEncoder();

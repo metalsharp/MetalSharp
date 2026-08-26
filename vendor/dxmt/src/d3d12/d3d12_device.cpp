@@ -2165,11 +2165,37 @@ static void device_vtable_watcher() {
   }
 }
 
+static const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER &
+RaytracingSerializationIdentifierForProcess() {
+  static const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER identifier =
+      []() {
+        D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER value = {};
+        value.DriverOpaqueGUID =
+            {0x4d545341, 0x5345, 0x5231,
+             {0x81, 0x27, 0x4d, 0x65, 0x74, 0x61, 0x6c, 0x34}};
+        const uint32_t process_id = GetCurrentProcessId();
+        LARGE_INTEGER counter = {};
+        QueryPerformanceCounter(&counter);
+        const uint32_t format_version = 1;
+        std::memcpy(value.DriverOpaqueVersioningData, &process_id,
+                    sizeof(process_id));
+        std::memcpy(value.DriverOpaqueVersioningData + sizeof(process_id),
+                    &counter.QuadPart, sizeof(counter.QuadPart));
+        std::memcpy(value.DriverOpaqueVersioningData + sizeof(process_id) +
+                        sizeof(counter.QuadPart),
+                    &format_version, sizeof(format_version));
+        return value;
+      }();
+  return identifier;
+}
+
 MTLD3D12Device::MTLD3D12Device(std::unique_ptr<Device> &&device,
                                IMTLDXGIAdapter *pAdapter)
     : m_device(std::move(device)), m_adapter(pAdapter) {
   m_format_inspector.Inspect(GetMTLDevice());
   m_metal_raytracing_supported = GetMTLDevice().supportsRaytracing();
+  m_raytracing_serialization_identifier =
+      RaytracingSerializationIdentifierForProcess();
   Logger::info(str::format("D3D12 Metal raytracing hardware support=",
                            m_metal_raytracing_supported ? 1 : 0,
                            " (DXR tier remains gated on behavior)"));
@@ -4870,11 +4896,14 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
     primitive_count = desc->NumDescs;
     kind = "TLAS instances";
   } else if (desc->NumDescs > 1) {
-    if (desc->NumDescs > 8) {
+    if (desc->NumDescs >
+        CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs) {
       TRACE("  prebuild too many BLAS geometries=%u", desc->NumDescs);
       return;
     }
-    std::array<WMTPrimitiveAccelerationStructureInfo, 8> metal_infos = {};
+    std::array<WMTPrimitiveAccelerationStructureInfo,
+               CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
+        metal_infos = {};
     for (UINT i = 0; i < desc->NumDescs; i++) {
       const auto *geometry =
           desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
@@ -4946,7 +4975,19 @@ MTLD3D12Device::CheckDriverMatchingIdentifier(
     D3D12_SERIALIZED_DATA_TYPE serialized_data_type,
     const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER
         *identifier_to_check) {
-  TRACE("ID3D12Device5::CheckDriverMatchingIdentifier -> UNRECOGNIZED");
+  if (serialized_data_type !=
+      D3D12_SERIALIZED_DATA_RAYTRACING_ACCELERATION_STRUCTURE)
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_UNSUPPORTED_TYPE;
+  if (!identifier_to_check)
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
+  const auto &expected = GetRaytracingSerializationIdentifier();
+  if (!std::memcmp(identifier_to_check, &expected, sizeof(expected))) {
+    TRACE("ID3D12Device5::CheckDriverMatchingIdentifier -> COMPATIBLE");
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_COMPATIBLE_WITH_DEVICE;
+  }
+  if (!std::memcmp(&identifier_to_check->DriverOpaqueGUID,
+                   &expected.DriverOpaqueGUID, sizeof(expected.DriverOpaqueGUID)))
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_INCOMPATIBLE_VERSION;
   return D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
 }
 
