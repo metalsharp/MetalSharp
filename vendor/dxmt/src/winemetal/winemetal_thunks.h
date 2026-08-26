@@ -479,6 +479,21 @@ struct unixcall_mtlcommandbuffer_copy_acceleration_structure {
   uint64_t ret_success;
 };
 
+struct unixcall_mtlcommandbuffer_copy_and_compact_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_write_compacted_acceleration_structure_size {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_buffer;
+  uint64_t destination_buffer_offset;
+  uint64_t ret_success;
+};
+
 struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure {
   obj_handle_t cmdbuf;
   obj_handle_t source_acceleration_structure;

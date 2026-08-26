@@ -2259,9 +2259,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* indices = nullptr;
     ID3D12Resource* acceleration_structure = nullptr;
     ID3D12Resource* cloned_acceleration_structure = nullptr;
+    ID3D12Resource* compacted_acceleration_structure = nullptr;
     ID3D12Resource* scratch = nullptr;
     ID3D12Resource* postbuild = nullptr;
     ID3D12Resource* clone_postbuild = nullptr;
+    ID3D12Resource* compacted_size_postbuild = nullptr;
     ID3D12Resource* aabbs = nullptr;
     ID3D12Resource* aabb_acceleration_structure = nullptr;
     ID3D12Resource* aabb_scratch = nullptr;
@@ -2550,6 +2552,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC as_desc =
+            buffer_desc(prebuild.ResultDataMaxSizeInBytes);
+        as_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &as_desc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(&compacted_acceleration_structure));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_RESOURCE_DESC scratch_desc = buffer_desc(std::max(
             prebuild.ScratchDataSizeInBytes,
             prebuild.UpdateScratchDataSizeInBytes));
@@ -2574,6 +2586,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
             &readback_heap, D3D12_HEAP_FLAG_NONE, &postbuild_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&clone_postbuild));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC postbuild_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &postbuild_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&compacted_size_postbuild));
     }
 
     const D3D12_RAYTRACING_AABB aabb = {
@@ -2654,8 +2674,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     instance[0].InstanceMask = 0xff;
     instance[0].Flags =
         D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
-    instance[0].AccelerationStructure = cloned_acceleration_structure
-        ? cloned_acceleration_structure->GetGPUVirtualAddress()
+    instance[0].AccelerationStructure = compacted_acceleration_structure
+        ? compacted_acceleration_structure->GetGPUVirtualAddress()
         : 0;
     instance[1].Transform[0][0] = 1.0f;
     instance[1].Transform[1][1] = 1.0f;
@@ -2819,6 +2839,19 @@ static ProbeResult probe_dxr_acceleration_structures() {
             scratch->GetGPUVirtualAddress();
         update_build.Inputs = update_inputs;
         list4->BuildRaytracingAccelerationStructure(&update_build, 0, nullptr);
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC
+            compacted_post = {};
+        compacted_post.DestBuffer =
+            compacted_size_postbuild->GetGPUVirtualAddress();
+        compacted_post.InfoType =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+        source = cloned_acceleration_structure->GetGPUVirtualAddress();
+        list4->EmitRaytracingAccelerationStructurePostbuildInfo(
+            &compacted_post, 1, &source);
+        list4->CopyRaytracingAccelerationStructure(
+            compacted_acceleration_structure->GetGPUVirtualAddress(),
+            cloned_acceleration_structure->GetGPUVirtualAddress(),
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
 
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC aabb_build = {};
         aabb_build.DestAccelerationStructureData =
@@ -2884,6 +2917,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
 
     uint64_t current_size = 0;
     uint64_t clone_current_size = 0;
+    uint64_t compacted_size = 0;
     uint64_t top_level_current_size = 0;
     uint64_t aabb_current_size = 0;
     uint32_t ray_hit = 0;
@@ -2909,6 +2943,15 @@ static ProbeResult probe_dxr_acceleration_structures() {
         if (SUCCEEDED(hr)) {
             std::memcpy(&current_size, mapped, sizeof(current_size));
             postbuild->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(compacted_size)};
+        hr = compacted_size_postbuild->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&compacted_size, mapped, sizeof(compacted_size));
+            compacted_size_postbuild->Unmap(0, nullptr);
         }
     }
     if (SUCCEEDED(hr)) {
@@ -2964,6 +3007,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           current_size > 0 &&
                           current_size <= prebuild.ResultDataMaxSizeInBytes &&
                           clone_current_size == current_size &&
+                          compacted_size > 0 && compacted_size <= current_size &&
                           aabb_current_size > 0 &&
                           aabb_current_size <=
                               aabb_prebuild.ResultDataMaxSizeInBytes &&
@@ -2987,6 +3031,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(instances);
     safe_release(postbuild);
     safe_release(clone_postbuild);
+    safe_release(compacted_size_postbuild);
     safe_release(aabb_postbuild);
     safe_release(aabb_scratch);
     safe_release(aabb_acceleration_structure);
@@ -2994,6 +3039,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(scratch);
     safe_release(acceleration_structure);
     safe_release(cloned_acceleration_structure);
+    safe_release(compacted_acceleration_structure);
     safe_release(vertices);
     safe_release(updated_vertices);
     safe_release(indices);
@@ -3007,7 +3053,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal indexed-triangle/AABB BLAS, clone, shifted-geometry update, TLAS, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal indexed-triangle/AABB BLAS, clone, shifted-geometry update, compacted-size query, compact copy/TLAS traversal, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -3017,6 +3063,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"current_size_bytes\":" + std::to_string(current_size) +
                 ",\"clone_current_size_bytes\":" +
                 std::to_string(clone_current_size) +
+                ",\"compacted_size_bytes\":" +
+                std::to_string(compacted_size) +
                 ",\"blas_update_geometry_shift_x\":10" +
                 ",\"aabb_prebuild_result_bytes\":" +
                 std::to_string(aabb_prebuild.ResultDataMaxSizeInBytes) +

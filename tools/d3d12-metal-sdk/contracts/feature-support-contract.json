@@ -65,7 +65,7 @@
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "indexed_triangle_aabb_blas_clone_shifted_geometry_update_two_instance_tlas_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
+      "probe_status": "indexed_triangle_aabb_blas_clone_shifted_geometry_update_compacted_size_and_compact_traversal_two_instance_tlas_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
       "reported": "partial",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
@@ -74,13 +74,14 @@
         "CURRENT_SIZE postbuild info",
         "BLAS COPY_MODE_CLONE and cloned-BLAS TLAS traversal",
         "in-place PERFORM_UPDATE refit from translated to centered geometry",
+        "COMPACTED_SIZE postbuild query and traversed COPY_MODE_COMPACT output",
         "inline RayQuery triangle hit",
         "raygen/miss state-object exports with stable distinct shader identifiers",
         "raygen, miss, triangle any-hit/closest-hit, procedural intersection/closest-hit, and callable shader-table records",
         "DispatchRays raygen, miss, any-hit, closest-hit, procedural intersection, and callable execution",
         "recursive closest-hit to miss TraceRay at depth 2"
       ],
-      "risk": "One indexed-triangle and one-AABB BLAS, a behavior-proven BLAS clone and shifted-geometry refit, a two-instance TLAS, inline RayQuery hit, stable distinct export identifiers, executed raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable records, and depth-2 recursive TraceRay prove foundational DXR execution; multi-geometry builds, TLAS/AABB updates, compaction/serialization, and complete local-root/shader-table semantics remain gated.",
+      "risk": "One indexed-triangle and one-AABB BLAS, a behavior-proven BLAS clone, shifted-geometry refit, compacted-size query, traversed compact copy, a two-instance TLAS, inline RayQuery hit, stable distinct export identifiers, executed raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable records, and depth-2 recursive TraceRay prove foundational DXR execution; multi-geometry builds, TLAS/AABB updates, serialization/deserialization, and complete local-root/shader-table semantics remain gated.",
       "state": "required",
       "tier": "required"
     },

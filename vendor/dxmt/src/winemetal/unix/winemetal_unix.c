@@ -2271,6 +2271,53 @@ _MTLCommandBuffer_copyAccelerationStructure(void *obj) {
 }
 
 static NTSTATUS
+_MTLCommandBuffer_copyAndCompactAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_copy_and_compact_acceleration_structure
+      *params = obj;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->source_acceleration_structure ||
+      !params->destination_acceleration_structure)
+    return STATUS_SUCCESS;
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      copyAndCompactAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->source_acceleration_structure
+                         toAccelerationStructure:(id<MTLAccelerationStructure>)
+                                                     params->destination_acceleration_structure];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_writeCompactedAccelerationStructureSize(void *obj) {
+  struct unixcall_mtlcommandbuffer_write_compacted_acceleration_structure_size
+      *params = obj;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->source_acceleration_structure ||
+      !params->destination_buffer)
+    return STATUS_SUCCESS;
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      writeCompactedAccelerationStructureSize:
+          (id<MTLAccelerationStructure>)params->source_acceleration_structure
+                                     toBuffer:(id<MTLBuffer>)
+                                                  params->destination_buffer
+                                       offset:params->destination_buffer_offset];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLCommandBuffer_refitTriangleAccelerationStructure(void *obj) {
   struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure
       *params = obj;
@@ -4278,6 +4325,8 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandBuffer_buildAABBAccelerationStructure,
     &_MTLCommandBuffer_copyAccelerationStructure,
     &_MTLCommandBuffer_refitTriangleAccelerationStructure,
+    &_MTLCommandBuffer_copyAndCompactAccelerationStructure,
+    &_MTLCommandBuffer_writeCompactedAccelerationStructureSize,
 };
 
 #ifndef DXMT_NATIVE
@@ -4431,5 +4480,7 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandBuffer_buildAABBAccelerationStructure,
     &_MTLCommandBuffer_copyAccelerationStructure,
     &_MTLCommandBuffer_refitTriangleAccelerationStructure,
+    &_MTLCommandBuffer_copyAndCompactAccelerationStructure,
+    &_MTLCommandBuffer_writeCompactedAccelerationStructureSize,
 };
 #endif
