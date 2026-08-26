@@ -111,8 +111,8 @@ readback while keeping MeshShaderTier
 conservative. `dxr_acceleration_structures` proves a
 one-triangle Metal BLAS, one-instance TLAS, current-size postbuild readbacks,
 an inline `RayQuery` triangle hit, stable distinct raygen/miss export
-identifiers, and a raygen-only state object executing via `DispatchRays` while
-keeping RaytracingTier conservative. Both remain breadth
+identifiers, and raygen/miss shader-table records executing through
+`DispatchRays` while keeping RaytracingTier conservative. Both remain breadth
 gates rather than general feature claims.
 
 For DXIL semantic coverage, run the reduced SM6 opcode-group probe:

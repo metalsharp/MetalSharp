@@ -987,6 +987,8 @@ the goal is not complete.
   `GetShaderIdentifier`, a 32-byte shader record, `SetPipelineState1`, and
   `DispatchRays` execute a raygen UAV write of 42. Raygen and miss exports now
   receive repeatable, distinct 32-byte identifiers while unknown exports return
-  null; only raygen is linked and executed. RaytracingTier remains unreported
-  pending executed miss/hit/callable shaders, recursive `TraceRay`, and full
-  shader-table semantics.
+  null. A 64-byte-aligned miss shader-table record links a Metal visible
+  function at index 2; raygen issues `TraceRay` away from the TLAS and the miss
+  shader returns `0x4d495353` through its payload. RaytracingTier remains
+  unreported pending hit groups, any-hit/intersection/callable shaders,
+  recursive `TraceRay`, and complete local-root/shader-table semantics.

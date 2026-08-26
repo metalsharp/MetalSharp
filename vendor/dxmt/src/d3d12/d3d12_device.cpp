@@ -1334,6 +1334,9 @@ public:
       return false;
     if (m_exports.empty())
       m_exports.emplace_back(L"raygen");
+    const bool has_miss_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"miss_shader") !=
+        m_exports.end();
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
     compute_desc.pRootSignature = m_global_root_signature;
@@ -1350,6 +1353,7 @@ public:
     std::string raygen_path = cache_dir + "/" + cache_hash + ".metallib";
     std::string dispatch_path =
         cache_dir + "/" + cache_hash + ".raydispatch.metallib";
+    std::string miss_path = cache_dir + "/" + cache_hash + ".miss.metallib";
 
     auto read_file = [](const std::string &path, std::vector<uint8_t> &data) {
       FILE *file = fopen(path.c_str(), "rb");
@@ -1369,11 +1373,13 @@ public:
     };
     std::vector<uint8_t> raygen_data;
     std::vector<uint8_t> dispatch_data;
+    std::vector<uint8_t> miss_data;
     if (!read_file(raygen_path, raygen_data) ||
-        !read_file(dispatch_path, dispatch_data)) {
+        !read_file(dispatch_path, dispatch_data) ||
+        (has_miss_shader && !read_file(miss_path, miss_data))) {
       pipeline->RequestCompile(false);
-      TRACE("StateObject raygen cache miss visible=%s dispatch=%s",
-            raygen_path.c_str(), dispatch_path.c_str());
+      TRACE("StateObject raygen cache miss visible=%s dispatch=%s miss=%s",
+            raygen_path.c_str(), dispatch_path.c_str(), miss_path.c_str());
       pipeline->Release();
       return false;
     }
@@ -1390,6 +1396,18 @@ public:
         dispatch_data.data(), dispatch_data.size(), error);
     if (!dispatch_library_handle.handle || error.handle)
       return false;
+    WMT::Reference<WMT::Library> miss_library_handle;
+    WMT::Reference<WMT::Function> miss_function;
+    if (has_miss_shader) {
+      error = nullptr;
+      miss_library_handle = metal_device.newLibrary(
+          miss_data.data(), miss_data.size(), error);
+      if (!miss_library_handle.handle || error.handle)
+        return false;
+      miss_function = miss_library_handle.newFunction("miss_shader");
+      if (!miss_function.handle)
+        return false;
+    }
     auto raygen_function = raygen_library_handle.newFunction("raygen");
     auto dispatch_function =
         dispatch_library_handle.newFunction("RaygenIndirection");
@@ -1398,6 +1416,7 @@ public:
     WMTRaytracingComputePipelineInfo pipeline_info = {};
     pipeline_info.dispatch_function = dispatch_function.handle;
     pipeline_info.raygen_function = raygen_function.handle;
+    pipeline_info.miss_function = miss_function.handle;
     error = nullptr;
     m_raygen_compute_pipeline = metal_device.newRaytracingComputePipelineState(
         pipeline_info, m_raygen_visible_function_table, error);
@@ -1419,7 +1438,9 @@ public:
                sizeof(word));
       }
       const uint64_t visible_function_index =
-          export_name == L"raygen" ? 1ull : 0ull;
+          export_name == L"raygen"       ? 1ull
+          : export_name == L"miss_shader" ? 2ull
+                                           : 0ull;
       memcpy(identifier.data() + sizeof(uint64_t),
              &visible_function_index, sizeof(visible_function_index));
       m_shader_identifiers.emplace(export_name, identifier);

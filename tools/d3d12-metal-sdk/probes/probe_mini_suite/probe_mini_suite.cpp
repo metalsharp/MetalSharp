@@ -2373,7 +2373,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
-        D3D12_RESOURCE_DESC table_desc = buffer_desc(64);
+        D3D12_RESOURCE_DESC table_desc = buffer_desc(128);
         hr = device->CreateCommittedResource(
             &upload_heap, D3D12_HEAP_FLAG_NONE, &table_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -2383,6 +2383,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
             hr = raygen_shader_table->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(mapped, raygen_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 64, miss_identifier,
+                        32);
             raygen_shader_table->Unmap(0, nullptr);
         }
     }
@@ -2621,6 +2623,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
         dispatch_rays.RayGenerationShaderRecord.StartAddress =
             raygen_shader_table->GetGPUVirtualAddress();
         dispatch_rays.RayGenerationShaderRecord.SizeInBytes = 32;
+        dispatch_rays.MissShaderTable.StartAddress =
+            raygen_shader_table->GetGPUVirtualAddress() + 64;
+        dispatch_rays.MissShaderTable.SizeInBytes = 32;
+        dispatch_rays.MissShaderTable.StrideInBytes = 32;
         dispatch_rays.Width = 1;
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
@@ -2630,13 +2636,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &output_barrier);
         list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
-                                sizeof(uint32_t) * 2);
+                                sizeof(uint32_t) * 3);
         hr = execute_and_wait(queue, list4);
     }
 
     uint64_t current_size = 0;
     uint64_t top_level_current_size = 0;
     uint32_t ray_hit = 0;
+    uint32_t miss_value = 0;
     uint32_t raygen_value = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
@@ -2659,12 +2666,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(ray_hit) + sizeof(raygen_value)};
+        D3D12_RANGE range = {0, sizeof(uint32_t) * 3};
         hr = ray_query_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&ray_hit, mapped, sizeof(ray_hit));
-            std::memcpy(&raygen_value,
+            std::memcpy(&miss_value,
                         static_cast<const uint8_t*>(mapped) + sizeof(ray_hit),
+                        sizeof(miss_value));
+            std::memcpy(&raygen_value,
+                        static_cast<const uint8_t*>(mapped) +
+                            sizeof(ray_hit) + sizeof(miss_value),
                         sizeof(raygen_value));
             ray_query_readback->Unmap(0, nullptr);
         }
@@ -2676,7 +2687,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           top_level_current_size > 0 &&
                           top_level_current_size <=
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
-                          ray_hit == 1 && raygen_value == 42;
+                          ray_hit == 1 && miss_value == 0x4d495353 &&
+                          raygen_value == 42;
 
     safe_release(raygen_shader_table);
     safe_release(raytracing_properties);
@@ -2701,7 +2713,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen DispatchRays passed"
+            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -2716,6 +2728,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"tlas_current_size_bytes\":" +
                 std::to_string(top_level_current_size) +
                 ",\"inline_ray_hit\":" + std::to_string(ray_hit) +
+                ",\"miss_dispatch_value\":" +
+                std::to_string(miss_value) +
                 ",\"raygen_dispatch_value\":" +
                 std::to_string(raygen_value) +
                 ",\"miss_identifier_nonnull\":" +
