@@ -314,9 +314,13 @@ Findings:
   layers produce 338/325 exact `0xffffff80` pixels from source
   `0x80bf8040` plus clear `0x80408040`; all 7,529 background pixels retain the
   clear value and no unexpected pixel is present.
+- A fourth layered pass switches the mesh PSO to wireframe rasterization and
+  writes exactly 76/75 edge pixels in the two layers, versus 338/325 filled
+  pixels for the same geometry. All 8,041 background pixels retain the exact
+  clear value and no unexpected pixel is present.
 - Mesh tier 1 remains conservatively unreported while mixed render-state
-  matrices beyond layered depth/blending, pipeline statistics, and broader
-  shader/payload coverage are still gated.
+  matrices beyond layered depth/blending/wireframe, pipeline statistics, and
+  broader shader/payload coverage are still gated.
 - The same Metal mesh pipeline infrastructure also executes geometry-shader
   emulation and tessellation proof shapes.
 - General geometry shader support remains limited.

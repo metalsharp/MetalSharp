@@ -599,9 +599,11 @@ remaining pixel in both slices to match the RTV-array clear color. The same
 probe then binds a two-layer `D32_FLOAT` DSV: depth 0.25 passes an
 exact 0.5 clear in layer 0 while depth 0.75 is rejected in layer 1. The final
 pass behavior-checks layered additive color/alpha blending through
-exact source, clear, and output RGBA8 values in both slices. Mesh tier reporting
-remains disabled pending pipeline statistics, broader mixed render-state
-matrices, and broader shader/payload coverage.
+exact source, clear, and output RGBA8 values in both slices. A wireframe pass
+then proves edge-only rasterization through exact per-layer foreground and
+background counts. Mesh tier reporting remains disabled pending pipeline
+statistics, broader mixed render-state matrices, and broader shader/payload
+coverage.
 
 Run just the unsupported-policy phase gate with:
 
