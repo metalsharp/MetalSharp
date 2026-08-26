@@ -1292,6 +1292,15 @@ RWByteAddressBuffer output : register(u0);
 void raygen() {
   output.Store(4, 42);
 }
+
+struct MissPayload {
+  uint value;
+};
+
+[shader("miss")]
+void miss_shader(inout MissPayload payload) {
+  payload.value = 0x4d495353;
+}
 HLSL
 
   (

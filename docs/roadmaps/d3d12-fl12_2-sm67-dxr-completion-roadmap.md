@@ -985,6 +985,8 @@ the goal is not complete.
   hit. Raygen DXIL libraries now create state objects backed by a linked Metal
   visible-function table and synthesized `RaygenIndirection` kernel;
   `GetShaderIdentifier`, a 32-byte shader record, `SetPipelineState1`, and
-  `DispatchRays` execute a raygen UAV write of 42. RaytracingTier remains
-  unreported pending miss/hit/callable shaders, recursive `TraceRay`, and full
+  `DispatchRays` execute a raygen UAV write of 42. Raygen and miss exports now
+  receive repeatable, distinct 32-byte identifiers while unknown exports return
+  null; only raygen is linked and executed. RaytracingTier remains unreported
+  pending executed miss/hit/callable shaders, recursive `TraceRay`, and full
   shader-table semantics.

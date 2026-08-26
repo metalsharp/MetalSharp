@@ -2312,13 +2312,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
-    D3D12_EXPORT_DESC raygen_export = {};
-    raygen_export.Name = L"raygen";
+    D3D12_EXPORT_DESC raygen_exports[2] = {};
+    raygen_exports[0].Name = L"raygen";
+    raygen_exports[1].Name = L"miss_shader";
     D3D12_DXIL_LIBRARY_DESC raygen_library_desc = {};
     raygen_library_desc.DXILLibrary = {raygen_library.data(),
                                       raygen_library.size()};
-    raygen_library_desc.NumExports = 1;
-    raygen_library_desc.pExports = &raygen_export;
+    raygen_library_desc.NumExports = 2;
+    raygen_library_desc.pExports = raygen_exports;
     D3D12_GLOBAL_ROOT_SIGNATURE global_root = {compute_root};
     D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
     shader_config.MaxPayloadSizeInBytes = 4;
@@ -2349,7 +2350,26 @@ static ProbeResult probe_dxr_acceleration_structures() {
     const void* raygen_identifier =
         SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen")
                       : nullptr;
-    if (SUCCEEDED(hr) && !raygen_identifier)
+    const void* miss_identifier =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderIdentifier(L"miss_shader")
+            : nullptr;
+    const void* repeated_raygen_identifier =
+        SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen")
+                      : nullptr;
+    const void* unknown_identifier =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderIdentifier(L"unknown_export")
+            : nullptr;
+    const bool distinct_shader_identifiers =
+        raygen_identifier && miss_identifier &&
+        std::memcmp(raygen_identifier, miss_identifier, 32) != 0;
+    const bool stable_shader_identifiers =
+        raygen_identifier && repeated_raygen_identifier &&
+        std::memcmp(raygen_identifier, repeated_raygen_identifier, 32) == 0 &&
+        unknown_identifier == nullptr;
+    if (SUCCEEDED(hr) &&
+        (!distinct_shader_identifiers || !stable_shader_identifiers))
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -2698,6 +2718,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"inline_ray_hit\":" + std::to_string(ray_hit) +
                 ",\"raygen_dispatch_value\":" +
                 std::to_string(raygen_value) +
+                ",\"miss_identifier_nonnull\":" +
+                (miss_identifier ? "true" : "false") +
+                ",\"distinct_shader_identifiers\":" +
+                (distinct_shader_identifiers ? "true" : "false") +
+                ",\"stable_shader_identifiers\":" +
+                (stable_shader_identifiers ? "true" : "false") +
+                ",\"unknown_identifier_null\":" +
+                (!unknown_identifier ? "true" : "false") +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
 }
 
