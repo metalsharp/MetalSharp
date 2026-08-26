@@ -284,6 +284,8 @@ int main() {
     std::printf("    \"mesh_shader_tier\": %u,\n", static_cast<unsigned>(options7.MeshShaderTier));
     std::printf("    \"sampler_feedback_tier\": %u,\n", static_cast<unsigned>(options7.SamplerFeedbackTier));
     print_hr("options9", options9_hr);
+    std::printf("    \"mesh_shader_pipeline_stats_supported\": %s,\n",
+                options9.MeshShaderPipelineStatsSupported ? "true" : "false");
     std::printf("    \"atomic64_typed_resource\": %s,\n",
                 options9.AtomicInt64OnTypedResourceSupported ? "true" : "false");
     std::printf("    \"atomic64_group_shared\": %s,\n", options9.AtomicInt64OnGroupSharedSupported ? "true" : "false");
@@ -311,7 +313,9 @@ int main() {
     std::printf("    \"wave_ops_proven_reported\": %s,\n", wave_ops_proven_reported ? "true" : "false");
     std::printf("    \"atomic64_conservative\": %s,\n", atomic64_conservative ? "true" : "false");
     std::printf("    \"advanced_features_conservative\": %s,\n", advanced_conservative ? "true" : "false");
-    std::printf("    \"stream_output_conservative\": %s,\n", stream_output_conservative ? "true" : "false");
+    std::printf("    \"mesh_shader_pipeline_stats_supported\": %s,\n",
+                options9.MeshShaderPipelineStatsSupported ? "true" : "false");
+    std::printf("    \"stream_output_conservative\": %s,\n",  stream_output_conservative ? "true" : "false");
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
     std::printf("    \"state_objects_unsupported\": %s\n", state_objects_unsupported ? "true" : "false");
     std::printf("  }\n");

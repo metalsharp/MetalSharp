@@ -215,6 +215,11 @@ def feature_support_contract() -> dict[str, Any]:
                 "tier": "required",
                 "reported": "partial",
                 "probe": "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
+                "behavior_probes": [
+                    "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
+                    "tools/d3d12-metal-sdk/probes/probe_mini_suite",
+                    "tools/d3d12-metal-sdk/probes/probe_device_caps",
+                ],
                 "probe_status": "sampler_feedback_tier_0_9_passed_mesh_pipeline_statistics1_proven_mesh_tier_gated",
                 "required_fields": ["MeshShaderTier", "SamplerFeedbackTier", "PIPELINE_STATISTICS1 ASInvocations/MSInvocations/MSPrimitives"],
                 "risk": "Tier 0.9 is backed by exact min-mip/mip-used, 2D/array, clear, encode/decode, contention, and all-four-write-form probes. Mesh AS/MS pipeline statistics now pass the focused invocation/primitive probe; mesh tier remains gated on mixed render-state and broader shader/payload breadth.",
