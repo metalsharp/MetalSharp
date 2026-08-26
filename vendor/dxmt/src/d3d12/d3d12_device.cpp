@@ -1281,6 +1281,7 @@ public:
       m_type = source->m_type;
       m_subobject_types = source->m_subobject_types;
       m_exports = source->m_exports;
+      m_export_imports = source->m_export_imports;
       m_shader_identifiers = source->m_shader_identifiers;
       m_pipeline_stack_size = source->m_pipeline_stack_size;
       m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
@@ -1326,8 +1327,13 @@ public:
           return false;
         raytracing_library = library->DXILLibrary;
         for (UINT e = 0; e < library->NumExports; e++) {
-          if (library->pExports[e].Name)
+          if (library->pExports[e].Name) {
             m_exports.emplace_back(library->pExports[e].Name);
+            m_export_imports[library->pExports[e].Name] =
+                library->pExports[e].ExportToRename
+                    ? library->pExports[e].ExportToRename
+                    : library->pExports[e].Name;
+          }
         }
       } else if (subobject.Type ==
                      D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE &&
@@ -1598,29 +1604,40 @@ public:
 
     for (const auto &export_name : m_exports) {
       std::array<uint8_t, 32> identifier = {};
+      auto import = m_export_imports.find(export_name);
+      const std::wstring &canonical_name =
+          import == m_export_imports.end() ? export_name : import->second;
       const uint64_t visible_function_index =
-          export_name == L"raygen"       ? 1ull
-          : export_name == L"miss_shader" ? 2ull
-          : export_name == L"hit_group" || export_name == L"closest_hit"
+          canonical_name == L"raygen"       ? 1ull
+          : canonical_name == L"miss_shader" ? 2ull
+          : canonical_name == L"hit_group" ||
+                    canonical_name == L"closest_hit"
               ? 3ull
-          : export_name == L"callable_shader" ? 4ull
-          : export_name == L"any_hit" ? 5ull
-          : export_name == L"procedural_intersection"
+          : canonical_name == L"callable_shader" ? 4ull
+          : canonical_name == L"any_hit" ? 5ull
+          : canonical_name == L"procedural_intersection"
               ? 6ull
-          : export_name == L"procedural_closest_hit" ||
-                    export_name == L"procedural_hit_group"
+          : canonical_name == L"procedural_closest_hit" ||
+                    canonical_name == L"procedural_hit_group"
               ? 7ull
               : 0ull;
       const uint64_t intersection_function_index =
-          export_name == L"hit_group" && has_any_hit_shader
+          canonical_name == L"hit_group" && has_any_hit_shader
               ? 5ull
-          : export_name == L"procedural_hit_group" && has_procedural_hit_group
+          : canonical_name == L"procedural_hit_group" &&
+                    has_procedural_hit_group
               ? 6ull
               : 0ull;
       memcpy(identifier.data(), &intersection_function_index,
              sizeof(intersection_function_index));
       memcpy(identifier.data() + sizeof(uint64_t),
              &visible_function_index, sizeof(visible_function_index));
+      uint64_t export_hash = 1469598103934665603ull;
+      for (WCHAR c : export_name) {
+        export_hash ^= static_cast<uint16_t>(c);
+        export_hash *= 1099511628211ull;
+      }
+      memcpy(identifier.data() + 16, &export_hash, sizeof(export_hash));
       m_shader_identifiers.emplace(export_name, identifier);
     }
     TRACE("StateObject raygen pipeline compiled exports=%zu pso=%llu "
@@ -1843,6 +1860,7 @@ private:
   D3D12_STATE_OBJECT_TYPE m_type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
   std::vector<D3D12_STATE_SUBOBJECT_TYPE> m_subobject_types;
   std::vector<std::wstring> m_exports;
+  std::unordered_map<std::wstring, std::wstring> m_export_imports;
   std::unordered_map<std::wstring, std::array<uint8_t, 32>>
       m_shader_identifiers;
   UINT64 m_pipeline_stack_size = 0;

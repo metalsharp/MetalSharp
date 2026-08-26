@@ -1023,7 +1023,10 @@ the goal is not complete.
   while a record-local UAV
   receives exact marker `0x4c525557`. Recursion only returns `0x52454332` when
   both local reads and the existing any-hit/nested-miss behavior are correct.
-  Its second 64-byte
+  Renamed miss and callable exports preserve their canonical Metal function
+  indices while using distinct stable identifier tails; `TraceRay` and
+  `CallShader` select index 1 from their two-record tables and produce
+  `0x4d495353` and `0x43414c4c`. Its second 64-byte
   hit-group record
   selects a
   procedural intersection
@@ -1037,5 +1040,5 @@ the goal is not complete.
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry, larger geometry/instance arrays,
   serialization/deserialization, new-library state-object growth,
-  local descriptor tables/samplers, and complete multi-record shader-table
-  semantics.
+  local descriptor tables/samplers, and broader variable-stride/local-data
+  shader-table matrices.
