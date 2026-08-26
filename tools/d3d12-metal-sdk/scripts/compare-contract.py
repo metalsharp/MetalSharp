@@ -423,12 +423,22 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
     ):
         contract_entry = features.get(feature_name, {})
         advertised = {key: advanced.get(key) for key in key_map}
-        compliant = not any(bool(value) for value in advertised.values())
+        expects_support = contract_entry.get("reported") == "supported"
+        atomic_proof = bool(
+            get_nested(sm66_probe, "summary", "runtime_correctness_complete")
+        )
+        compliant = (
+            all(bool(value) for value in advertised.values()) and atomic_proof
+            if expects_support
+            else not any(bool(value) for value in advertised.values())
+        )
         summary.append(
             {
                 "feature": feature_name,
                 "state": contract_entry.get("state"),
                 "advertised": advertised,
+                "expected_supported": expects_support,
+                "runtime_proof": atomic_proof,
                 "compliant": compliant,
             }
         )
@@ -437,8 +447,8 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
                 Issue(
                     "error",
                     "feature_support",
-                    f"{feature_name} advertises non-conservative atomic64 support",
-                    f"Observed values: {advertised}.",
+                    f"{feature_name} atomic64 report does not match its contract",
+                    f"Observed values: {advertised}, expected_supported={expects_support}, runtime_proof={atomic_proof}.",
                 )
             )
 
