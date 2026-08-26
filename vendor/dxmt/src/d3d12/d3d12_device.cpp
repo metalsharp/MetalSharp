@@ -16,6 +16,7 @@
 #define PLTRACE(fmt, ...) TRACE(fmt, ##__VA_ARGS__)
 #include "d3d12_root_signature.hpp"
 #include "com/com_object.hpp"
+#include "config/config.hpp"
 #include "log/log.hpp"
 #include "thread.hpp"
 #include "util_string.hpp"
@@ -26,6 +27,7 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <utility>
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
 #include <windows.h>
@@ -106,6 +108,39 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep) {
 void install_crash_handler() { AddVectoredExceptionHandler(1, crash_handler); }
 
 namespace dxmt {
+
+D3D_FEATURE_LEVEL D3D12ConfiguredMaximumFeatureLevel() {
+  static const D3D_FEATURE_LEVEL maximum = [] {
+    const auto configured = Config::getInstance().getOption<std::string>(
+        "d3d12.maxFeatureLevel", "");
+    if (configured.empty())
+      return kD3D12BuildMaximumFeatureLevel;
+
+    static const std::pair<const char *, D3D_FEATURE_LEVEL> levels[] = {
+        {"11_0", D3D_FEATURE_LEVEL_11_0},
+        {"11_1", D3D_FEATURE_LEVEL_11_1},
+        {"12_0", D3D_FEATURE_LEVEL_12_0},
+        {"12_1", D3D_FEATURE_LEVEL_12_1},
+        {"12_2", D3D_FEATURE_LEVEL_12_2},
+    };
+    D3D_FEATURE_LEVEL requested = kD3D12BuildMaximumFeatureLevel;
+    bool valid = false;
+    for (const auto &[name, level] : levels) {
+      if (configured == name) {
+        requested = level;
+        valid = true;
+        break;
+      }
+    }
+    if (!valid) {
+      Logger::warn(str::format("D3D12 invalid maxFeatureLevel=", configured,
+                               "; using build maximum"));
+      return kD3D12BuildMaximumFeatureLevel;
+    }
+    return std::min(requested, kD3D12BuildMaximumFeatureLevel);
+  }();
+  return maximum;
+}
 
 static const GUID IID_ID3D12Device11_ = {
     0x5405c344,
@@ -3071,7 +3106,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return E_INVALIDARG;
     fl->MaxSupportedFeatureLevel = D3D_FEATURE_LEVEL_9_1;
     for (UINT i = 0; i < fl->NumFeatureLevels; i++) {
-      if (fl->pFeatureLevelsRequested[i] <= kD3D12MaximumFeatureLevel &&
+      if (fl->pFeatureLevelsRequested[i] <= D3D12ConfiguredMaximumFeatureLevel() &&
           fl->pFeatureLevelsRequested[i] > fl->MaxSupportedFeatureLevel) {
         fl->MaxSupportedFeatureLevel = fl->pFeatureLevelsRequested[i];
       }

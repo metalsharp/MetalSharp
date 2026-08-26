@@ -480,8 +480,10 @@ Findings:
   dxmt.shaderMetalVersion = 310
   ```
 
-- The config has no D3D12 feature-level policy and still pins shader generation
-  to Metal 3.1 despite the proof host and Xcode beta supporting Metal 4.
+- `d3d12.maxFeatureLevel` now accepts `11_0`, `11_1`, `12_0`, `12_1`, and
+  `12_2`; the D3D12 runtime caps the setting at its behavior-backed build
+  maximum, which is still 12_1. The config still pins shader generation to
+  Metal 3.1 despite the proof host and Xcode beta supporting Metal 4.
 - The final runtime must not depend on the user's long-lived Steam prefix for
   probes.
 
@@ -950,7 +952,9 @@ Before declaring the goal complete, map each item below to actual evidence:
   breadth and quad-vote gates pass, while advanced texture-op breadth remains.
 - [ ] DXR 1.1 acceleration structure, state object, shader table, and dispatch
       probes pass.
-- [ ] D3D12/DXGI/WineMetal risky stubs and false-success paths are removed.
+- [ ] D3D12/DXGI/WineMetal risky stubs and false-success paths are removed;
+  adapter-change registration is proven, while broader sparse/VRS/DXR gaps
+  remain explicitly gated.
 - [ ] Full rebuild passes.
 - [ ] Full SDK strict gate passes.
 - [ ] D3D10/D3D11 regressions pass.
