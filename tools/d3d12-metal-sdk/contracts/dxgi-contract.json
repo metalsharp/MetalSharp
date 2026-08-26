@@ -40,9 +40,12 @@
         "D3D12 device QueryInterface succeeds for IDXGIDevice through IDXGIDevice3",
         "EnqueueSetEvent remains unsignaled while any command queue is blocked on earlier work",
         "EnqueueSetEvent signals only after completion markers on every live D3D12 queue and retains its own event handle",
-        "EnqueueSetEvent rejects a null handle with E_INVALIDARG"
+        "EnqueueSetEvent rejects a null handle with E_INVALIDARG",
+        "GPU thread priority persists across set/get and rejects values outside the relative -7 through 7 range",
+        "maximum frame latency defaults to 3, persists values from 1 through 16, and resets to 3 when set to zero",
+        "offer/reclaim validates arguments and preserves contents on the unified-memory backend"
       ],
-      "state": "runtime_proven"
+      "state": "partial_runtime_proven"
     },
     "IDXGISwapChain": {
       "required_behavior": [

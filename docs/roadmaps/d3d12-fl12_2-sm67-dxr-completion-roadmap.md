@@ -354,8 +354,12 @@ Findings:
   holds one copy queue behind an unsignaled fence, proves the event does not
   fire early, closes the caller handle, releases the fence, and proves eventual
   signaling across two direct, one compute, and one copy queue.
-- Offer/reclaim/trim and some priority/latency calls return success without a
-  full state model.
+- GPU thread priority now persists the documented relative `-7..7` range and
+  rejects invalid/null calls. Maximum frame latency now defaults to 3, persists
+  `1..16`, and resets on zero. Offer/reclaim validates arrays and priority,
+  tracks offered resource identities, and reports preserved contents on the
+  unified-memory backend; zero-resource forms are probe-covered. `Trim` and
+  actual frame-latency pacing remain intentionally incomplete.
 - Several output duplication/overlay/gamma/ownership paths are incomplete.
 - Swapchain color space, HDR metadata, transforms, frame latency, fullscreen,
   and resize need a focused conformance matrix across `IDXGISwapChain1`–`4`.

@@ -5,6 +5,7 @@
 #include <dxgi1_6.h>
 
 #include <cinttypes>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -292,6 +293,67 @@ int main() {
     IDXGIDevice3* dxgi_device3 = nullptr;
     HRESULT dxgi_device3_qi_hr =
         device ? device->QueryInterface(IID_PPV_ARGS(&dxgi_device3)) : E_FAIL;
+    INT default_gpu_priority = INT_MIN;
+    HRESULT get_default_gpu_priority_hr =
+        dxgi_device3
+            ? dxgi_device3->GetGPUThreadPriority(&default_gpu_priority)
+            : E_NOINTERFACE;
+    HRESULT set_gpu_priority_hr =
+        dxgi_device3 ? dxgi_device3->SetGPUThreadPriority(-7)
+                     : E_NOINTERFACE;
+    INT updated_gpu_priority = INT_MIN;
+    HRESULT get_updated_gpu_priority_hr =
+        dxgi_device3
+            ? dxgi_device3->GetGPUThreadPriority(&updated_gpu_priority)
+            : E_NOINTERFACE;
+    HRESULT set_invalid_gpu_priority_hr =
+        dxgi_device3 ? dxgi_device3->SetGPUThreadPriority(-8)
+                     : E_NOINTERFACE;
+    HRESULT get_null_gpu_priority_hr =
+        dxgi_device3 ? dxgi_device3->GetGPUThreadPriority(nullptr)
+                     : E_NOINTERFACE;
+    UINT default_frame_latency = UINT_MAX;
+    HRESULT get_default_frame_latency_hr =
+        dxgi_device3
+            ? dxgi_device3->GetMaximumFrameLatency(&default_frame_latency)
+            : E_NOINTERFACE;
+    HRESULT set_frame_latency_hr =
+        dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(7)
+                     : E_NOINTERFACE;
+    UINT updated_frame_latency = UINT_MAX;
+    HRESULT get_updated_frame_latency_hr =
+        dxgi_device3
+            ? dxgi_device3->GetMaximumFrameLatency(&updated_frame_latency)
+            : E_NOINTERFACE;
+    HRESULT reset_frame_latency_hr =
+        dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(0)
+                     : E_NOINTERFACE;
+    UINT reset_frame_latency = UINT_MAX;
+    HRESULT get_reset_frame_latency_hr =
+        dxgi_device3
+            ? dxgi_device3->GetMaximumFrameLatency(&reset_frame_latency)
+            : E_NOINTERFACE;
+    HRESULT set_invalid_frame_latency_hr =
+        dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(17)
+                     : E_NOINTERFACE;
+    HRESULT zero_residency_hr =
+        dxgi_device3
+            ? dxgi_device3->QueryResourceResidency(nullptr, nullptr, 0)
+            : E_NOINTERFACE;
+    HRESULT zero_offer_hr =
+        dxgi_device3
+            ? dxgi_device3->OfferResources(
+                  0, nullptr, DXGI_OFFER_RESOURCE_PRIORITY_NORMAL)
+            : E_NOINTERFACE;
+    HRESULT invalid_offer_priority_hr =
+        dxgi_device3
+            ? dxgi_device3->OfferResources(
+                  0, nullptr,
+                  static_cast<DXGI_OFFER_RESOURCE_PRIORITY>(0))
+            : E_NOINTERFACE;
+    HRESULT zero_reclaim_hr =
+        dxgi_device3 ? dxgi_device3->ReclaimResources(0, nullptr, nullptr)
+                     : E_NOINTERFACE;
     HRESULT enqueue_null_event_hr =
         dxgi_device3 ? dxgi_device3->EnqueueSetEvent(nullptr) : E_NOINTERFACE;
     HANDLE enqueue_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
@@ -417,6 +479,17 @@ int main() {
                 SUCCEEDED(copy_fence_hr) && SUCCEEDED(render_fence_hr) && SUCCEEDED(compute_fence_hr) &&
                 SUCCEEDED(present_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(copy_buffer_hr) &&
                 SUCCEEDED(dxgi_block_fence_hr) && SUCCEEDED(dxgi_device3_qi_hr) &&
+                SUCCEEDED(get_default_gpu_priority_hr) && default_gpu_priority == 0 &&
+                SUCCEEDED(set_gpu_priority_hr) && SUCCEEDED(get_updated_gpu_priority_hr) &&
+                updated_gpu_priority == -7 && set_invalid_gpu_priority_hr == E_INVALIDARG &&
+                get_null_gpu_priority_hr == E_POINTER &&
+                SUCCEEDED(get_default_frame_latency_hr) && default_frame_latency == 3 &&
+                SUCCEEDED(set_frame_latency_hr) && SUCCEEDED(get_updated_frame_latency_hr) &&
+                updated_frame_latency == 7 && SUCCEEDED(reset_frame_latency_hr) &&
+                SUCCEEDED(get_reset_frame_latency_hr) && reset_frame_latency == 3 &&
+                set_invalid_frame_latency_hr == E_INVALIDARG && SUCCEEDED(zero_residency_hr) &&
+                SUCCEEDED(zero_offer_hr) && invalid_offer_priority_hr == E_INVALIDARG &&
+                SUCCEEDED(zero_reclaim_hr) &&
                 enqueue_null_event_hr == E_INVALIDARG && duplicate_enqueue_event &&
                 SUCCEEDED(dxgi_queue_block_hr) && SUCCEEDED(enqueue_set_event_hr) &&
                 enqueue_initial_wait == WAIT_TIMEOUT && SUCCEEDED(dxgi_block_release_hr) &&
@@ -498,6 +571,21 @@ int main() {
     print_hr("present_signal", present_signal_hr);
     print_hr("cpu_wait", cpu_wait_hr);
     print_hr("dxgi_device3_qi", dxgi_device3_qi_hr);
+    print_hr("get_default_gpu_priority", get_default_gpu_priority_hr);
+    print_hr("set_gpu_priority", set_gpu_priority_hr);
+    print_hr("get_updated_gpu_priority", get_updated_gpu_priority_hr);
+    print_hr("set_invalid_gpu_priority", set_invalid_gpu_priority_hr);
+    print_hr("get_null_gpu_priority", get_null_gpu_priority_hr);
+    print_hr("get_default_frame_latency", get_default_frame_latency_hr);
+    print_hr("set_frame_latency", set_frame_latency_hr);
+    print_hr("get_updated_frame_latency", get_updated_frame_latency_hr);
+    print_hr("reset_frame_latency_hr", reset_frame_latency_hr);
+    print_hr("get_reset_frame_latency", get_reset_frame_latency_hr);
+    print_hr("set_invalid_frame_latency", set_invalid_frame_latency_hr);
+    print_hr("zero_resource_residency", zero_residency_hr);
+    print_hr("zero_resource_offer", zero_offer_hr);
+    print_hr("invalid_offer_priority", invalid_offer_priority_hr);
+    print_hr("zero_resource_reclaim", zero_reclaim_hr);
     print_hr("enqueue_null_event", enqueue_null_event_hr);
     print_hr("dxgi_queue_block", dxgi_queue_block_hr);
     print_hr("enqueue_set_event", enqueue_set_event_hr);
@@ -508,6 +596,11 @@ int main() {
                 enqueue_initial_wait == WAIT_TIMEOUT ? "true" : "false");
     std::printf("    \"enqueue_event_signaled_after_all_queues\": %s,\n",
                 enqueue_final_wait == WAIT_OBJECT_0 ? "true" : "false");
+    std::printf("    \"default_gpu_priority\": %d,\n", default_gpu_priority);
+    std::printf("    \"updated_gpu_priority\": %d,\n", updated_gpu_priority);
+    std::printf("    \"default_frame_latency\": %u,\n", default_frame_latency);
+    std::printf("    \"updated_frame_latency\": %u,\n", updated_frame_latency);
+    std::printf("    \"reset_frame_latency_value\": %u,\n", reset_frame_latency);
     std::printf("    \"copy_completed\": %" PRIu64 ",\n", copy_completed);
     std::printf("    \"render_completed\": %" PRIu64 ",\n", render_completed);
     std::printf("    \"compute_completed\": %" PRIu64 ",\n", compute_completed);
