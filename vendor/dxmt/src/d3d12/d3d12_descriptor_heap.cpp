@@ -4,6 +4,7 @@
 #include "util_string.hpp"
 #include <cstring>
 #include <cstdlib>
+#include <algorithm>
 #include <windows.h>
 
 #define HTRACE(fmt, ...) do { FILE *_tf = dxmt::openDiagnosticLog("dxmt-d3d12-trace.log"); if (_tf) { fprintf(_tf, "DescHeap::" fmt "\n", ##__VA_ARGS__); fclose(_tf); } } while(0)
@@ -29,9 +30,28 @@ MTLD3D12DescriptorHeap::MTLD3D12DescriptorHeap(
     HTRACE("DescriptorHeap ctor: HeapAlloc data=%p", (void *)m_data);
   }
   if (m_data) {
+    for (uint32_t i = 0; i < m_desc.NumDescriptors; i++) {
+      m_data[i].owner = this;
+      m_data[i].type = m_desc.Type;
+    }
     HTRACE("DescriptorHeap ctor: OK data=%p", (void *)m_data);
   } else {
     HTRACE("DescriptorHeap ctor: ALLOC FAILED for %u bytes!", (unsigned)alloc_size);
+  }
+  if (m_data && IsShaderVisible() && m_desc.NumDescriptors) {
+    WMTBufferInfo mirror_info = {};
+    mirror_info.length = std::max<size_t>(
+        256, size_t(m_desc.NumDescriptors) * sizeof(D3D12DescriptorTableEntry));
+    mirror_info.options = WMTResourceStorageModeShared |
+                          WMTResourceHazardTrackingModeTracked;
+    m_gpu_descriptor_buffer =
+        m_device->GetDXMTDevice().device().newBuffer(mirror_info);
+    if (m_gpu_descriptor_buffer.handle)
+      m_gpu_descriptor_gpu_address = mirror_info.gpu_address;
+    HTRACE("DescriptorHeap ctor: shader mirror=%p gpu=0x%llx len=%llu",
+           (void *)m_gpu_descriptor_buffer.handle,
+           (unsigned long long)m_gpu_descriptor_gpu_address,
+           (unsigned long long)mirror_info.length);
   }
   Logger::info(str::format("D3D12DescriptorHeap: type=", desc.Type,
                             " count=", desc.NumDescriptors,
@@ -111,6 +131,47 @@ D3D12_DESCRIPTOR_HEAP_DESC *STDMETHODCALLTYPE
 MTLD3D12DescriptorHeap::GetDesc(D3D12_DESCRIPTOR_HEAP_DESC *__ret) {
   *__ret = m_desc;
   return __ret;
+}
+
+uint32_t MTLD3D12DescriptorHeap::GetDescriptorIndex(
+    const D3D12Descriptor *descriptor) const {
+  if (!descriptor || !m_data)
+    return UINT32_MAX;
+  const uintptr_t address = reinterpret_cast<uintptr_t>(descriptor);
+  const uintptr_t begin = reinterpret_cast<uintptr_t>(m_data);
+  const uintptr_t end = begin + m_data_size;
+  if (address < begin || address >= end ||
+      (address - begin) % sizeof(D3D12Descriptor) != 0)
+    return UINT32_MAX;
+  const size_t index = (address - begin) / sizeof(D3D12Descriptor);
+  return index < m_desc.NumDescriptors ? static_cast<uint32_t>(index)
+                                       : UINT32_MAX;
+}
+
+uint32_t MTLD3D12DescriptorHeap::GetDescriptorIndexFromGPUHandle(
+    D3D12_GPU_DESCRIPTOR_HANDLE handle, uint32_t offset) const {
+  const uintptr_t address = static_cast<uintptr_t>(handle.ptr);
+  const uintptr_t begin = reinterpret_cast<uintptr_t>(m_data);
+  const uintptr_t end = begin + m_data_size;
+  if (!m_data || address < begin || address >= end ||
+      (address - begin) % sizeof(D3D12Descriptor) != 0)
+    return UINT32_MAX;
+  const size_t index = (address - begin) / sizeof(D3D12Descriptor);
+  if (index >= m_desc.NumDescriptors ||
+      offset >= m_desc.NumDescriptors - index)
+    return UINT32_MAX;
+  return static_cast<uint32_t>(index + offset);
+}
+
+void MTLD3D12DescriptorHeap::UpdateShaderVisibleDescriptor(
+    const D3D12Descriptor *descriptor,
+    const D3D12DescriptorTableEntry &entry) {
+  const uint32_t index = GetDescriptorIndex(descriptor);
+  if (!m_gpu_descriptor_buffer.handle || index == UINT32_MAX)
+    return;
+  m_gpu_descriptor_buffer.updateContents(
+      uint64_t(index) * sizeof(D3D12DescriptorTableEntry), &entry,
+      sizeof(entry));
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE *STDMETHODCALLTYPE

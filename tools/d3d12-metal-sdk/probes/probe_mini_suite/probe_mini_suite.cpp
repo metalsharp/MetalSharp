@@ -2882,6 +2882,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12StateObjectProperties* raytracing_properties = nullptr;
     ID3D12StateObjectProperties* grown_raytracing_properties = nullptr;
     ID3D12DescriptorHeap* ray_query_heap = nullptr;
+    ID3D12DescriptorHeap* local_sampler_heap = nullptr;
     ID3D12Resource* vertices = nullptr;
     ID3D12Resource* updated_vertices = nullptr;
     ID3D12Resource* indices = nullptr;
@@ -2921,6 +2922,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* closest_hit_local_cbv = nullptr;
     ID3D12Resource* closest_hit_local_uav = nullptr;
     ID3D12Resource* closest_hit_local_uav_readback = nullptr;
+    ID3D12Resource* closest_hit_local_texture = nullptr;
+    ID3D12DescriptorHeap* local_texture_rtv_heap = nullptr;
+    bool local_descriptor_tables_written = false;
+    bool local_sampler_table_written = false;
     bool source_acceleration_structures_released_before_traversal = false;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
     if (SUCCEEDED(hr))
@@ -2971,27 +2976,57 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
-    D3D12_ROOT_PARAMETER local_root_params[4] = {};
+    D3D12_ROOT_PARAMETER local_root_params[5] = {};
     local_root_params[0].ParameterType =
         D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     local_root_params[0].Constants.ShaderRegister = 1;
     local_root_params[0].Constants.RegisterSpace = 0;
     local_root_params[0].Constants.Num32BitValues = 1;
     local_root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    local_root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    local_root_params[1].Descriptor.ShaderRegister = 1;
-    local_root_params[1].Descriptor.RegisterSpace = 0;
+    local_root_params[1].ParameterType =
+        D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     local_root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    local_root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    local_root_params[2].Descriptor.ShaderRegister = 1;
-    local_root_params[2].Descriptor.RegisterSpace = 0;
+    D3D12_DESCRIPTOR_RANGE local_ranges[5] = {};
+    local_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    local_ranges[0].NumDescriptors = 1;
+    local_ranges[0].BaseShaderRegister = 1;
+    local_ranges[0].RegisterSpace = 0;
+    local_ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    local_ranges[1].NumDescriptors = 1;
+    local_ranges[1].BaseShaderRegister = 2;
+    local_ranges[1].RegisterSpace = 0;
+    local_ranges[1].OffsetInDescriptorsFromTableStart = 1;
+    local_ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    local_ranges[2].NumDescriptors = 1;
+    local_ranges[2].BaseShaderRegister = 1;
+    local_ranges[2].RegisterSpace = 0;
+    local_ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    local_ranges[3].NumDescriptors = 1;
+    local_ranges[3].BaseShaderRegister = 2;
+    local_ranges[3].RegisterSpace = 0;
+    local_ranges[4].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    local_ranges[4].NumDescriptors = 1;
+    local_ranges[4].BaseShaderRegister = 0;
+    local_ranges[4].RegisterSpace = 0;
+    local_root_params[1].DescriptorTable.NumDescriptorRanges = 2;
+    local_root_params[1].DescriptorTable.pDescriptorRanges = local_ranges;
+    local_root_params[2].ParameterType =
+        D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    local_root_params[2].DescriptorTable.NumDescriptorRanges = 1;
+    local_root_params[2].DescriptorTable.pDescriptorRanges = &local_ranges[2];
     local_root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    local_root_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    local_root_params[3].Descriptor.ShaderRegister = 2;
-    local_root_params[3].Descriptor.RegisterSpace = 0;
+    local_root_params[3].ParameterType =
+        D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    local_root_params[3].DescriptorTable.NumDescriptorRanges = 1;
+    local_root_params[3].DescriptorTable.pDescriptorRanges = &local_ranges[3];
     local_root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    local_root_params[4].ParameterType =
+        D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    local_root_params[4].DescriptorTable.NumDescriptorRanges = 1;
+    local_root_params[4].DescriptorTable.pDescriptorRanges = &local_ranges[4];
+    local_root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     D3D12_ROOT_SIGNATURE_DESC local_root_desc = {};
-    local_root_desc.NumParameters = 4;
+    local_root_desc.NumParameters = 5;
     local_root_desc.pParameters = local_root_params;
     local_root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
     ID3DBlob* local_root_blob = nullptr;
@@ -3052,6 +3087,54 @@ static ProbeResult probe_dxr_acceleration_structures() {
             &readback_heap, D3D12_HEAP_FLAG_NONE, &local_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&closest_hit_local_uav_readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC local_texture_desc = texture_desc(
+            1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE);
+        D3D12_CLEAR_VALUE clear_value = {};
+        clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        clear_value.Color[0] = 1.0f;
+        clear_value.Color[3] = 1.0f;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &local_texture_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value,
+            IID_PPV_ARGS(&closest_hit_local_texture));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+        rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        rtv_heap_desc.NumDescriptors = 1;
+        hr = device->CreateDescriptorHeap(
+            &rtv_heap_desc, IID_PPV_ARGS(&local_texture_rtv_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        device->CreateRenderTargetView(
+            closest_hit_local_texture, nullptr,
+            local_texture_rtv_heap->GetCPUDescriptorHandleForHeapStart());
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC sampler_heap_desc = {};
+        sampler_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+        sampler_heap_desc.NumDescriptors = 1;
+        sampler_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(
+            &sampler_heap_desc, IID_PPV_ARGS(&local_sampler_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_SAMPLER_DESC sampler_desc = {};
+        sampler_desc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler_desc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler_desc.MinLOD = 0.0f;
+        sampler_desc.MaxLOD = D3D12_FLOAT32_MAX;
+        sampler_desc.MaxAnisotropy = 1;
+        sampler_desc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        device->CreateSampler(
+            &sampler_desc,
+            local_sampler_heap->GetCPUDescriptorHandleForHeapStart());
     }
 
     D3D12_EXPORT_DESC raygen_exports[9] = {};
@@ -3353,7 +3436,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
-        D3D12_RESOURCE_DESC table_desc = buffer_desc(448);
+        D3D12_RESOURCE_DESC table_desc = buffer_desc(640);
         hr = device->CreateCommittedResource(
             &upload_heap, D3D12_HEAP_FLAG_NONE, &table_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -3365,47 +3448,22 @@ static ProbeResult probe_dxr_acceleration_structures() {
             std::memcpy(mapped, raygen_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 64, miss_identifier,
                         32);
-            std::memcpy(static_cast<uint8_t*>(mapped) + 128,
-                        miss_alias_identifier, 32);
-            std::memcpy(static_cast<uint8_t*>(mapped) + 192,
-                        grown_hit_group_identifier, 32);
-            const uint32_t closest_hit_local_marker = 0x4c4f434c;
-            std::memcpy(static_cast<uint8_t*>(mapped) + 96,
-                        &closest_hit_local_marker,
-                        sizeof(closest_hit_local_marker));
             std::memcpy(static_cast<uint8_t*>(mapped) + 160,
-                        &closest_hit_local_marker,
-                        sizeof(closest_hit_local_marker));
-            std::memcpy(static_cast<uint8_t*>(mapped) + 224,
-                        &closest_hit_local_marker,
-                        sizeof(closest_hit_local_marker));
-            const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_srv_address =
-                closest_hit_local_srv->GetGPUVirtualAddress();
-            std::memcpy(static_cast<uint8_t*>(mapped) + 232,
-                        &closest_hit_local_srv_address,
-                        sizeof(closest_hit_local_srv_address));
-            const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_uav_address =
-                closest_hit_local_uav->GetGPUVirtualAddress();
-            std::memcpy(static_cast<uint8_t*>(mapped) + 240,
-                        &closest_hit_local_uav_address,
-                        sizeof(closest_hit_local_uav_address));
-            const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_cbv_address =
-                closest_hit_local_cbv->GetGPUVirtualAddress();
-            std::memcpy(static_cast<uint8_t*>(mapped) + 248,
-                        &closest_hit_local_cbv_address,
-                        sizeof(closest_hit_local_cbv_address));
+                        miss_alias_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 256,
-                        procedural_hit_group_identifier, 32);
-            std::memcpy(static_cast<uint8_t*>(mapped) + 320,
-                        callable_identifier, 32);
+                        grown_hit_group_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 352,
-                        &closest_hit_local_marker,
-                        sizeof(closest_hit_local_marker));
-            std::memcpy(static_cast<uint8_t*>(mapped) + 384,
+                        procedural_hit_group_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 448,
+                        callable_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 544,
                         callable_alias_identifier, 32);
-            std::memcpy(static_cast<uint8_t*>(mapped) + 416,
-                        &closest_hit_local_marker,
-                        sizeof(closest_hit_local_marker));
+            const uint32_t closest_hit_local_marker = 0x4c4f434c;
+            const uint32_t local_record_offsets[] = {64, 160, 256, 448, 544};
+            for (uint32_t record_offset : local_record_offsets)
+                std::memcpy(static_cast<uint8_t*>(mapped) + record_offset + 32,
+                            &closest_hit_local_marker,
+                            sizeof(closest_hit_local_marker));
             raygen_shader_table->Unmap(0, nullptr);
         }
     }
@@ -3929,7 +3987,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heap_desc.NumDescriptors = 2;
+        heap_desc.NumDescriptors = 6;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc,
                                           IID_PPV_ARGS(&ray_query_heap));
@@ -3974,6 +4032,77 @@ static ProbeResult probe_dxr_acceleration_structures() {
         output_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(ray_query_output, nullptr,
                                           &output_uav, cpu);
+
+        cpu.ptr += increment;
+        D3D12_SHADER_RESOURCE_VIEW_DESC local_srv_desc = {};
+        local_srv_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        local_srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        local_srv_desc.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        local_srv_desc.Buffer.NumElements = 64;
+        local_srv_desc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        device->CreateShaderResourceView(closest_hit_local_srv,
+                                         &local_srv_desc, cpu);
+
+        cpu.ptr += increment;
+        D3D12_SHADER_RESOURCE_VIEW_DESC local_texture_srv_desc = {};
+        local_texture_srv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        local_texture_srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        local_texture_srv_desc.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        local_texture_srv_desc.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(closest_hit_local_texture,
+                                         &local_texture_srv_desc, cpu);
+
+        cpu.ptr += increment;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC local_uav_desc = {};
+        local_uav_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+        local_uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        local_uav_desc.Buffer.NumElements = 64;
+        local_uav_desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(closest_hit_local_uav, nullptr,
+                                          &local_uav_desc, cpu);
+
+        cpu.ptr += increment;
+        D3D12_CONSTANT_BUFFER_VIEW_DESC local_cbv_desc = {};
+        local_cbv_desc.BufferLocation =
+            closest_hit_local_cbv->GetGPUVirtualAddress();
+        local_cbv_desc.SizeInBytes = 256;
+        device->CreateConstantBufferView(&local_cbv_desc, cpu);
+        D3D12_GPU_DESCRIPTOR_HANDLE local_srv_handle =
+            ray_query_heap->GetGPUDescriptorHandleForHeapStart();
+        local_srv_handle.ptr += increment * 2;
+        D3D12_GPU_DESCRIPTOR_HANDLE local_uav_handle = local_srv_handle;
+        local_uav_handle.ptr += increment * 2;
+        D3D12_GPU_DESCRIPTOR_HANDLE local_sampler_handle =
+            local_sampler_heap->GetGPUDescriptorHandleForHeapStart();
+        void* table_mapped = nullptr;
+        if (raygen_shader_table &&
+            SUCCEEDED(raygen_shader_table->Map(0, nullptr, &table_mapped)) &&
+            table_mapped) {
+            D3D12_GPU_DESCRIPTOR_HANDLE local_cbv_handle =
+                ray_query_heap->GetGPUDescriptorHandleForHeapStart();
+            local_cbv_handle.ptr += increment * 5;
+            const uint32_t table_offsets[] = {64, 160, 256, 448, 544};
+            for (uint32_t table_offset : table_offsets) {
+                std::memcpy(static_cast<uint8_t*>(table_mapped) + table_offset +
+                                40,
+                            &local_srv_handle, sizeof(local_srv_handle));
+                std::memcpy(static_cast<uint8_t*>(table_mapped) + table_offset +
+                                48,
+                            &local_uav_handle, sizeof(local_uav_handle));
+                std::memcpy(static_cast<uint8_t*>(table_mapped) + table_offset +
+                                56,
+                            &local_cbv_handle, sizeof(local_cbv_handle));
+                std::memcpy(static_cast<uint8_t*>(table_mapped) + table_offset +
+                                64,
+                            &local_sampler_handle,
+                            sizeof(local_sampler_handle));
+            }
+            raygen_shader_table->Unmap(0, nullptr);
+            local_descriptor_tables_written = true;
+            local_sampler_table_written = local_sampler_handle.ptr != 0;
+        }
     }
     if (SUCCEEDED(hr)) {
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build = {};
@@ -4145,9 +4274,23 @@ static ProbeResult probe_dxr_acceleration_structures() {
         if (SUCCEEDED(hr))
             hr = list4->Reset(allocator, nullptr);
 
-        ID3D12DescriptorHeap* heaps[] = {ray_query_heap};
+        if (SUCCEEDED(hr)) {
+            D3D12_CPU_DESCRIPTOR_HANDLE local_texture_rtv =
+                local_texture_rtv_heap->GetCPUDescriptorHandleForHeapStart();
+            const float clear_color[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+            list4->OMSetRenderTargets(1, &local_texture_rtv, FALSE, nullptr);
+            list4->ClearRenderTargetView(local_texture_rtv, clear_color, 0,
+                                         nullptr);
+            D3D12_RESOURCE_BARRIER local_texture_barrier = transition_barrier(
+                closest_hit_local_texture,
+                D3D12_RESOURCE_STATE_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            list4->ResourceBarrier(1, &local_texture_barrier);
+        }
+
+        ID3D12DescriptorHeap* heaps[] = {ray_query_heap, local_sampler_heap};
         if (SUCCEEDED(hr))
-            list4->SetDescriptorHeaps(1, heaps);
+            list4->SetDescriptorHeaps(2, heaps);
         if (SUCCEEDED(hr))
             list4->SetComputeRootSignature(compute_root);
         if (SUCCEEDED(hr))
@@ -4165,16 +4308,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
         dispatch_rays.RayGenerationShaderRecord.SizeInBytes = 32;
         dispatch_rays.MissShaderTable.StartAddress =
             raygen_shader_table->GetGPUVirtualAddress() + 64;
-        dispatch_rays.MissShaderTable.SizeInBytes = 128;
-        dispatch_rays.MissShaderTable.StrideInBytes = 64;
+        dispatch_rays.MissShaderTable.SizeInBytes = 192;
+        dispatch_rays.MissShaderTable.StrideInBytes = 96;
         dispatch_rays.HitGroupTable.StartAddress =
-            raygen_shader_table->GetGPUVirtualAddress() + 192;
-        dispatch_rays.HitGroupTable.SizeInBytes = 128;
-        dispatch_rays.HitGroupTable.StrideInBytes = 64;
+            raygen_shader_table->GetGPUVirtualAddress() + 256;
+        dispatch_rays.HitGroupTable.SizeInBytes = 192;
+        dispatch_rays.HitGroupTable.StrideInBytes = 96;
         dispatch_rays.CallableShaderTable.StartAddress =
-            raygen_shader_table->GetGPUVirtualAddress() + 320;
-        dispatch_rays.CallableShaderTable.SizeInBytes = 128;
-        dispatch_rays.CallableShaderTable.StrideInBytes = 64;
+            raygen_shader_table->GetGPUVirtualAddress() + 448;
+        dispatch_rays.CallableShaderTable.SizeInBytes = 192;
+        dispatch_rays.CallableShaderTable.StrideInBytes = 96;
         dispatch_rays.Width = 3;
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
@@ -4453,9 +4596,12 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           procedural_hit_value == 0x50524f43 &&
                           shader_identifier_abi_layout &&
                           collection_filtering_and_merge &&
+                          local_descriptor_tables_written &&
+                          local_sampler_table_written &&
                           local_root_uav_value == 0x4c525557;
 
     safe_release(raygen_shader_table);
+    safe_release(closest_hit_local_texture);
     safe_release(closest_hit_local_srv);
     safe_release(closest_hit_local_cbv);
     safe_release(closest_hit_local_uav_readback);
@@ -4502,6 +4648,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(updated_vertices);
     safe_release(indices);
     safe_release(ray_query_heap);
+    safe_release(local_sampler_heap);
+    safe_release(local_texture_rtv_heap);
     safe_release(compute_pso);
     safe_release(compute_root);
     safe_release(closest_hit_local_root);
@@ -4513,7 +4661,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, filtered merged collection-derived pipeline, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, filtered merged collection-derived pipeline, local resource/sampler descriptor-table mirror records, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -4615,6 +4763,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 (shader_identifier_abi_layout ? "true" : "false") +
                 ",\"shader_identifier_local_sampler_address\":" +
                 std::to_string(raygen_local_sampler_address) +
+                ",\"local_descriptor_tables_written\":" +
+                (local_descriptor_tables_written ? "true" : "false") +
+                ",\"local_sampler_table_written\":" +
+                (local_sampler_table_written ? "true" : "false") +
                 ",\"miss_shader_table_records\":2" +
                 ",\"callable_shader_table_records\":2" +
                 ",\"miss_shader_table_stride\":64" +

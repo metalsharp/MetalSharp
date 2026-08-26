@@ -84,6 +84,9 @@ GetD3D12StateObjectIntersectionFunctionTable(
     ID3D12StateObject *state_object);
 ID3D12RootSignature *
 GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object);
+bool GetD3D12StateObjectShaderRecordLocalRootSignature(
+    ID3D12StateObject *state_object, const void *shader_identifier,
+    ID3D12RootSignature **local_root_signature);
 
 class MTLD3D12Device : public ID3D12Device12Compat {
 public:

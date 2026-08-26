@@ -303,6 +303,7 @@ private:
   std::vector<uint8_t> m_cmds;
   std::vector<ID3D12PipelineState *> m_referenced_pipeline_states;
   std::vector<ID3D12StateObject *> m_referenced_state_objects;
+  std::vector<ID3D12DescriptorHeap *> m_referenced_descriptor_heaps;
   ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};

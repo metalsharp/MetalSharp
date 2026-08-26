@@ -25,6 +25,7 @@ struct RootParameter {
   uint32_t shader_visibility;
   uint32_t register_space;
   uint32_t register_index;
+  uint32_t num_32bit_values;
   uint32_t num_descriptors;
   D3D12_DESCRIPTOR_RANGE_TYPE range_type;
   uint32_t descriptor_table_entries;

@@ -556,6 +556,149 @@ static void CreateDescriptorTextureView(D3D12Descriptor *descriptor,
         mip_count, slice_start, slice_count);
 }
 
+static uint32_t DescriptorFormatByteSize(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_R32G32B32A32_FLOAT:
+  case DXGI_FORMAT_R32G32B32A32_UINT:
+  case DXGI_FORMAT_R32G32B32A32_SINT:
+    return 16;
+  case DXGI_FORMAT_R32G32B32_FLOAT:
+  case DXGI_FORMAT_R32G32B32_UINT:
+  case DXGI_FORMAT_R32G32B32_SINT:
+    return 12;
+  case DXGI_FORMAT_R16G16B16A16_FLOAT:
+  case DXGI_FORMAT_R16G16B16A16_UNORM:
+  case DXGI_FORMAT_R16G16B16A16_UINT:
+  case DXGI_FORMAT_R16G16B16A16_SNORM:
+  case DXGI_FORMAT_R16G16B16A16_SINT:
+  case DXGI_FORMAT_R32G32_FLOAT:
+  case DXGI_FORMAT_R32G32_UINT:
+  case DXGI_FORMAT_R32G32_SINT:
+    return 8;
+  case DXGI_FORMAT_R8G8B8A8_UNORM:
+  case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+  case DXGI_FORMAT_R8G8B8A8_UINT:
+  case DXGI_FORMAT_R8G8B8A8_SNORM:
+  case DXGI_FORMAT_R8G8B8A8_SINT:
+  case DXGI_FORMAT_B8G8R8A8_UNORM:
+  case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+  case DXGI_FORMAT_R16G16_FLOAT:
+  case DXGI_FORMAT_R16G16_UNORM:
+  case DXGI_FORMAT_R16G16_UINT:
+  case DXGI_FORMAT_R16G16_SNORM:
+  case DXGI_FORMAT_R16G16_SINT:
+  case DXGI_FORMAT_R32_FLOAT:
+  case DXGI_FORMAT_R32_UINT:
+  case DXGI_FORMAT_R32_SINT:
+    return 4;
+  case DXGI_FORMAT_R16_FLOAT:
+  case DXGI_FORMAT_R16_UNORM:
+  case DXGI_FORMAT_R16_UINT:
+  case DXGI_FORMAT_R16_SNORM:
+  case DXGI_FORMAT_R16_SINT:
+  case DXGI_FORMAT_R8G8_UNORM:
+  case DXGI_FORMAT_R8G8_UINT:
+  case DXGI_FORMAT_R8G8_SNORM:
+  case DXGI_FORMAT_R8G8_SINT:
+    return 2;
+  case DXGI_FORMAT_R8_UNORM:
+  case DXGI_FORMAT_R8_UINT:
+  case DXGI_FORMAT_R8_SNORM:
+  case DXGI_FORMAT_R8_SINT:
+    return 1;
+  default:
+    return 4;
+  }
+}
+
+static uint64_t DescriptorSamplerLodBiasBits(const D3D12Descriptor *descriptor) {
+  uint32_t bits = 0;
+  if (!descriptor)
+    return 0;
+  static_assert(sizeof(bits) == sizeof(descriptor->sampler.MipLODBias));
+  memcpy(&bits, &descriptor->sampler.MipLODBias, sizeof(bits));
+  return bits;
+}
+
+static uint64_t DescriptorBufferStride(DXGI_FORMAT format,
+                                       UINT structure_byte_stride) {
+  return structure_byte_stride ? structure_byte_stride
+                               : DescriptorFormatByteSize(format);
+}
+
+static void UpdateDescriptorTableMirror(MTLD3D12Device *device,
+                                        D3D12Descriptor *descriptor) {
+  if (!device || !descriptor || !descriptor->owner)
+    return;
+
+  D3D12DescriptorTableEntry entry = {};
+  if (descriptor->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER ||
+      descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
+    entry.gpu_va = descriptor->metal_sampler_gpu_id;
+    entry.metadata = DescriptorSamplerLodBiasBits(descriptor);
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  if (descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV) {
+    entry.gpu_va = descriptor->cbv.BufferLocation;
+    entry.metadata = descriptor->cbv.SizeInBytes;
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  auto *resource = descriptor->resource
+                       ? static_cast<MTLD3D12Resource *>(descriptor->resource)
+                       : nullptr;
+  if (!resource) {
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  const bool is_srv =
+      descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+  const bool is_uav =
+      descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+  if (!is_srv && !is_uav) {
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  if ((is_srv && descriptor->srv.ViewDimension ==
+                         D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)) {
+    entry.gpu_va = resource->GetRaytracingHeaderGPUAddress();
+    if (!entry.gpu_va)
+      entry.gpu_va = resource->GetGPUVirtualAddress();
+  } else if (resource->IsBuffer()) {
+    const DXGI_FORMAT format = is_srv ? descriptor->srv.Format
+                                      : descriptor->uav.Format;
+    const UINT structure_byte_stride =
+        is_srv ? descriptor->srv.Buffer.StructureByteStride
+               : descriptor->uav.Buffer.StructureByteStride;
+    const uint64_t stride = DescriptorBufferStride(format, structure_byte_stride);
+    const uint64_t first_element =
+        is_srv ? descriptor->srv.Buffer.FirstElement
+               : descriptor->uav.Buffer.FirstElement;
+    const uint64_t num_elements =
+        is_srv ? descriptor->srv.Buffer.NumElements
+               : descriptor->uav.Buffer.NumElements;
+    entry.gpu_va = resource->GetGPUVirtualAddress() + first_element * stride;
+    entry.metadata = (num_elements * stride) & UINT64_C(0xffffffff);
+    const bool raw_buffer =
+        is_srv ? (descriptor->srv.Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0
+               : (descriptor->uav.Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0;
+    if (!structure_byte_stride && format != DXGI_FORMAT_UNKNOWN &&
+        !raw_buffer)
+      entry.metadata |= UINT64_C(1) << 63;
+    entry.texture_view_id = descriptor->metal_texture_gpu_id;
+  } else {
+    entry.texture_view_id = descriptor->metal_texture_gpu_id
+                                ? descriptor->metal_texture_gpu_id
+                                : resource->GetTextureGPUResourceID();
+  }
+  descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+}
+
 } // namespace
 
 class MTLD3D12InfoQueue : public ID3D12InfoQueue {
@@ -1294,6 +1437,11 @@ public:
       m_raygen_visible_function_table =
           source->m_raygen_visible_function_table;
       m_intersection_function_table = source->m_intersection_function_table;
+      for (const auto &entry : source->m_local_root_signatures) {
+        if (entry.second)
+          entry.second->AddRef();
+        m_local_root_signatures.emplace(entry.first, entry.second);
+      }
       m_global_root_signature = source->m_global_root_signature;
       if (m_global_root_signature)
         m_global_root_signature->AddRef();
@@ -1312,6 +1460,10 @@ public:
   virtual ~MTLD3D12StateObject() {
     if (m_global_root_signature)
       m_global_root_signature->Release();
+    for (const auto &entry : m_local_root_signatures) {
+      if (entry.second)
+        entry.second->Release();
+    }
     for (auto *collection : m_existing_collections) {
       if (collection)
         collection->Release();
@@ -1331,6 +1483,10 @@ public:
     bool collection_relink_required = false;
     std::vector<const D3D12_EXISTING_COLLECTION_DESC *>
         existing_collections;
+    std::unordered_map<const D3D12_STATE_SUBOBJECT *, ID3D12RootSignature *>
+        local_root_subobjects;
+    std::vector<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *>
+        local_root_associations;
     for (UINT i = 0; i < desc->NumSubobjects; i++) {
       const auto &subobject = desc->pSubobjects[i];
       if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY &&
@@ -1379,6 +1535,40 @@ public:
             (collection->NumExports && !collection->pExports))
           return false;
         existing_collections.push_back(collection);
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE &&
+                 subobject.pDesc) {
+        const auto *local_root =
+            static_cast<const D3D12_LOCAL_ROOT_SIGNATURE *>(subobject.pDesc);
+        if (!local_root->pLocalRootSignature)
+          return false;
+        local_root_subobjects.emplace(&subobject,
+                                      local_root->pLocalRootSignature);
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION &&
+                 subobject.pDesc) {
+        local_root_associations.push_back(
+            static_cast<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *>(
+                subobject.pDesc));
+      }
+    }
+    for (const auto *association : local_root_associations) {
+      if (!association || !association->pSubobjectToAssociate ||
+          !association->NumExports || !association->pExports)
+        return false;
+      auto local_root =
+          local_root_subobjects.find(association->pSubobjectToAssociate);
+      // SUBOBJECT_TO_EXPORTS_ASSOCIATION is also used for shader and pipeline
+      // configuration. Only associations whose target is a local-root
+      // subobject contribute local-root record metadata here.
+      if (local_root == local_root_subobjects.end())
+        continue;
+      for (UINT e = 0; e < association->NumExports; e++) {
+        const WCHAR *export_name = association->pExports[e];
+        if (!export_name || m_local_root_signatures.count(export_name))
+          return false;
+        local_root->second->AddRef();
+        m_local_root_signatures.emplace(export_name, local_root->second);
       }
     }
     if (!existing_collections.empty() &&
@@ -1407,6 +1597,12 @@ public:
         auto canonical = source->m_export_imports.find(source_name);
         if (canonical != source->m_export_imports.end())
           canonical_name = canonical->second;
+        auto local_root = source->m_local_root_signatures.find(source_name);
+        if (local_root != source->m_local_root_signatures.end() &&
+            local_root->second) {
+          local_root->second->AddRef();
+          m_local_root_signatures[name] = local_root->second;
+        }
         m_exports.emplace_back(name);
         m_export_imports[name] = canonical_name;
         m_shader_identifiers[name] = imported_identifier;
@@ -1798,6 +1994,13 @@ public:
         memcpy(identifier.data() + 24, &export_hash, sizeof(export_hash));
         m_exports.emplace_back(hit_group->HitGroupExport);
         m_shader_identifiers[hit_group->HitGroupExport] = identifier;
+        auto local_root = m_local_root_signatures.find(template_name);
+        if (local_root != m_local_root_signatures.end() &&
+            local_root->second) {
+          local_root->second->AddRef();
+          m_local_root_signatures[hit_group->HitGroupExport] =
+              local_root->second;
+        }
       } else if (subobject.Type ==
                      D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE &&
                  subobject.pDesc) {
@@ -1838,6 +2041,24 @@ public:
 
   ID3D12RootSignature *GlobalRootSignature() const {
     return m_global_root_signature;
+  }
+
+  bool ShaderRecordLocalRootSignature(
+      const void *shader_identifier,
+      ID3D12RootSignature **local_root_signature) const {
+    if (!shader_identifier || !local_root_signature)
+      return false;
+    *local_root_signature = nullptr;
+    for (const auto &identifier : m_shader_identifiers) {
+      if (memcmp(identifier.second.data(), shader_identifier,
+                 identifier.second.size()) != 0)
+        continue;
+      auto local_root = m_local_root_signatures.find(identifier.first);
+      if (local_root != m_local_root_signatures.end())
+        *local_root_signature = local_root->second;
+      return true;
+    }
+    return false;
   }
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
@@ -1970,6 +2191,8 @@ private:
   ID3D12StateObject *m_base = nullptr;
   std::vector<ID3D12StateObject *> m_existing_collections;
   ID3D12RootSignature *m_global_root_signature = nullptr;
+  std::unordered_map<std::wstring, ID3D12RootSignature *>
+      m_local_root_signatures;
   WMT::Reference<WMT::ComputePipelineState> m_raygen_compute_pipeline;
   WMT::Reference<WMT::VisibleFunctionTable>
       m_raygen_visible_function_table;
@@ -2018,6 +2241,16 @@ GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object) {
     return nullptr;
   return static_cast<MTLD3D12StateObject *>(state_object)
       ->GlobalRootSignature();
+}
+
+bool GetD3D12StateObjectShaderRecordLocalRootSignature(
+    ID3D12StateObject *state_object, const void *shader_identifier,
+    ID3D12RootSignature **local_root_signature) {
+  if (!state_object)
+    return false;
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->ShaderRecordLocalRootSignature(shader_identifier,
+                                       local_root_signature);
 }
 
 class MTLD3D12ShaderCacheSession : public ComObject<ID3D12ShaderCacheSession> {
@@ -3454,6 +3687,11 @@ MTLD3D12Device::CreateDescriptorHeap(const D3D12_DESCRIPTOR_HEAP_DESC *desc,
   MTLD3D12DescriptorHeap *heap = new (raw) MTLD3D12DescriptorHeap(this, *desc);
   TRACE("CreateDescriptorHeap: heap=%p data=%p", (void *)heap,
         heap->GetDescriptors());
+  if (!heap->HasShaderVisibleMirror()) {
+    TRACE("CreateDescriptorHeap: shader-visible mirror allocation failed");
+    heap->Release();
+    return E_OUTOFMEMORY;
+  }
   HRESULT hr = heap->QueryInterface(riid, descriptor_heap);
   heap->Release();
   return hr;
@@ -3496,6 +3734,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateConstantBufferView(
     d->cbv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -3553,6 +3792,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -3598,6 +3838,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateUnorderedAccessView(
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -3623,6 +3864,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateRenderTargetView(
     if (desc)
       d->rtv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    UpdateDescriptorTableMirror(this, d);
     TRACE("CreateRenderTargetView desc=%p res=%p tex=%llu fmt=%u dim=%u",
           (void *)d, (void *)resource,
           dxmt_res ? (unsigned long long)dxmt_res->GetMTLTexture().handle
@@ -3654,6 +3896,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateDepthStencilView(
     if (desc)
       d->dsv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -3767,6 +4010,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
     }
     d->metal_sampler_cube = GetMTLDevice().newSamplerState(cube_info);
     d->metal_sampler_cube_gpu_id = cube_info.gpu_resource_id;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -3822,7 +4066,10 @@ void STDMETHODCALLTYPE MTLD3D12Device::CopyDescriptors(
               "resource! copying to dst %p",
               (void *)src, (void *)dst);
       }
+      auto *dst_owner = dst->owner;
       *dst = *src;
+      dst->owner = dst_owner;
+      UpdateDescriptorTableMirror(this, dst);
       src_offset++;
     }
   }
@@ -5360,6 +5607,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSamplerFeedbackUnorderedAccessView(
     d->metal_texture_gpu_id = 0;
   }
   if (!d || !feedback || !target || !feedback->IsSamplerFeedback()) {
+    UpdateDescriptorTableMirror(this, d);
     TRACE("CreateSamplerFeedbackUAV rejected target=%p feedback=%p desc=%p configured=%d",
           (void *)targeted_resource, (void *)feedback_resource, (void *)d,
           feedback ? feedback->IsSamplerFeedback() : 0);
@@ -5404,6 +5652,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSamplerFeedbackUnorderedAccessView(
        feedback->GetSamplerFeedbackDataOffset()) /
       4);
   d->uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+  UpdateDescriptorTableMirror(this, d);
   TRACE("CreateSamplerFeedbackUAV target=%p feedback=%p physical=%ux%u row=%u bytes=%llu",
         (void *)targeted_resource, (void *)feedback_resource,
         feedback->GetSamplerFeedbackWidth(),

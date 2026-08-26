@@ -112,6 +112,11 @@ void MTLD3D12GraphicsCommandList::ReleaseReferencedPipelineStates() {
       state_object->Release();
   }
   m_referenced_state_objects.clear();
+  for (auto *descriptor_heap : m_referenced_descriptor_heaps) {
+    if (descriptor_heap)
+      descriptor_heap->Release();
+  }
+  m_referenced_descriptor_heaps.clear();
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -468,6 +473,14 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteBundle(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetDescriptorHeaps(
     UINT heap_count, ID3D12DescriptorHeap *const *heaps) {
+  if (heap_count && !heaps)
+    return;
+  for (UINT i = 0; i < heap_count; i++) {
+    if (heaps[i]) {
+      heaps[i]->AddRef();
+      m_referenced_descriptor_heaps.push_back(heaps[i]);
+    }
+  }
   size_t extra = heap_count * sizeof(ID3D12DescriptorHeap *);
   auto total = sizeof(CmdSetDescriptorHeaps) - sizeof(ID3D12DescriptorHeap *) + extra;
   auto offset = m_cmds.size();

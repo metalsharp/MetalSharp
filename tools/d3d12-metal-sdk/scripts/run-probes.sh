@@ -97,6 +97,7 @@ Options:
   --no-queues           Skip probe_queues.
   --queues-only         Run only the command-queue/fence/timestamp probe.
   --no-descriptors      Skip probe_descriptors.
+  --descriptors-only    Run only the descriptor ABI probe.
   --no-shaders          Skip probe_shaders.
   --dxil-semantics      Run the DXIL semantic opcode-group probe.
   --semantic-only       Run only the DXIL semantic opcode-group probe.
@@ -406,6 +407,35 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-descriptors)
       RUN_DESCRIPTORS=0
+      shift
+      ;;
+    --descriptors-only)
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=1
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
       shift
       ;;
     --no-shaders)
@@ -1387,28 +1417,67 @@ JSON
       "ParameterType": "IRRootParameterType32BitConstants",
       "ShaderVisibility": "IRShaderVisibilityAll"
     }, {
-      "Descriptor": {
-        "Flags": "IRRootDescriptorFlagNone",
-        "ShaderRegister": 1,
-        "RegisterSpace": 0
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 1,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeSRV",
+          "RegisterSpace": 0
+        }, {
+          "BaseShaderRegister": 2,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 1,
+          "RangeType": "IRDescriptorRangeTypeSRV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 2
       },
-      "ParameterType": "IRRootParameterTypeSRV",
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
       "ShaderVisibility": "IRShaderVisibilityAll"
     }, {
-      "Descriptor": {
-        "Flags": "IRRootDescriptorFlagNone",
-        "ShaderRegister": 1,
-        "RegisterSpace": 0
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 1,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeUAV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 1
       },
-      "ParameterType": "IRRootParameterTypeUAV",
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
       "ShaderVisibility": "IRShaderVisibilityAll"
     }, {
-      "Descriptor": {
-        "Flags": "IRRootDescriptorFlagNone",
-        "ShaderRegister": 2,
-        "RegisterSpace": 0
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 2,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeCBV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 1
       },
-      "ParameterType": "IRRootParameterTypeCBV",
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeSampler",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 1
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
       "ShaderVisibility": "IRShaderVisibilityAll"
     }],
     "StaticSamplers": []
@@ -1428,6 +1497,8 @@ RWByteAddressBuffer closest_hit_local_output : register(u1);
 cbuffer ClosestHitLocalCBV : register(b2) {
   uint closest_hit_local_cbv_marker;
 };
+Texture2D<float4> closest_hit_local_texture : register(t2);
+SamplerState closest_hit_local_sampler : register(s0);
 
 struct MissPayload {
   uint value;
@@ -1485,7 +1556,10 @@ void closest_hit(inout MissPayload payload,
   payload.value = any_hit_ran && recursive_payload.value == 0x4d495353 &&
                           closest_hit_local_marker == 0x4c4f434c &&
                           closest_hit_local_buffer.Load(0) == 0x53525631 &&
-                          closest_hit_local_cbv_marker == 0x43425631
+                          closest_hit_local_cbv_marker == 0x43425631 &&
+                          closest_hit_local_texture.SampleLevel(
+                              closest_hit_local_sampler, float2(0.5, 0.5), 0).r >
+                              0.9
                       ? 0x52454332
                       : 0x48495431;
 }
