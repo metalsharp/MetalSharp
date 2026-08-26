@@ -112,14 +112,15 @@
       "tier": "required"
     },
     "D3D12_FEATURE_D3D12_OPTIONS11": {
-      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
-      "reported": "unsupported",
+      "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
+      "probe_status": "descriptor_heap_atomic64_add_and_operation_matrix_passed",
+      "reported": "supported",
       "required_fields": [
         "AtomicInt64OnDescriptorHeapResourceSupported"
       ],
-      "risk": "Should stay conservative unless descriptor-heap atomic64 is implemented.",
-      "state": "stub_safe",
-      "tier": "stubbed-safe"
+      "risk": "ResourceDescriptorHeap atomic64 uses the same software lock lowering as raw and typed resources. A directly-indexed heap add stress and add/and/or/xor/min/max/exchange/compare-exchange matrix pass exact readback; direct heap descriptors are rebound after ordinary root tables so heap indices retain D3D12 meaning.",
+      "state": "required",
+      "tier": "required"
     },
     "D3D12_FEATURE_D3D12_OPTIONS12": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_command_replay",
@@ -173,15 +174,16 @@
       "tier": "required"
     },
     "D3D12_FEATURE_D3D12_OPTIONS9": {
-      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
-      "reported": "unsupported",
+      "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
+      "probe_status": "typed_and_group_shared_atomic64_operation_matrices_passed",
+      "reported": "supported",
       "required_fields": [
         "AtomicInt64OnTypedResourceSupported",
         "AtomicInt64OnGroupSharedSupported"
       ],
-      "risk": "Should stay conservative unless atomic64 is actually implemented.",
-      "state": "stub_safe",
-      "tier": "stubbed-safe"
+      "risk": "Native Metal atomic_ulong remains insufficient. DXMT serializes 64-bit atomic critical sections through 32-bit Metal locks, uses SIMD-cooperative lane selection to avoid same-SIMD spinlock deadlock, and proves 64-thread add stress plus unsigned/signed operation and compare-exchange matrices for typed resources and group-shared memory.",
+      "state": "required",
+      "tier": "required"
     },
     "D3D12_FEATURE_LEVEL_12_2_TARGET": {
       "current_target": "12_2",

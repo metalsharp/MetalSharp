@@ -215,6 +215,10 @@ public:
     return m_native_tessellation_control_points;
   }
   bool UsesTessellationFallback() const { return m_uses_tessellation_fallback; }
+  bool UsesAtomic64Emulation() const { return m_uses_atomic64_emulation; }
+  bool UsesDirectResourceDescriptorHeap() const {
+    return m_uses_direct_resource_descriptor_heap;
+  }
 
   static WMTPixelFormat DXGIToMTLPixelFormat(DXGI_FORMAT format);
 
@@ -262,6 +266,8 @@ private:
   D3D12_RASTERIZER_DESC m_rasterizer_desc = {};
   D3D12_DEPTH_STENCIL_DESC m_depth_stencil_desc = {};
   bool m_depth_bounds_test_enable = false;
+  bool m_uses_atomic64_emulation = false;
+  bool m_uses_direct_resource_descriptor_heap = false;
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;
   std::vector<std::string> m_input_semantic_names;

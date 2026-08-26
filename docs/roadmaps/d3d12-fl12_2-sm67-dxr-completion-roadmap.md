@@ -349,7 +349,19 @@ Findings:
   and threadgroup ulong atomic source were rejected at library compilation.
   This explains the earlier typed-resource zero output and group-shared PSO
   failure: full Options9/Options11 behavior needs software sidecar locks and
-  cannot be reported through native Metal lowering alone.
+  cannot be reported through native Metal lowering alone. DXMT now supplies
+  that software path: atomic64 shaders bypass uninstrumented converter caches,
+  reserve a hidden 32-bit lock buffer, and serialize each 64-bit critical
+  section with SIMD-cooperative lane selection so lanes in one SIMD group do
+  not deadlock each other. Opaque-pointer LLVM globals, 64-bit `atomicrmw`, and
+  `cmpxchg` are parsed and lowered for group-shared memory; directly indexed
+  resource heaps are rebound by heap index after ordinary root tables. Exact
+  Wine 11.5 readback passes 64-thread add stress (`2080`) and unsigned/signed
+  add/and/or/xor/min/max/exchange/compare-exchange matrices for raw, typed,
+  group-shared, and `ResourceDescriptorHeap` resources. Options9 typed/group
+  and Options11 descriptor-heap atomic64 reports are now enabled; the native
+  probe remains evidence that software emulation, not native ulong atomics,
+  backs those reports.
 - DXIL ray-query and raytracing intrinsics do not have a complete Metal lowering
   model.
 - `GetCachedBlob` returns the caller-provided pipeline cache payload and passes

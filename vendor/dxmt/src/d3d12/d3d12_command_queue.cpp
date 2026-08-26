@@ -2048,6 +2048,7 @@ struct ReplayState {
   WMT::Reference<WMT::Buffer> msc_draw_args_buf;
   WMT::Reference<WMT::Buffer> msc_uniforms_buf;
   WMT::Reference<WMT::Buffer> null_vertex_arg_buf;
+  WMT::Reference<WMT::Buffer> atomic64_lock_buf;
   WMT::Reference<WMT::Texture> null_direct_texture;
   WMT::Reference<WMT::SamplerState> null_direct_sampler;
   VertexBufferEntry vertex_table_data[kVertexBufferSlotCount] = {};
@@ -2412,6 +2413,17 @@ struct ReplayState {
     info.usage = WMTTextureUsageShaderRead;
     null_direct_texture = device->GetMTLDevice().newTexture(info);
     return null_direct_texture.handle != 0;
+  }
+
+  bool EnsureAtomic64LockBuffer(MTLD3D12Device *device) {
+    if (atomic64_lock_buf.handle)
+      return true;
+    uint32_t zero = 0;
+    atomic64_lock_buf = MakeTransientBuffer(device, sizeof(zero));
+    if (!atomic64_lock_buf.handle)
+      return false;
+    atomic64_lock_buf.updateContents(0, &zero, sizeof(zero));
+    return true;
   }
 
   bool EnsureNullDirectSampler(MTLD3D12Device *device) {
@@ -6624,6 +6636,59 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     }
   }
 
+  if (compute_sig &&
+      (compute_sig->GetFlags() &
+       D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED) &&
+      st.pso->UsesDirectResourceDescriptorHeap()) {
+    for (uint32_t h = 0; h < st.desc_heap_count; h++) {
+      auto *heap = static_cast<MTLD3D12DescriptorHeap *>(st.desc_heaps[h]);
+      if (!heap)
+        continue;
+      D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+      heap->GetDesc(&heap_desc);
+      if (heap_desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        continue;
+      const uint32_t direct_heap_limit =
+          st.pso->UsesAtomic64Emulation() ? 28 : 31;
+      uint32_t count = std::min<uint32_t>(heap->GetDescriptorCount(),
+                                          direct_heap_limit);
+      auto *descriptors = heap->GetDescriptors();
+      for (uint32_t index = 0; index < count; index++) {
+        auto *desc = descriptors + index;
+        if (!desc->resource)
+          continue;
+        auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
+        const bool writable =
+            desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        if (res->GetMTLBuffer().handle) {
+          uint64_t offset = 0;
+          if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+            offset = UAVBufferByteOffset(desc);
+          else if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV)
+            offset = SRVBufferByteOffset(desc);
+          else if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
+                   desc->cbv.BufferLocation)
+            offset = desc->cbv.BufferLocation - res->GetGPUVirtualAddress();
+          append_compute_setbuffer(res->GetMTLBuffer().handle, offset, index);
+          append_compute_useresource(
+              res->GetMTLBuffer().handle,
+              writable ? (WMTResourceUsage)(WMTResourceUsageRead |
+                                            WMTResourceUsageWrite)
+                       : WMTResourceUsageRead);
+        } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
+          append_compute_settexture(tex.handle, index);
+          append_compute_useresource(
+              tex.handle,
+              writable ? (WMTResourceUsage)(WMTResourceUsageRead |
+                                            WMTResourceUsageWrite)
+                       : WMTResourceUsageRead);
+        }
+      }
+      QTRACE("%s: directly indexed resource heap bound descriptors=%u",
+             trace_prefix, count);
+    }
+  }
+
   int num_consts = 0, num_cbvs = 0, num_tables = 0;
   for (uint32_t i = 0; i < ReplayState::kRootParameterSlotCount; i++) {
     if ((st.comp_constant_set[i] || st.root_constant_set[i]) &&
@@ -6699,6 +6764,15 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         continue;
       append_compute_setsampler(st.null_direct_sampler.handle, slot, true);
     }
+  }
+  if (st.pso->UsesAtomic64Emulation() &&
+      st.EnsureAtomic64LockBuffer(device)) {
+    append_compute_setbuffer(st.atomic64_lock_buf.handle, 0, 28);
+    append_compute_useresource(
+        st.atomic64_lock_buf.handle,
+        (WMTResourceUsage)(WMTResourceUsageRead | WMTResourceUsageWrite));
+    QTRACE("%s: atomic64 software lock buffer=%llu slot=28", trace_prefix,
+           (unsigned long long)st.atomic64_lock_buf.handle);
   }
   QTRACE("%s: compute fallback complete fallback_buffers=0x%llx "
          "fallback_textures=0x%llx fallback_samplers=0x%llx",

@@ -512,6 +512,8 @@ struct ResourceHandleRecord {
     uint32_t register_space = 0;
     uint32_t lower_bound = 0;
     uint32_t binding_index = 0;
+    uint32_t resource_kind = 0;
+    uint32_t element_stride = 0;
     bool non_uniform = false;
 };
 
@@ -551,6 +553,7 @@ struct LowerContext {
     bool uses_group_thread_id = false;
     bool uses_group_size = false;
     std::set<uint32_t> vertex_input_ids;
+    std::set<uint32_t> group_i64_globals;
     bool vertex_has_float_load_input = false;
     bool vertex_procedural_fullscreen_fallback = false;
     bool compute_wave_shader = false;
@@ -558,6 +561,8 @@ struct LowerContext {
     bool compute_texture_store_shader = false;
     bool compute_sample_cmp_shader = false;
     bool compute_texture_sample_shader = false;
+    bool uses_atomic64_emulation = false;
+    bool uses_group_atomic64_emulation = false;
 };
 
 static std::string vertexPullField(LowerContext &ctx, uint32_t sig_id) {
@@ -644,9 +649,107 @@ static void emitDefaultVertexVaryingWrites(std::ostream &os,
 
 static void emitFunctionPrologue(LowerContext &ctx) {
     auto &os = ctx.os;
+    if (ctx.uses_atomic64_emulation)
+        ctx.binding_plan.direct_buffer_count =
+            std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
     os << kMetalHeader;
     emitBindingManifest(ctx);
 
+    if (ctx.uses_atomic64_emulation) {
+        os << "static inline ulong m12_atomic64_binop(volatile device ulong* target, ulong value, uint op, device atomic_uint* lock) {\n";
+        os << "  bool pending = true;\n";
+        os << "  ulong original = 0ul;\n";
+        os << "  while (simd_any(pending)) {\n";
+        os << "    bool selected = pending && simd_prefix_exclusive_sum(uint(pending)) == 0u;\n";
+        os << "    if (selected) {\n";
+        os << "      uint expected = 0u;\n";
+        os << "      while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1u, memory_order_relaxed, memory_order_relaxed)) expected = 0u;\n";
+        os << "      original = *target;\n";
+        os << "      ulong result = original;\n";
+        os << "      switch (op) {\n";
+        os << "      case 0u: result = original + value; break;\n";
+        os << "      case 1u: result = original & value; break;\n";
+        os << "      case 2u: result = original | value; break;\n";
+        os << "      case 3u: result = original ^ value; break;\n";
+        os << "      case 4u: result = ulong(min(long(original), long(value))); break;\n";
+        os << "      case 5u: result = ulong(max(long(original), long(value))); break;\n";
+        os << "      case 6u: result = min(original, value); break;\n";
+        os << "      case 7u: result = max(original, value); break;\n";
+        os << "      case 8u: result = value; break;\n";
+        os << "      default: break;\n";
+        os << "      }\n";
+        os << "      *target = result;\n";
+        os << "      atomic_store_explicit(lock, 0u, memory_order_relaxed);\n";
+        os << "      pending = false;\n";
+        os << "    }\n";
+        os << "  }\n";
+        os << "  return original;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_atomic64_compare_exchange(volatile device ulong* target, ulong compare_value, ulong new_value, device atomic_uint* lock) {\n";
+        os << "  bool pending = true;\n";
+        os << "  ulong original = 0ul;\n";
+        os << "  while (simd_any(pending)) {\n";
+        os << "    bool selected = pending && simd_prefix_exclusive_sum(uint(pending)) == 0u;\n";
+        os << "    if (selected) {\n";
+        os << "      uint expected = 0u;\n";
+        os << "      while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1u, memory_order_relaxed, memory_order_relaxed)) expected = 0u;\n";
+        os << "      original = *target;\n";
+        os << "      if (original == compare_value) *target = new_value;\n";
+        os << "      atomic_store_explicit(lock, 0u, memory_order_relaxed);\n";
+        os << "      pending = false;\n";
+        os << "    }\n";
+        os << "  }\n";
+        os << "  return original;\n";
+        os << "}\n\n";
+        if (ctx.uses_group_atomic64_emulation) {
+            os << "static inline ulong m12_atomic64_binop_group(volatile threadgroup ulong* target, ulong value, uint op, threadgroup atomic_uint* lock) {\n";
+            os << "  bool pending = true;\n";
+            os << "  ulong original = 0ul;\n";
+            os << "  while (simd_any(pending)) {\n";
+            os << "    bool selected = pending && simd_prefix_exclusive_sum(uint(pending)) == 0u;\n";
+            os << "    if (selected) {\n";
+            os << "      uint expected = 0u;\n";
+            os << "      while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1u, memory_order_relaxed, memory_order_relaxed)) expected = 0u;\n";
+            os << "      original = *target;\n";
+            os << "      ulong result = original;\n";
+            os << "      switch (op) {\n";
+            os << "      case 0u: result = original + value; break;\n";
+            os << "      case 1u: result = original & value; break;\n";
+            os << "      case 2u: result = original | value; break;\n";
+            os << "      case 3u: result = original ^ value; break;\n";
+            os << "      case 4u: result = ulong(min(long(original), long(value))); break;\n";
+            os << "      case 5u: result = ulong(max(long(original), long(value))); break;\n";
+            os << "      case 6u: result = min(original, value); break;\n";
+            os << "      case 7u: result = max(original, value); break;\n";
+            os << "      case 8u: result = value; break;\n";
+            os << "      case 9u: result = original - value; break;\n";
+            os << "      default: break;\n";
+            os << "      }\n";
+            os << "      *target = result;\n";
+            os << "      atomic_store_explicit(lock, 0u, memory_order_relaxed);\n";
+            os << "      pending = false;\n";
+            os << "    }\n";
+            os << "  }\n";
+            os << "  return original;\n";
+            os << "}\n\n";
+            os << "static inline ulong m12_atomic64_compare_exchange_group(volatile threadgroup ulong* target, ulong compare_value, ulong new_value, threadgroup atomic_uint* lock) {\n";
+            os << "  bool pending = true;\n";
+            os << "  ulong original = 0ul;\n";
+            os << "  while (simd_any(pending)) {\n";
+            os << "    bool selected = pending && simd_prefix_exclusive_sum(uint(pending)) == 0u;\n";
+            os << "    if (selected) {\n";
+            os << "      uint expected = 0u;\n";
+            os << "      while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1u, memory_order_relaxed, memory_order_relaxed)) expected = 0u;\n";
+            os << "      original = *target;\n";
+            os << "      if (original == compare_value) *target = new_value;\n";
+            os << "      atomic_store_explicit(lock, 0u, memory_order_relaxed);\n";
+            os << "      pending = false;\n";
+            os << "    }\n";
+            os << "  }\n";
+            os << "  return original;\n";
+            os << "}\n\n";
+        }
+    }
     os << "struct input_v {\n";
     os << "  float4 position [[position]];\n";
     os << "  float4 v0 [[user(locn0)]]; float4 v1 [[user(locn1)]];\n";
@@ -763,12 +866,19 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         }
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++)
             os << "  sampler samp" << i << " [[sampler(" << i << ")]],\n";
+        if (ctx.uses_atomic64_emulation)
+            os << "  device atomic_uint* m12_atomic64_lock [[buffer(28)]],\n";
         os << "  uint3 dtid [[thread_position_in_grid]],\n";
         os << "  uint3 gtid [[thread_position_in_threadgroup]],\n";
         os << "  uint3 ggid [[threadgroup_position_in_grid]],\n";
         os << "  uint3 gsz [[threads_per_threadgroup]],\n";
         os << "  uint simd_lane [[thread_index_in_simdgroup]],\n";
         os << "  uint simd_count [[threads_per_simdgroup]]\n) {\n";
+        if (ctx.uses_group_atomic64_emulation) {
+            os << "  threadgroup atomic_uint m12_atomic64_group_lock;\n";
+            os << "  if (all(gtid == uint3(0))) atomic_store_explicit(&m12_atomic64_group_lock, 0u, memory_order_relaxed);\n";
+            os << "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+        }
     } else if (ctx.shader.kind == DxilShaderKind::Vertex) {
         os << "vertex output_v vs_main(\n";
         os << "  uint vid [[vertex_id]],\n";
@@ -2635,6 +2745,9 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_BufferUpdateCounter:
     case DXOP_AtomicBinOp:
     case DXOP_AtomicCompareExchange:
+        if (callee_name.find(".i64") != std::string::npos)
+            return {MSLTypeKind::Long, 0, {}};
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_WaveGetLaneIndex:
     case DXOP_WaveGetLaneCount:
     case DXOP_LegacyF32ToF16:
@@ -2841,8 +2954,28 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (!args.empty()) {
             auto handle_it = ctx.resource_handles.find(args[0]);
             if (handle_it != ctx.resource_handles.end()) {
-                ctx.pending_handle = handle_it->second;
-                return materializeHandleName(ctx, handle_it->second);
+                auto annotated = handle_it->second;
+                if (intrinsic_id == DXOP_AnnotateHandle && args.size() > 1) {
+                    auto properties = parseAggregateLiteral(valueArg(1, ""));
+                    uint32_t property0 = 0;
+                    if (!properties.empty() &&
+                        parseUnsignedLiteral(properties[0], property0)) {
+                        annotated.resource_kind = property0 & 0xffu;
+                        if (property0 & 0x1000u) {
+                            annotated.kind = DescriptorRangePlan::Kind::UAV;
+                            annotated.resource_class = 1;
+                        } else if (annotated.kind !=
+                                   DescriptorRangePlan::Kind::Sampler) {
+                            annotated.kind = DescriptorRangePlan::Kind::SRV;
+                            annotated.resource_class = 0;
+                        }
+                    }
+                    if (properties.size() > 1)
+                        parseUnsignedLiteral(properties[1],
+                                             annotated.element_stride);
+                }
+                ctx.pending_handle = annotated;
+                return materializeHandleName(ctx, annotated);
             }
         }
         auto handle = valueArg(0, "tex0");
@@ -2940,12 +3073,21 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 : args.size() - 1;
         uint32_t mask = literalArg(mask_index, 0xf, "buffer_store_mask");
         bool emitted = false;
+        const bool i64_store =
+            callee_name.find(".i64") != std::string::npos;
         for (uint32_t i = 0; i < value_count; i++) {
             if (!(mask & (1u << i)))
                 continue;
             if (emitted) store << ";\n  ";
-            store << "reinterpret_cast<device uint&>(" << handle << "[(" << base << ") + " << (i*4)
-                  << "]) = (uint)(" << numericArg(3+i, "0") << ")";
+            if (i64_store) {
+                store << "reinterpret_cast<device ulong&>(" << handle
+                      << "[(" << base << ") + " << (i * 8)
+                      << "]) = (ulong)(" << numericArg(3 + i, "0") << ")";
+            } else {
+                store << "reinterpret_cast<device uint&>(" << handle
+                      << "[(" << base << ") + " << (i * 4)
+                      << "]) = (uint)(" << numericArg(3 + i, "0") << ")";
+            }
             emitted = true;
         }
         return store.str();
@@ -3069,14 +3211,84 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     }
     case 78: {
         if (args.size() < 4) return "0";
-        auto handle = handleArg(1, "buf", "buf0");
-        auto off = ensureScalarIndex(numericArg(2, "0"));
-        auto val = ensureScalarIndex(numericArg(3, "0"));
-        return "atomic_fetch_add_explicit(reinterpret_cast<device atomic_uint*>(" + handle + " + (" + off + ")), (uint)(" + val + "), memory_order_relaxed)";
+        auto handle = handleArg(0, "buf", "buf0");
+        auto op = literalArg(1, 0, "atomic_op");
+        auto coordinate = ensureScalarIndex(numericArg(2, "0"));
+        auto element_offset = ensureScalarIndex(numericArg(3, "0"));
+        auto val = ensureScalarIndex(numericArg(args.size() - 1, "0"));
+        if (callee_name.find(".i64") != std::string::npos) {
+            uint32_t resource_kind = 0;
+            uint32_t element_stride = 0;
+            auto handle_it = ctx.resource_handles.find(args[0]);
+            if (handle_it != ctx.resource_handles.end()) {
+                resource_kind = handle_it->second.resource_kind;
+                element_stride = handle_it->second.element_stride;
+            }
+            std::string byte_offset;
+            if (resource_kind == 12u) {
+                if (element_stride == 0)
+                    element_stride = 8;
+                byte_offset = "((ulong)(" + coordinate + ") * " +
+                              std::to_string(element_stride) + "ul + (ulong)(" +
+                              element_offset + "))";
+            } else if (resource_kind == 10u) {
+                byte_offset = "((ulong)(" + coordinate +
+                              ") * 8ul + (ulong)(" + element_offset + "))";
+            } else {
+                byte_offset = "((ulong)(" + coordinate + ") + (ulong)(" +
+                              element_offset + "))";
+            }
+            ctx.uses_atomic64_emulation = true;
+            auto translated =
+                "(long)m12_atomic64_binop(reinterpret_cast<volatile device ulong*>(" +
+                handle + " + " + byte_offset + "), (ulong)(" + val +
+                "), " + std::to_string(op) + "u, m12_atomic64_lock)";
+            recordDiagnostic(
+                ctx,
+                "atomic64 binop handle=%s kind=%u stride=%u op=%u byte_offset=%s value=%s translated=%s",
+                handle.c_str(), resource_kind, element_stride, op,
+                byte_offset.c_str(), val.c_str(), translated.c_str());
+            return translated;
+        }
+        return "atomic_fetch_add_explicit(reinterpret_cast<device atomic_uint*>(" +
+               handle + " + (" + coordinate + ")), (uint)(" + val +
+               "), memory_order_relaxed)";
     }
     case 79: {
         if (args.size() < 2) return "0";
         auto handle = handleArg(0, "buf", "buf0");
+        if (callee_name.find(".i64") != std::string::npos && args.size() >= 6) {
+            auto coordinate = ensureScalarIndex(numericArg(1, "0"));
+            auto element_offset = ensureScalarIndex(numericArg(2, "0"));
+            auto compare_value = ensureScalarIndex(numericArg(4, "0"));
+            auto new_value = ensureScalarIndex(numericArg(5, "0"));
+            uint32_t resource_kind = 0;
+            uint32_t element_stride = 0;
+            auto handle_it = ctx.resource_handles.find(args[0]);
+            if (handle_it != ctx.resource_handles.end()) {
+                resource_kind = handle_it->second.resource_kind;
+                element_stride = handle_it->second.element_stride;
+            }
+            std::string byte_offset;
+            if (resource_kind == 12u) {
+                if (element_stride == 0)
+                    element_stride = 8;
+                byte_offset = "((ulong)(" + coordinate + ") * " +
+                              std::to_string(element_stride) + "ul + (ulong)(" +
+                              element_offset + "))";
+            } else if (resource_kind == 10u) {
+                byte_offset = "((ulong)(" + coordinate +
+                              ") * 8ul + (ulong)(" + element_offset + "))";
+            } else {
+                byte_offset = "((ulong)(" + coordinate + ") + (ulong)(" +
+                              element_offset + "))";
+            }
+            ctx.uses_atomic64_emulation = true;
+            return "(long)m12_atomic64_compare_exchange(reinterpret_cast<volatile device ulong*>(" +
+                   handle + " + " + byte_offset + "), (ulong)(" +
+                   compare_value + "), (ulong)(" + new_value +
+                   "), m12_atomic64_lock)";
+        }
         return "atomic_load_explicit(reinterpret_cast<device atomic_uint*>(" + handle + " + (" + ensureScalarIndex(valueArg(1, "0")) + ")), memory_order_relaxed)";
     }
     case 75: case 76: case 97: case 98: return "0.5";
@@ -3770,6 +3982,12 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 callee_name);
             if (translated.find(".sample_compare(") != std::string::npos)
                 result_type = {MSLTypeKind::Float, 0, {}};
+            if (intrinsic_id == DXOP_AtomicBinOp)
+                recordDiagnostic(ctx,
+                                 "atomic binop emit value=%u callee=%s type=%u translated=%s",
+                                 value_counter, callee_name.c_str(),
+                                 static_cast<unsigned>(result_type.kind),
+                                 translated.c_str());
             if (intrinsic_id == DXOP_CBufferLoad || intrinsic_id == DXOP_CBufferLoadLegacy) {
                 const char *handle_value = "<missing>";
                 uint32_t handle_id = fn_args.empty() ? UINT32_MAX : fn_args[0];
@@ -3782,7 +4000,21 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             ensureValueTable(value_counter);
             ctx.value_types[value_counter] = result_type;
 
-            if (ctx.pending_handle.has_value()) {
+            const bool atomic64_call =
+                (intrinsic_id == DXOP_AtomicBinOp ||
+                 intrinsic_id == DXOP_AtomicCompareExchange) &&
+                callee_name.find(".i64") != std::string::npos;
+            if (atomic64_call) {
+                ctx.pending_handle.reset();
+                if (ctx.predeclared_names.find(result) !=
+                    ctx.predeclared_names.end())
+                    os << "  " << result << " = " << translated << ";\n";
+                else
+                    os << "  " << emitTypeName(result_type) << " " << result
+                       << " = " << translated << ";\n";
+                ctx.value_table[value_counter] = result;
+                ctx.value_types[value_counter] = result_type;
+            } else if (ctx.pending_handle.has_value()) {
                 ResourceHandleRecord handle = *ctx.pending_handle;
                 ctx.resource_handles[value_counter] = handle;
                 ctx.value_table[value_counter] = materializeHandleName(ctx, handle);
@@ -4378,6 +4610,111 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         break;
     }
 
+    case LLVMInstruction::AtomicRMW: {
+        ensureValueTable(value_counter);
+        MSLType result_type = getTypeForInst(inst.type_id);
+        if (!isUsableType(result_type))
+            result_type = {MSLTypeKind::Long, 0, {}};
+        const bool is_i64 =
+            inst.type_id < ctx.mod.types.size() &&
+            ctx.mod.types[inst.type_id].kind == LLVMType::Integer &&
+            ctx.mod.types[inst.type_id].bit_width == 64;
+        if (inst.operands.size() >= 3 && is_i64) {
+            auto ptr = getValue(inst.operands[0]);
+            auto val = getValue(inst.operands[1]);
+            uint32_t llvm_op = inst.operands[2];
+            uint32_t m12_op = 0;
+            switch (llvm_op) {
+            case 0: m12_op = 8; break;
+            case 1: m12_op = 0; break;
+            case 2: m12_op = 9; break;
+            case 3: m12_op = 1; break;
+            case 5: m12_op = 2; break;
+            case 6: m12_op = 3; break;
+            case 7: m12_op = 5; break;
+            case 8: m12_op = 4; break;
+            case 9: m12_op = 7; break;
+            case 10: m12_op = 6; break;
+            default: m12_op = 0; break;
+            }
+            std::string translated =
+                "(long)m12_atomic64_binop_group("
+                "reinterpret_cast<volatile threadgroup ulong*>(" +
+                ptr + "), (ulong)(" + val + "), " +
+                std::to_string(m12_op) +
+                "u, &m12_atomic64_group_lock)";
+            if (ctx.predeclared_names.find(result) !=
+                ctx.predeclared_names.end())
+                os << "  " << result << " = " << translated << ";\n";
+            else
+                os << "  " << emitTypeName(result_type) << " " << result
+                   << " = " << translated << ";\n";
+            ctx.value_table[value_counter] = result;
+            ctx.value_types[value_counter] = result_type;
+            recordDiagnostic(ctx,
+                             "group atomic64 value=%u llvm_op=%u m12_op=%u ptr=%s value=%s",
+                             value_counter, llvm_op, m12_op, ptr.c_str(),
+                             val.c_str());
+        } else if (inst.operands.size() >= 3) {
+            result_type = {MSLTypeKind::UInt, 0, {}};
+            auto ptr = getValue(inst.operands[0]);
+            auto val = getValue(inst.operands[1]);
+            uint32_t llvm_op = inst.operands[2];
+            std::string translated;
+            if (llvm_op == 1)
+                translated =
+                    "atomic_fetch_add_explicit(reinterpret_cast<threadgroup atomic_uint*>(" +
+                    ptr + "), (uint)(" + val + "), memory_order_relaxed)";
+            else
+                translated = "0u";
+            if (ctx.predeclared_names.find(result) !=
+                ctx.predeclared_names.end())
+                os << "  " << result << " = " << translated << ";\n";
+            else
+                os << "  uint " << result << " = " << translated << ";\n";
+            ctx.value_table[value_counter] = result;
+            ctx.value_types[value_counter] = result_type;
+        } else {
+            ctx.unsupported_opcodes++;
+            ctx.value_table[value_counter] = result;
+            ctx.value_types[value_counter] = result_type;
+        }
+        value_counter++;
+        break;
+    }
+
+    case LLVMInstruction::CmpXchg: {
+        ensureValueTable(value_counter);
+        MSLType result_type = {MSLTypeKind::Long, 0, {}};
+        const bool is_i64 =
+            inst.type_id < ctx.mod.types.size() &&
+            ctx.mod.types[inst.type_id].kind == LLVMType::Integer &&
+            ctx.mod.types[inst.type_id].bit_width == 64;
+        if (inst.operands.size() >= 3 && is_i64) {
+            auto ptr = getValue(inst.operands[0]);
+            auto compare_value = getValue(inst.operands[1]);
+            auto new_value = getValue(inst.operands[2]);
+            std::string translated =
+                "(long)m12_atomic64_compare_exchange_group("
+                "reinterpret_cast<volatile threadgroup ulong*>(" +
+                ptr + "), (ulong)(" + compare_value + "), (ulong)(" +
+                new_value + "), &m12_atomic64_group_lock)";
+            if (ctx.predeclared_names.find(result) !=
+                ctx.predeclared_names.end())
+                os << "  " << result << " = " << translated << ";\n";
+            else
+                os << "  long " << result << " = " << translated << ";\n";
+            ctx.value_table[value_counter] = result;
+            ctx.value_types[value_counter] = result_type;
+        } else {
+            ctx.unsupported_opcodes++;
+            ctx.value_table[value_counter] = result;
+            ctx.value_types[value_counter] = result_type;
+        }
+        value_counter++;
+        break;
+    }
+
     case LLVMInstruction::Load: {
         ensureValueTable(value_counter);
         MSLType result_type = getTypeForInst(inst.type_id);
@@ -4385,6 +4722,23 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             auto ptr = getValue(inst.operands[0]);
             auto ptr_type = valueType(inst.operands[0]);
             auto ptr_name_type = typeForResolvedValueName(ctx, ptr);
+            const bool group_i64 =
+                ctx.group_i64_globals.find(inst.operands[0]) !=
+                ctx.group_i64_globals.end();
+            if (group_i64) {
+                result_type = {MSLTypeKind::Long, 0, {}};
+                std::string expr =
+                    "(long)(*reinterpret_cast<threadgroup ulong*>(" + ptr + "))";
+                if (ctx.predeclared_names.find(result) !=
+                    ctx.predeclared_names.end())
+                    os << "  " << result << " = " << expr << ";\n";
+                else
+                    os << "  long " << result << " = " << expr << ";\n";
+                ctx.value_table[value_counter] = result;
+                ctx.value_types[value_counter] = result_type;
+                value_counter++;
+                break;
+            }
             if (!isUsableType(result_type))
                 result_type = {MSLTypeKind::UInt, 0, {}};
             std::string type_name = emitTypeName(result_type);
@@ -4412,6 +4766,9 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             auto ptr_type = valueType(inst.operands[0]);
             auto val_type = operandType(inst.operands[1]);
             MSLType ptr_name_type = typeForResolvedValueName(ctx, ptr);
+            const bool group_i64 =
+                ctx.group_i64_globals.find(inst.operands[0]) !=
+                ctx.group_i64_globals.end();
             if (startsWith(ptr, "tex") || startsWith(ptr, "samp") ||
                 exprContainsRawResourceHandle(ptr) || exprLooksScalarLiteral(ptr)) {
                 os << "  // skipped store through resource handle " << ptr << "\n";
@@ -4421,10 +4778,15 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             } else if (exprLooksVectorValue(ptr) || DXILIRBuilder::isVectorType(ptr_name_type)) {
                 os << "  // skipped store through vector-valued pointer " << ptr << "\n";
             } else if (isPointerType(ptr_type)) {
-                std::string type_name = emitTypeName(val_type);
+                std::string type_name = group_i64 ? "ulong" : emitTypeName(val_type);
                 if (type_name.empty() || type_name == "auto" || type_name == "void") type_name = "uint";
                 os << "  *((" << pointerAddressSpace(inst.operands[0]) << " " << type_name
-                   << "*)(" << ptr << ")) = " << val << ";\n";
+                   << "*)(" << ptr << ")) = ";
+                if (group_i64)
+                    os << "(ulong)(" << val << ")";
+                else
+                    os << val;
+                os << ";\n";
             } else {
                 os << "  // skipped store through non-pointer " << ptr << "\n";
             }
@@ -4549,6 +4911,38 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             }
         }
     }
+    ctx.uses_atomic64_emulation = shader.kind == DxilShaderKind::Compute;
+    if (ctx.uses_atomic64_emulation) {
+        ctx.uses_atomic64_emulation = false;
+        for (const auto &decl : module.functions) {
+            if (decl.name.find("dx.op.atomicBinOp.i64") !=
+                    std::string::npos ||
+                decl.name.find("dx.op.atomicCompareExchange.i64") !=
+                    std::string::npos) {
+                ctx.uses_atomic64_emulation = true;
+                break;
+            }
+        }
+    }
+    if (shader.kind == DxilShaderKind::Compute) {
+        for (const auto &candidate : module.functions) {
+            for (const auto &block : candidate.blocks) {
+                for (const auto &inst : block.instructions) {
+                    if (inst.opcode != LLVMInstruction::AtomicRMW &&
+                        inst.opcode != LLVMInstruction::CmpXchg)
+                        continue;
+                    const bool is_i64 =
+                        inst.type_id < module.types.size() &&
+                        module.types[inst.type_id].kind == LLVMType::Integer &&
+                        module.types[inst.type_id].bit_width == 64;
+                    if (is_i64) {
+                        ctx.uses_atomic64_emulation = true;
+                        ctx.uses_group_atomic64_emulation = true;
+                    }
+                }
+            }
+        }
+    }
 
     const LLVMFunction *entry_fn = nullptr;
     for (auto &fn : module.functions) {
@@ -4618,7 +5012,16 @@ std::optional<TypedMSLShader> MSLLowering::lower(
     for (auto &gv : module.globals) {
         if (gv.address_space == 3) {
             std::string gv_name = gv.name.empty() ? "gvar_" + std::to_string(gv.value_id) : escapeName(gv.name);
-            os << "  threadgroup char " << gv_name << "[256];\n";
+            const bool is_i64 =
+                gv.type_id < module.types.size() &&
+                module.types[gv.type_id].kind == LLVMType::Integer &&
+                module.types[gv.type_id].bit_width == 64;
+            if (is_i64) {
+                os << "  threadgroup ulong " << gv_name << ";\n";
+                ctx.group_i64_globals.insert(gv.value_id);
+            } else {
+                os << "  threadgroup char " << gv_name << "[256];\n";
+            }
             if (ctx.value_table.size() <= gv.value_id) ctx.value_table.resize(gv.value_id + 1);
             ctx.value_table[gv.value_id] = "(threadgroup char*)&" + gv_name;
             if (ctx.value_types.size() <= gv.value_id) ctx.value_types.resize(gv.value_id + 1);
@@ -4914,12 +5317,18 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                     value_operand = inst.operands.size() >= 3 && oi == 0;
                 else if (inst.opcode == LLVMInstruction::Switch)
                     value_operand = oi == 0;
+                else if (inst.opcode == LLVMInstruction::AtomicRMW)
+                    value_operand = oi < 2;
+                else if (inst.opcode == LLVMInstruction::CmpXchg)
+                    value_operand = oi < 3;
                 if (!value_operand) continue;
 
                 if ((inst.opcode == LLVMInstruction::Load ||
                      inst.opcode == LLVMInstruction::Store ||
                      inst.opcode == LLVMInstruction::GetElementPtr ||
-                     inst.opcode == LLVMInstruction::GEP) && oi == 0)
+                     inst.opcode == LLVMInstruction::GEP ||
+                     inst.opcode == LLVMInstruction::AtomicRMW ||
+                     inst.opcode == LLVMInstruction::CmpXchg) && oi == 0)
                     type_hint = {MSLTypeKind::DeviceCharPtr, 0, {}};
                 else if (inst.opcode == LLVMInstruction::PHI)
                     type_hint = inst_type;
