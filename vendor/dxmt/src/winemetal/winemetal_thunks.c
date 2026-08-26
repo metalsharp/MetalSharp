@@ -1533,6 +1533,41 @@ MTLCommandBuffer_writeCompactedAccelerationStructureSize(
 }
 
 WINEMETAL_API bool
+MTLDevice_accelerationStructureSizesForTriangleGeometries(
+    obj_handle_t device,
+    const struct WMTPrimitiveAccelerationStructureInfo *infos,
+    uint64_t info_count, struct WMTAccelerationStructureSizes *sizes) {
+  struct unixcall_mtldevice_acceleration_structure_sizes_for_triangle_geometries
+      params;
+  params.device = device;
+  WMT_MEMPTR_SET(params.infos, infos);
+  params.info_count = info_count;
+  WMT_MEMPTR_SET(params.sizes, sizes);
+  params.ret_success = 0;
+  UNIX_CALL(151, &params);
+  return params.ret_success;
+}
+
+WINEMETAL_API bool
+MTLCommandBuffer_buildTriangleAccelerationStructures(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTPrimitiveAccelerationStructureInfo *infos,
+    uint64_t info_count, obj_handle_t scratch_buffer,
+    uint64_t scratch_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structures
+      params;
+  params.cmdbuf = cmdbuf;
+  params.acceleration_structure = acceleration_structure;
+  WMT_MEMPTR_SET(params.infos, infos);
+  params.info_count = info_count;
+  params.scratch_buffer = scratch_buffer;
+  params.scratch_buffer_offset = scratch_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(152, &params);
+  return params.ret_success;
+}
+
+WINEMETAL_API bool
 MTLCommandBuffer_refitTriangleAccelerationStructure(
     obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
     obj_handle_t destination_acceleration_structure,

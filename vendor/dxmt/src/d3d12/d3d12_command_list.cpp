@@ -916,19 +916,16 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
     CLTRACE("BuildRaytracingAccelerationStructure ignored null descriptor");
     return;
   }
-  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
   if (desc->Inputs.Type ==
       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
-    if (desc->Inputs.NumDescs == 1 &&
-        desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY) {
-      geometry = desc->Inputs.pGeometryDescs;
-    } else if (desc->Inputs.NumDescs == 1 &&
-               desc->Inputs.DescsLayout ==
-                   D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
-               desc->Inputs.ppGeometryDescs) {
-      geometry = desc->Inputs.ppGeometryDescs[0];
-    }
-    if (!geometry) {
+    if (!desc->Inputs.NumDescs ||
+        desc->Inputs.NumDescs >
+            CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs ||
+        (desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY &&
+         !desc->Inputs.pGeometryDescs) ||
+        (desc->Inputs.DescsLayout ==
+             D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+         !desc->Inputs.ppGeometryDescs)) {
       CLTRACE("BuildRaytracingAccelerationStructure unsupported BLAS "
               "descriptors=%u layout=%u",
               desc->Inputs.NumDescs, (unsigned)desc->Inputs.DescsLayout);
@@ -948,11 +945,23 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
   cmd.source_acceleration_structure = desc->SourceAccelerationStructureData;
   cmd.type = desc->Inputs.Type;
   cmd.flags = desc->Inputs.Flags;
-  cmd.descs_layout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+  cmd.descs_layout = desc->Inputs.DescsLayout;
   cmd.num_descs = desc->Inputs.NumDescs;
   cmd.instance_descs = desc->Inputs.InstanceDescs;
-  if (geometry)
-    cmd.geometry = *geometry;
+  if (desc->Inputs.Type ==
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
+    for (UINT i = 0; i < desc->Inputs.NumDescs; i++) {
+      const auto *geometry =
+          desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? &desc->Inputs.pGeometryDescs[i]
+              : desc->Inputs.ppGeometryDescs[i];
+      if (!geometry) {
+        CLTRACE("BuildRaytracingAccelerationStructure null geometry=%u", i);
+        return;
+      }
+      cmd.geometries[i] = *geometry;
+    }
+  }
   Emit(cmd);
   CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "
           "scratch=0x%llx postbuild=%u",
