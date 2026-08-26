@@ -5,7 +5,7 @@
       "evidence": [
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "The target M4 builds a two-geometry indexed/non-indexed triangle BLAS plus a procedural-AABB BLAS, refits triangle and AABB geometry from translated to centered coordinates, clones and compacts the triangle BLAS after a 616-byte compacted-size report for its 768-byte allocation, traverses the compact copy through a three-instance TLAS refit from an x=10 instance translation, returns a mask-isolated inline RayQuery hit against the multi-geometry BLAS, and executes raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable shader-table records with depth-2 recursion through DispatchRays; mixed triangle/AABB geometry, larger geometry/instance arrays, serialization/deserialization, and complete local-root/shader-table semantics remain unproven.",
+      "reason": "The target M4 builds a two-geometry indexed/non-indexed triangle BLAS plus a procedural-AABB BLAS, refits triangle and AABB geometry from translated to centered coordinates, clones and compacts the triangle BLAS after a 616-byte compacted-size report for its 768-byte allocation, traverses the compact copy through a three-instance TLAS refit from an x=10 instance translation, returns a mask-isolated inline RayQuery hit against the multi-geometry BLAS, grows the state object with an inherited executable hit-group alias, and executes raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable shader-table records with depth-2 recursion through DispatchRays; mixed triangle/AABB geometry, larger geometry/instance arrays, serialization/deserialization, new-library state-object growth, and complete local-root/shader-table semantics remain unproven.",
       "state": "unsupported",
       "tier": "unsupported"
     },
@@ -72,7 +72,7 @@
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
         "tools/d3d12-metal-sdk/probes/probe_device_caps"
       ],
-      "reason": "A raygen-only DXIL library now creates a Metal linked-function pipeline, returns a shader identifier, and executes through DispatchRays; hit groups, miss/callable shaders, associations, collections, and state-object growth remain gated.",
+      "reason": "A DXIL library creates a Metal linked-function pipeline with raygen, miss, triangle any-hit/closest-hit, procedural intersection/closest-hit, and callable exports. Stable identifiers and a grown inherited hit-group alias execute through DispatchRays; local-root associations, collections, new-library growth, and complete stack/shader-table semantics remain gated.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },
