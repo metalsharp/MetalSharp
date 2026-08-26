@@ -111,8 +111,9 @@ readback while keeping MeshShaderTier
 conservative. `dxr_acceleration_structures` proves a
 one-triangle Metal BLAS, one-instance TLAS, current-size postbuild readbacks,
 an inline `RayQuery` triangle hit, stable distinct raygen/miss export
-identifiers, and raygen/miss/triangle-closest-hit/callable shader-table records
-executing through `DispatchRays` while keeping RaytracingTier conservative.
+identifiers, and raygen/miss/triangle-any-hit/closest-hit/callable shader-table
+records executing through `DispatchRays` while keeping RaytracingTier
+conservative.
 Both remain breadth
 gates rather than general feature claims.
 
