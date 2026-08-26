@@ -696,6 +696,13 @@ public:
     MTLCommandBuffer_retainObjectsUntilCompleted(handle, objects, count);
   }
 
+  bool
+  writeTimestampResults(Buffer destination, uint64_t offset,
+                        uint32_t count) {
+    return MTLCommandBuffer_writeTimestampResults(handle, destination.handle,
+                                                  offset, count);
+  }
+
   WMTCommandBufferStatus
   status() {
     return MTLCommandBuffer_status(handle);

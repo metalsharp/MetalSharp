@@ -446,6 +446,15 @@ struct unixcall_mtlcommandbuffer_build_instance_acceleration_structure {
   uint64_t ret_success;
 };
 
+struct unixcall_mtlcommandbuffer_write_timestamp_results {
+  obj_handle_t cmdbuf;
+  obj_handle_t destination_buffer;
+  uint64_t destination_offset;
+  uint32_t result_count;
+  uint32_t reserved;
+  uint64_t ret_success;
+};
+
 #pragma pack(pop)
 
 #endif

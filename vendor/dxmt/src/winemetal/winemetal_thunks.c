@@ -1439,3 +1439,19 @@ MTLVisibleFunctionTable_gpuResourceID(obj_handle_t visible_function_table) {
   UNIX_CALL(143, &params);
   return params.ret;
 }
+
+WINEMETAL_API bool
+MTLCommandBuffer_writeTimestampResults(obj_handle_t cmdbuf,
+                                       obj_handle_t destination_buffer,
+                                       uint64_t destination_offset,
+                                       uint32_t result_count) {
+  struct unixcall_mtlcommandbuffer_write_timestamp_results params;
+  params.cmdbuf = cmdbuf;
+  params.destination_buffer = destination_buffer;
+  params.destination_offset = destination_offset;
+  params.result_count = result_count;
+  params.reserved = 0;
+  params.ret_success = 0;
+  UNIX_CALL(144, &params);
+  return params.ret_success;
+}

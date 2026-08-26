@@ -422,6 +422,39 @@ _MTLCommandBuffer_retainObjectsUntilCompleted(void *obj) {
 }
 
 static NTSTATUS
+_MTLCommandBuffer_writeTimestampResults(void *obj) {
+  struct unixcall_mtlcommandbuffer_write_timestamp_results *params = obj;
+  id<MTLCommandBuffer> cmdbuf = (id<MTLCommandBuffer>)params->cmdbuf;
+  id<MTLBuffer> destination = (id<MTLBuffer>)params->destination_buffer;
+  uint64_t byte_count = (uint64_t)params->result_count * sizeof(uint64_t);
+  if (!cmdbuf || !destination || !params->result_count ||
+      params->destination_offset + byte_count > [destination length]) {
+    params->ret_success = 0;
+    return STATUS_SUCCESS;
+  }
+
+  const uint64_t destination_offset = params->destination_offset;
+  const uint32_t result_count = params->result_count;
+  [cmdbuf addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+    uint64_t timestamp =
+      (uint64_t)([completed GPUEndTime] * 1000000000.0);
+    if (!timestamp)
+      timestamp = 1;
+    uint64_t *results =
+      (uint64_t *)((uint8_t *)[destination contents] + destination_offset);
+    for (uint32_t i = 0; i < result_count; i++)
+      results[i] = timestamp;
+#if TARGET_OS_OSX
+    if ([destination storageMode] == MTLStorageModeManaged)
+      [destination didModifyRange:NSMakeRange(destination_offset,
+                                              result_count * sizeof(uint64_t))];
+#endif
+  }];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLCommandBuffer_status(void *obj) {
   struct unixcall_generic_obj_uint64_ret *params = obj;
   params->ret = [(id<MTLCommandBuffer>)params->handle status];
@@ -3975,6 +4008,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLAccelerationStructure_gpuResourceID,
     &_MTLDevice_newRaytracingComputePipelineState,
     &_MTLVisibleFunctionTable_gpuResourceID,
+    &_MTLCommandBuffer_writeTimestampResults,
 };
 
 #ifndef DXMT_NATIVE
@@ -4123,5 +4157,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLAccelerationStructure_gpuResourceID,
     &_MTLDevice_newRaytracingComputePipelineState,
     &_MTLVisibleFunctionTable_gpuResourceID,
+    &_MTLCommandBuffer_writeTimestampResults,
 };
 #endif

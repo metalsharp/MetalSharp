@@ -8870,6 +8870,20 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (!heap || !dst || !bytes)
           break;
 
+        if (cmd->type == D3D12_QUERY_TYPE_TIMESTAMP &&
+            dst->GetMTLBuffer().handle &&
+            cmd->start_index + cmd->query_count <= heap->GetCount() &&
+            cmdbuf.writeTimestampResults(dst->GetMTLBuffer(), cmd->dst_offset,
+                                         cmd->query_count)) {
+          st.RetainResourceMetalObjectsForCompletion(dst);
+          QTRACE("ResolveQueryData scheduled GPU-end timestamp results "
+                 "count=%u dst=%llu off=%llu",
+                 cmd->query_count,
+                 (unsigned long long)dst->GetMTLBuffer().handle,
+                 (unsigned long long)cmd->dst_offset);
+          break;
+        }
+
         std::vector<uint8_t> results(bytes, 0);
         for (uint32_t i = 0; i < cmd->query_count; i++) {
           uint64_t value = 0;

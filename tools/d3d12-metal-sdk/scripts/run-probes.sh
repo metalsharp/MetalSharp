@@ -93,6 +93,7 @@ Options:
   --dxgi-only           Run only the DXGI factory probe.
   --no-resources        Skip probe_resources.
   --no-queues           Skip probe_queues.
+  --queues-only         Run only the command-queue/fence/timestamp probe.
   --no-descriptors      Skip probe_descriptors.
   --no-shaders          Skip probe_shaders.
   --dxil-semantics      Run the DXIL semantic opcode-group probe.
@@ -331,6 +332,34 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-queues)
       RUN_QUEUES=0
+      shift
+      ;;
+    --queues-only)
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=1
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
       shift
       ;;
     --no-descriptors)

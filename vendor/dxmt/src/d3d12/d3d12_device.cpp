@@ -2472,7 +2472,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS3 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->CopyQueueTimestampQueriesSupported = FALSE;
+    o->CopyQueueTimestampQueriesSupported = TRUE;
     o->CastingFullyTypedFormatSupported = TRUE;
     o->WriteBufferImmediateSupportFlags =
         (D3D12_COMMAND_LIST_SUPPORT_FLAGS)(

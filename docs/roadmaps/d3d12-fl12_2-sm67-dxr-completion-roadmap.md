@@ -88,7 +88,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Wave operations | Supported | Reported true, but baseline contract rejects the claim | Wave runtime readback suite |
 | Output-merger logic op | Supported | Reported true | Logic-op render/readback matrix |
 | VP/RT array index from rasterizer feeder | Supported | Reported true | VS/DS/GS/MS array-index probe |
-| Copy-queue timestamps | Supported | Unsupported | Copy queue timestamp query probe |
+| Copy-queue timestamps | Supported | Proven and reported | Metal GPU-end timestamp resolve/readback probe |
 | Fully typed format casting | Supported | Reported true | Castable-format creation and view probe |
 | Unaligned block textures | Supported | Unsupported | BC resource footprint/copy/sample probe |
 | Int64 shader ops | Supported | Reported true | Arithmetic and atomic runtime readback |
@@ -177,8 +177,8 @@ Findings:
 - Several values are over-reported relative to implementation, including ROVs,
   conservative rasterization tier 1, typed UAV additional formats, and some
   format atomic flags.
-- Feature-level 12_2 requirements currently reported false include copy queue
-  timestamps, depth bounds, tiled resources, VRS, mesh shaders, sampler
+- Feature-level 12_2 requirements currently reported false include depth
+  bounds, tiled resources, VRS, mesh shaders, sampler
   feedback, enhanced barriers, and unaligned block textures.
 - Shared handles and opening shared heaps are `E_NOTIMPL`.
 - Protected-resource, lifetime-tracker, meta-command, and state-object paths
@@ -903,6 +903,10 @@ the goal is not complete.
   sum now execute with zero readback mismatches under MetalSharp Wine 11.5.
 - Enabled the WaveOps feature report at a fixed 32-lane range only after that
   runtime proof passed, and removed WaveOps from the unsupported ledger.
+- Implemented copy-queue timestamp queries using Metal command-buffer GPU end
+  times. Timestamp resolves register a completion handler that writes nanosecond
+  results into the destination Metal buffer before the following queue fence;
+  a two-query copy-list gate returns nonzero monotonic values.
 - Proved all three required `WriteBufferImmediate` command-list classes and
   modes: direct, compute, and an inlined bundle execute default, marker-in, and
   marker-out writes to GPU virtual addresses and read back the exact values;
