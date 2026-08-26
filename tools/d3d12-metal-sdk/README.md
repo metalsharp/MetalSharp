@@ -196,6 +196,19 @@ The current honest shader feature posture is:
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.
+- Full 64-bit atomics remain unreported. The native Metal probe confirms that
+  MSL 3.1 on the target M4 executes device `atomic_ulong` min/max but rejects
+  device add and threadgroup add. Run the exact compiler/runtime gate with the
+  required beta toolchain:
+
+```bash
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+  /usr/bin/xcrun --sdk macosx clang++ -std=c++20 -fblocks \
+  -framework Foundation -framework Metal \
+  tools/d3d12-metal-sdk/scripts/probe-metal-atomic64.mm \
+  -o /tmp/probe-metal-atomic64
+/tmp/probe-metal-atomic64
+```
 
 `dxil_semantics_proven` is supporting evidence only. It must not substitute for
 `dxil_to_msl_proven`, and the contract comparator fails if shader compliance
