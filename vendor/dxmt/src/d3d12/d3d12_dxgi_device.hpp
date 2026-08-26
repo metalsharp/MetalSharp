@@ -8,6 +8,8 @@
 #include "Metal.hpp"
 #include <atomic>
 #include <memory>
+#include <mutex>
+#include <unordered_set>
 
 namespace dxmt {
 
@@ -64,6 +66,10 @@ private:
   D3DKMT_HANDLE m_kmt = 0;
   ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
+  std::atomic<INT> m_gpu_thread_priority = {0};
+  std::atomic<UINT> m_maximum_frame_latency = {3};
+  std::mutex m_offered_resource_mutex;
+  std::unordered_set<IDXGIResource *> m_offered_resources;
 };
 
 } // namespace dxmt
