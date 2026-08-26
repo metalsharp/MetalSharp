@@ -2253,6 +2253,101 @@ WMT::Device MTLD3D12Device::GetMTLDevice() { return m_device->device(); }
 
 Device &MTLD3D12Device::GetDXMTDevice() { return *m_device; }
 
+namespace {
+
+struct D3D12QueueCompletionPoint {
+  WMT::Reference<WMT::SharedEvent> event;
+  uint64_t value;
+};
+
+struct D3D12DeviceEventWaitContext {
+  std::vector<D3D12QueueCompletionPoint> points;
+  HANDLE event;
+};
+
+DWORD WINAPI D3D12DeviceEventWaitThread(void *argument) {
+  auto *context = static_cast<D3D12DeviceEventWaitContext *>(argument);
+  for (const auto &point : context->points)
+    point.event.waitUntilSignaledValue(point.value, UINT64_MAX);
+  SetEvent(context->event);
+  CloseHandle(context->event);
+  delete context;
+  return 0;
+}
+
+} // namespace
+
+void MTLD3D12Device::RegisterCommandQueue(MTLD3D12CommandQueue *queue) {
+  std::lock_guard lock(m_command_queue_mutex);
+  m_command_queues.push_back(queue);
+  TRACE("RegisterCommandQueue queue=%p count=%zu", (void *)queue,
+        m_command_queues.size());
+}
+
+void MTLD3D12Device::UnregisterCommandQueue(MTLD3D12CommandQueue *queue) {
+  std::lock_guard lock(m_command_queue_mutex);
+  auto entry = std::find(m_command_queues.begin(), m_command_queues.end(),
+                         queue);
+  if (entry != m_command_queues.end())
+    m_command_queues.erase(entry);
+  TRACE("UnregisterCommandQueue queue=%p count=%zu", (void *)queue,
+        m_command_queues.size());
+}
+
+HRESULT MTLD3D12Device::EnqueueSetEvent(HANDLE event) {
+  if (!event)
+    return E_INVALIDARG;
+
+  HANDLE duplicate = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), event, GetCurrentProcess(),
+                       &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+    return HRESULT_FROM_WIN32(GetLastError());
+
+  auto *context = new (std::nothrow) D3D12DeviceEventWaitContext;
+  if (!context) {
+    CloseHandle(duplicate);
+    return E_OUTOFMEMORY;
+  }
+  context->event = duplicate;
+
+  try {
+    std::lock_guard lock(m_command_queue_mutex);
+    context->points.reserve(m_command_queues.size());
+    for (auto *queue : m_command_queues) {
+      D3D12QueueCompletionPoint point = {};
+      if (!queue->EnqueueCompletionSignal(point.event, point.value)) {
+        CloseHandle(duplicate);
+        delete context;
+        return E_FAIL;
+      }
+      context->points.push_back(std::move(point));
+    }
+  } catch (const std::bad_alloc &) {
+    CloseHandle(duplicate);
+    delete context;
+    return E_OUTOFMEMORY;
+  }
+
+  TRACE("EnqueueSetEvent event=%p queue_count=%zu", event,
+        context->points.size());
+  if (context->points.empty()) {
+    SetEvent(duplicate);
+    CloseHandle(duplicate);
+    delete context;
+    return S_OK;
+  }
+
+  HANDLE thread =
+      CreateThread(nullptr, 0, D3D12DeviceEventWaitThread, context, 0, nullptr);
+  if (!thread) {
+    CloseHandle(duplicate);
+    delete context;
+    return HRESULT_FROM_WIN32(GetLastError());
+  }
+  CloseHandle(thread);
+  return S_OK;
+}
+
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::QueryInterface(REFIID riid,
                                                          void **ppvObject) {
   if (!ppvObject)
@@ -2289,7 +2384,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::QueryInterface(REFIID riid,
   }
 
   if (m_dxgi_device) {
-    if (riid == IID_IDXGIDevice) {
+    if (riid == IID_IDXGIDevice || riid == __uuidof(IDXGIDevice1) ||
+        riid == __uuidof(IDXGIDevice2) ||
+        riid == __uuidof(IDXGIDevice3)) {
       TRACE("D3D12Device::QI(%s) -> delegating DXGI to dxgi_device",
             str::format(riid).c_str());
       return m_dxgi_device->QueryInterface(riid, ppvObject);

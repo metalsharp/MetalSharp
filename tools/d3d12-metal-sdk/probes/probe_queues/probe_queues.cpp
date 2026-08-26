@@ -145,6 +145,7 @@ int main() {
     ID3D12Fence* render_fence = nullptr;
     ID3D12Fence* compute_fence = nullptr;
     ID3D12Fence* present_fence = nullptr;
+    ID3D12Fence* dxgi_block_fence = nullptr;
     HRESULT copy_fence_hr = device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&copy_fence)) : E_FAIL;
     HRESULT render_fence_hr =
         device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&render_fence)) : E_FAIL;
@@ -152,6 +153,10 @@ int main() {
         device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&compute_fence)) : E_FAIL;
     HRESULT present_fence_hr =
         device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&present_fence)) : E_FAIL;
+    HRESULT dxgi_block_fence_hr =
+        device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                     IID_PPV_ARGS(&dxgi_block_fence))
+               : E_FAIL;
 
     const UINT64 buffer_bytes = 4096;
     D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -284,6 +289,41 @@ int main() {
         present_signal_hr = present_queue->Signal(present_fence, 4);
     }
 
+    IDXGIDevice3* dxgi_device3 = nullptr;
+    HRESULT dxgi_device3_qi_hr =
+        device ? device->QueryInterface(IID_PPV_ARGS(&dxgi_device3)) : E_FAIL;
+    HRESULT enqueue_null_event_hr =
+        dxgi_device3 ? dxgi_device3->EnqueueSetEvent(nullptr) : E_NOINTERFACE;
+    HANDLE enqueue_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    HANDLE enqueue_event_observer = nullptr;
+    BOOL duplicate_enqueue_event =
+        enqueue_event &&
+        DuplicateHandle(GetCurrentProcess(), enqueue_event,
+                        GetCurrentProcess(), &enqueue_event_observer, 0, FALSE,
+                        DUPLICATE_SAME_ACCESS);
+    HRESULT dxgi_queue_block_hr =
+        copy_queue && dxgi_block_fence
+            ? copy_queue->Wait(dxgi_block_fence, 1)
+            : E_FAIL;
+    HRESULT enqueue_set_event_hr =
+        dxgi_device3 && enqueue_event && SUCCEEDED(dxgi_queue_block_hr)
+            ? dxgi_device3->EnqueueSetEvent(enqueue_event)
+            : E_FAIL;
+    if (enqueue_event)
+        CloseHandle(enqueue_event);
+    DWORD enqueue_initial_wait =
+        enqueue_event_observer
+            ? WaitForSingleObject(enqueue_event_observer, 0)
+            : WAIT_FAILED;
+    HRESULT dxgi_block_release_hr =
+        dxgi_block_fence ? dxgi_block_fence->Signal(1) : E_FAIL;
+    DWORD enqueue_final_wait =
+        enqueue_event_observer && SUCCEEDED(dxgi_block_release_hr)
+            ? WaitForSingleObject(enqueue_event_observer, 15000)
+            : WAIT_FAILED;
+    if (enqueue_event_observer)
+        CloseHandle(enqueue_event_observer);
+
     HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
     if (present_fence && event_handle && SUCCEEDED(present_signal_hr)) {
         cpu_wait_hr = present_fence->SetEventOnCompletion(4, event_handle);
@@ -376,6 +416,11 @@ int main() {
                 SUCCEEDED(present_objects_hr) && SUCCEEDED(compute_objects_hr) && SUCCEEDED(copy_objects_hr) &&
                 SUCCEEDED(copy_fence_hr) && SUCCEEDED(render_fence_hr) && SUCCEEDED(compute_fence_hr) &&
                 SUCCEEDED(present_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(copy_buffer_hr) &&
+                SUCCEEDED(dxgi_block_fence_hr) && SUCCEEDED(dxgi_device3_qi_hr) &&
+                enqueue_null_event_hr == E_INVALIDARG && duplicate_enqueue_event &&
+                SUCCEEDED(dxgi_queue_block_hr) && SUCCEEDED(enqueue_set_event_hr) &&
+                enqueue_initial_wait == WAIT_TIMEOUT && SUCCEEDED(dxgi_block_release_hr) &&
+                enqueue_final_wait == WAIT_OBJECT_0 &&
                 SUCCEEDED(render_buffer_hr) && SUCCEEDED(readback_buffer_hr) && SUCCEEDED(map_upload_hr) &&
                 SUCCEEDED(copy_close_hr) && SUCCEEDED(render_close_hr) && SUCCEEDED(compute_close_hr) &&
                 SUCCEEDED(present_close_hr) && SUCCEEDED(copy_execute_hr) && SUCCEEDED(copy_signal_hr) &&
@@ -452,6 +497,17 @@ int main() {
     print_hr("present_execute", present_execute_hr);
     print_hr("present_signal", present_signal_hr);
     print_hr("cpu_wait", cpu_wait_hr);
+    print_hr("dxgi_device3_qi", dxgi_device3_qi_hr);
+    print_hr("enqueue_null_event", enqueue_null_event_hr);
+    print_hr("dxgi_queue_block", dxgi_queue_block_hr);
+    print_hr("enqueue_set_event", enqueue_set_event_hr);
+    print_hr("dxgi_block_release", dxgi_block_release_hr);
+    std::printf("    \"enqueue_event_handle_duplicated\": %s,\n",
+                duplicate_enqueue_event ? "true" : "false");
+    std::printf("    \"enqueue_event_blocked_before_queue_completion\": %s,\n",
+                enqueue_initial_wait == WAIT_TIMEOUT ? "true" : "false");
+    std::printf("    \"enqueue_event_signaled_after_all_queues\": %s,\n",
+                enqueue_final_wait == WAIT_OBJECT_0 ? "true" : "false");
     std::printf("    \"copy_completed\": %" PRIu64 ",\n", copy_completed);
     std::printf("    \"render_completed\": %" PRIu64 ",\n", render_completed);
     std::printf("    \"compute_completed\": %" PRIu64 ",\n", compute_completed);

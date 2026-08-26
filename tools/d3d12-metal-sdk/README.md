@@ -350,6 +350,12 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
   --swapchain-only
 ```
 
+The queue probe also validates the D3D12 `IDXGIDevice3` path. It places one
+queue behind an unsignaled GPU wait, calls `EnqueueSetEvent`, closes the
+caller's event handle, proves the event remains unsignaled, releases the wait,
+and then proves the retained event is signaled only after completion markers
+from every live direct, compute, and copy queue.
+
 Before launching Steam or a game, run the game-safe preflight:
 
 ```bash
