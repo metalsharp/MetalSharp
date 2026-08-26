@@ -4594,12 +4594,24 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::MakeResident(
     UINT object_count, ID3D12Pageable *const *objects) {
   TRACE("MakeResident count=%u objects=%p", object_count, (void *)objects);
+  if (object_count && !objects)
+    return E_INVALIDARG;
+  for (UINT i = 0; i < object_count; i++)
+    if (!objects[i])
+      return E_INVALIDARG;
+  // Apple unified-memory resources are resident by default. The validation is
+  // still important: a null entry must not become false-successful residency.
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Device::Evict(UINT object_count, ID3D12Pageable *const *objects) {
   TRACE("Evict count=%u objects=%p", object_count, (void *)objects);
+  if (object_count && !objects)
+    return E_INVALIDARG;
+  for (UINT i = 0; i < object_count; i++)
+    if (!objects[i])
+      return E_INVALIDARG;
   return S_OK;
 }
 
@@ -4981,6 +4993,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetResidencyPriority(
     const D3D12_RESIDENCY_PRIORITY *priorities) {
   TRACE("SetResidencyPriority count=%u objects=%p priorities=%p", object_count,
         (void *)objects, (void *)priorities);
+  if (object_count && (!objects || !priorities))
+    return E_INVALIDARG;
+  for (UINT i = 0; i < object_count; i++)
+    if (!objects[i])
+      return E_INVALIDARG;
   return S_OK;
 }
 

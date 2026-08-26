@@ -199,6 +199,14 @@ int main() {
     timestamp_heap_desc.Count = 2;
     HRESULT timestamp_heap_hr =
         device ? device->CreateQueryHeap(&timestamp_heap_desc, IID_PPV_ARGS(&timestamp_heap)) : E_FAIL;
+    HRESULT invalid_make_resident_hr =
+        device ? device->MakeResident(1, nullptr) : E_FAIL;
+    HRESULT invalid_evict_hr = device ? device->Evict(1, nullptr) : E_FAIL;
+    ID3D12Pageable *null_pageable[] = {nullptr};
+    HRESULT null_make_resident_entry_hr =
+        device ? device->MakeResident(1, null_pageable) : E_FAIL;
+    HRESULT null_evict_entry_hr =
+        device ? device->Evict(1, null_pageable) : E_FAIL;
 
     uint8_t* upload_ptr = nullptr;
     HRESULT map_upload_hr =
@@ -490,6 +498,10 @@ int main() {
                 set_invalid_frame_latency_hr == E_INVALIDARG && SUCCEEDED(zero_residency_hr) &&
                 SUCCEEDED(zero_offer_hr) && invalid_offer_priority_hr == E_INVALIDARG &&
                 SUCCEEDED(zero_reclaim_hr) &&
+                invalid_make_resident_hr == E_INVALIDARG &&
+                invalid_evict_hr == E_INVALIDARG &&
+                null_make_resident_entry_hr == E_INVALIDARG &&
+                null_evict_entry_hr == E_INVALIDARG &&
                 enqueue_null_event_hr == E_INVALIDARG && duplicate_enqueue_event &&
                 SUCCEEDED(dxgi_queue_block_hr) && SUCCEEDED(enqueue_set_event_hr) &&
                 enqueue_initial_wait == WAIT_TIMEOUT && SUCCEEDED(dxgi_block_release_hr) &&
@@ -586,6 +598,10 @@ int main() {
     print_hr("zero_resource_offer", zero_offer_hr);
     print_hr("invalid_offer_priority", invalid_offer_priority_hr);
     print_hr("zero_resource_reclaim", zero_reclaim_hr);
+    print_hr("invalid_make_resident", invalid_make_resident_hr);
+    print_hr("invalid_evict", invalid_evict_hr);
+    print_hr("null_make_resident_entry", null_make_resident_entry_hr);
+    print_hr("null_evict_entry", null_evict_entry_hr);
     print_hr("enqueue_null_event", enqueue_null_event_hr);
     print_hr("dxgi_queue_block", dxgi_queue_block_hr);
     print_hr("enqueue_set_event", enqueue_set_event_hr);
