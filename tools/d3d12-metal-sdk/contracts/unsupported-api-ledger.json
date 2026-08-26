@@ -26,7 +26,7 @@
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "AS/MS pipeline streams, stage-specific CBV/SRV/UAV plus texture/sampler resources, 32 mesh lanes, eight-byte payloads, two dispatch groups, and direct/indirect DispatchMesh pass runtime readback, but mixed state, statistics, render-target arrays, and broader shader coverage remain required before reporting tier 1.",
+      "reason": "AS/MS pipeline streams, stage-specific CBV/SRV/UAV plus texture/sampler resources, 32 mesh lanes, twelve-byte payloads, two dispatch groups, direct/indirect DispatchMesh, and payload-selected SV_RenderTargetArrayIndex output into two independently read-back RTV array layers pass at runtime. Mixed render-state matrices, pipeline statistics, and broader shader/payload coverage remain required before reporting tier 1.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

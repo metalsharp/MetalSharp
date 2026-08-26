@@ -591,6 +591,14 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
 
 The device capability probe uses the same Agility export pattern and records UE5-relevant `CheckFeatureSupport` results: feature levels, shader model, resource binding tier, wave ops, atomic64, raytracing, mesh shader, sampler feedback, stream output, reserved resources, state objects, and other advanced feature gates. Its unsupported-policy section is paired with `contracts/unsupported-api-ledger.json` so advanced features are either proven, explicitly waived, or honestly rejected.
 
+The mesh mini-probe additionally validates amplification-payload-selected
+`SV_RenderTargetArrayIndex` output. Direct and indirect `DispatchMesh` render
+into both slices of a two-layer `TEXTURE2DARRAY` RTV and independently read back
+exact mesh pixels from every layer and scissor half. It also requires every
+remaining pixel in both slices to match the RTV-array clear color. Mesh tier
+reporting remains disabled pending pipeline statistics, mixed render-state
+matrices, and broader shader/payload coverage.
+
 Run just the unsupported-policy phase gate with:
 
 ```bash

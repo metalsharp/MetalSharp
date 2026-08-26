@@ -1138,9 +1138,14 @@ struct MeshVertex {
   float4 position : SV_Position;
 };
 
+struct MeshPrimitive {
+  uint render_target_index : SV_RenderTargetArrayIndex;
+};
+
 struct MeshPayload {
   float horizontal_offset;
   uint signature;
+  uint render_target_index;
 };
 
 groupshared MeshPayload payload;
@@ -1163,6 +1168,7 @@ RWByteAddressBuffer mesh_output : register(u0);
 void as_main(uint3 group_id : SV_GroupID) {
   payload.horizontal_offset = (group_id.x & 1) ? 0.05 : 0.0;
   payload.signature = 0x4153504c;
+  payload.render_target_index = group_id.x & 1;
   DispatchMesh(amplification_enabled * amplification_control.Load(0),
                1, 1, payload);
 }
@@ -1171,6 +1177,7 @@ void as_main(uint3 group_id : SV_GroupID) {
 [numthreads(32, 1, 1)]
 void ms_main(in payload MeshPayload payload,
              out vertices MeshVertex vertices[3],
+             out primitives MeshPrimitive primitives[1],
              out indices uint3 triangles[1],
              uint group_thread_id : SV_GroupIndex) {
   SetMeshOutputCounts(3, 1);
@@ -1181,6 +1188,7 @@ void ms_main(in payload MeshPayload payload,
                     payload.signature + group_thread_id);
   if (group_thread_id == 0) {
     vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
+    primitives[0].render_target_index = payload.render_target_index;
     triangles[0] = uint3(0, 1, 2);
   } else if (group_thread_id == 1) {
     vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * resolved_scale,  0.8 * resolved_scale, 0.0, 1.0);
