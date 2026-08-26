@@ -3414,7 +3414,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS9 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->MeshShaderPipelineStatsSupported = FALSE;
+    // PIPELINE_STATISTICS1 is software-accounted from successful AS/MS
+    // dispatches and has an exact two-group runtime/readback proof. This is
+    // independent of the still-conservative MeshShaderTier report.
+    o->MeshShaderPipelineStatsSupported = TRUE;
     o->MeshShaderSupportsFullRangeRenderTargetArrayIndex = FALSE;
     o->AtomicInt64OnTypedResourceSupported = TRUE;
     o->AtomicInt64OnGroupSharedSupported = TRUE;
