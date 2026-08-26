@@ -472,6 +472,13 @@ struct unixcall_mtlcommandbuffer_build_aabb_acceleration_structure {
   uint64_t ret_success;
 };
 
+struct unixcall_mtlcommandbuffer_copy_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  uint64_t ret_success;
+};
+
 #pragma pack(pop)
 
 #endif

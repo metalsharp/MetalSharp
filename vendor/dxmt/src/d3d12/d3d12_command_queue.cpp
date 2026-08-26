@@ -7582,6 +7582,42 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
         break;
       }
+      case CmdType::CopyRaytracingAccelerationStructure: {
+        auto *cmd = reinterpret_cast<
+            const CmdCopyRaytracingAccelerationStructure *>(header);
+        auto *source = m_device->LookupResourceByGPUAddress(
+            cmd->source_acceleration_structure);
+        auto *destination = m_device->LookupResourceByGPUAddress(
+            cmd->destination_acceleration_structure);
+        if (cmd->mode !=
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE ||
+            !source || !destination ||
+            !source->GetMTLAccelerationStructure().handle ||
+            !source->GetMTLAccelerationStructureSize()) {
+          QTRACE("CopyRaytracingAS SKIPPED mode=%u source=%p destination=%p",
+                 (unsigned)cmd->mode, (void *)source, (void *)destination);
+          break;
+        }
+        st.CloseRenderEncoder();
+        auto copied = m_device->GetMTLDevice().newAccelerationStructure(
+            source->GetMTLAccelerationStructureSize());
+        if (!copied.handle ||
+            !cmdbuf.copyAccelerationStructure(
+                source->GetMTLAccelerationStructure(), copied)) {
+          QTRACE("CopyRaytracingAS SKIPPED Metal clone failed");
+          break;
+        }
+        destination->SetMTLAccelerationStructure(
+            copied, source->GetMTLAccelerationStructureSize());
+        st.RetainMTLObjectForCompletion(copied);
+        st.RetainResourceMetalObjectsForCompletion(source);
+        st.RetainResourceMetalObjectsForCompletion(destination);
+        QTRACE("CopyRaytracingAS cloned bytes=%llu source=%p destination=%p",
+               (unsigned long long)
+                   source->GetMTLAccelerationStructureSize(),
+               (void *)source, (void *)destination);
+        break;
+      }
       case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo: {
         auto *cmd = reinterpret_cast<const
             CmdEmitRaytracingAccelerationStructurePostbuildInfo *>(header);

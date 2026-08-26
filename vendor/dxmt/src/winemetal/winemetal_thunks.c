@@ -1488,3 +1488,16 @@ MTLCommandBuffer_buildAABBAccelerationStructure(
   UNIX_CALL(146, &params);
   return params.ret_success;
 }
+
+WINEMETAL_API bool
+MTLCommandBuffer_copyAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_acceleration_structure) {
+  struct unixcall_mtlcommandbuffer_copy_acceleration_structure params;
+  params.cmdbuf = cmdbuf;
+  params.source_acceleration_structure = source_acceleration_structure;
+  params.destination_acceleration_structure = destination_acceleration_structure;
+  params.ret_success = 0;
+  UNIX_CALL(147, &params);
+  return params.ret_success;
+}

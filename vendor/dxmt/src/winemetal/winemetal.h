@@ -275,6 +275,9 @@ WINEMETAL_API bool MTLCommandBuffer_buildAABBAccelerationStructure(
     obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
     const struct WMTAABBAccelerationStructureInfo *info,
     obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
+WINEMETAL_API bool MTLCommandBuffer_copyAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_acceleration_structure);
 WINEMETAL_API bool MTLDevice_accelerationStructureSizesForInstances(
     obj_handle_t device, uint64_t instance_count,
     struct WMTAccelerationStructureSizes *sizes);
