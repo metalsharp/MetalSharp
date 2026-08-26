@@ -1024,9 +1024,20 @@ if [[ "$NEED_BUILD" == "1" ]]; then
 fi
 
 mkdir -p "$RESULTS_DIR"
-if [[ -z "$SHADER_CACHE_DIR" ]]; then
+shader_cache_explicit=0
+if [[ -n "$SHADER_CACHE_DIR" ]]; then
+  shader_cache_explicit=1
+else
   SHADER_CACHE_DIR="$RESULTS_DIR/shader-cache-$PROFILE"
 fi
+# Warm-up and final runs within this invocation intentionally share a cache,
+# but a default profile cache must not inherit entries from an earlier runtime
+# or source build. Converter cache keys are not a complete runtime identity,
+# so stale entries can make a clean-prefix probe bind the wrong stage ABI.
+if [[ "$shader_cache_explicit" == "0" ]]; then
+  rm -rf "$SHADER_CACHE_DIR"
+fi
+mkdir -p "$SHADER_CACHE_DIR"
 
 if [[ -z "${MS_ROOT:-}" ]]; then
   if [[ -f "$WINE_RUNTIME_ROOT/etc/mscompatdb_rules.toml" ]]; then
