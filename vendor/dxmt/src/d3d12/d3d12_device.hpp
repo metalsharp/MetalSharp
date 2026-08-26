@@ -105,6 +105,10 @@ public:
   bool SupportsMetalRaytracing() const {
     return m_metal_raytracing_supported;
   }
+  const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER &
+  GetRaytracingSerializationIdentifier() const {
+    return m_raytracing_serialization_identifier;
+  }
 
   void RegisterResource(MTLD3D12Resource *res);
   void UnregisterResource(MTLD3D12Resource *res);
@@ -466,6 +470,8 @@ private:
   std::unique_ptr<Device> m_device;
   FormatCapabilityInspector m_format_inspector;
   bool m_metal_raytracing_supported = false;
+  D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER
+      m_raytracing_serialization_identifier = {};
   Com<IMTLDXGIAdapter> m_adapter;
   IMTLDXGIDevice *m_dxgi_device = nullptr;
   std::atomic_bool m_dxgi_owner_released = false;

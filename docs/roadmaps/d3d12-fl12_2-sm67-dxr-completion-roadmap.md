@@ -218,16 +218,14 @@ However, these D3D12 command-list methods are empty or compatibility no-ops:
 - `SetViewInstanceMask`
 - protected-resource sessions
 - meta-command initialization/execution
-- all acceleration-structure build/copy/postbuild commands
-- `SetPipelineState1`
-- `DispatchRays`
 - `RSSetShadingRate`
 - `RSSetShadingRateImage`
-- `DispatchMesh`
 
-The command enum has no records for those operations, so they cannot be fixed
-only in queue replay. Recording, object retention, serialization, command-list
-lifecycle validation, and replay all need to be implemented together.
+Acceleration-structure build/copy/postbuild commands, `SetPipelineState1`,
+`DispatchRays`, and `DispatchMesh` now have retained command records and queue
+replay. The remaining operations above still cannot be fixed only in queue
+replay; recording, object retention, command-list lifecycle validation, and
+replay need to be implemented together.
 
 Additional correctness issues:
 
@@ -364,11 +362,14 @@ Findings:
   counter, and mesh pipeline operations.
 - Mesh/object render pipelines now expose object/mesh buffer, texture, sampler,
   and direct/indirect draw operations used by D3D12 amplification/mesh shaders.
-- The bridge exposes limited triangle/instance acceleration-structure creation
-  and build operations, but not the complete update/copy/serialization surface.
-- A limited visible-function-table path supports the proven raygen dispatch;
-  intersection-function tables and broad shader linkage remain absent.
-- No DXR shader-table binding abstraction exists.
+- The bridge exposes triangle, multi-triangle, AABB, and instance acceleration
+  structure sizing/build/refit/copy/compact operations. D3D12 queue-side opaque
+  serialization retains Metal structures under a process-scoped compatibility
+  identifier because Metal exposes no persistent AS serialization primitive.
+- Visible- and intersection-function tables execute the proven raygen, miss,
+  any-hit, closest-hit, procedural-intersection, and callable linkage corpus.
+- D3D12 shader tables are decoded directly during dedicated ray-dispatch replay;
+  broader record and local-binding matrices remain gated.
 - No D3D12-facing sparse-resource mapping API is bridged despite Metal 4
   placement sparse resources being available on the proof host.
 - VRS/rasterization-rate map APIs are not exposed through the current bridge.
@@ -1033,14 +1034,27 @@ the goal is not complete.
   following TLAS traversal, proving update behavior rather than only accepting
   update flags. Metal reports a 616-byte compacted size for the updated
   768-byte allocation; `COPY_MODE_COMPACT` creates the BLAS used by a
-  three-instance TLAS alongside the translated AABB and a second BLAS containing
-  indexed and non-indexed triangle geometries supplied through
+  twelve-instance TLAS alongside the translated AABB and a second BLAS containing
+  twelve alternating indexed and non-indexed triangle geometries supplied through
   `ARRAY_OF_POINTERS`, proving both the compact output and multi-geometry build
-  remain traversable. The update-enabled TLAS initially places the compact BLAS
+  remain traversable beyond the former eight-descriptor command limit. The
+  multi-geometry BLAS reports 1,600 bytes against a 1,792-byte prebuild result.
+  The update-enabled TLAS initially places the compact BLAS
   at x=10, then an in-place `PERFORM_UPDATE` refit centers that instance before
   traversal. Instance masks isolate inline `RayQuery` traversal to the
   multi-geometry BLAS while `DispatchRays` traverses the updated compact/AABB
-  paths. The refittable TLAS builds to 1,216 bytes. A collection containing the
+  paths. The twelve-instance refittable TLAS builds to 3,136 bytes against a
+  3,328-byte prebuild result. BLAS and TLAS builds now emit inline
+  `SERIALIZATION` postbuild records. `COPY_MODE_SERIALIZE` writes the standard
+  D3D12 serialized header, a process-scoped driver identifier, and for TLAS the
+  exact twelve-entry bottom-level pointer list. Compatible, changed-version,
+  unrelated, and unsupported-type identifier checks return the required four
+  statuses. The BLAS blob survives `CopyBufferRegion` before
+  `COPY_MODE_DESERIALIZE`; both the deserialized BLAS and a separately
+  deserialized TLAS execute the existing inline and shader-table traversal
+  corpus after all source D3D12 acceleration-structure resources are released.
+  Persistent cross-process reconstruction remains gated and stale
+  process identifiers are rejected rather than over-reported. A collection containing the
   full linked DXIL/Metal state now feeds an executable ray-tracing pipeline via
   `EXISTING_COLLECTION`; the inherited identifiers and function tables survive
   collection lifetime and subsequent growth. `AddToStateObject` now
@@ -1067,8 +1081,8 @@ the goal is not complete.
   across every ray-tracing stage. A callable table at offset 320 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  mixed triangle/AABB geometry, larger geometry/instance arrays,
-  serialization/deserialization, collection export filtering/merging,
+  mixed triangle/AABB geometry in one BLAS, persistent cross-process
+  serialization reconstruction, collection export filtering/merging,
   new-library state-object growth,
   local descriptor tables/samplers, and broader record-count/stride/local-data
   shader-table matrices.

@@ -120,7 +120,7 @@ struct CmdBuildRaytracingAccelerationStructure {
   D3D12_ELEMENTS_LAYOUT descs_layout;
   UINT num_descs;
   D3D12_GPU_VIRTUAL_ADDRESS instance_descs;
-  static constexpr UINT kMaxGeometryDescs = 8;
+  static constexpr UINT kMaxGeometryDescs = 64;
   D3D12_RAYTRACING_GEOMETRY_DESC geometries[kMaxGeometryDescs];
 };
 

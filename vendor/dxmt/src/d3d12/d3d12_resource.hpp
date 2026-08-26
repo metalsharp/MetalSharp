@@ -121,11 +121,14 @@ public:
   }
   void SetRaytracingHeaderBuffers(
       WMT::Reference<WMT::Buffer> header_buffer, uint64_t header_gpu_address,
-      WMT::Reference<WMT::Buffer> instance_contributions_buffer) {
+      WMT::Reference<WMT::Buffer> instance_contributions_buffer,
+      uint64_t instance_contributions_gpu_address = 0) {
     m_raytracing_header_buffer = std::move(header_buffer);
     m_raytracing_header_gpu_address = header_gpu_address;
     m_raytracing_instance_contributions_buffer =
         std::move(instance_contributions_buffer);
+    m_raytracing_instance_contributions_gpu_address =
+        instance_contributions_gpu_address;
   }
   uint64_t GetRaytracingHeaderGPUAddress() const {
     return m_raytracing_header_gpu_address;
@@ -135,6 +138,101 @@ public:
   }
   WMT::Reference<WMT::Buffer> GetRaytracingInstanceContributionsBuffer() {
     return m_raytracing_instance_contributions_buffer;
+  }
+  uint64_t GetRaytracingInstanceContributionsGPUAddress() const {
+    return m_raytracing_instance_contributions_gpu_address;
+  }
+  void SetRaytracingBuildInfo(
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
+      uint64_t bottom_level_pointer_count,
+      const std::vector<D3D12_GPU_VIRTUAL_ADDRESS> &bottom_level_pointers = {}) {
+    m_raytracing_type = type;
+    m_raytracing_bottom_level_pointer_count = bottom_level_pointer_count;
+    m_raytracing_bottom_level_pointers = bottom_level_pointers;
+  }
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE GetRaytracingType() const {
+    return m_raytracing_type;
+  }
+  uint64_t GetRaytracingBottomLevelPointerCount() const {
+    return m_raytracing_bottom_level_pointer_count;
+  }
+  const std::vector<D3D12_GPU_VIRTUAL_ADDRESS> &
+  GetRaytracingBottomLevelPointers() const {
+    return m_raytracing_bottom_level_pointers;
+  }
+
+  static uint64_t SerializedAccelerationStructureBlobSize(
+      uint64_t bottom_level_pointer_count) {
+    const uint64_t raw_size =
+        sizeof(D3D12_SERIALIZED_RAYTRACING_ACCELERATION_STRUCTURE_HEADER) +
+        bottom_level_pointer_count * sizeof(D3D12_GPU_VIRTUAL_ADDRESS) + 64;
+    return (raw_size + 255) & ~uint64_t(255);
+  }
+  void SetSerializedAccelerationStructure(
+      WMT::Reference<WMT::AccelerationStructure> acceleration_structure,
+      uint64_t acceleration_structure_size,
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
+      uint64_t bottom_level_pointer_count,
+      const std::vector<D3D12_GPU_VIRTUAL_ADDRESS> &bottom_level_pointers,
+      WMT::Reference<WMT::Buffer> instance_contributions_buffer,
+      uint64_t instance_contributions_gpu_address, uint64_t byte_offset,
+      uint64_t blob_size) {
+    m_serialized_acceleration_structure = std::move(acceleration_structure);
+    m_serialized_acceleration_structure_size = acceleration_structure_size;
+    m_serialized_raytracing_type = type;
+    m_serialized_bottom_level_pointer_count = bottom_level_pointer_count;
+    m_serialized_bottom_level_pointers = bottom_level_pointers;
+    m_serialized_instance_contributions_buffer =
+        std::move(instance_contributions_buffer);
+    m_serialized_instance_contributions_gpu_address =
+        instance_contributions_gpu_address;
+    m_serialized_acceleration_structure_offset = byte_offset;
+    m_serialized_acceleration_structure_blob_size = blob_size;
+  }
+  void ClearSerializedAccelerationStructure() {
+    m_serialized_acceleration_structure = {};
+    m_serialized_acceleration_structure_size = 0;
+    m_serialized_bottom_level_pointer_count = 0;
+    m_serialized_bottom_level_pointers.clear();
+    m_serialized_instance_contributions_buffer = {};
+    m_serialized_instance_contributions_gpu_address = 0;
+    m_serialized_acceleration_structure_offset = 0;
+    m_serialized_acceleration_structure_blob_size = 0;
+  }
+  bool HasSerializedAccelerationStructureAt(uint64_t byte_offset) const {
+    return m_serialized_acceleration_structure.handle &&
+           m_serialized_acceleration_structure_size &&
+           m_serialized_acceleration_structure_offset == byte_offset;
+  }
+  WMT::Reference<WMT::AccelerationStructure>
+  GetSerializedAccelerationStructure() {
+    return m_serialized_acceleration_structure;
+  }
+  uint64_t GetSerializedAccelerationStructureSize() const {
+    return m_serialized_acceleration_structure_size;
+  }
+  uint64_t GetSerializedAccelerationStructureOffset() const {
+    return m_serialized_acceleration_structure_offset;
+  }
+  uint64_t GetSerializedAccelerationStructureBlobSize() const {
+    return m_serialized_acceleration_structure_blob_size;
+  }
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE
+  GetSerializedRaytracingType() const {
+    return m_serialized_raytracing_type;
+  }
+  uint64_t GetSerializedBottomLevelPointerCount() const {
+    return m_serialized_bottom_level_pointer_count;
+  }
+  const std::vector<D3D12_GPU_VIRTUAL_ADDRESS> &
+  GetSerializedBottomLevelPointers() const {
+    return m_serialized_bottom_level_pointers;
+  }
+  WMT::Reference<WMT::Buffer> GetSerializedInstanceContributionsBuffer() {
+    return m_serialized_instance_contributions_buffer;
+  }
+  uint64_t GetSerializedInstanceContributionsGPUAddress() const {
+    return m_serialized_instance_contributions_gpu_address;
   }
 
   void MarkSwapchainBackBuffer(uint32_t index, MTLD3D12SwapChain *swapchain) {
@@ -172,6 +270,24 @@ private:
   WMT::Reference<WMT::Buffer>
       m_raytracing_instance_contributions_buffer;
   uint64_t m_raytracing_header_gpu_address = 0;
+  uint64_t m_raytracing_instance_contributions_gpu_address = 0;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE m_raytracing_type =
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+  uint64_t m_raytracing_bottom_level_pointer_count = 0;
+  std::vector<D3D12_GPU_VIRTUAL_ADDRESS> m_raytracing_bottom_level_pointers;
+  WMT::Reference<WMT::AccelerationStructure>
+      m_serialized_acceleration_structure;
+  uint64_t m_serialized_acceleration_structure_size = 0;
+  uint64_t m_serialized_acceleration_structure_offset = 0;
+  uint64_t m_serialized_acceleration_structure_blob_size = 0;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE m_serialized_raytracing_type =
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+  uint64_t m_serialized_bottom_level_pointer_count = 0;
+  std::vector<D3D12_GPU_VIRTUAL_ADDRESS>
+      m_serialized_bottom_level_pointers;
+  WMT::Reference<WMT::Buffer>
+      m_serialized_instance_contributions_buffer;
+  uint64_t m_serialized_instance_contributions_gpu_address = 0;
   uint64_t m_tex_gpu_resource_id = 0;
   uint64_t m_backing_offset = 0;
   bool m_has_explicit_castable_formats = false;
