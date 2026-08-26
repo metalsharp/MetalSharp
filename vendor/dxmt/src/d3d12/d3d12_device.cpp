@@ -1348,6 +1348,9 @@ public:
             m_exports.end() &&
         std::find(m_exports.begin(), m_exports.end(), L"hit_group") !=
             m_exports.end();
+    const bool has_callable_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"callable_shader") !=
+        m_exports.end();
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
     compute_desc.pRootSignature = m_global_root_signature;
@@ -1367,6 +1370,8 @@ public:
     std::string miss_path = cache_dir + "/" + cache_hash + ".miss.metallib";
     std::string closest_hit_path =
         cache_dir + "/" + cache_hash + ".closesthit.metallib";
+    std::string callable_path =
+        cache_dir + "/" + cache_hash + ".callable.metallib";
 
     auto read_file = [](const std::string &path, std::vector<uint8_t> &data) {
       FILE *file = fopen(path.c_str(), "rb");
@@ -1388,11 +1393,13 @@ public:
     std::vector<uint8_t> dispatch_data;
     std::vector<uint8_t> miss_data;
     std::vector<uint8_t> closest_hit_data;
+    std::vector<uint8_t> callable_data;
     if (!read_file(raygen_path, raygen_data) ||
         !read_file(dispatch_path, dispatch_data) ||
         (has_miss_shader && !read_file(miss_path, miss_data)) ||
         (has_closest_hit_shader &&
-         !read_file(closest_hit_path, closest_hit_data))) {
+         !read_file(closest_hit_path, closest_hit_data)) ||
+        (has_callable_shader && !read_file(callable_path, callable_data))) {
       pipeline->RequestCompile(false);
       TRACE("StateObject raygen cache miss visible=%s dispatch=%s miss=%s",
             raygen_path.c_str(), dispatch_path.c_str(), miss_path.c_str());
@@ -1437,6 +1444,19 @@ public:
       if (!closest_hit_function.handle)
         return false;
     }
+    WMT::Reference<WMT::Library> callable_library_handle;
+    WMT::Reference<WMT::Function> callable_function;
+    if (has_callable_shader) {
+      error = nullptr;
+      callable_library_handle = metal_device.newLibrary(
+          callable_data.data(), callable_data.size(), error);
+      if (!callable_library_handle.handle || error.handle)
+        return false;
+      callable_function =
+          callable_library_handle.newFunction("callable_shader");
+      if (!callable_function.handle)
+        return false;
+    }
     auto raygen_function = raygen_library_handle.newFunction("raygen");
     auto dispatch_function =
         dispatch_library_handle.newFunction("RaygenIndirection");
@@ -1447,6 +1467,7 @@ public:
     pipeline_info.raygen_function = raygen_function.handle;
     pipeline_info.miss_function = miss_function.handle;
     pipeline_info.closest_hit_function = closest_hit_function.handle;
+    pipeline_info.callable_function = callable_function.handle;
     error = nullptr;
     m_raygen_compute_pipeline = metal_device.newRaytracingComputePipelineState(
         pipeline_info, m_raygen_visible_function_table, error);
@@ -1472,6 +1493,7 @@ public:
           : export_name == L"miss_shader" ? 2ull
           : export_name == L"hit_group" || export_name == L"closest_hit"
               ? 3ull
+          : export_name == L"callable_shader" ? 4ull
                                            : 0ull;
       memcpy(identifier.data() + sizeof(uint64_t),
              &visible_function_index, sizeof(visible_function_index));

@@ -839,11 +839,17 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
   id<MTLFunction> miss_function = (id<MTLFunction>)info->miss_function;
   id<MTLFunction> closest_hit_function =
       (id<MTLFunction>)info->closest_hit_function;
+  id<MTLFunction> callable_function =
+      (id<MTLFunction>)info->callable_function;
   MTLComputePipelineDescriptor *descriptor =
       [[MTLComputePipelineDescriptor alloc] init];
   descriptor.computeFunction = dispatch_function;
   MTLLinkedFunctions *linked_functions = [[MTLLinkedFunctions alloc] init];
-  if (miss_function && closest_hit_function)
+  if (miss_function && closest_hit_function && callable_function)
+    linked_functions.functions = @[
+      raygen_function, miss_function, closest_hit_function, callable_function
+    ];
+  else if (miss_function && closest_hit_function)
     linked_functions.functions =
         @[ raygen_function, miss_function, closest_hit_function ];
   else if (miss_function)
@@ -861,7 +867,8 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
   if (pipeline) {
     MTLVisibleFunctionTableDescriptor *table_descriptor =
         [[MTLVisibleFunctionTableDescriptor alloc] init];
-    table_descriptor.functionCount = closest_hit_function ? 4
+    table_descriptor.functionCount = callable_function    ? 5
+                                      : closest_hit_function ? 4
                                       : miss_function       ? 3
                                                             : 2;
     id<MTLVisibleFunctionTable> table =
@@ -875,13 +882,20 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
         closest_hit_function
             ? [pipeline functionHandleWithFunction:closest_hit_function]
             : nil;
+    id<MTLFunctionHandle> callable_handle =
+        callable_function
+            ? [pipeline functionHandleWithFunction:callable_function]
+            : nil;
     if (table && function_handle && (!miss_function || miss_handle) &&
-        (!closest_hit_function || closest_hit_handle)) {
+        (!closest_hit_function || closest_hit_handle) &&
+        (!callable_function || callable_handle)) {
       [table setFunction:function_handle atIndex:1];
       if (miss_handle)
         [table setFunction:miss_handle atIndex:2];
       if (closest_hit_handle)
         [table setFunction:closest_hit_handle atIndex:3];
+      if (callable_handle)
+        [table setFunction:callable_handle atIndex:4];
       params->ret_pipeline = (obj_handle_t)pipeline;
       params->ret_visible_function_table = (obj_handle_t)table;
     } else {
