@@ -286,6 +286,15 @@ WINEMETAL_API bool MTLCommandBuffer_copyAndCompactAccelerationStructure(
 WINEMETAL_API bool MTLCommandBuffer_writeCompactedAccelerationStructureSize(
     obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
     obj_handle_t destination_buffer, uint64_t destination_buffer_offset);
+WINEMETAL_API bool MTLDevice_accelerationStructureSizesForTriangleGeometries(
+    obj_handle_t device,
+    const struct WMTPrimitiveAccelerationStructureInfo *infos,
+    uint64_t info_count, struct WMTAccelerationStructureSizes *sizes);
+WINEMETAL_API bool MTLCommandBuffer_buildTriangleAccelerationStructures(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTPrimitiveAccelerationStructureInfo *infos,
+    uint64_t info_count, obj_handle_t scratch_buffer,
+    uint64_t scratch_buffer_offset);
 WINEMETAL_API bool MTLCommandBuffer_refitTriangleAccelerationStructure(
     obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
     obj_handle_t destination_acceleration_structure,

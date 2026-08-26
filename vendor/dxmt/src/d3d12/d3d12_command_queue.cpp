@@ -7367,8 +7367,47 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           inputs.Flags = cmd->flags;
           inputs.NumDescs = cmd->num_descs;
           inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-          inputs.pGeometryDescs = &cmd->geometry;
-          if (cmd->geometry.Type ==
+          inputs.pGeometryDescs = cmd->geometries;
+          if (cmd->num_descs > 1) {
+            std::array<WMTPrimitiveAccelerationStructureInfo,
+                       CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
+                metal_infos = {};
+            bool valid = cmd->num_descs <= metal_infos.size();
+            for (UINT i = 0; valid && i < cmd->num_descs; i++) {
+              D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                  inputs;
+              one.NumDescs = 1;
+              one.pGeometryDescs = &cmd->geometries[i];
+              valid = D3D12ResolveTriangleAccelerationStructureInfo(
+                  m_device, &one, metal_infos[i]);
+              primitive_count += metal_infos[i].triangle_count;
+            }
+            if (!valid ||
+                !metal_device.accelerationStructureSizesForTriangleGeometries(
+                    metal_infos.data(), cmd->num_descs, sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED multi-geometry descriptors");
+              break;
+            }
+            acceleration_structure = metal_device.newAccelerationStructure(
+                sizes.acceleration_structure_size);
+            encoded = acceleration_structure.handle &&
+                      cmdbuf.buildTriangleAccelerationStructures(
+                          acceleration_structure, metal_infos.data(),
+                          cmd->num_descs, scratch->GetMTLBuffer(),
+                          scratch_offset);
+            kind = "triangle geometries";
+            for (UINT i = 0; i < cmd->num_descs; i++) {
+              const auto &geometry = cmd->geometries[i];
+              if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                      geometry.Triangles.VertexBuffer.StartAddress))
+                st.RetainResourceMetalObjectsForCompletion(vertex);
+              if (geometry.Triangles.IndexBuffer) {
+                if (auto *index = m_device->LookupResourceByGPUAddress(
+                        geometry.Triangles.IndexBuffer))
+                  st.RetainResourceMetalObjectsForCompletion(index);
+              }
+            }
+          } else if (cmd->geometries[0].Type ==
               D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
             WMTAABBAccelerationStructureInfo metal_info = {};
             if (!D3D12ResolveAABBAccelerationStructureInfo(
@@ -7387,7 +7426,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             primitive_count = metal_info.bounding_box_count;
             kind = "AABBs";
             if (auto *aabbs = m_device->LookupResourceByGPUAddress(
-                    cmd->geometry.AABBs.AABBs.StartAddress))
+                    cmd->geometries[0].AABBs.AABBs.StartAddress))
               st.RetainResourceMetalObjectsForCompletion(aabbs);
           } else {
             WMTPrimitiveAccelerationStructureInfo metal_info = {};
@@ -7429,11 +7468,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             primitive_count = metal_info.triangle_count;
             kind = perform_update ? "triangle update" : "triangles";
             if (auto *vertex = m_device->LookupResourceByGPUAddress(
-                    cmd->geometry.Triangles.VertexBuffer.StartAddress))
+                    cmd->geometries[0].Triangles.VertexBuffer.StartAddress))
               st.RetainResourceMetalObjectsForCompletion(vertex);
-            if (cmd->geometry.Triangles.IndexBuffer) {
+            if (cmd->geometries[0].Triangles.IndexBuffer) {
               if (auto *index = m_device->LookupResourceByGPUAddress(
-                      cmd->geometry.Triangles.IndexBuffer))
+                      cmd->geometries[0].Triangles.IndexBuffer))
                 st.RetainResourceMetalObjectsForCompletion(index);
             }
           }

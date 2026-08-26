@@ -494,6 +494,24 @@ struct unixcall_mtlcommandbuffer_write_compacted_acceleration_structure_size {
   uint64_t ret_success;
 };
 
+struct unixcall_mtldevice_acceleration_structure_sizes_for_triangle_geometries {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structures {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
 struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure {
   obj_handle_t cmdbuf;
   obj_handle_t source_acceleration_structure;

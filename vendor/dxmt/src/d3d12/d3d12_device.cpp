@@ -4567,23 +4567,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateStateObject(
   return hr;
 }
 
-bool D3D12ResolveTriangleAccelerationStructureInfo(
+static bool D3D12ResolveTriangleGeometryInfo(
     MTLD3D12Device *device,
-    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    const D3D12_RAYTRACING_GEOMETRY_DESC *geometry,
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags,
     WMTPrimitiveAccelerationStructureInfo &info) {
   info = {};
-  if (!device || !inputs ||
-      inputs->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ||
-      inputs->NumDescs != 1)
+  if (!device)
     return false;
-
-  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
-  if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY) {
-    geometry = inputs->pGeometryDescs;
-  } else if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
-             inputs->ppGeometryDescs) {
-    geometry = inputs->ppGeometryDescs[0];
-  }
   if (!geometry ||
       geometry->Type != D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES ||
       geometry->Triangles.VertexFormat != DXGI_FORMAT_R32G32B32_FLOAT ||
@@ -4603,7 +4594,7 @@ bool D3D12ResolveTriangleAccelerationStructureInfo(
   info.opaque =
       (geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) != 0;
   info.allow_refit =
-      (inputs->Flags &
+      (flags &
        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) != 0;
 
   if (geometry->Triangles.IndexFormat == DXGI_FORMAT_UNKNOWN) {
@@ -4626,6 +4617,24 @@ bool D3D12ResolveTriangleAccelerationStructureInfo(
     info.triangle_count = geometry->Triangles.IndexCount / 3;
   }
   return info.triangle_count != 0;
+}
+
+bool D3D12ResolveTriangleAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTPrimitiveAccelerationStructureInfo &info) {
+  if (!device || !inputs ||
+      inputs->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ||
+      inputs->NumDescs != 1)
+    return false;
+  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+  if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
+    geometry = inputs->pGeometryDescs;
+  else if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+           inputs->ppGeometryDescs)
+    geometry = inputs->ppGeometryDescs[0];
+  return D3D12ResolveTriangleGeometryInfo(device, geometry, inputs->Flags,
+                                          info);
 }
 
 bool D3D12ResolveAABBAccelerationStructureInfo(
@@ -4696,6 +4705,30 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
     }
     primitive_count = desc->NumDescs;
     kind = "TLAS instances";
+  } else if (desc->NumDescs > 1) {
+    if (desc->NumDescs > 8) {
+      TRACE("  prebuild too many BLAS geometries=%u", desc->NumDescs);
+      return;
+    }
+    std::array<WMTPrimitiveAccelerationStructureInfo, 8> metal_infos = {};
+    for (UINT i = 0; i < desc->NumDescs; i++) {
+      const auto *geometry =
+          desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? (desc->pGeometryDescs ? &desc->pGeometryDescs[i] : nullptr)
+              : (desc->ppGeometryDescs ? desc->ppGeometryDescs[i] : nullptr);
+      if (!D3D12ResolveTriangleGeometryInfo(this, geometry, desc->Flags,
+                                            metal_infos[i])) {
+        TRACE("  prebuild unsupported multi-geometry BLAS entry=%u", i);
+        return;
+      }
+      primitive_count += metal_infos[i].triangle_count;
+    }
+    if (!GetMTLDevice().accelerationStructureSizesForTriangleGeometries(
+            metal_infos.data(), desc->NumDescs, sizes)) {
+      TRACE("  prebuild multi-geometry Metal size query failed");
+      return;
+    }
+    kind = "BLAS triangle geometries";
   } else {
     const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
     if (desc->NumDescs == 1 &&

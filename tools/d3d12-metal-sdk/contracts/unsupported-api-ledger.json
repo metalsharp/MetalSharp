@@ -5,7 +5,7 @@
       "evidence": [
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "The target M4 builds indexed-triangle and procedural-AABB BLAS objects, clones and refits the triangle BLAS from translated to centered geometry, reports a 616-byte compacted size for its 768-byte allocation, traverses the compact copy through a two-instance TLAS, returns a correct inline RayQuery hit, and executes raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable shader-table records with depth-2 recursion through DispatchRays; multi-geometry builds, TLAS/AABB updates, serialization/deserialization, and complete local-root/shader-table semantics remain unproven.",
+      "reason": "The target M4 builds a two-geometry indexed/non-indexed triangle BLAS plus a procedural-AABB BLAS, clones and refits another triangle BLAS from translated to centered geometry, reports a 616-byte compacted size for its 768-byte allocation, traverses the compact copy through a three-instance TLAS, returns a mask-isolated inline RayQuery hit against the multi-geometry BLAS, and executes raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable shader-table records with depth-2 recursion through DispatchRays; mixed triangle/AABB geometry, larger geometry/instance arrays, TLAS/AABB updates, serialization/deserialization, and complete local-root/shader-table semantics remain unproven.",
       "state": "unsupported",
       "tier": "unsupported"
     },

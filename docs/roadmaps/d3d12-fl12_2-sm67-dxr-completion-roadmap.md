@@ -1006,8 +1006,12 @@ the goal is not complete.
   following TLAS traversal, proving update behavior rather than only accepting
   update flags. Metal reports a 616-byte compacted size for the updated
   768-byte allocation; `COPY_MODE_COMPACT` creates the BLAS used by a
-  two-instance TLAS alongside the translated AABB, proving the compact output
-  remains traversable. The TLAS builds to 896 bytes. Its second 64-byte
+  three-instance TLAS alongside the translated AABB and a second BLAS containing
+  indexed and non-indexed triangle geometries supplied through
+  `ARRAY_OF_POINTERS`, proving both the compact output and multi-geometry build
+  remain traversable. Instance masks isolate inline `RayQuery` traversal to the
+  multi-geometry BLAS while `DispatchRays` traverses the compact/AABB paths. The
+  TLAS builds to 1,088 bytes. Its second 64-byte
   hit-group record selects a
   procedural intersection
   wrapper, invokes visible-function index 6 to call `ReportHit`, and then invokes
@@ -1018,5 +1022,6 @@ the goal is not complete.
   across every ray-tracing stage. A callable table at offset 256 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  multi-geometry builds, TLAS/AABB updates, serialization/deserialization, and
+  mixed triangle/AABB geometry, larger geometry/instance arrays, TLAS/AABB
+  updates, serialization/deserialization, and
   complete local-root/shader-table semantics.

@@ -1251,7 +1251,7 @@ void cs_main() {
   ray.TMin = 0.0;
   ray.Direction = float3(0.0, 0.0, 1.0);
   ray.TMax = 10.0;
-  query.TraceRayInline(scene, RAY_FLAG_NONE, 0xff, ray);
+  query.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
   while (query.Proceed()) {
     if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
       query.CommitNonOpaqueTriangleHit();
@@ -1318,7 +1318,7 @@ void raygen() {
   ray.TMax = 10.0;
   MissPayload payload;
   payload.value = 0;
-  TraceRay(scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
+  TraceRay(scene, RAY_FLAG_NONE, 0x02, 0, 0, 0, ray, payload);
   output.Store(4 + ray_index * 4, payload.value);
   if (ray_index == 0) {
     CallablePayload callable_payload;
