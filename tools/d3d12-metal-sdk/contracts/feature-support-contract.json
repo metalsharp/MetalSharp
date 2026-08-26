@@ -107,13 +107,14 @@
     },
     "D3D12_FEATURE_D3D12_OPTIONS7": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
-      "probe_status": "sampler_feedback_tier_0_9_passed_mesh_tier_gated",
+      "probe_status": "sampler_feedback_tier_0_9_passed_mesh_pipeline_statistics1_proven_mesh_tier_gated",
       "reported": "partial",
       "required_fields": [
         "MeshShaderTier",
-        "SamplerFeedbackTier"
+        "SamplerFeedbackTier",
+        "PIPELINE_STATISTICS1 ASInvocations/MSInvocations/MSPrimitives"
       ],
-      "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking. Committed and placed resources, invalid-descriptor rejection, feedback UAV pairing, clear, min-mip and mip-region-used writes, 2D arrays, encode/decode resolves, contention, and all four HLSL write forms pass exact compute/pixel readback; tier 0.9 is reported because wrap and clamp are conservatively covered while unrestricted tier-1.0 SRV/addressing behavior remains gated. Mesh AS/MS execution is substantial but mixed render-state breadth and PIPELINE_STATISTICS1 remain insufficient for mesh tier 1.",
+      "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking. Committed and placed resources, invalid-descriptor rejection, feedback UAV pairing, clear, min-mip and mip-region-used writes, 2D arrays, encode/decode resolves, contention, and all four HLSL write forms pass exact compute/pixel readback; tier 0.9 is reported because wrap and clamp are conservatively covered while unrestricted tier-1.0 SRV/addressing behavior remains gated. Mesh AS/MS execution is substantial and PIPELINE_STATISTICS1 invocation/primitive accounting passes the focused two-group dispatch, but mixed render-state breadth and broader shader/payload coverage remain insufficient for mesh tier 1.",
       "state": "required",
       "tier": "required"
     },
