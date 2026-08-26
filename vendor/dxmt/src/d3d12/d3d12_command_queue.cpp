@@ -7556,19 +7556,45 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           metal_instance_buffer.updateContents(
               0, metal_instances.data(),
               metal_instances.size() * sizeof(metal_instances[0]));
+          const bool allow_update =
+              (cmd->flags &
+               D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+              0;
           if (!metal_device.accelerationStructureSizesForInstances(
-                  cmd->num_descs, sizes)) {
+                  cmd->num_descs, allow_update, sizes)) {
             QTRACE("BuildRaytracingAS SKIPPED TLAS size query");
             break;
           }
-          acceleration_structure = metal_device.newAccelerationStructure(
-              sizes.acceleration_structure_size);
-          encoded = acceleration_structure.handle &&
-                    cmdbuf.buildInstanceAccelerationStructure(
-                        acceleration_structure, metal_instance_buffer, 0,
-                        cmd->num_descs, instanced_structures.data(),
-                        instanced_structures.size(), scratch->GetMTLBuffer(),
-                        scratch_offset);
+          const bool perform_update =
+              (cmd->flags &
+               D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+              0;
+          if (perform_update) {
+            auto *source = m_device->LookupResourceByGPUAddress(
+                cmd->source_acceleration_structure);
+            acceleration_structure = dest->GetMTLAccelerationStructure();
+            if (!source || !source->GetMTLAccelerationStructure().handle ||
+                !acceleration_structure.handle || !allow_update) {
+              QTRACE("BuildRaytracingAS SKIPPED TLAS update state");
+              break;
+            }
+            encoded = cmdbuf.refitInstanceAccelerationStructure(
+                source->GetMTLAccelerationStructure(), acceleration_structure,
+                metal_instance_buffer, 0, cmd->num_descs,
+                instanced_structures.data(), instanced_structures.size(),
+                scratch->GetMTLBuffer(), scratch_offset);
+            if (encoded)
+              st.RetainResourceMetalObjectsForCompletion(source);
+          } else {
+            acceleration_structure = metal_device.newAccelerationStructure(
+                sizes.acceleration_structure_size);
+            encoded = acceleration_structure.handle &&
+                      cmdbuf.buildInstanceAccelerationStructure(
+                          acceleration_structure, metal_instance_buffer, 0,
+                          cmd->num_descs, instanced_structures.data(),
+                          instanced_structures.size(), allow_update,
+                          scratch->GetMTLBuffer(), scratch_offset);
+          }
           if (encoded) {
             st.RetainMTLObjectForCompletion(metal_instance_buffer);
             st.RetainResourceMetalObjectsForCompletion(instance_resource);
@@ -7623,7 +7649,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             }
           }
           primitive_count = cmd->num_descs;
-          kind = "instances";
+          kind = perform_update ? "instance update" : "instances";
         }
 
         if (encoded) {

@@ -851,12 +851,30 @@ public:
       Buffer instance_descriptor_buffer,
       uint64_t instance_descriptor_buffer_offset, uint64_t instance_count,
       const obj_handle_t *instanced_acceleration_structures,
-      uint64_t instanced_acceleration_structure_count, Buffer scratch_buffer,
+      uint64_t instanced_acceleration_structure_count, bool allow_refit,
+      Buffer scratch_buffer,
       uint64_t scratch_buffer_offset) {
     return MTLCommandBuffer_buildInstanceAccelerationStructure(
         handle, acceleration_structure.handle, instance_descriptor_buffer.handle,
         instance_descriptor_buffer_offset, instance_count,
         instanced_acceleration_structures,
+        instanced_acceleration_structure_count, allow_refit,
+        scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
+  bool
+  refitInstanceAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      Buffer instance_descriptor_buffer,
+      uint64_t instance_descriptor_buffer_offset, uint64_t instance_count,
+      const obj_handle_t *instanced_acceleration_structures,
+      uint64_t instanced_acceleration_structure_count, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitInstanceAccelerationStructure(
+        handle, source.handle, destination.handle,
+        instance_descriptor_buffer.handle, instance_descriptor_buffer_offset,
+        instance_count, instanced_acceleration_structures,
         instanced_acceleration_structure_count, scratch_buffer.handle,
         scratch_buffer_offset);
   }
@@ -1019,9 +1037,11 @@ public:
 
   bool
   accelerationStructureSizesForInstances(
-      uint64_t instance_count, WMTAccelerationStructureSizes &sizes) {
+      uint64_t instance_count, bool allow_refit,
+      WMTAccelerationStructureSizes &sizes) {
     return MTLDevice_accelerationStructureSizesForInstances(handle,
                                                             instance_count,
+                                                            allow_refit,
                                                             &sizes);
   }
 
