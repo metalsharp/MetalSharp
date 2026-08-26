@@ -269,6 +269,72 @@ int main() {
         list->CopyTextureRegion(&readback_dst, 0, 0, 0, &texture_src, nullptr);
     }
 
+    ID3D12Resource* bc_texture = nullptr;
+    ID3D12Resource* bc_upload = nullptr;
+    ID3D12Resource* bc_readback = nullptr;
+    D3D12_RESOURCE_DESC bc_desc = texture_desc(7, 5, DXGI_FORMAT_BC1_UNORM);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT bc_footprint = {};
+    UINT bc_rows = 0;
+    UINT64 bc_row_bytes = 0;
+    UINT64 bc_total_bytes = 0;
+    if (device)
+        device->GetCopyableFootprints(&bc_desc, 0, 1, 0, &bc_footprint,
+                                      &bc_rows, &bc_row_bytes, &bc_total_bytes);
+    D3D12_RESOURCE_DESC bc_staging_desc = buffer_desc(bc_total_bytes);
+    HRESULT bc_texture_hr =
+        device ? device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE,
+                                                 &bc_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                                 nullptr, IID_PPV_ARGS(&bc_texture))
+               : E_FAIL;
+    HRESULT bc_upload_hr =
+        device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE,
+                                                 &bc_staging_desc,
+                                                 D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                 nullptr, IID_PPV_ARGS(&bc_upload))
+               : E_FAIL;
+    HRESULT bc_readback_hr =
+        device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
+                                                 &bc_staging_desc,
+                                                 D3D12_RESOURCE_STATE_COPY_DEST,
+                                                 nullptr, IID_PPV_ARGS(&bc_readback))
+               : E_FAIL;
+    uint8_t* bc_upload_ptr = nullptr;
+    HRESULT bc_upload_map_hr =
+        bc_upload ? bc_upload->Map(0, nullptr, reinterpret_cast<void**>(&bc_upload_ptr)) : E_FAIL;
+    if (SUCCEEDED(bc_upload_map_hr) && bc_upload_ptr) {
+        std::memset(bc_upload_ptr, 0, static_cast<size_t>(bc_total_bytes));
+        for (UINT row = 0; row < bc_rows; ++row) {
+            for (UINT64 byte = 0; byte < bc_row_bytes; ++byte) {
+                size_t offset = static_cast<size_t>(bc_footprint.Offset +
+                                                    row * bc_footprint.Footprint.RowPitch + byte);
+                bc_upload_ptr[offset] = static_cast<uint8_t>(0x31u + row * 17u + byte);
+            }
+        }
+        bc_upload->Unmap(0, nullptr);
+    }
+    if (list && bc_texture && bc_upload && bc_readback) {
+        D3D12_TEXTURE_COPY_LOCATION src = {};
+        src.pResource = bc_upload;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        src.PlacedFootprint = bc_footprint;
+        D3D12_TEXTURE_COPY_LOCATION dst = {};
+        dst.pResource = bc_texture;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        D3D12_RESOURCE_BARRIER barrier =
+            transition_barrier(bc_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &barrier);
+        D3D12_TEXTURE_COPY_LOCATION readback_dst = {};
+        readback_dst.pResource = bc_readback;
+        readback_dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        readback_dst.PlacedFootprint = bc_footprint;
+        D3D12_TEXTURE_COPY_LOCATION texture_src = {};
+        texture_src.pResource = bc_texture;
+        texture_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&readback_dst, 0, 0, 0, &texture_src, nullptr);
+    }
+
     HRESULT close_hr = list ? list->Close() : E_FAIL;
     HRESULT execute_hr = E_FAIL;
     HRESULT signal_hr = E_FAIL;
@@ -320,6 +386,31 @@ int main() {
         texture_readback->Unmap(0, nullptr);
     }
 
+    uint8_t* bc_readback_ptr = nullptr;
+    HRESULT bc_readback_map_hr =
+        bc_readback ? bc_readback->Map(0, nullptr,
+                                      reinterpret_cast<void**>(&bc_readback_ptr))
+                    : E_FAIL;
+    bool bc_copy_ok = SUCCEEDED(bc_readback_map_hr) && bc_readback_ptr &&
+                      bc_rows == 2 && bc_row_bytes == 16;
+    if (SUCCEEDED(bc_readback_map_hr) && bc_readback_ptr) {
+        if (bc_copy_ok) {
+            for (UINT row = 0; row < bc_rows; ++row) {
+                for (UINT64 byte = 0; byte < bc_row_bytes; ++byte) {
+                    size_t offset = static_cast<size_t>(bc_footprint.Offset +
+                                                        row * bc_footprint.Footprint.RowPitch + byte);
+                    uint8_t expected = static_cast<uint8_t>(0x31u + row * 17u + byte);
+                    if (bc_readback_ptr[offset] != expected) {
+                        bc_copy_ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+        D3D12_RANGE written = {0, 0};
+        bc_readback->Unmap(0, &written);
+    }
+
     D3D12_RESOURCE_DESC default_buffer_desc = default_buffer ? default_buffer->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = upload_buffer ? upload_buffer->GetGPUVirtualAddress() : 0;
@@ -355,7 +446,10 @@ int main() {
                 SUCCEEDED(execute_hr) && SUCCEEDED(signal_hr) && SUCCEEDED(wait_hr) && SUCCEEDED(map_readback_hr) &&
                 buffer_copy_ok && SUCCEEDED(texture_hr) && SUCCEEDED(texture_upload_hr) &&
                 SUCCEEDED(texture_readback_hr) && SUCCEEDED(texture_map_hr) && SUCCEEDED(texture_readback_map_hr) &&
-                texture_copy_ok && default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
+                texture_copy_ok && SUCCEEDED(bc_texture_hr) && SUCCEEDED(bc_upload_hr) &&
+                SUCCEEDED(bc_readback_hr) && SUCCEEDED(bc_upload_map_hr) &&
+                SUCCEEDED(bc_readback_map_hr) && bc_copy_ok &&
+                default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
                 texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && format_support_ok;
 
     std::printf("{\n");
@@ -396,7 +490,20 @@ int main() {
     std::printf("    \"width\": %llu,\n", static_cast<unsigned long long>(texture_roundtrip_desc.Width));
     std::printf("    \"height\": %u,\n", texture_roundtrip_desc.Height);
     std::printf("    \"row_pitch\": %u,\n", texture_footprint.Footprint.RowPitch);
-    std::printf("    \"upload_bytes\": %llu\n", static_cast<unsigned long long>(texture_upload_bytes));
+    std::printf("    \"upload_bytes\": %llu,\n", static_cast<unsigned long long>(texture_upload_bytes));
+    std::printf("    \"unaligned_bc1_create_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(bc_texture_hr)));
+    std::printf("    \"unaligned_bc1_upload_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(bc_upload_hr)));
+    std::printf("    \"unaligned_bc1_readback_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(bc_readback_hr)));
+    std::printf("    \"unaligned_bc1_copy_verified\": %s,\n",
+                bc_copy_ok ? "true" : "false");
+    std::printf("    \"unaligned_bc1_width\": 7,\n");
+    std::printf("    \"unaligned_bc1_height\": 5,\n");
+    std::printf("    \"unaligned_bc1_rows\": %u,\n", bc_rows);
+    std::printf("    \"unaligned_bc1_row_bytes\": %llu\n",
+                static_cast<unsigned long long>(bc_row_bytes));
     std::printf("  },\n");
     std::printf("  \"formats\": {\n");
     for (size_t i = 0; i < formats.size(); ++i)

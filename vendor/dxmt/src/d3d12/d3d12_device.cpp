@@ -2540,7 +2540,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS8 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->UnalignedBlockTexturesSupported = FALSE;
+    o->UnalignedBlockTexturesSupported = TRUE;
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS9: {

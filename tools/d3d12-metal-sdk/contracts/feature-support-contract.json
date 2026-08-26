@@ -102,6 +102,17 @@
       "state": "stub_safe",
       "tier": "stubbed-safe"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS8": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_resources",
+      "probe_status": "unaligned_bc1_copy_readback_passed",
+      "reported": "supported",
+      "required_fields": [
+        "UnalignedBlockTexturesSupported"
+      ],
+      "risk": "The support report is backed by creation and upload/readback of a 7x5 BC1 texture with exact two-row block payload validation.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS9": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
       "reported": "unsupported",

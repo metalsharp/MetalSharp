@@ -90,7 +90,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | VP/RT array index from rasterizer feeder | Supported | Reported true | VS/DS/GS/MS array-index probe |
 | Copy-queue timestamps | Supported | Proven and reported | Metal GPU-end timestamp resolve/readback probe |
 | Fully typed format casting | Supported | Reported true | Castable-format creation and view probe |
-| Unaligned block textures | Supported | Unsupported | BC resource footprint/copy/sample probe |
+| Unaligned block textures | Supported | Proven and reported | 7x5 BC1 footprint/copy/readback probe |
 | Int64 shader ops | Supported | Reported true | Arithmetic and atomic runtime readback |
 
 Shader Model 6.7 completion additionally includes:
@@ -179,7 +179,7 @@ Findings:
   format atomic flags.
 - Feature-level 12_2 requirements currently reported false include depth
   bounds, tiled resources, VRS, mesh shaders, sampler
-  feedback, enhanced barriers, and unaligned block textures.
+  feedback and enhanced barriers.
 - Shared handles and opening shared heaps are `E_NOTIMPL`.
 - Protected-resource, lifetime-tracker, meta-command, and state-object paths
   contain `E_NOTIMPL` returns.
@@ -903,6 +903,9 @@ the goal is not complete.
   sum now execute with zero readback mismatches under MetalSharp Wine 11.5.
 - Enabled the WaveOps feature report at a fixed 32-lane range only after that
   runtime proof passed, and removed WaveOps from the unsupported ledger.
+- Proved unaligned block-compressed texture behavior by creating a 7x5 BC1
+  texture, uploading and copying two 16-byte block rows through 256-byte D3D12
+  footprints, and validating exact readback; Options8 now reports support.
 - Implemented copy-queue timestamp queries using Metal command-buffer GPU end
   times. Timestamp resolves register a completion handler that writes nanosecond
   results into the destination Metal buffer before the following queue fence;
