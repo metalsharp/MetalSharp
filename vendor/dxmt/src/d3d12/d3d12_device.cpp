@@ -1312,10 +1312,13 @@ public:
   }
 
   bool Initialize(const D3D12_STATE_OBJECT_DESC *desc) {
-    if (!desc || desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
+    if (!desc ||
+        (desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE &&
+         desc->Type != D3D12_STATE_OBJECT_TYPE_COLLECTION))
       return false;
 
     D3D12_SHADER_BYTECODE raytracing_library = {};
+    ID3D12StateObject *existing_collection = nullptr;
     for (UINT i = 0; i < desc->NumSubobjects; i++) {
       const auto &subobject = desc->pSubobjects[i];
       if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY &&
@@ -1352,8 +1355,45 @@ public:
             static_cast<const D3D12_HIT_GROUP_DESC *>(subobject.pDesc);
         if (hit_group->HitGroupExport)
           m_exports.emplace_back(hit_group->HitGroupExport);
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION &&
+                 subobject.pDesc) {
+        const auto *collection =
+            static_cast<const D3D12_EXISTING_COLLECTION_DESC *>(
+                subobject.pDesc);
+        if (!collection->pExistingCollection || existing_collection)
+          return false;
+        existing_collection = collection->pExistingCollection;
       }
     }
+    if (existing_collection && !raytracing_library.pShaderBytecode) {
+      auto *source =
+          static_cast<MTLD3D12StateObject *>(existing_collection);
+      if (!source->m_raygen_compute_pipeline.handle ||
+          !source->m_raygen_visible_function_table.handle)
+        return false;
+      existing_collection->AddRef();
+      m_base = existing_collection;
+      m_exports = source->m_exports;
+      m_export_imports = source->m_export_imports;
+      m_shader_identifiers = source->m_shader_identifiers;
+      m_pipeline_stack_size = source->m_pipeline_stack_size;
+      m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
+      m_raygen_visible_function_table =
+          source->m_raygen_visible_function_table;
+      m_intersection_function_table = source->m_intersection_function_table;
+      if (!m_global_root_signature) {
+        m_global_root_signature = source->m_global_root_signature;
+        if (m_global_root_signature)
+          m_global_root_signature->AddRef();
+      }
+      TRACE("StateObject inherited collection=%p exports=%zu pso=%llu",
+            (void *)existing_collection, m_exports.size(),
+            (unsigned long long)m_raygen_compute_pipeline.handle);
+      return true;
+    }
+    if (existing_collection)
+      return false;
     if (!raytracing_library.pShaderBytecode ||
         !raytracing_library.BytecodeLength)
       return false;

@@ -1015,7 +1015,10 @@ the goal is not complete.
   at x=10, then an in-place `PERFORM_UPDATE` refit centers that instance before
   traversal. Instance masks isolate inline `RayQuery` traversal to the
   multi-geometry BLAS while `DispatchRays` traverses the updated compact/AABB
-  paths. The refittable TLAS builds to 1,216 bytes. `AddToStateObject` now
+  paths. The refittable TLAS builds to 1,216 bytes. A collection containing the
+  full linked DXIL/Metal state now feeds an executable ray-tracing pipeline via
+  `EXISTING_COLLECTION`; the inherited identifiers and function tables survive
+  collection lifetime and subsequent growth. `AddToStateObject` now
   creates a stable, distinct alias for the inherited triangle hit group; the
   alias identifier is installed in the first shader-table record. The record's
   local-root arguments are associated with closest-hit: constant `0x4c4f434c`,
@@ -1040,6 +1043,7 @@ the goal is not complete.
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry, larger geometry/instance arrays,
-  serialization/deserialization, new-library state-object growth,
+  serialization/deserialization, collection export filtering/merging,
+  new-library state-object growth,
   local descriptor tables/samplers, and broader record-count/stride/local-data
   shader-table matrices.

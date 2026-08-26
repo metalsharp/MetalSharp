@@ -2254,6 +2254,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12RootSignature* closest_hit_local_root = nullptr;
     ID3D12PipelineState* compute_pso = nullptr;
     ID3D12StateObject* raytracing_state = nullptr;
+    ID3D12StateObject* raytracing_collection = nullptr;
     ID3D12StateObject* grown_raytracing_state = nullptr;
     ID3D12StateObjectProperties* raytracing_properties = nullptr;
     ID3D12StateObjectProperties* grown_raytracing_properties = nullptr;
@@ -2480,12 +2481,27 @@ static ProbeResult probe_dxr_acceleration_structures() {
         D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION,
         &local_root_association};
     D3D12_STATE_OBJECT_DESC state_desc = {};
-    state_desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
     state_desc.NumSubobjects = 8;
     state_desc.pSubobjects = state_subobjects;
     if (SUCCEEDED(hr))
         hr = device5->CreateStateObject(&state_desc,
+                                        IID_PPV_ARGS(&raytracing_collection));
+    D3D12_EXISTING_COLLECTION_DESC existing_collection = {};
+    existing_collection.pExistingCollection = raytracing_collection;
+    D3D12_STATE_SUBOBJECT existing_collection_subobject = {
+        D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION,
+        &existing_collection};
+    D3D12_STATE_OBJECT_DESC pipeline_from_collection = {};
+    pipeline_from_collection.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    pipeline_from_collection.NumSubobjects = 1;
+    pipeline_from_collection.pSubobjects = &existing_collection_subobject;
+    if (SUCCEEDED(hr))
+        hr = device5->CreateStateObject(&pipeline_from_collection,
                                         IID_PPV_ARGS(&raytracing_state));
+    const bool collection_pipeline_created =
+        raytracing_collection != nullptr && raytracing_state != nullptr;
+    safe_release(raytracing_collection);
     if (SUCCEEDED(hr))
         hr = raytracing_state->QueryInterface(
             IID_PPV_ARGS(&raytracing_properties));
@@ -3401,6 +3417,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(grown_raytracing_state);
     safe_release(raytracing_properties);
     safe_release(raytracing_state);
+    safe_release(raytracing_collection);
     safe_release(ray_query_readback);
     safe_release(ray_query_output);
     safe_release(top_level_postbuild);
@@ -3438,7 +3455,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy/TLAS traversal, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy/TLAS traversal, collection-derived pipeline, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -3487,6 +3504,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 (stable_shader_identifiers ? "true" : "false") +
                 ",\"add_to_state_object_created\":" +
                 (add_to_state_object_created ? "true" : "false") +
+                ",\"collection_pipeline_created\":" +
+                (collection_pipeline_created ? "true" : "false") +
                 ",\"grown_state_identifiers\":" +
                 (grown_state_identifiers ? "true" : "false") +
                 ",\"renamed_export_identifiers\":" +
