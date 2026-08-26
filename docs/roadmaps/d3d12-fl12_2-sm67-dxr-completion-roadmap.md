@@ -264,8 +264,12 @@ Findings:
 - `ReadFromSubresource` can zero output and return success for GPU-only
   textures rather than executing a readback.
 - Placed texture resources do not implement true heap aliasing.
-- Reserved resources are committed-resource substitutes.
-- Tile mappings are logged but not executed.
+- Reserved resources now use native Metal sparse backing for a focused 2D
+  RGBA8-array path; unsupported shapes fail closed rather than using committed
+  substitutes.
+- Tile mapping/unmapping and two per-slice `CopyTiles` operations execute for
+  that proof path; external D3D12 heap-page selection and `CopyTileMappings`
+  remain gated.
 - Residency calls mostly return success without enforcing or tracking the
   requested state.
 - `GetCopyableFootprints` needs plane-aware and all-format validation.
@@ -584,8 +588,8 @@ Hard gate:
 
 - Resource/view/format matrix has no unexplained skip.
 - Sparse mapping probe writes, remaps, unmaps, and reads expected tile data;
-  the current proof covers two standard 64 KiB tiles in a 256x128 RGBA8
-  reserved texture.
+  the current proof covers two standard 64 KiB subresource tiles in a
+  128x128 RGBA8-array reserved texture.
 - Reserved resources are never silently substituted by committed resources.
 - Shared-handle and residency probes pass or return a documented API-accurate
   platform result without false success.
