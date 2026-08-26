@@ -8810,6 +8810,24 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
         break;
       }
+      case CmdType::EnhancedBarrier: {
+        auto *cmd = reinterpret_cast<const CmdEnhancedBarrier *>(header);
+        QTRACE("EnhancedBarrier groups=%u global=%u buffer=%u texture=%u",
+               cmd->group_count, cmd->global_barrier_count,
+               cmd->buffer_barrier_count, cmd->texture_barrier_count);
+        st.CloseRenderEncoder();
+        if (m_barrier_event.handle) {
+          uint64_t seq = ++m_barrier_seq;
+          QTRACE("EnhancedBarrier queue-order seq=%llu event=%llu",
+                 (unsigned long long)seq,
+                 (unsigned long long)m_barrier_event.handle);
+          cmdbuf.encodeSignalEvent(m_barrier_event, seq);
+          cmdbuf.encodeWaitForEvent(m_barrier_event, seq);
+        } else {
+          QTRACE("EnhancedBarrier queue-order skipped: no event");
+        }
+        break;
+      }
       case CmdType::OMSetRenderTargets: {
         auto *cmd = reinterpret_cast<const CmdOMSetRenderTargets *>(header);
         st.CloseRenderEncoder();

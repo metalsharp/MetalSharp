@@ -128,7 +128,8 @@ MTLD3D12GraphicsCommandList::QueryInterface(REFIID riid, void **ppvObject) {
       riid == IID_ID3D12GraphicsCommandList3 ||
       riid == IID_ID3D12GraphicsCommandList4 ||
       riid == IID_ID3D12GraphicsCommandList5 ||
-      riid == IID_ID3D12GraphicsCommandList6) {
+      riid == IID_ID3D12GraphicsCommandList6 ||
+      riid == IID_ID3D12GraphicsCommandList7) {
     *ppvObject = ref(this);
     return S_OK;
   }
@@ -420,6 +421,39 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResourceBarrier(
   memcpy(m_cmds.data() + offset, &cmd, sizeof(CmdResourceBarrier) - sizeof(D3D12_RESOURCE_BARRIER));
   memcpy(m_cmds.data() + offset + sizeof(CmdResourceBarrier) - sizeof(D3D12_RESOURCE_BARRIER),
          barriers, extra);
+}
+
+void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Barrier(
+    UINT32 num_barrier_groups,
+    const D3D12_BARRIER_GROUP *barrier_groups) {
+  if (!num_barrier_groups || !barrier_groups)
+    return;
+  CmdEnhancedBarrier cmd = {};
+  cmd.header = {CmdType::EnhancedBarrier, sizeof(cmd)};
+  cmd.group_count = num_barrier_groups;
+  for (UINT32 i = 0; i < num_barrier_groups; i++) {
+    const auto &group = barrier_groups[i];
+    if (!group.NumBarriers || !group.pGlobalBarriers)
+      continue;
+    switch (group.Type) {
+    case D3D12_BARRIER_TYPE_GLOBAL:
+      cmd.global_barrier_count += group.NumBarriers;
+      break;
+    case D3D12_BARRIER_TYPE_BUFFER:
+      cmd.buffer_barrier_count += group.NumBarriers;
+      break;
+    case D3D12_BARRIER_TYPE_TEXTURE:
+      cmd.texture_barrier_count += group.NumBarriers;
+      break;
+    default:
+      CLTRACE("Barrier ignored unknown group type=%u", (unsigned)group.Type);
+      break;
+    }
+  }
+  Emit(cmd);
+  CLTRACE("Barrier groups=%u global=%u buffer=%u texture=%u",
+          cmd.group_count, cmd.global_barrier_count, cmd.buffer_barrier_count,
+          cmd.texture_barrier_count);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteBundle(

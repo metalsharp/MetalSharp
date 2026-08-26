@@ -918,6 +918,11 @@ the goal is not complete.
   modes: direct, compute, and an inlined bundle execute default, marker-in, and
   marker-out writes to GPU virtual addresses and read back the exact values;
   Options3 now reports the corresponding support flags.
+- Exposed `ID3D12GraphicsCommandList7` and implemented enhanced barrier command
+  recording/replay. Global, buffer, and texture groups close active Metal
+  encoders and establish queue order through the shared event; an exact
+  copy-destination-to-copy-source buffer readback passes before Options12 reports
+  `EnhancedBarriersSupported = TRUE`.
 - Completed the Shader Model 6.7 reporting gate: the SM 6.6 corpus now
   dispatches and passes exact readback for root constants, descriptor indexing,
   64-bit arithmetic, group atomics/barriers, and texture/sampler access;

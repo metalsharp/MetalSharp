@@ -280,7 +280,10 @@ For command recording/replay coverage, run the command replay probe. It
 validates command-list close/reset/reuse ordering, multiple command lists in a
 single queue execute, ExecuteIndirect dispatch behavior, and records
 command-signature root constants, bundle draw replay, graphics indirect replay,
-and predication support status explicitly:
+and predication support status explicitly. It also invokes
+`ID3D12GraphicsCommandList7::Barrier` with global, buffer, and texture groups,
+then verifies exact ordered copy readback before Options12 reports enhanced
+barrier support:
 
 ```bash
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \

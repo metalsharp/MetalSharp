@@ -16,7 +16,7 @@ class MTLD3D12Device;
 class MTLD3D12CommandAllocator;
 
 
-class MTLD3D12GraphicsCommandList : public ID3D12GraphicsCommandList6 {
+class MTLD3D12GraphicsCommandList : public ID3D12GraphicsCommandList7 {
 public:
   MTLD3D12GraphicsCommandList(MTLD3D12Device *device,
                               MTLD3D12CommandAllocator *allocator,
@@ -91,6 +91,9 @@ public:
   void STDMETHODCALLTYPE ResourceBarrier(
       UINT barrier_count,
       const D3D12_RESOURCE_BARRIER *barriers) override;
+  void STDMETHODCALLTYPE Barrier(
+      UINT32 num_barrier_groups,
+      const D3D12_BARRIER_GROUP *barrier_groups) override;
   void STDMETHODCALLTYPE ExecuteBundle(
       ID3D12GraphicsCommandList *command_list) override;
   void STDMETHODCALLTYPE SetDescriptorHeaps(
