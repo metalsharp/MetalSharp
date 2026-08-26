@@ -65,7 +65,7 @@
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "twelve_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_serialize_copy_deserialize_traversal_twelve_instance_tlas_collection_pipeline_grown_hit_group_alias_local_root_constant_cbv_srv_uav_renamed_indexed_miss_callable_records_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
+      "probe_status": "twelve_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_serialize_copy_deserialize_traversal_twelve_instance_tlas_filtered_merged_collection_pipeline_grown_hit_group_alias_local_root_constant_cbv_srv_uav_renamed_indexed_miss_callable_records_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_procedural_callable_dispatch_passed",
       "reported": "partial",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
@@ -84,18 +84,19 @@
         "COPY_MODE_SERIALIZE, opaque buffer copy, COPY_MODE_DESERIALIZE, and traversal through deserialized BLAS and TLAS",
         "deserialized TLAS traversal after all source D3D12 acceleration-structure resources are released",
         "inline RayQuery triangle hit",
-        "raygen/miss state-object exports with stable distinct shader identifiers",
+        "raygen/miss state-object exports with stable distinct shader identifiers and the exact IRShaderIdentifier local-sampler/tail layout",
         "raygen, miss, triangle any-hit/closest-hit, procedural intersection/closest-hit, and callable shader-table records",
         "DispatchRays raygen, miss, any-hit, closest-hit, procedural intersection, and callable execution",
         "recursive closest-hit to miss TraceRay at depth 2",
-        "collection creation and executable pipeline inheritance through EXISTING_COLLECTION",
+        "filtered multi-collection merge, renamed imports, invalid-export rejection, and executable pipeline inheritance through EXISTING_COLLECTION",
+        "collection-derived pipeline execution after releasing all external collection references",
         "AddToStateObject hit-group alias growth with inherited stable identifiers and execution",
         "associated local-root constant, CBV, and SRV reads from the grown hit-group shader-table record",
         "associated local-root UAV write and exact readback",
         "renamed miss/callable exports with stable distinct identifiers",
         "indexed execution from two-record 64-byte-stride miss and callable shader tables with local constants"
       ],
-      "risk": "A twelve-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, process-scoped BLAS/TLAS serialization and deserialization through a copied opaque blob, a twelve-instance TLAS with exact serialized pointer list, source-resource release before deserialized-TLAS traversal, mask-isolated inline RayQuery hit, stable distinct export identifiers, executed base/grown hit-group records with associated local-root constant/CBV/SRV/UAV data, renamed and indexed miss/callable table records, raygen/triangle-any-hit/closest-hit/procedural-intersection records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB geometry within one BLAS, persistent cross-process serialized reconstruction, collection export filtering/merging, new-library state-object growth, local descriptor tables/samplers, and broader record-count/stride/local-data shader-table matrices remain gated.",
+      "risk": "A twelve-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, process-scoped BLAS/TLAS serialization and deserialization through a copied opaque blob, a twelve-instance TLAS with exact serialized pointer list, source-resource release before deserialized-TLAS traversal, mask-isolated inline RayQuery hit, stable distinct export identifiers with the Metal Shader Converter local-sampler slot preserved at bytes 16-23 and private alias hashes isolated to bytes 24-31, filtered same-table multi-collection merging with renamed imports and invalid-export rejection, executed base/grown hit-group records with associated local-root constant/CBV/SRV/UAV data, renamed and indexed miss/callable table records, raygen/triangle-any-hit/closest-hit/procedural-intersection records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB geometry within one BLAS, persistent cross-process serialized reconstruction, independently linked collection merging, new-library state-object growth, local descriptor tables/samplers, and broader record-count/stride/local-data shader-table matrices remain gated.",
       "state": "required",
       "tier": "required"
     },
