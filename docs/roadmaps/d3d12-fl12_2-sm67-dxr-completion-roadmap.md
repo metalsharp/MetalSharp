@@ -1150,15 +1150,17 @@ the goal is not complete.
   creates a stable, distinct alias for the inherited triangle hit group; the
   alias identifier is installed in the first shader-table record. The record's
   local-root arguments are associated with closest-hit: constant `0x4c4f434c`,
-  CBV marker `0x43425631`, and SRV marker `0x53525631` are read from the record,
-  while a record-local UAV
-  receives exact marker `0x4c525557`. Recursion only returns `0x52454332` when
-  both local reads and the existing any-hit/nested-miss behavior are correct.
+  mirrored CBV-table marker `0x43425631` and mirrored SRV-table marker
+  `0x53525631` are read from the record, while mirrored SRV/UAV and sampler
+  tables supply the resource and `SampleLevel` paths. The
+  record-local UAV receives exact marker `0x4c525557`. Recursion only returns
+  `0x52454332` when both local reads, sampling, and the existing
+  any-hit/nested-miss behavior are correct.
   Renamed miss and callable exports preserve their canonical Metal function
   indices while using distinct stable identifier tails; `TraceRay` and
-  `CallShader` select index 1 from their two-record, 64-byte-stride tables,
-  validate per-record local constants, and produce
-  `0x4d495353` and `0x43414c4c`. Its second 64-byte
+  `CallShader` select index 1 from their two-record, 96-byte-stride tables,
+  validate per-record local constants and descriptor-table pointers, and
+  produce `0x4d495353` and `0x43414c4c`. Its second 96-byte
   hit-group record
   selects a
   procedural intersection
@@ -1167,11 +1169,10 @@ the goal is not complete.
   The converter CLI failed to apply its maximum-attribute-size option to
   `ReportHit`; the probe therefore uses the same Metal Shader Converter 3.0.6
   API directly with a consistent eight-byte pipeline attribute configuration
-  across every ray-tracing stage. A callable table at offset 320 invokes
+  across every ray-tracing stage. A callable table at offset 448 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry in one BLAS, persistent cross-process
   serialization reconstruction, independently linked collection merging,
-  new-library state-object growth,
-  local descriptor tables/samplers, and broader record-count/stride/local-data
-  shader-table matrices.
+  new-library state-object growth, static local samplers, and broader
+  record-count, stride, and local-data shader-table matrices.

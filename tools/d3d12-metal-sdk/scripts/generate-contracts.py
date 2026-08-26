@@ -295,9 +295,9 @@ def unsupported_ledger() -> dict[str, Any]:
         "entries": [
             {
                 "api": "D3D12 ray tracing tiers",
-                "state": "unsupported",
-                "tier": "unsupported",
-                "reason": "No DXR-to-Metal acceleration structure or shader table implementation is proven.",
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "Foundational DXR acceleration structures, ray queries, state objects, shader tables, local SRV/UAV/CBV/sampler descriptor-table mirrors, and DispatchRays execution are proven on the M4, while mixed primitive BLAS, cross-process reconstruction, static local samplers, new-library growth, and broader shader-table matrices remain gated.",
                 "evidence": ["tools/d3d12-metal-sdk/contracts/feature-support-contract.json"],
             },
             {
@@ -343,9 +343,9 @@ def unsupported_ledger() -> dict[str, Any]:
             },
             {
                 "api": "D3D12 state objects",
-                "state": "unsupported",
-                "tier": "unsupported",
-                "reason": "State object creation and growth require DXR/work-graph subsystems that are not implemented; calls must fail deterministically.",
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "State-object creation, collection filtering/merging, identifiers, local SRV/UAV/CBV/sampler descriptor-table mirrors, and DispatchRays are proven in the focused DXR probe; static local samplers, new-library growth, and broader state-object matrices remain gated.",
                 "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_device_caps"],
             },
             {

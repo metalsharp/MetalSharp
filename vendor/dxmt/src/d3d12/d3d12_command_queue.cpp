@@ -5953,6 +5953,255 @@ static uint64_t FootprintOffset(uint64_t base_offset, uint32_t row_pitch,
          uint64_t(x / block) * uint64_t(bytes_per_block);
 }
 
+struct PreparedRayShaderTable {
+  WMT::Reference<WMT::Buffer> buffer;
+  uint64_t gpu_address = 0;
+  uint64_t size_in_bytes = 0;
+  uint64_t stride_in_bytes = 0;
+  bool local_descriptor_table_seen = false;
+};
+
+static MTLD3D12DescriptorHeap *FindDescriptorHeapForGPUHandle(
+    ReplayState &st, D3D12_GPU_DESCRIPTOR_HANDLE handle,
+    uint32_t *descriptor_index) {
+  if (descriptor_index)
+    *descriptor_index = UINT32_MAX;
+  for (uint32_t i = 0; i < st.desc_heap_count; i++) {
+    auto *heap = static_cast<MTLD3D12DescriptorHeap *>(st.desc_heaps[i]);
+    if (!heap || !heap->IsShaderVisible())
+      continue;
+    const uint32_t index = heap->GetDescriptorIndexFromGPUHandle(handle);
+    if (index != UINT32_MAX) {
+      if (descriptor_index)
+        *descriptor_index = index;
+      return heap;
+    }
+  }
+  return nullptr;
+}
+
+static bool DescriptorRangeMatchesHeap(const RootDescriptorRange &range,
+                                       MTLD3D12DescriptorHeap *heap) {
+  if (!heap)
+    return false;
+  D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+  heap->GetDesc(&desc);
+  const D3D12_DESCRIPTOR_HEAP_TYPE expected_type =
+      range.range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
+          ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
+          : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  return desc.Type == expected_type;
+}
+
+static bool PatchLocalRootDescriptorTables(
+    ReplayState &st, MTLD3D12Device *device, uint8_t *record,
+    uint64_t record_size, const void *shader_identifier,
+    std::vector<obj_handle_t> &descriptor_mirror_resources) {
+  if (!record || record_size < 32 || !shader_identifier)
+    return false;
+
+  ID3D12RootSignature *local_root_signature = nullptr;
+  const bool known_identifier =
+      GetD3D12StateObjectShaderRecordLocalRootSignature(
+          st.raytracing_state, shader_identifier, &local_root_signature);
+  bool all_zero_identifier = true;
+  for (uint32_t i = 0; i < 32; i++)
+    all_zero_identifier &= static_cast<const uint8_t *>(shader_identifier)[i] == 0;
+  if (!known_identifier)
+    return all_zero_identifier;
+  if (!local_root_signature)
+    return true;
+
+  auto *root_signature =
+      static_cast<MTLD3D12RootSignature *>(local_root_signature);
+  uint64_t local_offset = 0;
+  for (const auto &parameter : root_signature->GetParameters()) {
+    if (parameter.type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS) {
+      const uint64_t byte_count = uint64_t(parameter.num_32bit_values) * 4;
+      if (local_offset > record_size - 32 ||
+          byte_count > record_size - 32 - local_offset)
+        return false;
+      local_offset += byte_count;
+      continue;
+    }
+
+    local_offset = (local_offset + 7) & ~uint64_t(7);
+    if (local_offset > record_size - 32 ||
+        sizeof(uint64_t) > record_size - 32 - local_offset)
+      return false;
+    uint64_t *argument = reinterpret_cast<uint64_t *>(record + 32 + local_offset);
+    if (parameter.type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE) {
+      const uint64_t original_handle = *argument;
+      if (original_handle) {
+        uint32_t descriptor_index = UINT32_MAX;
+        auto *heap = FindDescriptorHeapForGPUHandle(
+            st, D3D12_GPU_DESCRIPTOR_HANDLE{original_handle},
+            &descriptor_index);
+        if (!heap || !heap->GetShaderVisibleGPUAddress(descriptor_index))
+          return false;
+        for (const auto &range : parameter.ranges) {
+          if (!DescriptorRangeMatchesHeap(range, heap))
+            return false;
+          const uint32_t count = range.num_descriptors == UINT32_MAX
+                                     ? 1u
+                                     : range.num_descriptors;
+          for (uint32_t i = 0; i < count; i++) {
+            if (range.offset_in_table > UINT32_MAX - i)
+              return false;
+            auto *descriptor = heap->GetDescriptorFromGPUHandle(
+                D3D12_GPU_DESCRIPTOR_HANDLE{original_handle},
+                range.offset_in_table + i);
+            if (!descriptor || descriptor->range_type != range.range_type)
+              return false;
+            if (range.range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
+              if (!descriptor->metal_sampler.handle)
+                return false;
+              st.RetainSamplerPairForCompletion(
+                  descriptor->metal_sampler, descriptor->metal_sampler_cube);
+              continue;
+            }
+            auto *resource = descriptor->resource
+                                 ? static_cast<MTLD3D12Resource *>(
+                                       descriptor->resource)
+                                 : nullptr;
+            if (range.range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
+                !resource && descriptor->cbv.BufferLocation)
+              resource = device->LookupResourceByGPUAddress(
+                  descriptor->cbv.BufferLocation);
+            if (!resource)
+              return false;
+            st.RetainResourceMetalObjectsForCompletion(resource);
+            auto buffer = resource->GetMTLBuffer();
+            auto texture = resource->GetMTLTexture();
+            if (buffer.handle &&
+                std::find(descriptor_mirror_resources.begin(),
+                          descriptor_mirror_resources.end(),
+                          buffer.handle) == descriptor_mirror_resources.end())
+              descriptor_mirror_resources.push_back(buffer.handle);
+            if (texture.handle &&
+                std::find(descriptor_mirror_resources.begin(),
+                          descriptor_mirror_resources.end(),
+                          texture.handle) == descriptor_mirror_resources.end())
+              descriptor_mirror_resources.push_back(texture.handle);
+          }
+        }
+        *argument = heap->GetShaderVisibleGPUAddress(descriptor_index);
+        const auto mirror = heap->GetShaderVisibleBuffer();
+        if (!mirror.handle)
+          return false;
+        if (std::find(descriptor_mirror_resources.begin(),
+                      descriptor_mirror_resources.end(),
+                      mirror.handle) == descriptor_mirror_resources.end())
+          descriptor_mirror_resources.push_back(mirror.handle);
+        st.RetainMTLObjectForCompletion(mirror);
+      }
+    } else if (parameter.type == D3D12_ROOT_PARAMETER_TYPE_CBV ||
+               parameter.type == D3D12_ROOT_PARAMETER_TYPE_SRV ||
+               parameter.type == D3D12_ROOT_PARAMETER_TYPE_UAV) {
+      const uint64_t resource_address = *argument;
+      auto *resource = device->LookupResourceByGPUAddress(resource_address);
+      if (resource) {
+        st.RetainResourceMetalObjectsForCompletion(resource);
+        auto buffer = resource->GetMTLBuffer();
+        if (buffer.handle &&
+            std::find(descriptor_mirror_resources.begin(),
+                      descriptor_mirror_resources.end(), buffer.handle) ==
+                descriptor_mirror_resources.end())
+          descriptor_mirror_resources.push_back(buffer.handle);
+        auto texture = resource->GetMTLTexture();
+        if (texture.handle &&
+            std::find(descriptor_mirror_resources.begin(),
+                      descriptor_mirror_resources.end(), texture.handle) ==
+                descriptor_mirror_resources.end())
+          descriptor_mirror_resources.push_back(texture.handle);
+      }
+    }
+    local_offset += sizeof(uint64_t);
+  }
+  return true;
+}
+
+// DXR shader records carry D3D12 GPU descriptor handles for local tables.
+// DXMT's Win32 handles intentionally remain process-local CPU handles, so the
+// dispatch path copies records into a transient buffer and rewrites those
+// handles to the corresponding Metal Shader Converter descriptor-mirror GPU
+// addresses immediately before encoding the ray dispatch.
+static bool PrepareRayShaderTable(
+    ReplayState &st, MTLD3D12Device *device, uint64_t start_address,
+    uint64_t size_in_bytes, uint64_t stride_in_bytes, bool raygen_table,
+    const char *label, PreparedRayShaderTable &prepared,
+    std::vector<obj_handle_t> &descriptor_mirror_resources) {
+  prepared = {};
+  prepared.size_in_bytes = size_in_bytes;
+  prepared.stride_in_bytes = stride_in_bytes;
+  if (!start_address || !size_in_bytes)
+    return true;
+  const uint64_t effective_stride = raygen_table ? size_in_bytes : stride_in_bytes;
+  if (effective_stride < 32 || effective_stride > size_in_bytes)
+    return false;
+  auto *resource = device->LookupResourceByGPUAddress(start_address);
+  if (!resource || !resource->GetMTLBuffer().handle)
+    return false;
+  const uint64_t resource_offset =
+      start_address - resource->GetGPUVirtualAddress();
+  const uint64_t resource_size = resource->GetBufferByteLength();
+  if (resource_offset > resource_size ||
+      size_in_bytes > resource_size - resource_offset)
+    return false;
+
+  void *mapped = nullptr;
+  if (FAILED(resource->Map(0, nullptr, &mapped)) || !mapped)
+    return false;
+  std::vector<uint8_t> data(size_in_bytes);
+  std::memcpy(data.data(), static_cast<const uint8_t *>(mapped) + resource_offset,
+              size_in_bytes);
+  resource->Unmap(0, nullptr);
+
+  bool local_table_seen = false;
+  for (uint64_t offset = 0; offset + 32 <= size_in_bytes;
+       offset += effective_stride) {
+    const uint64_t record_size =
+        std::min<uint64_t>(effective_stride, size_in_bytes - offset);
+    bool record_has_local_table = false;
+    // A record with an all-zero identifier is unused; preserve it without
+    // trying to infer a local root signature.
+    bool all_zero_identifier = true;
+    for (uint32_t i = 0; i < 32; i++)
+      all_zero_identifier &= data[offset + i] == 0;
+    if (!all_zero_identifier) {
+      if (!PatchLocalRootDescriptorTables(
+              st, device, data.data() + offset, record_size, data.data() + offset,
+              descriptor_mirror_resources))
+        return false;
+      auto *local_root = static_cast<ID3D12RootSignature *>(nullptr);
+      if (GetD3D12StateObjectShaderRecordLocalRootSignature(
+              st.raytracing_state, data.data() + offset, &local_root) &&
+          local_root) {
+        auto *root = static_cast<MTLD3D12RootSignature *>(local_root);
+        for (const auto &parameter : root->GetParameters())
+          record_has_local_table |=
+              parameter.type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+      }
+    }
+    local_table_seen |= record_has_local_table;
+  }
+  if (!local_table_seen)
+    return true;
+
+  prepared.buffer = st.MakeTransientBuffer(device, size_in_bytes,
+                                           &prepared.gpu_address);
+  if (!prepared.buffer.handle || !prepared.gpu_address)
+    return false;
+  prepared.buffer.updateContents(0, data.data(), data.size());
+  prepared.local_descriptor_table_seen = true;
+  QTRACE("%s: copied shader table start=0x%llx size=%llu stride=%llu gpu=0x%llx",
+         label ? label : "ray_table", (unsigned long long)start_address,
+         (unsigned long long)size_in_bytes,
+         (unsigned long long)effective_stride,
+         (unsigned long long)prepared.gpu_address);
+  return true;
+}
+
 static bool ReplayRaytracingDispatch(
     ReplayState &st, MTLD3D12Device *device, WMT::CommandBuffer cmdbuf,
     const D3D12_DISPATCH_RAYS_DESC &desc) {
@@ -6017,6 +6266,46 @@ static bool ReplayRaytracingDispatch(
       !shader_table->GetMTLBuffer().handle)
     return false;
 
+  PreparedRayShaderTable prepared_raygen;
+  PreparedRayShaderTable prepared_miss;
+  PreparedRayShaderTable prepared_hit_group;
+  PreparedRayShaderTable prepared_callable;
+  std::vector<obj_handle_t> descriptor_mirror_resources;
+  if (!PrepareRayShaderTable(
+          st, device, desc.RayGenerationShaderRecord.StartAddress,
+          desc.RayGenerationShaderRecord.SizeInBytes,
+          desc.RayGenerationShaderRecord.SizeInBytes, true, "raygen_table",
+          prepared_raygen, descriptor_mirror_resources) ||
+      !PrepareRayShaderTable(st, device, desc.MissShaderTable.StartAddress,
+                             desc.MissShaderTable.SizeInBytes,
+                             desc.MissShaderTable.StrideInBytes, false,
+                             "miss_table", prepared_miss,
+                             descriptor_mirror_resources) ||
+      !PrepareRayShaderTable(st, device, desc.HitGroupTable.StartAddress,
+                             desc.HitGroupTable.SizeInBytes,
+                             desc.HitGroupTable.StrideInBytes, false,
+                             "hit_group_table", prepared_hit_group,
+                             descriptor_mirror_resources) ||
+      !PrepareRayShaderTable(st, device, desc.CallableShaderTable.StartAddress,
+                             desc.CallableShaderTable.SizeInBytes,
+                             desc.CallableShaderTable.StrideInBytes, false,
+                             "callable_table", prepared_callable,
+                             descriptor_mirror_resources))
+    return false;
+
+  const uint64_t raygen_table_address = prepared_raygen.buffer.handle
+                                            ? prepared_raygen.gpu_address
+                                            : desc.RayGenerationShaderRecord.StartAddress;
+  const uint64_t miss_table_address = prepared_miss.buffer.handle
+                                          ? prepared_miss.gpu_address
+                                          : desc.MissShaderTable.StartAddress;
+  const uint64_t hit_group_table_address =
+      prepared_hit_group.buffer.handle ? prepared_hit_group.gpu_address
+                                       : desc.HitGroupTable.StartAddress;
+  const uint64_t callable_table_address =
+      prepared_callable.buffer.handle ? prepared_callable.gpu_address
+                                      : desc.CallableShaderTable.StartAddress;
+
   uint64_t descriptor_table_data[6] = {};
   if (acceleration_descriptor && acceleration_descriptor->resource) {
     auto *acceleration = static_cast<MTLD3D12Resource *>(
@@ -6080,16 +6369,16 @@ static bool ReplayRaytracingDispatch(
     uint64_t intersection_function_tables;
   } dispatch_argument = {};
   dispatch_argument.dispatch.ray_generation_shader_record = {
-      desc.RayGenerationShaderRecord.StartAddress,
+      raygen_table_address,
       desc.RayGenerationShaderRecord.SizeInBytes};
   dispatch_argument.dispatch.miss_shader_table = {
-      desc.MissShaderTable.StartAddress, desc.MissShaderTable.SizeInBytes,
+      miss_table_address, desc.MissShaderTable.SizeInBytes,
       desc.MissShaderTable.StrideInBytes};
   dispatch_argument.dispatch.hit_group_table = {
-      desc.HitGroupTable.StartAddress, desc.HitGroupTable.SizeInBytes,
+      hit_group_table_address, desc.HitGroupTable.SizeInBytes,
       desc.HitGroupTable.StrideInBytes};
   dispatch_argument.dispatch.callable_shader_table = {
-      desc.CallableShaderTable.StartAddress,
+      callable_table_address,
       desc.CallableShaderTable.SizeInBytes,
       desc.CallableShaderTable.StrideInBytes};
   dispatch_argument.dispatch.width = desc.Width;
@@ -6141,9 +6430,55 @@ static bool ReplayRaytracingDispatch(
   use_intersection_table.usage = WMTResourceUsageRead;
   use_intersection_table.next.set(&use_shader_table);
   use_shader_table.type = WMTComputeCommandUseResource;
-  use_shader_table.resource = shader_table->GetMTLBuffer().handle;
+  use_shader_table.resource = prepared_raygen.buffer.handle
+                                  ? prepared_raygen.buffer.handle
+                                  : shader_table->GetMTLBuffer().handle;
   use_shader_table.usage = WMTResourceUsageRead;
-  use_shader_table.next.set(&use_output);
+  std::vector<obj_handle_t> supplemental_ray_resources;
+  auto append_ray_resource = [&supplemental_ray_resources, &st](obj_handle_t handle) {
+    if (!handle ||
+        std::find(supplemental_ray_resources.begin(),
+                  supplemental_ray_resources.end(), handle) !=
+            supplemental_ray_resources.end())
+      return;
+    supplemental_ray_resources.push_back(handle);
+    st.RetainMTLObjectForCompletion(handle);
+  };
+  auto table_resource_handle = [device, &st](uint64_t address) -> obj_handle_t {
+    if (!address)
+      return 0;
+    auto *resource = device->LookupResourceByGPUAddress(address);
+    if (!resource)
+      return 0;
+    st.RetainResourceMetalObjectsForCompletion(resource);
+    return resource->GetMTLBuffer().handle;
+  };
+  append_ray_resource(
+      prepared_miss.buffer.handle
+          ? prepared_miss.buffer.handle
+          : table_resource_handle(desc.MissShaderTable.StartAddress));
+  append_ray_resource(
+      prepared_hit_group.buffer.handle
+          ? prepared_hit_group.buffer.handle
+          : table_resource_handle(desc.HitGroupTable.StartAddress));
+  append_ray_resource(
+      prepared_callable.buffer.handle
+          ? prepared_callable.buffer.handle
+          : table_resource_handle(desc.CallableShaderTable.StartAddress));
+  for (obj_handle_t handle : descriptor_mirror_resources)
+    append_ray_resource(handle);
+  std::vector<wmtcmd_compute_useresource> supplemental_ray_uses(
+      supplemental_ray_resources.size());
+  wmtcmd_compute_useresource *ray_resource_tail = &use_shader_table;
+  for (size_t i = 0; i < supplemental_ray_resources.size(); i++) {
+    supplemental_ray_uses[i] = {};
+    supplemental_ray_uses[i].type = WMTComputeCommandUseResource;
+    supplemental_ray_uses[i].resource = supplemental_ray_resources[i];
+    supplemental_ray_uses[i].usage = WMTResourceUsageRead;
+    ray_resource_tail->next.set(&supplemental_ray_uses[i]);
+    ray_resource_tail = &supplemental_ray_uses[i];
+  }
+  ray_resource_tail->next.set(&use_output);
   use_output.type = WMTComputeCommandUseResource;
   use_output.resource = output->GetMTLBuffer().handle;
   use_output.usage =

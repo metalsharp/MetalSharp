@@ -123,17 +123,19 @@ export identifiers with the Metal Shader Converter local-sampler GPU-address
 slot preserved at bytes 16-23 and private alias hashes confined to bytes 24-31,
 two export-filtered collections merged into one executable
 `EXISTING_COLLECTION` pipeline with renamed imports, missing-export rejection,
-and lifetime proof after releasing all external collection references, and an
-`AddToStateObject` hit-group alias with inherited
+and lifetime proof after releasing all external collection references, GPU-resident
+local SRV/UAV/CBV and sampler descriptor-table mirrors used by five 96-byte-stride
+records, and an `AddToStateObject` hit-group alias with inherited
 identifiers whose shader-table record supplies the behavior-checked local-root
 constant `0x4c4f434c`, reads CBV marker `0x43425631` and SRV marker
 `0x53525631`, writes UAV marker
 `0x4c525557`, and executes the existing closest-hit path. Renamed miss and
 callable exports receive stable, distinct identifiers and execute with local
-constants from index 1 of two-record, 64-byte-stride shader tables. Raygen/triangle-any-hit/closest-hit/procedural-
+constants from index 1 of two-record, 96-byte-stride shader tables. Raygen/triangle-any-hit/closest-hit/procedural-
 intersection/callable shader-table records plus depth-2 closest-hit-to-miss
 recursion executing through
-`DispatchRays` while keeping RaytracingTier conservative.
+`DispatchRays` while keeping RaytracingTier conservative; static local samplers and broader
+shader-table matrices remain gated.
 Both remain breadth
 gates rather than general feature claims.
 
