@@ -312,6 +312,15 @@ Findings:
   lowering and exact readback for programmable offsets, `GatherRaw`, and
   `SampleCmpLevel` across two independently cleared depth mip levels. Graphics
   stages and writable MSAA textures remain gated, so Options14 stays false.
+- Xcode 27 beta 6's Metal 3.1 standard library declares `atomic_ulong`, but its
+  generic load/store/add/compare-exchange constraints exclude `ulong` and its
+  threadgroup operations; only device `ulong` min/max is exposed under the
+  dedicated `__HAVE_ATOMIC_ULONG_MIN_MAX__` path. A direct M4 Metal probe
+  executed device atomic-max as exact `[17,18,19,20]`, while device atomic-add
+  and threadgroup ulong atomic source were rejected at library compilation.
+  This explains the earlier typed-resource zero output and group-shared PSO
+  failure: full Options9/Options11 behavior needs software sidecar locks and
+  cannot be reported through native Metal lowering alone.
 - DXIL ray-query and raytracing intrinsics do not have a complete Metal lowering
   model.
 - `GetCachedBlob` returns the caller-provided pipeline cache payload and passes

@@ -5,7 +5,18 @@
       "evidence": [
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "The target M4 builds a two-geometry indexed/non-indexed triangle BLAS plus a procedural-AABB BLAS, refits triangle and AABB geometry from translated to centered coordinates, clones and compacts the triangle BLAS after a 616-byte compacted-size report for its 768-byte allocation, traverses the compact copy through a three-instance TLAS refit from an x=10 instance translation, returns a mask-isolated inline RayQuery hit against the multi-geometry BLAS, derives the executable pipeline from a collection and grows it with an inherited hit-group alias whose shader-table record supplies behavior-checked local-root constant/CBV/SRV/UAV data, executes renamed second miss/callable records from 64-byte-stride tables with local constants plus raygen/triangle-any-hit/closest-hit/procedural-intersection records with depth-2 recursion through DispatchRays; mixed triangle/AABB geometry, larger geometry/instance arrays, serialization/deserialization, collection export filtering/merging, new-library state-object growth, local descriptor tables/samplers, and broader record-count/stride/local-data shader-table matrices remain unproven.",
+      "reason": "The target M4 builds a twelve-geometry indexed/non-indexed triangle BLAS plus a procedural-AABB BLAS and a twelve-instance TLAS, refits triangle/AABB/TLAS geometry, clones and compacts the triangle BLAS after an exact compacted-size report, serializes and deserializes BLAS/TLAS data with standard headers and exact TLAS pointer lists, and traverses deserialized structures after releasing every source D3D12 acceleration-structure resource. Inline RayQuery and DispatchRays cover collection inheritance/growth, local-root constant/CBV/SRV/UAV data, indexed 64-byte-stride miss/callable records, raygen, triangle any-hit/closest-hit, procedural intersection, callable, and depth-2 recursion. Mixed triangle/AABB geometry in one BLAS crashes the available Metal descriptor route; persistent cross-process reconstruction, collection export filtering/merging, new-library growth, local descriptor tables/samplers, and broader shader-table matrices remain unproven.",
+      "state": "unsupported",
+      "tier": "unsupported"
+    },
+    {
+      "api": "D3D12 64-bit atomic capability tiers",
+      "evidence": [
+        "tools/d3d12-metal-sdk/results/probe-sm66-capabilities-atomic64-attempt2.json",
+        "tools/d3d12-metal-sdk/scripts/probe-metal-atomic64.mm",
+        "docs/roadmaps/d3d12-fl12_2-sm67-dxr-completion-roadmap.md"
+      ],
+      "reason": "SM6.6 group-shared atomic-add DXIL compiles but fails PSO creation; typed-resource atomic-add creates and dispatches a PSO but returns zeros instead of four exact 20 values. A native MSL 3.1 audit with the Xcode 27 beta 6 toolchain confirms the hardware/compiler surface exposes device atomic_ulong min/max only: device ulong atomic-max executes exactly, while ulong load/store/add and all threadgroup ulong atomic operations are rejected by the Metal standard-library constraints. Full D3D12 atomic64 behavior therefore requires a proven software sidecar/locking model rather than direct Metal lowering.",
       "state": "unsupported",
       "tier": "unsupported"
     },
@@ -132,9 +143,9 @@
       "evidence": [
         "tools/d3d12-metal-sdk/probes/probe_graphics_pso"
       ],
-      "reason": "No Metal tessellation translation path is proven; hull/domain PSOs remain rejected.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "One behavior-identified hull/domain proof shape executes through native Metal tessellation and passes readback. General hull/domain shader conversion, patch layouts, partitioning/topologies, resources, and render-state matrices remain unsupported and are rejected rather than reported broadly.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     }
   ],
   "purpose": "Track explicit unsupported APIs so games are not misled by optimistic success returns.",
