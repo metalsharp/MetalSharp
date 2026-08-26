@@ -1877,9 +1877,10 @@ static ProbeResult probe_mesh_shader_pso() {
     D3D12_RESOURCE_DESC target_desc =
         texture_desc(64, 64, DXGI_FORMAT_R8G8B8A8_UNORM,
                      D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
-    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
-    UINT rows = 0;
-    UINT64 row_bytes = 0;
+    target_desc.DepthOrArraySize = 2;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprints[2] = {};
+    UINT rows[2] = {};
+    UINT64 row_bytes[2] = {};
     UINT64 readback_bytes = 0;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
@@ -1890,8 +1891,8 @@ static ProbeResult probe_mesh_shader_pso() {
                                              IID_PPV_ARGS(&target));
     }
     if (SUCCEEDED(hr)) {
-        device->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint, &rows,
-                                      &row_bytes, &readback_bytes);
+        device->GetCopyableFootprints(&target_desc, 0, 2, 0, footprints, rows,
+                                      row_bytes, &readback_bytes);
         D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
         D3D12_RESOURCE_DESC readback_desc = buffer_desc(readback_bytes);
         hr = device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
@@ -2070,7 +2071,11 @@ static ProbeResult probe_mesh_shader_pso() {
     }
     if (SUCCEEDED(hr)) {
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
-        device->CreateRenderTargetView(target, nullptr, rtv);
+        D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+        rtv_desc.Texture2DArray.ArraySize = 2;
+        device->CreateRenderTargetView(target, &rtv_desc, rtv);
         list6->SetGraphicsRootSignature(root);
         list6->SetGraphicsRootConstantBufferView(
             0, stage_constants->GetGPUVirtualAddress());
@@ -2110,7 +2115,7 @@ static ProbeResult probe_mesh_shader_pso() {
         D3D12_RECT right_scissor = {32, 0, 64, 64};
         list6->RSSetViewports(1, &viewport);
         list6->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-        const float clear[4] = {};
+        const float clear[4] = {1.0f, 0.0f, 0.0f, 1.0f};
         list6->ClearRenderTargetView(rtv, clear, 0, nullptr);
         list6->RSSetScissorRects(1, &left_scissor);
         list6->DispatchMesh(2, 1, 1);
@@ -2124,20 +2129,29 @@ static ProbeResult probe_mesh_shader_pso() {
         D3D12_RESOURCE_BARRIER barrier = transition_barrier(
             target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list6->ResourceBarrier(1, &barrier);
-        D3D12_TEXTURE_COPY_LOCATION dst = {};
-        dst.pResource = readback;
-        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-        dst.PlacedFootprint = footprint;
-        D3D12_TEXTURE_COPY_LOCATION src = {};
-        src.pResource = target;
-        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        for (UINT slice = 0; slice < 2; slice++) {
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint = footprints[slice];
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = slice;
+            list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
         hr = execute_and_wait(queue, list6);
     }
 
     uint64_t nonzero_pixels = 0;
     uint64_t direct_pixels = 0;
     uint64_t indirect_pixels = 0;
+    uint64_t layer_pixels[2] = {};
+    uint64_t layer_direct_pixels[2] = {};
+    uint64_t layer_indirect_pixels[2] = {};
+    uint64_t clear_pixels = 0;
+    uint64_t unexpected_pixels = 0;
+    uint32_t unexpected_pixel_sample = 0;
     uint32_t mesh_output_value = 0;
     uint32_t mesh_lane_values[32] = {};
     if (SUCCEEDED(hr)) {
@@ -2145,16 +2159,29 @@ static ProbeResult probe_mesh_shader_pso() {
         D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
         hr = readback->Map(0, &read_range, reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr)) {
-            for (UINT y = 0; y < 64; y++) {
-                const uint32_t* row = reinterpret_cast<const uint32_t*>(
-                    mapped + footprint.Footprint.RowPitch * y);
-                for (UINT x = 0; x < 64; x++) {
-                    const bool nonzero = row[x] != 0;
-                    nonzero_pixels += nonzero;
-                    if (x < 32)
-                        direct_pixels += nonzero;
-                    else
-                        indirect_pixels += nonzero;
+            for (UINT slice = 0; slice < 2; slice++) {
+                for (UINT y = 0; y < 64; y++) {
+                    const uint32_t* row = reinterpret_cast<const uint32_t*>(
+                        mapped + footprints[slice].Offset +
+                        footprints[slice].Footprint.RowPitch * y);
+                    for (UINT x = 0; x < 64; x++) {
+                        const bool rendered = row[x] == 0xff66cc33u;
+                        clear_pixels += row[x] == 0xff0000ffu;
+                        const bool unexpected =
+                            row[x] != 0xff66cc33u && row[x] != 0xff0000ffu;
+                        if (unexpected && unexpected_pixels == 0)
+                            unexpected_pixel_sample = row[x];
+                        unexpected_pixels += unexpected;
+                        nonzero_pixels += rendered;
+                        layer_pixels[slice] += rendered;
+                        if (x < 32) {
+                            direct_pixels += rendered;
+                            layer_direct_pixels[slice] += rendered;
+                        } else {
+                            indirect_pixels += rendered;
+                            layer_indirect_pixels[slice] += rendered;
+                        }
+                    }
                 }
             }
             readback->Unmap(0, nullptr);
@@ -2204,8 +2231,12 @@ static ProbeResult probe_mesh_shader_pso() {
     const bool verified =
         SUCCEEDED(hr) && SUCCEEDED(options7_hr) &&
         options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
-        direct_pixels >= 100 && direct_pixels <= 400 &&
-        indirect_pixels >= 100 && indirect_pixels <= 400 &&
+        layer_direct_pixels[0] >= 100 && layer_direct_pixels[0] <= 400 &&
+        layer_direct_pixels[1] >= 100 && layer_direct_pixels[1] <= 400 &&
+        layer_indirect_pixels[0] >= 100 && layer_indirect_pixels[0] <= 400 &&
+        layer_indirect_pixels[1] >= 100 && layer_indirect_pixels[1] <= 400 &&
+        clear_pixels + nonzero_pixels == 64u * 64u * 2u &&
+        unexpected_pixels == 0 &&
         mesh_output_value == 0x4d534831 && mesh_lane_values_verified;
     return {verified, verified ? S_OK : hr,
             verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered; tier remains conservative"
@@ -2223,6 +2254,24 @@ static ProbeResult probe_mesh_shader_pso() {
                 ",\"nonzero_pixels\":" + std::to_string(nonzero_pixels) +
                 ",\"direct_pixels\":" + std::to_string(direct_pixels) +
                 ",\"indirect_pixels\":" + std::to_string(indirect_pixels) +
+                ",\"render_target_array_layers\":2" +
+                ",\"layer0_pixels\":" + std::to_string(layer_pixels[0]) +
+                ",\"layer1_pixels\":" + std::to_string(layer_pixels[1]) +
+                ",\"layer0_direct_pixels\":" +
+                std::to_string(layer_direct_pixels[0]) +
+                ",\"layer1_direct_pixels\":" +
+                std::to_string(layer_direct_pixels[1]) +
+                ",\"layer0_indirect_pixels\":" +
+                std::to_string(layer_indirect_pixels[0]) +
+                ",\"layer1_indirect_pixels\":" +
+                std::to_string(layer_indirect_pixels[1]) +
+                ",\"array_clear_pixels\":" + std::to_string(clear_pixels) +
+                ",\"unexpected_pixels\":" +
+                std::to_string(unexpected_pixels) +
+                ",\"unexpected_pixel_sample\":" +
+                std::to_string(unexpected_pixel_sample) +
+                ",\"mesh_color_rgba8\":\"0xff66cc33\"" +
+                ",\"clear_color_rgba8\":\"0xff0000ff\"" +
                 ",\"mesh_output_value\":" + std::to_string(mesh_output_value) +
                 ",\"mesh_texture_scale\":0.5" +
                 std::string(",\"mesh_threadgroup_width\":32") +

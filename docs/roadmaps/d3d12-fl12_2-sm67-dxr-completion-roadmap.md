@@ -293,15 +293,21 @@ Findings:
 - The source tracks unsupported intrinsic/opcode counts and rejects those
   shaders; this is useful diagnostics but not full SM6.7 coverage.
 - D3D12 AS/MS pipeline-state stream subobjects now compile through Metal Shader
-  Converter into Metal object/mesh functions. An eight-byte amplification
+  Converter into Metal object/mesh functions. A twelve-byte amplification
   payload, stage-specific CBV/raw-SRV bindings, 32-lane mesh UAV writes, and
   mesh-stage texture/sampler sampling execute through two-group direct
   `DispatchMesh` and indirect `DISPATCH_MESH`. The 0.5 texture sample produces
-  169/181 split-screen nonzero pixels, the UAV returns `0x4d534831`, and all 32
-  lane-indexed payload-derived values pass exact readback.
+  169/169 split-screen nonzero pixels in render-target-array layer 0 and
+  144/181 in layer 1, the UAV returns `0x4d534831`, and all 32 lane-indexed
+  payload-derived values pass exact readback. The amplification payload selects
+  `SV_RenderTargetArrayIndex`; D3D12 `TEXTURE2DARRAY` RTV first-slice/array-size
+  metadata now maps to Metal render-pass slice and array-length state.
+  The same RTV-array descriptor clears all 7,529 background pixels to exact
+  red while 663 exact green mesh pixels remain across both layers, with zero
+  unexpected pixels.
 - Mesh tier 1 remains conservatively unreported while mixed render-state
-  matrices, statistics, render-target arrays, and broader shader/payload
-  coverage are still gated.
+  matrices, pipeline statistics, and broader shader/payload coverage are still
+  gated.
 - The same Metal mesh pipeline infrastructure also executes geometry-shader
   emulation and tessellation proof shapes.
 - General geometry shader support remains limited.

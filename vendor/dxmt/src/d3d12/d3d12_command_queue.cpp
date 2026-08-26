@@ -662,6 +662,70 @@ static uint16_t DSVArraySlice(const D3D12Descriptor *desc) {
   }
 }
 
+static uint16_t DSVArrayLength(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 1;
+  switch (desc->dsv.ViewDimension) {
+  case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
+    return desc->dsv.Texture1DArray.ArraySize;
+  case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+    return desc->dsv.Texture2DArray.ArraySize;
+  case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->dsv.Texture2DMSArray.ArraySize;
+  default:
+    return 1;
+  }
+}
+
+static uint16_t RTVMipLevel(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->rtv.ViewDimension) {
+  case D3D12_RTV_DIMENSION_TEXTURE1D:
+    return desc->rtv.Texture1D.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE1DARRAY:
+    return desc->rtv.Texture1DArray.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2D:
+    return desc->rtv.Texture2D.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+    return desc->rtv.Texture2DArray.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE3D:
+    return desc->rtv.Texture3D.MipSlice;
+  default:
+    return 0;
+  }
+}
+
+static uint16_t RTVArraySlice(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->rtv.ViewDimension) {
+  case D3D12_RTV_DIMENSION_TEXTURE1DARRAY:
+    return desc->rtv.Texture1DArray.FirstArraySlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+    return desc->rtv.Texture2DArray.FirstArraySlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->rtv.Texture2DMSArray.FirstArraySlice;
+  default:
+    return 0;
+  }
+}
+
+static uint16_t RTVArrayLength(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 1;
+  switch (desc->rtv.ViewDimension) {
+  case D3D12_RTV_DIMENSION_TEXTURE1DARRAY:
+    return desc->rtv.Texture1DArray.ArraySize;
+  case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+    return desc->rtv.Texture2DArray.ArraySize;
+  case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->rtv.Texture2DMSArray.ArraySize;
+  default:
+    return 1;
+  }
+}
+
 static const char *DescriptorRangeTypeName(D3D12_DESCRIPTOR_RANGE_TYPE type) {
   switch (type) {
   case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
@@ -4873,6 +4937,8 @@ struct ReplayState {
     rp.stencil.store_action = WMTStoreActionStore;
 
     bool has_valid_rt = false;
+    uint16_t render_target_array_length = 1;
+    bool has_render_target_array = false;
     for (uint32_t i = 0; i < rt_count && i < 8; i++) {
       auto *desc = reinterpret_cast<const D3D12Descriptor *>(rt_handles[i].ptr);
       if (desc && desc->resource) {
@@ -4882,6 +4948,16 @@ struct ReplayState {
                (void *)desc, (void *)res, (unsigned long long)tex.handle);
         if (tex.handle) {
           rp.colors[i].texture = tex.handle;
+          rp.colors[i].level = RTVMipLevel(desc);
+          rp.colors[i].slice = RTVArraySlice(desc);
+          const uint16_t attachment_array_length = RTVArrayLength(desc);
+          if (attachment_array_length > 1) {
+            render_target_array_length = has_render_target_array
+                                             ? std::min(render_target_array_length,
+                                                        attachment_array_length)
+                                             : attachment_array_length;
+            has_render_target_array = true;
+          }
           RetainMTLObjectForCompletion(tex);
           has_valid_rt = true;
           if (res->IsSwapchainBackBuffer()) {
@@ -4892,7 +4968,6 @@ struct ReplayState {
         }
       }
     }
-
     DXGI_FORMAT effective_dsv_format = EffectiveDSVFormatForPSO(pso);
     if (has_dsv && effective_dsv_format != DXGI_FORMAT_UNKNOWN) {
       auto *desc = reinterpret_cast<const D3D12Descriptor *>(dsv_handle.ptr);
@@ -4905,6 +4980,14 @@ struct ReplayState {
           rp.depth.texture = dsv_tex.handle;
           rp.depth.level = DSVMipLevel(desc);
           rp.depth.slice = DSVArraySlice(desc);
+          const uint16_t attachment_array_length = DSVArrayLength(desc);
+          if (attachment_array_length > 1) {
+            render_target_array_length = has_render_target_array
+                                             ? std::min(render_target_array_length,
+                                                        attachment_array_length)
+                                             : attachment_array_length;
+            has_render_target_array = true;
+          }
           RetainMTLObjectForCompletion(dsv_tex);
           if (DSVHasStencil(desc)) {
             rp.stencil.texture = dsv_tex.handle;
@@ -4917,6 +5000,9 @@ struct ReplayState {
         }
       }
     }
+
+    rp.render_target_array_length = static_cast<uint8_t>(
+        std::min<uint16_t>(render_target_array_length, UINT8_MAX));
 
     if (!has_valid_rt) {
       QTRACE("EnsureRenderEncoder: no valid RT texture found, skipping");
@@ -9172,6 +9258,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             auto tex = res->GetMTLTexture();
             if (tex.handle) {
               rp.colors[0].texture = tex.handle;
+              rp.colors[0].level = RTVMipLevel(desc);
+              rp.colors[0].slice = RTVArraySlice(desc);
+              rp.render_target_array_length = static_cast<uint8_t>(
+                  std::min<uint16_t>(RTVArrayLength(desc), UINT8_MAX));
               st.RetainMTLObjectForCompletion(tex);
               rp.colors[0].load_action = WMTLoadActionClear;
               rp.colors[0].store_action = WMTStoreActionStore;
@@ -9187,47 +9277,6 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                     " tex=", (unsigned long long)res->GetMTLTexture().handle,
                     " color=", cmd->color[0], ",", cmd->color[1], ",",
                     cmd->color[2], ",", cmd->color[3]));
-              }
-            }
-          }
-        }
-
-        for (uint32_t i = 0; i < st.rt_count && i < 8; i++) {
-          if (rt_handles_match(st.rt_handles[i], cmd->rtv))
-            continue;
-          auto *desc =
-              reinterpret_cast<const D3D12Descriptor *>(st.rt_handles[i].ptr);
-          if (desc && desc->resource) {
-            auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
-            auto tex = res->GetMTLTexture();
-            if (tex.handle && !rp.colors[i].texture) {
-              rp.colors[i].texture = tex.handle;
-              st.RetainMTLObjectForCompletion(tex);
-              rp.colors[i].load_action = WMTLoadActionLoad;
-              rp.colors[i].store_action = WMTStoreActionStore;
-            }
-          }
-        }
-
-        if (st.has_dsv) {
-          auto *desc =
-              reinterpret_cast<const D3D12Descriptor *>(st.dsv_handle.ptr);
-          if (desc && desc->resource) {
-            auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
-            auto tex = res->GetMTLTexture();
-            if (tex.handle) {
-              rp.depth.texture = tex.handle;
-              rp.depth.level = DSVMipLevel(desc);
-              rp.depth.slice = DSVArraySlice(desc);
-              st.RetainMTLObjectForCompletion(tex);
-              rp.depth.load_action = WMTLoadActionLoad;
-              rp.depth.store_action = WMTStoreActionStore;
-              if (DSVHasStencil(desc)) {
-                rp.stencil.texture = tex.handle;
-                rp.stencil.level = DSVMipLevel(desc);
-                rp.stencil.slice = DSVArraySlice(desc);
-                rp.stencil.load_action = WMTLoadActionLoad;
-                rp.stencil.store_action = WMTStoreActionStore;
               }
             }
           }
@@ -9250,21 +9299,6 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           rp.colors[i].store_action = WMTStoreActionDontCare;
         }
 
-        for (uint32_t i = 0; i < st.rt_count && i < 8; i++) {
-          auto *desc =
-              reinterpret_cast<const D3D12Descriptor *>(st.rt_handles[i].ptr);
-          if (desc && desc->resource) {
-            auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
-            auto tex = res->GetMTLTexture();
-            if (tex.handle) {
-              rp.colors[i].texture = tex.handle;
-              st.RetainMTLObjectForCompletion(tex);
-              rp.colors[i].load_action = WMTLoadActionLoad;
-              rp.colors[i].store_action = WMTStoreActionStore;
-            }
-          }
-        }
-
         rp.depth.texture = NULL_OBJECT_HANDLE;
         rp.depth.load_action = WMTLoadActionDontCare;
         rp.depth.store_action = WMTStoreActionDontCare;
@@ -9281,6 +9315,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               rp.depth.texture = tex.handle;
               rp.depth.level = DSVMipLevel(desc);
               rp.depth.slice = DSVArraySlice(desc);
+              rp.render_target_array_length = static_cast<uint8_t>(
+                  std::min<uint16_t>(DSVArrayLength(desc), UINT8_MAX));
               st.RetainMTLObjectForCompletion(tex);
               rp.depth.load_action = (cmd->flags & D3D12_CLEAR_FLAG_DEPTH)
                                          ? WMTLoadActionClear
