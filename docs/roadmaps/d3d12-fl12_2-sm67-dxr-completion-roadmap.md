@@ -1025,7 +1025,8 @@ the goal is not complete.
   both local reads and the existing any-hit/nested-miss behavior are correct.
   Renamed miss and callable exports preserve their canonical Metal function
   indices while using distinct stable identifier tails; `TraceRay` and
-  `CallShader` select index 1 from their two-record tables and produce
+  `CallShader` select index 1 from their two-record, 64-byte-stride tables,
+  validate per-record local constants, and produce
   `0x4d495353` and `0x43414c4c`. Its second 64-byte
   hit-group record
   selects a
@@ -1035,10 +1036,10 @@ the goal is not complete.
   The converter CLI failed to apply its maximum-attribute-size option to
   `ReportHit`; the probe therefore uses the same Metal Shader Converter 3.0.6
   API directly with a consistent eight-byte pipeline attribute configuration
-  across every ray-tracing stage. A callable table at offset 256 invokes
+  across every ray-tracing stage. A callable table at offset 320 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry, larger geometry/instance arrays,
   serialization/deserialization, new-library state-object growth,
-  local descriptor tables/samplers, and broader variable-stride/local-data
+  local descriptor tables/samplers, and broader record-count/stride/local-data
   shader-table matrices.
