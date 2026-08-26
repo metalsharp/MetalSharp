@@ -3,9 +3,9 @@
     {
       "api": "IDXGIFactory7 RegisterAdaptersChangedEvent",
       "next_probe": "tools/d3d12-metal-sdk/probes/probe_dxgi_factory",
-      "risk": "Returning the wrong HRESULT can change UE5 adapter handling.",
-      "state": "stub_risky",
-      "tier": "stubbed-safe"
+      "risk": "Adapter-change notifications must preserve event ownership, nonzero cookie allocation, initially unsignaled state, invalid-cookie rejection, and unregister cleanup.",
+      "state": "proven",
+      "tier": "required"
     }
   ],
   "purpose": "Track startup-unblocking behavior that must be replaced or proven before broad compatibility claims.",
