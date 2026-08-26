@@ -187,6 +187,19 @@ def feature_support_contract() -> dict[str, Any]:
                 "required_fields": ["WaveOps", "WaveLaneCountMin", "WaveLaneCountMax", "Int64ShaderOps"],
                 "risk": "WaveOps reporting must remain coupled to the 32-lane dispatch/readback corpus.",
             },
+            "D3D12_FEATURE_D3D12_OPTIONS3_WRITE_BUFFER_IMMEDIATE": {
+                "state": "required",
+                "tier": "required",
+                "reported": "supported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_command_replay",
+                "probe_status": "direct_compute_bundle_readback_passed",
+                "required_fields": [
+                    "D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT",
+                    "D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE",
+                    "D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE",
+                ],
+                "risk": "Support flags are coupled to exact default, marker-in, and marker-out GPU virtual-address write/readback coverage on direct, compute, and inlined bundle command lists.",
+            },
             "D3D12_FEATURE_D3D12_OPTIONS9": {
                 "state": "stub_safe",
                 "tier": "stubbed-safe",

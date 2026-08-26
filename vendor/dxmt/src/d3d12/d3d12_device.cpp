@@ -2474,7 +2474,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return E_INVALIDARG;
     o->CopyQueueTimestampQueriesSupported = FALSE;
     o->CastingFullyTypedFormatSupported = TRUE;
-    o->WriteBufferImmediateSupportFlags = D3D12_COMMAND_LIST_SUPPORT_FLAG_NONE;
+    o->WriteBufferImmediateSupportFlags =
+        (D3D12_COMMAND_LIST_SUPPORT_FLAGS)(
+            D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT |
+            D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE |
+            D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE);
     o->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
     o->BarycentricsSupported = FALSE;
     TRACE("  OPTIONS3: CopyQueueTS=%d CastFullyTyped=%d WriteBufImm=0x%x "

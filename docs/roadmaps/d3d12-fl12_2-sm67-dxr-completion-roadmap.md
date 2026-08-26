@@ -82,7 +82,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Conservative rasterization | Tier 3 | Tier 1 | Tier-3 edge/coverage behavior probe |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Unsupported/no-op | Depth-bounds render probe |
-| WriteBufferImmediate | Direct, compute, bundle | Reported none; partial command exists | Queue-type and bundle execution probes |
+| WriteBufferImmediate | Direct, compute, bundle | Direct, compute, bundle proven and reported | Three-mode GPU-VA write/readback probe |
 | GPU VA bits/resource | At least 40 on x64 | 40 | Address-range and bounds probes |
 | GPU VA bits/process | At least 40 on x64 | 40 | Address-range and bounds probes |
 | Wave operations | Supported | Reported true, but baseline contract rejects the claim | Wave runtime readback suite |
@@ -903,6 +903,10 @@ the goal is not complete.
   sum now execute with zero readback mismatches under MetalSharp Wine 11.5.
 - Enabled the WaveOps feature report at a fixed 32-lane range only after that
   runtime proof passed, and removed WaveOps from the unsupported ledger.
+- Proved all three required `WriteBufferImmediate` command-list classes and
+  modes: direct, compute, and an inlined bundle execute default, marker-in, and
+  marker-out writes to GPU virtual addresses and read back the exact values;
+  Options3 now reports the corresponding support flags.
 - Completed the Shader Model 6.7 reporting gate: the SM 6.6 corpus now
   dispatches and passes exact readback for root constants, descriptor indexing,
   64-bit arithmetic, group atomics/barriers, and texture/sampler access;
