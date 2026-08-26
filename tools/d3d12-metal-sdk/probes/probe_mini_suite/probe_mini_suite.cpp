@@ -1919,7 +1919,7 @@ static ProbeResult probe_mesh_shader_pso() {
         if (SUCCEEDED(hr))
             hr = indirect_args->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr)) {
-            const D3D12_DISPATCH_MESH_ARGUMENTS args = {1, 1, 1};
+            const D3D12_DISPATCH_MESH_ARGUMENTS args = {2, 1, 1};
             std::memcpy(mapped, &args, sizeof(args));
             indirect_args->Unmap(0, nullptr);
         }
@@ -2112,15 +2112,14 @@ static ProbeResult probe_mesh_shader_pso() {
         const float clear[4] = {};
         list6->ClearRenderTargetView(rtv, clear, 0, nullptr);
         list6->RSSetScissorRects(1, &left_scissor);
-        list6->DispatchMesh(1, 1, 1);
+        list6->DispatchMesh(2, 1, 1);
         list6->RSSetScissorRects(1, &right_scissor);
         list6->ExecuteIndirect(mesh_signature, 1, indirect_args, 0, nullptr, 0);
         D3D12_RESOURCE_BARRIER output_barrier = transition_barrier(
             mesh_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list6->ResourceBarrier(1, &output_barrier);
-        list6->CopyBufferRegion(mesh_output_readback, 0, mesh_output, 0,
-                                sizeof(uint32_t));
+        list6->CopyBufferRegion(mesh_output_readback, 0, mesh_output, 0, 256);
         D3D12_RESOURCE_BARRIER barrier = transition_barrier(
             target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list6->ResourceBarrier(1, &barrier);
@@ -2139,6 +2138,7 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t direct_pixels = 0;
     uint64_t indirect_pixels = 0;
     uint32_t mesh_output_value = 0;
+    uint32_t mesh_lane_values[32] = {};
     if (SUCCEEDED(hr)) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
@@ -2162,10 +2162,12 @@ static ProbeResult probe_mesh_shader_pso() {
 
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE read_range = {0, sizeof(mesh_output_value)};
+        D3D12_RANGE read_range = {0, 256};
         hr = mesh_output_readback->Map(0, &read_range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&mesh_output_value, mapped, sizeof(mesh_output_value));
+            std::memcpy(mesh_lane_values, static_cast<uint8_t*>(mapped) + 8,
+                        sizeof(mesh_lane_values));
             D3D12_RANGE written = {0, 0};
             mesh_output_readback->Unmap(0, &written);
         }
@@ -2194,12 +2196,16 @@ static ProbeResult probe_mesh_shader_pso() {
     safe_release(root);
     safe_release(device2);
     safe_release(device);
+    bool mesh_lane_values_verified = true;
+    for (uint32_t lane = 0; lane < 32; lane++)
+        mesh_lane_values_verified &=
+            mesh_lane_values[lane] == 0x4153504c + lane;
     const bool verified =
         SUCCEEDED(hr) && SUCCEEDED(options7_hr) &&
         options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
-        direct_pixels >= 100 && direct_pixels <= 300 &&
-        indirect_pixels >= 100 && indirect_pixels <= 300 &&
-        mesh_output_value == 0x4d534831;
+        direct_pixels >= 100 && direct_pixels <= 400 &&
+        indirect_pixels >= 100 && indirect_pixels <= 400 &&
+        mesh_output_value == 0x4d534831 && mesh_lane_values_verified;
     return {verified, verified ? S_OK : hr,
             verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered; tier remains conservative"
                      : (detail.empty() ? "native mesh shader dispatch/readback failed" : detail),
@@ -2218,6 +2224,10 @@ static ProbeResult probe_mesh_shader_pso() {
                 ",\"indirect_pixels\":" + std::to_string(indirect_pixels) +
                 ",\"mesh_output_value\":" + std::to_string(mesh_output_value) +
                 ",\"mesh_texture_scale\":0.5" +
+                std::string(",\"mesh_threadgroup_width\":32") +
+                std::string(",\"dispatch_mesh_groups_x\":2") +
+                ",\"mesh_lane_values_verified\":" +
+                (mesh_lane_values_verified ? "true" : "false") +
                 ",\"d3d12_loaded_path\":\"" + json_escape(g_d3d12_loaded_path) + "\""};
 }
 

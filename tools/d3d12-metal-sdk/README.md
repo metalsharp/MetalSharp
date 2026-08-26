@@ -105,8 +105,9 @@ probe matrix, then prints this local command as the host-runtime gate for those
 touch paths.
 
 `mesh_object_shader_pso` now proves AS/MS pipeline streams, stage-specific
-CBV/SRV resources, mesh-stage UAV writes, texture/sampler sampling, a payload,
-and direct/indirect split-screen readback while keeping MeshShaderTier
+CBV/SRV resources, 32-lane mesh-stage UAV writes, texture/sampler sampling,
+an eight-byte payload, two-group dispatch, and direct/indirect split-screen
+readback while keeping MeshShaderTier
 conservative. `dxr_acceleration_structures` proves a
 one-triangle Metal BLAS, one-instance TLAS, current-size postbuild readbacks,
 an inline `RayQuery` triangle hit, and a raygen-only state object executing via
