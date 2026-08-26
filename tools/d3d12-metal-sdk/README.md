@@ -119,8 +119,12 @@ BLAS pointer list, deserialized with a rebuilt Metal dispatch header, and used
 for traversal after every source D3D12 acceleration-structure resource has
 been released. Current-size
 postbuild readbacks and a mask-isolated inline `RayQuery` triangle hit, stable
-export identifiers, an executable pipeline inherited through
-`EXISTING_COLLECTION`, and an `AddToStateObject` hit-group alias with inherited
+export identifiers with the Metal Shader Converter local-sampler GPU-address
+slot preserved at bytes 16-23 and private alias hashes confined to bytes 24-31,
+two export-filtered collections merged into one executable
+`EXISTING_COLLECTION` pipeline with renamed imports, missing-export rejection,
+and lifetime proof after releasing all external collection references, and an
+`AddToStateObject` hit-group alias with inherited
 identifiers whose shader-table record supplies the behavior-checked local-root
 constant `0x4c4f434c`, reads CBV marker `0x43425631` and SRV marker
 `0x53525631`, writes UAV marker

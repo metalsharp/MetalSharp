@@ -2876,6 +2876,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12PipelineState* compute_pso = nullptr;
     ID3D12StateObject* raytracing_state = nullptr;
     ID3D12StateObject* raytracing_collection = nullptr;
+    ID3D12StateObject* filtered_raytracing_collection_a = nullptr;
+    ID3D12StateObject* filtered_raytracing_collection_b = nullptr;
     ID3D12StateObject* grown_raytracing_state = nullptr;
     ID3D12StateObjectProperties* raytracing_properties = nullptr;
     ID3D12StateObjectProperties* grown_raytracing_properties = nullptr;
@@ -3118,21 +3120,95 @@ static ProbeResult probe_dxr_acceleration_structures() {
     if (SUCCEEDED(hr))
         hr = device5->CreateStateObject(&state_desc,
                                         IID_PPV_ARGS(&raytracing_collection));
-    D3D12_EXISTING_COLLECTION_DESC existing_collection = {};
-    existing_collection.pExistingCollection = raytracing_collection;
-    D3D12_STATE_SUBOBJECT existing_collection_subobject = {
+
+    D3D12_EXPORT_DESC filtered_exports_a[4] = {};
+    filtered_exports_a[0].Name = L"raygen";
+    filtered_exports_a[1].Name = L"miss_shader";
+    filtered_exports_a[2].Name = L"hit_group";
+    filtered_exports_a[3].Name = L"procedural_hit_group";
+    D3D12_EXISTING_COLLECTION_DESC filtered_existing_a = {};
+    filtered_existing_a.pExistingCollection = raytracing_collection;
+    filtered_existing_a.NumExports = 4;
+    filtered_existing_a.pExports = filtered_exports_a;
+    D3D12_STATE_SUBOBJECT filtered_subobject_a = {
         D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION,
-        &existing_collection};
+        &filtered_existing_a};
+    D3D12_STATE_OBJECT_DESC filtered_collection_desc_a = {};
+    filtered_collection_desc_a.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    filtered_collection_desc_a.NumSubobjects = 1;
+    filtered_collection_desc_a.pSubobjects = &filtered_subobject_a;
+    if (SUCCEEDED(hr))
+        hr = device5->CreateStateObject(
+            &filtered_collection_desc_a,
+            IID_PPV_ARGS(&filtered_raytracing_collection_a));
+
+    D3D12_EXPORT_DESC filtered_exports_b[3] = {};
+    filtered_exports_b[0].Name = L"callable_shader";
+    filtered_exports_b[1].Name = L"miss_alias";
+    filtered_exports_b[1].ExportToRename = L"miss_shader";
+    filtered_exports_b[2].Name = L"callable_alias";
+    filtered_exports_b[2].ExportToRename = L"callable_shader";
+    D3D12_EXISTING_COLLECTION_DESC filtered_existing_b = {};
+    filtered_existing_b.pExistingCollection = raytracing_collection;
+    filtered_existing_b.NumExports = 3;
+    filtered_existing_b.pExports = filtered_exports_b;
+    D3D12_STATE_SUBOBJECT filtered_subobject_b = {
+        D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION,
+        &filtered_existing_b};
+    D3D12_STATE_OBJECT_DESC filtered_collection_desc_b = {};
+    filtered_collection_desc_b.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    filtered_collection_desc_b.NumSubobjects = 1;
+    filtered_collection_desc_b.pSubobjects = &filtered_subobject_b;
+    if (SUCCEEDED(hr))
+        hr = device5->CreateStateObject(
+            &filtered_collection_desc_b,
+            IID_PPV_ARGS(&filtered_raytracing_collection_b));
+    const bool filtered_collections_created =
+        filtered_raytracing_collection_a && filtered_raytracing_collection_b;
+    D3D12_EXPORT_DESC invalid_filtered_export = {};
+    invalid_filtered_export.Name = L"missing_collection_export";
+    D3D12_EXISTING_COLLECTION_DESC invalid_filtered_existing = {};
+    invalid_filtered_existing.pExistingCollection = raytracing_collection;
+    invalid_filtered_existing.NumExports = 1;
+    invalid_filtered_existing.pExports = &invalid_filtered_export;
+    D3D12_STATE_SUBOBJECT invalid_filtered_subobject = {
+        D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION,
+        &invalid_filtered_existing};
+    D3D12_STATE_OBJECT_DESC invalid_filtered_desc = {};
+    invalid_filtered_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    invalid_filtered_desc.NumSubobjects = 1;
+    invalid_filtered_desc.pSubobjects = &invalid_filtered_subobject;
+    ID3D12StateObject* invalid_filtered_collection = nullptr;
+    const HRESULT invalid_filtered_hr = device5->CreateStateObject(
+        &invalid_filtered_desc, IID_PPV_ARGS(&invalid_filtered_collection));
+    const bool invalid_collection_export_rejected =
+        FAILED(invalid_filtered_hr) && invalid_filtered_collection == nullptr;
+    safe_release(invalid_filtered_collection);
+    if (SUCCEEDED(hr) && !invalid_collection_export_rejected)
+        hr = E_FAIL;
+    safe_release(raytracing_collection);
+
+    D3D12_EXISTING_COLLECTION_DESC existing_collections[2] = {};
+    existing_collections[0].pExistingCollection =
+        filtered_raytracing_collection_a;
+    existing_collections[1].pExistingCollection =
+        filtered_raytracing_collection_b;
+    D3D12_STATE_SUBOBJECT existing_collection_subobjects[2] = {
+        {D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION,
+         &existing_collections[0]},
+        {D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION,
+         &existing_collections[1]}};
     D3D12_STATE_OBJECT_DESC pipeline_from_collection = {};
     pipeline_from_collection.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-    pipeline_from_collection.NumSubobjects = 1;
-    pipeline_from_collection.pSubobjects = &existing_collection_subobject;
+    pipeline_from_collection.NumSubobjects = 2;
+    pipeline_from_collection.pSubobjects = existing_collection_subobjects;
     if (SUCCEEDED(hr))
         hr = device5->CreateStateObject(&pipeline_from_collection,
                                         IID_PPV_ARGS(&raytracing_state));
     const bool collection_pipeline_created =
-        raytracing_collection != nullptr && raytracing_state != nullptr;
-    safe_release(raytracing_collection);
+        filtered_collections_created && raytracing_state != nullptr;
+    safe_release(filtered_raytracing_collection_a);
+    safe_release(filtered_raytracing_collection_b);
     if (SUCCEEDED(hr))
         hr = raytracing_state->QueryInterface(
             IID_PPV_ARGS(&raytracing_properties));
@@ -3196,6 +3272,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
         SUCCEEDED(hr)
             ? raytracing_properties->GetShaderIdentifier(L"unknown_export")
             : nullptr;
+    const void* filtered_out_identifier =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderIdentifier(L"closest_hit")
+            : nullptr;
     const bool distinct_shader_identifiers =
         raygen_identifier && miss_identifier && hit_group_identifier &&
         callable_identifier && procedural_hit_group_identifier &&
@@ -3218,6 +3298,44 @@ static ProbeResult probe_dxr_acceleration_structures() {
         std::memcmp(miss_alias_identifier, miss_identifier, 32) != 0 &&
         std::memcmp(callable_alias_identifier, callable_identifier, 16) == 0 &&
         std::memcmp(callable_alias_identifier, callable_identifier, 32) != 0;
+    uint64_t raygen_local_sampler_address = ~0ull;
+    uint64_t miss_local_sampler_address = ~0ull;
+    uint64_t hit_group_local_sampler_address = ~0ull;
+    uint64_t callable_local_sampler_address = ~0ull;
+    if (raygen_identifier)
+        std::memcpy(&raygen_local_sampler_address,
+                    static_cast<const uint8_t*>(raygen_identifier) + 16,
+                    sizeof(raygen_local_sampler_address));
+    if (miss_identifier)
+        std::memcpy(&miss_local_sampler_address,
+                    static_cast<const uint8_t*>(miss_identifier) + 16,
+                    sizeof(miss_local_sampler_address));
+    if (hit_group_identifier)
+        std::memcpy(&hit_group_local_sampler_address,
+                    static_cast<const uint8_t*>(hit_group_identifier) + 16,
+                    sizeof(hit_group_local_sampler_address));
+    if (callable_identifier)
+        std::memcpy(&callable_local_sampler_address,
+                    static_cast<const uint8_t*>(callable_identifier) + 16,
+                    sizeof(callable_local_sampler_address));
+    const bool shader_identifier_abi_layout =
+        miss_alias_identifier && miss_identifier && callable_alias_identifier &&
+        callable_identifier && raygen_local_sampler_address == 0 &&
+        miss_local_sampler_address == 0 &&
+        hit_group_local_sampler_address == 0 &&
+        callable_local_sampler_address == 0 &&
+        std::memcmp(static_cast<const uint8_t*>(miss_alias_identifier) + 24,
+                    static_cast<const uint8_t*>(miss_identifier) + 24,
+                    sizeof(uint64_t)) != 0 &&
+        std::memcmp(static_cast<const uint8_t*>(callable_alias_identifier) + 24,
+                    static_cast<const uint8_t*>(callable_identifier) + 24,
+                    sizeof(uint64_t)) != 0;
+    const bool collection_filtering_and_merge =
+        collection_pipeline_created && filtered_out_identifier == nullptr &&
+        invalid_collection_export_rejected &&
+        raygen_identifier && miss_identifier && hit_group_identifier &&
+        procedural_hit_group_identifier && callable_identifier &&
+        miss_alias_identifier && callable_alias_identifier;
     const bool add_to_state_object_created = grown_raytracing_state != nullptr;
     const bool grown_state_identifiers =
         grown_hit_group_identifier && inherited_hit_group_identifier &&
@@ -3229,7 +3347,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
         (!distinct_shader_identifiers || !stable_shader_identifiers ||
          !grown_state_identifiers))
         hr = E_FAIL;
-    if (SUCCEEDED(hr) && !renamed_export_identifiers)
+    if (SUCCEEDED(hr) &&
+        (!renamed_export_identifiers || !shader_identifier_abi_layout ||
+         !collection_filtering_and_merge))
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -4331,6 +4451,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           callable_value == 0x43414c4c &&
                           raygen_value == 42 &&
                           procedural_hit_value == 0x50524f43 &&
+                          shader_identifier_abi_layout &&
+                          collection_filtering_and_merge &&
                           local_root_uav_value == 0x4c525557;
 
     safe_release(raygen_shader_table);
@@ -4342,6 +4464,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(grown_raytracing_state);
     safe_release(raytracing_properties);
     safe_release(raytracing_state);
+    safe_release(filtered_raytracing_collection_a);
+    safe_release(filtered_raytracing_collection_b);
     safe_release(raytracing_collection);
     safe_release(ray_query_readback);
     safe_release(ray_query_output);
@@ -4389,7 +4513,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, collection-derived pipeline, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, filtered merged collection-derived pipeline, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -4477,10 +4601,20 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 (add_to_state_object_created ? "true" : "false") +
                 ",\"collection_pipeline_created\":" +
                 (collection_pipeline_created ? "true" : "false") +
+                ",\"collection_export_filtering_and_merge\":" +
+                (collection_filtering_and_merge ? "true" : "false") +
+                ",\"filtered_out_identifier_null\":" +
+                (!filtered_out_identifier ? "true" : "false") +
+                ",\"invalid_collection_export_rejected\":" +
+                (invalid_collection_export_rejected ? "true" : "false") +
                 ",\"grown_state_identifiers\":" +
                 (grown_state_identifiers ? "true" : "false") +
                 ",\"renamed_export_identifiers\":" +
                 (renamed_export_identifiers ? "true" : "false") +
+                ",\"shader_identifier_abi_layout\":" +
+                (shader_identifier_abi_layout ? "true" : "false") +
+                ",\"shader_identifier_local_sampler_address\":" +
+                std::to_string(raygen_local_sampler_address) +
                 ",\"miss_shader_table_records\":2" +
                 ",\"callable_shader_table_records\":2" +
                 ",\"miss_shader_table_stride\":64" +

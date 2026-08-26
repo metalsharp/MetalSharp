@@ -1135,9 +1135,18 @@ the goal is not complete.
   corpus after all source D3D12 acceleration-structure resources are released.
   Persistent cross-process reconstruction remains gated and stale
   process identifiers are rejected rather than over-reported. A collection containing the
-  full linked DXIL/Metal state now feeds an executable ray-tracing pipeline via
-  `EXISTING_COLLECTION`; the inherited identifiers and function tables survive
-  collection lifetime and subsequent growth. `AddToStateObject` now
+  full linked DXIL/Metal state now feeds two export-filtered derived collections;
+  one imports raygen, miss, triangle-hit, and procedural-hit records while the
+  other imports callable plus renamed miss/callable records. Those collections
+  merge into one executable ray-tracing pipeline via `EXISTING_COLLECTION`, a
+  missing requested export is rejected, a deliberately filtered closest-hit
+  identifier remains unavailable, and every 32-byte identifier preserves the
+  Metal Shader Converter `localRootSignatureSamplersBuffer` field at bytes
+  16-23 while keeping private alias hashes in the reserved tail at bytes 24-31.
+  The inherited identifiers and shared
+  function tables survive release of the source and both derived collections.
+  Independently linked collection merging remains fail-closed because it needs
+  a Metal function-table relink. `AddToStateObject` now
   creates a stable, distinct alias for the inherited triangle hit group; the
   alias identifier is installed in the first shader-table record. The record's
   local-root arguments are associated with closest-hit: constant `0x4c4f434c`,
@@ -1162,7 +1171,7 @@ the goal is not complete.
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry in one BLAS, persistent cross-process
-  serialization reconstruction, collection export filtering/merging,
+  serialization reconstruction, independently linked collection merging,
   new-library state-object growth,
   local descriptor tables/samplers, and broader record-count/stride/local-data
   shader-table matrices.

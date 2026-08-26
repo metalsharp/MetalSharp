@@ -1312,6 +1312,10 @@ public:
   virtual ~MTLD3D12StateObject() {
     if (m_global_root_signature)
       m_global_root_signature->Release();
+    for (auto *collection : m_existing_collections) {
+      if (collection)
+        collection->Release();
+    }
     if (m_base)
       m_base->Release();
     m_device->Release();
@@ -1324,7 +1328,9 @@ public:
       return false;
 
     D3D12_SHADER_BYTECODE raytracing_library = {};
-    ID3D12StateObject *existing_collection = nullptr;
+    bool collection_relink_required = false;
+    std::vector<const D3D12_EXISTING_COLLECTION_DESC *>
+        existing_collections;
     for (UINT i = 0; i < desc->NumSubobjects; i++) {
       const auto &subobject = desc->pSubobjects[i];
       if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY &&
@@ -1359,46 +1365,113 @@ public:
                  subobject.pDesc) {
         const auto *hit_group =
             static_cast<const D3D12_HIT_GROUP_DESC *>(subobject.pDesc);
-        if (hit_group->HitGroupExport)
+        if (hit_group->HitGroupExport) {
           m_exports.emplace_back(hit_group->HitGroupExport);
+          collection_relink_required = true;
+        }
       } else if (subobject.Type ==
                      D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION &&
                  subobject.pDesc) {
         const auto *collection =
             static_cast<const D3D12_EXISTING_COLLECTION_DESC *>(
                 subobject.pDesc);
-        if (!collection->pExistingCollection || existing_collection)
+        if (!collection->pExistingCollection ||
+            (collection->NumExports && !collection->pExports))
           return false;
-        existing_collection = collection->pExistingCollection;
+        existing_collections.push_back(collection);
       }
     }
-    if (existing_collection && !raytracing_library.pShaderBytecode) {
-      auto *source =
-          static_cast<MTLD3D12StateObject *>(existing_collection);
-      if (!source->m_raygen_compute_pipeline.handle ||
-          !source->m_raygen_visible_function_table.handle)
+    if (!existing_collections.empty() &&
+        !raytracing_library.pShaderBytecode) {
+      if (collection_relink_required)
         return false;
-      existing_collection->AddRef();
-      m_base = existing_collection;
-      m_exports = source->m_exports;
-      m_export_imports = source->m_export_imports;
-      m_shader_identifiers = source->m_shader_identifiers;
-      m_pipeline_stack_size = source->m_pipeline_stack_size;
-      m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
-      m_raygen_visible_function_table =
-          source->m_raygen_visible_function_table;
-      m_intersection_function_table = source->m_intersection_function_table;
-      if (!m_global_root_signature) {
-        m_global_root_signature = source->m_global_root_signature;
-        if (m_global_root_signature)
+      auto import_export = [this](MTLD3D12StateObject *source,
+                                  const wchar_t *name,
+                                  const wchar_t *source_name) {
+        if (!name || !source_name || m_shader_identifiers.count(name))
+          return false;
+        auto identifier = source->m_shader_identifiers.find(source_name);
+        if (identifier == source->m_shader_identifiers.end())
+          return false;
+        std::array<uint8_t, 32> imported_identifier = identifier->second;
+        if (wcscmp(name, source_name) != 0) {
+          uint64_t export_hash = 1469598103934665603ull;
+          for (const WCHAR *p = name; *p; p++) {
+            export_hash ^= static_cast<uint16_t>(*p);
+            export_hash *= 1099511628211ull;
+          }
+          memcpy(imported_identifier.data() + 24, &export_hash,
+                 sizeof(export_hash));
+        }
+        std::wstring canonical_name(source_name);
+        auto canonical = source->m_export_imports.find(source_name);
+        if (canonical != source->m_export_imports.end())
+          canonical_name = canonical->second;
+        m_exports.emplace_back(name);
+        m_export_imports[name] = canonical_name;
+        m_shader_identifiers[name] = imported_identifier;
+        return true;
+      };
+
+      for (const auto *collection : existing_collections) {
+        auto *source = static_cast<MTLD3D12StateObject *>(
+            collection->pExistingCollection);
+        if (!source->m_raygen_compute_pipeline.handle ||
+            !source->m_raygen_visible_function_table.handle)
+          return false;
+        if (!m_raygen_compute_pipeline.handle) {
+          m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
+          m_raygen_visible_function_table =
+              source->m_raygen_visible_function_table;
+          m_intersection_function_table =
+              source->m_intersection_function_table;
+        } else if (m_raygen_compute_pipeline.handle !=
+                       source->m_raygen_compute_pipeline.handle ||
+                   m_raygen_visible_function_table.handle !=
+                       source->m_raygen_visible_function_table.handle ||
+                   m_intersection_function_table.handle !=
+                       source->m_intersection_function_table.handle) {
+          // Merging independently linked Metal function tables requires a
+          // relink. Collections derived from the same executable table can be
+          // merged without changing any shader identifiers or function slots.
+          return false;
+        }
+        if (m_global_root_signature && source->m_global_root_signature &&
+            m_global_root_signature != source->m_global_root_signature)
+          return false;
+        if (!m_global_root_signature && source->m_global_root_signature) {
+          m_global_root_signature = source->m_global_root_signature;
           m_global_root_signature->AddRef();
+        }
+
+        if (collection->NumExports) {
+          for (UINT e = 0; e < collection->NumExports; e++) {
+            const auto &export_desc = collection->pExports[e];
+            if (export_desc.Flags != D3D12_EXPORT_FLAG_NONE ||
+                !import_export(source, export_desc.Name,
+                               export_desc.ExportToRename
+                                   ? export_desc.ExportToRename
+                                   : export_desc.Name))
+              return false;
+          }
+        } else {
+          for (const auto &export_name : source->m_exports) {
+            if (!import_export(source, export_name.c_str(),
+                               export_name.c_str()))
+              return false;
+          }
+        }
+        m_pipeline_stack_size =
+            std::max(m_pipeline_stack_size, source->m_pipeline_stack_size);
+        collection->pExistingCollection->AddRef();
+        m_existing_collections.push_back(collection->pExistingCollection);
       }
-      TRACE("StateObject inherited collection=%p exports=%zu pso=%llu",
-            (void *)existing_collection, m_exports.size(),
+      TRACE("StateObject merged collections=%zu exports=%zu pso=%llu",
+            existing_collections.size(), m_exports.size(),
             (unsigned long long)m_raygen_compute_pipeline.handle);
-      return true;
+      return !m_exports.empty();
     }
-    if (existing_collection)
+    if (!existing_collections.empty())
       return false;
     if (!raytracing_library.pShaderBytecode ||
         !raytracing_library.BytecodeLength)
@@ -1683,7 +1756,7 @@ public:
         export_hash ^= static_cast<uint16_t>(c);
         export_hash *= 1099511628211ull;
       }
-      memcpy(identifier.data() + 16, &export_hash, sizeof(export_hash));
+      memcpy(identifier.data() + 24, &export_hash, sizeof(export_hash));
       m_shader_identifiers.emplace(export_name, identifier);
     }
     TRACE("StateObject raygen pipeline compiled exports=%zu pso=%llu "
@@ -1722,7 +1795,7 @@ public:
           export_hash ^= static_cast<uint16_t>(*p);
           export_hash *= 1099511628211ull;
         }
-        memcpy(identifier.data() + 16, &export_hash, sizeof(export_hash));
+        memcpy(identifier.data() + 24, &export_hash, sizeof(export_hash));
         m_exports.emplace_back(hit_group->HitGroupExport);
         m_shader_identifiers[hit_group->HitGroupExport] = identifier;
       } else if (subobject.Type ==
@@ -1895,6 +1968,7 @@ public:
 private:
   MTLD3D12Device *m_device = nullptr;
   ID3D12StateObject *m_base = nullptr;
+  std::vector<ID3D12StateObject *> m_existing_collections;
   ID3D12RootSignature *m_global_root_signature = nullptr;
   WMT::Reference<WMT::ComputePipelineState> m_raygen_compute_pipeline;
   WMT::Reference<WMT::VisibleFunctionTable>
