@@ -382,6 +382,13 @@ def unsupported_ledger() -> dict[str, Any]:
                 "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_resources"],
             },
             {
+                "api": "D3D12 cross-process shared resources",
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "CreateSharedHandle, OpenSharedHandle, and named lookup are proven only through a retained process-local registry; cross-process Metal resource/heap transport is not implemented and must not be reported as portable sharing.",
+                "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_resources"],
+            },
+            {
                 "api": "D3D12 geometry shaders outside proven emulation",
                 "state": "limited_to_proven_probe",
                 "tier": "stubbed-safe",

@@ -277,7 +277,10 @@ Findings:
   descriptor-heap indexing, null descriptors, counters, and acceleration
   structure SRVs require expanded contracts.
 - Sampler feedback descriptors are absent.
-- Shared resources/handles are absent.
+- Shared handles now have a process-local retained-object registry with named
+  lookup, duplicate-handle lifetime retention, and unknown-handle rejection;
+  cross-process Metal resource transport and shared-heap reconstruction remain
+  gated.
 
 ### 3.6 Pipeline and shader audit
 
@@ -574,7 +577,8 @@ Deliverables:
 - Implement real GPU-to-CPU readback and CPU-to-GPU upload for textures.
 - Implement placed resource aliasing and aliasing barriers.
 - Implement shared handles or a correct Wine/macOS process-local emulation where
-  cross-process Metal sharing is not available.
+  cross-process Metal sharing is not available. The process-local resource
+  handle path is now proven; cross-process transport remains.
 - Implement sparse/reserved buffers and textures using Metal sparse/placement
   sparse APIs.
 - Implement update/copy tile mappings and `GetResourceTiling`; the focused
@@ -591,8 +595,9 @@ Hard gate:
   the current proof covers two standard 64 KiB subresource tiles in a
   128x128 RGBA8-array reserved texture.
 - Reserved resources are never silently substituted by committed resources.
-- Shared-handle and residency probes pass or return a documented API-accurate
-  platform result without false success.
+- Process-local shared-handle creation/open/name/unknown-handle probes pass;
+  cross-process shared-handle and residency probes still need a documented
+  API-accurate platform result without false success.
 
 ### Phase 4 — Command recording and queue replay completeness
 

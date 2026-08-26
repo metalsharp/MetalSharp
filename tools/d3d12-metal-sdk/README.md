@@ -352,7 +352,9 @@ standard 128x128 subresource tiles, maps and unmaps both array slices through
 `UpdateTileMappings`, and round-trips exact 64 KiB `CopyTiles` payloads for
 each slice; Tier 3 remains conservative
 until heap-page selection, aliases, packed mips, buffers, and broader formats
-are covered. The probe also creates a fully typed `R32_FLOAT` texture through
+are covered. It also round-trips a named and unnamed process-local
+`CreateSharedHandle`/`OpenSharedHandle` pair and rejects unknown handles and
+missing names; cross-process sharing remains gated. The probe also creates a fully typed `R32_FLOAT` texture through
 `ID3D12Device10::CreateCommittedResource3` and `CreatePlacedResource2`,
 declares `R32_UINT` and `R8G8B8A8_UINT` as castable formats, validates exact
 `0x3f800000` and `[0,0,128,63]` compute readbacks through those views, rejects a

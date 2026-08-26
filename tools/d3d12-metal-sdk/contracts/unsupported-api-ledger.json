@@ -109,6 +109,16 @@
       "tier": "stubbed-safe"
     },
     {
+      "api": "D3D12 cross-process shared resources",
+      "evidence": [
+        "vendor/dxmt/src/d3d12/d3d12_device.cpp",
+        "tools/d3d12-metal-sdk/probes/probe_resources"
+      ],
+      "reason": "CreateSharedHandle, OpenSharedHandle, and named lookup are proven only through a retained process-local registry; cross-process Metal resource/heap transport is not implemented and must not be reported as portable sharing.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
+    },
+    {
       "api": "D3D12 geometry shaders outside proven emulation",
       "evidence": [
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",
