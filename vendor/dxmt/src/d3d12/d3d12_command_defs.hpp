@@ -39,6 +39,7 @@ enum class CmdType : uint32_t {
   ClearDepthStencilView,
   ClearUnorderedAccessView,
   ResourceBarrier,
+  EnhancedBarrier,
   SetDescriptorHeaps,
   ResolveSubresource,
   WriteBufferImmediate,
@@ -92,6 +93,14 @@ struct CmdSetPipelineState1 {
 struct CmdDispatchRays {
   CmdHeader header;
   D3D12_DISPATCH_RAYS_DESC desc;
+};
+
+struct CmdEnhancedBarrier {
+  CmdHeader header;
+  uint32_t group_count;
+  uint32_t global_barrier_count;
+  uint32_t buffer_barrier_count;
+  uint32_t texture_barrier_count;
 };
 
 struct CmdEmitRaytracingAccelerationStructurePostbuildInfo {

@@ -737,6 +737,138 @@ static CaseResult run_execute_indirect_constants_case() {
     return result;
 }
 
+static CaseResult run_enhanced_barrier_case() {
+    CaseResult result = {"enhanced_barriers", false, E_FAIL, "", ""};
+    uint32_t expected[4] = {0x454e4831, 0x454e4832, 0x454e4833,
+                            0x454e4834};
+    ID3D12Device* device = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12GraphicsCommandList7* list7 = nullptr;
+    ID3D12Resource* upload = nullptr;
+    ID3D12Resource* target = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3D12Resource* texture = nullptr;
+    HRESULT hr = create_device(&device);
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12 = {};
+    HRESULT options12_hr = SUCCEEDED(hr)
+                               ? device->CheckFeatureSupport(
+                                     D3D12_FEATURE_D3D12_OPTIONS12, &options12,
+                                     sizeof(options12))
+                               : hr;
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                            IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       allocator, nullptr,
+                                       IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr))
+        hr = list->QueryInterface(IID_PPV_ARGS(&list7));
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, expected, sizeof(expected), &upload);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(expected),
+                           D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &target);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(expected),
+                           D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &readback);
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = 1;
+        desc.Height = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        hr = device->CreateCommittedResource(
+            &heap, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&texture));
+    }
+    if (SUCCEEDED(hr)) {
+        list7->CopyBufferRegion(target, 0, upload, 0, sizeof(expected));
+        D3D12_GLOBAL_BARRIER global = {};
+        global.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+        global.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        global.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+        global.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        D3D12_BUFFER_BARRIER buffer = {};
+        buffer.SyncBefore = D3D12_BARRIER_SYNC_COPY;
+        buffer.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+        buffer.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST;
+        buffer.AccessAfter = D3D12_BARRIER_ACCESS_COPY_SOURCE;
+        buffer.pResource = target;
+        buffer.Offset = 0;
+        buffer.Size = sizeof(expected);
+        D3D12_TEXTURE_BARRIER texture_barrier = {};
+        texture_barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+        texture_barrier.SyncAfter = D3D12_BARRIER_SYNC_ALL;
+        texture_barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+        texture_barrier.AccessAfter = D3D12_BARRIER_ACCESS_COMMON;
+        texture_barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
+        texture_barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_COMMON;
+        texture_barrier.pResource = texture;
+        texture_barrier.Subresources.NumMipLevels = 1;
+        texture_barrier.Subresources.NumArraySlices = 1;
+        texture_barrier.Subresources.NumPlanes = 1;
+        D3D12_BARRIER_GROUP groups[3] = {};
+        groups[0].Type = D3D12_BARRIER_TYPE_GLOBAL;
+        groups[0].NumBarriers = 1;
+        groups[0].pGlobalBarriers = &global;
+        groups[1].Type = D3D12_BARRIER_TYPE_BUFFER;
+        groups[1].NumBarriers = 1;
+        groups[1].pBufferBarriers = &buffer;
+        groups[2].Type = D3D12_BARRIER_TYPE_TEXTURE;
+        groups[2].NumBarriers = 1;
+        groups[2].pTextureBarriers = &texture_barrier;
+        list7->Barrier(3, groups);
+        list7->CopyBufferRegion(readback, 0, target, 0, sizeof(expected));
+        hr = list7->Close();
+    }
+    if (SUCCEEDED(hr)) {
+        ID3D12CommandList* lists[] = {list7};
+        hr = execute_and_wait(device, queue, lists, 1, 1);
+    }
+    uint32_t got[4] = {};
+    const bool values_verified =
+        SUCCEEDED(hr) && readback_u32(readback, got, 4) &&
+        std::memcmp(got, expected, sizeof(expected)) == 0;
+    result.pass = values_verified && SUCCEEDED(options12_hr) &&
+                  options12.EnhancedBarriersSupported;
+    result.hr = result.pass ? S_OK : hr;
+    result.detail = result.pass
+                        ? "global/buffer/texture enhanced barrier groups and ordered buffer copy verified"
+                        : "enhanced barrier interface, report, or ordered copy failed";
+    char extra[384] = {};
+    std::snprintf(extra, sizeof(extra),
+                  "\"options12_enhanced_barriers\":%s,\"group_count\":3,"
+                  "\"global_barriers\":1,\"buffer_barriers\":1,"
+                  "\"texture_barriers\":1,\"copy_values_verified\":%s,"
+                  "\"values\":[%u,%u,%u,%u]",
+                  options12.EnhancedBarriersSupported ? "true" : "false",
+                  values_verified ? "true" : "false", got[0], got[1], got[2],
+                  got[3]);
+    result.extra = extra;
+    safe_release(texture);
+    safe_release(readback);
+    safe_release(target);
+    safe_release(upload);
+    safe_release(list7);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(device);
+    return result;
+}
+
 static void print_case(const CaseResult& result, bool last) {
     std::printf("    {\n");
     std::printf("      \"name\": \"%s\",\n", json_escape(result.name).c_str());
@@ -767,6 +899,7 @@ int main() {
         cases.push_back(run_bundle_status_case());
         cases.push_back(run_write_buffer_immediate_case());
         cases.push_back(run_execute_indirect_constants_case());
+        cases.push_back(run_enhanced_barrier_case());
     }
 
     bool pass = true;
@@ -785,6 +918,7 @@ int main() {
     std::printf("    \"execute_indirect_dispatch\": true,\n");
     std::printf("    \"execute_indirect_root_constants_status_reported\": true,\n");
     std::printf("    \"execute_indirect_graphics_replay_status_reported\": true,\n");
+    std::printf("    \"enhanced_barrier_global_buffer_texture\": true,\n");
     std::printf("    \"predication_status_reported\": true\n");
     std::printf("  },\n");
     std::printf("  \"predication\": {\n");

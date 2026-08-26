@@ -116,6 +116,21 @@
       "state": "stub_safe",
       "tier": "stubbed-safe"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS12": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_command_replay",
+      "probe_status": "global_buffer_texture_groups_and_ordered_copy_readback_passed",
+      "reported": "supported",
+      "required_fields": [
+        "EnhancedBarriersSupported",
+        "ID3D12GraphicsCommandList7::Barrier",
+        "global barrier groups",
+        "buffer barrier groups",
+        "texture barrier groups"
+      ],
+      "risk": "Enhanced barriers close active Metal encoders and establish queue order through the command-queue shared event. The report is backed by global, buffer, and texture groups plus exact copy-destination to copy-source buffer readback.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS8": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_resources",
       "probe_status": "unaligned_bc1_copy_readback_passed",

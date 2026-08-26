@@ -2926,7 +2926,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     o->MSPrimitivesPipelineStatisticIncludesCulledPrimitives = 0;
-    o->EnhancedBarriersSupported = FALSE;
+    o->EnhancedBarriersSupported = TRUE;
     o->RelaxedFormatCastingSupported = FALSE;
     TRACE("  OPTIONS12: EnhancedBarriers=%d RelaxedFormatCasting=%d",
           o->EnhancedBarriersSupported, o->RelaxedFormatCastingSupported);
