@@ -1386,7 +1386,9 @@ void raygen() {
 
 [shader("miss")]
 void miss_shader(inout MissPayload payload) {
-  payload.value = 0x4d495353;
+  payload.value = closest_hit_local_marker == 0x4c4f434c
+                      ? 0x4d495353
+                      : 0x4d495346;
 }
 
 [shader("closesthit")]
@@ -1419,7 +1421,9 @@ void any_hit(inout MissPayload payload,
 
 [shader("callable")]
 void callable_shader(inout CallablePayload payload) {
-  payload.value = 0x43414c4c;
+  payload.value = closest_hit_local_marker == 0x4c4f434c
+                      ? 0x43414c4c
+                      : 0x43414c46;
 }
 
 struct ProceduralAttributes {

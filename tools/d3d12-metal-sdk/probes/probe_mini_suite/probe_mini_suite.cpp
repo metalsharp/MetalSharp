@@ -2454,7 +2454,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
     procedural_hit_group.ClosestHitShaderImport = L"procedural_closest_hit";
     procedural_hit_group.IntersectionShaderImport = L"procedural_intersection";
     D3D12_LOCAL_ROOT_SIGNATURE local_root = {closest_hit_local_root};
-    LPCWSTR local_root_exports[] = {L"hit_group"};
+    LPCWSTR local_root_exports[] = {L"hit_group", L"miss_shader",
+                                     L"miss_alias", L"callable_shader",
+                                     L"callable_alias"};
     D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION local_root_association = {};
     D3D12_STATE_SUBOBJECT state_subobjects[8] = {};
     state_subobjects[0] = {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY,
@@ -2472,7 +2474,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     state_subobjects[6] = {D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE,
                            &local_root};
     local_root_association.pSubobjectToAssociate = &state_subobjects[6];
-    local_root_association.NumExports = 1;
+    local_root_association.NumExports = 5;
     local_root_association.pExports = local_root_exports;
     state_subobjects[7] = {
         D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION,
@@ -2584,7 +2586,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
-        D3D12_RESOURCE_DESC table_desc = buffer_desc(320);
+        D3D12_RESOURCE_DESC table_desc = buffer_desc(448);
         hr = device->CreateCommittedResource(
             &upload_heap, D3D12_HEAP_FLAG_NONE, &table_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -2596,35 +2598,47 @@ static ProbeResult probe_dxr_acceleration_structures() {
             std::memcpy(mapped, raygen_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 64, miss_identifier,
                         32);
-            std::memcpy(static_cast<uint8_t*>(mapped) + 96,
-                        miss_alias_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 128,
+                        miss_alias_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 192,
                         grown_hit_group_identifier, 32);
             const uint32_t closest_hit_local_marker = 0x4c4f434c;
+            std::memcpy(static_cast<uint8_t*>(mapped) + 96,
+                        &closest_hit_local_marker,
+                        sizeof(closest_hit_local_marker));
             std::memcpy(static_cast<uint8_t*>(mapped) + 160,
+                        &closest_hit_local_marker,
+                        sizeof(closest_hit_local_marker));
+            std::memcpy(static_cast<uint8_t*>(mapped) + 224,
                         &closest_hit_local_marker,
                         sizeof(closest_hit_local_marker));
             const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_srv_address =
                 closest_hit_local_srv->GetGPUVirtualAddress();
-            std::memcpy(static_cast<uint8_t*>(mapped) + 168,
+            std::memcpy(static_cast<uint8_t*>(mapped) + 232,
                         &closest_hit_local_srv_address,
                         sizeof(closest_hit_local_srv_address));
             const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_uav_address =
                 closest_hit_local_uav->GetGPUVirtualAddress();
-            std::memcpy(static_cast<uint8_t*>(mapped) + 176,
+            std::memcpy(static_cast<uint8_t*>(mapped) + 240,
                         &closest_hit_local_uav_address,
                         sizeof(closest_hit_local_uav_address));
             const D3D12_GPU_VIRTUAL_ADDRESS closest_hit_local_cbv_address =
                 closest_hit_local_cbv->GetGPUVirtualAddress();
-            std::memcpy(static_cast<uint8_t*>(mapped) + 184,
+            std::memcpy(static_cast<uint8_t*>(mapped) + 248,
                         &closest_hit_local_cbv_address,
                         sizeof(closest_hit_local_cbv_address));
-            std::memcpy(static_cast<uint8_t*>(mapped) + 192,
-                        procedural_hit_group_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 256,
+                        procedural_hit_group_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 320,
                         callable_identifier, 32);
-            std::memcpy(static_cast<uint8_t*>(mapped) + 288,
+            std::memcpy(static_cast<uint8_t*>(mapped) + 352,
+                        &closest_hit_local_marker,
+                        sizeof(closest_hit_local_marker));
+            std::memcpy(static_cast<uint8_t*>(mapped) + 384,
                         callable_alias_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 416,
+                        &closest_hit_local_marker,
+                        sizeof(closest_hit_local_marker));
             raygen_shader_table->Unmap(0, nullptr);
         }
     }
@@ -3218,16 +3232,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
         dispatch_rays.RayGenerationShaderRecord.SizeInBytes = 32;
         dispatch_rays.MissShaderTable.StartAddress =
             raygen_shader_table->GetGPUVirtualAddress() + 64;
-        dispatch_rays.MissShaderTable.SizeInBytes = 64;
-        dispatch_rays.MissShaderTable.StrideInBytes = 32;
+        dispatch_rays.MissShaderTable.SizeInBytes = 128;
+        dispatch_rays.MissShaderTable.StrideInBytes = 64;
         dispatch_rays.HitGroupTable.StartAddress =
-            raygen_shader_table->GetGPUVirtualAddress() + 128;
+            raygen_shader_table->GetGPUVirtualAddress() + 192;
         dispatch_rays.HitGroupTable.SizeInBytes = 128;
         dispatch_rays.HitGroupTable.StrideInBytes = 64;
         dispatch_rays.CallableShaderTable.StartAddress =
-            raygen_shader_table->GetGPUVirtualAddress() + 256;
-        dispatch_rays.CallableShaderTable.SizeInBytes = 64;
-        dispatch_rays.CallableShaderTable.StrideInBytes = 32;
+            raygen_shader_table->GetGPUVirtualAddress() + 320;
+        dispatch_rays.CallableShaderTable.SizeInBytes = 128;
+        dispatch_rays.CallableShaderTable.StrideInBytes = 64;
         dispatch_rays.Width = 3;
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
@@ -3479,6 +3493,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 (renamed_export_identifiers ? "true" : "false") +
                 ",\"miss_shader_table_records\":2" +
                 ",\"callable_shader_table_records\":2" +
+                ",\"miss_shader_table_stride\":64" +
+                ",\"callable_shader_table_stride\":64" +
                 ",\"closest_hit_local_root_marker\":1280262988" +
                 ",\"closest_hit_local_srv_marker\":1397904945" +
                 ",\"closest_hit_local_cbv_marker\":1128420913" +

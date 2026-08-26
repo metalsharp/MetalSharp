@@ -87,9 +87,9 @@
         "associated local-root constant, CBV, and SRV reads from the grown hit-group shader-table record",
         "associated local-root UAV write and exact readback",
         "renamed miss/callable exports with stable distinct identifiers",
-        "indexed execution from two-record miss and callable shader tables"
+        "indexed execution from two-record 64-byte-stride miss and callable shader tables with local constants"
       ],
-      "risk": "A two-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, a three-instance TLAS, mask-isolated inline RayQuery hit, stable distinct export identifiers, executed base/grown hit-group records with associated local-root constant/CBV/SRV/UAV data, renamed and indexed miss/callable table records, raygen/triangle-any-hit/closest-hit/procedural-intersection records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB BLAS geometry, larger geometry/instance arrays, serialization/deserialization, new-library state-object growth, local descriptor tables/samplers, and broader variable-stride/local-data shader-table matrices remain gated.",
+      "risk": "A two-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, a three-instance TLAS, mask-isolated inline RayQuery hit, stable distinct export identifiers, executed base/grown hit-group records with associated local-root constant/CBV/SRV/UAV data, renamed and indexed miss/callable table records, raygen/triangle-any-hit/closest-hit/procedural-intersection records, and depth-2 recursive TraceRay prove foundational DXR execution; mixed triangle/AABB BLAS geometry, larger geometry/instance arrays, serialization/deserialization, new-library state-object growth, local descriptor tables/samplers, and broader record-count/stride/local-data shader-table matrices remain gated.",
       "state": "required",
       "tier": "required"
     },
