@@ -270,8 +270,9 @@ Findings:
 - Tile mapping/unmapping and two per-slice `CopyTiles` operations execute for
   that proof path; external D3D12 heap-page selection and `CopyTileMappings`
   remain gated.
-- Residency calls mostly return success without enforcing or tracking the
-  requested state.
+- Residency is implicit on Apple unified memory: `MakeResident` and `Evict`
+  validate pageable arrays and reject null entries, while physical residency
+  accounting/tracking remains incomplete.
 - `GetCopyableFootprints` needs plane-aware and all-format validation.
 - Descriptor creation and copies have existing coverage, but complete
   descriptor-heap indexing, null descriptors, counters, and acceleration
@@ -596,8 +597,8 @@ Hard gate:
   128x128 RGBA8-array reserved texture.
 - Reserved resources are never silently substituted by committed resources.
 - Process-local shared-handle creation/open/name/unknown-handle probes pass;
-  cross-process shared-handle and residency probes still need a documented
-  API-accurate platform result without false success.
+  residency pointer validation and zero-resource behavior pass; cross-process
+  shared-handle transport and physical residency accounting remain gated.
 
 ### Phase 4 — Command recording and queue replay completeness
 

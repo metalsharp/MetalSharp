@@ -312,9 +312,9 @@
           },
           "Evict": {
             "difficulty": "easy",
-            "metal": "MTLResidencySet::removeResource",
-            "notes": "Remove from residency set. See MakeResident.",
-            "translation": "residencySet->removeResource(resource) or no-op"
+            "metal": "MTLResidencySet::removeResource (implicit on Apple unified memory)",
+            "notes": "Valid pageable arrays are accepted as resident-by-default on Apple unified memory; null arrays and null entries return E_INVALIDARG rather than false success.",
+            "translation": "validate pageable list; no physical eviction on unified memory"
           },
           "GetCopyableFootprints": {
             "difficulty": "moderate",
@@ -348,9 +348,9 @@
           },
           "MakeResident": {
             "difficulty": "easy",
-            "metal": "MTLResidencySet / MTLDevice::makeResident (implicit)",
-            "notes": "Metal resources are resident by default. MTLResidencySet (macOS 13+) allows explicit management. Most implementations are no-ops or use MTLResidencySet.",
-            "translation": "residencySet->addResource(resource) or no-op"
+            "metal": "MTLResidencySet / implicit Apple unified-memory residency",
+            "notes": "Valid pageable arrays are accepted as resident-by-default on Apple unified memory; null arrays and null entries return E_INVALIDARG rather than false success.",
+            "translation": "validate pageable list; no physical make-resident transition on unified memory"
           },
           "OpenSharedHandle": {
             "difficulty": "hard",

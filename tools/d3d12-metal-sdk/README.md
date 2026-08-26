@@ -392,8 +392,9 @@ caller's event handle, proves the event remains unsignaled, releases the wait,
 and then proves the retained event is signaled only after completion markers
 from every live direct, compute, and copy queue. The same probe validates
 relative GPU-priority persistence and bounds, the documented default/set/reset
-frame-latency state, zero-resource residency/offer/reclaim calls, and invalid
-offer-priority rejection. Frame-latency pacing itself remains a separate
+frame-latency state, zero-resource residency/offer/reclaim calls, invalid
+residency pointer rejection, and invalid offer-priority rejection. Frame-latency
+pacing itself remains a separate
 swapchain gate.
 
 Before launching Steam or a game, run the game-safe preflight:
