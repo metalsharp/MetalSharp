@@ -192,13 +192,14 @@ def feature_support_contract() -> dict[str, Any]:
                 "tier": "required",
                 "reported": "supported",
                 "probe": "tools/d3d12-metal-sdk/probes/probe_command_replay",
-                "probe_status": "direct_compute_bundle_readback_passed",
+                "probe_status": "copy_timestamp_and_write_immediate_readbacks_passed",
                 "required_fields": [
+                    "CopyQueueTimestampQueriesSupported",
                     "D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT",
                     "D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE",
                     "D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE",
                 ],
-                "risk": "Support flags are coupled to exact default, marker-in, and marker-out GPU virtual-address write/readback coverage on direct, compute, and inlined bundle command lists.",
+                "risk": "Copy-queue timestamps are coalesced to the Metal command buffer GPU end time and resolved through a completion handler; write-immediate flags are coupled to exact default, marker-in, and marker-out GPU virtual-address readback coverage on direct, compute, and inlined bundle command lists.",
             },
             "D3D12_FEATURE_D3D12_OPTIONS9": {
                 "state": "stub_safe",

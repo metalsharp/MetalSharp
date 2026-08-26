@@ -163,6 +163,8 @@ int main() {
     ID3D12Resource* copy_buffer = nullptr;
     ID3D12Resource* render_buffer = nullptr;
     ID3D12Resource* readback_buffer = nullptr;
+    ID3D12Resource* timestamp_readback = nullptr;
+    ID3D12QueryHeap* timestamp_heap = nullptr;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -179,6 +181,18 @@ int main() {
                                                                           D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                                           IID_PPV_ARGS(&readback_buffer))
                                         : E_FAIL;
+    D3D12_RESOURCE_DESC timestamp_buffer_desc = buffer_desc(2 * sizeof(UINT64));
+    HRESULT timestamp_readback_hr =
+        device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
+                                                 &timestamp_buffer_desc,
+                                                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                 IID_PPV_ARGS(&timestamp_readback))
+               : E_FAIL;
+    D3D12_QUERY_HEAP_DESC timestamp_heap_desc = {};
+    timestamp_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    timestamp_heap_desc.Count = 2;
+    HRESULT timestamp_heap_hr =
+        device ? device->CreateQueryHeap(&timestamp_heap_desc, IID_PPV_ARGS(&timestamp_heap)) : E_FAIL;
 
     uint8_t* upload_ptr = nullptr;
     HRESULT map_upload_hr =
@@ -191,6 +205,13 @@ int main() {
 
     if (copy_list && upload_buffer && copy_buffer)
         copy_list->CopyBufferRegion(copy_buffer, 0, upload_buffer, 0, buffer_bytes);
+    if (copy_list && timestamp_heap && timestamp_readback && upload_buffer && copy_buffer) {
+        copy_list->EndQuery(timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+        copy_list->CopyBufferRegion(copy_buffer, 0, upload_buffer, 0, 16);
+        copy_list->EndQuery(timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, 1);
+        copy_list->ResolveQueryData(timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP,
+                                    0, 2, timestamp_readback, 0);
+    }
 
     if (render_list && copy_buffer && render_buffer) {
         D3D12_RESOURCE_BARRIER copy_to_src =
@@ -303,6 +324,24 @@ int main() {
         readback_buffer->Unmap(0, nullptr);
     }
 
+    UINT64 copy_timestamps[2] = {};
+    UINT64* timestamp_ptr = nullptr;
+    D3D12_RANGE timestamp_range = {0, sizeof(copy_timestamps)};
+    HRESULT timestamp_map_hr =
+        timestamp_readback
+            ? timestamp_readback->Map(0, &timestamp_range,
+                                      reinterpret_cast<void**>(&timestamp_ptr))
+            : E_FAIL;
+    bool copy_timestamps_ok = SUCCEEDED(timestamp_map_hr) && timestamp_ptr;
+    if (copy_timestamps_ok) {
+        copy_timestamps[0] = timestamp_ptr[0];
+        copy_timestamps[1] = timestamp_ptr[1];
+        copy_timestamps_ok = copy_timestamps[0] != 0 &&
+                             copy_timestamps[1] >= copy_timestamps[0];
+        D3D12_RANGE written = {0, 0};
+        timestamp_readback->Unmap(0, &written);
+    }
+
     UINT64 copy_completed = copy_fence ? copy_fence->GetCompletedValue() : 0;
     UINT64 render_completed = render_fence ? render_fence->GetCompletedValue() : 0;
     UINT64 compute_completed = compute_fence ? compute_fence->GetCompletedValue() : 0;
@@ -347,7 +386,8 @@ int main() {
                 SUCCEEDED(compute_allocator_reset_hr) && SUCCEEDED(present_allocator_reset_hr) &&
                 SUCCEEDED(copy_list_reset_hr) && SUCCEEDED(render_list_reset_hr) && SUCCEEDED(compute_list_reset_hr) &&
                 SUCCEEDED(present_list_reset_hr) && SUCCEEDED(map_readback_hr) && readback_ok && queue_types_ok &&
-                fences_ok && SUCCEEDED(timestamp_frequency_hr) && SUCCEEDED(clock_calibration_hr);
+                fences_ok && SUCCEEDED(timestamp_frequency_hr) && SUCCEEDED(clock_calibration_hr) &&
+                SUCCEEDED(timestamp_heap_hr) && SUCCEEDED(timestamp_readback_hr) && copy_timestamps_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-queues.v1\",\n");
@@ -368,6 +408,16 @@ int main() {
     print_hr("timestamp_frequency", timestamp_frequency_hr);
     print_hr("clock_calibration", clock_calibration_hr);
     std::printf("    \"timestamp_frequency_value\": %" PRIu64 ",\n", direct_frequency);
+    std::printf("    \"copy_timestamp_heap_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(timestamp_heap_hr));
+    std::printf("    \"copy_timestamp_readback_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(timestamp_readback_hr));
+    std::printf("    \"copy_timestamp_map_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(timestamp_map_hr));
+    std::printf("    \"copy_timestamp_values\": [%" PRIu64 ",%" PRIu64 "],\n",
+                copy_timestamps[0], copy_timestamps[1]);
+    std::printf("    \"copy_timestamps_verified\": %s,\n",
+                copy_timestamps_ok ? "true" : "false");
     std::printf("    \"clock_gpu\": %" PRIu64 ",\n", direct_gpu_clock);
     std::printf("    \"clock_cpu\": %" PRIu64 "\n", direct_cpu_clock);
     std::printf("  },\n");
