@@ -9,10 +9,26 @@
 #include <utility>
 #include <vector>
 
+// MinGW's D3D12 interfaces include sampler-feedback resource APIs, but its
+// bundled dxgiformat.h predates the two opaque formats from SDK 19041.
+#ifndef DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE
+#define DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ((DXGI_FORMAT)189)
+#endif
+#ifndef DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE
+#define DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE ((DXGI_FORMAT)190)
+#endif
+
 namespace dxmt {
 
 class MTLD3D12Device;
 class MTLD3D12SwapChain;
+
+struct D3D12SamplerFeedbackLevelLayout {
+  uint64_t offset = 0;
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint32_t row_pitch = 0;
+};
 
 struct D3D12SwapchainBackbufferWork {
   uint64_t serial = 0;
@@ -90,6 +106,26 @@ public:
   uint64_t GetTextureGPUResourceID() const { return m_tex_gpu_resource_id; }
   uint32_t GetTextureArrayLength() const;
   uint64_t GetBufferByteLength() const;
+  bool ConfigureSamplerFeedback(const D3D12_MIP_REGION &region);
+  bool IsSamplerFeedback() const { return m_is_sampler_feedback; }
+  uint32_t GetSamplerFeedbackWidth() const {
+    return m_sampler_feedback_width;
+  }
+  uint32_t GetSamplerFeedbackHeight() const {
+    return m_sampler_feedback_height;
+  }
+  uint32_t GetSamplerFeedbackRowPitch() const {
+    return m_sampler_feedback_row_pitch;
+  }
+  uint64_t GetSamplerFeedbackDataOffset() const {
+    return m_sampler_feedback_data_offset;
+  }
+  const D3D12SamplerFeedbackLevelLayout *GetSamplerFeedbackLevelLayout(
+      uint32_t mip) const {
+    return mip < m_sampler_feedback_levels.size()
+               ? &m_sampler_feedback_levels[mip]
+               : nullptr;
+  }
   void SetCastableFormats(UINT32 count, const DXGI_FORMAT *formats) {
     m_has_explicit_castable_formats = count != 0;
     if (count)
@@ -290,6 +326,12 @@ private:
   uint64_t m_serialized_instance_contributions_gpu_address = 0;
   uint64_t m_tex_gpu_resource_id = 0;
   uint64_t m_backing_offset = 0;
+  bool m_is_sampler_feedback = false;
+  uint32_t m_sampler_feedback_width = 0;
+  uint32_t m_sampler_feedback_height = 0;
+  uint32_t m_sampler_feedback_row_pitch = 0;
+  uint64_t m_sampler_feedback_data_offset = 0;
+  std::vector<D3D12SamplerFeedbackLevelLayout> m_sampler_feedback_levels;
   bool m_has_explicit_castable_formats = false;
   std::vector<DXGI_FORMAT> m_castable_formats;
   bool m_is_swapchain_backbuffer = false;

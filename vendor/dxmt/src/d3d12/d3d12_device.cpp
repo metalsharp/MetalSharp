@@ -2729,6 +2729,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
             (unsigned)fmt->Support2);
       return S_OK;
     }
+    if (fmt->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+        fmt->Format ==
+            DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE) {
+      fmt->Support1 = (D3D12_FORMAT_SUPPORT1)(
+          D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_MIP);
+      fmt->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
+      TRACE("  FORMAT_SUPPORT: sampler-feedback format=%u Support1=0x%x Support2=0x%x",
+            (unsigned)fmt->Format, (unsigned)fmt->Support1,
+            (unsigned)fmt->Support2);
+      return S_OK;
+    }
 
     MTL_DXGI_FORMAT_DESC metal_format;
     if (FAILED(MTLQueryDXGIFormat(GetMTLDevice(), fmt->Format, metal_format))) {
@@ -3014,7 +3025,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     o->MeshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
-    o->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
+    o->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_0_9;
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS8: {
@@ -3406,6 +3417,8 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateConstantBufferView(
     return;
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    d->is_sampler_feedback = false;
+    d->sampler_feedback_target = nullptr;
     d->cbv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
@@ -3424,6 +3437,8 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
   CheckVtable("CreateShaderResourceView");
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    d->is_sampler_feedback = false;
+    d->sampler_feedback_target = nullptr;
     if (!resource && desc &&
         desc->ViewDimension ==
             D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE) {
@@ -3482,6 +3497,8 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateUnorderedAccessView(
   CheckVtable("CreateUnorderedAccessView");
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    d->is_sampler_feedback = false;
+    d->sampler_feedback_target = nullptr;
     d->resource = resource;
     d->resource_uav_counter = counter_resource;
     d->metal_texture_view = {};
@@ -5149,6 +5166,26 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateProtectedResourceSession1(
 /*** ID3D12Device8 ***/
 static const int MAX_DESCS = 256;
 
+static bool IsSamplerFeedbackFormat(DXGI_FORMAT format) {
+  return format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+         format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE;
+}
+
+static bool ValidateSamplerFeedbackResourceDesc(
+    const D3D12_RESOURCE_DESC1 &desc) {
+  if (!IsSamplerFeedbackFormat(desc.Format))
+    return true;
+  return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+         desc.Width != 0 && desc.Height != 0 &&
+         desc.DepthOrArraySize != 0 && desc.SampleDesc.Count == 1 &&
+         desc.SampleDesc.Quality == 0 &&
+         desc.Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN &&
+         (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+         desc.SamplerFeedbackMipRegion.Width != 0 &&
+         desc.SamplerFeedbackMipRegion.Height != 0 &&
+         desc.SamplerFeedbackMipRegion.Depth <= 1;
+}
+
 D3D12_RESOURCE_ALLOCATION_INFO *STDMETHODCALLTYPE
 MTLD3D12Device::GetResourceAllocationInfo2(
     D3D12_RESOURCE_ALLOCATION_INFO *__ret, UINT visible_mask,
@@ -5172,6 +5209,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource2(
     const D3D12_CLEAR_VALUE *optimized_clear_value,
     ID3D12ProtectedResourceSession *protected_session, REFIID riid_resource,
     void **resource) {
+  if (!desc || !resource)
+    return E_POINTER;
+  if (!ValidateSamplerFeedbackResourceDesc(*desc)) {
+    InitReturnPtr(resource);
+    return E_INVALIDARG;
+  }
   if (protected_session) {
     TRACE("ID3D12Device8::CreateCommittedResource2 -> E_NOTIMPL (protected "
           "session)");
@@ -5179,9 +5222,22 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource2(
   }
   D3D12_RESOURCE_DESC desc_compat;
   memcpy(&desc_compat, desc, sizeof(D3D12_RESOURCE_DESC));
-  return CreateCommittedResource(heap_properties, heap_flags, &desc_compat,
-                                 initial_resource_state, optimized_clear_value,
-                                 riid_resource, resource);
+  HRESULT hr = CreateCommittedResource(
+      heap_properties, heap_flags, &desc_compat, initial_resource_state,
+      optimized_clear_value, riid_resource, resource);
+  if (SUCCEEDED(hr) && resource && *resource &&
+      (desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+       desc->Format ==
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)) {
+    if (!static_cast<MTLD3D12Resource *>(
+             static_cast<ID3D12Resource *>(*resource))
+             ->ConfigureSamplerFeedback(desc->SamplerFeedbackMipRegion)) {
+      static_cast<ID3D12Resource *>(*resource)->Release();
+      *resource = nullptr;
+      hr = E_OUTOFMEMORY;
+    }
+  }
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource1(
@@ -5189,16 +5245,97 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource1(
     D3D12_RESOURCE_STATES initial_state,
     const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID riid,
     void **resource) {
+  if (!desc || !resource)
+    return E_POINTER;
+  if (!ValidateSamplerFeedbackResourceDesc(*desc)) {
+    InitReturnPtr(resource);
+    return E_INVALIDARG;
+  }
   D3D12_RESOURCE_DESC desc_compat;
   memcpy(&desc_compat, desc, sizeof(D3D12_RESOURCE_DESC));
-  return CreatePlacedResource(heap, heap_offset, &desc_compat, initial_state,
-                              optimized_clear_value, riid, resource);
+  HRESULT hr = CreatePlacedResource(heap, heap_offset, &desc_compat,
+                                    initial_state, optimized_clear_value, riid,
+                                    resource);
+  if (SUCCEEDED(hr) && resource && *resource &&
+      (desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+       desc->Format ==
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)) {
+    if (!static_cast<MTLD3D12Resource *>(
+             static_cast<ID3D12Resource *>(*resource))
+             ->ConfigureSamplerFeedback(desc->SamplerFeedbackMipRegion)) {
+      static_cast<ID3D12Resource *>(*resource)->Release();
+      *resource = nullptr;
+      hr = E_OUTOFMEMORY;
+    }
+  }
+  return hr;
 }
 
 void STDMETHODCALLTYPE MTLD3D12Device::CreateSamplerFeedbackUnorderedAccessView(
     ID3D12Resource *targeted_resource, ID3D12Resource *feedback_resource,
     D3D12_CPU_DESCRIPTOR_HANDLE dst_descriptor) {
-  TRACE("ID3D12Device8::CreateSamplerFeedbackUnorderedAccessView -> noop");
+  auto *d = reinterpret_cast<D3D12Descriptor *>(dst_descriptor.ptr);
+  auto *feedback = static_cast<MTLD3D12Resource *>(feedback_resource);
+  auto *target = static_cast<MTLD3D12Resource *>(targeted_resource);
+  if (d) {
+    d->resource = nullptr;
+    d->resource_uav_counter = nullptr;
+    d->sampler_feedback_target = nullptr;
+    d->is_sampler_feedback = false;
+    d->metal_texture_view = {};
+    d->metal_texture_gpu_id = 0;
+  }
+  if (!d || !feedback || !target || !feedback->IsSamplerFeedback()) {
+    TRACE("CreateSamplerFeedbackUAV rejected target=%p feedback=%p desc=%p configured=%d",
+          (void *)targeted_resource, (void *)feedback_resource, (void *)d,
+          feedback ? feedback->IsSamplerFeedback() : 0);
+    return;
+  }
+  D3D12_RESOURCE_DESC target_desc = {};
+  D3D12_RESOURCE_DESC feedback_desc = {};
+  target->GetDesc(&target_desc);
+  feedback->GetDesc(&feedback_desc);
+  if (target_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      feedback_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      target_desc.Width != feedback_desc.Width ||
+      target_desc.Height != feedback_desc.Height ||
+      target_desc.DepthOrArraySize != feedback_desc.DepthOrArraySize ||
+      target_desc.MipLevels != feedback_desc.MipLevels ||
+      target_desc.SampleDesc.Count != 1 ||
+      feedback_desc.SampleDesc.Count != 1 ||
+      !(feedback_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) ||
+      (feedback_desc.Format !=
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE &&
+       feedback_desc.Format !=
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)) {
+    TRACE("CreateSamplerFeedbackUAV rejected dimensions/formats target_dim=%u feedback_dim=%u format=%u",
+          (unsigned)target_desc.Dimension, (unsigned)feedback_desc.Dimension,
+          (unsigned)feedback_desc.Format);
+    return;
+  }
+  d->resource = feedback_resource;
+  d->resource_uav_counter = nullptr;
+  d->sampler_feedback_target = targeted_resource;
+  d->is_sampler_feedback = true;
+  d->metal_texture_view = {};
+  d->metal_texture_gpu_id = 0;
+  d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+  d->uav = {};
+  d->uav.Format = DXGI_FORMAT_R32_TYPELESS;
+  d->uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+  d->uav.Buffer.FirstElement = feedback->GetSamplerFeedbackDataOffset() / 4;
+  d->uav.Buffer.NumElements = static_cast<UINT>(
+      (feedback->GetBufferByteLength() -
+       feedback->GetSamplerFeedbackDataOffset()) /
+      4);
+  d->uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+  TRACE("CreateSamplerFeedbackUAV target=%p feedback=%p physical=%ux%u row=%u bytes=%llu",
+        (void *)targeted_resource, (void *)feedback_resource,
+        feedback->GetSamplerFeedbackWidth(),
+        feedback->GetSamplerFeedbackHeight(),
+        feedback->GetSamplerFeedbackRowPitch(),
+        (unsigned long long)feedback->GetBufferByteLength());
 }
 
 void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints1(

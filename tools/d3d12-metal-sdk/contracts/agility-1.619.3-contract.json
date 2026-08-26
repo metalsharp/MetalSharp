@@ -1184,10 +1184,10 @@
         },
         "TryCreateSamplerFeedbackUnorderedAccessView": {
           "difficulty": "very hard",
-          "metal": "N/A (no sampler feedback in Metal)",
-          "notes": "Not supported",
+          "metal": "Software feedback map in MTLBuffer",
+          "notes": "Tier 0.9 emulation pairs opaque resources with the target texture",
           "return_type": "HRESULT",
-          "translation": "no Metal equivalent"
+          "translation": "CreateSamplerFeedbackUnorderedAccessView + padded software map"
         },
         "TryCreateShaderResourceView": {
           "difficulty": "moderate",
@@ -1422,10 +1422,10 @@
         },
         "CreateSamplerFeedbackUnorderedAccessView": {
           "difficulty": "very hard",
-          "metal": "N/A (no sampler feedback in Metal)",
-          "notes": "Not supported",
+          "metal": "Software feedback map in MTLBuffer",
+          "notes": "Tier 0.9 behavior-proven for min-mip and mip-region-used feedback",
           "return_type": "void",
-          "translation": "no Metal equivalent"
+          "translation": "pair target/opaque resource and bind the software feedback buffer"
         },
         "GetCopyableFootprints1": {
           "difficulty": "moderate",

@@ -6556,7 +6556,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
           if (cbv_res)
             offset = desc->cbv.BufferLocation - cbv_res->GetGPUVirtualAddress();
         } else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV) {
-          offset = UAVBufferByteOffset(desc);
+          offset = desc->is_sampler_feedback ? 0 : UAVBufferByteOffset(desc);
         } else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV) {
           offset = SRVBufferByteOffset(desc);
         }
@@ -6663,7 +6663,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         if (res->GetMTLBuffer().handle) {
           uint64_t offset = 0;
           if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
-            offset = UAVBufferByteOffset(desc);
+            offset = desc->is_sampler_feedback ? 0 : UAVBufferByteOffset(desc);
           else if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV)
             offset = SRVBufferByteOffset(desc);
           else if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
@@ -9086,6 +9086,186 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                cmd->format, cmd->mode, cmd->has_src_rect, cmd->dst_x,
                cmd->dst_y);
 
+        if (dst_res->IsSamplerFeedback() &&
+            cmd->mode == D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK) {
+          const uint32_t feedback_mip =
+              dst_desc.Format ==
+                      DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE
+                  ? 0
+                  : SubresourceMipLevel(dst_desc, cmd->dst_sub);
+          const auto *feedback_layout =
+              dst_res->GetSamplerFeedbackLevelLayout(feedback_mip);
+          if (!feedback_layout || cmd->format != DXGI_FORMAT_R8_UINT ||
+              !src_res->GetMTLTexture().handle ||
+              !dst_res->GetMTLBuffer().handle) {
+            QTRACE("ResolveSubresource sampler-feedback encode rejected src_fmt=%u dst_fmt=%u src_tex=%llu dst_buf=%llu",
+                   (unsigned)src_desc.Format, (unsigned)cmd->format,
+                   (unsigned long long)src_res->GetMTLTexture().handle,
+                   (unsigned long long)dst_res->GetMTLBuffer().handle);
+            break;
+          }
+          const uint32_t src_mip =
+              SubresourceMipLevel(src_desc, cmd->src_sub);
+          const uint32_t src_slice =
+              SubresourceArraySlice(src_desc, cmd->src_sub);
+          const uint32_t dst_slice =
+              SubresourceArraySlice(dst_desc, cmd->dst_sub);
+          const uint32_t full_w = MipSize(src_desc.Width, src_mip);
+          const uint32_t full_h =
+              MipSize(std::max<UINT>(src_desc.Height, 1), src_mip);
+          const uint32_t src_x = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.left, 0)
+                                     : 0;
+          const uint32_t src_y = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.top, 0)
+                                     : 0;
+          const uint32_t copy_w =
+              std::min<uint32_t>(
+                  cmd->has_src_rect
+                      ? std::max<LONG>(cmd->src_rect.right -
+                                           cmd->src_rect.left,
+                                       0)
+                      : full_w,
+                  feedback_layout->width -
+                      std::min<uint32_t>(cmd->dst_x,
+                                         feedback_layout->width));
+          const uint32_t copy_h =
+              std::min<uint32_t>(
+                  cmd->has_src_rect
+                      ? std::max<LONG>(cmd->src_rect.bottom -
+                                           cmd->src_rect.top,
+                                       0)
+                      : full_h,
+                  feedback_layout->height -
+                      std::min<uint32_t>(cmd->dst_y,
+                                         feedback_layout->height));
+          if (!copy_w || !copy_h)
+            break;
+          const uint64_t bytes_per_image =
+              uint64_t(feedback_layout->row_pitch) *
+              feedback_layout->height;
+          const uint64_t dst_offset =
+              feedback_layout->offset +
+              uint64_t(dst_slice) * bytes_per_image +
+              uint64_t(cmd->dst_y) * feedback_layout->row_pitch + cmd->dst_x;
+          st.CloseRenderEncoder();
+          st.RetainResourceMetalObjectsForCompletion(src_res);
+          st.RetainResourceMetalObjectsForCompletion(dst_res);
+          auto blit = cmdbuf.blitCommandEncoder();
+          ENC_CREATE("blit_encode_sampler_feedback", blit.handle);
+          ScopedMetalEncoderEnd blit_guard{blit,
+                                           "blit_encode_sampler_feedback"};
+          if (!blit.handle)
+            break;
+          struct wmtcmd_blit_copy_from_texture_to_buffer copy = {};
+          copy.type = WMTBlitCommandCopyFromTextureToBuffer;
+          copy.next.set(nullptr);
+          copy.src = src_res->GetMTLTexture().handle;
+          copy.slice = src_slice;
+          copy.level = src_mip;
+          copy.origin = {src_x, src_y, 0};
+          copy.size = {copy_w, copy_h, 1};
+          copy.dst = dst_res->GetMTLBuffer().handle;
+          copy.offset = dst_offset;
+          copy.bytes_per_row = feedback_layout->row_pitch;
+          copy.bytes_per_image = bytes_per_image;
+          blit.encodeCommands(
+              reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+          EndMetalEncoder(blit, "blit_encode_sampler_feedback");
+          QTRACE("ResolveSubresource sampler-feedback encode mip=%u slice=%u rect=%u,%u %ux%u dst=%u,%u",
+                 feedback_mip, dst_slice, src_x, src_y, copy_w, copy_h,
+                 cmd->dst_x, cmd->dst_y);
+          break;
+        }
+
+        if (src_res->IsSamplerFeedback() &&
+            cmd->mode == D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK) {
+          const uint32_t feedback_mip =
+              src_desc.Format ==
+                      DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE
+                  ? 0
+                  : SubresourceMipLevel(src_desc, cmd->src_sub);
+          const auto *feedback_layout =
+              src_res->GetSamplerFeedbackLevelLayout(feedback_mip);
+          if (!feedback_layout || cmd->format != DXGI_FORMAT_R8_UINT ||
+              !src_res->GetMTLBuffer().handle ||
+              !dst_res->GetMTLTexture().handle) {
+            QTRACE("ResolveSubresource sampler-feedback decode rejected src_fmt=%u dst_fmt=%u src_buf=%llu dst_tex=%llu",
+                   (unsigned)src_desc.Format, (unsigned)cmd->format,
+                   (unsigned long long)src_res->GetMTLBuffer().handle,
+                   (unsigned long long)dst_res->GetMTLTexture().handle);
+            break;
+          }
+          const uint32_t map_width = feedback_layout->width;
+          const uint32_t map_height = feedback_layout->height;
+          const uint32_t row_pitch = feedback_layout->row_pitch;
+          const uint32_t src_x = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.left, 0)
+                                     : 0;
+          const uint32_t src_y = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.top, 0)
+                                     : 0;
+          const uint32_t copy_w = cmd->has_src_rect
+                                      ? std::min<uint32_t>(
+                                            map_width -
+                                                std::min(src_x, map_width),
+                                            std::max<LONG>(
+                                                cmd->src_rect.right -
+                                                    cmd->src_rect.left,
+                                                0))
+                                      : map_width;
+          const uint32_t copy_h = cmd->has_src_rect
+                                      ? std::min<uint32_t>(
+                                            map_height -
+                                                std::min(src_y, map_height),
+                                            std::max<LONG>(
+                                                cmd->src_rect.bottom -
+                                                    cmd->src_rect.top,
+                                                0))
+                                      : map_height;
+          if (!copy_w || !copy_h)
+            break;
+          const uint32_t dst_mip =
+              SubresourceMipLevel(dst_desc, cmd->dst_sub);
+          const uint32_t dst_slice =
+              SubresourceArraySlice(dst_desc, cmd->dst_sub);
+          const uint32_t src_slice =
+              SubresourceArraySlice(src_desc, cmd->src_sub);
+          const uint64_t bytes_per_image = uint64_t(row_pitch) * map_height;
+          const uint64_t src_offset =
+              feedback_layout->offset +
+              uint64_t(src_slice) * bytes_per_image +
+              uint64_t(src_y) * row_pitch + src_x;
+          st.CloseRenderEncoder();
+          st.RetainResourceMetalObjectsForCompletion(src_res);
+          st.RetainResourceMetalObjectsForCompletion(dst_res);
+          auto blit = cmdbuf.blitCommandEncoder();
+          ENC_CREATE("blit_decode_sampler_feedback", blit.handle);
+          ScopedMetalEncoderEnd blit_guard{blit,
+                                           "blit_decode_sampler_feedback"};
+          if (!blit.handle)
+            break;
+          struct wmtcmd_blit_copy_from_buffer_to_texture copy = {};
+          copy.type = WMTBlitCommandCopyFromBufferToTexture;
+          copy.next.set(nullptr);
+          copy.src = src_res->GetMTLBuffer().handle;
+          copy.src_offset = src_offset;
+          copy.bytes_per_row = row_pitch;
+          copy.bytes_per_image = bytes_per_image;
+          copy.size = {copy_w, copy_h, 1};
+          copy.dst = dst_res->GetMTLTexture().handle;
+          copy.slice = dst_slice;
+          copy.level = dst_mip;
+          copy.origin = {cmd->dst_x, cmd->dst_y, 0};
+          blit.encodeCommands(
+              reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+          EndMetalEncoder(blit, "blit_decode_sampler_feedback");
+          QTRACE("ResolveSubresource sampler-feedback min-mip decode physical=%ux%u rect=%u,%u %ux%u dst=%u,%u",
+                 map_width, map_height, src_x, src_y, copy_w, copy_h,
+                 cmd->dst_x, cmd->dst_y);
+          break;
+        }
+
         if (!src_res->GetMTLTexture().handle ||
             !dst_res->GetMTLTexture().handle) {
           QTRACE("ResolveSubresource SKIPPED non-texture resource");
@@ -9488,8 +9668,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                         : (desc && desc->resource
                                ? static_cast<MTLD3D12Resource *>(desc->resource)
                                : nullptr);
-        bool zero_clear = cmd->values[0] == 0 && cmd->values[1] == 0 &&
-                          cmd->values[2] == 0 && cmd->values[3] == 0;
+        const uint8_t *clear_pattern =
+            reinterpret_cast<const uint8_t *>(cmd->values);
+        bool uniform_byte_clear = true;
+        for (uint32_t i = 1; i < 16; i++)
+          uniform_byte_clear &= clear_pattern[i] == clear_pattern[0];
+        bool zero_clear = uniform_byte_clear && clear_pattern[0] == 0;
         QTRACE("ClearUnorderedAccessView%s cpu=0x%llx gpu=0x%llx res=%p "
                "desc=%p zero=%d",
                cmd->is_float ? "Float" : "Uint",
@@ -9517,7 +9701,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           break;
         }
 
-        if (zero_clear) {
+        if (uniform_byte_clear) {
           st.RetainResourceMetalObjectsForCompletion(res);
           auto blit = cmdbuf.blitCommandEncoder();
           ENC_CREATE("blit_clearuav", blit.handle);
@@ -9533,7 +9717,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           fill.buffer = res->GetMTLBuffer().handle;
           fill.offset = clear_offset;
           fill.length = clear_length;
-          fill.value = 0;
+          fill.value = clear_pattern[0];
           blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&fill));
           EndMetalEncoder(blit, "blit_clearuav");
           break;
@@ -9548,9 +9732,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           break;
         }
         uint8_t *dst = static_cast<uint8_t *>(mapped) + clear_offset;
-        const uint8_t *pattern = reinterpret_cast<const uint8_t *>(cmd->values);
         for (uint64_t off = 0; off < clear_length; off++)
-          dst[off] = pattern[off & 15];
+          dst[off] = clear_pattern[off & 15];
         res->Unmap(0, nullptr);
         QTRACE("ClearUnorderedAccessView CPU pattern clear off=%llu len=%llu",
                (unsigned long long)clear_offset,

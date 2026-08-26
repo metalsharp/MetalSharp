@@ -616,6 +616,20 @@ array slices with zero unexpected pixels. Mesh tier reporting remains disabled p
 statistics, broader mixed render-state matrices, and broader shader/payload
 coverage.
 
+Sampler feedback tier 0.9 is behavior-gated by two focused probes. The compute
+probe creates Device8 opaque min-mip and mip-region-used resources, pairs them
+with 2D and 2D-array targets, clears and writes padded software feedback maps,
+and validates exact decode, encode/decode round-trip, per-mip, per-layer, and
+64-lane contention results. The pixel probe executes all four SM 6.5 feedback
+forms (`WriteSamplerFeedback`, Bias, Grad, and Level) through independent
+graphics PSOs and requires exact `[3,2,0,2]` feedback plus `0xffbf8040` color.
+Run only these gates with:
+
+```bash
+tools/d3d12-metal-sdk/scripts/run-source-probes.sh \
+  --sampler-feedback-only
+```
+
 Run just the unsupported-policy phase gate with:
 
 ```bash

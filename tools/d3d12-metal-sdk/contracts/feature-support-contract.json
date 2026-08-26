@@ -100,14 +100,14 @@
       "tier": "required"
     },
     "D3D12_FEATURE_D3D12_OPTIONS7": {
-      "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "basic_as_ms_direct_indirect_passed",
-      "reported": "unsupported",
+      "probe": "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
+      "probe_status": "sampler_feedback_tier_0_9_passed_mesh_tier_gated",
+      "reported": "partial",
       "required_fields": [
         "MeshShaderTier",
         "SamplerFeedbackTier"
       ],
-      "risk": "The AS/MS eight-byte payload, stage-specific root-CBV/raw-SRV, 32-lane mesh texture/sampler/UAV, and two-group direct/indirect DispatchMesh readback gate does not yet prove mixed render-state matrices, statistics, render-target arrays, or broad shader/payload coverage required to report mesh tier 1.",
+      "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking. Committed and placed resources, invalid-descriptor rejection, feedback UAV pairing, clear, min-mip and mip-region-used writes, 2D arrays, encode/decode resolves, contention, and all four HLSL write forms pass exact compute/pixel readback; tier 0.9 is reported because wrap and clamp are conservatively covered while unrestricted tier-1.0 SRV/addressing behavior remains gated. Mesh AS/MS execution is substantial but mixed render-state breadth and PIPELINE_STATISTICS1 remain insufficient for mesh tier 1.",
       "state": "required",
       "tier": "required"
     },

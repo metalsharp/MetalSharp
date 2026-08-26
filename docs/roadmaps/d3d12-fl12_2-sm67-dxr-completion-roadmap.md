@@ -76,7 +76,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Ray tracing | Tier 1.1 | Not supported | DXR 1.0/1.1 probes |
 | Variable-rate shading | Tier 2 | Not supported | Per-draw and image VRS probes |
 | Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
-| Sampler feedback | Tier 0.9 | Not supported | Feedback UAV creation/write/resolve probe |
+| Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
 | Tiled resources | Tier 3 | Reported unsupported; reserved resources explicitly fail until sparse backing exists | Sparse mapping and residency probes |
 | Conservative rasterization | Tier 3 | Tier 1 | Tier-3 edge/coverage behavior probe |
@@ -362,6 +362,18 @@ Findings:
   and Options11 descriptor-heap atomic64 reports are now enabled; the native
   probe remains evidence that software emulation, not native ulong atomics,
   backs those reports.
+- Sampler feedback tier 0.9 now uses opaque D3D12 texture resources backed by
+  padded software maps with per-resource SIMD-cooperative locks. Device8
+  feedback UAV pairing preserves the logical target dimensions and mip-region
+  metadata; `ClearUnorderedAccessViewUint` initializes the opaque map and
+  `ResolveSubresourceRegion` encodes/decodes standard `R8_UINT` layouts.
+  Compute probes pass exact min-mip region values, 64-lane contention, all
+  mip-region-used subresources, 2D-array slices, and decode/encode/decode
+  round-trips. Pixel probes execute `WriteSamplerFeedback`, Bias, Grad, and
+  Level as four independent graphics PSOs and read back `[3,2,0,2]` plus exact
+  `0xffbf8040` color. Tier 0.9 is reported; tier 1.0 remains gated because the
+  implementation intentionally guarantees only the tier-0.9 wrap/clamp and
+  full-resource SRV contract.
 - DXIL ray-query and raytracing intrinsics do not have a complete Metal lowering
   model.
 - `GetCachedBlob` returns the caller-provided pipeline cache payload and passes

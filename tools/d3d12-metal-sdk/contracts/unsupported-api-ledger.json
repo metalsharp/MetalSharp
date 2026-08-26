@@ -20,15 +20,6 @@
       "tier": "stubbed-safe"
     },
     {
-      "api": "D3D12 sampler feedback tier",
-      "evidence": [
-        "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
-      ],
-      "reason": "No sampler feedback emulation or Metal-backed equivalent is proven.",
-      "state": "unsupported",
-      "tier": "unsupported"
-    },
-    {
       "api": "D3D12 work graphs",
       "evidence": [
         "vendor/dxmt/src/d3d12/d3d12_command_list.cpp",

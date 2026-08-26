@@ -219,6 +219,81 @@ uint64_t MTLD3D12Resource::GetBufferByteLength() const {
   return m_buf_info.length;
 }
 
+bool MTLD3D12Resource::ConfigureSamplerFeedback(
+    const D3D12_MIP_REGION &region) {
+  if (m_desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE &&
+      m_desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+    return false;
+
+  const uint32_t region_width = std::max<UINT>(region.Width, 1);
+  const uint32_t region_height = std::max<UINT>(region.Height, 1);
+  m_sampler_feedback_data_offset = 512;
+  const uint64_t array_length = std::max<uint16_t>(m_desc.DepthOrArraySize, 1);
+  const bool min_mip =
+      m_desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE;
+  const uint32_t level_count =
+      min_mip ? 1u : std::min<uint32_t>(std::max<uint16_t>(m_desc.MipLevels, 1),
+                                        16u);
+  m_sampler_feedback_levels.clear();
+  m_sampler_feedback_levels.reserve(level_count);
+  uint64_t next_offset = m_sampler_feedback_data_offset;
+  for (uint32_t mip = 0; mip < level_count; ++mip) {
+    const uint64_t logical_width = std::max<uint64_t>(m_desc.Width >> mip, 1);
+    const uint32_t logical_height =
+        std::max<uint32_t>(std::max<UINT>(m_desc.Height, 1) >> mip, 1);
+    D3D12SamplerFeedbackLevelLayout level = {};
+    level.width = static_cast<uint32_t>(
+        (logical_width + region_width - 1) / region_width);
+    level.height = (logical_height + region_height - 1) / region_height;
+    level.row_pitch = (std::max<uint32_t>(level.width, 1) + 255u) & ~255u;
+    level.offset = next_offset;
+    next_offset += uint64_t(level.row_pitch) * level.height * array_length;
+    m_sampler_feedback_levels.push_back(level);
+  }
+  m_sampler_feedback_width = m_sampler_feedback_levels[0].width;
+  m_sampler_feedback_height = m_sampler_feedback_levels[0].height;
+  m_sampler_feedback_row_pitch = m_sampler_feedback_levels[0].row_pitch;
+
+  WMTBufferInfo info = {};
+  info.length = next_offset;
+  info.options = WMTResourceStorageModeShared;
+  auto buffer = m_device->GetDXMTDevice().device().newBuffer(info);
+  if (!buffer.handle) {
+    RTRACE("ConfigureSamplerFeedback: buffer creation failed width=%u height=%u row=%u",
+           m_sampler_feedback_width, m_sampler_feedback_height,
+           m_sampler_feedback_row_pitch);
+    return false;
+  }
+
+  uint32_t header[128] = {};
+  header[0] = 0x4d534642u;
+  header[1] = m_sampler_feedback_width;
+  header[2] = m_sampler_feedback_height;
+  header[3] = m_sampler_feedback_row_pitch;
+  header[4] = min_mip ? 0u : 1u;
+  header[5] = static_cast<uint32_t>(array_length);
+  header[6] = static_cast<uint32_t>(m_sampler_feedback_data_offset);
+  header[8] = 0u; // software lock, deliberately 32-bit aligned
+  header[9] = level_count;
+  for (uint32_t mip = 0; mip < level_count; ++mip) {
+    const auto &level = m_sampler_feedback_levels[mip];
+    header[10 + mip * 4 + 0] = static_cast<uint32_t>(level.offset);
+    header[10 + mip * 4 + 1] = level.width;
+    header[10 + mip * 4 + 2] = level.height;
+    header[10 + mip * 4 + 3] = level.row_pitch;
+  }
+  buffer.updateContents(0, header, sizeof(header));
+  m_mtl_buffer = std::move(buffer);
+  m_buf_info = info;
+  m_is_sampler_feedback = true;
+  RTRACE("ConfigureSamplerFeedback: fmt=%u logical=%llux%u region=%ux%u physical=%ux%u row=%u bytes=%llu",
+         (unsigned)m_desc.Format, (unsigned long long)m_desc.Width,
+         (unsigned)m_desc.Height, region_width, region_height,
+         m_sampler_feedback_width, m_sampler_feedback_height,
+         m_sampler_feedback_row_pitch, (unsigned long long)info.length);
+  return true;
+}
+
 MTLD3D12Resource::~MTLD3D12Resource() {
   m_device->UnregisterResource(this);
   m_mtl_buffer = nullptr;

@@ -26,6 +26,8 @@ REQUIRED_PROBES = [
     "probe-dxil-semantics",
     "probe-shader-corpus",
     "probe-sm66-capabilities",
+    "probe-sampler-feedback",
+    "probe-sampler-feedback-pixel",
     "probe-wave-ops",
     "probe-reflection-abi",
     "probe-queues",
@@ -158,7 +160,7 @@ def check_required_probes(results: dict[str, dict[str, Any]]) -> tuple[list[Issu
             issues.append(Issue("error", "probe", f"Missing required probe `{probe}`", "Expected JSON result was not found."))
             summary["required"][probe] = {"present": False, "pass": False}
             continue
-        passed = bool(data.get("pass", data.get("ok")))
+        passed = bool(data.get("pass", data.get("passed", data.get("ok"))))
         summary["required"][probe] = {"present": True, "pass": passed}
         if not passed:
             issues.append(Issue("error", "probe", f"Required probe `{probe}` did not pass", "Comparator only trusts passing proof targets."))
