@@ -993,9 +993,10 @@ the goal is not complete.
   triangle TLAS and resolves a 64-byte-aligned triangle hit-group record. A
   synthesized Metal intersection wrapper and intersection-function table invoke
   visible-function index 5 for non-opaque triangle any-hit, then visible-function
-  index 3 for closest-hit; their payload handshake returns `0x48495441`. A
+  index 3 for closest-hit. Closest-hit launches a depth-2 recursive `TraceRay`
+  away from the TLAS, observes the nested miss payload, and combines it with
+  the any-hit marker to return `0x52454332`. A
   callable table at offset 192 invokes visible-function index 4 and returns
   `0x43414c4c`; the two-ray launch preserves the raygen sentinel `42`.
   RaytracingTier remains unreported pending procedural intersection shaders,
-  recursive `TraceRay`, broad AS build operations, and complete local-root/
-  shader-table semantics.
+  broad AS build operations, and complete local-root/shader-table semantics.

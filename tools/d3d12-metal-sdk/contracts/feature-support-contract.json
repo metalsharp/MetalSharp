@@ -65,7 +65,7 @@
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "blas_tlas_inline_ray_and_raygen_miss_any_hit_closest_hit_callable_dispatch_passed",
+      "probe_status": "blas_tlas_inline_ray_and_recursive_raygen_miss_any_hit_closest_hit_callable_dispatch_passed",
       "reported": "partial",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
@@ -75,9 +75,10 @@
         "inline RayQuery triangle hit",
         "raygen/miss state-object exports with stable distinct shader identifiers",
         "raygen, miss, triangle any-hit/closest-hit group, and callable shader-table records",
-        "DispatchRays raygen, miss, any-hit, closest-hit, and callable execution"
+        "DispatchRays raygen, miss, any-hit, closest-hit, and callable execution",
+        "recursive closest-hit to miss TraceRay at depth 2"
       ],
-      "risk": "One-triangle BLAS, one-instance TLAS, inline RayQuery hit, stable distinct export identifiers, and executed raygen/miss/triangle-any-hit/closest-hit/callable shader-table records prove foundational DXR execution; indexed/multi-geometry builds, updates/copies, procedural intersection shaders, recursive TraceRay, and complete local-root/shader-table semantics remain gated.",
+      "risk": "One-triangle BLAS, one-instance TLAS, inline RayQuery hit, stable distinct export identifiers, executed raygen/miss/triangle-any-hit/closest-hit/callable records, and depth-2 recursive TraceRay prove foundational DXR execution; indexed/multi-geometry builds, updates/copies, procedural intersection shaders, and complete local-root/shader-table semantics remain gated.",
       "state": "required",
       "tier": "required"
     },

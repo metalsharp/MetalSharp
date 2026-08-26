@@ -2328,7 +2328,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     shader_config.MaxPayloadSizeInBytes = 4;
     shader_config.MaxAttributeSizeInBytes = 8;
     D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config = {};
-    pipeline_config.MaxTraceRecursionDepth = 1;
+    pipeline_config.MaxTraceRecursionDepth = 2;
     D3D12_HIT_GROUP_DESC hit_group = {};
     hit_group.HitGroupExport = L"hit_group";
     hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
@@ -2735,7 +2735,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           top_level_current_size <=
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
                           ray_hit == 1 && miss_value == 0x4d495353 &&
-                          closest_hit_value == 0x48495441 &&
+                          closest_hit_value == 0x52454332 &&
                           callable_value == 0x43414c4c &&
                           raygen_value == 42;
 
@@ -2762,7 +2762,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss/any-hit/closest-hit/callable DispatchRays passed"
+            verified ? "Metal BLAS/TLAS, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
