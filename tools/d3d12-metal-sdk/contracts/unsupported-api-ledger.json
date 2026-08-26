@@ -104,7 +104,7 @@
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
         "tools/d3d12-metal-sdk/probes/probe_resources"
       ],
-      "reason": "Native Metal sparse backing now creates a 256x128 RGBA8 reserved texture, reports two standard tiles, maps/unmaps its native sparse pages, and round-trips two exact 64 KiB tiles. Tier 3 remains unreported because D3D12 heap-page selection/aliasing, packed-mip layouts, buffers, CopyTileMappings, residency transitions, and broader format/array coverage remain gated.",
+      "reason": "Native Metal sparse backing now creates a 128x128x2 RGBA8-array reserved texture, reports two standard subresource tiles, maps/unmaps both array slices, and round-trips two exact 64 KiB tiles. Tier 3 remains unreported because D3D12 heap-page selection/aliasing, packed-mip layouts, buffers, CopyTileMappings, residency transitions, and broader format/array coverage remain gated.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

@@ -347,9 +347,10 @@ buffer GPU virtual addresses, 1D/2D/3D/array/mip/MSAA texture creation,
 CBV/SRV/UAV/RTV/DSV creation and binding, `GetResourceAllocationInfo`,
 `GetCopyableFootprints`, common color/depth/integer/normalized/sRGB format
 support, and typeless view-time typing. The resource probe now creates a native
-Metal sparse-backed 256x128 RGBA8 reserved texture, reports its two standard
-128x128 tiles, maps and unmaps both tiles through `UpdateTileMappings`, and
-round-trips exact 64 KiB `CopyTiles` payloads for each tile; Tier 3 remains conservative
+Metal sparse-backed 128x128x2 RGBA8-array reserved texture, reports two
+standard 128x128 subresource tiles, maps and unmaps both array slices through
+`UpdateTileMappings`, and round-trips exact 64 KiB `CopyTiles` payloads for
+each slice; Tier 3 remains conservative
 until heap-page selection, aliases, packed mips, buffers, and broader formats
 are covered. The probe also creates a fully typed `R32_FLOAT` texture through
 `ID3D12Device10::CreateCommittedResource3` and `CreatePlacedResource2`,

@@ -223,10 +223,10 @@ int main() {
     UINT sparse_total_tiles = 0;
     D3D12_PACKED_MIP_INFO sparse_packed_mips = {};
     D3D12_TILE_SHAPE sparse_tile_shape = {};
-    UINT sparse_tiling_count = 1;
-    D3D12_SUBRESOURCE_TILING sparse_tiling = {};
-    const UINT64 sparse_tile_bytes =
-        2 * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    D3D12_SUBRESOURCE_TILING sparse_tiling[2] = {};
+    UINT sparse_tiling_count = 2;
+    const UINT64 sparse_tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    const UINT64 sparse_tile_bytes = 2 * sparse_tile_size;
     D3D12_RESOURCE_DESC tex_desc = texture_desc(4, 4, DXGI_FORMAT_R8G8B8A8_UNORM);
     UINT64 texture_upload_bytes = 0;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT texture_footprint = {};
@@ -299,7 +299,8 @@ int main() {
                                   &sparse_heap_desc, IID_PPV_ARGS(&sparse_heap))
                             : E_FAIL;
     D3D12_RESOURCE_DESC reserved_desc = texture_desc(
-        256, 128, DXGI_FORMAT_R8G8B8A8_UNORM);
+        128, 128, DXGI_FORMAT_R8G8B8A8_UNORM);
+    reserved_desc.DepthOrArraySize = 2;
     reserved_texture_hr =
         device ? device->CreateReservedResource(
                      &reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
@@ -309,7 +310,7 @@ int main() {
         sparse_tiling_hr = S_OK;
         device->GetResourceTiling(
             reserved_texture, &sparse_total_tiles, &sparse_packed_mips,
-            &sparse_tile_shape, &sparse_tiling_count, 0, &sparse_tiling);
+            &sparse_tile_shape, &sparse_tiling_count, 0, sparse_tiling);
     }
     D3D12_RESOURCE_DESC sparse_buffer_desc = buffer_desc(sparse_tile_bytes);
     sparse_upload_hr =
@@ -343,29 +344,39 @@ int main() {
         sparse_upload->Unmap(0, nullptr);
     }
     if (queue && sparse_heap && reserved_texture && sparse_upload &&
-        sparse_readback && sparse_total_tiles == 2 && sparse_tiling_count == 1 &&
+        sparse_readback && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 &&
         sparse_tile_shape.HeightInTexels == 128) {
-        D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
-        D3D12_TILE_REGION_SIZE region_size = {};
-        region_size.NumTiles = 2;
-        D3D12_TILE_RANGE_FLAGS range_flags[1] = {
-            D3D12_TILE_RANGE_FLAG_NONE};
-        UINT heap_offsets[1] = {0};
-        UINT range_tile_counts[1] = {2};
+        D3D12_TILED_RESOURCE_COORDINATE coordinates[2] = {};
+        coordinates[1].Subresource = 1;
+        D3D12_TILE_REGION_SIZE region_sizes[2] = {};
+        region_sizes[0].NumTiles = 1;
+        region_sizes[1].NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS range_flags[2] = {
+            D3D12_TILE_RANGE_FLAG_NONE, D3D12_TILE_RANGE_FLAG_NONE};
+        UINT heap_offsets[2] = {0, 1};
+        UINT range_tile_counts[2] = {1, 1};
         queue->UpdateTileMappings(
-            reserved_texture, 1, &coordinate, &region_size, sparse_heap, 1,
+            reserved_texture, 2, coordinates, region_sizes, sparse_heap, 2,
             range_flags, heap_offsets, range_tile_counts,
             D3D12_TILE_MAPPING_FLAG_NONE);
         list->CopyTiles(
-            reserved_texture, &coordinate, &region_size, sparse_upload, 0,
+            reserved_texture, &coordinates[0], &region_sizes[0], sparse_upload,
+            0, D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        list->CopyTiles(
+            reserved_texture, &coordinates[1], &region_sizes[1], sparse_upload,
+            sparse_tile_size,
             D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
         D3D12_RESOURCE_BARRIER sparse_barrier = transition_barrier(
             reserved_texture, D3D12_RESOURCE_STATE_COPY_DEST,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->ResourceBarrier(1, &sparse_barrier);
         list->CopyTiles(
-            reserved_texture, &coordinate, &region_size, sparse_readback, 0,
+            reserved_texture, &coordinates[0], &region_sizes[0], sparse_readback,
+            0, D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+        list->CopyTiles(
+            reserved_texture, &coordinates[1], &region_sizes[1], sparse_readback,
+            sparse_tile_size,
             D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
 
@@ -454,21 +465,27 @@ int main() {
     bool sparse_unmapped_zero_ok = false;
     if (queue && list && allocator && fence && reserved_texture &&
         sparse_unmapped_readback && SUCCEEDED(wait_hr)) {
-        D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
-        D3D12_TILE_REGION_SIZE region_size = {};
-        region_size.NumTiles = 2;
-        D3D12_TILE_RANGE_FLAGS range_flags[1] = {
-            D3D12_TILE_RANGE_FLAG_NULL};
-        UINT range_tile_counts[1] = {2};
+        D3D12_TILED_RESOURCE_COORDINATE coordinates[2] = {};
+        coordinates[1].Subresource = 1;
+        D3D12_TILE_REGION_SIZE region_sizes[2] = {};
+        region_sizes[0].NumTiles = 1;
+        region_sizes[1].NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS range_flags[2] = {
+            D3D12_TILE_RANGE_FLAG_NULL, D3D12_TILE_RANGE_FLAG_NULL};
+        UINT range_tile_counts[2] = {1, 1};
         queue->UpdateTileMappings(
-            reserved_texture, 1, &coordinate, &region_size, nullptr, 1,
+            reserved_texture, 2, coordinates, region_sizes, nullptr, 2,
             range_flags, nullptr, range_tile_counts,
             D3D12_TILE_MAPPING_FLAG_NONE);
         sparse_unmap_close_hr = list->Reset(allocator, nullptr);
         if (SUCCEEDED(sparse_unmap_close_hr)) {
             list->CopyTiles(
-                reserved_texture, &coordinate, &region_size,
+                reserved_texture, &coordinates[0], &region_sizes[0],
                 sparse_unmapped_readback, 0,
+                D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+            list->CopyTiles(
+                reserved_texture, &coordinates[1], &region_sizes[1],
+                sparse_unmapped_readback, sparse_tile_size,
                 D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
             sparse_unmap_close_hr = list->Close();
         }
@@ -629,11 +646,13 @@ int main() {
                 SUCCEEDED(sparse_unmap_signal_hr) &&
                 SUCCEEDED(sparse_unmap_wait_hr) &&
                 SUCCEEDED(sparse_unmapped_map_hr) &&
-                sparse_unmapped_zero_ok && sparse_total_tiles == 2 && sparse_tiling_count == 1 &&
+                sparse_unmapped_zero_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
                 sparse_tile_shape.WidthInTexels == 128 &&
                 sparse_tile_shape.HeightInTexels == 128 &&
-                sparse_tiling.WidthInTiles == 2 &&
-                sparse_tiling.HeightInTiles == 1 &&
+                sparse_tiling[0].WidthInTiles == 1 &&
+                sparse_tiling[0].HeightInTiles == 1 &&
+                sparse_tiling[1].WidthInTiles == 1 &&
+                sparse_tiling[1].HeightInTiles == 1 &&
                 default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
                 texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && format_support_ok;
 
@@ -709,10 +728,13 @@ int main() {
                 sparse_tile_shape.WidthInTexels,
                 sparse_tile_shape.HeightInTexels,
                 sparse_tile_shape.DepthInTexels);
-    std::printf("    \"subresource_tiling\": [%u, %u, %u, %u],\n",
-                sparse_tiling.WidthInTiles, sparse_tiling.HeightInTiles,
-                sparse_tiling.DepthInTiles,
-                sparse_tiling.StartTileIndexInOverallResource);
+    std::printf("    \"subresource_tiling\": [[%u, %u, %u, %u], [%u, %u, %u, %u]],\n",
+                sparse_tiling[0].WidthInTiles, sparse_tiling[0].HeightInTiles,
+                sparse_tiling[0].DepthInTiles,
+                sparse_tiling[0].StartTileIndexInOverallResource,
+                sparse_tiling[1].WidthInTiles, sparse_tiling[1].HeightInTiles,
+                sparse_tiling[1].DepthInTiles,
+                sparse_tiling[1].StartTileIndexInOverallResource);
     std::printf("    \"copy_verified\": %s,\n",
                 sparse_copy_ok ? "true" : "false");
     std::printf("    \"unmapped_zero_verified\": %s\n",
