@@ -3317,6 +3317,11 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
                      slice_count);
         if (!dxmt_res->IsViewFormatAllowed(desc->Format)) {
           d->resource = nullptr;
+        } else if (resource_desc.Format == DXGI_FORMAT_D32_FLOAT &&
+                   desc->Format == DXGI_FORMAT_R32_FLOAT) {
+          // Metal comparison sampling requires the underlying Depth32 texture,
+          // not an R32Float color view of the same storage.
+          d->metal_texture_gpu_id = 0;
         } else {
           CreateDescriptorTextureView(
               d, dxmt_res, desc->Format,
@@ -3513,9 +3518,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
     info.lod_max_clamp = desc->MaxLOD;
     info.normalized_coords = true;
     info.support_argument_buffers = true;
-    if (desc->Filter == D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR ||
-        desc->Filter == D3D12_FILTER_COMPARISON_MIN_MAG_POINT_MIP_LINEAR ||
-        desc->Filter == D3D12_FILTER_COMPARISON_MIN_LINEAR_MAG_MIP_POINT) {
+    if (D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter)) {
       if (desc->ComparisonFunc >= D3D12_COMPARISON_FUNC_LESS &&
           desc->ComparisonFunc <= D3D12_COMPARISON_FUNC_ALWAYS) {
         info.compare_function = (WMTCompareFunction)(desc->ComparisonFunc - 1);

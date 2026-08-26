@@ -554,6 +554,10 @@ struct LowerContext {
     bool vertex_has_float_load_input = false;
     bool vertex_procedural_fullscreen_fallback = false;
     bool compute_wave_shader = false;
+    bool compute_raw_gather_shader = false;
+    bool compute_texture_store_shader = false;
+    bool compute_sample_cmp_shader = false;
+    bool compute_texture_sample_shader = false;
 };
 
 static std::string vertexPullField(LowerContext &ctx, uint32_t sig_id) {
@@ -724,8 +728,39 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "kernel void cs_main(\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
             os << "  device char* buf" << i << " [[buffer(" << i << ")]],\n";
-        for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++)
-            os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
+        for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
+            bool comparison_slot = false;
+            bool raw_gather_slot = false;
+            if (ctx.compute_sample_cmp_shader) {
+                for (const auto &range : ctx.binding_plan.ranges) {
+                    if (range.kind == DescriptorRangePlan::Kind::SRV &&
+                        i >= range.lower_bound &&
+                        i < range.lower_bound + range.count) {
+                        comparison_slot = true;
+                        break;
+                    }
+                }
+            }
+            if (ctx.compute_raw_gather_shader) {
+                for (const auto &range : ctx.binding_plan.ranges) {
+                    if (range.kind == DescriptorRangePlan::Kind::SRV &&
+                        i >= range.lower_bound &&
+                        i < range.lower_bound + range.count) {
+                        raw_gather_slot = true;
+                        break;
+                    }
+                }
+            }
+            if (raw_gather_slot)
+                os << "  texture2d<uint, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+            else if (comparison_slot)
+                os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+            else if (ctx.compute_texture_store_shader ||
+                     !ctx.compute_texture_sample_shader)
+                os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
+            else
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+        }
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++)
             os << "  sampler samp" << i << " [[sampler(" << i << ")]],\n";
         os << "  uint3 dtid [[thread_position_in_grid]],\n";
@@ -2294,7 +2329,10 @@ static MSLType typeForHandleKind(DescriptorRangePlan::Kind kind) {
 
 static MSLType typeForHandleKind(const LowerContext &ctx, DescriptorRangePlan::Kind kind) {
     MSLType type = typeForHandleKind(kind);
-    if (ctx.shader.kind == DxilShaderKind::Compute && type.kind == MSLTypeKind::Texture2D)
+    if (ctx.shader.kind == DxilShaderKind::Compute &&
+        (ctx.compute_texture_store_shader ||
+         !ctx.compute_texture_sample_shader) &&
+        type.kind == MSLTypeKind::Texture2D)
         return {MSLTypeKind::RWTexture2D, 0, {}};
     return type;
 }
@@ -2399,11 +2437,14 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
             } else if (intrinsic_id == DXOP_CreateHandleFromBinding && fn_args.size() >= 1) {
                 std::string binding = resolveValue(ctx, fn_args[0]);
                 auto parts = parseAggregateLiteral(binding);
-                uint32_t lower_bound = 0, count = 1, space = 0, resource_class = 0;
+                uint32_t lower_bound = 0, upper_bound = 0, count = 1;
+                uint32_t space = 0, resource_class = 0;
                 if (parts.size() > 0) parseUnsignedLiteral(parts[0], lower_bound);
-                if (parts.size() > 1) parseUnsignedLiteral(parts[1], count);
+                if (parts.size() > 1) parseUnsignedLiteral(parts[1], upper_bound);
                 if (parts.size() > 2) parseUnsignedLiteral(parts[2], space);
                 if (parts.size() > 3) parseUnsignedLiteral(parts[3], resource_class);
+                if (upper_bound >= lower_bound)
+                    count = upper_bound - lower_bound + 1;
                 recordDescriptorRange(plan, {descriptorKindForResourceClass(resource_class),
                                              space, lower_bound, count});
             } else if (intrinsic_id == DXOP_CreateHandleFromHeap && fn_args.size() >= 1) {
@@ -2532,8 +2573,9 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_TextureSampleGrad:
     case DXOP_TextureGather:
     case DXOP_TextureGatherCmp:
-    case DXOP_TextureGatherRaw:
         return {MSLTypeKind::Float4, 0, {}};
+    case DXOP_TextureGatherRaw:
+        return {MSLTypeKind::UInt4, 0, {}};
     case DXOP_RawBufferLoad:
     case 303:
     case 1025:
@@ -2779,12 +2821,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_CreateHandleFromBinding: {
         auto binding = valueArg(0, "");
         auto bvals = parseAggregateLiteral(binding);
-        uint32_t lower_bound = 0, resource_class = 0;
+        uint32_t lower_bound = 0, upper_bound = 0, resource_class = 0;
         uint32_t count = 1, register_space = 0;
         if (bvals.size() > 0) parseUnsignedLiteral(bvals[0], lower_bound);
-        if (bvals.size() > 1) parseUnsignedLiteral(bvals[1], count);
+        if (bvals.size() > 1) parseUnsignedLiteral(bvals[1], upper_bound);
         if (bvals.size() > 2) parseUnsignedLiteral(bvals[2], register_space);
         if (bvals.size() > 3) parseUnsignedLiteral(bvals[3], resource_class);
+        if (upper_bound >= lower_bound)
+            count = upper_bound - lower_bound + 1;
         uint32_t index = args.size() >= 2 ? literalArg(1, 0, "idx") : 0;
         if (count != 0)
             index = std::min<uint32_t>(index, count - 1);
@@ -2896,6 +2940,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         ctx.last_buffer_handle = handle;
         auto cx = textureCoordComponent(ctx, valueArg(2, "0"), 0);
         auto cy = textureCoordComponent(ctx, valueArg(3, "0"), 1);
+        if (ctx.compute_sample_cmp_shader) {
+            auto mip = ensureScalarIndex(numericArg(1, "0"));
+            return "float4(" + handle + ".read(uint2(" + cx + ", " + cy +
+                   "), (uint)(" + mip + ")))";
+        }
         return handle + ".read(uint2(" + cx + ", " + cy + "))";
     }
     case DXOP_TextureStore: case 225: {
@@ -2917,10 +2966,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto samp = handleArg(1, "samp", "samp0");
         auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
         auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
-        if (ctx.shader.kind == DxilShaderKind::Compute)
-            return handle + ".read(uint2(" +
-                   textureCoordComponent(ctx, valueArg(2, "0"), 0) + ", " +
-                   textureCoordComponent(ctx, valueArg(3, "0"), 1) + "))";
+        if (intrinsic_id == DXOP_TextureSampleLevel) {
+            auto ox = ensureScalarIndex(numericArg(6, "0"));
+            auto oy = ensureScalarIndex(numericArg(7, "0"));
+            auto lod = numericArg(9, "0.0");
+            return handle + ".sample(" + samp + ", float2(" + cx + ", " +
+                   cy + "), level((float)(" + lod + ")), int2(" + ox +
+                   ", " + oy + "))";
+        }
         return handle + ".sample(" + samp + ", float2(" + cx + ", " + cy + "))";
     }
     case DXOP_TextureGather: case 74: case 223: {
@@ -2929,6 +2982,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto samp = handleArg(1, "samp", "samp0");
         auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
         auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        if (intrinsic_id == DXOP_TextureGatherRaw || intrinsic_id == 223) {
+            auto ox = ensureScalarIndex(numericArg(6, "0"));
+            auto oy = ensureScalarIndex(numericArg(7, "0"));
+            return handle + ".gather(" + samp + ", float2(" + cx + ", " +
+                   cy + "), int2(" + ox + ", " + oy + "), component::x)";
+        }
         uint32_t ch = args.size() > 8 ? literalArg(8, 0, "ch") : 0;
         if (ctx.shader.kind == DxilShaderKind::Compute) {
             auto texel = handle + ".read(uint2(" +
@@ -2940,15 +2999,26 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return "float4((" + sample + ")." + componentName(ch) + ")";
     }
     case DXOP_TextureSampleCmp: case DXOP_TextureSampleCmpLevelZero: case 224: {
-        if (args.size() < 5) return "0.0";
+        if (args.size() < 10) return "0.0";
         auto handle = handleArg(0, "tex", "tex0");
         auto samp = handleArg(1, "samp", "samp0");
         auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
         auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
-        auto cmp = valueArg(4, "0.0");
-        if (ctx.shader.kind == DxilShaderKind::Compute)
-            return "((" + handle + ".read(uint2((uint)(" + cx + "), (uint)(" + cy + "))).r) < (" + cmp + ") ? 1.0 : 0.0)";
-        return "((" + handle + ".sample(" + samp + ", float2(" + cx + ", " + cy + ")).r) < (" + cmp + ") ? 1.0 : 0.0)";
+        auto cmp = valueArg(9, "0.0");
+        auto ox = ensureScalarIndex(numericArg(6, "0"));
+        auto oy = ensureScalarIndex(numericArg(7, "0"));
+        if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224) {
+            auto lod = numericArg(10, "0.0");
+            return handle + ".sample_compare(" + samp + ", float2(" + cx +
+                   ", " + cy + "), (float)(" + cmp + "), level((float)(" +
+                   lod + ")), int2(" + ox + ", " + oy + "))";
+        }
+        if (intrinsic_id == DXOP_TextureSampleCmpLevelZero)
+            return handle + ".sample_compare(" + samp + ", float2(" + cx +
+                   ", " + cy + "), (float)(" + cmp + "), level(0.0f), int2(" +
+                   ox + ", " + oy + "))";
+        return handle + ".sample_compare(" + samp + ", float2(" + cx + ", " +
+               cy + "), (float)(" + cmp + "), int2(" + ox + ", " + oy + "))";
     }
     case 70: return "0";
     case 71: return "true";
@@ -3284,6 +3354,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         std::string source_expr = stripEnclosingParens(expr) == name
             ? defaultForType(isUsableMSLType(type) ? type : MSLType{MSLTypeKind::Int, 0, {}})
             : expr;
+        const bool is_sample_compare =
+            source_expr.find(".sample_compare(") != std::string::npos;
+        if (is_sample_compare)
+            type = {MSLTypeKind::Float, 0, {}};
         uint32_t forward_source_id = 0;
         if (parseEmittedValueName(stripEnclosingParens(source_expr), forward_source_id) &&
             forward_source_id < ctx.value_table.size() &&
@@ -3304,6 +3378,15 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             auto pre_it = ctx.predeclared_types.find(name);
             if (pre_it != ctx.predeclared_types.end())
                 declared_type = pre_it->second;
+            if (is_sample_compare) {
+                declared_type = {MSLTypeKind::Float, 0, {}};
+                type = declared_type;
+                ctx.predeclared_types[name] = declared_type;
+            }
+            if (is_sample_compare) {
+                os << "  " << name << " = " << source_expr << ";\n";
+                return;
+            }
             if (ctx.shader.kind != DxilShaderKind::Compute &&
                 declared_type.kind == MSLTypeKind::RWTexture2D)
                 declared_type = {MSLTypeKind::Texture2D, 0, {}};
@@ -3335,6 +3418,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             assigned = dropInvalidScalarComponentAccess(ctx, assigned, declared_type);
             type = declared_type;
             os << "  " << name << " = " << assigned << ";\n";
+            return;
+        }
+        if (is_sample_compare) {
+            os << "  float " << name << " = " << source_expr << ";\n";
             return;
         }
         std::string assigned = coerceResolvedValue(ctx, source_expr, type);
@@ -3650,6 +3737,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             MSLType result_type = inferDXIntrinsicResultType(
                 ctx, intrinsic_id, fn_args, bestType(getTypeForInst(inst.type_id), translated),
                 callee_name);
+            if (translated.find(".sample_compare(") != std::string::npos)
+                result_type = {MSLTypeKind::Float, 0, {}};
             if (intrinsic_id == DXOP_CBufferLoad || intrinsic_id == DXOP_CBufferLoadLegacy) {
                 const char *handle_value = "<missing>";
                 uint32_t handle_id = fn_args.empty() ? UINT32_MAX : fn_args[0];
@@ -4384,6 +4473,47 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         for (const auto &decl : module.functions) {
             if (startsWith(decl.name, "dx.op.wave")) {
                 ctx.compute_wave_shader = true;
+                break;
+            }
+        }
+    }
+    ctx.compute_raw_gather_shader = shader.kind == DxilShaderKind::Compute;
+    if (ctx.compute_raw_gather_shader) {
+        ctx.compute_raw_gather_shader = false;
+        for (const auto &decl : module.functions) {
+            if (startsWith(decl.name, "dx.op.textureGatherRaw")) {
+                ctx.compute_raw_gather_shader = true;
+                break;
+            }
+        }
+    }
+    ctx.compute_texture_store_shader = shader.kind == DxilShaderKind::Compute;
+    if (ctx.compute_texture_store_shader) {
+        ctx.compute_texture_store_shader = false;
+        for (const auto &decl : module.functions) {
+            if (startsWith(decl.name, "dx.op.textureStore")) {
+                ctx.compute_texture_store_shader = true;
+                break;
+            }
+        }
+    }
+    ctx.compute_sample_cmp_shader = shader.kind == DxilShaderKind::Compute;
+    if (ctx.compute_sample_cmp_shader) {
+        ctx.compute_sample_cmp_shader = false;
+        for (const auto &decl : module.functions) {
+            if (startsWith(decl.name, "dx.op.sampleCmp")) {
+                ctx.compute_sample_cmp_shader = true;
+                break;
+            }
+        }
+    }
+    ctx.compute_texture_sample_shader = shader.kind == DxilShaderKind::Compute;
+    if (ctx.compute_texture_sample_shader) {
+        ctx.compute_texture_sample_shader = false;
+        for (const auto &decl : module.functions) {
+            if (startsWith(decl.name, "dx.op.sample") ||
+                startsWith(decl.name, "dx.op.textureGather")) {
+                ctx.compute_texture_sample_shader = true;
                 break;
             }
         }

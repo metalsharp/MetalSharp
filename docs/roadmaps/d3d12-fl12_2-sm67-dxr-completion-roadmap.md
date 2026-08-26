@@ -290,8 +290,8 @@ Findings:
 - The DXBC/DXIL path now reports SM 6.7 after runtime-proving SM 6.6 root
   constants, descriptor indexing, 64-bit arithmetic, atomics/barriers, and
   texture/sampler access plus SM 6.7 quad votes.
-- Wave operations are partially lowered, but the baseline feature query reports
-  them before the current probe policy accepts runtime correctness.
+- Wave operations are reported only after the six-case 32-lane runtime corpus
+  passes exact readback.
 - The source tracks unsupported intrinsic/opcode counts and rejects those
   shaders; this is useful diagnostics but not full SM6.7 coverage.
 - D3D12 AS/MS pipeline-state stream subobjects now compile through Metal Shader
@@ -310,12 +310,14 @@ Findings:
 - Stream output is explicitly rejected.
 - Native tessellation is restricted to a proof shape; unsupported shapes are
   rejected/skipped.
-- Shader Model 6.7 advanced texture operations do not have complete lowering or
-  probes.
+- Shader Model 6.7 advanced texture operations now have compute-stage runtime
+  lowering and exact readback for programmable offsets, `GatherRaw`, and
+  `SampleCmpLevel` across two independently cleared depth mip levels. Graphics
+  stages and writable MSAA textures remain gated, so Options14 stays false.
 - DXIL ray-query and raytracing intrinsics do not have a complete Metal lowering
   model.
-- `GetCachedBlob` on pipeline states is `E_NOTIMPL` despite pipeline cache and
-  binary archive infrastructure.
+- `GetCachedBlob` returns the caller-provided pipeline cache payload and passes
+  the cache round-trip object contract.
 
 ### 3.7 DXGI and `dxgi_dxmt` audit
 
@@ -931,6 +933,16 @@ the goal is not complete.
   `R8G8B8A8_UINT` view returns `[0,0,128,63]`, an invalid `R16_UINT` list is
   rejected, and an undeclared `R32_SINT` SRV remains null. Options12 reports
   `RelaxedFormatCastingSupported = TRUE` only after this behavior gate passes.
+- Added the compute-stage SM 6.7 advanced-texture corpus. Variable
+  `SampleLevel` offsets select distinct texels and return
+  `[300,341,382,383]`; `GatherRaw` returns packed `0x281e140a` four times
+  through a declared `R32_UINT` alias; and `SampleCmpLevel` reads independently
+  cleared depth mip values `0.25/0.75` and returns comparison results `0/1` for
+  explicit LODs 0/1. The custom DXIL path now preserves binding upper bounds,
+  emits typed integer gathers, programmable sample offsets/LOD, depth
+  comparison sampling, and DSV mip/slice attachment selection. Options14 is
+  intentionally still unreported until graphics-stage breadth and writable
+  MSAA textures pass.
 - Completed the Shader Model 6.7 reporting gate: the SM 6.6 corpus now
   dispatches and passes exact readback for root constants, descriptor indexing,
   64-bit arithmetic, group atomics/barriers, and texture/sampler access;

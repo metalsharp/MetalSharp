@@ -630,6 +630,38 @@ static bool DSVHasStencil(const D3D12Descriptor *desc) {
   return FormatHasStencil(format);
 }
 
+static uint16_t DSVMipLevel(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->dsv.ViewDimension) {
+  case D3D12_DSV_DIMENSION_TEXTURE1D:
+    return desc->dsv.Texture1D.MipSlice;
+  case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
+    return desc->dsv.Texture1DArray.MipSlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2D:
+    return desc->dsv.Texture2D.MipSlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+    return desc->dsv.Texture2DArray.MipSlice;
+  default:
+    return 0;
+  }
+}
+
+static uint16_t DSVArraySlice(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->dsv.ViewDimension) {
+  case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
+    return desc->dsv.Texture1DArray.FirstArraySlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+    return desc->dsv.Texture2DArray.FirstArraySlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->dsv.Texture2DMSArray.FirstArraySlice;
+  default:
+    return 0;
+  }
+}
+
 static const char *DescriptorRangeTypeName(D3D12_DESCRIPTOR_RANGE_TYPE type) {
   switch (type) {
   case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
@@ -4871,9 +4903,14 @@ struct ReplayState {
         auto dsv_tex = res->GetMTLTexture();
         if (dsv_tex.handle) {
           rp.depth.texture = dsv_tex.handle;
+          rp.depth.level = DSVMipLevel(desc);
+          rp.depth.slice = DSVArraySlice(desc);
           RetainMTLObjectForCompletion(dsv_tex);
-          if (DSVHasStencil(desc))
+          if (DSVHasStencil(desc)) {
             rp.stencil.texture = dsv_tex.handle;
+            rp.stencil.level = DSVMipLevel(desc);
+            rp.stencil.slice = DSVArraySlice(desc);
+          }
           has_valid_rt = true;
           render_enc_has_dsv = true;
           render_enc_dsv_format = effective_dsv_format;
@@ -8941,11 +8978,15 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             auto tex = res->GetMTLTexture();
             if (tex.handle) {
               rp.depth.texture = tex.handle;
+              rp.depth.level = DSVMipLevel(desc);
+              rp.depth.slice = DSVArraySlice(desc);
               st.RetainMTLObjectForCompletion(tex);
               rp.depth.load_action = WMTLoadActionLoad;
               rp.depth.store_action = WMTStoreActionStore;
               if (DSVHasStencil(desc)) {
                 rp.stencil.texture = tex.handle;
+                rp.stencil.level = DSVMipLevel(desc);
+                rp.stencil.slice = DSVArraySlice(desc);
                 rp.stencil.load_action = WMTLoadActionLoad;
                 rp.stencil.store_action = WMTStoreActionStore;
               }
@@ -8999,6 +9040,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             auto tex = res->GetMTLTexture();
             if (tex.handle) {
               rp.depth.texture = tex.handle;
+              rp.depth.level = DSVMipLevel(desc);
+              rp.depth.slice = DSVArraySlice(desc);
               st.RetainMTLObjectForCompletion(tex);
               rp.depth.load_action = (cmd->flags & D3D12_CLEAR_FLAG_DEPTH)
                                          ? WMTLoadActionClear
@@ -9008,6 +9051,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 rp.depth.clear_depth = cmd->depth;
               if (DSVHasStencil(desc)) {
                 rp.stencil.texture = tex.handle;
+                rp.stencil.level = DSVMipLevel(desc);
+                rp.stencil.slice = DSVArraySlice(desc);
                 rp.stencil.load_action = (cmd->flags & D3D12_CLEAR_FLAG_STENCIL)
                                              ? WMTLoadActionClear
                                              : WMTLoadActionLoad;

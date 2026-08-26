@@ -138,6 +138,24 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS14": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
+      "probe_status": "compute_programmable_offsets_raw_gather_and_sample_cmp_level_passed",
+      "reported": "unsupported",
+      "required_fields": [
+        "AdvancedTextureOpsSupported",
+        "WriteableMSAATexturesSupported"
+      ],
+      "proven_subset": [
+        "compute-stage variable SampleLevel offsets",
+        "compute-stage uint32 GatherRaw through a declared castable format",
+        "compute-stage SampleCmpLevel with explicit LOD 0/1",
+        "depth SRV comparison sampling and DSV mip clear selection"
+      ],
+      "risk": "Compute-stage exact readbacks prove the three advanced texture operation families, but the global Options14 bit remains false until graphics-stage coverage passes. Writable MSAA texture creation, binding, per-sample stores, and readback are still unimplemented and unreported.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS8": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_resources",
       "probe_status": "unaligned_bc1_copy_readback_passed",
@@ -188,7 +206,7 @@
       "current_target": "6_7",
       "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
       "reported": "supported",
-      "risk": "SM 6.7 is behavior-backed by the SM 6.6 root-constant, descriptor-indexing, 64-bit, atomic/barrier, and texture/sampler runtime corpus plus SM 6.7 QuadAny/QuadAll dispatch/readback; additional SM 6.7 advanced texture operations remain separate optional behavior gates.",
+      "risk": "SM 6.7 is behavior-backed by the SM 6.6 root-constant, descriptor-indexing, 64-bit, atomic/barrier, and texture/sampler runtime corpus plus SM 6.7 QuadAny/QuadAll dispatch/readback. Compute-stage programmable offsets, GatherRaw, and SampleCmpLevel now pass as a separate Options14 subset, while graphics-stage breadth and writable MSAA remain gated.",
       "state": "required",
       "tier": "required"
     },
