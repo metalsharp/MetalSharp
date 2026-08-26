@@ -67,6 +67,10 @@ bool D3D12ResolveTriangleAccelerationStructureInfo(
     MTLD3D12Device *device,
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
     WMTPrimitiveAccelerationStructureInfo &info);
+bool D3D12ResolveAABBAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTAABBAccelerationStructureInfo &info);
 
 WMT::Reference<WMT::ComputePipelineState>
 GetD3D12StateObjectRaygenComputePipeline(ID3D12StateObject *state_object);

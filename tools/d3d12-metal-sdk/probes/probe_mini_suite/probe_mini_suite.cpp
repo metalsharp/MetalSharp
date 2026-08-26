@@ -2258,6 +2258,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* acceleration_structure = nullptr;
     ID3D12Resource* scratch = nullptr;
     ID3D12Resource* postbuild = nullptr;
+    ID3D12Resource* aabbs = nullptr;
+    ID3D12Resource* aabb_acceleration_structure = nullptr;
+    ID3D12Resource* aabb_scratch = nullptr;
+    ID3D12Resource* aabb_postbuild = nullptr;
     ID3D12Resource* instances = nullptr;
     ID3D12Resource* top_level_acceleration_structure = nullptr;
     ID3D12Resource* top_level_scratch = nullptr;
@@ -2312,16 +2316,18 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
-    D3D12_EXPORT_DESC raygen_exports[5] = {};
+    D3D12_EXPORT_DESC raygen_exports[7] = {};
     raygen_exports[0].Name = L"raygen";
     raygen_exports[1].Name = L"miss_shader";
     raygen_exports[2].Name = L"closest_hit";
     raygen_exports[3].Name = L"callable_shader";
     raygen_exports[4].Name = L"any_hit";
+    raygen_exports[5].Name = L"procedural_intersection";
+    raygen_exports[6].Name = L"procedural_closest_hit";
     D3D12_DXIL_LIBRARY_DESC raygen_library_desc = {};
     raygen_library_desc.DXILLibrary = {raygen_library.data(),
                                       raygen_library.size()};
-    raygen_library_desc.NumExports = 5;
+    raygen_library_desc.NumExports = 7;
     raygen_library_desc.pExports = raygen_exports;
     D3D12_GLOBAL_ROOT_SIGNATURE global_root = {compute_root};
     D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
@@ -2334,7 +2340,12 @@ static ProbeResult probe_dxr_acceleration_structures() {
     hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
     hit_group.ClosestHitShaderImport = L"closest_hit";
     hit_group.AnyHitShaderImport = L"any_hit";
-    D3D12_STATE_SUBOBJECT state_subobjects[5] = {};
+    D3D12_HIT_GROUP_DESC procedural_hit_group = {};
+    procedural_hit_group.HitGroupExport = L"procedural_hit_group";
+    procedural_hit_group.Type = D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE;
+    procedural_hit_group.ClosestHitShaderImport = L"procedural_closest_hit";
+    procedural_hit_group.IntersectionShaderImport = L"procedural_intersection";
+    D3D12_STATE_SUBOBJECT state_subobjects[6] = {};
     state_subobjects[0] = {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY,
                            &raygen_library_desc};
     state_subobjects[1] = {
@@ -2345,9 +2356,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
         D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG,
         &pipeline_config};
     state_subobjects[4] = {D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP, &hit_group};
+    state_subobjects[5] = {D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP,
+                           &procedural_hit_group};
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-    state_desc.NumSubobjects = 5;
+    state_desc.NumSubobjects = 6;
     state_desc.pSubobjects = state_subobjects;
     if (SUCCEEDED(hr))
         hr = device5->CreateStateObject(&state_desc,
@@ -2371,6 +2384,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
         SUCCEEDED(hr)
             ? raytracing_properties->GetShaderIdentifier(L"callable_shader")
             : nullptr;
+    const void* procedural_hit_group_identifier =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderIdentifier(
+                  L"procedural_hit_group")
+            : nullptr;
     const void* repeated_raygen_identifier =
         SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen")
                       : nullptr;
@@ -2380,13 +2398,15 @@ static ProbeResult probe_dxr_acceleration_structures() {
             : nullptr;
     const bool distinct_shader_identifiers =
         raygen_identifier && miss_identifier && hit_group_identifier &&
-        callable_identifier &&
+        callable_identifier && procedural_hit_group_identifier &&
         std::memcmp(raygen_identifier, miss_identifier, 32) != 0 &&
         std::memcmp(raygen_identifier, hit_group_identifier, 32) != 0 &&
         std::memcmp(miss_identifier, hit_group_identifier, 32) != 0 &&
         std::memcmp(raygen_identifier, callable_identifier, 32) != 0 &&
         std::memcmp(miss_identifier, callable_identifier, 32) != 0 &&
-        std::memcmp(hit_group_identifier, callable_identifier, 32) != 0;
+        std::memcmp(hit_group_identifier, callable_identifier, 32) != 0 &&
+        std::memcmp(hit_group_identifier, procedural_hit_group_identifier,
+                    32) != 0;
     const bool stable_shader_identifiers =
         raygen_identifier && repeated_raygen_identifier &&
         std::memcmp(raygen_identifier, repeated_raygen_identifier, 32) == 0 &&
@@ -2396,7 +2416,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
-        D3D12_RESOURCE_DESC table_desc = buffer_desc(256);
+        D3D12_RESOURCE_DESC table_desc = buffer_desc(320);
         hr = device->CreateCommittedResource(
             &upload_heap, D3D12_HEAP_FLAG_NONE, &table_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -2411,6 +2431,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
             std::memcpy(static_cast<uint8_t*>(mapped) + 128,
                         hit_group_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 192,
+                        procedural_hit_group_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 256,
                         callable_identifier, 32);
             raygen_shader_table->Unmap(0, nullptr);
         }
@@ -2489,16 +2511,96 @@ static ProbeResult probe_dxr_acceleration_structures() {
             IID_PPV_ARGS(&postbuild));
     }
 
-    D3D12_RAYTRACING_INSTANCE_DESC instance = {};
-    instance.Transform[0][0] = 1.0f;
-    instance.Transform[1][1] = 1.0f;
-    instance.Transform[2][2] = 1.0f;
-    instance.InstanceID = 7;
-    instance.InstanceMask = 0xff;
-    instance.Flags =
+    const D3D12_RAYTRACING_AABB aabb = {
+        -0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 1.0f};
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC aabb_desc = buffer_desc(sizeof(aabb));
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &aabb_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&aabbs));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = aabbs->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, &aabb, sizeof(aabb));
+            aabbs->Unmap(0, nullptr);
+        }
+    }
+    D3D12_RAYTRACING_GEOMETRY_DESC aabb_geometry = {};
+    aabb_geometry.Type =
+        D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+    aabb_geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
+    aabb_geometry.AABBs.AABBCount = 1;
+    aabb_geometry.AABBs.AABBs.StartAddress =
+        aabbs ? aabbs->GetGPUVirtualAddress() : 0;
+    aabb_geometry.AABBs.AABBs.StrideInBytes = sizeof(aabb);
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS aabb_inputs = {};
+    aabb_inputs.Type =
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+    aabb_inputs.Flags =
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+    aabb_inputs.NumDescs = 1;
+    aabb_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    aabb_inputs.pGeometryDescs = &aabb_geometry;
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO aabb_prebuild = {};
+    if (SUCCEEDED(hr)) {
+        device5->GetRaytracingAccelerationStructurePrebuildInfo(
+            &aabb_inputs, &aabb_prebuild);
+        if (!aabb_prebuild.ResultDataMaxSizeInBytes ||
+            !aabb_prebuild.ScratchDataSizeInBytes)
+            hr = E_NOTIMPL;
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC as_desc =
+            buffer_desc(aabb_prebuild.ResultDataMaxSizeInBytes);
+        as_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &as_desc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(&aabb_acceleration_structure));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC scratch_desc =
+            buffer_desc(aabb_prebuild.ScratchDataSizeInBytes);
+        scratch_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &scratch_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&aabb_scratch));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC postbuild_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &postbuild_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&aabb_postbuild));
+    }
+
+    D3D12_RAYTRACING_INSTANCE_DESC instance[2] = {};
+    instance[0].Transform[0][0] = 1.0f;
+    instance[0].Transform[1][1] = 1.0f;
+    instance[0].Transform[2][2] = 1.0f;
+    instance[0].InstanceID = 7;
+    instance[0].InstanceMask = 0xff;
+    instance[0].Flags =
         D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
-    instance.AccelerationStructure =
+    instance[0].AccelerationStructure =
         acceleration_structure ? acceleration_structure->GetGPUVirtualAddress() : 0;
+    instance[1].Transform[0][0] = 1.0f;
+    instance[1].Transform[1][1] = 1.0f;
+    instance[1].Transform[2][2] = 1.0f;
+    instance[1].Transform[0][3] = 2.0f;
+    instance[1].InstanceID = 8;
+    instance[1].InstanceMask = 0xff;
+    instance[1].InstanceContributionToHitGroupIndex = 1;
+    instance[1].AccelerationStructure = aabb_acceleration_structure
+        ? aabb_acceleration_structure->GetGPUVirtualAddress()
+        : 0;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
         D3D12_RESOURCE_DESC instance_desc = buffer_desc(sizeof(instance));
@@ -2520,7 +2622,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
     top_level_inputs.Flags =
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-    top_level_inputs.NumDescs = 1;
+    top_level_inputs.NumDescs = 2;
     top_level_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     top_level_inputs.InstanceDescs =
         instances ? instances->GetGPUVirtualAddress() : 0;
@@ -2625,6 +2727,18 @@ static ProbeResult probe_dxr_acceleration_structures() {
         list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
                                                                  &source);
 
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC aabb_build = {};
+        aabb_build.DestAccelerationStructureData =
+            aabb_acceleration_structure->GetGPUVirtualAddress();
+        aabb_build.ScratchAccelerationStructureData =
+            aabb_scratch->GetGPUVirtualAddress();
+        aabb_build.Inputs = aabb_inputs;
+        list4->BuildRaytracingAccelerationStructure(&aabb_build, 0, nullptr);
+        post.DestBuffer = aabb_postbuild->GetGPUVirtualAddress();
+        source = aabb_acceleration_structure->GetGPUVirtualAddress();
+        list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
+                                                                 &source);
+
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC top_level_build = {};
         top_level_build.DestAccelerationStructureData =
             top_level_acceleration_structure->GetGPUVirtualAddress();
@@ -2656,13 +2770,13 @@ static ProbeResult probe_dxr_acceleration_structures() {
         dispatch_rays.MissShaderTable.StrideInBytes = 32;
         dispatch_rays.HitGroupTable.StartAddress =
             raygen_shader_table->GetGPUVirtualAddress() + 128;
-        dispatch_rays.HitGroupTable.SizeInBytes = 32;
-        dispatch_rays.HitGroupTable.StrideInBytes = 32;
+        dispatch_rays.HitGroupTable.SizeInBytes = 128;
+        dispatch_rays.HitGroupTable.StrideInBytes = 64;
         dispatch_rays.CallableShaderTable.StartAddress =
-            raygen_shader_table->GetGPUVirtualAddress() + 192;
+            raygen_shader_table->GetGPUVirtualAddress() + 256;
         dispatch_rays.CallableShaderTable.SizeInBytes = 32;
         dispatch_rays.CallableShaderTable.StrideInBytes = 32;
-        dispatch_rays.Width = 2;
+        dispatch_rays.Width = 3;
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
         list4->DispatchRays(&dispatch_rays);
@@ -2671,17 +2785,19 @@ static ProbeResult probe_dxr_acceleration_structures() {
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &output_barrier);
         list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
-                                sizeof(uint32_t) * 5);
+                                sizeof(uint32_t) * 6);
         hr = execute_and_wait(queue, list4);
     }
 
     uint64_t current_size = 0;
     uint64_t top_level_current_size = 0;
+    uint64_t aabb_current_size = 0;
     uint32_t ray_hit = 0;
     uint32_t miss_value = 0;
     uint32_t closest_hit_value = 0;
     uint32_t callable_value = 0;
     uint32_t raygen_value = 0;
+    uint32_t procedural_hit_value = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(current_size)};
@@ -2703,7 +2819,17 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(uint32_t) * 5};
+        D3D12_RANGE range = {0, sizeof(aabb_current_size)};
+        hr = aabb_postbuild->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&aabb_current_size, mapped,
+                        sizeof(aabb_current_size));
+            aabb_postbuild->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(uint32_t) * 6};
         hr = ray_query_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&ray_hit, mapped, sizeof(ray_hit));
@@ -2716,14 +2842,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
                         sizeof(closest_hit_value));
             std::memcpy(&callable_value,
                         static_cast<const uint8_t*>(mapped) +
-                            sizeof(ray_hit) + sizeof(miss_value) +
-                            sizeof(closest_hit_value),
+                            sizeof(uint32_t) * 4,
                         sizeof(callable_value));
             std::memcpy(&raygen_value,
                         static_cast<const uint8_t*>(mapped) +
-                            sizeof(ray_hit) + sizeof(miss_value) +
-                            sizeof(closest_hit_value) + sizeof(callable_value),
+                            sizeof(uint32_t) * 5,
                         sizeof(raygen_value));
+            std::memcpy(&procedural_hit_value,
+                        static_cast<const uint8_t*>(mapped) +
+                            sizeof(uint32_t) * 3,
+                        sizeof(procedural_hit_value));
             ray_query_readback->Unmap(0, nullptr);
         }
     }
@@ -2731,13 +2859,17 @@ static ProbeResult probe_dxr_acceleration_structures() {
     const bool verified = SUCCEEDED(hr) && SUCCEEDED(removed_reason) &&
                           current_size > 0 &&
                           current_size <= prebuild.ResultDataMaxSizeInBytes &&
+                          aabb_current_size > 0 &&
+                          aabb_current_size <=
+                              aabb_prebuild.ResultDataMaxSizeInBytes &&
                           top_level_current_size > 0 &&
                           top_level_current_size <=
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
                           ray_hit == 1 && miss_value == 0x4d495353 &&
                           closest_hit_value == 0x52454332 &&
                           callable_value == 0x43414c4c &&
-                          raygen_value == 42;
+                          raygen_value == 42 &&
+                          procedural_hit_value == 0x50524f43;
 
     safe_release(raygen_shader_table);
     safe_release(raytracing_properties);
@@ -2749,6 +2881,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(top_level_acceleration_structure);
     safe_release(instances);
     safe_release(postbuild);
+    safe_release(aabb_postbuild);
+    safe_release(aabb_scratch);
+    safe_release(aabb_acceleration_structure);
+    safe_release(aabbs);
     safe_release(scratch);
     safe_release(acceleration_structure);
     safe_release(vertices);
@@ -2762,7 +2898,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal BLAS/TLAS, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/callable DispatchRays passed"
+            verified ? "Metal triangle/AABB BLAS, TLAS, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -2770,6 +2906,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"prebuild_scratch_bytes\":" +
                 std::to_string(prebuild.ScratchDataSizeInBytes) +
                 ",\"current_size_bytes\":" + std::to_string(current_size) +
+                ",\"aabb_prebuild_result_bytes\":" +
+                std::to_string(aabb_prebuild.ResultDataMaxSizeInBytes) +
+                ",\"aabb_current_size_bytes\":" +
+                std::to_string(aabb_current_size) +
                 ",\"tlas_prebuild_result_bytes\":" +
                 std::to_string(top_level_prebuild.ResultDataMaxSizeInBytes) +
                 ",\"tlas_prebuild_scratch_bytes\":" +
@@ -2785,6 +2925,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 std::to_string(callable_value) +
                 ",\"raygen_dispatch_value\":" +
                 std::to_string(raygen_value) +
+                ",\"procedural_hit_dispatch_value\":" +
+                std::to_string(procedural_hit_value) +
                 ",\"miss_identifier_nonnull\":" +
                 (miss_identifier ? "true" : "false") +
                 ",\"distinct_shader_identifiers\":" +

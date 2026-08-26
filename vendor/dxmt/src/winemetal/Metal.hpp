@@ -794,6 +794,16 @@ public:
   }
 
   bool
+  buildAABBAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      const WMTAABBAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildAABBAccelerationStructure(
+        handle, acceleration_structure.handle, &info, scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
+  bool
   buildInstanceAccelerationStructure(
       AccelerationStructure acceleration_structure,
       Buffer instance_descriptor_buffer,
@@ -948,6 +958,13 @@ public:
       WMTAccelerationStructureSizes &sizes) {
     return MTLDevice_accelerationStructureSizesForTriangles(handle, &info,
                                                             &sizes);
+  }
+
+  bool
+  accelerationStructureSizesForAABBs(
+      const WMTAABBAccelerationStructureInfo &info,
+      WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForAABBs(handle, &info, &sizes);
   }
 
   bool

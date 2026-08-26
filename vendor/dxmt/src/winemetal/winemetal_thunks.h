@@ -456,6 +456,22 @@ struct unixcall_mtlcommandbuffer_write_timestamp_results {
   uint64_t ret_success;
 };
 
+struct unixcall_mtldevice_acceleration_structure_sizes_for_aabbs {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer info;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_build_aabb_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
 #pragma pack(pop)
 
 #endif

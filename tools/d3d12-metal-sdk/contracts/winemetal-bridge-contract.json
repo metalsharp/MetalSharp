@@ -1,6 +1,6 @@
 {
   "schema": "metalsharp.d3d12-metal.winemetal-bridge-contract.v1",
-  "abi_version": 13,
+  "abi_version": 14,
   "source_audit": {
     "pe_header": "vendor/dxmt/src/winemetal/winemetal.h",
     "cxx_facade": "vendor/dxmt/src/winemetal/Metal.hpp",
@@ -42,8 +42,10 @@
     "MTLDevice_newSharedTexture",
     "MTLDevice_supportsRaytracing",
     "MTLDevice_accelerationStructureSizesForTriangles",
+    "MTLDevice_accelerationStructureSizesForAABBs",
     "MTLDevice_newAccelerationStructure",
     "MTLCommandBuffer_buildTriangleAccelerationStructure",
+    "MTLCommandBuffer_buildAABBAccelerationStructure",
     "MTLDevice_accelerationStructureSizesForInstances",
     "MTLCommandBuffer_buildInstanceAccelerationStructure",
     "MTLCommandBuffer_writeTimestampResults",
@@ -83,8 +85,10 @@
     "_MTLDevice_newSharedTexture",
     "_MTLDevice_supportsRaytracing",
     "_MTLDevice_accelerationStructureSizesForTriangles",
+    "_MTLDevice_accelerationStructureSizesForAABBs",
     "_MTLDevice_newAccelerationStructure",
     "_MTLCommandBuffer_buildTriangleAccelerationStructure",
+    "_MTLCommandBuffer_buildAABBAccelerationStructure",
     "_MTLDevice_accelerationStructureSizesForInstances",
     "_MTLCommandBuffer_buildInstanceAccelerationStructure",
     "_MTLCommandBuffer_writeTimestampResults",
@@ -119,7 +123,9 @@
     "unixcall_mtldevice_acceleration_structure_sizes_for_instances": 32,
     "unixcall_mtlcommandbuffer_build_instance_acceleration_structure": 80,
     "unixcall_mtldevice_new_raytracing_compute_pipeline": 48,
-    "unixcall_mtlcommandbuffer_write_timestamp_results": 40
+    "unixcall_mtlcommandbuffer_write_timestamp_results": 40,
+    "unixcall_mtldevice_acceleration_structure_sizes_for_aabbs": 32,
+    "unixcall_mtlcommandbuffer_build_aabb_acceleration_structure": 48
   },
   "deferred_until_claimed": [
     {

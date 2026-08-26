@@ -995,8 +995,17 @@ the goal is not complete.
   visible-function index 5 for non-opaque triangle any-hit, then visible-function
   index 3 for closest-hit. Closest-hit launches a depth-2 recursive `TraceRay`
   away from the TLAS, observes the nested miss payload, and combines it with
-  the any-hit marker to return `0x52454332`. A
-  callable table at offset 192 invokes visible-function index 4 and returns
-  `0x43414c4c`; the two-ray launch preserves the raygen sentinel `42`.
-  RaytracingTier remains unreported pending procedural intersection shaders,
-  broad AS build operations, and complete local-root/shader-table semantics.
+  the any-hit marker to return `0x52454332`. Procedural AABB geometry is now
+  translated to a Metal bounding-box geometry
+  descriptor and built as a 576-byte BLAS against a 768-byte allocation. A
+  two-instance TLAS containing the triangle and translated AABB builds to 896
+  bytes. Its second 64-byte hit-group record selects a procedural intersection
+  wrapper, invokes visible-function index 6 to call `ReportHit`, and then invokes
+  visible-function index 7 for procedural closest-hit, returning `0x50524f43`.
+  The converter CLI failed to apply its maximum-attribute-size option to
+  `ReportHit`; the probe therefore uses the same Metal Shader Converter 3.0.6
+  API directly with a consistent eight-byte pipeline attribute configuration
+  across every ray-tracing stage. A callable table at offset 256 invokes
+  visible-function index 4 and returns `0x43414c4c`; the three-ray launch
+  preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
+  broad AS build operations and complete local-root/shader-table semantics.
