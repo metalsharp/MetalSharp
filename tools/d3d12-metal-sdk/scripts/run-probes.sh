@@ -1372,12 +1372,13 @@ void raygen() {
   ray.TMax = 10.0;
   MissPayload payload;
   payload.value = 0;
-  TraceRay(scene, RAY_FLAG_NONE, 0x02, 0, 0, 0, ray, payload);
+  TraceRay(scene, RAY_FLAG_NONE, 0x02, 0, 0,
+           ray_index == 0 ? 1 : 0, ray, payload);
   output.Store(4 + ray_index * 4, payload.value);
   if (ray_index == 0) {
     CallablePayload callable_payload;
     callable_payload.value = 0;
-    CallShader(0, callable_payload);
+    CallShader(1, callable_payload);
     output.Store(16, callable_payload.value);
     output.Store(20, 42);
   }
