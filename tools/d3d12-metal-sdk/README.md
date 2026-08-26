@@ -110,7 +110,8 @@ an eight-byte payload, two-group dispatch, and direct/indirect split-screen
 readback while keeping MeshShaderTier
 conservative. `dxr_acceleration_structures` proves a
 one-indexed-triangle and one-procedural-AABB Metal BLAS, a cloned triangle BLAS used
-by a two-instance TLAS, current-size postbuild readbacks, an inline `RayQuery`
+then refit from an x=10 translation into a two-instance TLAS, current-size
+postbuild readbacks, an inline `RayQuery`
 triangle hit, stable
 export identifiers, and raygen/miss/triangle-any-hit/closest-hit/procedural-
 intersection/callable shader-table records plus depth-2 closest-hit-to-miss

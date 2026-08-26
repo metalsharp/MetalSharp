@@ -811,6 +811,16 @@ public:
   }
 
   bool
+  refitTriangleAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      const WMTPrimitiveAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitTriangleAccelerationStructure(
+        handle, source.handle, destination.handle, &info,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
   buildInstanceAccelerationStructure(
       AccelerationStructure acceleration_structure,
       Buffer instance_descriptor_buffer,
