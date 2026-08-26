@@ -173,7 +173,7 @@ def check_required_probes(results: dict[str, dict[str, Any]]) -> tuple[list[Issu
 
 
 def check_unsupported(results: dict[str, dict[str, Any]], ledger: dict[str, Any]) -> tuple[list[Issue], list[dict[str, Any]]]:
-    device_caps = results["probe-device-caps"]
+    device_caps = results.get("probe-device-caps", {})
     advanced = get_nested(device_caps, "advanced_features") or {}
     unsupported_checks = {
         "D3D12 ray tracing tiers": advanced.get("raytracing_tier"),
@@ -215,13 +215,13 @@ def check_unsupported(results: dict[str, dict[str, Any]], ledger: dict[str, Any]
 
 
 def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[str, Any]) -> tuple[list[Issue], list[dict[str, Any]]]:
-    device_caps = results["probe-device-caps"]
-    shader_probe = results["probe-shaders"]
-    dxil_semantics_probe = results["probe-dxil-semantics"]
-    shader_corpus_probe = results["probe-shader-corpus"]
-    sm66_probe = results["probe-sm66-capabilities"]
-    wave_probe = results["probe-wave-ops"]
-    reflection_probe = results["probe-reflection-abi"]
+    device_caps = results.get("probe-device-caps", {})
+    shader_probe = results.get("probe-shaders", {})
+    dxil_semantics_probe = results.get("probe-dxil-semantics", {})
+    shader_corpus_probe = results.get("probe-shader-corpus", {})
+    sm66_probe = results.get("probe-sm66-capabilities", {})
+    wave_probe = results.get("probe-wave-ops", {})
+    reflection_probe = results.get("probe-reflection-abi", {})
 
     issues: list[Issue] = []
     summary: list[dict[str, Any]] = []
@@ -471,16 +471,16 @@ def field_to_options1_value(options1: dict[str, Any], field: str) -> Any:
 
 
 def risky_status(target: str, results: dict[str, dict[str, Any]]) -> RiskStatus:
-    device_caps = results["probe-device-caps"]
-    shader_probe = results["probe-shaders"]
-    dxil_semantics_probe = results["probe-dxil-semantics"]
-    dxgi_probe = results["probe-dxgi-factory"]
+    device_caps = results.get("probe-device-caps", {})
+    shader_probe = results.get("probe-shaders", {})
+    dxil_semantics_probe = results.get("probe-dxil-semantics", {})
+    dxgi_probe = results.get("probe-dxgi-factory", {})
 
     if target == "D3D12_FEATURE_SHADER_MODEL reports SM 6.6":
         used = bool(get_nested(device_caps, "requirements", "shader_model_6_6_or_better"))
         if not used:
             return RiskStatus("not_used", "Profile does not advertise SM 6.6.")
-        sm66_probe = results["probe-sm66-capabilities"]
+        sm66_probe = results.get("probe-sm66-capabilities", {})
         if not bool(get_nested(sm66_probe, "summary", "sm66_reportable")):
             return RiskStatus("failed", "SM 6.6 is advertised but the SM 6.6 capability audit is not reportable.")
         dxil_ok = bool(get_nested(shader_probe, "dxc", "dxil_to_msl"))
@@ -495,7 +495,7 @@ def risky_status(target: str, results: dict[str, dict[str, Any]]) -> RiskStatus:
         used = bool(get_nested(device_caps, "options1", "wave_ops"))
         if not used:
             return RiskStatus("not_used", "Profile does not advertise WaveOps.")
-        wave_probe = results["probe-wave-ops"]
+        wave_probe = results.get("probe-wave-ops", {})
         if bool(get_nested(wave_probe, "summary", "waveops_reportable")):
             return RiskStatus("covered", "WaveOps is probe-covered without known runtime gaps.")
         return RiskStatus("failed", "WaveOps is advertised, but the WaveOps audit is not reportable.")
