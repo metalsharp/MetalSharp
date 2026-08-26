@@ -2312,13 +2312,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
-    D3D12_EXPORT_DESC raygen_exports[2] = {};
+    D3D12_EXPORT_DESC raygen_exports[3] = {};
     raygen_exports[0].Name = L"raygen";
     raygen_exports[1].Name = L"miss_shader";
+    raygen_exports[2].Name = L"closest_hit";
     D3D12_DXIL_LIBRARY_DESC raygen_library_desc = {};
     raygen_library_desc.DXILLibrary = {raygen_library.data(),
                                       raygen_library.size()};
-    raygen_library_desc.NumExports = 2;
+    raygen_library_desc.NumExports = 3;
     raygen_library_desc.pExports = raygen_exports;
     D3D12_GLOBAL_ROOT_SIGNATURE global_root = {compute_root};
     D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
@@ -2326,7 +2327,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
     shader_config.MaxAttributeSizeInBytes = 8;
     D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config = {};
     pipeline_config.MaxTraceRecursionDepth = 1;
-    D3D12_STATE_SUBOBJECT state_subobjects[4] = {};
+    D3D12_HIT_GROUP_DESC hit_group = {};
+    hit_group.HitGroupExport = L"hit_group";
+    hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+    hit_group.ClosestHitShaderImport = L"closest_hit";
+    D3D12_STATE_SUBOBJECT state_subobjects[5] = {};
     state_subobjects[0] = {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY,
                            &raygen_library_desc};
     state_subobjects[1] = {
@@ -2336,9 +2341,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
     state_subobjects[3] = {
         D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG,
         &pipeline_config};
+    state_subobjects[4] = {D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP, &hit_group};
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-    state_desc.NumSubobjects = 4;
+    state_desc.NumSubobjects = 5;
     state_desc.pSubobjects = state_subobjects;
     if (SUCCEEDED(hr))
         hr = device5->CreateStateObject(&state_desc,
@@ -2354,6 +2360,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
         SUCCEEDED(hr)
             ? raytracing_properties->GetShaderIdentifier(L"miss_shader")
             : nullptr;
+    const void* hit_group_identifier =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderIdentifier(L"hit_group")
+            : nullptr;
     const void* repeated_raygen_identifier =
         SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen")
                       : nullptr;
@@ -2362,8 +2372,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
             ? raytracing_properties->GetShaderIdentifier(L"unknown_export")
             : nullptr;
     const bool distinct_shader_identifiers =
-        raygen_identifier && miss_identifier &&
-        std::memcmp(raygen_identifier, miss_identifier, 32) != 0;
+        raygen_identifier && miss_identifier && hit_group_identifier &&
+        std::memcmp(raygen_identifier, miss_identifier, 32) != 0 &&
+        std::memcmp(raygen_identifier, hit_group_identifier, 32) != 0 &&
+        std::memcmp(miss_identifier, hit_group_identifier, 32) != 0;
     const bool stable_shader_identifiers =
         raygen_identifier && repeated_raygen_identifier &&
         std::memcmp(raygen_identifier, repeated_raygen_identifier, 32) == 0 &&
@@ -2373,7 +2385,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
-        D3D12_RESOURCE_DESC table_desc = buffer_desc(128);
+        D3D12_RESOURCE_DESC table_desc = buffer_desc(192);
         hr = device->CreateCommittedResource(
             &upload_heap, D3D12_HEAP_FLAG_NONE, &table_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -2385,6 +2397,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
             std::memcpy(mapped, raygen_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 64, miss_identifier,
                         32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 128,
+                        hit_group_identifier, 32);
             raygen_shader_table->Unmap(0, nullptr);
         }
     }
@@ -2627,7 +2641,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
             raygen_shader_table->GetGPUVirtualAddress() + 64;
         dispatch_rays.MissShaderTable.SizeInBytes = 32;
         dispatch_rays.MissShaderTable.StrideInBytes = 32;
-        dispatch_rays.Width = 1;
+        dispatch_rays.HitGroupTable.StartAddress =
+            raygen_shader_table->GetGPUVirtualAddress() + 128;
+        dispatch_rays.HitGroupTable.SizeInBytes = 32;
+        dispatch_rays.HitGroupTable.StrideInBytes = 32;
+        dispatch_rays.Width = 2;
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
         list4->DispatchRays(&dispatch_rays);
@@ -2636,7 +2654,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &output_barrier);
         list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
-                                sizeof(uint32_t) * 3);
+                                sizeof(uint32_t) * 4);
         hr = execute_and_wait(queue, list4);
     }
 
@@ -2644,6 +2662,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     uint64_t top_level_current_size = 0;
     uint32_t ray_hit = 0;
     uint32_t miss_value = 0;
+    uint32_t closest_hit_value = 0;
     uint32_t raygen_value = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
@@ -2666,16 +2685,21 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(uint32_t) * 3};
+        D3D12_RANGE range = {0, sizeof(uint32_t) * 4};
         hr = ray_query_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&ray_hit, mapped, sizeof(ray_hit));
             std::memcpy(&miss_value,
                         static_cast<const uint8_t*>(mapped) + sizeof(ray_hit),
                         sizeof(miss_value));
-            std::memcpy(&raygen_value,
+            std::memcpy(&closest_hit_value,
                         static_cast<const uint8_t*>(mapped) +
                             sizeof(ray_hit) + sizeof(miss_value),
+                        sizeof(closest_hit_value));
+            std::memcpy(&raygen_value,
+                        static_cast<const uint8_t*>(mapped) +
+                            sizeof(ray_hit) + sizeof(miss_value) +
+                            sizeof(closest_hit_value),
                         sizeof(raygen_value));
             ray_query_readback->Unmap(0, nullptr);
         }
@@ -2688,6 +2712,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           top_level_current_size <=
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
                           ray_hit == 1 && miss_value == 0x4d495353 &&
+                          closest_hit_value == 0x48495431 &&
                           raygen_value == 42;
 
     safe_release(raygen_shader_table);
@@ -2713,7 +2738,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss DispatchRays passed"
+            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss/closest-hit DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -2730,6 +2755,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"inline_ray_hit\":" + std::to_string(ray_hit) +
                 ",\"miss_dispatch_value\":" +
                 std::to_string(miss_value) +
+                ",\"closest_hit_dispatch_value\":" +
+                std::to_string(closest_hit_value) +
                 ",\"raygen_dispatch_value\":" +
                 std::to_string(raygen_value) +
                 ",\"miss_identifier_nonnull\":" +

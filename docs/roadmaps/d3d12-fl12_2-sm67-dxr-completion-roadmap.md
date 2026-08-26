@@ -989,6 +989,9 @@ the goal is not complete.
   receive repeatable, distinct 32-byte identifiers while unknown exports return
   null. A 64-byte-aligned miss shader-table record links a Metal visible
   function at index 2; raygen issues `TraceRay` away from the TLAS and the miss
-  shader returns `0x4d495353` through its payload. RaytracingTier remains
-  unreported pending hit groups, any-hit/intersection/callable shaders,
-  recursive `TraceRay`, and complete local-root/shader-table semantics.
+  shader returns `0x4d495353` through its payload. A second ray intersects the
+  triangle TLAS and resolves a 64-byte-aligned triangle hit-group record whose
+  linked closest-hit visible function returns `0x48495431`; the two-ray launch
+  preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
+  any-hit/intersection/callable shaders, recursive `TraceRay`, broad AS build
+  operations, and complete local-root/shader-table semantics.

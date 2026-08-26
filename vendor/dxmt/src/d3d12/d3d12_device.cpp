@@ -1327,6 +1327,12 @@ public:
           m_global_root_signature = root->pGlobalRootSignature;
           m_global_root_signature->AddRef();
         }
+      } else if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
+                 subobject.pDesc) {
+        const auto *hit_group =
+            static_cast<const D3D12_HIT_GROUP_DESC *>(subobject.pDesc);
+        if (hit_group->HitGroupExport)
+          m_exports.emplace_back(hit_group->HitGroupExport);
       }
     }
     if (!raytracing_library.pShaderBytecode ||
@@ -1337,6 +1343,11 @@ public:
     const bool has_miss_shader =
         std::find(m_exports.begin(), m_exports.end(), L"miss_shader") !=
         m_exports.end();
+    const bool has_closest_hit_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"closest_hit") !=
+            m_exports.end() &&
+        std::find(m_exports.begin(), m_exports.end(), L"hit_group") !=
+            m_exports.end();
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
     compute_desc.pRootSignature = m_global_root_signature;
@@ -1354,6 +1365,8 @@ public:
     std::string dispatch_path =
         cache_dir + "/" + cache_hash + ".raydispatch.metallib";
     std::string miss_path = cache_dir + "/" + cache_hash + ".miss.metallib";
+    std::string closest_hit_path =
+        cache_dir + "/" + cache_hash + ".closesthit.metallib";
 
     auto read_file = [](const std::string &path, std::vector<uint8_t> &data) {
       FILE *file = fopen(path.c_str(), "rb");
@@ -1374,9 +1387,12 @@ public:
     std::vector<uint8_t> raygen_data;
     std::vector<uint8_t> dispatch_data;
     std::vector<uint8_t> miss_data;
+    std::vector<uint8_t> closest_hit_data;
     if (!read_file(raygen_path, raygen_data) ||
         !read_file(dispatch_path, dispatch_data) ||
-        (has_miss_shader && !read_file(miss_path, miss_data))) {
+        (has_miss_shader && !read_file(miss_path, miss_data)) ||
+        (has_closest_hit_shader &&
+         !read_file(closest_hit_path, closest_hit_data))) {
       pipeline->RequestCompile(false);
       TRACE("StateObject raygen cache miss visible=%s dispatch=%s miss=%s",
             raygen_path.c_str(), dispatch_path.c_str(), miss_path.c_str());
@@ -1408,6 +1424,19 @@ public:
       if (!miss_function.handle)
         return false;
     }
+    WMT::Reference<WMT::Library> closest_hit_library_handle;
+    WMT::Reference<WMT::Function> closest_hit_function;
+    if (has_closest_hit_shader) {
+      error = nullptr;
+      closest_hit_library_handle = metal_device.newLibrary(
+          closest_hit_data.data(), closest_hit_data.size(), error);
+      if (!closest_hit_library_handle.handle || error.handle)
+        return false;
+      closest_hit_function =
+          closest_hit_library_handle.newFunction("closest_hit");
+      if (!closest_hit_function.handle)
+        return false;
+    }
     auto raygen_function = raygen_library_handle.newFunction("raygen");
     auto dispatch_function =
         dispatch_library_handle.newFunction("RaygenIndirection");
@@ -1417,6 +1446,7 @@ public:
     pipeline_info.dispatch_function = dispatch_function.handle;
     pipeline_info.raygen_function = raygen_function.handle;
     pipeline_info.miss_function = miss_function.handle;
+    pipeline_info.closest_hit_function = closest_hit_function.handle;
     error = nullptr;
     m_raygen_compute_pipeline = metal_device.newRaytracingComputePipelineState(
         pipeline_info, m_raygen_visible_function_table, error);
@@ -1440,6 +1470,8 @@ public:
       const uint64_t visible_function_index =
           export_name == L"raygen"       ? 1ull
           : export_name == L"miss_shader" ? 2ull
+          : export_name == L"hit_group" || export_name == L"closest_hit"
+              ? 3ull
                                            : 0ull;
       memcpy(identifier.data() + sizeof(uint64_t),
              &visible_function_index, sizeof(visible_function_index));
