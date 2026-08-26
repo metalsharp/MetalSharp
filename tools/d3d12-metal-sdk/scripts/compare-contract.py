@@ -503,6 +503,8 @@ def risky_status(target: str, results: dict[str, dict[str, Any]]) -> RiskStatus:
     if target == "IDXGIFactory7 RegisterAdaptersChangedEvent":
         observed = str(get_nested(dxgi_probe, "edge_cases", "RegisterAdaptersChangedEvent") or "")
         decision = str(get_nested(dxgi_probe, "edge_cases", "register_adapters_changed_decision") or "")
+        if observed == "0x00000000" and decision == "safe_success_observed":
+            return RiskStatus("covered", "Probe verified event registration, a nonzero cookie, initially unsignaled state, and unregister cleanup.")
         if observed == "0x80004001" and decision == "safe_rejection_observed":
             return RiskStatus("covered", "Probe verified the explicit safe rejection path.")
         return RiskStatus("failed", f"Observed `{observed}` with decision `{decision}`.")

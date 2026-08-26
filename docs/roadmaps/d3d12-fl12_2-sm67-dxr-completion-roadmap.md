@@ -774,7 +774,8 @@ Deliverables:
 Hard gate:
 
 - Factory/adapter/output/swapchain probe matrix passes under Wine 11.5.
-- No risky stub ledger entries remain.
+- No `stub_risky` ledger entries remain; retained notification entries must be
+  behavior-proven with event ownership and cleanup.
 
 ### Phase 10 — Runtime staging, config, launcher, and packaging
 
