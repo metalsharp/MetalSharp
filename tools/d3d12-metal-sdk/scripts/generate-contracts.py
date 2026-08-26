@@ -149,8 +149,8 @@ def feature_support_contract() -> dict[str, Any]:
                 "tier": "required",
                 "reported": "supported",
                 "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
-                "current_target": "6_5",
-                "risk": "SM 6.6 must stay unreported until the SM 6.6 compiler, descriptor, resource, sampler, 64-bit, atomic, barrier, and runtime corpus is reportable.",
+                "current_target": "6_7",
+                "risk": "SM 6.7 is behavior-backed by the SM 6.6 root-constant, descriptor-indexing, 64-bit, atomic/barrier, and texture/sampler runtime corpus plus SM 6.7 QuadAny/QuadAll dispatch/readback; additional SM 6.7 advanced texture operations remain separate optional behavior gates.",
             },
             "D3D12_SYNTHETIC_SHADER_CORPUS": {
                 "state": "required",
@@ -364,17 +364,6 @@ def unsupported_ledger() -> dict[str, Any]:
                 "tier": "unsupported",
                 "reason": "No Metal tessellation translation path is proven; hull/domain PSOs remain rejected.",
                 "evidence": ["tools/d3d12-metal-sdk/probes/probe_graphics_pso"],
-            },
-            {
-                "api": "D3D12 Shader Model 6.6 feature report",
-                "state": "not_reported",
-                "tier": "unsupported",
-                "reason": "The SM 6.6 audit can compile and link the synthetic corpus, but descriptor indexing, sampler/texture, 64-bit, atomic, barrier, and root-constant cases do not yet have runtime correctness proof; the device must report SM 6.5 instead.",
-                "evidence": [
-                    "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-                    "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
-                    "tools/d3d12-metal-sdk/contracts/feature-support-contract.json",
-                ],
             },
         ],
     }

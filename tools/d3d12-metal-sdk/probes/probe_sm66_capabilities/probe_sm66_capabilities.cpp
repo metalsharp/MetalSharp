@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -146,23 +147,80 @@ static DWORD run_process_wait(std::string command_line) {
     return exit_code;
 }
 
+static D3D12_HEAP_PROPERTIES heap_props(D3D12_HEAP_TYPE type) {
+    D3D12_HEAP_PROPERTIES props = {};
+    props.Type = type;
+    props.CreationNodeMask = 1;
+    props.VisibleNodeMask = 1;
+    return props;
+}
+
+static D3D12_RESOURCE_DESC buffer_desc(UINT64 bytes, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE) {
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = bytes;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.Flags = flags;
+    return desc;
+}
+
+static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
+                                ID3D12GraphicsCommandList* list) {
+    HRESULT hr = list->Close();
+    if (FAILED(hr))
+        return hr;
+    ID3D12CommandList* lists[] = {list};
+    queue->ExecuteCommandLists(1, lists);
+    ID3D12Fence* fence = nullptr;
+    hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    if (FAILED(hr))
+        return hr;
+    hr = queue->Signal(fence, 1);
+    HANDLE event_handle = nullptr;
+    if (SUCCEEDED(hr)) {
+        event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+        if (!event_handle)
+            hr = HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (SUCCEEDED(hr))
+        hr = fence->SetEventOnCompletion(1, event_handle);
+    if (SUCCEEDED(hr) && WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
+        hr = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    if (event_handle)
+        CloseHandle(event_handle);
+    fence->Release();
+    return hr;
+}
+
 struct AuditCase {
     const char* name;
     const char* entry;
+    const char* target;
     const char* category;
     bool requires_runtime_proof;
 };
 
 struct CaseResult {
     std::string name;
+    std::string target;
     std::string category;
     bool compile_ok = false;
     bool dxil_blob = false;
     bool pso_created = false;
     bool runtime_executed = false;
+    bool readback_ok = false;
     HRESULT pso_hr = E_FAIL;
+    HRESULT runtime_hr = E_FAIL;
     DWORD dxc_exit_code = 0xffffffffu;
     size_t dxil_size = 0;
+    uint32_t mismatch_count = 4;
+    uint32_t observed[32] = {};
+    uint32_t expected[32] = {};
+    uint32_t value_count = 4;
     std::string detail;
 };
 
@@ -213,9 +271,253 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     return hr;
 }
 
+static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
+                         ID3D12PipelineState* pso, const AuditCase& audit_case,
+                         CaseResult& result) {
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* resource_heap = nullptr;
+    ID3D12DescriptorHeap* sampler_heap = nullptr;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3D12Resource* input0 = nullptr;
+    ID3D12Resource* input1 = nullptr;
+    ID3D12Resource* texture = nullptr;
+    ID3D12Resource* texture_upload = nullptr;
+
+    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    HRESULT hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&list));
+
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heap_desc.NumDescriptors = 4;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&resource_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+        heap_desc.NumDescriptors = 1;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&sampler_heap));
+    }
+
+    auto create_buffer = [&](UINT64 bytes, D3D12_HEAP_TYPE heap_type,
+                             D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES state,
+                             const void* initial_data, ID3D12Resource** resource) -> HRESULT {
+        D3D12_HEAP_PROPERTIES props = heap_props(heap_type);
+        D3D12_RESOURCE_DESC desc = buffer_desc(bytes, flags);
+        HRESULT create_hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &desc, state, nullptr, IID_PPV_ARGS(resource));
+        if (SUCCEEDED(create_hr) && initial_data) {
+            void* mapped = nullptr;
+            D3D12_RANGE read_range = {0, 0};
+            create_hr = (*resource)->Map(0, &read_range, &mapped);
+            if (SUCCEEDED(create_hr) && mapped) {
+                std::memcpy(mapped, initial_data, static_cast<size_t>(bytes));
+                D3D12_RANGE written = {0, static_cast<SIZE_T>(bytes)};
+                (*resource)->Unmap(0, &written);
+            }
+        }
+        return create_hr;
+    };
+
+    const uint32_t input0_data[16] = {10, 20, 30, 40};
+    const uint32_t input1_data[16] = {100, 200, 300, 400};
+    if (SUCCEEDED(hr))
+        hr = create_buffer(128, D3D12_HEAP_TYPE_DEFAULT,
+                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                           D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, &output);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(128, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, nullptr, &readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(sizeof(input0_data), D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_GENERIC_READ, input0_data, &input0);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(sizeof(input1_data), D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_GENERIC_READ, input1_data, &input1);
+    if (SUCCEEDED(hr)) {
+        D3D12_RESOURCE_DESC texture_desc = {};
+        texture_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        texture_desc.Width = 1;
+        texture_desc.Height = 1;
+        texture_desc.DepthOrArraySize = 1;
+        texture_desc.MipLevels = 1;
+        texture_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        texture_desc.SampleDesc.Count = 1;
+        texture_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &texture_desc,
+                                             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                             IID_PPV_ARGS(&texture));
+    }
+    if (SUCCEEDED(hr)) {
+        uint8_t upload_data[256] = {};
+        upload_data[0] = 10;
+        upload_data[1] = 20;
+        upload_data[2] = 30;
+        upload_data[3] = 40;
+        hr = create_buffer(sizeof(upload_data), D3D12_HEAP_TYPE_UPLOAD,
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ,
+                           upload_data, &texture_upload);
+    }
+
+    if (SUCCEEDED(hr)) {
+        const UINT resource_stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = resource_heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 32;
+        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Format = DXGI_FORMAT_R32_TYPELESS;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        srv.Buffer.NumElements = 16;
+        srv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        cpu.ptr += resource_stride;
+        device->CreateShaderResourceView(input0, &srv, cpu);
+        cpu.ptr += resource_stride;
+        device->CreateShaderResourceView(input1, &srv, cpu);
+        cpu.ptr += resource_stride;
+        srv = {};
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(texture, &srv, cpu);
+
+        D3D12_SAMPLER_DESC sampler = {};
+        sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.MaxLOD = D3D12_FLOAT32_MAX;
+        device->CreateSampler(&sampler, sampler_heap->GetCPUDescriptorHandleForHeapStart());
+
+        D3D12_TEXTURE_COPY_LOCATION dst = {};
+        dst.pResource = texture;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION src = {};
+        src.pResource = texture_upload;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        src.PlacedFootprint.Footprint.Width = 1;
+        src.PlacedFootprint.Footprint.Height = 1;
+        src.PlacedFootprint.Footprint.Depth = 1;
+        src.PlacedFootprint.Footprint.RowPitch = 256;
+        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        D3D12_RESOURCE_BARRIER texture_barrier = {};
+        texture_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        texture_barrier.Transition.pResource = texture;
+        texture_barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        texture_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        texture_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        list->ResourceBarrier(1, &texture_barrier);
+
+        ID3D12DescriptorHeap* heaps[] = {resource_heap, sampler_heap};
+        list->SetDescriptorHeaps(2, heaps);
+        list->SetComputeRootSignature(root);
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu = resource_heap->GetGPUDescriptorHandleForHeapStart();
+        list->SetComputeRootDescriptorTable(0, gpu);
+        gpu.ptr += resource_stride;
+        list->SetComputeRootDescriptorTable(1, gpu);
+        list->SetComputeRootDescriptorTable(2, sampler_heap->GetGPUDescriptorHandleForHeapStart());
+        const uint32_t constants[4] = {1, 3, 2, 0};
+        list->SetComputeRoot32BitConstants(3, 4, constants, 0);
+        list->SetPipelineState(pso);
+        list->Dispatch(1, 1, 1);
+
+        D3D12_RESOURCE_BARRIER output_barriers[2] = {};
+        output_barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        output_barriers[0].UAV.pResource = output;
+        output_barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        output_barriers[1].Transition.pResource = output;
+        output_barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        output_barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        output_barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        list->ResourceBarrier(2, output_barriers);
+        list->CopyResource(readback, output);
+        hr = execute_and_wait(device, queue, list);
+    }
+
+    result.runtime_hr = hr;
+    result.runtime_executed = SUCCEEDED(hr);
+    if (SUCCEEDED(hr) && readback) {
+        uint32_t* mapped = nullptr;
+        D3D12_RANGE range = {0, 32 * sizeof(uint32_t)};
+        hr = readback->Map(0, &range, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr) && mapped) {
+            result.readback_ok = true;
+            result.value_count = std::strcmp(audit_case.name, "int64_arithmetic") == 0
+                                     ? 8
+                                     : (std::strcmp(audit_case.name, "quad_vote_sm67") == 0 ? 32 : 4);
+            for (uint32_t i = 0; i < result.value_count; ++i)
+                result.observed[i] = mapped[i];
+            if (std::strcmp(audit_case.name, "root_constants_uav") == 0) {
+                const uint32_t expected[] = {6, 8, 10, 12};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "descriptor_indexing") == 0) {
+                const uint32_t expected[] = {103, 203, 303, 403};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "int64_arithmetic") == 0) {
+                const uint32_t expected[] = {5, 11, 6, 21, 7, 31, 8, 41};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "atomics_barriers") == 0) {
+                const uint32_t expected[] = {4, 5, 6, 7};
+                std::memcpy(result.expected, expected, sizeof(expected));
+                std::sort(result.observed, result.observed + 4);
+            } else if (std::strcmp(audit_case.name, "quad_vote_sm67") == 0) {
+                std::fill(result.expected, result.expected + 32, 3u);
+            } else {
+                const uint32_t expected[] = {100, 101, 102, 103};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            }
+            result.mismatch_count = 0;
+            for (uint32_t i = 0; i < result.value_count; ++i) {
+                if (result.observed[i] != result.expected[i])
+                    ++result.mismatch_count;
+            }
+            D3D12_RANGE written = {0, 0};
+            readback->Unmap(0, &written);
+        }
+        result.runtime_hr = hr;
+    }
+    if (result.runtime_executed && result.readback_ok && result.mismatch_count == 0)
+        result.detail = "compiled, linked, dispatched, and passed readback";
+    else if (result.runtime_executed && result.readback_ok)
+        result.detail = "runtime readback mismatch";
+    else
+        result.detail = "runtime dispatch or readback failed";
+
+    safe_release(texture_upload);
+    safe_release(texture);
+    safe_release(input1);
+    safe_release(input0);
+    safe_release(readback);
+    safe_release(output);
+    safe_release(sampler_heap);
+    safe_release(resource_heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+}
+
 static CaseResult run_case(ID3D12Device* device, ID3D12RootSignature* root, const AuditCase& audit_case) {
     CaseResult result;
     result.name = audit_case.name;
+    result.target = audit_case.target;
     result.category = audit_case.category;
 
     const std::string base = std::string("Z:\\tmp\\dxmt_sm66_") + audit_case.entry;
@@ -224,7 +526,9 @@ static CaseResult run_case(ID3D12Device* device, ID3D12RootSignature* root, cons
     DeleteFileA(dxil_path.c_str());
     DeleteFileA(error_path.c_str());
 
-    std::string command = "dxc.exe -nologo -T cs_6_6 -E ";
+    std::string command = "dxc.exe -nologo -T ";
+    command += audit_case.target;
+    command += " -E ";
     command += audit_case.entry;
     command += " -HV 2021 -Od -Fo ";
     command += dxil_path;
@@ -246,6 +550,8 @@ static CaseResult run_case(ID3D12Device* device, ID3D12RootSignature* root, cons
         ID3D12PipelineState* pso = nullptr;
         result.pso_hr = device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso));
         result.pso_created = SUCCEEDED(result.pso_hr) && pso;
+        if (result.pso_created && audit_case.requires_runtime_proof)
+            execute_case(device, root, pso, audit_case, result);
         safe_release(pso);
     }
 
@@ -254,9 +560,9 @@ static CaseResult run_case(ID3D12Device* device, ID3D12RootSignature* root, cons
         result.detail = dxc_errors.empty() ? "DXC did not produce a DXIL blob" : dxc_errors;
     else if (!result.pso_created)
         result.detail = "compiled to DXIL, but no linked compute PSO was created";
-    else if (audit_case.requires_runtime_proof)
+    else if (audit_case.requires_runtime_proof && !result.runtime_executed)
         result.detail = "compiled and linked; runtime execution proof is still required before SM 6.6 can be reported";
-    else
+    else if (!audit_case.requires_runtime_proof)
         result.detail = "negative capability case recorded";
 
     return result;
@@ -317,6 +623,13 @@ void cs_texture_sampler(uint3 id : SV_DispatchThreadID) {
                (uint)(sample.b * 255.0 + 0.5) + (uint)(sample.a * 255.0 + 0.5);
   outbuf.Store(id.x * 4, total + id.x);
 }
+
+[numthreads(32, 1, 1)]
+void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
+  bool any_vote = QuadAny((id.x & 3u) == 2u);
+  bool all_vote = QuadAll((id.x & 3u) < 4u);
+  outbuf.Store(id.x * 4, (any_vote ? 1u : 0u) | (all_vote ? 2u : 0u));
+}
 )";
 
     bool hlsl_written = write_text_file(hlsl_path, hlsl);
@@ -348,11 +661,12 @@ void cs_texture_sampler(uint3 id : SV_DispatchThreadID) {
                                             : HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
 
     const AuditCase audit_cases[] = {
-        {"root_constants_uav", "cs_root_constants", "root_constants_cbv_srv_uav_tables", true},
-        {"descriptor_indexing", "cs_descriptor_indexing", "descriptor_indexing", true},
-        {"int64_arithmetic", "cs_int64_arithmetic", "64_bit_shader_arithmetic", true},
-        {"atomics_barriers", "cs_atomics_barriers", "atomics_barriers", true},
-        {"texture_sampler", "cs_texture_sampler", "samplers_texture_paths", true},
+        {"root_constants_uav", "cs_root_constants", "cs_6_6", "root_constants_cbv_srv_uav_tables", true},
+        {"descriptor_indexing", "cs_descriptor_indexing", "cs_6_6", "descriptor_indexing", true},
+        {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
+        {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
+        {"texture_sampler", "cs_texture_sampler", "cs_6_6", "samplers_texture_paths", true},
+        {"quad_vote_sm67", "cs_quad_vote_sm67", "cs_6_7", "sm67_quad_vote", true},
     };
 
     std::vector<CaseResult> results;
@@ -365,17 +679,28 @@ void cs_texture_sampler(uint3 id : SV_DispatchThreadID) {
         d3d12 && dxcompiler && dxil && create_device && serialize && SUCCEEDED(create_hr) && SUCCEEDED(root_hr);
     bool compiler_acceptance_complete = hlsl_written && !results.empty();
     bool pso_link_complete = compiler_acceptance_complete;
-    bool runtime_complete = false;
+    bool runtime_complete = compiler_acceptance_complete;
     for (const auto& result : results) {
         compiler_acceptance_complete = compiler_acceptance_complete && result.compile_ok;
         pso_link_complete = pso_link_complete && result.pso_created;
+        runtime_complete = runtime_complete && result.runtime_executed && result.readback_ok &&
+                           result.mismatch_count == 0;
     }
 
     bool atomic64_conservative = (!SUCCEEDED(options9_hr) || (!options9.AtomicInt64OnTypedResourceSupported &&
                                                               !options9.AtomicInt64OnGroupSharedSupported)) &&
                                  (!SUCCEEDED(options11_hr) || !options11.AtomicInt64OnDescriptorHeapResourceSupported);
-    bool sm66_reportable = compiler_acceptance_complete && pso_link_complete && runtime_complete;
-    bool pass = entrypoints_ok && compiler_acceptance_complete && pso_link_complete && atomic64_conservative;
+    bool sm66_reportable = entrypoints_ok && atomic64_conservative;
+    bool sm67_reportable = entrypoints_ok && atomic64_conservative;
+    for (const auto& result : results) {
+        const bool case_passed = result.compile_ok && result.pso_created && result.runtime_executed &&
+                                 result.readback_ok && result.mismatch_count == 0;
+        if (result.target == "cs_6_6")
+            sm66_reportable = sm66_reportable && case_passed;
+        sm67_reportable = sm67_reportable && case_passed;
+    }
+    bool pass = entrypoints_ok && compiler_acceptance_complete && pso_link_complete &&
+                runtime_complete && atomic64_conservative;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.sm66-capabilities.v1\",\n");
@@ -412,14 +737,16 @@ void cs_texture_sampler(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"pso_link_complete\": %s,\n", pso_link_complete ? "true" : "false");
     std::printf("    \"runtime_correctness_complete\": %s,\n", runtime_complete ? "true" : "false");
     std::printf("    \"sm66_reportable\": %s,\n", sm66_reportable ? "true" : "false");
+    std::printf("    \"sm67_reportable\": %s,\n", sm67_reportable ? "true" : "false");
     std::printf("    \"decision\": \"%s\"\n",
-                sm66_reportable ? "SM 6.6 may be reported" : "SM 6.6 must not be reported until runtime cases execute");
+                sm67_reportable ? "SM 6.7 may be reported" : "SM 6.7 must not be reported until all runtime cases execute");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {
         const auto& result = results[i];
         std::printf("    {\n");
         std::printf("      \"name\": \"%s\",\n", json_escape(result.name).c_str());
+        std::printf("      \"target\": \"%s\",\n", json_escape(result.target).c_str());
         std::printf("      \"category\": \"%s\",\n", json_escape(result.category).c_str());
         std::printf("      \"compile_ok\": %s,\n", result.compile_ok ? "true" : "false");
         std::printf("      \"dxil_blob\": %s,\n", result.dxil_blob ? "true" : "false");
@@ -427,7 +754,18 @@ void cs_texture_sampler(uint3 id : SV_DispatchThreadID) {
         std::printf("      \"dxc_exit_code\": %lu,\n", static_cast<unsigned long>(result.dxc_exit_code));
         std::printf("      \"pso_created\": %s,\n", result.pso_created ? "true" : "false");
         std::printf("      \"pso_hr\": \"%s\",\n", hr_hex(result.pso_hr).c_str());
+        std::printf("      \"runtime_hr\": \"%s\",\n", hr_hex(result.runtime_hr).c_str());
         std::printf("      \"runtime_executed\": %s,\n", result.runtime_executed ? "true" : "false");
+        std::printf("      \"readback_ok\": %s,\n", result.readback_ok ? "true" : "false");
+        std::printf("      \"mismatch_count\": %u,\n", result.mismatch_count);
+        std::printf("      \"observed\": [");
+        for (uint32_t value = 0; value < result.value_count; ++value)
+            std::printf("%s%u", value ? "," : "", result.observed[value]);
+        std::printf("],\n");
+        std::printf("      \"expected\": [");
+        for (uint32_t value = 0; value < result.value_count; ++value)
+            std::printf("%s%u", value ? "," : "", result.expected[value]);
+        std::printf("],\n");
         std::printf("      \"detail\": \"%s\"\n", json_escape(result.detail).c_str());
         std::printf("    }%s\n", i + 1 == results.size() ? "" : ",");
     }

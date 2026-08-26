@@ -40,7 +40,6 @@ REQUIRED_UNSUPPORTED_APIS = {
     "D3D12 sparse and reserved resources",
     "D3D12 geometry shaders outside proven emulation",
     "D3D12 hull/domain tessellation shaders",
-    "D3D12 Shader Model 6.6 feature report",
 }
 
 

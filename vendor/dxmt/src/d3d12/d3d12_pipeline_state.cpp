@@ -351,6 +351,55 @@ bool ParseMSCReflection(const char *json,
   return true;
 }
 
+void ParseDirectBindingManifest(const char *source,
+                                MTL_SHADER_REFLECTION &reflection) {
+  if (!source)
+    return;
+  const char *line = source;
+  while ((line = strstr(line, "// range kind="))) {
+    char kind[16] = {};
+    unsigned space = 0;
+    unsigned lower = 0;
+    unsigned count = 0;
+    if (sscanf(line, "// range kind=%15s space=%u lower=%u count=%u", kind,
+               &space, &lower, &count) == 4 &&
+        space == 0) {
+      count = std::min<unsigned>(count, 128);
+      for (unsigned i = 0; i < count; i++) {
+        unsigned slot = lower + i;
+        if (!strcmp(kind, "uav") && slot < 64)
+          reflection.UAVSlotMask |= 1ull << slot;
+        else if (!strcmp(kind, "srv") && slot < 128) {
+          if (slot < 64)
+            reflection.SRVSlotMaskLo |= 1ull << slot;
+          else
+            reflection.SRVSlotMaskHi |= 1ull << (slot - 64);
+        } else if (!strcmp(kind, "cbv") && slot < 16)
+          reflection.ConstantBufferSlotMask |= 1u << slot;
+        else if (!strcmp(kind, "sampler") && slot < 16)
+          reflection.SamplerSlotMask |= 1u << slot;
+      }
+    }
+    line++;
+  }
+}
+
+void ParseDirectBindingManifestFile(const char *path,
+                                    MTL_SHADER_REFLECTION &reflection) {
+  FILE *file = path ? fopen(path, "rb") : nullptr;
+  if (!file)
+    return;
+  fseek(file, 0, SEEK_END);
+  long length = ftell(file);
+  fseek(file, 0, SEEK_SET);
+  if (length > 0 && length < 4 * 1024 * 1024) {
+    std::vector<char> source(static_cast<size_t>(length) + 1, 0);
+    fread(source.data(), 1, static_cast<size_t>(length), file);
+    ParseDirectBindingManifest(source.data(), reflection);
+  }
+  fclose(file);
+}
+
 thread_local bool g_async_pipeline_worker_thread = false;
 thread_local uint32_t g_async_pipeline_worker_index = 0;
 
@@ -1622,7 +1671,7 @@ bool MTLD3D12PipelineState::CompileShader(
           FormatShaderCachePath(cache_path, sizeof(cache_path), "%016zx", hash);
           char dxbc_path[1024], metallib_path[1024], reflection_path[1024],
               module_summary_path[1024], dxil_report_path[1024],
-              metallib_error_path[1024];
+              metallib_error_path[1024], msl_path[1024];
           snprintf(dxbc_path, sizeof(dxbc_path), "%s.dxbc", cache_path);
           snprintf(metallib_path, sizeof(metallib_path), "%s.metallib",
                    cache_path);
@@ -1634,6 +1683,7 @@ bool MTLD3D12PipelineState::CompileShader(
                    "%s.dxil_report.txt", cache_path);
           snprintf(metallib_error_path, sizeof(metallib_error_path),
                    "%s.metallib.err.txt", cache_path);
+          snprintf(msl_path, sizeof(msl_path), "%s.msl", cache_path);
           EnsureShaderCacheDir();
           DumpShaderBlob(dxbc_path, bytecode, size);
 
@@ -1731,13 +1781,18 @@ bool MTLD3D12PipelineState::CompileShader(
                     msl_result->unsupported_intrinsics,
                     msl_result->unsupported_opcodes);
 
-            char msl_path[1024];
             char msl_error_path[1024];
-            snprintf(msl_path, sizeof(msl_path), "%s.msl", cache_path);
             snprintf(msl_error_path, sizeof(msl_error_path), "%s.msl.err.txt",
                      cache_path);
             DumpShaderText(msl_path, msl_result->source.c_str());
-            PSTRACE("  MSL source written to %s", msl_path);
+            ParseDirectBindingManifest(msl_result->source.c_str(), reflection);
+            PSTRACE("  MSL source written to %s direct_masks="
+                    "uav=0x%llx srv=0x%llx/0x%llx cbv=0x%x sampler=0x%x",
+                    msl_path, (unsigned long long)reflection.UAVSlotMask,
+                    (unsigned long long)reflection.SRVSlotMaskLo,
+                    (unsigned long long)reflection.SRVSlotMaskHi,
+                    reflection.ConstantBufferSlotMask,
+                    reflection.SamplerSlotMask);
             DumpDXILCompileReport(
                 dxil_report_path, func_name, hash, size, dxbc_path,
                 module_summary_path, msl_path, *module, shader_info,
@@ -1822,6 +1877,8 @@ bool MTLD3D12PipelineState::CompileShader(
                 s_shader_cache[hash] = out_func;
               }
 
+              if (out_reflection)
+                *out_reflection = reflection;
               if (type == ShaderType::Vertex)
                 m_vs_uses_stage_in = false;
 
@@ -1991,8 +2048,18 @@ bool MTLD3D12PipelineState::CompileShader(
                             msc_reflection.ArgumentTableQwords,
                             msc_reflection.ArgumentBufferBindIndex);
                   } else {
-                    PSTRACE("  MSC reflection parse failed: %s",
-                            reflection_path);
+                    ParseDirectBindingManifestFile(msl_path, reflection);
+                    reflection.ThreadgroupSize[0] = m_threadgroup_size.width;
+                    reflection.ThreadgroupSize[1] = m_threadgroup_size.height;
+                    reflection.ThreadgroupSize[2] = m_threadgroup_size.depth;
+                    if (out_reflection)
+                      *out_reflection = reflection;
+                    PSTRACE("  custom MSL reflection from manifest %s "
+                            "uav=0x%llx srv=0x%llx/0x%llx",
+                            msl_path,
+                            (unsigned long long)reflection.UAVSlotMask,
+                            (unsigned long long)reflection.SRVSlotMaskLo,
+                            (unsigned long long)reflection.SRVSlotMaskHi);
                   }
                 } else if (type == ShaderType::Pixel) {
                   MTL_SHADER_REFLECTION msc_reflection = {};

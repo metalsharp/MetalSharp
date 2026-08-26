@@ -4397,6 +4397,12 @@ struct ReplayState {
     memset(comp_arg_buf_data, 0, qword_count * 8);
     const bool msc_linear_abi = pso->CSUsesMSCArgumentABI();
     const uint32_t buffer_metadata_qword = msc_linear_abi ? 2u : 1u;
+    struct PendingRootConstants {
+      uint32_t argument_qword;
+      const uint8_t *data;
+      uint32_t byte_count;
+    } pending_root_constants[kRootParameterSlotCount] = {};
+    uint32_t pending_root_constant_count = 0;
 
     auto *dxmt_sig =
         compute_root_sig
@@ -4463,6 +4469,43 @@ struct ReplayState {
           if (WriteConstantBufferArgument(device, comp_arg_buf_data, arg,
                                           cbv_addr, 0, WMTRenderStageVertex,
                                           "BuildComputeArgBuf"))
+            continue;
+        }
+        if (msc_linear_abi &&
+            arg.Type == SM50BindingType::ConstantBuffer && dxmt_sig &&
+            arg.StructurePtrOffset + 2 < kArgBufMaxQwords) {
+          bool staged_root_constants = false;
+          const auto &params = dxmt_sig->GetParameters();
+          for (uint32_t p = 0;
+               p < params.size() && p < kRootParameterSlotCount; p++) {
+            if (params[p].type !=
+                    D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS ||
+                params[p].register_index != arg.SM50BindingSlot ||
+                params[p].register_space != arg.SM50RegisterSpace)
+              continue;
+            bool set = comp_constant_set[p] || root_constant_set[p];
+            uint32_t size = comp_constant_set[p] ? comp_constant_sizes[p]
+                                                 : root_constant_sizes[p];
+            uint32_t offset = comp_constant_set[p] ? comp_constant_offsets[p]
+                                                   : root_constant_offsets[p];
+            const uint8_t *constants = comp_constant_set[p]
+                                           ? comp_constants_buf
+                                           : root_constants_buf;
+            if (set && size && offset + size <=
+                                   kRootParameterSlotCount *
+                                       kRootConstantBytes &&
+                pending_root_constant_count < kRootParameterSlotCount) {
+              pending_root_constants[pending_root_constant_count++] = {
+                  arg.StructurePtrOffset, constants + offset, size};
+              staged_root_constants = true;
+              QTRACE("BuildComputeArgBuf: staged root constants b%u "
+                     "space=%u param=%u size=%u argument_offset=%u",
+                     arg.SM50BindingSlot, arg.SM50RegisterSpace, p, size,
+                     arg.StructurePtrOffset);
+              break;
+            }
+          }
+          if (staged_root_constants)
             continue;
         }
         if (arg.Type == SM50BindingType::Sampler && dxmt_sig) {
@@ -4609,11 +4652,52 @@ struct ReplayState {
       }
     }
 
-    comp_arg_buf = MakeTransientBuffer(device, kArgBufMaxQwords * 8);
+    uint32_t data_byte_count = qword_count * sizeof(uint64_t);
+    uint32_t root_constant_offset =
+        (uint32_t)AlignUp64(data_byte_count, 16);
+    for (uint32_t i = 0; i < pending_root_constant_count; i++) {
+      auto &pending = pending_root_constants[i];
+      root_constant_offset = (uint32_t)AlignUp64(root_constant_offset, 16);
+      if (root_constant_offset + pending.byte_count >
+          kArgBufMaxQwords * sizeof(uint64_t)) {
+        QTRACE("BuildComputeArgBuf: root constants overflow offset=%u size=%u",
+               root_constant_offset, pending.byte_count);
+        continue;
+      }
+      memcpy(reinterpret_cast<uint8_t *>(comp_arg_buf_data) +
+                 root_constant_offset,
+             pending.data, pending.byte_count);
+      root_constant_offset += pending.byte_count;
+    }
+
+    uint64_t comp_arg_gpu_address = 0;
+    comp_arg_buf = MakeTransientBuffer(device, kArgBufMaxQwords * 8,
+                                       &comp_arg_gpu_address);
     if (comp_arg_buf.handle) {
-      comp_arg_buf.updateContents(0, comp_arg_buf_data, qword_count * 8);
-      QTRACE("BuildComputeArgBuf: wrote qwords=%u", qword_count);
-      return qword_count;
+      root_constant_offset = (uint32_t)AlignUp64(data_byte_count, 16);
+      for (uint32_t i = 0; i < pending_root_constant_count; i++) {
+        auto &pending = pending_root_constants[i];
+        root_constant_offset = (uint32_t)AlignUp64(root_constant_offset, 16);
+        if (root_constant_offset + pending.byte_count >
+            kArgBufMaxQwords * sizeof(uint64_t))
+          continue;
+        comp_arg_buf_data[pending.argument_qword] =
+            comp_arg_gpu_address + root_constant_offset;
+        comp_arg_buf_data[pending.argument_qword + 1] = pending.byte_count;
+        comp_arg_buf_data[pending.argument_qword + 2] = 0;
+        QTRACE("BuildComputeArgBuf: root constants address=0x%llx len=%u "
+               "argument_offset=%u",
+               (unsigned long long)comp_arg_buf_data[pending.argument_qword],
+               pending.byte_count, pending.argument_qword);
+        root_constant_offset += pending.byte_count;
+      }
+      uint32_t total_byte_count = std::max(data_byte_count,
+                                           root_constant_offset);
+      comp_arg_buf.updateContents(0, comp_arg_buf_data, total_byte_count);
+      uint32_t total_qwords = (total_byte_count + 7) / 8;
+      QTRACE("BuildComputeArgBuf: wrote qwords=%u root_constants=%u",
+             total_qwords, pending_root_constant_count);
+      return total_qwords;
     }
     return 0;
   }
@@ -6078,6 +6162,38 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     }
   }
 
+  const auto &compute_reflection = st.pso->GetCSReflection();
+  const bool has_compute_resource_masks =
+      compute_reflection.ConstantBufferSlotMask ||
+      compute_reflection.SamplerSlotMask || compute_reflection.UAVSlotMask ||
+      compute_reflection.SRVSlotMaskLo || compute_reflection.SRVSlotMaskHi;
+  auto compute_uses_descriptor = [&](D3D12_DESCRIPTOR_RANGE_TYPE range_type,
+                                     uint32_t shader_register) {
+    if (!has_compute_resource_masks)
+      return true;
+    switch (range_type) {
+    case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+      return shader_register < 16 &&
+             (compute_reflection.ConstantBufferSlotMask &
+              (1u << shader_register));
+    case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+      return shader_register < 16 &&
+             (compute_reflection.SamplerSlotMask & (1u << shader_register));
+    case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+      return shader_register < 64 &&
+             (compute_reflection.UAVSlotMask & (1ull << shader_register));
+    case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+      if (shader_register < 64)
+        return (compute_reflection.SRVSlotMaskLo &
+                (1ull << shader_register)) != 0;
+      return shader_register < 128 &&
+             (compute_reflection.SRVSlotMaskHi &
+              (1ull << (shader_register - 64)));
+    default:
+      return false;
+    }
+  };
+
   for (uint32_t i = 0; i < ReplayState::kRootParameterSlotCount; i++) {
     bool const_set = st.comp_constant_set[i] || st.root_constant_set[i];
     uint32_t const_size = st.comp_constant_set[i] ? st.comp_constant_sizes[i]
@@ -6126,7 +6242,13 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
       auto *res = device->LookupResourceByGPUAddress(address);
       if (res && res->GetMTLBuffer().handle) {
         uint32_t slot = compute_root_register(type);
-        if (slot >= 31)
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type =
+            type == D3D12_ROOT_PARAMETER_TYPE_CBV
+                ? D3D12_DESCRIPTOR_RANGE_TYPE_CBV
+                : (type == D3D12_ROOT_PARAMETER_TYPE_UAV
+                       ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+                       : D3D12_DESCRIPTOR_RANGE_TYPE_SRV);
+        if (slot >= 31 || !compute_uses_descriptor(range_type, slot))
           return;
         append_compute_setbuffer(res->GetMTLBuffer().handle,
                                  address - res->GetGPUVirtualAddress(), slot);
@@ -6153,7 +6275,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     auto bind_compute_descriptor = [&](D3D12Descriptor *desc,
                                        D3D12_DESCRIPTOR_RANGE_TYPE range_type,
                                        uint32_t shader_register) {
-      if (!desc)
+      if (!desc || !compute_uses_descriptor(range_type, shader_register))
         return;
       if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
         if (shader_register < 4 && desc->metal_sampler.handle) {
