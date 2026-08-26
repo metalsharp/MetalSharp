@@ -1330,7 +1330,19 @@ void miss_shader(inout MissPayload payload) {
 [shader("closesthit")]
 void closest_hit(inout MissPayload payload,
                  BuiltInTriangleIntersectionAttributes attributes) {
-  payload.value = payload.value == 0x414e5948 ? 0x48495441 : 0x48495431;
+  bool any_hit_ran = payload.value == 0x414e5948;
+  RayDesc recursive_ray;
+  recursive_ray.Origin = float3(0.0, 0.0, -2.0);
+  recursive_ray.TMin = 0.0;
+  recursive_ray.Direction = float3(0.0, 1.0, 0.0);
+  recursive_ray.TMax = 10.0;
+  MissPayload recursive_payload;
+  recursive_payload.value = 0;
+  TraceRay(scene, RAY_FLAG_NONE, 0xff, 0, 0, 0,
+           recursive_ray, recursive_payload);
+  payload.value = any_hit_ran && recursive_payload.value == 0x4d495353
+                      ? 0x52454332
+                      : 0x48495431;
 }
 
 [shader("anyhit")]
@@ -1386,6 +1398,7 @@ HLSL
         if "$converter" -o "$base.metallib" "$dxbc" \
           --entry-point=raygen \
           --rt-ray-generation-compilation=visibleFunction \
+          --rt-maximum-depth=2 \
           --root-signature="$raygen_root" \
           --output-reflection-file="$base.json" \
           --deployment-os=macOS \
@@ -1394,12 +1407,14 @@ HLSL
           "$converter" -o "$base.raydispatch.metallib" "$dxbc" \
           --entry-point=raygen \
           --synthesize-indirect-ray-dispatch \
+          --rt-maximum-depth=2 \
           --root-signature="$raygen_root" \
           --deployment-os=macOS \
           --minimum-os-build-version=15.0.0 \
           >"$base.raydispatch-msc.log" 2>&1 &&
           "$converter" -o "$base.miss.metallib" "$dxbc" \
           --entry-point=miss_shader \
+          --rt-maximum-depth=2 \
           --root-signature="$raygen_root" \
           --deployment-os=macOS \
           --minimum-os-build-version=15.0.0 \
@@ -1407,12 +1422,14 @@ HLSL
           if "$converter" -o "$base.closesthit.metallib" "$dxbc" \
             --entry-point=closest_hit \
             --rt-hit-group-type=triangles \
+            --rt-maximum-depth=2 \
             --root-signature="$raygen_root" \
             --deployment-os=macOS \
             --minimum-os-build-version=15.0.0 \
             >"$base.closesthit-msc.log" 2>&1; then
             if "$converter" -o "$base.callable.metallib" "$dxbc" \
               --entry-point=callable_shader \
+              --rt-maximum-depth=2 \
               --root-signature="$raygen_root" \
               --deployment-os=macOS \
               --minimum-os-build-version=15.0.0 \
@@ -1421,12 +1438,14 @@ HLSL
               --entry-point=any_hit \
               --rt-hit-group-type=triangles \
               --rt-intersection-compilation=ifVisibleFunction \
+              --rt-maximum-depth=2 \
               --root-signature="$raygen_root" \
               --deployment-os=macOS \
               --minimum-os-build-version=15.0.0 \
               >"$base.anyhit-msc.log" 2>&1 &&
               "$converter" -o "$base.rayintersection.metallib" "$dxbc" \
               --synthesize-indirect-intersection-function \
+              --rt-maximum-depth=2 \
               --root-signature="$raygen_root" \
               --deployment-os=macOS \
               --minimum-os-build-version=15.0.0 \
