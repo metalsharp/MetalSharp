@@ -1720,12 +1720,14 @@ static ProbeResult probe_mesh_shader_pso() {
     ID3D12RootSignature* root = nullptr;
     ID3D12PipelineState* pso = nullptr;
     ID3D12PipelineState* repeated_pso = nullptr;
+    ID3D12PipelineState* depth_pso = nullptr;
     ID3DBlob* root_blob = nullptr;
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12GraphicsCommandList* list = nullptr;
     ID3D12GraphicsCommandList6* list6 = nullptr;
     ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12DescriptorHeap* dsv_heap = nullptr;
     ID3D12DescriptorHeap* resource_heap = nullptr;
     ID3D12DescriptorHeap* sampler_heap = nullptr;
     ID3D12CommandSignature* mesh_signature = nullptr;
@@ -1738,6 +1740,9 @@ static ProbeResult probe_mesh_shader_pso() {
     ID3D12Resource* mesh_texture_upload = nullptr;
     ID3D12Resource* target = nullptr;
     ID3D12Resource* readback = nullptr;
+    ID3D12Resource* depth_target = nullptr;
+    ID3D12Resource* depth_target_readback = nullptr;
+    ID3D12Resource* depth_texture = nullptr;
     std::string detail;
     hr = device->QueryInterface(IID_PPV_ARGS(&device2));
 
@@ -1815,6 +1820,8 @@ static ProbeResult probe_mesh_shader_pso() {
                                 D3D12_RASTERIZER_DESC> rasterizer;
         PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL,
                                 D3D12_DEPTH_STENCIL_DESC> depth_stencil;
+        PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT,
+                                DXGI_FORMAT> depth_stencil_format;
         PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
                                 D3D12_PRIMITIVE_TOPOLOGY_TYPE> topology;
         PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
@@ -1841,6 +1848,19 @@ static ProbeResult probe_mesh_shader_pso() {
         hr = device2->CreatePipelineState(&desc, IID_PPV_ARGS(&pso));
         if (SUCCEEDED(hr))
             hr = device2->CreatePipelineState(&desc, IID_PPV_ARGS(&repeated_pso));
+        if (SUCCEEDED(hr)) {
+            MeshPipelineStream depth_stream = stream;
+            depth_stream.depth_stencil.value.DepthEnable = TRUE;
+            depth_stream.depth_stencil.value.DepthWriteMask =
+                D3D12_DEPTH_WRITE_MASK_ALL;
+            depth_stream.depth_stencil.value.DepthFunc =
+                D3D12_COMPARISON_FUNC_LESS;
+            depth_stream.depth_stencil_format.value = DXGI_FORMAT_D32_FLOAT;
+            D3D12_PIPELINE_STATE_STREAM_DESC depth_desc = {
+                sizeof(depth_stream), &depth_stream};
+            hr = device2->CreatePipelineState(&depth_desc,
+                                              IID_PPV_ARGS(&depth_pso));
+        }
     }
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
@@ -1854,8 +1874,14 @@ static ProbeResult probe_mesh_shader_pso() {
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        heap_desc.NumDescriptors = 1;
+        heap_desc.NumDescriptors = 2;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtv_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        heap_desc.NumDescriptors = 1;
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv_heap));
     }
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
@@ -1898,6 +1924,38 @@ static ProbeResult probe_mesh_shader_pso() {
         hr = device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
                                              &readback_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                              nullptr, IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_CLEAR_VALUE clear = {};
+        clear.Format = target_desc.Format;
+        clear.Color[0] = 1.0f;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
+            IID_PPV_ARGS(&depth_target));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(readback_bytes);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&depth_target_readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_RESOURCE_DESC depth_desc =
+            texture_desc(64, 64, DXGI_FORMAT_D32_FLOAT,
+                         D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        depth_desc.DepthOrArraySize = 2;
+        D3D12_CLEAR_VALUE clear = {};
+        clear.Format = DXGI_FORMAT_D32_FLOAT;
+        clear.DepthStencil.Depth = 0.5f;
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &depth_desc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear,
+            IID_PPV_ARGS(&depth_texture));
     }
     if (SUCCEEDED(hr)) {
         D3D12_INDIRECT_ARGUMENT_DESC argument_desc = {};
@@ -2076,6 +2134,17 @@ static ProbeResult probe_mesh_shader_pso() {
         rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
         rtv_desc.Texture2DArray.ArraySize = 2;
         device->CreateRenderTargetView(target, &rtv_desc, rtv);
+        D3D12_CPU_DESCRIPTOR_HANDLE depth_rtv = rtv;
+        depth_rtv.ptr += device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        device->CreateRenderTargetView(depth_target, &rtv_desc, depth_rtv);
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+            dsv_heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+        dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+        dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+        dsv_desc.Texture2DArray.ArraySize = 2;
+        device->CreateDepthStencilView(depth_texture, &dsv_desc, dsv);
         list6->SetGraphicsRootSignature(root);
         list6->SetGraphicsRootConstantBufferView(
             0, stage_constants->GetGPUVirtualAddress());
@@ -2140,6 +2209,34 @@ static ProbeResult probe_mesh_shader_pso() {
             src.SubresourceIndex = slice;
             list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
         }
+
+        D3D12_RESOURCE_BARRIER output_uav_barrier = transition_barrier(
+            mesh_output, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list6->ResourceBarrier(1, &output_uav_barrier);
+        list6->SetPipelineState(depth_pso);
+        list6->OMSetRenderTargets(1, &depth_rtv, FALSE, &dsv);
+        list6->ClearRenderTargetView(depth_rtv, clear, 0, nullptr);
+        list6->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.5f, 0,
+                                      0, nullptr);
+        D3D12_RECT full_scissor = {0, 0, 64, 64};
+        list6->RSSetScissorRects(1, &full_scissor);
+        list6->DispatchMesh(2, 1, 1);
+        D3D12_RESOURCE_BARRIER depth_target_barrier = transition_barrier(
+            depth_target, D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list6->ResourceBarrier(1, &depth_target_barrier);
+        for (UINT slice = 0; slice < 2; slice++) {
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = depth_target_readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint = footprints[slice];
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = depth_target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = slice;
+            list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
         hr = execute_and_wait(queue, list6);
     }
 
@@ -2152,6 +2249,9 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t clear_pixels = 0;
     uint64_t unexpected_pixels = 0;
     uint32_t unexpected_pixel_sample = 0;
+    uint64_t depth_layer_pixels[2] = {};
+    uint64_t depth_clear_pixels = 0;
+    uint64_t depth_unexpected_pixels = 0;
     uint32_t mesh_output_value = 0;
     uint32_t mesh_lane_values[32] = {};
     if (SUCCEEDED(hr)) {
@@ -2201,10 +2301,36 @@ static ProbeResult probe_mesh_shader_pso() {
         }
     }
 
+    if (SUCCEEDED(hr)) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
+        hr = depth_target_readback->Map(
+            0, &read_range, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            for (UINT slice = 0; slice < 2; slice++) {
+                for (UINT y = 0; y < 64; y++) {
+                    const uint32_t* row = reinterpret_cast<const uint32_t*>(
+                        mapped + footprints[slice].Offset +
+                        footprints[slice].Footprint.RowPitch * y);
+                    for (UINT x = 0; x < 64; x++) {
+                        depth_layer_pixels[slice] += row[x] == 0xff66cc33u;
+                        depth_clear_pixels += row[x] == 0xff0000ffu;
+                        depth_unexpected_pixels +=
+                            row[x] != 0xff66cc33u && row[x] != 0xff0000ffu;
+                    }
+                }
+            }
+            depth_target_readback->Unmap(0, nullptr);
+        }
+    }
+
     safe_release(mesh_texture_upload);
     safe_release(mesh_texture);
     safe_release(mesh_output_readback);
     safe_release(mesh_output);
+    safe_release(depth_texture);
+    safe_release(depth_target_readback);
+    safe_release(depth_target);
     safe_release(readback);
     safe_release(target);
     safe_release(stage_srvs);
@@ -2213,12 +2339,14 @@ static ProbeResult probe_mesh_shader_pso() {
     safe_release(mesh_signature);
     safe_release(sampler_heap);
     safe_release(resource_heap);
+    safe_release(dsv_heap);
     safe_release(rtv_heap);
     safe_release(list6);
     safe_release(list);
     safe_release(allocator);
     safe_release(queue);
     safe_release(root_blob);
+    safe_release(depth_pso);
     safe_release(repeated_pso);
     safe_release(pso);
     safe_release(root);
@@ -2237,11 +2365,16 @@ static ProbeResult probe_mesh_shader_pso() {
         layer_indirect_pixels[1] >= 100 && layer_indirect_pixels[1] <= 400 &&
         clear_pixels + nonzero_pixels == 64u * 64u * 2u &&
         unexpected_pixels == 0 &&
+        depth_layer_pixels[0] >= 300 && depth_layer_pixels[0] <= 400 &&
+        depth_layer_pixels[1] == 0 &&
+        depth_clear_pixels + depth_layer_pixels[0] == 64u * 64u * 2u &&
+        depth_unexpected_pixels == 0 &&
         mesh_output_value == 0x4d534831 && mesh_lane_values_verified;
     return {verified, verified ? S_OK : hr,
             verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered; tier remains conservative"
                      : (detail.empty() ? "native mesh shader dispatch/readback failed" : detail),
             "\"pso_attempted\":true,\"repeated_pso_created\":true" +
+                std::string(",\"depth_pso_created\":true") +
                 std::string(",\"stage_cbvs_bound\":true") +
                 std::string(",\"stage_srvs_bound\":true") +
                 std::string(",\"mesh_uav_bound\":true") +
@@ -2272,6 +2405,17 @@ static ProbeResult probe_mesh_shader_pso() {
                 std::to_string(unexpected_pixel_sample) +
                 ",\"mesh_color_rgba8\":\"0xff66cc33\"" +
                 ",\"clear_color_rgba8\":\"0xff0000ff\"" +
+                ",\"depth_clear\":0.5" +
+                ",\"depth_layer0_value\":0.25" +
+                ",\"depth_layer1_value\":0.75" +
+                ",\"depth_layer0_pixels\":" +
+                std::to_string(depth_layer_pixels[0]) +
+                ",\"depth_layer1_pixels\":" +
+                std::to_string(depth_layer_pixels[1]) +
+                ",\"depth_clear_pixels\":" +
+                std::to_string(depth_clear_pixels) +
+                ",\"depth_unexpected_pixels\":" +
+                std::to_string(depth_unexpected_pixels) +
                 ",\"mesh_output_value\":" + std::to_string(mesh_output_value) +
                 ",\"mesh_texture_scale\":0.5" +
                 std::string(",\"mesh_threadgroup_width\":32") +
