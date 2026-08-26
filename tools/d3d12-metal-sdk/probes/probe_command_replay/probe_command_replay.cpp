@@ -442,6 +442,127 @@ static CaseResult run_bundle_status_case() {
     return result;
 }
 
+static CaseResult run_write_buffer_immediate_case() {
+    CaseResult result = {"write_buffer_immediate", false, E_FAIL, "", ""};
+    const D3D12_COMMAND_LIST_TYPE list_types[] = {
+        D3D12_COMMAND_LIST_TYPE_DIRECT,
+        D3D12_COMMAND_LIST_TYPE_COMPUTE,
+        D3D12_COMMAND_LIST_TYPE_BUNDLE,
+    };
+    const uint32_t expected[] = {0x11223344u, 0x55667788u, 0x99aabbccu};
+    bool type_pass[3] = {};
+    HRESULT final_hr = S_OK;
+
+    for (uint32_t type_index = 0; type_index < 3; ++type_index) {
+        ID3D12Device* device = nullptr;
+        ID3D12CommandQueue* queue = nullptr;
+        ID3D12CommandAllocator* allocator = nullptr;
+        ID3D12CommandAllocator* direct_allocator = nullptr;
+        ID3D12GraphicsCommandList* list = nullptr;
+        ID3D12GraphicsCommandList* direct = nullptr;
+        ID3D12GraphicsCommandList2* list2 = nullptr;
+        ID3D12Resource* target = nullptr;
+        ID3D12Resource* readback = nullptr;
+
+        D3D12_COMMAND_LIST_TYPE type = list_types[type_index];
+        D3D12_COMMAND_LIST_TYPE queue_type =
+            type == D3D12_COMMAND_LIST_TYPE_BUNDLE ? D3D12_COMMAND_LIST_TYPE_DIRECT : type;
+        HRESULT hr = create_device(&device);
+        if (SUCCEEDED(hr))
+            hr = create_queue(device, queue_type, &queue);
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommandAllocator(type, IID_PPV_ARGS(&allocator));
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommandList(0, type, allocator, nullptr, IID_PPV_ARGS(&list));
+        if (SUCCEEDED(hr))
+            hr = list->QueryInterface(IID_PPV_ARGS(&list2));
+        if (SUCCEEDED(hr))
+            hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 64, D3D12_RESOURCE_FLAG_NONE,
+                               D3D12_RESOURCE_STATE_COMMON, &target);
+        if (SUCCEEDED(hr))
+            hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, 64, D3D12_RESOURCE_FLAG_NONE,
+                               D3D12_RESOURCE_STATE_COPY_DEST, &readback);
+        if (SUCCEEDED(hr)) {
+            D3D12_WRITEBUFFERIMMEDIATE_PARAMETER params[3] = {};
+            D3D12_WRITEBUFFERIMMEDIATE_MODE modes[3] = {
+                D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT,
+                D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_IN,
+                D3D12_WRITEBUFFERIMMEDIATE_MODE_MARKER_OUT,
+            };
+            for (uint32_t i = 0; i < 3; ++i) {
+                params[i].Dest = target->GetGPUVirtualAddress() + i * sizeof(uint32_t);
+                params[i].Value = expected[i];
+            }
+            list2->WriteBufferImmediate(3, params, modes);
+            hr = list->Close();
+        }
+
+        ID3D12GraphicsCommandList* submit = list;
+        if (SUCCEEDED(hr) && type == D3D12_COMMAND_LIST_TYPE_BUNDLE) {
+            hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                IID_PPV_ARGS(&direct_allocator));
+            if (SUCCEEDED(hr))
+                hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                               direct_allocator, nullptr, IID_PPV_ARGS(&direct));
+            if (SUCCEEDED(hr)) {
+                direct->ExecuteBundle(list);
+                D3D12_RESOURCE_BARRIER barrier = transition_barrier(
+                    target, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                direct->ResourceBarrier(1, &barrier);
+                direct->CopyResource(readback, target);
+                hr = direct->Close();
+                submit = direct;
+            }
+        } else if (SUCCEEDED(hr)) {
+            hr = device->CreateCommandAllocator(type, IID_PPV_ARGS(&direct_allocator));
+            if (SUCCEEDED(hr))
+                hr = device->CreateCommandList(0, type, direct_allocator, nullptr,
+                                               IID_PPV_ARGS(&direct));
+            if (SUCCEEDED(hr)) {
+                D3D12_RESOURCE_BARRIER barrier = transition_barrier(
+                    target, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                direct->ResourceBarrier(1, &barrier);
+                direct->CopyResource(readback, target);
+                hr = direct->Close();
+            }
+        }
+        if (SUCCEEDED(hr)) {
+            ID3D12CommandList* first_lists[] = {submit};
+            hr = execute_and_wait(device, queue, first_lists, 1, 1);
+        }
+        if (SUCCEEDED(hr) && type != D3D12_COMMAND_LIST_TYPE_BUNDLE) {
+            ID3D12CommandList* copy_lists[] = {direct};
+            hr = execute_and_wait(device, queue, copy_lists, 1, 2);
+        }
+        uint32_t observed[3] = {};
+        type_pass[type_index] = SUCCEEDED(hr) && readback_u32(readback, observed, 3) &&
+                                std::memcmp(observed, expected, sizeof(expected)) == 0;
+        if (!type_pass[type_index] && SUCCEEDED(final_hr))
+            final_hr = FAILED(hr) ? hr : E_FAIL;
+
+        safe_release(readback);
+        safe_release(target);
+        safe_release(list2);
+        safe_release(direct);
+        safe_release(list);
+        safe_release(direct_allocator);
+        safe_release(allocator);
+        safe_release(queue);
+        safe_release(device);
+    }
+
+    result.pass = type_pass[0] && type_pass[1] && type_pass[2];
+    result.hr = result.pass ? S_OK : final_hr;
+    result.detail = result.pass
+                        ? "direct, compute, and bundle WriteBufferImmediate modes passed readback"
+                        : "WriteBufferImmediate command-list coverage failed";
+    result.extra = "\"direct\":" + std::string(type_pass[0] ? "true" : "false") +
+                   ",\"compute\":" + std::string(type_pass[1] ? "true" : "false") +
+                   ",\"bundle\":" + std::string(type_pass[2] ? "true" : "false") +
+                   ",\"values\":[287454020,1432778632,2578103244]";
+    return result;
+}
+
 static CaseResult run_execute_indirect_constants_case() {
     CaseResult result = {"execute_indirect_root_constants", false, E_FAIL, "", ""};
     const char* hlsl = "cbuffer Root:register(b0){uint base;};"
@@ -644,6 +765,7 @@ int main() {
         cases.push_back(run_command_list_reuse_case());
         cases.push_back(run_multi_list_execute_case());
         cases.push_back(run_bundle_status_case());
+        cases.push_back(run_write_buffer_immediate_case());
         cases.push_back(run_execute_indirect_constants_case());
     }
 
@@ -659,6 +781,7 @@ int main() {
     std::printf("    \"command_list_reset_close_reuse\": true,\n");
     std::printf("    \"queue_execute_multiple_lists\": true,\n");
     std::printf("    \"bundle_status_reported\": true,\n");
+    std::printf("    \"write_buffer_immediate_direct_compute_bundle\": true,\n");
     std::printf("    \"execute_indirect_dispatch\": true,\n");
     std::printf("    \"execute_indirect_root_constants_status_reported\": true,\n");
     std::printf("    \"execute_indirect_graphics_replay_status_reported\": true,\n");
