@@ -1295,21 +1295,30 @@ struct MissPayload {
 
 [shader("raygeneration")]
 void raygen() {
+  uint ray_index = DispatchRaysIndex().x;
   RayDesc ray;
   ray.Origin = float3(0.0, 0.0, -2.0);
   ray.TMin = 0.0;
-  ray.Direction = float3(0.0, 1.0, 0.0);
+  ray.Direction = ray_index == 0 ? float3(0.0, 1.0, 0.0)
+                                 : float3(0.0, 0.0, 1.0);
   ray.TMax = 10.0;
   MissPayload payload;
   payload.value = 0;
   TraceRay(scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
-  output.Store(4, payload.value);
-  output.Store(8, 42);
+  output.Store(4 + ray_index * 4, payload.value);
+  if (ray_index == 0)
+    output.Store(12, 42);
 }
 
 [shader("miss")]
 void miss_shader(inout MissPayload payload) {
   payload.value = 0x4d495353;
+}
+
+[shader("closesthit")]
+void closest_hit(inout MissPayload payload,
+                 BuiltInTriangleIntersectionAttributes attributes) {
+  payload.value = 0x48495431;
 }
 HLSL
 
@@ -1372,7 +1381,15 @@ HLSL
           --deployment-os=macOS \
           --minimum-os-build-version=15.0.0 \
           >"$base.miss-msc.log" 2>&1; then
-          rm -f "$base.msc.fail"
+          if "$converter" -o "$base.closesthit.metallib" "$dxbc" \
+            --entry-point=closest_hit \
+            --rt-hit-group-type=triangles \
+            --root-signature="$raygen_root" \
+            --deployment-os=macOS \
+            --minimum-os-build-version=15.0.0 \
+            >"$base.closesthit-msc.log" 2>&1; then
+            rm -f "$base.msc.fail"
+          fi
         fi
       done
       shopt -u nullglob

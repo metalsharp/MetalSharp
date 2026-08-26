@@ -681,6 +681,7 @@ struct WMTRaytracingComputePipelineInfo {
   obj_handle_t dispatch_function;
   obj_handle_t raygen_function;
   obj_handle_t miss_function;
+  obj_handle_t closest_hit_function;
 };
 
 WINEMETAL_API obj_handle_t MTLDevice_newRaytracingComputePipelineState(

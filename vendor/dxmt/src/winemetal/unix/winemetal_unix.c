@@ -837,13 +837,19 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
       (id<MTLFunction>)info->dispatch_function;
   id<MTLFunction> raygen_function = (id<MTLFunction>)info->raygen_function;
   id<MTLFunction> miss_function = (id<MTLFunction>)info->miss_function;
+  id<MTLFunction> closest_hit_function =
+      (id<MTLFunction>)info->closest_hit_function;
   MTLComputePipelineDescriptor *descriptor =
       [[MTLComputePipelineDescriptor alloc] init];
   descriptor.computeFunction = dispatch_function;
   MTLLinkedFunctions *linked_functions = [[MTLLinkedFunctions alloc] init];
-  linked_functions.functions = miss_function
-                                   ? @[ raygen_function, miss_function ]
-                                   : @[ raygen_function ];
+  if (miss_function && closest_hit_function)
+    linked_functions.functions =
+        @[ raygen_function, miss_function, closest_hit_function ];
+  else if (miss_function)
+    linked_functions.functions = @[ raygen_function, miss_function ];
+  else
+    linked_functions.functions = @[ raygen_function ];
   descriptor.linkedFunctions = linked_functions;
   NSError *error = nil;
   id<MTLComputePipelineState> pipeline =
@@ -855,7 +861,9 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
   if (pipeline) {
     MTLVisibleFunctionTableDescriptor *table_descriptor =
         [[MTLVisibleFunctionTableDescriptor alloc] init];
-    table_descriptor.functionCount = miss_function ? 3 : 2;
+    table_descriptor.functionCount = closest_hit_function ? 4
+                                      : miss_function       ? 3
+                                                            : 2;
     id<MTLVisibleFunctionTable> table =
         [pipeline newVisibleFunctionTableWithDescriptor:table_descriptor];
     id<MTLFunctionHandle> function_handle =
@@ -863,10 +871,17 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
     id<MTLFunctionHandle> miss_handle =
         miss_function ? [pipeline functionHandleWithFunction:miss_function]
                       : nil;
-    if (table && function_handle && (!miss_function || miss_handle)) {
+    id<MTLFunctionHandle> closest_hit_handle =
+        closest_hit_function
+            ? [pipeline functionHandleWithFunction:closest_hit_function]
+            : nil;
+    if (table && function_handle && (!miss_function || miss_handle) &&
+        (!closest_hit_function || closest_hit_handle)) {
       [table setFunction:function_handle atIndex:1];
       if (miss_handle)
         [table setFunction:miss_handle atIndex:2];
+      if (closest_hit_handle)
+        [table setFunction:closest_hit_handle atIndex:3];
       params->ret_pipeline = (obj_handle_t)pipeline;
       params->ret_visible_function_table = (obj_handle_t)table;
     } else {
