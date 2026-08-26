@@ -441,9 +441,51 @@ public:
   };
 
   bool
+  setMeshTexture(Texture texture, uint8_t index) {
+    struct wmtcmd_render_settexture cmd;
+    cmd.type = WMTRenderCommandSetMeshTexture;
+    cmd.next.set(nullptr);
+    cmd.texture = texture;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  };
+
+  bool
+  setObjectTexture(Texture texture, uint8_t index) {
+    struct wmtcmd_render_settexture cmd;
+    cmd.type = WMTRenderCommandSetObjectTexture;
+    cmd.next.set(nullptr);
+    cmd.texture = texture;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  };
+
+  bool
   setFragmentSamplerState(SamplerState sampler, uint8_t index) {
     struct wmtcmd_render_setsamplerstate cmd;
     cmd.type = WMTRenderCommandSetFragmentSamplerState;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.sampler = sampler.handle;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
+  setMeshSamplerState(SamplerState sampler, uint8_t index) {
+    struct wmtcmd_render_setsamplerstate cmd;
+    cmd.type = WMTRenderCommandSetMeshSamplerState;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.sampler = sampler.handle;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
+  setObjectSamplerState(SamplerState sampler, uint8_t index) {
+    struct wmtcmd_render_setsamplerstate cmd;
+    cmd.type = WMTRenderCommandSetObjectSamplerState;
     cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
     cmd.next.set(nullptr);
     cmd.sampler = sampler.handle;

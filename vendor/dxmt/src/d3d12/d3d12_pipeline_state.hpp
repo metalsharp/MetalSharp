@@ -180,6 +180,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetGSArguments() const {
     return m_gs_args;
   }
+  bool GSUsesMSCArgumentABI() const { return m_gs_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetGSConstantBuffers() const {
     return m_gs_cb_args;
   }
@@ -303,6 +304,7 @@ private:
   sm50_shader_t m_ps_shader = nullptr;
   MTL_SHADER_REFLECTION m_gs_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_gs_args;
+  bool m_gs_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_gs_cb_args;
   sm50_shader_t m_gs_shader = nullptr;
   uint32_t m_ia_slot_mask = 0;

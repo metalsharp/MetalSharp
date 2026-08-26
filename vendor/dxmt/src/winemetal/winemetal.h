@@ -1297,6 +1297,10 @@ enum WMTRenderCommandType : uint16_t {
   WMTRenderCommandDXMTTessellationMeshDrawIndirect,
   WMTRenderCommandDXMTTessellationMeshDrawIndexedIndirect,
   WMTRenderCommandDispatchThreadsPerTile,
+  WMTRenderCommandSetMeshTexture,
+  WMTRenderCommandSetObjectTexture,
+  WMTRenderCommandSetMeshSamplerState,
+  WMTRenderCommandSetObjectSamplerState,
 };
 
 struct wmtcmd_render_nop {

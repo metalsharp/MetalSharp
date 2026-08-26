@@ -296,11 +296,13 @@ Findings:
   shaders; this is useful diagnostics but not full SM6.7 coverage.
 - D3D12 AS/MS pipeline-state stream subobjects now compile through Metal Shader
   Converter into Metal object/mesh functions. A four-byte amplification payload,
-  direct `DispatchMesh`, and indirect `DISPATCH_MESH` each execute in separate
-  scissor regions and produce 676 nonzero pixels per path.
-- Mesh tier 1 remains conservatively unreported while object/mesh resource
-  binding, mixed render-state matrices, statistics, render-target arrays, and
-  broader shader/payload coverage are still gated.
+  stage-specific CBV/raw-SRV bindings, a mesh UAV write, and mesh-stage
+  texture/sampler sampling execute through both direct `DispatchMesh` and
+  indirect `DISPATCH_MESH`. The 0.5 texture sample scales each split-screen
+  triangle to exactly 169 nonzero pixels and the UAV returns `0x4d534831`.
+- Mesh tier 1 remains conservatively unreported while mixed render-state
+  matrices, statistics, render-target arrays, and broader shader/payload
+  coverage are still gated.
 - The same Metal mesh pipeline infrastructure also executes geometry-shader
   emulation and tessellation proof shapes.
 - General geometry shader support remains limited.
@@ -357,11 +359,12 @@ Findings:
 - The bridge is substantial and already carries device, buffer, texture,
   sampler, command encoder, render/compute pipeline, binary archive, event,
   counter, and mesh pipeline operations.
-- Mesh/object render pipeline and draw calls exist and can be extended for true
-  D3D12 amplification/mesh shaders.
-- No complete WineMetal acceleration-structure object/descriptor/encoder API is
-  exposed.
-- No complete visible-function/intersection-function table API is exposed.
+- Mesh/object render pipelines now expose object/mesh buffer, texture, sampler,
+  and direct/indirect draw operations used by D3D12 amplification/mesh shaders.
+- The bridge exposes limited triangle/instance acceleration-structure creation
+  and build operations, but not the complete update/copy/serialization surface.
+- A limited visible-function-table path supports the proven raygen dispatch;
+  intersection-function tables and broad shader linkage remain absent.
 - No DXR shader-table binding abstraction exists.
 - No D3D12-facing sparse-resource mapping API is bridged despite Metal 4
   placement sparse resources being available on the proof host.
