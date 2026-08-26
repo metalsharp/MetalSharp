@@ -16,10 +16,10 @@ static std::string read_text(const char *path) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 5) {
+  if (argc != 5 && argc != 6) {
     std::fprintf(stderr,
-                 "usage: compile-procedural-raytracing dxil root-json "
-                 "entry-or-synthesis-mode output\n");
+                 "usage: compile-procedural-raytracing dxil global-root-json "
+                 "entry-or-synthesis-mode output [local-root-json]\n");
     return 2;
   }
 
@@ -58,6 +58,23 @@ int main(int argc, char **argv) {
       compiler, procedural ? IRHitGroupTypeProceduralPrimitive
                            : IRHitGroupTypeTriangles);
   IRCompilerSetGlobalRootSignature(compiler, root);
+  IRVersionedRootSignatureDescriptor *local_root_desc = nullptr;
+  IRRootSignature *local_root = nullptr;
+  if (argc == 6) {
+    auto local_root_json = read_text(argv[5]);
+    local_root_desc = IRVersionedRootSignatureDescriptorCreateFromJSON(
+        local_root_json.c_str());
+    local_root = local_root_desc
+                     ? IRRootSignatureCreateFromDescriptor(local_root_desc,
+                                                           &error)
+                     : nullptr;
+    if (!local_root) {
+      std::fprintf(stderr, "local-root-signature error %u\n",
+                   error ? IRErrorGetCode(error) : 999u);
+      return 4;
+    }
+    IRCompilerSetLocalRootSignature(compiler, local_root);
+  }
   IRCompilerSetMinimumDeploymentTarget(compiler, IROperatingSystem_macOS,
                                        "15.0.0");
 
@@ -116,6 +133,10 @@ int main(int argc, char **argv) {
   IRObjectDestroy(input);
   IRRootSignatureDestroy(root);
   IRVersionedRootSignatureDescriptorRelease(root_desc);
+  if (local_root)
+    IRRootSignatureDestroy(local_root);
+  if (local_root_desc)
+    IRVersionedRootSignatureDescriptorRelease(local_root_desc);
   if (error)
     IRErrorDestroy(error);
   return file ? 0 : 7;

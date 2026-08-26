@@ -1017,8 +1017,11 @@ the goal is not complete.
   multi-geometry BLAS while `DispatchRays` traverses the updated compact/AABB
   paths. The refittable TLAS builds to 1,216 bytes. `AddToStateObject` now
   creates a stable, distinct alias for the inherited triangle hit group; the
-  alias identifier is installed in the first shader-table record and executes
-  the existing any-hit/closest-hit path. Its second 64-byte hit-group record
+  alias identifier is installed in the first shader-table record. The record's
+  four-byte local-root argument `0x4c4f434c` is associated with and read by
+  closest-hit; recursion only returns `0x52454332` when both that local value and
+  the existing any-hit/nested-miss behavior are correct. Its second 64-byte
+  hit-group record
   selects a
   procedural intersection
   wrapper, invokes visible-function index 6 to call `ReportHit`, and then invokes
@@ -1030,5 +1033,5 @@ the goal is not complete.
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry, larger geometry/instance arrays,
-  serialization/deserialization, new-library state-object growth, and complete
-  local-root/shader-table semantics.
+  serialization/deserialization, new-library state-object growth,
+  descriptor-bearing local roots, and complete shader-table semantics.

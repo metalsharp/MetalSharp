@@ -2251,6 +2251,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12GraphicsCommandList* list = nullptr;
     ID3D12GraphicsCommandList4* list4 = nullptr;
     ID3D12RootSignature* compute_root = nullptr;
+    ID3D12RootSignature* closest_hit_local_root = nullptr;
     ID3D12PipelineState* compute_pso = nullptr;
     ID3D12StateObject* raytracing_state = nullptr;
     ID3D12StateObject* grown_raytracing_state = nullptr;
@@ -2332,6 +2333,27 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
+    D3D12_ROOT_PARAMETER local_root_param = {};
+    local_root_param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    local_root_param.Constants.ShaderRegister = 1;
+    local_root_param.Constants.RegisterSpace = 0;
+    local_root_param.Constants.Num32BitValues = 1;
+    local_root_param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_ROOT_SIGNATURE_DESC local_root_desc = {};
+    local_root_desc.NumParameters = 1;
+    local_root_desc.pParameters = &local_root_param;
+    local_root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
+    ID3DBlob* local_root_blob = nullptr;
+    if (SUCCEEDED(hr))
+        hr = serialize_root_signature(local_root_desc, &local_root_blob,
+                                      compute_detail);
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(
+            0, local_root_blob->GetBufferPointer(),
+            local_root_blob->GetBufferSize(),
+            IID_PPV_ARGS(&closest_hit_local_root));
+    safe_release(local_root_blob);
+
     D3D12_EXPORT_DESC raygen_exports[7] = {};
     raygen_exports[0].Name = L"raygen";
     raygen_exports[1].Name = L"miss_shader";
@@ -2361,7 +2383,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
     procedural_hit_group.Type = D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE;
     procedural_hit_group.ClosestHitShaderImport = L"procedural_closest_hit";
     procedural_hit_group.IntersectionShaderImport = L"procedural_intersection";
-    D3D12_STATE_SUBOBJECT state_subobjects[6] = {};
+    D3D12_LOCAL_ROOT_SIGNATURE local_root = {closest_hit_local_root};
+    LPCWSTR local_root_exports[] = {L"hit_group"};
+    D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION local_root_association = {};
+    D3D12_STATE_SUBOBJECT state_subobjects[8] = {};
     state_subobjects[0] = {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY,
                            &raygen_library_desc};
     state_subobjects[1] = {
@@ -2374,9 +2399,17 @@ static ProbeResult probe_dxr_acceleration_structures() {
     state_subobjects[4] = {D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP, &hit_group};
     state_subobjects[5] = {D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP,
                            &procedural_hit_group};
+    state_subobjects[6] = {D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE,
+                           &local_root};
+    local_root_association.pSubobjectToAssociate = &state_subobjects[6];
+    local_root_association.NumExports = 1;
+    local_root_association.pExports = local_root_exports;
+    state_subobjects[7] = {
+        D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION,
+        &local_root_association};
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-    state_desc.NumSubobjects = 6;
+    state_desc.NumSubobjects = 8;
     state_desc.pSubobjects = state_subobjects;
     if (SUCCEEDED(hr))
         hr = device5->CreateStateObject(&state_desc,
@@ -2478,6 +2511,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
                         32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 128,
                         grown_hit_group_identifier, 32);
+            const uint32_t closest_hit_local_marker = 0x4c4f434c;
+            std::memcpy(static_cast<uint8_t*>(mapped) + 160,
+                        &closest_hit_local_marker,
+                        sizeof(closest_hit_local_marker));
             std::memcpy(static_cast<uint8_t*>(mapped) + 192,
                         procedural_hit_group_identifier, 32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 256,
@@ -3250,6 +3287,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(ray_query_heap);
     safe_release(compute_pso);
     safe_release(compute_root);
+    safe_release(closest_hit_local_root);
     safe_release(list4);
     safe_release(list);
     safe_release(allocator);
@@ -3258,7 +3296,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compacted-size query, compact copy/three-instance TLAS traversal, grown hit-group alias state object, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal two-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy/TLAS traversal, grown hit-group alias with local-root shader-record constant, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -3309,6 +3347,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 (add_to_state_object_created ? "true" : "false") +
                 ",\"grown_state_identifiers\":" +
                 (grown_state_identifiers ? "true" : "false") +
+                ",\"closest_hit_local_root_marker\":1280262988" +
                 ",\"unknown_identifier_null\":" +
                 (!unknown_identifier ? "true" : "false") +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
