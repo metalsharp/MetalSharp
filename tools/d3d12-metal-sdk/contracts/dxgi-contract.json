@@ -35,6 +35,15 @@
       ],
       "state": "stub_risky"
     },
+    "IDXGIDevice3": {
+      "required_behavior": [
+        "D3D12 device QueryInterface succeeds for IDXGIDevice through IDXGIDevice3",
+        "EnqueueSetEvent remains unsignaled while any command queue is blocked on earlier work",
+        "EnqueueSetEvent signals only after completion markers on every live D3D12 queue and retains its own event handle",
+        "EnqueueSetEvent rejects a null handle with E_INVALIDARG"
+      ],
+      "state": "runtime_proven"
+    },
     "IDXGISwapChain": {
       "required_behavior": [
         "GetBuffer returns the renderable backbuffer for the current frame",

@@ -157,7 +157,9 @@ MTLD3D12DXGIDevice::ReclaimResources(UINT NumResources,
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::EnqueueSetEvent(HANDLE hEvent) { return E_FAIL; }
+MTLD3D12DXGIDevice::EnqueueSetEvent(HANDLE hEvent) {
+  return m_d3d12_device->EnqueueSetEvent(hEvent);
+}
 
 void STDMETHODCALLTYPE MTLD3D12DXGIDevice::Trim() {}
 

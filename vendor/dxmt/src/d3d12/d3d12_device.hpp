@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <new>
+#include <vector>
 
 namespace dxmt {
 
@@ -20,6 +21,7 @@ inline constexpr D3D_FEATURE_LEVEL kD3D12MaximumFeatureLevel =
 
 class MTLD3D12Resource;
 class MTLD3D12PipelineState;
+class MTLD3D12CommandQueue;
 
 enum D3D12SamplerFlagsCompat : UINT {
   D3D12SamplerFlagNoneCompat = 0x0,
@@ -113,6 +115,9 @@ public:
   void RegisterResource(MTLD3D12Resource *res);
   void UnregisterResource(MTLD3D12Resource *res);
   MTLD3D12Resource *LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr);
+  void RegisterCommandQueue(MTLD3D12CommandQueue *queue);
+  void UnregisterCommandQueue(MTLD3D12CommandQueue *queue);
+  HRESULT EnqueueSetEvent(HANDLE event);
 
   /*** IUnknown ***/
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid,
@@ -480,6 +485,8 @@ private:
   std::atomic<uint32_t> m_refPrivate = {1ul};
   std::mutex m_resource_mutex;
   std::unordered_map<uint64_t, MTLD3D12Resource *> m_resources_by_gpu_addr;
+  std::mutex m_command_queue_mutex;
+  std::vector<MTLD3D12CommandQueue *> m_command_queues;
   void *m_expected_vtable = nullptr;
   void CheckVtable(const char *where);
 };

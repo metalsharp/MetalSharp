@@ -347,7 +347,13 @@ Findings:
   complete lifecycle.
 - DXGI resource subresource surfaces are stubbed.
 - D3D12 DXGI surface creation is `E_NOTIMPL`.
-- `EnqueueSetEvent` fails.
+- `IDXGIDevice3::EnqueueSetEvent` now snapshots every live D3D12 queue under a
+  lifetime-safe registry, serializes a Metal shared-event completion marker
+  after each queue's earlier submissions, retains a duplicate Win32 event
+  handle, and signals it only after every marker completes. The queue probe
+  holds one copy queue behind an unsignaled fence, proves the event does not
+  fire early, closes the caller handle, releases the fence, and proves eventual
+  signaling across two direct, one compute, and one copy queue.
 - Offer/reclaim/trim and some priority/latency calls return success without a
   full state model.
 - Several output duplication/overlay/gamma/ownership paths are incomplete.

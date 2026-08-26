@@ -6714,6 +6714,8 @@ MTLD3D12CommandQueue::MTLD3D12CommandQueue(MTLD3D12Device *device,
   auto wmt_dev = m_device->GetDXMTDevice().device();
   m_wmt_queue = wmt_dev.newCommandQueue(1);
   m_barrier_event = wmt_dev.newEvent();
+  m_completion_event = wmt_dev.newSharedEvent();
+  m_device->RegisterCommandQueue(this);
   QTRACE(
       "CmdQueue::ctor this=%p device=%p type=%u priority=%d flags=0x%x node=%u",
       (void *)this, (void *)device, desc.Type, desc.Priority, desc.Flags,
@@ -6723,6 +6725,7 @@ MTLD3D12CommandQueue::MTLD3D12CommandQueue(MTLD3D12Device *device,
 
 MTLD3D12CommandQueue::~MTLD3D12CommandQueue() {
   QTRACE("CmdQueue::dtor this=%p", (void *)this);
+  m_device->UnregisterCommandQueue(this);
   m_device->Release();
 }
 
@@ -6821,6 +6824,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
     UINT command_list_count, ID3D12CommandList *const *command_lists) {
   QTRACE("ExecuteCommandLists count=%u", command_list_count);
+  std::lock_guard submit_lock(m_submit_mutex);
 
   for (UINT li = 0; li < command_list_count; li++) {
     DXMTD3D12ScopedTimer list_timer("Queue", "ExecuteCommandList");
@@ -9876,6 +9880,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Signal(ID3D12Fence *fence,
   auto shared_event = dxmt_fence->GetMTLSharedEvent();
   if (!shared_event.handle)
     return E_FAIL;
+  std::lock_guard submit_lock(m_submit_mutex);
   {
     FILE *f = dxmt::openDiagnosticLog("dxmt-d3d12-trace.log");
     if (f) {
@@ -9907,6 +9912,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Wait(ID3D12Fence *fence,
   auto shared_event = dxmt_fence->GetMTLSharedEvent();
   if (!shared_event.handle)
     return E_FAIL;
+  std::lock_guard submit_lock(m_submit_mutex);
   auto cmdbuf = m_wmt_queue.commandBuffer();
   if (!cmdbuf.handle)
     return E_FAIL;
@@ -9918,6 +9924,26 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Wait(ID3D12Fence *fence,
   QTRACE("CmdQueue::Wait queued queue_type=%u value=%llu fence=%p", m_desc.Type,
          (unsigned long long)value, (void *)fence);
   return S_OK;
+}
+
+bool MTLD3D12CommandQueue::EnqueueCompletionSignal(
+    WMT::Reference<WMT::SharedEvent> &completion_event,
+    uint64_t &completion_value) {
+  std::lock_guard submit_lock(m_submit_mutex);
+  if (!m_completion_event.handle)
+    return false;
+  auto cmdbuf = m_wmt_queue.commandBuffer();
+  if (!cmdbuf.handle)
+    return false;
+  const uint64_t value = ++m_completion_seq;
+  cmdbuf.encodeSignalEvent(m_completion_event, value);
+  cmdbuf.commit();
+  completion_event = m_completion_event;
+  completion_value = value;
+  QTRACE("EnqueueCompletionSignal queue_type=%u value=%llu event=%llu",
+         m_desc.Type, (unsigned long long)value,
+         (unsigned long long)m_completion_event.handle);
+  return true;
 }
 
 HRESULT STDMETHODCALLTYPE

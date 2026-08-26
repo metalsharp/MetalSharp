@@ -7,6 +7,7 @@
 #include "dxmt_command_queue.hpp"
 #include "Metal.hpp"
 #include <atomic>
+#include <mutex>
 
 namespace dxmt {
 
@@ -76,6 +77,9 @@ public:
   GetDesc(D3D12_COMMAND_QUEUE_DESC *__ret) override;
 
   CommandQueue &GetDXMTCommandQueue() { return m_queue; }
+  bool EnqueueCompletionSignal(
+      WMT::Reference<WMT::SharedEvent> &completion_event,
+      uint64_t &completion_value);
 
 private:
   MTLD3D12Device *m_device;
@@ -86,6 +90,9 @@ private:
   WMT::Reference<WMT::CommandQueue> m_wmt_queue;
   WMT::Reference<WMT::Event> m_barrier_event;
   uint64_t m_barrier_seq = 0;
+  WMT::Reference<WMT::SharedEvent> m_completion_event;
+  uint64_t m_completion_seq = 0;
+  std::mutex m_submit_mutex;
   ComPrivateData m_private_data;
 };
 
