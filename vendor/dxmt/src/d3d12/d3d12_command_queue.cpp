@@ -3749,6 +3749,8 @@ struct ReplayState {
       return;
 
     auto &args = pso->GetGSArguments();
+    const bool msc_linear_abi = pso->GSUsesMSCArgumentABI();
+    const uint32_t buffer_metadata_qword = msc_linear_abi ? 2u : 1u;
     uint32_t qword_count = pso->GetGSReflection().ArgumentTableQwords;
     if (qword_count == 0 || qword_count > kArgBufMaxQwords)
       return;
@@ -3824,12 +3826,18 @@ struct ReplayState {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
                   shader_visibility)) {
-            gs_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
-            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
-                sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
-                                             : sampler->sampler_gpu_id;
-            gs_arg_buf_data[arg.StructurePtrOffset + 2] =
-                sampler->lod_bias_bits;
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(gs_arg_buf_data, arg,
+                                            sampler->sampler_gpu_id,
+                                            sampler->lod_bias_bits);
+            } else {
+              gs_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
+              gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+                  sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
+                                               : sampler->sampler_gpu_id;
+              gs_arg_buf_data[arg.StructurePtrOffset + 2] =
+                  sampler->lod_bias_bits;
+            }
             RetainSamplerPairForCompletion(sampler->sampler,
                                            sampler->sampler_cube);
           }
@@ -3852,16 +3860,22 @@ struct ReplayState {
               res->GetMTLBuffer().handle) {
             gs_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+            gs_arg_buf_data[arg.StructurePtrOffset + buffer_metadata_qword] =
                 SRVBufferByteLength(desc, res);
             if (render_enc_open)
               render_enc.useResource(res->GetMTLBuffer(), WMTResourceUsageRead,
                                      WMTRenderStageMesh);
             RetainResourceMetalObjectsForCompletion(res);
           } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-            WriteMSCTextureArgument(gs_arg_buf_data, arg,
-                                    DescriptorTextureGPUResourceID(desc, res),
-                                    SRVTextureArrayLength(desc, res));
+            if (msc_linear_abi)
+              WriteMSCLinearTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res));
+            else
+              WriteMSCTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res),
+                  SRVTextureArrayLength(desc, res));
             if (render_enc_open)
               render_enc.useResource(tex,
                                      (WMTResourceUsage)(WMTResourceUsageSample |
@@ -3872,11 +3886,17 @@ struct ReplayState {
         } else if (arg.Type == SM50BindingType::Sampler &&
                    desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
                    desc->metal_sampler_gpu_id) {
-          gs_arg_buf_data[arg.StructurePtrOffset] = desc->metal_sampler_gpu_id;
-          gs_arg_buf_data[arg.StructurePtrOffset + 1] =
-              SamplerCubeGPUResourceID(desc);
-          gs_arg_buf_data[arg.StructurePtrOffset + 2] =
-              SamplerLodBiasBits(desc);
+          if (msc_linear_abi) {
+            WriteMSCLinearSamplerArgument(
+                gs_arg_buf_data, arg, desc->metal_sampler_gpu_id,
+                SamplerLodBiasBits(desc));
+          } else {
+            gs_arg_buf_data[arg.StructurePtrOffset] = desc->metal_sampler_gpu_id;
+            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+                SamplerCubeGPUResourceID(desc);
+            gs_arg_buf_data[arg.StructurePtrOffset + 2] =
+                SamplerLodBiasBits(desc);
+          }
           RetainSamplerPairForCompletion(desc->metal_sampler,
                                          desc->metal_sampler_cube);
         } else if (arg.Type == SM50BindingType::UAV && desc->resource) {
@@ -3885,7 +3905,7 @@ struct ReplayState {
               res->GetMTLBuffer().handle) {
             gs_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
-            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+            gs_arg_buf_data[arg.StructurePtrOffset + buffer_metadata_qword] =
                 UAVBufferByteLength(desc, res);
             if (render_enc_open)
               render_enc.useResource(res->GetMTLBuffer(),
@@ -3894,9 +3914,15 @@ struct ReplayState {
                                      WMTRenderStageMesh);
             RetainResourceMetalObjectsForCompletion(res);
           } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-            WriteMSCTextureArgument(gs_arg_buf_data, arg,
-                                    DescriptorTextureGPUResourceID(desc, res),
-                                    UAVTextureArrayLength(desc, res));
+            if (msc_linear_abi)
+              WriteMSCLinearTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res));
+            else
+              WriteMSCTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res),
+                  UAVTextureArrayLength(desc, res));
             if (render_enc_open)
               render_enc.useResource(tex,
                                      (WMTResourceUsage)(WMTResourceUsageRead |
@@ -5083,6 +5109,16 @@ struct ReplayState {
             if (vis == D3D12_SHADER_VISIBILITY_ALL ||
                 vis == D3D12_SHADER_VISIBILITY_PIXEL)
               SetFragmentSamplerTracked(desc->metal_sampler, shader_register);
+            if (UsesGeometryMeshPipeline()) {
+              if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                  vis == D3D12_SHADER_VISIBILITY_MESH)
+                render_enc.setMeshSamplerState(desc->metal_sampler,
+                                               shader_register);
+              if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                  vis == D3D12_SHADER_VISIBILITY_AMPLIFICATION)
+                render_enc.setObjectSamplerState(desc->metal_sampler,
+                                                 shader_register);
+            }
             QTRACE("ApplyRootBindings: table sampler s%u", shader_register);
           }
           return;
@@ -5168,6 +5204,14 @@ struct ReplayState {
           if (vis == D3D12_SHADER_VISIBILITY_ALL ||
               vis == D3D12_SHADER_VISIBILITY_PIXEL)
             SetFragmentTextureTracked(tex, shader_register);
+          if (UsesGeometryMeshPipeline()) {
+            if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                vis == D3D12_SHADER_VISIBILITY_MESH)
+              render_enc.setMeshTexture(tex, shader_register);
+            if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                vis == D3D12_SHADER_VISIBILITY_AMPLIFICATION)
+              render_enc.setObjectTexture(tex, shader_register);
+          }
           if (HasSwapchainRenderTarget() &&
               (vis == D3D12_SHADER_VISIBILITY_ALL ||
                vis == D3D12_SHADER_VISIBILITY_PIXEL) &&
@@ -5187,8 +5231,7 @@ struct ReplayState {
                   : (WMTResourceUsage)(WMTResourceUsageRead |
                                        WMTResourceUsageSample);
           render_enc.useResource(
-              tex, usage,
-              (WMTRenderStages)(RootBindingStages() & ~WMTRenderStageMesh));
+              tex, usage, RootBindingStages());
           RetainMTLObjectForCompletion(tex);
           QTRACE("ApplyRootBindings: table texture reg=%u type=%u tex=%llu",
                  shader_register, range_type, (unsigned long long)tex.handle);

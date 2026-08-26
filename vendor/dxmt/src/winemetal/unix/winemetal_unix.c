@@ -170,6 +170,14 @@ winemetal_render_command_name(uint16_t type) {
     return "DXMTTessellationMeshDrawIndexedIndirect";
   case WMTRenderCommandDispatchThreadsPerTile:
     return "DispatchThreadsPerTile";
+  case WMTRenderCommandSetMeshTexture:
+    return "SetMeshTexture";
+  case WMTRenderCommandSetObjectTexture:
+    return "SetObjectTexture";
+  case WMTRenderCommandSetMeshSamplerState:
+    return "SetMeshSamplerState";
+  case WMTRenderCommandSetObjectSamplerState:
+    return "SetObjectSamplerState";
   default:
     return "Unknown";
   }
@@ -1530,6 +1538,26 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
       case WMTRenderCommandSetFragmentSamplerState: {
         struct wmtcmd_render_setsamplerstate *body = (struct wmtcmd_render_setsamplerstate *)next;
         [encoder setFragmentSamplerState:(id<MTLSamplerState>)body->sampler atIndex:body->index];
+        break;
+      }
+      case WMTRenderCommandSetMeshTexture: {
+        struct wmtcmd_render_settexture *body = (struct wmtcmd_render_settexture *)next;
+        [encoder setMeshTexture:(id<MTLTexture>)body->texture atIndex:body->index];
+        break;
+      }
+      case WMTRenderCommandSetObjectTexture: {
+        struct wmtcmd_render_settexture *body = (struct wmtcmd_render_settexture *)next;
+        [encoder setObjectTexture:(id<MTLTexture>)body->texture atIndex:body->index];
+        break;
+      }
+      case WMTRenderCommandSetMeshSamplerState: {
+        struct wmtcmd_render_setsamplerstate *body = (struct wmtcmd_render_setsamplerstate *)next;
+        [encoder setMeshSamplerState:(id<MTLSamplerState>)body->sampler atIndex:body->index];
+        break;
+      }
+      case WMTRenderCommandSetObjectSamplerState: {
+        struct wmtcmd_render_setsamplerstate *body = (struct wmtcmd_render_setsamplerstate *)next;
+        [encoder setObjectSamplerState:(id<MTLSamplerState>)body->sampler atIndex:body->index];
         break;
       }
       case WMTRenderCommandSetRasterizerState: {

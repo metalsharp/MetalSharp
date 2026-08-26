@@ -1726,16 +1726,21 @@ static ProbeResult probe_mesh_shader_pso() {
     ID3D12GraphicsCommandList6* list6 = nullptr;
     ID3D12DescriptorHeap* rtv_heap = nullptr;
     ID3D12DescriptorHeap* resource_heap = nullptr;
+    ID3D12DescriptorHeap* sampler_heap = nullptr;
     ID3D12CommandSignature* mesh_signature = nullptr;
     ID3D12Resource* indirect_args = nullptr;
     ID3D12Resource* stage_constants = nullptr;
     ID3D12Resource* stage_srvs = nullptr;
+    ID3D12Resource* mesh_output = nullptr;
+    ID3D12Resource* mesh_output_readback = nullptr;
+    ID3D12Resource* mesh_texture = nullptr;
+    ID3D12Resource* mesh_texture_upload = nullptr;
     ID3D12Resource* target = nullptr;
     ID3D12Resource* readback = nullptr;
     std::string detail;
     hr = device->QueryInterface(IID_PPV_ARGS(&device2));
 
-    D3D12_DESCRIPTOR_RANGE srv_ranges[2] = {};
+    D3D12_DESCRIPTOR_RANGE srv_ranges[5] = {};
     srv_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     srv_ranges[0].NumDescriptors = 1;
     srv_ranges[0].BaseShaderRegister = 0;
@@ -1744,7 +1749,19 @@ static ProbeResult probe_mesh_shader_pso() {
     srv_ranges[1].NumDescriptors = 1;
     srv_ranges[1].BaseShaderRegister = 1;
     srv_ranges[1].OffsetInDescriptorsFromTableStart = 0;
-    D3D12_ROOT_PARAMETER root_params[4] = {};
+    srv_ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    srv_ranges[2].NumDescriptors = 1;
+    srv_ranges[2].BaseShaderRegister = 0;
+    srv_ranges[2].OffsetInDescriptorsFromTableStart = 0;
+    srv_ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srv_ranges[3].NumDescriptors = 1;
+    srv_ranges[3].BaseShaderRegister = 1;
+    srv_ranges[3].OffsetInDescriptorsFromTableStart = 0;
+    srv_ranges[4].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    srv_ranges[4].NumDescriptors = 1;
+    srv_ranges[4].BaseShaderRegister = 0;
+    srv_ranges[4].OffsetInDescriptorsFromTableStart = 0;
+    D3D12_ROOT_PARAMETER root_params[7] = {};
     root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     root_params[0].Descriptor.ShaderRegister = 0;
     root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_MESH;
@@ -1759,8 +1776,20 @@ static ProbeResult probe_mesh_shader_pso() {
     root_params[3].DescriptorTable.NumDescriptorRanges = 1;
     root_params[3].DescriptorTable.pDescriptorRanges = &srv_ranges[1];
     root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_AMPLIFICATION;
+    root_params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_params[4].DescriptorTable.NumDescriptorRanges = 1;
+    root_params[4].DescriptorTable.pDescriptorRanges = &srv_ranges[2];
+    root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_MESH;
+    root_params[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_params[5].DescriptorTable.NumDescriptorRanges = 1;
+    root_params[5].DescriptorTable.pDescriptorRanges = &srv_ranges[3];
+    root_params[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_MESH;
+    root_params[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_params[6].DescriptorTable.NumDescriptorRanges = 1;
+    root_params[6].DescriptorTable.pDescriptorRanges = &srv_ranges[4];
+    root_params[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_MESH;
     D3D12_ROOT_SIGNATURE_DESC root_desc = {};
-    root_desc.NumParameters = 4;
+    root_desc.NumParameters = 7;
     root_desc.pParameters = root_params;
     if (SUCCEEDED(hr))
         hr = serialize_root_signature(root_desc, &root_blob, detail);
@@ -1830,10 +1859,18 @@ static ProbeResult probe_mesh_shader_pso() {
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heap_desc.NumDescriptors = 2;
+        heap_desc.NumDescriptors = 4;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc,
                                           IID_PPV_ARGS(&resource_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+        heap_desc.NumDescriptors = 1;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&heap_desc,
+                                          IID_PPV_ARGS(&sampler_heap));
     }
 
     D3D12_RESOURCE_DESC target_desc =
@@ -1943,6 +1980,94 @@ static ProbeResult probe_mesh_shader_pso() {
         }
     }
     if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC output_desc = buffer_desc(256);
+        output_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&mesh_output));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC output_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&mesh_output_readback));
+    }
+    if (SUCCEEDED(hr)) {
+        const UINT increment = device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu =
+            resource_heap->GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += 2 * increment;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 64;
+        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(mesh_output, nullptr, &uav, cpu);
+    }
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT mesh_texture_footprint = {};
+    UINT mesh_texture_rows = 0;
+    UINT64 mesh_texture_row_bytes = 0;
+    UINT64 mesh_texture_upload_bytes = 0;
+    D3D12_RESOURCE_DESC mesh_texture_desc =
+        texture_desc(1, 1, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_NONE);
+    if (SUCCEEDED(hr)) {
+        device->GetCopyableFootprints(&mesh_texture_desc, 0, 1, 0,
+                                      &mesh_texture_footprint,
+                                      &mesh_texture_rows,
+                                      &mesh_texture_row_bytes,
+                                      &mesh_texture_upload_bytes);
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &mesh_texture_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&mesh_texture));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC upload_desc = buffer_desc(mesh_texture_upload_bytes);
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &upload_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&mesh_texture_upload));
+        uint8_t* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = mesh_texture_upload->Map(0, nullptr,
+                                          reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            const float value = 0.5f;
+            std::memcpy(mapped + mesh_texture_footprint.Offset, &value,
+                        sizeof(value));
+            mesh_texture_upload->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        const UINT increment = device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu =
+            resource_heap->GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += 3 * increment;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+        srv.Format = DXGI_FORMAT_R32_FLOAT;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(mesh_texture, &srv, cpu);
+
+        D3D12_SAMPLER_DESC sampler = {};
+        sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.MaxLOD = D3D12_FLOAT32_MAX;
+        device->CreateSampler(
+            &sampler, sampler_heap->GetCPUDescriptorHandleForHeapStart());
+    }
+    if (SUCCEEDED(hr)) {
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
         device->CreateRenderTargetView(target, nullptr, rtv);
         list6->SetGraphicsRootSignature(root);
@@ -1950,14 +2075,34 @@ static ProbeResult probe_mesh_shader_pso() {
             0, stage_constants->GetGPUVirtualAddress());
         list6->SetGraphicsRootConstantBufferView(
             1, stage_constants->GetGPUVirtualAddress() + 256);
-        ID3D12DescriptorHeap* heaps[] = {resource_heap};
-        list6->SetDescriptorHeaps(1, heaps);
+        ID3D12DescriptorHeap* heaps[] = {resource_heap, sampler_heap};
+        list6->SetDescriptorHeaps(2, heaps);
         D3D12_GPU_DESCRIPTOR_HANDLE gpu =
             resource_heap->GetGPUDescriptorHandleForHeapStart();
         list6->SetGraphicsRootDescriptorTable(2, gpu);
         gpu.ptr += device->GetDescriptorHandleIncrementSize(
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         list6->SetGraphicsRootDescriptorTable(3, gpu);
+        gpu.ptr += device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        list6->SetGraphicsRootDescriptorTable(4, gpu);
+        gpu.ptr += device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        list6->SetGraphicsRootDescriptorTable(5, gpu);
+        list6->SetGraphicsRootDescriptorTable(
+            6, sampler_heap->GetGPUDescriptorHandleForHeapStart());
+        D3D12_TEXTURE_COPY_LOCATION texture_src = {};
+        texture_src.pResource = mesh_texture_upload;
+        texture_src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        texture_src.PlacedFootprint = mesh_texture_footprint;
+        D3D12_TEXTURE_COPY_LOCATION texture_dst = {};
+        texture_dst.pResource = mesh_texture;
+        texture_dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list6->CopyTextureRegion(&texture_dst, 0, 0, 0, &texture_src, nullptr);
+        D3D12_RESOURCE_BARRIER texture_barrier = transition_barrier(
+            mesh_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        list6->ResourceBarrier(1, &texture_barrier);
         list6->SetPipelineState(pso);
         D3D12_VIEWPORT viewport = {0.0f, 0.0f, 64.0f, 64.0f, 0.0f, 1.0f};
         D3D12_RECT left_scissor = {0, 0, 32, 64};
@@ -1970,6 +2115,12 @@ static ProbeResult probe_mesh_shader_pso() {
         list6->DispatchMesh(1, 1, 1);
         list6->RSSetScissorRects(1, &right_scissor);
         list6->ExecuteIndirect(mesh_signature, 1, indirect_args, 0, nullptr, 0);
+        D3D12_RESOURCE_BARRIER output_barrier = transition_barrier(
+            mesh_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list6->ResourceBarrier(1, &output_barrier);
+        list6->CopyBufferRegion(mesh_output_readback, 0, mesh_output, 0,
+                                sizeof(uint32_t));
         D3D12_RESOURCE_BARRIER barrier = transition_barrier(
             target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list6->ResourceBarrier(1, &barrier);
@@ -1987,6 +2138,7 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t nonzero_pixels = 0;
     uint64_t direct_pixels = 0;
     uint64_t indirect_pixels = 0;
+    uint32_t mesh_output_value = 0;
     if (SUCCEEDED(hr)) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
@@ -2008,12 +2160,28 @@ static ProbeResult probe_mesh_shader_pso() {
         }
     }
 
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE read_range = {0, sizeof(mesh_output_value)};
+        hr = mesh_output_readback->Map(0, &read_range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&mesh_output_value, mapped, sizeof(mesh_output_value));
+            D3D12_RANGE written = {0, 0};
+            mesh_output_readback->Unmap(0, &written);
+        }
+    }
+
+    safe_release(mesh_texture_upload);
+    safe_release(mesh_texture);
+    safe_release(mesh_output_readback);
+    safe_release(mesh_output);
     safe_release(readback);
     safe_release(target);
     safe_release(stage_srvs);
     safe_release(stage_constants);
     safe_release(indirect_args);
     safe_release(mesh_signature);
+    safe_release(sampler_heap);
     safe_release(resource_heap);
     safe_release(rtv_heap);
     safe_release(list6);
@@ -2029,13 +2197,17 @@ static ProbeResult probe_mesh_shader_pso() {
     const bool verified =
         SUCCEEDED(hr) && SUCCEEDED(options7_hr) &&
         options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
-        direct_pixels > 0 && indirect_pixels > 0;
+        direct_pixels >= 100 && direct_pixels <= 300 &&
+        indirect_pixels >= 100 && indirect_pixels <= 300 &&
+        mesh_output_value == 0x4d534831;
     return {verified, verified ? S_OK : hr,
             verified ? "native D3D12 AS/MS direct and indirect DispatchMesh rendered; tier remains conservative"
                      : (detail.empty() ? "native mesh shader dispatch/readback failed" : detail),
             "\"pso_attempted\":true,\"repeated_pso_created\":true" +
                 std::string(",\"stage_cbvs_bound\":true") +
                 std::string(",\"stage_srvs_bound\":true") +
+                std::string(",\"mesh_uav_bound\":true") +
+                std::string(",\"mesh_texture_sampler_bound\":true") +
                 std::string(",\"amplification_shader_bytes\":") +
                 std::to_string(amplification_shader.size()) +
                 ",\"mesh_shader_bytes\":" + std::to_string(mesh_shader.size()) +
@@ -2044,6 +2216,8 @@ static ProbeResult probe_mesh_shader_pso() {
                 ",\"nonzero_pixels\":" + std::to_string(nonzero_pixels) +
                 ",\"direct_pixels\":" + std::to_string(direct_pixels) +
                 ",\"indirect_pixels\":" + std::to_string(indirect_pixels) +
+                ",\"mesh_output_value\":" + std::to_string(mesh_output_value) +
+                ",\"mesh_texture_scale\":0.5" +
                 ",\"d3d12_loaded_path\":\"" + json_escape(g_d3d12_loaded_path) + "\""};
 }
 

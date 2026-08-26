@@ -165,7 +165,12 @@ def validate_winemetal_bridge(path: Path, data: dict[str, Any], errors: list[str
             require(isinstance(value, str) and bool(value), f"{path}: source_audit.{key} missing", errors)
             if isinstance(value, str) and value:
                 require((ROOT_DIR / value).exists(), f"{path}: source_audit.{key} path does not exist: {value}", errors)
-    for key in ("required_pe_exports", "required_unix_call_entries", "probe_coverage"):
+    for key in (
+        "required_pe_exports",
+        "required_unix_call_entries",
+        "required_render_command_stream_entries",
+        "probe_coverage",
+    ):
         value = data.get(key)
         require(isinstance(value, list) and len(value) > 0, f"{path}: {key} must be non-empty list", errors)
     sizes = data.get("critical_unixcall_struct_sizes")
