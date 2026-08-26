@@ -333,7 +333,10 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
 For DXGI factory and swapchain/present coverage, run the phase 14.10 probes.
 The factory probe validates `IDXGIFactory` through `IDXGIFactory7`, deterministic
 adapter enumeration, GPU-preference enumeration, LUID lookup, and output
-enumeration. The swapchain probe validates create, buffer retrieval, render to
+enumeration. It also validates `IDXGIAdapter3` memory-budget reporting,
+duplicate-handle event registration/unregistration, initially unsignaled event
+state, and safe `DXGI_ERROR_UNSUPPORTED` content-protection notification
+rejection. The swapchain probe validates create, buffer retrieval, render to
 backbuffer, present, readback, resize, fullscreen-windowed state, color-space
 reporting, frame-latency waitable object behavior, and shared device/resource
 ownership:

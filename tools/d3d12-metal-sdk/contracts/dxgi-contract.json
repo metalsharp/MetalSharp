@@ -11,8 +11,8 @@
       "path": "vendor/dxmt/src/dxgi/dxgi_adapter.cpp"
     },
     {
-      "kind": "probe_todo",
-      "note": "Phase 5 will prove factory and adapter behavior.",
+      "kind": "probe",
+      "note": "Factory/adapter probing covers interfaces through IDXGIFactory7 and IDXGIAdapter3, stable enumeration, memory-budget reporting/event lifetime, and safe content-protection rejection.",
       "path": "tools/d3d12-metal-sdk/probes/probe_dxgi_factory"
     }
   ],
@@ -20,7 +20,9 @@
     "IDXGIAdapter": {
       "required_behavior": [
         "GetDesc and GetDesc1 return stable fields",
-        "QueryInterface failures log the exact IID and return E_NOINTERFACE"
+        "QueryInterface failures log the exact IID and return E_NOINTERFACE",
+        "IDXGIAdapter3 video-memory budget event registration owns a duplicate event handle until unregister",
+        "unsupported hardware-content-protection teardown notifications return DXGI_ERROR_UNSUPPORTED without asserting"
       ],
       "state": "stub_risky"
     },
