@@ -804,6 +804,13 @@ public:
   }
 
   bool
+  copyAccelerationStructure(AccelerationStructure source,
+                            AccelerationStructure destination) {
+    return MTLCommandBuffer_copyAccelerationStructure(
+        handle, source.handle, destination.handle);
+  }
+
+  bool
   buildInstanceAccelerationStructure(
       AccelerationStructure acceleration_structure,
       Buffer instance_descriptor_buffer,

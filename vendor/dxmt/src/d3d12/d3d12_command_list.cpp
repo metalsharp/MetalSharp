@@ -984,10 +984,27 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EmitRaytracingAccelerationSt
           (unsigned long long)cmd.source_acceleration_structure);
 }
 
-void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
+void STDMETHODCALLTYPE
+MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
     D3D12_GPU_VIRTUAL_ADDRESS dest_acceleration_structure_data,
     D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure_data,
-    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) {}
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) {
+  if (mode != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE) {
+    CLTRACE("CopyRaytracingAccelerationStructure unsupported mode=%u",
+            (unsigned)mode);
+    return;
+  }
+  CmdCopyRaytracingAccelerationStructure cmd = {};
+  cmd.header = {CmdType::CopyRaytracingAccelerationStructure, sizeof(cmd)};
+  cmd.destination_acceleration_structure = dest_acceleration_structure_data;
+  cmd.source_acceleration_structure = source_acceleration_structure_data;
+  cmd.mode = mode;
+  Emit(cmd);
+  CLTRACE("CopyRaytracingAccelerationStructure clone source=0x%llx "
+          "destination=0x%llx",
+          (unsigned long long)source_acceleration_structure_data,
+          (unsigned long long)dest_acceleration_structure_data);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetPipelineState1(
     ID3D12StateObject *state_object) {

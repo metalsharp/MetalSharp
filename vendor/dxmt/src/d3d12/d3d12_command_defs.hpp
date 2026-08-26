@@ -46,6 +46,7 @@ enum class CmdType : uint32_t {
   EndQuery,
   ResolveQueryData,
   BuildRaytracingAccelerationStructure,
+  CopyRaytracingAccelerationStructure,
   EmitRaytracingAccelerationStructurePostbuildInfo,
   SetPipelineState1,
   DispatchRays,
@@ -111,6 +112,13 @@ struct CmdBuildRaytracingAccelerationStructure {
   UINT num_descs;
   D3D12_GPU_VIRTUAL_ADDRESS instance_descs;
   D3D12_RAYTRACING_GEOMETRY_DESC geometry;
+};
+
+struct CmdCopyRaytracingAccelerationStructure {
+  CmdHeader header;
+  D3D12_GPU_VIRTUAL_ADDRESS destination_acceleration_structure;
+  D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode;
 };
 
 struct CmdExecuteIndirect {

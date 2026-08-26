@@ -975,8 +975,9 @@ the goal is not complete.
 - Added the first DXR execution gate: D3D12 triangle geometry is translated into
   a Metal primitive acceleration-structure descriptor, sized through Metal,
   allocated, encoded on the D3D12 command buffer, and retained through
-  completion. A non-indexed one-triangle BLAS builds successfully and returns
-  640 bytes through `CURRENT_SIZE` postbuild info against a 768-byte prebuild
+  completion. The original non-indexed proof is now broadened to a 16-bit
+  indexed one-triangle BLAS, which builds successfully and returns 640 bytes
+  through `CURRENT_SIZE` postbuild info against a 768-byte prebuild
   allocation. D3D12 instance descriptors are transposed and translated into
   Metal user-ID descriptors; a one-instance TLAS then builds to 704 bytes and
   also passes postbuild readback. Metal Shader Converter's ray-query ABI is
@@ -997,8 +998,11 @@ the goal is not complete.
   away from the TLAS, observes the nested miss payload, and combines it with
   the any-hit marker to return `0x52454332`. Procedural AABB geometry is now
   translated to a Metal bounding-box geometry
-  descriptor and built as a 576-byte BLAS against a 768-byte allocation. A
-  two-instance TLAS containing the triangle and translated AABB builds to 896
+  descriptor and built as a 576-byte BLAS against a 768-byte allocation. The
+  triangle BLAS is cloned through `COPY_MODE_CLONE`, reports the same 640-byte
+  current size, and is used by the following TLAS to prove the clone is
+  traversable rather than merely allocated. A two-instance TLAS containing the
+  cloned triangle and translated AABB builds to 896
   bytes. Its second 64-byte hit-group record selects a procedural intersection
   wrapper, invokes visible-function index 6 to call `ReportHit`, and then invokes
   visible-function index 7 for procedural closest-hit, returning `0x50524f43`.
@@ -1008,4 +1012,5 @@ the goal is not complete.
   across every ray-tracing stage. A callable table at offset 256 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  broad AS build operations and complete local-root/shader-table semantics.
+  multi-geometry builds, updates, compaction/serialization, and complete
+  local-root/shader-table semantics.

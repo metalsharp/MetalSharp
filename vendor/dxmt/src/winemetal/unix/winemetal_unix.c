@@ -2246,6 +2246,28 @@ _MTLCommandBuffer_buildAABBAccelerationStructure(void *obj) {
   return STATUS_SUCCESS;
 }
 
+static NTSTATUS
+_MTLCommandBuffer_copyAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_copy_acceleration_structure *params = obj;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->source_acceleration_structure ||
+      !params->destination_acceleration_structure)
+    return STATUS_SUCCESS;
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      copyAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->source_acceleration_structure
+              toAccelerationStructure:(id<MTLAccelerationStructure>)
+                                          params->destination_acceleration_structure];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
 static MTLInstanceAccelerationStructureDescriptor *
 create_instance_acceleration_structure_descriptor(uint64_t instance_count) {
   if (!instance_count)
@@ -4221,6 +4243,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandBuffer_writeTimestampResults,
     &_MTLDevice_accelerationStructureSizesForAABBs,
     &_MTLCommandBuffer_buildAABBAccelerationStructure,
+    &_MTLCommandBuffer_copyAccelerationStructure,
 };
 
 #ifndef DXMT_NATIVE
@@ -4372,5 +4395,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandBuffer_writeTimestampResults,
     &_MTLDevice_accelerationStructureSizesForAABBs,
     &_MTLCommandBuffer_buildAABBAccelerationStructure,
+    &_MTLCommandBuffer_copyAccelerationStructure,
 };
 #endif
