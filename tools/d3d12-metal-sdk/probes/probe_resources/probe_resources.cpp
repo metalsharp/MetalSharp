@@ -172,6 +172,16 @@ int main() {
     ID3D12Resource* upload_buffer = nullptr;
     ID3D12Resource* default_buffer = nullptr;
     ID3D12Resource* readback_buffer = nullptr;
+    ID3D12Resource* shared_open_buffer = nullptr;
+    ID3D12Resource* shared_named_open_buffer = nullptr;
+    ID3D12Resource* unknown_open_buffer = nullptr;
+    HANDLE shared_handle = nullptr;
+    HANDLE shared_named_handle = nullptr;
+    HRESULT shared_create_hr = E_FAIL;
+    HRESULT shared_open_hr = E_FAIL;
+    HRESULT shared_open_named_hr = E_FAIL;
+    HRESULT shared_unknown_hr = E_FAIL;
+    HRESULT shared_missing_name_hr = E_FAIL;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -184,6 +194,31 @@ int main() {
                                                                           D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                                           IID_PPV_ARGS(&readback_buffer))
                                         : E_FAIL;
+    if (device && default_buffer) {
+        shared_create_hr = device->CreateSharedHandle(
+            default_buffer, nullptr, GENERIC_ALL, L"metalsharp-probe-buffer",
+            &shared_handle);
+        if (SUCCEEDED(shared_create_hr))
+            shared_open_hr = device->OpenSharedHandle(
+                shared_handle, IID_PPV_ARGS(&shared_open_buffer));
+        shared_open_named_hr = device->OpenSharedHandleByName(
+            L"metalsharp-probe-buffer", GENERIC_ALL, &shared_named_handle);
+        if (SUCCEEDED(shared_open_named_hr))
+            shared_open_named_hr = device->OpenSharedHandle(
+                shared_named_handle, IID_PPV_ARGS(&shared_named_open_buffer));
+        HANDLE unknown_shared_handle =
+            CreateEventA(nullptr, TRUE, FALSE, nullptr);
+        if (unknown_shared_handle) {
+            shared_unknown_hr = device->OpenSharedHandle(
+                unknown_shared_handle, IID_PPV_ARGS(&unknown_open_buffer));
+            CloseHandle(unknown_shared_handle);
+        }
+        HANDLE missing_name_handle = nullptr;
+        shared_missing_name_hr = device->OpenSharedHandleByName(
+            L"metalsharp-probe-missing", GENERIC_ALL, &missing_name_handle);
+        if (missing_name_handle)
+            CloseHandle(missing_name_handle);
+    }
 
     uint8_t* upload_ptr = nullptr;
     HRESULT map_upload_hr =
@@ -627,6 +662,22 @@ int main() {
             format_support_ok = false;
     }
 
+    const bool shared_handle_roundtrip =
+        SUCCEEDED(shared_create_hr) && SUCCEEDED(shared_open_hr) &&
+        SUCCEEDED(shared_open_named_hr) && shared_handle &&
+        shared_named_handle && shared_open_buffer &&
+        shared_named_open_buffer &&
+        shared_open_buffer->GetGPUVirtualAddress() ==
+            default_buffer->GetGPUVirtualAddress() &&
+        shared_named_open_buffer->GetGPUVirtualAddress() ==
+            default_buffer->GetGPUVirtualAddress() &&
+        shared_unknown_hr == DXGI_ERROR_INVALID_CALL &&
+        shared_missing_name_hr == DXGI_ERROR_NOT_FOUND;
+    if (shared_handle)
+        CloseHandle(shared_handle);
+    if (shared_named_handle)
+        CloseHandle(shared_named_handle);
+
     bool pass = SUCCEEDED(create_hr) && SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
                 SUCCEEDED(fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(default_buffer_hr) &&
                 SUCCEEDED(readback_buffer_hr) && SUCCEEDED(map_upload_hr) && SUCCEEDED(close_hr) &&
@@ -654,7 +705,8 @@ int main() {
                 sparse_tiling[1].WidthInTiles == 1 &&
                 sparse_tiling[1].HeightInTiles == 1 &&
                 default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
-                texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && format_support_ok;
+                texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 &&
+                shared_handle_roundtrip && format_support_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -683,6 +735,15 @@ int main() {
     std::printf("    \"default_desc_width\": %llu,\n", static_cast<unsigned long long>(default_buffer_desc.Width));
     std::printf("    \"upload_gpu_va_nonzero\": %s,\n", upload_gpu_va != 0 ? "true" : "false");
     std::printf("    \"default_gpu_va_nonzero\": %s\n", default_gpu_va != 0 ? "true" : "false");
+    std::printf("  },\n");
+    std::printf("  \"shared_handles\": {\n");
+    print_hr("create", shared_create_hr);
+    print_hr("open", shared_open_hr);
+    print_hr("open_by_name", shared_open_named_hr);
+    print_hr("unknown_handle", shared_unknown_hr);
+    print_hr("missing_name", shared_missing_name_hr);
+    std::printf("    \"roundtrip_verified\": %s\n",
+                shared_handle_roundtrip ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"textures\": {\n");
     print_hr("texture_create", texture_hr);

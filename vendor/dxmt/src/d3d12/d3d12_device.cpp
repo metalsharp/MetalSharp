@@ -175,6 +175,37 @@ static const GUID IID_ID3D12StateObjectProperties2_ = {
 
 namespace {
 
+struct D3D12SharedHandleEntry {
+  IUnknown *object = nullptr;
+  HANDLE retained_handle = nullptr;
+};
+
+std::mutex g_shared_handle_mutex;
+std::unordered_map<HANDLE, D3D12SharedHandleEntry> g_shared_handles;
+std::unordered_map<std::wstring, HANDLE> g_named_shared_handles;
+
+void ReleaseSharedHandleEntry(D3D12SharedHandleEntry &entry) {
+  if (entry.object)
+    entry.object->Release();
+  if (entry.retained_handle)
+    CloseHandle(entry.retained_handle);
+  entry = {};
+}
+
+struct D3D12SharedHandleRegistryCleanup {
+  ~D3D12SharedHandleRegistryCleanup() {
+    std::lock_guard lock(g_shared_handle_mutex);
+    for (auto &[handle, entry] : g_shared_handles) {
+      (void)handle;
+      ReleaseSharedHandleEntry(entry);
+    }
+    g_shared_handles.clear();
+    g_named_shared_handles.clear();
+  }
+};
+
+D3D12SharedHandleRegistryCleanup g_shared_handle_registry_cleanup;
+
 static UINT64 AlignTo(UINT64 value, UINT64 alignment) {
   return alignment ? ((value + alignment - 1) & ~(alignment - 1)) : value;
 }
@@ -4461,18 +4492,103 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
     ID3D12DeviceChild *object, const SECURITY_ATTRIBUTES *attributes,
     DWORD access, const WCHAR *name, HANDLE *handle) {
-  return E_NOTIMPL;
+  (void)attributes;
+  (void)access;
+  if (!handle)
+    return E_POINTER;
+  *handle = nullptr;
+  if (!object)
+    return E_INVALIDARG;
+
+  std::lock_guard lock(g_shared_handle_mutex);
+  if (name && g_named_shared_handles.contains(std::wstring(name)))
+    return DXGI_ERROR_NAME_ALREADY_EXISTS;
+
+  HANDLE public_handle = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+  if (!public_handle)
+    return HRESULT_FROM_WIN32(GetLastError());
+  HANDLE retained_handle = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), public_handle,
+                       GetCurrentProcess(), &retained_handle, 0, FALSE,
+                       DUPLICATE_SAME_ACCESS)) {
+    HRESULT hr = HRESULT_FROM_WIN32(GetLastError());
+    CloseHandle(public_handle);
+    return hr;
+  }
+
+  auto existing = g_shared_handles.find(public_handle);
+  if (existing != g_shared_handles.end()) {
+    ReleaseSharedHandleEntry(existing->second);
+    g_shared_handles.erase(existing);
+  }
+  object->AddRef();
+  g_shared_handles.emplace(
+      public_handle, D3D12SharedHandleEntry{object, retained_handle});
+  if (name)
+    g_named_shared_handles.emplace(std::wstring(name), public_handle);
+  *handle = public_handle;
+  TRACE("CreateSharedHandle object=%p name=%ls handle=%p", (void *)object,
+        name ? name : L"(null)", public_handle);
+  return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
                                                            REFIID riid,
                                                            void **object) {
-  return E_NOTIMPL;
+  if (!object)
+    return E_POINTER;
+  *object = nullptr;
+  if (!handle)
+    return E_INVALIDARG;
+  std::lock_guard lock(g_shared_handle_mutex);
+  auto entry = g_shared_handles.find(handle);
+  if (entry == g_shared_handles.end() || !entry->second.object)
+    return DXGI_ERROR_INVALID_CALL;
+  HRESULT hr = entry->second.object->QueryInterface(riid, object);
+  TRACE("OpenSharedHandle handle=%p riid=%s out=%p hr=0x%lx", handle,
+        str::format(riid).c_str(), *object, hr);
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
     const WCHAR *name, DWORD access, HANDLE *handle) {
-  return E_NOTIMPL;
+  (void)access;
+  if (!handle)
+    return E_POINTER;
+  *handle = nullptr;
+  if (!name)
+    return E_INVALIDARG;
+  std::lock_guard lock(g_shared_handle_mutex);
+  auto named = g_named_shared_handles.find(std::wstring(name));
+  if (named == g_named_shared_handles.end())
+    return DXGI_ERROR_NOT_FOUND;
+  auto entry = g_shared_handles.find(named->second);
+  if (entry == g_shared_handles.end() || !entry->second.retained_handle)
+    return DXGI_ERROR_INVALID_CALL;
+
+  HANDLE opened = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), entry->second.retained_handle,
+                       GetCurrentProcess(), &opened, 0, FALSE,
+                       DUPLICATE_SAME_ACCESS))
+    return HRESULT_FROM_WIN32(GetLastError());
+  HANDLE retained_opened = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), opened, GetCurrentProcess(),
+                       &retained_opened, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+    HRESULT hr = HRESULT_FROM_WIN32(GetLastError());
+    CloseHandle(opened);
+    return hr;
+  }
+  entry->second.object->AddRef();
+  auto existing = g_shared_handles.find(opened);
+  if (existing != g_shared_handles.end()) {
+    ReleaseSharedHandleEntry(existing->second);
+    g_shared_handles.erase(existing);
+  }
+  g_shared_handles.emplace(
+      opened, D3D12SharedHandleEntry{entry->second.object, retained_opened});
+  *handle = opened;
+  TRACE("OpenSharedHandleByName name=%ls handle=%p", name, opened);
+  return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::MakeResident(
