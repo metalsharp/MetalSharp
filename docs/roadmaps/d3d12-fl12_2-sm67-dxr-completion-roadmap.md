@@ -991,7 +991,8 @@ the goal is not complete.
   function at index 2; raygen issues `TraceRay` away from the TLAS and the miss
   shader returns `0x4d495353` through its payload. A second ray intersects the
   triangle TLAS and resolves a 64-byte-aligned triangle hit-group record whose
-  linked closest-hit visible function returns `0x48495431`; the two-ray launch
-  preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  any-hit/intersection/callable shaders, recursive `TraceRay`, broad AS build
-  operations, and complete local-root/shader-table semantics.
+  linked closest-hit visible function returns `0x48495431`. A callable table at
+  offset 192 invokes visible-function index 4 and returns `0x43414c4c`; the
+  two-ray launch preserves the raygen sentinel `42`. RaytracingTier remains
+  unreported pending any-hit/intersection shaders, recursive `TraceRay`, broad
+  AS build operations, and complete local-root/shader-table semantics.

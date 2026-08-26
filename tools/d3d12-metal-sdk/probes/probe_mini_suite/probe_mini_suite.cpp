@@ -2312,14 +2312,15 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
-    D3D12_EXPORT_DESC raygen_exports[3] = {};
+    D3D12_EXPORT_DESC raygen_exports[4] = {};
     raygen_exports[0].Name = L"raygen";
     raygen_exports[1].Name = L"miss_shader";
     raygen_exports[2].Name = L"closest_hit";
+    raygen_exports[3].Name = L"callable_shader";
     D3D12_DXIL_LIBRARY_DESC raygen_library_desc = {};
     raygen_library_desc.DXILLibrary = {raygen_library.data(),
                                       raygen_library.size()};
-    raygen_library_desc.NumExports = 3;
+    raygen_library_desc.NumExports = 4;
     raygen_library_desc.pExports = raygen_exports;
     D3D12_GLOBAL_ROOT_SIGNATURE global_root = {compute_root};
     D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
@@ -2364,6 +2365,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
         SUCCEEDED(hr)
             ? raytracing_properties->GetShaderIdentifier(L"hit_group")
             : nullptr;
+    const void* callable_identifier =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderIdentifier(L"callable_shader")
+            : nullptr;
     const void* repeated_raygen_identifier =
         SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen")
                       : nullptr;
@@ -2373,9 +2378,13 @@ static ProbeResult probe_dxr_acceleration_structures() {
             : nullptr;
     const bool distinct_shader_identifiers =
         raygen_identifier && miss_identifier && hit_group_identifier &&
+        callable_identifier &&
         std::memcmp(raygen_identifier, miss_identifier, 32) != 0 &&
         std::memcmp(raygen_identifier, hit_group_identifier, 32) != 0 &&
-        std::memcmp(miss_identifier, hit_group_identifier, 32) != 0;
+        std::memcmp(miss_identifier, hit_group_identifier, 32) != 0 &&
+        std::memcmp(raygen_identifier, callable_identifier, 32) != 0 &&
+        std::memcmp(miss_identifier, callable_identifier, 32) != 0 &&
+        std::memcmp(hit_group_identifier, callable_identifier, 32) != 0;
     const bool stable_shader_identifiers =
         raygen_identifier && repeated_raygen_identifier &&
         std::memcmp(raygen_identifier, repeated_raygen_identifier, 32) == 0 &&
@@ -2385,7 +2394,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
-        D3D12_RESOURCE_DESC table_desc = buffer_desc(192);
+        D3D12_RESOURCE_DESC table_desc = buffer_desc(256);
         hr = device->CreateCommittedResource(
             &upload_heap, D3D12_HEAP_FLAG_NONE, &table_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -2399,6 +2408,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                         32);
             std::memcpy(static_cast<uint8_t*>(mapped) + 128,
                         hit_group_identifier, 32);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 192,
+                        callable_identifier, 32);
             raygen_shader_table->Unmap(0, nullptr);
         }
     }
@@ -2645,6 +2656,10 @@ static ProbeResult probe_dxr_acceleration_structures() {
             raygen_shader_table->GetGPUVirtualAddress() + 128;
         dispatch_rays.HitGroupTable.SizeInBytes = 32;
         dispatch_rays.HitGroupTable.StrideInBytes = 32;
+        dispatch_rays.CallableShaderTable.StartAddress =
+            raygen_shader_table->GetGPUVirtualAddress() + 192;
+        dispatch_rays.CallableShaderTable.SizeInBytes = 32;
+        dispatch_rays.CallableShaderTable.StrideInBytes = 32;
         dispatch_rays.Width = 2;
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
@@ -2654,7 +2669,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &output_barrier);
         list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
-                                sizeof(uint32_t) * 4);
+                                sizeof(uint32_t) * 5);
         hr = execute_and_wait(queue, list4);
     }
 
@@ -2663,6 +2678,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     uint32_t ray_hit = 0;
     uint32_t miss_value = 0;
     uint32_t closest_hit_value = 0;
+    uint32_t callable_value = 0;
     uint32_t raygen_value = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
@@ -2685,7 +2701,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(uint32_t) * 4};
+        D3D12_RANGE range = {0, sizeof(uint32_t) * 5};
         hr = ray_query_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&ray_hit, mapped, sizeof(ray_hit));
@@ -2696,10 +2712,15 @@ static ProbeResult probe_dxr_acceleration_structures() {
                         static_cast<const uint8_t*>(mapped) +
                             sizeof(ray_hit) + sizeof(miss_value),
                         sizeof(closest_hit_value));
-            std::memcpy(&raygen_value,
+            std::memcpy(&callable_value,
                         static_cast<const uint8_t*>(mapped) +
                             sizeof(ray_hit) + sizeof(miss_value) +
                             sizeof(closest_hit_value),
+                        sizeof(callable_value));
+            std::memcpy(&raygen_value,
+                        static_cast<const uint8_t*>(mapped) +
+                            sizeof(ray_hit) + sizeof(miss_value) +
+                            sizeof(closest_hit_value) + sizeof(callable_value),
                         sizeof(raygen_value));
             ray_query_readback->Unmap(0, nullptr);
         }
@@ -2713,6 +2734,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
                           ray_hit == 1 && miss_value == 0x4d495353 &&
                           closest_hit_value == 0x48495431 &&
+                          callable_value == 0x43414c4c &&
                           raygen_value == 42;
 
     safe_release(raygen_shader_table);
@@ -2738,7 +2760,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss/closest-hit DispatchRays passed"
+            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss/closest-hit/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -2757,6 +2779,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 std::to_string(miss_value) +
                 ",\"closest_hit_dispatch_value\":" +
                 std::to_string(closest_hit_value) +
+                ",\"callable_dispatch_value\":" +
+                std::to_string(callable_value) +
                 ",\"raygen_dispatch_value\":" +
                 std::to_string(raygen_value) +
                 ",\"miss_identifier_nonnull\":" +
