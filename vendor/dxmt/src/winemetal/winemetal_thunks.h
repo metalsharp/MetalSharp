@@ -479,6 +479,16 @@ struct unixcall_mtlcommandbuffer_copy_acceleration_structure {
   uint64_t ret_success;
 };
 
+struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
 #pragma pack(pop)
 
 #endif

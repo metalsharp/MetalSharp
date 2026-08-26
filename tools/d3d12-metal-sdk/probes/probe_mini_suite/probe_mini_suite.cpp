@@ -2255,6 +2255,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12StateObjectProperties* raytracing_properties = nullptr;
     ID3D12DescriptorHeap* ray_query_heap = nullptr;
     ID3D12Resource* vertices = nullptr;
+    ID3D12Resource* updated_vertices = nullptr;
     ID3D12Resource* indices = nullptr;
     ID3D12Resource* acceleration_structure = nullptr;
     ID3D12Resource* cloned_acceleration_structure = nullptr;
@@ -2441,7 +2442,12 @@ static ProbeResult probe_dxr_acceleration_structures() {
         }
     }
 
-    const float triangle[9] = {
+    const float initial_triangle[9] = {
+         9.25f, -0.75f, 0.0f,
+        10.0f,   0.75f, 0.0f,
+        10.75f, -0.75f, 0.0f,
+    };
+    const float updated_triangle[9] = {
         -0.75f, -0.75f, 0.0f,
          0.0f,   0.75f, 0.0f,
          0.75f, -0.75f, 0.0f,
@@ -2449,7 +2455,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     const uint16_t triangle_indices[3] = {0, 1, 2};
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
-        D3D12_RESOURCE_DESC vertex_desc = buffer_desc(sizeof(triangle));
+        D3D12_RESOURCE_DESC vertex_desc = buffer_desc(sizeof(initial_triangle));
         hr = device->CreateCommittedResource(
             &upload_heap, D3D12_HEAP_FLAG_NONE, &vertex_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -2458,8 +2464,23 @@ static ProbeResult probe_dxr_acceleration_structures() {
         if (SUCCEEDED(hr))
             hr = vertices->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr)) {
-            std::memcpy(mapped, triangle, sizeof(triangle));
+            std::memcpy(mapped, initial_triangle, sizeof(initial_triangle));
             vertices->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC vertex_desc = buffer_desc(sizeof(updated_triangle));
+        hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &vertex_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&updated_vertices));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = updated_vertices->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, updated_triangle, sizeof(updated_triangle));
+            updated_vertices->Unmap(0, nullptr);
         }
     }
     if (SUCCEEDED(hr)) {
@@ -2493,7 +2514,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
 
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
     inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-    inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+    inputs.Flags =
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
     inputs.NumDescs = 1;
     inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     inputs.pGeometryDescs = &geometry;
@@ -2527,7 +2550,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        D3D12_RESOURCE_DESC scratch_desc = buffer_desc(prebuild.ScratchDataSizeInBytes);
+        D3D12_RESOURCE_DESC scratch_desc = buffer_desc(std::max(
+            prebuild.ScratchDataSizeInBytes,
+            prebuild.UpdateScratchDataSizeInBytes));
         scratch_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         hr = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_NONE, &scratch_desc,
@@ -2775,6 +2800,25 @@ static ProbeResult probe_dxr_acceleration_structures() {
         source = cloned_acceleration_structure->GetGPUVirtualAddress();
         list4->EmitRaytracingAccelerationStructurePostbuildInfo(&post, 1,
                                                                  &source);
+        D3D12_RAYTRACING_GEOMETRY_DESC update_geometry = geometry;
+        update_geometry.Triangles.VertexBuffer.StartAddress =
+            updated_vertices->GetGPUVirtualAddress();
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS update_inputs =
+            inputs;
+        update_inputs.Flags =
+            static_cast<D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS>(
+                inputs.Flags |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE);
+        update_inputs.pGeometryDescs = &update_geometry;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC update_build = {};
+        update_build.DestAccelerationStructureData =
+            cloned_acceleration_structure->GetGPUVirtualAddress();
+        update_build.SourceAccelerationStructureData =
+            cloned_acceleration_structure->GetGPUVirtualAddress();
+        update_build.ScratchAccelerationStructureData =
+            scratch->GetGPUVirtualAddress();
+        update_build.Inputs = update_inputs;
+        list4->BuildRaytracingAccelerationStructure(&update_build, 0, nullptr);
 
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC aabb_build = {};
         aabb_build.DestAccelerationStructureData =
@@ -2951,6 +2995,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(acceleration_structure);
     safe_release(cloned_acceleration_structure);
     safe_release(vertices);
+    safe_release(updated_vertices);
     safe_release(indices);
     safe_release(ray_query_heap);
     safe_release(compute_pso);
@@ -2962,7 +3007,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal indexed-triangle/AABB BLAS, BLAS clone, TLAS, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal indexed-triangle/AABB BLAS, clone, shifted-geometry update, TLAS, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -2972,6 +3017,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"current_size_bytes\":" + std::to_string(current_size) +
                 ",\"clone_current_size_bytes\":" +
                 std::to_string(clone_current_size) +
+                ",\"blas_update_geometry_shift_x\":10" +
                 ",\"aabb_prebuild_result_bytes\":" +
                 std::to_string(aabb_prebuild.ResultDataMaxSizeInBytes) +
                 ",\"aabb_current_size_bytes\":" +

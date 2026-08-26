@@ -1501,3 +1501,21 @@ MTLCommandBuffer_copyAccelerationStructure(
   UNIX_CALL(147, &params);
   return params.ret_success;
 }
+
+WINEMETAL_API bool
+MTLCommandBuffer_refitTriangleAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_acceleration_structure,
+    const struct WMTPrimitiveAccelerationStructureInfo *info,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure params;
+  params.cmdbuf = cmdbuf;
+  params.source_acceleration_structure = source_acceleration_structure;
+  params.destination_acceleration_structure = destination_acceleration_structure;
+  WMT_MEMPTR_SET(params.info, info);
+  params.scratch_buffer = scratch_buffer;
+  params.scratch_buffer_offset = scratch_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(148, &params);
+  return params.ret_success;
+}

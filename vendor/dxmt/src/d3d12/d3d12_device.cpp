@@ -4602,6 +4602,9 @@ bool D3D12ResolveTriangleAccelerationStructureInfo(
   info.vertex_stride = geometry->Triangles.VertexBuffer.StrideInBytes;
   info.opaque =
       (geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) != 0;
+  info.allow_refit =
+      (inputs->Flags &
+       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) != 0;
 
   if (geometry->Triangles.IndexFormat == DXGI_FORMAT_UNKNOWN) {
     info.index_type = WMTAccelerationStructureIndexTypeNone;

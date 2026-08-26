@@ -999,11 +999,14 @@ the goal is not complete.
   the any-hit marker to return `0x52454332`. Procedural AABB geometry is now
   translated to a Metal bounding-box geometry
   descriptor and built as a 576-byte BLAS against a 768-byte allocation. The
-  triangle BLAS is cloned through `COPY_MODE_CLONE`, reports the same 640-byte
-  current size, and is used by the following TLAS to prove the clone is
-  traversable rather than merely allocated. A two-instance TLAS containing the
-  cloned triangle and translated AABB builds to 896
-  bytes. Its second 64-byte hit-group record selects a procedural intersection
+  update-enabled triangle BLAS is cloned through `COPY_MODE_CLONE` and reports
+  the same 768-byte current size. Its source geometry starts translated by
+  x=10; an in-place
+  `PERFORM_UPDATE` Metal refit substitutes centered vertex geometry before the
+  following TLAS traversal, proving update behavior rather than only accepting
+  update flags. A two-instance TLAS containing the updated clone and translated
+  AABB builds to 896 bytes. Its second 64-byte hit-group record selects a
+  procedural intersection
   wrapper, invokes visible-function index 6 to call `ReportHit`, and then invokes
   visible-function index 7 for procedural closest-hit, returning `0x50524f43`.
   The converter CLI failed to apply its maximum-attribute-size option to
@@ -1012,5 +1015,5 @@ the goal is not complete.
   across every ray-tracing stage. A callable table at offset 256 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
-  multi-geometry builds, updates, compaction/serialization, and complete
-  local-root/shader-table semantics.
+  multi-geometry builds, TLAS/AABB updates, compaction/serialization, and
+  complete local-root/shader-table semantics.

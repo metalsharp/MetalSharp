@@ -7398,14 +7398,36 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               QTRACE("BuildRaytracingAS SKIPPED triangle descriptor/size query");
               break;
             }
-            acceleration_structure = metal_device.newAccelerationStructure(
-                sizes.acceleration_structure_size);
-            encoded = acceleration_structure.handle &&
-                      cmdbuf.buildTriangleAccelerationStructure(
-                          acceleration_structure, metal_info,
-                          scratch->GetMTLBuffer(), scratch_offset);
+            const bool perform_update =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                0;
+            if (perform_update) {
+              auto *source = m_device->LookupResourceByGPUAddress(
+                  cmd->source_acceleration_structure);
+              acceleration_structure = dest->GetMTLAccelerationStructure();
+              if (!source || !source->GetMTLAccelerationStructure().handle ||
+                  !acceleration_structure.handle ||
+                  !metal_info.allow_refit) {
+                QTRACE("BuildRaytracingAS SKIPPED triangle update state");
+                break;
+              }
+              encoded = cmdbuf.refitTriangleAccelerationStructure(
+                  source->GetMTLAccelerationStructure(),
+                  acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                  scratch_offset);
+              if (encoded)
+                st.RetainResourceMetalObjectsForCompletion(source);
+            } else {
+              acceleration_structure = metal_device.newAccelerationStructure(
+                  sizes.acceleration_structure_size);
+              encoded = acceleration_structure.handle &&
+                        cmdbuf.buildTriangleAccelerationStructure(
+                            acceleration_structure, metal_info,
+                            scratch->GetMTLBuffer(), scratch_offset);
+            }
             primitive_count = metal_info.triangle_count;
-            kind = "triangles";
+            kind = perform_update ? "triangle update" : "triangles";
             if (auto *vertex = m_device->LookupResourceByGPUAddress(
                     cmd->geometry.Triangles.VertexBuffer.StartAddress))
               st.RetainResourceMetalObjectsForCompletion(vertex);

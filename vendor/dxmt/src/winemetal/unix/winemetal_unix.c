@@ -2100,6 +2100,8 @@ create_triangle_acceleration_structure_descriptor(
   MTLPrimitiveAccelerationStructureDescriptor *descriptor =
       [MTLPrimitiveAccelerationStructureDescriptor descriptor];
   descriptor.geometryDescriptors = @[ geometry ];
+  if (info->allow_refit)
+    descriptor.usage = MTLAccelerationStructureUsageRefit;
   return descriptor;
 }
 
@@ -2263,6 +2265,37 @@ _MTLCommandBuffer_copyAccelerationStructure(void *obj) {
           (id<MTLAccelerationStructure>)params->source_acceleration_structure
               toAccelerationStructure:(id<MTLAccelerationStructure>)
                                           params->destination_acceleration_structure];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_refitTriangleAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure
+      *params = obj;
+  const struct WMTPrimitiveAccelerationStructureInfo *info = params->info.ptr;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->source_acceleration_structure ||
+      !params->destination_acceleration_structure || !params->scratch_buffer)
+    return STATUS_SUCCESS;
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_triangle_acceleration_structure_descriptor(info);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      refitAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->source_acceleration_structure
+                       descriptor:descriptor
+                      destination:(id<MTLAccelerationStructure>)
+                                      params->destination_acceleration_structure
+                    scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
+              scratchBufferOffset:params->scratch_buffer_offset];
   [encoder endEncoding];
   params->ret_success = 1;
   return STATUS_SUCCESS;
@@ -4244,6 +4277,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForAABBs,
     &_MTLCommandBuffer_buildAABBAccelerationStructure,
     &_MTLCommandBuffer_copyAccelerationStructure,
+    &_MTLCommandBuffer_refitTriangleAccelerationStructure,
 };
 
 #ifndef DXMT_NATIVE
@@ -4396,5 +4430,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForAABBs,
     &_MTLCommandBuffer_buildAABBAccelerationStructure,
     &_MTLCommandBuffer_copyAccelerationStructure,
+    &_MTLCommandBuffer_refitTriangleAccelerationStructure,
 };
 #endif
