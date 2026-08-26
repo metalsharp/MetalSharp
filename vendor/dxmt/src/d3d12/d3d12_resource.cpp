@@ -139,6 +139,21 @@ MTLD3D12Resource::MTLD3D12Resource(
                      backing_gpu_addr, backing_offset);
 }
 
+MTLD3D12Resource::MTLD3D12Resource(
+    MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
+    D3D12_RESOURCE_STATES initial_state,
+    D3D12_HEAP_PROPERTIES heap_properties,
+    D3D12_HEAP_FLAGS heap_flags,
+    WMT::Reference<WMT::Texture> backing_texture,
+    uint64_t backing_texture_gpu_id, uint64_t backing_offset)
+    : m_device(device), m_desc(desc), m_state(initial_state),
+      m_heap_properties(heap_properties), m_heap_flags(heap_flags),
+      m_tex_gpu_resource_id(backing_texture_gpu_id),
+      m_backing_offset(backing_offset) {
+  m_mtl_texture = std::move(backing_texture);
+  InitializeResource(WMT::Reference<WMT::Buffer>{}, nullptr, 0, 0);
+}
+
 void MTLD3D12Resource::InitializeResource(
     WMT::Reference<WMT::Buffer> backing_buffer, void *backing_cpu_addr,
     uint64_t backing_gpu_addr, uint64_t backing_offset) {
@@ -226,22 +241,24 @@ void MTLD3D12Resource::InitializeResource(
       tex_info.type, tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height,
       (unsigned)tex_info.depth, (unsigned)tex_info.array_length,
        (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count, (unsigned)tex_info.options);
-    if (m_is_reserved) {
-      WMTHeapInfo heap_info = {};
-      heap_info.size = SparseHeapSizeForResource(m_desc);
-      heap_info.options = WMTResourceStorageModePrivate |
-                          WMTResourceHazardTrackingModeTracked;
-      heap_info.type = WMTHeapTypeSparse;
-      // Metal's 16 KiB sparse page is the largest page granularity available
-      // on the proof host and four pages make one D3D12 64 KiB tile.
-      heap_info.sparse_page_size = WMTSparsePageSize16;
-      m_sparse_heap = wmt_device.newHeap(heap_info);
-      if (m_sparse_heap.handle)
-        m_mtl_texture = m_sparse_heap.newTexture(tex_info);
-    } else {
-      m_mtl_texture = wmt_device.newTexture(tex_info);
+    if (!m_mtl_texture.handle) {
+      if (m_is_reserved) {
+        WMTHeapInfo heap_info = {};
+        heap_info.size = SparseHeapSizeForResource(m_desc);
+        heap_info.options = WMTResourceStorageModePrivate |
+                            WMTResourceHazardTrackingModeTracked;
+        heap_info.type = WMTHeapTypeSparse;
+        // Metal's 16 KiB sparse page is the largest page granularity available
+        // on the proof host and four pages make one D3D12 64 KiB tile.
+        heap_info.sparse_page_size = WMTSparsePageSize16;
+        m_sparse_heap = wmt_device.newHeap(heap_info);
+        if (m_sparse_heap.handle)
+          m_mtl_texture = m_sparse_heap.newTexture(tex_info);
+      } else {
+        m_mtl_texture = wmt_device.newTexture(tex_info);
+      }
+      m_tex_gpu_resource_id = tex_info.gpu_resource_id;
     }
-    m_tex_gpu_resource_id = tex_info.gpu_resource_id;
     if (!m_mtl_texture.handle) {
       RTRACE("ctor: texture creation FAILED type=%u fmt=%u %ux%u arr=%u",
         tex_info.type, tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height, (unsigned)tex_info.array_length);

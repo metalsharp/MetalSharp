@@ -334,6 +334,11 @@ public:
   Reference<Texture> newTexture(WMTTextureInfo &info) {
     return Reference<Texture>(MTLHeap_newTexture(handle, &info));
   }
+
+  Reference<Texture> newTexture(WMTTextureInfo &info, uint64_t offset) {
+    return Reference<Texture>(
+        MTLHeap_newTextureAtOffset(handle, &info, offset));
+  }
 };
 
 class ComputePipelineState : public Object {

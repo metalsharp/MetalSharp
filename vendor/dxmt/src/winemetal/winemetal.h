@@ -237,6 +237,8 @@ WINEMETAL_API obj_handle_t MTLDevice_newHeap(obj_handle_t device,
                                               struct WMTHeapInfo *info);
 WINEMETAL_API obj_handle_t MTLHeap_newTexture(obj_handle_t heap,
                                                struct WMTTextureInfo *info);
+WINEMETAL_API obj_handle_t MTLHeap_newTextureAtOffset(
+    obj_handle_t heap, struct WMTTextureInfo *info, uint64_t offset);
 
 WINEMETAL_API obj_handle_t
 MTLCommandBuffer_resourceStateCommandEncoder(obj_handle_t cmdbuf);

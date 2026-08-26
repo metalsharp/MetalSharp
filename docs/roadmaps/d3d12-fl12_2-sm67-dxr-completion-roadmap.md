@@ -263,7 +263,9 @@ Findings:
   success paths that do not perform required texture transfers.
 - `ReadFromSubresource` can zero output and return success for GPU-only
   textures rather than executing a readback.
-- Placed texture resources do not implement true heap aliasing.
+- Default-heap placed textures now use native Metal placement heaps and
+  `newTextureWithDescriptor:offset:` for the proven common path; overlapping
+  resource aliasing and aliasing-barrier behavior remain unproven.
 - Reserved resources now use native Metal sparse backing for a focused 2D
   RGBA8-array path; unsupported shapes fail closed rather than using committed
   substitutes.

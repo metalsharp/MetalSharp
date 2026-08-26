@@ -1653,6 +1653,18 @@ MTLHeap_newTexture(obj_handle_t heap, struct WMTTextureInfo *info) {
 }
 
 WINEMETAL_API obj_handle_t
+MTLHeap_newTextureAtOffset(obj_handle_t heap, struct WMTTextureInfo *info,
+                           uint64_t offset) {
+  struct unixcall_mtlheap_newtexture_offset params;
+  params.heap = heap;
+  WMT_MEMPTR_SET(params.info, info);
+  params.offset = offset;
+  params.ret = 0;
+  UNIX_CALL(159, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
 MTLCommandBuffer_resourceStateCommandEncoder(obj_handle_t cmdbuf) {
   struct unixcall_generic_obj_obj_ret params;
   params.handle = cmdbuf;

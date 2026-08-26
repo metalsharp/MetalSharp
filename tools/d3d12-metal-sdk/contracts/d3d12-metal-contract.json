@@ -258,8 +258,8 @@
           },
           "CreatePlacedResource": {
             "difficulty": "moderate",
-            "metal": "MTLHeap sub-allocation: MTLHeap::newBufferWithLength / newTextureWithDescriptor",
-            "notes": "Placed resources are sub-allocated from a heap at an offset. Maps to MTLHeap sub-allocation. Alignment and offset mapping required.",
+            "metal": "MTLHeap sub-allocation: MTLHeap::newBufferWithLength / newTextureWithDescriptor:offset:",
+            "notes": "Placed buffers retain the existing heap-backed buffer path. Default-heap placed textures now use a native Metal placement heap and offset texture allocation when the heap can host textures; alignment and overlapping alias barriers remain gated.",
             "translation": "heap->newBufferWithLength(length, options, offset) or heap->newTextureWithDescriptor(texDesc, offset)"
           },
           "CreateQueryHeap": {

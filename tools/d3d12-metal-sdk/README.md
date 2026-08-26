@@ -342,7 +342,8 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
 ```
 
 For resource, view, and format coverage, run the phase 14.9 probe. It validates
-committed and placed resources, default/upload/readback heap behavior,
+committed and placed resources, including native default-heap texture
+placement at a Metal heap offset, default/upload/readback heap behavior,
 buffer GPU virtual addresses, 1D/2D/3D/array/mip/MSAA texture creation,
 CBV/SRV/UAV/RTV/DSV creation and binding, `GetResourceAllocationInfo`,
 `GetCopyableFootprints`, common color/depth/integer/normalized/sRGB format

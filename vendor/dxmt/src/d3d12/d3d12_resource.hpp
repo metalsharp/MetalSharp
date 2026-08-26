@@ -62,6 +62,13 @@ public:
                    WMT::Reference<WMT::Buffer> backing_buffer,
                    void *backing_cpu_addr, uint64_t backing_gpu_addr,
                    uint64_t backing_offset);
+  MTLD3D12Resource(MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
+                   D3D12_RESOURCE_STATES initial_state,
+                   D3D12_HEAP_PROPERTIES heap_properties,
+                   D3D12_HEAP_FLAGS heap_flags,
+                   WMT::Reference<WMT::Texture> backing_texture,
+                   uint64_t backing_texture_gpu_id,
+                   uint64_t backing_offset);
   ~MTLD3D12Resource();
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid,
