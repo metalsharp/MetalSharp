@@ -145,9 +145,14 @@ int main() {
     IDXGIAdapter1* adapter1_second = nullptr;
     IDXGIAdapter1* gpu_preference_adapter = nullptr;
     IDXGIAdapter1* luid_adapter = nullptr;
+    IDXGIAdapter3* adapter3 = nullptr;
     HRESULT enum_adapter_hr = factory0 ? factory0->EnumAdapters(0, &adapter0) : E_FAIL;
     HRESULT enum_adapter1_hr = factory1 ? factory1->EnumAdapters1(0, &adapter1) : E_FAIL;
     HRESULT enum_adapter1_second_hr = factory1 ? factory1->EnumAdapters1(0, &adapter1_second) : E_FAIL;
+    HRESULT adapter3_qi_hr = adapter1
+                                 ? adapter1->QueryInterface(
+                                       IID_PPV_ARGS(&adapter3))
+                                 : E_FAIL;
     IDXGIAdapter1* adapter_end = nullptr;
     HRESULT enum_adapter_end_hr = factory1 ? factory1->EnumAdapters1(32, &adapter_end) : E_FAIL;
 
@@ -196,6 +201,28 @@ int main() {
     HRESULT unregister_adapters_changed_hr = factory7 && adapters_changed_cookie != 0
                                                  ? factory7->UnregisterAdaptersChangedEvent(adapters_changed_cookie)
                                                  : E_NOINTERFACE;
+    HANDLE budget_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    DWORD budget_cookie = 0;
+    HRESULT register_budget_hr =
+        adapter3 && budget_event
+            ? adapter3->RegisterVideoMemoryBudgetChangeNotificationEvent(
+                  budget_event, &budget_cookie)
+            : E_NOINTERFACE;
+    DXGI_QUERY_VIDEO_MEMORY_INFO memory_info = {};
+    HRESULT query_budget_hr =
+        adapter3 ? adapter3->QueryVideoMemoryInfo(
+                       0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memory_info)
+                 : E_NOINTERFACE;
+    DWORD budget_event_wait =
+        budget_event ? WaitForSingleObject(budget_event, 0) : WAIT_FAILED;
+    if (adapter3 && budget_cookie)
+        adapter3->UnregisterVideoMemoryBudgetChangeNotification(budget_cookie);
+    DWORD protection_cookie = 0xffffffffu;
+    HRESULT register_protection_hr =
+        adapter3 && budget_event
+            ? adapter3->RegisterHardwareContentProtectionTeardownStatusEvent(
+                  budget_event, &protection_cookie)
+            : E_NOINTERFACE;
 
     bool factory_versions_supported = true;
     for (const auto& probe : interfaces)
@@ -213,7 +240,13 @@ int main() {
                 SUCCEEDED(create1_hr) && SUCCEEDED(create2_hr) && SUCCEEDED(enum_adapter_hr) &&
                 SUCCEEDED(enum_adapter1_hr) && desc.VendorId != 0 &&
                 desc.DedicatedVideoMemory + desc.SharedSystemMemory > 0 && unknown_qi_hr == E_NOINTERFACE &&
-                factory_versions_supported && adapter_stable && enum_adapter_end_hr == DXGI_ERROR_NOT_FOUND;
+                factory_versions_supported && adapter_stable &&
+                enum_adapter_end_hr == DXGI_ERROR_NOT_FOUND &&
+                SUCCEEDED(adapter3_qi_hr) && SUCCEEDED(register_budget_hr) &&
+                budget_cookie != 0 && SUCCEEDED(query_budget_hr) &&
+                memory_info.Budget > 0 && budget_event_wait == WAIT_TIMEOUT &&
+                register_protection_hr == DXGI_ERROR_UNSUPPORTED &&
+                protection_cookie == 0;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-dxgi-factory.v1\",\n");
@@ -255,6 +288,18 @@ int main() {
     print_hr("unknown_factory_qi", unknown_qi_hr);
     print_hr("RegisterAdaptersChangedEvent", register_adapters_changed_hr);
     print_hr("UnregisterAdaptersChangedEvent", unregister_adapters_changed_hr);
+    print_hr("QueryInterface_IDXGIAdapter3", adapter3_qi_hr);
+    print_hr("RegisterVideoMemoryBudgetChangeNotificationEvent", register_budget_hr);
+    print_hr("QueryVideoMemoryInfo", query_budget_hr);
+    print_hr("RegisterHardwareContentProtectionTeardownStatusEvent", register_protection_hr);
+    std::printf("    \"video_memory_budget\": %llu,\n",
+                static_cast<unsigned long long>(memory_info.Budget));
+    std::printf("    \"budget_cookie_nonzero\": %s,\n",
+                budget_cookie ? "true" : "false");
+    std::printf("    \"budget_event_initially_unsignaled\": %s,\n",
+                budget_event_wait == WAIT_TIMEOUT ? "true" : "false");
+    std::printf("    \"protection_cookie_zero_on_rejection\": %s,\n",
+                protection_cookie == 0 ? "true" : "false");
     std::printf("    \"register_adapters_changed_decision\": \"%s\"\n",
                 SUCCEEDED(register_adapters_changed_hr) ? "safe_success_observed" : "safe_rejection_observed");
     std::printf("  }\n");

@@ -334,8 +334,12 @@ Findings:
   preference, LUID lookup, outputs, and HWND swapchains have useful coverage.
 - CoreWindow/composition swapchains are `E_NOTIMPL`.
 - Shared-resource adapter LUID is `E_NOTIMPL`.
-- Adapter content-protection and memory-budget notification methods use TODO
-  assertions rather than valid COM behavior.
+- Adapter content-protection notification registration now safely returns
+  `DXGI_ERROR_UNSUPPORTED` with a zero cookie. Video-memory budget event
+  registration duplicates and owns the caller event through unregister, and
+  budget queries signal registered events only after an observed budget change;
+  the focused probe validates registration, initial unsignaled state, query,
+  unregister, and rejection behavior.
 - Adapter-changed event registration is a risky stub.
 - DXGI resource subresource surfaces are stubbed.
 - D3D12 DXGI surface creation is `E_NOTIMPL`.
