@@ -1246,7 +1246,10 @@ void cs_main() {
   ray.Direction = float3(0.0, 0.0, 1.0);
   ray.TMax = 10.0;
   query.TraceRayInline(scene, RAY_FLAG_NONE, 0xff, ray);
-  query.Proceed();
+  while (query.Proceed()) {
+    if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+      query.CommitNonOpaqueTriangleHit();
+  }
   output.Store(0, query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 1 : 0);
 }
 HLSL
@@ -1327,7 +1330,13 @@ void miss_shader(inout MissPayload payload) {
 [shader("closesthit")]
 void closest_hit(inout MissPayload payload,
                  BuiltInTriangleIntersectionAttributes attributes) {
-  payload.value = 0x48495431;
+  payload.value = payload.value == 0x414e5948 ? 0x48495441 : 0x48495431;
+}
+
+[shader("anyhit")]
+void any_hit(inout MissPayload payload,
+             BuiltInTriangleIntersectionAttributes attributes) {
+  payload.value = 0x414e5948;
 }
 
 [shader("callable")]
@@ -1407,7 +1416,21 @@ HLSL
               --root-signature="$raygen_root" \
               --deployment-os=macOS \
               --minimum-os-build-version=15.0.0 \
-              >"$base.callable-msc.log" 2>&1; then
+              >"$base.callable-msc.log" 2>&1 &&
+              "$converter" -o "$base.anyhit.metallib" "$dxbc" \
+              --entry-point=any_hit \
+              --rt-hit-group-type=triangles \
+              --rt-intersection-compilation=ifVisibleFunction \
+              --root-signature="$raygen_root" \
+              --deployment-os=macOS \
+              --minimum-os-build-version=15.0.0 \
+              >"$base.anyhit-msc.log" 2>&1 &&
+              "$converter" -o "$base.rayintersection.metallib" "$dxbc" \
+              --synthesize-indirect-intersection-function \
+              --root-signature="$raygen_root" \
+              --deployment-os=macOS \
+              --minimum-os-build-version=15.0.0 \
+              >"$base.rayintersection-msc.log" 2>&1; then
               rm -f "$base.msc.fail"
             fi
           fi

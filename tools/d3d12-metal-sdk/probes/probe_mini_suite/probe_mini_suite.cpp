@@ -2312,15 +2312,16 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     safe_release(compute_root_blob);
 
-    D3D12_EXPORT_DESC raygen_exports[4] = {};
+    D3D12_EXPORT_DESC raygen_exports[5] = {};
     raygen_exports[0].Name = L"raygen";
     raygen_exports[1].Name = L"miss_shader";
     raygen_exports[2].Name = L"closest_hit";
     raygen_exports[3].Name = L"callable_shader";
+    raygen_exports[4].Name = L"any_hit";
     D3D12_DXIL_LIBRARY_DESC raygen_library_desc = {};
     raygen_library_desc.DXILLibrary = {raygen_library.data(),
                                       raygen_library.size()};
-    raygen_library_desc.NumExports = 4;
+    raygen_library_desc.NumExports = 5;
     raygen_library_desc.pExports = raygen_exports;
     D3D12_GLOBAL_ROOT_SIGNATURE global_root = {compute_root};
     D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
@@ -2332,6 +2333,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     hit_group.HitGroupExport = L"hit_group";
     hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
     hit_group.ClosestHitShaderImport = L"closest_hit";
+    hit_group.AnyHitShaderImport = L"any_hit";
     D3D12_STATE_SUBOBJECT state_subobjects[5] = {};
     state_subobjects[0] = {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY,
                            &raygen_library_desc};
@@ -2437,7 +2439,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
 
     D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
     geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-    geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+    geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
     geometry.Triangles.VertexBuffer.StartAddress =
         vertices ? vertices->GetGPUVirtualAddress() : 0;
     geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
@@ -2733,7 +2735,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           top_level_current_size <=
                               top_level_prebuild.ResultDataMaxSizeInBytes &&
                           ray_hit == 1 && miss_value == 0x4d495353 &&
-                          closest_hit_value == 0x48495431 &&
+                          closest_hit_value == 0x48495441 &&
                           callable_value == 0x43414c4c &&
                           raygen_value == 42;
 
@@ -2760,7 +2762,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device5);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss/closest-hit/callable DispatchRays passed"
+            verified ? "Metal BLAS/TLAS, inline RayQuery, and raygen/miss/any-hit/closest-hit/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +

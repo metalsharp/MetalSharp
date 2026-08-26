@@ -1351,6 +1351,10 @@ public:
     const bool has_callable_shader =
         std::find(m_exports.begin(), m_exports.end(), L"callable_shader") !=
         m_exports.end();
+    const bool has_any_hit_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"any_hit") !=
+            m_exports.end() &&
+        has_closest_hit_shader;
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
     compute_desc.pRootSignature = m_global_root_signature;
@@ -1372,6 +1376,10 @@ public:
         cache_dir + "/" + cache_hash + ".closesthit.metallib";
     std::string callable_path =
         cache_dir + "/" + cache_hash + ".callable.metallib";
+    std::string any_hit_path =
+        cache_dir + "/" + cache_hash + ".anyhit.metallib";
+    std::string intersection_path =
+        cache_dir + "/" + cache_hash + ".rayintersection.metallib";
 
     auto read_file = [](const std::string &path, std::vector<uint8_t> &data) {
       FILE *file = fopen(path.c_str(), "rb");
@@ -1394,12 +1402,17 @@ public:
     std::vector<uint8_t> miss_data;
     std::vector<uint8_t> closest_hit_data;
     std::vector<uint8_t> callable_data;
+    std::vector<uint8_t> any_hit_data;
+    std::vector<uint8_t> intersection_data;
     if (!read_file(raygen_path, raygen_data) ||
         !read_file(dispatch_path, dispatch_data) ||
         (has_miss_shader && !read_file(miss_path, miss_data)) ||
         (has_closest_hit_shader &&
          !read_file(closest_hit_path, closest_hit_data)) ||
-        (has_callable_shader && !read_file(callable_path, callable_data))) {
+        (has_callable_shader && !read_file(callable_path, callable_data)) ||
+        (has_any_hit_shader && !read_file(any_hit_path, any_hit_data)) ||
+        (has_any_hit_shader &&
+         !read_file(intersection_path, intersection_data))) {
       pipeline->RequestCompile(false);
       TRACE("StateObject raygen cache miss visible=%s dispatch=%s miss=%s",
             raygen_path.c_str(), dispatch_path.c_str(), miss_path.c_str());
@@ -1457,6 +1470,31 @@ public:
       if (!callable_function.handle)
         return false;
     }
+    WMT::Reference<WMT::Library> any_hit_library_handle;
+    WMT::Reference<WMT::Function> any_hit_function;
+    if (has_any_hit_shader) {
+      error = nullptr;
+      any_hit_library_handle = metal_device.newLibrary(
+          any_hit_data.data(), any_hit_data.size(), error);
+      if (!any_hit_library_handle.handle || error.handle)
+        return false;
+      any_hit_function = any_hit_library_handle.newFunction("any_hit");
+      if (!any_hit_function.handle)
+        return false;
+    }
+    WMT::Reference<WMT::Library> intersection_library_handle;
+    WMT::Reference<WMT::Function> intersection_function;
+    if (has_any_hit_shader) {
+      error = nullptr;
+      intersection_library_handle = metal_device.newLibrary(
+          intersection_data.data(), intersection_data.size(), error);
+      if (!intersection_library_handle.handle || error.handle)
+        return false;
+      intersection_function = intersection_library_handle.newFunction(
+          "irconverter.wrapper.intersection.function.triangle");
+      if (!intersection_function.handle)
+        return false;
+    }
     auto raygen_function = raygen_library_handle.newFunction("raygen");
     auto dispatch_function =
         dispatch_library_handle.newFunction("RaygenIndirection");
@@ -1468,33 +1506,30 @@ public:
     pipeline_info.miss_function = miss_function.handle;
     pipeline_info.closest_hit_function = closest_hit_function.handle;
     pipeline_info.callable_function = callable_function.handle;
+    pipeline_info.any_hit_function = any_hit_function.handle;
+    pipeline_info.intersection_function = intersection_function.handle;
     error = nullptr;
     m_raygen_compute_pipeline = metal_device.newRaytracingComputePipelineState(
-        pipeline_info, m_raygen_visible_function_table, error);
+        pipeline_info, m_raygen_visible_function_table,
+        m_intersection_function_table, error);
     if (!m_raygen_compute_pipeline.handle ||
         !m_raygen_visible_function_table.handle || error.handle)
       return false;
 
     for (const auto &export_name : m_exports) {
       std::array<uint8_t, 32> identifier = {};
-      uint64_t hash = 1469598103934665603ull;
-      for (WCHAR ch : export_name) {
-        hash ^= static_cast<uint16_t>(ch);
-        hash *= 1099511628211ull;
-      }
-      for (uint32_t word_index = 0; word_index < 4; word_index++) {
-        uint64_t word = hash ^
-                        (0x9e3779b97f4a7c15ull * (uint64_t)(word_index + 1));
-        memcpy(identifier.data() + word_index * sizeof(uint64_t), &word,
-               sizeof(word));
-      }
       const uint64_t visible_function_index =
           export_name == L"raygen"       ? 1ull
           : export_name == L"miss_shader" ? 2ull
           : export_name == L"hit_group" || export_name == L"closest_hit"
               ? 3ull
           : export_name == L"callable_shader" ? 4ull
+          : export_name == L"any_hit"          ? 5ull
                                            : 0ull;
+      const uint64_t intersection_function_index =
+          export_name == L"hit_group" && has_any_hit_shader ? 5ull : 0ull;
+      memcpy(identifier.data(), &intersection_function_index,
+             sizeof(intersection_function_index));
       memcpy(identifier.data() + sizeof(uint64_t),
              &visible_function_index, sizeof(visible_function_index));
       m_shader_identifiers.emplace(export_name, identifier);
@@ -1513,6 +1548,11 @@ public:
 
   WMT::Reference<WMT::VisibleFunctionTable> RaygenVisibleFunctionTable() const {
     return m_raygen_visible_function_table;
+  }
+
+  WMT::Reference<WMT::IntersectionFunctionTable>
+  IntersectionFunctionTable() const {
+    return m_intersection_function_table;
   }
 
   ID3D12RootSignature *GlobalRootSignature() const {
@@ -1651,6 +1691,8 @@ private:
   WMT::Reference<WMT::ComputePipelineState> m_raygen_compute_pipeline;
   WMT::Reference<WMT::VisibleFunctionTable>
       m_raygen_visible_function_table;
+  WMT::Reference<WMT::IntersectionFunctionTable>
+      m_intersection_function_table;
   ComPrivateData m_private_data;
   std::atomic<ULONG> m_ref_count{1};
   D3D12_STATE_OBJECT_TYPE m_type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
@@ -1676,6 +1718,15 @@ GetD3D12StateObjectRaygenVisibleFunctionTable(
     return {};
   return static_cast<MTLD3D12StateObject *>(state_object)
       ->RaygenVisibleFunctionTable();
+}
+
+WMT::Reference<WMT::IntersectionFunctionTable>
+GetD3D12StateObjectIntersectionFunctionTable(
+    ID3D12StateObject *state_object) {
+  if (!state_object)
+    return {};
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->IntersectionFunctionTable();
 }
 
 ID3D12RootSignature *

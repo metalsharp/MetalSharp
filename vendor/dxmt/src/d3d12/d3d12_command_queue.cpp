@@ -816,6 +816,8 @@ struct ReplayState {
   WMT::Reference<WMT::ComputePipelineState> raytracing_compute_pso;
   WMT::Reference<WMT::VisibleFunctionTable>
       raytracing_visible_function_table;
+  WMT::Reference<WMT::IntersectionFunctionTable>
+      raytracing_intersection_function_table;
   MTLD3D12RootSignature *graphics_root_sig = nullptr;
   D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
   D3D12_VERTEX_BUFFER_VIEW vbs[kVertexBufferSlotCount] = {};
@@ -5906,6 +5908,9 @@ static bool ReplayRaytracingDispatch(
   dispatch_argument.global_root_signature = global_root_gpu;
   dispatch_argument.visible_function_table =
       st.raytracing_visible_function_table.gpuResourceID();
+  if (st.raytracing_intersection_function_table.handle)
+    dispatch_argument.intersection_function_table =
+        st.raytracing_intersection_function_table.gpuResourceID();
 
   uint64_t dispatch_argument_gpu = 0;
   auto dispatch_argument_buffer = st.MakeTransientBuffer(
@@ -5918,6 +5923,7 @@ static bool ReplayRaytracingDispatch(
   struct wmtcmd_compute_setpso set_pipeline = {};
   struct wmtcmd_compute_setbuffer set_dispatch_argument = {};
   struct wmtcmd_compute_useresource use_table = {};
+  struct wmtcmd_compute_useresource use_intersection_table = {};
   struct wmtcmd_compute_useresource use_shader_table = {};
   struct wmtcmd_compute_useresource use_output = {};
   struct wmtcmd_compute_useresource use_descriptor_table = {};
@@ -5936,7 +5942,14 @@ static bool ReplayRaytracingDispatch(
   use_table.type = WMTComputeCommandUseResource;
   use_table.resource = st.raytracing_visible_function_table.handle;
   use_table.usage = WMTResourceUsageRead;
-  use_table.next.set(&use_shader_table);
+  use_table.next.set(st.raytracing_intersection_function_table.handle
+                         ? &use_intersection_table
+                         : &use_shader_table);
+  use_intersection_table.type = WMTComputeCommandUseResource;
+  use_intersection_table.resource =
+      st.raytracing_intersection_function_table.handle;
+  use_intersection_table.usage = WMTResourceUsageRead;
+  use_intersection_table.next.set(&use_shader_table);
   use_shader_table.type = WMTComputeCommandUseResource;
   use_shader_table.resource = shader_table->GetMTLBuffer().handle;
   use_shader_table.usage = WMTResourceUsageRead;
@@ -5972,6 +5985,9 @@ static bool ReplayRaytracingDispatch(
     return false;
   st.RetainMTLObjectForCompletion(st.raytracing_compute_pso);
   st.RetainMTLObjectForCompletion(st.raytracing_visible_function_table);
+  if (st.raytracing_intersection_function_table.handle)
+    st.RetainMTLObjectForCompletion(
+        st.raytracing_intersection_function_table);
   st.RetainResourceMetalObjectsForCompletion(output);
   st.RetainResourceMetalObjectsForCompletion(shader_table);
   QTRACE("DispatchRays encoded dimensions=%ux%ux%u dispatch_arg=0x%llx "
@@ -7577,10 +7593,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             cmd->state_object);
         auto visible_table =
             GetD3D12StateObjectRaygenVisibleFunctionTable(cmd->state_object);
+        auto intersection_table =
+            GetD3D12StateObjectIntersectionFunctionTable(cmd->state_object);
         if (pipeline.handle && visible_table.handle) {
           st.raytracing_state = cmd->state_object;
           st.raytracing_compute_pso = pipeline;
           st.raytracing_visible_function_table = visible_table;
+          st.raytracing_intersection_function_table = intersection_table;
           QTRACE("SetPipelineState1 state=%p raygen_pso=%llu table=%llu",
                  (void *)cmd->state_object,
                  (unsigned long long)pipeline.handle,

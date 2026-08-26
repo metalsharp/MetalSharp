@@ -1416,16 +1416,20 @@ MTLAccelerationStructure_gpuResourceID(obj_handle_t acceleration_structure) {
 WINEMETAL_API obj_handle_t
 MTLDevice_newRaytracingComputePipelineState(
     obj_handle_t device, const struct WMTRaytracingComputePipelineInfo *info,
-    obj_handle_t *visible_function_table_out, obj_handle_t *err_out) {
+    obj_handle_t *visible_function_table_out,
+    obj_handle_t *intersection_function_table_out, obj_handle_t *err_out) {
   struct unixcall_mtldevice_new_raytracing_compute_pipeline params;
   params.device = device;
   WMT_MEMPTR_SET(params.info, info);
   params.ret_visible_function_table = 0;
+  params.ret_intersection_function_table = 0;
   params.ret_error = 0;
   params.ret_pipeline = 0;
   UNIX_CALL(142, &params);
   if (visible_function_table_out)
     *visible_function_table_out = params.ret_visible_function_table;
+  if (intersection_function_table_out)
+    *intersection_function_table_out = params.ret_intersection_function_table;
   if (err_out)
     *err_out = params.ret_error;
   return params.ret_pipeline;

@@ -331,6 +331,14 @@ public:
   }
 };
 
+class IntersectionFunctionTable : public Resource {
+public:
+  uint64_t
+  gpuResourceID() const {
+    return MTLVisibleFunctionTable_gpuResourceID(handle);
+  }
+};
+
 class RenderPipelineState : public Object {
 public:
 };
@@ -1036,12 +1044,17 @@ public:
   Reference<ComputePipelineState>
   newRaytracingComputePipelineState(
       const WMTRaytracingComputePipelineInfo &info,
-      Reference<VisibleFunctionTable> &visible_function_table, Error &error) {
+      Reference<VisibleFunctionTable> &visible_function_table,
+      Reference<IntersectionFunctionTable> &intersection_function_table,
+      Error &error) {
     obj_handle_t table = 0;
+    obj_handle_t intersection_table = 0;
     auto pipeline = Reference<ComputePipelineState>(
         MTLDevice_newRaytracingComputePipelineState(
-            handle, &info, &table, &error.handle));
+            handle, &info, &table, &intersection_table, &error.handle));
     visible_function_table = Reference<VisibleFunctionTable>(table);
+    intersection_function_table =
+        Reference<IntersectionFunctionTable>(intersection_table);
     return pipeline;
   }
 

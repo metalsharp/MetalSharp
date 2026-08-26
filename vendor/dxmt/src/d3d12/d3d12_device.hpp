@@ -73,6 +73,9 @@ GetD3D12StateObjectRaygenComputePipeline(ID3D12StateObject *state_object);
 WMT::Reference<WMT::VisibleFunctionTable>
 GetD3D12StateObjectRaygenVisibleFunctionTable(
     ID3D12StateObject *state_object);
+WMT::Reference<WMT::IntersectionFunctionTable>
+GetD3D12StateObjectIntersectionFunctionTable(
+    ID3D12StateObject *state_object);
 ID3D12RootSignature *
 GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object);
 

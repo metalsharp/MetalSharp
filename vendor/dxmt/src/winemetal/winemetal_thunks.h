@@ -429,6 +429,7 @@ struct unixcall_mtldevice_new_raytracing_compute_pipeline {
   obj_handle_t device;
   struct WMTConstMemoryPointer info;
   obj_handle_t ret_visible_function_table;
+  obj_handle_t ret_intersection_function_table;
   obj_handle_t ret_error;
   obj_handle_t ret_pipeline;
 };

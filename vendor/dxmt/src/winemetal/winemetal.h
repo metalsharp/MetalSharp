@@ -683,11 +683,14 @@ struct WMTRaytracingComputePipelineInfo {
   obj_handle_t miss_function;
   obj_handle_t closest_hit_function;
   obj_handle_t callable_function;
+  obj_handle_t any_hit_function;
+  obj_handle_t intersection_function;
 };
 
 WINEMETAL_API obj_handle_t MTLDevice_newRaytracingComputePipelineState(
     obj_handle_t device, const struct WMTRaytracingComputePipelineInfo *info,
-    obj_handle_t *visible_function_table_out, obj_handle_t *err_out);
+    obj_handle_t *visible_function_table_out,
+    obj_handle_t *intersection_function_table_out, obj_handle_t *err_out);
 WINEMETAL_API uint64_t MTLVisibleFunctionTable_gpuResourceID(
     obj_handle_t visible_function_table);
 

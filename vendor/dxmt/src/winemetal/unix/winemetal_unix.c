@@ -826,6 +826,7 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
   struct unixcall_mtldevice_new_raytracing_compute_pipeline *params = obj;
   const struct WMTRaytracingComputePipelineInfo *info = params->info.ptr;
   params->ret_visible_function_table = 0;
+  params->ret_intersection_function_table = 0;
   params->ret_error = 0;
   params->ret_pipeline = 0;
   if (!params->device || !info || !info->dispatch_function ||
@@ -841,21 +842,27 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
       (id<MTLFunction>)info->closest_hit_function;
   id<MTLFunction> callable_function =
       (id<MTLFunction>)info->callable_function;
+  id<MTLFunction> any_hit_function =
+      (id<MTLFunction>)info->any_hit_function;
+  id<MTLFunction> intersection_function =
+      (id<MTLFunction>)info->intersection_function;
   MTLComputePipelineDescriptor *descriptor =
       [[MTLComputePipelineDescriptor alloc] init];
   descriptor.computeFunction = dispatch_function;
   MTLLinkedFunctions *linked_functions = [[MTLLinkedFunctions alloc] init];
-  if (miss_function && closest_hit_function && callable_function)
-    linked_functions.functions = @[
-      raygen_function, miss_function, closest_hit_function, callable_function
-    ];
-  else if (miss_function && closest_hit_function)
-    linked_functions.functions =
-        @[ raygen_function, miss_function, closest_hit_function ];
-  else if (miss_function)
-    linked_functions.functions = @[ raygen_function, miss_function ];
-  else
-    linked_functions.functions = @[ raygen_function ];
+  NSMutableArray<id<MTLFunction>> *functions =
+      [NSMutableArray arrayWithObject:raygen_function];
+  if (miss_function)
+    [functions addObject:miss_function];
+  if (closest_hit_function)
+    [functions addObject:closest_hit_function];
+  if (callable_function)
+    [functions addObject:callable_function];
+  if (any_hit_function)
+    [functions addObject:any_hit_function];
+  if (intersection_function)
+    [functions addObject:intersection_function];
+  linked_functions.functions = functions;
   descriptor.linkedFunctions = linked_functions;
   NSError *error = nil;
   id<MTLComputePipelineState> pipeline =
@@ -867,7 +874,8 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
   if (pipeline) {
     MTLVisibleFunctionTableDescriptor *table_descriptor =
         [[MTLVisibleFunctionTableDescriptor alloc] init];
-    table_descriptor.functionCount = callable_function    ? 5
+    table_descriptor.functionCount = any_hit_function     ? 6
+                                      : callable_function    ? 5
                                       : closest_hit_function ? 4
                                       : miss_function       ? 3
                                                             : 2;
@@ -886,9 +894,29 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
         callable_function
             ? [pipeline functionHandleWithFunction:callable_function]
             : nil;
+    id<MTLFunctionHandle> any_hit_handle =
+        any_hit_function
+            ? [pipeline functionHandleWithFunction:any_hit_function]
+            : nil;
+    id<MTLIntersectionFunctionTable> intersection_table = nil;
+    id<MTLFunctionHandle> intersection_handle = nil;
+    MTLIntersectionFunctionTableDescriptor *intersection_descriptor = nil;
+    if (intersection_function) {
+      intersection_descriptor =
+          [[MTLIntersectionFunctionTableDescriptor alloc] init];
+      intersection_descriptor.functionCount = 1;
+      intersection_table = [pipeline
+          newIntersectionFunctionTableWithDescriptor:intersection_descriptor];
+      intersection_handle =
+          [pipeline functionHandleWithFunction:intersection_function];
+      if (intersection_table && intersection_handle)
+        [intersection_table setFunction:intersection_handle atIndex:0];
+    }
     if (table && function_handle && (!miss_function || miss_handle) &&
         (!closest_hit_function || closest_hit_handle) &&
-        (!callable_function || callable_handle)) {
+        (!callable_function || callable_handle) &&
+        (!any_hit_function || any_hit_handle) &&
+        (!intersection_function || (intersection_table && intersection_handle))) {
       [table setFunction:function_handle atIndex:1];
       if (miss_handle)
         [table setFunction:miss_handle atIndex:2];
@@ -896,12 +924,18 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
         [table setFunction:closest_hit_handle atIndex:3];
       if (callable_handle)
         [table setFunction:callable_handle atIndex:4];
+      if (any_hit_handle)
+        [table setFunction:any_hit_handle atIndex:5];
       params->ret_pipeline = (obj_handle_t)pipeline;
       params->ret_visible_function_table = (obj_handle_t)table;
+      params->ret_intersection_function_table =
+          (obj_handle_t)intersection_table;
     } else {
+      [intersection_table release];
       [table release];
       [pipeline release];
     }
+    [intersection_descriptor release];
     [table_descriptor release];
   }
   [linked_functions release];

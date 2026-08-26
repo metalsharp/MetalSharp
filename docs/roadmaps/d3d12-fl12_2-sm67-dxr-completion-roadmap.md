@@ -990,9 +990,12 @@ the goal is not complete.
   null. A 64-byte-aligned miss shader-table record links a Metal visible
   function at index 2; raygen issues `TraceRay` away from the TLAS and the miss
   shader returns `0x4d495353` through its payload. A second ray intersects the
-  triangle TLAS and resolves a 64-byte-aligned triangle hit-group record whose
-  linked closest-hit visible function returns `0x48495431`. A callable table at
-  offset 192 invokes visible-function index 4 and returns `0x43414c4c`; the
-  two-ray launch preserves the raygen sentinel `42`. RaytracingTier remains
-  unreported pending any-hit/intersection shaders, recursive `TraceRay`, broad
-  AS build operations, and complete local-root/shader-table semantics.
+  triangle TLAS and resolves a 64-byte-aligned triangle hit-group record. A
+  synthesized Metal intersection wrapper and intersection-function table invoke
+  visible-function index 5 for non-opaque triangle any-hit, then visible-function
+  index 3 for closest-hit; their payload handshake returns `0x48495441`. A
+  callable table at offset 192 invokes visible-function index 4 and returns
+  `0x43414c4c`; the two-ray launch preserves the raygen sentinel `42`.
+  RaytracingTier remains unreported pending procedural intersection shaders,
+  recursive `TraceRay`, broad AS build operations, and complete local-root/
+  shader-table semantics.
