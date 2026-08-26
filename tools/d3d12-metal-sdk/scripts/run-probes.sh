@@ -1200,7 +1200,7 @@ void ms_main(in payload MeshPayload payload,
 }
 
 float4 ps_main() : SV_Target0 {
-  return float4(0.2, 0.8, 0.4, 1.0);
+  return float4(0.25, 0.5, 0.75, 0.5);
 }
 HLSL
 

@@ -310,8 +310,12 @@ Findings:
   triangle at depth 0.25 writes 338 exact pixels while the otherwise identical
   layer 1 triangle at depth 0.75 writes zero; all 7,854 remaining pixels retain
   the exact RTV clear color and no unexpected pixel is present.
+- A third layered pass enables independent color/alpha additive blending. Both
+  layers produce 338/325 exact `0xffffff80` pixels from source
+  `0x80bf8040` plus clear `0x80408040`; all 7,529 background pixels retain the
+  clear value and no unexpected pixel is present.
 - Mesh tier 1 remains conservatively unreported while mixed render-state
-  matrices beyond layered depth, pipeline statistics, and broader
+  matrices beyond layered depth/blending, pipeline statistics, and broader
   shader/payload coverage are still gated.
 - The same Metal mesh pipeline infrastructure also executes geometry-shader
   emulation and tessellation proof shapes.
