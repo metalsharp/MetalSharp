@@ -1232,6 +1232,12 @@ prepare_dxr_acceleration_structure_probe() {
   local raygen_hlsl="$SDK_DIR/out/bin/probe_dxr_raygen.hlsl"
   local raygen_cso="$SDK_DIR/out/bin/probe_dxr_raygen.cso"
   local raygen_root="$SDK_DIR/out/bin/probe_dxr_raygen_root.json"
+  local procedural_compiler="$SDK_DIR/out/bin/compile-procedural-raytracing"
+
+  DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
+    xcrun clang++ -std=c++17 -I/usr/local/include \
+      "$SDK_DIR/scripts/compile-procedural-raytracing.cpp" \
+      -L/usr/local/lib -lmetalirconverter -o "$procedural_compiler"
 
   cat > "$hlsl" <<'HLSL'
 RaytracingAccelerationStructure scene : register(t0);
@@ -1304,7 +1310,8 @@ struct CallablePayload {
 void raygen() {
   uint ray_index = DispatchRaysIndex().x;
   RayDesc ray;
-  ray.Origin = float3(0.0, 0.0, -2.0);
+  ray.Origin = ray_index == 2 ? float3(2.0, 0.0, -2.0)
+                              : float3(0.0, 0.0, -2.0);
   ray.TMin = 0.0;
   ray.Direction = ray_index == 0 ? float3(0.0, 1.0, 0.0)
                                  : float3(0.0, 0.0, 1.0);
@@ -1317,8 +1324,8 @@ void raygen() {
     CallablePayload callable_payload;
     callable_payload.value = 0;
     CallShader(0, callable_payload);
-    output.Store(12, callable_payload.value);
-    output.Store(16, 42);
+    output.Store(16, callable_payload.value);
+    output.Store(20, 42);
   }
 }
 
@@ -1354,6 +1361,23 @@ void any_hit(inout MissPayload payload,
 [shader("callable")]
 void callable_shader(inout CallablePayload payload) {
   payload.value = 0x43414c4c;
+}
+
+struct ProceduralAttributes {
+  float marker;
+};
+
+[shader("intersection")]
+void procedural_intersection() {
+  ProceduralAttributes attributes;
+  attributes.marker = 19.0;
+  ReportHit(1.0, 0, attributes);
+}
+
+[shader("closesthit")]
+void procedural_closest_hit(inout MissPayload payload,
+                            ProceduralAttributes attributes) {
+  payload.value = attributes.marker == 19.0 ? 0x50524f43 : 0x50524f46;
 }
 HLSL
 
@@ -1395,64 +1419,41 @@ HLSL
           continue
         fi
         local base="${dxbc%.dxbc}"
-        if "$converter" -o "$base.metallib" "$dxbc" \
-          --entry-point=raygen \
-          --rt-ray-generation-compilation=visibleFunction \
-          --rt-maximum-depth=2 \
-          --root-signature="$raygen_root" \
-          --output-reflection-file="$base.json" \
-          --deployment-os=macOS \
-          --minimum-os-build-version=15.0.0 \
+        if DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" raygen "$base.metallib" \
           >"$base.raygen-msc.log" 2>&1 &&
-          "$converter" -o "$base.raydispatch.metallib" "$dxbc" \
-          --entry-point=raygen \
-          --synthesize-indirect-ray-dispatch \
-          --rt-maximum-depth=2 \
-          --root-signature="$raygen_root" \
-          --deployment-os=macOS \
-          --minimum-os-build-version=15.0.0 \
-          >"$base.raydispatch-msc.log" 2>&1 &&
-          "$converter" -o "$base.miss.metallib" "$dxbc" \
-          --entry-point=miss_shader \
-          --rt-maximum-depth=2 \
-          --root-signature="$raygen_root" \
-          --deployment-os=macOS \
-          --minimum-os-build-version=15.0.0 \
-          >"$base.miss-msc.log" 2>&1; then
-          if "$converter" -o "$base.closesthit.metallib" "$dxbc" \
-            --entry-point=closest_hit \
-            --rt-hit-group-type=triangles \
-            --rt-maximum-depth=2 \
-            --root-signature="$raygen_root" \
-            --deployment-os=macOS \
-            --minimum-os-build-version=15.0.0 \
-            >"$base.closesthit-msc.log" 2>&1; then
-            if "$converter" -o "$base.callable.metallib" "$dxbc" \
-              --entry-point=callable_shader \
-              --rt-maximum-depth=2 \
-              --root-signature="$raygen_root" \
-              --deployment-os=macOS \
-              --minimum-os-build-version=15.0.0 \
-              >"$base.callable-msc.log" 2>&1 &&
-              "$converter" -o "$base.anyhit.metallib" "$dxbc" \
-              --entry-point=any_hit \
-              --rt-hit-group-type=triangles \
-              --rt-intersection-compilation=ifVisibleFunction \
-              --rt-maximum-depth=2 \
-              --root-signature="$raygen_root" \
-              --deployment-os=macOS \
-              --minimum-os-build-version=15.0.0 \
-              >"$base.anyhit-msc.log" 2>&1 &&
-              "$converter" -o "$base.rayintersection.metallib" "$dxbc" \
-              --synthesize-indirect-intersection-function \
-              --rt-maximum-depth=2 \
-              --root-signature="$raygen_root" \
-              --deployment-os=macOS \
-              --minimum-os-build-version=15.0.0 \
-              >"$base.rayintersection-msc.log" 2>&1; then
-              rm -f "$base.msc.fail"
-            fi
-          fi
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" @ray-dispatch \
+          "$base.raydispatch.metallib" >"$base.raydispatch-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" miss_shader "$base.miss.metallib" \
+          >"$base.miss-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" closest_hit "$base.closesthit.metallib" \
+          >"$base.closesthit-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" callable_shader "$base.callable.metallib" \
+          >"$base.callable-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" any_hit "$base.anyhit.metallib" \
+          >"$base.anyhit-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" @triangle-wrapper \
+          "$base.rayintersection.metallib" \
+          >"$base.rayintersection-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" procedural_intersection \
+          "$base.proceduralintersection.metallib" \
+          >"$base.proceduralintersection-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" procedural_closest_hit \
+          "$base.proceduralclosesthit.metallib" \
+          >"$base.proceduralclosesthit-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" @procedural-wrapper \
+          "$base.proceduralwrapper.metallib" \
+          >"$base.proceduralwrapper-msc.log" 2>&1; then
+          rm -f "$base.msc.fail"
         fi
       done
       shopt -u nullglob

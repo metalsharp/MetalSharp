@@ -846,6 +846,12 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
       (id<MTLFunction>)info->any_hit_function;
   id<MTLFunction> intersection_function =
       (id<MTLFunction>)info->intersection_function;
+  id<MTLFunction> procedural_intersection_function =
+      (id<MTLFunction>)info->procedural_intersection_function;
+  id<MTLFunction> procedural_closest_hit_function =
+      (id<MTLFunction>)info->procedural_closest_hit_function;
+  id<MTLFunction> procedural_wrapper_function =
+      (id<MTLFunction>)info->procedural_wrapper_function;
   MTLComputePipelineDescriptor *descriptor =
       [[MTLComputePipelineDescriptor alloc] init];
   descriptor.computeFunction = dispatch_function;
@@ -862,6 +868,12 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
     [functions addObject:any_hit_function];
   if (intersection_function)
     [functions addObject:intersection_function];
+  if (procedural_intersection_function)
+    [functions addObject:procedural_intersection_function];
+  if (procedural_closest_hit_function)
+    [functions addObject:procedural_closest_hit_function];
+  if (procedural_wrapper_function)
+    [functions addObject:procedural_wrapper_function];
   linked_functions.functions = functions;
   descriptor.linkedFunctions = linked_functions;
   NSError *error = nil;
@@ -874,7 +886,8 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
   if (pipeline) {
     MTLVisibleFunctionTableDescriptor *table_descriptor =
         [[MTLVisibleFunctionTableDescriptor alloc] init];
-    table_descriptor.functionCount = any_hit_function     ? 6
+    table_descriptor.functionCount = procedural_intersection_function ? 8
+                                      : any_hit_function     ? 6
                                       : callable_function    ? 5
                                       : closest_hit_function ? 4
                                       : miss_function       ? 3
@@ -898,24 +911,42 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
         any_hit_function
             ? [pipeline functionHandleWithFunction:any_hit_function]
             : nil;
+    id<MTLFunctionHandle> procedural_intersection_handle =
+        procedural_intersection_function
+            ? [pipeline functionHandleWithFunction:procedural_intersection_function]
+            : nil;
+    id<MTLFunctionHandle> procedural_closest_hit_handle =
+        procedural_closest_hit_function
+            ? [pipeline functionHandleWithFunction:procedural_closest_hit_function]
+            : nil;
+    id<MTLFunctionHandle> procedural_wrapper_handle =
+        procedural_wrapper_function
+            ? [pipeline functionHandleWithFunction:procedural_wrapper_function]
+            : nil;
     id<MTLIntersectionFunctionTable> intersection_table = nil;
     id<MTLFunctionHandle> intersection_handle = nil;
     MTLIntersectionFunctionTableDescriptor *intersection_descriptor = nil;
     if (intersection_function) {
       intersection_descriptor =
           [[MTLIntersectionFunctionTableDescriptor alloc] init];
-      intersection_descriptor.functionCount = 1;
+      intersection_descriptor.functionCount =
+          procedural_wrapper_function ? 2 : 1;
       intersection_table = [pipeline
           newIntersectionFunctionTableWithDescriptor:intersection_descriptor];
       intersection_handle =
           [pipeline functionHandleWithFunction:intersection_function];
       if (intersection_table && intersection_handle)
         [intersection_table setFunction:intersection_handle atIndex:0];
+      if (intersection_table && procedural_wrapper_handle)
+        [intersection_table setFunction:procedural_wrapper_handle atIndex:1];
     }
     if (table && function_handle && (!miss_function || miss_handle) &&
         (!closest_hit_function || closest_hit_handle) &&
         (!callable_function || callable_handle) &&
         (!any_hit_function || any_hit_handle) &&
+        (!procedural_intersection_function || procedural_intersection_handle) &&
+        (!procedural_closest_hit_function || procedural_closest_hit_handle) &&
+        (!procedural_wrapper_function || procedural_wrapper_handle) &&
         (!intersection_function || (intersection_table && intersection_handle))) {
       [table setFunction:function_handle atIndex:1];
       if (miss_handle)
@@ -926,6 +957,10 @@ _MTLDevice_newRaytracingComputePipelineState(void *obj) {
         [table setFunction:callable_handle atIndex:4];
       if (any_hit_handle)
         [table setFunction:any_hit_handle atIndex:5];
+      if (procedural_intersection_handle)
+        [table setFunction:procedural_intersection_handle atIndex:6];
+      if (procedural_closest_hit_handle)
+        [table setFunction:procedural_closest_hit_handle atIndex:7];
       params->ret_pipeline = (obj_handle_t)pipeline;
       params->ret_visible_function_table = (obj_handle_t)table;
       params->ret_intersection_function_table =
@@ -2119,6 +2154,82 @@ _MTLCommandBuffer_buildTriangleAccelerationStructure(void *obj) {
   if (!descriptor)
     return STATUS_SUCCESS;
 
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      buildAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->acceleration_structure
+                       descriptor:descriptor
+                     scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
+               scratchBufferOffset:params->scratch_buffer_offset];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static MTLPrimitiveAccelerationStructureDescriptor *
+create_aabb_acceleration_structure_descriptor(
+    const struct WMTAABBAccelerationStructureInfo *info) {
+  if (!info || !info->bounding_box_buffer || !info->bounding_box_count)
+    return nil;
+
+  MTLAccelerationStructureBoundingBoxGeometryDescriptor *geometry =
+      [MTLAccelerationStructureBoundingBoxGeometryDescriptor descriptor];
+  geometry.boundingBoxBuffer = (id<MTLBuffer>)info->bounding_box_buffer;
+  geometry.boundingBoxBufferOffset = info->bounding_box_buffer_offset;
+  geometry.boundingBoxStride = info->bounding_box_stride;
+  geometry.boundingBoxCount = info->bounding_box_count;
+  geometry.opaque = info->opaque != 0;
+  geometry.intersectionFunctionTableOffset =
+      info->intersection_function_table_offset;
+
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+  descriptor.geometryDescriptors = @[ geometry ];
+  return descriptor;
+}
+
+static NTSTATUS
+_MTLDevice_accelerationStructureSizesForAABBs(void *obj) {
+  struct unixcall_mtldevice_acceleration_structure_sizes_for_aabbs *params =
+      obj;
+  const struct WMTAABBAccelerationStructureInfo *info = params->info.ptr;
+  struct WMTAccelerationStructureSizes *sizes = params->sizes.ptr;
+  params->ret_success = 0;
+  if (!params->device || !sizes)
+    return STATUS_SUCCESS;
+
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_aabb_acceleration_structure_descriptor(info);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  MTLAccelerationStructureSizes metal_sizes =
+      [(id<MTLDevice>)params->device
+          accelerationStructureSizesWithDescriptor:descriptor];
+  sizes->acceleration_structure_size = metal_sizes.accelerationStructureSize;
+  sizes->build_scratch_buffer_size = metal_sizes.buildScratchBufferSize;
+  sizes->refit_scratch_buffer_size = metal_sizes.refitScratchBufferSize;
+  params->ret_success = sizes->acceleration_structure_size != 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_buildAABBAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_build_aabb_acceleration_structure *params =
+      obj;
+  const struct WMTAABBAccelerationStructureInfo *info = params->info.ptr;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->acceleration_structure ||
+      !params->scratch_buffer)
+    return STATUS_SUCCESS;
+
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_aabb_acceleration_structure_descriptor(info);
+  if (!descriptor)
+    return STATUS_SUCCESS;
   id<MTLAccelerationStructureCommandEncoder> encoder =
       [(id<MTLCommandBuffer>)params->cmdbuf
           accelerationStructureCommandEncoder];
@@ -4108,6 +4219,8 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_newRaytracingComputePipelineState,
     &_MTLVisibleFunctionTable_gpuResourceID,
     &_MTLCommandBuffer_writeTimestampResults,
+    &_MTLDevice_accelerationStructureSizesForAABBs,
+    &_MTLCommandBuffer_buildAABBAccelerationStructure,
 };
 
 #ifndef DXMT_NATIVE
@@ -4257,5 +4370,7 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_newRaytracingComputePipelineState,
     &_MTLVisibleFunctionTable_gpuResourceID,
     &_MTLCommandBuffer_writeTimestampResults,
+    &_MTLDevice_accelerationStructureSizesForAABBs,
+    &_MTLCommandBuffer_buildAABBAccelerationStructure,
 };
 #endif

@@ -7368,29 +7368,52 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           inputs.NumDescs = cmd->num_descs;
           inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
           inputs.pGeometryDescs = &cmd->geometry;
-          WMTPrimitiveAccelerationStructureInfo metal_info = {};
-          if (!D3D12ResolveTriangleAccelerationStructureInfo(
-                  m_device, &inputs, metal_info) ||
-              !metal_device.accelerationStructureSizesForTriangles(metal_info,
-                                                                    sizes)) {
-            QTRACE("BuildRaytracingAS SKIPPED BLAS descriptor/size query");
-            break;
-          }
-          acceleration_structure = metal_device.newAccelerationStructure(
-              sizes.acceleration_structure_size);
-          encoded = acceleration_structure.handle &&
-                    cmdbuf.buildTriangleAccelerationStructure(
-                        acceleration_structure, metal_info,
-                        scratch->GetMTLBuffer(), scratch_offset);
-          primitive_count = metal_info.triangle_count;
-          kind = "triangles";
-          if (auto *vertex = m_device->LookupResourceByGPUAddress(
-                  cmd->geometry.Triangles.VertexBuffer.StartAddress))
-            st.RetainResourceMetalObjectsForCompletion(vertex);
-          if (cmd->geometry.Triangles.IndexBuffer) {
-            if (auto *index = m_device->LookupResourceByGPUAddress(
-                    cmd->geometry.Triangles.IndexBuffer))
-              st.RetainResourceMetalObjectsForCompletion(index);
+          if (cmd->geometry.Type ==
+              D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+            WMTAABBAccelerationStructureInfo metal_info = {};
+            if (!D3D12ResolveAABBAccelerationStructureInfo(
+                    m_device, &inputs, metal_info) ||
+                !metal_device.accelerationStructureSizesForAABBs(metal_info,
+                                                                  sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED AABB descriptor/size query");
+              break;
+            }
+            acceleration_structure = metal_device.newAccelerationStructure(
+                sizes.acceleration_structure_size);
+            encoded = acceleration_structure.handle &&
+                      cmdbuf.buildAABBAccelerationStructure(
+                          acceleration_structure, metal_info,
+                          scratch->GetMTLBuffer(), scratch_offset);
+            primitive_count = metal_info.bounding_box_count;
+            kind = "AABBs";
+            if (auto *aabbs = m_device->LookupResourceByGPUAddress(
+                    cmd->geometry.AABBs.AABBs.StartAddress))
+              st.RetainResourceMetalObjectsForCompletion(aabbs);
+          } else {
+            WMTPrimitiveAccelerationStructureInfo metal_info = {};
+            if (!D3D12ResolveTriangleAccelerationStructureInfo(
+                    m_device, &inputs, metal_info) ||
+                !metal_device.accelerationStructureSizesForTriangles(
+                    metal_info, sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED triangle descriptor/size query");
+              break;
+            }
+            acceleration_structure = metal_device.newAccelerationStructure(
+                sizes.acceleration_structure_size);
+            encoded = acceleration_structure.handle &&
+                      cmdbuf.buildTriangleAccelerationStructure(
+                          acceleration_structure, metal_info,
+                          scratch->GetMTLBuffer(), scratch_offset);
+            primitive_count = metal_info.triangle_count;
+            kind = "triangles";
+            if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                    cmd->geometry.Triangles.VertexBuffer.StartAddress))
+              st.RetainResourceMetalObjectsForCompletion(vertex);
+            if (cmd->geometry.Triangles.IndexBuffer) {
+              if (auto *index = m_device->LookupResourceByGPUAddress(
+                      cmd->geometry.Triangles.IndexBuffer))
+                st.RetainResourceMetalObjectsForCompletion(index);
+            }
           }
         } else if (cmd->type ==
                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
@@ -7446,8 +7469,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             }
             target.options = source.Flags;
             target.mask = source.InstanceMask;
-            target.intersection_function_table_offset =
-                source.InstanceContributionToHitGroupIndex;
+            // Metal's instance offset selects an intersection-function-table
+            // entry. D3D12's instance contribution instead selects an SBT
+            // record and is carried separately in the contributions buffer.
+            target.intersection_function_table_offset = 0;
             target.acceleration_structure_index = i;
             target.user_id = source.InstanceID;
             instance_contributions[i] =

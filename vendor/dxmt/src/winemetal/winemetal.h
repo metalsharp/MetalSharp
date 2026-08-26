@@ -229,6 +229,15 @@ struct WMTPrimitiveAccelerationStructureInfo {
   uint32_t opaque;
 };
 
+struct WMTAABBAccelerationStructureInfo {
+  obj_handle_t bounding_box_buffer;
+  uint64_t bounding_box_buffer_offset;
+  uint64_t bounding_box_stride;
+  uint64_t bounding_box_count;
+  uint32_t opaque;
+  uint32_t intersection_function_table_offset;
+};
+
 struct WMTAccelerationStructureSizes {
   uint64_t acceleration_structure_size;
   uint64_t build_scratch_buffer_size;
@@ -245,6 +254,7 @@ struct WMTAccelerationStructureInstanceDescriptor {
 };
 
 STATIC_ASSERT(sizeof(WMTPrimitiveAccelerationStructureInfo) == 56);
+STATIC_ASSERT(sizeof(WMTAABBAccelerationStructureInfo) == 40);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureSizes) == 24);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureInstanceDescriptor) == 68);
 
@@ -257,6 +267,13 @@ WINEMETAL_API obj_handle_t MTLDevice_newAccelerationStructure(
 WINEMETAL_API bool MTLCommandBuffer_buildTriangleAccelerationStructure(
     obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
     const struct WMTPrimitiveAccelerationStructureInfo *info,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
+WINEMETAL_API bool MTLDevice_accelerationStructureSizesForAABBs(
+    obj_handle_t device, const struct WMTAABBAccelerationStructureInfo *info,
+    struct WMTAccelerationStructureSizes *sizes);
+WINEMETAL_API bool MTLCommandBuffer_buildAABBAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTAABBAccelerationStructureInfo *info,
     obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
 WINEMETAL_API bool MTLDevice_accelerationStructureSizesForInstances(
     obj_handle_t device, uint64_t instance_count,
@@ -685,6 +702,9 @@ struct WMTRaytracingComputePipelineInfo {
   obj_handle_t callable_function;
   obj_handle_t any_hit_function;
   obj_handle_t intersection_function;
+  obj_handle_t procedural_intersection_function;
+  obj_handle_t procedural_closest_hit_function;
+  obj_handle_t procedural_wrapper_function;
 };
 
 WINEMETAL_API obj_handle_t MTLDevice_newRaytracingComputePipelineState(

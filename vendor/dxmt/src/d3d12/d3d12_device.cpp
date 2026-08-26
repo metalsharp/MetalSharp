@@ -1355,6 +1355,13 @@ public:
         std::find(m_exports.begin(), m_exports.end(), L"any_hit") !=
             m_exports.end() &&
         has_closest_hit_shader;
+    const bool has_procedural_hit_group =
+        std::find(m_exports.begin(), m_exports.end(),
+                  L"procedural_intersection") != m_exports.end() &&
+        std::find(m_exports.begin(), m_exports.end(),
+                  L"procedural_closest_hit") != m_exports.end() &&
+        std::find(m_exports.begin(), m_exports.end(),
+                  L"procedural_hit_group") != m_exports.end();
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
     compute_desc.pRootSignature = m_global_root_signature;
@@ -1380,6 +1387,12 @@ public:
         cache_dir + "/" + cache_hash + ".anyhit.metallib";
     std::string intersection_path =
         cache_dir + "/" + cache_hash + ".rayintersection.metallib";
+    std::string procedural_intersection_path =
+        cache_dir + "/" + cache_hash + ".proceduralintersection.metallib";
+    std::string procedural_closest_hit_path =
+        cache_dir + "/" + cache_hash + ".proceduralclosesthit.metallib";
+    std::string procedural_wrapper_path =
+        cache_dir + "/" + cache_hash + ".proceduralwrapper.metallib";
 
     auto read_file = [](const std::string &path, std::vector<uint8_t> &data) {
       FILE *file = fopen(path.c_str(), "rb");
@@ -1404,6 +1417,9 @@ public:
     std::vector<uint8_t> callable_data;
     std::vector<uint8_t> any_hit_data;
     std::vector<uint8_t> intersection_data;
+    std::vector<uint8_t> procedural_intersection_data;
+    std::vector<uint8_t> procedural_closest_hit_data;
+    std::vector<uint8_t> procedural_wrapper_data;
     if (!read_file(raygen_path, raygen_data) ||
         !read_file(dispatch_path, dispatch_data) ||
         (has_miss_shader && !read_file(miss_path, miss_data)) ||
@@ -1412,7 +1428,13 @@ public:
         (has_callable_shader && !read_file(callable_path, callable_data)) ||
         (has_any_hit_shader && !read_file(any_hit_path, any_hit_data)) ||
         (has_any_hit_shader &&
-         !read_file(intersection_path, intersection_data))) {
+         !read_file(intersection_path, intersection_data)) ||
+        (has_procedural_hit_group &&
+         (!read_file(procedural_intersection_path,
+                     procedural_intersection_data) ||
+          !read_file(procedural_closest_hit_path,
+                     procedural_closest_hit_data) ||
+          !read_file(procedural_wrapper_path, procedural_wrapper_data)))) {
       pipeline->RequestCompile(false);
       TRACE("StateObject raygen cache miss visible=%s dispatch=%s miss=%s",
             raygen_path.c_str(), dispatch_path.c_str(), miss_path.c_str());
@@ -1495,6 +1517,45 @@ public:
       if (!intersection_function.handle)
         return false;
     }
+    WMT::Reference<WMT::Library> procedural_intersection_library_handle;
+    WMT::Reference<WMT::Library> procedural_closest_hit_library_handle;
+    WMT::Reference<WMT::Library> procedural_wrapper_library_handle;
+    WMT::Reference<WMT::Function> procedural_intersection_function;
+    WMT::Reference<WMT::Function> procedural_closest_hit_function;
+    WMT::Reference<WMT::Function> procedural_wrapper_function;
+    if (has_procedural_hit_group) {
+      error = nullptr;
+      procedural_intersection_library_handle = metal_device.newLibrary(
+          procedural_intersection_data.data(),
+          procedural_intersection_data.size(), error);
+      if (!procedural_intersection_library_handle.handle || error.handle)
+        return false;
+      procedural_intersection_function =
+          procedural_intersection_library_handle.newFunction(
+              "procedural_intersection");
+      error = nullptr;
+      procedural_closest_hit_library_handle = metal_device.newLibrary(
+          procedural_closest_hit_data.data(),
+          procedural_closest_hit_data.size(), error);
+      if (!procedural_closest_hit_library_handle.handle || error.handle)
+        return false;
+      procedural_closest_hit_function =
+          procedural_closest_hit_library_handle.newFunction(
+              "procedural_closest_hit");
+      error = nullptr;
+      procedural_wrapper_library_handle = metal_device.newLibrary(
+          procedural_wrapper_data.data(), procedural_wrapper_data.size(),
+          error);
+      if (!procedural_wrapper_library_handle.handle || error.handle)
+        return false;
+      procedural_wrapper_function =
+          procedural_wrapper_library_handle.newFunction(
+              "irconverter.wrapper.intersection.function.procedural");
+      if (!procedural_intersection_function.handle ||
+          !procedural_closest_hit_function.handle ||
+          !procedural_wrapper_function.handle)
+        return false;
+    }
     auto raygen_function = raygen_library_handle.newFunction("raygen");
     auto dispatch_function =
         dispatch_library_handle.newFunction("RaygenIndirection");
@@ -1508,6 +1569,12 @@ public:
     pipeline_info.callable_function = callable_function.handle;
     pipeline_info.any_hit_function = any_hit_function.handle;
     pipeline_info.intersection_function = intersection_function.handle;
+    pipeline_info.procedural_intersection_function =
+        procedural_intersection_function.handle;
+    pipeline_info.procedural_closest_hit_function =
+        procedural_closest_hit_function.handle;
+    pipeline_info.procedural_wrapper_function =
+        procedural_wrapper_function.handle;
     error = nullptr;
     m_raygen_compute_pipeline = metal_device.newRaytracingComputePipelineState(
         pipeline_info, m_raygen_visible_function_table,
@@ -1524,10 +1591,19 @@ public:
           : export_name == L"hit_group" || export_name == L"closest_hit"
               ? 3ull
           : export_name == L"callable_shader" ? 4ull
-          : export_name == L"any_hit"          ? 5ull
-                                           : 0ull;
+          : export_name == L"any_hit" ? 5ull
+          : export_name == L"procedural_intersection"
+              ? 6ull
+          : export_name == L"procedural_closest_hit" ||
+                    export_name == L"procedural_hit_group"
+              ? 7ull
+              : 0ull;
       const uint64_t intersection_function_index =
-          export_name == L"hit_group" && has_any_hit_shader ? 5ull : 0ull;
+          export_name == L"hit_group" && has_any_hit_shader
+              ? 5ull
+          : export_name == L"procedural_hit_group" && has_procedural_hit_group
+              ? 6ull
+              : 0ull;
       memcpy(identifier.data(), &intersection_function_index,
              sizeof(intersection_function_index));
       memcpy(identifier.data() + sizeof(uint64_t),
@@ -4549,6 +4625,48 @@ bool D3D12ResolveTriangleAccelerationStructureInfo(
   return info.triangle_count != 0;
 }
 
+bool D3D12ResolveAABBAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTAABBAccelerationStructureInfo &info) {
+  info = {};
+  if (!device || !inputs ||
+      inputs->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ||
+      inputs->NumDescs != 1)
+    return false;
+
+  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+  if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY) {
+    geometry = inputs->pGeometryDescs;
+  } else if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+             inputs->ppGeometryDescs) {
+    geometry = inputs->ppGeometryDescs[0];
+  }
+  if (!geometry ||
+      geometry->Type !=
+          D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS ||
+      !geometry->AABBs.AABBs.StartAddress ||
+      !geometry->AABBs.AABBs.StrideInBytes ||
+      !geometry->AABBs.AABBCount)
+    return false;
+
+  auto *resource = device->LookupResourceByGPUAddress(
+      geometry->AABBs.AABBs.StartAddress);
+  if (!resource || !resource->GetMTLBuffer().handle)
+    return false;
+  info.bounding_box_buffer = resource->GetMTLBuffer().handle;
+  info.bounding_box_buffer_offset = geometry->AABBs.AABBs.StartAddress -
+                                    resource->GetGPUVirtualAddress();
+  info.bounding_box_stride = geometry->AABBs.AABBs.StrideInBytes;
+  info.bounding_box_count = geometry->AABBs.AABBCount;
+  info.opaque =
+      (geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) != 0;
+  // Entry zero hosts the triangle indirection wrapper. Procedural geometry
+  // selects the procedural indirection wrapper at entry one.
+  info.intersection_function_table_offset = 1;
+  return true;
+}
+
 void STDMETHODCALLTYPE
 MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
@@ -4576,16 +4694,38 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
     primitive_count = desc->NumDescs;
     kind = "TLAS instances";
   } else {
-    WMTPrimitiveAccelerationStructureInfo metal_info = {};
-    if (!D3D12ResolveTriangleAccelerationStructureInfo(this, desc,
-                                                        metal_info) ||
-        !GetMTLDevice().accelerationStructureSizesForTriangles(metal_info,
-                                                               sizes)) {
-      TRACE("  prebuild unsupported input shape");
-      return;
+    const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+    if (desc->NumDescs == 1 &&
+        desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
+      geometry = desc->pGeometryDescs;
+    else if (desc->NumDescs == 1 &&
+             desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+             desc->ppGeometryDescs)
+      geometry = desc->ppGeometryDescs[0];
+    if (geometry &&
+        geometry->Type ==
+            D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+      WMTAABBAccelerationStructureInfo metal_info = {};
+      if (!D3D12ResolveAABBAccelerationStructureInfo(this, desc, metal_info) ||
+          !GetMTLDevice().accelerationStructureSizesForAABBs(metal_info,
+                                                             sizes)) {
+        TRACE("  prebuild unsupported AABB input shape");
+        return;
+      }
+      primitive_count = metal_info.bounding_box_count;
+      kind = "BLAS AABBs";
+    } else {
+      WMTPrimitiveAccelerationStructureInfo metal_info = {};
+      if (!D3D12ResolveTriangleAccelerationStructureInfo(this, desc,
+                                                          metal_info) ||
+          !GetMTLDevice().accelerationStructureSizesForTriangles(metal_info,
+                                                                 sizes)) {
+        TRACE("  prebuild unsupported input shape");
+        return;
+      }
+      primitive_count = metal_info.triangle_count;
+      kind = "BLAS triangles";
     }
-    primitive_count = metal_info.triangle_count;
-    kind = "BLAS triangles";
   }
   auto align_256 = [](uint64_t value) { return (value + 255ull) & ~255ull; };
   info->ResultDataMaxSizeInBytes =

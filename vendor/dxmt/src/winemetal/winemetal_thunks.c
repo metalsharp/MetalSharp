@@ -1459,3 +1459,32 @@ MTLCommandBuffer_writeTimestampResults(obj_handle_t cmdbuf,
   UNIX_CALL(144, &params);
   return params.ret_success;
 }
+
+WINEMETAL_API bool
+MTLDevice_accelerationStructureSizesForAABBs(
+    obj_handle_t device, const struct WMTAABBAccelerationStructureInfo *info,
+    struct WMTAccelerationStructureSizes *sizes) {
+  struct unixcall_mtldevice_acceleration_structure_sizes_for_aabbs params;
+  params.device = device;
+  WMT_MEMPTR_SET(params.info, info);
+  WMT_MEMPTR_SET(params.sizes, sizes);
+  params.ret_success = 0;
+  UNIX_CALL(145, &params);
+  return params.ret_success;
+}
+
+WINEMETAL_API bool
+MTLCommandBuffer_buildAABBAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTAABBAccelerationStructureInfo *info,
+    obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_build_aabb_acceleration_structure params;
+  params.cmdbuf = cmdbuf;
+  params.acceleration_structure = acceleration_structure;
+  WMT_MEMPTR_SET(params.info, info);
+  params.scratch_buffer = scratch_buffer;
+  params.scratch_buffer_offset = scratch_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(146, &params);
+  return params.ret_success;
+}

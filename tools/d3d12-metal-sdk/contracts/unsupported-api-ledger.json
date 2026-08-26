@@ -5,7 +5,7 @@
       "evidence": [
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "The target M4 now builds BLAS/TLAS objects, returns a correct inline RayQuery hit, and executes a raygen-only state object through DispatchRays; indexed/multi-geometry builds, updates/copies, miss/hit/callable shaders, recursive TraceRay, and full shader-table semantics remain unproven.",
+      "reason": "The target M4 builds triangle and procedural-AABB BLAS objects plus a two-instance TLAS, returns a correct inline RayQuery hit, and executes raygen/miss/triangle-any-hit/closest-hit/procedural-intersection/callable shader-table records with depth-2 recursion through DispatchRays; indexed/multi-geometry builds, updates/copies, and complete local-root/shader-table semantics remain unproven.",
       "state": "unsupported",
       "tier": "unsupported"
     },
@@ -15,7 +15,7 @@
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "AS/MS pipeline streams, stage-specific root CBVs and raw-buffer SRVs, and direct/indirect DispatchMesh pass split-screen readback, but texture/sampler/UAV resources, mixed state, statistics, render-target arrays, and broad shader coverage remain required before reporting tier 1.",
+      "reason": "AS/MS pipeline streams, stage-specific CBV/SRV/UAV plus texture/sampler resources, 32 mesh lanes, eight-byte payloads, two dispatch groups, and direct/indirect DispatchMesh pass runtime readback, but mixed state, statistics, render-target arrays, and broader shader coverage remain required before reporting tier 1.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },
