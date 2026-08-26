@@ -308,7 +308,12 @@ CBV/SRV/UAV/RTV/DSV creation and binding, `GetResourceAllocationInfo`,
 `GetCopyableFootprints`, common color/depth/integer/normalized/sRGB format
 support, and typeless view-time typing. Sparse/reserved resources are recorded
 as unsupported unless they are explicitly feature-gated and backed by Metal
-sparse APIs:
+sparse APIs. The probe also creates a fully typed `R32_FLOAT` texture through
+`ID3D12Device10::CreateCommittedResource3` and `CreatePlacedResource2`,
+declares `R32_UINT` and `R8G8B8A8_UINT` as castable formats, validates exact
+`0x3f800000` and `[0,0,128,63]` compute readbacks through those views, rejects a
+mismatched-unit-size creation list, and verifies that an undeclared `R32_SINT`
+view remains null before Options12 reports relaxed format casting:
 
 ```bash
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \

@@ -78,7 +78,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
 | Sampler feedback | Tier 0.9 | Not supported | Feedback UAV creation/write/resolve probe |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
-| Tiled resources | Tier 3 | Reported unsupported; reserved resources incorrectly succeed as committed | Sparse mapping and residency probes |
+| Tiled resources | Tier 3 | Reported unsupported; reserved resources explicitly fail until sparse backing exists | Sparse mapping and residency probes |
 | Conservative rasterization | Tier 3 | Tier 1 | Tier-3 edge/coverage behavior probe |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Unsupported/no-op | Depth-bounds render probe |
@@ -89,7 +89,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Output-merger logic op | Supported | Reported true | Logic-op render/readback matrix |
 | VP/RT array index from rasterizer feeder | Supported | Reported true | VS/DS/GS/MS array-index probe |
 | Copy-queue timestamps | Supported | Proven and reported | Metal GPU-end timestamp resolve/readback probe |
-| Fully typed format casting | Supported | Reported true | Castable-format creation and view probe |
+| Fully typed/relaxed format casting | Supported | Proven and reported | Device10 castable-list creation plus declared/undeclared view runtime probe |
 | Unaligned block textures | Supported | Proven and reported | 7x5 BC1 footprint/copy/readback probe |
 | Int64 shader ops | Supported | Reported true | Arithmetic and atomic runtime readback |
 
@@ -923,6 +923,14 @@ the goal is not complete.
   encoders and establish queue order through the shared event; an exact
   copy-destination-to-copy-source buffer readback passes before Options12 reports
   `EnhancedBarriersSupported = TRUE`.
+- Implemented Device10 castable-format declarations for committed and placed
+  resources, including proper enhanced-layout to legacy-state normalization,
+  unit/block-size list validation, and rejection of undeclared texture views.
+  Fully typed committed and placed `R32_FLOAT` textures now read back the exact
+  `0x3f800000` bits through declared `R32_UINT` SRVs; a second declared
+  `R8G8B8A8_UINT` view returns `[0,0,128,63]`, an invalid `R16_UINT` list is
+  rejected, and an undeclared `R32_SINT` SRV remains null. Options12 reports
+  `RelaxedFormatCastingSupported = TRUE` only after this behavior gate passes.
 - Completed the Shader Model 6.7 reporting gate: the SM 6.6 corpus now
   dispatches and passes exact readback for root constants, descriptor indexing,
   64-bit arithmetic, group atomics/barriers, and texture/sampler access;

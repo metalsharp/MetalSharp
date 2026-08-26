@@ -285,6 +285,7 @@ int main() {
   std::printf("    \"write_buffer_immediate_flags\": %u,\n", static_cast<unsigned>(options3.WriteBufferImmediateSupportFlags));
   std::printf("    \"unaligned_block_textures\": %s,\n", options8.UnalignedBlockTexturesSupported ? "true" : "false");
   std::printf("    \"enhanced_barriers\": %s,\n", options12.EnhancedBarriersSupported ? "true" : "false");
+  std::printf("    \"relaxed_format_casting\": %s,\n", options12.RelaxedFormatCastingSupported ? "true" : "false");
   std::printf("    \"advanced_texture_ops\": %s,\n", options14.AdvancedTextureOpsSupported ? "true" : "false");
   std::printf("    \"writeable_msaa_textures\": %s\n", options14.WriteableMSAATexturesSupported ? "true" : "false");
   std::printf("  },\n");
