@@ -53,7 +53,8 @@ public:
   MTLD3D12Resource(MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
                    D3D12_RESOURCE_STATES initial_state,
                    D3D12_HEAP_PROPERTIES heap_properties,
-                   D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE);
+                   D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE,
+                   bool reserved = false);
   MTLD3D12Resource(MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
                    D3D12_RESOURCE_STATES initial_state,
                    D3D12_HEAP_PROPERTIES heap_properties,
@@ -106,6 +107,12 @@ public:
   uint64_t GetTextureGPUResourceID() const { return m_tex_gpu_resource_id; }
   uint32_t GetTextureArrayLength() const;
   uint64_t GetBufferByteLength() const;
+  bool IsReservedResource() const { return m_is_reserved; }
+  bool IsSparseBacked() const {
+    return m_is_reserved && m_sparse_heap.handle && m_mtl_texture.handle;
+  }
+  WMT::Reference<WMT::Heap> GetSparseHeap() { return m_sparse_heap; }
+  D3D12_TILE_SHAPE GetTiledResourceTileShape() const;
   bool ConfigureSamplerFeedback(const D3D12_MIP_REGION &region);
   bool IsSamplerFeedback() const { return m_is_sampler_feedback; }
   uint32_t GetSamplerFeedbackWidth() const {
@@ -298,6 +305,7 @@ private:
   D3D12_HEAP_PROPERTIES m_heap_properties;
   D3D12_HEAP_FLAGS m_heap_flags = D3D12_HEAP_FLAG_NONE;
   WMTBufferInfo m_buf_info = {};
+  WMT::Reference<WMT::Heap> m_sparse_heap;
   WMT::Reference<WMT::Buffer> m_mtl_buffer;
   WMT::Reference<WMT::Texture> m_mtl_texture;
   WMT::Reference<WMT::AccelerationStructure> m_mtl_acceleration_structure;
@@ -326,6 +334,7 @@ private:
   uint64_t m_serialized_instance_contributions_gpu_address = 0;
   uint64_t m_tex_gpu_resource_id = 0;
   uint64_t m_backing_offset = 0;
+  bool m_is_reserved = false;
   bool m_is_sampler_feedback = false;
   uint32_t m_sampler_feedback_width = 0;
   uint32_t m_sampler_feedback_height = 0;

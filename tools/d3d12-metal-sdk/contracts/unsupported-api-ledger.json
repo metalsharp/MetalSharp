@@ -102,11 +102,11 @@
       "api": "D3D12 sparse and reserved resources",
       "evidence": [
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-        "tools/d3d12-metal-sdk/probes/probe_device_caps"
+        "tools/d3d12-metal-sdk/probes/probe_resources"
       ],
-      "reason": "Metal sparse backing is not implemented or probed; reserved resources must fail instead of falling back to committed allocation.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "Native Metal sparse backing now creates a 256x128 RGBA8 reserved texture, reports two standard tiles, maps/unmaps its native sparse pages, and round-trips two exact 64 KiB tiles. Tier 3 remains unreported because D3D12 heap-page selection/aliasing, packed-mip layouts, buffers, CopyTileMappings, residency transitions, and broader format/array coverage remain gated.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 geometry shaders outside proven emulation",

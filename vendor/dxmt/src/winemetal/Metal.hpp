@@ -319,6 +319,23 @@ public:
   }
 };
 
+class ResourceStateCommandEncoder : public CommandEncoder {
+public:
+  bool updateTextureMappings(
+      Texture texture, const WMTTextureMapping *mappings,
+      uint64_t mapping_count) {
+    return MTLResourceStateCommandEncoder_updateTextureMappings(
+        handle, texture.handle, mappings, mapping_count);
+  }
+};
+
+class Heap : public Object {
+public:
+  Reference<Texture> newTexture(WMTTextureInfo &info) {
+    return Reference<Texture>(MTLHeap_newTexture(handle, &info));
+  }
+};
+
 class ComputePipelineState : public Object {
 public:
 };
@@ -783,6 +800,11 @@ public:
     return MTLCommandBuffer_encodeWaitForEvent(handle, event.handle, value);
   }
 
+  ResourceStateCommandEncoder resourceStateCommandEncoder() {
+    return ResourceStateCommandEncoder{
+        MTLCommandBuffer_resourceStateCommandEncoder(handle)};
+  }
+
   bool
   buildTriangleAccelerationStructure(
       AccelerationStructure acceleration_structure,
@@ -1020,6 +1042,11 @@ public:
   Reference<Buffer>
   newBuffer(WMTBufferInfo &info) {
     return Reference<Buffer>(MTLDevice_newBuffer(handle, &info));
+  }
+
+  Reference<Heap>
+  newHeap(WMTHeapInfo &info) {
+    return Reference<Heap>(MTLDevice_newHeap(handle, &info));
   }
 
   bool

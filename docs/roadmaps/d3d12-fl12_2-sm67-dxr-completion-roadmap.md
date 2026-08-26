@@ -78,7 +78,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
-| Tiled resources | Tier 3 | Reported unsupported; reserved resources explicitly fail until sparse backing exists | Sparse mapping and residency probes |
+| Tiled resources | Tier 3 | Native 2D RGBA8 two-tile sparse proof; Tier 3 remains unreported | Sparse mapping, unmapping, tiling, and per-tile 64 KiB CopyTiles probes |
 | Conservative rasterization | Tier 3 | Tier 1 | Tier-3 edge/coverage behavior probe |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Unsupported/no-op | Depth-bounds render probe |
@@ -185,8 +185,10 @@ Findings:
   contain `E_NOTIMPL` returns.
 - `GetRaytracingAccelerationStructurePrebuildInfo` writes zeros.
 - `CreateSamplerFeedbackUnorderedAccessView` is a no-op.
-- Reserved resources are not sparse resources; they are silently created as
-  ordinary resources.
+- Reserved-resource creation now uses a native Metal sparse heap/texture for
+  the focused 2D path; unsupported dimensions still fail closed and Tier 3
+  remains gated on heap-page selection, aliases, packed mips, buffers, and
+  broader residency behavior.
 - Later device interfaces are compatibility declarations rather than complete
   Agility interface implementations.
 - Object private-data support is implemented only on the device; most child
@@ -981,7 +983,9 @@ the goal is not complete.
 - Changed WaveOps, atomic64, and shader-model reports to the current
   behavior-backed posture.
 - Replaced the false-success committed substitute for reserved resources with
-  an explicit unsupported result until real Metal sparse mapping is complete.
+  native Metal sparse-backed 2D resources, `GetResourceTiling`, queue mapping /
+  unmapping, and an exact two-tile `CopyTiles` proof. Full Tier 3 reporting
+  remains gated on D3D12 heap-page selection and broader layouts.
 - The conservative `probe_device_caps` gate now passes from the current source
   build while the separate FL12_2/SM6.7 target gate remains red as intended.
 - Extended the WaveOps probe from compile/PSO-only coverage to six dispatched

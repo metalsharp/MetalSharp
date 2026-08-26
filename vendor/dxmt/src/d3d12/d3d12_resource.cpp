@@ -37,12 +37,91 @@ SampleCountForResourceDesc(const D3D12_RESOURCE_DESC &desc,
   return 1;
 }
 
+static D3D12_TILE_SHAPE TileShapeForFormat(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_R8_TYPELESS:
+  case DXGI_FORMAT_R8_UNORM:
+  case DXGI_FORMAT_R8_UINT:
+  case DXGI_FORMAT_R8_SNORM:
+  case DXGI_FORMAT_R8_SINT:
+    return {256, 256, 1};
+  case DXGI_FORMAT_R8G8_TYPELESS:
+  case DXGI_FORMAT_R8G8_UNORM:
+  case DXGI_FORMAT_R8G8_UINT:
+  case DXGI_FORMAT_R8G8_SNORM:
+  case DXGI_FORMAT_R8G8_SINT:
+  case DXGI_FORMAT_R16_TYPELESS:
+  case DXGI_FORMAT_R16_FLOAT:
+  case DXGI_FORMAT_R16_UNORM:
+  case DXGI_FORMAT_R16_UINT:
+  case DXGI_FORMAT_R16_SNORM:
+  case DXGI_FORMAT_R16_SINT:
+    return {256, 128, 1};
+  case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+  case DXGI_FORMAT_R8G8B8A8_UNORM:
+  case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+  case DXGI_FORMAT_R8G8B8A8_UINT:
+  case DXGI_FORMAT_R8G8B8A8_SNORM:
+  case DXGI_FORMAT_R8G8B8A8_SINT:
+  case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+  case DXGI_FORMAT_R10G10B10A2_UNORM:
+  case DXGI_FORMAT_R10G10B10A2_UINT:
+  case DXGI_FORMAT_R11G11B10_FLOAT:
+  case DXGI_FORMAT_R32_TYPELESS:
+  case DXGI_FORMAT_R32_FLOAT:
+  case DXGI_FORMAT_R32_UINT:
+  case DXGI_FORMAT_R32_SINT:
+    return {128, 128, 1};
+  case DXGI_FORMAT_R16G16_TYPELESS:
+  case DXGI_FORMAT_R16G16_FLOAT:
+  case DXGI_FORMAT_R16G16_UNORM:
+  case DXGI_FORMAT_R16G16_UINT:
+  case DXGI_FORMAT_R16G16_SNORM:
+  case DXGI_FORMAT_R16G16_SINT:
+  case DXGI_FORMAT_R32G32_TYPELESS:
+  case DXGI_FORMAT_R32G32_FLOAT:
+  case DXGI_FORMAT_R32G32_UINT:
+  case DXGI_FORMAT_R32G32_SINT:
+    return {128, 64, 1};
+  case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+  case DXGI_FORMAT_R16G16B16A16_FLOAT:
+  case DXGI_FORMAT_R16G16B16A16_UNORM:
+  case DXGI_FORMAT_R16G16B16A16_UINT:
+  case DXGI_FORMAT_R16G16B16A16_SNORM:
+  case DXGI_FORMAT_R16G16B16A16_SINT:
+  case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+  case DXGI_FORMAT_R32G32B32A32_FLOAT:
+  case DXGI_FORMAT_R32G32B32A32_UINT:
+  case DXGI_FORMAT_R32G32B32A32_SINT:
+    return {64, 64, 1};
+  default:
+    return {128, 128, 1};
+  }
+}
+
+static uint64_t SparseHeapSizeForResource(const D3D12_RESOURCE_DESC &desc) {
+  const D3D12_TILE_SHAPE shape = TileShapeForFormat(desc.Format);
+  const uint64_t tiles_x =
+      (desc.Width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+  const uint64_t tiles_y =
+      (desc.Height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+  const uint64_t slices = std::max<uint32_t>(1, desc.DepthOrArraySize);
+  const uint64_t mips = std::max<uint32_t>(1, desc.MipLevels);
+  const uint64_t tile_count = tiles_x * tiles_y * slices * mips;
+  const uint64_t size = tile_count * UINT64_C(65536);
+  // Apple's default sparse page is 16 KiB; one D3D12 standard tile is 64 KiB.
+  return std::max<uint64_t>(UINT64_C(65536),
+                            (size + UINT64_C(16383)) & ~UINT64_C(16383));
+}
+
 MTLD3D12Resource::MTLD3D12Resource(
     MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
     D3D12_RESOURCE_STATES initial_state,
-    D3D12_HEAP_PROPERTIES heap_properties, D3D12_HEAP_FLAGS heap_flags)
+    D3D12_HEAP_PROPERTIES heap_properties, D3D12_HEAP_FLAGS heap_flags,
+    bool reserved)
     : m_device(device), m_desc(desc), m_state(initial_state),
-      m_heap_properties(heap_properties), m_heap_flags(heap_flags) {
+      m_heap_properties(heap_properties), m_heap_flags(heap_flags),
+      m_is_reserved(reserved) {
   InitializeResource(WMT::Reference<WMT::Buffer>{}, nullptr, 0, 0);
 }
 
@@ -147,7 +226,21 @@ void MTLD3D12Resource::InitializeResource(
       tex_info.type, tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height,
       (unsigned)tex_info.depth, (unsigned)tex_info.array_length,
        (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count, (unsigned)tex_info.options);
-    m_mtl_texture = wmt_device.newTexture(tex_info);
+    if (m_is_reserved) {
+      WMTHeapInfo heap_info = {};
+      heap_info.size = SparseHeapSizeForResource(m_desc);
+      heap_info.options = WMTResourceStorageModePrivate |
+                          WMTResourceHazardTrackingModeTracked;
+      heap_info.type = WMTHeapTypeSparse;
+      // Metal's 16 KiB sparse page is the largest page granularity available
+      // on the proof host and four pages make one D3D12 64 KiB tile.
+      heap_info.sparse_page_size = WMTSparsePageSize16;
+      m_sparse_heap = wmt_device.newHeap(heap_info);
+      if (m_sparse_heap.handle)
+        m_mtl_texture = m_sparse_heap.newTexture(tex_info);
+    } else {
+      m_mtl_texture = wmt_device.newTexture(tex_info);
+    }
     m_tex_gpu_resource_id = tex_info.gpu_resource_id;
     if (!m_mtl_texture.handle) {
       RTRACE("ctor: texture creation FAILED type=%u fmt=%u %ux%u arr=%u",
@@ -171,6 +264,8 @@ void MTLD3D12Resource::InitializeResource(
 }
 
 WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
+  if (m_is_reserved)
+    return m_mtl_texture;
   if (!m_mtl_texture.handle && m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
     bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
                            m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
@@ -217,6 +312,10 @@ uint64_t MTLD3D12Resource::GetBufferByteLength() const {
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     return m_desc.Width;
   return m_buf_info.length;
+}
+
+D3D12_TILE_SHAPE MTLD3D12Resource::GetTiledResourceTileShape() const {
+  return TileShapeForFormat(m_desc.Format);
 }
 
 bool MTLD3D12Resource::ConfigureSamplerFeedback(

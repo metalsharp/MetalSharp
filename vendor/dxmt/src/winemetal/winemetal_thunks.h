@@ -77,6 +77,18 @@ struct unixcall_mtldevice_newbuffer {
   obj_handle_t ret;
 };
 
+struct unixcall_mtldevice_newheap {
+  obj_handle_t device;
+  struct WMTMemoryPointer info;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtlheap_newtexture {
+  obj_handle_t heap;
+  struct WMTMemoryPointer info;
+  obj_handle_t ret;
+};
+
 struct unixcall_mtldevice_newsamplerstate {
   obj_handle_t device;
   struct WMTMemoryPointer info;
@@ -147,6 +159,14 @@ struct unixcall_mtldevice_newmeshrenderpso {
 struct unixcall_generic_obj_cmd_noret {
   obj_handle_t encoder;
   struct WMTConstMemoryPointer cmd_head;
+};
+
+struct unixcall_mtlresource_state_update_texture_mappings {
+  obj_handle_t encoder;
+  obj_handle_t texture;
+  struct WMTConstMemoryPointer mappings;
+  uint64_t mapping_count;
+  uint64_t ret_success;
 };
 
 struct unixcall_mtltexture_replaceregion {

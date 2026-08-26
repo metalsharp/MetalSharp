@@ -624,6 +624,84 @@ _MTLDevice_newTexture(void *obj) {
 }
 
 static NTSTATUS
+_MTLDevice_newHeap(void *obj) {
+  struct unixcall_mtldevice_newheap *params = obj;
+  struct WMTHeapInfo *info = params->info.ptr;
+  params->ret = 0;
+  if (!params->device || !info || !info->size)
+    return STATUS_SUCCESS;
+
+  MTLHeapDescriptor *descriptor = [[MTLHeapDescriptor alloc] init];
+  descriptor.size = (NSUInteger)info->size;
+  descriptor.resourceOptions = (MTLResourceOptions)info->options;
+  descriptor.type = (MTLHeapType)info->type;
+  if (@available(macOS 13.0, *)) {
+    if (info->sparse_page_size)
+      descriptor.sparsePageSize = (MTLSparsePageSize)info->sparse_page_size;
+  }
+  params->ret = (obj_handle_t)[(id<MTLDevice>)params->device
+      newHeapWithDescriptor:descriptor];
+  [descriptor release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLHeap_newTexture(void *obj) {
+  struct unixcall_mtlheap_newtexture *params = obj;
+  struct WMTTextureInfo *info = params->info.ptr;
+  params->ret = 0;
+  if (!params->heap || !info || !info->width || !info->height)
+    return STATUS_SUCCESS;
+
+  MTLTextureDescriptor *descriptor = [[MTLTextureDescriptor alloc] init];
+  fill_texture_descriptor(descriptor, info);
+  id<MTLTexture> texture = [(id<MTLHeap>)params->heap
+      newTextureWithDescriptor:descriptor];
+  params->ret = (obj_handle_t)texture;
+  info->gpu_resource_id = texture ? [texture gpuResourceID]._impl : 0;
+  [descriptor release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_resourceStateCommandEncoder(void *obj) {
+  struct unixcall_generic_obj_obj_ret *params = obj;
+  params->ret = 0;
+  if (params->handle)
+    params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle
+        resourceStateCommandEncoder];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLResourceStateCommandEncoder_updateTextureMappings(void *obj) {
+  struct unixcall_mtlresource_state_update_texture_mappings *params = obj;
+  const struct WMTTextureMapping *mappings = params->mappings.ptr;
+  params->ret_success = 0;
+  if (!params->encoder || !params->texture ||
+      (params->mapping_count && !mappings) || params->mapping_count > 1048576)
+    return STATUS_SUCCESS;
+
+  id<MTLResourceStateCommandEncoder> encoder =
+      (id<MTLResourceStateCommandEncoder>)params->encoder;
+  id<MTLTexture> texture = (id<MTLTexture>)params->texture;
+  for (uint64_t i = 0; i < params->mapping_count; i++) {
+    const struct WMTTextureMapping *mapping = &mappings[i];
+    MTLRegion region = MTLRegionMake3D(
+        (NSUInteger)mapping->origin.x, (NSUInteger)mapping->origin.y,
+        (NSUInteger)mapping->origin.z, (NSUInteger)mapping->size.width,
+        (NSUInteger)mapping->size.height, (NSUInteger)mapping->size.depth);
+    [encoder updateTextureMapping:texture
+                              mode:(MTLSparseTextureMappingMode)mapping->mode
+                            region:region
+                         mipLevel:(NSUInteger)mapping->mip_level
+                             slice:(NSUInteger)mapping->slice];
+  }
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLBuffer_newTexture(void *obj) {
   struct unixcall_mtlbuffer_newtexture *params = obj;
   id<MTLBuffer> buffer = (id<MTLBuffer>)params->buffer;
@@ -4485,6 +4563,10 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandBuffer_buildTriangleAccelerationStructures,
     &_MTLCommandBuffer_refitInstanceAccelerationStructure,
     &_MTLCommandBuffer_refitAABBAccelerationStructure,
+    &_MTLDevice_newHeap,
+    &_MTLHeap_newTexture,
+    &_MTLCommandBuffer_resourceStateCommandEncoder,
+    &_MTLResourceStateCommandEncoder_updateTextureMappings,
 };
 
 #ifndef DXMT_NATIVE
@@ -4644,5 +4726,9 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandBuffer_buildTriangleAccelerationStructures,
     &_MTLCommandBuffer_refitInstanceAccelerationStructure,
     &_MTLCommandBuffer_refitAABBAccelerationStructure,
+    &_MTLDevice_newHeap,
+    &_MTLHeap_newTexture,
+    &_MTLCommandBuffer_resourceStateCommandEncoder,
+    &_MTLResourceStateCommandEncoder_updateTextureMappings,
 };
 #endif
