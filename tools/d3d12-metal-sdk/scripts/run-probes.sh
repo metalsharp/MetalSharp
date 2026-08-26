@@ -1140,6 +1140,7 @@ struct MeshVertex {
 
 struct MeshPayload {
   float horizontal_offset;
+  uint signature;
 };
 
 groupshared MeshPayload payload;
@@ -1161,23 +1162,31 @@ RWByteAddressBuffer mesh_output : register(u0);
 [numthreads(1, 1, 1)]
 void as_main(uint3 group_id : SV_GroupID) {
   payload.horizontal_offset = (group_id.x & 1) ? 0.05 : 0.0;
+  payload.signature = 0x4153504c;
   DispatchMesh(amplification_enabled * amplification_control.Load(0),
                1, 1, payload);
 }
 
 [outputtopology("triangle")]
-[numthreads(1, 1, 1)]
+[numthreads(32, 1, 1)]
 void ms_main(in payload MeshPayload payload,
              out vertices MeshVertex vertices[3],
-             out indices uint3 triangles[1]) {
+             out indices uint3 triangles[1],
+             uint group_thread_id : SV_GroupIndex) {
   SetMeshOutputCounts(3, 1);
   float texture_control = mesh_texture.SampleLevel(mesh_sampler, float2(0.5, 0.5), 0.0);
   float resolved_scale = mesh_scale * asfloat(mesh_control.Load(0)) * texture_control;
   mesh_output.Store(0, 0x4d534831);
-  vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
-  vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * resolved_scale,  0.8 * resolved_scale, 0.0, 1.0);
-  vertices[2].position = float4(( 0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
-  triangles[0] = uint3(0, 1, 2);
+  mesh_output.Store(8 + group_thread_id * 4,
+                    payload.signature + group_thread_id);
+  if (group_thread_id == 0) {
+    vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
+    triangles[0] = uint3(0, 1, 2);
+  } else if (group_thread_id == 1) {
+    vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * resolved_scale,  0.8 * resolved_scale, 0.0, 1.0);
+  } else if (group_thread_id == 2) {
+    vertices[2].position = float4(( 0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, 0.0, 1.0);
+  }
 }
 
 float4 ps_main() : SV_Target0 {

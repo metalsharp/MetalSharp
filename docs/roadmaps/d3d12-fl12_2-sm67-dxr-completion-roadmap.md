@@ -295,11 +295,12 @@ Findings:
 - The source tracks unsupported intrinsic/opcode counts and rejects those
   shaders; this is useful diagnostics but not full SM6.7 coverage.
 - D3D12 AS/MS pipeline-state stream subobjects now compile through Metal Shader
-  Converter into Metal object/mesh functions. A four-byte amplification payload,
-  stage-specific CBV/raw-SRV bindings, a mesh UAV write, and mesh-stage
-  texture/sampler sampling execute through both direct `DispatchMesh` and
-  indirect `DISPATCH_MESH`. The 0.5 texture sample scales each split-screen
-  triangle to exactly 169 nonzero pixels and the UAV returns `0x4d534831`.
+  Converter into Metal object/mesh functions. An eight-byte amplification
+  payload, stage-specific CBV/raw-SRV bindings, 32-lane mesh UAV writes, and
+  mesh-stage texture/sampler sampling execute through two-group direct
+  `DispatchMesh` and indirect `DISPATCH_MESH`. The 0.5 texture sample produces
+  169/181 split-screen nonzero pixels, the UAV returns `0x4d534831`, and all 32
+  lane-indexed payload-derived values pass exact readback.
 - Mesh tier 1 remains conservatively unreported while mixed render-state
   matrices, statistics, render-target arrays, and broader shader/payload
   coverage are still gated.
