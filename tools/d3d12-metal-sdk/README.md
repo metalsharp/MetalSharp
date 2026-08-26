@@ -346,9 +346,12 @@ committed and placed resources, default/upload/readback heap behavior,
 buffer GPU virtual addresses, 1D/2D/3D/array/mip/MSAA texture creation,
 CBV/SRV/UAV/RTV/DSV creation and binding, `GetResourceAllocationInfo`,
 `GetCopyableFootprints`, common color/depth/integer/normalized/sRGB format
-support, and typeless view-time typing. Sparse/reserved resources are recorded
-as unsupported unless they are explicitly feature-gated and backed by Metal
-sparse APIs. The probe also creates a fully typed `R32_FLOAT` texture through
+support, and typeless view-time typing. The resource probe now creates a native
+Metal sparse-backed 256x128 RGBA8 reserved texture, reports its two standard
+128x128 tiles, maps and unmaps both tiles through `UpdateTileMappings`, and
+round-trips exact 64 KiB `CopyTiles` payloads for each tile; Tier 3 remains conservative
+until heap-page selection, aliases, packed mips, buffers, and broader formats
+are covered. The probe also creates a fully typed `R32_FLOAT` texture through
 `ID3D12Device10::CreateCommittedResource3` and `CreatePlacedResource2`,
 declares `R32_UINT` and `R8G8B8A8_UINT` as castable formats, validates exact
 `0x3f800000` and `[0,0,128,63]` compute readbacks through those views, rejects a

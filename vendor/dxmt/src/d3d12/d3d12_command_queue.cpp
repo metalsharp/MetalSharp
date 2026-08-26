@@ -5,6 +5,7 @@
 #include "d3d12_descriptor_heap.hpp"
 #include "d3d12_device.hpp"
 #include "d3d12_fence.hpp"
+#include "d3d12_heap.hpp"
 #include "d3d12_pipeline_state.hpp"
 #include "d3d12_query_heap.hpp"
 #include "d3d12_resource.hpp"
@@ -7385,6 +7386,115 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetDevice(REFIID riid,
   return m_device->QueryInterface(riid, device);
 }
 
+static bool BuildSparseTextureMappings(
+    MTLD3D12Resource *resource, UINT region_count,
+    const D3D12_TILED_RESOURCE_COORDINATE *region_coordinates,
+    const D3D12_TILE_REGION_SIZE *region_sizes, UINT range_count,
+    const D3D12_TILE_RANGE_FLAGS *range_flags,
+    const UINT *heap_range_offsets,
+    const UINT *range_tile_counts,
+    std::vector<WMTTextureMapping> &mappings) {
+  if (!resource || !resource->IsSparseBacked() || !region_count ||
+      !region_coordinates || !region_sizes)
+    return false;
+  D3D12_RESOURCE_DESC desc = {};
+  resource->GetDesc(&desc);
+  if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      desc.SampleDesc.Count > 1 || !desc.MipLevels ||
+      !desc.DepthOrArraySize)
+    return false;
+  if (range_count && !range_tile_counts)
+    return false;
+  for (UINT range = 0; range < range_count; range++) {
+    const D3D12_TILE_RANGE_FLAGS flags =
+        range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
+    if (flags != D3D12_TILE_RANGE_FLAG_NONE &&
+        flags != D3D12_TILE_RANGE_FLAG_NULL)
+      return false;
+    if (flags == D3D12_TILE_RANGE_FLAG_NONE && !heap_range_offsets)
+      return false;
+  }
+  const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
+  const UINT mip_levels = desc.MipLevels;
+  const UINT tiles_x =
+      (std::max<UINT>(1, desc.Width) + shape.WidthInTexels - 1) /
+      shape.WidthInTexels;
+  const UINT tiles_y =
+      (std::max<UINT>(1, desc.Height) + shape.HeightInTexels - 1) /
+      shape.HeightInTexels;
+  const UINT metal_tiles_x = std::max<UINT>(1, shape.WidthInTexels / 2);
+  const UINT metal_tiles_y = std::max<UINT>(1, shape.HeightInTexels / 2);
+  UINT range_index = 0;
+  UINT range_remaining = range_count
+                             ? (range_tile_counts ? range_tile_counts[0] : 1)
+                             : 0;
+  for (UINT region_index = 0; region_index < region_count; region_index++) {
+    const auto &coordinate = region_coordinates[region_index];
+    const auto &size = region_sizes[region_index];
+    const UINT mip = coordinate.Subresource % mip_levels;
+    const UINT slice = coordinate.Subresource / mip_levels;
+    if (slice >= desc.DepthOrArraySize || mip >= mip_levels)
+      return false;
+    const UINT region_width = size.UseBox ? size.Width : size.NumTiles;
+    const UINT region_height = size.UseBox ? size.Height : 1;
+    const UINT region_depth = size.UseBox ? size.Depth : 1;
+    if (!region_width || !region_height || !region_depth)
+      continue;
+    const uint64_t tile_count = uint64_t(region_width) * region_height *
+                                region_depth;
+    if (!size.UseBox && (coordinate.X >= tiles_x ||
+                         uint64_t(coordinate.X) + region_width > tiles_x ||
+                         coordinate.Y >= tiles_y))
+      return false;
+    if (size.UseBox &&
+        (coordinate.X >= tiles_x || coordinate.Y >= tiles_y ||
+         uint64_t(coordinate.X) + size.Width > tiles_x ||
+         uint64_t(coordinate.Y) + size.Height > tiles_y))
+      return false;
+    for (uint64_t tile = 0; tile < tile_count; tile++) {
+      while (range_count && range_index < range_count &&
+             range_remaining == 0) {
+        range_index++;
+        range_remaining = range_index < range_count
+                              ? (range_tile_counts ? range_tile_counts[range_index]
+                                                    : 1)
+                              : 0;
+      }
+      if (range_count && range_index >= range_count)
+        return false;
+      const D3D12_TILE_RANGE_FLAGS flags =
+          range_count && range_flags ? range_flags[range_index]
+                                     : D3D12_TILE_RANGE_FLAG_NONE;
+      if (size.UseBox) {
+        const UINT z = static_cast<UINT>(tile / (size.Width * size.Height));
+        const UINT rem = static_cast<UINT>(tile % (size.Width * size.Height));
+        const UINT y = rem / size.Width;
+        const UINT x = rem % size.Width;
+        mappings.push_back({
+            flags == D3D12_TILE_RANGE_FLAG_NULL
+                ? WMTTextureMappingModeUnmap
+                : WMTTextureMappingModeMap,
+            {uint64_t(coordinate.X + x) * metal_tiles_x,
+             uint64_t(coordinate.Y + y) * metal_tiles_y,
+             uint64_t(z)},
+            {metal_tiles_x, metal_tiles_y, 1}, mip, slice});
+      } else {
+        const UINT x = coordinate.X + static_cast<UINT>(tile % tiles_x);
+        const UINT y = coordinate.Y + static_cast<UINT>(tile / tiles_x);
+        mappings.push_back({
+            flags == D3D12_TILE_RANGE_FLAG_NULL
+                ? WMTTextureMappingModeUnmap
+                : WMTTextureMappingModeMap,
+            {uint64_t(x) * metal_tiles_x, uint64_t(y) * metal_tiles_y, 0},
+            {metal_tiles_x, metal_tiles_y, 1}, mip, slice});
+      }
+      if (range_count && range_remaining)
+        range_remaining--;
+    }
+  }
+  return !mappings.empty();
+}
+
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
     ID3D12Resource *resource, UINT region_count,
     const D3D12_TILED_RESOURCE_COORDINATE *region_start_coordinates,
@@ -7396,6 +7506,65 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
          "ranges=%u flags=0x%x",
          (void *)this, (void *)resource, region_count, (void *)heap,
          range_count, flags);
+  if (!range_count) {
+    QTRACE("CmdQueue::UpdateTileMappings rejected empty range list");
+    return;
+  }
+  if ((static_cast<UINT>(flags) & ~static_cast<UINT>(
+          D3D12_TILE_MAPPING_FLAG_NO_HAZARD)) != 0) {
+    QTRACE("CmdQueue::UpdateTileMappings rejected unknown flags=0x%x", flags);
+    return;
+  }
+  auto *sparse_resource = static_cast<MTLD3D12Resource *>(resource);
+  auto *tile_heap = static_cast<MTLD3D12Heap *>(heap);
+  bool needs_heap = false;
+  for (UINT range = 0; range < range_count; range++)
+    needs_heap |= !range_flags ||
+                  range_flags[range] == D3D12_TILE_RANGE_FLAG_NONE;
+  if (needs_heap) {
+    if (!tile_heap || !heap_range_offsets || !range_tile_counts)
+      return;
+    const UINT64 heap_tile_count =
+        tile_heap->GetHeapDesc().SizeInBytes /
+        D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    for (UINT range = 0; range < range_count; range++) {
+      const D3D12_TILE_RANGE_FLAGS range_flag =
+          range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
+      if (range_flag == D3D12_TILE_RANGE_FLAG_NONE &&
+          (uint64_t(heap_range_offsets[range]) + range_tile_counts[range] >
+           heap_tile_count)) {
+        QTRACE("CmdQueue::UpdateTileMappings rejected heap range=%u offset=%u "
+               "count=%u heap_tiles=%llu",
+               range, heap_range_offsets[range], range_tile_counts[range],
+               (unsigned long long)heap_tile_count);
+        return;
+      }
+    }
+  }
+  std::vector<WMTTextureMapping> mappings;
+  if (!BuildSparseTextureMappings(
+          sparse_resource, region_count, region_start_coordinates,
+          region_sizes, range_count, range_flags, heap_range_offsets,
+          range_tile_counts,
+          mappings)) {
+    QTRACE("CmdQueue::UpdateTileMappings rejected unsupported sparse mapping");
+    return;
+  }
+  auto cmdbuf = m_wmt_queue.commandBuffer();
+  auto encoder = cmdbuf.resourceStateCommandEncoder();
+  if (!cmdbuf.handle || !encoder.handle ||
+      !encoder.updateTextureMappings(sparse_resource->GetMTLTexture(),
+                                     mappings.data(), mappings.size())) {
+    QTRACE("CmdQueue::UpdateTileMappings native encoder failed");
+    return;
+  }
+  encoder.endEncoding();
+  obj_handle_t retained[] = {sparse_resource->GetMTLTexture().handle,
+                             sparse_resource->GetSparseHeap().handle};
+  cmdbuf.retainObjectsUntilCompleted(retained, 2);
+  cmdbuf.commit();
+  QTRACE("CmdQueue::UpdateTileMappings native mappings=%zu committed",
+         mappings.size());
 }
 
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(

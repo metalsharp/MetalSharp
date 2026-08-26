@@ -1631,3 +1631,46 @@ MTLCommandBuffer_refitTriangleAccelerationStructure(
   UNIX_CALL(148, &params);
   return params.ret_success;
 }
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newHeap(obj_handle_t device, struct WMTHeapInfo *info) {
+  struct unixcall_mtldevice_newheap params;
+  params.device = device;
+  WMT_MEMPTR_SET(params.info, info);
+  params.ret = 0;
+  UNIX_CALL(155, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLHeap_newTexture(obj_handle_t heap, struct WMTTextureInfo *info) {
+  struct unixcall_mtlheap_newtexture params;
+  params.heap = heap;
+  WMT_MEMPTR_SET(params.info, info);
+  params.ret = 0;
+  UNIX_CALL(156, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLCommandBuffer_resourceStateCommandEncoder(obj_handle_t cmdbuf) {
+  struct unixcall_generic_obj_obj_ret params;
+  params.handle = cmdbuf;
+  params.ret = 0;
+  UNIX_CALL(157, &params);
+  return params.ret;
+}
+
+WINEMETAL_API bool
+MTLResourceStateCommandEncoder_updateTextureMappings(
+    obj_handle_t encoder, obj_handle_t texture,
+    const struct WMTTextureMapping *mappings, uint64_t mapping_count) {
+  struct unixcall_mtlresource_state_update_texture_mappings params;
+  params.encoder = encoder;
+  params.texture = texture;
+  WMT_MEMPTR_SET(params.mappings, mappings);
+  params.mapping_count = mapping_count;
+  params.ret_success = 0;
+  UNIX_CALL(158, &params);
+  return params.ret_success != 0;
+}

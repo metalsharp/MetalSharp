@@ -205,6 +205,28 @@ int main() {
     ID3D12Resource* texture = nullptr;
     ID3D12Resource* texture_upload = nullptr;
     ID3D12Resource* texture_readback = nullptr;
+    ID3D12Heap* sparse_heap = nullptr;
+    ID3D12Resource* reserved_texture = nullptr;
+    ID3D12Resource* sparse_upload = nullptr;
+    ID3D12Resource* sparse_readback = nullptr;
+    ID3D12Resource* sparse_unmapped_readback = nullptr;
+    HRESULT sparse_heap_hr = E_FAIL;
+    HRESULT reserved_texture_hr = E_FAIL;
+    HRESULT sparse_upload_hr = E_FAIL;
+    HRESULT sparse_readback_hr = E_FAIL;
+    HRESULT sparse_unmapped_readback_hr = E_FAIL;
+    HRESULT sparse_unmap_close_hr = E_FAIL;
+    HRESULT sparse_unmap_execute_hr = E_FAIL;
+    HRESULT sparse_unmap_signal_hr = E_FAIL;
+    HRESULT sparse_unmap_wait_hr = E_FAIL;
+    HRESULT sparse_tiling_hr = E_FAIL;
+    UINT sparse_total_tiles = 0;
+    D3D12_PACKED_MIP_INFO sparse_packed_mips = {};
+    D3D12_TILE_SHAPE sparse_tile_shape = {};
+    UINT sparse_tiling_count = 1;
+    D3D12_SUBRESOURCE_TILING sparse_tiling = {};
+    const UINT64 sparse_tile_bytes =
+        2 * D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
     D3D12_RESOURCE_DESC tex_desc = texture_desc(4, 4, DXGI_FORMAT_R8G8B8A8_UNORM);
     UINT64 texture_upload_bytes = 0;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT texture_footprint = {};
@@ -267,6 +289,84 @@ int main() {
         texture_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         texture_src.SubresourceIndex = 0;
         list->CopyTextureRegion(&readback_dst, 0, 0, 0, &texture_src, nullptr);
+    }
+
+    D3D12_HEAP_DESC sparse_heap_desc = {};
+    sparse_heap_desc.SizeInBytes = sparse_tile_bytes;
+    sparse_heap_desc.Properties = default_heap;
+    sparse_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
+    sparse_heap_hr = device ? device->CreateHeap(
+                                  &sparse_heap_desc, IID_PPV_ARGS(&sparse_heap))
+                            : E_FAIL;
+    D3D12_RESOURCE_DESC reserved_desc = texture_desc(
+        256, 128, DXGI_FORMAT_R8G8B8A8_UNORM);
+    reserved_texture_hr =
+        device ? device->CreateReservedResource(
+                     &reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&reserved_texture))
+               : E_FAIL;
+    if (device && reserved_texture) {
+        sparse_tiling_hr = S_OK;
+        device->GetResourceTiling(
+            reserved_texture, &sparse_total_tiles, &sparse_packed_mips,
+            &sparse_tile_shape, &sparse_tiling_count, 0, &sparse_tiling);
+    }
+    D3D12_RESOURCE_DESC sparse_buffer_desc = buffer_desc(sparse_tile_bytes);
+    sparse_upload_hr =
+        device ? device->CreateCommittedResource(
+                     &upload_heap, D3D12_HEAP_FLAG_NONE, &sparse_buffer_desc,
+                     D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                     IID_PPV_ARGS(&sparse_upload))
+               : E_FAIL;
+    sparse_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE, &sparse_buffer_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&sparse_readback))
+               : E_FAIL;
+    sparse_unmapped_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE, &sparse_buffer_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&sparse_unmapped_readback))
+               : E_FAIL;
+    uint8_t *sparse_upload_ptr = nullptr;
+    HRESULT sparse_upload_map_hr =
+        sparse_upload ? sparse_upload->Map(
+                            0, nullptr,
+                            reinterpret_cast<void **>(&sparse_upload_ptr))
+                      : E_FAIL;
+    bool sparse_copy_ok = false;
+    if (SUCCEEDED(sparse_upload_map_hr) && sparse_upload_ptr) {
+        for (UINT64 i = 0; i < sparse_tile_bytes; i++)
+            sparse_upload_ptr[i] = static_cast<uint8_t>((i * 29u + 7u) & 0xffu);
+        sparse_upload->Unmap(0, nullptr);
+    }
+    if (queue && sparse_heap && reserved_texture && sparse_upload &&
+        sparse_readback && sparse_total_tiles == 2 && sparse_tiling_count == 1 &&
+        sparse_tile_shape.WidthInTexels == 128 &&
+        sparse_tile_shape.HeightInTexels == 128) {
+        D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
+        D3D12_TILE_REGION_SIZE region_size = {};
+        region_size.NumTiles = 2;
+        D3D12_TILE_RANGE_FLAGS range_flags[1] = {
+            D3D12_TILE_RANGE_FLAG_NONE};
+        UINT heap_offsets[1] = {0};
+        UINT range_tile_counts[1] = {2};
+        queue->UpdateTileMappings(
+            reserved_texture, 1, &coordinate, &region_size, sparse_heap, 1,
+            range_flags, heap_offsets, range_tile_counts,
+            D3D12_TILE_MAPPING_FLAG_NONE);
+        list->CopyTiles(
+            reserved_texture, &coordinate, &region_size, sparse_upload, 0,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        D3D12_RESOURCE_BARRIER sparse_barrier = transition_barrier(
+            reserved_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &sparse_barrier);
+        list->CopyTiles(
+            reserved_texture, &coordinate, &region_size, sparse_readback, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
 
     ID3D12Resource* bc_texture = nullptr;
@@ -351,6 +451,42 @@ int main() {
                 WaitForSingleObject(event_handle, 15000);
         }
     }
+    bool sparse_unmapped_zero_ok = false;
+    if (queue && list && allocator && fence && reserved_texture &&
+        sparse_unmapped_readback && SUCCEEDED(wait_hr)) {
+        D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
+        D3D12_TILE_REGION_SIZE region_size = {};
+        region_size.NumTiles = 2;
+        D3D12_TILE_RANGE_FLAGS range_flags[1] = {
+            D3D12_TILE_RANGE_FLAG_NULL};
+        UINT range_tile_counts[1] = {2};
+        queue->UpdateTileMappings(
+            reserved_texture, 1, &coordinate, &region_size, nullptr, 1,
+            range_flags, nullptr, range_tile_counts,
+            D3D12_TILE_MAPPING_FLAG_NONE);
+        sparse_unmap_close_hr = list->Reset(allocator, nullptr);
+        if (SUCCEEDED(sparse_unmap_close_hr)) {
+            list->CopyTiles(
+                reserved_texture, &coordinate, &region_size,
+                sparse_unmapped_readback, 0,
+                D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+            sparse_unmap_close_hr = list->Close();
+        }
+        if (SUCCEEDED(sparse_unmap_close_hr)) {
+            ID3D12CommandList *lists[] = {list};
+            queue->ExecuteCommandLists(1, lists);
+            sparse_unmap_execute_hr = S_OK;
+            sparse_unmap_signal_hr = queue->Signal(fence, 2);
+            HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+            if (event_handle && SUCCEEDED(sparse_unmap_signal_hr)) {
+                sparse_unmap_wait_hr =
+                    fence->SetEventOnCompletion(2, event_handle);
+                if (SUCCEEDED(sparse_unmap_wait_hr) &&
+                    WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
+                    sparse_unmap_wait_hr = E_FAIL;
+            }
+        }
+    }
 
     uint8_t* readback_ptr = nullptr;
     HRESULT map_readback_hr =
@@ -411,6 +547,40 @@ int main() {
         bc_readback->Unmap(0, &written);
     }
 
+    uint8_t *sparse_readback_ptr = nullptr;
+    HRESULT sparse_readback_map_hr =
+        sparse_readback
+            ? sparse_readback->Map(
+                  0, nullptr, reinterpret_cast<void **>(&sparse_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(sparse_readback_map_hr) && sparse_readback_ptr) {
+        sparse_copy_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_bytes; i++) {
+            if (sparse_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                sparse_copy_ok = false;
+                break;
+            }
+        }
+        sparse_readback->Unmap(0, nullptr);
+    }
+    uint8_t *sparse_unmapped_ptr = nullptr;
+    HRESULT sparse_unmapped_map_hr =
+        sparse_unmapped_readback
+            ? sparse_unmapped_readback->Map(
+                  0, nullptr, reinterpret_cast<void **>(&sparse_unmapped_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(sparse_unmapped_map_hr) && sparse_unmapped_ptr) {
+        sparse_unmapped_zero_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_bytes; i++) {
+            if (sparse_unmapped_ptr[i] != 0) {
+                sparse_unmapped_zero_ok = false;
+                break;
+            }
+        }
+        sparse_unmapped_readback->Unmap(0, nullptr);
+    }
+
     D3D12_RESOURCE_DESC default_buffer_desc = default_buffer ? default_buffer->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = upload_buffer ? upload_buffer->GetGPUVirtualAddress() : 0;
@@ -449,6 +619,21 @@ int main() {
                 texture_copy_ok && SUCCEEDED(bc_texture_hr) && SUCCEEDED(bc_upload_hr) &&
                 SUCCEEDED(bc_readback_hr) && SUCCEEDED(bc_upload_map_hr) &&
                 SUCCEEDED(bc_readback_map_hr) && bc_copy_ok &&
+                SUCCEEDED(sparse_heap_hr) && SUCCEEDED(reserved_texture_hr) &&
+                SUCCEEDED(sparse_tiling_hr) && SUCCEEDED(sparse_upload_hr) && SUCCEEDED(sparse_readback_hr) &&
+                SUCCEEDED(sparse_upload_map_hr) &&
+                SUCCEEDED(sparse_readback_map_hr) && sparse_copy_ok &&
+                SUCCEEDED(sparse_unmapped_readback_hr) &&
+                SUCCEEDED(sparse_unmap_close_hr) &&
+                SUCCEEDED(sparse_unmap_execute_hr) &&
+                SUCCEEDED(sparse_unmap_signal_hr) &&
+                SUCCEEDED(sparse_unmap_wait_hr) &&
+                SUCCEEDED(sparse_unmapped_map_hr) &&
+                sparse_unmapped_zero_ok && sparse_total_tiles == 2 && sparse_tiling_count == 1 &&
+                sparse_tile_shape.WidthInTexels == 128 &&
+                sparse_tile_shape.HeightInTexels == 128 &&
+                sparse_tiling.WidthInTiles == 2 &&
+                sparse_tiling.HeightInTiles == 1 &&
                 default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
                 texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && format_support_ok;
 
@@ -504,6 +689,34 @@ int main() {
     std::printf("    \"unaligned_bc1_rows\": %u,\n", bc_rows);
     std::printf("    \"unaligned_bc1_row_bytes\": %llu\n",
                 static_cast<unsigned long long>(bc_row_bytes));
+    std::printf("  },\n");
+    std::printf("  \"sparse\": {\n");
+    print_hr("heap_create", sparse_heap_hr);
+    print_hr("reserved_resource_create", reserved_texture_hr);
+    print_hr("upload_create", sparse_upload_hr);
+    print_hr("readback_create", sparse_readback_hr);
+    print_hr("unmapped_readback_create", sparse_unmapped_readback_hr);
+    print_hr("upload_map", sparse_upload_map_hr);
+    print_hr("readback_map", sparse_readback_map_hr);
+    print_hr("unmap_close", sparse_unmap_close_hr);
+    print_hr("unmap_execute", sparse_unmap_execute_hr);
+    print_hr("unmap_signal", sparse_unmap_signal_hr);
+    print_hr("unmap_wait", sparse_unmap_wait_hr);
+    print_hr("unmapped_readback_map", sparse_unmapped_map_hr);
+    std::printf("    \"total_tiles\": %u,\n", sparse_total_tiles);
+    std::printf("    \"tiling_count\": %u,\n", sparse_tiling_count);
+    std::printf("    \"tile_shape\": [%u, %u, %u],\n",
+                sparse_tile_shape.WidthInTexels,
+                sparse_tile_shape.HeightInTexels,
+                sparse_tile_shape.DepthInTexels);
+    std::printf("    \"subresource_tiling\": [%u, %u, %u, %u],\n",
+                sparse_tiling.WidthInTiles, sparse_tiling.HeightInTiles,
+                sparse_tiling.DepthInTiles,
+                sparse_tiling.StartTileIndexInOverallResource);
+    std::printf("    \"copy_verified\": %s,\n",
+                sparse_copy_ok ? "true" : "false");
+    std::printf("    \"unmapped_zero_verified\": %s\n",
+                sparse_unmapped_zero_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"formats\": {\n");
     for (size_t i = 0; i < formats.size(); ++i)

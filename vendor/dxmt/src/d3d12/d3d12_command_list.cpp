@@ -336,7 +336,200 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     const D3D12_TILED_RESOURCE_COORDINATE *tile_region_start_coordinate,
     const D3D12_TILE_REGION_SIZE *tile_region_size,
     ID3D12Resource *buffer, UINT64 buffer_offset,
-    D3D12_TILE_COPY_FLAGS flags) {}
+    D3D12_TILE_COPY_FLAGS flags) {
+  auto *resource = static_cast<MTLD3D12Resource *>(tiled_resource);
+  if (!resource || !resource->IsSparseBacked() || !tile_region_start_coordinate ||
+      !tile_region_size || !buffer || tile_region_size->UseBox ||
+      !tile_region_size->NumTiles) {
+    CLTRACE("CopyTiles rejected resource=%p buffer=%p tiles=%u flags=0x%x",
+            (void *)tiled_resource, (void *)buffer,
+            tile_region_size ? tile_region_size->NumTiles : 0,
+            (unsigned)flags);
+    return;
+  }
+  D3D12_RESOURCE_DESC resource_desc = {};
+  resource->GetDesc(&resource_desc);
+  const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
+  const UINT allowed_flags =
+      D3D12_TILE_COPY_FLAG_NO_HAZARD |
+      D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE |
+      D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER;
+  if ((static_cast<UINT>(flags) & ~allowed_flags) != 0) {
+    CLTRACE("CopyTiles rejected unknown flags=0x%x", (unsigned)flags);
+    return;
+  }
+  const bool buffer_to_texture =
+      (flags & D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE) !=
+      0;
+  const bool texture_to_buffer =
+      (flags & D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER) !=
+      0;
+  if (buffer_to_texture == texture_to_buffer ||
+      resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      resource_desc.SampleDesc.Count > 1 ||
+      buffer_offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0) {
+    CLTRACE("CopyTiles rejected direction/shape flags=0x%x dim=%u samples=%u",
+            (unsigned)flags, (unsigned)resource_desc.Dimension,
+            resource_desc.SampleDesc.Count);
+    return;
+  }
+  D3D12_RESOURCE_DESC buffer_desc = {};
+  static_cast<MTLD3D12Resource *>(buffer)->GetDesc(&buffer_desc);
+  if (buffer_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
+    CLTRACE("CopyTiles rejected non-buffer destination/source=%p", (void *)buffer);
+    return;
+  }
+  const UINT bytes_per_texel = [&] {
+    switch (resource_desc.Format) {
+    case DXGI_FORMAT_R8_TYPELESS:
+    case DXGI_FORMAT_R8_UNORM:
+    case DXGI_FORMAT_R8_UINT:
+    case DXGI_FORMAT_R8_SNORM:
+    case DXGI_FORMAT_R8_SINT:
+      return 1u;
+    case DXGI_FORMAT_R8G8_TYPELESS:
+    case DXGI_FORMAT_R8G8_UNORM:
+    case DXGI_FORMAT_R8G8_UINT:
+    case DXGI_FORMAT_R8G8_SNORM:
+    case DXGI_FORMAT_R8G8_SINT:
+    case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_R16_FLOAT:
+    case DXGI_FORMAT_R16_UNORM:
+    case DXGI_FORMAT_R16_UINT:
+    case DXGI_FORMAT_R16_SNORM:
+    case DXGI_FORMAT_R16_SINT:
+      return 2u;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+    case DXGI_FORMAT_R8G8B8A8_UINT:
+    case DXGI_FORMAT_R8G8B8A8_SNORM:
+    case DXGI_FORMAT_R8G8B8A8_SINT:
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+    case DXGI_FORMAT_R10G10B10A2_UINT:
+    case DXGI_FORMAT_R11G11B10_FLOAT:
+    case DXGI_FORMAT_R32_TYPELESS:
+    case DXGI_FORMAT_R32_FLOAT:
+    case DXGI_FORMAT_R32_UINT:
+    case DXGI_FORMAT_R32_SINT:
+      return 4u;
+    case DXGI_FORMAT_R16G16_TYPELESS:
+    case DXGI_FORMAT_R16G16_FLOAT:
+    case DXGI_FORMAT_R16G16_UNORM:
+    case DXGI_FORMAT_R16G16_UINT:
+    case DXGI_FORMAT_R16G16_SNORM:
+    case DXGI_FORMAT_R16G16_SINT:
+    case DXGI_FORMAT_R32G32_TYPELESS:
+    case DXGI_FORMAT_R32G32_FLOAT:
+    case DXGI_FORMAT_R32G32_UINT:
+    case DXGI_FORMAT_R32G32_SINT:
+      return 8u;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R16G16B16A16_UINT:
+    case DXGI_FORMAT_R16G16B16A16_SNORM:
+    case DXGI_FORMAT_R16G16B16A16_SINT:
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_UINT:
+    case DXGI_FORMAT_R32G32B32A32_SINT:
+      return 16u;
+    default:
+      return 0u;
+    }
+  }();
+  if (!bytes_per_texel || uint64_t(shape.WidthInTexels) * shape.HeightInTexels *
+                              shape.DepthInTexels * bytes_per_texel !=
+                          D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) {
+    CLTRACE("CopyTiles rejected unsupported tile format=%u shape=%ux%ux%u",
+            (unsigned)resource_desc.Format, shape.WidthInTexels,
+            shape.HeightInTexels, shape.DepthInTexels);
+    return;
+  }
+  const auto &coordinate = *tile_region_start_coordinate;
+  if (coordinate.Z || !resource_desc.MipLevels ||
+      coordinate.Subresource >=
+          resource_desc.MipLevels * resource_desc.DepthOrArraySize) {
+    CLTRACE("CopyTiles rejected coordinate z=%u subresource=%u", coordinate.Z,
+            coordinate.Subresource);
+    return;
+  }
+  const UINT mip = coordinate.Subresource % resource_desc.MipLevels;
+  const UINT mip_width = std::max<UINT>(1, resource_desc.Width >> mip);
+  const UINT mip_height = std::max<UINT>(1, resource_desc.Height >> mip);
+  if (mip_width < shape.WidthInTexels || mip_height < shape.HeightInTexels) {
+    CLTRACE("CopyTiles rejected partial mip=%u size=%ux%u tile=%ux%u", mip,
+            mip_width, mip_height, shape.WidthInTexels, shape.HeightInTexels);
+    return;
+  }
+  const UINT tiles_x =
+      (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+  const UINT tiles_y =
+      (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+  const uint64_t first_tile = uint64_t(coordinate.Y) * tiles_x + coordinate.X;
+  if (coordinate.X >= tiles_x || coordinate.Y >= tiles_y ||
+      first_tile + tile_region_size->NumTiles > uint64_t(tiles_x) * tiles_y ||
+      uint64_t(buffer_offset) +
+              uint64_t(tile_region_size->NumTiles) *
+                  D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES >
+          static_cast<MTLD3D12Resource *>(buffer)->GetBufferByteLength()) {
+    CLTRACE("CopyTiles rejected range x=%u y=%u tiles=%u buffer_offset=%llu",
+            coordinate.X, coordinate.Y, tile_region_size->NumTiles,
+            (unsigned long long)buffer_offset);
+    return;
+  }
+  const UINT row_pitch = shape.WidthInTexels * bytes_per_texel;
+  for (UINT tile = 0; tile < tile_region_size->NumTiles; tile++) {
+    const uint64_t linear_tile = first_tile + tile;
+    const UINT x = static_cast<UINT>(linear_tile % tiles_x);
+    const UINT y = static_cast<UINT>(linear_tile / tiles_x);
+    CmdCopyTextureRegion cmd = {};
+    cmd.header = {CmdType::CopyTextureRegion, sizeof(cmd)};
+    if (buffer_to_texture) {
+      cmd.dst_resource = tiled_resource;
+      cmd.dst_type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+      cmd.dst_subresource = coordinate.Subresource;
+      cmd.dst_x = x * shape.WidthInTexels;
+      cmd.dst_y = y * shape.HeightInTexels;
+      cmd.src_resource = buffer;
+      cmd.src_type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+      cmd.src_offset = buffer_offset +
+                       uint64_t(tile) *
+                           D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+      cmd.src_footprint_format = resource_desc.Format;
+      cmd.src_footprint_width = shape.WidthInTexels;
+      cmd.src_footprint_height = shape.HeightInTexels;
+      cmd.src_footprint_depth = shape.DepthInTexels;
+      cmd.src_footprint_row_pitch = row_pitch;
+    } else {
+      cmd.dst_resource = buffer;
+      cmd.dst_type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+      cmd.dst_offset = buffer_offset +
+                       uint64_t(tile) *
+                           D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+      cmd.dst_footprint_format = resource_desc.Format;
+      cmd.dst_footprint_width = shape.WidthInTexels;
+      cmd.dst_footprint_height = shape.HeightInTexels;
+      cmd.dst_footprint_depth = shape.DepthInTexels;
+      cmd.dst_footprint_row_pitch = row_pitch;
+      cmd.src_resource = tiled_resource;
+      cmd.src_type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+      cmd.src_subresource = coordinate.Subresource;
+      cmd.has_src_box = 1;
+      cmd.src_box = {x * shape.WidthInTexels, y * shape.HeightInTexels, 0,
+                     (x + 1) * shape.WidthInTexels,
+                     (y + 1) * shape.HeightInTexels, shape.DepthInTexels};
+    }
+    Emit(cmd);
+  }
+  CLTRACE("CopyTiles %s tiles=%u tile=%ux%ux%u buffer=%p+%llu",
+          buffer_to_texture ? "buffer_to_texture" : "texture_to_buffer",
+          tile_region_size->NumTiles, shape.WidthInTexels,
+          shape.HeightInTexels, shape.DepthInTexels, (void *)buffer,
+          (unsigned long long)buffer_offset);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresource(
     ID3D12Resource *dst, UINT dst_sub, ID3D12Resource *src, UINT src_sub,

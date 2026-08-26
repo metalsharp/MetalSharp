@@ -4392,12 +4392,32 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   InitReturnPtr(resource);
   if (!desc)
     return E_INVALIDARG;
+  if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      desc->MipLevels != 1 || desc->SampleDesc.Count > 1 ||
+      desc->Width == 0 || desc->Height == 0 || desc->DepthOrArraySize == 0 ||
+      MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc->Format) ==
+          WMTPixelFormatInvalid) {
+    TRACE("CreateReservedResource rejected unsupported sparse shape dim=%u "
+          "samples=%u format=%u",
+          (unsigned)desc->Dimension, desc->SampleDesc.Count,
+          (unsigned)desc->Format);
+    return E_NOTIMPL;
+  }
 
-  // A committed-resource substitute violates sparse residency semantics and
-  // can corrupt applications that rely on unmapped tiles reading as zero.
-  // Keep this honest until the Metal sparse mapping implementation lands.
-  TRACE("CreateReservedResource -> E_NOTIMPL (sparse backing unavailable)");
-  return E_NOTIMPL;
+  D3D12_HEAP_PROPERTIES heap_properties = {};
+  heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+  auto res = new MTLD3D12Resource(this, *desc, initial_state,
+                                  heap_properties, D3D12_HEAP_FLAG_NONE, true);
+  if (!res->IsSparseBacked()) {
+    TRACE("CreateReservedResource native sparse texture allocation failed");
+    res->Release();
+    return E_NOTIMPL;
+  }
+  HRESULT hr = res->QueryInterface(riid, resource);
+  res->Release();
+  TRACE("CreateReservedResource sparse texture out=%p hr=0x%lx",
+        resource ? *resource : nullptr, hr);
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
@@ -4585,6 +4605,8 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
     D3D12_TILE_SHAPE *standard_tile_shape, UINT *sub_resource_tiling_count,
     UINT first_sub_resource_tiling,
     D3D12_SUBRESOURCE_TILING *sub_resource_tilings) {
+  const UINT requested_tiling_count =
+      sub_resource_tiling_count ? *sub_resource_tiling_count : 0;
   TRACE("GetResourceTiling res=%p total=%p packed=%p shape=%p count=%p "
         "first=%u tilings=%p",
         (void *)resource, (void *)total_tile_count, (void *)packed_mip_info,
@@ -4598,6 +4620,59 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
     *standard_tile_shape = {};
   if (sub_resource_tiling_count)
     *sub_resource_tiling_count = 0;
+
+  auto *reserved = resource ? static_cast<MTLD3D12Resource *>(resource)
+                            : nullptr;
+  if (!reserved || !reserved->IsReservedResource() ||
+      !reserved->IsSparseBacked())
+    return;
+  D3D12_RESOURCE_DESC desc = {};
+  reserved->GetDesc(&desc);
+  if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      desc.SampleDesc.Count > 1 || !desc.MipLevels || !desc.DepthOrArraySize)
+    return;
+
+  const D3D12_TILE_SHAPE shape = reserved->GetTiledResourceTileShape();
+  const UINT mip_levels = desc.MipLevels;
+  const UINT array_size = desc.DepthOrArraySize;
+  const UINT tiling_count = mip_levels * array_size;
+  UINT total_tiles = 0;
+  for (UINT array_slice = 0; array_slice < array_size; array_slice++) {
+    for (UINT mip = 0; mip < mip_levels; mip++) {
+      const UINT width = std::max<UINT>(1, desc.Width >> mip);
+      const UINT height = std::max<UINT>(1, desc.Height >> mip);
+      const UINT width_tiles =
+          (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+      const UINT height_tiles =
+          (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+      const UINT subresource = array_slice * mip_levels + mip;
+      if (sub_resource_tilings && sub_resource_tiling_count &&
+          subresource >= first_sub_resource_tiling &&
+          subresource < first_sub_resource_tiling +
+                            requested_tiling_count) {
+        const UINT output_index = subresource - first_sub_resource_tiling;
+        sub_resource_tilings[output_index] = {
+            width_tiles, static_cast<UINT16>(height_tiles), 1, total_tiles};
+      }
+      total_tiles += width_tiles * height_tiles;
+    }
+  }
+  if (total_tile_count)
+    *total_tile_count = total_tiles;
+  if (packed_mip_info) {
+    packed_mip_info->NumStandardMips =
+        static_cast<UINT8>(std::min<UINT>(mip_levels, 255));
+    packed_mip_info->NumPackedMips = 0;
+    packed_mip_info->NumTilesForPackedMips = 0;
+    packed_mip_info->StartTileIndexInOverallResource = total_tiles;
+  }
+  if (standard_tile_shape)
+    *standard_tile_shape = shape;
+  if (sub_resource_tiling_count)
+    *sub_resource_tiling_count = requested_tiling_count
+                                     ? std::min(requested_tiling_count,
+                                                tiling_count)
+                                     : tiling_count;
 }
 
 LUID *STDMETHODCALLTYPE MTLD3D12Device::GetAdapterLuid(LUID *__ret) {
@@ -5203,7 +5278,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource1(
     const D3D12_CLEAR_VALUE *optimized_clear_value,
     ID3D12ProtectedResourceSession *protected_session, REFIID riid,
     void **resource) {
-  TRACE("ID3D12Device4::CreateReservedResource1 -> E_NOTIMPL");
+  TRACE("ID3D12Device4::CreateReservedResource1 protected=%p",
+        (void *)protected_session);
+  if (protected_session)
+    return E_NOTIMPL;
   return CreateReservedResource(desc, initial_state, optimized_clear_value,
                                 riid, resource);
 }
@@ -5923,9 +6001,19 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource2(
     ID3D12ProtectedResourceSession *protected_session,
     UINT32 castable_formats_count, DXGI_FORMAT *castable_formats, REFIID riid,
     void **resource) {
-  TRACE("ID3D12Device10::CreateReservedResource2 -> E_NOTIMPL");
-  return CreateReservedResource(desc, (D3D12_RESOURCE_STATES)initial_layout,
-                                optimized_clear_value, riid, resource);
+  TRACE("ID3D12Device10::CreateReservedResource2 protected=%p castable=%u",
+        (void *)protected_session, castable_formats_count);
+  if (protected_session ||
+      (castable_formats_count && !castable_formats))
+    return E_INVALIDARG;
+  HRESULT hr = CreateReservedResource(
+      desc, ResourceStateForBarrierLayout(initial_layout), optimized_clear_value,
+      riid, resource);
+  if (SUCCEEDED(hr) && resource && *resource && castable_formats_count)
+    static_cast<MTLD3D12Resource *>(
+        static_cast<ID3D12Resource *>(*resource))
+        ->SetCastableFormats(castable_formats_count, castable_formats);
+  return hr;
 }
 
 /*** ID3D12Device11Compat ***/

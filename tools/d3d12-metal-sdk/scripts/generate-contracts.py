@@ -371,10 +371,10 @@ def unsupported_ledger() -> dict[str, Any]:
             },
             {
                 "api": "D3D12 sparse and reserved resources",
-                "state": "unsupported",
-                "tier": "unsupported",
-                "reason": "Metal sparse backing is not implemented or probed; reserved resources must fail instead of falling back to committed allocation.",
-                "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_device_caps"],
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "Native Metal sparse-backed 2D reserved texture creation, tiling, two-tile mapping/unmapping, and exact CopyTiles round-trip are proven; heap-page selection, aliases, packed mips, buffers, and broader layouts remain gated.",
+                "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_resources"],
             },
             {
                 "api": "D3D12 geometry shaders outside proven emulation",

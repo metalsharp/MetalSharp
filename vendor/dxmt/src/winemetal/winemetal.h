@@ -210,7 +210,36 @@ struct WMTBufferInfo {
 
 STATIC_ASSERT(sizeof(WMTBufferInfo) == 32);
 
+struct WMTTextureInfo;
+
 WINEMETAL_API obj_handle_t MTLDevice_newBuffer(obj_handle_t device, struct WMTBufferInfo *info);
+
+enum WMTHeapType : uint32_t {
+  WMTHeapTypeAutomatic = 0,
+  WMTHeapTypePlacement = 1,
+  WMTHeapTypeSparse = 2,
+};
+
+enum WMTSparsePageSize : uint32_t {
+  WMTSparsePageSize16 = 101,
+  WMTSparsePageSize64 = 102,
+  WMTSparsePageSize256 = 103,
+};
+
+struct WMTHeapInfo {
+  uint64_t size;
+  enum WMTResourceOptions options;
+  enum WMTHeapType type;
+  uint32_t sparse_page_size;
+};
+
+WINEMETAL_API obj_handle_t MTLDevice_newHeap(obj_handle_t device,
+                                              struct WMTHeapInfo *info);
+WINEMETAL_API obj_handle_t MTLHeap_newTexture(obj_handle_t heap,
+                                               struct WMTTextureInfo *info);
+
+WINEMETAL_API obj_handle_t
+MTLCommandBuffer_resourceStateCommandEncoder(obj_handle_t cmdbuf);
 
 enum WMTAccelerationStructureIndexType : uint32_t {
   WMTAccelerationStructureIndexTypeNone = 0,
@@ -1052,6 +1081,23 @@ struct WMTOrigin {
   uint64_t y;
   uint64_t z;
 };
+
+enum WMTTextureMappingMode : uint32_t {
+  WMTTextureMappingModeMap = 0,
+  WMTTextureMappingModeUnmap = 1,
+};
+
+struct WMTTextureMapping {
+  enum WMTTextureMappingMode mode;
+  struct WMTOrigin origin;
+  struct WMTSize size;
+  uint64_t mip_level;
+  uint64_t slice;
+};
+
+WINEMETAL_API bool MTLResourceStateCommandEncoder_updateTextureMappings(
+    obj_handle_t encoder, obj_handle_t texture,
+    const struct WMTTextureMapping *mappings, uint64_t mapping_count);
 
 enum WMTBlitCommandType : uint16_t {
   WMTBlitCommandNop,
