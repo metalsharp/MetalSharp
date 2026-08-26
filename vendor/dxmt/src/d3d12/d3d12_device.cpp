@@ -504,6 +504,12 @@ static void CreateDescriptorTextureView(D3D12Descriptor *descriptor,
   resource->GetDesc(&resource_desc);
   if (format == DXGI_FORMAT_UNKNOWN)
     format = resource_desc.Format;
+  if (!resource->IsViewFormatAllowed(format)) {
+    TRACE("CreateDescriptorTextureView rejected undeclared cast res=%p "
+          "resource_fmt=%u view_fmt=%u",
+          (void *)resource, (unsigned)resource_desc.Format, (unsigned)format);
+    return;
+  }
   WMTPixelFormat metal_format =
       MTLD3D12PipelineState::DXGIToMTLPixelFormat(format);
   if (metal_format == WMTPixelFormatInvalid)
@@ -2927,7 +2933,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return E_INVALIDARG;
     o->MSPrimitivesPipelineStatisticIncludesCulledPrimitives = 0;
     o->EnhancedBarriersSupported = TRUE;
-    o->RelaxedFormatCastingSupported = FALSE;
+    o->RelaxedFormatCastingSupported = TRUE;
     TRACE("  OPTIONS12: EnhancedBarriers=%d RelaxedFormatCasting=%d",
           o->EnhancedBarriersSupported, o->RelaxedFormatCastingSupported);
     return S_OK;
@@ -3309,10 +3315,14 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
         uint16_t mip_start = 0, mip_count = 1, slice_start = 0, slice_count = 1;
         SrvViewRange(*desc, resource_desc, mip_start, mip_count, slice_start,
                      slice_count);
-        CreateDescriptorTextureView(d, dxmt_res, desc->Format,
-                                    TextureTypeForSrvView(*desc, resource_desc),
-                                    mip_start, mip_count, slice_start,
-                                    slice_count);
+        if (!dxmt_res->IsViewFormatAllowed(desc->Format)) {
+          d->resource = nullptr;
+        } else {
+          CreateDescriptorTextureView(
+              d, dxmt_res, desc->Format,
+              TextureTypeForSrvView(*desc, resource_desc), mip_start,
+              mip_count, slice_start, slice_count);
+        }
       }
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -3347,10 +3357,14 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateUnorderedAccessView(
         uint16_t mip_start = 0, mip_count = 1, slice_start = 0, slice_count = 1;
         UavViewRange(*desc, resource_desc, mip_start, mip_count, slice_start,
                      slice_count);
-        CreateDescriptorTextureView(d, dxmt_res, desc->Format,
-                                    TextureTypeForUavView(*desc, resource_desc),
-                                    mip_start, mip_count, slice_start,
-                                    slice_count);
+        if (!dxmt_res->IsViewFormatAllowed(desc->Format)) {
+          d->resource = nullptr;
+        } else {
+          CreateDescriptorTextureView(
+              d, dxmt_res, desc->Format,
+              TextureTypeForUavView(*desc, resource_desc), mip_start,
+              mip_count, slice_start, slice_count);
+        }
       }
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -3369,10 +3383,16 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateRenderTargetView(
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
     d->resource = resource;
+    auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
+    if (desc && dxmt_res &&
+        !dxmt_res->IsViewFormatAllowed(desc->Format)) {
+      TRACE("CreateRenderTargetView rejected undeclared cast res=%p fmt=%u",
+            (void *)resource, (unsigned)desc->Format);
+      d->resource = nullptr;
+    }
     if (desc)
       d->rtv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
     TRACE("CreateRenderTargetView desc=%p res=%p tex=%llu fmt=%u dim=%u",
           (void *)d, (void *)resource,
           dxmt_res ? (unsigned long long)dxmt_res->GetMTLTexture().handle
@@ -3394,6 +3414,13 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateDepthStencilView(
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
     d->resource = resource;
+    auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
+    if (desc && dxmt_res &&
+        !dxmt_res->IsViewFormatAllowed(desc->Format)) {
+      TRACE("CreateDepthStencilView rejected undeclared cast res=%p fmt=%u",
+            (void *)resource, (unsigned)desc->Format);
+      d->resource = nullptr;
+    }
     if (desc)
       d->dsv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
@@ -5061,6 +5088,85 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandQueue1(
 }
 
 /*** ID3D12Device10 ***/
+static D3D12_RESOURCE_STATES
+ResourceStateForBarrierLayout(D3D12_BARRIER_LAYOUT layout) {
+  switch (layout) {
+  case D3D12_BARRIER_LAYOUT_GENERIC_READ:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ:
+    return D3D12_RESOURCE_STATE_GENERIC_READ;
+  case D3D12_BARRIER_LAYOUT_RENDER_TARGET:
+    return D3D12_RESOURCE_STATE_RENDER_TARGET;
+  case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS:
+    return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+  case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE:
+    return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+  case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ:
+    return D3D12_RESOURCE_STATE_DEPTH_READ;
+  case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE:
+    return static_cast<D3D12_RESOURCE_STATES>(
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+  case D3D12_BARRIER_LAYOUT_COPY_SOURCE:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE:
+    return D3D12_RESOURCE_STATE_COPY_SOURCE;
+  case D3D12_BARRIER_LAYOUT_COPY_DEST:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST:
+    return D3D12_RESOURCE_STATE_COPY_DEST;
+  case D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE:
+    return D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+  case D3D12_BARRIER_LAYOUT_RESOLVE_DEST:
+    return D3D12_RESOURCE_STATE_RESOLVE_DEST;
+  case D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE:
+    return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+  default:
+    return D3D12_RESOURCE_STATE_COMMON;
+  }
+}
+
+static bool ValidateCastableFormats(const D3D12_RESOURCE_DESC1 *desc,
+                                    UINT32 count,
+                                    const DXGI_FORMAT *formats) {
+  if (!desc)
+    return false;
+  if (!count)
+    return true;
+  if (!formats || desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    return false;
+  const UINT resource_block = FormatBlockSize(desc->Format);
+  const UINT resource_bytes = FormatBytesPerTexel(desc->Format);
+  if (!resource_bytes)
+    return false;
+  for (UINT32 i = 0; i < count; i++) {
+    const DXGI_FORMAT format = formats[i];
+    const UINT view_block = FormatBlockSize(format);
+    const UINT view_bytes = FormatBytesPerTexel(format);
+    if (format == DXGI_FORMAT_UNKNOWN || !view_bytes ||
+        MTLD3D12PipelineState::DXGIToMTLPixelFormat(format) ==
+            WMTPixelFormatInvalid)
+      return false;
+    if (resource_block == 1) {
+      if (view_block != 1 || view_bytes != resource_bytes)
+        return false;
+      continue;
+    }
+    if (view_bytes != resource_bytes)
+      return false;
+    if (view_block == resource_block)
+      continue;
+    if (view_block != 1 || desc->MipLevels != 1 ||
+        desc->DepthOrArraySize != 1)
+      return false;
+  }
+  return true;
+}
+
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource3(
     const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
     const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
@@ -5073,11 +5179,25 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource3(
           "session)");
     return E_NOTIMPL;
   }
-  TRACE("ID3D12Device10::CreateCommittedResource3 -> delegating to "
-        "CreateCommittedResource2");
-  return CreateCommittedResource2(
-      heap_properties, heap_flags, desc, (D3D12_RESOURCE_STATES)initial_layout,
+  if (!ValidateCastableFormats(desc, castable_formats_count,
+                               castable_formats)) {
+    TRACE("ID3D12Device10::CreateCommittedResource3 rejected invalid "
+          "castable-format list count=%u",
+          castable_formats_count);
+    return E_INVALIDARG;
+  }
+  TRACE("ID3D12Device10::CreateCommittedResource3 castable_formats=%u",
+        castable_formats_count);
+  HRESULT hr = CreateCommittedResource2(
+      heap_properties, heap_flags, desc,
+      ResourceStateForBarrierLayout(initial_layout),
       optimized_clear_value, protected_session, riid_resource, resource);
+  if (SUCCEEDED(hr) && resource && *resource) {
+    static_cast<MTLD3D12Resource *>(
+        static_cast<ID3D12Resource *>(*resource))
+        ->SetCastableFormats(castable_formats_count, castable_formats);
+  }
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource2(
@@ -5086,11 +5206,24 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource2(
     const D3D12_CLEAR_VALUE *optimized_clear_value,
     UINT32 castable_formats_count, DXGI_FORMAT *castable_formats, REFIID riid,
     void **resource) {
-  TRACE("ID3D12Device10::CreatePlacedResource2 -> delegating to "
-        "CreatePlacedResource1");
-  return CreatePlacedResource1(heap, heap_offset, desc,
-                               (D3D12_RESOURCE_STATES)initial_layout,
-                               optimized_clear_value, riid, resource);
+  if (!ValidateCastableFormats(desc, castable_formats_count,
+                               castable_formats)) {
+    TRACE("ID3D12Device10::CreatePlacedResource2 rejected invalid "
+          "castable-format list count=%u",
+          castable_formats_count);
+    return E_INVALIDARG;
+  }
+  TRACE("ID3D12Device10::CreatePlacedResource2 castable_formats=%u",
+        castable_formats_count);
+  HRESULT hr = CreatePlacedResource1(
+      heap, heap_offset, desc, ResourceStateForBarrierLayout(initial_layout),
+      optimized_clear_value, riid, resource);
+  if (SUCCEEDED(hr) && resource && *resource) {
+    static_cast<MTLD3D12Resource *>(
+        static_cast<ID3D12Resource *>(*resource))
+        ->SetCastableFormats(castable_formats_count, castable_formats);
+  }
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource2(

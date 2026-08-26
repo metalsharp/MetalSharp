@@ -7,6 +7,7 @@
 #include "winemetal.h"
 #include <atomic>
 #include <utility>
+#include <vector>
 
 namespace dxmt {
 
@@ -89,6 +90,23 @@ public:
   uint64_t GetTextureGPUResourceID() const { return m_tex_gpu_resource_id; }
   uint32_t GetTextureArrayLength() const;
   uint64_t GetBufferByteLength() const;
+  void SetCastableFormats(UINT32 count, const DXGI_FORMAT *formats) {
+    m_has_explicit_castable_formats = count != 0;
+    if (count)
+      m_castable_formats.assign(formats, formats + count);
+    else
+      m_castable_formats.clear();
+  }
+  bool IsViewFormatAllowed(DXGI_FORMAT format) const {
+    if (!m_has_explicit_castable_formats || format == DXGI_FORMAT_UNKNOWN ||
+        format == m_desc.Format)
+      return true;
+    for (DXGI_FORMAT allowed : m_castable_formats) {
+      if (allowed == format)
+        return true;
+    }
+    return false;
+  }
   WMT::Reference<WMT::AccelerationStructure> GetMTLAccelerationStructure() {
     return m_mtl_acceleration_structure;
   }
@@ -156,6 +174,8 @@ private:
   uint64_t m_raytracing_header_gpu_address = 0;
   uint64_t m_tex_gpu_resource_id = 0;
   uint64_t m_backing_offset = 0;
+  bool m_has_explicit_castable_formats = false;
+  std::vector<DXGI_FORMAT> m_castable_formats;
   bool m_is_swapchain_backbuffer = false;
   uint32_t m_swapchain_buffer_index = 0;
   MTLD3D12SwapChain *m_swapchain = nullptr;
