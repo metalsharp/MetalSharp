@@ -1432,7 +1432,9 @@ public:
       m_exports = source->m_exports;
       m_export_imports = source->m_export_imports;
       m_shader_identifiers = source->m_shader_identifiers;
+      m_shader_stack_sizes = source->m_shader_stack_sizes;
       m_pipeline_stack_size = source->m_pipeline_stack_size;
+      m_max_trace_recursion_depth = source->m_max_trace_recursion_depth;
       m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
       m_raygen_visible_function_table =
           source->m_raygen_visible_function_table;
@@ -1550,6 +1552,13 @@ public:
         local_root_associations.push_back(
             static_cast<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *>(
                 subobject.pDesc));
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG &&
+                 subobject.pDesc) {
+        const auto *config =
+            static_cast<const D3D12_RAYTRACING_PIPELINE_CONFIG *>(
+                subobject.pDesc);
+        m_max_trace_recursion_depth = config->MaxTraceRecursionDepth;
       }
     }
     for (const auto *association : local_root_associations) {
@@ -1665,6 +1674,7 @@ public:
       TRACE("StateObject merged collections=%zu exports=%zu pso=%llu",
             existing_collections.size(), m_exports.size(),
             (unsigned long long)m_raygen_compute_pipeline.handle);
+      RebuildShaderStackSizes();
       return !m_exports.empty();
     }
     if (!existing_collections.empty())
@@ -1955,6 +1965,7 @@ public:
       memcpy(identifier.data() + 24, &export_hash, sizeof(export_hash));
       m_shader_identifiers.emplace(export_name, identifier);
     }
+    RebuildShaderStackSizes();
     TRACE("StateObject raygen pipeline compiled exports=%zu pso=%llu "
           "visible_table=%llu",
           m_exports.size(),
@@ -1994,6 +2005,8 @@ public:
         memcpy(identifier.data() + 24, &export_hash, sizeof(export_hash));
         m_exports.emplace_back(hit_group->HitGroupExport);
         m_shader_identifiers[hit_group->HitGroupExport] = identifier;
+        m_export_imports[hit_group->HitGroupExport] = template_name;
+        RebuildShaderStackSizes();
         auto local_root = m_local_root_signatures.find(template_name);
         if (local_root != m_local_root_signatures.end() &&
             local_root->second) {
@@ -2061,6 +2074,51 @@ public:
     return false;
   }
 
+  void RebuildShaderStackSizes() {
+    m_shader_stack_sizes.clear();
+    uint64_t maximum_stack_size = 0;
+    for (const auto &export_name : m_exports) {
+      auto import = m_export_imports.find(export_name);
+      const std::wstring &canonical_name =
+          import == m_export_imports.end() ? export_name : import->second;
+      uint64_t stack_size = 0;
+      if (canonical_name == L"raygen")
+        stack_size = 64;
+      else if (canonical_name == L"miss_shader")
+        stack_size = 64;
+      else if (canonical_name == L"callable_shader")
+        stack_size = 64;
+      else if (canonical_name == L"closest_hit")
+        stack_size = 96;
+      else if (canonical_name == L"any_hit")
+        stack_size = 64;
+      else if (canonical_name == L"procedural_intersection")
+        stack_size = 64;
+      else if (canonical_name == L"procedural_closest_hit")
+        stack_size = 96;
+      else if (canonical_name == L"hit_group") {
+        m_shader_stack_sizes[export_name + L"::anyhit"] = 64;
+        m_shader_stack_sizes[export_name + L"::closesthit"] = 96;
+      } else if (canonical_name == L"procedural_hit_group") {
+        m_shader_stack_sizes[export_name + L"::intersection"] = 64;
+        m_shader_stack_sizes[export_name + L"::closesthit"] = 96;
+      }
+      if (stack_size) {
+        m_shader_stack_sizes[export_name] = stack_size;
+        maximum_stack_size = std::max(maximum_stack_size, stack_size);
+      }
+    }
+    for (const auto &entry : m_shader_stack_sizes)
+      maximum_stack_size = std::max(maximum_stack_size, entry.second);
+    if (m_type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE &&
+        !m_pipeline_stack_size && maximum_stack_size) {
+      const uint64_t recursion = std::max<uint32_t>(
+          1, std::min<uint32_t>(m_max_trace_recursion_depth, 2));
+      m_pipeline_stack_size = std::min<uint64_t>(
+          UINT64_C(0xfffffffe), maximum_stack_size * (recursion + 1));
+    }
+  }
+
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
     if (!ppv)
       return E_POINTER;
@@ -2123,7 +2181,12 @@ public:
   UINT64 STDMETHODCALLTYPE GetShaderStackSize(LPCWSTR export_name) override {
     TRACE("StateObjectProperties::GetShaderStackSize export=%ls",
           export_name ? export_name : L"(null)");
-    return 0;
+    if (!export_name)
+      return UINT64_C(0xffffffff);
+    auto stack_size = m_shader_stack_sizes.find(export_name);
+    return stack_size == m_shader_stack_sizes.end()
+               ? UINT64_C(0xffffffff)
+               : stack_size->second;
   }
 
   UINT64 STDMETHODCALLTYPE GetPipelineStackSize() override {
@@ -2135,6 +2198,9 @@ public:
   void STDMETHODCALLTYPE SetPipelineStackSize(UINT64 stack_size) override {
     TRACE("StateObjectProperties::SetPipelineStackSize %llu",
           (unsigned long long)stack_size);
+    if (m_type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ||
+        stack_size >= UINT64_C(0xffffffff))
+      return;
     m_pipeline_stack_size = stack_size;
   }
 
@@ -2206,7 +2272,9 @@ private:
   std::unordered_map<std::wstring, std::wstring> m_export_imports;
   std::unordered_map<std::wstring, std::array<uint8_t, 32>>
       m_shader_identifiers;
+  std::unordered_map<std::wstring, UINT64> m_shader_stack_sizes;
   UINT64 m_pipeline_stack_size = 0;
+  UINT32 m_max_trace_recursion_depth = 1;
 };
 
 WMT::Reference<WMT::ComputePipelineState>
@@ -3729,8 +3797,12 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateConstantBufferView(
     return;
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    d->resource = nullptr;
+    d->resource_uav_counter = nullptr;
     d->is_sampler_feedback = false;
     d->sampler_feedback_target = nullptr;
+    d->metal_texture_view = {};
+    d->metal_texture_gpu_id = 0;
     d->cbv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;

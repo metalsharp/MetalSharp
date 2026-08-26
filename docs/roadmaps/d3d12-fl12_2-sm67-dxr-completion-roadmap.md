@@ -1152,7 +1152,11 @@ the goal is not complete.
   local-root arguments are associated with closest-hit: constant `0x4c4f434c`,
   mirrored CBV-table marker `0x43425631` and mirrored SRV-table marker
   `0x53525631` are read from the record, while mirrored SRV/UAV and sampler
-  tables supply the resource and `SampleLevel` paths. The
+  tables supply the resource and `SampleLevel` paths; a static local sampler
+  table is supplied through `IRShaderIdentifier.localRootSignatureSamplersBuffer`.
+  `GetShaderStackSize` now returns deterministic valid stage/component values,
+  invalid names return `0xffffffff`, and a configured pipeline stack size
+  survives an invalid oversized update. The
   record-local UAV receives exact marker `0x4c525557`. Recursion only returns
   `0x52454332` when both local reads, sampling, and the existing
   any-hit/nested-miss behavior are correct.
@@ -1174,5 +1178,5 @@ the goal is not complete.
   preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
   mixed triangle/AABB geometry in one BLAS, persistent cross-process
   serialization reconstruction, independently linked collection merging,
-  new-library state-object growth, static local samplers, and broader
-  record-count, stride, and local-data shader-table matrices.
+  new-library state-object growth and broader record-count, stride, and
+  local-data shader-table matrices.

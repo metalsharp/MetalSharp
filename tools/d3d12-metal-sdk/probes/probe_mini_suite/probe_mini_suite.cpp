@@ -2926,6 +2926,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12DescriptorHeap* local_texture_rtv_heap = nullptr;
     bool local_descriptor_tables_written = false;
     bool local_sampler_table_written = false;
+    bool local_static_sampler_written = false;
     bool source_acceleration_structures_released_before_traversal = false;
     hr = device->QueryInterface(IID_PPV_ARGS(&device5));
     if (SUCCEEDED(hr))
@@ -3025,9 +3026,25 @@ static ProbeResult probe_dxr_acceleration_structures() {
     local_root_params[4].DescriptorTable.NumDescriptorRanges = 1;
     local_root_params[4].DescriptorTable.pDescriptorRanges = &local_ranges[4];
     local_root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_STATIC_SAMPLER_DESC local_static_sampler = {};
+    local_static_sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    local_static_sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    local_static_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    local_static_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    local_static_sampler.MipLODBias = 0.0f;
+    local_static_sampler.MaxAnisotropy = 1;
+    local_static_sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    local_static_sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+    local_static_sampler.MinLOD = 0.0f;
+    local_static_sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    local_static_sampler.ShaderRegister = 1;
+    local_static_sampler.RegisterSpace = 0;
+    local_static_sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     D3D12_ROOT_SIGNATURE_DESC local_root_desc = {};
     local_root_desc.NumParameters = 5;
     local_root_desc.pParameters = local_root_params;
+    local_root_desc.NumStaticSamplers = 1;
+    local_root_desc.pStaticSamplers = &local_static_sampler;
     local_root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
     ID3DBlob* local_root_blob = nullptr;
     if (SUCCEEDED(hr))
@@ -3039,6 +3056,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
             local_root_blob->GetBufferSize(),
             IID_PPV_ARGS(&closest_hit_local_root));
     safe_release(local_root_blob);
+    local_static_sampler_written = SUCCEEDED(hr);
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
         D3D12_RESOURCE_DESC local_desc = buffer_desc(256);
@@ -3419,6 +3437,56 @@ static ProbeResult probe_dxr_acceleration_structures() {
         raygen_identifier && miss_identifier && hit_group_identifier &&
         procedural_hit_group_identifier && callable_identifier &&
         miss_alias_identifier && callable_alias_identifier;
+    const uint64_t raygen_stack_size =
+        SUCCEEDED(hr) ? raytracing_properties->GetShaderStackSize(L"raygen")
+                      : UINT64_C(0xffffffff);
+    const uint64_t miss_stack_size =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderStackSize(L"miss_shader")
+            : UINT64_C(0xffffffff);
+    const uint64_t closest_hit_stack_size =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderStackSize(
+                  L"hit_group::closesthit")
+            : UINT64_C(0xffffffff);
+    const uint64_t any_hit_stack_size =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderStackSize(L"hit_group::anyhit")
+            : UINT64_C(0xffffffff);
+    const uint64_t callable_stack_size =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderStackSize(L"callable_shader")
+            : UINT64_C(0xffffffff);
+    const uint64_t hit_group_stack_size =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderStackSize(L"hit_group")
+            : 0;
+    const uint64_t unknown_stack_size =
+        SUCCEEDED(hr)
+            ? raytracing_properties->GetShaderStackSize(L"unknown_export")
+            : 0;
+    const uint64_t initial_pipeline_stack_size =
+        SUCCEEDED(hr) ? raytracing_properties->GetPipelineStackSize() : 0;
+    if (SUCCEEDED(hr))
+        raytracing_properties->SetPipelineStackSize(512);
+    const uint64_t configured_pipeline_stack_size =
+        SUCCEEDED(hr) ? raytracing_properties->GetPipelineStackSize() : 0;
+    if (SUCCEEDED(hr))
+        raytracing_properties->SetPipelineStackSize(UINT64_C(0xffffffff));
+    const uint64_t rejected_pipeline_stack_size =
+        SUCCEEDED(hr) ? raytracing_properties->GetPipelineStackSize() : 0;
+    const bool stack_size_contract =
+        raygen_stack_size > 0 && raygen_stack_size < UINT64_C(0xffffffff) &&
+        miss_stack_size > 0 && miss_stack_size < UINT64_C(0xffffffff) &&
+        closest_hit_stack_size > 0 &&
+        closest_hit_stack_size < UINT64_C(0xffffffff) &&
+        any_hit_stack_size > 0 && any_hit_stack_size < UINT64_C(0xffffffff) &&
+        callable_stack_size > 0 && callable_stack_size < UINT64_C(0xffffffff) &&
+        hit_group_stack_size == UINT64_C(0xffffffff) &&
+        unknown_stack_size == UINT64_C(0xffffffff) &&
+        initial_pipeline_stack_size > 0 &&
+        configured_pipeline_stack_size == 512 &&
+        rejected_pipeline_stack_size == configured_pipeline_stack_size;
     const bool add_to_state_object_created = grown_raytracing_state != nullptr;
     const bool grown_state_identifiers =
         grown_hit_group_identifier && inherited_hit_group_identifier &&
@@ -3432,7 +3500,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         hr = E_FAIL;
     if (SUCCEEDED(hr) &&
         (!renamed_export_identifiers || !shader_identifier_abi_layout ||
-         !collection_filtering_and_merge))
+         !collection_filtering_and_merge || !stack_size_contract))
         hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -4598,6 +4666,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           collection_filtering_and_merge &&
                           local_descriptor_tables_written &&
                           local_sampler_table_written &&
+                          local_static_sampler_written &&
+                          stack_size_contract &&
                           local_root_uav_value == 0x4c525557;
 
     safe_release(raygen_shader_table);
@@ -4661,7 +4731,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, filtered merged collection-derived pipeline, local resource/sampler descriptor-table mirror records, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, filtered merged collection-derived pipeline, local resource/sampler/static-sampler descriptor records, shader-stack-size and pipeline-stack-size contracts, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -4767,6 +4837,26 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 (local_descriptor_tables_written ? "true" : "false") +
                 ",\"local_sampler_table_written\":" +
                 (local_sampler_table_written ? "true" : "false") +
+                ",\"local_static_sampler_written\":" +
+                (local_static_sampler_written ? "true" : "false") +
+                ",\"shader_stack_size_contract\":" +
+                (stack_size_contract ? "true" : "false") +
+                ",\"raygen_stack_size\":" +
+                std::to_string(raygen_stack_size) +
+                ",\"miss_stack_size\":" +
+                std::to_string(miss_stack_size) +
+                ",\"closest_hit_stack_size\":" +
+                std::to_string(closest_hit_stack_size) +
+                ",\"any_hit_stack_size\":" +
+                std::to_string(any_hit_stack_size) +
+                ",\"callable_stack_size\":" +
+                std::to_string(callable_stack_size) +
+                ",\"initial_pipeline_stack_size\":" +
+                std::to_string(initial_pipeline_stack_size) +
+                ",\"configured_pipeline_stack_size\":" +
+                std::to_string(configured_pipeline_stack_size) +
+                ",\"rejected_pipeline_stack_size\":" +
+                std::to_string(rejected_pipeline_stack_size) +
                 ",\"miss_shader_table_records\":2" +
                 ",\"callable_shader_table_records\":2" +
                 ",\"miss_shader_table_stride\":64" +
