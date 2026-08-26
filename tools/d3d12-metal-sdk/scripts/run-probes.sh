@@ -1286,16 +1286,26 @@ HLSL
 JSON
 
   cat > "$raygen_hlsl" <<'HLSL'
+RaytracingAccelerationStructure scene : register(t0);
 RWByteAddressBuffer output : register(u0);
-
-[shader("raygeneration")]
-void raygen() {
-  output.Store(4, 42);
-}
 
 struct MissPayload {
   uint value;
 };
+
+[shader("raygeneration")]
+void raygen() {
+  RayDesc ray;
+  ray.Origin = float3(0.0, 0.0, -2.0);
+  ray.TMin = 0.0;
+  ray.Direction = float3(0.0, 1.0, 0.0);
+  ray.TMax = 10.0;
+  MissPayload payload;
+  payload.value = 0;
+  TraceRay(scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
+  output.Store(4, payload.value);
+  output.Store(8, 42);
+}
 
 [shader("miss")]
 void miss_shader(inout MissPayload payload) {
@@ -1355,7 +1365,13 @@ HLSL
           --root-signature="$raygen_root" \
           --deployment-os=macOS \
           --minimum-os-build-version=15.0.0 \
-          >"$base.raydispatch-msc.log" 2>&1; then
+          >"$base.raydispatch-msc.log" 2>&1 &&
+          "$converter" -o "$base.miss.metallib" "$dxbc" \
+          --entry-point=miss_shader \
+          --root-signature="$raygen_root" \
+          --deployment-os=macOS \
+          --minimum-os-build-version=15.0.0 \
+          >"$base.miss-msc.log" 2>&1; then
           rm -f "$base.msc.fail"
         fi
       done

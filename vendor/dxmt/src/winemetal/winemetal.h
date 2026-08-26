@@ -680,6 +680,7 @@ WINEMETAL_API obj_handle_t MTLDevice_newComputePipelineState(
 struct WMTRaytracingComputePipelineInfo {
   obj_handle_t dispatch_function;
   obj_handle_t raygen_function;
+  obj_handle_t miss_function;
 };
 
 WINEMETAL_API obj_handle_t MTLDevice_newRaytracingComputePipelineState(
