@@ -1054,6 +1054,10 @@ the goal is not complete.
   texture. Broader texture mapping-copy, packed/partial-mip, 3D, and residency
   matrices remain gated; the broader FL12_2, DXR, mesh, and packaging
   requirements remain active.
+- The current clean staged M12 runtime also passes the full 23-probe matrix
+  and strict comparison (`pass=true`, `issues=[]`), including the placement
+  texture mapping-copy readback; its disposable prefix was removed after the
+  run.
 
 ### 2026-08-25 — Baseline and object-contract foundation
 
@@ -1320,7 +1324,7 @@ the goal is not complete.
   plus resolve averages `151.5`, `251.5`, `600.5`, `628.5`, and the
   normalized R8 resolve value `98`. This remains a focused behavior proof;
   both Options14 fields remain conservative until additional format,
-  render-target, and broader resolve matrices pass. The matching Winemetal source audit reports `167/167`
-  normal/WOW64 call-table entries and
-  `failure_count=0`; intentional warmup and missing-capture diagnostics remain
+  render-target, and broader resolve matrices pass. The matching Winemetal source audit reports `169/169`
+  normal/WOW64 call-table entries and `failure_count=0`, including the MTL4
+  sparse-texture update/copy calls; intentional warmup and missing-capture diagnostics remain
   outside the required set, and the FL12_2 target gate remains conservative.
