@@ -265,6 +265,7 @@ static CaseResult run_command_list_reuse_case() {
     if (SUCCEEDED(hr))
         hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(first), D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &readback);
+    HRESULT repeated_close_hr = E_FAIL;
     if (SUCCEEDED(hr)) {
         list->CopyBufferRegion(target, 0, upload_first, 0, sizeof(first));
         D3D12_RESOURCE_BARRIER to_src =
@@ -272,6 +273,8 @@ static CaseResult run_command_list_reuse_case() {
         list->ResourceBarrier(1, &to_src);
         list->CopyBufferRegion(readback, 0, target, 0, sizeof(first));
         hr = list->Close();
+        if (SUCCEEDED(hr))
+            repeated_close_hr = list->Close();
     }
     if (SUCCEEDED(hr)) {
         ID3D12CommandList* lists[] = {list};
@@ -281,7 +284,13 @@ static CaseResult run_command_list_reuse_case() {
     bool first_ok = SUCCEEDED(hr) && readback_bytes(readback, got_first, sizeof(got_first)) &&
                     std::memcmp(got_first, first, sizeof(first)) == 0;
     HRESULT allocator_reset_hr = first_ok ? allocator->Reset() : E_FAIL;
-    HRESULT list_reset_hr = SUCCEEDED(allocator_reset_hr) ? list->Reset(allocator, nullptr) : E_FAIL;
+    HRESULT null_reset_hr = E_FAIL;
+    if (SUCCEEDED(allocator_reset_hr))
+        null_reset_hr = list->Reset(nullptr, nullptr);
+    HRESULT list_reset_hr = SUCCEEDED(allocator_reset_hr) &&
+                                    null_reset_hr == E_INVALIDARG
+                                ? list->Reset(allocator, nullptr)
+                                : E_FAIL;
     if (SUCCEEDED(list_reset_hr)) {
         D3D12_RESOURCE_BARRIER to_dst =
             transition_barrier(target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -300,13 +309,18 @@ static CaseResult run_command_list_reuse_case() {
     uint8_t got_second[64] = {};
     bool second_ok = SUCCEEDED(hr) && readback_bytes(readback, got_second, sizeof(got_second)) &&
                      std::memcmp(got_second, second, sizeof(second)) == 0;
-    result.pass = first_ok && second_ok && SUCCEEDED(allocator_reset_hr) && SUCCEEDED(list_reset_hr);
+    result.pass = first_ok && second_ok && SUCCEEDED(allocator_reset_hr) &&
+                  repeated_close_hr == E_FAIL && null_reset_hr == E_INVALIDARG &&
+                  SUCCEEDED(list_reset_hr);
     result.hr = result.pass ? S_OK : hr;
-    result.detail = result.pass ? "command list close, execute, allocator reset, list reset, and reuse verified"
+    result.detail = result.pass ? "command list close, repeated-close rejection, allocator reset, null-reset rejection, list reset, and reuse verified"
                                 : "command list reuse verification failed";
     result.extra = "\"first_verified\":" + std::string(first_ok ? "true" : "false") +
                    ",\"second_verified\":" + (second_ok ? "true" : "false") + ",\"allocator_reset\":\"" +
-                   hr_hex(allocator_reset_hr) + "\",\"list_reset\":\"" + hr_hex(list_reset_hr) + "\"";
+                   hr_hex(allocator_reset_hr) + "\",\"repeated_close\":\"" +
+                   hr_hex(repeated_close_hr) + "\",\"null_reset\":\"" +
+                   hr_hex(null_reset_hr) + "\",\"list_reset\":\"" +
+                   hr_hex(list_reset_hr) + "\"";
 
     safe_release(readback);
     safe_release(target);

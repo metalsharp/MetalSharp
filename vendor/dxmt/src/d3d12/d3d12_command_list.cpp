@@ -289,6 +289,8 @@ MTLD3D12GraphicsCommandList::GetType() {
 
 HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Close() {
   CLTRACE("Close");
+  if (m_closed)
+    return E_FAIL;
   m_closed = true;
   LogCommandListLifecycle("close", m_debug_id, m_type, m_cmds, m_closed);
   return S_OK;
@@ -297,6 +299,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Close() {
 HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Reset(
     ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state) {
   CLTRACE("Reset");
+  if (!m_closed || !allocator)
+    return !m_closed ? E_FAIL : E_INVALIDARG;
+  auto *new_allocator = static_cast<MTLD3D12CommandAllocator *>(allocator);
+  if (!new_allocator || new_allocator->GetType() != m_type)
+    return E_INVALIDARG;
+  if (new_allocator != m_allocator) {
+    new_allocator->AddRef();
+    if (m_allocator)
+      m_allocator->Release();
+    m_allocator = new_allocator;
+  }
   m_closed = false;
   ReleaseReferencedPipelineStates();
   m_cmds.clear();
