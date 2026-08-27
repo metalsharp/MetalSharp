@@ -1335,9 +1335,12 @@ the goal is not complete.
   the exact per-tile rate. The focused 8x8 checkerboard probe passes with the
   pinned M4/Xcode 27 beta 6 readback `2320`, alongside the constant-image
   `SUM/SUM` readback `1089`.
-- Indexed, geometry, tessellation, mesh-emulated draws, per-primitive
-  `SV_ShadingRate`, and logical-resolution reconstruction remain gated; no
-  VRS capability tier was promoted.
+- DXIL signature parsing and both MSL lowerers now preserve the
+  `SV_ShadingRate` vertex-to-pixel semantic; the focused probe verifies the
+  exact red sentinel from the transported value. Actual per-primitive rate
+  selection, indexed/geometry/tessellation/mesh-emulated image draws, and
+  logical-resolution reconstruction remain gated; no VRS capability tier was
+  promoted.
 
 ### 2026-08-27 — Correct legacy runtime staging and readback gate
 
