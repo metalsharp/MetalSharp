@@ -805,6 +805,17 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetDescriptorHeaps(
     if (heaps[i]) {
       heaps[i]->AddRef();
       m_referenced_descriptor_heaps.push_back(heaps[i]);
+      auto *dxmt_heap = static_cast<MTLD3D12DescriptorHeap *>(heaps[i]);
+      if (dxmt_heap) {
+        for (uint32_t descriptor_index = 0;
+             descriptor_index < dxmt_heap->GetDescriptorCount();
+             descriptor_index++) {
+          const auto &descriptor = dxmt_heap->GetDescriptors()[descriptor_index];
+          RetainResource(descriptor.resource);
+          RetainResource(descriptor.resource_uav_counter);
+          RetainResource(descriptor.sampler_feedback_target);
+        }
+      }
     }
   }
   size_t extra = heap_count * sizeof(ID3D12DescriptorHeap *);
