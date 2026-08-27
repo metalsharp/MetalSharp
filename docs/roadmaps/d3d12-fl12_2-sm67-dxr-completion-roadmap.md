@@ -1222,8 +1222,10 @@ the goal is not complete.
   record now uses a native `D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS`
   command signature and an upload argument buffer; queue replay decodes the
   104-byte `D3D12_DISPATCH_RAYS_DESC` and runs it through the same shader-table
-  path. The direct three-ray launch plus a one-ray indirect launch preserve
-  every recursive, any-hit, procedural, callable, and raygen readback marker.
+  path. The direct three-ray launch is copied before the output is cleared;
+  the four-ray indirect launch then produces an independent procedural marker
+  at the otherwise untouched fourth-ray slot, so recording alone cannot make
+  this gate pass.
   RaytracingTier remains unreported pending
   mixed triangle/AABB geometry in one BLAS, persistent cross-process
   serialization reconstruction, independently linked collection merging,
