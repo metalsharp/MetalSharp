@@ -1047,6 +1047,11 @@ int main() {
     print_hr("unmapped_readback_map", sparse_unmapped_map_hr);
     std::printf("    \"total_tiles\": %u,\n", sparse_total_tiles);
     std::printf("    \"tiling_count\": %u,\n", sparse_tiling_count);
+    std::printf("    \"packed_mips\": [%u, %u, %u, %u],\n",
+                sparse_packed_mips.NumStandardMips,
+                sparse_packed_mips.NumPackedMips,
+                sparse_packed_mips.NumTilesForPackedMips,
+                sparse_packed_mips.StartTileIndexInOverallResource);
     std::printf("    \"tile_shape\": [%u, %u, %u],\n",
                 sparse_tile_shape.WidthInTexels,
                 sparse_tile_shape.HeightInTexels,

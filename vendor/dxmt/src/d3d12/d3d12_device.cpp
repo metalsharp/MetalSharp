@@ -4930,7 +4930,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
         static_cast<UINT8>(std::min<UINT>(mip_levels, 255));
     packed_mip_info->NumPackedMips = 0;
     packed_mip_info->NumTilesForPackedMips = 0;
-    packed_mip_info->StartTileIndexInOverallResource = total_tiles;
+    packed_mip_info->StartTileIndexInOverallResource = 0;
   }
   if (standard_tile_shape)
     *standard_tile_shape = shape;
