@@ -3158,6 +3158,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *fl = (D3D12_FEATURE_DATA_FEATURE_LEVELS *)feature_data;
     if (feature_data_size < sizeof(*fl))
       return E_INVALIDARG;
+    if (fl->NumFeatureLevels && !fl->pFeatureLevelsRequested)
+      return E_INVALIDARG;
     fl->MaxSupportedFeatureLevel = D3D_FEATURE_LEVEL_9_1;
     for (UINT i = 0; i < fl->NumFeatureLevels; i++) {
       if (fl->pFeatureLevelsRequested[i] <= D3D12ConfiguredMaximumFeatureLevel() &&
