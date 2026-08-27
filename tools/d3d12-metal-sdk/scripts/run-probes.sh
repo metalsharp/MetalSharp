@@ -339,11 +339,43 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --fl12-2-gate)
+      # The aggregate validator consumes every query and behavior dependency.
+      # Force the complete required matrix here so an opt-in gate cannot
+      # accidentally combine a fresh feature-level/VRS result with stale or
+      # missing core, shader, ABI, or mini-probe evidence.  Later explicit
+      # --no-* options may still narrow an ordinary probe run, but callers
+      # should expect the aggregate gate to fail if they do so.
       RUN_FL12_2_GATE=1
+      RUN_LOADER=1
+      RUN_AGILITY=1
+      RUN_CAPS=1
+      RUN_LEGACY_REGRESSION=1
       RUN_FEATURE_LEVELS=1
       RUN_OBJECT_CONTRACTS=1
+      RUN_DXGI=1
+      RUN_RESOURCES=1
+      RUN_QUEUES=1
+      RUN_DESCRIPTORS=1
+      RUN_SHADERS=1
+      RUN_DXIL_SEMANTICS=1
+      RUN_SHADER_CORPUS=1
+      RUN_SM66_CAPABILITIES=1
+      RUN_WRITABLE_MSAA=1
       RUN_VRS=1
+      RUN_SAMPLER_FEEDBACK=1
+      RUN_WAVE_OPS=1
+      RUN_REFLECTION_ABI=1
+      RUN_GRAPHICS_PSO=1
+      RUN_COMPUTE_PSO=1
+      RUN_COMMAND_REPLAY=1
+      RUN_BARRIERS_RENDER_PASS=1
+      RUN_RESOURCE_VIEWS_FORMATS=1
       RUN_RENDER_HEADLESS=1
+      RUN_MINI=1
+      RUN_WINEMETAL_ABI=1
+      RUN_VRS_ONLY=0
+      RUN_WRITABLE_MSAA_ONLY=0
+      MINI_PROBE_FILTER=""
       shift
       ;;
     --object-contracts)
