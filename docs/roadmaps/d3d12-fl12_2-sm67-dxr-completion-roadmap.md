@@ -1344,6 +1344,14 @@ the goal is not complete.
   checks, with the remaining failures limited to the deliberately unpromoted
   FL12_2 capability and behavior rows.
 
+### 2026-08-27 — Removed an unsupported conservative-raster report
+
+- The D3D12 options query no longer reports Conservative Rasterization Tier 1:
+  the source audit found no actual conservative coverage implementation behind
+  that value. A fresh source-staged caps probe still passes its conservative
+  policy gate with the field at `NOT_SUPPORTED`; Tier 3 remains blocked until
+  the edge/inner-input/degenerate/winding/clipping/MSAA reference path exists.
+
 ### 2026-08-27 — Narrowed the remaining work to the completion runway
 
 - The roadmap now has one authoritative, ordered Completion Phase 0–9 runway.
