@@ -464,7 +464,6 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
   }
   D3D12_RESOURCE_DESC resource_desc = {};
   resource->GetDesc(&resource_desc);
-  const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
   const UINT allowed_flags =
       D3D12_TILE_COPY_FLAG_NO_HAZARD |
       D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE |
@@ -473,6 +472,51 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     CLTRACE("CopyTiles rejected unknown flags=0x%x", (unsigned)flags);
     return;
   }
+  const bool tile_buffer_to_resource =
+      (flags & D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE) !=
+      0;
+  const bool tile_resource_to_buffer =
+      (flags & D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER) !=
+      0;
+  if (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    D3D12_RESOURCE_DESC source_desc = {};
+    static_cast<MTLD3D12Resource *>(buffer)->GetDesc(&source_desc);
+    const auto &coordinate = *tile_region_start_coordinate;
+    const uint64_t tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    const uint64_t total_tiles =
+        (resource_desc.Width + tile_size - 1) / tile_size;
+    const uint64_t first_tile = coordinate.X;
+    const uint64_t tile_count = tile_region_size->NumTiles;
+    if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+        tile_buffer_to_resource == tile_resource_to_buffer || coordinate.Y ||
+        coordinate.Z || coordinate.Subresource ||
+        buffer_offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0 ||
+        first_tile >= total_tiles || tile_count > total_tiles - first_tile ||
+        buffer_offset > source_desc.Width ||
+        tile_count * tile_size > source_desc.Width - buffer_offset) {
+      CLTRACE("CopyTiles rejected buffer range x=%llu tiles=%llu offset=%llu",
+              (unsigned long long)first_tile, (unsigned long long)tile_count,
+              (unsigned long long)buffer_offset);
+      return;
+    }
+    for (uint64_t tile = 0; tile < tile_count; tile++) {
+      const uint64_t tiled_offset = (first_tile + tile) * tile_size;
+      const uint64_t linear_offset = buffer_offset + tile * tile_size;
+      if (tile_buffer_to_resource)
+        CopyBufferRegion(tiled_resource, tiled_offset, buffer, linear_offset,
+                         tile_size);
+      else
+        CopyBufferRegion(buffer, linear_offset, tiled_resource, tiled_offset,
+                         tile_size);
+    }
+    CLTRACE("CopyTiles buffer %s tiles=%u buffer=%p+%llu",
+            tile_buffer_to_resource ? "to_reserved" : "from_reserved",
+            tile_region_size->NumTiles, (void *)buffer,
+            (unsigned long long)buffer_offset);
+    return;
+  }
+  resource->GetDesc(&resource_desc);
+  const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
   const bool buffer_to_texture =
       (flags & D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE) !=
       0;

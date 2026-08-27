@@ -7517,6 +7517,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
   }
   auto *sparse_resource = static_cast<MTLD3D12Resource *>(resource);
   auto *tile_heap = static_cast<MTLD3D12Heap *>(heap);
+  if (!range_tile_counts)
+    return;
+  D3D12_RESOURCE_DESC sparse_desc = {};
+  if (!sparse_resource || !sparse_resource->IsReservedResource() ||
+      !sparse_resource->IsSparseBacked())
+    return;
+  sparse_resource->GetDesc(&sparse_desc);
   bool needs_heap = false;
   for (UINT range = 0; range < range_count; range++)
     needs_heap |= !range_flags ||
@@ -7540,6 +7547,55 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
         return;
       }
     }
+  }
+  if (sparse_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    const uint64_t tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    const uint64_t total_tiles =
+        (sparse_desc.Width + tile_size - 1) / tile_size;
+    for (UINT range = 0; range < range_count; range++) {
+      const auto range_flag =
+          range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
+      if (range_flag != D3D12_TILE_RANGE_FLAG_NONE &&
+          range_flag != D3D12_TILE_RANGE_FLAG_NULL)
+        return;
+    }
+    uint64_t range_index = 0;
+    uint64_t range_remaining = range_tile_counts[0];
+    uint64_t mapped_tiles = 0;
+    uint8_t *cpu = static_cast<uint8_t *>(sparse_resource->GetCPUAddress());
+    for (UINT region = 0; region < region_count; region++) {
+      const auto &coordinate = region_start_coordinates[region];
+      const auto &size = region_sizes[region];
+      if (coordinate.Y || coordinate.Z || coordinate.Subresource ||
+          size.UseBox || !size.NumTiles || coordinate.X >= total_tiles ||
+          size.NumTiles > total_tiles - coordinate.X)
+        return;
+      for (UINT tile = 0; tile < size.NumTiles; tile++) {
+        while (range_index < range_count && range_remaining == 0) {
+          range_index++;
+          range_remaining = range_index < range_count
+                                ? range_tile_counts[range_index]
+                                : 0;
+        }
+        if (range_index >= range_count || !range_remaining)
+          return;
+        const auto range_flag = range_flags
+                                    ? range_flags[range_index]
+                                    : D3D12_TILE_RANGE_FLAG_NONE;
+        if (range_flag == D3D12_TILE_RANGE_FLAG_NULL && cpu)
+          std::memset(cpu + (uint64_t(coordinate.X) + tile) * tile_size, 0,
+                      static_cast<size_t>(tile_size));
+        if (range_flag == D3D12_TILE_RANGE_FLAG_NONE && !tile_heap)
+          return;
+        range_remaining--;
+        mapped_tiles++;
+      }
+    }
+    QTRACE("CmdQueue::UpdateTileMappings reserved buffer tiles=%llu "
+           "mapped=%llu (full-buffer compatibility backing)",
+           (unsigned long long)mapped_tiles,
+           (unsigned long long)total_tiles);
+    return;
   }
   std::vector<WMTTextureMapping> mappings;
   if (!BuildSparseTextureMappings(

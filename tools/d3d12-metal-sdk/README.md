@@ -352,9 +352,11 @@ support, and typeless view-time typing. The resource probe now creates a native
 Metal sparse-backed 128x128x2 RGBA8-array reserved texture, reports two
 standard 128x128 subresource tiles, maps and unmaps both array slices through
 `UpdateTileMappings`, and round-trips exact 64 KiB `CopyTiles` payloads for
-each slice; Tier 3 remains conservative
-until heap-page selection, aliases, packed mips, buffers, and broader formats
-are covered. It also round-trips a named and unnamed process-local
+each slice. A focused two-tile reserved-buffer path reports the 64 KiB buffer
+tiling, copies exact payloads, and verifies zero-after-unmap using a full shared
+compatibility backing; Tier 3 remains conservative until physical heap-page
+selection, aliases, packed mips, `CopyTileMappings`, residency transitions, and
+broader formats are covered. It also round-trips a named and unnamed process-local
 `CreateSharedHandle`/`OpenSharedHandle` pair and rejects unknown handles and
 missing names; cross-process sharing remains gated. The probe also creates a fully typed `R32_FLOAT` texture through
 `ID3D12Device10::CreateCommittedResource3` and `CreatePlacedResource2`,

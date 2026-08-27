@@ -1020,8 +1020,11 @@ the goal is not complete.
   behavior-backed posture.
 - Replaced the false-success committed substitute for reserved resources with
   native Metal sparse-backed 2D resources, `GetResourceTiling`, queue mapping /
-  unmapping, and an exact two-tile `CopyTiles` proof. Full Tier 3 reporting
-  remains gated on D3D12 heap-page selection and broader layouts.
+  unmapping, and an exact two-tile `CopyTiles` proof. Added a focused reserved
+  two-tile buffer compatibility path with 64 KiB tiling, exact copies, and
+  zero-after-unmap verification over full shared backing. Full Tier 3 reporting
+  remains gated on physical D3D12 heap-page selection, aliases, packed mips,
+  `CopyTileMappings`, residency transitions, and broader layouts.
 - The conservative `probe_device_caps` gate now passes from the current source
   build while the separate FL12_2/SM6.7 target gate remains red as intended.
 - Extended the WaveOps probe from compile/PSO-only coverage to six dispatched
@@ -1230,4 +1233,7 @@ the goal is not complete.
   mixed triangle/AABB geometry in one BLAS, persistent cross-process
   serialization reconstruction, independently linked collection merging,
   new-library state-object growth and broader record-count, stride, and
-  local-data shader-table matrices.
+  local-data shader-table matrices. The resource gate also now covers a
+  separate two-tile reserved-buffer compatibility path: 64 KiB tiling, exact
+  tile copies, and zero-after-unmap readback pass, while its full shared
+  backing is explicitly not treated as physical sparse heap-page support.
