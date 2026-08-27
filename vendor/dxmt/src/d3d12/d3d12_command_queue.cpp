@@ -7873,44 +7873,84 @@ static bool BuildSparseTextureMappings(
       metal4 ? 2u : std::max<UINT>(1, shape.WidthInTexels / 2);
   const UINT metal_tiles_y =
       metal4 ? 2u : std::max<UINT>(1, shape.HeightInTexels / 2);
+  struct SparseTileLocation {
+    UINT subresource;
+    UINT x;
+    UINT y;
+  };
   UINT range_index = 0;
   UINT range_remaining = range_count
                              ? (range_tile_counts ? range_tile_counts[0] : 1)
                              : 0;
+  const UINT subresource_count =
+      mip_levels * std::max<UINT16>(desc.DepthOrArraySize, 1);
   for (UINT region_index = 0; region_index < region_count; region_index++) {
     const auto &coordinate = region_coordinates[region_index];
     const auto &size = region_sizes[region_index];
-    const UINT mip = coordinate.Subresource % mip_levels;
-    const UINT slice = coordinate.Subresource / mip_levels;
-    if (slice >= desc.DepthOrArraySize || mip >= mip_levels)
+    if (coordinate.Subresource >= subresource_count)
       return false;
-    const UINT mip_width = std::max<UINT>(1, desc.Width >> mip);
-    const UINT mip_height = std::max<UINT>(1, desc.Height >> mip);
-    const UINT mip_tiles_x =
-        (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
-    const UINT mip_tiles_y =
-        (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
-    const UINT region_width = size.UseBox ? size.Width : size.NumTiles;
-    const UINT region_height = size.UseBox ? size.Height : 1;
-    const UINT region_depth = size.UseBox ? size.Depth : 1;
-    if (!region_width || !region_height || !region_depth ||
-        (size.UseBox && region_depth != 1))
+
+    const uint64_t requested_tiles =
+        size.UseBox ? uint64_t(size.Width) * size.Height * size.Depth
+                    : size.NumTiles;
+    if (!requested_tiles || requested_tiles > 1048576)
       return false;
-    const uint64_t tile_count = uint64_t(region_width) * region_height *
-                                region_depth;
-    if (!size.UseBox) {
-      const uint64_t first_tile =
-          uint64_t(coordinate.Y) * mip_tiles_x + coordinate.X;
-      if (coordinate.X >= mip_tiles_x || coordinate.Y >= mip_tiles_y ||
-          first_tile + region_width > uint64_t(mip_tiles_x) * mip_tiles_y)
+    std::vector<SparseTileLocation> locations;
+    locations.reserve(static_cast<size_t>(requested_tiles));
+    if (size.UseBox) {
+      const UINT mip = coordinate.Subresource % mip_levels;
+      const UINT slice = coordinate.Subresource / mip_levels;
+      const UINT mip_width = std::max<UINT>(1, desc.Width >> mip);
+      const UINT mip_height = std::max<UINT>(1, desc.Height >> mip);
+      const UINT mip_tiles_x =
+          (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+      const UINT mip_tiles_y =
+          (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+      if (!size.Width || !size.Height || !size.Depth || size.Depth != 1 ||
+          size.NumTiles != requested_tiles || coordinate.X >= mip_tiles_x ||
+          coordinate.Y >= mip_tiles_y ||
+          uint64_t(coordinate.X) + size.Width > mip_tiles_x ||
+          uint64_t(coordinate.Y) + size.Height > mip_tiles_y)
         return false;
+      for (UINT y = 0; y < size.Height; ++y)
+        for (UINT x = 0; x < size.Width; ++x)
+          locations.push_back({coordinate.Subresource, coordinate.X + x,
+                               coordinate.Y + y});
+      (void)slice;
+    } else {
+      // A non-box region walks X then Y and spills through mipmaps and array
+      // slices in subresource order.  Do not treat NumTiles as a row width.
+      UINT current_subresource = coordinate.Subresource;
+      UINT current_x = coordinate.X;
+      UINT current_y = coordinate.Y;
+      for (uint64_t tile = 0; tile < requested_tiles; ++tile) {
+        if (current_subresource >= subresource_count)
+          return false;
+        const UINT mip = current_subresource % mip_levels;
+        const UINT mip_width = std::max<UINT>(1, desc.Width >> mip);
+        const UINT mip_height = std::max<UINT>(1, desc.Height >> mip);
+        const UINT mip_tiles_x =
+            (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+        const UINT mip_tiles_y =
+            (mip_height + shape.HeightInTexels - 1) /
+            shape.HeightInTexels;
+        if (current_x >= mip_tiles_x || current_y >= mip_tiles_y)
+          return false;
+        locations.push_back(
+            {current_subresource, current_x, current_y});
+        const uint64_t linear = uint64_t(current_y) * mip_tiles_x +
+                                current_x + 1;
+        if (linear == uint64_t(mip_tiles_x) * mip_tiles_y) {
+          ++current_subresource;
+          current_x = current_y = 0;
+        } else {
+          current_x = static_cast<UINT>(linear % mip_tiles_x);
+          current_y = static_cast<UINT>(linear / mip_tiles_x);
+        }
+      }
     }
-    if (size.UseBox &&
-        (coordinate.X >= mip_tiles_x || coordinate.Y >= mip_tiles_y ||
-         uint64_t(coordinate.X) + size.Width > mip_tiles_x ||
-         uint64_t(coordinate.Y) + size.Height > mip_tiles_y))
-      return false;
-    for (uint64_t tile = 0; tile < tile_count; tile++) {
+
+    for (size_t tile = 0; tile < locations.size(); ++tile) {
       while (range_count && range_index < range_count &&
              range_remaining == 0) {
         range_index++;
@@ -7930,34 +7970,16 @@ static bool BuildSparseTextureMappings(
                     (uint64_t(range_tile_counts[range_index]) -
                      range_remaining)
               : 0;
-      if (size.UseBox) {
-        const UINT z = static_cast<UINT>(tile / (size.Width * size.Height));
-        const UINT rem = static_cast<UINT>(tile % (size.Width * size.Height));
-        const UINT y = rem / size.Width;
-        const UINT x = rem % size.Width;
-        mappings.push_back({
-            flags == D3D12_TILE_RANGE_FLAG_NULL
-                ? WMTTextureMappingModeUnmap
-                : WMTTextureMappingModeMap,
-            {uint64_t(coordinate.X + x) * metal_tiles_x,
-             uint64_t(coordinate.Y + y) * metal_tiles_y,
-             uint64_t(z)},
-            {metal_tiles_x, metal_tiles_y, 1}, mip, slice,
-            heap_tile_offset});
-      } else {
-        const uint64_t first_tile =
-            uint64_t(coordinate.Y) * mip_tiles_x + coordinate.X;
-        const uint64_t linear_tile = first_tile + tile;
-        const UINT x = static_cast<UINT>(linear_tile % mip_tiles_x);
-        const UINT y = static_cast<UINT>(linear_tile / mip_tiles_x);
-        mappings.push_back({
-            flags == D3D12_TILE_RANGE_FLAG_NULL
-                ? WMTTextureMappingModeUnmap
-                : WMTTextureMappingModeMap,
-            {uint64_t(x) * metal_tiles_x, uint64_t(y) * metal_tiles_y, 0},
-            {metal_tiles_x, metal_tiles_y, 1}, mip, slice,
-            heap_tile_offset});
-      }
+      const auto &location = locations[tile];
+      const UINT mip = location.subresource % mip_levels;
+      const UINT slice = location.subresource / mip_levels;
+      mappings.push_back({
+          flags == D3D12_TILE_RANGE_FLAG_NULL
+              ? WMTTextureMappingModeUnmap
+              : WMTTextureMappingModeMap,
+          {uint64_t(location.x) * metal_tiles_x,
+           uint64_t(location.y) * metal_tiles_y, 0},
+          {metal_tiles_x, metal_tiles_y, 1}, mip, slice, heap_tile_offset});
       if (range_count && range_remaining)
         range_remaining--;
     }
