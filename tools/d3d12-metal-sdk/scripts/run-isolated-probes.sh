@@ -11,6 +11,15 @@ DXMT_RUNTIME="${METALSHARP_DXMT_RUNTIME:-${WINE_ROOT}/lib/dxmt_m12}"
 PROFILE="${METALSHARP_PROBE_PROFILE:-metalsharp-isolated}"
 EXPECTED_WINE_VERSION="${METALSHARP_EXPECTED_WINE_VERSION:-wine-11.5}"
 
+# The completion gate is tied to the pinned Xcode/Metal toolchain.  Preserve an
+# explicitly selected developer directory, but make the proof-host default
+# deterministic when the caller did not export DEVELOPER_DIR.  This also keeps
+# the captured environment identity from silently becoming "unknown".
+if [[ -z "${DEVELOPER_DIR:-}" &&
+      -x "/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer/usr/bin/xcodebuild" ]]; then
+  export DEVELOPER_DIR="/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer"
+fi
+
 usage() {
   cat <<'EOF'
 Usage: run-isolated-probes.sh [run-probes.sh options]
@@ -25,6 +34,8 @@ Environment overrides:
   METALSHARP_PROBE_PROFILE     Result profile (default metalsharp-isolated)
   METALSHARP_EXPECTED_WINE_VERSION
                                Required `wine --version` output (default wine-11.5)
+  DEVELOPER_DIR                Pinned Xcode developer directory used for
+                               captured Xcode and Metal identity
 
 The wrapper owns --profile, --wine, --prefix, and --dxmt-runtime; passing those
 options is rejected so a gate cannot silently use another Wine or a persistent
