@@ -3479,7 +3479,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS6 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->AdditionalShadingRatesSupported = FALSE;
+    // The single-sample 2x4/4x2/4x4 matrix is backed by exact readback in
+    // probe-vrs.  Tier 2 remains conservative because per-primitive
+    // SV_ShadingRate and the complete image contract are not reportable yet.
+    o->AdditionalShadingRatesSupported = TRUE;
     o->PerPrimitiveShadingRateSupportedWithViewportIndexing = FALSE;
     o->VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
     o->ShadingRateImageTileSize = 0;
@@ -3525,7 +3528,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS10 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->VariableRateShadingSumCombinerSupported = FALSE;
+    // SUM is implemented axis-wise and is covered by the constant-image
+    // SUM/SUM readback.  This independent cap does not promote the overall
+    // VariableShadingRateTier.
+    o->VariableRateShadingSumCombinerSupported = TRUE;
     o->MeshShaderPerPrimitiveShadingRateSupported = FALSE;
     return S_OK;
   }
