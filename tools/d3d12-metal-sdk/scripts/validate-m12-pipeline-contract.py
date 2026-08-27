@@ -183,7 +183,7 @@ def validate_m12_route_guards(data: dict[str, Any], errors: list[str]) -> None:
         require(pattern not in block, f"M12 engine block must not contain `{pattern}`", errors)
 
     for pattern in [
-        'assert!(m12_overrides.contains("dxgi_dxmt"))',
+        'wine_overrides: Some("',
         '!m12.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll")',
         'winedllpath.contains("dxmt_m12/x86_64-windows")',
         'path.contains("dxmt_m12")',
