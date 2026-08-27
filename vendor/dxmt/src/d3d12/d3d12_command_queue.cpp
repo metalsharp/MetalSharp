@@ -10065,6 +10065,46 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.RetainResourceMetalObjectsForCompletion(src_res);
         st.RetainResourceMetalObjectsForCompletion(dst_res);
 
+        // Writable MSAA resources are flattened into a private 2D-array
+        // texture, so Metal's native multisample resolve would select only
+        // the first physical slice. Use the paired compute bridge for the
+        // narrow format/shape it can prove and fail closed for the rest.
+        if (src_res->IsWritableMSAAEmulated()) {
+          const bool supported =
+              multisample && full_rect && full_dst &&
+              cmd->mode == D3D12_RESOLVE_MODE_DECOMPRESS &&
+              src_desc.SampleDesc.Count <= 16 &&
+              src_desc.Format == DXGI_FORMAT_R32G32B32A32_FLOAT &&
+              dst_desc.Format == src_desc.Format &&
+              dst_desc.SampleDesc.Count == 1;
+          if (!supported) {
+            QTRACE("ResolveSubresource SKIPPED unsupported flattened MSAA "
+                   "format=%u samples=%u dst_samples=%u full_rect=%u full_dst=%u",
+                   (unsigned)src_desc.Format,
+                   (unsigned)src_desc.SampleDesc.Count,
+                   (unsigned)dst_desc.SampleDesc.Count, full_rect, full_dst);
+            break;
+          }
+          WMTFlattenedMSAAResolveInfo resolve = {};
+          resolve.source_texture = src_res->GetMTLTexture().handle;
+          resolve.destination_texture = dst_res->GetMTLTexture().handle;
+          resolve.source_level = src_mip;
+          resolve.source_slice = src_slice;
+          resolve.destination_level = dst_mip;
+          resolve.destination_slice = dst_slice;
+          resolve.width = full_w;
+          resolve.height = full_h;
+          resolve.sample_count = src_desc.SampleDesc.Count;
+          st.CloseRenderEncoder();
+          const bool encoded =
+              cmdbuf.resolveFlattenedMSAATexture(resolve);
+          QTRACE("ResolveSubresource flattened MSAA encoded=%u src_mip=%u "
+                 "src_slice=%u dst_mip=%u dst_slice=%u samples=%u size=%ux%u",
+                 encoded ? 1u : 0u, src_mip, src_slice, dst_mip, dst_slice,
+                 (unsigned)resolve.sample_count, full_w, full_h);
+          break;
+        }
+
         if (multisample && full_rect && full_dst) {
           st.CloseRenderEncoder();
           WMTRenderPassInfo rp = {};

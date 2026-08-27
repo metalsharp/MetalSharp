@@ -67,6 +67,7 @@
     "MTLDevice_accelerationStructureSizesForInstances",
     "MTLCommandBuffer_buildInstanceAccelerationStructure",
     "MTLCommandBuffer_refitInstanceAccelerationStructure",
+    "MTLCommandBuffer_resolveFlattenedMSAATexture",
     "MTLCommandBuffer_writeTimestampResults",
     "MTLAccelerationStructure_gpuResourceID",
     "MTLDevice_newRaytracingComputePipelineState",
@@ -129,6 +130,7 @@
     "_MTLDevice_accelerationStructureSizesForInstances",
     "_MTLCommandBuffer_buildInstanceAccelerationStructure",
     "_MTLCommandBuffer_refitInstanceAccelerationStructure",
+    "_MTLCommandBuffer_resolveFlattenedMSAATexture",
     "_MTLCommandBuffer_writeTimestampResults",
     "_MTLAccelerationStructure_gpuResourceID",
     "_MTLDevice_newRaytracingComputePipelineState",
@@ -181,7 +183,8 @@
     "unixcall_mtlcommandbuffer_write_compacted_acceleration_structure_size": 40,
     "unixcall_mtldevice_acceleration_structure_sizes_for_triangle_geometries": 40,
     "unixcall_mtlcommandbuffer_build_triangle_acceleration_structures": 56,
-    "unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure": 56
+    "unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure": 56,
+    "unixcall_mtlcommandbuffer_resolve_flattened_msaa_texture": 24
   },
   "deferred_until_claimed": [
     {
@@ -207,6 +210,7 @@
     "tools/d3d12-metal-sdk/probes/probe_queues",
     "tools/d3d12-metal-sdk/probes/probe_command_replay",
     "tools/d3d12-metal-sdk/probes/probe_resources",
+    "tools/d3d12-metal-sdk/probes/probe_writable_msaa",
     "tools/d3d12-metal-sdk/probes/probe_barriers_render_pass",
     "tools/d3d12-metal-sdk/probes/probe_graphics_pso",
     "tools/d3d12-metal-sdk/probes/probe_compute_pso",

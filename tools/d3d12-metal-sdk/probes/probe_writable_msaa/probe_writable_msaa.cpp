@@ -153,6 +153,8 @@ int main() {
   const char *hlsl_path = "Z:\\tmp\\dxmt_writable_msaa.hlsl";
   const char *store_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_store.dxil";
   const char *load_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_load.dxil";
+  const char *graphics_vs_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_graphics_vs.dxil";
+  const char *graphics_ps_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_graphics_ps.dxil";
   const char *hlsl = R"(
 RWTexture2DMS<float4> target : register(u0);
 RWTexture2DMSArray<float4, 4> target_array : register(u1);
@@ -179,11 +181,26 @@ void load(uint3 id : SV_DispatchThreadID) {
     target_array.sample[0][uint3(0,0,1)] = array_value;
   }
 }
+
+struct GraphicsVSIn { float3 position : POSITION; };
+struct GraphicsVSOut { float4 position : SV_Position; };
+GraphicsVSOut graphics_vs(GraphicsVSIn input) {
+  GraphicsVSOut output;
+  output.position = float4(input.position, 1.0);
+  return output;
+}
+float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
+  target.sample[0][uint2(0,0)] = float4(300.0, 0.0, 0.0, 1.0);
+  target_array.sample[0][uint3(0,0,1)] = float4(400.0, 0.0, 0.0, 1.0);
+  return float4(0.0, 1.0, 0.0, 1.0);
+}
 )";
 
   const bool source_ok = write_file(hlsl_path, hlsl);
   DeleteFileA(store_dxil_path);
   DeleteFileA(load_dxil_path);
+  DeleteFileA(graphics_vs_dxil_path);
+  DeleteFileA(graphics_ps_dxil_path);
   const DWORD dxc_store = run_process(
       "dxc.exe -nologo -T cs_6_7 -E store -HV 2021 -Fo "
       "Z:\\tmp\\dxmt_writable_msaa_store.dxil "
@@ -196,6 +213,18 @@ void load(uint3 id : SV_DispatchThreadID) {
       "Z:\\tmp\\dxmt_writable_msaa.hlsl");
   const std::vector<uint8_t> load_dxil = read_file(load_dxil_path);
   DeleteFileA(load_dxil_path);
+  const DWORD dxc_graphics_vs = run_process(
+      "dxc.exe -nologo -T vs_6_0 -E graphics_vs -HV 2021 -Fo "
+      "Z:\\tmp\\dxmt_writable_msaa_graphics_vs.dxil "
+      "Z:\\tmp\\dxmt_writable_msaa.hlsl");
+  const std::vector<uint8_t> graphics_vs_dxil = read_file(graphics_vs_dxil_path);
+  DeleteFileA(graphics_vs_dxil_path);
+  const DWORD dxc_graphics_ps = run_process(
+      "dxc.exe -nologo -T ps_6_7 -E graphics_ps -HV 2021 -Fo "
+      "Z:\\tmp\\dxmt_writable_msaa_graphics_ps.dxil "
+      "Z:\\tmp\\dxmt_writable_msaa.hlsl");
+  const std::vector<uint8_t> graphics_ps_dxil = read_file(graphics_ps_dxil_path);
+  DeleteFileA(graphics_ps_dxil_path);
 
   HMODULE d3d12 = LoadLibraryA("d3d12.dll");
   auto create_device = load_proc<D3D12CreateDeviceFn>(d3d12, "D3D12CreateDevice");
@@ -245,6 +274,7 @@ void load(uint3 id : SV_DispatchThreadID) {
   pipeline_desc.CS.pShaderBytecode = store_dxil.data();
   pipeline_desc.CS.BytecodeLength = store_dxil.size();
   ID3D12PipelineState *store_pso = nullptr;
+  ID3D12PipelineState *graphics_pso = nullptr;
   HRESULT store_pso_hr =
       device && root && !store_dxil.empty()
           ? device->CreateComputePipelineState(&pipeline_desc,
@@ -259,14 +289,58 @@ void load(uint3 id : SV_DispatchThreadID) {
                                                IID_PPV_ARGS(&load_pso))
           : E_FAIL;
 
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_pipeline_desc = {};
+  graphics_pipeline_desc.pRootSignature = root;
+  graphics_pipeline_desc.VS.pShaderBytecode = graphics_vs_dxil.data();
+  graphics_pipeline_desc.VS.BytecodeLength = graphics_vs_dxil.size();
+  graphics_pipeline_desc.PS.pShaderBytecode = graphics_ps_dxil.data();
+  graphics_pipeline_desc.PS.BytecodeLength = graphics_ps_dxil.size();
+  graphics_pipeline_desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+      D3D12_COLOR_WRITE_ENABLE_ALL;
+  graphics_pipeline_desc.SampleMask = UINT_MAX;
+  graphics_pipeline_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  graphics_pipeline_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  graphics_pipeline_desc.RasterizerState.DepthClipEnable = TRUE;
+  graphics_pipeline_desc.DepthStencilState.DepthEnable = TRUE;
+  graphics_pipeline_desc.DepthStencilState.DepthWriteMask =
+      D3D12_DEPTH_WRITE_MASK_ALL;
+  graphics_pipeline_desc.DepthStencilState.DepthFunc =
+      D3D12_COMPARISON_FUNC_ALWAYS;
+  graphics_pipeline_desc.DepthStencilState.StencilEnable = FALSE;
+  graphics_pipeline_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+  D3D12_INPUT_ELEMENT_DESC graphics_input = {
+      "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+      D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0};
+  graphics_pipeline_desc.InputLayout = {&graphics_input, 1};
+  graphics_pipeline_desc.PrimitiveTopologyType =
+      D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  graphics_pipeline_desc.NumRenderTargets = 1;
+  graphics_pipeline_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+  graphics_pipeline_desc.SampleDesc.Count = 1;
+  HRESULT graphics_pso_hr =
+      device && root && !graphics_vs_dxil.empty() && !graphics_ps_dxil.empty()
+          ? device->CreateGraphicsPipelineState(&graphics_pipeline_desc,
+                                                 IID_PPV_ARGS(&graphics_pso))
+          : E_FAIL;
+
   ID3D12CommandQueue *queue = nullptr;
   ID3D12CommandAllocator *allocator = nullptr;
   ID3D12GraphicsCommandList *list = nullptr;
   ID3D12DescriptorHeap *heap = nullptr;
+  ID3D12DescriptorHeap *rtv_heap = nullptr;
+  ID3D12DescriptorHeap *dsv_heap = nullptr;
   ID3D12Resource *target = nullptr;
   ID3D12Resource *target_array = nullptr;
+  ID3D12Resource *resolve_target = nullptr;
+  ID3D12Resource *resolve_array_target = nullptr;
+  ID3D12Resource *resolve_readback = nullptr;
+  ID3D12Resource *resolve_array_readback = nullptr;
   ID3D12Resource *outbuf = nullptr;
   ID3D12Resource *readback = nullptr;
+  ID3D12Resource *graphics_target = nullptr;
+  ID3D12Resource *graphics_readback = nullptr;
+  ID3D12Resource *depth_target = nullptr;
+  ID3D12Resource *vertex_buffer = nullptr;
   D3D12_COMMAND_QUEUE_DESC queue_desc = {};
   HRESULT queue_hr = device
                          ? device->CreateCommandQueue(
@@ -318,6 +392,28 @@ void load(uint3 id : SV_DispatchThreadID) {
                                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                       nullptr, IID_PPV_ARGS(&target_array))
                                 : E_FAIL;
+  D3D12_RESOURCE_DESC resolve_desc = target_desc;
+  resolve_desc.SampleDesc.Count = 1;
+  resolve_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+  HRESULT resolve_target_hr = SUCCEEDED(target_array_hr)
+                                  ? device->CreateCommittedResource(
+                                        &default_heap, D3D12_HEAP_FLAG_NONE,
+                                        &resolve_desc,
+                                        D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                                        nullptr,
+                                        IID_PPV_ARGS(&resolve_target))
+                                  : E_FAIL;
+  D3D12_RESOURCE_DESC resolve_array_desc = resolve_desc;
+  resolve_array_desc.DepthOrArraySize = 2;
+  HRESULT resolve_array_target_hr = SUCCEEDED(resolve_target_hr)
+                                        ? device->CreateCommittedResource(
+                                              &default_heap,
+                                              D3D12_HEAP_FLAG_NONE,
+                                              &resolve_array_desc,
+                                              D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                                              nullptr,
+                                              IID_PPV_ARGS(&resolve_array_target))
+                                        : E_FAIL;
   D3D12_RESOURCE_DESC output_desc = buffer_desc(32);
   HRESULT outbuf_hr = SUCCEEDED(target_array_hr)
                           ? device->CreateCommittedResource(
@@ -338,8 +434,132 @@ void load(uint3 id : SV_DispatchThreadID) {
                                   IID_PPV_ARGS(&readback))
                             : E_FAIL;
 
+  D3D12_RESOURCE_DESC graphics_target_desc = {};
+  graphics_target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  graphics_target_desc.Width = 1;
+  graphics_target_desc.Height = 1;
+  graphics_target_desc.DepthOrArraySize = 1;
+  graphics_target_desc.MipLevels = 1;
+  graphics_target_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  graphics_target_desc.SampleDesc.Count = 1;
+  graphics_target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  graphics_target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+  HRESULT graphics_target_hr = SUCCEEDED(readback_hr)
+                                    ? device->CreateCommittedResource(
+                                          &default_heap, D3D12_HEAP_FLAG_NONE,
+                                          &graphics_target_desc,
+                                          D3D12_RESOURCE_STATE_RENDER_TARGET,
+                                          nullptr,
+                                          IID_PPV_ARGS(&graphics_target))
+                                    : E_FAIL;
+  D3D12_RESOURCE_DESC depth_desc = graphics_target_desc;
+  depth_desc.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+  D3D12_CLEAR_VALUE depth_clear = {};
+  depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+  depth_clear.DepthStencil.Depth = 1.0f;
+  depth_clear.DepthStencil.Stencil = 0;
+  HRESULT depth_target_hr = SUCCEEDED(graphics_target_hr)
+                                ? device->CreateCommittedResource(
+                                      &default_heap, D3D12_HEAP_FLAG_NONE,
+                                      &depth_desc,
+                                      D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                                      &depth_clear,
+                                      IID_PPV_ARGS(&depth_target))
+                                : E_FAIL;
+  D3D12_HEAP_PROPERTIES upload_heap =
+      heap_properties(D3D12_HEAP_TYPE_UPLOAD);
+  const float graphics_vertices[9] = {
+      -1.0f, -1.0f, 0.0f,
+       3.0f, -1.0f, 0.0f,
+      -1.0f,  3.0f, 0.0f,
+  };
+  D3D12_RESOURCE_DESC vertex_desc = buffer_desc(sizeof(graphics_vertices));
+  vertex_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+  HRESULT vertex_buffer_hr = SUCCEEDED(graphics_target_hr)
+                                 ? device->CreateCommittedResource(
+                                       &upload_heap, D3D12_HEAP_FLAG_NONE,
+                                       &vertex_desc,
+                                       D3D12_RESOURCE_STATE_GENERIC_READ,
+                                       nullptr,
+                                       IID_PPV_ARGS(&vertex_buffer))
+                                 : E_FAIL;
+  if (SUCCEEDED(vertex_buffer_hr) && vertex_buffer) {
+    void *mapped = nullptr;
+    D3D12_RANGE read_range = {0, 0};
+    vertex_buffer_hr = vertex_buffer->Map(0, &read_range, &mapped);
+    if (SUCCEEDED(vertex_buffer_hr) && mapped) {
+      std::memcpy(mapped, graphics_vertices, sizeof(graphics_vertices));
+      D3D12_RANGE written = {0, sizeof(graphics_vertices)};
+      vertex_buffer->Unmap(0, &written);
+    }
+  }
+  D3D12_RESOURCE_DESC graphics_readback_desc = buffer_desc(512);
+  graphics_readback_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+  HRESULT graphics_readback_hr = SUCCEEDED(vertex_buffer_hr)
+                                     ? device->CreateCommittedResource(
+                                           &readback_heap,
+                                           D3D12_HEAP_FLAG_NONE,
+                                           &graphics_readback_desc,
+                                           D3D12_RESOURCE_STATE_COPY_DEST,
+                                           nullptr,
+                                           IID_PPV_ARGS(&graphics_readback))
+                                     : E_FAIL;
+  HRESULT resolve_readback_hr = SUCCEEDED(graphics_readback_hr)
+                                    ? device->CreateCommittedResource(
+                                          &readback_heap, D3D12_HEAP_FLAG_NONE,
+                                          &graphics_readback_desc,
+                                          D3D12_RESOURCE_STATE_COPY_DEST,
+                                          nullptr,
+                                          IID_PPV_ARGS(&resolve_readback))
+                                    : E_FAIL;
+  HRESULT resolve_array_readback_hr = SUCCEEDED(resolve_readback_hr)
+                                          ? device->CreateCommittedResource(
+                                                &readback_heap,
+                                                D3D12_HEAP_FLAG_NONE,
+                                                &graphics_readback_desc,
+                                                D3D12_RESOURCE_STATE_COPY_DEST,
+                                                nullptr,
+                                                IID_PPV_ARGS(&resolve_array_readback))
+                                          : E_FAIL;
+  D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+  rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+  rtv_heap_desc.NumDescriptors = 1;
+  HRESULT rtv_heap_hr = SUCCEEDED(graphics_readback_hr)
+                            ? device->CreateDescriptorHeap(
+                                  &rtv_heap_desc, IID_PPV_ARGS(&rtv_heap))
+                            : E_FAIL;
+  if (SUCCEEDED(rtv_heap_hr) && rtv_heap) {
+    D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+    rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    device->CreateRenderTargetView(
+        graphics_target, &rtv_desc, rtv_heap->GetCPUDescriptorHandleForHeapStart());
+  }
+  D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc = {};
+  dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+  dsv_heap_desc.NumDescriptors = 1;
+  HRESULT dsv_heap_hr = SUCCEEDED(rtv_heap_hr)
+                            ? device->CreateDescriptorHeap(
+                                  &dsv_heap_desc, IID_PPV_ARGS(&dsv_heap))
+                            : E_FAIL;
+  if (SUCCEEDED(dsv_heap_hr) && dsv_heap) {
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+    dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsv_desc.Flags = D3D12_DSV_FLAG_NONE;
+    device->CreateDepthStencilView(
+        depth_target, &dsv_desc, dsv_heap->GetCPUDescriptorHandleForHeapStart());
+  }
+
   HRESULT execute_hr = E_FAIL;
-  if (SUCCEEDED(readback_hr) && store_pso && load_pso) {
+  if (SUCCEEDED(readback_hr) && store_pso && load_pso && graphics_pso &&
+      SUCCEEDED(graphics_target_hr) && SUCCEEDED(depth_target_hr) &&
+      SUCCEEDED(graphics_readback_hr) && SUCCEEDED(resolve_readback_hr) &&
+      SUCCEEDED(resolve_array_readback_hr) &&
+      SUCCEEDED(rtv_heap_hr) && SUCCEEDED(dsv_heap_hr) &&
+      SUCCEEDED(resolve_target_hr) && SUCCEEDED(resolve_array_target_hr) &&
+      vertex_buffer) {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu =
         heap->GetCPUDescriptorHandleForHeapStart();
     D3D12_UNORDERED_ACCESS_VIEW_DESC target_uav = {};
@@ -374,6 +594,119 @@ void load(uint3 id : SV_DispatchThreadID) {
     target_uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     target_uav_barrier.UAV.pResource = target;
     list->ResourceBarrier(1, &target_uav_barrier);
+
+    list->SetGraphicsRootSignature(root);
+    list->SetPipelineState(graphics_pso);
+    D3D12_CPU_DESCRIPTOR_HANDLE graphics_rtv =
+        rtv_heap->GetCPUDescriptorHandleForHeapStart();
+    const float clear_color[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    D3D12_CPU_DESCRIPTOR_HANDLE graphics_dsv =
+        dsv_heap->GetCPUDescriptorHandleForHeapStart();
+    list->OMSetRenderTargets(1, &graphics_rtv, FALSE, &graphics_dsv);
+    list->ClearRenderTargetView(graphics_rtv, clear_color, 0, nullptr);
+    list->ClearDepthStencilView(graphics_dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0,
+                                0, nullptr);
+    D3D12_VIEWPORT viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
+    D3D12_RECT scissor = {0, 0, 1, 1};
+    list->RSSetViewports(1, &viewport);
+    list->RSSetScissorRects(1, &scissor);
+    list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    D3D12_VERTEX_BUFFER_VIEW vertex_view = {};
+    vertex_view.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+    vertex_view.SizeInBytes = sizeof(graphics_vertices);
+    vertex_view.StrideInBytes = sizeof(float) * 3;
+    list->IASetVertexBuffers(0, 1, &vertex_view);
+    list->SetGraphicsRootDescriptorTable(
+        0, heap->GetGPUDescriptorHandleForHeapStart());
+    list->DrawInstanced(3, 1, 0, 0);
+
+    D3D12_RESOURCE_BARRIER graphics_target_barrier = {};
+    graphics_target_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    graphics_target_barrier.Transition.pResource = graphics_target;
+    graphics_target_barrier.Transition.Subresource =
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    graphics_target_barrier.Transition.StateBefore =
+        D3D12_RESOURCE_STATE_RENDER_TARGET;
+    graphics_target_barrier.Transition.StateAfter =
+        D3D12_RESOURCE_STATE_COPY_SOURCE;
+    list->ResourceBarrier(1, &graphics_target_barrier);
+    D3D12_TEXTURE_COPY_LOCATION graphics_src = {};
+    graphics_src.pResource = graphics_target;
+    graphics_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    D3D12_TEXTURE_COPY_LOCATION graphics_dst = {};
+    graphics_dst.pResource = graphics_readback;
+    graphics_dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    graphics_dst.PlacedFootprint.Offset = 0;
+    graphics_dst.PlacedFootprint.Footprint.Format =
+        DXGI_FORMAT_R8G8B8A8_UNORM;
+    graphics_dst.PlacedFootprint.Footprint.Width = 1;
+    graphics_dst.PlacedFootprint.Footprint.Height = 1;
+    graphics_dst.PlacedFootprint.Footprint.Depth = 1;
+    graphics_dst.PlacedFootprint.Footprint.RowPitch = 256;
+    list->CopyTextureRegion(&graphics_dst, 0, 0, 0, &graphics_src, nullptr);
+    list->ResolveSubresource(resolve_target, 0, target, 0,
+                             DXGI_FORMAT_R32G32B32A32_FLOAT);
+    D3D12_RESOURCE_BARRIER resolve_barrier = {};
+    resolve_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    resolve_barrier.Transition.pResource = resolve_target;
+    resolve_barrier.Transition.Subresource =
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    resolve_barrier.Transition.StateBefore =
+        D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    resolve_barrier.Transition.StateAfter =
+        D3D12_RESOURCE_STATE_COPY_SOURCE;
+    list->ResourceBarrier(1, &resolve_barrier);
+    D3D12_TEXTURE_COPY_LOCATION resolve_src = {};
+    resolve_src.pResource = resolve_target;
+    resolve_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    D3D12_TEXTURE_COPY_LOCATION resolve_dst = {};
+    resolve_dst.pResource = resolve_readback;
+    resolve_dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    resolve_dst.PlacedFootprint.Offset = 0;
+    resolve_dst.PlacedFootprint.Footprint.Format =
+        DXGI_FORMAT_R32G32B32A32_FLOAT;
+    resolve_dst.PlacedFootprint.Footprint.Width = 1;
+    resolve_dst.PlacedFootprint.Footprint.Height = 1;
+    resolve_dst.PlacedFootprint.Footprint.Depth = 1;
+    resolve_dst.PlacedFootprint.Footprint.RowPitch = 256;
+    list->CopyTextureRegion(&resolve_dst, 0, 0, 0, &resolve_src, nullptr);
+
+    list->ResolveSubresource(resolve_array_target, 1, target_array, 1,
+                             DXGI_FORMAT_R32G32B32A32_FLOAT);
+    D3D12_RESOURCE_BARRIER resolve_array_barrier = {};
+    resolve_array_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    resolve_array_barrier.Transition.pResource = resolve_array_target;
+    resolve_array_barrier.Transition.Subresource =
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    resolve_array_barrier.Transition.StateBefore =
+        D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    resolve_array_barrier.Transition.StateAfter =
+        D3D12_RESOURCE_STATE_COPY_SOURCE;
+    list->ResourceBarrier(1, &resolve_array_barrier);
+    D3D12_TEXTURE_COPY_LOCATION resolve_array_src = {};
+    resolve_array_src.pResource = resolve_array_target;
+    resolve_array_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    resolve_array_src.SubresourceIndex = 1;
+    D3D12_TEXTURE_COPY_LOCATION resolve_array_dst = {};
+    resolve_array_dst.pResource = resolve_array_readback;
+    resolve_array_dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    resolve_array_dst.PlacedFootprint.Offset = 0;
+    resolve_array_dst.PlacedFootprint.Footprint.Format =
+        DXGI_FORMAT_R32G32B32A32_FLOAT;
+    resolve_array_dst.PlacedFootprint.Footprint.Width = 1;
+    resolve_array_dst.PlacedFootprint.Footprint.Height = 1;
+    resolve_array_dst.PlacedFootprint.Footprint.Depth = 1;
+    resolve_array_dst.PlacedFootprint.Footprint.RowPitch = 256;
+    list->CopyTextureRegion(&resolve_array_dst, 0, 0, 0, &resolve_array_src,
+                            nullptr);
+
+    D3D12_RESOURCE_BARRIER target_after_graphics = {};
+    target_after_graphics.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    target_after_graphics.UAV.pResource = target;
+    list->ResourceBarrier(1, &target_after_graphics);
+    list->SetComputeRootSignature(root);
+    list->SetComputeRootDescriptorTable(
+        0, heap->GetGPUDescriptorHandleForHeapStart());
     list->SetPipelineState(load_pso);
     list->Dispatch(1, 1, 1);
     D3D12_RESOURCE_BARRIER barriers[2] = {};
@@ -390,7 +723,13 @@ void load(uint3 id : SV_DispatchThreadID) {
   }
 
   uint32_t values[8] = {};
+  uint32_t graphics_color = 0;
+  float resolve_value = 0.0f;
+  float resolve_array_value = 0.0f;
   HRESULT map_hr = E_FAIL;
+  HRESULT graphics_map_hr = E_FAIL;
+  HRESULT resolve_map_hr = E_FAIL;
+  HRESULT resolve_array_map_hr = E_FAIL;
   if (SUCCEEDED(execute_hr) && readback) {
     void *mapped = nullptr;
     D3D12_RANGE read_range = {0, 32};
@@ -401,20 +740,70 @@ void load(uint3 id : SV_DispatchThreadID) {
       readback->Unmap(0, nullptr);
   }
 
-  const bool values_ok = values[0] == 100 && values[1] == 101 &&
+  if (SUCCEEDED(execute_hr) && graphics_readback) {
+    void *mapped = nullptr;
+    D3D12_RANGE read_range = {0, 256};
+    graphics_map_hr = graphics_readback->Map(
+        0, &read_range, &mapped);
+    if (SUCCEEDED(graphics_map_hr) && mapped)
+      std::memcpy(&graphics_color, mapped, sizeof(graphics_color));
+    if (mapped)
+      graphics_readback->Unmap(0, nullptr);
+  }
+
+  const bool values_ok = values[0] == 300 && values[1] == 101 &&
                          values[2] == 102 && values[3] == 103 &&
-                         values[4] == 200 && values[5] == 201 &&
+                         values[4] == 400 && values[5] == 201 &&
                          values[6] == 202 && values[7] == 203;
+  if (SUCCEEDED(execute_hr) && resolve_readback) {
+    void *mapped = nullptr;
+    D3D12_RANGE read_range = {0, 256};
+    resolve_map_hr = resolve_readback->Map(0, &read_range, &mapped);
+    if (SUCCEEDED(resolve_map_hr) && mapped)
+      std::memcpy(&resolve_value, mapped, sizeof(resolve_value));
+    if (mapped)
+      resolve_readback->Unmap(0, nullptr);
+  }
+
+  if (SUCCEEDED(execute_hr) && resolve_array_readback) {
+    void *mapped = nullptr;
+    D3D12_RANGE read_range = {0, 256};
+    resolve_array_map_hr = resolve_array_readback->Map(
+        0, &read_range, &mapped);
+    if (SUCCEEDED(resolve_array_map_hr) && mapped)
+      std::memcpy(&resolve_array_value, mapped, sizeof(resolve_array_value));
+    if (mapped)
+      resolve_array_readback->Unmap(0, nullptr);
+  }
+
+  const bool graphics_color_ok = graphics_color == 0xff00ff00u;
+  const bool resolve_value_ok = resolve_value == 151.5f;
+  const bool resolve_array_value_ok = resolve_array_value == 251.5f;
   const bool pass = source_ok && dxc_store == 0 && dxc_load == 0 &&
+                    dxc_graphics_vs == 0 && dxc_graphics_ps == 0 &&
                     !store_dxil.empty() && !load_dxil.empty() &&
+                    !graphics_vs_dxil.empty() && !graphics_ps_dxil.empty() &&
                     SUCCEEDED(create_hr) && SUCCEEDED(root_serialize_hr) &&
                     SUCCEEDED(root_create_hr) && SUCCEEDED(store_pso_hr) &&
-                    SUCCEEDED(load_pso_hr) && SUCCEEDED(queue_hr) &&
-                    SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
-                    SUCCEEDED(heap_hr) && SUCCEEDED(target_hr) &&
-                    SUCCEEDED(target_array_hr) && SUCCEEDED(outbuf_hr) &&
-                    SUCCEEDED(readback_hr) &&
-                    SUCCEEDED(execute_hr) && SUCCEEDED(map_hr) && values_ok;
+                    SUCCEEDED(load_pso_hr) && SUCCEEDED(graphics_pso_hr) &&
+                    SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) &&
+                    SUCCEEDED(list_hr) && SUCCEEDED(heap_hr) &&
+                    SUCCEEDED(target_hr) && SUCCEEDED(target_array_hr) &&
+                    SUCCEEDED(outbuf_hr) && SUCCEEDED(readback_hr) &&
+                    SUCCEEDED(resolve_target_hr) &&
+                    SUCCEEDED(resolve_array_target_hr) &&
+                    SUCCEEDED(graphics_target_hr) &&
+                    SUCCEEDED(depth_target_hr) &&
+                    SUCCEEDED(vertex_buffer_hr) &&
+                    SUCCEEDED(graphics_readback_hr) &&
+                    SUCCEEDED(resolve_readback_hr) &&
+                    SUCCEEDED(resolve_array_readback_hr) &&
+                    SUCCEEDED(rtv_heap_hr) && SUCCEEDED(dsv_heap_hr) &&
+                    SUCCEEDED(execute_hr) && SUCCEEDED(map_hr) && values_ok &&
+                    SUCCEEDED(graphics_map_hr) && graphics_color_ok &&
+                    SUCCEEDED(resolve_map_hr) && resolve_value_ok &&
+                    SUCCEEDED(resolve_array_map_hr) &&
+                    resolve_array_value_ok;
 
   std::printf("{\n");
   std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-writable-msaa.v1\",\n");
@@ -424,8 +813,14 @@ void load(uint3 id : SV_DispatchThreadID) {
               static_cast<unsigned long>(dxc_store));
   std::printf("  \"dxc_load_exit\": %lu,\n",
               static_cast<unsigned long>(dxc_load));
+  std::printf("  \"dxc_graphics_vs_exit\": %lu,\n",
+              static_cast<unsigned long>(dxc_graphics_vs));
+  std::printf("  \"dxc_graphics_ps_exit\": %lu,\n",
+              static_cast<unsigned long>(dxc_graphics_ps));
   std::printf("  \"store_dxil_size\": %zu,\n", store_dxil.size());
   std::printf("  \"load_dxil_size\": %zu,\n", load_dxil.size());
+  std::printf("  \"graphics_vs_dxil_size\": %zu,\n", graphics_vs_dxil.size());
+  std::printf("  \"graphics_ps_dxil_size\": %zu,\n", graphics_ps_dxil.size());
   std::printf("  \"device_create_hr\": \"%s\",\n",
               hr_hex(create_hr).c_str());
   std::printf("  \"root_serialize_hr\": \"%s\",\n",
@@ -436,30 +831,77 @@ void load(uint3 id : SV_DispatchThreadID) {
               hr_hex(store_pso_hr).c_str());
   std::printf("  \"load_pso_hr\": \"%s\",\n",
               hr_hex(load_pso_hr).c_str());
+  std::printf("  \"graphics_pso_hr\": \"%s\",\n",
+              hr_hex(graphics_pso_hr).c_str());
   std::printf("  \"target_create_hr\": \"%s\",\n",
               hr_hex(target_hr).c_str());
   std::printf("  \"target_array_create_hr\": \"%s\",\n",
               hr_hex(target_array_hr).c_str());
+  std::printf("  \"resolve_target_hr\": \"%s\",\n",
+              hr_hex(resolve_target_hr).c_str());
+  std::printf("  \"resolve_array_target_hr\": \"%s\",\n",
+              hr_hex(resolve_array_target_hr).c_str());
+  std::printf("  \"resolve_readback_hr\": \"%s\",\n",
+              hr_hex(resolve_readback_hr).c_str());
+  std::printf("  \"resolve_array_readback_hr\": \"%s\",\n",
+              hr_hex(resolve_array_readback_hr).c_str());
   std::printf("  \"execute_hr\": \"%s\",\n",
               hr_hex(execute_hr).c_str());
   std::printf("  \"readback_map_hr\": \"%s\",\n",
               hr_hex(map_hr).c_str());
+  std::printf("  \"graphics_target_hr\": \"%s\",\n",
+              hr_hex(graphics_target_hr).c_str());
+  std::printf("  \"depth_target_hr\": \"%s\",\n",
+              hr_hex(depth_target_hr).c_str());
+  std::printf("  \"vertex_buffer_hr\": \"%s\",\n",
+              hr_hex(vertex_buffer_hr).c_str());
+  std::printf("  \"graphics_readback_hr\": \"%s\",\n",
+              hr_hex(graphics_readback_hr).c_str());
+  std::printf("  \"rtv_heap_hr\": \"%s\",\n",
+              hr_hex(rtv_heap_hr).c_str());
+  std::printf("  \"dsv_heap_hr\": \"%s\",\n",
+              hr_hex(dsv_heap_hr).c_str());
+  std::printf("  \"graphics_map_hr\": \"%s\",\n",
+              hr_hex(graphics_map_hr).c_str());
+  std::printf("  \"resolve_map_hr\": \"%s\",\n",
+              hr_hex(resolve_map_hr).c_str());
+  std::printf("  \"resolve_value\": %.1f,\n", resolve_value);
+  std::printf("  \"resolve_value_verified\": %s,\n",
+              resolve_value_ok ? "true" : "false");
+  std::printf("  \"resolve_array_map_hr\": \"%s\",\n",
+              hr_hex(resolve_array_map_hr).c_str());
+  std::printf("  \"resolve_array_value\": %.1f,\n", resolve_array_value);
+  std::printf("  \"resolve_array_value_verified\": %s,\n",
+              resolve_array_value_ok ? "true" : "false");
   std::printf("  \"values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
               values[0], values[1], values[2], values[3], values[4], values[5],
               values[6], values[7]);
-  std::printf("  \"values_verified\": %s\n",
+  std::printf("  \"values_verified\": %s,\n",
               values_ok ? "true" : "false");
+  std::printf("  \"graphics_color\": \"0x%08x\",\n", graphics_color);
+  std::printf("  \"graphics_color_verified\": %s\n",
+              graphics_color_ok ? "true" : "false");
   std::printf("}\n");
   std::fflush(stdout);
 
+  safe_release(graphics_readback);
+  safe_release(resolve_array_readback);
+  safe_release(resolve_readback);
+  safe_release(vertex_buffer);
+  safe_release(depth_target);
+  safe_release(graphics_target);
+  safe_release(dsv_heap);
+  safe_release(rtv_heap);
   safe_release(readback);
   safe_release(outbuf);
+  safe_release(resolve_target);
   safe_release(target_array);
   safe_release(target);
   safe_release(heap);
   safe_release(list);
   safe_release(allocator);
   safe_release(queue);
+  safe_release(graphics_pso);
   safe_release(load_pso);
   safe_release(store_pso);
   safe_release(root);

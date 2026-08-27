@@ -2895,6 +2895,178 @@ _MTLCommandBuffer_refitInstanceAccelerationStructure(void *obj) {
   return STATUS_SUCCESS;
 }
 
+// D3D12 writable-MSAA UAVs are represented as one Metal 2D-array slice per
+// logical sample. Keep this bridge deliberately narrow: it averages a
+// validated sample range into a normal 2D destination and rejects malformed
+// texture/view ranges before creating any Metal texture view.
+static NTSTATUS
+_MTLCommandBuffer_resolveFlattenedMSAATexture(void *obj) {
+  struct unixcall_mtlcommandbuffer_resolve_flattened_msaa_texture *params =
+      obj;
+  const struct WMTFlattenedMSAAResolveInfo *info = params->info.ptr;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !info || !info->source_texture ||
+      !info->destination_texture || !info->width || !info->height ||
+      !info->sample_count || info->sample_count > 16)
+    return STATUS_SUCCESS;
+
+  id<MTLCommandBuffer> command_buffer =
+      (id<MTLCommandBuffer>)params->cmdbuf;
+  id<MTLDevice> device = [command_buffer device];
+  if (!device)
+    return STATUS_SUCCESS;
+
+  static NSString *const source =
+      @"#include <metal_stdlib>\n"
+       "using namespace metal;\n"
+       "struct ResolveParams { uint sample_count; uint source_slice; };\n"
+       "kernel void m12_resolve_flattened_msaa(\n"
+       "    texture2d_array<float, access::read> source [[texture(0)]],\n"
+       "    texture2d<float, access::write> destination [[texture(1)]],\n"
+       "    constant ResolveParams& params [[buffer(0)]],\n"
+       "    uint2 gid [[thread_position_in_grid]]) {\n"
+       "  if (gid.x >= destination.get_width() || gid.y >= destination.get_height()) return;\n"
+       "  float4 value = float4(0.0);\n"
+       "  for (uint sample = 0; sample < params.sample_count; ++sample)\n"
+       "    value += source.read(gid, params.source_slice * params.sample_count + sample);\n"
+       "  destination.write(value / float(params.sample_count), gid);\n"
+       "}\n";
+  NSError *error = nil;
+  id<MTLLibrary> library =
+      [device newLibraryWithSource:source options:nil error:&error];
+  if (!library)
+    return STATUS_SUCCESS;
+  id<MTLFunction> function =
+      [library newFunctionWithName:@"m12_resolve_flattened_msaa"];
+  id<MTLComputePipelineState> pipeline =
+      function ? [device newComputePipelineStateWithFunction:function
+                                                         error:&error]
+               : nil;
+  if (!pipeline) {
+    [function release];
+    [library release];
+    return STATUS_SUCCESS;
+  }
+
+  id<MTLTexture> source_texture =
+      (id<MTLTexture>)info->source_texture;
+  id<MTLTexture> destination_texture =
+      (id<MTLTexture>)info->destination_texture;
+  NSUInteger source_level_count = [source_texture mipmapLevelCount];
+  NSUInteger source_array_length = [source_texture arrayLength];
+  NSUInteger source_first_slice =
+      (NSUInteger)info->source_slice * (NSUInteger)info->sample_count;
+  if ([source_texture textureType] != MTLTextureType2DArray ||
+      info->source_level >= source_level_count ||
+      source_first_slice > source_array_length ||
+      info->sample_count > source_array_length - source_first_slice) {
+    [pipeline release];
+    [function release];
+    [library release];
+    return STATUS_SUCCESS;
+  }
+  NSUInteger destination_level_count = [destination_texture mipmapLevelCount];
+  MTLTextureType destination_type = [destination_texture textureType];
+  NSUInteger destination_array_length = [destination_texture arrayLength];
+  if (info->destination_level >= destination_level_count ||
+      (destination_type != MTLTextureType2D &&
+       destination_type != MTLTextureType2DArray) ||
+      (destination_type == MTLTextureType2D && info->destination_slice) ||
+      (destination_type == MTLTextureType2DArray &&
+       info->destination_slice >= destination_array_length)) {
+    [pipeline release];
+    [function release];
+    [library release];
+    return STATUS_SUCCESS;
+  }
+
+  id<MTLTexture> source_view = source_texture;
+  id<MTLTexture> destination_view = destination_texture;
+  if (info->source_level || source_first_slice ||
+      info->sample_count != source_array_length) {
+    source_view = [source_texture
+        newTextureViewWithPixelFormat:[source_texture pixelFormat]
+                          textureType:MTLTextureType2DArray
+                               levels:NSMakeRange(info->source_level, 1)
+                               slices:NSMakeRange(source_first_slice,
+                                                   info->sample_count)];
+  }
+  if (destination_type != MTLTextureType2D || info->destination_level ||
+      info->destination_slice) {
+    destination_view = [destination_texture
+        newTextureViewWithPixelFormat:[destination_texture pixelFormat]
+                          textureType:MTLTextureType2D
+                               levels:NSMakeRange(info->destination_level, 1)
+                               slices:NSMakeRange(info->destination_slice, 1)];
+  }
+  if (!source_view || !destination_view ||
+      [source_view width] < info->width ||
+      [source_view height] < info->height ||
+      [destination_view width] < info->width ||
+      [destination_view height] < info->height) {
+    if (source_view != source_texture)
+      [source_view release];
+    if (destination_view != destination_texture)
+      [destination_view release];
+    [pipeline release];
+    [function release];
+    [library release];
+    return STATUS_SUCCESS;
+  }
+
+  struct {
+    uint32_t sample_count;
+    uint32_t source_slice;
+  } resolve_params = {info->sample_count, 0};
+  id<MTLComputeCommandEncoder> encoder =
+      [command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeSerial];
+  if (!encoder) {
+    if (source_view != source_texture)
+      [source_view release];
+    if (destination_view != destination_texture)
+      [destination_view release];
+    [pipeline release];
+    [function release];
+    [library release];
+    return STATUS_SUCCESS;
+  }
+  [encoder setComputePipelineState:pipeline];
+  [encoder setTexture:source_view atIndex:0];
+  [encoder setTexture:destination_view atIndex:1];
+  [encoder setBytes:&resolve_params length:sizeof(resolve_params) atIndex:0];
+  NSUInteger thread_width = info->width < 8 ? info->width : 8;
+  NSUInteger thread_height = info->height < 8 ? info->height : 8;
+  NSUInteger max_threads = pipeline.maxTotalThreadsPerThreadgroup;
+  while (thread_width * thread_height > max_threads && thread_height > 1)
+    thread_height = (thread_height + 1) / 2;
+  while (thread_width * thread_height > max_threads && thread_width > 1)
+    thread_width = (thread_width + 1) / 2;
+  if (!thread_width || !thread_height) {
+    [encoder endEncoding];
+    if (source_view != source_texture)
+      [source_view release];
+    if (destination_view != destination_texture)
+      [destination_view release];
+    [pipeline release];
+    [function release];
+    [library release];
+    return STATUS_SUCCESS;
+  }
+  [encoder dispatchThreads:MTLSizeMake(info->width, info->height, 1)
+      threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1)];
+  [encoder endEncoding];
+  params->ret_success = 1;
+
+  if (source_view != source_texture)
+    [source_view release];
+  if (destination_view != destination_texture)
+    [destination_view release];
+  [pipeline release];
+  [function release];
+  [library release];
+  return STATUS_SUCCESS;
+}
+
 static NTSTATUS
 _MTLAccelerationStructure_gpuResourceID(void *obj) {
   struct unixcall_generic_obj_uint64_ret *params = obj;
@@ -4808,6 +4980,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLHeap_newBufferAtOffset,
     &_MTL4CommandQueue_copyBufferMappings,
     &_MTL4CommandQueue_copyBuffer,
+    &_MTLCommandBuffer_resolveFlattenedMSAATexture,
 };
 
 #ifndef DXMT_NATIVE
@@ -4978,5 +5151,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLHeap_newBufferAtOffset,
     &_MTL4CommandQueue_copyBufferMappings,
     &_MTL4CommandQueue_copyBuffer,
+    &_MTLCommandBuffer_resolveFlattenedMSAATexture,
 };
 #endif
