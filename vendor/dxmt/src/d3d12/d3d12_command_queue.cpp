@@ -635,6 +635,65 @@ static bool ShadingRateToMetalQuality(D3D12_SHADING_RATE rate,
   }
 }
 
+static bool ShadingRateToAxes(D3D12_SHADING_RATE rate, uint32_t &horizontal,
+                               uint32_t &vertical) {
+  switch (rate) {
+  case D3D12_SHADING_RATE_1X1:
+    horizontal = 0;
+    vertical = 0;
+    return true;
+  case D3D12_SHADING_RATE_1X2:
+    horizontal = 0;
+    vertical = 1;
+    return true;
+  case D3D12_SHADING_RATE_2X1:
+    horizontal = 1;
+    vertical = 0;
+    return true;
+  case D3D12_SHADING_RATE_2X2:
+    horizontal = 1;
+    vertical = 1;
+    return true;
+  case D3D12_SHADING_RATE_2X4:
+    horizontal = 1;
+    vertical = 2;
+    return true;
+  case D3D12_SHADING_RATE_4X2:
+    horizontal = 2;
+    vertical = 1;
+    return true;
+  case D3D12_SHADING_RATE_4X4:
+    horizontal = 2;
+    vertical = 2;
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool ShadingRateFromAxes(uint32_t horizontal, uint32_t vertical,
+                                D3D12_SHADING_RATE &result) {
+  if (horizontal > 2 || vertical > 2)
+    return false;
+  if (horizontal == 0 && vertical == 0)
+    result = D3D12_SHADING_RATE_1X1;
+  else if (horizontal == 0 && vertical == 1)
+    result = D3D12_SHADING_RATE_1X2;
+  else if (horizontal == 1 && vertical == 0)
+    result = D3D12_SHADING_RATE_2X1;
+  else if (horizontal == 1 && vertical == 1)
+    result = D3D12_SHADING_RATE_2X2;
+  else if (horizontal == 1 && vertical == 2)
+    result = D3D12_SHADING_RATE_2X4;
+  else if (horizontal == 2 && vertical == 1)
+    result = D3D12_SHADING_RATE_4X2;
+  else if (horizontal == 2 && vertical == 2)
+    result = D3D12_SHADING_RATE_4X4;
+  else
+    return false;
+  return true;
+}
+
 static bool CombineShadingRate(D3D12_SHADING_RATE first,
                                D3D12_SHADING_RATE second,
                                D3D12_SHADING_RATE_COMBINER combiner,
@@ -648,25 +707,26 @@ static bool CombineShadingRate(D3D12_SHADING_RATE first,
     return true;
   case D3D12_SHADING_RATE_COMBINER_MIN:
   case D3D12_SHADING_RATE_COMBINER_MAX: {
-    float first_horizontal = 1.0f;
-    float first_vertical = 1.0f;
-    float second_horizontal = 1.0f;
-    float second_vertical = 1.0f;
-    if (!ShadingRateToMetalQuality(first, first_horizontal, first_vertical) ||
-        !ShadingRateToMetalQuality(second, second_horizontal,
-                                   second_vertical))
+    uint32_t first_horizontal = 0;
+    uint32_t first_vertical = 0;
+    uint32_t second_horizontal = 0;
+    uint32_t second_vertical = 0;
+    if (!ShadingRateToAxes(first, first_horizontal, first_vertical) ||
+        !ShadingRateToAxes(second, second_horizontal, second_vertical))
       return false;
-    const float first_area = first_horizontal * first_vertical;
-    const float second_area = second_horizontal * second_vertical;
-    // D3D12 names the larger coarse-pixel rate the maximum.  Metal quality
-    // is the inverse quantity, so MAX selects the smaller area and MIN the
-    // larger/finer area.
-    const bool choose_first =
+    // D3D12 combines the horizontal and vertical axis values independently.
+    // MIN is higher quality (a smaller coarse-pixel dimension), while MAX is
+    // lower quality (a larger coarse-pixel dimension).  Comparing total area
+    // is incorrect for asymmetric rates such as 1x2 and 2x1.
+    const uint32_t horizontal =
         combiner == D3D12_SHADING_RATE_COMBINER_MIN
-            ? first_area >= second_area
-            : first_area <= second_area;
-    result = choose_first ? first : second;
-    return true;
+            ? std::min(first_horizontal, second_horizontal)
+            : std::max(first_horizontal, second_horizontal);
+    const uint32_t vertical =
+        combiner == D3D12_SHADING_RATE_COMBINER_MIN
+            ? std::min(first_vertical, second_vertical)
+            : std::max(first_vertical, second_vertical);
+    return ShadingRateFromAxes(horizontal, vertical, result);
   }
   case D3D12_SHADING_RATE_COMBINER_SUM:
   default:
@@ -5183,21 +5243,34 @@ struct ReplayState {
           }
         }
       }
-      float horizontal = 1.0f;
-      float vertical = 1.0f;
-      if (constant_image && shading_rate == D3D12_SHADING_RATE_1X1 &&
-          shading_rate_combiners[0] ==
-              D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
-          shading_rate_combiners[1] ==
-              D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
-          ShadingRateToMetalQuality(
-              static_cast<D3D12_SHADING_RATE>(image_data.front()), horizontal,
-              vertical)) {
-        image_map_configured = try_rate_map(horizontal, vertical, "image");
+      D3D12_SHADING_RATE effective_shading_rate =
+          D3D12_SHADING_RATE_1X1;
+      const bool image_rate_valid = constant_image;
+      // The Metal rate map is uniform, so only a constant image can be
+      // represented without pretending that every macroblock has the same
+      // rate.  Even for that subset, preserve D3D12's two combiner stages:
+      // rasterizer/per-primitive first, then the image contribution.
+      const bool effective_rate_valid =
+          image_rate_valid &&
+          CombineShadingRate(shading_rate, D3D12_SHADING_RATE_1X1,
+                             shading_rate_combiners[0],
+                             effective_shading_rate) &&
+          CombineShadingRate(
+              effective_shading_rate,
+              static_cast<D3D12_SHADING_RATE>(image_data.front()),
+              shading_rate_combiners[1], effective_shading_rate);
+      float effective_horizontal = 1.0f;
+      float effective_vertical = 1.0f;
+      if (effective_rate_valid &&
+          ShadingRateToMetalQuality(effective_shading_rate,
+                                    effective_horizontal, effective_vertical)) {
+        image_map_configured = try_rate_map(effective_horizontal,
+                                             effective_vertical, "image");
       }
       if (!image_map_configured) {
         QTRACE("EnsureRenderEncoder: shading-rate image shape=%ux%u is not "
-               "constant/initialized; keeping the pass at native rate",
+               "constant/initialized or its combiner result is unsupported; "
+               "keeping the pass at native rate",
                (unsigned)image_desc.Width, (unsigned)image_desc.Height);
       }
     }

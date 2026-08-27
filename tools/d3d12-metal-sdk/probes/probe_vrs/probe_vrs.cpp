@@ -508,16 +508,106 @@ float4 ps_main(VSOut input) : SV_Target0 {
     list->ResourceBarrier(1, &image_barrier);
     image_copy_recorded = true;
   }
+  const D3D12_SHADING_RATE_COMBINER image_combiners[2] = {
+      D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+      D3D12_SHADING_RATE_COMBINER_OVERRIDE};
   HRESULT image_record_hr =
       SUCCEEDED(image_reset_hr) && image_copy_recorded
           ? record_draw(list, list5, root, pso, target,
                         D3D12_SHADING_RATE_1X1, shading_rate_image, readback,
-                        vertex_buffer, rtv_heap)
+                        vertex_buffer, rtv_heap, image_combiners)
           : E_FAIL;
   HRESULT image_execute_hr =
       SUCCEEDED(image_record_hr) ? execute_and_wait(device, queue, list)
                                  : E_FAIL;
   uint32_t image_pixels = count_nonzero(readback);
+
+  uint32_t cross_image_min_pixels = 0;
+  uint32_t cross_image_max_pixels = 0;
+  HRESULT cross_image_last_hr = image_execute_hr;
+  const D3D12_SHADING_RATE_COMBINER cross_image_combiners[2][2] = {
+      {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+       D3D12_SHADING_RATE_COMBINER_MIN},
+      {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+       D3D12_SHADING_RATE_COMBINER_MAX}};
+  for (size_t i = 0; i < 2; ++i) {
+    HRESULT cross_reset_hr = SUCCEEDED(cross_image_last_hr)
+                                 ? allocator->Reset()
+                                 : E_FAIL;
+    if (SUCCEEDED(cross_reset_hr))
+      cross_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(cross_reset_hr)) {
+      D3D12_RESOURCE_BARRIER restore_target = {};
+      restore_target.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      restore_target.Transition.pResource = target;
+      restore_target.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      restore_target.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_COPY_SOURCE;
+      restore_target.Transition.StateAfter =
+          D3D12_RESOURCE_STATE_RENDER_TARGET;
+      list->ResourceBarrier(1, &restore_target);
+      D3D12_RESOURCE_BARRIER image_to_copy = {};
+      image_to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      image_to_copy.Transition.pResource = shading_rate_image;
+      image_to_copy.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      image_to_copy.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+      image_to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+      list->ResourceBarrier(1, &image_to_copy);
+      void *mapped = nullptr;
+      D3D12_RANGE write_range = {0, 0};
+      HRESULT map_hr = shading_rate_upload->Map(0, &write_range, &mapped);
+      if (SUCCEEDED(map_hr) && mapped) {
+        for (uint32_t y = 0; y < 8; ++y)
+          std::memset(static_cast<uint8_t *>(mapped) + y * 256,
+                      D3D12_SHADING_RATE_2X1, 8);
+        shading_rate_upload->Unmap(0, nullptr);
+      } else {
+        cross_reset_hr = map_hr;
+      }
+      if (SUCCEEDED(cross_reset_hr)) {
+        D3D12_TEXTURE_COPY_LOCATION image_source = {};
+        image_source.pResource = shading_rate_upload;
+        image_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        image_source.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8_UINT;
+        image_source.PlacedFootprint.Footprint.Width = 8;
+        image_source.PlacedFootprint.Footprint.Height = 8;
+        image_source.PlacedFootprint.Footprint.Depth = 1;
+        image_source.PlacedFootprint.Footprint.RowPitch = 256;
+        D3D12_TEXTURE_COPY_LOCATION image_destination = {};
+        image_destination.pResource = shading_rate_image;
+        image_destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&image_destination, 0, 0, 0, &image_source,
+                                nullptr);
+        D3D12_RESOURCE_BARRIER image_to_source = {};
+        image_to_source.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        image_to_source.Transition.pResource = shading_rate_image;
+        image_to_source.Transition.Subresource =
+            D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        image_to_source.Transition.StateBefore =
+            D3D12_RESOURCE_STATE_COPY_DEST;
+        image_to_source.Transition.StateAfter =
+            D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+        list->ResourceBarrier(1, &image_to_source);
+      }
+    }
+    HRESULT cross_record_hr =
+        SUCCEEDED(cross_reset_hr)
+            ? record_draw(list, list5, root, pso, target,
+                          D3D12_SHADING_RATE_1X2, shading_rate_image, readback,
+                          vertex_buffer, rtv_heap, cross_image_combiners[i])
+            : E_FAIL;
+    cross_image_last_hr =
+        SUCCEEDED(cross_record_hr) ? execute_and_wait(device, queue, list)
+                                   : E_FAIL;
+    uint32_t pixels = count_nonzero(readback);
+    if (i == 0)
+      cross_image_min_pixels = pixels;
+    else
+      cross_image_max_pixels = pixels;
+  }
 
   const D3D12_SHADING_RATE rate_matrix_rates[] = {
       D3D12_SHADING_RATE_1X2, D3D12_SHADING_RATE_2X1,
@@ -526,7 +616,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   const char *rate_matrix_names[] = {"1x2", "2x1", "2x4", "4x2", "4x4"};
   uint32_t rate_matrix_pixels[5] = {};
   bool rate_matrix_ok = true;
-  HRESULT rate_matrix_last_hr = image_execute_hr;
+  HRESULT rate_matrix_last_hr = cross_image_last_hr;
   for (size_t i = 0; i < 5; ++i) {
     HRESULT matrix_reset_hr = SUCCEEDED(rate_matrix_last_hr)
                                   ? allocator->Reset()
@@ -563,6 +653,9 @@ float4 ps_main(VSOut input) : SV_Target0 {
     rate_matrix_last_hr = matrix_execute_hr;
   }
 
+  const bool cross_image_combiner_ok =
+      SUCCEEDED(cross_image_last_hr) && cross_image_min_pixels == baseline_pixels &&
+      cross_image_max_pixels == vrs_pixels;
   const bool passed = source_ok && vs_dxc == 0 && ps_dxc == 0 && !vs.empty() &&
                       !ps.empty() && SUCCEEDED(device_hr) &&
                       SUCCEEDED(root_serialize_hr) && SUCCEEDED(root_hr) &&
@@ -580,8 +673,8 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       SUCCEEDED(image_reset_hr) && image_copy_recorded &&
                       SUCCEEDED(image_record_hr) && SUCCEEDED(image_execute_hr) &&
                       image_pixels > 0 && image_pixels < baseline_pixels &&
-                      image_pixels == vrs_pixels && rate_matrix_ok &&
-                      SUCCEEDED(rate_matrix_last_hr);
+                      image_pixels == vrs_pixels && cross_image_combiner_ok &&
+                      rate_matrix_ok && SUCCEEDED(rate_matrix_last_hr);
   std::printf("{\n");
   std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-vrs.v1\",\n");
   std::printf("  \"pass\": %s,\n", passed ? "true" : "false");
@@ -618,6 +711,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"image_execute_hr\": \"%s\",\n",
               hr_hex(image_execute_hr).c_str());
   std::printf("  \"image_rate\": \"2x2\",\n");
+  std::printf("  \"image_combiners\": [\"PASSTHROUGH\", \"OVERRIDE\"],\n");
   std::printf("  \"image_pixels\": %u,\n", image_pixels);
   std::printf("  \"rate_reduced\": %s,\n",
               (vrs_pixels > 0 && vrs_pixels < baseline_pixels) ? "true"
@@ -627,6 +721,14 @@ float4 ps_main(VSOut input) : SV_Target0 {
                image_pixels == vrs_pixels)
                   ? "true"
                   : "false");
+  std::printf("  \"cross_image_min_rate\": \"1x1\",\n");
+  std::printf("  \"cross_image_min_pixels\": %u,\n",
+              cross_image_min_pixels);
+  std::printf("  \"cross_image_max_rate\": \"2x2\",\n");
+  std::printf("  \"cross_image_max_pixels\": %u,\n",
+              cross_image_max_pixels);
+  std::printf("  \"cross_image_combiner_verified\": %s,\n",
+              cross_image_combiner_ok ? "true" : "false");
   std::printf("  \"rate_matrix\": [");
   for (size_t i = 0; i < 5; ++i) {
     if (i)

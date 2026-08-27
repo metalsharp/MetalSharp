@@ -133,7 +133,7 @@
         "baseline versus 1x2/2x1/2x2/2x4/4x2/4x4 reduced fragment readback",
         "command-list reset and reuse after a VRS pass"
       ],
-      "risk": "The per-draw 1x2/2x1/2x2/2x4/4x2/4x4 paths record D3D12 shading-rate commands and attach Metal rasterization-rate maps, reducing the focused 64x64 readback to 2112/2112/1089/1056/1056/1024 nonzero pixels; the 2x2 case also passes a MAX/PASSTHROUGH combiner pair. A copied constant R8_UINT 8x8 shading-rate image independently produces the same 1089-pixel 2x2 result. Nonconstant image mapping, other combiner semantics, logical-resolution reconstruction, per-primitive rates, and full Tier-2 breadth remain unproven, so Options6 stays conservative.",
+      "risk": "The per-draw 1x2/2x1/2x2/2x4/4x2/4x4 paths record D3D12 shading-rate commands and attach Metal rasterization-rate maps, reducing the focused 64x64 readback to 2112/2112/1089/1056/1056/1024 nonzero pixels; the 2x2 case also passes a MAX/PASSTHROUGH combiner pair. A copied constant R8_UINT 8x8 shading-rate image uses the D3D12 PASSTHROUGH/OVERRIDE combiner pair and independently produces the same 1089-pixel 2x2 result. Nonconstant image mapping, MIN/MAX axis matrices beyond the focused paths, SUM, logical-resolution reconstruction, per-primitive rates, and full Tier-2 breadth remain unproven, so Options6 stays conservative.",
       "state": "required",
       "tier": "required"
     },

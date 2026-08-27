@@ -1039,11 +1039,14 @@ the goal is not complete.
   and `sm67_reportable=true`; the separate warmup-only report remains
   intentionally non-reportable.
 - The opt-in VRS probe covers the per-draw 1x2/2x1/2x2/2x4/4x2/4x4 matrix and
-  a MAX/PASSTHROUGH combiner pair. Its clean readbacks are
-  `2112/2112/1089/1056/1056/1024`, with the copied constant image path at
-  `1089`. The same result passes after staging the clean rebuild into the
-  installed M12 runtime. VRS remains opt-in because nonconstant image maps,
-  other combiners, logical-resolution reconstruction, and Tier-2 breadth are
+  MAX/PASSTHROUGH plus constant-image PASSTHROUGH/OVERRIDE combiner paths. Its
+  clean readbacks are `2112/2112/1089/1056/1056/1024`, with the copied constant
+  image path at `1089`. A cross-axis constant-image matrix also verifies
+  MIN(1x2,2x1)=1x1 (`4096`) and MAX(1x2,2x1)=2x2 (`1089`), correcting the
+  implementation from area comparison to independent D3D12 axis comparison.
+  The same result passes after staging the clean rebuild into the installed M12
+  runtime. VRS remains opt-in because nonconstant image maps, SUM, broader
+  combiner matrices, logical-resolution reconstruction, and Tier-2 breadth are
   still gated.
 - The offscreen render/readback probe is now part of the required set and
   independently verifies `D3D12_LOGIC_OP_XOR` with exact `[255,255,255,255]`
