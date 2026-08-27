@@ -26,6 +26,7 @@ REQUIRED_GROUPS = {
     "dxil_opcode_groups": ["probe-dxil-semantics", "probe-mini-dxil-texture-color-output"],
     "synthetic_shader_corpus": ["probe-shader-corpus"],
     "sm66_capability_audit": ["probe-sm66-capabilities"],
+    "writable_msaa_texture": ["probe-writable-msaa"],
     "sampler_feedback_tier_0_9": ["probe-sampler-feedback", "probe-sampler-feedback-pixel"],
     "waveops_capability_audit": ["probe-wave-ops"],
     "shader_reflection_argument_binding": ["probe-shaders", "probe-reflection-abi"],

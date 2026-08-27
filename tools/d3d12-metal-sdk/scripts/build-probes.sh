@@ -135,6 +135,10 @@ build_probe \
   -o "$OUT_DIR/probe_sm66_capabilities.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_writable_msaa/probe_writable_msaa.cpp" \
+  -o "$OUT_DIR/probe_writable_msaa.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_sampler_feedback/probe_sampler_feedback.cpp" \
   -o "$OUT_DIR/probe_sampler_feedback.exe"
 
@@ -232,6 +236,7 @@ echo "$OUT_DIR/probe_shaders.exe"
 echo "$OUT_DIR/probe_dxil_semantics.exe"
 echo "$OUT_DIR/probe_shader_corpus.exe"
 echo "$OUT_DIR/probe_sm66_capabilities.exe"
+echo "$OUT_DIR/probe_writable_msaa.exe"
 echo "$OUT_DIR/probe_sampler_feedback.exe"
 echo "$OUT_DIR/probe_sampler_feedback_pixel.exe"
 echo "$OUT_DIR/probe_wave_ops.exe"

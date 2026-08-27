@@ -255,10 +255,29 @@ void MTLD3D12Resource::InitializeResource(
             ? m_desc.DepthOrArraySize
             : 1;
     tex_info.mipmap_level_count = m_desc.MipLevels ? m_desc.MipLevels : 1;
-    tex_info.type = TextureTypeForResourceDesc(m_desc);
-    tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
-    if (tex_info.sample_count > 1)
+    m_writable_msaa_emulated =
+        m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        m_desc.SampleDesc.Count > 1 &&
+        (m_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+        !(m_desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
+                          D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+    if (m_writable_msaa_emulated) {
+      // Metal exposes multisampled textures as read-only shader resources.
+      // Represent a writable D3D12 MSAA UAV as ordinary array slices, with
+      // each logical array slice expanded by the sample count. The DXIL
+      // lowering selects the flattened sample slice explicitly.
+      tex_info.type = WMTTextureType2DArray;
+      tex_info.array_length =
+          std::max<UINT16>(m_desc.DepthOrArraySize, 1) *
+          std::max<UINT>(m_desc.SampleDesc.Count, 1);
+      tex_info.sample_count = 1;
       tex_info.mipmap_level_count = 1;
+    } else {
+      tex_info.type = TextureTypeForResourceDesc(m_desc);
+      tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
+      if (tex_info.sample_count > 1)
+        tex_info.mipmap_level_count = 1;
+    }
     tex_info.usage = (WMTTextureUsage)(WMTTextureUsageRenderTarget |
                                       WMTTextureUsageShaderRead |
                                       WMTTextureUsageShaderWrite |
@@ -268,10 +287,14 @@ void MTLD3D12Resource::InitializeResource(
     if (tex_info.pixel_format == WMTPixelFormatInvalid)
       tex_info.pixel_format = WMTPixelFormatBGRA8Unorm;
 
-    RTRACE("ctor: about to newTexture type=%u fmt=%u %ux%u depth=%u arr=%u mip=%u sample=%u opts=%u",
-      tex_info.type, tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height,
+    RTRACE("ctor: writable_msaa=%d flags=0x%x samples=%u about to newTexture "
+           "type=%u fmt=%u %ux%u depth=%u arr=%u mip=%u sample=%u opts=%u",
+      m_writable_msaa_emulated ? 1 : 0, (unsigned)m_desc.Flags,
+      (unsigned)m_desc.SampleDesc.Count, tex_info.type, tex_info.pixel_format,
+      (unsigned)tex_info.width, (unsigned)tex_info.height,
       (unsigned)tex_info.depth, (unsigned)tex_info.array_length,
-       (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count, (unsigned)tex_info.options);
+      (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count,
+      (unsigned)tex_info.options);
     if (!m_mtl_texture.handle) {
       if (m_is_reserved) {
         WMTHeapInfo heap_info = {};
@@ -326,10 +349,19 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
     tex_info.array_length = (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
                                   ? m_desc.DepthOrArraySize : 1;
     tex_info.mipmap_level_count = m_desc.MipLevels ? m_desc.MipLevels : 1;
-    tex_info.type = TextureTypeForResourceDesc(m_desc);
-    tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
-    if (tex_info.sample_count > 1)
+    if (m_writable_msaa_emulated) {
+      tex_info.type = WMTTextureType2DArray;
+      tex_info.array_length =
+          std::max<UINT16>(m_desc.DepthOrArraySize, 1) *
+          std::max<UINT>(m_desc.SampleDesc.Count, 1);
+      tex_info.sample_count = 1;
       tex_info.mipmap_level_count = 1;
+    } else {
+      tex_info.type = TextureTypeForResourceDesc(m_desc);
+      tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
+      if (tex_info.sample_count > 1)
+        tex_info.mipmap_level_count = 1;
+    }
     tex_info.usage = (WMTTextureUsage)(WMTTextureUsageRenderTarget | WMTTextureUsageShaderRead | WMTTextureUsageShaderWrite | WMTTextureUsagePixelFormatView);
     tex_info.options = cpu_accessible ? WMTResourceStorageModeShared : WMTResourceStorageModePrivate;
     tex_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(static_cast<DXGI_FORMAT>(m_desc.Format));
@@ -351,6 +383,9 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
 }
 
 uint32_t MTLD3D12Resource::GetTextureArrayLength() const {
+  if (m_writable_msaa_emulated)
+    return std::max<UINT16>(m_desc.DepthOrArraySize, 1) *
+           std::max<UINT>(m_desc.SampleDesc.Count, 1);
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
     return m_desc.DepthOrArraySize ? m_desc.DepthOrArraySize : 1;
   return 1;

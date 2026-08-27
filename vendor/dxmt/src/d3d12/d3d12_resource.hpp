@@ -123,6 +123,7 @@ public:
   bool IsNativeSparseBuffer() const {
     return m_is_reserved && IsBuffer() && m_native_sparse_buffer;
   }
+  bool IsWritableMSAAEmulated() const { return m_writable_msaa_emulated; }
   WMT::Reference<WMT::Heap> GetSparseHeap() { return m_sparse_heap; }
   void SetSparseHeap(WMT::Reference<WMT::Heap> heap) {
     m_sparse_heap = std::move(heap);
@@ -352,6 +353,7 @@ private:
   uint64_t m_backing_offset = 0;
   bool m_is_reserved = false;
   bool m_native_sparse_buffer = false;
+  bool m_writable_msaa_emulated = false;
   bool m_is_sampler_feedback = false;
   uint32_t m_sampler_feedback_width = 0;
   uint32_t m_sampler_feedback_height = 0;
