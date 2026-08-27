@@ -526,6 +526,7 @@ struct ResourceHandleRecord {
     uint32_t binding_index = 0;
     uint32_t resource_kind = 0;
     uint32_t element_stride = 0;
+    uint32_t sample_count = 1;
     bool non_uniform = false;
 };
 
@@ -571,6 +572,7 @@ struct LowerContext {
     bool compute_wave_shader = false;
     bool compute_raw_gather_shader = false;
     bool compute_texture_store_shader = false;
+    bool texture_store_sample_shader = false;
     bool compute_sample_cmp_shader = false;
     bool compute_texture_sample_shader = false;
     bool uses_atomic64_emulation = false;
@@ -917,6 +919,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
             bool comparison_slot = false;
             bool raw_gather_slot = false;
+            bool uav_slot = false;
             if (ctx.compute_sample_cmp_shader) {
                 for (const auto &range : ctx.binding_plan.ranges) {
                     if (range.kind == DescriptorRangePlan::Kind::SRV &&
@@ -937,10 +940,20 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                     }
                 }
             }
+            for (const auto &range : ctx.binding_plan.ranges) {
+                if (range.kind == DescriptorRangePlan::Kind::UAV &&
+                    i >= range.lower_bound &&
+                    i < range.lower_bound + range.count) {
+                    uav_slot = true;
+                    break;
+                }
+            }
             if (raw_gather_slot)
                 os << "  texture2d<uint, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
             else if (comparison_slot)
                 os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+            else if (uav_slot && ctx.texture_store_sample_shader)
+                os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
             else if (ctx.compute_texture_store_shader ||
                      !ctx.compute_texture_sample_shader)
                 os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
@@ -991,8 +1004,23 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  input_v in [[stage_in]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
             os << "  device char* buf" << i << " [[buffer(" << i << ")]],\n";
-        for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++)
-            os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+        for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
+            bool uav_slot = false;
+            for (const auto &range : ctx.binding_plan.ranges) {
+                if (range.kind == DescriptorRangePlan::Kind::UAV &&
+                    i >= range.lower_bound &&
+                    i < range.lower_bound + range.count) {
+                    uav_slot = true;
+                    break;
+                }
+            }
+            if (uav_slot && ctx.texture_store_sample_shader)
+                os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
+            else if (uav_slot)
+                os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
+            else
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+        }
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++) {
             os << "  sampler samp" << i << " [[sampler(" << i << ")]]";
             os << (i + 1 == ctx.binding_plan.direct_sampler_count &&
@@ -1885,7 +1913,13 @@ static std::string coerceResolvedValue(const std::string &value, const MSLType &
         target.kind != MSLTypeKind::DeviceCharPtr &&
         target.kind != MSLTypeKind::ThreadgroupCharPtr &&
         target.kind != MSLTypeKind::Texture2D &&
+        target.kind != MSLTypeKind::Texture2DArray &&
+        target.kind != MSLTypeKind::Texture3D &&
+        target.kind != MSLTypeKind::TextureCube &&
+        target.kind != MSLTypeKind::Texture2DMS &&
         target.kind != MSLTypeKind::RWTexture2D &&
+        target.kind != MSLTypeKind::RWTexture2DArray &&
+        target.kind != MSLTypeKind::RWTexture3D &&
         target.kind != MSLTypeKind::Sampler) {
         return defaultForType(target);
     }
@@ -2553,12 +2587,60 @@ static MSLType typeForHandleKind(DescriptorRangePlan::Kind kind) {
 
 static MSLType typeForHandleKind(const LowerContext &ctx, DescriptorRangePlan::Kind kind) {
     MSLType type = typeForHandleKind(kind);
+    if (kind == DescriptorRangePlan::Kind::UAV &&
+        ctx.texture_store_sample_shader)
+        return {MSLTypeKind::RWTexture2DArray, 0, {}};
     if (ctx.shader.kind == DxilShaderKind::Compute &&
         (ctx.compute_texture_store_shader ||
          !ctx.compute_texture_sample_shader) &&
         type.kind == MSLTypeKind::Texture2D)
         return {MSLTypeKind::RWTexture2D, 0, {}};
     return type;
+}
+
+static bool isWritableMSAAHandle(const LowerContext &ctx, uint32_t handle_id) {
+    auto it = ctx.resource_handles.find(handle_id);
+    return ctx.texture_store_sample_shader &&
+           it != ctx.resource_handles.end() &&
+           it->second.kind == DescriptorRangePlan::Kind::UAV &&
+           (it->second.resource_kind == 3u ||
+            it->second.resource_kind == 8u);
+}
+
+static bool isWritableMSAAArrayHandle(const LowerContext &ctx,
+                                      uint32_t handle_id) {
+    auto it = ctx.resource_handles.find(handle_id);
+    return isWritableMSAAHandle(ctx, handle_id) &&
+           it != ctx.resource_handles.end() &&
+           it->second.resource_kind == 8u;
+}
+
+static uint32_t writableMSAASampleCount(const LowerContext &ctx,
+                                        uint32_t handle_id) {
+    auto it = ctx.resource_handles.find(handle_id);
+    if (it == ctx.resource_handles.end() || it->second.sample_count == 0)
+        return 1;
+    return it->second.sample_count;
+}
+
+static std::string writableMSAASlice(const LowerContext &ctx,
+                                     uint32_t handle_id,
+                                     const std::string &sample,
+                                     const std::string &array_slice) {
+    if (!isWritableMSAAArrayHandle(ctx, handle_id))
+        return sample;
+    return "((uint)(" + array_slice + ") * " +
+           std::to_string(writableMSAASampleCount(ctx, handle_id)) +
+           "u + (uint)(" + sample + "))";
+}
+
+static MSLType typeForResourceHandle(const LowerContext &ctx,
+                                     const ResourceHandleRecord &handle) {
+    if (ctx.texture_store_sample_shader &&
+        handle.kind == DescriptorRangePlan::Kind::UAV &&
+        (handle.resource_kind == 3u || handle.resource_kind == 8u))
+        return {MSLTypeKind::RWTexture2DArray, 0, {}};
+    return typeForHandleKind(ctx, handle.kind);
 }
 
 static ValueRole roleForHandleKind(DescriptorRangePlan::Kind kind) {
@@ -2773,6 +2855,15 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
                                               : DescriptorRangePlan::Kind::SRV);
     }
     case DXOP_AnnotateHandle: {
+        if (args.size() > 1) {
+            auto properties = parseAggregateLiteral(resolveValue(ctx, args[1]));
+            uint32_t property0 = 0;
+            if (!properties.empty() &&
+                parseUnsignedLiteral(properties[0], property0) &&
+                ((property0 & 0xffu) == 3u ||
+                 (property0 & 0xffu) == 8u))
+                return {MSLTypeKind::RWTexture2DArray, 0, {}};
+        }
         if (!args.empty()) {
             MSLType annotated = valueTypeOrUnknown(ctx, args[0]);
             if (usableType(annotated))
@@ -2978,7 +3069,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
               type.kind == MSLTypeKind::ThreadgroupCharPtr)) ||
             (std::strcmp(prefix, "tex") == 0 &&
              (type.kind == MSLTypeKind::Texture2D ||
-              type.kind == MSLTypeKind::RWTexture2D)) ||
+              type.kind == MSLTypeKind::RWTexture2D ||
+              type.kind == MSLTypeKind::Texture2DArray ||
+              type.kind == MSLTypeKind::RWTexture2DArray)) ||
             (std::strcmp(prefix, "samp") == 0 &&
              type.kind == MSLTypeKind::Sampler))
             return resolveBindingName(value, prefix);
@@ -3053,9 +3146,17 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                             annotated.resource_class = 0;
                         }
                     }
-                    if (properties.size() > 1)
+                    if (properties.size() > 1) {
                         parseUnsignedLiteral(properties[1],
                                              annotated.element_stride);
+                        if (annotated.resource_kind == 3u ||
+                            annotated.resource_kind == 8u) {
+                            uint32_t encoded_samples =
+                                annotated.element_stride >> 16;
+                            annotated.sample_count =
+                                encoded_samples ? encoded_samples : 1u;
+                        }
+                    }
                 }
                 ctx.pending_handle = annotated;
                 return materializeHandleName(ctx, annotated);
@@ -3235,6 +3336,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "float4(" + handle + ".read(uint2(" + cx + ", " + cy +
                    "), (uint)(" + mip + ")))";
         }
+        if (isWritableMSAAHandle(ctx, args[0])) {
+            auto sample = ensureScalarIndex(numericArg(1, "0"));
+            auto array_slice = isWritableMSAAArrayHandle(ctx, args[0])
+                                   ? ensureScalarIndex(numericArg(4, "0"))
+                                   : "0";
+            return handle + ".read(uint2(" + cx + ", " + cy +
+                   "), " + writableMSAASlice(ctx, args[0], sample,
+                                               array_slice) + ")";
+        }
         return handle + ".read(uint2(" + cx + ", " + cy + "))";
     }
     case DXOP_TextureStore: case 225: {
@@ -3242,11 +3352,20 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto handle = handleArg(0, "tex", "tex0");
         auto cx = ensureScalarIndex(numericArg(1, "0"));
         auto cy = ensureScalarIndex(numericArg(2, "0"));
-        size_t vb = intrinsic_id == 225 ? 5 : 4;
+        size_t vb = 4;
         std::string value = "float4(" + numericArg(vb, "0.0") + ", " + numericArg(vb+1, "0.0") +
                             ", " + numericArg(vb+2, "0.0") + ", " + numericArg(vb+3, "0.0") + ")";
         if (startsWith(handle, "buf"))
             return "reinterpret_cast<device float4&>(" + handle + "[(((int)(" + cy + "))*4096 + ((int)(" + cx + "))*16)]) = " + value;
+        if (intrinsic_id == DXOP_TextureStoreSample &&
+            isWritableMSAAHandle(ctx, args[0])) {
+            auto sample = ensureScalarIndex(numericArg(9, "0"));
+            auto array_slice = isWritableMSAAArrayHandle(ctx, args[0])
+                                   ? ensureScalarIndex(numericArg(3, "0"))
+                                   : "0";
+            return handle + ".write(" + value + ", uint2((uint)(" + cx + "), (uint)(" + cy + ")), " +
+                   writableMSAASlice(ctx, args[0], sample, array_slice) + ")";
+        }
         return handle + ".write(" + value + ", uint2((uint)(" + cx + "), (uint)(" + cy + ")))";
     }
     case DXOP_TextureSample: case DXOP_TextureSampleBias:
@@ -4147,7 +4266,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 ResourceHandleRecord handle = *ctx.pending_handle;
                 ctx.resource_handles[value_counter] = handle;
                 ctx.value_table[value_counter] = materializeHandleName(ctx, handle);
-                ctx.value_types[value_counter] = typeForHandleKind(ctx, handle.kind);
+                ctx.value_types[value_counter] = typeForResourceHandle(ctx, handle);
                 ctx.value_roles[value_counter] = roleForHandleKind(handle.kind);
                 ctx.pending_handle.reset();
             } else if (result_type.kind == MSLTypeKind::Void || exprLooksSideEffectOnly(translated)) {
@@ -5017,6 +5136,12 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                 ctx.compute_texture_store_shader = true;
                 break;
             }
+        }
+    }
+    for (const auto &decl : module.functions) {
+        if (startsWith(decl.name, "dx.op.textureStoreSample")) {
+            ctx.texture_store_sample_shader = true;
+            break;
         }
     }
     ctx.compute_sample_cmp_shader = shader.kind == DxilShaderKind::Compute;

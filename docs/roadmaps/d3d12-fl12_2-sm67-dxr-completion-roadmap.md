@@ -92,6 +92,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Fully typed/relaxed format casting | Supported | Proven and reported | Device10 castable-list creation plus declared/undeclared view runtime probe |
 | Unaligned block textures | Supported | Proven and reported | 7x5 BC1 footprint/copy/readback probe |
 | Int64 shader ops | Supported | Reported true | Arithmetic and atomic runtime readback |
+| Writable MSAA textures | CS 6.7 subset | Focused 2D/array compute path proven; capability remains conservative | CS 6.7 per-sample store/load and exact `[100,101,102,103,200,201,202,203]` readback |
 
 Shader Model 6.7 completion additionally includes:
 
@@ -371,8 +372,14 @@ Findings:
   rejected/skipped.
 - Shader Model 6.7 advanced texture operations now have compute-stage runtime
   lowering and exact readback for programmable offsets, `GatherRaw`, and
-  `SampleCmpLevel` across two independently cleared depth mip levels. Graphics
-  stages and writable MSAA textures remain gated, so Options14 stays false.
+  `SampleCmpLevel` across two independently cleared depth mip levels. A
+  standalone writable-MSAA probe additionally compiles CS 6.7
+  `RWTexture2DMS<float4>` and `RWTexture2DMSArray<float4,4>` store/load
+  shaders, binds the UAV-backed emulation, writes all four samples in a
+  logical array slice, and reads back `[100,101,102,103,200,201,202,203]`.
+  This proves the focused compute subset, but both Options14 capability fields
+  remain conservative pending render-target/DSV, resolve, and graphics-stage
+  breadth.
 - Xcode 27 beta 6's Metal 3.1 standard library declares `atomic_ulong`, but its
   generic load/store/add/compare-exchange constraints exclude `ulong` and its
   threadgroup operations; only device `ulong` min/max is exposed under the
@@ -1080,9 +1087,10 @@ the goal is not complete.
   cleared depth mip values `0.25/0.75` and returns comparison results `0/1` for
   explicit LODs 0/1. The custom DXIL path now preserves binding upper bounds,
   emits typed integer gathers, programmable sample offsets/LOD, depth
-  comparison sampling, and DSV mip/slice attachment selection. Options14 is
-  intentionally still unreported until graphics-stage breadth and writable
-  MSAA textures pass.
+  comparison sampling, and DSV mip/slice attachment selection. The separate
+  writable-MSAA probe now proves a focused CS 6.7 2D/array per-sample path.
+  Both Options14 fields remain intentionally conservative until graphics-stage
+  breadth passes.
 - Completed the Shader Model 6.7 reporting gate: the SM 6.6 corpus now
   dispatches and passes exact readback for root constants, descriptor indexing,
   64-bit arithmetic, group atomics/barriers, and texture/sampler access;
@@ -1256,7 +1264,13 @@ the goal is not complete.
   cross-resource aliasing remains gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
   tiled-resource, and native-sparse-buffer changes passes all `21/21` required
-  contract probes. The matching Winemetal source audit reports `166/166`
-  normal/WOW64 call-table entries and `failure_count=0`; intentional warmup and
-  missing-capture diagnostics remain outside the required set, and the FL12_2
-  target gate remains conservative.
+  contract probes. The writable-MSAA extension is independently covered by
+  `probe-writable-msaa`, which passes CS 6.7 DXIL compilation, pipeline
+  creation, writable `RWTexture2DMS`/`RWTexture2DMSArray` UAV emulation, all
+  four per-sample store/load operations in both 2D and array resources, and
+  exact readback `[100,101,102,103,200,201,202,203]`. This is a focused
+  behavior proof only; both Options14 fields remain conservative until
+  render-target/DSV, resolve, and graphics-stage breadth passes. The matching Winemetal source
+  audit reports `166/166` normal/WOW64 call-table entries and
+  `failure_count=0`; intentional warmup and missing-capture diagnostics remain
+  outside the required set, and the FL12_2 target gate remains conservative.

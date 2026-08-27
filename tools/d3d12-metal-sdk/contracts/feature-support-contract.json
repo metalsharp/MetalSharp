@@ -158,7 +158,11 @@
     },
     "D3D12_FEATURE_D3D12_OPTIONS14": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
-      "probe_status": "compute_programmable_offsets_raw_gather_and_sample_cmp_level_passed",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
+        "tools/d3d12-metal-sdk/probes/probe_writable_msaa"
+      ],
+      "probe_status": "compute_programmable_offsets_raw_gather_sample_cmp_level_and_writable_msaa_subset_passed",
       "reported": "unsupported",
       "required_fields": [
         "AdvancedTextureOpsSupported",
@@ -168,9 +172,12 @@
         "compute-stage variable SampleLevel offsets",
         "compute-stage uint32 GatherRaw through a declared castable format",
         "compute-stage SampleCmpLevel with explicit LOD 0/1",
-        "depth SRV comparison sampling and DSV mip clear selection"
+        "depth SRV comparison sampling and DSV mip clear selection",
+        "compute-stage writable MSAA texture creation and UAV binding",
+        "compute-stage per-sample TextureStoreSample and TextureLoad readback",
+        "compute-stage writable RWTexture2DMSArray sample and array-slice readback"
       ],
-      "risk": "Compute-stage exact readbacks prove the three advanced texture operation families, but the global Options14 bit remains false until graphics-stage coverage passes. Writable MSAA texture creation, binding, per-sample stores, and readback are still unimplemented and unreported.",
+      "risk": "Compute-stage exact readbacks prove the three advanced texture operation families and a focused writable-MSAA subset covering 2D and 2D-array resources. DXMT emulates writable CS UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count, but both Options14 capability fields remain conservative until the full graphics-stage matrix passes; render-target/DSV and resolve breadth remain gated.",
       "state": "required",
       "tier": "required"
     },

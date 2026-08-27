@@ -151,6 +151,7 @@ int main() {
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS9 options9 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS11 options11 = {};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS14 options14 = {};
     D3D12_FEATURE_DATA_FORMAT_SUPPORT stream_output_format = {};
     stream_output_format.Format = DXGI_FORMAT_R32_FLOAT;
 
@@ -164,6 +165,7 @@ int main() {
     HRESULT options7_hr = E_FAIL;
     HRESULT options9_hr = E_FAIL;
     HRESULT options11_hr = E_FAIL;
+    HRESULT options14_hr = E_FAIL;
     HRESULT stream_output_format_hr = E_FAIL;
     HRESULT create_reserved_resource_hr = E_FAIL;
     HRESULT query_device5_hr = E_NOINTERFACE;
@@ -183,6 +185,7 @@ int main() {
         options7_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
         options9_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS9, &options9, sizeof(options9));
         options11_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS11, &options11, sizeof(options11));
+        options14_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS14, &options14, sizeof(options14));
         stream_output_format_hr = device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &stream_output_format,
                                                               sizeof(stream_output_format));
         UINT invalid_feature_payload = 0xdeadbeefu;
@@ -239,7 +242,8 @@ int main() {
         (SUCCEEDED(options7_hr) &&
          options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
          options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9) &&
-        (!SUCCEEDED(options9_hr) || options9.WaveMMATier == D3D12_WAVE_MMA_TIER_NOT_SUPPORTED);
+        (!SUCCEEDED(options9_hr) || options9.WaveMMATier == D3D12_WAVE_MMA_TIER_NOT_SUPPORTED) &&
+        SUCCEEDED(options14_hr) && !options14.AdvancedTextureOpsSupported;
     bool stream_output_conservative =
         SUCCEEDED(stream_output_format_hr) && !(stream_output_format.Support1 & D3D12_FORMAT_SUPPORT1_SO_BUFFER);
     bool reserved_resources_unsupported = FAILED(create_reserved_resource_hr);
@@ -308,6 +312,13 @@ int main() {
     print_hr("options11", options11_hr);
     std::printf("    \"atomic64_descriptor_heap_resource\": %s\n",
                 options11.AtomicInt64OnDescriptorHeapResourceSupported ? "true" : "false");
+    std::printf("  },\n");
+    std::printf("  \"options14\": {\n");
+    print_hr("check", options14_hr);
+    std::printf("    \"advanced_texture_ops\": %s,\n",
+                options14.AdvancedTextureOpsSupported ? "true" : "false");
+    std::printf("    \"writeable_msaa_textures\": %s\n",
+                options14.WriteableMSAATexturesSupported ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"unsupported_policy\": {\n");
     print_hr("stream_output_format", stream_output_format_hr);

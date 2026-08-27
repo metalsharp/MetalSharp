@@ -26,6 +26,7 @@ REQUIRED_PROBES = [
     "probe-dxil-semantics",
     "probe-shader-corpus",
     "probe-sm66-capabilities",
+    "probe-writable-msaa",
     "probe-sampler-feedback",
     "probe-sampler-feedback-pixel",
     "probe-wave-ops",

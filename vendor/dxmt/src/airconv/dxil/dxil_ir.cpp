@@ -137,7 +137,13 @@ std::string DXILIRBuilder::mslTypeName(const MSLType &t) {
     case MSLTypeKind::DeviceCharPtr: return "device char*";
     case MSLTypeKind::ThreadgroupCharPtr: return "threadgroup char*";
     case MSLTypeKind::Texture2D: return "texture2d<float, access::sample>";
+    case MSLTypeKind::Texture2DArray: return "texture2d_array<float, access::sample>";
+    case MSLTypeKind::Texture3D: return "texture3d<float, access::sample>";
+    case MSLTypeKind::TextureCube: return "texturecube<float, access::sample>";
+    case MSLTypeKind::Texture2DMS: return "texture2d_ms<float, access::read>";
     case MSLTypeKind::RWTexture2D: return "texture2d<float, access::read_write>";
+    case MSLTypeKind::RWTexture2DArray: return "texture2d_array<float, access::read_write>";
+    case MSLTypeKind::RWTexture3D: return "texture3d<float, access::read_write>";
     case MSLTypeKind::Sampler: return "sampler";
     case MSLTypeKind::Struct: return "struct_" + std::to_string(t.struct_type_id);
     default: return "int";

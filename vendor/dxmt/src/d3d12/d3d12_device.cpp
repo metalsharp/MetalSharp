@@ -419,6 +419,14 @@ TextureTypeForSrvView(const D3D12_SHADER_RESOURCE_VIEW_DESC &desc,
   }
 }
 
+static bool IsWritableMSAAResourceDesc(const D3D12_RESOURCE_DESC &desc) {
+  return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+         desc.SampleDesc.Count > 1 &&
+         (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+         !(desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
+                         D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+}
+
 static WMTTextureType
 TextureTypeForUavView(const D3D12_UNORDERED_ACCESS_VIEW_DESC &desc,
                       const D3D12_RESOURCE_DESC &resource_desc) {
@@ -428,7 +436,9 @@ TextureTypeForUavView(const D3D12_UNORDERED_ACCESS_VIEW_DESC &desc,
   case D3D12_UAV_DIMENSION_TEXTURE1DARRAY:
     return WMTTextureType1DArray;
   case D3D12_UAV_DIMENSION_TEXTURE2D:
-    return WMTTextureType2D;
+    return IsWritableMSAAResourceDesc(resource_desc)
+               ? WMTTextureType2DArray
+               : WMTTextureType2D;
   case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
     return WMTTextureType2DArray;
   case D3D12_UAV_DIMENSION_TEXTURE3D:
@@ -540,12 +550,21 @@ static void UavViewRange(const D3D12_UNORDERED_ACCESS_VIEW_DESC &desc,
     break;
   case D3D12_UAV_DIMENSION_TEXTURE2D:
     mip_start = desc.Texture2D.MipSlice;
-    slice_count = 1;
+    slice_count = IsWritableMSAAResourceDesc(resource_desc)
+                      ? std::max<UINT>(resource_desc.SampleDesc.Count, 1) *
+                            std::max<UINT>(resource_desc.DepthOrArraySize, 1)
+                      : 1;
     break;
   case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
     mip_start = desc.Texture2DArray.MipSlice;
-    slice_start = desc.Texture2DArray.FirstArraySlice;
-    slice_count = desc.Texture2DArray.ArraySize;
+    if (IsWritableMSAAResourceDesc(resource_desc)) {
+      const UINT samples = std::max<UINT>(resource_desc.SampleDesc.Count, 1);
+      slice_start = static_cast<uint16_t>(desc.Texture2DArray.FirstArraySlice * samples);
+      slice_count = static_cast<uint16_t>(desc.Texture2DArray.ArraySize * samples);
+    } else {
+      slice_start = desc.Texture2DArray.FirstArraySlice;
+      slice_count = desc.Texture2DArray.ArraySize;
+    }
     break;
   case D3D12_UAV_DIMENSION_TEXTURE3D:
     mip_start = desc.Texture3D.MipSlice;
@@ -3541,6 +3560,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     memset(o, 0, sizeof(*o));
+    // The focused CS 6.7 2D/array emulation is covered by
+    // probe-writable-msaa, but the public capability remains conservative until
+    // graphics, format, render-target, and resolve breadth are proven.
     TRACE("  OPTIONS14: conservative unsupported");
     return S_OK;
   }
