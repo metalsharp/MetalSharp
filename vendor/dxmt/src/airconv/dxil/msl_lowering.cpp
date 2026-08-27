@@ -573,6 +573,7 @@ struct LowerContext {
     bool compute_raw_gather_shader = false;
     bool compute_texture_store_shader = false;
     bool texture_store_sample_shader = false;
+    std::set<uint32_t> writable_msaa_texture_slots;
     bool compute_sample_cmp_shader = false;
     bool compute_texture_sample_shader = false;
     bool uses_atomic64_emulation = false;
@@ -959,7 +960,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
             else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
                 os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
-            else if (uav_slot && ctx.texture_store_sample_shader)
+            else if (uav_slot && (ctx.texture_store_sample_shader ||
+                                  ctx.writable_msaa_texture_slots.count(i)))
                 os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
             else if (ctx.compute_texture_store_shader ||
                      !ctx.compute_texture_sample_shader)
@@ -1026,7 +1028,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             }
             if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
                 os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
-            else if (uav_slot && ctx.texture_store_sample_shader)
+            else if (uav_slot && (ctx.texture_store_sample_shader ||
+                                  ctx.writable_msaa_texture_slots.count(i)))
                 os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
             else if (uav_slot)
                 os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
@@ -2612,8 +2615,7 @@ static MSLType typeForHandleKind(const LowerContext &ctx, DescriptorRangePlan::K
 
 static bool isWritableMSAAHandle(const LowerContext &ctx, uint32_t handle_id) {
     auto it = ctx.resource_handles.find(handle_id);
-    return ctx.texture_store_sample_shader &&
-           it != ctx.resource_handles.end() &&
+    return it != ctx.resource_handles.end() &&
            it->second.kind == DescriptorRangePlan::Kind::UAV &&
            (it->second.resource_kind == 3u ||
             it->second.resource_kind == 8u);
@@ -2648,8 +2650,7 @@ static std::string writableMSAASlice(const LowerContext &ctx,
 
 static MSLType typeForResourceHandle(const LowerContext &ctx,
                                      const ResourceHandleRecord &handle) {
-    if (ctx.texture_store_sample_shader &&
-        handle.kind == DescriptorRangePlan::Kind::UAV &&
+    if (handle.kind == DescriptorRangePlan::Kind::UAV &&
         (handle.resource_kind == 3u || handle.resource_kind == 8u))
         return {MSLTypeKind::RWTexture2DArray, 0, {}};
     return typeForHandleKind(ctx, handle.kind);
@@ -2706,6 +2707,44 @@ static void recordDescriptorRange(BindingPlan &plan, DescriptorRangePlan range) 
 
 static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
     BindingPlan plan;
+    struct HandleBinding {
+        DescriptorRangePlan::Kind kind = DescriptorRangePlan::Kind::SRV;
+        uint32_t lower_bound = 0;
+        uint32_t count = 1;
+    };
+    std::unordered_map<uint32_t, HandleBinding> handle_bindings;
+    auto rememberHandle = [&](uint32_t result_id,
+                              DescriptorRangePlan::Kind kind,
+                              uint32_t lower_bound, uint32_t count) {
+        if (!result_id)
+            return;
+        handle_bindings[result_id] = {kind, lower_bound, count};
+    };
+    auto markWritableMSAASlots = [&](uint32_t handle_id) {
+        auto it = handle_bindings.find(handle_id);
+        if (it == handle_bindings.end() ||
+            it->second.kind != DescriptorRangePlan::Kind::UAV)
+            return;
+        uint32_t count = std::min<uint32_t>(it->second.count, 16);
+        for (uint32_t i = 0; i < count; ++i)
+            ctx.writable_msaa_texture_slots.insert(it->second.lower_bound + i);
+    };
+    auto producesValue = [&](const LLVMInstruction &inst) {
+        switch (inst.opcode) {
+        case LLVMInstruction::Ret:
+        case LLVMInstruction::Br:
+        case LLVMInstruction::Switch:
+        case LLVMInstruction::Unreachable:
+        case LLVMInstruction::Store:
+            return false;
+        case LLVMInstruction::Call:
+            return inst.type_id < ctx.mod.types.size() &&
+                   ctx.mod.types[inst.type_id].kind != LLVMType::Void;
+        default:
+            return true;
+        }
+    };
+    uint32_t value_counter = fn.instruction_start_value;
 
     auto calleeName = [&](uint32_t callee) -> std::string {
         auto decl_it = ctx.function_decls.find(callee);
@@ -2718,8 +2757,11 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
 
     for (const auto &block : fn.blocks) {
         for (const auto &inst : block.instructions) {
-            if (inst.opcode != LLVMInstruction::Call || inst.operands.size() < 2)
+            if (inst.opcode != LLVMInstruction::Call || inst.operands.size() < 2) {
+                if (producesValue(inst))
+                    ++value_counter;
                 continue;
+            }
 
             std::string callee_name = calleeName(inst.operands[0]);
             uint32_t intrinsic_id = intrinsicIdFromCalleeName(callee_name);
@@ -2733,9 +2775,13 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 if (isOpcodePrefixedDXIntrinsic(opcode))
                     intrinsic_id = opcode;
             }
-            if (intrinsic_id == 0)
+            if (intrinsic_id == 0) {
+                if (producesValue(inst))
+                    ++value_counter;
                 continue;
+            }
 
+            uint32_t result_id = value_counter;
             std::vector<uint32_t> fn_args;
             if (intrinsic_id == DXOP_CreateHandle || intrinsic_id == DXOP_CreateHandleForLib ||
                 intrinsic_id == DXOP_AnnotateHandle) {
@@ -2750,8 +2796,9 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 uint32_t non_uniform_raw = fn_args.size() >= 4 ? literalFromValue(ctx, fn_args[3], 0) : 0;
                 if (non_uniform_raw > 1)
                     index = 0;
-                recordDescriptorRange(plan, {descriptorKindForResourceClass(resource_class),
-                                             0, index, 1});
+                auto kind = descriptorKindForResourceClass(resource_class);
+                recordDescriptorRange(plan, {kind, 0, index, 1});
+                rememberHandle(result_id, kind, index, 1);
             } else if (intrinsic_id == DXOP_CreateHandleFromBinding && fn_args.size() >= 1) {
                 std::string binding = resolveValue(ctx, fn_args[0]);
                 auto parts = parseAggregateLiteral(binding);
@@ -2763,15 +2810,37 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 if (parts.size() > 3) parseUnsignedLiteral(parts[3], resource_class);
                 if (upper_bound >= lower_bound)
                     count = upper_bound - lower_bound + 1;
-                recordDescriptorRange(plan, {descriptorKindForResourceClass(resource_class),
-                                             space, lower_bound, count});
+                auto kind = descriptorKindForResourceClass(resource_class);
+                recordDescriptorRange(plan, {kind, space, lower_bound, count});
+                rememberHandle(result_id, kind, lower_bound, count);
             } else if (intrinsic_id == DXOP_CreateHandleFromHeap && fn_args.size() >= 1) {
                 uint32_t heap_index = literalFromValue(ctx, fn_args[0], 0);
                 bool sampler = fn_args.size() >= 2 && literalFromValue(ctx, fn_args[1], 0) != 0;
-                recordDescriptorRange(plan, {sampler ? DescriptorRangePlan::Kind::Sampler
-                                                     : DescriptorRangePlan::Kind::SRV,
-                                             0, heap_index, 1});
+                auto kind = sampler ? DescriptorRangePlan::Kind::Sampler
+                                     : DescriptorRangePlan::Kind::SRV;
+                recordDescriptorRange(plan, {kind, 0, heap_index, 1});
+                rememberHandle(result_id, kind, heap_index, 1);
+            } else if (intrinsic_id == DXOP_AnnotateHandle &&
+                       fn_args.size() >= 2) {
+                auto base = handle_bindings.find(fn_args[0]);
+                if (base != handle_bindings.end()) {
+                    rememberHandle(result_id, base->second.kind,
+                                   base->second.lower_bound,
+                                   base->second.count);
+                    if (base->second.kind == DescriptorRangePlan::Kind::UAV) {
+                        auto properties = parseAggregateLiteral(
+                            resolveValue(ctx, fn_args[1]));
+                        uint32_t resource_kind = 0;
+                        if (!properties.empty() &&
+                            parseUnsignedLiteral(properties[0], resource_kind) &&
+                            ((resource_kind & 0xffu) == 3u ||
+                             (resource_kind & 0xffu) == 8u))
+                            markWritableMSAASlots(fn_args[0]);
+                    }
+                }
             }
+            if (producesValue(inst))
+                ++value_counter;
         }
     }
 

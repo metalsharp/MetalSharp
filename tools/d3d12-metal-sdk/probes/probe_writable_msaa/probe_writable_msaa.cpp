@@ -41,6 +41,34 @@ static std::string hr_hex(HRESULT value) {
   return buffer;
 }
 
+static float half_to_float(uint16_t value) {
+  const uint32_t sign = (static_cast<uint32_t>(value & 0x8000u)) << 16;
+  const uint32_t exponent = (value >> 10) & 0x1fu;
+  const uint32_t fraction = value & 0x3ffu;
+  uint32_t bits = 0;
+  if (exponent == 0) {
+    if (fraction == 0) {
+      bits = sign;
+    } else {
+      uint32_t normalized = fraction;
+      uint32_t shift = 0;
+      while ((normalized & 0x400u) == 0) {
+        normalized <<= 1;
+        ++shift;
+      }
+      bits = sign | ((127u - 14u - shift) << 23) |
+             ((normalized & 0x3ffu) << 13);
+    }
+  } else if (exponent == 0x1fu) {
+    bits = sign | 0x7f800000u | (fraction << 13);
+  } else {
+    bits = sign | ((exponent + 112u) << 23) | (fraction << 13);
+  }
+  float result = 0.0f;
+  std::memcpy(&result, &bits, sizeof(result));
+  return result;
+}
+
 static bool write_file(const char *path, const char *data) {
   HANDLE file = CreateFileA(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                             FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -153,12 +181,18 @@ int main() {
   const char *hlsl_path = "Z:\\tmp\\dxmt_writable_msaa.hlsl";
   const char *store_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_store.dxil";
   const char *load_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_load.dxil";
+  const char *store_2_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_store_2.dxil";
+  const char *load_2_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_load_2.dxil";
+  const char *store_8_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_store_8.dxil";
+  const char *load_8_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_load_8.dxil";
   const char *graphics_vs_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_graphics_vs.dxil";
   const char *graphics_ps_dxil_path = "Z:\\tmp\\dxmt_writable_msaa_graphics_ps.dxil";
   const char *hlsl = R"(
 RWTexture2DMS<float4> target : register(u0);
 RWTexture2DMSArray<float4, 4> target_array : register(u1);
-RWByteAddressBuffer outbuf : register(u2);
+RWTexture2DMS<float4, 2> target_2 : register(u2);
+RWTexture2DMS<float4, 8> target_8 : register(u3);
+RWByteAddressBuffer outbuf : register(u4);
 
 [numthreads(4,1,1)]
 void store(uint3 id : SV_DispatchThreadID) {
@@ -182,6 +216,34 @@ void load(uint3 id : SV_DispatchThreadID) {
   }
 }
 
+[numthreads(2,1,1)]
+void store_2(uint3 id : SV_DispatchThreadID) {
+  uint sample = id.x;
+  target_2.sample[sample][uint2(0,0)] =
+      float4((float)(500 + sample), 0.0, 0.0, 1.0);
+}
+
+[numthreads(2,1,1)]
+void load_2(uint3 id : SV_DispatchThreadID) {
+  uint sample = id.x;
+  float4 value = target_2.Load(uint2(0,0), sample);
+  outbuf.Store((sample + 8) * 4, (uint)value.x);
+}
+
+[numthreads(8,1,1)]
+void store_8(uint3 id : SV_DispatchThreadID) {
+  uint sample = id.x;
+  target_8.sample[sample][uint2(0,0)] =
+      float4((float)(600 + sample), 0.0, 0.0, 1.0);
+}
+
+[numthreads(8,1,1)]
+void load_8(uint3 id : SV_DispatchThreadID) {
+  uint sample = id.x;
+  float4 value = target_8.Load(uint2(0,0), sample);
+  outbuf.Store((sample + 10) * 4, (uint)value.x);
+}
+
 struct GraphicsVSIn { float3 position : POSITION; };
 struct GraphicsVSOut { float4 position : SV_Position; };
 GraphicsVSOut graphics_vs(GraphicsVSIn input) {
@@ -192,6 +254,8 @@ GraphicsVSOut graphics_vs(GraphicsVSIn input) {
 float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   target.sample[0][uint2(0,0)] = float4(300.0, 0.0, 0.0, 1.0);
   target_array.sample[0][uint3(0,0,1)] = float4(400.0, 0.0, 0.0, 1.0);
+  target_2.sample[0][uint2(0,0)] = float4(700.0, 0.0, 0.0, 1.0);
+  target_8.sample[0][uint2(0,0)] = float4(800.0, 0.0, 0.0, 1.0);
   return float4(0.0, 1.0, 0.0, 1.0);
 }
 )";
@@ -199,6 +263,10 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   const bool source_ok = write_file(hlsl_path, hlsl);
   DeleteFileA(store_dxil_path);
   DeleteFileA(load_dxil_path);
+  DeleteFileA(store_2_dxil_path);
+  DeleteFileA(load_2_dxil_path);
+  DeleteFileA(store_8_dxil_path);
+  DeleteFileA(load_8_dxil_path);
   DeleteFileA(graphics_vs_dxil_path);
   DeleteFileA(graphics_ps_dxil_path);
   const DWORD dxc_store = run_process(
@@ -213,6 +281,30 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
       "Z:\\tmp\\dxmt_writable_msaa.hlsl");
   const std::vector<uint8_t> load_dxil = read_file(load_dxil_path);
   DeleteFileA(load_dxil_path);
+  const DWORD dxc_store_2 = run_process(
+      "dxc.exe -nologo -T cs_6_7 -E store_2 -HV 2021 -Fo "
+      "Z:\\tmp\\dxmt_writable_msaa_store_2.dxil "
+      "Z:\\tmp\\dxmt_writable_msaa.hlsl");
+  const std::vector<uint8_t> store_2_dxil = read_file(store_2_dxil_path);
+  DeleteFileA(store_2_dxil_path);
+  const DWORD dxc_load_2 = run_process(
+      "dxc.exe -nologo -T cs_6_7 -E load_2 -HV 2021 -Fo "
+      "Z:\\tmp\\dxmt_writable_msaa_load_2.dxil "
+      "Z:\\tmp\\dxmt_writable_msaa.hlsl");
+  const std::vector<uint8_t> load_2_dxil = read_file(load_2_dxil_path);
+  DeleteFileA(load_2_dxil_path);
+  const DWORD dxc_store_8 = run_process(
+      "dxc.exe -nologo -T cs_6_7 -E store_8 -HV 2021 -Fo "
+      "Z:\\tmp\\dxmt_writable_msaa_store_8.dxil "
+      "Z:\\tmp\\dxmt_writable_msaa.hlsl");
+  const std::vector<uint8_t> store_8_dxil = read_file(store_8_dxil_path);
+  DeleteFileA(store_8_dxil_path);
+  const DWORD dxc_load_8 = run_process(
+      "dxc.exe -nologo -T cs_6_7 -E load_8 -HV 2021 -Fo "
+      "Z:\\tmp\\dxmt_writable_msaa_load_8.dxil "
+      "Z:\\tmp\\dxmt_writable_msaa.hlsl");
+  const std::vector<uint8_t> load_8_dxil = read_file(load_8_dxil_path);
+  DeleteFileA(load_8_dxil_path);
   const DWORD dxc_graphics_vs = run_process(
       "dxc.exe -nologo -T vs_6_0 -E graphics_vs -HV 2021 -Fo "
       "Z:\\tmp\\dxmt_writable_msaa_graphics_vs.dxil "
@@ -241,7 +333,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
 
   D3D12_DESCRIPTOR_RANGE range = {};
   range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-  range.NumDescriptors = 3;
+  range.NumDescriptors = 5;
   range.BaseShaderRegister = 0;
   D3D12_ROOT_PARAMETER parameter = {};
   parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -274,6 +366,11 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   pipeline_desc.CS.pShaderBytecode = store_dxil.data();
   pipeline_desc.CS.BytecodeLength = store_dxil.size();
   ID3D12PipelineState *store_pso = nullptr;
+  ID3D12PipelineState *load_pso = nullptr;
+  ID3D12PipelineState *store_2_pso = nullptr;
+  ID3D12PipelineState *load_2_pso = nullptr;
+  ID3D12PipelineState *store_8_pso = nullptr;
+  ID3D12PipelineState *load_8_pso = nullptr;
   ID3D12PipelineState *graphics_pso = nullptr;
   HRESULT store_pso_hr =
       device && root && !store_dxil.empty()
@@ -282,11 +379,38 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
           : E_FAIL;
   pipeline_desc.CS.pShaderBytecode = load_dxil.data();
   pipeline_desc.CS.BytecodeLength = load_dxil.size();
-  ID3D12PipelineState *load_pso = nullptr;
   HRESULT load_pso_hr =
       device && root && !load_dxil.empty()
           ? device->CreateComputePipelineState(&pipeline_desc,
                                                IID_PPV_ARGS(&load_pso))
+          : E_FAIL;
+  pipeline_desc.CS.pShaderBytecode = store_2_dxil.data();
+  pipeline_desc.CS.BytecodeLength = store_2_dxil.size();
+  HRESULT store_2_pso_hr =
+      device && root && !store_2_dxil.empty()
+          ? device->CreateComputePipelineState(&pipeline_desc,
+                                               IID_PPV_ARGS(&store_2_pso))
+          : E_FAIL;
+  pipeline_desc.CS.pShaderBytecode = load_2_dxil.data();
+  pipeline_desc.CS.BytecodeLength = load_2_dxil.size();
+  HRESULT load_2_pso_hr =
+      device && root && !load_2_dxil.empty()
+          ? device->CreateComputePipelineState(&pipeline_desc,
+                                               IID_PPV_ARGS(&load_2_pso))
+          : E_FAIL;
+  pipeline_desc.CS.pShaderBytecode = store_8_dxil.data();
+  pipeline_desc.CS.BytecodeLength = store_8_dxil.size();
+  HRESULT store_8_pso_hr =
+      device && root && !store_8_dxil.empty()
+          ? device->CreateComputePipelineState(&pipeline_desc,
+                                               IID_PPV_ARGS(&store_8_pso))
+          : E_FAIL;
+  pipeline_desc.CS.pShaderBytecode = load_8_dxil.data();
+  pipeline_desc.CS.BytecodeLength = load_8_dxil.size();
+  HRESULT load_8_pso_hr =
+      device && root && !load_8_dxil.empty()
+          ? device->CreateComputePipelineState(&pipeline_desc,
+                                               IID_PPV_ARGS(&load_8_pso))
           : E_FAIL;
 
   D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_pipeline_desc = {};
@@ -331,10 +455,16 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   ID3D12DescriptorHeap *dsv_heap = nullptr;
   ID3D12Resource *target = nullptr;
   ID3D12Resource *target_array = nullptr;
+  ID3D12Resource *target_2 = nullptr;
+  ID3D12Resource *target_8 = nullptr;
   ID3D12Resource *resolve_target = nullptr;
   ID3D12Resource *resolve_array_target = nullptr;
+  ID3D12Resource *resolve_2_target = nullptr;
+  ID3D12Resource *resolve_8_target = nullptr;
   ID3D12Resource *resolve_readback = nullptr;
   ID3D12Resource *resolve_array_readback = nullptr;
+  ID3D12Resource *resolve_2_readback = nullptr;
+  ID3D12Resource *resolve_8_readback = nullptr;
   ID3D12Resource *outbuf = nullptr;
   ID3D12Resource *readback = nullptr;
   ID3D12Resource *graphics_target = nullptr;
@@ -358,7 +488,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
                         : E_FAIL;
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
   heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-  heap_desc.NumDescriptors = 3;
+  heap_desc.NumDescriptors = 5;
   heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
   HRESULT heap_hr = SUCCEEDED(list_hr)
                         ? device->CreateDescriptorHeap(&heap_desc,
@@ -392,6 +522,26 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
                                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                       nullptr, IID_PPV_ARGS(&target_array))
                                 : E_FAIL;
+  D3D12_RESOURCE_DESC target_2_desc = target_desc;
+  target_2_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+  target_2_desc.SampleDesc.Count = 2;
+  HRESULT target_2_hr = SUCCEEDED(target_array_hr)
+                            ? device->CreateCommittedResource(
+                                  &default_heap, D3D12_HEAP_FLAG_NONE,
+                                  &target_2_desc,
+                                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                  nullptr, IID_PPV_ARGS(&target_2))
+                            : E_FAIL;
+  D3D12_RESOURCE_DESC target_8_desc = target_desc;
+  target_8_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+  target_8_desc.SampleDesc.Count = 8;
+  HRESULT target_8_hr = SUCCEEDED(target_2_hr)
+                            ? device->CreateCommittedResource(
+                                  &default_heap, D3D12_HEAP_FLAG_NONE,
+                                  &target_8_desc,
+                                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                  nullptr, IID_PPV_ARGS(&target_8))
+                            : E_FAIL;
   D3D12_RESOURCE_DESC resolve_desc = target_desc;
   resolve_desc.SampleDesc.Count = 1;
   resolve_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
@@ -414,7 +564,27 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
                                               nullptr,
                                               IID_PPV_ARGS(&resolve_array_target))
                                         : E_FAIL;
-  D3D12_RESOURCE_DESC output_desc = buffer_desc(32);
+  D3D12_RESOURCE_DESC resolve_2_desc = resolve_desc;
+  resolve_2_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+  D3D12_RESOURCE_DESC resolve_8_desc = resolve_desc;
+  resolve_8_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+  HRESULT resolve_2_target_hr = SUCCEEDED(resolve_array_target_hr)
+                                    ? device->CreateCommittedResource(
+                                          &default_heap, D3D12_HEAP_FLAG_NONE,
+                                          &resolve_2_desc,
+                                          D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                                          nullptr,
+                                          IID_PPV_ARGS(&resolve_2_target))
+                                    : E_FAIL;
+  HRESULT resolve_8_target_hr = SUCCEEDED(resolve_2_target_hr)
+                                    ? device->CreateCommittedResource(
+                                          &default_heap, D3D12_HEAP_FLAG_NONE,
+                                          &resolve_8_desc,
+                                          D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                                          nullptr,
+                                          IID_PPV_ARGS(&resolve_8_target))
+                                    : E_FAIL;
+  D3D12_RESOURCE_DESC output_desc = buffer_desc(72);
   HRESULT outbuf_hr = SUCCEEDED(target_array_hr)
                           ? device->CreateCommittedResource(
                                 &default_heap, D3D12_HEAP_FLAG_NONE,
@@ -424,7 +594,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
                           : E_FAIL;
   D3D12_HEAP_PROPERTIES readback_heap =
       heap_properties(D3D12_HEAP_TYPE_READBACK);
-  D3D12_RESOURCE_DESC readback_desc = buffer_desc(16);
+  D3D12_RESOURCE_DESC readback_desc = buffer_desc(72);
   readback_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
   HRESULT readback_hr = SUCCEEDED(outbuf_hr)
                             ? device->CreateCommittedResource(
@@ -522,6 +692,24 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
                                                 nullptr,
                                                 IID_PPV_ARGS(&resolve_array_readback))
                                           : E_FAIL;
+  HRESULT resolve_2_readback_hr = SUCCEEDED(resolve_array_readback_hr)
+                                      ? device->CreateCommittedResource(
+                                            &readback_heap,
+                                            D3D12_HEAP_FLAG_NONE,
+                                            &graphics_readback_desc,
+                                            D3D12_RESOURCE_STATE_COPY_DEST,
+                                            nullptr,
+                                            IID_PPV_ARGS(&resolve_2_readback))
+                                      : E_FAIL;
+  HRESULT resolve_8_readback_hr = SUCCEEDED(resolve_2_readback_hr)
+                                      ? device->CreateCommittedResource(
+                                            &readback_heap,
+                                            D3D12_HEAP_FLAG_NONE,
+                                            &graphics_readback_desc,
+                                            D3D12_RESOURCE_STATE_COPY_DEST,
+                                            nullptr,
+                                            IID_PPV_ARGS(&resolve_8_readback))
+                                      : E_FAIL;
   D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
   rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   rtv_heap_desc.NumDescriptors = 1;
@@ -553,12 +741,15 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   }
 
   HRESULT execute_hr = E_FAIL;
-  if (SUCCEEDED(readback_hr) && store_pso && load_pso && graphics_pso &&
+  if (SUCCEEDED(readback_hr) && store_pso && load_pso && store_2_pso &&
+      load_2_pso && store_8_pso && load_8_pso && graphics_pso &&
       SUCCEEDED(graphics_target_hr) && SUCCEEDED(depth_target_hr) &&
       SUCCEEDED(graphics_readback_hr) && SUCCEEDED(resolve_readback_hr) &&
       SUCCEEDED(resolve_array_readback_hr) &&
+      SUCCEEDED(resolve_2_readback_hr) && SUCCEEDED(resolve_8_readback_hr) &&
       SUCCEEDED(rtv_heap_hr) && SUCCEEDED(dsv_heap_hr) &&
       SUCCEEDED(resolve_target_hr) && SUCCEEDED(resolve_array_target_hr) &&
+      SUCCEEDED(resolve_2_target_hr) && SUCCEEDED(resolve_8_target_hr) &&
       vertex_buffer) {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu =
         heap->GetCPUDescriptorHandleForHeapStart();
@@ -576,10 +767,20 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
                                       &target_array_uav, cpu);
     cpu.ptr += device->GetDescriptorHandleIncrementSize(
         D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    D3D12_UNORDERED_ACCESS_VIEW_DESC target_2_uav = {};
+    target_2_uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    target_2_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    device->CreateUnorderedAccessView(target_2, nullptr, &target_2_uav, cpu);
+    cpu.ptr += device->GetDescriptorHandleIncrementSize(
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    D3D12_UNORDERED_ACCESS_VIEW_DESC target_8_uav = target_2_uav;
+    device->CreateUnorderedAccessView(target_8, nullptr, &target_8_uav, cpu);
+    cpu.ptr += device->GetDescriptorHandleIncrementSize(
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     D3D12_UNORDERED_ACCESS_VIEW_DESC outbuf_uav = {};
     outbuf_uav.Format = DXGI_FORMAT_R32_TYPELESS;
     outbuf_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-    outbuf_uav.Buffer.NumElements = 8;
+    outbuf_uav.Buffer.NumElements = 18;
     outbuf_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
     device->CreateUnorderedAccessView(outbuf, nullptr, &outbuf_uav, cpu);
 
@@ -590,10 +791,29 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
         0, heap->GetGPUDescriptorHandleForHeapStart());
     list->SetPipelineState(store_pso);
     list->Dispatch(1, 1, 1);
-    D3D12_RESOURCE_BARRIER target_uav_barrier = {};
-    target_uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    target_uav_barrier.UAV.pResource = target;
-    list->ResourceBarrier(1, &target_uav_barrier);
+    ID3D12Resource *sample_targets[] = {target, target_array, target_2,
+                                        target_8};
+    D3D12_RESOURCE_BARRIER target_uav_barriers[4] = {};
+    for (UINT i = 0; i < 4; ++i) {
+      target_uav_barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+      target_uav_barriers[i].UAV.pResource = sample_targets[i];
+    }
+    list->ResourceBarrier(4, target_uav_barriers);
+    list->SetComputeRootSignature(root);
+    list->SetComputeRootDescriptorTable(
+        0, heap->GetGPUDescriptorHandleForHeapStart());
+    list->SetPipelineState(store_2_pso);
+    list->Dispatch(1, 1, 1);
+    D3D12_RESOURCE_BARRIER target_2_uav_barrier = {};
+    target_2_uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    target_2_uav_barrier.UAV.pResource = target_2;
+    list->ResourceBarrier(1, &target_2_uav_barrier);
+    list->SetPipelineState(store_8_pso);
+    list->Dispatch(1, 1, 1);
+    D3D12_RESOURCE_BARRIER target_8_uav_barrier = {};
+    target_8_uav_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    target_8_uav_barrier.UAV.pResource = target_8;
+    list->ResourceBarrier(1, &target_8_uav_barrier);
 
     list->SetGraphicsRootSignature(root);
     list->SetPipelineState(graphics_pso);
@@ -700,39 +920,90 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     list->CopyTextureRegion(&resolve_array_dst, 0, 0, 0, &resolve_array_src,
                             nullptr);
 
-    D3D12_RESOURCE_BARRIER target_after_graphics = {};
-    target_after_graphics.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    target_after_graphics.UAV.pResource = target;
-    list->ResourceBarrier(1, &target_after_graphics);
+    auto resolve_and_copy = [&](ID3D12Resource *source,
+                                ID3D12Resource *destination,
+                                ID3D12Resource *destination_readback,
+                                DXGI_FORMAT format) {
+      list->ResolveSubresource(destination, 0, source, 0, format);
+      D3D12_RESOURCE_BARRIER barrier = {};
+      barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      barrier.Transition.pResource = destination;
+      barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+      barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+      list->ResourceBarrier(1, &barrier);
+      D3D12_TEXTURE_COPY_LOCATION source_location = {};
+      source_location.pResource = destination;
+      source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+      D3D12_TEXTURE_COPY_LOCATION destination_location = {};
+      destination_location.pResource = destination_readback;
+      destination_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+      destination_location.PlacedFootprint.Footprint.Format = format;
+      destination_location.PlacedFootprint.Footprint.Width = 1;
+      destination_location.PlacedFootprint.Footprint.Height = 1;
+      destination_location.PlacedFootprint.Footprint.Depth = 1;
+      destination_location.PlacedFootprint.Footprint.RowPitch = 256;
+      list->CopyTextureRegion(&destination_location, 0, 0, 0,
+                              &source_location, nullptr);
+    };
+    resolve_and_copy(target_2, resolve_2_target, resolve_2_readback,
+                     DXGI_FORMAT_R16G16B16A16_FLOAT);
+    resolve_and_copy(target_8, resolve_8_target, resolve_8_readback,
+                     DXGI_FORMAT_R16G16B16A16_FLOAT);
+
+    D3D12_RESOURCE_BARRIER target_after_graphics[4] = {};
+    for (UINT i = 0; i < 4; ++i) {
+      target_after_graphics[i].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+      target_after_graphics[i].UAV.pResource = sample_targets[i];
+    }
+    list->ResourceBarrier(4, target_after_graphics);
     list->SetComputeRootSignature(root);
     list->SetComputeRootDescriptorTable(
         0, heap->GetGPUDescriptorHandleForHeapStart());
     list->SetPipelineState(load_pso);
     list->Dispatch(1, 1, 1);
-    D3D12_RESOURCE_BARRIER barriers[2] = {};
-    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    barriers[0].UAV.pResource = target;
-    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barriers[1].Transition.pResource = outbuf;
-    barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-    list->ResourceBarrier(2, barriers);
+    D3D12_RESOURCE_BARRIER load_target_barrier = {};
+    load_target_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    load_target_barrier.UAV.pResource = target;
+    list->ResourceBarrier(1, &load_target_barrier);
+    list->SetPipelineState(load_2_pso);
+    list->Dispatch(1, 1, 1);
+    D3D12_RESOURCE_BARRIER load_2_barrier = {};
+    load_2_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    load_2_barrier.UAV.pResource = target_2;
+    list->ResourceBarrier(1, &load_2_barrier);
+    list->SetPipelineState(load_8_pso);
+    list->Dispatch(1, 1, 1);
+    D3D12_RESOURCE_BARRIER load_8_barrier = {};
+    load_8_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    load_8_barrier.UAV.pResource = target_8;
+    list->ResourceBarrier(1, &load_8_barrier);
+    D3D12_RESOURCE_BARRIER barriers[1] = {};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[0].Transition.pResource = outbuf;
+    barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    list->ResourceBarrier(1, barriers);
     list->CopyResource(readback, outbuf);
     execute_hr = execute_and_wait(device, queue, list);
   }
 
-  uint32_t values[8] = {};
+  uint32_t values[18] = {};
   uint32_t graphics_color = 0;
   float resolve_value = 0.0f;
   float resolve_array_value = 0.0f;
+  float resolve_2_value = 0.0f;
+  float resolve_8_value = 0.0f;
   HRESULT map_hr = E_FAIL;
   HRESULT graphics_map_hr = E_FAIL;
   HRESULT resolve_map_hr = E_FAIL;
   HRESULT resolve_array_map_hr = E_FAIL;
+  HRESULT resolve_2_map_hr = E_FAIL;
+  HRESULT resolve_8_map_hr = E_FAIL;
   if (SUCCEEDED(execute_hr) && readback) {
     void *mapped = nullptr;
-    D3D12_RANGE read_range = {0, 32};
+    D3D12_RANGE read_range = {0, sizeof(values)};
     map_hr = readback->Map(0, &read_range, &mapped);
     if (SUCCEEDED(map_hr) && mapped)
       std::memcpy(values, mapped, sizeof(values));
@@ -754,7 +1025,12 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   const bool values_ok = values[0] == 300 && values[1] == 101 &&
                          values[2] == 102 && values[3] == 103 &&
                          values[4] == 400 && values[5] == 201 &&
-                         values[6] == 202 && values[7] == 203;
+                         values[6] == 202 && values[7] == 203 &&
+                         values[8] == 700 && values[9] == 501 &&
+                         values[10] == 800 && values[11] == 601 &&
+                         values[12] == 602 && values[13] == 603 &&
+                         values[14] == 604 && values[15] == 605 &&
+                         values[16] == 606 && values[17] == 607;
   if (SUCCEEDED(execute_hr) && resolve_readback) {
     void *mapped = nullptr;
     D3D12_RANGE read_range = {0, 256};
@@ -776,34 +1052,75 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
       resolve_array_readback->Unmap(0, nullptr);
   }
 
+  if (SUCCEEDED(execute_hr) && resolve_2_readback) {
+    void *mapped = nullptr;
+    D3D12_RANGE read_range = {0, 256};
+    resolve_2_map_hr = resolve_2_readback->Map(0, &read_range, &mapped);
+    if (SUCCEEDED(resolve_2_map_hr) && mapped) {
+      uint16_t half = 0;
+      std::memcpy(&half, mapped, sizeof(half));
+      resolve_2_value = half_to_float(half);
+    }
+    if (mapped)
+      resolve_2_readback->Unmap(0, nullptr);
+  }
+
+  if (SUCCEEDED(execute_hr) && resolve_8_readback) {
+    void *mapped = nullptr;
+    D3D12_RANGE read_range = {0, 256};
+    resolve_8_map_hr = resolve_8_readback->Map(0, &read_range, &mapped);
+    if (SUCCEEDED(resolve_8_map_hr) && mapped) {
+      uint16_t half = 0;
+      std::memcpy(&half, mapped, sizeof(half));
+      resolve_8_value = half_to_float(half);
+    }
+    if (mapped)
+      resolve_8_readback->Unmap(0, nullptr);
+  }
+
   const bool graphics_color_ok = graphics_color == 0xff00ff00u;
   const bool resolve_value_ok = resolve_value == 151.5f;
   const bool resolve_array_value_ok = resolve_array_value == 251.5f;
+  const bool resolve_2_value_ok = resolve_2_value == 600.5f;
+  const bool resolve_8_value_ok = resolve_8_value == 628.5f;
   const bool pass = source_ok && dxc_store == 0 && dxc_load == 0 &&
+                    dxc_store_2 == 0 && dxc_load_2 == 0 &&
+                    dxc_store_8 == 0 && dxc_load_8 == 0 &&
                     dxc_graphics_vs == 0 && dxc_graphics_ps == 0 &&
                     !store_dxil.empty() && !load_dxil.empty() &&
+                    !store_2_dxil.empty() && !load_2_dxil.empty() &&
+                    !store_8_dxil.empty() && !load_8_dxil.empty() &&
                     !graphics_vs_dxil.empty() && !graphics_ps_dxil.empty() &&
                     SUCCEEDED(create_hr) && SUCCEEDED(root_serialize_hr) &&
                     SUCCEEDED(root_create_hr) && SUCCEEDED(store_pso_hr) &&
-                    SUCCEEDED(load_pso_hr) && SUCCEEDED(graphics_pso_hr) &&
+                    SUCCEEDED(load_pso_hr) && SUCCEEDED(store_2_pso_hr) &&
+                    SUCCEEDED(load_2_pso_hr) && SUCCEEDED(store_8_pso_hr) &&
+                    SUCCEEDED(load_8_pso_hr) &&
+                    SUCCEEDED(graphics_pso_hr) &&
                     SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) &&
                     SUCCEEDED(list_hr) && SUCCEEDED(heap_hr) &&
                     SUCCEEDED(target_hr) && SUCCEEDED(target_array_hr) &&
+                    SUCCEEDED(target_2_hr) && SUCCEEDED(target_8_hr) &&
                     SUCCEEDED(outbuf_hr) && SUCCEEDED(readback_hr) &&
                     SUCCEEDED(resolve_target_hr) &&
                     SUCCEEDED(resolve_array_target_hr) &&
+                    SUCCEEDED(resolve_2_target_hr) &&
+                    SUCCEEDED(resolve_8_target_hr) &&
                     SUCCEEDED(graphics_target_hr) &&
                     SUCCEEDED(depth_target_hr) &&
                     SUCCEEDED(vertex_buffer_hr) &&
                     SUCCEEDED(graphics_readback_hr) &&
                     SUCCEEDED(resolve_readback_hr) &&
                     SUCCEEDED(resolve_array_readback_hr) &&
+                    SUCCEEDED(resolve_2_readback_hr) &&
+                    SUCCEEDED(resolve_8_readback_hr) &&
                     SUCCEEDED(rtv_heap_hr) && SUCCEEDED(dsv_heap_hr) &&
                     SUCCEEDED(execute_hr) && SUCCEEDED(map_hr) && values_ok &&
                     SUCCEEDED(graphics_map_hr) && graphics_color_ok &&
                     SUCCEEDED(resolve_map_hr) && resolve_value_ok &&
-                    SUCCEEDED(resolve_array_map_hr) &&
-                    resolve_array_value_ok;
+                    SUCCEEDED(resolve_array_map_hr) && resolve_array_value_ok &&
+                    SUCCEEDED(resolve_2_map_hr) && resolve_2_value_ok &&
+                    SUCCEEDED(resolve_8_map_hr) && resolve_8_value_ok;
 
   std::printf("{\n");
   std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-writable-msaa.v1\",\n");
@@ -813,12 +1130,24 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
               static_cast<unsigned long>(dxc_store));
   std::printf("  \"dxc_load_exit\": %lu,\n",
               static_cast<unsigned long>(dxc_load));
+  std::printf("  \"dxc_store_2_exit\": %lu,\n",
+              static_cast<unsigned long>(dxc_store_2));
+  std::printf("  \"dxc_load_2_exit\": %lu,\n",
+              static_cast<unsigned long>(dxc_load_2));
+  std::printf("  \"dxc_store_8_exit\": %lu,\n",
+              static_cast<unsigned long>(dxc_store_8));
+  std::printf("  \"dxc_load_8_exit\": %lu,\n",
+              static_cast<unsigned long>(dxc_load_8));
   std::printf("  \"dxc_graphics_vs_exit\": %lu,\n",
               static_cast<unsigned long>(dxc_graphics_vs));
   std::printf("  \"dxc_graphics_ps_exit\": %lu,\n",
               static_cast<unsigned long>(dxc_graphics_ps));
   std::printf("  \"store_dxil_size\": %zu,\n", store_dxil.size());
   std::printf("  \"load_dxil_size\": %zu,\n", load_dxil.size());
+  std::printf("  \"store_2_dxil_size\": %zu,\n", store_2_dxil.size());
+  std::printf("  \"load_2_dxil_size\": %zu,\n", load_2_dxil.size());
+  std::printf("  \"store_8_dxil_size\": %zu,\n", store_8_dxil.size());
+  std::printf("  \"load_8_dxil_size\": %zu,\n", load_8_dxil.size());
   std::printf("  \"graphics_vs_dxil_size\": %zu,\n", graphics_vs_dxil.size());
   std::printf("  \"graphics_ps_dxil_size\": %zu,\n", graphics_ps_dxil.size());
   std::printf("  \"device_create_hr\": \"%s\",\n",
@@ -831,20 +1160,40 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
               hr_hex(store_pso_hr).c_str());
   std::printf("  \"load_pso_hr\": \"%s\",\n",
               hr_hex(load_pso_hr).c_str());
+  std::printf("  \"store_2_pso_hr\": \"%s\",\n",
+              hr_hex(store_2_pso_hr).c_str());
+  std::printf("  \"load_2_pso_hr\": \"%s\",\n",
+              hr_hex(load_2_pso_hr).c_str());
+  std::printf("  \"store_8_pso_hr\": \"%s\",\n",
+              hr_hex(store_8_pso_hr).c_str());
+  std::printf("  \"load_8_pso_hr\": \"%s\",\n",
+              hr_hex(load_8_pso_hr).c_str());
   std::printf("  \"graphics_pso_hr\": \"%s\",\n",
               hr_hex(graphics_pso_hr).c_str());
   std::printf("  \"target_create_hr\": \"%s\",\n",
               hr_hex(target_hr).c_str());
   std::printf("  \"target_array_create_hr\": \"%s\",\n",
               hr_hex(target_array_hr).c_str());
+  std::printf("  \"target_2_create_hr\": \"%s\",\n",
+              hr_hex(target_2_hr).c_str());
+  std::printf("  \"target_8_create_hr\": \"%s\",\n",
+              hr_hex(target_8_hr).c_str());
   std::printf("  \"resolve_target_hr\": \"%s\",\n",
               hr_hex(resolve_target_hr).c_str());
   std::printf("  \"resolve_array_target_hr\": \"%s\",\n",
               hr_hex(resolve_array_target_hr).c_str());
+  std::printf("  \"resolve_2_target_hr\": \"%s\",\n",
+              hr_hex(resolve_2_target_hr).c_str());
+  std::printf("  \"resolve_8_target_hr\": \"%s\",\n",
+              hr_hex(resolve_8_target_hr).c_str());
   std::printf("  \"resolve_readback_hr\": \"%s\",\n",
               hr_hex(resolve_readback_hr).c_str());
   std::printf("  \"resolve_array_readback_hr\": \"%s\",\n",
               hr_hex(resolve_array_readback_hr).c_str());
+  std::printf("  \"resolve_2_readback_hr\": \"%s\",\n",
+              hr_hex(resolve_2_readback_hr).c_str());
+  std::printf("  \"resolve_8_readback_hr\": \"%s\",\n",
+              hr_hex(resolve_8_readback_hr).c_str());
   std::printf("  \"execute_hr\": \"%s\",\n",
               hr_hex(execute_hr).c_str());
   std::printf("  \"readback_map_hr\": \"%s\",\n",
@@ -873,9 +1222,23 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   std::printf("  \"resolve_array_value\": %.1f,\n", resolve_array_value);
   std::printf("  \"resolve_array_value_verified\": %s,\n",
               resolve_array_value_ok ? "true" : "false");
-  std::printf("  \"values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
-              values[0], values[1], values[2], values[3], values[4], values[5],
-              values[6], values[7]);
+  std::printf("  \"resolve_2_map_hr\": \"%s\",\n",
+              hr_hex(resolve_2_map_hr).c_str());
+  std::printf("  \"resolve_2_value\": %.1f,\n", resolve_2_value);
+  std::printf("  \"resolve_2_value_verified\": %s,\n",
+              resolve_2_value_ok ? "true" : "false");
+  std::printf("  \"resolve_8_map_hr\": \"%s\",\n",
+              hr_hex(resolve_8_map_hr).c_str());
+  std::printf("  \"resolve_8_value\": %.1f,\n", resolve_8_value);
+  std::printf("  \"resolve_8_value_verified\": %s,\n",
+              resolve_8_value_ok ? "true" : "false");
+  std::printf("  \"values\": [");
+  for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); ++i) {
+    if (i)
+      std::printf(", ");
+    std::printf("%u", values[i]);
+  }
+  std::printf("],\n");
   std::printf("  \"values_verified\": %s,\n",
               values_ok ? "true" : "false");
   std::printf("  \"graphics_color\": \"0x%08x\",\n", graphics_color);
@@ -885,8 +1248,6 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   std::fflush(stdout);
 
   safe_release(graphics_readback);
-  safe_release(resolve_array_readback);
-  safe_release(resolve_readback);
   safe_release(vertex_buffer);
   safe_release(depth_target);
   safe_release(graphics_target);
@@ -894,7 +1255,16 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   safe_release(rtv_heap);
   safe_release(readback);
   safe_release(outbuf);
+  safe_release(resolve_8_readback);
+  safe_release(resolve_2_readback);
+  safe_release(resolve_array_readback);
+  safe_release(resolve_readback);
+  safe_release(resolve_8_target);
+  safe_release(resolve_2_target);
+  safe_release(resolve_array_target);
   safe_release(resolve_target);
+  safe_release(target_8);
+  safe_release(target_2);
   safe_release(target_array);
   safe_release(target);
   safe_release(heap);
@@ -902,6 +1272,10 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   safe_release(allocator);
   safe_release(queue);
   safe_release(graphics_pso);
+  safe_release(load_8_pso);
+  safe_release(store_8_pso);
+  safe_release(load_2_pso);
+  safe_release(store_2_pso);
   safe_release(load_pso);
   safe_release(store_pso);
   safe_release(root);
