@@ -187,10 +187,11 @@ Findings:
 - `CreateSamplerFeedbackUnorderedAccessView` is a no-op.
 - Reserved-resource creation now uses a native Metal sparse heap/texture for
   the focused 2D path and supports standard multi-mip RGBA8/R32 shapes; a
-  separate two-tile reserved-buffer compatibility path uses full shared
-  backing. Unsupported dimensions still fail closed and Tier 3 remains gated
-  on physical heap-page selection, aliases, packed/partial mips,
-  `CopyTileMappings`, and broader residency behavior.
+  separate two-tile reserved-buffer path uses an MTL4 placement-sparse buffer
+  mapping on the proof host with a full shared fallback. Unsupported dimensions
+  still fail closed and Tier 3 remains gated on texture heap-page selection,
+  cross-resource aliases, packed/partial mips, `CopyTileMappings`, and broader
+  residency behavior.
 - Later device interfaces are compatibility declarations rather than complete
   Agility interface implementations.
 - Object private-data support is implemented only on the device; most child
@@ -282,8 +283,8 @@ Findings:
   and still passes exact readback.
 - Reserved resources now use native Metal sparse backing for a focused 2D
   RGBA8-array and standard multi-mip path; a separate reserved-buffer path
-  uses explicit full shared compatibility backing. Unsupported shapes fail
-  closed rather than using committed substitutes.
+  uses native MTL4 placement-sparse buffers with a full shared fallback.
+  Unsupported shapes fail closed rather than using committed substitutes.
 - Tile mapping/unmapping and per-slice/mip `CopyTiles` operations execute for
   those proof paths; physical external D3D12 heap-page selection and
   `CopyTileMappings` remain gated.
@@ -480,10 +481,10 @@ Findings:
   broader record and local-binding matrices remain gated.
 - D3D12 sparse/reserved mapping is now bridged through native Metal sparse
   heaps, resource-state encoders, and two-tile `CopyTiles` replay for the
-  proven 2D RGBA8 path, with standard two-level mip readback and a separate
-  full-backed reserved-buffer compatibility path. Metal 4 placement-sparse
-  heap-page aliasing is not yet connected, so external heap page selection and
-  `CopyTileMappings` remain gated.
+  proven 2D RGBA8 path, with standard two-level mip readback and native MTL4
+  placement-sparse buffer mappings with a full-backed fallback. Cross-resource
+  heap-page aliasing for sparse resources is not yet proven, so texture page
+  selection and `CopyTileMappings` remain gated.
 - VRS/rasterization-rate map APIs are not exposed through the current bridge.
 - Winemetal ABI validation currently catches stale PE bridge copies; the
   initial runtime preflight found an outdated prefix `system32/winemetal.dll`.
@@ -1240,9 +1241,10 @@ the goal is not complete.
   serialization reconstruction, independently linked collection merging,
   new-library state-object growth and broader record-count, stride, and
   local-data shader-table matrices. The resource gate also now covers a
-  separate two-tile reserved-buffer compatibility path: 64 KiB tiling, exact
-  tile copies, and zero-after-unmap readback pass, while its full shared
-  backing is explicitly not treated as physical sparse heap-page support.
+  separate two-tile reserved-buffer path: native MTL4 heap mapping, 64 KiB
+  tiling, exact tile copies, and zero-after-unmap readback pass on the proof
+  host; its fallback is explicitly not treated as physical sparse heap-page
+  support and cross-resource aliasing remains gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR
   and tiled-resource changes passes all `21/21` required contract probes;
   intentional warmup and missing-capture diagnostics remain outside that

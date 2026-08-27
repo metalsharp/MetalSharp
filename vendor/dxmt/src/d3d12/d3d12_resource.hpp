@@ -120,6 +120,9 @@ public:
            ((IsBuffer() && m_mtl_buffer.handle) ||
             (!IsBuffer() && m_sparse_heap.handle && m_mtl_texture.handle));
   }
+  bool IsNativeSparseBuffer() const {
+    return m_is_reserved && IsBuffer() && m_native_sparse_buffer;
+  }
   WMT::Reference<WMT::Heap> GetSparseHeap() { return m_sparse_heap; }
   void *GetCPUAddress() const { return m_cpu_addr; }
   D3D12_TILE_SHAPE GetTiledResourceTileShape() const;
@@ -345,6 +348,7 @@ private:
   uint64_t m_tex_gpu_resource_id = 0;
   uint64_t m_backing_offset = 0;
   bool m_is_reserved = false;
+  bool m_native_sparse_buffer = false;
   bool m_is_sampler_feedback = false;
   uint32_t m_sampler_feedback_width = 0;
   uint32_t m_sampler_feedback_height = 0;

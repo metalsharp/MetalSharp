@@ -272,6 +272,26 @@ MTLDevice_newBuffer(obj_handle_t device, struct WMTBufferInfo *info) {
 }
 
 WINEMETAL_API obj_handle_t
+MTLDevice_newSparseBuffer(obj_handle_t device,
+                          struct WMTSparseBufferInfo *info) {
+  struct unixcall_mtldevice_newsparsebuffer params;
+  params.device = device;
+  WMT_MEMPTR_SET(params.info, info);
+  params.ret = 0;
+  UNIX_CALL(160, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newMTL4CommandQueue(obj_handle_t device) {
+  struct unixcall_mtldevice_newmtl4commandqueue params;
+  params.device = device;
+  params.ret = 0;
+  UNIX_CALL(161, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
 MTLDevice_newSamplerState(obj_handle_t device, struct WMTSamplerInfo *info) {
   struct unixcall_mtldevice_newsamplerstate params;
   params.device = device;
@@ -1684,5 +1704,33 @@ MTLResourceStateCommandEncoder_updateTextureMappings(
   params.mapping_count = mapping_count;
   params.ret_success = 0;
   UNIX_CALL(158, &params);
+  return params.ret_success != 0;
+}
+
+WINEMETAL_API obj_handle_t
+MTLHeap_newBufferAtOffset(obj_handle_t heap, struct WMTBufferInfo *info,
+                          uint64_t offset) {
+  struct unixcall_mtlheap_newbuffer_offset params;
+  params.heap = heap;
+  WMT_MEMPTR_SET(params.info, info);
+  params.offset = offset;
+  params.ret = 0;
+  UNIX_CALL(163, &params);
+  return params.ret;
+}
+
+WINEMETAL_API bool
+MTL4CommandQueue_updateBufferMappings(
+    obj_handle_t queue, obj_handle_t buffer, obj_handle_t heap,
+    const struct WMT4SparseBufferMappingOperation *operations,
+    uint64_t operation_count) {
+  struct unixcall_mtl4commandqueue_update_buffer_mappings params;
+  params.queue = queue;
+  params.buffer = buffer;
+  params.heap = heap;
+  WMT_MEMPTR_SET(params.operations, operations);
+  params.operation_count = operation_count;
+  params.ret_success = 0;
+  UNIX_CALL(162, &params);
   return params.ret_success != 0;
 }

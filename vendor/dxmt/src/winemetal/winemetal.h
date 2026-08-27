@@ -210,9 +210,23 @@ struct WMTBufferInfo {
 
 STATIC_ASSERT(sizeof(WMTBufferInfo) == 32);
 
+struct WMTSparseBufferInfo {
+  uint64_t length;                 // in
+  enum WMTResourceOptions options; // in
+  uint32_t sparse_page_size;       // in, MTLSparsePageSize value
+  uint32_t reserved;               // ABI padding
+  struct WMTMemoryPointer memory;  // out
+  uint64_t gpu_address;            // out
+};
+
+STATIC_ASSERT(sizeof(WMTSparseBufferInfo) == 40);
+
 struct WMTTextureInfo;
 
 WINEMETAL_API obj_handle_t MTLDevice_newBuffer(obj_handle_t device, struct WMTBufferInfo *info);
+WINEMETAL_API obj_handle_t
+MTLDevice_newSparseBuffer(obj_handle_t device, struct WMTSparseBufferInfo *info);
+WINEMETAL_API obj_handle_t MTLDevice_newMTL4CommandQueue(obj_handle_t device);
 
 enum WMTHeapType : uint32_t {
   WMTHeapTypeAutomatic = 0,
@@ -231,12 +245,18 @@ struct WMTHeapInfo {
   enum WMTResourceOptions options;
   enum WMTHeapType type;
   uint32_t sparse_page_size;
+  uint32_t max_compatible_placement_sparse_page_size;
+  uint32_t reserved;
 };
+
+STATIC_ASSERT(sizeof(WMTHeapInfo) == 32);
 
 WINEMETAL_API obj_handle_t MTLDevice_newHeap(obj_handle_t device,
                                               struct WMTHeapInfo *info);
 WINEMETAL_API obj_handle_t MTLHeap_newTexture(obj_handle_t heap,
                                                struct WMTTextureInfo *info);
+WINEMETAL_API obj_handle_t MTLHeap_newBufferAtOffset(
+    obj_handle_t heap, struct WMTBufferInfo *info, uint64_t offset);
 WINEMETAL_API obj_handle_t MTLHeap_newTextureAtOffset(
     obj_handle_t heap, struct WMTTextureInfo *info, uint64_t offset);
 
@@ -1100,6 +1120,20 @@ struct WMTTextureMapping {
 WINEMETAL_API bool MTLResourceStateCommandEncoder_updateTextureMappings(
     obj_handle_t encoder, obj_handle_t texture,
     const struct WMTTextureMapping *mappings, uint64_t mapping_count);
+
+struct WMT4SparseBufferMappingOperation {
+  uint64_t mode;
+  uint64_t buffer_tile_offset;
+  uint64_t buffer_tile_count;
+  uint64_t heap_tile_offset;
+};
+
+STATIC_ASSERT(sizeof(WMT4SparseBufferMappingOperation) == 32);
+
+WINEMETAL_API bool MTL4CommandQueue_updateBufferMappings(
+    obj_handle_t queue, obj_handle_t buffer, obj_handle_t heap,
+    const struct WMT4SparseBufferMappingOperation *operations,
+    uint64_t operation_count);
 
 enum WMTBlitCommandType : uint16_t {
   WMTBlitCommandNop,

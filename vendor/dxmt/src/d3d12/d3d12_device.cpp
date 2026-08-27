@@ -4426,9 +4426,25 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
 
   auto heap_buffer =
       mt_heap ? mt_heap->GetMTLBuffer() : WMT::Reference<WMT::Buffer>{};
-  bool use_heap_backing = mt_heap &&
-                          desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
-                          heap_buffer.handle != NULL_OBJECT_HANDLE;
+  WMT::Reference<WMT::Buffer> placed_buffer;
+  uint64_t placed_buffer_gpu = 0;
+  if (mt_heap && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+      heap_props.Type == D3D12_HEAP_TYPE_DEFAULT) {
+    auto placement_heap = mt_heap->GetMTLHeap();
+    if (placement_heap.handle) {
+      WMTBufferInfo buffer_info = {};
+      buffer_info.length = desc->Width;
+      buffer_info.options = WMTResourceStorageModePrivate;
+      placed_buffer = placement_heap.newBuffer(buffer_info, heap_offset);
+      placed_buffer_gpu = buffer_info.gpu_address;
+      if (!placed_buffer.handle)
+        TRACE("CreatePlacedResource native heap buffer allocation failed");
+    }
+  }
+  bool use_heap_backing =
+      placed_buffer.handle ||
+      (mt_heap && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+       heap_buffer.handle != NULL_OBJECT_HANDLE);
   if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
       desc->Width >= (64ull << 20)) {
     Logger::info(str::format(
@@ -4488,12 +4504,16 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
     if (!placed_texture.handle)
       return E_NOTIMPL;
   }
-  auto res = use_heap_backing
+  auto res = placed_buffer.handle
                  ? new MTLD3D12Resource(this, *desc, initial_state, heap_props,
-                                        heap_flags, heap_buffer,
-                                        mt_heap->GetCPUAddress(),
-                                        mt_heap->GetGPUAddress(), heap_offset)
-                 : placed_texture.handle
+                                        heap_flags, std::move(placed_buffer),
+                                        nullptr, placed_buffer_gpu, 0)
+                 : use_heap_backing
+                       ? new MTLD3D12Resource(
+                             this, *desc, initial_state, heap_props, heap_flags,
+                             heap_buffer, mt_heap->GetCPUAddress(),
+                             mt_heap->GetGPUAddress(), heap_offset)
+                       : placed_texture.handle
                        ? new MTLD3D12Resource(
                              this, *desc, initial_state, heap_props, heap_flags,
                              std::move(placed_texture), placed_texture_gpu_id,

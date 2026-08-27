@@ -55,6 +55,7 @@ WMT::Reference<WMT::Heap> MTLD3D12Heap::GetMTLHeap() {
   info.options = WMTResourceStorageModePrivate |
                  WMTResourceHazardTrackingModeTracked;
   info.type = WMTHeapTypePlacement;
+  info.max_compatible_placement_sparse_page_size = WMTSparsePageSize64;
   m_heap = wmt_device.newHeap(info);
   HTRACE("GetMTLHeap placement handle=%llu size=%llu flags=0x%x",
          (unsigned long long)m_heap.handle,

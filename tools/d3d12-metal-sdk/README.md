@@ -353,8 +353,9 @@ Metal sparse-backed 128x128x2 RGBA8-array reserved texture, reports two
 standard 128x128 subresource tiles, maps and unmaps both array slices through
 `UpdateTileMappings`, and round-trips exact 64 KiB `CopyTiles` payloads for
 each slice. A focused two-tile reserved-buffer path reports the 64 KiB buffer
-tiling, copies exact payloads, and verifies zero-after-unmap using a full shared
-compatibility backing. The same gate reads mip 1 from a standard-tiled
+tiling, uses MTL4 heap mappings, copies exact payloads, and verifies
+zero-after-unmap (with a full shared compatibility fallback). Cross-resource
+heap-page aliasing remains gated. The same gate reads mip 1 from a standard-tiled
 256x256 two-level reserved texture. Tier 3 remains conservative until physical
 heap-page selection, aliases, packed/partial mips, `CopyTileMappings`,
 residency transitions, and broader formats are covered. It also round-trips a named and unnamed process-local

@@ -511,6 +511,38 @@ _MTLDevice_newBuffer(void *obj) {
 }
 
 static NTSTATUS
+_MTLDevice_newSparseBuffer(void *obj) {
+  struct unixcall_mtldevice_newsparsebuffer *params = obj;
+  id<MTLDevice> device = (id<MTLDevice>)params->device;
+  struct WMTSparseBufferInfo *info = params->info.ptr;
+  params->ret = 0;
+  if (!device || !info || !info->length || !info->sparse_page_size)
+    return STATUS_SUCCESS;
+  if (@available(macOS 26.0, *)) {
+    id<MTLBuffer> buffer = [device
+        newBufferWithLength:(NSUInteger)info->length
+                     options:(MTLResourceOptions)info->options
+     placementSparsePageSize:(MTLSparsePageSize)info->sparse_page_size];
+    if (buffer) {
+      info->memory.ptr = NULL;
+      info->gpu_address = [buffer gpuAddress];
+      params->ret = (obj_handle_t)buffer;
+    }
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newMTL4CommandQueue(void *obj) {
+  struct unixcall_mtldevice_newmtl4commandqueue *params = obj;
+  params->ret = 0;
+  if (params->device && @available(macOS 26.0, *))
+    params->ret = (obj_handle_t)[(id<MTLDevice>)params->device
+        newMTL4CommandQueue];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLDevice_newSamplerState(void *obj) {
   struct unixcall_mtldevice_newsamplerstate *params = obj;
   id<MTLDevice> device = (id<MTLDevice>)params->device;
@@ -639,6 +671,11 @@ _MTLDevice_newHeap(void *obj) {
     if (info->sparse_page_size)
       descriptor.sparsePageSize = (MTLSparsePageSize)info->sparse_page_size;
   }
+  if (@available(macOS 26.0, *)) {
+    if (info->max_compatible_placement_sparse_page_size)
+      descriptor.maxCompatiblePlacementSparsePageSize =
+          (MTLSparsePageSize)info->max_compatible_placement_sparse_page_size;
+  }
   params->ret = (obj_handle_t)[(id<MTLDevice>)params->device
       newHeapWithDescriptor:descriptor];
   [descriptor release];
@@ -660,6 +697,27 @@ _MTLHeap_newTexture(void *obj) {
   params->ret = (obj_handle_t)texture;
   info->gpu_resource_id = texture ? [texture gpuResourceID]._impl : 0;
   [descriptor release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLHeap_newBufferAtOffset(void *obj) {
+  struct unixcall_mtlheap_newbuffer_offset *params = obj;
+  struct WMTBufferInfo *info = params->info.ptr;
+  params->ret = 0;
+  if (!params->heap || !info || !info->length)
+    return STATUS_SUCCESS;
+  id<MTLBuffer> buffer = [(id<MTLHeap>)params->heap
+      newBufferWithLength:(NSUInteger)info->length
+                   options:(MTLResourceOptions)info->options
+                    offset:(NSUInteger)params->offset];
+  if (buffer) {
+    info->memory.ptr = [buffer storageMode] == MTLStorageModePrivate
+                           ? NULL
+                           : [buffer contents];
+    info->gpu_address = [buffer gpuAddress];
+    params->ret = (obj_handle_t)buffer;
+  }
   return STATUS_SUCCESS;
 }
 
@@ -716,6 +774,44 @@ _MTLResourceStateCommandEncoder_updateTextureMappings(void *obj) {
                              slice:(NSUInteger)mapping->slice];
   }
   params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandQueue_updateBufferMappings(void *obj) {
+  struct unixcall_mtl4commandqueue_update_buffer_mappings *params = obj;
+  const struct WMT4SparseBufferMappingOperation *operations =
+      params->operations.ptr;
+  params->ret_success = 0;
+  if (!params->queue || !params->buffer ||
+      (params->operation_count && !operations) ||
+      params->operation_count > 1048576)
+    return STATUS_SUCCESS;
+  if (@available(macOS 26.0, *)) {
+    if (!params->heap) {
+      for (uint64_t i = 0; i < params->operation_count; i++)
+        if (operations[i].mode == MTLSparseTextureMappingModeMap)
+          return STATUS_SUCCESS;
+    }
+    MTL4UpdateSparseBufferMappingOperation *native = calloc(
+        (size_t)params->operation_count, sizeof(*native));
+    if (!native)
+      return STATUS_SUCCESS;
+    for (uint64_t i = 0; i < params->operation_count; i++) {
+      native[i].mode = (MTLSparseTextureMappingMode)operations[i].mode;
+      native[i].bufferRange = NSMakeRange(
+          (NSUInteger)operations[i].buffer_tile_offset,
+          (NSUInteger)operations[i].buffer_tile_count);
+      native[i].heapOffset = (NSUInteger)operations[i].heap_tile_offset;
+    }
+    [(id<MTL4CommandQueue>)params->queue
+        updateBufferMappings:(id<MTLBuffer>)params->buffer
+                         heap:(id<MTLHeap>)params->heap
+                   operations:native
+                        count:(NSUInteger)params->operation_count];
+    free(native);
+    params->ret_success = 1;
+  }
   return STATUS_SUCCESS;
 }
 
@@ -4586,6 +4682,10 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandBuffer_resourceStateCommandEncoder,
     &_MTLResourceStateCommandEncoder_updateTextureMappings,
     &_MTLHeap_newTextureAtOffset,
+    &_MTLDevice_newSparseBuffer,
+    &_MTLDevice_newMTL4CommandQueue,
+    &_MTL4CommandQueue_updateBufferMappings,
+    &_MTLHeap_newBufferAtOffset,
 };
 
 #ifndef DXMT_NATIVE
@@ -4750,5 +4850,9 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandBuffer_resourceStateCommandEncoder,
     &_MTLResourceStateCommandEncoder_updateTextureMappings,
     &_MTLHeap_newTextureAtOffset,
+    &_MTLDevice_newSparseBuffer,
+    &_MTLDevice_newMTL4CommandQueue,
+    &_MTL4CommandQueue_updateBufferMappings,
+    &_MTLHeap_newBufferAtOffset,
 };
 #endif
