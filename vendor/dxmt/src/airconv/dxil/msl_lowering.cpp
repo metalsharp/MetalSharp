@@ -919,6 +919,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
             bool comparison_slot = false;
             bool raw_gather_slot = false;
+            bool srv_slot = false;
             bool uav_slot = false;
             if (ctx.compute_sample_cmp_shader) {
                 for (const auto &range : ctx.binding_plan.ranges) {
@@ -941,17 +942,23 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 }
             }
             for (const auto &range : ctx.binding_plan.ranges) {
+                if (range.kind == DescriptorRangePlan::Kind::SRV &&
+                    i >= range.lower_bound &&
+                    i < range.lower_bound + range.count) {
+                    srv_slot = true;
+                }
                 if (range.kind == DescriptorRangePlan::Kind::UAV &&
                     i >= range.lower_bound &&
                     i < range.lower_bound + range.count) {
                     uav_slot = true;
-                    break;
                 }
             }
             if (raw_gather_slot)
                 os << "  texture2d<uint, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
             else if (comparison_slot)
                 os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+            else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
             else if (uav_slot && ctx.texture_store_sample_shader)
                 os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
             else if (ctx.compute_texture_store_shader ||
@@ -1005,16 +1012,21 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
             os << "  device char* buf" << i << " [[buffer(" << i << ")]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
+            bool srv_slot = false;
             bool uav_slot = false;
             for (const auto &range : ctx.binding_plan.ranges) {
+                if (range.kind == DescriptorRangePlan::Kind::SRV &&
+                    i >= range.lower_bound &&
+                    i < range.lower_bound + range.count)
+                    srv_slot = true;
                 if (range.kind == DescriptorRangePlan::Kind::UAV &&
                     i >= range.lower_bound &&
-                    i < range.lower_bound + range.count) {
+                    i < range.lower_bound + range.count)
                     uav_slot = true;
-                    break;
-                }
             }
-            if (uav_slot && ctx.texture_store_sample_shader)
+            if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+            else if (uav_slot && ctx.texture_store_sample_shader)
                 os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
             else if (uav_slot)
                 os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
