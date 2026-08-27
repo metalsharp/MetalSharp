@@ -601,6 +601,40 @@ static bool FormatHasStencil(DXGI_FORMAT format) {
          format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
 }
 
+static bool ShadingRateToMetalQuality(D3D12_SHADING_RATE rate,
+                                      float &horizontal, float &vertical) {
+  horizontal = 1.0f;
+  vertical = 1.0f;
+  switch (rate) {
+  case D3D12_SHADING_RATE_1X1:
+    return true;
+  case D3D12_SHADING_RATE_1X2:
+    vertical = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_2X1:
+    horizontal = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_2X2:
+    horizontal = 0.5f;
+    vertical = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_2X4:
+    horizontal = 0.5f;
+    vertical = 0.25f;
+    return true;
+  case D3D12_SHADING_RATE_4X2:
+    horizontal = 0.25f;
+    vertical = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_4X4:
+    horizontal = 0.25f;
+    vertical = 0.25f;
+    return true;
+  default:
+    return false;
+  }
+}
+
 template <typename Encoder>
 static void EndMetalEncoder(Encoder &encoder, const char *label) {
   if (!encoder.handle) {
@@ -934,6 +968,12 @@ struct ReplayState {
   float depth_bounds_min = 0.0f;
   float depth_bounds_max = 1.0f;
   bool depth_bounds_inverted = false;
+  D3D12_SHADING_RATE shading_rate = D3D12_SHADING_RATE_1X1;
+  D3D12_SHADING_RATE_COMBINER shading_rate_combiners[2] = {
+      D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+      D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
+  ID3D12Resource *shading_rate_image = nullptr;
+  WMT::Reference<WMT::RasterizationRateMap> rasterization_rate_map;
 
   D3D12_CPU_DESCRIPTOR_HANDLE rt_handles[8] = {};
   D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = {};
@@ -4947,7 +4987,7 @@ struct ReplayState {
     }
   }
 
-  void EnsureRenderEncoder() {
+  void EnsureRenderEncoder(MTLD3D12Device *device) {
     if (render_enc_open)
       return;
 
@@ -4977,6 +5017,8 @@ struct ReplayState {
     depth_bounds_dsv_slice = 0;
 
     bool has_valid_rt = false;
+    uint32_t render_target_width = 0;
+    uint32_t render_target_height = 0;
     uint16_t render_target_array_length = 1;
     bool has_render_target_array = false;
     for (uint32_t i = 0; i < rt_count && i < 8; i++) {
@@ -4990,6 +5032,13 @@ struct ReplayState {
           rp.colors[i].texture = tex.handle;
           rp.colors[i].level = RTVMipLevel(desc);
           rp.colors[i].slice = RTVArraySlice(desc);
+          if (!render_target_width || !render_target_height) {
+            D3D12_RESOURCE_DESC resource_desc = {};
+            res->GetDesc(&resource_desc);
+            render_target_width = static_cast<uint32_t>(
+                std::min<uint64_t>(resource_desc.Width, UINT32_MAX));
+            render_target_height = std::max<UINT>(resource_desc.Height, 1);
+          }
           const uint16_t attachment_array_length = RTVArrayLength(desc);
           if (attachment_array_length > 1) {
             render_target_array_length = has_render_target_array
@@ -5060,6 +5109,44 @@ struct ReplayState {
 
     rp.render_target_array_length = static_cast<uint8_t>(
         std::min<uint16_t>(render_target_array_length, UINT8_MAX));
+    rp.render_target_width = render_target_width;
+    rp.render_target_height = render_target_height;
+
+    rasterization_rate_map = nullptr;
+    if (shading_rate_image) {
+      QTRACE("EnsureRenderEncoder: shading-rate image is not yet lowered; "
+             "keeping the pass at native rate resource=%p",
+             (void *)shading_rate_image);
+    } else if (shading_rate != D3D12_SHADING_RATE_1X1 &&
+               render_target_width && render_target_height &&
+               shading_rate_combiners[0] ==
+                   D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
+               shading_rate_combiners[1] ==
+                   D3D12_SHADING_RATE_COMBINER_PASSTHROUGH) {
+      float horizontal = 1.0f;
+      float vertical = 1.0f;
+      if (ShadingRateToMetalQuality(shading_rate, horizontal, vertical)) {
+        WMTRasterizationRateMapInfo map_info = {};
+        map_info.screen_width = render_target_width;
+        map_info.screen_height = render_target_height;
+        map_info.horizontal_rates[0] = horizontal;
+        map_info.horizontal_rates[1] = horizontal;
+        map_info.vertical_rates[0] = vertical;
+        map_info.vertical_rates[1] = vertical;
+        rasterization_rate_map =
+            device->GetDXMTDevice().device().newRasterizationRateMap(
+                map_info);
+        if (rasterization_rate_map.handle) {
+          rp.rasterization_rate_map = rasterization_rate_map.handle;
+          RetainMTLObjectForCompletion(rasterization_rate_map);
+          QTRACE("EnsureRenderEncoder: rasterization rate map rate=%u "
+                 "quality=%.2f,%.2f screen=%ux%u map=%llu",
+                 (unsigned)shading_rate, horizontal, vertical,
+                 render_target_width, render_target_height,
+                 (unsigned long long)rasterization_rate_map.handle);
+        }
+      }
+    }
 
     if (!has_valid_rt) {
       QTRACE("EnsureRenderEncoder: no valid RT texture found, skipping");
@@ -7828,7 +7915,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::DrawInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawInstanced *>(header);
         st.EnsureSwapchainRenderPSOReady();
-        st.EnsureRenderEncoder();
+        st.EnsureRenderEncoder(m_device);
         st.ApplyRootBindings(m_device);
         st.BuildVertexConstantBufferTable(m_device);
         st.BuildVertexArgumentBuffer(m_device);
@@ -7963,7 +8050,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::DrawIndexedInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawIndexedInstanced *>(header);
         st.EnsureSwapchainRenderPSOReady();
-        st.EnsureRenderEncoder();
+        st.EnsureRenderEncoder(m_device);
         st.ApplyRootBindings(m_device);
         st.BuildVertexConstantBufferTable(m_device);
         st.BuildVertexArgumentBuffer(m_device);
@@ -9002,7 +9089,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         auto *cmd = reinterpret_cast<const CmdDispatchMesh *>(header);
         QTRACE("DispatchMesh groups=%ux%ux%u pso=%p", cmd->x, cmd->y, cmd->z,
                (void *)st.pso);
-        st.EnsureRenderEncoder();
+        st.EnsureRenderEncoder(m_device);
         st.ApplyRootBindings(m_device);
         st.BuildVertexArgumentBuffer(m_device);
         st.BuildGeometryArgumentBuffer(m_device);
@@ -9073,7 +9160,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
 
         auto replay_indirect_draw = [&](const D3D12_DRAW_ARGUMENTS &args) {
-          st.EnsureRenderEncoder();
+          st.EnsureRenderEncoder(m_device);
           st.ApplyRootBindings(m_device);
           st.BuildVertexConstantBufferTable(m_device);
           st.BuildVertexArgumentBuffer(m_device);
@@ -9150,7 +9237,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
 
         auto replay_indirect_draw_indexed =
             [&](const D3D12_DRAW_INDEXED_ARGUMENTS &args) {
-              st.EnsureRenderEncoder();
+              st.EnsureRenderEncoder(m_device);
               st.ApplyRootBindings(m_device);
               st.BuildVertexConstantBufferTable(m_device);
               st.BuildVertexArgumentBuffer(m_device);
@@ -9331,7 +9418,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 QTRACE("ExecuteIndirect DISPATCH_MESH groups=%ux%ux%u",
                        args.ThreadGroupCountX, args.ThreadGroupCountY,
                        args.ThreadGroupCountZ);
-                st.EnsureRenderEncoder();
+                st.EnsureRenderEncoder(m_device);
                 st.ApplyRootBindings(m_device);
                 st.BuildVertexArgumentBuffer(m_device);
                 st.BuildGeometryArgumentBuffer(m_device);
@@ -10915,6 +11002,38 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                "inverted=%u",
                cmd->min_depth, cmd->max_depth, st.depth_bounds_min,
                st.depth_bounds_max, st.depth_bounds_inverted ? 1u : 0u);
+        break;
+      }
+      case CmdType::RSSetShadingRate: {
+        auto *cmd = reinterpret_cast<const CmdRSSetShadingRate *>(header);
+        float horizontal = 1.0f;
+        float vertical = 1.0f;
+        if (!ShadingRateToMetalQuality(cmd->base_shading_rate, horizontal,
+                                       vertical)) {
+          QTRACE("RSSetShadingRate rejected invalid rate=%u",
+                 (unsigned)cmd->base_shading_rate);
+          st.shading_rate = D3D12_SHADING_RATE_1X1;
+        } else {
+          st.shading_rate = cmd->base_shading_rate;
+        }
+        st.shading_rate_combiners[0] = cmd->combiners[0];
+        st.shading_rate_combiners[1] = cmd->combiners[1];
+        if (st.render_enc_open)
+          st.CloseRenderEncoder();
+        QTRACE("RSSetShadingRate replay rate=%u combiners=%u,%u",
+               (unsigned)st.shading_rate,
+               (unsigned)st.shading_rate_combiners[0],
+               (unsigned)st.shading_rate_combiners[1]);
+        break;
+      }
+      case CmdType::RSSetShadingRateImage: {
+        auto *cmd = reinterpret_cast<const CmdRSSetShadingRateImage *>(header);
+        st.shading_rate_image = cmd->shading_rate_image;
+        if (st.render_enc_open)
+          st.CloseRenderEncoder();
+        QTRACE("RSSetShadingRateImage replay resource=%p (image lowering "
+               "remains conservative)",
+               (void *)st.shading_rate_image);
         break;
       }
       case CmdType::SetDescriptorHeaps: {

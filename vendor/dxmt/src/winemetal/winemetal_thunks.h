@@ -132,6 +132,12 @@ struct unixcall_mtldevice_newtexture {
   obj_handle_t ret;
 };
 
+struct unixcall_mtldevice_new_rasterization_rate_map {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t ret;
+};
+
 struct unixcall_mtlbuffer_newtexture {
   obj_handle_t buffer;
   struct WMTMemoryPointer info;
