@@ -1324,6 +1324,22 @@ the goal is not complete.
   widen the sparse-resource report: native 3D page ownership and mapping remain
   a Completion Phase 4 blocker.
 
+### 2026-08-27 — Made aggregate provenance and collection authoritative
+
+- `run-isolated-probes.sh` now selects the proof-host Xcode 27 beta 6 developer
+  directory by default (with `METALSHARP_XCODE_ROOT` override), so captured
+  environment identity records the actual Xcode and Metal toolchain instead of
+  silently recording `unknown`.
+- `run-probes.sh --fl12-2-gate` now enables the complete required dependency
+  matrix and clears any mini-probe filter before evaluating the aggregator.
+  A fresh source-staged gate run therefore reports named capability blockers
+  without stale/missing dependency evidence.
+- Source provenance dirtiness excludes only generated build/results/cache paths,
+  and the gate now requires the recorded source checkout to be clean. A fresh
+  source-staged gate run reached `20/22` identity checks and `23/31` query
+  checks, with the remaining failures limited to the deliberately unpromoted
+  FL12_2 capability and behavior rows.
+
 ### 2026-08-27 — Narrowed the remaining work to the completion runway
 
 - The roadmap now has one authoritative, ordered Completion Phase 0–9 runway.
