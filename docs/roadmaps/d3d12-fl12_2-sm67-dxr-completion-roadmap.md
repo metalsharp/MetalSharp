@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-25
 
-**Status:** Active implementation plan
+**Status:** Active — focused completion runway (refined 2026-08-27)
 
 **Branch:** `feat/d3d12-fl12_2-sm67-dxr-completion`
 
@@ -72,14 +72,14 @@ Feature level 12_2 requires at least the following public capability posture:
 
 | Capability | Required FL 12_2 value | Current DXMT result | Completion evidence |
 | --- | --- | --- | --- |
-| Shader model | At least 6.5 | 6.7 | SM 6.6 breadth plus SM 6.7 quad-vote runtime readback passed |
-| Ray tracing | Tier 1.1 | Not supported | DXR 1.0/1.1 probes |
-| Variable-rate shading | Tier 2 | Per-draw rate matrix and constant-image subset proven; Tier 2 remains unreported | Per-draw and image VRS probes |
-| Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
+| Shader model | At least 6.5 | 6.7 for the current core corpus; final breadth gate pending | SM 6.6 breadth plus SM 6.7 quad-vote runtime readback passed; advanced-op/MSAA breadth remains |
+| Ray tracing | Tier 1.1 | Foundational DXR execution subset proven; Tier 1.1 remains unreported | Mixed-geometry, state-object, shader-table, indirect, lifetime, and clean-prefix DXR gates |
+| Variable-rate shading | Tier 2 | Per-draw rate matrix and constant-image subset proven; Tier 2 remains unreported | Nonconstant image, `SUM`, per-primitive, logical-resolution, and Tier-2 VRS gates |
+| Mesh shaders | Tier 1 | Focused AS/MS direct and indirect execution proven; Tier 1 remains unreported | Broader AS/MS stage, payload, render-state, statistics, and clean-prefix gates |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
-| Tiled resources | Tier 3 | Native placement-sparse 2D RGBA8 cross-resource alias subset proven; Tier 3 remains unreported | Sparse mapping, unmapping, tiling, alias, and per-tile 64 KiB CopyTiles probes |
-| Conservative rasterization | Tier 3 | Tier 1 | Tier-3 edge/coverage behavior probe |
+| Tiled resources | Tier 3 | Native placement-sparse 2D RGBA8 cross-resource alias subset proven; Tier 3 remains unreported | Physical page selection, mapping copies, packed/partial mips, 3D, alias, residency, and per-tile 64 KiB `CopyTiles` probes |
+| Conservative rasterization | Tier 3 | Software-emulated Tier 1 only | Tier-3 edge/coverage, inner-input, degenerate, and MSAA behavior probe |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Software-emulated and reported | Depth-bounds render/readback matrix |
 | WriteBufferImmediate | Direct, compute, bundle | Direct, compute, bundle proven and reported | Three-mode GPU-VA write/readback probe |
@@ -542,7 +542,270 @@ Findings:
 - The final runtime must not depend on the user's long-lived Steam prefix for
   probes.
 
-## 4. Implementation phases and hard gates
+## 4A. Focused completion runway (authoritative execution order)
+
+The original Phase 0–12 sections below remain the requirement catalogue and
+historical audit. They are not a parallel backlog. From this point forward,
+work only one phase in this runway at a time and do not start the next phase
+until the current phase's exit gate is green. This prevents additional probes,
+game captures, or optional API work from obscuring the blockers that prevent
+feature level 12_2.
+
+### Completion rules
+
+1. Keep the current clean baseline green: the 156-target build, Winemetal
+   normal/WOW64 ABI check, the 24/24 source-staged probe matrix, M12 contract
+   tests, and the exact D3D10/D3D11 regression gate.
+2. Every new behavior change must include a focused probe or an extension of
+   an existing probe, an exact readback or rejection assertion, and a fresh
+   source-staged Wine 11.5 run. A compile-only or query-only result is not an
+   exit gate.
+3. Every result must identify the Wine, DXMT PE, Winemetal Unix, Xcode/Metal,
+   and disposable-prefix inputs. Copy evidence before stopping Wine and delete
+   the prefix and temporary runtime clone afterward.
+4. Never raise a feature tier, shader model, or maximum feature level in an
+   implementation commit. Promotion happens only in Completion Phase 8 after
+   the aggregate gate passes with the exact artifacts that will be staged.
+5. Optional APIs that are not required by the claimed FL12_2 surface may stay
+   explicitly unsupported and ledgered. They must not return `S_OK` while doing
+   nothing, and they must not block the critical path unless the claimed
+   capability reaches them.
+
+### Current blocker matrix
+
+| Blocker | Evidence today | Required closure |
+| --- | --- | --- |
+| Maximum feature level | `D3D12CreateDevice(12_2)` returns `DXGI_ERROR_UNSUPPORTED` by design; build maximum is 12_1 | Promote only after every row below is green |
+| VRS | Per-draw rates and constant image maps pass | Tier-2 image semantics, `SUM`, per-primitive rates, logical-resolution mapping, and lifecycle pass |
+| Mesh shaders | Focused AS/MS direct/indirect, layered depth/blend/wireframe, and statistics paths pass | Complete Tier-1 matrix and report only the behavior-backed tier |
+| Tiled resources | Focused native sparse 2D and MTL4 buffer paths pass | Physical page ownership, mapping copies, packed/partial mips, 3D/array coverage, aliasing, and residency pass |
+| Conservative rasterization | Software Tier-1 path only | Implement and prove Tier-3 coverage semantics; do not infer Tier 3 from Metal support |
+| DXR | Foundational BLAS/TLAS, state-object, shader-table, inline, direct, and indirect paths pass | Mixed geometry and remaining Tier-1.1 lifecycle/table paths pass through one unified bridge |
+| SM6.7/MSAA | Core SM6.7 corpus and focused writable-MSAA formats/sample counts pass | Close advanced-op stage/dimension coverage and writable-MSAA format/resolve breadth before Options14 promotion |
+| Residual surfaces | Core ABI/lifecycle gates pass | Remove dangerous no-op success paths reachable from claimed features and keep all other stubs explicitly rejected |
+
+### Completion Phase 0 — Freeze the baseline and the red gate (complete)
+
+Use the existing current-source evidence as the only starting point. Re-run it
+only when a later phase changes a shared path. The baseline record is:
+
+- clean 156/156 DXMT artifact build;
+- 169/169 normal and WOW64 Winemetal entries with matching ABI evidence;
+- 24/24 strict source-staged probe comparison, including exact D3D10/D3D11
+  clear/copy/readback;
+- M12 pipeline, shader-engine, runtime-layout, contract, and 33 `m12_` tests;
+- the known red result: 12_2 creation is rejected and the capability rows in
+  the blocker matrix are not yet promotable.
+
+No new feature work belongs in this phase. If this baseline regresses, fix the
+regression before continuing.
+
+### Completion Phase 1 — Make one aggregate FL12_2 gate authoritative
+
+Build the gate before changing any capability report. It must combine the
+feature-level query with the behavior results rather than trusting either one
+alone.
+
+Deliverables:
+
+- Add or extend a repository-owned `probe_feature_level_12_2`/aggregator that
+  names every required `D3D12_OPTIONS*` field and maps it to the focused probe
+  that proves the field's behavior.
+- Require exact runtime identity, current source hashes, a disposable prefix,
+  and valid JSON for every dependency. A missing or stale result is a failure,
+  not a skipped test.
+- Emit a short named failure list so each iteration selects one blocker only.
+- Keep `kD3D12BuildMaximumFeatureLevel` at 12_1 and all unproven tiers
+  conservative while this gate is being assembled.
+
+Exit gate: the aggregate gate runs from a clean prefix, passes its validators,
+and reports the expected named blockers without changing any public capability.
+
+### Completion Phase 2 — Close VRS Tier 2
+
+This is the next implementation priority because the current bridge handles
+only uniform Metal rate maps and constant shading-rate images.
+
+Deliverables:
+
+- Decode the complete D3D12 shading-rate image tile layout, including viewport,
+  array, clear, upload/copy, unmap, and resource lifetime behavior.
+- Implement both combiner stages with independent horizontal/vertical axis
+  semantics, including `PASSTHROUGH`, `OVERRIDE`, `MIN`, `MAX`, and `SUM`.
+- Implement a semantically equivalent path for nonconstant images. A uniform
+  or separable Metal rate map is valid only when it is mathematically
+  equivalent; otherwise use a bounded software/replay path rather than
+  silently treating the image as constant.
+- Cover per-primitive rates and their interaction with an image, viewport,
+  scissor, depth/stencil, render-target arrays, and command-list reset/reuse.
+
+Focused gate:
+
+- neighboring image tiles with different rates, every supported combiner and
+  both axes independently;
+- per-primitive and image combinations with nonconstant output patterns;
+- exact logical-to-physical pixel/readback expectations, not only a total
+  nonzero count;
+- invalid image dimensions, uninitialized images, unsupported rates, and
+  stale image resources are rejected or handled according to D3D12 semantics.
+
+Exit gate: the clean-prefix VRS matrix passes and only then may the aggregate
+gate accept `D3D12_OPTIONS6.VariableShadingRateTier >= TIER_2`.
+
+### Completion Phase 3 — Close Mesh Shader Tier 1
+
+Generalize the already-working AS/MS path without widening the public tier
+prematurely.
+
+Deliverables:
+
+- Cover AS/MS pipeline streams, payload sizes, thread-group shapes, stage
+  visibility, raw/typed/texture/sampler resources, and direct/indirect
+  `DispatchMesh` with multiple groups.
+- Exercise render-target arrays, DSV/depth comparison, blending, wireframe,
+  viewport/scissor, and the VRS path from Completion Phase 2.
+- Complete pipeline statistics and array-index behavior for the supported
+  feeder stages; distinguish an unsupported optional statistic from a false
+  success.
+- Validate repeated PSO creation, command-list reset/reuse, resource release,
+  and queue synchronization.
+
+Exit gate: a clean-prefix Tier-1 matrix has exact render/UAV/readback results,
+no skipped required case, and no deferred compile failure. Only then may
+`D3D12_OPTIONS7.MeshShaderTier` be promoted.
+
+### Completion Phase 4 — Close Tiled Resources Tier 3
+
+Remove the remaining distinction between a useful sparse demonstration and a
+Tier-3 resource implementation.
+
+Deliverables:
+
+- Give each mapped D3D12 tile an explicit physical Metal heap/page owner;
+  never count full shared backing as physical sparse support.
+- Implement and test `UpdateTileMappings`, `CopyTileMappings`, unmapping,
+  cross-resource aliases, and mapping-copy ordering on the same queue and
+  across queues.
+- Cover standard and packed/partial mip layouts, 1D/2D/3D/array resources,
+  supported color formats, `GetResourceTiling`, and exact 64 KiB `CopyTiles`
+  upload/readback/zero-after-unmap behavior.
+- Define residency transitions and validation for every mapped page. Keep
+  unsupported shapes as explicit failures until their path is implemented.
+
+Exit gate: the physical-page, mapping-copy, alias, mip/3D, residency, and
+readback matrix passes from a fresh prefix. Only then may the Tier-3 report be
+enabled.
+
+### Completion Phase 5 — Implement Conservative Rasterization Tier 3
+
+The current Tier-1 software result is not sufficient for FL12_2. Implement
+the semantics instead of changing the number.
+
+Deliverables:
+
+- Specify the D3D12 conservative edge/coverage rules in a small reference
+  model, including inner-input behavior, top-left/degenerate triangles,
+  winding, clipping, viewport/scissor, and MSAA sample coverage.
+- Integrate the model into the supported raster path (including mesh and
+  geometry-emulated draws) with a shader or draw-replay emulation that
+  preserves depth, blend, array-index, and VRS ordering.
+- Add negative/unsupported validation for rasterizer descriptions that the
+  emulation cannot represent; do not return a Tier-3 query for those shapes.
+
+Exit gate: reference-model output and Metal readback agree for edge, inner,
+degenerate, winding, clipping, and MSAA cases from a clean prefix. Only then
+may `ConservativeRasterizationTier` be promoted to Tier 3.
+
+### Completion Phase 6 — Close the DXR 1.1 surface
+
+Treat the current DXR result as a strong foundation, not as a Tier-1.1 claim.
+
+Deliverables:
+
+- Replace the separate triangle/AABB bridge assumptions with one tagged,
+  ABI-checked geometry descriptor path that can build a mixed BLAS without
+  inserting nil Objective-C objects. Preserve normal/WOW64 call-table parity.
+- Complete mixed-geometry prebuild, build, refit/update, TLAS instance,
+  compaction, serialization/deserialization, and AS barrier/lifetime paths.
+- Exercise direct and indirect ray dispatch with nonzero offsets, multiple
+  record counts/strides, renamed exports, local root data, callable records,
+  any-hit, custom intersection, recursion, and collection/state-object growth.
+- Make serialization metadata process-independent where the API requires it;
+  reject incompatible driver data rather than pretending Metal opaque handles
+  are portable across processes.
+
+Exit gate: the complete DXR 1.1 matrix passes with exact payload/UAV
+readbacks, released-source/lifetime stress, and no skipped required operation.
+Only then may `D3D12_OPTIONS5.RaytracingTier` be promoted.
+
+### Completion Phase 7 — Finish SM6.7 advanced operations and writable MSAA
+
+Close the remaining shader-model and Options14 gap without disturbing the
+already-green core corpus.
+
+Deliverables:
+
+- Extend advanced texture operations across the supported shader stages,
+  dimensions, arrays, depth/typed views, programmable offsets, raw gather,
+  and `SampleCmpLevel`, with exact values for borders and mip selection.
+- Broaden writable `RWTexture2DMS`/array behavior across every format and
+  sample count that the implementation advertises, including compute and
+  graphics UAV stores, DSV interaction, resolves, partial arrays, and exact
+  readback.
+- Cover quad votes/helper-lane behavior and all required DXIL diagnostics;
+  unsupported opcodes must fail at pipeline creation rather than execute a
+  no-op shader.
+
+Exit gate: the positive and negative SM6.7 corpus, Options14 behavior probe,
+and exact writable-MSAA matrix pass in a clean prefix. Only then may the two
+Options14 fields remain enabled as behavior-backed capabilities.
+
+### Completion Phase 8 — Remove reachable dangerous stubs, then promote 12_2
+
+Do a bounded residual audit after the feature work, not an unbounded rewrite of
+every modern D3D12 interface.
+
+Deliverables:
+
+- Enumerate `E_NOTIMPL`, empty bodies, and `S_OK` no-op paths reachable from
+  the claimed FL12_2, SM6.7, DXR, VRS, mesh, sparse, and legacy surfaces.
+- Implement the required paths (including command recording/replay and
+  synchronization) or return the documented failure and add the case to the
+  unsupported ledger. In particular, no claimed feature may silently drop a
+  command.
+- Re-run the object/lifecycle, ABI, exact legacy, and command replay gates.
+- In a separate promotion commit, set the behavior-backed maximum to 12_2,
+  derive the required feature fields from the completed capability gate, and
+  set the staged M12 configuration to 12_2. Preserve correct rejection for
+  unknown levels and requests above 12_2.
+
+Exit gate: the aggregate FL12_2 probe creates all five requested levels,
+reports the required fields, executes the associated behavior probes, and
+rejects invalid/above-maximum requests. The existing 24/24 matrix and legacy
+gate remain green.
+
+### Completion Phase 9 — Final staging, live proof, and PR
+
+Only after Completion Phase 8 is green:
+
+- Build from a clean external tree with the pinned Xcode/LLVM toolchains.
+- Stage only manifest-verified PE/Unix artifacts and verify hashes, exports,
+  architectures, and matching Winemetal halves.
+- Run the complete strict matrix plus every promoted opt-in probe from fresh
+  prefixes; stop and delete each prefix after evidence capture.
+- Run the bounded MetalSharp Wine 11.5 M12 launch with `d3d12.maxFeatureLevel
+  = 12_2`, confirming the selected runtime hashes in the log. Treat game
+  captures as an additional proof, never as a substitute for focused gates.
+- Run runtime doctor, bundle/developer-SDK checks, Rust/backend contracts, and
+  the final D3D10/D3D11 regression. Remove generated binaries, caches, and logs
+  from the commit.
+- Update this roadmap's checklist with artifact paths, commit the intended
+  source/docs changes, push the branch, and open the PR with the evidence
+  matrix and residual-risk statement.
+
+Until this phase is complete, the goal remains active.
+
+## 4B. Historical implementation phases and hard gates
 
 ### Phase 0 — Reproducible toolchain and baseline (started)
 
@@ -1001,26 +1264,37 @@ is insufficient.
 
 Before declaring the goal complete, map each item below to actual evidence:
 
-- [ ] Phase 1 audit covers D3D12, DXGI, `dxgi_dxmt`, WineMetal, `dxmt.conf`,
+- [x] The Phase 1 audit covers D3D12, DXGI, `dxgi_dxmt`, WineMetal, `dxmt.conf`,
       shader conversion, runtime staging, and test coverage.
 - [x] This roadmap is updated as implementation discoveries change scope.
 - [x] Xcode 27 beta 6 and Metal toolchain versions are captured.
 - [x] The current required and opt-in runtime gates prove MetalSharp Wine 11.5.
 - [x] Temporary prefixes used by the current source/staged gates are stopped and deleted after evidence capture.
-- [ ] D3D12 creation and feature query pass for 11_0, 11_1, 12_0, 12_1, 12_2.
-- [ ] Every official FL12_2 requirement has a behavioral probe.
-- [x] Full SM6.7 compile/link/PSO/execute/readback corpus passes; the reporting
-  breadth and quad-vote gates pass, while advanced texture-op breadth remains.
-- [ ] DXR 1.1 acceleration structure, state object, shader table, and dispatch
-      probes pass.
-- [ ] D3D12/DXGI/WineMetal risky stubs and false-success paths are removed;
-  adapter-change registration is proven, while broader sparse/VRS/DXR gaps
-  remain explicitly gated.
+- [x] Completion Phase 0 baseline is frozen: clean build, ABI, 24/24 matrix,
+      M12 tests, and exact D3D10/D3D11 regression gate.
+- [ ] Completion Phase 1 aggregate FL12_2 gate names every required field and
+      behavior dependency and rejects stale/missing evidence.
+- [ ] Completion Phase 2 VRS Tier 2 passes nonconstant image, combiner,
+      per-primitive, logical-resolution, and lifecycle readbacks.
+- [ ] Completion Phase 3 Mesh Shader Tier 1 passes the broader AS/MS,
+      render-state, resource, statistics, and indirect-dispatch matrix.
+- [ ] Completion Phase 4 Tiled Resources Tier 3 passes physical page,
+      mapping-copy, packed/partial-mip, 3D/array, alias, residency, and
+      `CopyTiles` readback coverage.
+- [ ] Completion Phase 5 Conservative Rasterization Tier 3 agrees with the
+      reference model for edge, inner, degenerate, clipping, and MSAA cases.
+- [ ] Completion Phase 6 DXR 1.1 passes mixed geometry, state-object,
+      shader-table, indirect, serialization, synchronization, and lifetime
+      gates.
+- [ ] Completion Phase 7 closes required SM6.7 advanced operations and
+      writable-MSAA breadth; Options14 is enabled only after exact readback.
+- [ ] Completion Phase 8 removes reachable dangerous no-op paths, promotes the
+      behavior-backed reports, and creates devices at all five levels.
 - [x] Full rebuild passes (`prepare-dxmt-x86-llvm15.sh`, 156/156 targets).
 - [x] Current source/staged SDK strict probe and comparison gates pass (24/24, including the legacy D3D10/D3D11 gate).
 - [x] D3D10/D3D11 regressions pass through the source-staged exact clear/copy/readback gate; the game harness now stages those DLLs when supplied.
-- [ ] Runtime staging and bundle hash gates pass.
-- [ ] Bounded MetalSharp Wine 11.5 launch at feature level 12_2 passes.
+- [ ] Completion Phase 9 final staging proves manifest-selected PE/Unix hashes,
+      runtime layout, and a fresh-prefix M12 launch at feature level 12_2.
 - [x] Working tree contains only intended PR changes.
 - [ ] Branch is pushed.
 - [ ] PR is opened with evidence and no uncovered requirement.
@@ -1029,6 +1303,23 @@ Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
 
 ## 10. Progress log
+
+### 2026-08-27 — Narrowed the remaining work to the completion runway
+
+- The roadmap now has one authoritative, ordered Completion Phase 0–9 runway.
+  The older Phase 0–12 material is retained as the audit and requirement
+  catalogue, but is no longer a parallel backlog.
+- Completion Phase 0 is green on the existing clean build, ABI, 24/24
+  source-staged matrix, M12 tests, and exact D3D10/D3D11 gate. The remaining
+  critical blocker is intentionally explicit: feature-level 12_2 creation is
+  still rejected while VRS Tier 2, Mesh Tier 1, Tiled Resources Tier 3,
+  Conservative Rasterization Tier 3, DXR Tier 1.1, and the final SM6.7/MSAA
+  breadth gates remain red or unpromoted.
+- The next implementation phase is the aggregate FL12_2 gate, followed in
+  order by VRS, mesh, tiled resources, conservative rasterization, DXR,
+  SM6.7/MSAA breadth, residual-stub cleanup/report promotion, and final runtime
+  staging. No capability report or maximum feature level may be raised before
+  the corresponding clean-prefix behavior gate passes.
 
 ### 2026-08-27 — Correct legacy runtime staging and readback gate
 
