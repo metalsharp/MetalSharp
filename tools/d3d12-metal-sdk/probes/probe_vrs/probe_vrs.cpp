@@ -160,6 +160,21 @@ static uint32_t count_nonzero(ID3D12Resource *readback) {
   return count;
 }
 
+static bool readback_pixel(ID3D12Resource *readback, uint32_t x, uint32_t y,
+                           uint32_t &value) {
+  if (!readback || x >= 64 || y >= 64)
+    return false;
+  uint8_t *data = nullptr;
+  D3D12_RANGE range = {0, 256u * (y + 1)};
+  if (FAILED(readback->Map(0, &range, reinterpret_cast<void **>(&data))) ||
+      !data)
+    return false;
+  std::memcpy(&value, data + y * 256u + x * sizeof(uint32_t),
+              sizeof(value));
+  readback->Unmap(0, nullptr);
+  return true;
+}
+
 static HRESULT record_draw(ID3D12GraphicsCommandList *list,
                            ID3D12GraphicsCommandList5 *list5,
                            ID3D12RootSignature *root,
@@ -226,24 +241,27 @@ int main() {
   const char *ps_path = "Z:\\tmp\\metalsharp_vrs_ps.dxil";
   const char *source = R"(
 struct VSIn { float3 position : POSITION; };
-struct VSOut { float4 position : SV_Position; };
+struct VSOut { float4 position : SV_Position; uint primitive_rate : SV_ShadingRate; };
 VSOut vs_main(VSIn input) {
   VSOut output;
   output.position = float4(input.position, 1.0);
+  output.primitive_rate = 5;
   return output;
 }
 float4 ps_main(VSOut input) : SV_Target0 {
-  return float4(1.0, 0.0, 0.0, 1.0);
+  return input.primitive_rate == 5
+             ? float4(1.0, 0.0, 0.0, 1.0)
+             : float4(0.0, 1.0, 0.0, 1.0);
 }
 )";
   bool source_ok = write_file(shader_path, source);
   DeleteFileA(vs_path);
   DeleteFileA(ps_path);
   DWORD vs_dxc = run_process(
-      "dxc.exe -nologo -T vs_6_0 -E vs_main -HV 2021 -Fo "
+      "dxc.exe -nologo -T vs_6_4 -E vs_main -HV 2021 -Fo "
       "Z:\\tmp\\metalsharp_vrs_vs.dxil Z:\\tmp\\metalsharp_vrs.hlsl");
   DWORD ps_dxc = run_process(
-      "dxc.exe -nologo -T ps_6_0 -E ps_main -HV 2021 -Fo "
+      "dxc.exe -nologo -T ps_6_4 -E ps_main -HV 2021 -Fo "
       "Z:\\tmp\\metalsharp_vrs_ps.dxil Z:\\tmp\\metalsharp_vrs.hlsl");
   std::vector<uint8_t> vs = read_file(vs_path);
   std::vector<uint8_t> ps = read_file(ps_path);
@@ -437,6 +455,11 @@ float4 ps_main(VSOut input) : SV_Target0 {
           ? execute_and_wait(device, queue, list)
           : E_FAIL;
   uint32_t baseline_pixels = count_nonzero(readback);
+  uint32_t primitive_semantic_pixel = 0;
+  const bool primitive_semantic_readback =
+      readback_pixel(readback, 0, 0, primitive_semantic_pixel);
+  const bool primitive_semantic_verified =
+      primitive_semantic_readback && primitive_semantic_pixel == 0xff0000ffu;
 
   HRESULT reset_hr = SUCCEEDED(baseline_execute_hr)
                          ? allocator->Reset()
@@ -806,6 +829,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       SUCCEEDED(shading_rate_upload_hr) &&
                       SUCCEEDED(rtv_hr) && SUCCEEDED(baseline_record_hr) &&
                       SUCCEEDED(baseline_execute_hr) && baseline_pixels == 4096 &&
+                      primitive_semantic_verified &&
                       SUCCEEDED(reset_hr) && SUCCEEDED(vrs_record_hr) &&
                       SUCCEEDED(vrs_execute_hr) && vrs_pixels > 0 &&
                       vrs_pixels < baseline_pixels &&
@@ -836,6 +860,10 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"baseline_execute_hr\": \"%s\",\n",
               hr_hex(baseline_execute_hr).c_str());
   std::printf("  \"baseline_pixels\": %u,\n", baseline_pixels);
+  std::printf("  \"primitive_semantic_pixel\": %u,\n",
+              primitive_semantic_pixel);
+  std::printf("  \"primitive_semantic_verified\": %s,\n",
+              primitive_semantic_verified ? "true" : "false");
   std::printf("  \"reset_hr\": \"%s\",\n", hr_hex(reset_hr).c_str());
   std::printf("  \"vrs_record_hr\": \"%s\",\n", hr_hex(vrs_record_hr).c_str());
   std::printf("  \"vrs_execute_hr\": \"%s\",\n",
@@ -915,6 +943,8 @@ float4 ps_main(VSOut input) : SV_Target0 {
                   : "false");
   std::printf("    \"sum_combiner_complete\": %s,\n",
               sum_image_combiner_ok ? "true" : "false");
+  std::printf("    \"per_primitive_semantic_complete\": %s,\n",
+              primitive_semantic_verified ? "true" : "false");
   // A constant image and a per-draw rate cannot prove arbitrary image or
   // per-primitive semantics, so keep those facts explicit until their
   // focused matrices execute.

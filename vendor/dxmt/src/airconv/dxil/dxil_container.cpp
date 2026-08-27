@@ -19,6 +19,66 @@ dxmt_dxil_open_trace_log(const char *fallback_name) {
 
 namespace dxmt::dxil {
 
+namespace {
+
+static uint32_t read_u32(const uint8_t *data) {
+  uint32_t value = 0;
+  std::memcpy(&value, data, sizeof(value));
+  return value;
+}
+
+static void parse_signature(const uint8_t *data, size_t size, bool input,
+                            DxilParsedShader &shader) {
+  // ISG1/OSG1 signature parts start with DxilProgramSignature.  The
+  // serialized element is 0x20 bytes and its SystemValue and Register fields
+  // are at offsets 0x0c and 0x14 respectively.
+  if (!data || size < 8)
+    return;
+  const uint32_t parameter_count = read_u32(data);
+  const uint32_t parameter_offset = read_u32(data + 4);
+  if (parameter_count > 128 || parameter_offset > size ||
+      uint64_t(parameter_offset) + uint64_t(parameter_count) * 0x20 > size)
+    return;
+  for (uint32_t i = 0; i < parameter_count; ++i) {
+    const uint8_t *element = data + parameter_offset + uint64_t(i) * 0x20;
+    const uint32_t system_value = read_u32(element + 0x0c);
+    if (system_value != 24) // DxilProgramSigSemantic::ShadingRate
+      continue;
+    const int32_t register_index =
+        static_cast<int32_t>(read_u32(element + 0x14));
+    if (input)
+      shader.shading_rate_input_register = register_index;
+    else
+      shader.shading_rate_output_register = register_index;
+  }
+}
+
+static void parse_signatures(const uint8_t *container, size_t size,
+                             DxilParsedShader &shader) {
+  if (!container || size < 32 || std::memcmp(container, "DXBC", 4) != 0)
+    return;
+  const uint32_t container_size = read_u32(container + 24);
+  const uint32_t part_count = read_u32(container + 28);
+  if (container_size > size || part_count > 128 ||
+      uint64_t(32) + uint64_t(part_count) * 4 > size)
+    return;
+  for (uint32_t i = 0; i < part_count; ++i) {
+    const uint32_t part_offset = read_u32(container + 32 + i * 4);
+    if (part_offset > size || uint64_t(part_offset) + 8 > size)
+      continue;
+    const uint32_t part_size = read_u32(container + part_offset + 4);
+    if (uint64_t(part_offset) + 8 + part_size > size)
+      continue;
+    const uint8_t *part_data = container + part_offset + 8;
+    if (std::memcmp(container + part_offset, "ISG1", 4) == 0)
+      parse_signature(part_data, part_size, true, shader);
+    else if (std::memcmp(container + part_offset, "OSG1", 4) == 0)
+      parse_signature(part_data, part_size, false, shader);
+  }
+}
+
+} // namespace
+
 std::optional<DXILContainer> DXILContainer::parse(const void *data, size_t size) {
   if (!data || size < 16)
     return std::nullopt;
@@ -85,6 +145,10 @@ std::optional<DXILContainer> DXILContainer::parse(const void *data, size_t size)
   }
 
   return result;
+}
+
+void DXILContainer::annotateSignatures(const void *container, size_t size) {
+  parse_signatures(static_cast<const uint8_t *>(container), size, m_shader);
 }
 
 }

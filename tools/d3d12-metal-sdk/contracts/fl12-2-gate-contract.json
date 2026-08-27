@@ -462,6 +462,14 @@
       "expected": true
     },
     {
+      "id": "vrs_per_primitive_semantic",
+      "api": "SV_ShadingRate vertex-to-pixel semantic",
+      "probe": "probe-vrs",
+      "path": "summary.per_primitive_semantic_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
       "id": "mesh_tier1_behavior",
       "api": "D3D12 Mesh Shader Tier 1 behavior",
       "probe": "probe-mini-mesh_object_shader_pso",

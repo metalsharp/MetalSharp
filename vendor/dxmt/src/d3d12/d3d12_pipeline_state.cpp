@@ -1900,6 +1900,12 @@ bool MTLD3D12PipelineState::CompileShader(
                               dxbc_path));
             }
 
+            // The DXIL parser receives the DXIL part, while signature chunks
+            // live in the enclosing DXBC container. Preserve the semantic
+            // register for SV_ShadingRate before lowering so vertex output and
+            // pixel input cannot be mistaken for an arbitrary varying.
+            container->annotateSignatures(bytecode, size);
+
             auto &shader_info = container->shader();
             PSTRACE("  DXIL container parsed: kind=%u sm=%u.%u bc_size=%u",
                     (uint32_t)shader_info.kind, shader_info.shader_model.major,

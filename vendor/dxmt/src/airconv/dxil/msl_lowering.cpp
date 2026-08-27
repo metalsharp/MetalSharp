@@ -3699,7 +3699,13 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (args.size() < 3) return "0.0";
         uint32_t input_id = literalArg(0, 0, "input");
         uint32_t comp = literalArg(2, 0, "comp");
-        if (ctx.shader.kind == DxilShaderKind::Pixel) return varyingField("in", input_id) + componentSuffix(comp);
+        if (ctx.shader.kind == DxilShaderKind::Pixel) {
+            if (ctx.shader.shading_rate_input_register >= 0 &&
+                static_cast<int32_t>(input_id) ==
+                    ctx.shader.shading_rate_input_register)
+                return "static_cast<uint>(" + varyingField("in", input_id) + ".x)";
+            return varyingField("in", input_id) + componentSuffix(comp);
+        }
         if (ctx.shader.kind == DxilShaderKind::Vertex) {
             if (isLoadInputI32(callee_name) && shouldLowerLoadInputI32AsVertexId(ctx, input_id))
                 return comp == 0 ? "vid" : "0u";
@@ -3720,6 +3726,10 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "";
         }
         if (ctx.shader.kind == DxilShaderKind::Vertex) {
+            if (ctx.shader.shading_rate_output_register >= 0 &&
+                static_cast<int32_t>(output_id) ==
+                    ctx.shader.shading_rate_output_register)
+                return varyingField("out", output_id) + ".x = static_cast<float>(" + val + ")";
             bool simple_input_passthrough =
                 ctx.current_fn && ctx.current_fn->name.find("SimpleVS") != std::string::npos;
             if (!ctx.options.vertex_inputs.empty() &&

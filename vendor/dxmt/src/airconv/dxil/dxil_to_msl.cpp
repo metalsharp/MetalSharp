@@ -1122,6 +1122,10 @@ std::string DXILToMSL::translateDXIntrinsic(EmitContext &ctx, uint32_t intrinsic
     uint32_t input_id = literalArg(0, 0, "input id");
     uint32_t component = literalArg(2, 0, "input component");
     if (ctx.shader.kind == DxilShaderKind::Pixel) {
+      if (ctx.shader.shading_rate_input_register >= 0 &&
+          static_cast<int32_t>(input_id) ==
+              ctx.shader.shading_rate_input_register)
+        return "uint(" + varyingField("in", input_id) + ".x)";
       return varyingField("in", input_id) + componentSuffix(component);
     }
     if (ctx.shader.kind == DxilShaderKind::Vertex) {
@@ -1139,6 +1143,10 @@ std::string DXILToMSL::translateDXIntrinsic(EmitContext &ctx, uint32_t intrinsic
     auto val = valueArg(3, "float4(0)");
 
     if (ctx.shader.kind == DxilShaderKind::Vertex) {
+      if (ctx.shader.shading_rate_output_register >= 0 &&
+          static_cast<int32_t>(output_id) ==
+              ctx.shader.shading_rate_output_register)
+        return varyingField("out", output_id) + ".x = float(" + val + ")";
       return varyingField("out", output_id) + componentSuffix(component) + " = " + val;
     }
     if (ctx.shader.kind == DxilShaderKind::Pixel) {
