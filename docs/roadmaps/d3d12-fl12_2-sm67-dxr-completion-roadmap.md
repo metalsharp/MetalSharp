@@ -1338,8 +1338,9 @@ the goal is not complete.
 - DXIL signature parsing and both MSL lowerers now preserve the
   `SV_ShadingRate` vertex-to-pixel semantic; the focused probe verifies the
   exact red sentinel from the transported value. Actual per-primitive rate
-  selection, indexed/geometry/tessellation/mesh-emulated image draws, and
-  logical-resolution reconstruction remain gated; no VRS capability tier was
+  selection, geometry/tessellation/mesh-emulated image draws, and
+  logical-resolution reconstruction remain gated. Indexed ordinary draws now
+  pass the same exact checkerboard readback; no VRS capability tier was
   promoted.
 
 ### 2026-08-27 — Correct legacy runtime staging and readback gate
