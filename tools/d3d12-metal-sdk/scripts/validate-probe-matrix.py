@@ -31,6 +31,7 @@ REQUIRED_GROUPS = {
     "waveops_capability_audit": ["probe-wave-ops"],
     "shader_reflection_argument_binding": ["probe-shaders", "probe-reflection-abi"],
     "barriers_resource_state": ["probe-barriers-render-pass"],
+    "render_target_logic_op": ["probe-render-headless", "probe-graphics-pso"],
     "query_heaps_timestamps_counters": ["probe-queues", "probe-barriers-render-pass"],
     "indirect_commands": ["probe-command-replay"],
     "agility_sdk_compiler_cache": ["probe-agility-ue5"],

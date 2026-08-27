@@ -271,6 +271,7 @@ int main() {
     ID3D12Resource* sample_texture = nullptr;
     ID3D12Resource* sample_upload = nullptr;
     ID3D12Resource* render_readback = nullptr;
+    ID3D12Resource* logic_readback = nullptr;
     ID3D12Resource* uav_buffer = nullptr;
     ID3D12Resource* uav_readback = nullptr;
     ID3D12Resource* uav_zero_upload = nullptr;
@@ -324,6 +325,11 @@ int main() {
         device
             ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &render_readback_desc,
                                               D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&render_readback))
+            : E_FAIL;
+    HRESULT logic_readback_hr =
+        device
+            ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &render_readback_desc,
+                                              D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&logic_readback))
             : E_FAIL;
 
     D3D12_RESOURCE_DESC uav_readback_desc = buffer_desc(uav_buffer_bytes);
@@ -525,6 +531,10 @@ float4 ps_color(PSColorIn input) : SV_Target {
   return input.color;
 }
 
+float4 ps_logic(PSColorIn input) : SV_Target {
+  return float4(240.0 / 255.0, 204.0 / 255.0, 170.0 / 255.0, 85.0 / 255.0);
+}
+
 float4 ps_tex(PSTexIn input) : SV_Target {
   return tex0.Sample(samp0, input.uv);
 }
@@ -543,6 +553,7 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
 
     ID3DBlob* vs_color_blob = nullptr;
     ID3DBlob* ps_color_blob = nullptr;
+    ID3DBlob* ps_logic_blob = nullptr;
     ID3DBlob* vs_tex_blob = nullptr;
     ID3DBlob* ps_tex_blob = nullptr;
     ID3DBlob* ps_uav_blob = nullptr;
@@ -550,6 +561,7 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
     ID3DBlob* compile_errors = nullptr;
     HRESULT vs_color_hr = compile_shader(compile, shader_source, "vs_color", "vs_5_0", &vs_color_blob, &compile_errors);
     HRESULT ps_color_hr = compile_shader(compile, shader_source, "ps_color", "ps_5_0", &ps_color_blob, &compile_errors);
+    HRESULT ps_logic_hr = compile_shader(compile, shader_source, "ps_logic", "ps_5_0", &ps_logic_blob, &compile_errors);
     HRESULT vs_tex_hr = compile_shader(compile, shader_source, "vs_tex", "vs_5_0", &vs_tex_blob, &compile_errors);
     HRESULT ps_tex_hr = compile_shader(compile, shader_source, "ps_tex", "ps_5_0", &ps_tex_blob, &compile_errors);
     HRESULT ps_uav_hr = compile_shader(compile, shader_source, "ps_uav", "ps_5_1", &ps_uav_blob, &compile_errors);
@@ -684,11 +696,16 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
         make_graphics_desc(empty_root, vs_color_blob, ps_color_blob, color_layout, 2, depth_enabled_desc);
     D3D12_GRAPHICS_PIPELINE_STATE_DESC uav_pso_desc =
         make_graphics_desc(uav_root, vs_color_blob, ps_uav_blob, color_layout, 2, no_depth_desc);
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC logic_pso_desc =
+        make_graphics_desc(empty_root, vs_color_blob, ps_logic_blob, color_layout, 2, no_depth_desc);
+    logic_pso_desc.BlendState.RenderTarget[0].LogicOpEnable = TRUE;
+    logic_pso_desc.BlendState.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_XOR;
 
     ID3D12PipelineState* color_pso = nullptr;
     ID3D12PipelineState* texture_pso = nullptr;
     ID3D12PipelineState* depth_pso = nullptr;
     ID3D12PipelineState* graphics_uav_pso = nullptr;
+    ID3D12PipelineState* logic_pso = nullptr;
     HRESULT color_pso_hr =
         device ? device->CreateGraphicsPipelineState(&color_pso_desc, IID_PPV_ARGS(&color_pso)) : E_FAIL;
     HRESULT texture_pso_hr =
@@ -697,6 +714,8 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
         device ? device->CreateGraphicsPipelineState(&depth_pso_desc, IID_PPV_ARGS(&depth_pso)) : E_FAIL;
     HRESULT graphics_uav_pso_hr =
         device ? device->CreateGraphicsPipelineState(&uav_pso_desc, IID_PPV_ARGS(&graphics_uav_pso)) : E_FAIL;
+    HRESULT logic_pso_hr =
+        device ? device->CreateGraphicsPipelineState(&logic_pso_desc, IID_PPV_ARGS(&logic_pso)) : E_FAIL;
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_pso_desc = {};
     compute_pso_desc.pRootSignature = uav_root;
@@ -915,33 +934,114 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
         uav_readback->Unmap(0, nullptr);
     }
 
+    HRESULT logic_reset_hr = SUCCEEDED(wait_hr) ? allocator->Reset() : E_FAIL;
+    if (SUCCEEDED(logic_reset_hr))
+        logic_reset_hr = list->Reset(allocator, nullptr);
+    bool logic_command_recorded = false;
+    HRESULT logic_close_hr = E_FAIL;
+    HRESULT logic_execute_hr = E_FAIL;
+    HRESULT logic_signal_hr = E_FAIL;
+    HRESULT logic_wait_hr = E_FAIL;
+    if (SUCCEEDED(logic_reset_hr) && logic_pso && logic_readback &&
+        empty_root && triangle_vb) {
+        D3D12_RESOURCE_BARRIER restore_barrier =
+            transition_barrier(render_target, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                               D3D12_RESOURCE_STATE_RENDER_TARGET);
+        list->ResourceBarrier(1, &restore_barrier);
+        list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
+        const float logic_clear[4] = {15.0f / 255.0f, 51.0f / 255.0f,
+                                      85.0f / 255.0f, 170.0f / 255.0f};
+        list->ClearRenderTargetView(rtv_handle, logic_clear, 0, nullptr);
+        list->SetGraphicsRootSignature(empty_root);
+        list->SetPipelineState(logic_pso);
+        list->RSSetViewports(1, &viewport);
+        list->RSSetScissorRects(1, &scissor);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list->IASetVertexBuffers(0, 1, &triangle_view);
+        list->DrawInstanced(3, 1, 0, 0);
+        D3D12_RESOURCE_BARRIER copy_barrier =
+            transition_barrier(render_target, D3D12_RESOURCE_STATE_RENDER_TARGET,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &copy_barrier);
+        D3D12_TEXTURE_COPY_LOCATION logic_src = {};
+        logic_src.pResource = render_target;
+        logic_src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION logic_dst = {};
+        logic_dst.pResource = logic_readback;
+        logic_dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        logic_dst.PlacedFootprint = render_footprint;
+        list->CopyTextureRegion(&logic_dst, 0, 0, 0, &logic_src, nullptr);
+        logic_command_recorded = true;
+    }
+    if (logic_command_recorded)
+        logic_close_hr = list->Close();
+    if (logic_command_recorded && SUCCEEDED(logic_close_hr) && queue &&
+        fence) {
+        ID3D12CommandList *logic_lists[] = {list};
+        queue->ExecuteCommandLists(1, logic_lists);
+        logic_execute_hr = S_OK;
+        logic_signal_hr = queue->Signal(fence, 2);
+        HANDLE logic_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+        if (logic_event && SUCCEEDED(logic_signal_hr)) {
+            logic_wait_hr = fence->SetEventOnCompletion(2, logic_event);
+            if (SUCCEEDED(logic_wait_hr))
+                WaitForSingleObject(logic_event, 15000);
+            CloseHandle(logic_event);
+        }
+    }
+    Pixel logic_pixel = {};
+    HRESULT logic_map_hr = E_FAIL;
+    bool logic_operation_verified = false;
+    uint8_t *logic_ptr = nullptr;
+    if (SUCCEEDED(logic_wait_hr) && logic_readback)
+        logic_map_hr = logic_readback->Map(
+            0, nullptr, reinterpret_cast<void **>(&logic_ptr));
+    if (SUCCEEDED(logic_map_hr) && logic_ptr) {
+        logic_pixel = read_pixel(logic_ptr, render_footprint.Footprint.RowPitch,
+                                 2, 2);
+        logic_operation_verified = pixel_equals(logic_pixel, 0xff, 0xff,
+                                                0xff, 0xff);
+        logic_readback->Unmap(0, nullptr);
+    }
+
     const bool entrypoints_valid = d3d12 && d3dcompiler && create_device && compile && serialize;
     const bool resources_valid =
         SUCCEEDED(render_target_hr) && SUCCEEDED(depth_target_hr) && SUCCEEDED(sample_texture_hr) &&
-        SUCCEEDED(sample_upload_hr) && SUCCEEDED(render_readback_hr) && SUCCEEDED(uav_buffer_hr) &&
+        SUCCEEDED(sample_upload_hr) && SUCCEEDED(render_readback_hr) &&
+        SUCCEEDED(logic_readback_hr) && SUCCEEDED(uav_buffer_hr) &&
         SUCCEEDED(uav_readback_hr) && SUCCEEDED(uav_zero_upload_hr) && SUCCEEDED(triangle_vb_hr) &&
         SUCCEEDED(textured_vb_hr) && SUCCEEDED(indexed_vb_hr) && SUCCEEDED(depth_far_vb_hr) &&
         SUCCEEDED(depth_near_vb_hr) && SUCCEEDED(quad_ib_hr) && SUCCEEDED(sample_map_hr) && SUCCEEDED(uav_zero_map_hr);
     const bool heap_valid = SUCCEEDED(rtv_heap_hr) && SUCCEEDED(dsv_heap_hr) && SUCCEEDED(srv_uav_heap_hr) &&
                             SUCCEEDED(sampler_heap_hr) && srv_uav_increment != 0;
     const bool graphics_uav_supported = SUCCEEDED(ps_uav_hr) && SUCCEEDED(graphics_uav_pso_hr);
-    const bool compile_valid = SUCCEEDED(vs_color_hr) && SUCCEEDED(ps_color_hr) && SUCCEEDED(vs_tex_hr) &&
+    const bool compile_valid = SUCCEEDED(vs_color_hr) && SUCCEEDED(ps_color_hr) &&
+                               SUCCEEDED(ps_logic_hr) && SUCCEEDED(vs_tex_hr) &&
                                SUCCEEDED(ps_tex_hr) && SUCCEEDED(cs_hr);
     const bool roots_valid = SUCCEEDED(empty_root_blob_hr) && SUCCEEDED(texture_root_blob_hr) &&
                              SUCCEEDED(uav_root_blob_hr) && SUCCEEDED(empty_root_hr) && SUCCEEDED(texture_root_hr) &&
                              SUCCEEDED(uav_root_hr);
-    const bool pipelines_valid = SUCCEEDED(color_pso_hr) && SUCCEEDED(texture_pso_hr) && SUCCEEDED(depth_pso_hr) &&
+    const bool pipelines_valid = SUCCEEDED(color_pso_hr) &&
+                                 SUCCEEDED(texture_pso_hr) &&
+                                 SUCCEEDED(depth_pso_hr) &&
+                                 SUCCEEDED(logic_pso_hr) &&
                                  SUCCEEDED(compute_pso_hr) &&
-                                 (!graphics_uav_supported || SUCCEEDED(graphics_uav_pso_hr));
-    const bool queue_valid = SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
-                             SUCCEEDED(fence_hr) && SUCCEEDED(close_hr) && SUCCEEDED(execute_hr) &&
-                             SUCCEEDED(signal_hr) && SUCCEEDED(wait_hr);
+                                 (!graphics_uav_supported ||
+                                  SUCCEEDED(graphics_uav_pso_hr));
+    const bool queue_valid = SUCCEEDED(queue_hr) &&
+                             SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
+                             SUCCEEDED(fence_hr) && SUCCEEDED(close_hr) &&
+                             SUCCEEDED(execute_hr) && SUCCEEDED(signal_hr) &&
+                             SUCCEEDED(wait_hr) && logic_command_recorded &&
+                             SUCCEEDED(logic_close_hr) && SUCCEEDED(logic_execute_hr) &&
+                             SUCCEEDED(logic_signal_hr) && SUCCEEDED(logic_wait_hr);
     const bool readback_valid = SUCCEEDED(render_map_hr) && SUCCEEDED(uav_map_hr);
     const bool draw_valid = triangle_ok && indexed_ok && textured_ok && depth_ok && background_ok;
     const bool uav_valid = compute_uav_ok && (!graphics_uav_supported || graphics_uav_ok);
     const bool pass = entrypoints_valid && SUCCEEDED(create_hr) && resources_valid && heap_valid && compile_valid &&
                       roots_valid && pipelines_valid && command_recorded && queue_valid && readback_valid &&
-                      draw_valid && uav_valid && render_changed;
+                      draw_valid && uav_valid && render_changed &&
+                      logic_operation_verified;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-render-headless.v1\",\n");
@@ -970,6 +1070,7 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
     std::printf("  \"compile\": {\n");
     print_hr("vs_color", vs_color_hr);
     print_hr("ps_color", ps_color_hr);
+    print_hr("ps_logic", ps_logic_hr);
     print_hr("vs_tex", vs_tex_hr);
     print_hr("ps_tex", ps_tex_hr);
     print_hr("ps_uav", ps_uav_hr);
@@ -984,6 +1085,7 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
     print_hr("color", color_pso_hr);
     print_hr("texture", texture_pso_hr);
     print_hr("depth", depth_pso_hr);
+    print_hr("logic_op", logic_pso_hr);
     print_hr("graphics_uav", graphics_uav_pso_hr);
     print_hr("compute", compute_pso_hr, false);
     std::printf("  },\n");
@@ -992,6 +1094,7 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
     print_hr("depth_create", depth_target_hr);
     print_hr("sample_texture_create", sample_texture_hr);
     print_hr("sample_upload_map", sample_map_hr);
+    print_hr("logic_readback_create", logic_readback_hr);
     print_hr("render_readback_map", render_map_hr, false);
     std::printf("  },\n");
     std::printf("  \"draw_checks\": {\n");
@@ -1001,6 +1104,19 @@ void cs_write(uint3 tid : SV_DispatchThreadID) {
     std::printf("    \"indexed_texture_verified\": %s,\n", textured_ok ? "true" : "false");
     std::printf("    \"depth_verified\": %s,\n", depth_ok ? "true" : "false");
     std::printf("    \"render_changed_from_clear\": %s\n", render_changed ? "true" : "false");
+    std::printf("  },\n");
+    std::printf("  \"logic_op\": {\n");
+    print_hr("reset", logic_reset_hr);
+    print_hr("close", logic_close_hr);
+    print_hr("execute", logic_execute_hr);
+    print_hr("signal", logic_signal_hr);
+    print_hr("wait", logic_wait_hr);
+    print_hr("readback_map", logic_map_hr);
+    std::printf("    \"recorded\": %s,\n", logic_command_recorded ? "true" : "false");
+    std::printf("    \"pixel\": [%u, %u, %u, %u],\n", logic_pixel.r,
+                logic_pixel.g, logic_pixel.b, logic_pixel.a);
+    std::printf("    \"verified\": %s\n",
+                logic_operation_verified ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"uav_checks\": {\n");
     std::printf("    \"graphics_supported\": %s,\n", graphics_uav_supported ? "true" : "false");

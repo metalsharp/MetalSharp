@@ -3039,6 +3039,41 @@ bool MTLD3D12PipelineState::Compile() {
       info.stencil_pixel_format = depth_fmt;
   }
 
+  for (UINT i = 0; i < m_num_render_targets && i < 8; ++i) {
+    if (m_blend_desc.RenderTarget[i].LogicOpEnable && i != 0) {
+      return RecordCompileFailure(
+          "pso/unsupported_logic_op",
+          str::format("logic operation on render target ", i,
+                      " is unsupported; only render target 0 is mapped"));
+    }
+  }
+  auto map_logic_op = [](D3D12_LOGIC_OP op) -> WMTLogicOperation {
+    switch (op) {
+    case D3D12_LOGIC_OP_CLEAR: return WMTLogicOperationClear;
+    case D3D12_LOGIC_OP_SET: return WMTLogicOperationSet;
+    case D3D12_LOGIC_OP_COPY: return WMTLogicOperationCopy;
+    case D3D12_LOGIC_OP_COPY_INVERTED: return WMTLogicOperationCopyInverted;
+    case D3D12_LOGIC_OP_NOOP: return WMTLogicOperationNoOp;
+    case D3D12_LOGIC_OP_INVERT: return WMTLogicOperationInvert;
+    case D3D12_LOGIC_OP_AND: return WMTLogicOperationAnd;
+    case D3D12_LOGIC_OP_NAND: return WMTLogicOperationNand;
+    case D3D12_LOGIC_OP_OR: return WMTLogicOperationOr;
+    case D3D12_LOGIC_OP_NOR: return WMTLogicOperationNor;
+    case D3D12_LOGIC_OP_XOR: return WMTLogicOperationXor;
+    case D3D12_LOGIC_OP_EQUIV: return WMTLogicOperationEquiv;
+    case D3D12_LOGIC_OP_AND_REVERSE: return WMTLogicOperationAndReverse;
+    case D3D12_LOGIC_OP_AND_INVERTED: return WMTLogicOperationAndInverted;
+    case D3D12_LOGIC_OP_OR_REVERSE: return WMTLogicOperationOrReverse;
+    case D3D12_LOGIC_OP_OR_INVERTED: return WMTLogicOperationOrInverted;
+    default: return WMTLogicOperationNoOp;
+    }
+  };
+  if (m_blend_desc.RenderTarget[0].LogicOpEnable) {
+    info.logic_operation_enabled = true;
+    info.logic_operation =
+        map_logic_op(m_blend_desc.RenderTarget[0].LogicOp);
+  }
+
   if (m_blend_desc.RenderTarget[0].BlendEnable) {
     for (UINT i = 0; i < m_num_render_targets && i < 8; i++) {
       auto &rt = m_blend_desc.RenderTarget[i];

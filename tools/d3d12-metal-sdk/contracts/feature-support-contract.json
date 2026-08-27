@@ -14,13 +14,21 @@
   "features": {
     "D3D12_FEATURE_D3D12_OPTIONS": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_render_headless"
+      ],
+      "probe_status": "output_merger_logic_op_xor_execution_readback_passed",
       "reported": "partial",
       "required_fields": [
         "ResourceBindingTier",
         "ROVsSupported",
-        "ConservativeRasterizationTier"
+        "ConservativeRasterizationTier",
+        "OutputMergerLogicOp"
       ],
-      "risk": "Over-reporting can push games into unimplemented render paths.",
+      "proven_subset": [
+        "D3D12_LOGIC_OP_XOR render-target execution and exact readback"
+      ],
+      "risk": "Output-merger logic operations are backed by a focused XOR render/readback proof for render target 0 only; independent per-render-target logic-operation state remains rejected, while conservative rasterization and broader options remain gated.",
       "state": "required",
       "tier": "required"
     },
