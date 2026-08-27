@@ -10074,7 +10074,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               multisample && full_rect && full_dst &&
               cmd->mode == D3D12_RESOLVE_MODE_DECOMPRESS &&
               src_desc.SampleDesc.Count <= 16 &&
-              src_desc.Format == DXGI_FORMAT_R32G32B32A32_FLOAT &&
+              (src_desc.Format == DXGI_FORMAT_R32G32B32A32_FLOAT ||
+               src_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT) &&
               dst_desc.Format == src_desc.Format &&
               dst_desc.SampleDesc.Count == 1;
           if (!supported) {
