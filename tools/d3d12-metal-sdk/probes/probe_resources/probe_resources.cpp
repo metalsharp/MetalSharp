@@ -18,6 +18,24 @@ struct FormatProbe {
     UINT support2 = 0;
 };
 
+struct SparseFormatProbe {
+    const char* name;
+    DXGI_FORMAT format;
+    UINT width;
+    UINT height;
+    UINT expected_tile_width;
+    UINT expected_tile_height;
+    ID3D12Resource* texture = nullptr;
+    ID3D12Resource* readback = nullptr;
+    HRESULT texture_hr = E_FAIL;
+    HRESULT tiling_hr = E_FAIL;
+    HRESULT readback_hr = E_FAIL;
+    HRESULT readback_map_hr = E_FAIL;
+    UINT total_tiles = 0;
+    D3D12_TILE_SHAPE tile_shape = {};
+    bool copy_ok = false;
+};
+
 static const GUID IID_D3D12DeviceProbe = {0x189819f1, 0x1db6, 0x4b57, {0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}};
 
 static std::string json_escape(const std::string& input) {
@@ -659,6 +677,45 @@ int main() {
         }
         r8_partial_upload->Unmap(0, nullptr);
     }
+    std::vector<SparseFormatProbe> sparse_format_probes = {
+        {"R8G8_UNORM", DXGI_FORMAT_R8G8_UNORM, 256, 128, 256, 128},
+        {"R10G10B10A2_UNORM", DXGI_FORMAT_R10G10B10A2_UNORM, 128, 128,
+         128, 128},
+        {"R11G11B10_FLOAT", DXGI_FORMAT_R11G11B10_FLOAT, 128, 128, 128,
+         128},
+        {"R16G16B16A16_UNORM", DXGI_FORMAT_R16G16B16A16_UNORM, 128, 64,
+         128, 64},
+        {"R32G32B32A32_FLOAT", DXGI_FORMAT_R32G32B32A32_FLOAT, 64, 64, 64,
+         64},
+    };
+    for (auto &sparse_format : sparse_format_probes) {
+        D3D12_RESOURCE_DESC sparse_format_desc = texture_desc(
+            sparse_format.width, sparse_format.height, sparse_format.format);
+        sparse_format.texture_hr =
+            device ? device->CreateReservedResource(
+                         &sparse_format_desc,
+                         D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                         IID_PPV_ARGS(&sparse_format.texture))
+                   : E_FAIL;
+        if (device && sparse_format.texture) {
+            sparse_format.tiling_hr = S_OK;
+            UINT tiling_count = 1;
+            device->GetResourceTiling(
+                sparse_format.texture, &sparse_format.total_tiles, nullptr,
+                &sparse_format.tile_shape, &tiling_count, 0, nullptr);
+            if (tiling_count != 1)
+                sparse_format.tiling_hr = E_FAIL;
+        }
+        D3D12_RESOURCE_DESC sparse_format_readback_desc =
+            buffer_desc(sparse_tile_size);
+        sparse_format.readback_hr =
+            device ? device->CreateCommittedResource(
+                         &readback_heap, D3D12_HEAP_FLAG_NONE,
+                         &sparse_format_readback_desc,
+                         D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                         IID_PPV_ARGS(&sparse_format.readback))
+                   : E_FAIL;
+    }
     uint8_t *sparse_upload_ptr = nullptr;
     HRESULT sparse_upload_map_hr =
         sparse_upload ? sparse_upload->Map(
@@ -926,6 +983,42 @@ int main() {
         partial_src_texture.SubresourceIndex = 1;
         list->CopyTextureRegion(&partial_readback_dst, 0, 0, 0,
                                 &partial_src_texture, nullptr);
+    }
+    for (auto &sparse_format : sparse_format_probes) {
+        if (!list || !queue || !sparse_heap || !sparse_upload ||
+            !sparse_format.texture || !sparse_format.readback ||
+            FAILED(sparse_format.texture_hr) ||
+            FAILED(sparse_format.tiling_hr) ||
+            FAILED(sparse_format.readback_hr) ||
+            sparse_format.total_tiles != 1 ||
+            sparse_format.tile_shape.WidthInTexels !=
+                sparse_format.expected_tile_width ||
+            sparse_format.tile_shape.HeightInTexels !=
+                sparse_format.expected_tile_height)
+            continue;
+        D3D12_TILED_RESOURCE_COORDINATE format_coordinate = {};
+        D3D12_TILE_REGION_SIZE format_region = {};
+        format_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS format_range_flag =
+            D3D12_TILE_RANGE_FLAG_NONE;
+        UINT format_heap_offset = 0;
+        UINT format_range_count = 1;
+        queue->UpdateTileMappings(
+            sparse_format.texture, 1, &format_coordinate, &format_region,
+            sparse_heap, 1, &format_range_flag, &format_heap_offset,
+            &format_range_count, D3D12_TILE_MAPPING_FLAG_NONE);
+        list->CopyTiles(
+            sparse_format.texture, &format_coordinate, &format_region,
+            sparse_upload, 0,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        D3D12_RESOURCE_BARRIER format_barrier = transition_barrier(
+            sparse_format.texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &format_barrier);
+        list->CopyTiles(
+            sparse_format.texture, &format_coordinate, &format_region,
+            sparse_format.readback, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
 
     ID3D12Resource* bc_texture = nullptr;
@@ -1306,6 +1399,26 @@ int main() {
         }
         r8_partial_readback->Unmap(0, nullptr);
     }
+    for (auto &sparse_format : sparse_format_probes) {
+        uint8_t *format_readback_ptr = nullptr;
+        sparse_format.readback_map_hr =
+            sparse_format.readback
+                ? sparse_format.readback->Map(
+                      0, nullptr,
+                      reinterpret_cast<void **>(&format_readback_ptr))
+                : E_FAIL;
+        if (SUCCEEDED(sparse_format.readback_map_hr) && format_readback_ptr) {
+            sparse_format.copy_ok = true;
+            for (UINT64 i = 0; i < sparse_tile_size; i++) {
+                if (format_readback_ptr[i] !=
+                    static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                    sparse_format.copy_ok = false;
+                    break;
+                }
+            }
+            sparse_format.readback->Unmap(0, nullptr);
+        }
+    }
 
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
 
@@ -1331,6 +1444,16 @@ int main() {
     for (const auto& format : formats) {
         if (FAILED(format.hr))
             format_support_ok = false;
+    }
+    bool sparse_format_matrix_ok = !sparse_format_probes.empty();
+    for (const auto &sparse_format : sparse_format_probes) {
+        sparse_format_matrix_ok =
+            sparse_format_matrix_ok &&
+            SUCCEEDED(sparse_format.texture_hr) &&
+            SUCCEEDED(sparse_format.tiling_hr) &&
+            SUCCEEDED(sparse_format.readback_hr) &&
+            SUCCEEDED(sparse_format.readback_map_hr) &&
+            sparse_format.total_tiles == 1 && sparse_format.copy_ok;
     }
 
     const bool default_cpu_io_rejected =
@@ -1439,7 +1562,8 @@ int main() {
                 sparse_tiling[1].HeightInTiles == 1 &&
                 default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
                 texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 &&
-                shared_handle_roundtrip && format_support_ok;
+                shared_handle_roundtrip && format_support_ok &&
+                sparse_format_matrix_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -1611,6 +1735,23 @@ int main() {
     std::printf("      \"r8_partial_copy_verified\": %s\n",
                 r8_partial_copy_ok ? "true" : "false");
     std::printf("    },\n");
+    std::printf("    \"format_matrix\": [\n");
+    for (size_t i = 0; i < sparse_format_probes.size(); ++i) {
+        const auto &sparse_format = sparse_format_probes[i];
+        std::printf("      {\"format\": \"%s\", \"texture_create\": \"0x%08lx\", \"tiling\": \"0x%08lx\", \"readback_create\": \"0x%08lx\", \"readback_map\": \"0x%08lx\", \"total_tiles\": %u, \"tile_shape\": [%u, %u, %u], \"copy_verified\": %s}%s\n",
+                    sparse_format.name,
+                    static_cast<unsigned long>(static_cast<uint32_t>(sparse_format.texture_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(sparse_format.tiling_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(sparse_format.readback_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(sparse_format.readback_map_hr)),
+                    sparse_format.total_tiles,
+                    sparse_format.tile_shape.WidthInTexels,
+                    sparse_format.tile_shape.HeightInTexels,
+                    sparse_format.tile_shape.DepthInTexels,
+                    sparse_format.copy_ok ? "true" : "false",
+                    i + 1 == sparse_format_probes.size() ? "" : ",");
+    }
+    std::printf("    ],\n");
     std::printf("    \"mipped_texture\": {\n");
     print_hr("create", mipped_reserved_texture_hr);
     print_hr("tiling", mipped_reserved_tiling_hr);
