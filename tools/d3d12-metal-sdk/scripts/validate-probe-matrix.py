@@ -15,6 +15,7 @@ CONTRACTS_DIR = SDK_DIR / "contracts"
 REQUIRED_GROUPS = {
     "loader_runtime_route": ["probe-loader"],
     "device_caps_feature_reports": ["probe-device-caps"],
+    "legacy_d3d10_d3d11_readback": ["probe-legacy-regression"],
     "feature_levels_11_0_through_12_2": ["probe-feature-levels"],
     "d3d12_object_private_data_com": ["probe-object-contracts"],
     "dxgi_factory_swapchain": ["probe-dxgi-factory", "probe-mini-swapchain-present"],

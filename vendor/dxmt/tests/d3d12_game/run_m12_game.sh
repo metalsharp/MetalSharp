@@ -52,6 +52,14 @@ copy_llvm_dylib() {
 mkdir -p "$run_root" "$run_root/unix" "$(dirname "$prefix")"
 
 cp "$build_dir/tests/d3d12_game/$exe_name" "$run_root/"
+# D3D10/D3D11 are optional for the D3D12 game harness, but when a source build
+# provides them, stage them too so a legacy regression executable cannot fall
+# through to Wine's builtin modules by accident.
+for legacy_dll in d3d10/d3d10core.dll d3d11/d3d11.dll; do
+  if [[ -f "$build_dir/src/$legacy_dll" ]]; then
+    cp "$build_dir/src/$legacy_dll" "$run_root/"
+  fi
+done
 cp "$build_dir/src/d3d12/d3d12.dll" "$run_root/"
 cp "$build_dir/src/dxgi/dxgi.dll" "$run_root/"
 cp "$build_dir/src/dxgi/dxgi_dxmt.dll" "$run_root/"
@@ -107,7 +115,7 @@ rm -f "$log_name" winemetal-unix-debug.log winemetal-pe-debug.log
 
 export WINEPREFIX="$prefix"
 export WINEDEBUG="${WINEDEBUG:--all}"
-export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d12,dxgi,dxgi_dxmt,winemetal=n,b}"
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-d3d10core,d3d11,d3d12,dxgi,dxgi_dxmt,winemetal=n,b}"
 export DXMT_WINEMETAL_DEBUG="${DXMT_WINEMETAL_DEBUG:-1}"
 export DXMT_WINEMETAL_UNIXLIB="${DXMT_WINEMETAL_UNIXLIB:-winemetal.so}"
 export DXMT_D3D12_TRACE="${DXMT_D3D12_TRACE:-1}"

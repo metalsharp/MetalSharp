@@ -89,6 +89,13 @@ build_probe \
   -o "$OUT_DIR/probe_device_caps.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_legacy_regression/probe_legacy_regression.cpp" \
+  -ld3d11 \
+  -ld3d10 \
+  -ldxgi \
+  -o "$OUT_DIR/probe_legacy_regression.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_feature_levels/probe_feature_levels.cpp" \
   -o "$OUT_DIR/probe_feature_levels.exe"
 
@@ -229,6 +236,7 @@ build_mini_probe 15 dxr_acceleration_structures
 echo "$OUT_DIR/probe_loader.exe"
 echo "$OUT_DIR/probe_agility_ue5.exe"
 echo "$OUT_DIR/probe_device_caps.exe"
+echo "$OUT_DIR/probe_legacy_regression.exe"
 echo "$OUT_DIR/probe_feature_levels.exe"
 echo "$OUT_DIR/probe_object_contracts.exe"
 echo "$OUT_DIR/probe_dxgi_factory.exe"

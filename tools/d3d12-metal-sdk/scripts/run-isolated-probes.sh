@@ -135,6 +135,8 @@ payload = {
     "wine_version": os.environ["ISO_WINE_VERSION"],
     "wineserver": record(os.environ["ISO_WINESERVER_BIN"]),
     "dxmt_runtime": str(runtime),
+    "d3d10core": record(runtime / "x86_64-windows" / "d3d10core.dll"),
+    "d3d11": record(runtime / "x86_64-windows" / "d3d11.dll"),
     "d3d12": record(runtime / "x86_64-windows" / "d3d12.dll"),
     "dxgi": record(runtime / "x86_64-windows" / "dxgi.dll"),
     "dxgi_dxmt": record(runtime / "x86_64-windows" / "dxgi_dxmt.dll"),

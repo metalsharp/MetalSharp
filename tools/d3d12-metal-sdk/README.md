@@ -24,6 +24,7 @@ The SDK exists to make D3D12 changes evidence-driven before game-specific debugg
 - Prove Agility SDK negotiation behaves as modern D3D12 games expect.
 - Prove feature reports match implemented or explicitly emulated behavior.
 - Prove resources, descriptors, shaders, queues, fences, Winemetal ABI coverage, and rendering paths through repeatable probes.
+- Keep the vendored D3D10/D3D11 routes regression-tested with exact clear/copy/readback behavior.
 - Keep future D3D12 work accurate, repeatable, and reviewable.
 
 ## Runtime Profiles
@@ -260,6 +261,7 @@ depends only on semantic coverage.
 The default required probe groups prove:
 
 - `probe-loader`: the Wine process resolves the intended DXMT D3D12/DXGI route.
+- `probe-legacy-regression`: source-staged DXMT D3D11 and D3D10 devices create render targets, clear them, copy into CPU-readable staging textures, and verify every pixel through mapped readback.
 - `probe-agility-ue5`: app-local Agility SDK negotiation and modern device
   interface behavior.
 - `probe-device-caps`: feature reporting, unsupported advanced features, and
