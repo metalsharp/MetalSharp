@@ -78,7 +78,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Mesh shaders | Tier 1 | Focused AS/MS direct and indirect execution proven; Tier 1 remains unreported | Broader AS/MS stage, payload, render-state, statistics, and clean-prefix gates |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
-| Tiled resources | Tier 3 | Native placement-sparse 2D RGBA8 cross-resource alias subset proven; Tier 3 remains unreported | Physical page selection, mapping copies, packed/partial mips, 3D, alias, residency, and per-tile 64 KiB `CopyTiles` probes |
+| Tiled resources | Tier 3 | Native placement-sparse 2D RGBA8 cross-resource alias subset proven; volume tile shapes and standard `CopyTiles` traversal are modeled; Tier 3 remains unreported | Physical page selection, mapping copies, packed/partial mips, 3D/array mapping and alias, residency, and per-tile 64 KiB `CopyTiles` probes |
 | Conservative rasterization | Tier 3 | Software-emulated Tier 1 only | Tier-3 edge/coverage, inner-input, degenerate, and MSAA behavior probe |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Software-emulated and reported | Depth-bounds render/readback matrix |
@@ -1307,6 +1307,22 @@ Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
 
 ## 10. Progress log
+
+### 2026-08-27 — Corrected VRS edge-tile and volume-tile traversal
+
+- Nonconstant VRS image replay now uses the fixed D3D12 16x16 screen-space
+  image tile size instead of deriving a tile size by dividing the render target
+  by the image dimensions. This preserves the logical-to-physical mapping for
+  non-multiple render-target sizes and trailing image texels; VRS remains
+  unpromoted because per-primitive and full logical-resolution behavior are
+  still incomplete.
+- The tiled-resource layout model now distinguishes volume depth from array
+  slices and reports the documented 8/16/32/64/128-bit and BC standard volume
+  shapes. `CopyTiles` now carries X/Y/Z coordinates, supports box regions, and
+  spills non-box regions across rows, volume planes, and subsequent mip/array
+  subresources while preserving the 64 KiB footprint. These changes do not
+  widen the sparse-resource report: native 3D page ownership and mapping remain
+  a Completion Phase 4 blocker.
 
 ### 2026-08-27 — Narrowed the remaining work to the completion runway
 
