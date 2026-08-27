@@ -105,6 +105,29 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS6": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_vrs",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_vrs"
+      ],
+      "probe_status": "per_draw_2x2_rasterization_rate_map_reduced_invocation_readback_passed_image_and_tier2_remain_gated",
+      "reported": "unsupported",
+      "required_fields": [
+        "VariableShadingRateTier",
+        "AdditionalShadingRatesSupported",
+        "PerPrimitiveShadingRateSupportedWithViewportIndexing",
+        "ShadingRateImageTileSize"
+      ],
+      "proven_subset": [
+        "RSSetShadingRate 2x2 command recording",
+        "Metal rasterization-rate map creation and render-pass attachment",
+        "baseline versus 2x2 reduced fragment readback",
+        "command-list reset and reuse after a VRS pass"
+      ],
+      "risk": "The per-draw 2x2 path now records D3D12 shading-rate commands and attaches a Metal rasterization-rate map, reducing the focused 64x64 readback from 4096 to 1089 nonzero pixels. Shading-rate image data, combiner semantics, logical-resolution reconstruction, per-primitive rates, and Tier-2 breadth remain unproven, so Options6 stays conservative.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS7": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
       "behavior_probes": [

@@ -1045,8 +1045,18 @@ public:
   }
 };
 
+class RasterizationRateMap : public Object {
+public:
+};
+
 class Device : public Object {
 public:
+  Reference<RasterizationRateMap>
+  newRasterizationRateMap(const WMTRasterizationRateMapInfo &info) {
+    return Reference<RasterizationRateMap>(
+        MTLDevice_newRasterizationRateMap(handle, &info));
+  }
+
   uint64_t
   recommendedMaxWorkingSetSize() const {
     return MTLDevice_recommendedMaxWorkingSetSize(handle);

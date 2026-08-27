@@ -1558,10 +1558,28 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchRays(
 /*** ID3D12GraphicsCommandList5 ***/
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetShadingRate(
     D3D12_SHADING_RATE base_shading_rate,
-    const D3D12_SHADING_RATE_COMBINER *combiners) {}
+    const D3D12_SHADING_RATE_COMBINER *combiners) {
+  CmdRSSetShadingRate cmd = {};
+  cmd.header = {CmdType::RSSetShadingRate, sizeof(cmd)};
+  cmd.base_shading_rate = base_shading_rate;
+  for (UINT i = 0; i < 2; ++i)
+    cmd.combiners[i] = combiners ? combiners[i]
+                                  : D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+  Emit(cmd);
+  CLTRACE("RSSetShadingRate rate=%u combiners=%u,%u",
+          (unsigned)base_shading_rate, (unsigned)cmd.combiners[0],
+          (unsigned)cmd.combiners[1]);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetShadingRateImage(
-    ID3D12Resource *shading_rate_image) {}
+    ID3D12Resource *shading_rate_image) {
+  CmdRSSetShadingRateImage cmd = {};
+  cmd.header = {CmdType::RSSetShadingRateImage, sizeof(cmd)};
+  cmd.shading_rate_image = shading_rate_image;
+  RetainResource(shading_rate_image);
+  Emit(cmd);
+  CLTRACE("RSSetShadingRateImage resource=%p", (void *)shading_rate_image);
+}
 
 /*** ID3D12GraphicsCommandList6 ***/
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchMesh(

@@ -29,6 +29,8 @@ RUN_SHADER_CORPUS=1
 RUN_SM66_CAPABILITIES=1
 RUN_WRITABLE_MSAA=1
 RUN_WRITABLE_MSAA_ONLY=0
+RUN_VRS=0
+RUN_VRS_ONLY=0
 RUN_SAMPLER_FEEDBACK=1
 RUN_WAVE_OPS=1
 RUN_REFLECTION_ABI=1
@@ -111,6 +113,8 @@ Options:
                         Run only the SM 6.6 capability audit probe.
   --no-writable-msaa   Skip the writable MSAA texture probe.
   --writable-msaa-only Run only the writable MSAA texture probe.
+  --vrs                Run the opt-in VRS/rasterization-rate map probe.
+  --vrs-only           Run only the opt-in VRS/rasterization-rate map probe.
   --no-sampler-feedback
                         Skip the sampler-feedback compute and pixel probes.
   --sampler-feedback    Run the sampler-feedback compute and pixel probes.
@@ -542,6 +546,14 @@ while [[ $# -gt 0 ]]; do
       RUN_WRITABLE_MSAA_ONLY=1
       shift
       ;;
+    --vrs)
+      RUN_VRS=1
+      shift
+      ;;
+    --vrs-only)
+      RUN_VRS_ONLY=1
+      shift
+      ;;
     --no-sampler-feedback)
       RUN_SAMPLER_FEEDBACK=0
       shift
@@ -913,6 +925,38 @@ if [[ "$RUN_WRITABLE_MSAA_ONLY" == "1" ]]; then
   RUN_SHADER_CORPUS=0
   RUN_SM66_CAPABILITIES=0
   RUN_WRITABLE_MSAA=1
+  RUN_VRS=0
+  RUN_SAMPLER_FEEDBACK=0
+  RUN_WAVE_OPS=0
+  RUN_REFLECTION_ABI=0
+  RUN_GRAPHICS_PSO=0
+  RUN_COMPUTE_PSO=0
+  RUN_COMMAND_REPLAY=0
+  RUN_BARRIERS_RENDER_PASS=0
+  RUN_RESOURCE_VIEWS_FORMATS=0
+  RUN_RENDER_HEADLESS=0
+  RUN_MINI=0
+  RUN_WINEMETAL_ABI=0
+  RUN_PRESENT_WINDOWED=0
+  RUN_FULL_STRESS=0
+fi
+
+if [[ "$RUN_VRS_ONLY" == "1" ]]; then
+  RUN_LOADER=0
+  RUN_AGILITY=0
+  RUN_CAPS=0
+  RUN_FEATURE_LEVELS=0
+  RUN_OBJECT_CONTRACTS=0
+  RUN_DXGI=0
+  RUN_RESOURCES=0
+  RUN_QUEUES=0
+  RUN_DESCRIPTORS=0
+  RUN_SHADERS=0
+  RUN_DXIL_SEMANTICS=0
+  RUN_SHADER_CORPUS=0
+  RUN_SM66_CAPABILITIES=0
+  RUN_WRITABLE_MSAA=0
+  RUN_VRS=1
   RUN_SAMPLER_FEEDBACK=0
   RUN_WAVE_OPS=0
   RUN_REFLECTION_ABI=0
@@ -999,6 +1043,7 @@ DXIL_SEMANTICS_PROBE_EXE="$SDK_DIR/out/bin/probe_dxil_semantics.exe"
 SHADER_CORPUS_PROBE_EXE="$SDK_DIR/out/bin/probe_shader_corpus.exe"
 SM66_CAPABILITIES_PROBE_EXE="$SDK_DIR/out/bin/probe_sm66_capabilities.exe"
 WRITABLE_MSAA_PROBE_EXE="$SDK_DIR/out/bin/probe_writable_msaa.exe"
+VRS_PROBE_EXE="$SDK_DIR/out/bin/probe_vrs.exe"
 SAMPLER_FEEDBACK_PROBE_EXE="$SDK_DIR/out/bin/probe_sampler_feedback.exe"
 SAMPLER_FEEDBACK_PIXEL_PROBE_EXE="$SDK_DIR/out/bin/probe_sampler_feedback_pixel.exe"
 WAVE_OPS_PROBE_EXE="$SDK_DIR/out/bin/probe_wave_ops.exe"
@@ -1052,7 +1097,7 @@ if [[ "$WINDOWS_DIR" == *"/gptk/"* || "$WINDOWS_DIR" == *"/lib/gptk/"* ]]; then
 fi
 
 NEED_BUILD=0
-if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
 
@@ -1146,6 +1191,7 @@ RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${
 RENDER_HEADLESS_RESULT_FILE="$RESULTS_DIR/probe-render-headless-${PROFILE}.json"
 PRESENT_WINDOWED_RESULT_FILE="$RESULTS_DIR/probe-present-windowed-${PROFILE}.json"
 WINEMETAL_ABI_RESULT_FILE="$RESULTS_DIR/winemetal-abi-${PROFILE}.json"
+VRS_RESULT_FILE="$RESULTS_DIR/probe-vrs-${PROFILE}.json"
 
 run_probe_exe() {
   local exe="$1"
@@ -2141,6 +2187,10 @@ if [[ "$RUN_WRITABLE_MSAA" == "1" &&
   run_probe_exe \
     "$WRITABLE_MSAA_PROBE_EXE" \
     "$WRITABLE_MSAA_RESULT_FILE"
+fi
+
+if [[ "$RUN_VRS" == "1" ]]; then
+  run_probe_exe "$VRS_PROBE_EXE" "$VRS_RESULT_FILE"
 fi
 
 if [[ "$RUN_SAMPLER_FEEDBACK" == "1" ]]; then

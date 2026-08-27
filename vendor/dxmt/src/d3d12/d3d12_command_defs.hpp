@@ -52,6 +52,8 @@ enum class CmdType : uint32_t {
   SetPipelineState1,
   DispatchRays,
   OMSetDepthBounds,
+  RSSetShadingRate,
+  RSSetShadingRateImage,
 };
 
 struct CmdHeader {
@@ -313,6 +315,17 @@ struct CmdOMSetDepthBounds {
   CmdHeader header;
   float min_depth;
   float max_depth;
+};
+
+struct CmdRSSetShadingRate {
+  CmdHeader header;
+  D3D12_SHADING_RATE base_shading_rate;
+  D3D12_SHADING_RATE_COMBINER combiners[2];
+};
+
+struct CmdRSSetShadingRateImage {
+  CmdHeader header;
+  ID3D12Resource *shading_rate_image;
 };
 
 struct CmdWriteBufferImmediateEntry {
