@@ -173,6 +173,7 @@ int main() {
     HRESULT invalid_feature_hr = E_FAIL;
     HRESULT zero_size_feature_hr = E_FAIL;
     HRESULT null_data_feature_hr = E_FAIL;
+    HRESULT null_feature_level_list_hr = E_FAIL;
 
     if (device) {
         fl_hr = device->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &feature_levels, sizeof(feature_levels));
@@ -196,6 +197,11 @@ int main() {
             D3D12_FEATURE_SHADER_MODEL, &invalid_feature_payload, 0);
         null_data_feature_hr = device->CheckFeatureSupport(
             D3D12_FEATURE_SHADER_MODEL, nullptr, sizeof(invalid_feature_payload));
+        D3D12_FEATURE_DATA_FEATURE_LEVELS null_feature_level_list = {};
+        null_feature_level_list.NumFeatureLevels = 1;
+        null_feature_level_list_hr = device->CheckFeatureSupport(
+            D3D12_FEATURE_FEATURE_LEVELS, &null_feature_level_list,
+            sizeof(null_feature_level_list));
 
         D3D12_RESOURCE_DESC reserved_desc = {};
         reserved_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -250,7 +256,8 @@ int main() {
     bool state_objects_unsupported = FAILED(query_device5_hr) || FAILED(create_state_object_hr);
     bool feature_query_validation =
         invalid_feature_hr == E_INVALIDARG && zero_size_feature_hr == E_INVALIDARG &&
-        null_data_feature_hr == E_POINTER;
+        null_data_feature_hr == E_POINTER &&
+        null_feature_level_list_hr == E_INVALIDARG;
     bool pass = SUCCEEDED(create_hr) && feature_level_ok && shader_model_target_ok && binding_tier_ok &&
                 wave_ops_proven_reported && atomic64_conservative && advanced_conservative && stream_output_conservative &&
                 reserved_resources_unsupported && state_objects_unsupported &&
@@ -331,6 +338,7 @@ int main() {
     print_hr("invalid_feature", invalid_feature_hr);
     print_hr("zero_size_feature", zero_size_feature_hr);
     print_hr("null_data_feature", null_data_feature_hr);
+    print_hr("null_feature_level_list", null_feature_level_list_hr);
     std::printf("    \"stream_output_conservative\": %s,\n", stream_output_conservative ? "true" : "false");
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
     std::printf("    \"state_objects_unsupported\": %s,\n", state_objects_unsupported ? "true" : "false");

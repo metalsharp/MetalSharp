@@ -330,6 +330,13 @@ int main() {
             D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_BLUE;
         run_case(device, "pixel_outputs_target0_target2", mrt, true, results);
 
+        auto logic_op_mrt = mrt;
+        logic_op_mrt.BlendState.RenderTarget[0].LogicOpEnable = TRUE;
+        logic_op_mrt.BlendState.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_XOR;
+        logic_op_mrt.BlendState.RenderTarget[1].LogicOpEnable = TRUE;
+        logic_op_mrt.BlendState.RenderTarget[1].LogicOp = D3D12_LOGIC_OP_AND;
+        run_case(device, "logic_op_mrt_rejected", logic_op_mrt, false, results);
+
         run_cached_blob_case(device, "cached_blob_roundtrip", base, results);
 
         auto stream_output = base;
@@ -386,6 +393,7 @@ int main() {
     std::printf("    \"msaa\": true,\n");
     std::printf("    \"blend\": true,\n");
     std::printf("    \"logic_op_xor\": true,\n");
+    std::printf("    \"logic_op_mrt_rejected\": true,\n");
     std::printf("    \"write_mask\": true,\n");
     std::printf("    \"input_layout_semantics\": true,\n");
     std::printf("    \"input_layout_per_instance_step_rate\": 2,\n");

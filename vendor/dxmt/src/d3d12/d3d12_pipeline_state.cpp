@@ -3047,6 +3047,18 @@ bool MTLD3D12PipelineState::Compile() {
                       " is unsupported; only render target 0 is mapped"));
     }
   }
+  if (m_blend_desc.RenderTarget[0].LogicOpEnable) {
+    for (UINT i = 1; i < m_num_render_targets && i < 8; ++i) {
+      const auto &rt = m_blend_desc.RenderTarget[i];
+      if (!rt.LogicOpEnable ||
+          rt.LogicOp != m_blend_desc.RenderTarget[0].LogicOp) {
+        return RecordCompileFailure(
+            "pso/unsupported_logic_op",
+            "per-render-target logic operations differ; the Metal global "
+            "logic operation cannot represent this pipeline");
+      }
+    }
+  }
   auto map_logic_op = [](D3D12_LOGIC_OP op) -> WMTLogicOperation {
     switch (op) {
     case D3D12_LOGIC_OP_CLEAR: return WMTLogicOperationClear;
