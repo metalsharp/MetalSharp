@@ -24,7 +24,7 @@ Presenter::Presenter(WMT::Device device, WMT::MetalLayer layer, InternalCommandL
   layer_props_.framebuffer_only = false; // how strangely setting it true results in worse performance
   layer_props_.contents_scale = layer_props_.contents_scale * scale_factor;
 
-  WMTTextureInfo texture_info;
+  WMTTextureInfo texture_info = {};
   texture_info.type = WMTTextureType2D;
   texture_info.pixel_format = WMTPixelFormatRGBA32Float;
   texture_info.usage = WMTTextureUsageShaderRead;

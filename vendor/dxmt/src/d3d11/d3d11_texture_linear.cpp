@@ -188,7 +188,7 @@ CreateDynamicLinearTexture2D(
   if (format.PixelFormat == WMTPixelFormatInvalid) {
     return E_FAIL;
   }
-  WMTTextureInfo info;
+  WMTTextureInfo info = {};
   D3D11_TEXTURE2D_DESC1 finalDesc;
   if (FAILED(CreateMTLTextureDescriptor(pDevice, pDesc, &finalDesc, &info))) {
     return E_INVALIDARG;
@@ -225,7 +225,7 @@ CreateDynamicLinearTexture1D(
   if (format.PixelFormat == WMTPixelFormatInvalid) {
     return E_FAIL;
   }
-  WMTTextureInfo info;
+  WMTTextureInfo info = {};
   D3D11_TEXTURE1D_DESC finalDesc;
   if (FAILED(CreateMTLTextureDescriptor(pDevice, pDesc, &finalDesc, &info))) {
     return E_INVALIDARG;
