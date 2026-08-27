@@ -74,7 +74,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | --- | --- | --- | --- |
 | Shader model | At least 6.5 | 6.7 | SM 6.6 breadth plus SM 6.7 quad-vote runtime readback passed |
 | Ray tracing | Tier 1.1 | Not supported | DXR 1.0/1.1 probes |
-| Variable-rate shading | Tier 2 | Not supported | Per-draw and image VRS probes |
+| Variable-rate shading | Tier 2 | Per-draw 2x2 map subset proven; Tier 2 remains unreported | Per-draw and image VRS probes |
 | Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
@@ -499,7 +499,12 @@ Findings:
   placement-sparse buffer mappings with a full-backed fallback. Cross-resource
   heap-page aliasing for sparse resources is not yet proven, so texture page
   selection and `CopyTileMappings` remain gated.
-- VRS/rasterization-rate map APIs are not exposed through the current bridge.
+- The Winemetal bridge now exposes validated rasterization-rate map creation
+  and render-pass attachment. The opt-in VRS probe records `RSSetShadingRate`
+  2x2, compares a clean 64x64 draw against the mapped pass (4096 versus 1089
+  nonzero pixels), and reuses the command list after reset. Shading-rate image
+  data, combiner semantics, logical-resolution reconstruction, per-primitive
+  rates, and Tier-2 breadth remain gated.
 - Winemetal ABI validation currently catches stale PE bridge copies; the
   initial runtime preflight found an outdated prefix `system32/winemetal.dll`.
 - Every new bridge call requires normal and WOW64 call-table parity, struct size
