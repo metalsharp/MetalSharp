@@ -208,9 +208,9 @@ The current honest shader feature posture is:
   in logical array slices, executes a graphics pass with a DSV, resolves both
   2D and array resources, and reads back exact sample values plus float averages
   `151.5`, `251.5`, `600.5`, and `628.5`. This proves only the focused
-  R32G32B32A32_FLOAT and R16G16B16A16_FLOAT subset; both Options14 capability
-  fields remain conservative pending additional formats, render-target, and
-  broader resolve matrices.
+  R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM subset; both
+  Options14 capability fields remain conservative pending additional formats,
+  render-target, and broader resolve matrices.
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.

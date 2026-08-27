@@ -92,7 +92,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Fully typed/relaxed format casting | Supported | Proven and reported | Device10 castable-list creation plus declared/undeclared view runtime probe |
 | Unaligned block textures | Supported | Proven and reported | 7x5 BC1 footprint/copy/readback probe |
 | Int64 shader ops | Supported | Reported true | Arithmetic and atomic runtime readback |
-| Writable MSAA textures | CS 6.7 subset | Focused 2D/array compute + graphics/DSV/resolve path proven for R32G32B32A32_FLOAT/R16G16B16A16_FLOAT and sample counts 2/4/8; capability remains conservative | CS 6.7 per-sample store/load, graphics UAV stores with DSV, sample-count-2/4/8 float resolves, and exact readback |
+| Writable MSAA textures | CS 6.7 subset | Focused 2D/array compute + graphics/DSV/resolve path proven for R32G32B32A32_FLOAT/R16G16B16A16_FLOAT/R8G8B8A8_UNORM and sample counts 2/4/8; capability remains conservative | CS 6.7 per-sample store/load, graphics UAV stores with DSV, sample-count-2/4/8 resolves, and exact readback |
 
 Shader Model 6.7 completion additionally includes:
 
@@ -381,9 +381,9 @@ Findings:
   both 2D and array resources, and reads back exact sample values
   `[300,101,102,103,400,201,202,203,700,501,800,601,602,603,604,605,606,607]`
   plus float averages `151.5`, `251.5`, `600.5`, and `628.5`. This remains a
-  focused R32G32B32A32_FLOAT and R16G16B16A16_FLOAT proof; both Options14
-  capability fields remain conservative pending additional formats,
-  render-target, and broader resolve matrices.
+  focused R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM proof;
+  both Options14 capability fields remain conservative pending additional
+  formats, render-target, and broader resolve matrices.
 - Xcode 27 beta 6's Metal 3.1 standard library declares `atomic_ulong`, but its
   generic load/store/add/compare-exchange constraints exclude `ulong` and its
   threadgroup operations; only device `ulong` min/max is exposed under the
@@ -1275,10 +1275,11 @@ the goal is not complete.
   four per-sample store/load operations in both 2D and array resources, a
   graphics UAV store for both 2D and array resources with a DSV, sample-count-
   2/4/8 float resolves, and exact readback
-  `[300,101,102,103,400,201,202,203,700,501,800,601,602,603,604,605,606,607]`
-  plus resolve averages `151.5`, `251.5`, `600.5`, and `628.5`. This remains
-  a focused behavior proof; both Options14 fields remain conservative until
-  format, render-target, and broader resolve matrices pass. The matching Winemetal source audit reports `167/167`
+  `[300,101,102,103,400,201,202,203,700,501,800,601,602,603,604,605,606,607,192,65,66,67]`
+  plus resolve averages `151.5`, `251.5`, `600.5`, `628.5`, and the
+  normalized R8 resolve value `98`. This remains a focused behavior proof;
+  both Options14 fields remain conservative until additional format,
+  render-target, and broader resolve matrices pass. The matching Winemetal source audit reports `167/167`
   normal/WOW64 call-table entries and
   `failure_count=0`; intentional warmup and missing-capture diagnostics remain
   outside the required set, and the FL12_2 target gate remains conservative.
