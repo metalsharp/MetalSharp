@@ -359,7 +359,8 @@ mapping with an independent readback, and verifies zero-after-unmap (with a
 full shared compatibility fallback). Cross-resource heap-page aliasing remains
 gated. The same gate reads mip 1 from a standard-tiled 256x256 two-level
 reserved texture. Tier 3 remains conservative until physical heap-page
-selection, aliases, packed/partial mips, `CopyTileMappings` texture coverage,
+selection, aliases, broader packed/partial-mip layouts, `CopyTileMappings`
+texture coverage,
 residency transitions, and broader formats are covered. It also round-trips a named and unnamed process-local
 `CreateSharedHandle`/`OpenSharedHandle` pair and rejects unknown handles and
 missing names; cross-process sharing remains gated. The probe also creates a fully typed `R32_FLOAT` texture through

@@ -190,8 +190,8 @@ Findings:
   shapes; a separate two-tile reserved-buffer path uses an MTL4
   placement-sparse buffer mapping on the proof host with a full shared
   fallback. Unsupported dimensions still fail closed and Tier 3 remains gated
-  on texture heap-page selection, cross-resource aliases, packed/partial mips,
-  sparse-texture `CopyTileMappings`, and broader residency behavior.
+  on texture heap-page selection, cross-resource aliases, broader packed/partial
+  mip layouts, sparse-texture `CopyTileMappings`, and broader residency behavior.
 - Later device interfaces are compatibility declarations rather than complete
   Agility interface implementations.
 - Object private-data support is implemented only on the device; most child
@@ -1246,9 +1246,10 @@ the goal is not complete.
   local-data shader-table matrices. The resource gate also now covers a
   separate two-tile reserved-buffer path: native MTL4 heap mapping, 64 KiB
   tiling, exact tile copies, copied-mapping readback, and zero-after-unmap
-  readback pass on the proof host. R8_UNORM one-tile and two-level standard-mip
-  copies also pass; its fallback is explicitly not treated as physical sparse
-  heap-page support and cross-resource aliasing remains gated.
+  readback pass on the proof host. R8_UNORM one-tile, two-level standard-mip,
+  and one packed-tail/partial-mip copies also pass; its fallback is explicitly
+  not treated as physical sparse heap-page support and cross-resource aliasing
+  remains gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
   tiled-resource, and native-sparse-buffer changes passes all `21/21` required
   contract probes. The matching Winemetal source audit reports `166/166`
