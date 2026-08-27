@@ -1245,7 +1245,9 @@ the goal is not complete.
   tiling, exact tile copies, and zero-after-unmap readback pass on the proof
   host; its fallback is explicitly not treated as physical sparse heap-page
   support and cross-resource aliasing remains gated.
-- The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR
-  and tiled-resource changes passes all `21/21` required contract probes;
-  intentional warmup and missing-capture diagnostics remain outside that
-  required set, and the FL12_2 target gate remains conservative.
+- The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
+  tiled-resource, and native-sparse-buffer changes passes all `21/21` required
+  contract probes. The matching Winemetal source audit reports `164/164`
+  normal/WOW64 call-table entries and `failure_count=0`; intentional warmup and
+  missing-capture diagnostics remain outside the required set, and the FL12_2
+  target gate remains conservative.
