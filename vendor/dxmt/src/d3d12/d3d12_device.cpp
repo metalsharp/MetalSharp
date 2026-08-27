@@ -4529,7 +4529,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
       desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
   const bool standard_mip_texture =
       desc->MipLevels == 1 ||
-      (desc->MipLevels > 1 &&
+      (desc->MipLevels > 1 && desc->MipLevels <= 16 &&
        (desc->Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
         desc->Format == DXGI_FORMAT_R8G8B8A8_TYPELESS ||
         desc->Format == DXGI_FORMAT_R32_FLOAT ||
