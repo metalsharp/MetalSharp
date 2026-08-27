@@ -92,7 +92,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Fully typed/relaxed format casting | Supported | Proven and reported | Device10 castable-list creation plus declared/undeclared view runtime probe |
 | Unaligned block textures | Supported | Proven and reported | 7x5 BC1 footprint/copy/readback probe |
 | Int64 shader ops | Supported | Reported true | Arithmetic and atomic runtime readback |
-| Writable MSAA textures | CS 6.7 subset | Focused 2D/array compute + graphics/DSV/resolve path proven; capability remains conservative | CS 6.7 per-sample store/load, graphics UAV stores with DSV, sample-count-4 float resolves, and exact readback |
+| Writable MSAA textures | CS 6.7 subset | Focused 2D/array compute + graphics/DSV/resolve path proven for R32G32B32A32_FLOAT/R16G16B16A16_FLOAT and sample counts 2/4/8; capability remains conservative | CS 6.7 per-sample store/load, graphics UAV stores with DSV, sample-count-2/4/8 float resolves, and exact readback |
 
 Shader Model 6.7 completion additionally includes:
 
@@ -376,13 +376,14 @@ Findings:
   `SampleCmpLevel` across two independently cleared depth mip levels. A
   standalone writable-MSAA probe additionally compiles CS 6.7
   `RWTexture2DMS<float4>` and `RWTexture2DMSArray<float4,4>` store/load
-  shaders, binds the UAV-backed emulation, writes all four samples in logical
-  array slices, executes a graphics UAV pass with a DSV, resolves both 2D and
-  array resources, and reads back `[100,101,102,103,200,201,202,203]` plus
-  exact float averages `151.5` and `251.5`. This remains a focused
-  R32G32B32A32_FLOAT/sample-count-4 proof; both Options14 capability fields
-  remain conservative pending format, sample-count, render-target, and broader
-  resolve matrices.
+  shaders, binds the UAV-backed emulation, writes sample counts 2, 4, and 8
+  in logical array slices, executes a graphics UAV pass with a DSV, resolves
+  both 2D and array resources, and reads back exact sample values
+  `[300,101,102,103,400,201,202,203,700,501,800,601,602,603,604,605,606,607]`
+  plus float averages `151.5`, `251.5`, `600.5`, and `628.5`. This remains a
+  focused R32G32B32A32_FLOAT and R16G16B16A16_FLOAT proof; both Options14
+  capability fields remain conservative pending additional formats,
+  render-target, and broader resolve matrices.
 - Xcode 27 beta 6's Metal 3.1 standard library declares `atomic_ulong`, but its
   generic load/store/add/compare-exchange constraints exclude `ulong` and its
   threadgroup operations; only device `ulong` min/max is exposed under the
@@ -1272,12 +1273,12 @@ the goal is not complete.
   `probe-writable-msaa`, which passes CS 6.7 DXIL compilation, pipeline
   creation, writable `RWTexture2DMS`/`RWTexture2DMSArray` UAV emulation, all
   four per-sample store/load operations in both 2D and array resources, a
-  graphics UAV store for both 2D and array resources with a DSV, sample-count-4
-  float resolves for both resource shapes, and exact readback
-  `[100,101,102,103,200,201,202,203]` plus resolve averages `151.5` and
-  `251.5`. This remains a focused behavior proof; both Options14 fields remain
-  conservative until format, sample-count, render-target, and broader resolve
-  matrices pass. The matching Winemetal source audit reports `167/167`
+  graphics UAV store for both 2D and array resources with a DSV, sample-count-
+  2/4/8 float resolves, and exact readback
+  `[300,101,102,103,400,201,202,203,700,501,800,601,602,603,604,605,606,607]`
+  plus resolve averages `151.5`, `251.5`, `600.5`, and `628.5`. This remains
+  a focused behavior proof; both Options14 fields remain conservative until
+  format, render-target, and broader resolve matrices pass. The matching Winemetal source audit reports `167/167`
   normal/WOW64 call-table entries and
   `failure_count=0`; intentional warmup and missing-capture diagnostics remain
   outside the required set, and the FL12_2 target gate remains conservative.
