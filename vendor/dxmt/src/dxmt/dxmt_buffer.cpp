@@ -177,7 +177,7 @@ Buffer::prepareAllocationViews(BufferAllocation *allocation) {
     assert(texel_size);
     assert(!(allocation->suballocation_size_ & (texel_size - 1)));
     auto total_length = allocation->suballocation_size_ * allocation->suballocation_count_;
-    WMTTextureInfo info;
+    WMTTextureInfo info = {};
     info.type = WMTTextureTypeTextureBuffer;
     info.width = total_length / (uint64_t)texel_size;
     info.height = 1;

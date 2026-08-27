@@ -326,7 +326,7 @@ void MTLD3D12Resource::InitializeResource(
         m_mtl_texture = wmt_device.newTexture(tex_info);
         m_native_placement_sparse_texture = m_mtl_texture.handle != 0;
       }
-    } else if (!m_is_reserved) {
+    } else if (!m_is_reserved && !m_mtl_texture.handle) {
       m_mtl_texture = wmt_device.newTexture(tex_info);
     }
     if (!m_mtl_texture.handle && m_is_reserved) {
