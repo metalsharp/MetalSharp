@@ -74,7 +74,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | --- | --- | --- | --- |
 | Shader model | At least 6.5 | 6.7 | SM 6.6 breadth plus SM 6.7 quad-vote runtime readback passed |
 | Ray tracing | Tier 1.1 | Not supported | DXR 1.0/1.1 probes |
-| Variable-rate shading | Tier 2 | Per-draw 2x2 map subset proven; Tier 2 remains unreported | Per-draw and image VRS probes |
+| Variable-rate shading | Tier 2 | Per-draw rate matrix and constant-image subset proven; Tier 2 remains unreported | Per-draw and image VRS probes |
 | Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
@@ -85,7 +85,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | WriteBufferImmediate | Direct, compute, bundle | Direct, compute, bundle proven and reported | Three-mode GPU-VA write/readback probe |
 | GPU VA bits/resource | At least 40 on x64 | 40 | Address-range and bounds probes |
 | GPU VA bits/process | At least 40 on x64 | 40 | Address-range and bounds probes |
-| Wave operations | Supported | Reported true, but baseline contract rejects the claim | Wave runtime readback suite |
+| Wave operations | Supported | Reported true and accepted by the behavior-backed contract | Wave runtime readback suite |
 | Output-merger logic op | Supported | Reported true | Logic-op render/readback matrix |
 | VP/RT array index from rasterizer feeder | Supported | Reported true | VS/DS/GS/MS array-index probe |
 | Copy-queue timestamps | Supported | Proven and reported | Metal GPU-end timestamp resolve/readback probe |
