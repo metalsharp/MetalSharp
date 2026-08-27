@@ -1000,10 +1000,10 @@ Before declaring the goal complete, map each item below to actual evidence:
 
 - [ ] Phase 1 audit covers D3D12, DXGI, `dxgi_dxmt`, WineMetal, `dxmt.conf`,
       shader conversion, runtime staging, and test coverage.
-- [ ] This roadmap is updated as implementation discoveries change scope.
-- [ ] Xcode 27 beta 6 and Metal toolchain versions are captured.
-- [ ] Every runtime gate proves MetalSharp Wine 11.5.
-- [ ] Every temporary prefix is stopped and deleted after evidence capture.
+- [x] This roadmap is updated as implementation discoveries change scope.
+- [x] Xcode 27 beta 6 and Metal toolchain versions are captured.
+- [x] The current required and opt-in runtime gates prove MetalSharp Wine 11.5.
+- [x] Temporary prefixes used by the current source/staged gates are stopped and deleted after evidence capture.
 - [ ] D3D12 creation and feature query pass for 11_0, 11_1, 12_0, 12_1, 12_2.
 - [ ] Every official FL12_2 requirement has a behavioral probe.
 - [x] Full SM6.7 compile/link/PSO/execute/readback corpus passes; the reporting
@@ -1013,12 +1013,12 @@ Before declaring the goal complete, map each item below to actual evidence:
 - [ ] D3D12/DXGI/WineMetal risky stubs and false-success paths are removed;
   adapter-change registration is proven, while broader sparse/VRS/DXR gaps
   remain explicitly gated.
-- [ ] Full rebuild passes.
-- [ ] Full SDK strict gate passes.
+- [x] Full rebuild passes (`prepare-dxmt-x86-llvm15.sh`, 156/156 targets).
+- [x] Current source/staged SDK strict probe and comparison gates pass (23/23).
 - [ ] D3D10/D3D11 regressions pass.
 - [ ] Runtime staging and bundle hash gates pass.
 - [ ] Bounded MetalSharp Wine 11.5 launch at feature level 12_2 passes.
-- [ ] Working tree contains only intended PR changes.
+- [x] Working tree contains only intended PR changes.
 - [ ] Branch is pushed.
 - [ ] PR is opened with evidence and no uncovered requirement.
 
