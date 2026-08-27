@@ -176,7 +176,9 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp
 ```
 
 For the final strict D3D12 SDK gate, run the full rebuild, contract, layout,
-probe, and comparison sequence:
+probe, and comparison sequence. `prepare-dxmt-x86-llvm15.sh` deliberately cleans
+retained Ninja target outputs first because Git checkouts do not preserve source
+mtimes; this prevents stale PE/Unix Winemetal exports from being staged:
 
 ```bash
 tools/d3d12-metal-sdk/scripts/prepare-dxmt-x86-llvm15.sh
