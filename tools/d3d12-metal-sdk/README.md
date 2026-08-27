@@ -382,10 +382,10 @@ default/upload/readback heap behavior, buffer GPU virtual addresses, 1D/2D/3D/ar
 CBV/SRV/UAV/RTV/DSV creation and binding, `GetResourceAllocationInfo`,
 `GetCopyableFootprints`, common color/depth/integer/normalized/sRGB format
 support, and typeless view-time typing. The resource probe now creates a native
-Metal sparse-backed 128x128x2 RGBA8-array reserved texture, reports two
+Metal placement-sparse 128x128x2 RGBA8-array reserved texture, reports two
 standard 128x128 subresource tiles, maps and unmaps both array slices through
-`UpdateTileMappings`, and round-trips exact 64 KiB `CopyTiles` payloads for
-each slice. The same gate covers one-tile R8G8_UNORM, R10G10B10A2_UNORM,
+`UpdateTileMappings`, copies its mapping to a second reserved texture, and
+round-trips exact 64 KiB `CopyTiles` payloads for each slice. The same gate covers one-tile R8G8_UNORM, R10G10B10A2_UNORM,
 R11G11B10_FLOAT, R16G16B16A16_UNORM, and R32G32B32A32_FLOAT textures plus
 one-tile and two-level R8_UNORM reserved textures. A focused two-tile
 reserved-buffer path reports the 64 KiB buffer
@@ -395,9 +395,9 @@ full shared compatibility fallback). The single-mip 128x128x2 RGBA8 path uses
 an explicit placement heap and a second reserved texture reads the same
 physical tile. The same gate reads mip 1 from a standard-tiled 256x256
 two-level reserved texture. Tier 3 remains conservative until broader
-physical heap-page selection, sparse-texture mapping copies,
-packed/partial-mip layouts, `CopyTileMappings` texture coverage,
-residency transitions, and broader formats are covered. It also round-trips a named and unnamed process-local
+broader physical heap-page selection and sparse-texture mapping copies,
+packed/partial-mip layouts, residency transitions, and broader formats are
+covered. It also round-trips a named and unnamed process-local
 `CreateSharedHandle`/`OpenSharedHandle` pair and rejects unknown handles and
 missing names; cross-process sharing remains gated. The probe also creates a fully typed `R32_FLOAT` texture through
 `ID3D12Device10::CreateCommittedResource3` and `CreatePlacedResource2`,
