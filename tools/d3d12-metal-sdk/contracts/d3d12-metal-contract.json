@@ -259,7 +259,7 @@
           "CreatePlacedResource": {
             "difficulty": "moderate",
             "metal": "MTLHeap sub-allocation: MTLHeap::newBufferWithLength / newTextureWithDescriptor:offset:",
-            "notes": "Placed buffers retain the existing heap-backed buffer path. Default-heap placed textures now use a native Metal placement heap and offset texture allocation when the heap can host textures; alignment and overlapping alias barriers remain gated.",
+            "notes": "Placed buffers retain the existing heap-backed buffer path. Default-heap placed textures use a native Metal placement heap and offset texture allocation when the heap can host textures; a focused overlapping R32_FLOAT alias switches contents through D3D12 aliasing barriers, while broader formats and heap-reuse matrices remain gated.",
             "translation": "heap->newBufferWithLength(length, options, offset) or heap->newTextureWithDescriptor(texDesc, offset)"
           },
           "CreateQueryHeap": {

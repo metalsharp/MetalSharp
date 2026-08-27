@@ -880,13 +880,17 @@ static CaseResult run_castable_format_case() {
     ID3D12Heap* cast_heap = nullptr;
     ID3D12Resource* cast_texture = nullptr;
     ID3D12Resource* placed_cast_texture = nullptr;
+    ID3D12Resource* alias_texture = nullptr;
     ID3D12Resource* upload = nullptr;
+    ID3D12Resource* alias_upload = nullptr;
     ID3D12Resource* output = nullptr;
     ID3D12Resource* readback = nullptr;
     ID3D12Resource* rejected_output = nullptr;
     ID3D12Resource* rejected_readback = nullptr;
     ID3D12Resource* placed_output = nullptr;
     ID3D12Resource* placed_readback = nullptr;
+    ID3D12Resource* alias_output = nullptr;
+    ID3D12Resource* alias_readback = nullptr;
     ID3D12Resource* rgba_output = nullptr;
     ID3D12Resource* rgba_readback = nullptr;
     std::string shader_errors;
@@ -939,7 +943,7 @@ static CaseResult run_castable_format_case() {
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC desc = {};
         desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        desc.NumDescriptors = 8;
+        desc.NumDescriptors = 10;
         desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap));
     }
@@ -991,6 +995,10 @@ static CaseResult run_castable_format_case() {
         hr = device10->CreatePlacedResource2(
             cast_heap, 0, &texture_desc1, D3D12_BARRIER_LAYOUT_COPY_DEST,
             nullptr, 2, castable_formats, IID_PPV_ARGS(&placed_cast_texture));
+    if (SUCCEEDED(hr))
+        hr = device10->CreatePlacedResource2(
+            cast_heap, 0, &texture_desc1, D3D12_BARRIER_LAYOUT_COPY_DEST,
+            nullptr, 2, castable_formats, IID_PPV_ARGS(&alias_texture));
     if (SUCCEEDED(hr)) {
         device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &footprint,
                                       &rows, &row_bytes, &upload_bytes);
@@ -1005,6 +1013,22 @@ static CaseResult run_castable_format_case() {
             std::memcpy(mapped + footprint.Offset, &one_float_bits,
                         sizeof(one_float_bits));
             upload->Unmap(0, nullptr);
+        }
+        if (SUCCEEDED(hr))
+            hr = create_committed_buffer(device, D3D12_HEAP_TYPE_UPLOAD,
+                                         upload_bytes, D3D12_RESOURCE_FLAG_NONE,
+                                         D3D12_RESOURCE_STATE_GENERIC_READ,
+                                         &alias_upload);
+        if (SUCCEEDED(hr)) {
+            uint8_t* alias_mapped = nullptr;
+            hr = alias_upload->Map(0, nullptr,
+                                   reinterpret_cast<void**>(&alias_mapped));
+            if (SUCCEEDED(hr) && alias_mapped) {
+                const uint32_t two_float_bits = 0x40000000u;
+                std::memcpy(alias_mapped + footprint.Offset, &two_float_bits,
+                            sizeof(two_float_bits));
+                alias_upload->Unmap(0, nullptr);
+            }
         }
     }
     if (SUCCEEDED(hr))
@@ -1035,6 +1059,16 @@ static CaseResult run_castable_format_case() {
                                      D3D12_RESOURCE_FLAG_NONE,
                                      D3D12_RESOURCE_STATE_COPY_DEST,
                                      &placed_readback);
+    if (SUCCEEDED(hr))
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256,
+                                     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                     &alias_output);
+    if (SUCCEEDED(hr))
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256,
+                                     D3D12_RESOURCE_FLAG_NONE,
+                                     D3D12_RESOURCE_STATE_COPY_DEST,
+                                     &alias_readback);
     if (SUCCEEDED(hr))
         hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256,
                                      D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
@@ -1079,6 +1113,11 @@ static CaseResult run_castable_format_case() {
                                          offset_cpu(cpu, increment, 6));
         device->CreateUnorderedAccessView(rgba_output, nullptr, &uav,
                                           offset_cpu(cpu, increment, 7));
+        srv.Format = DXGI_FORMAT_R32_UINT;
+        device->CreateShaderResourceView(placed_cast_texture, &srv,
+                                         offset_cpu(cpu, increment, 8));
+        device->CreateUnorderedAccessView(alias_output, nullptr, &uav,
+                                          offset_cpu(cpu, increment, 9));
 
         D3D12_TEXTURE_COPY_LOCATION src = {};
         src.pResource = upload;
@@ -1151,6 +1190,41 @@ static CaseResult run_castable_format_case() {
         placed_table.ptr += 4ull * increment;
         list->SetComputeRootDescriptorTable(0, placed_table);
         list->Dispatch(1, 1, 1);
+
+        D3D12_RESOURCE_BARRIER alias_to_texture = {};
+        alias_to_texture.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        alias_to_texture.Aliasing.pResourceBefore = placed_cast_texture;
+        alias_to_texture.Aliasing.pResourceAfter = alias_texture;
+        list->ResourceBarrier(1, &alias_to_texture);
+        D3D12_TEXTURE_COPY_LOCATION alias_src = {};
+        alias_src.pResource = alias_upload;
+        alias_src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        alias_src.PlacedFootprint = footprint;
+        D3D12_TEXTURE_COPY_LOCATION alias_dst = {};
+        alias_dst.pResource = alias_texture;
+        alias_dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&alias_dst, 0, 0, 0, &alias_src, nullptr);
+        D3D12_RESOURCE_BARRIER alias_texture_source = transition_barrier(
+            alias_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &alias_texture_source);
+        D3D12_RESOURCE_BARRIER texture_to_alias = {};
+        texture_to_alias.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        texture_to_alias.Aliasing.pResourceBefore = alias_texture;
+        texture_to_alias.Aliasing.pResourceAfter = placed_cast_texture;
+        list->ResourceBarrier(1, &texture_to_alias);
+        D3D12_GPU_DESCRIPTOR_HANDLE alias_table =
+            heap->GetGPUDescriptorHandleForHeapStart();
+        alias_table.ptr += 8ull * increment;
+        const D3D12_CPU_DESCRIPTOR_HANDLE alias_uav_cpu =
+            offset_cpu(cpu, increment, 9);
+        D3D12_GPU_DESCRIPTOR_HANDLE alias_uav_gpu = alias_table;
+        alias_uav_gpu.ptr += increment;
+        list->ClearUnorderedAccessViewUint(
+            alias_uav_gpu, alias_uav_cpu, alias_output, clear, 0, nullptr);
+        list->SetComputeRootDescriptorTable(0, alias_table);
+        list->Dispatch(1, 1, 1);
+
         D3D12_GPU_DESCRIPTOR_HANDLE rgba_table =
             heap->GetGPUDescriptorHandleForHeapStart();
         rgba_table.ptr += 6ull * increment;
@@ -1169,15 +1243,20 @@ static CaseResult run_castable_format_case() {
             transition_barrier(placed_output,
                                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                D3D12_RESOURCE_STATE_COPY_SOURCE),
+            uav_barrier(alias_output),
+            transition_barrier(alias_output,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
             uav_barrier(rgba_output),
             transition_barrier(rgba_output,
                                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                D3D12_RESOURCE_STATE_COPY_SOURCE),
         };
-        list->ResourceBarrier(8, output_barriers);
+        list->ResourceBarrier(10, output_barriers);
         list->CopyResource(readback, output);
         list->CopyResource(rejected_readback, rejected_output);
         list->CopyResource(placed_readback, placed_output);
+        list->CopyResource(alias_readback, alias_output);
         list->CopyResource(rgba_readback, rgba_output);
         hr = execute_and_wait(device, queue, list);
     }
@@ -1185,45 +1264,56 @@ static CaseResult run_castable_format_case() {
     uint32_t observed = 0;
     uint32_t rejected_value = 0;
     uint32_t placed_observed = 0;
+    uint32_t alias_observed = 0;
     uint32_t rgba_observed[4] = {};
     const bool readback_ok =
         SUCCEEDED(hr) && readback_u32(readback, &observed, 1) &&
         readback_u32(rejected_readback, &rejected_value, 1) &&
         readback_u32(placed_readback, &placed_observed, 1) &&
+        readback_u32(alias_readback, &alias_observed, 1) &&
         readback_u32(rgba_readback, rgba_observed, 4);
+    const bool overlapping_alias_verified =
+        readback_ok && placed_observed == 0x3f800000u &&
+        alias_observed == 0x40000000u;
     result.pass = invalid_list_rejected && readback_ok &&
                   observed == 0x3f800000u && rejected_value == 0 &&
-                  placed_observed == 0x3f800000u;
+                  overlapping_alias_verified;
     result.pass = result.pass && rgba_observed[0] == 0 &&
                   rgba_observed[1] == 0 && rgba_observed[2] == 128 &&
                   rgba_observed[3] == 63;
     result.hr = result.pass ? S_OK : hr;
     result.detail = result.pass
-        ? "committed and placed R32_FLOAT resources passed declared R32_UINT/R8G8B8A8_UINT reads, mismatched lists failed, and undeclared R32_SINT remained null"
+        ? "committed and placed R32_FLOAT resources passed declared R32_UINT/R8G8B8A8_UINT reads, an overlapping placed alias switched from 1.0 to 2.0, mismatched lists failed, and undeclared R32_SINT remained null"
         : (shader_errors.empty() ? "declared castable-format readback failed" : shader_errors);
     char extra[512] = {};
     std::snprintf(extra, sizeof(extra),
                   "\"device10_available\":%s,\"resource_format\":\"R32_FLOAT\","
                   "\"declared_view_format\":\"R32_UINT\",\"rejected_view_format\":\"R32_SINT\","
                   "\"observed_bits\":%u,\"rejected_view_value\":%u,"
-                  "\"placed_observed_bits\":%u,\"rgba8_uint_values\":[%u,%u,%u,%u],"
+                  "\"placed_observed_bits\":%u,\"alias_observed_bits\":%u,\"overlapping_alias_verified\":%s,\"rgba8_uint_values\":[%u,%u,%u,%u],"
                   "\"mismatched_unit_size_hr\":\"%s\",\"mismatched_unit_size_rejected\":%s",
                   device10 ? "true" : "false", observed, rejected_value,
-                  placed_observed, rgba_observed[0], rgba_observed[1],
-                  rgba_observed[2], rgba_observed[3],
+                  placed_observed, alias_observed,
+                  overlapping_alias_verified ? "true" : "false",
+                  rgba_observed[0], rgba_observed[1], rgba_observed[2],
+                  rgba_observed[3],
                   hr_hex(invalid_list_hr).c_str(),
                   invalid_list_rejected ? "true" : "false");
     result.extra = extra;
 
     safe_release(rgba_readback);
     safe_release(rgba_output);
+    safe_release(alias_readback);
+    safe_release(alias_output);
     safe_release(placed_readback);
     safe_release(placed_output);
     safe_release(rejected_readback);
     safe_release(rejected_output);
     safe_release(readback);
     safe_release(output);
+    safe_release(alias_upload);
     safe_release(upload);
+    safe_release(alias_texture);
     safe_release(placed_cast_texture);
     safe_release(cast_texture);
     safe_release(cast_heap);

@@ -264,8 +264,9 @@ Findings:
 - `ReadFromSubresource` can zero output and return success for GPU-only
   textures rather than executing a readback.
 - Default-heap placed textures now use native Metal placement heaps and
-  `newTextureWithDescriptor:offset:` for the proven common path; overlapping
-  resource aliasing and aliasing-barrier behavior remain unproven.
+  `newTextureWithDescriptor:offset:`. A focused overlapping R32_FLOAT alias
+  switches from 1.0 to 2.0 through D3D12 aliasing barriers and readback;
+  broader formats, heap reuse, and aliasing matrices remain gated.
 - Reserved resources now use native Metal sparse backing for a focused 2D
   RGBA8-array path; unsupported shapes fail closed rather than using committed
   substitutes.
