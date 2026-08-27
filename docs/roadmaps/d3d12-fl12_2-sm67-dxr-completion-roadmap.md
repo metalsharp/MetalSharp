@@ -267,7 +267,9 @@ Findings:
 
 - Resource creation supports ordinary buffers and 1D/2D/3D textures, arrays,
   mip levels, and MSAA shapes at a basic level.
-- Unsupported DXGI formats can silently fall back to BGRA8 instead of failing.
+- Unsupported DXGI texture formats now fail closed with `E_INVALIDARG` instead
+  of silently falling back to BGRA8; the resources probe covers an `R1_UNORM`
+  creation rejection. Format coverage still needs broader conformance matrices.
 - Texture resources receive synthetic GPU virtual addresses, even though D3D12
   GPU VAs are buffer-oriented. Address lookup therefore mixes real and
   synthetic ranges.
@@ -617,7 +619,8 @@ Hard gate:
 
 Deliverables:
 
-- Remove invalid-format BGRA fallback; fail invalid resource/view combinations.
+- Reject invalid texture formats and resource/view combinations; the invalid-
+  format BGRA fallback is removed and `R1_UNORM` creation now fails closed.
 - Implement correct 1D/2D/3D/cube/array/MSAA resource and view behavior.
 - Complete plane-aware footprints, copies, resolve modes, and subresource IO.
 - Implement real GPU-to-CPU readback and CPU-to-GPU upload for textures.
@@ -1062,6 +1065,10 @@ the goal is not complete.
   texture mapping-copy readback; its disposable prefix was removed after the
   run. The M12 pipeline contract, shader-engine contract, runtime-layout
   preflight, and `cargo test m12_` (33 tests) also pass.
+- Unsupported ordinary texture formats now fail closed instead of being
+  substituted with BGRA8. A clean Wine 11.5 resources probe rejects
+  `DXGI_FORMAT_R1_UNORM` with `E_INVALIDARG` while all existing resource,
+  sparse, alias, mapping-copy, and BC1 readbacks remain exact.
 
 ### 2026-08-25 — Baseline and object-contract foundation
 

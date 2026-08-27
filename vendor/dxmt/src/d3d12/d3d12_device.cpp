@@ -4362,6 +4362,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   auto res = new MTLD3D12Resource(
       this, *desc, initial_state,
       heap_properties ? *heap_properties : D3D12_HEAP_PROPERTIES{}, heap_flags);
+  if (!res->IsValid()) {
+    TRACE("CreateCommittedResource unsupported resource backing dim=%u fmt=%u",
+          (unsigned)desc->Dimension, (unsigned)desc->Format);
+    res->Release();
+    return E_INVALIDARG;
+  }
   if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
       desc->Width >= (64ull << 20)) {
     Logger::info(
@@ -4544,6 +4550,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
                              heap_offset)
                  : new MTLD3D12Resource(this, *desc, initial_state, heap_props,
                                         heap_flags);
+  if (!res->IsValid()) {
+    TRACE("CreatePlacedResource unsupported resource backing dim=%u fmt=%u",
+          (unsigned)desc->Dimension, (unsigned)desc->Format);
+    res->Release();
+    return E_INVALIDARG;
+  }
   HRESULT hr = res->QueryInterface(riid, resource);
   TRACE("CreatePlacedResource out=%p hr=0x%lx", resource ? *resource : nullptr,
         hr);
