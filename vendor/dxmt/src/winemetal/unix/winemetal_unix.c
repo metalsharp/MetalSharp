@@ -625,9 +625,11 @@ fill_texture_descriptor(MTLTextureDescriptor *desc, struct WMTTextureInfo *info)
   desc.sampleCount = info->sample_count;
   desc.usage = (MTLTextureUsage)info->usage;
   desc.resourceOptions = (MTLResourceOptions)info->options;
-  if (@available(macOS 26.0, *) && info->placement_sparse_page_size)
-    desc.placementSparsePageSize =
-        (MTLSparsePageSize)info->placement_sparse_page_size;
+  if (@available(macOS 26.0, *)) {
+    if (info->placement_sparse_page_size)
+      desc.placementSparsePageSize =
+          (MTLSparsePageSize)info->placement_sparse_page_size;
+  }
 };
 
 void

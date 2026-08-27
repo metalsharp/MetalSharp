@@ -703,6 +703,8 @@ struct WMTTextureInfo {
   uint64_t gpu_resource_id; // out
 };
 
+STATIC_ASSERT(sizeof(WMTTextureInfo) == 48);
+
 WINEMETAL_API obj_handle_t MTLDevice_newTexture(obj_handle_t device, struct WMTTextureInfo *info);
 
 WINEMETAL_API obj_handle_t
