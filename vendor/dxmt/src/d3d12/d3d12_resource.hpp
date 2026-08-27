@@ -116,9 +116,12 @@ public:
   uint64_t GetBufferByteLength() const;
   bool IsReservedResource() const { return m_is_reserved; }
   bool IsSparseBacked() const {
-    return m_is_reserved && m_sparse_heap.handle && m_mtl_texture.handle;
+    return m_is_reserved &&
+           ((IsBuffer() && m_mtl_buffer.handle) ||
+            (!IsBuffer() && m_sparse_heap.handle && m_mtl_texture.handle));
   }
   WMT::Reference<WMT::Heap> GetSparseHeap() { return m_sparse_heap; }
+  void *GetCPUAddress() const { return m_cpu_addr; }
   D3D12_TILE_SHAPE GetTiledResourceTileShape() const;
   bool ConfigureSamplerFeedback(const D3D12_MIP_REGION &region);
   bool IsSamplerFeedback() const { return m_is_sampler_feedback; }

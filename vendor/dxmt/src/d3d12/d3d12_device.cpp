@@ -4520,11 +4520,20 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   InitReturnPtr(resource);
   if (!desc)
     return E_INVALIDARG;
-  if (desc->Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-      desc->MipLevels != 1 || desc->SampleDesc.Count > 1 ||
-      desc->Width == 0 || desc->Height == 0 || desc->DepthOrArraySize == 0 ||
-      MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc->Format) ==
-          WMTPixelFormatInvalid) {
+  const bool reserved_buffer =
+      desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+      desc->Format == DXGI_FORMAT_UNKNOWN && desc->Width &&
+      desc->Width % D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES == 0 &&
+      desc->Height == 1 && desc->DepthOrArraySize == 1 &&
+      desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 &&
+      desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+  const bool reserved_texture =
+      desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+      desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 && desc->Width &&
+      desc->Height && desc->DepthOrArraySize &&
+      MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc->Format) !=
+          WMTPixelFormatInvalid;
+  if (!reserved_buffer && !reserved_texture) {
     TRACE("CreateReservedResource rejected unsupported sparse shape dim=%u "
           "samples=%u format=%u",
           (unsigned)desc->Dimension, desc->SampleDesc.Count,
@@ -4853,6 +4862,28 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
     return;
   D3D12_RESOURCE_DESC desc = {};
   reserved->GetDesc(&desc);
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    const UINT total_tiles = static_cast<UINT>(
+        (desc.Width + D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES - 1) /
+        D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES);
+    if (total_tile_count)
+      *total_tile_count = total_tiles;
+    if (packed_mip_info)
+      *packed_mip_info = {};
+    if (standard_tile_shape)
+      *standard_tile_shape = {D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, 1, 1};
+    if (sub_resource_tiling_count) {
+      const UINT requested = requested_tiling_count;
+      if (first_sub_resource_tiling != 0) {
+        *sub_resource_tiling_count = 0;
+      } else {
+        *sub_resource_tiling_count = requested ? std::min(requested, 1u) : 1;
+        if (sub_resource_tilings && requested)
+          sub_resource_tilings[0] = {total_tiles, 1, 1, 0};
+      }
+    }
+    return;
+  }
   if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
       desc.SampleDesc.Count > 1 || !desc.MipLevels || !desc.DepthOrArraySize)
     return;

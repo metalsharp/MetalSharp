@@ -165,8 +165,9 @@ void MTLD3D12Resource::InitializeResource(
     m_desc.Width, m_desc.Height, m_desc.DepthOrArraySize);
 
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
-    bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
-                           m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
+    bool cpu_accessible =
+        m_is_reserved || m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
+        m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK;
     WMTBufferInfo buf_info = {};
     buf_info.length = m_desc.Width ? m_desc.Width : 256;
     if (backing_buffer.handle) {
@@ -199,6 +200,8 @@ void MTLD3D12Resource::InitializeResource(
       m_cpu_addr = buf_info.memory.get_accessible_or_null();
       m_gpu_addr = buf_info.gpu_address;
       m_buf_info = buf_info;
+      if (m_is_reserved && m_cpu_addr)
+        std::memset(m_cpu_addr, 0, static_cast<size_t>(m_desc.Width));
       RTRACE("ctor: buffer cpu=%p gpu=0x%llx len=%llu opts=%u heap_type=%u",
              m_cpu_addr, (unsigned long long)m_gpu_addr,
              (unsigned long long)m_desc.Width, (unsigned)buf_info.options,
@@ -332,6 +335,8 @@ uint64_t MTLD3D12Resource::GetBufferByteLength() const {
 }
 
 D3D12_TILE_SHAPE MTLD3D12Resource::GetTiledResourceTileShape() const {
+  if (IsBuffer())
+    return {D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, 1, 1};
   return TileShapeForFormat(m_desc.Format);
 }
 
@@ -494,7 +499,8 @@ MTLD3D12Resource::Map(UINT sub_resource,
     *data = nullptr;
     return E_INVALIDARG;
   }
-  if (m_cpu_addr) {
+  if (m_cpu_addr &&
+      !(m_is_reserved && m_heap_properties.Type == D3D12_HEAP_TYPE_DEFAULT)) {
     *data = m_cpu_addr;
     RTRACE("Map returning cpu_addr=%p gpu_addr=0x%llx", m_cpu_addr, (unsigned long long)m_gpu_addr);
     return S_OK;
