@@ -601,6 +601,12 @@ static bool FormatHasStencil(DXGI_FORMAT format) {
          format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
 }
 
+// D3D12 VRS images address fixed-size 16x16 screen-space tiles.  The
+// resource dimensions are ceil(render-target-dim / tile-size), so deriving a
+// tile size by dividing the target by the image dimensions is wrong for
+// non-multiple render-target sizes (and for images with trailing unused texels).
+static constexpr uint32_t kD3D12ShadingRateImageTileSize = 16;
+
 static bool ShadingRateToMetalQuality(D3D12_SHADING_RATE rate,
                                       float &horizontal, float &vertical) {
   horizontal = 1.0f;
@@ -5411,13 +5417,8 @@ struct ReplayState {
         auto *image = static_cast<MTLD3D12Resource *>(shading_rate_image);
         D3D12_RESOURCE_DESC image_desc = {};
         image->GetDesc(&image_desc);
-        const uint32_t image_width = static_cast<uint32_t>(
-            std::max<UINT64>(image_desc.Width, 1));
-        const uint32_t image_height = std::max<UINT>(image_desc.Height, 1);
-        const uint32_t tile_width = std::max<uint32_t>(
-            (render_target_width + image_width - 1) / image_width, 1);
-        const uint32_t tile_height = std::max<uint32_t>(
-            (render_target_height + image_height - 1) / image_height, 1);
+        const uint32_t tile_width = kD3D12ShadingRateImageTileSize;
+        const uint32_t tile_height = kD3D12ShadingRateImageTileSize;
         const uint64_t tile_left =
             uint64_t(vrs_image_tile_x) * tile_width;
         const uint64_t tile_top = uint64_t(vrs_image_tile_y) * tile_height;
@@ -6156,16 +6157,12 @@ struct ReplayState {
         target_height = std::max<UINT>(target_desc.Height, 1);
       }
     }
-    const uint32_t tile_width =
-        std::max<uint32_t>((target_width + image_width - 1) / image_width, 1);
-    const uint32_t tile_height = std::max<uint32_t>(
-        (target_height + image_height - 1) / image_height, 1);
-    const uint32_t tile_count_x =
-        std::min<uint32_t>(image_width,
-                           (target_width + tile_width - 1) / tile_width);
-    const uint32_t tile_count_y =
-        std::min<uint32_t>(image_height,
-                           (target_height + tile_height - 1) / tile_height);
+    const uint32_t tile_width = kD3D12ShadingRateImageTileSize;
+    const uint32_t tile_height = kD3D12ShadingRateImageTileSize;
+    const uint32_t tile_count_x = std::min<uint32_t>(
+        image_width, (target_width + tile_width - 1) / tile_width);
+    const uint32_t tile_count_y = std::min<uint32_t>(
+        image_height, (target_height + tile_height - 1) / tile_height);
     bool encoded = true;
     for (uint32_t y = 0; y < tile_count_y && encoded; y++) {
       for (uint32_t x = 0; x < tile_count_x; x++) {
