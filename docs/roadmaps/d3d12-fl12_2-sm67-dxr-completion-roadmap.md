@@ -1057,7 +1057,8 @@ the goal is not complete.
 - The current clean staged M12 runtime also passes the full 23-probe matrix
   and strict comparison (`pass=true`, `issues=[]`), including the placement
   texture mapping-copy readback; its disposable prefix was removed after the
-  run.
+  run. The M12 pipeline contract, shader-engine contract, runtime-layout
+  preflight, and `cargo test m12_` (33 tests) also pass.
 
 ### 2026-08-25 — Baseline and object-contract foundation
 
