@@ -7906,18 +7906,23 @@ static bool BuildSparseTextureMappings(
           (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
       const UINT mip_tiles_y =
           (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
-      if (!size.Width || !size.Height || !size.Depth || size.Depth != 1 ||
+      if (!size.Width || !size.Height || !size.Depth ||
           size.NumTiles != requested_tiles || coordinate.X >= mip_tiles_x ||
           coordinate.Y >= mip_tiles_y ||
           uint64_t(coordinate.X) + size.Width > mip_tiles_x ||
-          uint64_t(coordinate.Y) + size.Height > mip_tiles_y)
+          uint64_t(coordinate.Y) + size.Height > mip_tiles_y ||
+          uint64_t(coordinate.Z) + size.Depth >
+              desc.DepthOrArraySize - slice)
         return false;
-      for (UINT y = 0; y < size.Height; ++y)
-        for (UINT x = 0; x < size.Width; ++x)
-          locations.push_back({coordinate.Subresource, coordinate.X + x,
-                               coordinate.Y + y});
-      (void)slice;
+      for (UINT z = 0; z < size.Depth; ++z)
+        for (UINT y = 0; y < size.Height; ++y)
+          for (UINT x = 0; x < size.Width; ++x)
+            locations.push_back(
+                {(slice + z) * mip_levels + mip, coordinate.X + x,
+                 coordinate.Y + y});
     } else {
+      if (coordinate.Z)
+        return false;
       // A non-box region walks X then Y and spills through mipmaps and array
       // slices in subresource order.  Do not treat NumTiles as a row width.
       UINT current_subresource = coordinate.Subresource;

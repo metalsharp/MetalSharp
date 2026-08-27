@@ -525,6 +525,9 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
       0;
   const bool volume =
       resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+  const bool array_texture =
+      resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+      resource_desc.DepthOrArraySize > 1;
   if (buffer_to_texture == texture_to_buffer ||
       (resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
        !volume) ||
@@ -695,6 +698,11 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
       (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
   const UINT tiles_z =
       (mip_depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+  const UINT coordinate_array_slice = coordinate.Subresource / mip_levels;
+  const UINT array_tiles_z =
+      array_texture && coordinate_array_slice < resource_desc.DepthOrArraySize
+          ? resource_desc.DepthOrArraySize - coordinate_array_slice
+          : 1;
   struct TileLocation {
     UINT subresource;
     UINT x;
@@ -721,12 +729,13 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     const UINT box_width = tile_region_size->Width;
     const UINT box_height = tile_region_size->Height;
     const UINT box_depth = tile_region_size->Depth;
+    const UINT box_z_limit = volume ? tiles_z : array_tiles_z;
     if (tile_region_size->NumTiles != region_tile_count || !box_width ||
         !box_height || !box_depth || coordinate.X >= tiles_x ||
-        coordinate.Y >= tiles_y || coordinate.Z >= tiles_z ||
+        coordinate.Y >= tiles_y || coordinate.Z >= box_z_limit ||
         uint64_t(coordinate.X) + box_width > tiles_x ||
         uint64_t(coordinate.Y) + box_height > tiles_y ||
-        uint64_t(coordinate.Z) + box_depth > tiles_z) {
+        uint64_t(coordinate.Z) + box_depth > box_z_limit) {
       CLTRACE("CopyTiles rejected box x=%u y=%u z=%u tiles=%ux%ux%u count=%u",
               coordinate.X, coordinate.Y, coordinate.Z, box_width, box_height,
               box_depth, tile_region_size->NumTiles);
@@ -738,9 +747,15 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
       const uint64_t box_row = tile % box_plane;
       const UINT y = static_cast<UINT>(box_row / box_width) + coordinate.Y;
       const UINT x = static_cast<UINT>(box_row % box_width) + coordinate.X;
-      locations.push_back({coordinate.Subresource, x, y, z});
+      const UINT subresource =
+          array_texture
+              ? ((coordinate_array_slice + z) * mip_levels + mip)
+              : coordinate.Subresource;
+      locations.push_back({subresource, x, y, array_texture ? 0 : z});
     }
   } else {
+    if (!volume && coordinate.Z)
+      return;
     // A non-box region walks X, Y, Z and then spills into subsequent
     // subresources.  Keeping the expanded locations here also makes the
     // generated CopyTextureRegion records preserve the correct mip/array
