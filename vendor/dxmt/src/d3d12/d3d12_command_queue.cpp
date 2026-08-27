@@ -6186,6 +6186,44 @@ struct ReplayState {
     vrs_image_tile_y = 0;
     return encoded;
   }
+
+  bool EncodeVRSIndexedDraw(MTLD3D12Device *device,
+                            const CmdDrawIndexedInstanced &cmd) {
+    if (!render_enc_open || !HasUsableRenderPSO() || !ib.BufferLocation ||
+        !cmd.index_count || !cmd.instance_count)
+      return false;
+    auto *index_resource = device->LookupResourceByGPUAddress(ib.BufferLocation);
+    if (!index_resource || !index_resource->GetMTLBuffer().handle)
+      return false;
+    const uint32_t index_size = ib.Format == DXGI_FORMAT_R32_UINT ? 4u : 2u;
+    const uint64_t index_buffer_offset =
+        ib.BufferLocation - index_resource->GetGPUVirtualAddress();
+    if (render_enc_open) {
+      render_enc.useResource(index_resource->GetMTLBuffer(),
+                             WMTResourceUsageRead, WMTRenderStageVertex);
+      RetainResourceMetalObjectsForCompletion(index_resource);
+    }
+    struct wmtcmd_render_draw_indexed draw = {};
+    draw.type = WMTRenderCommandDrawIndexed;
+    draw.next.set(nullptr);
+    draw.primitive_type = GetMetalPrimitiveType();
+    draw.index_type = index_size == 4 ? WMTIndexTypeUInt32 : WMTIndexTypeUInt16;
+    draw.index_count = cmd.index_count;
+    draw.index_buffer = index_resource->GetMTLBuffer().handle;
+    draw.index_buffer_offset = index_buffer_offset +
+                               uint64_t(cmd.start_index) * index_size;
+    draw.instance_count = cmd.instance_count;
+    draw.base_vertex = cmd.base_vertex;
+    draw.base_instance = cmd.start_instance;
+    BindMSCDrawParameters(device, cmd.index_count, cmd.instance_count,
+                          cmd.start_index, cmd.base_vertex, cmd.start_instance,
+                          true, draw.index_type);
+    BindMissingNonStageInVertexBuffers(device);
+    BindDirectFragmentCompleteness(device, "vrs_draw_indexed");
+    return EncodeRenderCommands(
+        reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+        "vrs_draw_indexed");
+  }
 };
 
 WMTIndexType DXGIToWMTIndexFormat(DXGI_FORMAT fmt) {
@@ -8502,23 +8540,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::DrawIndexedInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawIndexedInstanced *>(header);
         st.EnsureSwapchainRenderPSOReady();
-        st.EnsureRenderEncoder(m_device);
-        st.ApplyRootBindings(m_device);
-        st.BuildVertexConstantBufferTable(m_device);
-        st.BuildVertexArgumentBuffer(m_device);
-        st.BuildGeometryConstantBufferTable(m_device);
-        st.BuildGeometryArgumentBuffer(m_device);
-        st.BuildConstantBufferTable(m_device);
-        st.BuildArgumentBuffer(m_device);
-        if (st.render_enc_open && st.arg_buf.handle) {
-          uint32_t bind_index = st.BindIndexOrFallback(
-              st.pso->GetPSReflection().ArgumentBufferBindIndex,
-              st.kArgBufSlot);
-          st.SetFragmentBufferTracked(st.arg_buf, 0, bind_index);
-        }
-        st.BindStaticSamplers();
-        st.ApplyVertexBuffers(m_device);
-        st.BindGeometryMeshBuffers();
+        const bool vrs_image_tiles = st.HasNonconstantShadingRateImage();
+        if (!vrs_image_tiles)
+          st.PrepareRenderDraw(m_device);
         st.AddRenderFaultBreadcrumb(
             "DrawIndexedInstanced", cmd->index_count, cmd->instance_count,
             cmd->start_index, cmd->base_vertex, st.ib.BufferLocation, true);
@@ -8589,6 +8613,16 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 cmd->index_count, " inst=", cmd->instance_count,
                 " pso=", (void *)st.pso, " ", TracePsoShaderSummary(st.pso)));
           }
+        } else if (vrs_image_tiles && cmd->instance_count > 0 &&
+                   cmd->index_count > 0 && st.ib.BufferLocation &&
+                   st.HasUsableRenderPSO() &&
+                   !st.pso->UsesNativeTessellationPath() &&
+                   !st.pso->UsesGeometryMeshPipeline()) {
+          st.LogTessellationFallbackDraw("DrawIndexedInstanced", cmd->index_count,
+                                         cmd->instance_count, true);
+          if (st.ForEachShadingRateImageTile(
+                  m_device, [&]() { return st.EncodeVRSIndexedDraw(m_device, *cmd); }))
+            st.MarkSwapchainWorkEncoded();
         } else if (cmd->instance_count > 0 && cmd->index_count > 0 &&
                    st.ib.BufferLocation && st.render_enc_open &&
                    st.HasUsableRenderPSO()) {

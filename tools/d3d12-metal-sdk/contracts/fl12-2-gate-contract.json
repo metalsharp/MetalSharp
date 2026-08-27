@@ -446,6 +446,14 @@
       "expected": true
     },
     {
+      "id": "vrs_nonconstant_indexed_behavior",
+      "api": "D3D12 VRS nonconstant image indexed-draw behavior",
+      "probe": "probe-vrs",
+      "path": "summary.nonconstant_indexed_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
       "id": "vrs_sum_combiner_behavior",
       "api": "D3D12 VRS SUM combiner behavior",
       "probe": "probe-vrs",

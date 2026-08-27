@@ -185,7 +185,8 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
                            ID3D12Resource *vertex_buffer,
                            ID3D12DescriptorHeap *rtv_heap,
                            const D3D12_SHADING_RATE_COMBINER *combiners_arg =
-                               nullptr) {
+                               nullptr,
+                           ID3D12Resource *index_buffer = nullptr) {
   if (base_shading_rate != D3D12_SHADING_RATE_1X1 ||
       shading_rate_image || combiners_arg) {
     const D3D12_SHADING_RATE_COMBINER default_combiners[2] = {
@@ -212,7 +213,16 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
   vbv.SizeInBytes = 36;
   vbv.StrideInBytes = 12;
   list->IASetVertexBuffers(0, 1, &vbv);
-  list->DrawInstanced(3, 1, 0, 0);
+  if (index_buffer) {
+    D3D12_INDEX_BUFFER_VIEW ibv = {};
+    ibv.BufferLocation = index_buffer->GetGPUVirtualAddress();
+    ibv.SizeInBytes = 3 * sizeof(uint16_t);
+    ibv.Format = DXGI_FORMAT_R16_UINT;
+    list->IASetIndexBuffer(&ibv);
+    list->DrawIndexedInstanced(3, 1, 0, 0, 0);
+  } else {
+    list->DrawInstanced(3, 1, 0, 0);
+  }
   D3D12_RESOURCE_BARRIER target_barrier = {};
   target_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
   target_barrier.Transition.pResource = target;
@@ -328,6 +338,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   ID3D12Resource *shading_rate_upload = nullptr;
   ID3D12Resource *readback = nullptr;
   ID3D12Resource *vertex_buffer = nullptr;
+  ID3D12Resource *index_buffer = nullptr;
   ID3D12DescriptorHeap *rtv_heap = nullptr;
   D3D12_COMMAND_QUEUE_DESC queue_desc = {};
   HRESULT queue_hr = device ? device->CreateCommandQueue(
@@ -407,6 +418,23 @@ float4 ps_main(VSOut input) : SV_Target0 {
     if (SUCCEEDED(vertex_hr) && mapped) {
       std::memcpy(mapped, vertices, sizeof(vertices));
       vertex_buffer->Unmap(0, nullptr);
+    }
+  }
+  const uint16_t indices[3] = {0, 1, 2};
+  D3D12_RESOURCE_DESC index_desc = buffer_desc(sizeof(indices));
+  HRESULT index_hr = SUCCEEDED(vertex_hr)
+                         ? device->CreateCommittedResource(
+                               &upload_heap, D3D12_HEAP_FLAG_NONE, &index_desc,
+                               D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                               IID_PPV_ARGS(&index_buffer))
+                         : E_FAIL;
+  if (SUCCEEDED(index_hr)) {
+    void *mapped = nullptr;
+    D3D12_RANGE range = {0, 0};
+    index_hr = index_buffer->Map(0, &range, &mapped);
+    if (SUCCEEDED(index_hr) && mapped) {
+      std::memcpy(mapped, indices, sizeof(indices));
+      index_buffer->Unmap(0, nullptr);
     }
   }
   const uint8_t shading_rate_values[64] = {
@@ -771,6 +799,46 @@ float4 ps_main(VSOut input) : SV_Target0 {
                            nonconstant_image_pixels != image_pixels;
   }
 
+  // The same image must cover indexed draws. This is kept as a separate
+  // command-list recording so the replay path cannot accidentally reuse the
+  // non-indexed vertex-start state from the preceding case.
+  uint32_t nonconstant_indexed_pixels = 0;
+  HRESULT nonconstant_indexed_reset_hr = nonconstant_image_execute_hr;
+  HRESULT nonconstant_indexed_record_hr = E_FAIL;
+  HRESULT nonconstant_indexed_execute_hr = E_FAIL;
+  bool nonconstant_indexed_ok = false;
+  if (SUCCEEDED(nonconstant_indexed_reset_hr)) {
+    nonconstant_indexed_reset_hr = allocator->Reset();
+    if (SUCCEEDED(nonconstant_indexed_reset_hr))
+      nonconstant_indexed_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(nonconstant_indexed_reset_hr)) {
+      D3D12_RESOURCE_BARRIER restore_target = {};
+      restore_target.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      restore_target.Transition.pResource = target;
+      restore_target.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      restore_target.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_COPY_SOURCE;
+      restore_target.Transition.StateAfter =
+          D3D12_RESOURCE_STATE_RENDER_TARGET;
+      list->ResourceBarrier(1, &restore_target);
+      const D3D12_SHADING_RATE_COMBINER indexed_combiners[2] = {
+          D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+          D3D12_SHADING_RATE_COMBINER_OVERRIDE};
+      nonconstant_indexed_record_hr = record_draw(
+          list, list5, root, pso, target, D3D12_SHADING_RATE_1X1,
+          shading_rate_image, readback, vertex_buffer, rtv_heap,
+          indexed_combiners, index_buffer);
+    }
+    if (SUCCEEDED(nonconstant_indexed_record_hr))
+      nonconstant_indexed_execute_hr = execute_and_wait(device, queue, list);
+    nonconstant_indexed_pixels = count_nonzero(readback);
+    nonconstant_indexed_ok = SUCCEEDED(nonconstant_indexed_reset_hr) &&
+                            SUCCEEDED(nonconstant_indexed_record_hr) &&
+                            SUCCEEDED(nonconstant_indexed_execute_hr) &&
+                            nonconstant_indexed_pixels == 2320;
+  }
+
   const D3D12_SHADING_RATE rate_matrix_rates[] = {
       D3D12_SHADING_RATE_1X2, D3D12_SHADING_RATE_2X1,
       D3D12_SHADING_RATE_2X4, D3D12_SHADING_RATE_4X2,
@@ -826,6 +894,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       SUCCEEDED(list5_hr) && SUCCEEDED(target_hr) &&
                       SUCCEEDED(shading_rate_image_hr) &&
                       SUCCEEDED(readback_hr) && SUCCEEDED(vertex_hr) &&
+                      SUCCEEDED(index_hr) &&
                       SUCCEEDED(shading_rate_upload_hr) &&
                       SUCCEEDED(rtv_hr) && SUCCEEDED(baseline_record_hr) &&
                       SUCCEEDED(baseline_execute_hr) && baseline_pixels == 4096 &&
@@ -838,6 +907,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       image_pixels > 0 && image_pixels < baseline_pixels &&
                       image_pixels == vrs_pixels && cross_image_combiner_ok &&
                       sum_image_combiner_ok && nonconstant_image_ok &&
+                      nonconstant_indexed_ok &&
                       rate_matrix_ok &&
                       SUCCEEDED(rate_matrix_last_hr);
   std::printf("{\n");
@@ -922,6 +992,16 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"nonconstant_image_expected_pixels\": 2320,\n");
   std::printf("  \"nonconstant_image_verified\": %s,\n",
               nonconstant_image_ok ? "true" : "false");
+  std::printf("  \"nonconstant_indexed_reset_hr\": \"%s\",\n",
+              hr_hex(nonconstant_indexed_reset_hr).c_str());
+  std::printf("  \"nonconstant_indexed_record_hr\": \"%s\",\n",
+              hr_hex(nonconstant_indexed_record_hr).c_str());
+  std::printf("  \"nonconstant_indexed_execute_hr\": \"%s\",\n",
+              hr_hex(nonconstant_indexed_execute_hr).c_str());
+  std::printf("  \"nonconstant_indexed_pixels\": %u,\n",
+              nonconstant_indexed_pixels);
+  std::printf("  \"nonconstant_indexed_verified\": %s,\n",
+              nonconstant_indexed_ok ? "true" : "false");
   std::printf("  \"rate_matrix\": [");
   for (size_t i = 0; i < 5; ++i) {
     if (i)
@@ -950,12 +1030,15 @@ float4 ps_main(VSOut input) : SV_Target0 {
   // focused matrices execute.
   std::printf("    \"nonconstant_image_complete\": %s,\n",
               nonconstant_image_ok ? "true" : "false");
+  std::printf("    \"nonconstant_indexed_complete\": %s,\n",
+              nonconstant_indexed_ok ? "true" : "false");
   std::printf("    \"per_primitive_complete\": false,\n");
   std::printf("    \"logical_resolution_complete\": false,\n");
   std::printf("    \"lifecycle_complete\": %s,\n",
               (SUCCEEDED(image_reset_hr) && SUCCEEDED(image_record_hr) &&
                SUCCEEDED(image_execute_hr) &&
-               SUCCEEDED(sum_image_execute_hr))
+               SUCCEEDED(sum_image_execute_hr) &&
+               SUCCEEDED(nonconstant_indexed_execute_hr))
                   ? "true"
                   : "false");
   std::printf("    \"tier2_matrix_complete\": false\n");
