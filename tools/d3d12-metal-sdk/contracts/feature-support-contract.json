@@ -178,9 +178,9 @@
         "compute-stage writable RWTexture2DMSArray sample and array-slice readback",
         "graphics-stage writable MSAA UAV store for 2D and array resources with a DSV",
         "compute and graphics sample counts 2, 4, and 8",
-        "R32G32B32A32_FLOAT and R16G16B16A16_FLOAT sample resolves"
+        "R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM sample resolves"
       ],
-      "risk": "Exact compute and graphics readbacks prove the three advanced texture operation families and a focused writable-MSAA subset covering 2D and 2D-array resources, including a DSV-attached graphics pass, sample counts 2/4/8, and full-sample-count float resolves. DXMT emulates writable UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count, but both Options14 capability fields remain conservative until format, render-target, and broader resolve matrices pass.",
+      "risk": "Exact compute and graphics readbacks prove the three advanced texture operation families and a focused writable-MSAA subset covering 2D and 2D-array resources, including a DSV-attached graphics pass, sample counts 2/4/8, and full-sample-count float resolves for R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM. DXMT emulates writable UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count, but both Options14 capability fields remain conservative until additional formats, render-target, and broader resolve matrices pass.",
       "state": "required",
       "tier": "required"
     },
