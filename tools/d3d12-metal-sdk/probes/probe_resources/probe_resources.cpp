@@ -771,13 +771,9 @@ int main() {
         D3D12_TILED_RESOURCE_COORDINATE alias_coordinate = {};
         D3D12_TILE_REGION_SIZE alias_region = {};
         alias_region.NumTiles = 1;
-        D3D12_TILE_RANGE_FLAGS alias_range_flag = D3D12_TILE_RANGE_FLAG_NONE;
-        UINT alias_heap_offset = 0;
-        UINT alias_range_count = 1;
-        queue->UpdateTileMappings(
-            placement_alias_texture, 1, &alias_coordinate, &alias_region,
-            sparse_heap, 1, &alias_range_flag, &alias_heap_offset,
-            &alias_range_count, D3D12_TILE_MAPPING_FLAG_NONE);
+        queue->CopyTileMappings(
+            placement_alias_texture, &alias_coordinate, reserved_texture,
+            &coordinates[0], &alias_region, D3D12_TILE_MAPPING_FLAG_NONE);
         list->CopyTiles(
             reserved_texture, &coordinates[0], &region_sizes[0], sparse_upload,
             0, D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);

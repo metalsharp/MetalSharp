@@ -203,6 +203,15 @@ struct unixcall_mtl4commandqueue_update_texture_mappings {
   uint64_t ret_success;
 };
 
+struct unixcall_mtl4commandqueue_copy_texture_mappings {
+  obj_handle_t queue;
+  obj_handle_t source_texture;
+  obj_handle_t destination_texture;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
+  uint64_t ret_success;
+};
+
 struct unixcall_mtl4commandqueue_update_buffer_mappings {
   obj_handle_t queue;
   obj_handle_t buffer;

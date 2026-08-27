@@ -7922,9 +7922,101 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
 
   auto *dst = static_cast<MTLD3D12Resource *>(dst_resource);
   auto *src = static_cast<MTLD3D12Resource *>(src_resource);
-  if (!dst || !src || !dst->IsNativeSparseBuffer() ||
-      !src->IsNativeSparseBuffer()) {
-    QTRACE("CmdQueue::CopyTileMappings requires native sparse buffers");
+  if (!dst || !src) {
+    QTRACE("CmdQueue::CopyTileMappings missing resources");
+    return;
+  }
+
+  if (dst->IsNativePlacementSparseTexture() &&
+      src->IsNativePlacementSparseTexture()) {
+    D3D12_RESOURCE_DESC dst_desc = {};
+    D3D12_RESOURCE_DESC src_desc = {};
+    dst->GetDesc(&dst_desc);
+    src->GetDesc(&src_desc);
+    const D3D12_TILE_SHAPE dst_shape = dst->GetTiledResourceTileShape();
+    const D3D12_TILE_SHAPE src_shape = src->GetTiledResourceTileShape();
+    const auto &dst_coordinate = *dst_region_start_coordinate;
+    const auto &src_coordinate = *src_region_start_coordinate;
+    const UINT dst_mips = std::max<UINT>(dst_desc.MipLevels, 1);
+    const UINT src_mips = std::max<UINT>(src_desc.MipLevels, 1);
+    const UINT dst_mip = dst_coordinate.Subresource % dst_mips;
+    const UINT src_mip = src_coordinate.Subresource % src_mips;
+    const UINT dst_slice = dst_coordinate.Subresource / dst_mips;
+    const UINT src_slice = src_coordinate.Subresource / src_mips;
+    const UINT dst_width = MipSize(dst_desc.Width, dst_mip);
+    const UINT dst_height = MipSize(dst_desc.Height, dst_mip);
+    const UINT src_width = MipSize(src_desc.Width, src_mip);
+    const UINT src_height = MipSize(src_desc.Height, src_mip);
+    const UINT dst_tiles_x =
+        (dst_width + dst_shape.WidthInTexels - 1) /
+        dst_shape.WidthInTexels;
+    const UINT dst_tiles_y =
+        (dst_height + dst_shape.HeightInTexels - 1) /
+        dst_shape.HeightInTexels;
+    const UINT src_tiles_x =
+        (src_width + src_shape.WidthInTexels - 1) /
+        src_shape.WidthInTexels;
+    const UINT src_tiles_y =
+        (src_height + src_shape.HeightInTexels - 1) /
+        src_shape.HeightInTexels;
+    if (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        src_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        dst_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+        src_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+        dst_desc.SampleDesc.Count != 1 || src_desc.SampleDesc.Count != 1 ||
+        dst_desc.MipLevels != 1 || src_desc.MipLevels != 1 ||
+        dst_shape.WidthInTexels != 128 || dst_shape.HeightInTexels != 128 ||
+        src_shape.WidthInTexels != 128 || src_shape.HeightInTexels != 128 ||
+        dst_slice >= dst_desc.DepthOrArraySize ||
+        src_slice >= src_desc.DepthOrArraySize ||
+        dst_coordinate.X >= dst_tiles_x || dst_coordinate.Y >= dst_tiles_y ||
+        src_coordinate.X >= src_tiles_x || src_coordinate.Y >= src_tiles_y ||
+        region_size->NumTiles >
+            dst_tiles_x * dst_tiles_y -
+                (dst_coordinate.Y * dst_tiles_x + dst_coordinate.X) ||
+        region_size->NumTiles >
+            src_tiles_x * src_tiles_y -
+                (src_coordinate.Y * src_tiles_x + src_coordinate.X) ||
+        region_size->NumTiles > 1048576) {
+      QTRACE("CmdQueue::CopyTileMappings rejected placement texture range");
+      return;
+    }
+    std::vector<WMT4SparseTextureMappingCopyOperation> operations;
+    operations.reserve(region_size->NumTiles);
+    const uint64_t src_first =
+        uint64_t(src_coordinate.Y) * src_tiles_x + src_coordinate.X;
+    const uint64_t dst_first =
+        uint64_t(dst_coordinate.Y) * dst_tiles_x + dst_coordinate.X;
+    for (UINT tile = 0; tile < region_size->NumTiles; ++tile) {
+      const UINT src_x = static_cast<UINT>((src_first + tile) % src_tiles_x);
+      const UINT src_y = static_cast<UINT>((src_first + tile) / src_tiles_x);
+      const UINT dst_x = static_cast<UINT>((dst_first + tile) % dst_tiles_x);
+      const UINT dst_y = static_cast<UINT>((dst_first + tile) / dst_tiles_x);
+      WMT4SparseTextureMappingCopyOperation operation = {};
+      operation.source_origin = {uint64_t(src_x) * 2, uint64_t(src_y) * 2, 0};
+      operation.source_size = {2, 2, 1};
+      operation.source_mip_level = src_mip;
+      operation.source_slice = src_slice;
+      operation.destination_origin = {uint64_t(dst_x) * 2,
+                                      uint64_t(dst_y) * 2, 0};
+      operation.destination_mip_level = dst_mip;
+      operation.destination_slice = dst_slice;
+      operations.push_back(operation);
+    }
+    WMT::Texture native_source{src->GetMTLTexture().handle};
+    WMT::Texture native_destination{dst->GetMTLTexture().handle};
+    const bool success = m_wmt4_queue.copyTextureMappings(
+        native_source, native_destination, operations.data(), operations.size());
+    if (success)
+      dst->SetSparseHeap(src->GetSparseHeap());
+    QTRACE("CmdQueue::CopyTileMappings placement texture tiles=%u success=%d",
+           region_size->NumTiles, success);
+    return;
+  }
+
+  if (!dst->IsNativeSparseBuffer() || !src->IsNativeSparseBuffer()) {
+    QTRACE("CmdQueue::CopyTileMappings requires native sparse buffers or "
+           "proven placement textures");
     return;
   }
 

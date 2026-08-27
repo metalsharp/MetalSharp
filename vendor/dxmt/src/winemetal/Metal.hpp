@@ -356,6 +356,15 @@ public:
         handle, texture.handle, heap.handle, operations, operation_count);
   }
 
+  bool copyTextureMappings(
+      Texture source_texture, Texture destination_texture,
+      const WMT4SparseTextureMappingCopyOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_copyTextureMappings(
+        handle, source_texture.handle, destination_texture.handle, operations,
+        operation_count);
+  }
+
   bool updateBufferMappings(
       Buffer buffer, Heap heap,
       const WMT4SparseBufferMappingOperation *operations,
