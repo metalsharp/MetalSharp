@@ -232,10 +232,12 @@ Additional correctness issues:
 
 - Command methods generally do not validate closed/open state.
 - `Close` can be repeated and `Reset` does not fully validate allocator state.
-- `ExecuteBundle` directly splices bytes and does not retain every object the
-  copied records reference.
-- Resource, descriptor heap, root signature, and query heap references embedded
-  in command bytes are not uniformly retained for command-list lifetime.
+- `ExecuteBundle` still directly splices bytes, but now propagates the bundle's
+  retained object references into the parent list.
+- Direct resource, descriptor-heap, root-signature, query-heap,
+  command-signature, descriptor-handle, and resolvable GPU-address references
+  are retained for command-list lifetime. Descriptor contents and GPU addresses
+  that cannot be resolved while recording still require broader coverage.
 - Several state setters are represented by the same `CmdSetRootCBV` layout,
   relying on the enum alone to distinguish CBV/SRV/UAV semantics.
 - Feature reports deny enhanced barriers and barrier layouts; no command-list 7
@@ -267,6 +269,11 @@ Findings:
   `newTextureWithDescriptor:offset:`. A focused overlapping R32_FLOAT alias
   switches from 1.0 to 2.0 through D3D12 aliasing barriers and readback;
   broader formats, heap reuse, and aliasing matrices remain gated.
+- Recorded copy, barrier, descriptor, root-signature, query, indirect, and
+  GPU-address references now retain their D3D12 objects through list reset or
+  destruction. Bundle execution propagates the bundle's retained references;
+  a resource probe releases the upload/default caller references before replay
+  and still passes exact readback.
 - Reserved resources now use native Metal sparse backing for a focused 2D
   RGBA8-array path; unsupported shapes fail closed rather than using committed
   substitutes.

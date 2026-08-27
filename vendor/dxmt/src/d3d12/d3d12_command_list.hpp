@@ -275,6 +275,17 @@ public:
   }
   uint64_t GetDebugId() const { return m_debug_id; }
 
+  // Recorded command bytes contain raw D3D12 object pointers. Keep every
+  // resource referenced by a record alive until the list is reset or destroyed
+  // so queue replay never dereferences a caller-released object.
+  void RetainResource(ID3D12Resource *resource);
+  void RetainGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS address);
+  void RetainDescriptor(D3D12_CPU_DESCRIPTOR_HANDLE descriptor);
+  void RetainRootSignature(ID3D12RootSignature *root_signature);
+  void RetainQueryHeap(ID3D12QueryHeap *query_heap);
+  void RetainCommandSignature(ID3D12CommandSignature *signature);
+  void RetainReferencedObjectsInto(MTLD3D12GraphicsCommandList *target) const;
+
 private:
   template <typename T> void Emit(const T &cmd) {
     auto offset = m_cmds.size();
@@ -304,6 +315,10 @@ private:
   std::vector<ID3D12PipelineState *> m_referenced_pipeline_states;
   std::vector<ID3D12StateObject *> m_referenced_state_objects;
   std::vector<ID3D12DescriptorHeap *> m_referenced_descriptor_heaps;
+  std::vector<ID3D12RootSignature *> m_referenced_root_signatures;
+  std::vector<ID3D12QueryHeap *> m_referenced_query_heaps;
+  std::vector<ID3D12CommandSignature *> m_referenced_command_signatures;
+  std::vector<ID3D12Resource *> m_referenced_resources;
   ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};
