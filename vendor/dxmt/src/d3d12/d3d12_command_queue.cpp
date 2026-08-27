@@ -8222,8 +8222,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
   if ((static_cast<UINT>(flags) & ~static_cast<UINT>(
           D3D12_TILE_MAPPING_FLAG_NO_HAZARD)) != 0 ||
       !dst_region_start_coordinate || !src_region_start_coordinate ||
-      !region_size || !region_size->NumTiles || region_size->UseBox ||
-      !m_wmt4_queue.handle) {
+      !region_size || !region_size->NumTiles || !m_wmt4_queue.handle) {
     QTRACE("CmdQueue::CopyTileMappings rejected arguments");
     return;
   }
@@ -8267,7 +8266,15 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
     const UINT src_tiles_y =
         (src_height + src_shape.HeightInTexels - 1) /
         src_shape.HeightInTexels;
-    if (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+    const uint64_t region_tile_count =
+        region_size->UseBox
+            ? uint64_t(region_size->Width) * region_size->Height *
+                  region_size->Depth
+            : region_size->NumTiles;
+    if (!region_tile_count || region_tile_count > 1048576 ||
+        (region_size->UseBox &&
+         region_size->NumTiles != region_tile_count) ||
+        dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
         src_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
         dst_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
         src_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
@@ -8279,36 +8286,70 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
         src_slice >= src_desc.DepthOrArraySize ||
         dst_coordinate.X >= dst_tiles_x || dst_coordinate.Y >= dst_tiles_y ||
         src_coordinate.X >= src_tiles_x || src_coordinate.Y >= src_tiles_y ||
-        region_size->NumTiles >
-            dst_tiles_x * dst_tiles_y -
-                (dst_coordinate.Y * dst_tiles_x + dst_coordinate.X) ||
-        region_size->NumTiles >
-            src_tiles_x * src_tiles_y -
-                (src_coordinate.Y * src_tiles_x + src_coordinate.X) ||
-        region_size->NumTiles > 1048576) {
+        (region_size->UseBox
+             ? (uint64_t(dst_coordinate.X) + region_size->Width >
+                    dst_tiles_x ||
+                uint64_t(dst_coordinate.Y) + region_size->Height >
+                    dst_tiles_y ||
+                uint64_t(dst_coordinate.Z) + region_size->Depth >
+                    dst_desc.DepthOrArraySize - dst_slice ||
+                uint64_t(src_coordinate.X) + region_size->Width >
+                    src_tiles_x ||
+                uint64_t(src_coordinate.Y) + region_size->Height >
+                    src_tiles_y ||
+                uint64_t(src_coordinate.Z) + region_size->Depth >
+                    src_desc.DepthOrArraySize - src_slice)
+             : (dst_coordinate.Z || src_coordinate.Z ||
+                region_tile_count >
+                    dst_tiles_x * dst_tiles_y -
+                        (dst_coordinate.Y * dst_tiles_x + dst_coordinate.X) ||
+                region_tile_count >
+                    src_tiles_x * src_tiles_y -
+                        (src_coordinate.Y * src_tiles_x + src_coordinate.X)))) {
       QTRACE("CmdQueue::CopyTileMappings rejected placement texture range");
       return;
     }
     std::vector<WMT4SparseTextureMappingCopyOperation> operations;
-    operations.reserve(region_size->NumTiles);
+    operations.reserve(static_cast<size_t>(region_tile_count));
     const uint64_t src_first =
         uint64_t(src_coordinate.Y) * src_tiles_x + src_coordinate.X;
     const uint64_t dst_first =
         uint64_t(dst_coordinate.Y) * dst_tiles_x + dst_coordinate.X;
-    for (UINT tile = 0; tile < region_size->NumTiles; ++tile) {
-      const UINT src_x = static_cast<UINT>((src_first + tile) % src_tiles_x);
-      const UINT src_y = static_cast<UINT>((src_first + tile) / src_tiles_x);
-      const UINT dst_x = static_cast<UINT>((dst_first + tile) % dst_tiles_x);
-      const UINT dst_y = static_cast<UINT>((dst_first + tile) / dst_tiles_x);
+    for (uint64_t tile = 0; tile < region_tile_count; ++tile) {
+      UINT src_x = 0;
+      UINT src_y = 0;
+      UINT src_slice_for_tile = src_slice;
+      UINT dst_x = 0;
+      UINT dst_y = 0;
+      UINT dst_slice_for_tile = dst_slice;
+      if (region_size->UseBox) {
+        const uint64_t box_plane =
+            uint64_t(region_size->Width) * region_size->Height;
+        const UINT z = static_cast<UINT>(tile / box_plane);
+        const uint64_t box_row = tile % box_plane;
+        const UINT x = static_cast<UINT>(box_row % region_size->Width);
+        const UINT y = static_cast<UINT>(box_row / region_size->Width);
+        src_x = src_coordinate.X + x;
+        src_y = src_coordinate.Y + y;
+        src_slice_for_tile += src_coordinate.Z + z;
+        dst_x = dst_coordinate.X + x;
+        dst_y = dst_coordinate.Y + y;
+        dst_slice_for_tile += dst_coordinate.Z + z;
+      } else {
+        src_x = static_cast<UINT>((src_first + tile) % src_tiles_x);
+        src_y = static_cast<UINT>((src_first + tile) / src_tiles_x);
+        dst_x = static_cast<UINT>((dst_first + tile) % dst_tiles_x);
+        dst_y = static_cast<UINT>((dst_first + tile) / dst_tiles_x);
+      }
       WMT4SparseTextureMappingCopyOperation operation = {};
       operation.source_origin = {uint64_t(src_x) * 2, uint64_t(src_y) * 2, 0};
       operation.source_size = {2, 2, 1};
       operation.source_mip_level = src_mip;
-      operation.source_slice = src_slice;
+      operation.source_slice = src_slice_for_tile;
       operation.destination_origin = {uint64_t(dst_x) * 2,
                                       uint64_t(dst_y) * 2, 0};
       operation.destination_mip_level = dst_mip;
-      operation.destination_slice = dst_slice;
+      operation.destination_slice = dst_slice_for_tile;
       operations.push_back(operation);
     }
     WMT::Texture native_source{src->GetMTLTexture().handle};
@@ -8317,8 +8358,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
         native_source, native_destination, operations.data(), operations.size());
     if (success)
       dst->SetSparseHeap(src->GetSparseHeap());
-    QTRACE("CmdQueue::CopyTileMappings placement texture tiles=%u success=%d",
-           region_size->NumTiles, success);
+    QTRACE("CmdQueue::CopyTileMappings placement texture tiles=%llu success=%d",
+           (unsigned long long)region_tile_count, success);
     return;
   }
 
