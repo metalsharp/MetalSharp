@@ -973,7 +973,6 @@ struct ReplayState {
       D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
       D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
   ID3D12Resource *shading_rate_image = nullptr;
-  WMT::Reference<WMT::RasterizationRateMap> rasterization_rate_map;
 
   D3D12_CPU_DESCRIPTOR_HANDLE rt_handles[8] = {};
   D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = {};
@@ -5112,40 +5111,66 @@ struct ReplayState {
     rp.render_target_width = render_target_width;
     rp.render_target_height = render_target_height;
 
-    rasterization_rate_map = nullptr;
-    if (shading_rate_image) {
-      QTRACE("EnsureRenderEncoder: shading-rate image is not yet lowered; "
-             "keeping the pass at native rate resource=%p",
-             (void *)shading_rate_image);
-    } else if (shading_rate != D3D12_SHADING_RATE_1X1 &&
-               render_target_width && render_target_height &&
-               shading_rate_combiners[0] ==
-                   D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
-               shading_rate_combiners[1] ==
-                   D3D12_SHADING_RATE_COMBINER_PASSTHROUGH) {
-      float horizontal = 1.0f;
-      float vertical = 1.0f;
-      if (ShadingRateToMetalQuality(shading_rate, horizontal, vertical)) {
-        WMTRasterizationRateMapInfo map_info = {};
-        map_info.screen_width = render_target_width;
-        map_info.screen_height = render_target_height;
-        map_info.horizontal_rates[0] = horizontal;
-        map_info.horizontal_rates[1] = horizontal;
-        map_info.vertical_rates[0] = vertical;
-        map_info.vertical_rates[1] = vertical;
-        rasterization_rate_map =
-            device->GetDXMTDevice().device().newRasterizationRateMap(
-                map_info);
-        if (rasterization_rate_map.handle) {
-          rp.rasterization_rate_map = rasterization_rate_map.handle;
-          RetainMTLObjectForCompletion(rasterization_rate_map);
-          QTRACE("EnsureRenderEncoder: rasterization rate map rate=%u "
-                 "quality=%.2f,%.2f screen=%ux%u map=%llu",
-                 (unsigned)shading_rate, horizontal, vertical,
-                 render_target_width, render_target_height,
-                 (unsigned long long)rasterization_rate_map.handle);
+    auto try_rate_map = [&](float horizontal, float vertical,
+                            const char *source) {
+      rp.rasterization_rate_map_enabled = 1;
+      rp.rasterization_rate_horizontal[0] = horizontal;
+      rp.rasterization_rate_horizontal[1] = horizontal;
+      rp.rasterization_rate_vertical[0] = vertical;
+      rp.rasterization_rate_vertical[1] = vertical;
+      QTRACE("EnsureRenderEncoder: rasterization rate map source=%s rate=%u "
+             "quality=%.2f,%.2f screen=%ux%u",
+             source ? source : "unknown", (unsigned)shading_rate, horizontal,
+             vertical, render_target_width, render_target_height);
+      return true;
+    };
+
+    bool image_map_configured = false;
+    if (shading_rate_image && render_target_width && render_target_height) {
+      auto *image_resource =
+          static_cast<MTLD3D12Resource *>(shading_rate_image);
+      D3D12_RESOURCE_DESC image_desc = {};
+      image_resource->GetDesc(&image_desc);
+      const auto &image_data = image_resource->GetShadingRateImageData();
+      bool constant_image = image_resource->HasShadingRateImageData() &&
+                            !image_data.empty();
+      if (constant_image) {
+        for (uint8_t value : image_data) {
+          if (value != image_data.front()) {
+            constant_image = false;
+            break;
+          }
         }
       }
+      float horizontal = 1.0f;
+      float vertical = 1.0f;
+      if (constant_image && shading_rate == D3D12_SHADING_RATE_1X1 &&
+          shading_rate_combiners[0] ==
+              D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
+          shading_rate_combiners[1] ==
+              D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
+          ShadingRateToMetalQuality(
+              static_cast<D3D12_SHADING_RATE>(image_data.front()), horizontal,
+              vertical)) {
+        image_map_configured = try_rate_map(horizontal, vertical, "image");
+      }
+      if (!image_map_configured) {
+        QTRACE("EnsureRenderEncoder: shading-rate image shape=%ux%u is not "
+               "constant/initialized; keeping the pass at native rate",
+               (unsigned)image_desc.Width, (unsigned)image_desc.Height);
+      }
+    }
+    if (!image_map_configured && !shading_rate_image &&
+        shading_rate != D3D12_SHADING_RATE_1X1 && render_target_width &&
+        render_target_height &&
+        shading_rate_combiners[0] ==
+            D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
+        shading_rate_combiners[1] ==
+            D3D12_SHADING_RATE_COMBINER_PASSTHROUGH) {
+      float horizontal = 1.0f;
+      float vertical = 1.0f;
+      if (ShadingRateToMetalQuality(shading_rate, horizontal, vertical))
+        (void)try_rate_map(horizontal, vertical, "draw");
     }
 
     if (!has_valid_rt) {
@@ -9782,6 +9807,24 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           uint64_t rows_per_image = FootprintRows(
               cmd->src_footprint_height ? cmd->src_footprint_height : copy_h,
               src_format);
+          if (dst_res->IsShadingRateImage() && src_buf.handle &&
+              src_format == DXGI_FORMAT_R8_UINT && copy_d == 1 &&
+              src_offset <= src_res->GetBufferByteLength() &&
+              uint64_t(copy_h ? copy_h - 1 : 0) * row_pitch + copy_w <=
+                  src_res->GetBufferByteLength() - src_offset) {
+            void *mapped = nullptr;
+            D3D12_RANGE read_range = {
+                static_cast<SIZE_T>(src_offset),
+                static_cast<SIZE_T>(src_offset +
+                                    uint64_t(copy_h ? copy_h - 1 : 0) *
+                                        row_pitch + copy_w)};
+            if (SUCCEEDED(src_res->Map(0, &read_range, &mapped)) && mapped) {
+              dst_res->UpdateShadingRateImage(
+                  static_cast<const uint8_t *>(mapped) + src_offset, row_pitch,
+                  cmd->dst_x, cmd->dst_y, copy_w, copy_h);
+              src_res->Unmap(0, nullptr);
+            }
+          }
           struct wmtcmd_blit_copy_from_buffer_to_texture copy = {};
           copy.type = WMTBlitCommandCopyFromBufferToTexture;
           copy.next.set(nullptr);

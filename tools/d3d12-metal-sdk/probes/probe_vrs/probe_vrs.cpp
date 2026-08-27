@@ -164,15 +164,20 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
                            ID3D12GraphicsCommandList5 *list5,
                            ID3D12RootSignature *root,
                            ID3D12PipelineState *pso, ID3D12Resource *target,
+                           D3D12_SHADING_RATE base_shading_rate,
+                           ID3D12Resource *shading_rate_image,
                            ID3D12Resource *readback,
                            ID3D12Resource *vertex_buffer,
-                           ID3D12DescriptorHeap *rtv_heap, bool use_vrs) {
-  if (use_vrs) {
+                           ID3D12DescriptorHeap *rtv_heap) {
+  if (base_shading_rate != D3D12_SHADING_RATE_1X1 ||
+      shading_rate_image) {
     const D3D12_SHADING_RATE_COMBINER combiners[2] = {
         D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
         D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
-    list5->RSSetShadingRate(D3D12_SHADING_RATE_2X2, combiners);
+    list5->RSSetShadingRate(base_shading_rate, combiners);
   }
+  if (shading_rate_image)
+    list5->RSSetShadingRateImage(shading_rate_image);
   list->SetPipelineState(pso);
   list->SetGraphicsRootSignature(root);
   D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
@@ -298,6 +303,8 @@ float4 ps_main(VSOut input) : SV_Target0 {
   ID3D12GraphicsCommandList *list = nullptr;
   ID3D12GraphicsCommandList5 *list5 = nullptr;
   ID3D12Resource *target = nullptr;
+  ID3D12Resource *shading_rate_image = nullptr;
+  ID3D12Resource *shading_rate_upload = nullptr;
   ID3D12Resource *readback = nullptr;
   ID3D12Resource *vertex_buffer = nullptr;
   ID3D12DescriptorHeap *rtv_heap = nullptr;
@@ -334,6 +341,25 @@ float4 ps_main(VSOut input) : SV_Target0 {
                                 D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
                                 IID_PPV_ARGS(&target))
                           : E_FAIL;
+  D3D12_RESOURCE_DESC shading_rate_desc = {};
+  shading_rate_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  shading_rate_desc.Width = 8;
+  shading_rate_desc.Height = 8;
+  shading_rate_desc.DepthOrArraySize = 1;
+  shading_rate_desc.MipLevels = 1;
+  shading_rate_desc.Format = DXGI_FORMAT_R8_UINT;
+  shading_rate_desc.SampleDesc.Count = 1;
+  shading_rate_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  shading_rate_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+  HRESULT shading_rate_image_hr = SUCCEEDED(target_hr)
+                                       ? device->CreateCommittedResource(
+                                             &default_heap,
+                                             D3D12_HEAP_FLAG_NONE,
+                                             &shading_rate_desc,
+                                             D3D12_RESOURCE_STATE_COPY_DEST,
+                                             nullptr,
+                                             IID_PPV_ARGS(&shading_rate_image))
+                                       : E_FAIL;
   D3D12_HEAP_PROPERTIES readback_heap =
       heap_properties(D3D12_HEAP_TYPE_READBACK);
   D3D12_RESOURCE_DESC readback_desc = buffer_desc(16384);
@@ -362,6 +388,31 @@ float4 ps_main(VSOut input) : SV_Target0 {
       vertex_buffer->Unmap(0, nullptr);
     }
   }
+  const uint8_t shading_rate_values[64] = {
+      5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,
+      5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,
+      5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5,
+      5,5,5,5,5,5,5,5, 5,5,5,5,5,5,5,5};
+  D3D12_RESOURCE_DESC shading_rate_upload_desc = buffer_desc(2048);
+  HRESULT shading_rate_upload_hr = SUCCEEDED(vertex_hr)
+                                       ? device->CreateCommittedResource(
+                                             &upload_heap, D3D12_HEAP_FLAG_NONE,
+                                             &shading_rate_upload_desc,
+                                             D3D12_RESOURCE_STATE_GENERIC_READ,
+                                             nullptr,
+                                             IID_PPV_ARGS(&shading_rate_upload))
+                                       : E_FAIL;
+  if (SUCCEEDED(shading_rate_upload_hr) && shading_rate_upload) {
+    void *mapped = nullptr;
+    D3D12_RANGE range = {0, 0};
+    shading_rate_upload_hr = shading_rate_upload->Map(0, &range, &mapped);
+    if (SUCCEEDED(shading_rate_upload_hr) && mapped) {
+      for (uint32_t y = 0; y < 8; ++y)
+        std::memcpy(static_cast<uint8_t *>(mapped) + y * 256,
+                    shading_rate_values + y * 8, 8);
+      shading_rate_upload->Unmap(0, nullptr);
+    }
+  }
   D3D12_DESCRIPTOR_HEAP_DESC rtv_desc = {};
   rtv_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   rtv_desc.NumDescriptors = 1;
@@ -374,8 +425,9 @@ float4 ps_main(VSOut input) : SV_Target0 {
         target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
 
   HRESULT baseline_record_hr =
-      SUCCEEDED(rtv_hr) ? record_draw(list, list5, root, pso, target,
-                                      readback, vertex_buffer, rtv_heap, false)
+      SUCCEEDED(rtv_hr) ? record_draw(
+          list, list5, root, pso, target, D3D12_SHADING_RATE_1X1, nullptr,
+          readback, vertex_buffer, rtv_heap)
                         : E_FAIL;
   HRESULT baseline_execute_hr =
       SUCCEEDED(baseline_record_hr)
@@ -401,12 +453,65 @@ float4 ps_main(VSOut input) : SV_Target0 {
     list->ResourceBarrier(1, &restore_barrier);
   }
   HRESULT vrs_record_hr =
-      SUCCEEDED(reset_hr) ? record_draw(list, list5, root, pso, target,
-                                        readback, vertex_buffer, rtv_heap, true)
+      SUCCEEDED(reset_hr) ? record_draw(
+          list, list5, root, pso, target, D3D12_SHADING_RATE_2X2, nullptr,
+          readback, vertex_buffer, rtv_heap)
                           : E_FAIL;
   HRESULT vrs_execute_hr =
       SUCCEEDED(vrs_record_hr) ? execute_and_wait(device, queue, list) : E_FAIL;
   uint32_t vrs_pixels = count_nonzero(readback);
+
+  HRESULT image_reset_hr = SUCCEEDED(vrs_execute_hr)
+                               ? allocator->Reset()
+                               : E_FAIL;
+  if (SUCCEEDED(image_reset_hr))
+    image_reset_hr = list->Reset(allocator, nullptr);
+  bool image_copy_recorded = false;
+  if (SUCCEEDED(image_reset_hr)) {
+    D3D12_RESOURCE_BARRIER restore_barrier = {};
+    restore_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    restore_barrier.Transition.pResource = target;
+    restore_barrier.Transition.Subresource =
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    restore_barrier.Transition.StateBefore =
+        D3D12_RESOURCE_STATE_COPY_SOURCE;
+    restore_barrier.Transition.StateAfter =
+        D3D12_RESOURCE_STATE_RENDER_TARGET;
+    list->ResourceBarrier(1, &restore_barrier);
+    D3D12_TEXTURE_COPY_LOCATION image_source = {};
+    image_source.pResource = shading_rate_upload;
+    image_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    image_source.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8_UINT;
+    image_source.PlacedFootprint.Footprint.Width = 8;
+    image_source.PlacedFootprint.Footprint.Height = 8;
+    image_source.PlacedFootprint.Footprint.Depth = 1;
+    image_source.PlacedFootprint.Footprint.RowPitch = 256;
+    D3D12_TEXTURE_COPY_LOCATION image_destination = {};
+    image_destination.pResource = shading_rate_image;
+    image_destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    list->CopyTextureRegion(&image_destination, 0, 0, 0, &image_source,
+                            nullptr);
+    D3D12_RESOURCE_BARRIER image_barrier = {};
+    image_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    image_barrier.Transition.pResource = shading_rate_image;
+    image_barrier.Transition.Subresource =
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    image_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    image_barrier.Transition.StateAfter =
+        D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+    list->ResourceBarrier(1, &image_barrier);
+    image_copy_recorded = true;
+  }
+  HRESULT image_record_hr =
+      SUCCEEDED(image_reset_hr) && image_copy_recorded
+          ? record_draw(list, list5, root, pso, target,
+                        D3D12_SHADING_RATE_1X1, shading_rate_image, readback,
+                        vertex_buffer, rtv_heap)
+          : E_FAIL;
+  HRESULT image_execute_hr =
+      SUCCEEDED(image_record_hr) ? execute_and_wait(device, queue, list)
+                                 : E_FAIL;
+  uint32_t image_pixels = count_nonzero(readback);
 
   const bool passed = source_ok && vs_dxc == 0 && ps_dxc == 0 && !vs.empty() &&
                       !ps.empty() && SUCCEEDED(device_hr) &&
@@ -414,12 +519,18 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       SUCCEEDED(pso_hr) && SUCCEEDED(queue_hr) &&
                       SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
                       SUCCEEDED(list5_hr) && SUCCEEDED(target_hr) &&
+                      SUCCEEDED(shading_rate_image_hr) &&
                       SUCCEEDED(readback_hr) && SUCCEEDED(vertex_hr) &&
+                      SUCCEEDED(shading_rate_upload_hr) &&
                       SUCCEEDED(rtv_hr) && SUCCEEDED(baseline_record_hr) &&
                       SUCCEEDED(baseline_execute_hr) && baseline_pixels == 4096 &&
                       SUCCEEDED(reset_hr) && SUCCEEDED(vrs_record_hr) &&
                       SUCCEEDED(vrs_execute_hr) && vrs_pixels > 0 &&
-                      vrs_pixels < baseline_pixels;
+                      vrs_pixels < baseline_pixels &&
+                      SUCCEEDED(image_reset_hr) && image_copy_recorded &&
+                      SUCCEEDED(image_record_hr) && SUCCEEDED(image_execute_hr) &&
+                      image_pixels > 0 && image_pixels < baseline_pixels &&
+                      image_pixels == vrs_pixels;
   std::printf("{\n");
   std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-vrs.v1\",\n");
   std::printf("  \"pass\": %s,\n", passed ? "true" : "false");
@@ -442,15 +553,32 @@ float4 ps_main(VSOut input) : SV_Target0 {
               hr_hex(vrs_execute_hr).c_str());
   std::printf("  \"vrs_rate\": \"2x2\",\n");
   std::printf("  \"vrs_pixels\": %u,\n", vrs_pixels);
-  std::printf("  \"rate_reduced\": %s\n",
+  std::printf("  \"image_reset_hr\": \"%s\",\n",
+              hr_hex(image_reset_hr).c_str());
+  std::printf("  \"image_copy_recorded\": %s,\n",
+              image_copy_recorded ? "true" : "false");
+  std::printf("  \"image_record_hr\": \"%s\",\n",
+              hr_hex(image_record_hr).c_str());
+  std::printf("  \"image_execute_hr\": \"%s\",\n",
+              hr_hex(image_execute_hr).c_str());
+  std::printf("  \"image_rate\": \"2x2\",\n");
+  std::printf("  \"image_pixels\": %u,\n", image_pixels);
+  std::printf("  \"rate_reduced\": %s,\n",
               (vrs_pixels > 0 && vrs_pixels < baseline_pixels) ? "true"
                                                                  : "false");
+  std::printf("  \"image_rate_reduced\": %s\n",
+              (image_pixels > 0 && image_pixels < baseline_pixels &&
+               image_pixels == vrs_pixels)
+                  ? "true"
+                  : "false");
   std::printf("}\n");
   std::fflush(stdout);
 
   release(rtv_heap);
   release(vertex_buffer);
   release(readback);
+  release(shading_rate_upload);
+  release(shading_rate_image);
   release(target);
   release(list5);
   release(list);

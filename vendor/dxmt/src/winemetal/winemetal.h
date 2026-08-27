@@ -882,15 +882,6 @@ struct WMTStencilAttachmentInfo {
   uint8_t clear_stencil;
 };
 
-struct WMTRasterizationRateMapInfo {
-  uint32_t screen_width;
-  uint32_t screen_height;
-  float horizontal_rates[2];
-  float vertical_rates[2];
-};
-
-STATIC_ASSERT(sizeof(WMTRasterizationRateMapInfo) == 24);
-
 struct WMTRenderPassInfo {
   struct WMTColorAttachmentInfo colors[8];
   struct WMTDepthAttachmentInfo depth;
@@ -902,10 +893,13 @@ struct WMTRenderPassInfo {
   uint32_t render_target_height;
   uint32_t render_target_width;
   obj_handle_t visibility_buffer;
-  obj_handle_t rasterization_rate_map;
+  float rasterization_rate_horizontal[2];
+  float rasterization_rate_vertical[2];
+  uint8_t rasterization_rate_map_enabled;
+  uint8_t rasterization_rate_reserved[7];
 };
 
-STATIC_ASSERT(sizeof(WMTRenderPassInfo) == 672);
+STATIC_ASSERT(sizeof(WMTRenderPassInfo) == 688);
 
 WINEMETAL_API obj_handle_t MTLCommandBuffer_renderCommandEncoder(obj_handle_t cmdbuf, struct WMTRenderPassInfo *info);
 
@@ -1962,8 +1956,6 @@ enum WMTGPUFamily {
 };
 
 WINEMETAL_API bool MTLDevice_supportsFamily(obj_handle_t device, enum WMTGPUFamily gpu_family);
-WINEMETAL_API obj_handle_t MTLDevice_newRasterizationRateMap(
-    obj_handle_t device, const struct WMTRasterizationRateMapInfo *info);
 
 WINEMETAL_API bool MTLDevice_supportsBCTextureCompression(obj_handle_t device);
 WINEMETAL_API bool MTLDevice_supportsRaytracing(obj_handle_t device);

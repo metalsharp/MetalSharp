@@ -1781,14 +1781,3 @@ MTLCommandBuffer_resolveFlattenedMSAATexture(
   UNIX_CALL(166, &params);
   return params.ret_success != 0;
 }
-
-WINEMETAL_API obj_handle_t
-MTLDevice_newRasterizationRateMap(
-    obj_handle_t device, const struct WMTRasterizationRateMapInfo *info) {
-  struct unixcall_mtldevice_new_rasterization_rate_map params;
-  params.device = device;
-  WMT_MEMPTR_SET(params.info, info);
-  params.ret = 0;
-  UNIX_CALL(167, &params);
-  return params.ret;
-}

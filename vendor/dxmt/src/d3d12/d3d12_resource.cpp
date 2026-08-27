@@ -244,6 +244,22 @@ void MTLD3D12Resource::InitializeResource(
   } else {
     bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
                            m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
+    m_is_shading_rate_image =
+        m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        m_desc.Format == DXGI_FORMAT_R8_UINT &&
+        std::max<UINT>(m_desc.SampleDesc.Count, 1) == 1 &&
+        std::max<UINT16>(m_desc.MipLevels, 1) == 1 &&
+        std::max<UINT16>(m_desc.DepthOrArraySize, 1) == 1 &&
+        m_desc.Width <= UINT32_MAX && m_desc.Height <= UINT32_MAX;
+    if (m_is_shading_rate_image) {
+      const uint64_t byte_count =
+          std::max<uint64_t>(m_desc.Width, 1) *
+          std::max<uint64_t>(m_desc.Height, 1);
+      if (byte_count <= UINT32_MAX)
+        m_shading_rate_image_data.resize(static_cast<size_t>(byte_count));
+      else
+        m_is_shading_rate_image = false;
+    }
     WMTTextureInfo tex_info = {};
     tex_info.width = m_desc.Width;
     tex_info.height = m_desc.Height;
@@ -389,6 +405,25 @@ uint32_t MTLD3D12Resource::GetTextureArrayLength() const {
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
     return m_desc.DepthOrArraySize ? m_desc.DepthOrArraySize : 1;
   return 1;
+}
+
+void MTLD3D12Resource::UpdateShadingRateImage(
+    const void *data, uint32_t row_pitch, uint32_t dst_x, uint32_t dst_y,
+    uint32_t width, uint32_t height) {
+  if (!m_is_shading_rate_image || !data || !row_pitch ||
+      dst_x >= m_desc.Width || dst_y >= std::max<UINT>(m_desc.Height, 1) ||
+      width > m_desc.Width - dst_x ||
+      height > std::max<UINT>(m_desc.Height, 1) - dst_y ||
+      m_shading_rate_image_data.empty())
+    return;
+  const uint8_t *source = static_cast<const uint8_t *>(data);
+  const uint32_t image_width = static_cast<uint32_t>(m_desc.Width);
+  for (uint32_t row = 0; row < height; ++row) {
+    std::memcpy(m_shading_rate_image_data.data() +
+                    uint64_t(dst_y + row) * image_width + dst_x,
+                source + uint64_t(row) * row_pitch, width);
+  }
+  m_shading_rate_image_initialized = true;
 }
 
 uint64_t MTLD3D12Resource::GetBufferByteLength() const {

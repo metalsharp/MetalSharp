@@ -1369,12 +1369,44 @@ _MTLCommandBuffer_renderCommandEncoder(void *obj) {
     descriptor.tileWidth = info->tile_width;
     descriptor.tileHeight = info->tile_height;
   }
-  if (info->rasterization_rate_map)
-    descriptor.rasterizationRateMap =
-        (id<MTLRasterizationRateMap>)info->rasterization_rate_map;
+  id<MTLRasterizationRateMap> rate_map = nil;
+  MTLRasterizationRateLayerDescriptor *rate_layer = nil;
+  MTLRasterizationRateMapDescriptor *rate_descriptor = nil;
+  if (info->rasterization_rate_map_enabled &&
+      info->render_target_width && info->render_target_height) {
+    bool rates_valid = true;
+    for (unsigned i = 0; i < 2; ++i) {
+      rates_valid &= info->rasterization_rate_horizontal[i] >= 0.0f &&
+                     info->rasterization_rate_horizontal[i] <= 1.0f &&
+                     info->rasterization_rate_vertical[i] >= 0.0f &&
+                     info->rasterization_rate_vertical[i] <= 1.0f;
+    }
+    id<MTLDevice> device =
+        [(id<MTLCommandBuffer>)params->handle device];
+    if (rates_valid && device &&
+        [device supportsRasterizationRateMapWithLayerCount:1]) {
+      rate_layer = [[MTLRasterizationRateLayerDescriptor alloc]
+          initWithSampleCount:MTLSizeMake(2, 2, 1)
+                    horizontal:info->rasterization_rate_horizontal
+                      vertical:info->rasterization_rate_vertical];
+      rate_descriptor =
+          [MTLRasterizationRateMapDescriptor
+              rasterizationRateMapDescriptorWithScreenSize:
+                  MTLSizeMake(info->render_target_width,
+                              info->render_target_height, 1)
+                                          layer:rate_layer];
+      rate_map = [device
+          newRasterizationRateMapWithDescriptor:rate_descriptor];
+      if (rate_map)
+        descriptor.rasterizationRateMap = rate_map;
+    }
+  }
 
   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle renderCommandEncoderWithDescriptor:descriptor];
 
+  [rate_map release];
+  [rate_descriptor release];
+  [rate_layer release];
   [descriptor release];
   return STATUS_SUCCESS;
 }
@@ -2375,41 +2407,6 @@ static NTSTATUS
 _MTLDevice_supportsBCTextureCompression(void *obj) {
   struct unixcall_generic_obj_uint64_ret *params = obj;
   params->ret = [(id<MTLDevice>)params->handle supportsBCTextureCompression];
-  return STATUS_SUCCESS;
-}
-
-static NTSTATUS
-_MTLDevice_newRasterizationRateMap(void *obj) {
-  struct unixcall_mtldevice_new_rasterization_rate_map *params = obj;
-  const struct WMTRasterizationRateMapInfo *info = params->info.ptr;
-  params->ret = 0;
-  if (!params->device || !info || !info->screen_width ||
-      !info->screen_height)
-    return STATUS_SUCCESS;
-  for (unsigned i = 0; i < 2; ++i) {
-    if (info->horizontal_rates[i] < 0.0f ||
-        info->horizontal_rates[i] > 1.0f ||
-        info->vertical_rates[i] < 0.0f || info->vertical_rates[i] > 1.0f)
-      return STATUS_SUCCESS;
-  }
-  id<MTLDevice> device = (id<MTLDevice>)params->device;
-  if (![device supportsRasterizationRateMapWithLayerCount:1])
-    return STATUS_SUCCESS;
-  MTLRasterizationRateLayerDescriptor *layer =
-      [[MTLRasterizationRateLayerDescriptor alloc]
-          initWithSampleCount:MTLSizeMake(2, 2, 1)
-                    horizontal:info->horizontal_rates
-                      vertical:info->vertical_rates];
-  MTLRasterizationRateMapDescriptor *descriptor =
-      [MTLRasterizationRateMapDescriptor
-          rasterizationRateMapDescriptorWithScreenSize:
-              MTLSizeMake(info->screen_width, info->screen_height, 1)
-                                      layer:layer];
-  id<MTLRasterizationRateMap> map =
-      [device newRasterizationRateMapWithDescriptor:descriptor];
-  params->ret = (obj_handle_t)map;
-  [descriptor release];
-  [layer release];
   return STATUS_SUCCESS;
 }
 
@@ -5019,7 +5016,6 @@ const void *__wine_unix_call_funcs[] = {
     &_MTL4CommandQueue_copyBufferMappings,
     &_MTL4CommandQueue_copyBuffer,
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
-    &_MTLDevice_newRasterizationRateMap,
 };
 
 #ifndef DXMT_NATIVE
@@ -5191,6 +5187,5 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTL4CommandQueue_copyBufferMappings,
     &_MTL4CommandQueue_copyBuffer,
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
-    &_MTLDevice_newRasterizationRateMap,
 };
 #endif
