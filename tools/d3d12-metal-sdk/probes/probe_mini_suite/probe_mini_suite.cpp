@@ -2971,6 +2971,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* top_level_serialization_readback = nullptr;
     ID3D12Resource* ray_query_output = nullptr;
     ID3D12Resource* ray_query_readback = nullptr;
+    ID3D12Resource* indirect_ray_readback = nullptr;
     ID3D12Resource* raygen_shader_table = nullptr;
     ID3D12CommandSignature* indirect_ray_signature = nullptr;
     ID3D12Resource* indirect_ray_args = nullptr;
@@ -4137,6 +4138,15 @@ static ProbeResult probe_dxr_acceleration_structures() {
             IID_PPV_ARGS(&ray_query_readback));
     }
     if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES indirect_readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC indirect_readback_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &indirect_readback_heap, D3D12_HEAP_FLAG_NONE,
+            &indirect_readback_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&indirect_ray_readback));
+    }
+    if (SUCCEEDED(hr)) {
         const UINT increment = device->GetDescriptorHandleIncrementSize(
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_CPU_DESCRIPTOR_HANDLE cpu =
@@ -4449,7 +4459,30 @@ static ProbeResult probe_dxr_acceleration_structures() {
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
         list4->DispatchRays(&dispatch_rays);
-        dispatch_rays.Width = 1;
+        D3D12_RESOURCE_BARRIER direct_output_barrier = transition_barrier(
+            ray_query_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list4->ResourceBarrier(1, &direct_output_barrier);
+        list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
+                                sizeof(uint32_t) * 6);
+        D3D12_RESOURCE_BARRIER indirect_output_barrier = transition_barrier(
+            ray_query_output, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list4->ResourceBarrier(1, &indirect_output_barrier);
+        const UINT clear_values[4] = {};
+        const UINT descriptor_increment =
+            device->GetDescriptorHandleIncrementSize(
+                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE output_cpu_handle =
+            ray_query_heap->GetCPUDescriptorHandleForHeapStart();
+        output_cpu_handle.ptr += descriptor_increment;
+        D3D12_GPU_DESCRIPTOR_HANDLE output_gpu_handle =
+            ray_query_heap->GetGPUDescriptorHandleForHeapStart();
+        output_gpu_handle.ptr += descriptor_increment;
+        list4->ClearUnorderedAccessViewUint(
+            output_gpu_handle, output_cpu_handle, ray_query_output,
+            clear_values, 0, nullptr);
+        dispatch_rays.Width = 4;
         D3D12_INDIRECT_ARGUMENT_DESC indirect_ray_argument = {};
         indirect_ray_argument.Type =
             D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS;
@@ -4492,7 +4525,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
             ray_query_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &output_barrier);
-        list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0,
+        list4->CopyBufferRegion(indirect_ray_readback, 0, ray_query_output, 0,
                                 sizeof(uint32_t) * 6);
         hr = execute_and_wait(queue, list4);
     }
@@ -4529,6 +4562,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     uint32_t callable_value = 0;
     uint32_t raygen_value = 0;
     uint32_t procedural_hit_value = 0;
+    uint32_t indirect_ray_behavior_value = 0;
     uint32_t local_root_uav_value = 0;
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
@@ -4695,6 +4729,18 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(uint32_t) * 6};
+        hr = indirect_ray_readback->Map(0, &range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(&indirect_ray_behavior_value,
+                        static_cast<const uint8_t*>(mapped) +
+                            sizeof(uint32_t) * 3,
+                        sizeof(indirect_ray_behavior_value));
+            indirect_ray_readback->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(local_root_uav_value)};
         hr = closest_hit_local_uav_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
@@ -4761,6 +4807,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           local_static_sampler_written &&
                           stack_size_contract &&
                           indirect_ray_dispatch_recorded &&
+                          indirect_ray_behavior_value == 0x50524f43 &&
                           local_root_uav_value == 0x4c525557;
 
     safe_release(indirect_ray_args);
@@ -4778,6 +4825,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(filtered_raytracing_collection_a);
     safe_release(filtered_raytracing_collection_b);
     safe_release(raytracing_collection);
+    safe_release(indirect_ray_readback);
     safe_release(ray_query_readback);
     safe_release(ray_query_output);
     safe_release(top_level_postbuild);
@@ -4962,6 +5010,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 hr_hex(indirect_ray_args_hr) +
                 "\",\"indirect_ray_dispatch_recorded\":" +
                 (indirect_ray_dispatch_recorded ? "true" : "false") +
+                ",\"indirect_ray_behavior_value\":" +
+                std::to_string(indirect_ray_behavior_value) +
                 ",\"closest_hit_local_root_marker\":1280262988" +
                 ",\"closest_hit_local_srv_marker\":1397904945" +
                 ",\"closest_hit_local_cbv_marker\":1128420913" +
