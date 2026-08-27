@@ -1320,9 +1320,11 @@ the goal is not complete.
   slices and reports the documented 8/16/32/64/128-bit and BC standard volume
   shapes. `CopyTiles` now carries X/Y/Z coordinates, supports box regions, and
   spills non-box regions across rows, volume planes, and subsequent mip/array
-  subresources while preserving the 64 KiB footprint. These changes do not
-  widen the sparse-resource report: native 3D page ownership and mapping remain
-  a Completion Phase 4 blocker.
+  subresources while preserving the 64 KiB footprint. Sparse mapping replay
+  likewise handles non-box mip/array spill and boxed array-slice mappings for
+  the proven placement-texture path. These changes do not widen the
+  sparse-resource report: native 3D page ownership and mapping remain a
+  Completion Phase 4 blocker.
 
 ### 2026-08-27 — Made aggregate provenance and collection authoritative
 
