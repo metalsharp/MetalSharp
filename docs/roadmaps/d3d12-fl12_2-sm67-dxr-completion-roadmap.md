@@ -1218,7 +1218,13 @@ the goal is not complete.
   API directly with a consistent eight-byte pipeline attribute configuration
   across every ray-tracing stage. A callable table at offset 448 invokes
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
-  preserves the raygen sentinel `42`. RaytracingTier remains unreported pending
+  preserves the raygen sentinel `42`. A focused DXR 1.1 indirect-dispatch
+  record now uses a native `D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS`
+  command signature and an upload argument buffer; queue replay decodes the
+  104-byte `D3D12_DISPATCH_RAYS_DESC` and runs it through the same shader-table
+  path. The direct three-ray launch plus a one-ray indirect launch preserve
+  every recursive, any-hit, procedural, callable, and raygen readback marker.
+  RaytracingTier remains unreported pending
   mixed triangle/AABB geometry in one BLAS, persistent cross-process
   serialization reconstruction, independently linked collection merging,
   new-library state-object growth and broader record-count, stride, and

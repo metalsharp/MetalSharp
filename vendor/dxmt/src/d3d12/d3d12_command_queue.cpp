@@ -9116,6 +9116,26 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                     "ExecuteIndirect DISPATCH");
               }
               break;
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+              if (!can_read(sizeof(D3D12_DISPATCH_RAYS_DESC))) {
+                valid_record = false;
+                break;
+              }
+              {
+                D3D12_DISPATCH_RAYS_DESC args = {};
+                memcpy(&args, src, sizeof(args));
+                cursor += sizeof(args);
+                QTRACE("ExecuteIndirect DISPATCH_RAYS dimensions=%ux%ux%u",
+                       args.Width, args.Height, args.Depth);
+                if (!st.raytracing_compute_pso.handle ||
+                    !args.RayGenerationShaderRecord.StartAddress ||
+                    args.RayGenerationShaderRecord.SizeInBytes < 32 ||
+                    !args.Width || !args.Height || !args.Depth ||
+                    !ReplayRaytracingDispatch(st, m_device, cmdbuf, args)) {
+                  QTRACE("ExecuteIndirect DISPATCH_RAYS skipped invalid state or encoding failure");
+                }
+              }
+              break;
             case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
               if (!can_read(sizeof(D3D12_DISPATCH_MESH_ARGUMENTS))) {
                 valid_record = false;

@@ -2972,6 +2972,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* ray_query_output = nullptr;
     ID3D12Resource* ray_query_readback = nullptr;
     ID3D12Resource* raygen_shader_table = nullptr;
+    ID3D12CommandSignature* indirect_ray_signature = nullptr;
+    ID3D12Resource* indirect_ray_args = nullptr;
+    HRESULT indirect_ray_signature_hr = E_FAIL;
+    HRESULT indirect_ray_args_hr = E_FAIL;
+    bool indirect_ray_dispatch_recorded = false;
     ID3D12Resource* closest_hit_local_srv = nullptr;
     ID3D12Resource* closest_hit_local_cbv = nullptr;
     ID3D12Resource* closest_hit_local_uav = nullptr;
@@ -4444,6 +4449,39 @@ static ProbeResult probe_dxr_acceleration_structures() {
         dispatch_rays.Height = 1;
         dispatch_rays.Depth = 1;
         list4->DispatchRays(&dispatch_rays);
+        dispatch_rays.Width = 1;
+        D3D12_INDIRECT_ARGUMENT_DESC indirect_ray_argument = {};
+        indirect_ray_argument.Type =
+            D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS;
+        D3D12_COMMAND_SIGNATURE_DESC indirect_ray_signature_desc = {};
+        indirect_ray_signature_desc.ByteStride = sizeof(dispatch_rays);
+        indirect_ray_signature_desc.NumArgumentDescs = 1;
+        indirect_ray_signature_desc.pArgumentDescs = &indirect_ray_argument;
+        indirect_ray_signature_hr = device->CreateCommandSignature(
+            &indirect_ray_signature_desc, nullptr,
+            IID_PPV_ARGS(&indirect_ray_signature));
+        if (SUCCEEDED(indirect_ray_signature_hr)) {
+            D3D12_HEAP_PROPERTIES upload_properties = {};
+            upload_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC indirect_desc = buffer_desc(sizeof(dispatch_rays));
+            indirect_ray_args_hr = device->CreateCommittedResource(
+                &upload_properties, D3D12_HEAP_FLAG_NONE, &indirect_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&indirect_ray_args));
+        }
+        if (SUCCEEDED(indirect_ray_args_hr) && indirect_ray_args) {
+            void *indirect_mapped = nullptr;
+            indirect_ray_args_hr = indirect_ray_args->Map(
+                0, nullptr, &indirect_mapped);
+            if (SUCCEEDED(indirect_ray_args_hr) && indirect_mapped) {
+                std::memcpy(indirect_mapped, &dispatch_rays,
+                            sizeof(dispatch_rays));
+                indirect_ray_args->Unmap(0, nullptr);
+                list4->ExecuteIndirect(indirect_ray_signature, 1,
+                                       indirect_ray_args, 0, nullptr, 0);
+                indirect_ray_dispatch_recorded = true;
+            }
+        }
         D3D12_RESOURCE_BARRIER local_uav_barrier = transition_barrier(
             closest_hit_local_uav, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -4722,8 +4760,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
                           local_sampler_table_written &&
                           local_static_sampler_written &&
                           stack_size_contract &&
+                          indirect_ray_dispatch_recorded &&
                           local_root_uav_value == 0x4c525557;
 
+    safe_release(indirect_ray_args);
+    safe_release(indirect_ray_signature);
     safe_release(raygen_shader_table);
     safe_release(closest_hit_local_texture);
     safe_release(closest_hit_local_srv);
@@ -4785,7 +4826,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(device7);
     safe_release(device);
     return {verified, verified ? S_OK : hr,
-            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, filtered merged collection-derived pipeline, local resource/sampler/static-sampler descriptor records, shader-stack-size and pipeline-stack-size contracts, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable DispatchRays passed"
+            verified ? "Metal twelve-geometry indexed/non-indexed triangle BLAS, clone, shifted triangle/AABB/TLAS updates, compact copy, copied serialization blob/deserialization/TLAS traversal, filtered merged collection-derived pipeline, local resource/sampler/static-sampler descriptor records, shader-stack-size and pipeline-stack-size contracts, grown hit-group/local-root record plus indexed renamed miss/callable records, inline RayQuery, and recursive raygen/miss/any-hit/closest-hit/procedural/callable direct-indirect ray dispatch passed"
                      : "DXR acceleration-structure, inline-ray, or raygen gate failed",
             "\"prebuild_result_bytes\":" +
                 std::to_string(prebuild.ResultDataMaxSizeInBytes) +
@@ -4915,6 +4956,12 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 ",\"callable_shader_table_records\":2" +
                 ",\"miss_shader_table_stride\":64" +
                 ",\"callable_shader_table_stride\":64" +
+                ",\"indirect_ray_signature_hr\":\"" +
+                hr_hex(indirect_ray_signature_hr) +
+                "\",\"indirect_ray_args_hr\":\"" +
+                hr_hex(indirect_ray_args_hr) +
+                "\",\"indirect_ray_dispatch_recorded\":" +
+                (indirect_ray_dispatch_recorded ? "true" : "false") +
                 ",\"closest_hit_local_root_marker\":1280262988" +
                 ",\"closest_hit_local_srv_marker\":1397904945" +
                 ",\"closest_hit_local_cbv_marker\":1128420913" +
