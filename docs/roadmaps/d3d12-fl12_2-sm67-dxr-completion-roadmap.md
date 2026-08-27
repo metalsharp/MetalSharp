@@ -1017,7 +1017,7 @@ Before declaring the goal complete, map each item below to actual evidence:
   adapter-change registration is proven, while broader sparse/VRS/DXR gaps
   remain explicitly gated.
 - [x] Full rebuild passes (`prepare-dxmt-x86-llvm15.sh`, 156/156 targets).
-- [x] Current source/staged SDK strict probe and comparison gates pass (23/23).
+- [x] Current source/staged SDK strict probe and comparison gates pass (24/24, including the legacy D3D10/D3D11 gate).
 - [x] D3D10/D3D11 regressions pass through the source-staged exact clear/copy/readback gate; the game harness now stages those DLLs when supplied.
 - [ ] Runtime staging and bundle hash gates pass.
 - [ ] Bounded MetalSharp Wine 11.5 launch at feature level 12_2 passes.
@@ -1074,11 +1074,12 @@ the goal is not complete.
   texture. Broader texture mapping-copy, packed/partial-mip, 3D, and residency
   matrices remain gated; the broader FL12_2, DXR, mesh, and packaging
   requirements remain active.
-- The current clean staged M12 runtime also passes the full 23-probe matrix
+- The current clean staged M12 runtime also passes the full 24-probe matrix
   and strict comparison (`pass=true`, `issues=[]`), including the placement
-  texture mapping-copy readback; its disposable prefix was removed after the
-  run. The M12 pipeline contract, shader-engine contract, runtime-layout
-  preflight, and `cargo test m12_` (33 tests) also pass.
+  texture mapping-copy and legacy D3D10/D3D11 readback gates; its disposable
+  prefix was removed after the run. The M12 pipeline contract, shader-engine
+  contract, runtime-layout preflight, and `cargo test m12_` (33 tests) also
+  pass.
 - Unsupported ordinary texture formats now fail closed instead of being
   substituted with BGRA8. A clean Wine 11.5 resources probe rejects
   `DXGI_FORMAT_R1_UNORM` with `E_INVALIDARG` while all existing resource,
