@@ -18,6 +18,7 @@ REQUIRED_PROBES = [
     "probe-loader",
     "probe-agility-ue5",
     "probe-device-caps",
+    "probe-legacy-regression",
     "probe-dxgi-factory",
     "probe-resources",
     "probe-resource-views-formats",

@@ -16,6 +16,7 @@ GAME_DIR=""
 RUN_LOADER=1
 RUN_AGILITY=1
 RUN_CAPS=1
+RUN_LEGACY_REGRESSION=1
 # FL12_2/SM6.7 target gate is opt-in until its implementation phases land.
 RUN_FEATURE_LEVELS=0
 RUN_OBJECT_CONTRACTS=0
@@ -88,6 +89,11 @@ Options:
   --no-agility          Skip probe_agility_ue5.
   --agility-only        Run only the Agility SDK surface probe.
   --no-caps             Skip probe_device_caps.
+  --legacy-regression   Run the D3D10/D3D11 clear-copy-readback regression gate.
+  --no-legacy-regression
+                        Skip the D3D10/D3D11 clear-copy-readback regression gate.
+  --legacy-regression-only
+                        Run only the D3D10/D3D11 clear-copy-readback regression gate.
   --caps-only           Run only the feature support / unsupported policy probe.
   --feature-levels      Run the target FL11_0-through-12_2 and SM6.7 probe.
   --feature-levels-only Run only the target feature-level and SM6.7 probe.
@@ -204,6 +210,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --agility-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=1
       RUN_CAPS=0
@@ -232,7 +239,48 @@ while [[ $# -gt 0 ]]; do
       RUN_CAPS=0
       shift
       ;;
+    --legacy-regression)
+      RUN_LEGACY_REGRESSION=1
+      shift
+      ;;
+    --no-legacy-regression)
+      RUN_LEGACY_REGRESSION=0
+      shift
+      ;;
+    --legacy-regression-only)
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      RUN_LEGACY_REGRESSION=1
+      shift
+      ;;
     --caps-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=1
@@ -262,6 +310,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --feature-levels-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -292,6 +341,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --object-contracts-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -323,6 +373,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --dxgi-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -352,6 +403,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --resources-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -385,6 +437,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --queues-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -418,6 +471,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --descriptors-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -455,6 +509,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --semantic-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -484,6 +539,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --shader-corpus-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -513,6 +569,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --sm66-capabilities-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -563,6 +620,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --sampler-feedback-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -596,6 +654,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --wave-ops-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -625,6 +684,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --reflection-abi-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -654,6 +714,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --graphics-pso-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -683,6 +744,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --compute-pso-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -712,6 +774,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --command-replay-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -741,6 +804,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --barriers-render-pass-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -770,6 +834,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --resource-views-formats-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -807,6 +872,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --winemetal-abi-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -837,6 +903,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --mini-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -866,6 +933,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --swapchain-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -911,6 +979,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$RUN_WRITABLE_MSAA_ONLY" == "1" ]]; then
+  RUN_LEGACY_REGRESSION=0
   RUN_LOADER=0
   RUN_AGILITY=0
   RUN_CAPS=0
@@ -942,6 +1011,7 @@ if [[ "$RUN_WRITABLE_MSAA_ONLY" == "1" ]]; then
 fi
 
 if [[ "$RUN_VRS_ONLY" == "1" ]]; then
+  RUN_LEGACY_REGRESSION=0
   RUN_LOADER=0
   RUN_AGILITY=0
   RUN_CAPS=0
@@ -1032,6 +1102,7 @@ fi
 PROBE_EXE="$SDK_DIR/out/bin/probe_loader.exe"
 AGILITY_PROBE_EXE="$SDK_DIR/out/bin/probe_agility_ue5.exe"
 CAPS_PROBE_EXE="$SDK_DIR/out/bin/probe_device_caps.exe"
+LEGACY_REGRESSION_PROBE_EXE="$SDK_DIR/out/bin/probe_legacy_regression.exe"
 FEATURE_LEVELS_PROBE_EXE="$SDK_DIR/out/bin/probe_feature_levels.exe"
 OBJECT_CONTRACTS_PROBE_EXE="$SDK_DIR/out/bin/probe_object_contracts.exe"
 DXGI_PROBE_EXE="$SDK_DIR/out/bin/probe_dxgi_factory.exe"
@@ -1097,7 +1168,7 @@ if [[ "$WINDOWS_DIR" == *"/gptk/"* || "$WINDOWS_DIR" == *"/lib/gptk/"* ]]; then
 fi
 
 NEED_BUILD=0
-if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
 
@@ -1192,6 +1263,7 @@ RENDER_HEADLESS_RESULT_FILE="$RESULTS_DIR/probe-render-headless-${PROFILE}.json"
 PRESENT_WINDOWED_RESULT_FILE="$RESULTS_DIR/probe-present-windowed-${PROFILE}.json"
 WINEMETAL_ABI_RESULT_FILE="$RESULTS_DIR/winemetal-abi-${PROFILE}.json"
 VRS_RESULT_FILE="$RESULTS_DIR/probe-vrs-${PROFILE}.json"
+LEGACY_REGRESSION_RESULT_FILE="$RESULTS_DIR/probe-legacy-regression-${PROFILE}.json"
 
 run_probe_exe() {
   local exe="$1"
@@ -1969,6 +2041,12 @@ fi
 # Feature-policy probes can intentionally return nonzero while still emitting useful
 # JSON. Keep collecting the rest of the matrix and let compare-contract decide pass/fail.
 set +e
+
+if [[ "$RUN_LEGACY_REGRESSION" == "1" ]]; then
+  run_probe_exe \
+    "$LEGACY_REGRESSION_PROBE_EXE" \
+    "$LEGACY_REGRESSION_RESULT_FILE"
+fi
 
 if [[ "$RUN_CAPS" == "1" ]]; then
   (
