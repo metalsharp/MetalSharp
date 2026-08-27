@@ -1165,8 +1165,11 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"runtime_correctness_complete\": %s,\n", runtime_complete ? "true" : "false");
     std::printf("    \"sm66_reportable\": %s,\n", sm66_reportable ? "true" : "false");
     std::printf("    \"sm67_reportable\": %s,\n", sm67_reportable ? "true" : "false");
-    std::printf("    \"decision\": \"%s\"\n",
+    std::printf("    \"decision\": \"%s\",\n",
                 sm67_reportable ? "SM 6.7 may be reported" : "SM 6.7 must not be reported until all runtime cases execute");
+    // The current corpus proves the supported core/compute subset, not the
+    // final cross-stage and dimension breadth required by the promotion gate.
+    std::printf("    \"sm67_breadth_complete\": false\n");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {

@@ -403,7 +403,10 @@ int main() {
     std::printf("    \"pixel_outputs_target0_target2\": true,\n");
     std::printf("    \"cached_blob\": true,\n");
     std::printf("    \"unsupported_stream_output_rejected\": true,\n");
-    std::printf("    \"unsupported_hs_ds_rejected\": true\n");
+    std::printf("    \"unsupported_hs_ds_rejected\": true,\n");
+    // ConservativeRaster is deliberately unsupported until the edge/coverage
+    // reference model is wired through the raster path.
+    std::printf("    \"conservative_rasterization_tier3_verified\": false\n");
     std::printf("  }\n");
     std::printf("}\n");
 
