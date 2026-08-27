@@ -7438,8 +7438,9 @@ static bool BuildSparseTextureMappings(
     const UINT region_width = size.UseBox ? size.Width : size.NumTiles;
     const UINT region_height = size.UseBox ? size.Height : 1;
     const UINT region_depth = size.UseBox ? size.Depth : 1;
-    if (!region_width || !region_height || !region_depth)
-      continue;
+    if (!region_width || !region_height || !region_depth ||
+        (size.UseBox && region_depth != 1))
+      return false;
     const uint64_t tile_count = uint64_t(region_width) * region_height *
                                 region_depth;
     if (!size.UseBox) {
@@ -7527,7 +7528,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
     return;
   D3D12_RESOURCE_DESC sparse_desc = {};
   if (!sparse_resource || !sparse_resource->IsReservedResource() ||
-      !sparse_resource->IsSparseBacked())
+      !sparse_resource->IsSparseBacked() || !region_count ||
+      !region_start_coordinates || !region_sizes)
     return;
   sparse_resource->GetDesc(&sparse_desc);
   bool needs_heap = false;
