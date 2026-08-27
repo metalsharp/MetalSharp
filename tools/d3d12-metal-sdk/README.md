@@ -358,9 +358,10 @@ are covered. It also round-trips a named and unnamed process-local
 missing names; cross-process sharing remains gated. The probe also creates a fully typed `R32_FLOAT` texture through
 `ID3D12Device10::CreateCommittedResource3` and `CreatePlacedResource2`,
 declares `R32_UINT` and `R8G8B8A8_UINT` as castable formats, validates exact
-`0x3f800000` and `[0,0,128,63]` compute readbacks through those views, rejects a
-mismatched-unit-size creation list, and verifies that an undeclared `R32_SINT`
-view remains null before Options12 reports relaxed format casting:
+`0x3f800000` and `[0,0,128,63]` compute readbacks through those views, switches
+an overlapping placed alias from `1.0` to `2.0` through aliasing barriers,
+rejects a mismatched-unit-size creation list, and verifies that an undeclared
+`R32_SINT` view remains null before Options12 reports relaxed format casting:
 
 ```bash
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \

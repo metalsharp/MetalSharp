@@ -152,7 +152,7 @@
         "ID3D12Device10::CreateCommittedResource3 castable format lists",
         "ID3D12Device10::CreatePlacedResource2 castable format lists"
       ],
-      "risk": "Enhanced barriers close active Metal encoders and establish queue order through the command-queue shared event. The report is backed by global, buffer, and texture groups plus exact copy-destination to copy-source buffer readback. Relaxed casting is limited to explicitly declared Device10 castable formats and is backed by committed/placed R32_FLOAT-to-R32_UINT readback, cross-layout R8G8B8A8_UINT readback, mismatched-unit-size creation rejection, and rejection of an undeclared R32_SINT view.",
+      "risk": "Enhanced barriers close active Metal encoders and establish queue order through the command-queue shared event. The report is backed by global, buffer, and texture groups plus exact copy-destination to copy-source buffer readback. Relaxed casting is limited to explicitly declared Device10 castable formats and is backed by committed/placed R32_FLOAT-to-R32_UINT readback, a focused overlapping placed-resource alias switch from 1.0 to 2.0, cross-layout R8G8B8A8_UINT readback, mismatched-unit-size creation rejection, and rejection of an undeclared R32_SINT view.",
       "state": "required",
       "tier": "required"
     },
