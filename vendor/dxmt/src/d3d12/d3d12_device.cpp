@@ -4547,15 +4547,26 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
       desc->Height == 1 && desc->DepthOrArraySize == 1 &&
       desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 &&
       desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+  const bool standard_mip_color_format =
+      desc->Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+      desc->Format == DXGI_FORMAT_R8G8B8A8_TYPELESS ||
+      desc->Format == DXGI_FORMAT_R32_FLOAT ||
+      desc->Format == DXGI_FORMAT_R32_TYPELESS;
+  const bool standard_mip_r8_format =
+      desc->Format == DXGI_FORMAT_R8_UNORM;
+  const UINT mip_count = std::max<UINT>(1, desc->MipLevels);
+  const uint64_t smallest_mip_width =
+      std::max<uint64_t>(1, desc->Width >> (mip_count - 1));
+  const uint64_t smallest_mip_height =
+      std::max<uint64_t>(1, static_cast<uint64_t>(desc->Height) >>
+                                (mip_count - 1));
   const bool standard_mip_texture =
       desc->MipLevels == 1 ||
       (desc->MipLevels > 1 && desc->MipLevels <= 16 &&
-       (desc->Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
-        desc->Format == DXGI_FORMAT_R8G8B8A8_TYPELESS ||
-        desc->Format == DXGI_FORMAT_R32_FLOAT ||
-        desc->Format == DXGI_FORMAT_R32_TYPELESS) &&
-       (desc->Width >> (desc->MipLevels - 1)) >= 128 &&
-       (static_cast<uint64_t>(desc->Height) >> (desc->MipLevels - 1)) >= 128);
+       ((standard_mip_color_format && smallest_mip_width >= 128 &&
+         smallest_mip_height >= 128) ||
+        (standard_mip_r8_format && smallest_mip_width >= 256 &&
+         smallest_mip_height >= 256)));
   const bool reserved_texture =
       desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
       desc->MipLevels && standard_mip_texture &&

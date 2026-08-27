@@ -279,6 +279,11 @@ int main() {
     ID3D12Resource* mapping_copy_readback = nullptr;
     ID3D12Resource* mipped_reserved_texture = nullptr;
     ID3D12Resource* mipped_reserved_readback = nullptr;
+    ID3D12Resource* r8_reserved_texture = nullptr;
+    ID3D12Resource* r8_reserved_readback = nullptr;
+    ID3D12Heap* r8_mipped_heap = nullptr;
+    ID3D12Resource* r8_mipped_texture = nullptr;
+    ID3D12Resource* r8_mipped_readback = nullptr;
     HRESULT sparse_heap_hr = E_FAIL;
     HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
@@ -307,6 +312,15 @@ int main() {
     bool mapping_copy_ok = false;
     HRESULT mipped_reserved_texture_hr = E_FAIL;
     HRESULT mipped_reserved_tiling_hr = E_FAIL;
+    HRESULT r8_reserved_texture_hr = E_FAIL;
+    HRESULT r8_reserved_tiling_hr = E_FAIL;
+    HRESULT r8_reserved_readback_hr = E_FAIL;
+    HRESULT r8_reserved_readback_map_hr = E_FAIL;
+    HRESULT r8_mipped_heap_hr = E_FAIL;
+    HRESULT r8_mipped_texture_hr = E_FAIL;
+    HRESULT r8_mipped_tiling_hr = E_FAIL;
+    HRESULT r8_mipped_readback_hr = E_FAIL;
+    HRESULT r8_mipped_readback_map_hr = E_FAIL;
     HRESULT mipped_reserved_readback_hr = E_FAIL;
     HRESULT mipped_reserved_readback_map_hr = E_FAIL;
     UINT mipped_reserved_total_tiles = 0;
@@ -314,6 +328,16 @@ int main() {
     D3D12_TILE_SHAPE mipped_reserved_tile_shape = {};
     D3D12_SUBRESOURCE_TILING mipped_reserved_tilings[2] = {};
     bool mipped_reserved_copy_ok = false;
+    UINT r8_reserved_total_tiles = 0;
+    UINT r8_reserved_tiling_count = 1;
+    D3D12_TILE_SHAPE r8_reserved_tile_shape = {};
+    D3D12_SUBRESOURCE_TILING r8_reserved_tiling = {};
+    bool r8_reserved_copy_ok = false;
+    UINT r8_mipped_total_tiles = 0;
+    UINT r8_mipped_tiling_count = 2;
+    D3D12_TILE_SHAPE r8_mipped_tile_shape = {};
+    D3D12_SUBRESOURCE_TILING r8_mipped_tilings[2] = {};
+    bool r8_mipped_copy_ok = false;
     UINT sparse_total_tiles = 0;
     D3D12_PACKED_MIP_INFO sparse_packed_mips = {};
     D3D12_TILE_SHAPE sparse_tile_shape = {};
@@ -505,6 +529,60 @@ int main() {
                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                      IID_PPV_ARGS(&mipped_reserved_readback))
                : E_FAIL;
+    D3D12_RESOURCE_DESC r8_reserved_desc =
+        texture_desc(256, 256, DXGI_FORMAT_R8_UNORM);
+    r8_reserved_texture_hr =
+        device ? device->CreateReservedResource(
+                     &r8_reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&r8_reserved_texture))
+               : E_FAIL;
+    if (device && r8_reserved_texture) {
+        r8_reserved_tiling_hr = S_OK;
+        device->GetResourceTiling(
+            r8_reserved_texture, &r8_reserved_total_tiles, nullptr,
+            &r8_reserved_tile_shape, &r8_reserved_tiling_count, 0,
+            &r8_reserved_tiling);
+    }
+    D3D12_RESOURCE_DESC r8_reserved_readback_desc =
+        buffer_desc(sparse_tile_size);
+    r8_reserved_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &r8_reserved_readback_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&r8_reserved_readback))
+               : E_FAIL;
+    D3D12_HEAP_DESC r8_mipped_heap_desc = {};
+    r8_mipped_heap_desc.SizeInBytes = 5 * sparse_tile_size;
+    r8_mipped_heap_desc.Properties = default_heap;
+    r8_mipped_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
+    r8_mipped_heap_hr = device
+                            ? device->CreateHeap(
+                                  &r8_mipped_heap_desc,
+                                  IID_PPV_ARGS(&r8_mipped_heap))
+                            : E_FAIL;
+    D3D12_RESOURCE_DESC r8_mipped_desc =
+        texture_desc(512, 512, DXGI_FORMAT_R8_UNORM);
+    r8_mipped_desc.MipLevels = 2;
+    r8_mipped_texture_hr =
+        device ? device->CreateReservedResource(
+                     &r8_mipped_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&r8_mipped_texture))
+               : E_FAIL;
+    if (device && r8_mipped_texture) {
+        r8_mipped_tiling_hr = S_OK;
+        device->GetResourceTiling(
+            r8_mipped_texture, &r8_mipped_total_tiles, nullptr,
+            &r8_mipped_tile_shape, &r8_mipped_tiling_count, 0,
+            r8_mipped_tilings);
+    }
+    r8_mipped_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &r8_reserved_readback_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&r8_mipped_readback))
+               : E_FAIL;
     uint8_t *sparse_upload_ptr = nullptr;
     HRESULT sparse_upload_map_hr =
         sparse_upload ? sparse_upload->Map(
@@ -650,6 +728,72 @@ int main() {
         list->CopyTiles(
             mapping_copy_destination, &destination_coordinate, &mapping_region,
             mapping_copy_readback, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+    }
+    if (list && queue && sparse_heap && r8_reserved_texture &&
+        r8_reserved_readback && SUCCEEDED(r8_reserved_texture_hr) &&
+        SUCCEEDED(r8_reserved_tiling_hr) &&
+        SUCCEEDED(r8_reserved_readback_hr) && r8_reserved_total_tiles == 1 &&
+        r8_reserved_tiling_count == 1 &&
+        r8_reserved_tile_shape.WidthInTexels == 256 &&
+        r8_reserved_tile_shape.HeightInTexels == 256) {
+        D3D12_TILED_RESOURCE_COORDINATE r8_coordinate = {};
+        D3D12_TILE_REGION_SIZE r8_region = {};
+        r8_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS r8_range_flag = D3D12_TILE_RANGE_FLAG_NONE;
+        UINT r8_heap_offset = 0;
+        UINT r8_range_count = 1;
+        queue->UpdateTileMappings(
+            r8_reserved_texture, 1, &r8_coordinate, &r8_region, sparse_heap,
+            1, &r8_range_flag, &r8_heap_offset, &r8_range_count,
+            D3D12_TILE_MAPPING_FLAG_NONE);
+        list->CopyTiles(
+            r8_reserved_texture, &r8_coordinate, &r8_region, sparse_upload, 0,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        D3D12_RESOURCE_BARRIER r8_barrier = transition_barrier(
+            r8_reserved_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &r8_barrier);
+        list->CopyTiles(
+            r8_reserved_texture, &r8_coordinate, &r8_region,
+            r8_reserved_readback, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+    }
+    if (list && queue && r8_mipped_heap && r8_mipped_texture &&
+        r8_mipped_readback && SUCCEEDED(r8_mipped_heap_hr) &&
+        SUCCEEDED(r8_mipped_texture_hr) && SUCCEEDED(r8_mipped_tiling_hr) &&
+        SUCCEEDED(r8_mipped_readback_hr) && r8_mipped_total_tiles == 5 &&
+        r8_mipped_tiling_count == 2 &&
+        r8_mipped_tile_shape.WidthInTexels == 256 &&
+        r8_mipped_tile_shape.HeightInTexels == 256 &&
+        r8_mipped_tilings[0].WidthInTiles == 2 &&
+        r8_mipped_tilings[0].HeightInTiles == 2 &&
+        r8_mipped_tilings[1].WidthInTiles == 1 &&
+        r8_mipped_tilings[1].HeightInTiles == 1 &&
+        r8_mipped_tilings[1].StartTileIndexInOverallResource == 4) {
+        D3D12_TILED_RESOURCE_COORDINATE r8_mip_coordinate = {};
+        r8_mip_coordinate.Subresource = 1;
+        D3D12_TILE_REGION_SIZE r8_mip_region = {};
+        r8_mip_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS r8_mip_range_flag =
+            D3D12_TILE_RANGE_FLAG_NONE;
+        UINT r8_mip_heap_offset = 0;
+        UINT r8_mip_range_count = 1;
+        queue->UpdateTileMappings(
+            r8_mipped_texture, 1, &r8_mip_coordinate, &r8_mip_region,
+            r8_mipped_heap, 1, &r8_mip_range_flag, &r8_mip_heap_offset,
+            &r8_mip_range_count, D3D12_TILE_MAPPING_FLAG_NONE);
+        list->CopyTiles(
+            r8_mipped_texture, &r8_mip_coordinate, &r8_mip_region,
+            sparse_upload, 0,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        D3D12_RESOURCE_BARRIER r8_mip_barrier = transition_barrier(
+            r8_mipped_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &r8_mip_barrier);
+        list->CopyTiles(
+            r8_mipped_texture, &r8_mip_coordinate, &r8_mip_region,
+            r8_mipped_readback, 0,
             D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
 
@@ -965,6 +1109,44 @@ int main() {
         }
         mapping_copy_readback->Unmap(0, nullptr);
     }
+    uint8_t *r8_reserved_readback_ptr = nullptr;
+    r8_reserved_readback_map_hr =
+        r8_reserved_readback
+            ? r8_reserved_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&r8_reserved_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(r8_reserved_readback_map_hr) &&
+        r8_reserved_readback_ptr) {
+        r8_reserved_copy_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_size; i++) {
+            if (r8_reserved_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                r8_reserved_copy_ok = false;
+                break;
+            }
+        }
+        r8_reserved_readback->Unmap(0, nullptr);
+    }
+    uint8_t *r8_mipped_readback_ptr = nullptr;
+    r8_mipped_readback_map_hr =
+        r8_mipped_readback
+            ? r8_mipped_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&r8_mipped_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(r8_mipped_readback_map_hr) &&
+        r8_mipped_readback_ptr) {
+        r8_mipped_copy_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_size; i++) {
+            if (r8_mipped_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                r8_mipped_copy_ok = false;
+                break;
+            }
+        }
+        r8_mipped_readback->Unmap(0, nullptr);
+    }
 
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
 
@@ -1035,6 +1217,28 @@ int main() {
                 SUCCEEDED(mapping_copy_destination_hr) &&
                 SUCCEEDED(mapping_copy_readback_hr) &&
                 SUCCEEDED(mapping_copy_readback_map_hr) && mapping_copy_ok &&
+                SUCCEEDED(r8_reserved_texture_hr) &&
+                SUCCEEDED(r8_reserved_tiling_hr) &&
+                SUCCEEDED(r8_reserved_readback_hr) &&
+                SUCCEEDED(r8_reserved_readback_map_hr) &&
+                r8_reserved_copy_ok && r8_reserved_total_tiles == 1 &&
+                r8_reserved_tiling_count == 1 &&
+                r8_reserved_tile_shape.WidthInTexels == 256 &&
+                r8_reserved_tile_shape.HeightInTexels == 256 &&
+                SUCCEEDED(r8_mipped_heap_hr) &&
+                SUCCEEDED(r8_mipped_texture_hr) &&
+                SUCCEEDED(r8_mipped_tiling_hr) &&
+                SUCCEEDED(r8_mipped_readback_hr) &&
+                SUCCEEDED(r8_mipped_readback_map_hr) &&
+                r8_mipped_copy_ok && r8_mipped_total_tiles == 5 &&
+                r8_mipped_tiling_count == 2 &&
+                r8_mipped_tile_shape.WidthInTexels == 256 &&
+                r8_mipped_tile_shape.HeightInTexels == 256 &&
+                r8_mipped_tilings[0].WidthInTiles == 2 &&
+                r8_mipped_tilings[0].HeightInTiles == 2 &&
+                r8_mipped_tilings[1].WidthInTiles == 1 &&
+                r8_mipped_tilings[1].HeightInTiles == 1 &&
+                r8_mipped_tilings[1].StartTileIndexInOverallResource == 4 &&
                 reserved_buffer_total_tiles == 2 &&
                 reserved_buffer_tiling_count == 1 &&
                 reserved_buffer_tile_shape.WidthInTexels == sparse_tile_size &&
@@ -1192,8 +1396,30 @@ int main() {
     print_hr("mapping_copy_destination_create", mapping_copy_destination_hr);
     print_hr("mapping_copy_readback_create", mapping_copy_readback_hr);
     print_hr("mapping_copy_readback_map", mapping_copy_readback_map_hr);
-    std::printf("      \"mapping_copy_verified\": %s\n",
+    std::printf("      \"mapping_copy_verified\": %s,\n",
                 mapping_copy_ok ? "true" : "false");
+    print_hr("r8_texture_create", r8_reserved_texture_hr);
+    print_hr("r8_tiling", r8_reserved_tiling_hr);
+    print_hr("r8_readback_create", r8_reserved_readback_hr);
+    print_hr("r8_readback_map", r8_reserved_readback_map_hr);
+    std::printf("      \"r8_total_tiles\": %u,\n", r8_reserved_total_tiles);
+    std::printf("      \"r8_tile_shape\": [%u, %u, %u],\n",
+                r8_reserved_tile_shape.WidthInTexels,
+                r8_reserved_tile_shape.HeightInTexels,
+                r8_reserved_tile_shape.DepthInTexels);
+    std::printf("      \"r8_copy_verified\": %s,\n",
+                r8_reserved_copy_ok ? "true" : "false");
+    print_hr("r8_mipped_heap_create", r8_mipped_heap_hr);
+    print_hr("r8_mipped_texture_create", r8_mipped_texture_hr);
+    print_hr("r8_mipped_tiling", r8_mipped_tiling_hr);
+    print_hr("r8_mipped_readback_create", r8_mipped_readback_hr);
+    print_hr("r8_mipped_readback_map", r8_mipped_readback_map_hr);
+    std::printf("      \"r8_mipped_total_tiles\": %u,\n",
+                r8_mipped_total_tiles);
+    std::printf("      \"r8_mipped_tiling_count\": %u,\n",
+                r8_mipped_tiling_count);
+    std::printf("      \"r8_mipped_copy_verified\": %s\n",
+                r8_mipped_copy_ok ? "true" : "false");
     std::printf("    },\n");
     std::printf("    \"mipped_texture\": {\n");
     print_hr("create", mipped_reserved_texture_hr);

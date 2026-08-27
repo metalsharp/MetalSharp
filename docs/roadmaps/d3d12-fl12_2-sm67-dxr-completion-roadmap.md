@@ -186,12 +186,12 @@ Findings:
 - `GetRaytracingAccelerationStructurePrebuildInfo` writes zeros.
 - `CreateSamplerFeedbackUnorderedAccessView` is a no-op.
 - Reserved-resource creation now uses a native Metal sparse heap/texture for
-  the focused 2D path and supports standard multi-mip RGBA8/R32 shapes; a
-  separate two-tile reserved-buffer path uses an MTL4 placement-sparse buffer
-  mapping on the proof host with a full shared fallback. Unsupported dimensions
-  still fail closed and Tier 3 remains gated on texture heap-page selection,
-  cross-resource aliases, packed/partial mips, `CopyTileMappings`, and broader
-  residency behavior.
+  the focused 2D path and supports standard multi-mip RGBA8/R32 and R8_UNORM
+  shapes; a separate two-tile reserved-buffer path uses an MTL4
+  placement-sparse buffer mapping on the proof host with a full shared
+  fallback. Unsupported dimensions still fail closed and Tier 3 remains gated
+  on texture heap-page selection, cross-resource aliases, packed/partial mips,
+  sparse-texture `CopyTileMappings`, and broader residency behavior.
 - Later device interfaces are compatibility declarations rather than complete
   Agility interface implementations.
 - Object private-data support is implemented only on the device; most child
@@ -281,9 +281,9 @@ Findings:
   destruction. Bundle execution propagates the bundle's retained references;
   a resource probe releases the upload/default caller references before replay
   and still passes exact readback.
-- Reserved resources now use native Metal sparse backing for a focused 2D
-  RGBA8-array and standard multi-mip path; a separate reserved-buffer path
-  uses native MTL4 placement-sparse buffers with a full shared fallback.
+- Reserved resources now use native Metal sparse backing for focused 2D
+  RGBA8-array and R8_UNORM standard multi-mip paths; a separate reserved-buffer
+  path uses native MTL4 placement-sparse buffers with a full shared fallback.
   Unsupported shapes fail closed rather than using committed substitutes.
 - Tile mapping/unmapping, native sparse-buffer `CopyTileMappings`, and
   per-slice/mip `CopyTiles` operations execute for those proof paths; physical
@@ -603,7 +603,7 @@ Deliverables:
 - Implement sparse/reserved buffers and textures using Metal sparse/placement
   sparse APIs.
 - Implement update/copy tile mappings and `GetResourceTiling`; the focused
-  native 2D RGBA8 mapping/unmapping and two-tile `CopyTiles` path is proven,
+  native 2D RGBA8/R8 mapping and standard-mip `CopyTiles` paths are proven,
   and native MTL4 sparse-buffer mapping copies now have an independent
   readback gate, while external heap page selection and sparse-texture mapping
   copies remain.
@@ -1246,8 +1246,9 @@ the goal is not complete.
   local-data shader-table matrices. The resource gate also now covers a
   separate two-tile reserved-buffer path: native MTL4 heap mapping, 64 KiB
   tiling, exact tile copies, copied-mapping readback, and zero-after-unmap
-  readback pass on the proof host; its fallback is explicitly not treated as
-  physical sparse heap-page support and cross-resource aliasing remains gated.
+  readback pass on the proof host. R8_UNORM one-tile and two-level standard-mip
+  copies also pass; its fallback is explicitly not treated as physical sparse
+  heap-page support and cross-resource aliasing remains gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
   tiled-resource, and native-sparse-buffer changes passes all `21/21` required
   contract probes. The matching Winemetal source audit reports `166/166`
