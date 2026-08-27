@@ -177,9 +177,11 @@ Findings:
   unsupported response and can hide ABI-size mistakes.
 - Several values were over-reported relative to implementation, including ROVs,
   conservative rasterization tier 1, typed UAV additional formats, and some
-  format atomic flags. Conservative rasterization now fails closed as
-  `D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED`; the remaining entries
-  stay in the residual audit until their reports are independently justified.
+  format atomic flags. ROV and conservative-rasterization reports now fail
+  closed (`ROVsSupported = FALSE` and
+  `D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED`); the remaining
+  entries stay in the residual audit until their reports are independently
+  justified.
 - Feature-level 12_2 requirements currently reported false include tiled
   resources, VRS, mesh shaders, conservative rasterization, and enhanced
   barriers; depth bounds is software-emulated and reported after its exact
@@ -1344,13 +1346,14 @@ the goal is not complete.
   `23/31` query checks, with the remaining failures limited to the
   deliberately unpromoted FL12_2 capability and behavior rows.
 
-### 2026-08-27 — Removed an unsupported conservative-raster report
+### 2026-08-27 — Removed unsupported ROV and conservative-raster reports
 
-- The D3D12 options query no longer reports Conservative Rasterization Tier 1:
-  the source audit found no actual conservative coverage implementation behind
-  that value. A fresh source-staged caps probe still passes its conservative
-  policy gate with the field at `NOT_SUPPORTED`; Tier 3 remains blocked until
-  the edge/inner-input/degenerate/winding/clipping/MSAA reference path exists.
+- The D3D12 options query no longer reports ROV support or Conservative
+  Rasterization Tier 1: the source audit found no matching Metal ROV or
+  conservative-coverage implementation behind those values. A fresh
+  source-staged caps probe passes the conservative policy gate with both
+  fields disabled; Tier 3 remains blocked until the edge/inner-input/
+  degenerate/winding/clipping/MSAA reference path exists.
 
 ### 2026-08-27 — Narrowed the remaining work to the completion runway
 
