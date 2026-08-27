@@ -98,11 +98,6 @@ HRESULT probe_d3d11(bool &readback_ok) {
   release(target);
   release(context);
   release(device);
-  std::printf("d3d11 hr=");
-  print_hr(hr);
-  std::printf(" feature_level=%u readback=%s\n",
-              static_cast<unsigned>(feature_level),
-              readback_ok ? "true" : "false");
   return hr;
 }
 
@@ -163,9 +158,6 @@ HRESULT probe_d3d10(bool &readback_ok) {
   release(rtv);
   release(target);
   release(device);
-  std::printf("d3d10 hr=");
-  print_hr(hr);
-  std::printf(" readback=%s\n", readback_ok ? "true" : "false");
   return hr;
 }
 
