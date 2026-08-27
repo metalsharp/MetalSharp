@@ -282,6 +282,7 @@ int main() {
     print_hr("check", options_hr);
     std::printf("    \"resource_binding_tier\": %u,\n", static_cast<unsigned>(options.ResourceBindingTier));
     std::printf("    \"resource_heap_tier\": %u,\n", static_cast<unsigned>(options.ResourceHeapTier));
+    std::printf("    \"output_merger_logic_op\": %s,\n", options.OutputMergerLogicOp ? "true" : "false");
     std::printf("    \"rovs_supported\": %s,\n", options.ROVsSupported ? "true" : "false");
     std::printf("    \"conservative_rasterization_tier\": %u\n",
                 static_cast<unsigned>(options.ConservativeRasterizationTier));

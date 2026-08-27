@@ -36,10 +36,10 @@ REQUIRED_PROBES = [
     "probe-compute-pso",
     "probe-command-replay",
     "probe-barriers-render-pass",
+    "probe-render-headless",
 ]
 
 OPTIONAL_PROBES = [
-    "probe-render-headless",
     "probe-present-windowed",
 ]
 
@@ -461,6 +461,7 @@ def field_to_options_value(options: dict[str, Any], field: str) -> Any:
         "ResourceBindingTier": options.get("resource_binding_tier"),
         "ROVsSupported": options.get("rovs_supported"),
         "ConservativeRasterizationTier": options.get("conservative_rasterization_tier"),
+        "OutputMergerLogicOp": options.get("output_merger_logic_op"),
     }
     value = mapping.get(field)
     if isinstance(value, bool):

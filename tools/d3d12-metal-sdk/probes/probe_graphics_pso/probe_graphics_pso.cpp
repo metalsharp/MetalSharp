@@ -299,6 +299,11 @@ int main() {
         msaa.RasterizerState.MultisampleEnable = TRUE;
         run_case(device, "msaa_4x", msaa, true, results);
 
+        auto logic_op = base;
+        logic_op.BlendState.RenderTarget[0].LogicOpEnable = TRUE;
+        logic_op.BlendState.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_XOR;
+        run_case(device, "logic_op_xor", logic_op, true, results);
+
         auto blend = base;
         blend.BlendState.RenderTarget[0].BlendEnable = TRUE;
         blend.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
@@ -380,6 +385,7 @@ int main() {
     std::printf("    \"color_depth\": true,\n");
     std::printf("    \"msaa\": true,\n");
     std::printf("    \"blend\": true,\n");
+    std::printf("    \"logic_op_xor\": true,\n");
     std::printf("    \"write_mask\": true,\n");
     std::printf("    \"input_layout_semantics\": true,\n");
     std::printf("    \"input_layout_per_instance_step_rate\": 2,\n");
