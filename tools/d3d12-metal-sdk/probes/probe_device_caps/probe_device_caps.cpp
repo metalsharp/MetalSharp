@@ -168,6 +168,9 @@ int main() {
     HRESULT create_reserved_resource_hr = E_FAIL;
     HRESULT query_device5_hr = E_NOINTERFACE;
     HRESULT create_state_object_hr = E_NOINTERFACE;
+    HRESULT invalid_feature_hr = E_FAIL;
+    HRESULT zero_size_feature_hr = E_FAIL;
+    HRESULT null_data_feature_hr = E_FAIL;
 
     if (device) {
         fl_hr = device->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &feature_levels, sizeof(feature_levels));
@@ -182,6 +185,14 @@ int main() {
         options11_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS11, &options11, sizeof(options11));
         stream_output_format_hr = device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &stream_output_format,
                                                               sizeof(stream_output_format));
+        UINT invalid_feature_payload = 0xdeadbeefu;
+        invalid_feature_hr = device->CheckFeatureSupport(
+            static_cast<D3D12_FEATURE>(0xffffffffu), &invalid_feature_payload,
+            sizeof(invalid_feature_payload));
+        zero_size_feature_hr = device->CheckFeatureSupport(
+            D3D12_FEATURE_SHADER_MODEL, &invalid_feature_payload, 0);
+        null_data_feature_hr = device->CheckFeatureSupport(
+            D3D12_FEATURE_SHADER_MODEL, nullptr, sizeof(invalid_feature_payload));
 
         D3D12_RESOURCE_DESC reserved_desc = {};
         reserved_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -233,9 +244,13 @@ int main() {
         SUCCEEDED(stream_output_format_hr) && !(stream_output_format.Support1 & D3D12_FORMAT_SUPPORT1_SO_BUFFER);
     bool reserved_resources_unsupported = FAILED(create_reserved_resource_hr);
     bool state_objects_unsupported = FAILED(query_device5_hr) || FAILED(create_state_object_hr);
+    bool feature_query_validation =
+        invalid_feature_hr == E_INVALIDARG && zero_size_feature_hr == E_INVALIDARG &&
+        null_data_feature_hr == E_POINTER;
     bool pass = SUCCEEDED(create_hr) && feature_level_ok && shader_model_target_ok && binding_tier_ok &&
                 wave_ops_proven_reported && atomic64_conservative && advanced_conservative && stream_output_conservative &&
-                reserved_resources_unsupported && state_objects_unsupported;
+                reserved_resources_unsupported && state_objects_unsupported &&
+                feature_query_validation;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-device-caps.v1\",\n");
@@ -301,9 +316,13 @@ int main() {
     print_hr("create_reserved_resource", create_reserved_resource_hr);
     print_hr("query_device5", query_device5_hr);
     print_hr("create_state_object", create_state_object_hr);
+    print_hr("invalid_feature", invalid_feature_hr);
+    print_hr("zero_size_feature", zero_size_feature_hr);
+    print_hr("null_data_feature", null_data_feature_hr);
     std::printf("    \"stream_output_conservative\": %s,\n", stream_output_conservative ? "true" : "false");
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
-    std::printf("    \"state_objects_unsupported\": %s\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"state_objects_unsupported\": %s,\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"feature_query_validation\": %s\n", feature_query_validation ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"requirements\": {\n");
     std::printf("    \"feature_level_12_0_or_better\": %s,\n", feature_level_ok ? "true" : "false");
@@ -317,7 +336,8 @@ int main() {
                 options9.MeshShaderPipelineStatsSupported ? "true" : "false");
     std::printf("    \"stream_output_conservative\": %s,\n",  stream_output_conservative ? "true" : "false");
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
-    std::printf("    \"state_objects_unsupported\": %s\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"state_objects_unsupported\": %s,\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"feature_query_validation\": %s\n", feature_query_validation ? "true" : "false");
     std::printf("  }\n");
     std::printf("}\n");
 
