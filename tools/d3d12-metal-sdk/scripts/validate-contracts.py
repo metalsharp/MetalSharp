@@ -16,6 +16,7 @@ REQUIRED_CONTRACTS = [
     "d3d12-metal-contract.json",
     "agility-1.619.3-contract.json",
     "feature-support-contract.json",
+    "fl12-2-gate-contract.json",
     "dxgi-contract.json",
     "unsupported-api-ledger.json",
     "risky-stub-ledger.json",
@@ -145,6 +146,56 @@ def validate_waivers(path: Path, data: dict[str, Any], errors: list[str]) -> Non
                 )
 
 
+def validate_fl12_2_gate(path: Path, data: dict[str, Any], errors: list[str]) -> None:
+    validate_evidence(path, data, errors)
+    target = data.get("target")
+    require(isinstance(target, dict), f"{path}: target must be an object", errors)
+    if isinstance(target, dict):
+        require(target.get("feature_level") == "12_2", f"{path}: target.feature_level must be `12_2`", errors)
+        require(target.get("shader_model") == "6_7", f"{path}: target.shader_model must be `6_7`", errors)
+        levels = target.get("expected_levels")
+        require(
+            levels == ["11_0", "11_1", "12_0", "12_1", "12_2"],
+            f"{path}: target.expected_levels must enumerate 11_0 through 12_2",
+            errors,
+        )
+        require(target.get("promotion_is_atomic") is True, f"{path}: promotion_is_atomic must be true", errors)
+
+    identity = data.get("identity")
+    require(isinstance(identity, dict), f"{path}: identity must be an object", errors)
+    if isinstance(identity, dict):
+        for key in ("environment_result", "host_runtime_result", "wine_version", "required_artifacts"):
+            require(bool(identity.get(key)), f"{path}: identity.{key} is required", errors)
+        require(identity.get("wine_version") == "wine-11.5", f"{path}: identity.wine_version must be wine-11.5", errors)
+        require(
+            isinstance(identity.get("required_artifacts"), list) and len(identity["required_artifacts"]) > 0,
+            f"{path}: identity.required_artifacts must be a non-empty list",
+            errors,
+        )
+
+    valid_operators = {"equals", "at_least", "bitmask_all", "hr_success"}
+    for section in ("query_requirements", "behavior_requirements"):
+        entries = data.get(section)
+        require(isinstance(entries, list) and len(entries) > 0, f"{path}: {section} must be non-empty", errors)
+        if not isinstance(entries, list):
+            continue
+        ids: set[str] = set()
+        for index, entry in enumerate(entries):
+            prefix = f"{path}: {section}[{index}]"
+            require(isinstance(entry, dict), f"{prefix} must be an object", errors)
+            if not isinstance(entry, dict):
+                continue
+            check_id = entry.get("id")
+            require(isinstance(check_id, str) and bool(check_id), f"{prefix} missing id", errors)
+            if isinstance(check_id, str) and check_id:
+                require(check_id not in ids, f"{prefix} duplicates id `{check_id}`", errors)
+                ids.add(check_id)
+            for key in ("api", "probe", "path"):
+                require(isinstance(entry.get(key), str) and bool(entry.get(key)), f"{prefix} missing {key}", errors)
+            require(entry.get("operator") in valid_operators, f"{prefix} has invalid operator `{entry.get('operator')}`", errors)
+            require("expected" in entry, f"{prefix} missing expected value", errors)
+
+
 def validate_reference_contract(path: Path, data: dict[str, Any], errors: list[str]) -> None:
     validate_evidence(path, data, errors)
     require(isinstance(data.get("summary"), dict), f"{path}: missing summary", errors)
@@ -217,6 +268,8 @@ def validate_contracts(root: Path) -> list[str]:
             validate_waivers(path, data, errors)
         elif name == "feature-support-contract.json":
             validate_feature_support(path, data, waiver_ids, errors)
+        elif name == "fl12-2-gate-contract.json":
+            validate_fl12_2_gate(path, data, errors)
         elif name == "winemetal-bridge-contract.json":
             validate_winemetal_bridge(path, data, errors)
         else:

@@ -14,6 +14,7 @@ CONTRACTS_DIR = SDK_DIR / "contracts"
 
 REQUIRED_GROUPS = {
     "loader_runtime_route": ["probe-loader"],
+    "fl12_2_aggregate_gate": ["validate-fl12-2-gate"],
     "device_caps_feature_reports": ["probe-device-caps"],
     "legacy_d3d10_d3d11_readback": ["probe-legacy-regression"],
     "feature_levels_11_0_through_12_2": ["probe-feature-levels"],
@@ -56,6 +57,7 @@ def collect_probe_tokens() -> set[str]:
     run_probes = (SDK_DIR / "scripts" / "run-probes.sh").read_text(encoding="utf-8")
     compare_contract = (SDK_DIR / "scripts" / "compare-contract.py").read_text(encoding="utf-8")
     tokens = set(re.findall(r"probe[-_][A-Za-z0-9_-]+", run_probes + "\n" + compare_contract))
+    tokens.update(re.findall(r"validate-[A-Za-z0-9-]+", run_probes + "\n" + compare_contract))
     normalized = {token.replace("_", "-").removesuffix("-exe") for token in tokens}
     if "winemetal-abi" in run_probes:
         normalized.add("winemetal-abi")

@@ -609,6 +609,145 @@ float4 ps_main(VSOut input) : SV_Target0 {
       cross_image_max_pixels = pixels;
   }
 
+  // Exercise the post-rasterizer and screen-space combiners with SUM. The
+  // cross-image loop leaves a constant 2x1 image selected; combining it with
+  // a 1x2 draw rate must produce 2x2 through independent axis addition.
+  uint32_t sum_image_pixels = 0;
+  HRESULT sum_image_reset_hr = cross_image_last_hr;
+  HRESULT sum_image_record_hr = E_FAIL;
+  HRESULT sum_image_execute_hr = E_FAIL;
+  bool sum_image_combiner_ok = false;
+  if (SUCCEEDED(sum_image_reset_hr)) {
+    sum_image_reset_hr = allocator->Reset();
+    if (SUCCEEDED(sum_image_reset_hr))
+      sum_image_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(sum_image_reset_hr)) {
+      D3D12_RESOURCE_BARRIER restore_target = {};
+      restore_target.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      restore_target.Transition.pResource = target;
+      restore_target.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      restore_target.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_COPY_SOURCE;
+      restore_target.Transition.StateAfter =
+          D3D12_RESOURCE_STATE_RENDER_TARGET;
+      list->ResourceBarrier(1, &restore_target);
+      const D3D12_SHADING_RATE_COMBINER sum_combiners[2] = {
+          D3D12_SHADING_RATE_COMBINER_SUM,
+          D3D12_SHADING_RATE_COMBINER_SUM};
+      sum_image_record_hr = record_draw(
+          list, list5, root, pso, target, D3D12_SHADING_RATE_1X2,
+          shading_rate_image, readback, vertex_buffer, rtv_heap,
+          sum_combiners);
+    }
+    if (SUCCEEDED(sum_image_record_hr))
+      sum_image_execute_hr = execute_and_wait(device, queue, list);
+    sum_image_pixels = count_nonzero(readback);
+    sum_image_combiner_ok = SUCCEEDED(sum_image_reset_hr) &&
+                            SUCCEEDED(sum_image_record_hr) &&
+                            SUCCEEDED(sum_image_execute_hr) &&
+                            sum_image_pixels == vrs_pixels;
+  }
+
+  // Use a checkerboard of 1x1 and 2x2 image texels.  DXMT lowers each
+  // nonconstant texel as an isolated load/store render pass with a matching
+  // scissor, so this case must differ from both uniform image results while
+  // preserving the full-screen triangle coverage.
+  uint32_t nonconstant_image_pixels = 0;
+  HRESULT nonconstant_image_reset_hr = sum_image_execute_hr;
+  HRESULT nonconstant_image_record_hr = E_FAIL;
+  HRESULT nonconstant_image_execute_hr = E_FAIL;
+  bool nonconstant_image_pattern_written = false;
+  bool nonconstant_image_ok = false;
+  if (SUCCEEDED(nonconstant_image_reset_hr)) {
+    nonconstant_image_reset_hr = allocator->Reset();
+    if (SUCCEEDED(nonconstant_image_reset_hr))
+      nonconstant_image_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(nonconstant_image_reset_hr)) {
+      D3D12_RESOURCE_BARRIER restore_target = {};
+      restore_target.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      restore_target.Transition.pResource = target;
+      restore_target.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      restore_target.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_COPY_SOURCE;
+      restore_target.Transition.StateAfter =
+          D3D12_RESOURCE_STATE_RENDER_TARGET;
+      list->ResourceBarrier(1, &restore_target);
+
+      D3D12_RESOURCE_BARRIER image_to_copy = {};
+      image_to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      image_to_copy.Transition.pResource = shading_rate_image;
+      image_to_copy.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      image_to_copy.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+      image_to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+      list->ResourceBarrier(1, &image_to_copy);
+
+      void *mapped = nullptr;
+      D3D12_RANGE write_range = {0, 0};
+      HRESULT map_hr = shading_rate_upload->Map(0, &write_range, &mapped);
+      if (SUCCEEDED(map_hr) && mapped) {
+        for (uint32_t y = 0; y < 8; ++y) {
+          auto *row = static_cast<uint8_t *>(mapped) + y * 256;
+          for (uint32_t x = 0; x < 8; ++x)
+            row[x] = ((x + y) & 1) ? D3D12_SHADING_RATE_2X2
+                                   : D3D12_SHADING_RATE_1X1;
+        }
+        shading_rate_upload->Unmap(0, nullptr);
+        nonconstant_image_pattern_written = true;
+      } else {
+        nonconstant_image_reset_hr = map_hr;
+      }
+
+      if (SUCCEEDED(nonconstant_image_reset_hr) &&
+          nonconstant_image_pattern_written) {
+        D3D12_TEXTURE_COPY_LOCATION image_source = {};
+        image_source.pResource = shading_rate_upload;
+        image_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        image_source.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8_UINT;
+        image_source.PlacedFootprint.Footprint.Width = 8;
+        image_source.PlacedFootprint.Footprint.Height = 8;
+        image_source.PlacedFootprint.Footprint.Depth = 1;
+        image_source.PlacedFootprint.Footprint.RowPitch = 256;
+        D3D12_TEXTURE_COPY_LOCATION image_destination = {};
+        image_destination.pResource = shading_rate_image;
+        image_destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&image_destination, 0, 0, 0, &image_source,
+                                nullptr);
+        D3D12_RESOURCE_BARRIER image_to_source = {};
+        image_to_source.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        image_to_source.Transition.pResource = shading_rate_image;
+        image_to_source.Transition.Subresource =
+            D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        image_to_source.Transition.StateBefore =
+            D3D12_RESOURCE_STATE_COPY_DEST;
+        image_to_source.Transition.StateAfter =
+            D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+        list->ResourceBarrier(1, &image_to_source);
+        const D3D12_SHADING_RATE_COMBINER nonconstant_combiners[2] = {
+            D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+            D3D12_SHADING_RATE_COMBINER_OVERRIDE};
+        nonconstant_image_record_hr = record_draw(
+            list, list5, root, pso, target, D3D12_SHADING_RATE_1X1,
+            shading_rate_image, readback, vertex_buffer, rtv_heap,
+            nonconstant_combiners);
+      }
+    }
+    if (SUCCEEDED(nonconstant_image_record_hr))
+      nonconstant_image_execute_hr = execute_and_wait(device, queue, list);
+    nonconstant_image_pixels = count_nonzero(readback);
+    nonconstant_image_ok = SUCCEEDED(nonconstant_image_reset_hr) &&
+                           nonconstant_image_pattern_written &&
+                           SUCCEEDED(nonconstant_image_record_hr) &&
+                           SUCCEEDED(nonconstant_image_execute_hr) &&
+                           nonconstant_image_pixels > 0 &&
+                           nonconstant_image_pixels < baseline_pixels &&
+                           nonconstant_image_pixels == 2320 &&
+                           nonconstant_image_pixels != image_pixels;
+  }
+
   const D3D12_SHADING_RATE rate_matrix_rates[] = {
       D3D12_SHADING_RATE_1X2, D3D12_SHADING_RATE_2X1,
       D3D12_SHADING_RATE_2X4, D3D12_SHADING_RATE_4X2,
@@ -674,7 +813,9 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       SUCCEEDED(image_record_hr) && SUCCEEDED(image_execute_hr) &&
                       image_pixels > 0 && image_pixels < baseline_pixels &&
                       image_pixels == vrs_pixels && cross_image_combiner_ok &&
-                      rate_matrix_ok && SUCCEEDED(rate_matrix_last_hr);
+                      sum_image_combiner_ok && nonconstant_image_ok &&
+                      rate_matrix_ok &&
+                      SUCCEEDED(rate_matrix_last_hr);
   std::printf("{\n");
   std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-vrs.v1\",\n");
   std::printf("  \"pass\": %s,\n", passed ? "true" : "false");
@@ -729,6 +870,30 @@ float4 ps_main(VSOut input) : SV_Target0 {
               cross_image_max_pixels);
   std::printf("  \"cross_image_combiner_verified\": %s,\n",
               cross_image_combiner_ok ? "true" : "false");
+  std::printf("  \"sum_image_reset_hr\": \"%s\",\n",
+              hr_hex(sum_image_reset_hr).c_str());
+  std::printf("  \"sum_image_record_hr\": \"%s\",\n",
+              hr_hex(sum_image_record_hr).c_str());
+  std::printf("  \"sum_image_execute_hr\": \"%s\",\n",
+              hr_hex(sum_image_execute_hr).c_str());
+  std::printf("  \"sum_image_rate\": \"2x2\",\n");
+  std::printf("  \"sum_image_combiners\": [\"SUM\", \"SUM\"],\n");
+  std::printf("  \"sum_image_pixels\": %u,\n", sum_image_pixels);
+  std::printf("  \"sum_image_combiner_verified\": %s,\n",
+              sum_image_combiner_ok ? "true" : "false");
+  std::printf("  \"nonconstant_image_reset_hr\": \"%s\",\n",
+              hr_hex(nonconstant_image_reset_hr).c_str());
+  std::printf("  \"nonconstant_image_record_hr\": \"%s\",\n",
+              hr_hex(nonconstant_image_record_hr).c_str());
+  std::printf("  \"nonconstant_image_execute_hr\": \"%s\",\n",
+              hr_hex(nonconstant_image_execute_hr).c_str());
+  std::printf("  \"nonconstant_image_pattern_written\": %s,\n",
+              nonconstant_image_pattern_written ? "true" : "false");
+  std::printf("  \"nonconstant_image_pixels\": %u,\n",
+              nonconstant_image_pixels);
+  std::printf("  \"nonconstant_image_expected_pixels\": 2320,\n");
+  std::printf("  \"nonconstant_image_verified\": %s,\n",
+              nonconstant_image_ok ? "true" : "false");
   std::printf("  \"rate_matrix\": [");
   for (size_t i = 0; i < 5; ++i) {
     if (i)
@@ -739,8 +904,32 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("],\n");
   std::printf("  \"rate_matrix_verified\": %s,\n",
               rate_matrix_ok ? "true" : "false");
-  std::printf("  \"rate_matrix_last_hr\": \"%s\"\n",
+  std::printf("  \"rate_matrix_last_hr\": \"%s\",\n",
               hr_hex(rate_matrix_last_hr).c_str());
+  std::printf("  \"summary\": {\n");
+  std::printf("    \"per_draw_matrix_complete\": %s,\n",
+              rate_matrix_ok ? "true" : "false");
+  std::printf("    \"constant_image_matrix_complete\": %s,\n",
+              (image_pixels == vrs_pixels && cross_image_combiner_ok)
+                  ? "true"
+                  : "false");
+  std::printf("    \"sum_combiner_complete\": %s,\n",
+              sum_image_combiner_ok ? "true" : "false");
+  // A constant image and a per-draw rate cannot prove arbitrary image or
+  // per-primitive semantics, so keep those facts explicit until their
+  // focused matrices execute.
+  std::printf("    \"nonconstant_image_complete\": %s,\n",
+              nonconstant_image_ok ? "true" : "false");
+  std::printf("    \"per_primitive_complete\": false,\n");
+  std::printf("    \"logical_resolution_complete\": false,\n");
+  std::printf("    \"lifecycle_complete\": %s,\n",
+              (SUCCEEDED(image_reset_hr) && SUCCEEDED(image_record_hr) &&
+               SUCCEEDED(image_execute_hr) &&
+               SUCCEEDED(sum_image_execute_hr))
+                  ? "true"
+                  : "false");
+  std::printf("    \"tier2_matrix_complete\": false\n");
+  std::printf("  }\n");
   std::printf("}\n");
   std::fflush(stdout);
 

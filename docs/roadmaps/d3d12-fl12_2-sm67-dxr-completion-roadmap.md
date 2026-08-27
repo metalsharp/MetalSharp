@@ -74,7 +74,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | --- | --- | --- | --- |
 | Shader model | At least 6.5 | 6.7 for the current core corpus; final breadth gate pending | SM 6.6 breadth plus SM 6.7 quad-vote runtime readback passed; advanced-op/MSAA breadth remains |
 | Ray tracing | Tier 1.1 | Foundational DXR execution subset proven; Tier 1.1 remains unreported | Mixed-geometry, state-object, shader-table, indirect, lifetime, and clean-prefix DXR gates |
-| Variable-rate shading | Tier 2 | Per-draw rate matrix and constant-image subset proven; Tier 2 remains unreported | Nonconstant image, `SUM`, per-primitive, logical-resolution, and Tier-2 VRS gates |
+| Variable-rate shading | Tier 2 | Per-draw, constant-image, `SUM`, and focused nonconstant checkerboard image paths proven; Tier 2 remains unreported | Per-primitive, logical-resolution, broader image/combiner, and Tier-2 VRS gates |
 | Mesh shaders | Tier 1 | Focused AS/MS direct and indirect execution proven; Tier 1 remains unreported | Broader AS/MS stage, payload, render-state, statistics, and clean-prefix gates |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
@@ -576,7 +576,7 @@ feature level 12_2.
 | Blocker | Evidence today | Required closure |
 | --- | --- | --- |
 | Maximum feature level | `D3D12CreateDevice(12_2)` returns `DXGI_ERROR_UNSUPPORTED` by design; build maximum is 12_1 | Promote only after every row below is green |
-| VRS | Per-draw rates and constant image maps pass | Tier-2 image semantics, `SUM`, per-primitive rates, logical-resolution mapping, and lifecycle pass |
+| VRS | Per-draw, constant-image, `SUM`, and exact nonconstant checkerboard readback pass | Per-primitive rates, logical-resolution mapping, broader image/combiner semantics, and Tier-2 lifecycle pass |
 | Mesh shaders | Focused AS/MS direct/indirect, layered depth/blend/wireframe, and statistics paths pass | Complete Tier-1 matrix and report only the behavior-backed tier |
 | Tiled resources | Focused native sparse 2D and MTL4 buffer paths pass | Physical page ownership, mapping copies, packed/partial mips, 3D/array coverage, aliasing, and residency pass |
 | Conservative rasterization | Software Tier-1 path only | Implement and prove Tier-3 coverage semantics; do not infer Tier 3 from Metal support |
@@ -623,8 +623,9 @@ and reports the expected named blockers without changing any public capability.
 
 ### Completion Phase 2 — Close VRS Tier 2
 
-This is the next implementation priority because the current bridge handles
-only uniform Metal rate maps and constant shading-rate images.
+This is the next implementation priority because the current bridge now
+handles scoped nonconstant image tiles, but still lacks the full Tier-2 source
+matrix and shader semantic plumbing.
 
 Deliverables:
 
@@ -632,12 +633,15 @@ Deliverables:
   array, clear, upload/copy, unmap, and resource lifetime behavior.
 - Implement both combiner stages with independent horizontal/vertical axis
   semantics, including `PASSTHROUGH`, `OVERRIDE`, `MIN`, `MAX`, and `SUM`.
-- Implement a semantically equivalent path for nonconstant images. A uniform
-  or separable Metal rate map is valid only when it is mathematically
-  equivalent; otherwise use a bounded software/replay path rather than
-  silently treating the image as constant.
-- Cover per-primitive rates and their interaction with an image, viewport,
+- Keep the bounded software/replay path for nonconstant images: each covered
+  image texel must use its own load/store render pass and intersected scissor,
+  rather than being silently treated as constant. Extend it to indexed,
+  geometry, tessellation, and mesh-emulated draws.
+- Add per-primitive rates and their interaction with an image, viewport,
   scissor, depth/stencil, render-target arrays, and command-list reset/reuse.
+- Add SV_ShadingRate output/input plumbing and prove logical-resolution
+  reconstruction against a CPU reference, including viewport offsets and
+  partially covered trailing tiles.
 
 Focused gate:
 
@@ -1320,6 +1324,20 @@ the goal is not complete.
   SM6.7/MSAA breadth, residual-stub cleanup/report promotion, and final runtime
   staging. No capability report or maximum feature level may be raised before
   the corresponding clean-prefix behavior gate passes.
+
+### 2026-08-27 — Added bounded nonconstant VRS image execution
+
+- `CombineShadingRate` now implements the D3D12 axis-wise `SUM` combiner with
+  saturation at 4x4; packed enum arithmetic is intentionally avoided.
+- A nonconstant R8_UINT shading-rate image is no longer collapsed to its first
+  texel. For ordinary draws, DXMT replays one load/store Metal render pass per
+  covered image texel, intersects the pass scissor with that tile, and applies
+  the exact per-tile rate. The focused 8x8 checkerboard probe passes with the
+  pinned M4/Xcode 27 beta 6 readback `2320`, alongside the constant-image
+  `SUM/SUM` readback `1089`.
+- Indexed, geometry, tessellation, mesh-emulated draws, per-primitive
+  `SV_ShadingRate`, and logical-resolution reconstruction remain gated; no
+  VRS capability tier was promoted.
 
 ### 2026-08-27 — Correct legacy runtime staging and readback gate
 

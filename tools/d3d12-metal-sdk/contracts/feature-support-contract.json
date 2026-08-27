@@ -118,7 +118,7 @@
       "behavior_probes": [
         "tools/d3d12-metal-sdk/probes/probe_vrs"
       ],
-      "probe_status": "per_draw_rate_matrix_constant_image_reduced_invocation_readback_passed_tier2_remains_gated",
+      "probe_status": "per_draw_rate_matrix_constant_image_sum_and_nonconstant_checkerboard_2320_readback_passed_tier2_remains_gated",
       "reported": "unsupported",
       "required_fields": [
         "VariableShadingRateTier",
@@ -131,9 +131,11 @@
         "Metal rasterization-rate map creation and render-pass attachment",
         "constant R8_UINT shading-rate image copy and attachment",
         "baseline versus 1x2/2x1/2x2/2x4/4x2/4x4 reduced fragment readback",
+        "constant-image SUM/SUM independent-axis combination",
+        "nonconstant 8x8 checkerboard image with exact 2320-pixel readback",
         "command-list reset and reuse after a VRS pass"
       ],
-      "risk": "The per-draw 1x2/2x1/2x2/2x4/4x2/4x4 paths record D3D12 shading-rate commands and attach Metal rasterization-rate maps, reducing the focused 64x64 readback to 2112/2112/1089/1056/1056/1024 nonzero pixels; the 2x2 case also passes a MAX/PASSTHROUGH combiner pair. A copied constant R8_UINT 8x8 shading-rate image uses the D3D12 PASSTHROUGH/OVERRIDE combiner pair and independently produces the same 1089-pixel 2x2 result. Nonconstant image mapping, MIN/MAX axis matrices beyond the focused paths, SUM, logical-resolution reconstruction, per-primitive rates, and full Tier-2 breadth remain unproven, so Options6 stays conservative.",
+      "risk": "The per-draw 1x2/2x1/2x2/2x4/4x2/4x4 paths record D3D12 shading-rate commands and attach Metal rasterization-rate maps, reducing the focused 64x64 readback to 2112/2112/1089/1056/1056/1024 nonzero pixels; the 2x2 case also passes a MAX/PASSTHROUGH combiner pair. A copied constant R8_UINT 8x8 shading-rate image uses the D3D12 PASSTHROUGH/OVERRIDE pair, independently-axis SUM/SUM, and produces the expected 1089-pixel 2x2 result. A nonconstant 8x8 checkerboard image is now emulated as 64 scoped load/store render passes with exact 2320-pixel readback. Logical-resolution reconstruction, per-primitive rates, SV_ShadingRate input/output, broader combiner matrices, and full Tier-2 breadth remain unproven, so Options6 stays conservative.",
       "state": "required",
       "tier": "required"
     },

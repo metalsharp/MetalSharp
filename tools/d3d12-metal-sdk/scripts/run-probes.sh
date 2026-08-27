@@ -19,6 +19,7 @@ RUN_CAPS=1
 RUN_LEGACY_REGRESSION=1
 # FL12_2/SM6.7 target gate is opt-in until its implementation phases land.
 RUN_FEATURE_LEVELS=0
+RUN_FL12_2_GATE=0
 RUN_OBJECT_CONTRACTS=0
 RUN_DXGI=1
 RUN_RESOURCES=1
@@ -97,6 +98,7 @@ Options:
   --caps-only           Run only the feature support / unsupported policy probe.
   --feature-levels      Run the target FL11_0-through-12_2 and SM6.7 probe.
   --feature-levels-only Run only the target feature-level and SM6.7 probe.
+  --fl12-2-gate         Run the full opt-in FL12_2 query/behavior/provenance gate.
   --object-contracts    Run D3D12 object private-data/COM semantics.
   --object-contracts-only
                         Run only D3D12 object private-data/COM semantics.
@@ -334,6 +336,14 @@ while [[ $# -gt 0 ]]; do
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
       RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
+    --fl12-2-gate)
+      RUN_FL12_2_GATE=1
+      RUN_FEATURE_LEVELS=1
+      RUN_OBJECT_CONTRACTS=1
+      RUN_VRS=1
+      RUN_RENDER_HEADLESS=1
       shift
       ;;
     --object-contracts)
@@ -1265,6 +1275,36 @@ WINEMETAL_ABI_RESULT_FILE="$RESULTS_DIR/winemetal-abi-${PROFILE}.json"
 VRS_RESULT_FILE="$RESULTS_DIR/probe-vrs-${PROFILE}.json"
 LEGACY_REGRESSION_RESULT_FILE="$RESULTS_DIR/probe-legacy-regression-${PROFILE}.json"
 
+if [[ "$RUN_FL12_2_GATE" == "1" ]]; then
+  # The aggregate gate must never combine a newly captured identity with a
+  # result left by an earlier partial or different-runtime invocation.  Every
+  # dependency is rerun by this mode; deleting its output makes an interrupted
+  # or skipped probe a visible missing-evidence failure.
+  FL12_2_GATE_RESULT_STEMS=(
+    probe-feature-levels
+    probe-render-headless
+    probe-descriptors
+    probe-wave-ops
+    probe-sm66-capabilities
+    probe-mini-mesh_object_shader_pso
+    probe-queues
+    probe-command-replay
+    probe-resource-views-formats
+    probe-resources
+    probe-sampler-feedback
+    probe-sampler-feedback-pixel
+    probe-vrs
+    probe-graphics-pso
+    probe-mini-dxr_acceleration_structures
+    probe-writable-msaa
+    winemetal-abi
+    probe-legacy-regression
+  )
+  for stem in "${FL12_2_GATE_RESULT_STEMS[@]}"; do
+    rm -f "$RESULTS_DIR/${stem}-${PROFILE}.json"
+  done
+fi
+
 run_probe_exe() {
   local exe="$1"
   local result_file="$2"
@@ -1957,10 +1997,55 @@ HLSL
   convert_dxil_shader_cache "$SHADER_CACHE_DIR"
 }
 
+SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+SOURCE_TREE_SHA256="$(python3 - "$ROOT_DIR" <<'PY'
+import hashlib
+import pathlib
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1])
+try:
+    listed = subprocess.check_output(
+        ["git", "-C", str(root), "ls-files", "-co", "--exclude-standard",
+         "vendor/dxmt", "tools/d3d12-metal-sdk"],
+        text=True,
+    ).splitlines()
+except (OSError, subprocess.CalledProcessError):
+    listed = []
+
+def is_source_path(relative):
+    return not (
+        relative.startswith("vendor/dxmt/build-")
+        or relative.startswith("tools/d3d12-metal-sdk/results/")
+        or relative.startswith("tools/d3d12-metal-sdk/out/")
+        or relative.startswith("tools/d3d12-metal-sdk/cache/")
+        or "/__pycache__/" in relative
+        or relative.endswith("/__pycache__")
+        or relative.endswith(".pyc")
+    )
+
+digest = hashlib.sha256()
+for relative in sorted(path for path in listed if is_source_path(path) and (root / path).is_file()):
+    path = root / relative
+    digest.update(relative.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(path.read_bytes())
+    digest.update(b"\0")
+print(digest.hexdigest())
+PY
+)"
+SOURCE_DIRTY="$(if [[ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all -- vendor/dxmt tools/d3d12-metal-sdk)" ]]; then printf 'false'; else printf 'true'; fi)"
+RUN_STARTED_AT="$(date +%s)"
+
 cat > "$RESULTS_DIR/host-runtime-${PROFILE}.json" <<EOF
 {
   "schema": "metalsharp.d3d12-metal.host-runtime.v1",
   "profile": "$PROFILE",
+  "source_commit": "$SOURCE_COMMIT",
+  "source_tree_sha256": "$SOURCE_TREE_SHA256",
+  "source_dirty": $SOURCE_DIRTY,
+  "run_started_at": $RUN_STARTED_AT,
   "wine": "$REAL_WINE_BIN",
   "prefix": "$WINE_PREFIX",
   "dxmt_runtime": "$DXMT_RUNTIME",
@@ -2486,4 +2571,15 @@ if [[ "$RUN_FULL_STRESS" == "1" ]]; then
       2> "$FULL_STRESS_RESULT_DIR/probe_full_stress.stderr.log"
   )
   echo "$FULL_STRESS_RESULT_DIR"
+fi
+
+if [[ "$RUN_FL12_2_GATE" == "1" ]]; then
+  python3 "$SDK_DIR/scripts/validate-fl12-2-gate.py" \
+    --profile "$PROFILE" \
+    --results-dir "$RESULTS_DIR" \
+    --source-root "$ROOT_DIR"
+  gate_status=$?
+  if [[ "$gate_status" != "0" ]]; then
+    exit "$gate_status"
+  fi
 fi

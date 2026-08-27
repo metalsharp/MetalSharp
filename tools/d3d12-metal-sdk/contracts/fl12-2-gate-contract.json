@@ -1,0 +1,505 @@
+{
+  "schema": "metalsharp.d3d12-metal.fl12-2-gate.v1",
+  "purpose": "The single behavior-backed promotion gate for the D3D12 FL12_2 and project SM6.7 target.",
+  "target": {
+    "feature_level": "12_2",
+    "shader_model": "6_7",
+    "expected_levels": ["11_0", "11_1", "12_0", "12_1", "12_2"],
+    "promotion_is_atomic": true
+  },
+  "evidence": [
+    {
+      "kind": "source",
+      "path": "tools/d3d12-metal-sdk/probes/probe_feature_levels/probe_feature_levels.cpp",
+      "note": "The feature-level probe performs all requested device creations and D3D12_OPTIONS queries."
+    },
+    {
+      "kind": "aggregator",
+      "path": "tools/d3d12-metal-sdk/scripts/validate-fl12-2-gate.py",
+      "note": "The aggregator joins query results, behavior probes, and isolated runtime identity before promotion."
+    },
+    {
+      "kind": "roadmap",
+      "path": "docs/roadmaps/d3d12-fl12_2-sm67-dxr-completion-roadmap.md",
+      "note": "Completion Phases 1–9 define the ordered behavior and delivery gates."
+    }
+  ],
+  "identity": {
+    "environment_result": "isolated-probe-environment",
+    "host_runtime_result": "host-runtime",
+    "wine_version": "wine-11.5",
+    "required_artifacts": [
+      "wine",
+      "wineserver",
+      "d3d10core",
+      "d3d11",
+      "d3d12",
+      "dxgi",
+      "dxgi_dxmt",
+      "winemetal_pe",
+      "winemetal_unix"
+    ],
+    "require_xcode_and_metal": true,
+    "require_source_identity": true
+  },
+  "query_requirements": [
+    {
+      "id": "feature_level_12_2_report",
+      "api": "D3D12_FEATURE_FEATURE_LEVELS",
+      "probe": "probe-feature-levels",
+      "path": "reported.feature_level",
+      "operator": "at_least",
+      "expected": "12_2"
+    },
+    {
+      "id": "shader_model_6_7_report",
+      "api": "D3D12_FEATURE_SHADER_MODEL",
+      "probe": "probe-feature-levels",
+      "path": "reported.shader_model",
+      "operator": "at_least",
+      "expected": "6_7"
+    },
+    {
+      "id": "options_output_merger_logic_op",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS.OutputMergerLogicOp",
+      "probe": "probe-feature-levels",
+      "path": "reported.output_merger_logic_op",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options_tiled_resources_tier",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS.TiledResourcesTier",
+      "probe": "probe-feature-levels",
+      "path": "reported.tiled_resources_tier",
+      "operator": "at_least",
+      "expected": 3
+    },
+    {
+      "id": "options_resource_binding_tier",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS.ResourceBindingTier",
+      "probe": "probe-feature-levels",
+      "path": "reported.resource_binding_tier",
+      "operator": "at_least",
+      "expected": 3
+    },
+    {
+      "id": "options_rovs",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS.ROVsSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.rovs_supported",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options_conservative_rasterization_tier",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS.ConservativeRasterizationTier",
+      "probe": "probe-feature-levels",
+      "path": "reported.conservative_rasterization_tier",
+      "operator": "at_least",
+      "expected": 3
+    },
+    {
+      "id": "options_vp_array_index_without_gs",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation",
+      "probe": "probe-feature-levels",
+      "path": "reported.vp_array_index_without_gs",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options_max_gpu_va_per_resource",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS.MaxGPUVirtualAddressBitsPerResource",
+      "probe": "probe-feature-levels",
+      "path": "reported.max_gpu_virtual_address_bits_per_resource",
+      "operator": "at_least",
+      "expected": 40
+    },
+    {
+      "id": "options1_wave_ops",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS1.WaveOps",
+      "probe": "probe-feature-levels",
+      "path": "reported.wave_ops",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options1_int64_shader_ops",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS1.Int64ShaderOps",
+      "probe": "probe-feature-levels",
+      "path": "reported.int64_shader_ops",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options1_wave_lane_count_min",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS1.WaveLaneCountMin",
+      "probe": "probe-feature-levels",
+      "path": "reported.wave_lane_count_min",
+      "operator": "at_least",
+      "expected": 1
+    },
+    {
+      "id": "options1_wave_lane_count_max",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS1.WaveLaneCountMax",
+      "probe": "probe-feature-levels",
+      "path": "reported.wave_lane_count_max",
+      "operator": "at_least",
+      "expected": 1
+    },
+    {
+      "id": "options2_depth_bounds",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS2.DepthBoundsTestSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.depth_bounds",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options3_copy_queue_timestamps",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS3.CopyQueueTimestampQueriesSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.copy_queue_timestamps",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options3_casting_fully_typed",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS3.CastingFullyTypedFormatSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.casting_fully_typed_format",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options3_write_buffer_immediate",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS3.WriteBufferImmediateSupportFlags",
+      "probe": "probe-feature-levels",
+      "path": "reported.write_buffer_immediate_flags",
+      "operator": "bitmask_all",
+      "expected": 7
+    },
+    {
+      "id": "options5_raytracing_tier",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS5.RaytracingTier",
+      "probe": "probe-feature-levels",
+      "path": "reported.raytracing_tier",
+      "operator": "at_least",
+      "expected": 11
+    },
+    {
+      "id": "options6_vrs_tier",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS6.VariableShadingRateTier",
+      "probe": "probe-feature-levels",
+      "path": "reported.vrs_tier",
+      "operator": "at_least",
+      "expected": 2
+    },
+    {
+      "id": "options6_additional_shading_rates",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS6.AdditionalShadingRatesSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.additional_shading_rates",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options6_per_primitive_viewport_indexing",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS6.PerPrimitiveShadingRateSupportedWithViewportIndexing",
+      "probe": "probe-feature-levels",
+      "path": "reported.per_primitive_shading_rate_with_viewport_indexing",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options6_shading_rate_image_tile_size",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS6.ShadingRateImageTileSize",
+      "probe": "probe-feature-levels",
+      "path": "reported.shading_rate_image_tile_size",
+      "operator": "at_least",
+      "expected": 1
+    },
+    {
+      "id": "options7_mesh_shader_tier",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS7.MeshShaderTier",
+      "probe": "probe-feature-levels",
+      "path": "reported.mesh_shader_tier",
+      "operator": "at_least",
+      "expected": 10
+    },
+    {
+      "id": "options7_sampler_feedback_tier",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS7.SamplerFeedbackTier",
+      "probe": "probe-feature-levels",
+      "path": "reported.sampler_feedback_tier",
+      "operator": "at_least",
+      "expected": 90
+    },
+    {
+      "id": "options8_unaligned_block_textures",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS8.UnalignedBlockTexturesSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.unaligned_block_textures",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options10_sum_combiner",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS10.VariableRateShadingSumCombinerSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.vrs_sum_combiner_supported",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options12_enhanced_barriers",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS12.EnhancedBarriersSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.options12_enhanced_barriers",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options12_relaxed_casting",
+      "api": "D3D12_FEATURE_D3D12_OPTIONS12.RelaxedFormatCastingSupported",
+      "probe": "probe-feature-levels",
+      "path": "reported.options12_relaxed_format_casting",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "root_signature_1_1",
+      "api": "D3D12_FEATURE_ROOT_SIGNATURE.HighestVersion",
+      "probe": "probe-feature-levels",
+      "path": "reported.root_signature_1_1",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "gpu_va_per_resource",
+      "api": "D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT.MaxGPUVirtualAddressBitsPerResource",
+      "probe": "probe-feature-levels",
+      "path": "reported.gpu_virtual_address_bits_per_resource",
+      "operator": "at_least",
+      "expected": 40
+    },
+    {
+      "id": "gpu_va_per_process",
+      "api": "D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT.MaxGPUVirtualAddressBitsPerProcess",
+      "probe": "probe-feature-levels",
+      "path": "reported.gpu_virtual_address_bits_per_process",
+      "operator": "at_least",
+      "expected": 40
+    }
+  ],
+  "behavior_requirements": [
+    {
+      "id": "all_requested_levels_create",
+      "api": "D3D12CreateDevice(feature levels 11_0 through 12_2)",
+      "probe": "probe-feature-levels",
+      "path": "requirements.all_levels_create",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "invalid_feature_level_rejected",
+      "api": "D3D12CreateDevice(invalid feature level)",
+      "probe": "probe-feature-levels",
+      "path": "requirements.invalid_level_rejected",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "feature_level_query_is_complete",
+      "api": "D3D12_FEATURE_FEATURE_LEVELS query",
+      "probe": "probe-feature-levels",
+      "path": "requirements.feature_level_12_2_caps",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "logic_op_execution_readback",
+      "api": "D3D12_LOGIC_OP_XOR render/readback",
+      "probe": "probe-render-headless",
+      "path": "logic_op.verified",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "resource_binding_descriptor_execution",
+      "api": "D3D12 resource binding and descriptor tables",
+      "probe": "probe-descriptors",
+      "path": "$status",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "wave_ops_runtime_readback",
+      "api": "D3D12 WaveOps",
+      "probe": "probe-wave-ops",
+      "path": "summary.waveops_reportable",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "int64_atomic_runtime_readback",
+      "api": "SM6.7 Int64 and atomic64 operations",
+      "probe": "probe-sm66-capabilities",
+      "path": "summary.runtime_correctness_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "depth_bounds_runtime",
+      "api": "D3D12 depth-bounds render behavior",
+      "probe": "probe-mini-mesh_object_shader_pso",
+      "path": "depth_bounds_supported",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "copy_queue_timestamp_runtime",
+      "api": "D3D12 copy-queue timestamp queries",
+      "probe": "probe-queues",
+      "path": "readback.verified",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "write_buffer_immediate_runtime",
+      "api": "D3D12 WriteBufferImmediate direct/compute/bundle",
+      "probe": "probe-command-replay",
+      "path": "coverage.write_buffer_immediate_direct_compute_bundle",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "castable_format_runtime",
+      "api": "D3D12 declared castable-format views",
+      "probe": "probe-resource-views-formats",
+      "path": "coverage.device10_declared_castable_format_readback",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "enhanced_barrier_runtime",
+      "api": "D3D12 enhanced barrier groups",
+      "probe": "probe-command-replay",
+      "path": "coverage.enhanced_barrier_global_buffer_texture",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "unaligned_block_texture_runtime",
+      "api": "D3D12 unaligned block texture",
+      "probe": "probe-resources",
+      "path": "textures.unaligned_bc1_copy_verified",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "root_signature_runtime",
+      "api": "D3D12 root signature 1.1",
+      "probe": "probe-descriptors",
+      "path": "root_signature.create_root_signature_1_1",
+      "operator": "hr_success",
+      "expected": true
+    },
+    {
+      "id": "gpu_va_runtime",
+      "api": "D3D12 GPU virtual address allocation",
+      "probe": "probe-resource-views-formats",
+      "path": "coverage.gpu_virtual_address_allocation",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "sampler_feedback_compute_runtime",
+      "api": "D3D12 sampler feedback compute behavior",
+      "probe": "probe-sampler-feedback",
+      "path": "$status",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "sampler_feedback_pixel_runtime",
+      "api": "D3D12 sampler feedback pixel behavior",
+      "probe": "probe-sampler-feedback-pixel",
+      "path": "$status",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "vrs_tier2_behavior",
+      "api": "D3D12 VRS Tier 2 image/per-primitive behavior",
+      "probe": "probe-vrs",
+      "path": "summary.tier2_matrix_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "mesh_tier1_behavior",
+      "api": "D3D12 Mesh Shader Tier 1 behavior",
+      "probe": "probe-mini-mesh_object_shader_pso",
+      "path": "tier1_matrix_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "tiled_resources_tier3_behavior",
+      "api": "D3D12 Tiled Resources Tier 3 physical-page behavior",
+      "probe": "probe-resources",
+      "path": "sparse.tier3_physical_page_ownership_verified",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "conservative_rasterization_tier3_behavior",
+      "api": "D3D12 Conservative Rasterization Tier 3 coverage behavior",
+      "probe": "probe-graphics-pso",
+      "path": "coverage.conservative_rasterization_tier3_verified",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "dxr_tier1_1_behavior",
+      "api": "D3D12 DXR Tier 1.1 mixed geometry/lifecycle behavior",
+      "probe": "probe-mini-dxr_acceleration_structures",
+      "path": "tier1_1_matrix_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "sm67_final_breadth",
+      "api": "D3D12 SM6.7 final stage/operation breadth",
+      "probe": "probe-sm66-capabilities",
+      "path": "summary.sm67_breadth_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "options14_behavior",
+      "api": "D3D12_OPTIONS14 advanced texture operations and writable MSAA",
+      "probe": "probe-writable-msaa",
+      "path": "summary.options14_behavior_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "abi_runtime_parity",
+      "api": "Winemetal PE/Unix ABI",
+      "probe": "winemetal-abi",
+      "path": "$status",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "legacy_d3d10_d3d11_readback",
+      "api": "D3D10/D3D11 clear/copy/readback compatibility",
+      "probe": "probe-legacy-regression",
+      "path": "$status",
+      "operator": "equals",
+      "expected": true
+    }
+  ]
+}

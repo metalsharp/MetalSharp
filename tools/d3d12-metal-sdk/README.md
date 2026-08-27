@@ -67,6 +67,23 @@ METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh --feature-levels-only
 ```
 
+The authoritative FL12_2 promotion gate runs the full opt-in matrix, including
+the feature-level query, VRS, object, headless-render, and existing shader/DXR
+dependencies, then joins those results with isolated Wine/Metal/runtime and
+source-tree identity. It deliberately exits nonzero and lists named blockers
+until every required behavior is proven:
+
+```bash
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
+  tools/d3d12-metal-sdk/scripts/run-source-probes.sh --fl12-2-gate
+```
+
+The gate writes `results/fl12-2-gate-<profile>.json` and `.md`. Do not promote
+the maximum feature level or an individual tier based on the feature-level
+probe alone; use the gate's `promotion_ready` result after the focused
+Completion Phase behavior probes have been extended.
+
 Wine 11.5 resolves DXMT's builtin PE modules from its own architecture
 subdirectories before app-local copies. The source wrapper therefore makes an
 APFS copy-on-write clone of vendored Wine, replaces the DXMT builtins only in
@@ -188,6 +205,10 @@ python3 tools/d3d12-metal-sdk/scripts/validate-contracts.py
 python3 tools/d3d12-metal-sdk/scripts/preflight-runtime-layout.py --profile metalsharp
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp
 python3 tools/d3d12-metal-sdk/scripts/compare-contract.py --profile metalsharp
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh --fl12-2-gate
+python3 tools/d3d12-metal-sdk/scripts/validate-fl12-2-gate.py \
+  --profile metalsharp-isolated --results-dir tools/d3d12-metal-sdk/results
 python3 tools/d3d12-metal-sdk/scripts/validate-probe-matrix.py
 ```
 
@@ -228,8 +249,11 @@ The current honest shader feature posture is:
   produces 2112/2112/1089/1056/1056/1024 nonzero pixels; a copied
   constant `R8_UINT` 8x8 shading-rate image uses the D3D12
   PASSTHROUGH/OVERRIDE pair and independently produces 1089 for 2x2.
-  Nonconstant images, broader combiner matrices, and logical-resolution
-  reconstruction remain gated, so Options6 stays conservative.
+  A nonconstant 8x8 checkerboard image is now emulated as one scoped
+  load/store render pass per image texel and produces an exact 2320-pixel
+  readback; the constant-image SUM/SUM independent-axis case also passes.
+  Per-primitive SV_ShadingRate, logical-resolution reconstruction, and full
+  Tier-2 breadth remain gated, so Options6 stays conservative.
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.
