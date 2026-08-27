@@ -1038,8 +1038,10 @@ the goal is not complete.
 - The opt-in VRS probe covers the per-draw 1x2/2x1/2x2/2x4/4x2/4x4 matrix and
   a MAX/PASSTHROUGH combiner pair. Its clean readbacks are
   `2112/2112/1089/1056/1056/1024`, with the copied constant image path at
-  `1089`. VRS remains opt-in because nonconstant image maps, other combiners,
-  logical-resolution reconstruction, and Tier-2 breadth are still gated.
+  `1089`. The same result passes after staging the clean rebuild into the
+  installed M12 runtime. VRS remains opt-in because nonconstant image maps,
+  other combiners, logical-resolution reconstruction, and Tier-2 breadth are
+  still gated.
 - Optional windowed/present and offscreen-render probes remain outside the
   strict required gate; the broader FL12_2, DXR, sparse, mesh, and packaging
   requirements remain active.
