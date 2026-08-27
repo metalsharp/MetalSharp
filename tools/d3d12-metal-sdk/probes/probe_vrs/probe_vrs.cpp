@@ -607,6 +607,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"vrs_execute_hr\": \"%s\",\n",
               hr_hex(vrs_execute_hr).c_str());
   std::printf("  \"vrs_rate\": \"2x2\",\n");
+  std::printf("  \"vrs_combiners\": [\"MAX\", \"PASSTHROUGH\"],\n");
   std::printf("  \"vrs_pixels\": %u,\n", vrs_pixels);
   std::printf("  \"image_reset_hr\": \"%s\",\n",
               hr_hex(image_reset_hr).c_str());
