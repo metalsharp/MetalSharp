@@ -1018,7 +1018,7 @@ Before declaring the goal complete, map each item below to actual evidence:
   remain explicitly gated.
 - [x] Full rebuild passes (`prepare-dxmt-x86-llvm15.sh`, 156/156 targets).
 - [x] Current source/staged SDK strict probe and comparison gates pass (23/23).
-- [ ] D3D10/D3D11 regressions pass.
+- [x] D3D10/D3D11 regressions pass through the source-staged exact clear/copy/readback gate; the game harness now stages those DLLs when supplied.
 - [ ] Runtime staging and bundle hash gates pass.
 - [ ] Bounded MetalSharp Wine 11.5 launch at feature level 12_2 passes.
 - [x] Working tree contains only intended PR changes.
@@ -1029,6 +1029,20 @@ Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
 
 ## 10. Progress log
+
+### 2026-08-27 — Correct legacy runtime staging and readback gate
+
+- The legacy regression harness now builds and runs a repository-owned D3D11
+  and D3D10 probe. Each path creates an R8G8B8A8 render target, clears it,
+  copies it to a CPU-readable staging texture, maps it under a disposable Wine
+  11.5 prefix, and validates all 16 pixels. Source-staged current artifacts
+  pass with `d3d11_hr=0x00000000`, `d3d11_readback=true`,
+  `d3d10_hr=0x00000000`, and `d3d10_readback=true`.
+- The diagnosis found that the earlier game-harness reproduction was loading
+  Wine's installed D3D10/D3D11 modules: `run_m12_game.sh` copied only the
+  D3D12/DXGI files. The harness now stages source-built D3D10/D3D11 modules
+  when present, and the isolated SDK runner makes the legacy probe a required
+  gate. No D3D10/D3D11 backend change was needed.
 
 ### 2026-08-27 — Current-source required gate and VRS combiner proof
 
