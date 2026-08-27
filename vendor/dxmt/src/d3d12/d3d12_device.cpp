@@ -3088,6 +3088,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
           "(ReadFromSubresource->CheckFeatureSupport)",
           feature_data, (void *)this);
   }
+  if (!feature_data)
+    return feature_data_size ? E_POINTER : E_INVALIDARG;
+  if (!feature_data_size)
+    return E_INVALIDARG;
   switch ((UINT)feature) {
   case D3D12_FEATURE_D3D12_OPTIONS: {
     auto *opts = (D3D12_FEATURE_DATA_D3D12_OPTIONS *)feature_data;
@@ -3792,12 +3796,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     return S_OK;
   }
   default:
-    TRACE("CheckFeatureSupport UNHANDLED feature=%u size=%u -> zeroing and "
-          "returning S_OK",
+    TRACE("CheckFeatureSupport UNHANDLED feature=%u size=%u -> E_INVALIDARG",
           feature, feature_data_size);
-    if (feature_data && feature_data_size > 0)
-      memset(feature_data, 0, feature_data_size);
-    return S_OK;
+    memset(feature_data, 0, feature_data_size);
+    return E_INVALIDARG;
   }
 }
 
