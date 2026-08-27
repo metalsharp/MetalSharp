@@ -135,7 +135,7 @@
         "nonconstant 8x8 checkerboard image with exact 2320-pixel readback",
         "command-list reset and reuse after a VRS pass"
       ],
-      "risk": "The per-draw 1x2/2x1/2x2/2x4/4x2/4x4 paths record D3D12 shading-rate commands and attach Metal rasterization-rate maps, reducing the focused 64x64 readback to 2112/2112/1089/1056/1056/1024 nonzero pixels; the 2x2 case also passes a MAX/PASSTHROUGH combiner pair. A copied constant R8_UINT 8x8 shading-rate image uses the D3D12 PASSTHROUGH/OVERRIDE pair, independently-axis SUM/SUM, and produces the expected 1089-pixel 2x2 result. A nonconstant 8x8 checkerboard image is now emulated as 64 scoped load/store render passes with exact 2320-pixel readback. Logical-resolution reconstruction, per-primitive rates, SV_ShadingRate input/output, broader combiner matrices, and full Tier-2 breadth remain unproven, so Options6 stays conservative.",
+      "risk": "The per-draw 1x2/2x1/2x2/2x4/4x2/4x4 paths record D3D12 shading-rate commands and attach Metal rasterization-rate maps, reducing the focused 64x64 readback to 2112/2112/1089/1056/1056/1024 nonzero pixels; the 2x2 case also passes a MAX/PASSTHROUGH combiner pair. A copied constant R8_UINT 8x8 shading-rate image uses the D3D12 PASSTHROUGH/OVERRIDE pair, independently-axis SUM/SUM, and produces the expected 1089-pixel 2x2 result. A nonconstant 8x8 checkerboard image is now emulated as 64 scoped load/store render passes with exact 2320-pixel readback. Logical-resolution reconstruction, per-primitive rates, SV_ShadingRate input/output, broader combiner matrices, and full Tier-2 breadth remain unproven, so Options6 stays conservative. AdditionalShadingRatesSupported is reported independently because the focused 2x4/4x2/4x4 matrix passes.",
       "state": "required",
       "tier": "required"
     },
@@ -154,6 +154,20 @@
         "PIPELINE_STATISTICS1 ASInvocations/MSInvocations/MSPrimitives"
       ],
       "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking. Committed and placed resources, invalid-descriptor rejection, feedback UAV pairing, clear, min-mip and mip-region-used writes, 2D arrays, encode/decode resolves, contention, and all four HLSL write forms pass exact compute/pixel readback; tier 0.9 is reported because wrap and clamp are conservatively covered while unrestricted tier-1.0 SRV/addressing behavior remains gated. Mesh AS/MS execution is substantial and PIPELINE_STATISTICS1 invocation/primitive accounting passes the focused two-group dispatch, but mixed render-state breadth and broader shader/payload coverage remain insufficient for mesh tier 1.",
+      "state": "required",
+      "tier": "required"
+    },
+    "D3D12_FEATURE_D3D12_OPTIONS10": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_vrs",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_vrs"
+      ],
+      "probe_status": "axiswise_sum_sum_image_readback_passed_mesh_per_primitive_remains_unsupported",
+      "proven_subset": [
+        "constant-image SUM/SUM independent-axis combination with exact 2x2 readback"
+      ],
+      "reported": "partial",
+      "risk": "VariableRateShadingSumCombinerSupported is backed by the constant-image SUM/SUM readback and the axis-wise saturation implementation. MeshShaderPerPrimitiveShadingRateSupported remains false until SV_ShadingRate output is translated and exercised in a mesh pipeline.",
       "state": "required",
       "tier": "required"
     },

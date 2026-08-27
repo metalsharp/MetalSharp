@@ -438,6 +438,30 @@
       "expected": true
     },
     {
+      "id": "vrs_nonconstant_image_behavior",
+      "api": "D3D12 VRS nonconstant image behavior",
+      "probe": "probe-vrs",
+      "path": "summary.nonconstant_image_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "vrs_sum_combiner_behavior",
+      "api": "D3D12 VRS SUM combiner behavior",
+      "probe": "probe-vrs",
+      "path": "summary.sum_combiner_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
+      "id": "vrs_lifecycle_behavior",
+      "api": "D3D12 VRS reset/reuse lifecycle",
+      "probe": "probe-vrs",
+      "path": "summary.lifecycle_complete",
+      "operator": "equals",
+      "expected": true
+    },
+    {
       "id": "mesh_tier1_behavior",
       "api": "D3D12 Mesh Shader Tier 1 behavior",
       "probe": "probe-mini-mesh_object_shader_pso",
