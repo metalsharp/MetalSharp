@@ -221,9 +221,10 @@ The current honest shader feature posture is:
   render-target, and broader resolve matrices.
 - The opt-in `probe-vrs` path records `RSSetShadingRate(2x2)`, attaches a
   Metal rasterization-rate map, reduces a clean 64x64 pass from 4096 to 1089
-  nonzero pixels, and reuses the command list after reset. Shading-rate images,
-  combiners, and logical-resolution reconstruction remain gated, so Options6
-  stays conservative.
+  nonzero pixels, and reuses the command list after reset. A copied constant
+  `R8_UINT` 8x8 shading-rate image independently produces the same 1089-pixel
+  result. Nonconstant images, combiners, and logical-resolution reconstruction
+  remain gated, so Options6 stays conservative.
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.
@@ -284,8 +285,9 @@ The default required probe groups prove:
   stores with a DSV, per-sample store/load, 2D/array resolves, and exact
   readback; format and broader render-target matrices remain intentionally
   outside the reported capability.
-- `probe-vrs` (opt-in): per-draw 2x2 shading-rate-map recording, attachment,
-  reduced-invocation readback, and command-list reset/reuse.
+- `probe-vrs` (opt-in): per-draw 2x2 shading-rate-map recording, a copied
+  constant `R8_UINT` image attachment, reduced-invocation readback, and
+  command-list reset/reuse.
 - `probe-wave-ops`: WaveOps audit and reporting denial/proof.
 - `probe-reflection-abi`: reflected shader bindings against the descriptor and
   root-signature ABI.
