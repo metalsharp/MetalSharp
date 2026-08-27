@@ -1027,7 +1027,7 @@ the goal is not complete.
 ### 2026-08-27 — Current-source required gate and VRS combiner proof
 
 - A forced Xcode 27 beta 6 rebuild of the current source runtime followed by
-  `run-source-probes.sh` completed all 22 required probe groups. The strict
+  `run-source-probes.sh` completed all 23 required probe groups. The strict
   `compare-contract.py` result is `pass=true` with `issues=[]`; the temporary
   Wine 11.5 clone and disposable prefix were removed after the run.
 - The current SM6.6/6.7 corpus now passes every compile, link, dispatch, and
@@ -1042,9 +1042,10 @@ the goal is not complete.
   installed M12 runtime. VRS remains opt-in because nonconstant image maps,
   other combiners, logical-resolution reconstruction, and Tier-2 breadth are
   still gated.
-- Optional windowed/present and offscreen-render probes remain outside the
-  strict required gate; the broader FL12_2, DXR, sparse, mesh, and packaging
-  requirements remain active.
+- The offscreen render/readback probe is now part of the required set and
+  independently verifies `D3D12_LOGIC_OP_XOR` with exact `[255,255,255,255]`
+  output. Windowed present remains optional; the broader FL12_2, DXR, sparse,
+  mesh, and packaging requirements remain active.
 
 ### 2026-08-25 — Baseline and object-contract foundation
 
@@ -1299,7 +1300,7 @@ the goal is not complete.
   cross-resource aliasing remains gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
   tiled-resource, native-sparse-buffer, and writable-MSAA changes passes all
-  `22/22` required contract probes. The writable-MSAA extension is independently
+  `23/23` required contract probes. The writable-MSAA extension is independently
   covered by
   `probe-writable-msaa`, which passes CS 6.7 DXIL compilation, pipeline
   creation, writable `RWTexture2DMS`/`RWTexture2DMSArray` UAV emulation, all

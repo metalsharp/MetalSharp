@@ -292,8 +292,10 @@ The default required probe groups prove:
 - `probe-wave-ops`: WaveOps audit and reporting denial/proof.
 - `probe-reflection-abi`: reflected shader bindings against the descriptor and
   root-signature ABI.
-- `probe-graphics-pso`: graphics PSO matrix behavior and unsupported-stage
-  rejection.
+- `probe-graphics-pso`: graphics PSO matrix behavior, logic-op PSO creation,
+  and unsupported-stage rejection.
+- `probe-render-headless`: required offscreen execution/readback, including
+  `D3D12_LOGIC_OP_XOR` on render target 0.
 - `probe-compute-pso`: compute PSO matrix behavior.
 - `probe-command-replay`: command-list, indirect, bundle, and replay behavior.
 - `probe-barriers-render-pass`: barrier, render-pass, UAV, present, and
@@ -307,9 +309,9 @@ when it appears in the final required pass or when `compare-contract.py` reports
 that `dxil_to_msl_proven` is false. The final comparator is the stable summary:
 it must report `pass: true`, `issues: 0`, and all required probes passing.
 
-Windowed present and indexed-texture headless render checks are useful
-diagnostics, but they are not hard gates in the default matrix. Enable the
-headless render proof explicitly when investigating render output:
+Windowed present remains a useful diagnostic, while the indexed-texture
+headless render/readback proof is part of the default required matrix. Run the
+headless proof explicitly when investigating render output:
 
 ```bash
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
@@ -329,8 +331,9 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp --no-loader \
 
 For graphics PSO coverage, run the matrix probe. It validates vertex-only,
 vertex/pixel, depth-only, color-only, color+depth, MSAA, blend, write-mask,
-multi-render-target pixel outputs, cached PSO blob behavior, complex input
-layouts, and explicit rejection of stream output and HS/DS tessellation:
+multi-render-target pixel outputs, logic-op PSO creation, cached PSO blob
+behavior, complex input layouts, and explicit rejection of stream output and
+HS/DS tessellation:
 
 ```bash
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
