@@ -101,6 +101,82 @@ void MTLD3D12GraphicsCommandList::RetainStateObject(
   m_referenced_state_objects.push_back(state_object);
 }
 
+void MTLD3D12GraphicsCommandList::RetainResource(ID3D12Resource *resource) {
+  if (!resource)
+    return;
+  resource->AddRef();
+  m_referenced_resources.push_back(resource);
+}
+
+void MTLD3D12GraphicsCommandList::RetainGPUAddress(
+    D3D12_GPU_VIRTUAL_ADDRESS address) {
+  if (!address)
+    return;
+  RetainResource(m_device->LookupResourceByGPUAddress(address));
+}
+
+void MTLD3D12GraphicsCommandList::RetainDescriptor(
+    D3D12_CPU_DESCRIPTOR_HANDLE descriptor) {
+  if (!descriptor.ptr)
+    return;
+  auto *entry = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
+  if (!entry || !entry->owner)
+    return;
+  entry->owner->AddRef();
+  m_referenced_descriptor_heaps.push_back(entry->owner);
+  RetainResource(entry->resource);
+  RetainResource(entry->resource_uav_counter);
+  RetainResource(entry->sampler_feedback_target);
+}
+
+void MTLD3D12GraphicsCommandList::RetainRootSignature(
+    ID3D12RootSignature *root_signature) {
+  if (!root_signature)
+    return;
+  root_signature->AddRef();
+  m_referenced_root_signatures.push_back(root_signature);
+}
+
+void MTLD3D12GraphicsCommandList::RetainQueryHeap(
+    ID3D12QueryHeap *query_heap) {
+  if (!query_heap)
+    return;
+  query_heap->AddRef();
+  m_referenced_query_heaps.push_back(query_heap);
+}
+
+void MTLD3D12GraphicsCommandList::RetainCommandSignature(
+    ID3D12CommandSignature *signature) {
+  if (!signature)
+    return;
+  signature->AddRef();
+  m_referenced_command_signatures.push_back(signature);
+}
+
+void MTLD3D12GraphicsCommandList::RetainReferencedObjectsInto(
+    MTLD3D12GraphicsCommandList *target) const {
+  if (!target)
+    return;
+  for (auto *pipeline_state : m_referenced_pipeline_states)
+    target->RetainPipelineState(pipeline_state);
+  for (auto *state_object : m_referenced_state_objects)
+    target->RetainStateObject(state_object);
+  for (auto *descriptor_heap : m_referenced_descriptor_heaps) {
+    if (descriptor_heap) {
+      descriptor_heap->AddRef();
+      target->m_referenced_descriptor_heaps.push_back(descriptor_heap);
+    }
+  }
+  for (auto *root_signature : m_referenced_root_signatures)
+    target->RetainRootSignature(root_signature);
+  for (auto *query_heap : m_referenced_query_heaps)
+    target->RetainQueryHeap(query_heap);
+  for (auto *signature : m_referenced_command_signatures)
+    target->RetainCommandSignature(signature);
+  for (auto *resource : m_referenced_resources)
+    target->RetainResource(resource);
+}
+
 void MTLD3D12GraphicsCommandList::ReleaseReferencedPipelineStates() {
   for (auto *pipeline_state : m_referenced_pipeline_states) {
     if (pipeline_state)
@@ -117,6 +193,26 @@ void MTLD3D12GraphicsCommandList::ReleaseReferencedPipelineStates() {
       descriptor_heap->Release();
   }
   m_referenced_descriptor_heaps.clear();
+  for (auto *root_signature : m_referenced_root_signatures) {
+    if (root_signature)
+      root_signature->Release();
+  }
+  m_referenced_root_signatures.clear();
+  for (auto *query_heap : m_referenced_query_heaps) {
+    if (query_heap)
+      query_heap->Release();
+  }
+  m_referenced_query_heaps.clear();
+  for (auto *signature : m_referenced_command_signatures) {
+    if (signature)
+      signature->Release();
+  }
+  m_referenced_command_signatures.clear();
+  for (auto *resource : m_referenced_resources) {
+    if (resource)
+      resource->Release();
+  }
+  m_referenced_resources.clear();
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -276,6 +372,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyBufferRegion(
   cmd.src = src;
   cmd.src_offset = src_offset;
   cmd.byte_count = byte_count;
+  RetainResource(dst);
+  RetainResource(src);
   Emit(cmd);
 }
 
@@ -317,6 +415,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTextureRegion(
     cmd.src_box = *src_box;
     cmd.has_src_box = 1;
   }
+  RetainResource(dst->pResource);
+  RetainResource(src->pResource);
   Emit(cmd);
 }
 
@@ -328,6 +428,8 @@ MTLD3D12GraphicsCommandList::CopyResource(ID3D12Resource *dst,
   cmd.header = {CmdType::CopyResource, sizeof(cmd)};
   cmd.dst = dst;
   cmd.src = src;
+  RetainResource(dst);
+  RetainResource(src);
   Emit(cmd);
 }
 
@@ -529,6 +631,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
           tile_region_size->NumTiles, shape.WidthInTexels,
           shape.HeightInTexels, shape.DepthInTexels, (void *)buffer,
           (unsigned long long)buffer_offset);
+  RetainResource(tiled_resource);
+  RetainResource(buffer);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresource(
@@ -542,6 +646,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresource(
   cmd.src_sub = src_sub;
   cmd.format = format;
   cmd.mode = D3D12_RESOLVE_MODE_DECOMPRESS;
+  RetainResource(dst);
+  RetainResource(src);
   Emit(cmd);
 }
 
@@ -609,6 +715,24 @@ MTLD3D12GraphicsCommandList::SetPipelineState(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResourceBarrier(
     UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers) {
+  if (barrier_count && !barriers)
+    return;
+  for (UINT i = 0; i < barrier_count; i++) {
+    switch (barriers[i].Type) {
+    case D3D12_RESOURCE_BARRIER_TYPE_TRANSITION:
+      RetainResource(barriers[i].Transition.pResource);
+      break;
+    case D3D12_RESOURCE_BARRIER_TYPE_ALIASING:
+      RetainResource(barriers[i].Aliasing.pResourceBefore);
+      RetainResource(barriers[i].Aliasing.pResourceAfter);
+      break;
+    case D3D12_RESOURCE_BARRIER_TYPE_UAV:
+      RetainResource(barriers[i].UAV.pResource);
+      break;
+    default:
+      break;
+    }
+  }
   size_t extra = barrier_count * sizeof(D3D12_RESOURCE_BARRIER);
   auto total = sizeof(CmdResourceBarrier) - sizeof(D3D12_RESOURCE_BARRIER) + extra;
   auto offset = m_cmds.size();
@@ -639,9 +763,17 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Barrier(
       break;
     case D3D12_BARRIER_TYPE_BUFFER:
       cmd.buffer_barrier_count += group.NumBarriers;
+      if (group.pBufferBarriers) {
+        for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++)
+          RetainResource(group.pBufferBarriers[barrier].pResource);
+      }
       break;
     case D3D12_BARRIER_TYPE_TEXTURE:
       cmd.texture_barrier_count += group.NumBarriers;
+      if (group.pTextureBarriers) {
+        for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++)
+          RetainResource(group.pTextureBarriers[barrier].pResource);
+      }
       break;
     default:
       CLTRACE("Barrier ignored unknown group type=%u", (unsigned)group.Type);
@@ -661,6 +793,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteBundle(
     auto *bundle = static_cast<MTLD3D12GraphicsCommandList*>(command_list);
     const auto &bundle_cmds = bundle->GetCommands();
     m_cmds.insert(m_cmds.end(), bundle_cmds.begin(), bundle_cmds.end());
+    bundle->RetainReferencedObjectsInto(this);
   }
 }
 
@@ -691,6 +824,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetComputeRootSignature(
   CmdSetRootSignature cmd = {};
   cmd.header = {CmdType::SetComputeRootSignature, sizeof(cmd)};
   cmd.root_sig = root_signature;
+  RetainRootSignature(root_signature);
   Emit(cmd);
 }
 
@@ -699,6 +833,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetGraphicsRootSignature(
   CmdSetRootSignature cmd = {};
   cmd.header = {CmdType::SetGraphicsRootSignature, sizeof(cmd)};
   cmd.root_sig = root_signature;
+  RetainRootSignature(root_signature);
   Emit(cmd);
 }
 
@@ -785,6 +920,7 @@ MTLD3D12GraphicsCommandList::SetComputeRootConstantBufferView(
   cmd.header = {CmdType::SetComputeRootConstantBufferView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -795,6 +931,7 @@ MTLD3D12GraphicsCommandList::SetGraphicsRootConstantBufferView(
   cmd.header = {CmdType::SetGraphicsRootConstantBufferView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -805,6 +942,7 @@ MTLD3D12GraphicsCommandList::SetComputeRootShaderResourceView(
   cmd.header = {CmdType::SetComputeRootShaderResourceView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -815,6 +953,7 @@ MTLD3D12GraphicsCommandList::SetGraphicsRootShaderResourceView(
   cmd.header = {CmdType::SetGraphicsRootShaderResourceView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -825,6 +964,7 @@ MTLD3D12GraphicsCommandList::SetComputeRootUnorderedAccessView(
   cmd.header = {CmdType::SetComputeRootUnorderedAccessView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -835,6 +975,7 @@ MTLD3D12GraphicsCommandList::SetGraphicsRootUnorderedAccessView(
   cmd.header = {CmdType::SetGraphicsRootUnorderedAccessView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -842,8 +983,10 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetIndexBuffer(
     const D3D12_INDEX_BUFFER_VIEW *view) {
   CmdIASetIndexBuffer cmd = {};
   cmd.header = {CmdType::IASetIndexBuffer, sizeof(cmd)};
-  if (view)
+  if (view) {
     cmd.view = *view;
+    RetainGPUAddress(view->BufferLocation);
+  }
   Emit(cmd);
 }
 
@@ -859,9 +1002,12 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetVertexBuffers(
   cmd.start_slot = start_slot;
   cmd.count = count;
   memcpy(m_cmds.data() + offset, &cmd, sizeof(CmdIASetVertexBuffers) - sizeof(D3D12_VERTEX_BUFFER_VIEW));
-  if (views)
+  if (views) {
     memcpy(m_cmds.data() + offset + sizeof(CmdIASetVertexBuffers) - sizeof(D3D12_VERTEX_BUFFER_VIEW),
            views, extra);
+    for (UINT i = 0; i < count; i++)
+      RetainGPUAddress(views[i].BufferLocation);
+  }
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SOSetTargets(
@@ -883,6 +1029,10 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetRenderTargets(
   }
   if (dsv)
     cmd.dsv = *dsv;
+  for (UINT i = 0; rts && i < rt_count && i < 8; i++)
+    RetainDescriptor(rts[i]);
+  if (dsv)
+    RetainDescriptor(*dsv);
   Emit(cmd);
 }
 
@@ -895,6 +1045,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearDepthStencilView(
   cmd.flags = flags;
   cmd.depth = depth;
   cmd.stencil = stencil;
+  RetainDescriptor(dsv);
   Emit(cmd);
 }
 
@@ -908,6 +1059,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearRenderTargetView(
     memcpy(cmd.color, color, 16);
   else
     TRACE("ClearRenderTargetView called with null color pointer");
+  RetainDescriptor(rtv);
   Emit(cmd);
 }
 
@@ -922,6 +1074,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearUnorderedAccessViewUint
   cmd.resource = resource;
   if (values)
     memcpy(cmd.values, values, sizeof(cmd.values));
+  RetainResource(resource);
+  RetainDescriptor(cpu_handle);
   Emit(cmd);
 }
 
@@ -938,6 +1092,8 @@ MTLD3D12GraphicsCommandList::ClearUnorderedAccessViewFloat(
   cmd.is_float = 1;
   if (values)
     memcpy(cmd.values, values, sizeof(cmd.values));
+  RetainResource(resource);
+  RetainDescriptor(cpu_handle);
   Emit(cmd);
 }
 
@@ -951,6 +1107,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginQuery(
   cmd.heap = heap;
   cmd.type = type;
   cmd.index = index;
+  RetainQueryHeap(heap);
   Emit(cmd);
 }
 
@@ -961,6 +1118,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EndQuery(
   cmd.heap = heap;
   cmd.type = type;
   cmd.index = index;
+  RetainQueryHeap(heap);
   Emit(cmd);
 }
 
@@ -976,6 +1134,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveQueryData(
   cmd.query_count = query_count;
   cmd.dst_buffer = dst_buffer;
   cmd.dst_offset = aligned_dst_buffer_offset;
+  RetainQueryHeap(heap);
+  RetainResource(dst_buffer);
   Emit(cmd);
 }
 
@@ -1004,6 +1164,9 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteIndirect(
   cmd.argument_buffer_offset = arg_buffer_offset;
   cmd.count_buffer = count_buffer;
   cmd.count_buffer_offset = count_buffer_offset;
+  RetainCommandSignature(command_signature);
+  RetainResource(arg_buffer);
+  RetainResource(count_buffer);
   Emit(cmd);
 }
 
@@ -1054,6 +1217,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresourceRegion(
     cmd.has_src_rect = 1;
     cmd.src_rect = *src_rect;
   }
+  RetainResource(dst_resource);
+  RetainResource(src_resource);
   Emit(cmd);
 }
 
@@ -1208,6 +1373,21 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
       cmd.geometries[i] = *geometry;
     }
   }
+  RetainGPUAddress(cmd.dest_acceleration_structure);
+  RetainGPUAddress(cmd.scratch_acceleration_structure);
+  RetainGPUAddress(cmd.source_acceleration_structure);
+  RetainGPUAddress(cmd.instance_descs);
+  for (UINT i = 0; i < cmd.num_descs &&
+                   cmd.type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+       i++) {
+    const auto &geometry = cmd.geometries[i];
+    if (geometry.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES) {
+      RetainGPUAddress(geometry.Triangles.VertexBuffer.StartAddress);
+      RetainGPUAddress(geometry.Triangles.IndexBuffer);
+    } else if (geometry.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+      RetainGPUAddress(geometry.AABBs.AABBs.StartAddress);
+    }
+  }
   Emit(cmd);
   for (UINT i = 0; post_build_info_descs &&
                    i < num_post_build_info_descs;
@@ -1240,6 +1420,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EmitRaytracingAccelerationSt
   cmd.info_type = descs->InfoType;
   cmd.dest_buffer = descs->DestBuffer;
   cmd.source_acceleration_structure = source_acceleration_structure_data[0];
+  RetainGPUAddress(cmd.dest_buffer);
+  RetainGPUAddress(cmd.source_acceleration_structure);
   Emit(cmd);
   CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",
           (unsigned)cmd.info_type, (unsigned long long)cmd.dest_buffer,
@@ -1265,6 +1447,8 @@ MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
   cmd.destination_acceleration_structure = dest_acceleration_structure_data;
   cmd.source_acceleration_structure = source_acceleration_structure_data;
   cmd.mode = mode;
+  RetainGPUAddress(dest_acceleration_structure_data);
+  RetainGPUAddress(source_acceleration_structure_data);
   Emit(cmd);
   CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "
           "destination=0x%llx",
@@ -1292,6 +1476,10 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchRays(
   CmdDispatchRays cmd = {};
   cmd.header = {CmdType::DispatchRays, sizeof(cmd)};
   cmd.desc = *desc;
+  RetainGPUAddress(desc->RayGenerationShaderRecord.StartAddress);
+  RetainGPUAddress(desc->MissShaderTable.StartAddress);
+  RetainGPUAddress(desc->HitGroupTable.StartAddress);
+  RetainGPUAddress(desc->CallableShaderTable.StartAddress);
   Emit(cmd);
   CLTRACE("DispatchRays dimensions=%ux%ux%u raygen=0x%llx",
           desc->Width, desc->Height, desc->Depth,

@@ -182,6 +182,10 @@ int main() {
     HRESULT shared_open_named_hr = E_FAIL;
     HRESULT shared_unknown_hr = E_FAIL;
     HRESULT shared_missing_name_hr = E_FAIL;
+    D3D12_RESOURCE_DESC default_buffer_desc = {};
+    D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = 0;
+    D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
+    bool command_resource_lifetime_ok = false;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -235,6 +239,17 @@ int main() {
             transition_barrier(default_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->ResourceBarrier(1, &barrier);
         list->CopyBufferRegion(readback_buffer, 0, default_buffer, 0, buffer_bytes);
+        default_buffer_desc = default_buffer->GetDesc();
+        upload_gpu_va = upload_buffer->GetGPUVirtualAddress();
+        default_gpu_va = default_buffer->GetGPUVirtualAddress();
+        // The command list owns the recorded resources. Releasing the caller's
+        // references here makes the first copy a real lifetime test rather
+        // than relying on cleanup after execution.
+        upload_buffer->Release();
+        upload_buffer = nullptr;
+        default_buffer->Release();
+        default_buffer = nullptr;
+        command_resource_lifetime_ok = true;
     }
 
     ID3D12Resource* texture = nullptr;
@@ -633,10 +648,7 @@ int main() {
         sparse_unmapped_readback->Unmap(0, nullptr);
     }
 
-    D3D12_RESOURCE_DESC default_buffer_desc = default_buffer ? default_buffer->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
-    D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = upload_buffer ? upload_buffer->GetGPUVirtualAddress() : 0;
-    D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = default_buffer ? default_buffer->GetGPUVirtualAddress() : 0;
 
     std::vector<FormatProbe> formats = {
         {"R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM},
@@ -667,10 +679,8 @@ int main() {
         SUCCEEDED(shared_open_named_hr) && shared_handle &&
         shared_named_handle && shared_open_buffer &&
         shared_named_open_buffer &&
-        shared_open_buffer->GetGPUVirtualAddress() ==
-            default_buffer->GetGPUVirtualAddress() &&
-        shared_named_open_buffer->GetGPUVirtualAddress() ==
-            default_buffer->GetGPUVirtualAddress() &&
+        shared_open_buffer->GetGPUVirtualAddress() == default_gpu_va &&
+        shared_named_open_buffer->GetGPUVirtualAddress() == default_gpu_va &&
         shared_unknown_hr == DXGI_ERROR_INVALID_CALL &&
         shared_missing_name_hr == DXGI_ERROR_NOT_FOUND;
     if (shared_handle)
@@ -697,7 +707,8 @@ int main() {
                 SUCCEEDED(sparse_unmap_signal_hr) &&
                 SUCCEEDED(sparse_unmap_wait_hr) &&
                 SUCCEEDED(sparse_unmapped_map_hr) &&
-                sparse_unmapped_zero_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+                sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
+                sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
                 sparse_tile_shape.WidthInTexels == 128 &&
                 sparse_tile_shape.HeightInTexels == 128 &&
                 sparse_tiling[0].WidthInTiles == 1 &&
@@ -734,7 +745,9 @@ int main() {
     std::printf("    \"copy_verified\": %s,\n", buffer_copy_ok ? "true" : "false");
     std::printf("    \"default_desc_width\": %llu,\n", static_cast<unsigned long long>(default_buffer_desc.Width));
     std::printf("    \"upload_gpu_va_nonzero\": %s,\n", upload_gpu_va != 0 ? "true" : "false");
-    std::printf("    \"default_gpu_va_nonzero\": %s\n", default_gpu_va != 0 ? "true" : "false");
+    std::printf("    \"default_gpu_va_nonzero\": %s,\n", default_gpu_va != 0 ? "true" : "false");
+    std::printf("    \"command_resource_lifetime_verified\": %s\n",
+                command_resource_lifetime_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"shared_handles\": {\n");
     print_hr("create", shared_create_hr);
