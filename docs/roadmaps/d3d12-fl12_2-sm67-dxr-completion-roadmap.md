@@ -230,8 +230,10 @@ replay need to be implemented together.
 
 Additional correctness issues:
 
-- Command methods generally do not validate closed/open state.
-- `Close` can be repeated and `Reset` does not fully validate allocator state.
+- Most command methods still do not validate closed/open state.
+- `Close` rejects repeated calls, and `Reset` now requires a closed list, a
+  non-null same-type allocator, and updates the retained allocator reference;
+  the command-replay probe covers repeated-close and null-reset rejection.
 - `ExecuteBundle` still directly splices bytes, but now propagates the bundle's
   retained object references into the parent list.
 - Direct resource, descriptor-heap, root-signature, query-heap,
