@@ -625,6 +625,9 @@ fill_texture_descriptor(MTLTextureDescriptor *desc, struct WMTTextureInfo *info)
   desc.sampleCount = info->sample_count;
   desc.usage = (MTLTextureUsage)info->usage;
   desc.resourceOptions = (MTLResourceOptions)info->options;
+  if (@available(macOS 26.0, *) && info->placement_sparse_page_size)
+    desc.placementSparsePageSize =
+        (MTLSparsePageSize)info->placement_sparse_page_size;
 };
 
 void
@@ -639,7 +642,9 @@ extract_texture_descriptor(id<MTLTexture> desc, struct WMTTextureInfo *info) {
   info->sample_count = desc.sampleCount;
   info->usage = desc.usage;
   info->options = (enum WMTResourceOptions)desc.resourceOptions;
-  info->reserved = 0;
+  // MTLTexture exposes isSparse/sparseTextureTier, but not the descriptor's
+  // placementSparsePageSize after creation.
+  info->placement_sparse_page_size = 0;
 };
 
 static NTSTATUS
@@ -778,6 +783,45 @@ _MTLResourceStateCommandEncoder_updateTextureMappings(void *obj) {
                              slice:(NSUInteger)mapping->slice];
   }
   params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandQueue_updateTextureMappings(void *obj) {
+  struct unixcall_mtl4commandqueue_update_texture_mappings *params = obj;
+  const struct WMT4SparseTextureMappingOperation *operations =
+      params->operations.ptr;
+  params->ret_success = 0;
+  if (!params->queue || !params->texture ||
+      (params->operation_count && !operations) ||
+      params->operation_count > 1048576)
+    return STATUS_SUCCESS;
+  if (@available(macOS 26.0, *)) {
+    MTL4UpdateSparseTextureMappingOperation *native =
+        calloc((size_t)params->operation_count, sizeof(*native));
+    if (!native && params->operation_count)
+      return STATUS_SUCCESS;
+    for (uint64_t i = 0; i < params->operation_count; ++i) {
+      native[i].mode = (MTLSparseTextureMappingMode)operations[i].mode;
+      native[i].textureRegion = MTLRegionMake3D(
+          (NSUInteger)operations[i].origin.x,
+          (NSUInteger)operations[i].origin.y,
+          (NSUInteger)operations[i].origin.z,
+          (NSUInteger)operations[i].size.width,
+          (NSUInteger)operations[i].size.height,
+          (NSUInteger)operations[i].size.depth);
+      native[i].textureLevel = (NSUInteger)operations[i].mip_level;
+      native[i].textureSlice = (NSUInteger)operations[i].slice;
+      native[i].heapOffset = (NSUInteger)operations[i].heap_tile_offset;
+    }
+    [(id<MTL4CommandQueue>)params->queue
+        updateTextureMappings:(id<MTLTexture>)params->texture
+                         heap:(id<MTLHeap>)params->heap
+                   operations:native
+                        count:(NSUInteger)params->operation_count];
+    free(native);
+    params->ret_success = 1;
+  }
   return STATUS_SUCCESS;
 }
 
@@ -5016,6 +5060,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTL4CommandQueue_copyBufferMappings,
     &_MTL4CommandQueue_copyBuffer,
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
+    &_MTL4CommandQueue_updateTextureMappings,
 };
 
 #ifndef DXMT_NATIVE
@@ -5187,5 +5232,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTL4CommandQueue_copyBufferMappings,
     &_MTL4CommandQueue_copyBuffer,
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
+    &_MTL4CommandQueue_updateTextureMappings,
 };
 #endif

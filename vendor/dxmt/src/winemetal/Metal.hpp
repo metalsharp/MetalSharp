@@ -348,6 +348,14 @@ public:
 
 class CommandQueue4 : public Object {
 public:
+  bool updateTextureMappings(
+      Texture texture, Heap heap,
+      const WMT4SparseTextureMappingOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_updateTextureMappings(
+        handle, texture.handle, heap.handle, operations, operation_count);
+  }
+
   bool updateBufferMappings(
       Buffer buffer, Heap heap,
       const WMT4SparseBufferMappingOperation *operations,

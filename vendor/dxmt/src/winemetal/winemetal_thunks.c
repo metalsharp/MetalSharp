@@ -1720,6 +1720,22 @@ MTLHeap_newBufferAtOffset(obj_handle_t heap, struct WMTBufferInfo *info,
 }
 
 WINEMETAL_API bool
+MTL4CommandQueue_updateTextureMappings(
+    obj_handle_t queue, obj_handle_t texture, obj_handle_t heap,
+    const struct WMT4SparseTextureMappingOperation *operations,
+    uint64_t operation_count) {
+  struct unixcall_mtl4commandqueue_update_texture_mappings params;
+  params.queue = queue;
+  params.texture = texture;
+  params.heap = heap;
+  WMT_MEMPTR_SET(params.operations, operations);
+  params.operation_count = operation_count;
+  params.ret_success = 0;
+  UNIX_CALL(167, &params);
+  return params.ret_success != 0;
+}
+
+WINEMETAL_API bool
 MTL4CommandQueue_updateBufferMappings(
     obj_handle_t queue, obj_handle_t buffer, obj_handle_t heap,
     const struct WMT4SparseBufferMappingOperation *operations,
