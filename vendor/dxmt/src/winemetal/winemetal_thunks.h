@@ -194,6 +194,15 @@ struct unixcall_mtlresource_state_update_texture_mappings {
   uint64_t ret_success;
 };
 
+struct unixcall_mtl4commandqueue_update_texture_mappings {
+  obj_handle_t queue;
+  obj_handle_t texture;
+  obj_handle_t heap;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
+  uint64_t ret_success;
+};
+
 struct unixcall_mtl4commandqueue_update_buffer_mappings {
   obj_handle_t queue;
   obj_handle_t buffer;

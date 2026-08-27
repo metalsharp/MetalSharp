@@ -7561,7 +7561,7 @@ static bool BuildSparseTextureMappings(
     const D3D12_TILE_REGION_SIZE *region_sizes, UINT range_count,
     const D3D12_TILE_RANGE_FLAGS *range_flags,
     const UINT *heap_range_offsets,
-    const UINT *range_tile_counts,
+    const UINT *range_tile_counts, bool metal4,
     std::vector<WMTTextureMapping> &mappings) {
   if (!resource || !resource->IsSparseBacked() || !region_count ||
       !region_coordinates || !region_sizes)
@@ -7585,8 +7585,13 @@ static bool BuildSparseTextureMappings(
   }
   const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
   const UINT mip_levels = desc.MipLevels;
-  const UINT metal_tiles_x = std::max<UINT>(1, shape.WidthInTexels / 2);
-  const UINT metal_tiles_y = std::max<UINT>(1, shape.HeightInTexels / 2);
+  // The legacy resource-state encoder consumes texel regions. Metal 4's
+  // placement-sparse queue consumes regions in sparse-tile units; a D3D12
+  // 64 KiB tile is four 16 KiB Metal pages on the proof host.
+  const UINT metal_tiles_x =
+      metal4 ? 2u : std::max<UINT>(1, shape.WidthInTexels / 2);
+  const UINT metal_tiles_y =
+      metal4 ? 2u : std::max<UINT>(1, shape.HeightInTexels / 2);
   UINT range_index = 0;
   UINT range_remaining = range_count
                              ? (range_tile_counts ? range_tile_counts[0] : 1)
@@ -7638,6 +7643,12 @@ static bool BuildSparseTextureMappings(
       const D3D12_TILE_RANGE_FLAGS flags =
           range_count && range_flags ? range_flags[range_index]
                                      : D3D12_TILE_RANGE_FLAG_NONE;
+      const uint64_t heap_tile_offset =
+          flags == D3D12_TILE_RANGE_FLAG_NONE
+              ? uint64_t(heap_range_offsets[range_index]) +
+                    (uint64_t(range_tile_counts[range_index]) -
+                     range_remaining)
+              : 0;
       if (size.UseBox) {
         const UINT z = static_cast<UINT>(tile / (size.Width * size.Height));
         const UINT rem = static_cast<UINT>(tile % (size.Width * size.Height));
@@ -7650,7 +7661,8 @@ static bool BuildSparseTextureMappings(
             {uint64_t(coordinate.X + x) * metal_tiles_x,
              uint64_t(coordinate.Y + y) * metal_tiles_y,
              uint64_t(z)},
-            {metal_tiles_x, metal_tiles_y, 1}, mip, slice});
+            {metal_tiles_x, metal_tiles_y, 1}, mip, slice,
+            heap_tile_offset});
       } else {
         const uint64_t first_tile =
             uint64_t(coordinate.Y) * mip_tiles_x + coordinate.X;
@@ -7662,7 +7674,8 @@ static bool BuildSparseTextureMappings(
                 ? WMTTextureMappingModeUnmap
                 : WMTTextureMappingModeMap,
             {uint64_t(x) * metal_tiles_x, uint64_t(y) * metal_tiles_y, 0},
-            {metal_tiles_x, metal_tiles_y, 1}, mip, slice});
+            {metal_tiles_x, metal_tiles_y, 1}, mip, slice,
+            heap_tile_offset});
       }
       if (range_count && range_remaining)
         range_remaining--;
@@ -7837,13 +7850,40 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
            (unsigned long long)total_tiles);
     return;
   }
+  const bool placement_sparse_texture =
+      sparse_resource->IsNativePlacementSparseTexture();
   std::vector<WMTTextureMapping> mappings;
   if (!BuildSparseTextureMappings(
           sparse_resource, region_count, region_start_coordinates,
           region_sizes, range_count, range_flags, heap_range_offsets,
-          range_tile_counts,
-          mappings)) {
+          range_tile_counts, placement_sparse_texture, mappings)) {
     QTRACE("CmdQueue::UpdateTileMappings rejected unsupported sparse mapping");
+    return;
+  }
+  if (placement_sparse_texture && m_wmt4_queue.handle) {
+    WMT::Reference<WMT::Heap> metal_heap =
+        tile_heap ? tile_heap->GetMTLHeap() : sparse_resource->GetSparseHeap();
+    bool has_map = false;
+    for (const auto &mapping : mappings)
+      has_map |= mapping.mode == WMTTextureMappingModeMap;
+    if ((has_map && !metal_heap.handle) ||
+        !sparse_resource->GetMTLTexture().handle) {
+      QTRACE("CmdQueue::UpdateTileMappings placement sparse texture missing "
+             "heap or texture");
+      return;
+    }
+    WMT::Texture native_texture{sparse_resource->GetMTLTexture().handle};
+    WMT::Heap native_heap{metal_heap.handle};
+    const bool success = m_wmt4_queue.updateTextureMappings(
+        native_texture, native_heap,
+        reinterpret_cast<const WMT4SparseTextureMappingOperation *>(
+            mappings.data()),
+        mappings.size());
+    if (success && metal_heap.handle)
+      sparse_resource->SetSparseHeap(metal_heap);
+    QTRACE("CmdQueue::UpdateTileMappings placement sparse mappings=%zu "
+           "heap=%llu success=%d",
+           mappings.size(), (unsigned long long)metal_heap.handle, success);
     return;
   }
   auto cmdbuf = m_wmt_queue.commandBuffer();

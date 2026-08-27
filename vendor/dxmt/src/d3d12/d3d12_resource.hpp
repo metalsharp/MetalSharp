@@ -118,10 +118,15 @@ public:
   bool IsSparseBacked() const {
     return m_is_reserved &&
            ((IsBuffer() && m_mtl_buffer.handle) ||
-            (!IsBuffer() && m_sparse_heap.handle && m_mtl_texture.handle));
+            (!IsBuffer() && m_mtl_texture.handle &&
+             (m_sparse_heap.handle || m_native_placement_sparse_texture)));
   }
   bool IsNativeSparseBuffer() const {
     return m_is_reserved && IsBuffer() && m_native_sparse_buffer;
+  }
+  bool IsNativePlacementSparseTexture() const {
+    return m_is_reserved && !IsBuffer() &&
+           m_native_placement_sparse_texture;
   }
   bool IsWritableMSAAEmulated() const { return m_writable_msaa_emulated; }
   bool IsShadingRateImage() const { return m_is_shading_rate_image; }
@@ -363,6 +368,7 @@ private:
   uint64_t m_backing_offset = 0;
   bool m_is_reserved = false;
   bool m_native_sparse_buffer = false;
+  bool m_native_placement_sparse_texture = false;
   bool m_writable_msaa_emulated = false;
   bool m_is_shading_rate_image = false;
   bool m_shading_rate_image_initialized = false;

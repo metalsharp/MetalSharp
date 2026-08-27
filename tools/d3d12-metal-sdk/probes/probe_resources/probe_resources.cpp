@@ -286,12 +286,14 @@ int main() {
     ID3D12Heap* sparse_heap = nullptr;
     ID3D12Heap* copy_mapping_heap = nullptr;
     ID3D12Resource* reserved_texture = nullptr;
+    ID3D12Resource* placement_alias_texture = nullptr;
     ID3D12Resource* sparse_upload = nullptr;
     ID3D12Resource* sparse_readback = nullptr;
     ID3D12Resource* sparse_unmapped_readback = nullptr;
     ID3D12Resource* reserved_buffer = nullptr;
     ID3D12Resource* reserved_buffer_readback = nullptr;
     ID3D12Resource* reserved_buffer_unmapped_readback = nullptr;
+    ID3D12Resource* placement_alias_readback = nullptr;
     ID3D12Resource* mapping_copy_source = nullptr;
     ID3D12Resource* mapping_copy_destination = nullptr;
     ID3D12Resource* mapping_copy_readback = nullptr;
@@ -308,6 +310,7 @@ int main() {
     HRESULT sparse_heap_hr = E_FAIL;
     HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
+    HRESULT placement_alias_texture_hr = E_FAIL;
     HRESULT sparse_upload_hr = E_FAIL;
     HRESULT sparse_readback_hr = E_FAIL;
     HRESULT sparse_unmapped_readback_hr = E_FAIL;
@@ -320,6 +323,7 @@ int main() {
     HRESULT reserved_buffer_tiling_hr = E_FAIL;
     HRESULT reserved_buffer_readback_hr = E_FAIL;
     HRESULT reserved_buffer_unmapped_readback_hr = E_FAIL;
+    HRESULT placement_alias_readback_hr = E_FAIL;
     HRESULT mapping_copy_source_hr = E_FAIL;
     HRESULT mapping_copy_destination_hr = E_FAIL;
     HRESULT mapping_copy_readback_hr = E_FAIL;
@@ -330,6 +334,10 @@ int main() {
     UINT reserved_buffer_tiling_count = 1;
     bool reserved_buffer_copy_ok = false;
     bool reserved_buffer_unmapped_zero_ok = false;
+    bool placement_alias_copy_ok = false;
+    HRESULT placement_alias_readback_map_hr = E_FAIL;
+    uint8_t placement_alias_first = 0;
+    uint64_t placement_alias_first_mismatch = UINT64_MAX;
     bool mapping_copy_ok = false;
     HRESULT mipped_reserved_texture_hr = E_FAIL;
     HRESULT mipped_reserved_tiling_hr = E_FAIL;
@@ -476,6 +484,13 @@ int main() {
             reserved_texture, &sparse_total_tiles, &sparse_packed_mips,
             &sparse_tile_shape, &sparse_tiling_count, 0, sparse_tiling);
     }
+    D3D12_RESOURCE_DESC placement_alias_desc = reserved_desc;
+    placement_alias_desc.DepthOrArraySize = 1;
+    placement_alias_texture_hr =
+        device ? device->CreateReservedResource(
+                     &placement_alias_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&placement_alias_texture))
+               : E_FAIL;
     D3D12_RESOURCE_DESC reserved_buffer_desc =
         buffer_desc(sparse_tile_bytes);
     reserved_buffer_hr =
@@ -524,6 +539,13 @@ int main() {
                      &reserved_buffer_readback_desc,
                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                      IID_PPV_ARGS(&reserved_buffer_unmapped_readback))
+               : E_FAIL;
+    placement_alias_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &reserved_buffer_readback_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&placement_alias_readback))
                : E_FAIL;
     mapping_copy_source_hr =
         device ? device->CreateReservedResource(
@@ -728,8 +750,9 @@ int main() {
             sparse_upload_ptr[i] = static_cast<uint8_t>((i * 29u + 7u) & 0xffu);
         sparse_upload->Unmap(0, nullptr);
     }
-    if (queue && sparse_heap && reserved_texture && sparse_upload &&
-        sparse_readback && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+    if (queue && sparse_heap && reserved_texture && placement_alias_texture &&
+        sparse_upload && sparse_readback && placement_alias_readback &&
+        sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 &&
         sparse_tile_shape.HeightInTexels == 128) {
         D3D12_TILED_RESOURCE_COORDINATE coordinates[2] = {};
@@ -745,6 +768,16 @@ int main() {
             reserved_texture, 2, coordinates, region_sizes, sparse_heap, 2,
             range_flags, heap_offsets, range_tile_counts,
             D3D12_TILE_MAPPING_FLAG_NONE);
+        D3D12_TILED_RESOURCE_COORDINATE alias_coordinate = {};
+        D3D12_TILE_REGION_SIZE alias_region = {};
+        alias_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS alias_range_flag = D3D12_TILE_RANGE_FLAG_NONE;
+        UINT alias_heap_offset = 0;
+        UINT alias_range_count = 1;
+        queue->UpdateTileMappings(
+            placement_alias_texture, 1, &alias_coordinate, &alias_region,
+            sparse_heap, 1, &alias_range_flag, &alias_heap_offset,
+            &alias_range_count, D3D12_TILE_MAPPING_FLAG_NONE);
         list->CopyTiles(
             reserved_texture, &coordinates[0], &region_sizes[0], sparse_upload,
             0, D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
@@ -756,6 +789,19 @@ int main() {
             reserved_texture, D3D12_RESOURCE_STATE_COPY_DEST,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->ResourceBarrier(1, &sparse_barrier);
+        D3D12_RESOURCE_BARRIER aliasing_barrier = {};
+        aliasing_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+        aliasing_barrier.Aliasing.pResourceBefore = reserved_texture;
+        aliasing_barrier.Aliasing.pResourceAfter = placement_alias_texture;
+        list->ResourceBarrier(1, &aliasing_barrier);
+        D3D12_RESOURCE_BARRIER alias_barrier = transition_barrier(
+            placement_alias_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &alias_barrier);
+        list->CopyTiles(
+            placement_alias_texture, &alias_coordinate, &alias_region,
+            placement_alias_readback, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
         list->CopyTiles(
             reserved_texture, &coordinates[0], &region_sizes[0], sparse_readback,
             0, D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
@@ -1315,6 +1361,27 @@ int main() {
         }
         mipped_reserved_readback->Unmap(0, nullptr);
     }
+    uint8_t *placement_alias_readback_ptr = nullptr;
+    placement_alias_readback_map_hr =
+        placement_alias_readback
+            ? placement_alias_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&placement_alias_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(placement_alias_readback_map_hr) &&
+        placement_alias_readback_ptr) {
+        placement_alias_copy_ok = true;
+        placement_alias_first = placement_alias_readback_ptr[0];
+        for (UINT64 i = 0; i < sparse_tile_size; ++i) {
+            if (placement_alias_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                placement_alias_copy_ok = false;
+                placement_alias_first_mismatch = i;
+                break;
+            }
+        }
+        placement_alias_readback->Unmap(0, nullptr);
+    }
     uint8_t *mapping_copy_readback_ptr = nullptr;
     mapping_copy_readback_map_hr =
         mapping_copy_readback
@@ -1483,6 +1550,10 @@ int main() {
                 SUCCEEDED(bc_readback_hr) && SUCCEEDED(bc_upload_map_hr) &&
                 SUCCEEDED(bc_readback_map_hr) && bc_copy_ok &&
                 SUCCEEDED(sparse_heap_hr) && SUCCEEDED(reserved_texture_hr) &&
+                SUCCEEDED(placement_alias_texture_hr) &&
+                SUCCEEDED(placement_alias_readback_hr) &&
+                SUCCEEDED(placement_alias_readback_map_hr) &&
+                placement_alias_copy_ok &&
                 SUCCEEDED(sparse_tiling_hr) && SUCCEEDED(sparse_upload_hr) && SUCCEEDED(sparse_readback_hr) &&
                 SUCCEEDED(sparse_upload_map_hr) &&
                 SUCCEEDED(sparse_readback_map_hr) && sparse_copy_ok &&
@@ -1668,6 +1739,17 @@ int main() {
                 sparse_copy_ok ? "true" : "false");
     std::printf("    \"unmapped_zero_verified\": %s,\n",
                 sparse_unmapped_zero_ok ? "true" : "false");
+    print_hr("placement_alias_texture_create", placement_alias_texture_hr);
+    print_hr("placement_alias_readback_create", placement_alias_readback_hr);
+    print_hr("placement_alias_readback_map", placement_alias_readback_map_hr);
+    std::printf("    \"placement_alias_copy_verified\": %s,\n",
+                placement_alias_copy_ok ? "true" : "false");
+    std::printf("    \"placement_alias_first_byte\": %u,\n",
+                placement_alias_first);
+    std::printf("    \"placement_alias_first_mismatch\": %s,\n",
+                placement_alias_first_mismatch == UINT64_MAX
+                    ? "null"
+                    : std::to_string(placement_alias_first_mismatch).c_str());
     std::printf("    \"reserved_buffer\": {\n");
     print_hr("create", reserved_buffer_hr);
     print_hr("tiling", reserved_buffer_tiling_hr);

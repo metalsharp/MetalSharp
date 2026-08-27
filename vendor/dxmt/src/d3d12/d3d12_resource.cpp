@@ -311,24 +311,41 @@ void MTLD3D12Resource::InitializeResource(
       (unsigned)tex_info.depth, (unsigned)tex_info.array_length,
       (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count,
       (unsigned)tex_info.options);
-    if (!m_mtl_texture.handle) {
-      if (m_is_reserved) {
-        WMTHeapInfo heap_info = {};
-        heap_info.size = SparseHeapSizeForResource(m_desc);
-        heap_info.options = WMTResourceStorageModePrivate |
-                            WMTResourceHazardTrackingModeTracked;
-        heap_info.type = WMTHeapTypeSparse;
-        // Metal's 16 KiB sparse page is the largest page granularity available
-        // on the proof host and four pages make one D3D12 64 KiB tile.
-        heap_info.sparse_page_size = WMTSparsePageSize16;
-        m_sparse_heap = wmt_device.newHeap(heap_info);
-        if (m_sparse_heap.handle)
-          m_mtl_texture = m_sparse_heap.newTexture(tex_info);
-      } else {
+    const bool placement_sparse_candidate =
+        m_is_reserved && m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+        std::max<UINT16>(m_desc.MipLevels, 1) == 1;
+    if (placement_sparse_candidate) {
+      // Metal 4 placement-sparse textures are created without a backing heap;
+      // UpdateTileMappings supplies the D3D12 placement heap later. This keeps
+      // the proven single-mip RGBA8 shape eligible for physical cross-resource
+      // page aliases. Use the MTL4 queue as the availability probe so older
+      // Metal falls back to the legacy resource-state sparse heap path below.
+      auto mtl4_probe = wmt_device.newMTL4CommandQueue();
+      if (mtl4_probe.handle) {
+        tex_info.placement_sparse_page_size = WMTSparsePageSize16;
         m_mtl_texture = wmt_device.newTexture(tex_info);
+        m_native_placement_sparse_texture = m_mtl_texture.handle != 0;
       }
-      m_tex_gpu_resource_id = tex_info.gpu_resource_id;
+    } else if (!m_is_reserved) {
+      m_mtl_texture = wmt_device.newTexture(tex_info);
     }
+    if (!m_mtl_texture.handle && m_is_reserved) {
+      // Older Metal falls back to the existing private sparse heap path. Clear
+      // the placement-only descriptor field before creating that texture.
+      tex_info.placement_sparse_page_size = 0;
+      WMTHeapInfo heap_info = {};
+      heap_info.size = SparseHeapSizeForResource(m_desc);
+      heap_info.options = WMTResourceStorageModePrivate |
+                          WMTResourceHazardTrackingModeTracked;
+      heap_info.type = WMTHeapTypeSparse;
+      // Metal's 16 KiB sparse page is the largest page granularity available
+      // on the proof host and four pages make one D3D12 64 KiB tile.
+      heap_info.sparse_page_size = WMTSparsePageSize16;
+      m_sparse_heap = wmt_device.newHeap(heap_info);
+      if (m_sparse_heap.handle)
+        m_mtl_texture = m_sparse_heap.newTexture(tex_info);
+    }
+    m_tex_gpu_resource_id = tex_info.gpu_resource_id;
     if (!m_mtl_texture.handle) {
       RTRACE("ctor: texture creation FAILED type=%u fmt=%u %ux%u arr=%u",
         tex_info.type, tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height, (unsigned)tex_info.array_length);

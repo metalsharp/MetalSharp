@@ -86,9 +86,9 @@
         "methods": {
           "CopyTileMappings": {
             "difficulty": "very hard",
-            "metal": "MTL4CommandQueue sparse-buffer mapping copy for native placement-sparse buffers; texture mapping copies remain deferred.",
-            "notes": "Copy tile mappings now executes for native placement-sparse buffers and is verified by an independent D3D12 CopyTiles readback; sparse texture mapping copies remain deferred until placement-sparse texture ownership is connected.",
-            "translation": "native MTL4 buffer mapping copy for the proven reserved-buffer shape; deferred for sparse textures"
+            "metal": "MTL4CommandQueue sparse-buffer/texture mapping updates for native placement-sparse resources; texture mapping copies remain deferred.",
+            "notes": "Copy tile mappings executes for native placement-sparse buffers and the focused single-mip RGBA8 texture path maps through an explicit D3D12 placement heap and reads a shared physical tile from a second reserved texture; sparse-texture mapping copies remain deferred.",
+            "translation": "native MTL4 buffer and focused texture mapping updates; deferred mapping copies for sparse textures"
           },
           "ExecuteCommandLists": {
             "difficulty": "very hard",
@@ -116,9 +116,9 @@
           },
           "UpdateTileMappings": {
             "difficulty": "very hard",
-            "metal": "MTLResourceStateCommandEncoder sparse updates; MTL4CommandQueue placement-sparse updates",
-            "notes": "Native 2D RGBA8, R8, R8G8, R10G10B10A2, R11G11B10, R16G16B16A16, and R32G32B32A32 reserved resources map and unmap standard tiles through the Metal resource-state encoder, including standard mip readback; reserved buffers use an MTL4 placement-sparse mapping path with a scoped full-buffer fallback and zero-after-unmap semantics. Cross-resource heap-page aliasing and texture heap-page selection remain deferred.",
-            "translation": "resourceStateEncoder->updateSparseMappings(texture, tileMappings) for the proven path"
+            "metal": "MTL4CommandQueue placement-sparse texture updates for the focused RGBA8 shape; MTLResourceStateCommandEncoder fallback for broader formats/mips",
+            "notes": "A single-mip 128x128x2 RGBA8 reserved texture now uses placement-sparse MTL4 mappings from a D3D12 heap and a second texture reads the shared physical page; R8, R8G8, R10G10B10A2, R11G11B10, R16G16B16A16, R32G32B32A32, packed/partial mips, and standard mip readback retain the legacy sparse path. Reserved buffers use an MTL4 placement-sparse mapping path with a scoped full-buffer fallback and zero-after-unmap semantics. Sparse-texture mapping copies, broader placement ownership, and physical residency transitions remain gated.",
+            "translation": "MTL4CommandQueue->updateTextureMappings(texture, placementHeap, tileMappings) for the proven RGBA8 shape; resourceStateEncoder fallback elsewhere"
           },
           "Wait": {
             "difficulty": "moderate",
@@ -497,7 +497,7 @@
           "CopyTiles": {
             "difficulty": "very hard",
             "metal": "MTLBlitCommandEncoder texture/buffer copies over mapped sparse tiles",
-            "notes": "The proven 2D RGBA8, R8, R8G8, R10G10B10A2, R11G11B10, R16G16B16A16, and R32G32B32A32 paths expand D3D12 requests into exact 64 KiB placed-footprint copies and verify map/unmap readback, including standard two-level mip textures; a focused reserved-buffer path expands tile copies over native MTL4 sparse buffers, with a full compatibility fallback, MTL4 mapping-copy, and MTL4 buffer-copy readback proof; broader packed/partial-mip layouts, boxed regions, cross-resource heap-page aliasing, and physical sparse-texture mappings remain gated.",
+            "notes": "The proven 2D RGBA8, R8, R8G8, R10G10B10A2, R11G11B10, R16G16B16A16, and R32G32B32A32 paths expand D3D12 requests into exact 64 KiB placed-footprint copies and verify map/unmap readback, including standard two-level mip textures; a focused single-mip RGBA8 placement path maps through an explicit D3D12 heap and reads a shared physical tile through a second texture. A focused reserved-buffer path expands tile copies over native MTL4 sparse buffers, with a full compatibility fallback, MTL4 mapping-copy, and MTL4 buffer-copy readback proof; broader packed/partial-mip layouts, boxed regions, sparse-texture mapping copies, and physical residency transitions remain gated.",
             "translation": "expand each standard tile into a buffer/texture blit"
           },
           "DiscardResource": {
