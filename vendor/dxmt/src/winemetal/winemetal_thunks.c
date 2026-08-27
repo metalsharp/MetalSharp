@@ -1734,3 +1734,38 @@ MTL4CommandQueue_updateBufferMappings(
   UNIX_CALL(162, &params);
   return params.ret_success != 0;
 }
+
+WINEMETAL_API bool
+MTL4CommandQueue_copyBufferMappings(
+    obj_handle_t queue, obj_handle_t source_buffer,
+    obj_handle_t destination_buffer,
+    const struct WMT4SparseBufferMappingCopyOperation *operations,
+    uint64_t operation_count) {
+  struct unixcall_mtl4commandqueue_copy_buffer_mappings params;
+  params.queue = queue;
+  params.source_buffer = source_buffer;
+  params.destination_buffer = destination_buffer;
+  WMT_MEMPTR_SET(params.operations, operations);
+  params.operation_count = operation_count;
+  params.ret_success = 0;
+  UNIX_CALL(164, &params);
+  return params.ret_success != 0;
+}
+
+WINEMETAL_API bool
+MTL4CommandQueue_copyBuffer(
+    obj_handle_t queue, obj_handle_t source_buffer, uint64_t source_offset,
+    obj_handle_t destination_buffer, uint64_t destination_offset,
+    uint64_t size, obj_handle_t residency_heap) {
+  struct unixcall_mtl4commandqueue_copy_buffer params;
+  params.queue = queue;
+  params.source_buffer = source_buffer;
+  params.source_offset = source_offset;
+  params.destination_buffer = destination_buffer;
+  params.destination_offset = destination_offset;
+  params.size = size;
+  params.residency_heap = residency_heap;
+  params.ret_success = 0;
+  UNIX_CALL(165, &params);
+  return params.ret_success != 0;
+}

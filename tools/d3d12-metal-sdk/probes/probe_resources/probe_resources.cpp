@@ -266,6 +266,7 @@ int main() {
     ID3D12Resource* texture_upload = nullptr;
     ID3D12Resource* texture_readback = nullptr;
     ID3D12Heap* sparse_heap = nullptr;
+    ID3D12Heap* copy_mapping_heap = nullptr;
     ID3D12Resource* reserved_texture = nullptr;
     ID3D12Resource* sparse_upload = nullptr;
     ID3D12Resource* sparse_readback = nullptr;
@@ -273,9 +274,13 @@ int main() {
     ID3D12Resource* reserved_buffer = nullptr;
     ID3D12Resource* reserved_buffer_readback = nullptr;
     ID3D12Resource* reserved_buffer_unmapped_readback = nullptr;
+    ID3D12Resource* mapping_copy_source = nullptr;
+    ID3D12Resource* mapping_copy_destination = nullptr;
+    ID3D12Resource* mapping_copy_readback = nullptr;
     ID3D12Resource* mipped_reserved_texture = nullptr;
     ID3D12Resource* mipped_reserved_readback = nullptr;
     HRESULT sparse_heap_hr = E_FAIL;
+    HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
     HRESULT sparse_upload_hr = E_FAIL;
     HRESULT sparse_readback_hr = E_FAIL;
@@ -289,12 +294,17 @@ int main() {
     HRESULT reserved_buffer_tiling_hr = E_FAIL;
     HRESULT reserved_buffer_readback_hr = E_FAIL;
     HRESULT reserved_buffer_unmapped_readback_hr = E_FAIL;
+    HRESULT mapping_copy_source_hr = E_FAIL;
+    HRESULT mapping_copy_destination_hr = E_FAIL;
+    HRESULT mapping_copy_readback_hr = E_FAIL;
+    HRESULT mapping_copy_readback_map_hr = E_FAIL;
     UINT reserved_buffer_total_tiles = 0;
     D3D12_TILE_SHAPE reserved_buffer_tile_shape = {};
     D3D12_SUBRESOURCE_TILING reserved_buffer_tiling = {};
     UINT reserved_buffer_tiling_count = 1;
     bool reserved_buffer_copy_ok = false;
     bool reserved_buffer_unmapped_zero_ok = false;
+    bool mapping_copy_ok = false;
     HRESULT mipped_reserved_texture_hr = E_FAIL;
     HRESULT mipped_reserved_tiling_hr = E_FAIL;
     HRESULT mipped_reserved_readback_hr = E_FAIL;
@@ -382,6 +392,15 @@ int main() {
     sparse_heap_hr = device ? device->CreateHeap(
                                   &sparse_heap_desc, IID_PPV_ARGS(&sparse_heap))
                             : E_FAIL;
+    D3D12_HEAP_DESC copy_mapping_heap_desc = {};
+    copy_mapping_heap_desc.SizeInBytes = sparse_tile_size;
+    copy_mapping_heap_desc.Properties = default_heap;
+    copy_mapping_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
+    copy_mapping_heap_hr = device
+                               ? device->CreateHeap(
+                                     &copy_mapping_heap_desc,
+                                     IID_PPV_ARGS(&copy_mapping_heap))
+                               : E_FAIL;
     D3D12_RESOURCE_DESC reserved_desc = texture_desc(
         128, 128, DXGI_FORMAT_R8G8B8A8_UNORM);
     reserved_desc.DepthOrArraySize = 2;
@@ -444,6 +463,23 @@ int main() {
                      &reserved_buffer_readback_desc,
                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                      IID_PPV_ARGS(&reserved_buffer_unmapped_readback))
+               : E_FAIL;
+    mapping_copy_source_hr =
+        device ? device->CreateReservedResource(
+                     &reserved_buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&mapping_copy_source))
+               : E_FAIL;
+    mapping_copy_destination_hr =
+        device ? device->CreateReservedResource(
+                     &reserved_buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&mapping_copy_destination))
+               : E_FAIL;
+    mapping_copy_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &reserved_buffer_readback_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&mapping_copy_readback))
                : E_FAIL;
     D3D12_RESOURCE_DESC mipped_reserved_desc =
         texture_desc(256, 256, DXGI_FORMAT_R8G8B8A8_UNORM);
@@ -575,6 +611,45 @@ int main() {
         list->CopyTiles(
             mipped_reserved_texture, &mip_coordinate, &mip_region,
             mipped_reserved_readback, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+    }
+    if (list && queue && copy_mapping_heap && mapping_copy_source &&
+        mapping_copy_destination && mapping_copy_readback && sparse_upload &&
+        SUCCEEDED(copy_mapping_heap_hr) &&
+        SUCCEEDED(mapping_copy_source_hr) &&
+        SUCCEEDED(mapping_copy_destination_hr) &&
+        SUCCEEDED(mapping_copy_readback_hr)) {
+        D3D12_TILED_RESOURCE_COORDINATE source_coordinate = {};
+        D3D12_TILED_RESOURCE_COORDINATE destination_coordinate = {};
+        D3D12_TILE_REGION_SIZE mapping_region = {};
+        mapping_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS mapping_range_flag =
+            D3D12_TILE_RANGE_FLAG_NONE;
+        UINT mapping_heap_offset = 0;
+        UINT mapping_range_count = 1;
+        queue->UpdateTileMappings(
+            mapping_copy_source, 1, &source_coordinate, &mapping_region,
+            copy_mapping_heap, 1, &mapping_range_flag, &mapping_heap_offset,
+            &mapping_range_count, D3D12_TILE_MAPPING_FLAG_NONE);
+        queue->CopyTileMappings(
+            mapping_copy_destination, &destination_coordinate,
+            mapping_copy_source, &source_coordinate, &mapping_region,
+            D3D12_TILE_MAPPING_FLAG_NONE);
+        list->CopyTiles(
+            mapping_copy_source, &source_coordinate, &mapping_region,
+            sparse_upload, 0,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        D3D12_RESOURCE_BARRIER source_barrier = transition_barrier(
+            mapping_copy_source, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &source_barrier);
+        D3D12_RESOURCE_BARRIER destination_barrier = transition_barrier(
+            mapping_copy_destination, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &destination_barrier);
+        list->CopyTiles(
+            mapping_copy_destination, &destination_coordinate, &mapping_region,
+            mapping_copy_readback, 0,
             D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
 
@@ -872,6 +947,24 @@ int main() {
         }
         mipped_reserved_readback->Unmap(0, nullptr);
     }
+    uint8_t *mapping_copy_readback_ptr = nullptr;
+    mapping_copy_readback_map_hr =
+        mapping_copy_readback
+            ? mapping_copy_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&mapping_copy_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(mapping_copy_readback_map_hr) && mapping_copy_readback_ptr) {
+        mapping_copy_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_size; i++) {
+            if (mapping_copy_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                mapping_copy_ok = false;
+                break;
+            }
+        }
+        mapping_copy_readback->Unmap(0, nullptr);
+    }
 
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
 
@@ -937,6 +1030,11 @@ int main() {
                 SUCCEEDED(reserved_buffer_readback_map_hr) &&
                 SUCCEEDED(reserved_buffer_unmapped_map_hr) &&
                 reserved_buffer_copy_ok && reserved_buffer_unmapped_zero_ok &&
+                SUCCEEDED(copy_mapping_heap_hr) &&
+                SUCCEEDED(mapping_copy_source_hr) &&
+                SUCCEEDED(mapping_copy_destination_hr) &&
+                SUCCEEDED(mapping_copy_readback_hr) &&
+                SUCCEEDED(mapping_copy_readback_map_hr) && mapping_copy_ok &&
                 reserved_buffer_total_tiles == 2 &&
                 reserved_buffer_tiling_count == 1 &&
                 reserved_buffer_tile_shape.WidthInTexels == sparse_tile_size &&
@@ -1087,8 +1185,15 @@ int main() {
                 reserved_buffer_tiling.StartTileIndexInOverallResource);
     std::printf("      \"copy_verified\": %s,\n",
                 reserved_buffer_copy_ok ? "true" : "false");
-    std::printf("      \"unmapped_zero_verified\": %s\n",
+    std::printf("      \"unmapped_zero_verified\": %s,\n",
                 reserved_buffer_unmapped_zero_ok ? "true" : "false");
+    print_hr("mapping_copy_heap_create", copy_mapping_heap_hr);
+    print_hr("mapping_copy_source_create", mapping_copy_source_hr);
+    print_hr("mapping_copy_destination_create", mapping_copy_destination_hr);
+    print_hr("mapping_copy_readback_create", mapping_copy_readback_hr);
+    print_hr("mapping_copy_readback_map", mapping_copy_readback_map_hr);
+    std::printf("      \"mapping_copy_verified\": %s\n",
+                mapping_copy_ok ? "true" : "false");
     std::printf("    },\n");
     std::printf("    \"mipped_texture\": {\n");
     print_hr("create", mipped_reserved_texture_hr);

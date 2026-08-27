@@ -285,9 +285,10 @@ Findings:
   RGBA8-array and standard multi-mip path; a separate reserved-buffer path
   uses native MTL4 placement-sparse buffers with a full shared fallback.
   Unsupported shapes fail closed rather than using committed substitutes.
-- Tile mapping/unmapping and per-slice/mip `CopyTiles` operations execute for
-  those proof paths; physical external D3D12 heap-page selection and
-  `CopyTileMappings` remain gated.
+- Tile mapping/unmapping, native sparse-buffer `CopyTileMappings`, and
+  per-slice/mip `CopyTiles` operations execute for those proof paths; physical
+  external D3D12 heap-page selection, sparse-texture mapping copies, and
+  broader residency behavior remain gated.
 - Residency is implicit on Apple unified memory: `MakeResident` and `Evict`
   validate pageable arrays and reject null entries, while physical residency
   accounting/tracking remains incomplete.
@@ -602,8 +603,10 @@ Deliverables:
 - Implement sparse/reserved buffers and textures using Metal sparse/placement
   sparse APIs.
 - Implement update/copy tile mappings and `GetResourceTiling`; the focused
-  native 2D RGBA8 mapping/unmapping and two-tile `CopyTiles` path is now
-  proven, while external heap page selection and `CopyTileMappings` remain.
+  native 2D RGBA8 mapping/unmapping and two-tile `CopyTiles` path is proven,
+  and native MTL4 sparse-buffer mapping copies now have an independent
+  readback gate, while external heap page selection and sparse-texture mapping
+  copies remain.
 - Implement residency accounting and notification behavior.
 - Implement sampler feedback resources/UAVs and resolve behavior.
 - Prove all format support bits against executable operations.
@@ -1242,12 +1245,12 @@ the goal is not complete.
   new-library state-object growth and broader record-count, stride, and
   local-data shader-table matrices. The resource gate also now covers a
   separate two-tile reserved-buffer path: native MTL4 heap mapping, 64 KiB
-  tiling, exact tile copies, and zero-after-unmap readback pass on the proof
-  host; its fallback is explicitly not treated as physical sparse heap-page
-  support and cross-resource aliasing remains gated.
+  tiling, exact tile copies, copied-mapping readback, and zero-after-unmap
+  readback pass on the proof host; its fallback is explicitly not treated as
+  physical sparse heap-page support and cross-resource aliasing remains gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
   tiled-resource, and native-sparse-buffer changes passes all `21/21` required
-  contract probes. The matching Winemetal source audit reports `164/164`
+  contract probes. The matching Winemetal source audit reports `166/166`
   normal/WOW64 call-table entries and `failure_count=0`; intentional warmup and
   missing-capture diagnostics remain outside the required set, and the FL12_2
   target gate remains conservative.

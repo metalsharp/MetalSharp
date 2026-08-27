@@ -86,9 +86,9 @@
         "methods": {
           "CopyTileMappings": {
             "difficulty": "very hard",
-            "metal": "MTL4CommandQueue::copyTextureMappingsFromTexture (macOS 26+)",
-            "notes": "Copy tile mapping from one reserved resource to another. The current 2D RGBA8 path uses native Metal sparse texture ownership and deliberately fails closed until MTL4 placement-sparse heap aliasing is connected.",
-            "translation": "deferred until placement-sparse resources share a D3D12-selected Metal heap"
+            "metal": "MTL4CommandQueue sparse-buffer mapping copy for native placement-sparse buffers; texture mapping copies remain deferred.",
+            "notes": "Copy tile mappings now executes for native placement-sparse buffers and is verified by an independent D3D12 CopyTiles readback; sparse texture mapping copies remain deferred until placement-sparse texture ownership is connected.",
+            "translation": "native MTL4 buffer mapping copy for the proven reserved-buffer shape; deferred for sparse textures"
           },
           "ExecuteCommandLists": {
             "difficulty": "very hard",
@@ -497,7 +497,7 @@
           "CopyTiles": {
             "difficulty": "very hard",
             "metal": "MTLBlitCommandEncoder texture/buffer copies over mapped sparse tiles",
-            "notes": "The proven 2D RGBA8 path expands a multi-tile D3D12 request into exact 64 KiB placed-footprint copies and verifies map/unmap readback, including a standard two-level mip texture; a focused reserved-buffer path expands tile copies over native MTL4 sparse buffers, with a full compatibility fallback; packed/partial mips, boxed regions, cross-resource heap-page aliasing, and physical sparse-texture mappings remain gated.",
+            "notes": "The proven 2D RGBA8 path expands a multi-tile D3D12 request into exact 64 KiB placed-footprint copies and verifies map/unmap readback, including a standard two-level mip texture; a focused reserved-buffer path expands tile copies over native MTL4 sparse buffers, with a full compatibility fallback, MTL4 mapping-copy, and MTL4 buffer-copy readback proof; packed/partial mips, boxed regions, cross-resource heap-page aliasing, and physical sparse-texture mappings remain gated.",
             "translation": "expand each standard tile into a buffer/texture blit"
           },
           "DiscardResource": {

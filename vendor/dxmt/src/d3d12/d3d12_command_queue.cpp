@@ -7617,6 +7617,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
       }
       auto metal_heap = tile_heap ? tile_heap->GetMTLHeap()
                                   : WMT::Reference<WMT::Heap>{};
+      if (metal_heap.handle)
+        sparse_resource->SetSparseHeap(metal_heap);
       if ((has_map && !metal_heap.handle) || !m_wmt4_queue.handle ||
           !sparse_resource->GetMTLBuffer().handle || operations.empty())
         return;
@@ -7701,6 +7703,61 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
     const D3D12_TILE_REGION_SIZE *region_size, D3D12_TILE_MAPPING_FLAGS flags) {
   QTRACE("CmdQueue::CopyTileMappings this=%p dst=%p src=%p flags=0x%x",
          (void *)this, (void *)dst_resource, (void *)src_resource, flags);
+  if ((static_cast<UINT>(flags) & ~static_cast<UINT>(
+          D3D12_TILE_MAPPING_FLAG_NO_HAZARD)) != 0 ||
+      !dst_region_start_coordinate || !src_region_start_coordinate ||
+      !region_size || !region_size->NumTiles || region_size->UseBox ||
+      !m_wmt4_queue.handle) {
+    QTRACE("CmdQueue::CopyTileMappings rejected arguments");
+    return;
+  }
+
+  auto *dst = static_cast<MTLD3D12Resource *>(dst_resource);
+  auto *src = static_cast<MTLD3D12Resource *>(src_resource);
+  if (!dst || !src || !dst->IsNativeSparseBuffer() ||
+      !src->IsNativeSparseBuffer()) {
+    QTRACE("CmdQueue::CopyTileMappings requires native sparse buffers");
+    return;
+  }
+
+  D3D12_RESOURCE_DESC dst_desc = {};
+  D3D12_RESOURCE_DESC src_desc = {};
+  dst->GetDesc(&dst_desc);
+  src->GetDesc(&src_desc);
+  const uint64_t tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+  const uint64_t dst_tile_count = (dst_desc.Width + tile_size - 1) / tile_size;
+  const uint64_t src_tile_count = (src_desc.Width + tile_size - 1) / tile_size;
+  const auto &dst_coordinate = *dst_region_start_coordinate;
+  const auto &src_coordinate = *src_region_start_coordinate;
+  if (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+      src_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+      dst_coordinate.Y || dst_coordinate.Z || dst_coordinate.Subresource ||
+      src_coordinate.Y || src_coordinate.Z || src_coordinate.Subresource ||
+      dst_coordinate.X >= dst_tile_count || src_coordinate.X >= src_tile_count ||
+      region_size->NumTiles > dst_tile_count - dst_coordinate.X ||
+      region_size->NumTiles > src_tile_count - src_coordinate.X) {
+    QTRACE("CmdQueue::CopyTileMappings rejected buffer ranges dst=%u src=%u "
+           "tiles=%u dst_total=%llu src_total=%llu",
+           dst_coordinate.X, src_coordinate.X, region_size->NumTiles,
+           (unsigned long long)dst_tile_count,
+           (unsigned long long)src_tile_count);
+    return;
+  }
+
+  auto sparse_heap = src->GetSparseHeap();
+  if (sparse_heap.handle)
+    dst->SetSparseHeap(sparse_heap);
+  WMT4SparseBufferMappingCopyOperation operation = {};
+  operation.source_tile_offset = src_coordinate.X;
+  operation.tile_count = region_size->NumTiles;
+  operation.destination_tile_offset = dst_coordinate.X;
+  WMT::Buffer source_buffer{src->GetMTLBuffer().handle};
+  WMT::Buffer destination_buffer{dst->GetMTLBuffer().handle};
+  const bool success = m_wmt4_queue.copyBufferMappings(
+      source_buffer, destination_buffer, &operation, 1);
+  QTRACE("CmdQueue::CopyTileMappings native sparse buffers src_tile=%u "
+         "dst_tile=%u tiles=%u success=%d",
+         src_coordinate.X, dst_coordinate.X, region_size->NumTiles, success);
 }
 
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
@@ -9463,24 +9520,51 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             }
             st.RetainResourceMetalObjectsForCompletion(dst_res);
             st.RetainResourceMetalObjectsForCompletion(src_res);
-            auto blit = cmdbuf.blitCommandEncoder();
-            ENC_CREATE("blit_copybuf", blit.handle);
-            ScopedMetalEncoderEnd blit_guard{blit, "blit_copybuf"};
-            if (!blit.handle) {
-              QTRACE("CopyBufferRegion: FAILED to create blit encoder");
-              break;
+            if (dst_res->IsNativeSparseBuffer() ||
+                src_res->IsNativeSparseBuffer()) {
+              WMT::Reference<WMT::Heap> sparse_heap =
+                  dst_res->GetSparseHeap();
+              if (!sparse_heap.handle)
+                sparse_heap = src_res->GetSparseHeap();
+              if (!m_wmt4_queue.handle || !sparse_heap.handle) {
+                QTRACE("CopyBufferRegion: native sparse copy missing Metal 4 "
+                       "queue or heap");
+                break;
+              }
+              WMT::Buffer source_buffer{src_res->GetMTLBuffer().handle};
+              WMT::Buffer destination_buffer{dst_res->GetMTLBuffer().handle};
+              WMT::Heap residency_heap{sparse_heap.handle};
+              const bool success = m_wmt4_queue.copyBuffer(
+                  source_buffer, cmd->src_offset, destination_buffer,
+                  cmd->dst_offset, cmd->byte_count, residency_heap);
+              QTRACE("CopyBufferRegion native sparse Metal 4 src=%p+%llu "
+                     "dst=%p+%llu bytes=%llu success=%d",
+                     (void *)src_res,
+                     (unsigned long long)cmd->src_offset, (void *)dst_res,
+                     (unsigned long long)cmd->dst_offset,
+                     (unsigned long long)cmd->byte_count, success);
+              if (!success)
+                break;
+            } else {
+              auto blit = cmdbuf.blitCommandEncoder();
+              ENC_CREATE("blit_copybuf", blit.handle);
+              ScopedMetalEncoderEnd blit_guard{blit, "blit_copybuf"};
+              if (!blit.handle) {
+                QTRACE("CopyBufferRegion: FAILED to create blit encoder");
+                break;
+              }
+              struct wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
+              copy.type = WMTBlitCommandCopyFromBufferToBuffer;
+              copy.next.set(nullptr);
+              copy.src = src_res->GetMTLBuffer().handle;
+              copy.src_offset = cmd->src_offset;
+              copy.dst = dst_res->GetMTLBuffer().handle;
+              copy.dst_offset = cmd->dst_offset;
+              copy.copy_length = cmd->byte_count;
+              blit.encodeCommands(
+                  reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+              EndMetalEncoder(blit, "blit_copybuf");
             }
-            struct wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
-            copy.type = WMTBlitCommandCopyFromBufferToBuffer;
-            copy.next.set(nullptr);
-            copy.src = src_res->GetMTLBuffer().handle;
-            copy.src_offset = cmd->src_offset;
-            copy.dst = dst_res->GetMTLBuffer().handle;
-            copy.dst_offset = cmd->dst_offset;
-            copy.copy_length = cmd->byte_count;
-            blit.encodeCommands(
-                reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
-            EndMetalEncoder(blit, "blit_copybuf");
           }
         }
         break;
