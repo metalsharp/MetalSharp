@@ -78,7 +78,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Mesh shaders | Tier 1 | Not supported | AS/MS compile, PSO, direct and indirect dispatch |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
-| Tiled resources | Tier 3 | Native 2D RGBA8 two-tile sparse proof; Tier 3 remains unreported | Sparse mapping, unmapping, tiling, and per-tile 64 KiB CopyTiles probes |
+| Tiled resources | Tier 3 | Native placement-sparse 2D RGBA8 cross-resource alias subset proven; Tier 3 remains unreported | Sparse mapping, unmapping, tiling, alias, and per-tile 64 KiB CopyTiles probes |
 | Conservative rasterization | Tier 3 | Tier 1 | Tier-3 edge/coverage behavior probe |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Software-emulated and reported | Depth-bounds render/readback matrix |
@@ -192,9 +192,11 @@ Findings:
   shapes plus one-tile R8G8/R10G10B10A2/R11G11B10/R16G16B16A16/
   R32G32B32A32 formats; a separate two-tile reserved-buffer path uses an MTL4
   placement-sparse buffer mapping on the proof host with a full shared
-  fallback. Unsupported dimensions still fail closed and Tier 3 remains gated
-  on texture heap-page selection, cross-resource aliases, broader packed/partial
-  mip layouts, sparse-texture `CopyTileMappings`, and broader residency behavior.
+  fallback. The single-mip 128x128x2 RGBA8 path now selects an explicit
+  placement heap and proves a shared physical page through a second texture.
+  Unsupported dimensions still fail closed and Tier 3 remains gated on broader
+  placement ownership, packed/partial mip layouts, sparse-texture
+  `CopyTileMappings`, and broader residency behavior.
 - Later device interfaces are compatibility declarations rather than complete
   Agility interface implementations.
 - Object private-data support is implemented only on the device; most child
@@ -496,9 +498,10 @@ Findings:
 - D3D12 sparse/reserved mapping is now bridged through native Metal sparse
   heaps, resource-state encoders, and two-tile `CopyTiles` replay for the
   proven 2D RGBA8 path, with standard two-level mip readback and native MTL4
-  placement-sparse buffer mappings with a full-backed fallback. Cross-resource
-  heap-page aliasing for sparse resources is not yet proven, so texture page
-  selection and `CopyTileMappings` remain gated.
+  placement-sparse buffer mappings with a full-backed fallback. The focused
+  single-mip RGBA8 placement path also reads a shared physical page through a
+  second texture; broader texture page selection, mapping copies, and residency
+  behavior remain gated.
 - The Winemetal bridge now exposes validated rasterization-rate map creation
   and render-pass attachment. The opt-in VRS probe records `RSSetShadingRate`
   2x2, compares a clean 64x64 draw against the mapped pass (4096 versus 1089
@@ -1044,8 +1047,13 @@ the goal is not complete.
   still gated.
 - The offscreen render/readback probe is now part of the required set and
   independently verifies `D3D12_LOGIC_OP_XOR` with exact `[255,255,255,255]`
-  output. Windowed present remains optional; the broader FL12_2, DXR, sparse,
-  mesh, and packaging requirements remain active.
+  output. Windowed present remains optional.
+- The sparse bridge now creates the focused single-mip RGBA8 reserved texture
+  as a Metal 4 placement-sparse resource, maps it through the D3D12 placement
+  heap, and verifies the same physical 64 KiB tile through a second reserved
+  texture. Broader texture mapping-copy, packed/partial-mip, 3D, and residency
+  matrices remain gated; the broader FL12_2, DXR, mesh, and packaging
+  requirements remain active.
 
 ### 2026-08-25 — Baseline and object-contract foundation
 
@@ -1296,8 +1304,9 @@ the goal is not complete.
   readback pass on the proof host. R8_UNORM one-tile, two-level standard-mip,
   and one packed-tail/partial-mip copies also pass. One-tile
   R8G8/R10G10B10A2/R11G11B10/R16G16B16A16/R32G32B32A32 copies pass as well; its
-  fallback is explicitly not treated as physical sparse heap-page support and
-  cross-resource aliasing remains gated.
+  fallback is explicitly not treated as physical sparse heap-page support;
+  broader sparse-texture mapping-copy, packed/partial-mip, 3D, and residency
+  matrices remain gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
   tiled-resource, native-sparse-buffer, and writable-MSAA changes passes all
   `23/23` required contract probes. The writable-MSAA extension is independently
