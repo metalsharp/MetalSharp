@@ -79,7 +79,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
 | Tiled resources | Tier 3 | Native placement-sparse 2D RGBA8 cross-resource alias subset proven; volume tile shapes and standard `CopyTiles` traversal are modeled; Tier 3 remains unreported | Physical page selection, mapping copies, packed/partial mips, 3D/array mapping and alias, residency, and per-tile 64 KiB `CopyTiles` probes |
-| Conservative rasterization | Tier 3 | Software-emulated Tier 1 only | Tier-3 edge/coverage, inner-input, degenerate, and MSAA behavior probe |
+| Conservative rasterization | Tier 3 | Not advertised; no conservative-coverage implementation is present | Tier-3 edge/coverage, inner-input, degenerate, and MSAA behavior probe |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Software-emulated and reported | Depth-bounds render/readback matrix |
 | WriteBufferImmediate | Direct, compute, bundle | Direct, compute, bundle proven and reported | Three-mode GPU-VA write/readback probe |
@@ -175,9 +175,11 @@ Findings:
 - The default unhandled feature-query path zeros unknown structures and returns
   `S_OK`. That can incorrectly convert a missing implementation into a valid
   unsupported response and can hide ABI-size mistakes.
-- Several values are over-reported relative to implementation, including ROVs,
+- Several values were over-reported relative to implementation, including ROVs,
   conservative rasterization tier 1, typed UAV additional formats, and some
-  format atomic flags.
+  format atomic flags. Conservative rasterization now fails closed as
+  `D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED`; the remaining entries
+  stay in the residual audit until their reports are independently justified.
 - Feature-level 12_2 requirements currently reported false include tiled
   resources, VRS, mesh shaders, conservative rasterization, and enhanced
   barriers; depth bounds is software-emulated and reported after its exact
