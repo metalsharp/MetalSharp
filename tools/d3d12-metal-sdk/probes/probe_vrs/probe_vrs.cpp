@@ -513,6 +513,50 @@ float4 ps_main(VSOut input) : SV_Target0 {
                                  : E_FAIL;
   uint32_t image_pixels = count_nonzero(readback);
 
+  const D3D12_SHADING_RATE rate_matrix_rates[] = {
+      D3D12_SHADING_RATE_1X2, D3D12_SHADING_RATE_2X1,
+      D3D12_SHADING_RATE_2X4, D3D12_SHADING_RATE_4X2,
+      D3D12_SHADING_RATE_4X4};
+  const char *rate_matrix_names[] = {"1x2", "2x1", "2x4", "4x2", "4x4"};
+  uint32_t rate_matrix_pixels[5] = {};
+  bool rate_matrix_ok = true;
+  HRESULT rate_matrix_last_hr = image_execute_hr;
+  for (size_t i = 0; i < 5; ++i) {
+    HRESULT matrix_reset_hr = SUCCEEDED(rate_matrix_last_hr)
+                                  ? allocator->Reset()
+                                  : E_FAIL;
+    if (SUCCEEDED(matrix_reset_hr))
+      matrix_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(matrix_reset_hr)) {
+      D3D12_RESOURCE_BARRIER restore_barrier = {};
+      restore_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      restore_barrier.Transition.pResource = target;
+      restore_barrier.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      restore_barrier.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_COPY_SOURCE;
+      restore_barrier.Transition.StateAfter =
+          D3D12_RESOURCE_STATE_RENDER_TARGET;
+      list->ResourceBarrier(1, &restore_barrier);
+    }
+    HRESULT matrix_record_hr =
+        SUCCEEDED(matrix_reset_hr)
+            ? record_draw(list, list5, root, pso, target,
+                          rate_matrix_rates[i], nullptr, readback,
+                          vertex_buffer, rtv_heap)
+            : E_FAIL;
+    HRESULT matrix_execute_hr =
+        SUCCEEDED(matrix_record_hr) ? execute_and_wait(device, queue, list)
+                                    : E_FAIL;
+    rate_matrix_pixels[i] = count_nonzero(readback);
+    rate_matrix_ok &= SUCCEEDED(matrix_reset_hr) &&
+                      SUCCEEDED(matrix_record_hr) &&
+                      SUCCEEDED(matrix_execute_hr) &&
+                      rate_matrix_pixels[i] > 0 &&
+                      rate_matrix_pixels[i] < baseline_pixels;
+    rate_matrix_last_hr = matrix_execute_hr;
+  }
+
   const bool passed = source_ok && vs_dxc == 0 && ps_dxc == 0 && !vs.empty() &&
                       !ps.empty() && SUCCEEDED(device_hr) &&
                       SUCCEEDED(root_serialize_hr) && SUCCEEDED(root_hr) &&
@@ -530,7 +574,8 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       SUCCEEDED(image_reset_hr) && image_copy_recorded &&
                       SUCCEEDED(image_record_hr) && SUCCEEDED(image_execute_hr) &&
                       image_pixels > 0 && image_pixels < baseline_pixels &&
-                      image_pixels == vrs_pixels;
+                      image_pixels == vrs_pixels && rate_matrix_ok &&
+                      SUCCEEDED(rate_matrix_last_hr);
   std::printf("{\n");
   std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-vrs.v1\",\n");
   std::printf("  \"pass\": %s,\n", passed ? "true" : "false");
@@ -542,6 +587,10 @@ float4 ps_main(VSOut input) : SV_Target0 {
               hr_hex(root_serialize_hr).c_str());
   std::printf("  \"root_create_hr\": \"%s\",\n", hr_hex(root_hr).c_str());
   std::printf("  \"pso_hr\": \"%s\",\n", hr_hex(pso_hr).c_str());
+  std::printf("  \"shading_rate_image_hr\": \"%s\",\n",
+              hr_hex(shading_rate_image_hr).c_str());
+  std::printf("  \"shading_rate_upload_hr\": \"%s\",\n",
+              hr_hex(shading_rate_upload_hr).c_str());
   std::printf("  \"baseline_record_hr\": \"%s\",\n",
               hr_hex(baseline_record_hr).c_str());
   std::printf("  \"baseline_execute_hr\": \"%s\",\n",
@@ -566,11 +615,23 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"rate_reduced\": %s,\n",
               (vrs_pixels > 0 && vrs_pixels < baseline_pixels) ? "true"
                                                                  : "false");
-  std::printf("  \"image_rate_reduced\": %s\n",
+  std::printf("  \"image_rate_reduced\": %s,\n",
               (image_pixels > 0 && image_pixels < baseline_pixels &&
                image_pixels == vrs_pixels)
                   ? "true"
                   : "false");
+  std::printf("  \"rate_matrix\": [");
+  for (size_t i = 0; i < 5; ++i) {
+    if (i)
+      std::printf(", ");
+    std::printf("{\"rate\":\"%s\",\"pixels\":%u}",
+                rate_matrix_names[i], rate_matrix_pixels[i]);
+  }
+  std::printf("],\n");
+  std::printf("  \"rate_matrix_verified\": %s,\n",
+              rate_matrix_ok ? "true" : "false");
+  std::printf("  \"rate_matrix_last_hr\": \"%s\"\n",
+              hr_hex(rate_matrix_last_hr).c_str());
   std::printf("}\n");
   std::fflush(stdout);
 
