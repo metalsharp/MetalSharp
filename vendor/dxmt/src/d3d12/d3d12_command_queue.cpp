@@ -728,10 +728,23 @@ static bool CombineShadingRate(D3D12_SHADING_RATE first,
             : std::max(first_vertical, second_vertical);
     return ShadingRateFromAxes(horizontal, vertical, result);
   }
-  case D3D12_SHADING_RATE_COMBINER_SUM:
+  case D3D12_SHADING_RATE_COMBINER_SUM: {
+    uint32_t first_horizontal = 0;
+    uint32_t first_vertical = 0;
+    uint32_t second_horizontal = 0;
+    uint32_t second_vertical = 0;
+    if (!ShadingRateToAxes(first, first_horizontal, first_vertical) ||
+        !ShadingRateToAxes(second, second_horizontal, second_vertical))
+      return false;
+    // SUM applies the axis values independently and clamps each axis to the
+    // largest coarse dimension supported by this implementation (4x).  It
+    // must not add the packed enum values: 1x2 + 2x1 is 2x2, while 2x2 + 2x2
+    // saturates at 4x4.
+    return ShadingRateFromAxes(
+        std::min<uint32_t>(2, first_horizontal + second_horizontal),
+        std::min<uint32_t>(2, first_vertical + second_vertical), result);
+  }
   default:
-    // SUM needs the full D3D12 combiner table, including asymmetric rates;
-    // do not approximate it with a Metal rate map.
     return false;
   }
 }
@@ -1074,6 +1087,9 @@ struct ReplayState {
       D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
       D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
   ID3D12Resource *shading_rate_image = nullptr;
+  bool vrs_image_tile_active = false;
+  uint32_t vrs_image_tile_x = 0;
+  uint32_t vrs_image_tile_y = 0;
 
   D3D12_CPU_DESCRIPTOR_HANDLE rt_handles[8] = {};
   D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = {};
@@ -5243,33 +5259,57 @@ struct ReplayState {
           }
         }
       }
+
+      D3D12_SHADING_RATE image_rate = D3D12_SHADING_RATE_1X1;
+      bool image_rate_valid = constant_image;
+      if (constant_image) {
+        image_rate = static_cast<D3D12_SHADING_RATE>(image_data.front());
+      } else if (vrs_image_tile_active && image_resource->HasShadingRateImageData()) {
+        const uint32_t image_width =
+            static_cast<uint32_t>(std::max<UINT64>(image_desc.Width, 1));
+        const uint32_t image_height = std::max<UINT>(image_desc.Height, 1);
+        const uint64_t image_index =
+            uint64_t(vrs_image_tile_y) * image_width + vrs_image_tile_x;
+        if (vrs_image_tile_x < image_width && vrs_image_tile_y < image_height &&
+            image_index < image_data.size()) {
+          image_rate = static_cast<D3D12_SHADING_RATE>(image_data[image_index]);
+          uint32_t image_horizontal = 0;
+          uint32_t image_vertical = 0;
+          image_rate_valid = ShadingRateToAxes(
+              image_rate, image_horizontal, image_vertical);
+        } else {
+          // D3D12 reads outside the image as a 1x1 contribution.  This path
+          // normally iterates only the covered texels, but preserve that rule
+          // if a larger render target reaches an absent trailing texel.
+          image_rate_valid = true;
+        }
+      }
+
       D3D12_SHADING_RATE effective_shading_rate =
           D3D12_SHADING_RATE_1X1;
-      const bool image_rate_valid = constant_image;
-      // The Metal rate map is uniform, so only a constant image can be
-      // represented without pretending that every macroblock has the same
-      // rate.  Even for that subset, preserve D3D12's two combiner stages:
-      // rasterizer/per-primitive first, then the image contribution.
+      // A nonconstant image is emulated by one load/store render pass per
+      // image texel.  In tile mode this encoder is scissored to the selected
+      // texel's render-target region, so the Metal map can remain uniform
+      // without collapsing unrelated D3D12 image values.
       const bool effective_rate_valid =
           image_rate_valid &&
           CombineShadingRate(shading_rate, D3D12_SHADING_RATE_1X1,
                              shading_rate_combiners[0],
                              effective_shading_rate) &&
-          CombineShadingRate(
-              effective_shading_rate,
-              static_cast<D3D12_SHADING_RATE>(image_data.front()),
-              shading_rate_combiners[1], effective_shading_rate);
+          CombineShadingRate(effective_shading_rate, image_rate,
+                            shading_rate_combiners[1], effective_shading_rate);
       float effective_horizontal = 1.0f;
       float effective_vertical = 1.0f;
       if (effective_rate_valid &&
           ShadingRateToMetalQuality(effective_shading_rate,
                                     effective_horizontal, effective_vertical)) {
-        image_map_configured = try_rate_map(effective_horizontal,
-                                             effective_vertical, "image");
+        image_map_configured = try_rate_map(
+            effective_horizontal, effective_vertical,
+            vrs_image_tile_active ? "image_tile" : "image");
       }
       if (!image_map_configured) {
         QTRACE("EnsureRenderEncoder: shading-rate image shape=%ux%u is not "
-               "constant/initialized or its combiner result is unsupported; "
+               "initialized, valid, or its combiner result is unsupported; "
                "keeping the pass at native rate",
                (unsigned)image_desc.Width, (unsigned)image_desc.Height);
       }
@@ -5353,12 +5393,50 @@ struct ReplayState {
       }
     }
 
-    if (scissor_count > 0) {
-      const auto &rect = scissor_rects[0];
-      LONG left = std::max<LONG>(0, rect.left);
-      LONG top = std::max<LONG>(0, rect.top);
-      LONG right = std::max<LONG>(left, rect.right);
-      LONG bottom = std::max<LONG>(top, rect.bottom);
+    if (scissor_count > 0 || vrs_image_tile_active) {
+      LONG left = 0;
+      LONG top = 0;
+      LONG right = static_cast<LONG>(std::min<uint32_t>(
+          render_target_width, static_cast<uint32_t>(LONG_MAX)));
+      LONG bottom = static_cast<LONG>(std::min<uint32_t>(
+          render_target_height, static_cast<uint32_t>(LONG_MAX)));
+      if (scissor_count > 0) {
+        const auto &rect = scissor_rects[0];
+        left = std::max<LONG>(0, rect.left);
+        top = std::max<LONG>(0, rect.top);
+        right = std::max<LONG>(left, rect.right);
+        bottom = std::max<LONG>(top, rect.bottom);
+      }
+      if (vrs_image_tile_active && shading_rate_image) {
+        auto *image = static_cast<MTLD3D12Resource *>(shading_rate_image);
+        D3D12_RESOURCE_DESC image_desc = {};
+        image->GetDesc(&image_desc);
+        const uint32_t image_width = static_cast<uint32_t>(
+            std::max<UINT64>(image_desc.Width, 1));
+        const uint32_t image_height = std::max<UINT>(image_desc.Height, 1);
+        const uint32_t tile_width = std::max<uint32_t>(
+            (render_target_width + image_width - 1) / image_width, 1);
+        const uint32_t tile_height = std::max<uint32_t>(
+            (render_target_height + image_height - 1) / image_height, 1);
+        const uint64_t tile_left =
+            uint64_t(vrs_image_tile_x) * tile_width;
+        const uint64_t tile_top = uint64_t(vrs_image_tile_y) * tile_height;
+        const uint64_t tile_right =
+            std::min<uint64_t>(tile_left + tile_width, render_target_width);
+        const uint64_t tile_bottom =
+            std::min<uint64_t>(tile_top + tile_height, render_target_height);
+        left = std::max<LONG>(
+            left, static_cast<LONG>(std::min<uint64_t>(tile_left, LONG_MAX)));
+        top = std::max<LONG>(
+            top, static_cast<LONG>(std::min<uint64_t>(tile_top, LONG_MAX)));
+        right = std::min<LONG>(
+            right, static_cast<LONG>(std::min<uint64_t>(tile_right, LONG_MAX)));
+        bottom = std::min<LONG>(
+            bottom,
+            static_cast<LONG>(std::min<uint64_t>(tile_bottom, LONG_MAX)));
+      }
+      right = std::max<LONG>(left, right);
+      bottom = std::max<LONG>(top, bottom);
       render_enc.setScissorRect({(uint64_t)left, (uint64_t)top,
                                  (uint64_t)(right - left),
                                  (uint64_t)(bottom - top)});
@@ -6012,6 +6090,101 @@ struct ReplayState {
         str::format("vb_raw bound=", raw_bound_slots, " mask=0x", std::hex,
                     slot_mask, std::dec);
     last_bound_vertex_buffers = raw_bound_slots;
+  }
+
+  bool HasNonconstantShadingRateImage() const {
+    if (!shading_rate_image)
+      return false;
+    auto *image = static_cast<MTLD3D12Resource *>(shading_rate_image);
+    if (!image || !image->HasShadingRateImageData())
+      return false;
+    const auto &data = image->GetShadingRateImageData();
+    if (data.empty())
+      return false;
+    for (uint8_t value : data) {
+      if (value != data.front())
+        return true;
+    }
+    return false;
+  }
+
+  void PrepareRenderDraw(MTLD3D12Device *device) {
+    EnsureRenderEncoder(device);
+    ApplyRootBindings(device);
+    BuildVertexConstantBufferTable(device);
+    BuildVertexArgumentBuffer(device);
+    BuildGeometryConstantBufferTable(device);
+    BuildGeometryArgumentBuffer(device);
+    BuildConstantBufferTable(device);
+    BuildArgumentBuffer(device);
+    if (render_enc_open && arg_buf.handle) {
+      uint32_t bind_index = BindIndexOrFallback(
+          pso->GetPSReflection().ArgumentBufferBindIndex, kArgBufSlot);
+      SetFragmentBufferTracked(arg_buf, 0, bind_index);
+    }
+    BindStaticSamplers();
+    ApplyVertexBuffers(device);
+    BindGeometryMeshBuffers();
+  }
+
+  template <typename Encode>
+  bool ForEachShadingRateImageTile(MTLD3D12Device *device, Encode &&encode) {
+    if (!HasNonconstantShadingRateImage()) {
+      return encode();
+    }
+
+    auto *image = static_cast<MTLD3D12Resource *>(shading_rate_image);
+    D3D12_RESOURCE_DESC image_desc = {};
+    image->GetDesc(&image_desc);
+    const uint32_t image_width =
+        static_cast<uint32_t>(std::max<UINT64>(image_desc.Width, 1));
+    const uint32_t image_height =
+        std::max<UINT>(image_desc.Height, 1);
+    uint32_t target_width = image_width;
+    uint32_t target_height = image_height;
+    if (rt_count > 0) {
+      auto *rt_desc =
+          reinterpret_cast<const D3D12Descriptor *>(rt_handles[0].ptr);
+      auto *target = rt_desc
+                         ? static_cast<MTLD3D12Resource *>(rt_desc->resource)
+                         : nullptr;
+      if (target) {
+        D3D12_RESOURCE_DESC target_desc = {};
+        target->GetDesc(&target_desc);
+        target_width = static_cast<uint32_t>(std::min<UINT64>(
+            std::max<UINT64>(target_desc.Width, 1), UINT32_MAX));
+        target_height = std::max<UINT>(target_desc.Height, 1);
+      }
+    }
+    const uint32_t tile_width =
+        std::max<uint32_t>((target_width + image_width - 1) / image_width, 1);
+    const uint32_t tile_height = std::max<uint32_t>(
+        (target_height + image_height - 1) / image_height, 1);
+    const uint32_t tile_count_x =
+        std::min<uint32_t>(image_width,
+                           (target_width + tile_width - 1) / tile_width);
+    const uint32_t tile_count_y =
+        std::min<uint32_t>(image_height,
+                           (target_height + tile_height - 1) / tile_height);
+    bool encoded = true;
+    for (uint32_t y = 0; y < tile_count_y && encoded; y++) {
+      for (uint32_t x = 0; x < tile_count_x; x++) {
+        vrs_image_tile_active = true;
+        vrs_image_tile_x = x;
+        vrs_image_tile_y = y;
+        CloseRenderEncoder();
+        PrepareRenderDraw(device);
+        if (!render_enc_open || !encode()) {
+          encoded = false;
+          break;
+        }
+        CloseRenderEncoder();
+      }
+    }
+    vrs_image_tile_active = false;
+    vrs_image_tile_x = 0;
+    vrs_image_tile_y = 0;
+    return encoded;
   }
 };
 
@@ -8201,23 +8374,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::DrawInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawInstanced *>(header);
         st.EnsureSwapchainRenderPSOReady();
-        st.EnsureRenderEncoder(m_device);
-        st.ApplyRootBindings(m_device);
-        st.BuildVertexConstantBufferTable(m_device);
-        st.BuildVertexArgumentBuffer(m_device);
-        st.BuildGeometryConstantBufferTable(m_device);
-        st.BuildGeometryArgumentBuffer(m_device);
-        st.BuildConstantBufferTable(m_device);
-        st.BuildArgumentBuffer(m_device);
-        if (st.render_enc_open && st.arg_buf.handle) {
-          uint32_t bind_index = st.BindIndexOrFallback(
-              st.pso->GetPSReflection().ArgumentBufferBindIndex,
-              st.kArgBufSlot);
-          st.SetFragmentBufferTracked(st.arg_buf, 0, bind_index);
-        }
-        st.BindStaticSamplers();
-        st.ApplyVertexBuffers(m_device);
-        st.BindGeometryMeshBuffers();
+        const bool vrs_image_tiles = st.HasNonconstantShadingRateImage();
+        if (!vrs_image_tiles)
+          st.PrepareRenderDraw(m_device);
         st.AddRenderFaultBreadcrumb("DrawInstanced", cmd->vertex_count,
                                     cmd->instance_count, cmd->start_vertex, 0,
                                     0, false);
@@ -8273,45 +8432,52 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 TracePsoShaderSummary(st.pso)));
           }
         } else if (cmd->instance_count > 0 && cmd->vertex_count > 0 &&
-                   st.render_enc_open && st.HasUsableRenderPSO()) {
+                   (st.render_enc_open || vrs_image_tiles) &&
+                   st.HasUsableRenderPSO()) {
           st.LogTessellationFallbackDraw("DrawInstanced", cmd->vertex_count,
                                          cmd->instance_count, false);
-          struct wmtcmd_render_draw draw = {};
-          draw.type = WMTRenderCommandDraw;
-          draw.next.set(nullptr);
-          draw.primitive_type = st.GetMetalPrimitiveType();
-          draw.vertex_start = cmd->start_vertex;
-          draw.vertex_count = cmd->vertex_count;
-          draw.base_instance = cmd->start_instance;
-          draw.instance_count = cmd->instance_count;
-          st.BindMSCDrawParameters(m_device, cmd->vertex_count,
-                                   cmd->instance_count, cmd->start_vertex, 0,
-                                   cmd->start_instance, false,
-                                   WMTIndexTypeUInt16);
-          st.LogFinalRenderSnapshot("DrawInstanced", cmd->vertex_count,
-                                    cmd->instance_count, cmd->start_vertex);
-          st.LogStageInVertexSnapshot("DrawInstanced", cmd->vertex_count,
-                                      cmd->instance_count);
-          st.LogNonStageInVertexSnapshot(
-              m_device, "DrawInstanced", cmd->vertex_count, cmd->instance_count,
-              cmd->start_vertex, cmd->start_instance);
-          st.BindMissingNonStageInVertexBuffers(m_device);
-          st.BindDirectFragmentCompleteness(m_device, "draw_instanced");
-          WMTPrimitiveType primitive_type = draw.primitive_type;
-          if (st.EncodeRenderCommands(
-                  reinterpret_cast<const wmtcmd_render_nop *>(&draw),
-                  "draw_instanced"))
+          auto encode_draw = [&]() -> bool {
+            if (!st.render_enc_open)
+              return false;
+            struct wmtcmd_render_draw draw = {};
+            draw.type = WMTRenderCommandDraw;
+            draw.next.set(nullptr);
+            draw.primitive_type = st.GetMetalPrimitiveType();
+            draw.vertex_start = cmd->start_vertex;
+            draw.vertex_count = cmd->vertex_count;
+            draw.base_instance = cmd->start_instance;
+            draw.instance_count = cmd->instance_count;
+            st.BindMSCDrawParameters(m_device, cmd->vertex_count,
+                                     cmd->instance_count, cmd->start_vertex, 0,
+                                     cmd->start_instance, false,
+                                     WMTIndexTypeUInt16);
+            st.LogFinalRenderSnapshot("DrawInstanced", cmd->vertex_count,
+                                      cmd->instance_count, cmd->start_vertex);
+            st.LogStageInVertexSnapshot("DrawInstanced", cmd->vertex_count,
+                                        cmd->instance_count);
+            st.LogNonStageInVertexSnapshot(
+                m_device, "DrawInstanced", cmd->vertex_count,
+                cmd->instance_count, cmd->start_vertex, cmd->start_instance);
+            st.BindMissingNonStageInVertexBuffers(m_device);
+            st.BindDirectFragmentCompleteness(m_device, "draw_instanced");
+            if (!st.EncodeRenderCommands(
+                    reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+                    "draw_instanced"))
+              return false;
+            if (st.HasSwapchainRenderTarget() &&
+                TakeLogBudget(&g_swapchain_draw_logs, 384)) {
+              Logger::info(str::format(
+                  "M12 swapchain DrawInstanced encoded v=", cmd->vertex_count,
+                  " i=", cmd->instance_count, " start=", cmd->start_vertex,
+                  " topology=", (unsigned)st.topology, " primitive=",
+                  (unsigned)draw.primitive_type, " pso=", (void *)st.pso,
+                  " enc=", (unsigned long long)st.render_enc.handle, " ",
+                  TracePsoShaderSummary(st.pso)));
+            }
+            return true;
+          };
+          if (st.ForEachShadingRateImageTile(m_device, encode_draw))
             st.MarkSwapchainWorkEncoded();
-          if (st.HasSwapchainRenderTarget() &&
-              TakeLogBudget(&g_swapchain_draw_logs, 384)) {
-            Logger::info(str::format(
-                "M12 swapchain DrawInstanced encoded v=", cmd->vertex_count,
-                " i=", cmd->instance_count, " start=", cmd->start_vertex,
-                " topology=", (unsigned)st.topology, " primitive=",
-                (unsigned)primitive_type, " pso=", (void *)st.pso,
-                " enc=", (unsigned long long)st.render_enc.handle, " ",
-                TracePsoShaderSummary(st.pso)));
-          }
         } else {
           QTRACE(
               "DrawInstanced SKIPPED v=%u i=%u enc_open=%d pso=%p compiled=%d "

@@ -156,6 +156,7 @@ int main() {
   D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6 = {};
   D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
   D3D12_FEATURE_DATA_D3D12_OPTIONS8 options8 = {};
+  D3D12_FEATURE_DATA_D3D12_OPTIONS10 options10 = {};
   D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12 = {};
   D3D12_FEATURE_DATA_D3D12_OPTIONS14 options14 = {};
   D3D12_FEATURE_DATA_ROOT_SIGNATURE root_signature = {
@@ -172,6 +173,7 @@ int main() {
   HRESULT options6_hr = E_NOINTERFACE;
   HRESULT options7_hr = E_NOINTERFACE;
   HRESULT options8_hr = E_NOINTERFACE;
+  HRESULT options10_hr = E_NOINTERFACE;
   HRESULT options12_hr = E_NOINTERFACE;
   HRESULT options14_hr = E_NOINTERFACE;
   HRESULT root_signature_hr = E_NOINTERFACE;
@@ -191,6 +193,7 @@ int main() {
     CHECK_FEATURE(options6, D3D12_OPTIONS6);
     CHECK_FEATURE(options7, D3D12_OPTIONS7);
     CHECK_FEATURE(options8, D3D12_OPTIONS8);
+    CHECK_FEATURE(options10, D3D12_OPTIONS10);
     CHECK_FEATURE(options12, D3D12_OPTIONS12);
     CHECK_FEATURE(options14, D3D12_OPTIONS14);
     CHECK_FEATURE(root_signature, ROOT_SIGNATURE);
@@ -233,6 +236,7 @@ int main() {
       options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 &&
       options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9 &&
       SUCCEEDED(options8_hr) && options8.UnalignedBlockTexturesSupported &&
+      SUCCEEDED(options10_hr) &&
       SUCCEEDED(root_signature_hr) &&
       root_signature.HighestVersion >= D3D_ROOT_SIGNATURE_VERSION_1_1 &&
       SUCCEEDED(gpu_va_hr) && gpu_va.MaxGPUVirtualAddressBitsPerResource >= 40 &&
@@ -269,21 +273,94 @@ int main() {
   std::printf("  \"invalid_level\": {\"hr\": \"0x%08lx\", \"rejected\": %s},\n",
               static_cast<unsigned long>(static_cast<uint32_t>(invalid_level_hr)),
               invalid_level_rejected ? "true" : "false");
+  std::printf("  \"check_results\": {\n");
+  std::printf("    \"feature_levels\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(levels_hr)));
+  std::printf("    \"shader_model\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(shader_model_hr)));
+  std::printf("    \"options\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options_hr)));
+  std::printf("    \"options1\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options1_hr)));
+  std::printf("    \"options2\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options2_hr)));
+  std::printf("    \"options3\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options3_hr)));
+  std::printf("    \"options5\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options5_hr)));
+  std::printf("    \"options6\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options6_hr)));
+  std::printf("    \"options7\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options7_hr)));
+  std::printf("    \"options8\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options8_hr)));
+  std::printf("    \"options10\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options10_hr)));
+  std::printf("    \"options12\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options12_hr)));
+  std::printf("    \"options14\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(options14_hr)));
+  std::printf("    \"root_signature\": \"0x%08lx\",\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(root_signature_hr)));
+  std::printf("    \"gpu_virtual_address_support\": \"0x%08lx\"\n",
+              static_cast<unsigned long>(static_cast<uint32_t>(gpu_va_hr)));
+  std::printf("  },\n");
   std::printf("  \"reported\": {\n");
   std::printf("    \"feature_level\": \"%s\",\n",
               feature_level_name(levels.MaxSupportedFeatureLevel));
   std::printf("    \"shader_model\": \"%s\",\n",
               shader_model_name(shader_model.HighestShaderModel));
+  std::printf("    \"resource_binding_tier\": %u,\n",
+              static_cast<unsigned>(options.ResourceBindingTier));
+  std::printf("    \"rovs_supported\": %s,\n",
+              options.ROVsSupported ? "true" : "false");
+  std::printf("    \"output_merger_logic_op\": %s,\n",
+              options.OutputMergerLogicOp ? "true" : "false");
   std::printf("    \"raytracing_tier\": %u,\n", static_cast<unsigned>(options5.RaytracingTier));
+  std::printf("    \"srv_only_tiled_resource_tier3\": %s,\n",
+              options5.SRVOnlyTiledResourceTier3 ? "true" : "false");
   std::printf("    \"vrs_tier\": %u,\n", static_cast<unsigned>(options6.VariableShadingRateTier));
+  std::printf("    \"additional_shading_rates\": %s,\n",
+              options6.AdditionalShadingRatesSupported ? "true" : "false");
+  std::printf("    \"per_primitive_shading_rate_with_viewport_indexing\": %s,\n",
+              options6.PerPrimitiveShadingRateSupportedWithViewportIndexing ? "true" : "false");
+  std::printf("    \"shading_rate_image_tile_size\": %u,\n",
+              static_cast<unsigned>(options6.ShadingRateImageTileSize));
   std::printf("    \"mesh_shader_tier\": %u,\n", static_cast<unsigned>(options7.MeshShaderTier));
   std::printf("    \"sampler_feedback_tier\": %u,\n", static_cast<unsigned>(options7.SamplerFeedbackTier));
+  std::printf("    \"vrs_sum_combiner_supported\": %s,\n",
+              options10.VariableRateShadingSumCombinerSupported ? "true" : "false");
+  std::printf("    \"mesh_shader_per_primitive_shading_rate_supported\": %s,\n",
+              options10.MeshShaderPerPrimitiveShadingRateSupported ? "true" : "false");
   std::printf("    \"tiled_resources_tier\": %u,\n", static_cast<unsigned>(options.TiledResourcesTier));
   std::printf("    \"conservative_rasterization_tier\": %u,\n", static_cast<unsigned>(options.ConservativeRasterizationTier));
+  std::printf("    \"vp_array_index_without_gs\": %s,\n",
+              options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation ? "true" : "false");
+  std::printf("    \"max_gpu_virtual_address_bits_per_resource\": %u,\n",
+              static_cast<unsigned>(options.MaxGPUVirtualAddressBitsPerResource));
+  std::printf("    \"wave_ops\": %s,\n", options1.WaveOps ? "true" : "false");
+  std::printf("    \"wave_lane_count_min\": %u,\n",
+              static_cast<unsigned>(options1.WaveLaneCountMin));
+  std::printf("    \"wave_lane_count_max\": %u,\n",
+              static_cast<unsigned>(options1.WaveLaneCountMax));
+  std::printf("    \"int64_shader_ops\": %s,\n",
+              options1.Int64ShaderOps ? "true" : "false");
   std::printf("    \"depth_bounds\": %s,\n", options2.DepthBoundsTestSupported ? "true" : "false");
   std::printf("    \"copy_queue_timestamps\": %s,\n", options3.CopyQueueTimestampQueriesSupported ? "true" : "false");
+  std::printf("    \"casting_fully_typed_format\": %s,\n",
+              options3.CastingFullyTypedFormatSupported ? "true" : "false");
   std::printf("    \"write_buffer_immediate_flags\": %u,\n", static_cast<unsigned>(options3.WriteBufferImmediateSupportFlags));
   std::printf("    \"unaligned_block_textures\": %s,\n", options8.UnalignedBlockTexturesSupported ? "true" : "false");
+  std::printf("    \"root_signature_1_1\": %s,\n",
+              root_signature.HighestVersion >= D3D_ROOT_SIGNATURE_VERSION_1_1 ? "true" : "false");
+  std::printf("    \"gpu_virtual_address_bits_per_resource\": %u,\n",
+              static_cast<unsigned>(gpu_va.MaxGPUVirtualAddressBitsPerResource));
+  std::printf("    \"gpu_virtual_address_bits_per_process\": %u,\n",
+              static_cast<unsigned>(gpu_va.MaxGPUVirtualAddressBitsPerProcess));
+  std::printf("    \"options12_enhanced_barriers\": %s,\n",
+              options12.EnhancedBarriersSupported ? "true" : "false");
+  std::printf("    \"options12_relaxed_format_casting\": %s,\n",
+              options12.RelaxedFormatCastingSupported ? "true" : "false");
   std::printf("    \"enhanced_barriers\": %s,\n", options12.EnhancedBarriersSupported ? "true" : "false");
   std::printf("    \"relaxed_format_casting\": %s,\n", options12.RelaxedFormatCastingSupported ? "true" : "false");
   std::printf("    \"advanced_texture_ops\": %s,\n", options14.AdvancedTextureOpsSupported ? "true" : "false");
