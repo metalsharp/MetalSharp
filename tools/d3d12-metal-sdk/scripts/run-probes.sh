@@ -2067,7 +2067,43 @@ for relative in sorted(path for path in listed if is_source_path(path) and (root
 print(digest.hexdigest())
 PY
 )"
-SOURCE_DIRTY="$(if [[ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all -- vendor/dxmt tools/d3d12-metal-sdk)" ]]; then printf 'false'; else printf 'true'; fi)"
+# Generated build outputs, probe results, and shader caches are deliberately
+# excluded from source identity.  Otherwise a clean source checkout appears
+# dirty merely because the manifest-driven build produced tracked PE/Unix
+# artifacts, weakening the provenance check in the aggregate gate.
+SOURCE_DIRTY="$(python3 - "$ROOT_DIR" <<'PY'
+import subprocess
+import sys
+
+root = sys.argv[1]
+status = subprocess.check_output(
+    ["git", "-C", root, "status", "--porcelain", "--untracked-files=all",
+     "--", "vendor/dxmt", "tools/d3d12-metal-sdk"],
+    text=True,
+)
+
+def generated(path):
+    return (
+        path.startswith("vendor/dxmt/build-")
+        or path.startswith("tools/d3d12-metal-sdk/results/")
+        or path.startswith("tools/d3d12-metal-sdk/out/")
+        or path.startswith("tools/d3d12-metal-sdk/cache/")
+        or "/__pycache__/" in path
+        or path.endswith("/__pycache__")
+        or path.endswith(".pyc")
+    )
+
+changed = []
+for line in status.splitlines():
+    if len(line) >= 4:
+        path = line[3:]
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[-1]
+        if not generated(path):
+            changed.append(path)
+print("true" if changed else "false")
+PY
+)"
 RUN_STARTED_AT="$(date +%s)"
 
 cat > "$RESULTS_DIR/host-runtime-${PROFILE}.json" <<EOF
