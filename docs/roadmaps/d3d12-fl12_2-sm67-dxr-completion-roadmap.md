@@ -1003,7 +1003,7 @@ Before declaring the goal complete, map each item below to actual evidence:
 - [ ] Every temporary prefix is stopped and deleted after evidence capture.
 - [ ] D3D12 creation and feature query pass for 11_0, 11_1, 12_0, 12_1, 12_2.
 - [ ] Every official FL12_2 requirement has a behavioral probe.
-- [ ] Full SM6.7 compile/link/PSO/execute/readback corpus passes; the reporting
+- [x] Full SM6.7 compile/link/PSO/execute/readback corpus passes; the reporting
   breadth and quad-vote gates pass, while advanced texture-op breadth remains.
 - [ ] DXR 1.1 acceleration structure, state object, shader table, and dispatch
       probes pass.
@@ -1023,6 +1023,26 @@ Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
 
 ## 10. Progress log
+
+### 2026-08-27 — Current-source required gate and VRS combiner proof
+
+- A forced Xcode 27 beta 6 rebuild of the current source runtime followed by
+  `run-source-probes.sh` completed all 22 required probe groups. The strict
+  `compare-contract.py` result is `pass=true` with `issues=[]`; the temporary
+  Wine 11.5 clone and disposable prefix were removed after the run.
+- The current SM6.6/6.7 corpus now passes every compile, link, dispatch, and
+  exact-readback case, including typed, group-shared, and descriptor-heap
+  software-locked atomic64 operations. The audit reports `sm66_reportable=true`
+  and `sm67_reportable=true`; the separate warmup-only report remains
+  intentionally non-reportable.
+- The opt-in VRS probe covers the per-draw 1x2/2x1/2x2/2x4/4x2/4x4 matrix and
+  a MAX/PASSTHROUGH combiner pair. Its clean readbacks are
+  `2112/2112/1089/1056/1056/1024`, with the copied constant image path at
+  `1089`. VRS remains opt-in because nonconstant image maps, other combiners,
+  logical-resolution reconstruction, and Tier-2 breadth are still gated.
+- Optional windowed/present and offscreen-render probes remain outside the
+  strict required gate; the broader FL12_2, DXR, sparse, mesh, and packaging
+  requirements remain active.
 
 ### 2026-08-25 — Baseline and object-contract foundation
 
