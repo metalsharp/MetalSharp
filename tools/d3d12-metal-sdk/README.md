@@ -220,8 +220,9 @@ The current honest shader feature posture is:
   Options14 capability fields remain conservative pending additional formats,
   render-target, and broader resolve matrices.
 - The opt-in `probe-vrs` path records the 1x2/2x1/2x2/2x4/4x2/4x4
-  `RSSetShadingRate` matrix and attaches Metal rasterization-rate maps. A clean
-  64x64 pass produces 2112/2112/1089/1056/1056/1024 nonzero pixels; a copied
+  `RSSetShadingRate` matrix and attaches Metal rasterization-rate maps. The
+  2x2 case also passes a MAX/PASSTHROUGH combiner pair. A clean 64x64 pass
+  produces 2112/2112/1089/1056/1056/1024 nonzero pixels; a copied
   constant `R8_UINT` 8x8 shading-rate image independently produces 1089 for
   2x2. Nonconstant images, combiners, and logical-resolution reconstruction
   remain gated, so Options6 stays conservative.

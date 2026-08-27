@@ -504,8 +504,9 @@ Findings:
   2x2, compares a clean 64x64 draw against the mapped pass (4096 versus 1089
   nonzero pixels), and reuses the command list after reset. The complete
   per-draw 1x2/2x1/2x2/2x4/4x2/4x4 matrix reads back
-  2112/2112/1089/1056/1056/1024 pixels. A copied constant `R8_UINT` 8x8
-  shading-rate image independently produces the same 1089-pixel result.
+  2112/2112/1089/1056/1056/1024 pixels; the 2x2 draw also passes a
+  MAX/PASSTHROUGH combiner pair. A copied constant `R8_UINT` 8x8 shading-rate
+  image independently produces the same 1089-pixel result.
   Nonconstant image mapping, combiner semantics, logical-resolution
   reconstruction, per-primitive rates, and Tier-2 breadth remain gated.
 - Winemetal ABI validation currently catches stale PE bridge copies; the
