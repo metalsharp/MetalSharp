@@ -541,13 +541,14 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     CLTRACE("CopyTiles rejected non-buffer destination/source=%p", (void *)buffer);
     return;
   }
-  const UINT bytes_per_texel = [&] {
+  const UINT bytes_per_block = [&] {
     switch (resource_desc.Format) {
     case DXGI_FORMAT_R8_TYPELESS:
     case DXGI_FORMAT_R8_UNORM:
     case DXGI_FORMAT_R8_UINT:
     case DXGI_FORMAT_R8_SNORM:
     case DXGI_FORMAT_R8_SINT:
+    case DXGI_FORMAT_A8_UNORM:
       return 1u;
     case DXGI_FORMAT_R8G8_TYPELESS:
     case DXGI_FORMAT_R8G8_UNORM:
@@ -599,12 +600,67 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     case DXGI_FORMAT_R32G32B32A32_UINT:
     case DXGI_FORMAT_R32G32B32A32_SINT:
       return 16u;
+    case DXGI_FORMAT_BC1_TYPELESS:
+    case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB:
+    case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC4_UNORM:
+    case DXGI_FORMAT_BC4_SNORM:
+      return 8u;
+    case DXGI_FORMAT_BC2_TYPELESS:
+    case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB:
+    case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC3_UNORM:
+    case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC5_TYPELESS:
+    case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC5_SNORM:
+    case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC6H_UF16:
+    case DXGI_FORMAT_BC6H_SF16:
+    case DXGI_FORMAT_BC7_TYPELESS:
+    case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return 16u;
     default:
       return 0u;
     }
   }();
-  if (!bytes_per_texel || uint64_t(shape.WidthInTexels) * shape.HeightInTexels *
-                              shape.DepthInTexels * bytes_per_texel !=
+  const UINT block_extent = [&] {
+    switch (resource_desc.Format) {
+    case DXGI_FORMAT_BC1_TYPELESS:
+    case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB:
+    case DXGI_FORMAT_BC2_TYPELESS:
+    case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB:
+    case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC3_UNORM:
+    case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC4_UNORM:
+    case DXGI_FORMAT_BC4_SNORM:
+    case DXGI_FORMAT_BC5_TYPELESS:
+    case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC5_SNORM:
+    case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC6H_UF16:
+    case DXGI_FORMAT_BC6H_SF16:
+    case DXGI_FORMAT_BC7_TYPELESS:
+    case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return 4u;
+    default:
+      return 1u;
+    }
+  }();
+  const uint64_t tile_blocks_x =
+      (shape.WidthInTexels + block_extent - 1) / block_extent;
+  const uint64_t tile_blocks_y =
+      (shape.HeightInTexels + block_extent - 1) / block_extent;
+  if (!bytes_per_block || tile_blocks_x * tile_blocks_y *
+                              shape.DepthInTexels * bytes_per_block !=
                           D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) {
     CLTRACE("CopyTiles rejected unsupported tile format=%u shape=%ux%ux%u",
             (unsigned)resource_desc.Format, shape.WidthInTexels,
@@ -639,59 +695,118 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
       (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
   const UINT tiles_z =
       (mip_depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
-  const UINT box_width = tile_region_size->UseBox ? tile_region_size->Width :
-                                                     tile_region_size->NumTiles;
-  const UINT box_height = tile_region_size->UseBox ? tile_region_size->Height : 1;
-  const UINT box_depth = tile_region_size->UseBox ? tile_region_size->Depth : 1;
-  const uint64_t region_tile_count =
-      uint64_t(box_width) * box_height * box_depth;
-  if (!box_width || !box_height || !box_depth ||
-      (tile_region_size->UseBox &&
-       tile_region_size->NumTiles != region_tile_count) ||
-      coordinate.X >= tiles_x || coordinate.Y >= tiles_y ||
-      coordinate.Z >= tiles_z ||
-      uint64_t(coordinate.X) + box_width > tiles_x ||
-      uint64_t(coordinate.Y) + box_height > tiles_y ||
-      uint64_t(coordinate.Z) + box_depth > tiles_z ||
+  struct TileLocation {
+    UINT subresource;
+    UINT x;
+    UINT y;
+    UINT z;
+  };
+  std::vector<TileLocation> locations;
+  const uint64_t region_tile_count = tile_region_size->UseBox
+                                         ? uint64_t(tile_region_size->Width) *
+                                               tile_region_size->Height *
+                                               tile_region_size->Depth
+                                         : tile_region_size->NumTiles;
+  if (!region_tile_count || region_tile_count > 1048576 ||
       uint64_t(buffer_offset) + region_tile_count *
                                     D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES >
           static_cast<MTLD3D12Resource *>(buffer)->GetBufferByteLength()) {
-    CLTRACE("CopyTiles rejected range x=%u y=%u z=%u tiles=%ux%ux%u count=%u "
-            "buffer_offset=%llu",
-            coordinate.X, coordinate.Y, coordinate.Z, box_width, box_height,
-            box_depth, tile_region_size->NumTiles,
+    CLTRACE("CopyTiles rejected tile count=%llu buffer_offset=%llu",
+            (unsigned long long)region_tile_count,
             (unsigned long long)buffer_offset);
     return;
   }
-  const UINT row_pitch = shape.WidthInTexels * bytes_per_texel;
-  for (uint64_t tile = 0; tile < region_tile_count; tile++) {
-    UINT x = 0;
-    UINT y = 0;
-    UINT z = 0;
-    if (tile_region_size->UseBox) {
-      const uint64_t box_plane = uint64_t(box_width) * box_height;
-      z = static_cast<UINT>(tile / box_plane);
-      const uint64_t box_row = tile % box_plane;
-      y = static_cast<UINT>(box_row / box_width);
-      x = static_cast<UINT>(box_row % box_width);
-      x += coordinate.X;
-      y += coordinate.Y;
-      z += coordinate.Z;
-    } else {
-      const uint64_t linear_tile = uint64_t(coordinate.Z) * tiles_x * tiles_y +
-                                   uint64_t(coordinate.Y) * tiles_x +
-                                   coordinate.X + tile;
-      x = static_cast<UINT>(linear_tile % tiles_x);
-      const uint64_t plane = linear_tile / tiles_x;
-      y = static_cast<UINT>(plane % tiles_y);
-      z = static_cast<UINT>(plane / tiles_y);
+  locations.reserve(static_cast<size_t>(region_tile_count));
+  if (tile_region_size->UseBox) {
+    const UINT box_width = tile_region_size->Width;
+    const UINT box_height = tile_region_size->Height;
+    const UINT box_depth = tile_region_size->Depth;
+    if (tile_region_size->NumTiles != region_tile_count || !box_width ||
+        !box_height || !box_depth || coordinate.X >= tiles_x ||
+        coordinate.Y >= tiles_y || coordinate.Z >= tiles_z ||
+        uint64_t(coordinate.X) + box_width > tiles_x ||
+        uint64_t(coordinate.Y) + box_height > tiles_y ||
+        uint64_t(coordinate.Z) + box_depth > tiles_z) {
+      CLTRACE("CopyTiles rejected box x=%u y=%u z=%u tiles=%ux%ux%u count=%u",
+              coordinate.X, coordinate.Y, coordinate.Z, box_width, box_height,
+              box_depth, tile_region_size->NumTiles);
+      return;
     }
+    const uint64_t box_plane = uint64_t(box_width) * box_height;
+    for (uint64_t tile = 0; tile < region_tile_count; tile++) {
+      const UINT z = static_cast<UINT>(tile / box_plane) + coordinate.Z;
+      const uint64_t box_row = tile % box_plane;
+      const UINT y = static_cast<UINT>(box_row / box_width) + coordinate.Y;
+      const UINT x = static_cast<UINT>(box_row % box_width) + coordinate.X;
+      locations.push_back({coordinate.Subresource, x, y, z});
+    }
+  } else {
+    // A non-box region walks X, Y, Z and then spills into subsequent
+    // subresources.  Keeping the expanded locations here also makes the
+    // generated CopyTextureRegion records preserve the correct mip/array
+    // when one request crosses a row, volume plane, or mip boundary.
+    UINT current_subresource = coordinate.Subresource;
+    UINT current_x = coordinate.X;
+    UINT current_y = coordinate.Y;
+    UINT current_z = coordinate.Z;
+    for (uint64_t tile = 0; tile < region_tile_count; tile++) {
+      if (current_subresource >= subresource_count)
+        return;
+      const UINT current_mip = current_subresource % mip_levels;
+      const UINT current_width =
+          std::max<UINT>(1, resource_desc.Width >> current_mip);
+      const UINT current_height =
+          std::max<UINT>(1, resource_desc.Height >> current_mip);
+      const UINT current_depth =
+          volume ? std::max<UINT16>(
+                       1, resource_desc.DepthOrArraySize >> current_mip)
+                 : 1;
+      const UINT current_tiles_x =
+          (current_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+      const UINT current_tiles_y =
+          (current_height + shape.HeightInTexels - 1) /
+          shape.HeightInTexels;
+      const UINT current_tiles_z =
+          (current_depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+      if (current_width < shape.WidthInTexels ||
+          current_height < shape.HeightInTexels ||
+          current_depth < shape.DepthInTexels || current_x >= current_tiles_x ||
+          current_y >= current_tiles_y || current_z >= current_tiles_z) {
+        CLTRACE("CopyTiles rejected spill subresource=%u x=%u y=%u z=%u",
+                current_subresource, current_x, current_y, current_z);
+        return;
+      }
+      locations.push_back(
+          {current_subresource, current_x, current_y, current_z});
+      const uint64_t linear =
+          (uint64_t(current_z) * current_tiles_y + current_y) *
+              current_tiles_x +
+          current_x + 1;
+      if (linear == uint64_t(current_tiles_x) * current_tiles_y *
+                        current_tiles_z) {
+        current_subresource++;
+        current_x = current_y = current_z = 0;
+      } else {
+        current_x = static_cast<UINT>(linear % current_tiles_x);
+        const uint64_t plane = linear / current_tiles_x;
+        current_y = static_cast<UINT>(plane % current_tiles_y);
+        current_z = static_cast<UINT>(plane / current_tiles_y);
+      }
+    }
+  }
+  const UINT row_pitch =
+      static_cast<UINT>(tile_blocks_x * bytes_per_block);
+  for (uint64_t tile = 0; tile < locations.size(); tile++) {
+    const TileLocation &location = locations[static_cast<size_t>(tile)];
+    const UINT x = location.x;
+    const UINT y = location.y;
+    const UINT z = location.z;
     CmdCopyTextureRegion cmd = {};
     cmd.header = {CmdType::CopyTextureRegion, sizeof(cmd)};
     if (buffer_to_texture) {
       cmd.dst_resource = tiled_resource;
       cmd.dst_type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-      cmd.dst_subresource = coordinate.Subresource;
+      cmd.dst_subresource = location.subresource;
       cmd.dst_x = x * shape.WidthInTexels;
       cmd.dst_y = y * shape.HeightInTexels;
       cmd.dst_z = z * shape.DepthInTexels;
@@ -718,7 +833,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
       cmd.dst_footprint_row_pitch = row_pitch;
       cmd.src_resource = tiled_resource;
       cmd.src_type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-      cmd.src_subresource = coordinate.Subresource;
+      cmd.src_subresource = location.subresource;
       cmd.has_src_box = 1;
       cmd.src_box = {x * shape.WidthInTexels, y * shape.HeightInTexels,
                      z * shape.DepthInTexels, (x + 1) * shape.WidthInTexels,
