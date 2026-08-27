@@ -1332,6 +1332,13 @@ the goal is not complete.
 
 ### 2026-08-27 — Made aggregate provenance and collection authoritative
 
+- The focused probes now emit explicit promotion-subset fields for the
+  incomplete rows (`tier1_matrix_complete`, `tier1_1_matrix_complete`,
+  `tier3_physical_page_ownership_verified`,
+  `conservative_rasterization_tier3_verified`, `sm67_breadth_complete`, and
+  `options14_behavior_complete`) instead of leaving the aggregate validator
+  with ambiguous missing evidence. Each remains `false` until its full
+  behavior gate passes.
 - `run-isolated-probes.sh` now selects the proof-host Xcode 27 beta 6 developer
   directory by default (with `METALSHARP_XCODE_ROOT` override), so captured
   environment identity records the actual Xcode and Metal toolchain instead of
