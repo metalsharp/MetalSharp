@@ -4967,20 +4967,35 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
     }
     return;
   }
-  if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-      desc.SampleDesc.Count > 1 || !desc.MipLevels || !desc.DepthOrArraySize)
+  const bool volume = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+  const bool array_texture =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  if ((!array_texture && !volume) || desc.SampleDesc.Count > 1 ||
+      !desc.MipLevels || !desc.DepthOrArraySize)
     return;
 
   const D3D12_TILE_SHAPE shape = reserved->GetTiledResourceTileShape();
   const UINT mip_levels = desc.MipLevels;
-  const UINT array_size = desc.DepthOrArraySize;
+  // A volume's DepthOrArraySize is its texel depth, not an array-slice count.
+  const UINT array_size = volume ? 1 : desc.DepthOrArraySize;
   const UINT tiling_count = mip_levels * array_size;
   UINT standard_mip_count = mip_levels;
   // The R8 standard tile is 256x256. Once a mip becomes smaller than that
   // shape, D3D12 describes the remaining mip chain as a packed/non-standard
   // tail even though the Metal sparse texture may expose some of those levels
   // as individually addressable pages.
-  if (desc.Format == DXGI_FORMAT_R8_UNORM && mip_levels > 1) {
+  if (volume && mip_levels > 1) {
+    for (UINT mip = 0; mip < mip_levels; mip++) {
+      const UINT width = std::max<UINT>(1, desc.Width >> mip);
+      const UINT height = std::max<UINT>(1, desc.Height >> mip);
+      const UINT depth = std::max<UINT>(1, desc.DepthOrArraySize >> mip);
+      if (width < shape.WidthInTexels || height < shape.HeightInTexels ||
+          depth < shape.DepthInTexels) {
+        standard_mip_count = mip;
+        break;
+      }
+    }
+  } else if (desc.Format == DXGI_FORMAT_R8_UNORM && mip_levels > 1) {
     for (UINT mip = 0; mip < mip_levels; mip++) {
       const UINT width = std::max<UINT>(1, desc.Width >> mip);
       const UINT height = std::max<UINT>(1, desc.Height >> mip);
@@ -5000,7 +5015,11 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
         (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
     const UINT height_tiles =
         (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
-    standard_tiles_per_slice += width_tiles * height_tiles;
+    const UINT depth =
+        volume ? std::max<UINT>(1, desc.DepthOrArraySize >> mip) : 1;
+    const UINT depth_tiles =
+        (depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+    standard_tiles_per_slice += width_tiles * height_tiles * depth_tiles;
   }
   UINT total_tiles = 0;
   for (UINT array_slice = 0; array_slice < array_size; array_slice++) {
@@ -5020,21 +5039,32 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
               (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
           const UINT height_tiles =
               (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+          const UINT depth =
+              volume ? std::max<UINT>(1, desc.DepthOrArraySize >> mip) : 1;
+          const UINT depth_tiles =
+              (depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
           UINT prior_tiles = 0;
           for (UINT prior_mip = 0; prior_mip < mip; prior_mip++) {
             const UINT prior_width =
                 std::max<UINT>(1, desc.Width >> prior_mip);
             const UINT prior_height =
                 std::max<UINT>(1, desc.Height >> prior_mip);
+            const UINT prior_depth = volume
+                                          ? std::max<UINT>(
+                                                1, desc.DepthOrArraySize >>
+                                                       prior_mip)
+                                          : 1;
             prior_tiles +=
                 ((prior_width + shape.WidthInTexels - 1) /
                  shape.WidthInTexels) *
                 ((prior_height + shape.HeightInTexels - 1) /
-                 shape.HeightInTexels);
+                 shape.HeightInTexels) *
+                ((prior_depth + shape.DepthInTexels - 1) /
+                 shape.DepthInTexels);
           }
           sub_resource_tilings[output_index] = {
-              width_tiles, static_cast<UINT16>(height_tiles), 1,
-              slice_start + prior_tiles};
+              width_tiles, static_cast<UINT16>(height_tiles),
+              static_cast<UINT16>(depth_tiles), slice_start + prior_tiles};
         } else {
           sub_resource_tilings[output_index] = {0, 0, 0,
                                                  D3D12_PACKED_TILE};
