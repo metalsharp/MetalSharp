@@ -124,6 +124,16 @@ public:
     return m_is_reserved && IsBuffer() && m_native_sparse_buffer;
   }
   bool IsWritableMSAAEmulated() const { return m_writable_msaa_emulated; }
+  bool IsShadingRateImage() const { return m_is_shading_rate_image; }
+  bool HasShadingRateImageData() const {
+    return m_is_shading_rate_image && m_shading_rate_image_initialized;
+  }
+  const std::vector<uint8_t> &GetShadingRateImageData() const {
+    return m_shading_rate_image_data;
+  }
+  void UpdateShadingRateImage(const void *data, uint32_t row_pitch,
+                              uint32_t dst_x, uint32_t dst_y, uint32_t width,
+                              uint32_t height);
   WMT::Reference<WMT::Heap> GetSparseHeap() { return m_sparse_heap; }
   void SetSparseHeap(WMT::Reference<WMT::Heap> heap) {
     m_sparse_heap = std::move(heap);
@@ -354,6 +364,9 @@ private:
   bool m_is_reserved = false;
   bool m_native_sparse_buffer = false;
   bool m_writable_msaa_emulated = false;
+  bool m_is_shading_rate_image = false;
+  bool m_shading_rate_image_initialized = false;
+  std::vector<uint8_t> m_shading_rate_image_data;
   bool m_is_sampler_feedback = false;
   uint32_t m_sampler_feedback_width = 0;
   uint32_t m_sampler_feedback_height = 0;
