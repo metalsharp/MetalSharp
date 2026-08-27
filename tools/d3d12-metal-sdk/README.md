@@ -138,8 +138,9 @@ stage/component values and invalid names return `0xffffffff`; an oversized
 pipeline stack request is ignored. Raygen/triangle-any-hit/closest-hit/procedural-
 intersection/callable shader-table records plus depth-2 closest-hit-to-miss
 recursion executing through direct `DispatchRays` and a focused DXR 1.1
-`DISPATCH_RAYS` indirect command signature, while keeping RaytracingTier
-conservative; broader shader-table matrices remain gated.
+`DISPATCH_RAYS` indirect command signature with a nonzero argument-buffer
+offset and an independent fourth-ray procedural readback, while keeping
+RaytracingTier conservative; broader shader-table matrices remain gated.
 Both remain breadth
 gates rather than general feature claims.
 

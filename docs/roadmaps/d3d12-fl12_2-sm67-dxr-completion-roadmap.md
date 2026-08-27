@@ -1220,9 +1220,9 @@ the goal is not complete.
   visible-function index 4 and returns `0x43414c4c`; the three-ray launch
   preserves the raygen sentinel `42`. A focused DXR 1.1 indirect-dispatch
   record now uses a native `D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS`
-  command signature and an upload argument buffer; queue replay decodes the
-  104-byte `D3D12_DISPATCH_RAYS_DESC` and runs it through the same shader-table
-  path. The direct three-ray launch is copied before the output is cleared;
+  command signature and an upload argument buffer at a nonzero 16-byte
+  argument offset; queue replay decodes the 104-byte
+  `D3D12_DISPATCH_RAYS_DESC` and runs it through the same shader-table path. The direct three-ray launch is copied before the output is cleared;
   the four-ray indirect launch then produces an independent procedural marker
   at the otherwise untouched fourth-ray slot, so recording alone cannot make
   this gate pass.
