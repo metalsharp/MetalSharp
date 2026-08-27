@@ -15,9 +15,10 @@ EXPECTED_WINE_VERSION="${METALSHARP_EXPECTED_WINE_VERSION:-wine-11.5}"
 # explicitly selected developer directory, but make the proof-host default
 # deterministic when the caller did not export DEVELOPER_DIR.  This also keeps
 # the captured environment identity from silently becoming "unknown".
+PINNED_XCODE_ROOT="${METALSHARP_XCODE_ROOT:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}"
 if [[ -z "${DEVELOPER_DIR:-}" &&
-      -x "/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer/usr/bin/xcodebuild" ]]; then
-  export DEVELOPER_DIR="/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer"
+      -x "$PINNED_XCODE_ROOT/usr/bin/xcodebuild" ]]; then
+  export DEVELOPER_DIR="$PINNED_XCODE_ROOT"
 fi
 
 usage() {
@@ -34,8 +35,10 @@ Environment overrides:
   METALSHARP_PROBE_PROFILE     Result profile (default metalsharp-isolated)
   METALSHARP_EXPECTED_WINE_VERSION
                                Required `wine --version` output (default wine-11.5)
-  DEVELOPER_DIR                Pinned Xcode developer directory used for
-                               captured Xcode and Metal identity
+  METALSHARP_XCODE_ROOT       Default pinned Xcode developer directory
+                               (proof host default: Xcode-beta.app/Contents/Developer)
+  DEVELOPER_DIR                Xcode developer directory used for captured
+                               Xcode and Metal identity
 
 The wrapper owns --profile, --wine, --prefix, and --dxmt-runtime; passing those
 options is rejected so a gate cannot silently use another Wine or a persistent
