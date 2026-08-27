@@ -1167,6 +1167,18 @@ struct WMT4SparseTextureMappingOperation {
 
 STATIC_ASSERT(sizeof(WMT4SparseTextureMappingOperation) == 80);
 
+struct WMT4SparseTextureMappingCopyOperation {
+  struct WMTOrigin source_origin;
+  struct WMTSize source_size;
+  uint64_t source_mip_level;
+  uint64_t source_slice;
+  struct WMTOrigin destination_origin;
+  uint64_t destination_mip_level;
+  uint64_t destination_slice;
+};
+
+STATIC_ASSERT(sizeof(WMT4SparseTextureMappingCopyOperation) == 104);
+
 struct WMT4SparseBufferMappingCopyOperation {
   uint64_t source_tile_offset;
   uint64_t tile_count;
@@ -1178,6 +1190,12 @@ STATIC_ASSERT(sizeof(WMT4SparseBufferMappingCopyOperation) == 24);
 WINEMETAL_API bool MTL4CommandQueue_updateTextureMappings(
     obj_handle_t queue, obj_handle_t texture, obj_handle_t heap,
     const struct WMT4SparseTextureMappingOperation *operations,
+    uint64_t operation_count);
+
+WINEMETAL_API bool MTL4CommandQueue_copyTextureMappings(
+    obj_handle_t queue, obj_handle_t source_texture,
+    obj_handle_t destination_texture,
+    const struct WMT4SparseTextureMappingCopyOperation *operations,
     uint64_t operation_count);
 
 WINEMETAL_API bool MTL4CommandQueue_updateBufferMappings(

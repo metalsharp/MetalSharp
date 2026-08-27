@@ -1736,6 +1736,23 @@ MTL4CommandQueue_updateTextureMappings(
 }
 
 WINEMETAL_API bool
+MTL4CommandQueue_copyTextureMappings(
+    obj_handle_t queue, obj_handle_t source_texture,
+    obj_handle_t destination_texture,
+    const struct WMT4SparseTextureMappingCopyOperation *operations,
+    uint64_t operation_count) {
+  struct unixcall_mtl4commandqueue_copy_texture_mappings params;
+  params.queue = queue;
+  params.source_texture = source_texture;
+  params.destination_texture = destination_texture;
+  WMT_MEMPTR_SET(params.operations, operations);
+  params.operation_count = operation_count;
+  params.ret_success = 0;
+  UNIX_CALL(168, &params);
+  return params.ret_success != 0;
+}
+
+WINEMETAL_API bool
 MTL4CommandQueue_updateBufferMappings(
     obj_handle_t queue, obj_handle_t buffer, obj_handle_t heap,
     const struct WMT4SparseBufferMappingOperation *operations,

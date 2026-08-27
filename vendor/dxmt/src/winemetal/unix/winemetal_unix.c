@@ -826,6 +826,52 @@ _MTL4CommandQueue_updateTextureMappings(void *obj) {
 }
 
 static NTSTATUS
+_MTL4CommandQueue_copyTextureMappings(void *obj) {
+  struct unixcall_mtl4commandqueue_copy_texture_mappings *params = obj;
+  const struct WMT4SparseTextureMappingCopyOperation *operations =
+      params->operations.ptr;
+  params->ret_success = 0;
+  if (!params->queue || !params->source_texture ||
+      !params->destination_texture ||
+      (params->operation_count && !operations) ||
+      params->operation_count > 1048576)
+    return STATUS_SUCCESS;
+  if (@available(macOS 26.0, *)) {
+    MTL4CopySparseTextureMappingOperation *native =
+        calloc((size_t)params->operation_count, sizeof(*native));
+    if (!native && params->operation_count)
+      return STATUS_SUCCESS;
+    for (uint64_t i = 0; i < params->operation_count; ++i) {
+      native[i].sourceRegion = MTLRegionMake3D(
+          (NSUInteger)operations[i].source_origin.x,
+          (NSUInteger)operations[i].source_origin.y,
+          (NSUInteger)operations[i].source_origin.z,
+          (NSUInteger)operations[i].source_size.width,
+          (NSUInteger)operations[i].source_size.height,
+          (NSUInteger)operations[i].source_size.depth);
+      native[i].sourceLevel = (NSUInteger)operations[i].source_mip_level;
+      native[i].sourceSlice = (NSUInteger)operations[i].source_slice;
+      native[i].destinationOrigin = MTLOriginMake(
+          (NSUInteger)operations[i].destination_origin.x,
+          (NSUInteger)operations[i].destination_origin.y,
+          (NSUInteger)operations[i].destination_origin.z);
+      native[i].destinationLevel =
+          (NSUInteger)operations[i].destination_mip_level;
+      native[i].destinationSlice =
+          (NSUInteger)operations[i].destination_slice;
+    }
+    [(id<MTL4CommandQueue>)params->queue
+        copyTextureMappingsFromTexture:(id<MTLTexture>)params->source_texture
+                             toTexture:(id<MTLTexture>)params->destination_texture
+                            operations:native
+                                 count:(NSUInteger)params->operation_count];
+    free(native);
+    params->ret_success = 1;
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTL4CommandQueue_updateBufferMappings(void *obj) {
   struct unixcall_mtl4commandqueue_update_buffer_mappings *params = obj;
   const struct WMT4SparseBufferMappingOperation *operations =
@@ -5061,6 +5107,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTL4CommandQueue_copyBuffer,
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
     &_MTL4CommandQueue_updateTextureMappings,
+    &_MTL4CommandQueue_copyTextureMappings,
 };
 
 #ifndef DXMT_NATIVE
@@ -5233,5 +5280,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTL4CommandQueue_copyBuffer,
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
     &_MTL4CommandQueue_updateTextureMappings,
+    &_MTL4CommandQueue_copyTextureMappings,
 };
 #endif
