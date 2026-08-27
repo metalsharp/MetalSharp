@@ -374,6 +374,21 @@ def identity_checks(
             blockers.append("source_commit")
         if not tree_pass:
             blockers.append("source_tree_sha256")
+        dirty_observed = host.get("source_dirty", MISSING)
+        dirty_pass = dirty_observed is False
+        checks.append(
+            {
+                "id": "source_clean",
+                "observed": dirty_observed,
+                "expected": False,
+                "pass": dirty_pass,
+                "detail": "source checkout was clean after generated paths were excluded"
+                if dirty_pass
+                else "source checkout was dirty or did not record clean-state provenance",
+            }
+        )
+        if not dirty_pass:
+            blockers.append("source_clean")
 
     host_path = result_path(results_dir, host_stem, profile)
     dependency_stems = sorted(
