@@ -1769,3 +1769,15 @@ MTL4CommandQueue_copyBuffer(
   UNIX_CALL(165, &params);
   return params.ret_success != 0;
 }
+
+WINEMETAL_API bool
+MTLCommandBuffer_resolveFlattenedMSAATexture(
+    obj_handle_t cmdbuf,
+    const struct WMTFlattenedMSAAResolveInfo *info) {
+  struct unixcall_mtlcommandbuffer_resolve_flattened_msaa_texture params;
+  params.cmdbuf = cmdbuf;
+  WMT_MEMPTR_SET(params.info, info);
+  params.ret_success = 0;
+  UNIX_CALL(166, &params);
+  return params.ret_success != 0;
+}

@@ -949,6 +949,11 @@ public:
         scratch_buffer_offset);
   }
 
+  bool
+  resolveFlattenedMSAATexture(const WMTFlattenedMSAAResolveInfo &info) {
+    return MTLCommandBuffer_resolveFlattenedMSAATexture(handle, &info);
+  }
+
   RenderCommandEncoder
   renderCommandEncoder(WMTRenderPassInfo &info) {
     return RenderCommandEncoder{MTLCommandBuffer_renderCommandEncoder(handle, &info)};

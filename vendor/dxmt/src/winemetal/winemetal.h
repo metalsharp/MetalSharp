@@ -311,6 +311,21 @@ struct WMTAccelerationStructureInstanceDescriptor {
 STATIC_ASSERT(sizeof(WMTPrimitiveAccelerationStructureInfo) == 64);
 STATIC_ASSERT(sizeof(WMTAABBAccelerationStructureInfo) == 48);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureSizes) == 24);
+
+struct WMTFlattenedMSAAResolveInfo {
+  obj_handle_t source_texture;
+  obj_handle_t destination_texture;
+  uint32_t source_level;
+  uint32_t source_slice;
+  uint32_t destination_level;
+  uint32_t destination_slice;
+  uint32_t width;
+  uint32_t height;
+  uint32_t sample_count;
+  uint32_t reserved;
+};
+
+STATIC_ASSERT(sizeof(WMTFlattenedMSAAResolveInfo) == 48);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureInstanceDescriptor) == 68);
 
 WINEMETAL_API bool MTLDevice_accelerationStructureSizesForTriangles(
@@ -376,6 +391,8 @@ WINEMETAL_API bool MTLCommandBuffer_refitInstanceAccelerationStructure(
     const obj_handle_t *instanced_acceleration_structures,
     uint64_t instanced_acceleration_structure_count,
     obj_handle_t scratch_buffer, uint64_t scratch_buffer_offset);
+WINEMETAL_API bool MTLCommandBuffer_resolveFlattenedMSAATexture(
+    obj_handle_t cmdbuf, const struct WMTFlattenedMSAAResolveInfo *info);
 WINEMETAL_API uint64_t MTLAccelerationStructure_gpuResourceID(
     obj_handle_t acceleration_structure);
 

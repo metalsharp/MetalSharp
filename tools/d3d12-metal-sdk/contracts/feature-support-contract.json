@@ -162,7 +162,7 @@
         "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
         "tools/d3d12-metal-sdk/probes/probe_writable_msaa"
       ],
-      "probe_status": "compute_programmable_offsets_raw_gather_sample_cmp_level_and_writable_msaa_subset_passed",
+      "probe_status": "compute_and_graphics_programmable_offsets_raw_gather_sample_cmp_level_and_writable_msaa_subset_passed",
       "reported": "unsupported",
       "required_fields": [
         "AdvancedTextureOpsSupported",
@@ -175,9 +175,11 @@
         "depth SRV comparison sampling and DSV mip clear selection",
         "compute-stage writable MSAA texture creation and UAV binding",
         "compute-stage per-sample TextureStoreSample and TextureLoad readback",
-        "compute-stage writable RWTexture2DMSArray sample and array-slice readback"
+        "compute-stage writable RWTexture2DMSArray sample and array-slice readback",
+        "graphics-stage writable MSAA UAV store for 2D and array resources with a DSV",
+        "full-sample-count-4 float resolve for 2D and array resources"
       ],
-      "risk": "Compute-stage exact readbacks prove the three advanced texture operation families and a focused writable-MSAA subset covering 2D and 2D-array resources. DXMT emulates writable CS UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count, but both Options14 capability fields remain conservative until the full graphics-stage matrix passes; render-target/DSV and resolve breadth remain gated.",
+      "risk": "Exact compute and graphics readbacks prove the three advanced texture operation families and a focused writable-MSAA subset covering 2D and 2D-array resources, including a DSV-attached graphics pass and full-sample-count-4 float resolves. DXMT emulates writable UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count, but both Options14 capability fields remain conservative until format, sample-count, render-target, and broader resolve matrices pass.",
       "state": "required",
       "tier": "required"
     },

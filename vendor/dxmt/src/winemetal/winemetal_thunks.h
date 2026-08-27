@@ -537,6 +537,12 @@ struct unixcall_mtlcommandbuffer_refit_instance_acceleration_structure {
   uint64_t ret_success;
 };
 
+struct unixcall_mtlcommandbuffer_resolve_flattened_msaa_texture {
+  obj_handle_t cmdbuf;
+  struct WMTConstMemoryPointer info;
+  uint64_t ret_success;
+};
+
 struct unixcall_mtlcommandbuffer_write_timestamp_results {
   obj_handle_t cmdbuf;
   obj_handle_t destination_buffer;
