@@ -1243,3 +1243,7 @@ the goal is not complete.
   separate two-tile reserved-buffer compatibility path: 64 KiB tiling, exact
   tile copies, and zero-after-unmap readback pass, while its full shared
   backing is explicitly not treated as physical sparse heap-page support.
+- The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR
+  and tiled-resource changes passes all `21/21` required contract probes;
+  intentional warmup and missing-capture diagnostics remain outside that
+  required set, and the FL12_2 target gate remains conservative.
