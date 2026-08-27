@@ -502,9 +502,10 @@ Findings:
 - The Winemetal bridge now exposes validated rasterization-rate map creation
   and render-pass attachment. The opt-in VRS probe records `RSSetShadingRate`
   2x2, compares a clean 64x64 draw against the mapped pass (4096 versus 1089
-  nonzero pixels), and reuses the command list after reset. Shading-rate image
-  data, combiner semantics, logical-resolution reconstruction, per-primitive
-  rates, and Tier-2 breadth remain gated.
+  nonzero pixels), and reuses the command list after reset. A copied constant
+  `R8_UINT` 8x8 shading-rate image independently produces the same 1089-pixel
+  result. Nonconstant image mapping, combiner semantics, logical-resolution
+  reconstruction, per-primitive rates, and Tier-2 breadth remain gated.
 - Winemetal ABI validation currently catches stale PE bridge copies; the
   initial runtime preflight found an outdated prefix `system32/winemetal.dll`.
 - Every new bridge call requires normal and WOW64 call-table parity, struct size
