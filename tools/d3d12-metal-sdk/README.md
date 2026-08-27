@@ -225,9 +225,10 @@ The current honest shader feature posture is:
   `RSSetShadingRate` matrix and attaches Metal rasterization-rate maps. The
   2x2 case also passes a MAX/PASSTHROUGH combiner pair. A clean 64x64 pass
   produces 2112/2112/1089/1056/1056/1024 nonzero pixels; a copied
-  constant `R8_UINT` 8x8 shading-rate image independently produces 1089 for
-  2x2. Nonconstant images, combiners, and logical-resolution reconstruction
-  remain gated, so Options6 stays conservative.
+  constant `R8_UINT` 8x8 shading-rate image uses the D3D12
+  PASSTHROUGH/OVERRIDE pair and independently produces 1089 for 2x2.
+  Nonconstant images, broader combiner matrices, and logical-resolution
+  reconstruction remain gated, so Options6 stays conservative.
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.
