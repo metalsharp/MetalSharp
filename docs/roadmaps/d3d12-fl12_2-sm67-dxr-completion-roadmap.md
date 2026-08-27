@@ -261,10 +261,12 @@ Findings:
 - Texture resources receive synthetic GPU virtual addresses, even though D3D12
   GPU VAs are buffer-oriented. Address lookup therefore mixes real and
   synthetic ranges.
-- `Map`/`WriteToSubresource`/`ReadFromSubresource` contain compatibility
-  success paths that do not perform required texture transfers.
-- `ReadFromSubresource` can zero output and return success for GPU-only
-  textures rather than executing a readback.
+- Texture `Map` is unavailable without CPU-visible backing, and GPU texture
+  subresource transfers still need a real staging path.
+- `ReadFromSubresource` and `WriteToSubresource` now fail closed with
+  `E_NOTIMPL` when no CPU-visible backing exists; the resources probe covers
+  both default-heap directions. Real GPU texture subresource IO remains
+  gated.
 - Default-heap placed textures now use native Metal placement heaps and
   `newTextureWithDescriptor:offset:`. A focused overlapping R32_FLOAT alias
   switches from 1.0 to 2.0 through D3D12 aliasing barriers and readback;

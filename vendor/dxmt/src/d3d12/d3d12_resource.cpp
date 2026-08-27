@@ -477,12 +477,22 @@ MTLD3D12Resource::Map(UINT sub_resource,
                                                  const D3D12_RANGE *read_range,
                                                  void **data) {
   RTRACE("Map sub=%u", sub_resource);
+  (void)read_range;
   if (!data)
     return E_POINTER;
   if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
-    RTRACE("Map: invalid dimension, returning fake pointer");
-    *data = (void*)1;
-    return S_OK;
+    RTRACE("Map: invalid resource dimension=%u", (unsigned)m_desc.Dimension);
+    *data = nullptr;
+    return E_INVALIDARG;
+  }
+  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+  const UINT array_size =
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+  if (sub_resource >= mip_levels * array_size) {
+    *data = nullptr;
+    return E_INVALIDARG;
   }
   if (m_cpu_addr) {
     *data = m_cpu_addr;
@@ -518,9 +528,15 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
   RTRACE("WriteToSubresource sub=%u box=%p", dst_sub_resource, dst_box);
   if (!src_data)
     return E_POINTER;
-  if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
-    return S_OK;
-  }
+  if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+    return E_INVALIDARG;
+  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+  const UINT array_size =
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+  if (dst_sub_resource >= mip_levels * array_size)
+    return E_INVALIDARG;
   if (m_cpu_addr) {
     if (dst_box) {
       UINT rows = dst_box->bottom - dst_box->top;
@@ -537,7 +553,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
     }
     return S_OK;
   }
-  return S_OK;
+  RTRACE("WriteToSubresource unsupported without CPU-visible backing");
+  return E_NOTIMPL;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
@@ -548,9 +565,16 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
   if (!dst_data)
     return E_POINTER;
   if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
-    RTRACE("ReadFromSubresource: invalid dimension %u, this=%p is NOT a resource! Skipping.", m_desc.Dimension, (void*)this);
-    return S_OK;
+    RTRACE("ReadFromSubresource: invalid dimension %u", m_desc.Dimension);
+    return E_INVALIDARG;
   }
+  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+  const UINT array_size =
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+  if (src_sub_resource >= mip_levels * array_size)
+    return E_INVALIDARG;
   if (m_cpu_addr) {
     UINT rows = m_desc.Height ? m_desc.Height : 1;
     if (src_box) {
@@ -569,12 +593,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
     }
     return S_OK;
   }
-  if (m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
-    UINT total = dst_slice_pitch ? dst_slice_pitch : dst_row_pitch * (m_desc.Height ? m_desc.Height : 1);
-    if (total) memset(dst_data, 0, total);
-    return S_OK;
-  }
-  return S_OK;
+  RTRACE("ReadFromSubresource unsupported without CPU-visible backing");
+  return E_NOTIMPL;
 }
 
 HRESULT STDMETHODCALLTYPE

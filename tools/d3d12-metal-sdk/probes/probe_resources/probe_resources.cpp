@@ -186,6 +186,8 @@ int main() {
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = 0;
     D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
     bool command_resource_lifetime_ok = false;
+    HRESULT default_write_subresource_hr = E_FAIL;
+    HRESULT default_read_subresource_hr = E_FAIL;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -199,6 +201,14 @@ int main() {
                                                                           IID_PPV_ARGS(&readback_buffer))
                                         : E_FAIL;
     if (device && default_buffer) {
+        uint8_t cpu_io_scratch[64] = {};
+        const uint32_t cpu_io_value = 0x12345678u;
+        default_write_subresource_hr = default_buffer->WriteToSubresource(
+            0, nullptr, &cpu_io_value, sizeof(cpu_io_value),
+            sizeof(cpu_io_value));
+        default_read_subresource_hr = default_buffer->ReadFromSubresource(
+            cpu_io_scratch, sizeof(cpu_io_scratch), sizeof(cpu_io_scratch), 0,
+            nullptr);
         shared_create_hr = device->CreateSharedHandle(
             default_buffer, nullptr, GENERIC_ALL, L"metalsharp-probe-buffer",
             &shared_handle);
@@ -674,6 +684,9 @@ int main() {
             format_support_ok = false;
     }
 
+    const bool default_cpu_io_rejected =
+        default_write_subresource_hr == E_NOTIMPL &&
+        default_read_subresource_hr == E_NOTIMPL;
     const bool shared_handle_roundtrip =
         SUCCEEDED(shared_create_hr) && SUCCEEDED(shared_open_hr) &&
         SUCCEEDED(shared_open_named_hr) && shared_handle &&
@@ -708,7 +721,7 @@ int main() {
                 SUCCEEDED(sparse_unmap_wait_hr) &&
                 SUCCEEDED(sparse_unmapped_map_hr) &&
                 sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
-                sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+                default_cpu_io_rejected && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
                 sparse_tile_shape.WidthInTexels == 128 &&
                 sparse_tile_shape.HeightInTexels == 128 &&
                 sparse_tiling[0].WidthInTiles == 1 &&
@@ -742,12 +755,16 @@ int main() {
     print_hr("readback_create", readback_buffer_hr);
     print_hr("upload_map", map_upload_hr);
     print_hr("readback_map", map_readback_hr);
+    print_hr("default_write_to_subresource", default_write_subresource_hr);
+    print_hr("default_read_from_subresource", default_read_subresource_hr);
     std::printf("    \"copy_verified\": %s,\n", buffer_copy_ok ? "true" : "false");
     std::printf("    \"default_desc_width\": %llu,\n", static_cast<unsigned long long>(default_buffer_desc.Width));
     std::printf("    \"upload_gpu_va_nonzero\": %s,\n", upload_gpu_va != 0 ? "true" : "false");
     std::printf("    \"default_gpu_va_nonzero\": %s,\n", default_gpu_va != 0 ? "true" : "false");
-    std::printf("    \"command_resource_lifetime_verified\": %s\n",
+    std::printf("    \"command_resource_lifetime_verified\": %s,\n",
                 command_resource_lifetime_ok ? "true" : "false");
+    std::printf("    \"default_cpu_io_rejected\": %s\n",
+                default_cpu_io_rejected ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"shared_handles\": {\n");
     print_hr("create", shared_create_hr);
