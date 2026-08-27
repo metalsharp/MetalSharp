@@ -186,9 +186,11 @@ Findings:
 - `GetRaytracingAccelerationStructurePrebuildInfo` writes zeros.
 - `CreateSamplerFeedbackUnorderedAccessView` is a no-op.
 - Reserved-resource creation now uses a native Metal sparse heap/texture for
-  the focused 2D path; unsupported dimensions still fail closed and Tier 3
-  remains gated on heap-page selection, aliases, packed mips, buffers, and
-  broader residency behavior.
+  the focused 2D path and supports standard multi-mip RGBA8/R32 shapes; a
+  separate two-tile reserved-buffer compatibility path uses full shared
+  backing. Unsupported dimensions still fail closed and Tier 3 remains gated
+  on physical heap-page selection, aliases, packed/partial mips,
+  `CopyTileMappings`, and broader residency behavior.
 - Later device interfaces are compatibility declarations rather than complete
   Agility interface implementations.
 - Object private-data support is implemented only on the device; most child
@@ -279,11 +281,12 @@ Findings:
   a resource probe releases the upload/default caller references before replay
   and still passes exact readback.
 - Reserved resources now use native Metal sparse backing for a focused 2D
-  RGBA8-array path; unsupported shapes fail closed rather than using committed
-  substitutes.
-- Tile mapping/unmapping and two per-slice `CopyTiles` operations execute for
-  that proof path; external D3D12 heap-page selection and `CopyTileMappings`
-  remain gated.
+  RGBA8-array and standard multi-mip path; a separate reserved-buffer path
+  uses explicit full shared compatibility backing. Unsupported shapes fail
+  closed rather than using committed substitutes.
+- Tile mapping/unmapping and per-slice/mip `CopyTiles` operations execute for
+  those proof paths; physical external D3D12 heap-page selection and
+  `CopyTileMappings` remain gated.
 - Residency is implicit on Apple unified memory: `MakeResident` and `Evict`
   validate pageable arrays and reject null entries, while physical residency
   accounting/tracking remains incomplete.
@@ -477,9 +480,10 @@ Findings:
   broader record and local-binding matrices remain gated.
 - D3D12 sparse/reserved mapping is now bridged through native Metal sparse
   heaps, resource-state encoders, and two-tile `CopyTiles` replay for the
-  proven 2D RGBA8 path. Metal 4 placement-sparse heap-page aliasing is not yet
-  connected, so external heap page selection and `CopyTileMappings` remain
-  gated.
+  proven 2D RGBA8 path, with standard two-level mip readback and a separate
+  full-backed reserved-buffer compatibility path. Metal 4 placement-sparse
+  heap-page aliasing is not yet connected, so external heap page selection and
+  `CopyTileMappings` remain gated.
 - VRS/rasterization-rate map APIs are not exposed through the current bridge.
 - Winemetal ABI validation currently catches stale PE bridge copies; the
   initial runtime preflight found an outdated prefix `system32/winemetal.dll`.
@@ -1022,9 +1026,11 @@ the goal is not complete.
   native Metal sparse-backed 2D resources, `GetResourceTiling`, queue mapping /
   unmapping, and an exact two-tile `CopyTiles` proof. Added a focused reserved
   two-tile buffer compatibility path with 64 KiB tiling, exact copies, and
-  zero-after-unmap verification over full shared backing. Full Tier 3 reporting
-  remains gated on physical D3D12 heap-page selection, aliases, packed mips,
-  `CopyTileMappings`, residency transitions, and broader layouts.
+  zero-after-unmap verification over full shared backing. Standard mip 1
+  readback now also passes for a 256x256 two-level reserved texture. Full Tier
+  3 reporting remains gated on physical D3D12 heap-page selection, aliases,
+  packed/partial mips, `CopyTileMappings`, residency transitions, and broader
+  layouts.
 - The conservative `probe_device_caps` gate now passes from the current source
   build while the separate FL12_2/SM6.7 target gate remains red as intended.
 - Extended the WaveOps probe from compile/PSO-only coverage to six dispatched

@@ -273,6 +273,8 @@ int main() {
     ID3D12Resource* reserved_buffer = nullptr;
     ID3D12Resource* reserved_buffer_readback = nullptr;
     ID3D12Resource* reserved_buffer_unmapped_readback = nullptr;
+    ID3D12Resource* mipped_reserved_texture = nullptr;
+    ID3D12Resource* mipped_reserved_readback = nullptr;
     HRESULT sparse_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
     HRESULT sparse_upload_hr = E_FAIL;
@@ -293,6 +295,15 @@ int main() {
     UINT reserved_buffer_tiling_count = 1;
     bool reserved_buffer_copy_ok = false;
     bool reserved_buffer_unmapped_zero_ok = false;
+    HRESULT mipped_reserved_texture_hr = E_FAIL;
+    HRESULT mipped_reserved_tiling_hr = E_FAIL;
+    HRESULT mipped_reserved_readback_hr = E_FAIL;
+    HRESULT mipped_reserved_readback_map_hr = E_FAIL;
+    UINT mipped_reserved_total_tiles = 0;
+    UINT mipped_reserved_tiling_count = 2;
+    D3D12_TILE_SHAPE mipped_reserved_tile_shape = {};
+    D3D12_SUBRESOURCE_TILING mipped_reserved_tilings[2] = {};
+    bool mipped_reserved_copy_ok = false;
     UINT sparse_total_tiles = 0;
     D3D12_PACKED_MIP_INFO sparse_packed_mips = {};
     D3D12_TILE_SHAPE sparse_tile_shape = {};
@@ -434,6 +445,30 @@ int main() {
                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                      IID_PPV_ARGS(&reserved_buffer_unmapped_readback))
                : E_FAIL;
+    D3D12_RESOURCE_DESC mipped_reserved_desc =
+        texture_desc(256, 256, DXGI_FORMAT_R8G8B8A8_UNORM);
+    mipped_reserved_desc.MipLevels = 2;
+    mipped_reserved_texture_hr =
+        device ? device->CreateReservedResource(
+                     &mipped_reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&mipped_reserved_texture))
+               : E_FAIL;
+    if (device && mipped_reserved_texture) {
+        mipped_reserved_tiling_hr = S_OK;
+        device->GetResourceTiling(
+            mipped_reserved_texture, &mipped_reserved_total_tiles, nullptr,
+            &mipped_reserved_tile_shape, &mipped_reserved_tiling_count, 0,
+            mipped_reserved_tilings);
+    }
+    D3D12_RESOURCE_DESC mipped_reserved_readback_desc =
+        buffer_desc(sparse_tile_size);
+    mipped_reserved_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &mipped_reserved_readback_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&mipped_reserved_readback))
+               : E_FAIL;
     uint8_t *sparse_upload_ptr = nullptr;
     HRESULT sparse_upload_map_hr =
         sparse_upload ? sparse_upload->Map(
@@ -507,6 +542,39 @@ int main() {
         list->CopyTiles(
             reserved_buffer, &buffer_coordinate, &buffer_region,
             reserved_buffer_readback, 0,
+            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+    }
+    if (list && queue && mipped_reserved_texture && sparse_heap &&
+        sparse_upload && mipped_reserved_readback &&
+        mipped_reserved_total_tiles == 5 && mipped_reserved_tiling_count == 2 &&
+        mipped_reserved_tile_shape.WidthInTexels == 128 &&
+        mipped_reserved_tilings[0].WidthInTiles == 2 &&
+        mipped_reserved_tilings[0].HeightInTiles == 2 &&
+        mipped_reserved_tilings[1].WidthInTiles == 1 &&
+        mipped_reserved_tilings[1].HeightInTiles == 1 &&
+        mipped_reserved_tilings[1].StartTileIndexInOverallResource == 4) {
+        D3D12_TILED_RESOURCE_COORDINATE mip_coordinate = {};
+        mip_coordinate.Subresource = 1;
+        D3D12_TILE_REGION_SIZE mip_region = {};
+        mip_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS mip_range_flag = D3D12_TILE_RANGE_FLAG_NONE;
+        UINT mip_heap_offset = 0;
+        UINT mip_range_count = 1;
+        queue->UpdateTileMappings(
+            mipped_reserved_texture, 1, &mip_coordinate, &mip_region,
+            sparse_heap, 1, &mip_range_flag, &mip_heap_offset,
+            &mip_range_count, D3D12_TILE_MAPPING_FLAG_NONE);
+        list->CopyTiles(
+            mipped_reserved_texture, &mip_coordinate, &mip_region,
+            sparse_upload, 0,
+            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        D3D12_RESOURCE_BARRIER mip_barrier = transition_barrier(
+            mipped_reserved_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &mip_barrier);
+        list->CopyTiles(
+            mipped_reserved_texture, &mip_coordinate, &mip_region,
+            mipped_reserved_readback, 0,
             D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
 
@@ -785,6 +853,25 @@ int main() {
         }
         reserved_buffer_unmapped_readback->Unmap(0, nullptr);
     }
+    uint8_t *mipped_reserved_readback_ptr = nullptr;
+    mipped_reserved_readback_map_hr =
+        mipped_reserved_readback
+            ? mipped_reserved_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&mipped_reserved_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(mipped_reserved_readback_map_hr) &&
+        mipped_reserved_readback_ptr) {
+        mipped_reserved_copy_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_size; i++) {
+            if (mipped_reserved_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                mipped_reserved_copy_ok = false;
+                break;
+            }
+        }
+        mipped_reserved_readback->Unmap(0, nullptr);
+    }
 
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
 
@@ -853,6 +940,13 @@ int main() {
                 reserved_buffer_total_tiles == 2 &&
                 reserved_buffer_tiling_count == 1 &&
                 reserved_buffer_tile_shape.WidthInTexels == sparse_tile_size &&
+                SUCCEEDED(mipped_reserved_texture_hr) &&
+                SUCCEEDED(mipped_reserved_tiling_hr) &&
+                SUCCEEDED(mipped_reserved_readback_hr) &&
+                SUCCEEDED(mipped_reserved_readback_map_hr) &&
+                mipped_reserved_copy_ok &&
+                mipped_reserved_total_tiles == 5 &&
+                mipped_reserved_tiling_count == 2 &&
                 SUCCEEDED(sparse_unmap_close_hr) &&
                 SUCCEEDED(sparse_unmap_execute_hr) &&
                 SUCCEEDED(sparse_unmap_signal_hr) &&
@@ -990,6 +1084,18 @@ int main() {
                 reserved_buffer_copy_ok ? "true" : "false");
     std::printf("      \"unmapped_zero_verified\": %s\n",
                 reserved_buffer_unmapped_zero_ok ? "true" : "false");
+    std::printf("    },\n");
+    std::printf("    \"mipped_texture\": {\n");
+    print_hr("create", mipped_reserved_texture_hr);
+    print_hr("tiling", mipped_reserved_tiling_hr);
+    print_hr("readback_create", mipped_reserved_readback_hr);
+    print_hr("readback_map", mipped_reserved_readback_map_hr);
+    std::printf("      \"total_tiles\": %u,\n",
+                mipped_reserved_total_tiles);
+    std::printf("      \"tiling_count\": %u,\n",
+                mipped_reserved_tiling_count);
+    std::printf("      \"copy_verified\": %s\n",
+                mipped_reserved_copy_ok ? "true" : "false");
     std::printf("    }\n");
     std::printf("  },\n");
     std::printf("  \"formats\": {\n");
