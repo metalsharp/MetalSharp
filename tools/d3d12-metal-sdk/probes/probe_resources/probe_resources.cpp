@@ -1856,7 +1856,10 @@ int main() {
                 mipped_reserved_tiling_count);
     std::printf("      \"copy_verified\": %s\n",
                 mipped_reserved_copy_ok ? "true" : "false");
-    std::printf("    }\n");
+    std::printf("    },\n");
+    // The focused placement alias is not sufficient to claim Tier 3 physical
+    // page ownership for every supported tiled-resource layout.
+    std::printf("    \"tier3_physical_page_ownership_verified\": false\n");
     std::printf("  },\n");
     std::printf("  \"formats\": {\n");
     for (size_t i = 0; i < formats.size(); ++i)

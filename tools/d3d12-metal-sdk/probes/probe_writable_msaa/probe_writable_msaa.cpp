@@ -1386,8 +1386,15 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
   std::printf("  \"values_verified\": %s,\n",
               values_ok ? "true" : "false");
   std::printf("  \"graphics_color\": \"0x%08x\",\n", graphics_color);
-  std::printf("  \"graphics_color_verified\": %s\n",
+  std::printf("  \"graphics_color_verified\": %s,\n",
               graphics_color_ok ? "true" : "false");
+  std::printf("  \"summary\": {\n");
+  std::printf("    \"writable_msaa_subset_complete\": %s,\n",
+              pass ? "true" : "false");
+  // The focused three-format matrix is intentionally not the full Options14
+  // format/resolve breadth required for a public capability report.
+  std::printf("    \"options14_behavior_complete\": false\n");
+  std::printf("  }\n");
   std::printf("}\n");
   std::fflush(stdout);
 

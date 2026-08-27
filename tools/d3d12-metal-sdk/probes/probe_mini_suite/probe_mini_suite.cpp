@@ -2903,6 +2903,7 @@ static ProbeResult probe_mesh_shader_pso() {
                 std::to_string(pipeline_statistics1.MSInvocations) +
                 ",\"pipeline_statistics1_ms_primitives\":" +
                 std::to_string(pipeline_statistics1.MSPrimitives) +
+                ",\"tier1_matrix_complete\":false" +
                 ",\"d3d12_loaded_path\":\"" + json_escape(g_d3d12_loaded_path) + "\""};
 }
 
@@ -5024,6 +5025,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 std::to_string(local_root_uav_value) +
                 ",\"unknown_identifier_null\":" +
                 (!unknown_identifier ? "true" : "false") +
+                ",\"tier1_1_matrix_complete\":false" +
                 ",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
 }
 
