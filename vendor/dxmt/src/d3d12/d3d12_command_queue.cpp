@@ -635,6 +635,47 @@ static bool ShadingRateToMetalQuality(D3D12_SHADING_RATE rate,
   }
 }
 
+static bool CombineShadingRate(D3D12_SHADING_RATE first,
+                               D3D12_SHADING_RATE second,
+                               D3D12_SHADING_RATE_COMBINER combiner,
+                               D3D12_SHADING_RATE &result) {
+  switch (combiner) {
+  case D3D12_SHADING_RATE_COMBINER_PASSTHROUGH:
+    result = first;
+    return true;
+  case D3D12_SHADING_RATE_COMBINER_OVERRIDE:
+    result = second;
+    return true;
+  case D3D12_SHADING_RATE_COMBINER_MIN:
+  case D3D12_SHADING_RATE_COMBINER_MAX: {
+    float first_horizontal = 1.0f;
+    float first_vertical = 1.0f;
+    float second_horizontal = 1.0f;
+    float second_vertical = 1.0f;
+    if (!ShadingRateToMetalQuality(first, first_horizontal, first_vertical) ||
+        !ShadingRateToMetalQuality(second, second_horizontal,
+                                   second_vertical))
+      return false;
+    const float first_area = first_horizontal * first_vertical;
+    const float second_area = second_horizontal * second_vertical;
+    // D3D12 names the larger coarse-pixel rate the maximum.  Metal quality
+    // is the inverse quantity, so MAX selects the smaller area and MIN the
+    // larger/finer area.
+    const bool choose_first =
+        combiner == D3D12_SHADING_RATE_COMBINER_MIN
+            ? first_area >= second_area
+            : first_area <= second_area;
+    result = choose_first ? first : second;
+    return true;
+  }
+  case D3D12_SHADING_RATE_COMBINER_SUM:
+  default:
+    // SUM needs the full D3D12 combiner table, including asymmetric rates;
+    // do not approximate it with a Metal rate map.
+    return false;
+  }
+}
+
 template <typename Encoder>
 static void EndMetalEncoder(Encoder &encoder, const char *label) {
   if (!encoder.handle) {
@@ -5160,17 +5201,32 @@ struct ReplayState {
                (unsigned)image_desc.Width, (unsigned)image_desc.Height);
       }
     }
-    if (!image_map_configured && !shading_rate_image &&
-        shading_rate != D3D12_SHADING_RATE_1X1 && render_target_width &&
-        render_target_height &&
-        shading_rate_combiners[0] ==
-            D3D12_SHADING_RATE_COMBINER_PASSTHROUGH &&
-        shading_rate_combiners[1] ==
-            D3D12_SHADING_RATE_COMBINER_PASSTHROUGH) {
-      float horizontal = 1.0f;
-      float vertical = 1.0f;
-      if (ShadingRateToMetalQuality(shading_rate, horizontal, vertical))
-        (void)try_rate_map(horizontal, vertical, "draw");
+    if (!image_map_configured && !shading_rate_image && render_target_width &&
+        render_target_height) {
+      D3D12_SHADING_RATE effective_shading_rate =
+          D3D12_SHADING_RATE_1X1;
+      const bool effective_rate_valid =
+          CombineShadingRate(shading_rate, D3D12_SHADING_RATE_1X1,
+                            shading_rate_combiners[0],
+                            effective_shading_rate) &&
+          CombineShadingRate(effective_shading_rate,
+                            D3D12_SHADING_RATE_1X1,
+                            shading_rate_combiners[1],
+                            effective_shading_rate);
+      if (effective_rate_valid &&
+          effective_shading_rate != D3D12_SHADING_RATE_1X1) {
+        float horizontal = 1.0f;
+        float vertical = 1.0f;
+        if (ShadingRateToMetalQuality(effective_shading_rate, horizontal,
+                                      vertical))
+          (void)try_rate_map(horizontal, vertical, "draw");
+      } else if (!effective_rate_valid) {
+        QTRACE("EnsureRenderEncoder: unsupported shading-rate combiner "
+               "base=%u combiners=%u,%u; keeping native rate",
+               (unsigned)shading_rate,
+               (unsigned)shading_rate_combiners[0],
+               (unsigned)shading_rate_combiners[1]);
+      }
     }
 
     if (!has_valid_rt) {

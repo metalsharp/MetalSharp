@@ -168,13 +168,16 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
                            ID3D12Resource *shading_rate_image,
                            ID3D12Resource *readback,
                            ID3D12Resource *vertex_buffer,
-                           ID3D12DescriptorHeap *rtv_heap) {
+                           ID3D12DescriptorHeap *rtv_heap,
+                           const D3D12_SHADING_RATE_COMBINER *combiners_arg =
+                               nullptr) {
   if (base_shading_rate != D3D12_SHADING_RATE_1X1 ||
-      shading_rate_image) {
-    const D3D12_SHADING_RATE_COMBINER combiners[2] = {
+      shading_rate_image || combiners_arg) {
+    const D3D12_SHADING_RATE_COMBINER default_combiners[2] = {
         D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
         D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
-    list5->RSSetShadingRate(base_shading_rate, combiners);
+    list5->RSSetShadingRate(base_shading_rate,
+                            combiners_arg ? combiners_arg : default_combiners);
   }
   if (shading_rate_image)
     list5->RSSetShadingRateImage(shading_rate_image);
@@ -452,10 +455,13 @@ float4 ps_main(VSOut input) : SV_Target0 {
         D3D12_RESOURCE_STATE_RENDER_TARGET;
     list->ResourceBarrier(1, &restore_barrier);
   }
+  const D3D12_SHADING_RATE_COMBINER max_combiners[2] = {
+      D3D12_SHADING_RATE_COMBINER_MAX,
+      D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
   HRESULT vrs_record_hr =
       SUCCEEDED(reset_hr) ? record_draw(
           list, list5, root, pso, target, D3D12_SHADING_RATE_2X2, nullptr,
-          readback, vertex_buffer, rtv_heap)
+          readback, vertex_buffer, rtv_heap, max_combiners)
                           : E_FAIL;
   HRESULT vrs_execute_hr =
       SUCCEEDED(vrs_record_hr) ? execute_and_wait(device, queue, list) : E_FAIL;
