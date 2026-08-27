@@ -339,6 +339,22 @@ public:
     return Reference<Texture>(
         MTLHeap_newTextureAtOffset(handle, &info, offset));
   }
+
+  Reference<Buffer> newBuffer(WMTBufferInfo &info, uint64_t offset) {
+    return Reference<Buffer>(
+        MTLHeap_newBufferAtOffset(handle, &info, offset));
+  }
+};
+
+class CommandQueue4 : public Object {
+public:
+  bool updateBufferMappings(
+      Buffer buffer, Heap heap,
+      const WMT4SparseBufferMappingOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_updateBufferMappings(
+        handle, buffer.handle, heap.handle, operations, operation_count);
+  }
 };
 
 class ComputePipelineState : public Object {
@@ -1047,6 +1063,15 @@ public:
   Reference<Buffer>
   newBuffer(WMTBufferInfo &info) {
     return Reference<Buffer>(MTLDevice_newBuffer(handle, &info));
+  }
+
+  Reference<Buffer>
+  newSparseBuffer(WMTSparseBufferInfo &info) {
+    return Reference<Buffer>(MTLDevice_newSparseBuffer(handle, &info));
+  }
+
+  Reference<CommandQueue4> newMTL4CommandQueue() {
+    return Reference<CommandQueue4>(MTLDevice_newMTL4CommandQueue(handle));
   }
 
   Reference<Heap>

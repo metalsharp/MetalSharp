@@ -177,7 +177,27 @@ void MTLD3D12Resource::InitializeResource(
         m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK;
     WMTBufferInfo buf_info = {};
     buf_info.length = m_desc.Width ? m_desc.Width : 256;
-    if (backing_buffer.handle) {
+    if (m_is_reserved && !backing_buffer.handle) {
+      WMTSparseBufferInfo sparse_info = {};
+      sparse_info.length = m_desc.Width ? m_desc.Width : 256;
+      sparse_info.options = WMTResourceStorageModePrivate |
+                            WMTResourceHazardTrackingModeTracked;
+      sparse_info.sparse_page_size = WMTSparsePageSize64;
+      m_mtl_buffer = wmt_device.newSparseBuffer(sparse_info);
+      if (m_mtl_buffer.handle) {
+        m_native_sparse_buffer = true;
+        m_gpu_addr = sparse_info.gpu_address;
+        buf_info.length = sparse_info.length;
+        buf_info.options = sparse_info.options;
+        buf_info.gpu_address = m_gpu_addr;
+        m_buf_info = buf_info;
+        RTRACE("ctor: native sparse buffer gpu=0x%llx len=%llu page=%u",
+               (unsigned long long)m_gpu_addr,
+               (unsigned long long)sparse_info.length,
+               sparse_info.sparse_page_size);
+      }
+    }
+    if (!m_native_sparse_buffer && backing_buffer.handle) {
       m_mtl_buffer = std::move(backing_buffer);
       m_cpu_addr = backing_cpu_addr
                        ? static_cast<void *>(static_cast<char *>(backing_cpu_addr) +
@@ -199,7 +219,7 @@ void MTLD3D12Resource::InitializeResource(
                                  (unsigned long long)m_gpu_addr, " off=",
                                  (unsigned long long)backing_offset));
       }
-    } else {
+    } else if (!m_native_sparse_buffer) {
       buf_info.options =
           cpu_accessible ? WMTResourceStorageModeShared
                          : WMTResourceStorageModePrivate;

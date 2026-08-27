@@ -7301,6 +7301,7 @@ MTLD3D12CommandQueue::MTLD3D12CommandQueue(MTLD3D12Device *device,
   m_device->AddRef();
   auto wmt_dev = m_device->GetDXMTDevice().device();
   m_wmt_queue = wmt_dev.newCommandQueue(1);
+  m_wmt4_queue = wmt_dev.newMTL4CommandQueue();
   m_barrier_event = wmt_dev.newEvent();
   m_completion_event = wmt_dev.newSharedEvent();
   m_device->RegisterCommandQueue(this);
@@ -7566,6 +7567,67 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
       if (range_flag != D3D12_TILE_RANGE_FLAG_NONE &&
           range_flag != D3D12_TILE_RANGE_FLAG_NULL)
         return;
+    }
+    if (sparse_resource->IsNativeSparseBuffer()) {
+      std::vector<WMT4SparseBufferMappingOperation> operations;
+      uint64_t range_index = 0;
+      uint64_t range_remaining = range_tile_counts[0];
+      bool has_map = false;
+      for (UINT region = 0; region < region_count; region++) {
+        const auto &coordinate = region_start_coordinates[region];
+        const auto &size = region_sizes[region];
+        if (coordinate.Y || coordinate.Z || coordinate.Subresource ||
+            size.UseBox || !size.NumTiles || coordinate.X >= total_tiles ||
+            size.NumTiles > total_tiles - coordinate.X)
+          return;
+        uint64_t virtual_tile = coordinate.X;
+        uint64_t remaining = size.NumTiles;
+        while (remaining) {
+          while (range_index < range_count && range_remaining == 0) {
+            range_index++;
+            range_remaining = range_index < range_count
+                                  ? range_tile_counts[range_index]
+                                  : 0;
+          }
+          if (range_index >= range_count || !range_remaining)
+            return;
+          const auto range_flag =
+              range_flags ? range_flags[range_index]
+                          : D3D12_TILE_RANGE_FLAG_NONE;
+          const uint64_t range_consumed =
+              uint64_t(range_tile_counts[range_index]) - range_remaining;
+          const uint64_t chunk = std::min(remaining, range_remaining);
+          WMT4SparseBufferMappingOperation operation = {};
+          operation.mode = range_flag == D3D12_TILE_RANGE_FLAG_NULL
+                               ? WMTTextureMappingModeUnmap
+                               : WMTTextureMappingModeMap;
+          operation.buffer_tile_offset = virtual_tile;
+          operation.buffer_tile_count = chunk;
+          operation.heap_tile_offset =
+              range_flag == D3D12_TILE_RANGE_FLAG_NULL
+                  ? 0
+                  : uint64_t(heap_range_offsets[range_index]) +
+                        range_consumed;
+          operations.push_back(operation);
+          has_map |= operation.mode == WMTTextureMappingModeMap;
+          virtual_tile += chunk;
+          remaining -= chunk;
+          range_remaining -= static_cast<UINT>(chunk);
+        }
+      }
+      auto metal_heap = tile_heap ? tile_heap->GetMTLHeap()
+                                  : WMT::Reference<WMT::Heap>{};
+      if ((has_map && !metal_heap.handle) || !m_wmt4_queue.handle ||
+          !sparse_resource->GetMTLBuffer().handle || operations.empty())
+        return;
+      WMT::Buffer native_buffer{sparse_resource->GetMTLBuffer().handle};
+      WMT::Heap native_heap{metal_heap.handle};
+      const bool success = m_wmt4_queue.updateBufferMappings(
+          native_buffer, native_heap, operations.data(), operations.size());
+      QTRACE("CmdQueue::UpdateTileMappings native sparse buffer operations=%zu "
+             "maps=%d success=%d",
+             operations.size(), has_map, success);
+      return;
     }
     uint64_t range_index = 0;
     uint64_t range_remaining = range_tile_counts[0];

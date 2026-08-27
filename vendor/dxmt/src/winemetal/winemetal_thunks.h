@@ -77,6 +77,17 @@ struct unixcall_mtldevice_newbuffer {
   obj_handle_t ret;
 };
 
+struct unixcall_mtldevice_newsparsebuffer {
+  obj_handle_t device;
+  struct WMTMemoryPointer info;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtldevice_newmtl4commandqueue {
+  obj_handle_t device;
+  obj_handle_t ret;
+};
+
 struct unixcall_mtldevice_newheap {
   obj_handle_t device;
   struct WMTMemoryPointer info;
@@ -86,6 +97,13 @@ struct unixcall_mtldevice_newheap {
 struct unixcall_mtlheap_newtexture {
   obj_handle_t heap;
   struct WMTMemoryPointer info;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtlheap_newbuffer_offset {
+  obj_handle_t heap;
+  struct WMTMemoryPointer info;
+  uint64_t offset;
   obj_handle_t ret;
 };
 
@@ -173,6 +191,15 @@ struct unixcall_mtlresource_state_update_texture_mappings {
   obj_handle_t texture;
   struct WMTConstMemoryPointer mappings;
   uint64_t mapping_count;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtl4commandqueue_update_buffer_mappings {
+  obj_handle_t queue;
+  obj_handle_t buffer;
+  obj_handle_t heap;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
   uint64_t ret_success;
 };
 
