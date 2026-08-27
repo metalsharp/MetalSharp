@@ -3123,7 +3123,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     opts->ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
     opts->PSSpecifiedStencilRefSupported = TRUE;
     opts->TypedUAVLoadAdditionalFormats = TRUE;
-    opts->ROVsSupported = TRUE;
+    // Rasterizer-ordered UAV access is not implemented by the Metal render
+    // encoder.  A normal UAV barrier is not an ROV substitute.
+    opts->ROVsSupported = FALSE;
     // Metal has no equivalent conservative-rasterization coverage mode in
     // this bridge.  Do not advertise Tier 1 until a software coverage path is
     // actually wired through the rasterizer.

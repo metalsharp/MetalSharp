@@ -89,7 +89,7 @@
       "probe": "probe-feature-levels",
       "path": "reported.rovs_supported",
       "operator": "equals",
-      "expected": true
+      "expected": false
     },
     {
       "id": "options_conservative_rasterization_tier",
