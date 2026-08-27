@@ -202,12 +202,14 @@ The current honest shader feature posture is:
   validates variable `SampleLevel` offsets across distinct texels, exact
   `GatherRaw` packed values through a declared castable view, and
   `SampleCmpLevel` selection between independently cleared depth mip levels.
-  The standalone writable-MSAA probe also compiles CS 6.7 store/load shaders,
-  binds writable `RWTexture2DMS<float4>` and `RWTexture2DMSArray<float4,4>`
-  resources, writes all four samples in a logical array slice, and reads back
-  `[100,101,102,103,200,201,202,203]`. This proves only the focused compute
-  subset; both Options14 capability fields remain conservative pending
-  render-target/DSV, resolve, and graphics-stage breadth.
+  The standalone writable-MSAA probe also compiles CS 6.7 store/load shaders
+  plus a graphics shader, binds writable `RWTexture2DMS<float4>` and
+  `RWTexture2DMSArray<float4,4>` resources, writes all four samples in logical
+  array slices, executes a graphics pass with a DSV, resolves both 2D and array
+  resources, and reads back exact sample values plus float averages `151.5` and
+  `251.5`. This proves only the focused R32G32B32A32_FLOAT/sample-count-4
+  subset; both Options14 capability fields remain conservative pending format,
+  sample-count, render-target, and broader resolve matrices.
 - WaveOps are reported with a fixed 32-lane range after `probe-wave-ops`
   dispatches and validates lane/count, ballot, lane read, any/all, reduction,
   min/max, and prefix behavior through UAV readback.
@@ -264,9 +266,10 @@ The default required probe groups prove:
 - `probe-sm66-capabilities`: SM 6.6 breadth plus SM 6.7 quad-vote,
   programmable-offset, raw-gather, and comparison-LOD compute readback proof.
 - `probe-writable-msaa`: focused CS 6.7 `RWTexture2DMS` and
-  `RWTexture2DMSArray` UAV emulation, per-sample store/load, and exact
-  readback; render-target/DSV and graphics breadth remain intentionally
-  outside the reported capability.
+  `RWTexture2DMSArray` UAV emulation, graphics-stage UAV stores with a DSV,
+  per-sample store/load, 2D/array resolves, and exact readback; format and
+  broader sample-count matrices remain intentionally outside the reported
+  capability.
 - `probe-wave-ops`: WaveOps audit and reporting denial/proof.
 - `probe-reflection-abi`: reflected shader bindings against the descriptor and
   root-signature ABI.
