@@ -4483,6 +4483,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
             output_gpu_handle, output_cpu_handle, ray_query_output,
             clear_values, 0, nullptr);
         dispatch_rays.Width = 4;
+        constexpr UINT64 indirect_argument_offset = 16;
         D3D12_INDIRECT_ARGUMENT_DESC indirect_ray_argument = {};
         indirect_ray_argument.Type =
             D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS;
@@ -4496,7 +4497,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
         if (SUCCEEDED(indirect_ray_signature_hr)) {
             D3D12_HEAP_PROPERTIES upload_properties = {};
             upload_properties.Type = D3D12_HEAP_TYPE_UPLOAD;
-            D3D12_RESOURCE_DESC indirect_desc = buffer_desc(sizeof(dispatch_rays));
+            D3D12_RESOURCE_DESC indirect_desc =
+                buffer_desc(indirect_argument_offset + sizeof(dispatch_rays));
             indirect_ray_args_hr = device->CreateCommittedResource(
                 &upload_properties, D3D12_HEAP_FLAG_NONE, &indirect_desc,
                 D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -4507,11 +4509,13 @@ static ProbeResult probe_dxr_acceleration_structures() {
             indirect_ray_args_hr = indirect_ray_args->Map(
                 0, nullptr, &indirect_mapped);
             if (SUCCEEDED(indirect_ray_args_hr) && indirect_mapped) {
-                std::memcpy(indirect_mapped, &dispatch_rays,
-                            sizeof(dispatch_rays));
+                std::memcpy(static_cast<uint8_t *>(indirect_mapped) +
+                                indirect_argument_offset,
+                            &dispatch_rays, sizeof(dispatch_rays));
                 indirect_ray_args->Unmap(0, nullptr);
                 list4->ExecuteIndirect(indirect_ray_signature, 1,
-                                       indirect_ray_args, 0, nullptr, 0);
+                                       indirect_ray_args, indirect_argument_offset,
+                                       nullptr, 0);
                 indirect_ray_dispatch_recorded = true;
             }
         }
@@ -5010,6 +5014,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
                 hr_hex(indirect_ray_args_hr) +
                 "\",\"indirect_ray_dispatch_recorded\":" +
                 (indirect_ray_dispatch_recorded ? "true" : "false") +
+                ",\"indirect_ray_argument_offset\":16" +
                 ",\"indirect_ray_behavior_value\":" +
                 std::to_string(indirect_ray_behavior_value) +
                 ",\"closest_hit_local_root_marker\":1280262988" +
