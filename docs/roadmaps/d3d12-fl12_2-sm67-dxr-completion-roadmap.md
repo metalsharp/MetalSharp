@@ -1340,9 +1340,9 @@ the goal is not complete.
   without stale/missing dependency evidence.
 - Source provenance dirtiness excludes only generated build/results/cache paths,
   and the gate now requires the recorded source checkout to be clean. A fresh
-  source-staged gate run reached `20/22` identity checks and `23/31` query
-  checks, with the remaining failures limited to the deliberately unpromoted
-  FL12_2 capability and behavior rows.
+  source-staged gate run passed all recorded identity checks and reached
+  `23/31` query checks, with the remaining failures limited to the
+  deliberately unpromoted FL12_2 capability and behavior rows.
 
 ### 2026-08-27 — Removed an unsupported conservative-raster report
 
