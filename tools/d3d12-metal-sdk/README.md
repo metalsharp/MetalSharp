@@ -391,11 +391,12 @@ one-tile and two-level R8_UNORM reserved textures. A focused two-tile
 reserved-buffer path reports the 64 KiB buffer
 tiling, uses MTL4 heap mappings, copies exact payloads, verifies a copied
 mapping with an independent readback, and verifies zero-after-unmap (with a
-full shared compatibility fallback). Cross-resource heap-page aliasing remains
-gated. The same gate reads mip 1 from a standard-tiled 256x256 two-level
-reserved texture. Tier 3 remains conservative until physical heap-page
-selection, aliases, broader packed/partial-mip layouts, `CopyTileMappings`
-texture coverage,
+full shared compatibility fallback). The single-mip 128x128x2 RGBA8 path uses
+an explicit placement heap and a second reserved texture reads the same
+physical tile. The same gate reads mip 1 from a standard-tiled 256x256
+two-level reserved texture. Tier 3 remains conservative until broader
+physical heap-page selection, sparse-texture mapping copies,
+packed/partial-mip layouts, `CopyTileMappings` texture coverage,
 residency transitions, and broader formats are covered. It also round-trips a named and unnamed process-local
 `CreateSharedHandle`/`OpenSharedHandle` pair and rejects unknown handles and
 missing names; cross-process sharing remains gated. The probe also creates a fully typed `R32_FLOAT` texture through
