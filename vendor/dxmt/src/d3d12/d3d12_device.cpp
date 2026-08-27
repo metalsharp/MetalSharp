@@ -3124,8 +3124,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     opts->PSSpecifiedStencilRefSupported = TRUE;
     opts->TypedUAVLoadAdditionalFormats = TRUE;
     opts->ROVsSupported = TRUE;
+    // Metal has no equivalent conservative-rasterization coverage mode in
+    // this bridge.  Do not advertise Tier 1 until a software coverage path is
+    // actually wired through the rasterizer.
     opts->ConservativeRasterizationTier =
-        D3D12_CONSERVATIVE_RASTERIZATION_TIER_1;
+        D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
     opts->MaxGPUVirtualAddressBitsPerResource = 40;
     opts->StandardSwizzle64KBSupported = FALSE;
     opts->CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
