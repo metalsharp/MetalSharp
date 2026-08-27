@@ -284,6 +284,9 @@ int main() {
     ID3D12Heap* r8_mipped_heap = nullptr;
     ID3D12Resource* r8_mipped_texture = nullptr;
     ID3D12Resource* r8_mipped_readback = nullptr;
+    ID3D12Resource* r8_partial_texture = nullptr;
+    ID3D12Resource* r8_partial_upload = nullptr;
+    ID3D12Resource* r8_partial_readback = nullptr;
     HRESULT sparse_heap_hr = E_FAIL;
     HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
@@ -321,6 +324,12 @@ int main() {
     HRESULT r8_mipped_tiling_hr = E_FAIL;
     HRESULT r8_mipped_readback_hr = E_FAIL;
     HRESULT r8_mipped_readback_map_hr = E_FAIL;
+    HRESULT r8_partial_texture_hr = E_FAIL;
+    HRESULT r8_partial_upload_hr = E_FAIL;
+    HRESULT r8_partial_readback_hr = E_FAIL;
+    HRESULT r8_partial_upload_map_hr = E_FAIL;
+    HRESULT r8_partial_readback_map_hr = E_FAIL;
+    HRESULT r8_partial_tiling_hr = E_FAIL;
     HRESULT mipped_reserved_readback_hr = E_FAIL;
     HRESULT mipped_reserved_readback_map_hr = E_FAIL;
     UINT mipped_reserved_total_tiles = 0;
@@ -338,6 +347,16 @@ int main() {
     D3D12_TILE_SHAPE r8_mipped_tile_shape = {};
     D3D12_SUBRESOURCE_TILING r8_mipped_tilings[2] = {};
     bool r8_mipped_copy_ok = false;
+    bool r8_partial_copy_ok = false;
+    UINT r8_partial_total_tiles = 0;
+    UINT r8_partial_tiling_count = 2;
+    D3D12_PACKED_MIP_INFO r8_partial_packed_mips = {};
+    D3D12_TILE_SHAPE r8_partial_tile_shape = {};
+    D3D12_SUBRESOURCE_TILING r8_partial_tilings[2] = {};
+    UINT64 r8_partial_upload_bytes = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT r8_partial_upload_footprint = {};
+    UINT r8_partial_rows = 0;
+    UINT64 r8_partial_row_bytes = 0;
     UINT sparse_total_tiles = 0;
     D3D12_PACKED_MIP_INFO sparse_packed_mips = {};
     D3D12_TILE_SHAPE sparse_tile_shape = {};
@@ -583,6 +602,63 @@ int main() {
                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                      IID_PPV_ARGS(&r8_mipped_readback))
                : E_FAIL;
+    D3D12_RESOURCE_DESC r8_partial_desc =
+        texture_desc(256, 256, DXGI_FORMAT_R8_UNORM);
+    r8_partial_desc.MipLevels = 2;
+    r8_partial_texture_hr =
+        device ? device->CreateReservedResource(
+                     &r8_partial_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&r8_partial_texture))
+               : E_FAIL;
+    if (device && r8_partial_texture) {
+        r8_partial_tiling_hr = S_OK;
+        device->GetResourceTiling(
+            r8_partial_texture, &r8_partial_total_tiles,
+            &r8_partial_packed_mips, &r8_partial_tile_shape,
+            &r8_partial_tiling_count, 0, r8_partial_tilings);
+    }
+    if (device)
+        device->GetCopyableFootprints(
+            &r8_partial_desc, 1, 1, 0, &r8_partial_upload_footprint,
+            &r8_partial_rows, &r8_partial_row_bytes,
+            &r8_partial_upload_bytes);
+    D3D12_RESOURCE_DESC r8_partial_staging_desc =
+        buffer_desc(r8_partial_upload_bytes);
+    r8_partial_upload_hr =
+        device ? device->CreateCommittedResource(
+                     &upload_heap, D3D12_HEAP_FLAG_NONE,
+                     &r8_partial_staging_desc,
+                     D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                     IID_PPV_ARGS(&r8_partial_upload))
+               : E_FAIL;
+    r8_partial_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &r8_partial_staging_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&r8_partial_readback))
+               : E_FAIL;
+    uint8_t *r8_partial_upload_ptr = nullptr;
+    r8_partial_upload_map_hr =
+        r8_partial_upload
+            ? r8_partial_upload->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&r8_partial_upload_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(r8_partial_upload_map_hr) && r8_partial_upload_ptr) {
+        std::memset(r8_partial_upload_ptr, 0,
+                    static_cast<size_t>(r8_partial_upload_bytes));
+        for (UINT y = 0; y < 128; ++y) {
+            for (UINT x = 0; x < 128; ++x) {
+                r8_partial_upload_ptr[
+                    r8_partial_upload_footprint.Offset +
+                    y * r8_partial_upload_footprint.Footprint.RowPitch + x] =
+                    static_cast<uint8_t>(((y * 128u + x) * 29u + 7u) &
+                                         0xffu);
+            }
+        }
+        r8_partial_upload->Unmap(0, nullptr);
+    }
     uint8_t *sparse_upload_ptr = nullptr;
     HRESULT sparse_upload_map_hr =
         sparse_upload ? sparse_upload->Map(
@@ -795,6 +871,61 @@ int main() {
             r8_mipped_texture, &r8_mip_coordinate, &r8_mip_region,
             r8_mipped_readback, 0,
             D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+    }
+    if (list && queue && sparse_heap && r8_partial_texture &&
+        r8_partial_upload && r8_partial_readback &&
+        SUCCEEDED(r8_partial_texture_hr) &&
+        SUCCEEDED(r8_partial_tiling_hr) && SUCCEEDED(r8_partial_upload_hr) &&
+        SUCCEEDED(r8_partial_readback_hr) &&
+        SUCCEEDED(r8_partial_upload_map_hr) && r8_partial_total_tiles == 2 &&
+        r8_partial_tiling_count == 2 &&
+        r8_partial_packed_mips.NumStandardMips == 1 &&
+        r8_partial_packed_mips.NumPackedMips == 1 &&
+        r8_partial_packed_mips.NumTilesForPackedMips == 1 &&
+        r8_partial_packed_mips.StartTileIndexInOverallResource == 1 &&
+        r8_partial_tilings[0].WidthInTiles == 1 &&
+        r8_partial_tilings[0].HeightInTiles == 1 &&
+        r8_partial_tilings[0].StartTileIndexInOverallResource == 0 &&
+        r8_partial_tilings[1].WidthInTiles == 0 &&
+        r8_partial_tilings[1].HeightInTiles == 0 &&
+        r8_partial_tilings[1].DepthInTiles == 0 &&
+        r8_partial_tilings[1].StartTileIndexInOverallResource ==
+            D3D12_PACKED_TILE) {
+        D3D12_TILED_RESOURCE_COORDINATE partial_coordinate = {};
+        partial_coordinate.Subresource = 1;
+        D3D12_TILE_REGION_SIZE partial_region = {};
+        partial_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS partial_range_flag =
+            D3D12_TILE_RANGE_FLAG_NONE;
+        UINT partial_heap_offset = 1;
+        UINT partial_range_count = 1;
+        queue->UpdateTileMappings(
+            r8_partial_texture, 1, &partial_coordinate, &partial_region,
+            sparse_heap, 1, &partial_range_flag, &partial_heap_offset,
+            &partial_range_count, D3D12_TILE_MAPPING_FLAG_NONE);
+        D3D12_TEXTURE_COPY_LOCATION partial_src = {};
+        partial_src.pResource = r8_partial_upload;
+        partial_src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        partial_src.PlacedFootprint = r8_partial_upload_footprint;
+        D3D12_TEXTURE_COPY_LOCATION partial_dst = {};
+        partial_dst.pResource = r8_partial_texture;
+        partial_dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        partial_dst.SubresourceIndex = 1;
+        list->CopyTextureRegion(&partial_dst, 0, 0, 0, &partial_src, nullptr);
+        D3D12_RESOURCE_BARRIER partial_barrier = transition_barrier(
+            r8_partial_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &partial_barrier);
+        D3D12_TEXTURE_COPY_LOCATION partial_readback_dst = {};
+        partial_readback_dst.pResource = r8_partial_readback;
+        partial_readback_dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        partial_readback_dst.PlacedFootprint = r8_partial_upload_footprint;
+        D3D12_TEXTURE_COPY_LOCATION partial_src_texture = {};
+        partial_src_texture.pResource = r8_partial_texture;
+        partial_src_texture.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        partial_src_texture.SubresourceIndex = 1;
+        list->CopyTextureRegion(&partial_readback_dst, 0, 0, 0,
+                                &partial_src_texture, nullptr);
     }
 
     ID3D12Resource* bc_texture = nullptr;
@@ -1147,6 +1278,34 @@ int main() {
         }
         r8_mipped_readback->Unmap(0, nullptr);
     }
+    uint8_t *r8_partial_readback_ptr = nullptr;
+    r8_partial_readback_map_hr =
+        r8_partial_readback
+            ? r8_partial_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&r8_partial_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(r8_partial_readback_map_hr) &&
+        r8_partial_readback_ptr) {
+        r8_partial_copy_ok = true;
+        for (UINT y = 0; y < 128; ++y) {
+            for (UINT x = 0; x < 128; ++x) {
+                const UINT8 expected =
+                    static_cast<UINT8>(((y * 128u + x) * 29u + 7u) &
+                                        0xffu);
+                const UINT8 actual = r8_partial_readback_ptr[
+                    r8_partial_upload_footprint.Offset +
+                    y * r8_partial_upload_footprint.Footprint.RowPitch + x];
+                if (actual != expected) {
+                    r8_partial_copy_ok = false;
+                    break;
+                }
+            }
+            if (!r8_partial_copy_ok)
+                break;
+        }
+        r8_partial_readback->Unmap(0, nullptr);
+    }
 
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
 
@@ -1239,6 +1398,22 @@ int main() {
                 r8_mipped_tilings[1].WidthInTiles == 1 &&
                 r8_mipped_tilings[1].HeightInTiles == 1 &&
                 r8_mipped_tilings[1].StartTileIndexInOverallResource == 4 &&
+                SUCCEEDED(r8_partial_texture_hr) &&
+                SUCCEEDED(r8_partial_upload_hr) &&
+                SUCCEEDED(r8_partial_readback_hr) &&
+                SUCCEEDED(r8_partial_upload_map_hr) &&
+                SUCCEEDED(r8_partial_tiling_hr) &&
+                SUCCEEDED(r8_partial_readback_map_hr) &&
+                r8_partial_copy_ok && r8_partial_total_tiles == 2 &&
+                r8_partial_tiling_count == 2 &&
+                r8_partial_packed_mips.NumStandardMips == 1 &&
+                r8_partial_packed_mips.NumPackedMips == 1 &&
+                r8_partial_packed_mips.NumTilesForPackedMips == 1 &&
+                r8_partial_packed_mips.StartTileIndexInOverallResource == 1 &&
+                r8_partial_tilings[0].WidthInTiles == 1 &&
+                r8_partial_tilings[1].WidthInTiles == 0 &&
+                r8_partial_tilings[1].StartTileIndexInOverallResource ==
+                    D3D12_PACKED_TILE &&
                 reserved_buffer_total_tiles == 2 &&
                 reserved_buffer_tiling_count == 1 &&
                 reserved_buffer_tile_shape.WidthInTexels == sparse_tile_size &&
@@ -1418,8 +1593,23 @@ int main() {
                 r8_mipped_total_tiles);
     std::printf("      \"r8_mipped_tiling_count\": %u,\n",
                 r8_mipped_tiling_count);
-    std::printf("      \"r8_mipped_copy_verified\": %s\n",
+    std::printf("      \"r8_mipped_copy_verified\": %s,\n",
                 r8_mipped_copy_ok ? "true" : "false");
+    print_hr("r8_partial_texture_create", r8_partial_texture_hr);
+    print_hr("r8_partial_upload_create", r8_partial_upload_hr);
+    print_hr("r8_partial_readback_create", r8_partial_readback_hr);
+    print_hr("r8_partial_upload_map", r8_partial_upload_map_hr);
+    print_hr("r8_partial_tiling", r8_partial_tiling_hr);
+    print_hr("r8_partial_readback_map", r8_partial_readback_map_hr);
+    std::printf("      \"r8_partial_total_tiles\": %u,\n",
+                r8_partial_total_tiles);
+    std::printf("      \"r8_partial_packed_mips\": [%u, %u, %u, %u],\n",
+                r8_partial_packed_mips.NumStandardMips,
+                r8_partial_packed_mips.NumPackedMips,
+                r8_partial_packed_mips.NumTilesForPackedMips,
+                r8_partial_packed_mips.StartTileIndexInOverallResource);
+    std::printf("      \"r8_partial_copy_verified\": %s\n",
+                r8_partial_copy_ok ? "true" : "false");
     std::printf("    },\n");
     std::printf("    \"mipped_texture\": {\n");
     print_hr("create", mipped_reserved_texture_hr);

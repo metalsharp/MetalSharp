@@ -4565,8 +4565,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
       (desc->MipLevels > 1 && desc->MipLevels <= 16 &&
        ((standard_mip_color_format && smallest_mip_width >= 128 &&
          smallest_mip_height >= 128) ||
-        (standard_mip_r8_format && smallest_mip_width >= 256 &&
-         smallest_mip_height >= 256)));
+        (standard_mip_r8_format && smallest_mip_width >= 128 &&
+         smallest_mip_height >= 128)));
   const bool reserved_texture =
       desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
       desc->MipLevels && standard_mip_texture &&
@@ -4933,35 +4933,84 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
   const UINT mip_levels = desc.MipLevels;
   const UINT array_size = desc.DepthOrArraySize;
   const UINT tiling_count = mip_levels * array_size;
-  UINT total_tiles = 0;
-  for (UINT array_slice = 0; array_slice < array_size; array_slice++) {
+  UINT standard_mip_count = mip_levels;
+  // The R8 standard tile is 256x256. Once a mip becomes smaller than that
+  // shape, D3D12 describes the remaining mip chain as a packed/non-standard
+  // tail even though the Metal sparse texture may expose some of those levels
+  // as individually addressable pages.
+  if (desc.Format == DXGI_FORMAT_R8_UNORM && mip_levels > 1) {
     for (UINT mip = 0; mip < mip_levels; mip++) {
       const UINT width = std::max<UINT>(1, desc.Width >> mip);
       const UINT height = std::max<UINT>(1, desc.Height >> mip);
-      const UINT width_tiles =
-          (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
-      const UINT height_tiles =
-          (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+      if (width < shape.WidthInTexels || height < shape.HeightInTexels) {
+        standard_mip_count = mip;
+        break;
+      }
+    }
+  }
+  const UINT packed_mip_count = mip_levels - standard_mip_count;
+  const UINT packed_tile_count = packed_mip_count ? 1u : 0u;
+  UINT standard_tiles_per_slice = 0;
+  for (UINT mip = 0; mip < standard_mip_count; mip++) {
+    const UINT width = std::max<UINT>(1, desc.Width >> mip);
+    const UINT height = std::max<UINT>(1, desc.Height >> mip);
+    const UINT width_tiles =
+        (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+    const UINT height_tiles =
+        (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+    standard_tiles_per_slice += width_tiles * height_tiles;
+  }
+  UINT total_tiles = 0;
+  for (UINT array_slice = 0; array_slice < array_size; array_slice++) {
+    const UINT slice_start =
+        array_slice * (standard_tiles_per_slice + packed_tile_count);
+    for (UINT mip = 0; mip < mip_levels; mip++) {
       const UINT subresource = array_slice * mip_levels + mip;
       if (sub_resource_tilings && sub_resource_tiling_count &&
           subresource >= first_sub_resource_tiling &&
           subresource < first_sub_resource_tiling +
                             requested_tiling_count) {
         const UINT output_index = subresource - first_sub_resource_tiling;
-        sub_resource_tilings[output_index] = {
-            width_tiles, static_cast<UINT16>(height_tiles), 1, total_tiles};
+        if (mip < standard_mip_count) {
+          const UINT width = std::max<UINT>(1, desc.Width >> mip);
+          const UINT height = std::max<UINT>(1, desc.Height >> mip);
+          const UINT width_tiles =
+              (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+          const UINT height_tiles =
+              (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+          UINT prior_tiles = 0;
+          for (UINT prior_mip = 0; prior_mip < mip; prior_mip++) {
+            const UINT prior_width =
+                std::max<UINT>(1, desc.Width >> prior_mip);
+            const UINT prior_height =
+                std::max<UINT>(1, desc.Height >> prior_mip);
+            prior_tiles +=
+                ((prior_width + shape.WidthInTexels - 1) /
+                 shape.WidthInTexels) *
+                ((prior_height + shape.HeightInTexels - 1) /
+                 shape.HeightInTexels);
+          }
+          sub_resource_tilings[output_index] = {
+              width_tiles, static_cast<UINT16>(height_tiles), 1,
+              slice_start + prior_tiles};
+        } else {
+          sub_resource_tilings[output_index] = {0, 0, 0,
+                                                 D3D12_PACKED_TILE};
+        }
       }
-      total_tiles += width_tiles * height_tiles;
     }
+    total_tiles += standard_tiles_per_slice + packed_tile_count;
   }
   if (total_tile_count)
     *total_tile_count = total_tiles;
   if (packed_mip_info) {
     packed_mip_info->NumStandardMips =
-        static_cast<UINT8>(std::min<UINT>(mip_levels, 255));
-    packed_mip_info->NumPackedMips = 0;
-    packed_mip_info->NumTilesForPackedMips = 0;
-    packed_mip_info->StartTileIndexInOverallResource = 0;
+        static_cast<UINT8>(std::min<UINT>(standard_mip_count, 255));
+    packed_mip_info->NumPackedMips =
+        static_cast<UINT8>(std::min<UINT>(packed_mip_count, 255));
+    packed_mip_info->NumTilesForPackedMips = packed_tile_count;
+    packed_mip_info->StartTileIndexInOverallResource =
+        packed_mip_count ? standard_tiles_per_slice : 0;
   }
   if (standard_tile_shape)
     *standard_tile_shape = shape;
