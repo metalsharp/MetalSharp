@@ -1263,8 +1263,9 @@ the goal is not complete.
   fallback is explicitly not treated as physical sparse heap-page support and
   cross-resource aliasing remains gated.
 - The clean source-built MetalSharp Wine 11.5 profile after the indirect-DXR,
-  tiled-resource, and native-sparse-buffer changes passes all `21/21` required
-  contract probes. The writable-MSAA extension is independently covered by
+  tiled-resource, native-sparse-buffer, and writable-MSAA changes passes all
+  `22/22` required contract probes. The writable-MSAA extension is independently
+  covered by
   `probe-writable-msaa`, which passes CS 6.7 DXIL compilation, pipeline
   creation, writable `RWTexture2DMS`/`RWTexture2DMSArray` UAV emulation, all
   four per-sample store/load operations in both 2D and array resources, and
