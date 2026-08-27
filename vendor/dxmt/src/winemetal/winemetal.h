@@ -1130,10 +1130,29 @@ struct WMT4SparseBufferMappingOperation {
 
 STATIC_ASSERT(sizeof(WMT4SparseBufferMappingOperation) == 32);
 
+struct WMT4SparseBufferMappingCopyOperation {
+  uint64_t source_tile_offset;
+  uint64_t tile_count;
+  uint64_t destination_tile_offset;
+};
+
+STATIC_ASSERT(sizeof(WMT4SparseBufferMappingCopyOperation) == 24);
+
 WINEMETAL_API bool MTL4CommandQueue_updateBufferMappings(
     obj_handle_t queue, obj_handle_t buffer, obj_handle_t heap,
     const struct WMT4SparseBufferMappingOperation *operations,
     uint64_t operation_count);
+
+WINEMETAL_API bool MTL4CommandQueue_copyBufferMappings(
+    obj_handle_t queue, obj_handle_t source_buffer,
+    obj_handle_t destination_buffer,
+    const struct WMT4SparseBufferMappingCopyOperation *operations,
+    uint64_t operation_count);
+
+WINEMETAL_API bool MTL4CommandQueue_copyBuffer(
+    obj_handle_t queue, obj_handle_t source_buffer, uint64_t source_offset,
+    obj_handle_t destination_buffer, uint64_t destination_offset,
+    uint64_t size, obj_handle_t residency_heap);
 
 enum WMTBlitCommandType : uint16_t {
   WMTBlitCommandNop,

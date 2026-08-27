@@ -203,6 +203,26 @@ struct unixcall_mtl4commandqueue_update_buffer_mappings {
   uint64_t ret_success;
 };
 
+struct unixcall_mtl4commandqueue_copy_buffer_mappings {
+  obj_handle_t queue;
+  obj_handle_t source_buffer;
+  obj_handle_t destination_buffer;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtl4commandqueue_copy_buffer {
+  obj_handle_t queue;
+  obj_handle_t source_buffer;
+  uint64_t source_offset;
+  obj_handle_t destination_buffer;
+  uint64_t destination_offset;
+  uint64_t size;
+  obj_handle_t residency_heap;
+  uint64_t ret_success;
+};
+
 struct unixcall_mtltexture_replaceregion {
   obj_handle_t texture;
   struct WMTOrigin origin;

@@ -124,6 +124,9 @@ public:
     return m_is_reserved && IsBuffer() && m_native_sparse_buffer;
   }
   WMT::Reference<WMT::Heap> GetSparseHeap() { return m_sparse_heap; }
+  void SetSparseHeap(WMT::Reference<WMT::Heap> heap) {
+    m_sparse_heap = std::move(heap);
+  }
   void *GetCPUAddress() const { return m_cpu_addr; }
   D3D12_TILE_SHAPE GetTiledResourceTileShape() const;
   bool ConfigureSamplerFeedback(const D3D12_MIP_REGION &region);

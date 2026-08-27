@@ -355,6 +355,23 @@ public:
     return MTL4CommandQueue_updateBufferMappings(
         handle, buffer.handle, heap.handle, operations, operation_count);
   }
+
+  bool copyBufferMappings(
+      Buffer source_buffer, Buffer destination_buffer,
+      const WMT4SparseBufferMappingCopyOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_copyBufferMappings(
+        handle, source_buffer.handle, destination_buffer.handle, operations,
+        operation_count);
+  }
+
+  bool copyBuffer(Buffer source_buffer, uint64_t source_offset,
+                  Buffer destination_buffer, uint64_t destination_offset,
+                  uint64_t size, Heap residency_heap) {
+    return MTL4CommandQueue_copyBuffer(
+        handle, source_buffer.handle, source_offset, destination_buffer.handle,
+        destination_offset, size, residency_heap.handle);
+  }
 };
 
 class ComputePipelineState : public Object {

@@ -4,6 +4,10 @@
 #import <ColorSync/ColorSync.h>
 #import <CoreFoundation/CFRunLoop.h>
 #import <Metal/Metal.h>
+#import <Metal/MTL4CommandBuffer.h>
+#import <Metal/MTL4CommandQueue.h>
+#import <Metal/MTL4ComputeCommandEncoder.h>
+#import <Metal/MTLResidencySet.h>
 #import <MetalFX/MetalFX.h>
 #import <QuartzCore/QuartzCore.h>
 #include "objc/objc-runtime.h"
@@ -811,6 +815,122 @@ _MTL4CommandQueue_updateBufferMappings(void *obj) {
                         count:(NSUInteger)params->operation_count];
     free(native);
     params->ret_success = 1;
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandQueue_copyBufferMappings(void *obj) {
+  struct unixcall_mtl4commandqueue_copy_buffer_mappings *params = obj;
+  const struct WMT4SparseBufferMappingCopyOperation *operations =
+      params->operations.ptr;
+  params->ret_success = 0;
+  if (!params->queue || !params->source_buffer ||
+      !params->destination_buffer ||
+      (params->operation_count && !operations) ||
+      params->operation_count > 1048576)
+    return STATUS_SUCCESS;
+  if (@available(macOS 26.0, *)) {
+    MTL4CopySparseBufferMappingOperation *native = calloc(
+        (size_t)params->operation_count, sizeof(*native));
+    if (!native)
+      return STATUS_SUCCESS;
+    for (uint64_t i = 0; i < params->operation_count; i++) {
+      native[i].sourceRange = NSMakeRange(
+          (NSUInteger)operations[i].source_tile_offset,
+          (NSUInteger)operations[i].tile_count);
+      native[i].destinationOffset =
+          (NSUInteger)operations[i].destination_tile_offset;
+    }
+    [(id<MTL4CommandQueue>)params->queue
+        copyBufferMappingsFromBuffer:(id<MTLBuffer>)params->source_buffer
+                            toBuffer:(id<MTLBuffer>)params->destination_buffer
+                          operations:native
+                               count:(NSUInteger)params->operation_count];
+    free(native);
+    params->ret_success = 1;
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTL4CommandQueue_copyBuffer(void *obj) {
+  struct unixcall_mtl4commandqueue_copy_buffer *params = obj;
+  params->ret_success = 0;
+  if (!params->queue || !params->source_buffer ||
+      !params->destination_buffer || !params->size)
+    return STATUS_SUCCESS;
+  if (@available(macOS 26.0, *)) {
+    id<MTL4CommandQueue> queue = (id<MTL4CommandQueue>)params->queue;
+    id<MTLDevice> device = [queue device];
+    id<MTL4CommandAllocator> allocator = nil;
+    id<MTL4CommandBuffer> command_buffer = nil;
+    id<MTLResidencySet> residency_set = nil;
+    MTLResidencySetDescriptor *residency_descriptor = nil;
+    id<MTL4ComputeCommandEncoder> encoder = nil;
+    @try {
+      allocator = [device newCommandAllocator];
+      command_buffer = [device newCommandBuffer];
+      residency_descriptor = [MTLResidencySetDescriptor new];
+      residency_set = [device
+          newResidencySetWithDescriptor:residency_descriptor
+                                  error:NULL];
+      if (!allocator || !command_buffer || !residency_descriptor ||
+          !residency_set)
+        @throw [NSException exceptionWithName:@"MTL4CopyBufferSetup"
+                                       reason:@"failed to allocate Metal 4 copy resources"
+                                     userInfo:nil];
+      [residency_set addAllocation:(id<MTLAllocation>)params->source_buffer];
+      [residency_set
+          addAllocation:(id<MTLAllocation>)params->destination_buffer];
+      if (params->residency_heap)
+        [residency_set
+            addAllocation:(id<MTLAllocation>)params->residency_heap];
+      [residency_set commit];
+      [residency_set requestResidency];
+      [queue addResidencySet:residency_set];
+      [command_buffer beginCommandBufferWithAllocator:allocator];
+      [command_buffer useResidencySet:residency_set];
+      encoder = [command_buffer computeCommandEncoder];
+      if (!encoder)
+        @throw [NSException exceptionWithName:@"MTL4CopyBufferEncoder"
+                                       reason:@"failed to create Metal 4 copy encoder"
+                                     userInfo:nil];
+      [encoder barrierAfterQueueStages:MTLStageResourceState
+                          beforeStages:MTLStageBlit
+                     visibilityOptions:MTL4VisibilityOptionResourceAlias |
+                                       MTL4VisibilityOptionDevice];
+      [encoder copyFromBuffer:(id<MTLBuffer>)params->source_buffer
+                  sourceOffset:(NSUInteger)params->source_offset
+                      toBuffer:(id<MTLBuffer>)params->destination_buffer
+             destinationOffset:(NSUInteger)params->destination_offset
+                          size:(NSUInteger)params->size];
+      [encoder endEncoding];
+      encoder = nil;
+      [command_buffer endCommandBuffer];
+      id<MTL4CommandBuffer> command_buffers[] = {command_buffer};
+      [queue commit:command_buffers count:1];
+      params->ret_success = 1;
+    } @catch (NSException *exception) {
+      FILE *el = winemetal_critical_log();
+      if (el) {
+        fprintf(el, "mtl4_copy_buffer_exception name=%s reason=%s\n",
+                winemetal_nsstring_utf8([exception name]),
+                winemetal_nsstring_utf8([exception reason]));
+        fclose(el);
+      }
+      if (encoder) {
+        @try {
+          [encoder endEncoding];
+        } @catch (NSException *ignored) {
+          (void)ignored;
+        }
+      }
+    }
+    [residency_descriptor release];
+    [residency_set release];
+    [command_buffer release];
+    [allocator release];
   }
   return STATUS_SUCCESS;
 }
@@ -4686,6 +4806,8 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_newMTL4CommandQueue,
     &_MTL4CommandQueue_updateBufferMappings,
     &_MTLHeap_newBufferAtOffset,
+    &_MTL4CommandQueue_copyBufferMappings,
+    &_MTL4CommandQueue_copyBuffer,
 };
 
 #ifndef DXMT_NATIVE
@@ -4854,5 +4976,7 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_newMTL4CommandQueue,
     &_MTL4CommandQueue_updateBufferMappings,
     &_MTLHeap_newBufferAtOffset,
+    &_MTL4CommandQueue_copyBufferMappings,
+    &_MTL4CommandQueue_copyBuffer,
 };
 #endif
