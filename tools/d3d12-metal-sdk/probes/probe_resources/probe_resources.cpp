@@ -283,6 +283,7 @@ int main() {
     ID3D12Resource* texture = nullptr;
     ID3D12Resource* texture_upload = nullptr;
     ID3D12Resource* texture_readback = nullptr;
+    ID3D12Resource* unsupported_texture = nullptr;
     ID3D12Heap* sparse_heap = nullptr;
     ID3D12Heap* copy_mapping_heap = nullptr;
     ID3D12Resource* reserved_texture = nullptr;
@@ -413,6 +414,17 @@ int main() {
             ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &texture_staging_desc,
                                               D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&texture_readback))
             : E_FAIL;
+    D3D12_RESOURCE_DESC unsupported_texture_desc =
+        texture_desc(4, 4, DXGI_FORMAT_R1_UNORM);
+    HRESULT unsupported_texture_hr =
+        device ? device->CreateCommittedResource(
+                     &default_heap, D3D12_HEAP_FLAG_NONE,
+                     &unsupported_texture_desc,
+                     D3D12_RESOURCE_STATE_COMMON, nullptr,
+                     IID_PPV_ARGS(&unsupported_texture))
+               : E_FAIL;
+    const bool unsupported_texture_rejected =
+        unsupported_texture_hr == E_INVALIDARG && unsupported_texture == nullptr;
     uint8_t* texture_upload_ptr = nullptr;
     HRESULT texture_map_hr =
         texture_upload ? texture_upload->Map(0, nullptr, reinterpret_cast<void**>(&texture_upload_ptr)) : E_FAIL;
@@ -1630,7 +1642,7 @@ int main() {
                 default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
                 texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 &&
                 shared_handle_roundtrip && format_support_ok &&
-                sparse_format_matrix_ok;
+                sparse_format_matrix_ok && unsupported_texture_rejected;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -1686,6 +1698,9 @@ int main() {
     std::printf("    \"height\": %u,\n", texture_roundtrip_desc.Height);
     std::printf("    \"row_pitch\": %u,\n", texture_footprint.Footprint.RowPitch);
     std::printf("    \"upload_bytes\": %llu,\n", static_cast<unsigned long long>(texture_upload_bytes));
+    print_hr("unsupported_r1_texture_create", unsupported_texture_hr);
+    std::printf("    \"unsupported_r1_texture_rejected\": %s,\n",
+                unsupported_texture_rejected ? "true" : "false");
     std::printf("    \"unaligned_bc1_create_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(static_cast<uint32_t>(bc_texture_hr)));
     std::printf("    \"unaligned_bc1_upload_hr\": \"0x%08lx\",\n",

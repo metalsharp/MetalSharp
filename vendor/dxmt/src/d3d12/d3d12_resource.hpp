@@ -108,6 +108,9 @@ public:
   bool IsBuffer() const {
     return m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
   }
+  bool IsValid() const {
+    return IsBuffer() ? m_mtl_buffer.handle != 0 : m_mtl_texture.handle != 0;
+  }
 
   WMT::Reference<WMT::Buffer> GetMTLBuffer() { return m_mtl_buffer; }
   WMT::Reference<WMT::Texture> GetMTLTexture();
