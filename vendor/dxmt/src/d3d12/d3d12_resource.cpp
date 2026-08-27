@@ -101,13 +101,20 @@ static D3D12_TILE_SHAPE TileShapeForFormat(DXGI_FORMAT format) {
 
 static uint64_t SparseHeapSizeForResource(const D3D12_RESOURCE_DESC &desc) {
   const D3D12_TILE_SHAPE shape = TileShapeForFormat(desc.Format);
-  const uint64_t tiles_x =
-      (desc.Width + shape.WidthInTexels - 1) / shape.WidthInTexels;
-  const uint64_t tiles_y =
-      (desc.Height + shape.HeightInTexels - 1) / shape.HeightInTexels;
   const uint64_t slices = std::max<uint32_t>(1, desc.DepthOrArraySize);
   const uint64_t mips = std::max<uint32_t>(1, desc.MipLevels);
-  const uint64_t tile_count = tiles_x * tiles_y * slices * mips;
+  uint64_t tile_count = 0;
+  for (uint64_t slice = 0; slice < slices; slice++) {
+    for (uint64_t mip = 0; mip < mips; mip++) {
+      const uint64_t width = std::max<uint64_t>(1, desc.Width >> mip);
+      const uint64_t height = std::max<uint64_t>(1, desc.Height >> mip);
+      const uint64_t tiles_x =
+          (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+      const uint64_t tiles_y =
+          (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+      tile_count += tiles_x * tiles_y;
+    }
+  }
   const uint64_t size = tile_count * UINT64_C(65536);
   // Apple's default sparse page is 16 KiB; one D3D12 standard tile is 64 KiB.
   return std::max<uint64_t>(UINT64_C(65536),

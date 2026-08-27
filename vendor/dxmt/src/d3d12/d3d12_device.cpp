@@ -4527,10 +4527,20 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
       desc->Height == 1 && desc->DepthOrArraySize == 1 &&
       desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 &&
       desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+  const bool standard_mip_texture =
+      desc->MipLevels == 1 ||
+      (desc->MipLevels > 1 &&
+       (desc->Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+        desc->Format == DXGI_FORMAT_R8G8B8A8_TYPELESS ||
+        desc->Format == DXGI_FORMAT_R32_FLOAT ||
+        desc->Format == DXGI_FORMAT_R32_TYPELESS) &&
+       (desc->Width >> (desc->MipLevels - 1)) >= 128 &&
+       (static_cast<uint64_t>(desc->Height) >> (desc->MipLevels - 1)) >= 128);
   const bool reserved_texture =
       desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
-      desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 && desc->Width &&
-      desc->Height && desc->DepthOrArraySize &&
+      desc->MipLevels && standard_mip_texture &&
+      desc->SampleDesc.Count <= 1 && desc->Width && desc->Height &&
+      desc->DepthOrArraySize &&
       MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc->Format) !=
           WMTPixelFormatInvalid;
   if (!reserved_buffer && !reserved_texture) {

@@ -117,7 +117,7 @@
           "UpdateTileMappings": {
             "difficulty": "very hard",
             "metal": "MTLResourceStateCommandEncoder sparse updates; MTL4CommandQueue placement-sparse updates",
-            "notes": "Native 2D RGBA8 reserved resources map and unmap standard tiles through the Metal resource-state encoder; reserved buffers use a deliberately scoped full-buffer compatibility backing with zero-after-unmap semantics. D3D12 heap-page selection remains deferred because the texture path owns a sparse Metal heap per reserved resource.",
+            "notes": "Native 2D RGBA8 reserved resources map and unmap standard tiles through the Metal resource-state encoder, including a two-level 256x256 texture with exact mip-1 readback; reserved buffers use a deliberately scoped full-buffer compatibility backing with zero-after-unmap semantics. D3D12 heap-page selection remains deferred because the texture path owns a sparse Metal heap per reserved resource.",
             "translation": "resourceStateEncoder->updateSparseMappings(texture, tileMappings) for the proven path"
           },
           "Wait": {
@@ -497,7 +497,7 @@
           "CopyTiles": {
             "difficulty": "very hard",
             "metal": "MTLBlitCommandEncoder texture/buffer copies over mapped sparse tiles",
-            "notes": "The proven 2D RGBA8 path expands a multi-tile D3D12 request into exact 64 KiB placed-footprint copies and verifies map/unmap readback; a focused reserved-buffer path expands tile copies over a full compatibility backing; partial mips, boxed regions, and physical sparse-buffer mappings remain gated.",
+            "notes": "The proven 2D RGBA8 path expands a multi-tile D3D12 request into exact 64 KiB placed-footprint copies and verifies map/unmap readback, including a standard two-level mip texture; a focused reserved-buffer path expands tile copies over a full compatibility backing; packed/partial mips, boxed regions, and physical sparse-buffer mappings remain gated.",
             "translation": "expand each standard tile into a buffer/texture blit"
           },
           "DiscardResource": {
