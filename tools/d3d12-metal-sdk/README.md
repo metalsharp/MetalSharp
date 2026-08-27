@@ -352,8 +352,10 @@ support, and typeless view-time typing. The resource probe now creates a native
 Metal sparse-backed 128x128x2 RGBA8-array reserved texture, reports two
 standard 128x128 subresource tiles, maps and unmaps both array slices through
 `UpdateTileMappings`, and round-trips exact 64 KiB `CopyTiles` payloads for
-each slice. The same gate covers one-tile and two-level R8_UNORM reserved
-textures. A focused two-tile reserved-buffer path reports the 64 KiB buffer
+each slice. The same gate covers one-tile R8G8_UNORM, R10G10B10A2_UNORM,
+R11G11B10_FLOAT, R16G16B16A16_UNORM, and R32G32B32A32_FLOAT textures plus
+one-tile and two-level R8_UNORM reserved textures. A focused two-tile
+reserved-buffer path reports the 64 KiB buffer
 tiling, uses MTL4 heap mappings, copies exact payloads, verifies a copied
 mapping with an independent readback, and verifies zero-after-unmap (with a
 full shared compatibility fallback). Cross-resource heap-page aliasing remains
