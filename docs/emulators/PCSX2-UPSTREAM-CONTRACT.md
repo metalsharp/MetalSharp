@@ -170,6 +170,6 @@ The active contract is exercised by:
 - `app/src-c/tests/pcsx2_update_test.py`;
 - `app/src-c/tests/pcsx2_release.json`;
 - `app/src-c/tests/pcsx2_bad_archive.tar.xz`;
-- Rust parity tests in `app/src-rust/src/emulators.rs`.
+- C transaction and smoke tests under `app/src-c/tests/`.
 
 The transaction tests cover successful isolated initialization, updater disablement, read-only activation, repair, rollback/roll-forward, removal preservation, interrupted activation, size/digest failure, traversal, links, multiple top-level entries, wrong architecture, CLI drift, draft/prerelease releases, and duplicate matching assets. Synthetic fixtures contain no Sony code or game content.

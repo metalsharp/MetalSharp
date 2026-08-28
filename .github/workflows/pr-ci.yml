@@ -91,41 +91,6 @@ jobs:
       - name: Build renderer
         run: npx vite build
 
-  rust:
-    name: Rust CI
-    runs-on: macos-14
-    defaults:
-      run:
-        working-directory: app/src-rust
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app/src-rust
-
-      - name: Format
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Sign with EndpointSecurity entitlements
-        run: |
-          codesign --force --sign - \
-            --entitlements entitlements.plist \
-            target/release/metalsharp-backend
-
-      - name: Test
-        run: cargo test
-
   electron:
     name: Electron CI
     runs-on: macos-14
@@ -172,6 +137,9 @@ jobs:
 
       - name: Install clang-format
         run: brew install clang-format zstd
+
+      - name: C backend tests
+        run: make -C app/src-c test
 
       - name: D3D12 Metal SDK contracts
         run: |

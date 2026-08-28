@@ -380,7 +380,7 @@ static bool steam_config_has_api_key(const char* data) {
     return result;
 }
 
-/* mode 0 is a complete non-symlink copy, mode 1 is Rust's settings-only
+/* mode 0 is a complete non-symlink copy, mode 1 is a settings-only
  * filter, and mode 2 is the broader Steam metadata filter. */
 static bool copy_tree_filtered(const char* source, const char* destination, int mode) {
     DIR* dir;
@@ -1009,7 +1009,7 @@ static void restore_preserved_data(const char* home, const preserved_data* data)
             free(gog_dst);
         }
         /* The settings-only bottle copy intentionally skips every prefix.
-         * Restore Steam and Epic bottle metadata separately, just like Rust. */
+         * Restore Steam and Epic bottle metadata separately. */
         DIR* dir = opendir(src);
         if (dir) {
             struct dirent* entry;
@@ -1071,7 +1071,7 @@ static void write_migration_report(const char* home, bool preserved, bool restor
     char* payload;
     const char* categories[] = {"setup.json",    "steam_config", "cache", "prefix-steam",   "prefix-gptk", "games",
                                 "sharp-library", "sharp-prefix", "epic",  "launcher-games", "bottles"};
-    const char* reason = "Rust-compatible migration preservation/restoration pass";
+    const char* reason = "migration preservation/restoration pass";
     if (logs)
         (void)mkdir(logs, 0700);
     path = logs ? path_join(logs, "migration-report-latest.json") : NULL;

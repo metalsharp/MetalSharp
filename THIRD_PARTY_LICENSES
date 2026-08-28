@@ -183,9 +183,8 @@ source folders, or the referenced upstream/runtime packages.
 - Used as: Optional local runtime asset for selected offline Steam-emulation
   investigation paths.
 
-## Electron, Node, Rust, and npm/cargo dependencies
+## Electron, Node, and npm dependencies
 
-- Sources: `app/package-lock.json` and `app/src-rust/Cargo.lock`
+- Source: `app/package-lock.json`
 - Licenses: package-specific open-source licenses as declared by each package.
-- Used as: Application shell, renderer build, Rust backend dependencies, and
-  packaging tooling.
+- Used as: Application shell, renderer build, and packaging tooling.

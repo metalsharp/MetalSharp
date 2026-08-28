@@ -70,7 +70,14 @@ async function refreshSteamMonoStatus() {
 async function upgradeSteamMono() {
   steamMonoLoading.value = true;
   // Short timeout — the backend now returns immediately (kicks off download or launches installer).
-  const result = await api<{ ok: boolean; pid?: number; alreadyInstalled?: boolean; downloading?: boolean; error?: string; status?: WineMonoStatus }>("POST", "/wine-mono/install", { prefix: "steam" }, 30 * 1000);
+  const result = await api<{
+    ok: boolean;
+    pid?: number;
+    alreadyInstalled?: boolean;
+    downloading?: boolean;
+    error?: string;
+    status?: WineMonoStatus;
+  }>("POST", "/wine-mono/install", { prefix: "steam" }, 30 * 1000);
   steamMonoLoading.value = false;
   if (result?.ok) {
     if (result.alreadyInstalled) {
@@ -145,7 +152,9 @@ onMounted(async () => {
   void refreshSteamMonoStatus();
 });
 
-onUnmounted(() => { stopSteamMonoPoll(); });
+onUnmounted(() => {
+  stopSteamMonoPoll();
+});
 
 async function refreshConfig() {
   const result = await api<AppConfig>("GET", "/config");
@@ -366,7 +375,8 @@ function toggleLowPerformanceMode(enabled: boolean) {
 }
 
 async function forceKillProcesses() {
-  if (!confirm("Force kill MetalSharp Wine/runtime processes? This can stop active games, installers, and downloads.")) return;
+  if (!confirm("Force kill MetalSharp Wine/runtime processes? This can stop active games, installers, and downloads."))
+    return;
   const result = await api<{
     ok: boolean;
     terminated?: unknown[];
@@ -380,7 +390,10 @@ async function forceKillProcesses() {
   }
   const count = (result.terminated?.length ?? 0) + (result.killed?.length ?? 0);
   if (result.ok) {
-    toast.show(count > 0 ? `Force killed ${count} process${count === 1 ? "" : "es"}` : "No MetalSharp runtime processes found", "success");
+    toast.show(
+      count > 0 ? `Force killed ${count} process${count === 1 ? "" : "es"}` : "No MetalSharp runtime processes found",
+      "success",
+    );
   } else {
     toast.show(result.error ?? `Force kill completed with ${result.errors?.length ?? 0} error(s)`, "error");
   }
@@ -394,7 +407,9 @@ async function toggleGraphicsRuntimeLogs(enabled: boolean) {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
     toast.show(
-      graphicsRuntimeLogs.value ? "Graphics runtime logs enabled for future launches" : "Graphics runtime logs disabled",
+      graphicsRuntimeLogs.value
+        ? "Graphics runtime logs enabled for future launches"
+        : "Graphics runtime logs disabled",
       "success",
     );
   } else {
@@ -484,9 +499,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">Game Runtime Backend</div>
-          <div class="settings-desc">
-            The Rust backend handles game launches, Steam integration, and shader management
-          </div>
+          <div class="settings-desc">The C backend handles game launches, Steam integration, and shader management</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="backendConnected ? 'badge-ok' : 'badge-warn'">
@@ -509,7 +522,9 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">Force Kill Processes</div>
-          <div class="settings-desc">Destructively stops MetalSharp Wine/runtime helper processes while keeping this app and backend alive.</div>
+          <div class="settings-desc">
+            Destructively stops MetalSharp Wine/runtime helper processes while keeping this app and backend alive.
+          </div>
         </div>
         <div class="settings-value">
           <button class="btn btn-danger btn-sm" @click="forceKillProcesses">Force Kill Processes</button>
@@ -518,7 +533,9 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">Low Performance Mode</div>
-          <div class="settings-desc">Disables blur, glass, glow, and heavy motion while preserving layout and essential progress updates.</div>
+          <div class="settings-desc">
+            Disables blur, glass, glow, and heavy motion while preserving layout and essential progress updates.
+          </div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="lowPerformanceMode ? 'badge-warn' : 'badge-ok'">
@@ -554,7 +571,8 @@ function uninstallMetalsharp() {
         <div>
           <div class="settings-label">Graphics Runtime Logs</div>
           <div class="settings-desc">
-            Opt in to DXMT graphics logs for future launches. Off by default so M12 games do not emit runtime logs unless requested.
+            Opt in to DXMT graphics logs for future launches. Off by default so M12 games do not emit runtime logs
+            unless requested.
           </div>
         </div>
         <div class="settings-value">
@@ -582,7 +600,9 @@ function uninstallMetalsharp() {
             Download and install Wine Mono {{ steamMonoStatus.latestVersion }} into the Steam prefix.
             <span v-if="steamMonoStatus.installed">Installed: v{{ steamMonoStatus.installedVersion }}.</span>
             <span v-else>No Wine Mono installed.</span>
-            <span v-if="steamMonoStatus.downloadError" class="download-error">Download failed: {{ steamMonoStatus.downloadError }}.</span>
+            <span v-if="steamMonoStatus.downloadError" class="download-error"
+              >Download failed: {{ steamMonoStatus.downloadError }}.</span
+            >
             The installer runs interactively in a Wine window.
           </div>
         </div>
@@ -595,7 +615,12 @@ function uninstallMetalsharp() {
             {{ steamMonoButtonLabel() }}
           </button>
           <div v-if="steamMonoStatus.downloading && steamMonoStatus.downloadTotal > 0" class="mono-progress-bar">
-            <div class="mono-progress-fill" :style="{ width: Math.round((steamMonoStatus.downloadBytes / steamMonoStatus.downloadTotal) * 100) + '%' }"></div>
+            <div
+              class="mono-progress-fill"
+              :style="{
+                width: Math.round((steamMonoStatus.downloadBytes / steamMonoStatus.downloadTotal) * 100) + '%',
+              }"
+            ></div>
           </div>
         </div>
       </div>
@@ -715,7 +740,8 @@ function uninstallMetalsharp() {
         <div>
           <div class="settings-label">Uninstall MetalSharp</div>
           <div class="settings-desc">
-            Permanently deletes all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings. The app will close after cleanup.
+            Permanently deletes all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and
+            settings. The app will close after cleanup.
           </div>
         </div>
         <div class="settings-value">

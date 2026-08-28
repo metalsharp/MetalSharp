@@ -2,7 +2,7 @@
 **Updated:** 2026-07-08
 
 
-MetalSharp launches games through the Rust backend and the current MTSP pipeline resolver.
+MetalSharp launches games through the C backend and the current MTSP pipeline resolver.
 
 ## Flow
 
@@ -96,7 +96,7 @@ M11/M10/M9 read from the legacy runtime surface:
 M12 reads from the isolated D3D12 surface:
 
 ```text
-~/.metalsharp/runtime/wine/lib/dxmt-m12
+~/.metalsharp/runtime/wine/lib/dxmt_m12
 ```
 
 M11/M10 copy:
@@ -142,7 +142,7 @@ When a title uses the Steam launch model and Goldberg is disabled, the launcher 
 
 - Running games are tracked by the backend.
 - Stop/kill actions terminate the registered process and child processes.
-- Steam process management lives in `steam.rs`.
+- Steam process management lives in `app/src-c/runtime/steam.c` and `steam_actions.c`.
 - Launching a Steam game keeps Wine Steam alive for Steam connectivity. Env-dependent routes apply route-specific
   environment to the spawned game process rather than trying to make an already-running Steam client inherit it.
 - Wine Steam readiness checks fail clearly if Steam never becomes detectable, keeping launch requests below the renderer

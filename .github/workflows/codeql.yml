@@ -26,22 +26,6 @@ permissions:
   security-events: write
 
 jobs:
-  rust:
-    name: CodeQL Rust
-    runs-on: macos-14
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: github/codeql-action/init@v4
-        with:
-          languages: rust
-          config-file: .github/codeql/codeql-rust.yml
-
-      - uses: github/codeql-action/analyze@v4
-        with:
-          category: '/language:rust'
-
   vue:
     name: CodeQL Vue
     runs-on: macos-14
@@ -93,4 +77,3 @@ jobs:
       - uses: github/codeql-action/analyze@v4
         with:
           category: '/language:javascript'
-

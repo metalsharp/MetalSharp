@@ -5,8 +5,7 @@
 #
 # Policy: this hook FAILS HARD if a check is required but the toolchain
 # needed to run it is missing. The whole point is to prevent the same
-# "rustfmt flagged in CI for a change I made locally" surprise that
-# motivated the introduction of these checks in the first place.
+# formatting failure locally only to discover it in CI.
 #
 # Install with:
 #   ln -s ../../.github/hooks/pre-commit .git/hooks/pre-commit
@@ -32,14 +31,12 @@ fi
 
 # --- Pre-flight: which toolchains are required? ---
 
-NEED_CARGO=0
 NEED_CLANG_FORMAT=0
 NEED_NPM=0
 NEED_PYTHON=0
 
 for f in "${STAGED[@]}"; do
     case "$f" in
-        *.rs|*.toml)                       NEED_CARGO=1 ;;
         *.c|*.cpp|*.h|*.hpp|*.mm|*.m)      NEED_CLANG_FORMAT=1 ;;
         app/*.ts|app/*.tsx|app/*.js|app/*.jsx|app/*.json|app/*.css|app/*.html) NEED_NPM=1 ;;
     esac
@@ -57,7 +54,6 @@ fail() { echo -e "\033[0;31m[pre-commit]\033[0m $*" >&2; exit 1; }
 # --- Toolchain gate: fail HARD if a check is required but the tool is missing ---
 
 missing=()
-[ "$NEED_CARGO" -eq 1 ] && ! command -v cargo >/dev/null 2>&1 && missing+=("cargo (rustc/cargo required to format/clippy Rust files)")
 [ "$NEED_CLANG_FORMAT" -eq 1 ] && ! command -v clang-format >/dev/null 2>&1 && missing+=("clang-format (required to format C/C++/Obj-C files)")
 [ "$NEED_NPM" -eq 1 ] && [ ! -d app/node_modules ] && missing+=("app/node_modules (run 'cd app && npm ci' to install)")
 [ "$NEED_PYTHON" -eq 1 ] && ! command -v python3 >/dev/null 2>&1 && missing+=("python3 (required to validate the rules TOML)")
@@ -73,23 +69,7 @@ if [ ${#missing[@]} -gt 0 ]; then
     echo "Bypassing is acceptable but the same failure will surface in CI." >&2
 fi
 
-# --- 1. Rust: fmt, clippy, build --
-
-if [ "$NEED_CARGO" -eq 1 ]; then
-    log "cargo fmt --check (app/src-rust)"
-    (cd app/src-rust && cargo fmt --all -- --check) || fail "cargo fmt --check failed; run 'cd app/src-rust && cargo fmt' and re-stage the changes."
-
-    log "cargo clippy --all-targets -- -D warnings (app/src-rust)"
-    (cd app/src-rust && cargo clippy --all-targets -- -D warnings) || fail "cargo clippy failed; fix the warnings before committing."
-
-    # Only run the full test suite if Rust source was changed (not just TOML).
-    if printf '%s\n' "${STAGED[@]}" | grep -q '\.rs$'; then
-        log "cargo test (app/src-rust)"
-        (cd app/src-rust && cargo test --quiet) || fail "cargo test failed; fix the failing tests before committing."
-    fi
-fi
-
-# --- 2. C/C++/Obj-C: clang-format --
+# --- 1. C/C++/Obj-C: clang-format --
 
 if [ "$NEED_CLANG_FORMAT" -eq 1 ]; then
     log "clang-format --dry-run --Werror on staged C/C++/Obj-C files"
@@ -109,7 +89,7 @@ if [ "$NEED_CLANG_FORMAT" -eq 1 ]; then
     [ "$FAILED" -eq 0 ] || fail "clang-format failed; run 'clang-format -i <file>' on the listed files."
 fi
 
-# --- 3. TypeScript: tsc, biome, prettier --
+# --- 2. TypeScript: tsc, biome, prettier --
 
 if [ "$NEED_NPM" -eq 1 ]; then
     if printf '%s\n' "${STAGED[@]}" | grep -qE '^app/.*\.tsx?$'; then
@@ -129,7 +109,7 @@ if [ "$NEED_NPM" -eq 1 ]; then
     fi
 fi
 
-# --- 4. Rules TOML validation --
+# --- 3. Rules TOML validation --
 
 if [ "$NEED_PYTHON" -eq 1 ]; then
     log "validating configs/mtsp-rules.toml"
@@ -139,7 +119,7 @@ if [ "$NEED_PYTHON" -eq 1 ]; then
     python3 tools/ci/validate-rules-toml.py || fail "rules TOML validation failed."
 fi
 
-# --- 5. ShellCheck on modified shell scripts --
+# --- 4. ShellCheck on modified shell scripts --
 
 if printf '%s\n' "${STAGED[@]}" | grep -qE '\.sh$'; then
     if command -v shellcheck >/dev/null 2>&1; then
@@ -160,7 +140,7 @@ if printf '%s\n' "${STAGED[@]}" | grep -qE '\.sh$'; then
     fi
 fi
 
-# --- 6. Doc freshness (warn-only by design) ---
+# --- 5. Doc freshness (warn-only by design) ---
 
 if printf '%s\n' "${STAGED[@]}" | grep -qE '(\.md$|^AGENTS\.md$|^README\.md$)'; then
     if command -v python3 >/dev/null 2>&1; then

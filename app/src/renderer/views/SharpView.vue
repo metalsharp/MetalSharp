@@ -2384,7 +2384,7 @@ async function handleGogAuthButton() {
 
 async function loginGog() {
   if (!gogStatus.value?.authUrl) return;
-  // If the Rust backend hasn't staged the OAuth helper yet, refresh status and
+  // If the backend hasn't staged the OAuth helper yet, refresh status and
   // try once more — this protects users who hit Login before the gogdl
   // bootstrap has finished copying tools/gog-oauth-electron into ~/.metalsharp.
   if (gogStatus.value?.oauthHelperAvailable === false) {

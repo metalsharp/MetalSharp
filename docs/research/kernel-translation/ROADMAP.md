@@ -23,7 +23,7 @@
 
 What we have:
 - 4 research documents: XNU reference, NT reference, gap analysis, implementation mapping (5,400+ lines)
-- Rust kernel translation module: syscall/struct tables, coverage reports, host probes
+- C kernel translation modules: syscall/struct tables, coverage reports, host probes
 - C header: compile-time mapping tables + XNU constants
 - 2 API endpoints: `/kernel-translation/probe`, `/kernel-translation/host-probe`
 - Draft PR #146 open
@@ -34,7 +34,7 @@ Coverage: 30 syscalls mapped, 11 structs mapped, 5 drill-down targets identified
 
 ## Phase 1 — Complete the Translation Tables
 
-**Goal:** Map every NT syscall that anti-cheat touches to its XNU equivalent in the Rust module.
+**Goal:** Map every relevant NT syscall to its XNU equivalent in the C backend modules.
 
 | Task | Type | Detail |
 |------|------|--------|
@@ -59,7 +59,7 @@ This was flagged as the #1 gap. The drill-down is: build it ourselves.
 
 | Task | Type | Detail |
 |------|------|--------|
-| Wine handle table struct in Rust | BUILD | Per-process table mapping `HANDLE` → `(type, fd_or_port, access_mask, name)` |
+| Wine handle table struct in C | BUILD | Per-process table mapping `HANDLE` → `(type, fd_or_port, access_mask, name)` |
 | Handle creation tracking | BUILD | Hook NtCreateFile/NtOpenProcess/NtCreateEvent/etc. to register every handle in the table |
 | Handle destruction tracking | BUILD | Hook NtClose to remove entries |
 | NtQuerySystemInformation(SystemHandleInformation) | BUILD | Return virtual handle table entries as SYSTEM_HANDLE_INFORMATION structs |
@@ -233,7 +233,7 @@ This was flagged as "no thread creation callback." The drill-down: we build it f
 
 | Task | Type | Detail |
 |------|------|--------|
-| Integrate with `anticheat.rs` evidence system | BUILD | Kernel translation probe results feed into anti-cheat evidence pipeline — existing `handle_steam_anticheat_evidence` gains kernel translation status |
+| Integrate with the C anti-cheat evidence system | BUILD | Kernel translation probe results feed into the backend anti-cheat evidence pipeline. |
 | Bottle-aware kernel translation | BUILD | Per-bottle kernel translation config — each Wine prefix can have different handle/code-integrity settings |
 | Runtime doctor integration | BUILD | `/steam/runtime-doctor` reports kernel translation coverage and capability status |
 | Sharp Library UI — kernel translation status | BUILD | Game cards show kernel translation readiness (handle table ✓, code integrity ✓, callbacks ⏳) |

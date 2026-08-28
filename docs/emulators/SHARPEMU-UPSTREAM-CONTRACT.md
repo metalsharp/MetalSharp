@@ -1,6 +1,6 @@
 # SharpEmu Upstream Contract
 
-This document freezes the source-backed assumptions used by MetalSharp's managed SharpEmu provider. The packaged runtime backend is C; Rust models are parity contracts.
+This document freezes the source-backed assumptions used by MetalSharp's managed SharpEmu provider. The packaged runtime backend is C.
 
 ## Frozen research baseline
 

@@ -32,7 +32,7 @@ jobs:
               "Compatibility verified with at least one real game (game + launch method noted below)",
               "No hardcoded paths, secrets, or absolute `/Users/...` paths introduced",
               "Config/rules TOML validated if `configs/mtsp-rules.toml` or DLL maps changed",
-              "Version triple (`CMakeLists.txt`, `Cargo.toml`, `package.json`, `package-lock.json`) in sync if version bumped",
+              "Version metadata (`CMakeLists.txt`, `app/src-c/Makefile`, `package.json`, `package-lock.json`) in sync if version bumped",
               "Bottle/runtime migration and launch behavior preserved (rollback plan noted if changed)",
               "Docs / compatibility matrix updated for user-facing changes",
               "Regression test added for each bug fix",

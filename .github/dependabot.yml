@@ -1,13 +1,5 @@
 version: 2
 updates:
-  - package-ecosystem: cargo
-    directory: /app/src-rust
-    schedule:
-      interval: weekly
-    labels:
-      - dependencies
-      - rust
-
   - package-ecosystem: npm
     directory: /app
     schedule:

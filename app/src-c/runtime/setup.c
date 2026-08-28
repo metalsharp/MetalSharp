@@ -274,7 +274,7 @@ static bool extract_bundle_archive(const char* home, const char* archive) {
 }
 
 /* Runtime archives downloaded through a quarantined app or browser can cause
- * macOS to propagate com.apple.quarantine onto Wine executables. Rust extracts
+ * macOS to propagate com.apple.quarantine onto Wine executables. Extract
  * through a clean temporary tree before copying runtime files; clear the same
  * inherited attribute here so metalsharp-wine --version is executable too. */
 static void clear_runtime_quarantine(const char* home) {
@@ -1353,9 +1353,8 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
     ms_json_writer_array_begin(&writer);
-    dependency_begin(
-        &writer, "homebrew", "Homebrew", "Package manager — required to install other dependencies", homebrew, true,
-        "bash scripts/tools/install-homebrew.sh");
+    dependency_begin(&writer, "homebrew", "Homebrew", "Package manager — required to install other dependencies",
+                     homebrew, true, "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
                      "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
@@ -1602,8 +1601,8 @@ static void run_install_all_worker(const char* home) {
 
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "installing", "Checking zstd...", NULL);
     if (!command_available("zstd") && (!command_available("brew") || !run_brew_install("zstd"))) {
-        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error",
-                               "zstd installation failed", "brew install zstd failed");
+        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error", "zstd installation failed",
+                               "brew install zstd failed");
         _exit(0);
     }
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "zstd ready", NULL);
@@ -1743,7 +1742,8 @@ static void run_install_all_worker(const char* home) {
     write_install_progress(home, 9, total, "Support Assets", "done", "Support assets ready", NULL);
     {
         const char* const mapping[][2] = {{"scripts/tools", "scripts/tools"}};
-        write_install_progress(home, 10, total, "Scripts and Tools", "installing", "Staging scripts and tools...", NULL);
+        write_install_progress(home, 10, total, "Scripts and Tools", "installing", "Staging scripts and tools...",
+                               NULL);
         char* scripts_archive = find_bundle_archive(home, "metalsharp-scripts-tools.tar.zst");
         bool scripts_ready = home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);
         bool scripts_ok =
@@ -2085,7 +2085,7 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
     }
     if (x86)
         syswow64 = prefix ? join_path(prefix, "drive_c/windows/syswow64") : NULL;
-    /* Match Rust's vcpp_ensure_downloaded: ensure both cached redists before
+    /* Ensure both cached redists before
      * launching either architecture's installer. */
     {
         char* unused = NULL;

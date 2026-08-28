@@ -4,8 +4,7 @@ This directory holds roadmaps and planning documents that have been **completed
 or superseded**. Do not cite these documents as the current implementation contract
 without verifying against the code and runtime manifests.
 
-Active roadmaps live under [`../roadmaps/`](../roadmaps/) and
-[`../optimization-roadmap/`](../optimization-roadmap/).
+Active roadmaps live under [`../roadmaps/`](../roadmaps/).
 
 ## Contents
 
@@ -16,12 +15,6 @@ Active roadmaps live under [`../roadmaps/`](../roadmaps/) and
 | [`metalsharp-final-roadmap.md`](roadmaps/metalsharp-final-roadmap.md) | Completed | Phase 0-9B all delivered on `codex/beta7-dxmt-cohesion` (PR #129). Phase 9 findings led to the typed-lowering refactor. |
 | [`dx12-pipeline-complete-roadmap.md`](roadmaps/dx12-pipeline-complete-roadmap.md) | Completed | D3D12→Metal pipeline work landed across Beta 7 phases. |
 | [`beta7-dxmt-cohesion-roadmap.md`](roadmaps/beta7-dxmt-cohesion-roadmap.md) | Merged | Beta 7 cohesion work landed in PRs #118, #119, #127, #128. |
-
-### `optimization-roadmap/`
-
-| File | Status | Reason archived |
-|------|--------|-----------------|
-| [`PR-SUMMARY.md`](optimization-roadmap/PR-SUMMARY.md) | Historical | Per-phase summary for the 9-phase rollout that has now landed. |
 
 ## Why archive instead of delete?
 
