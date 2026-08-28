@@ -131,6 +131,9 @@ jobs:
       - name: Install clang-format
         run: brew install clang-format zstd
 
+      - name: Install Rosetta for x86_64 runtime tests
+        run: sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+
       - name: C backend tests
         run: make -C app/src-c test
 
