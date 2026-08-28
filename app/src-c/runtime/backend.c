@@ -704,7 +704,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/update/start") == 0) {
-        body = ms_update_start_json(context->metalsharp_home);
+        body = ms_update_start_json(context->metalsharp_home, request->body, request->body_length);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
@@ -746,7 +746,9 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/update/dmg-path") == 0) {
-        body = ms_update_dmg_path_json(context->metalsharp_home);
+        body = ms_update_dmg_path_json(
+            context->metalsharp_home,
+            request->query != NULL && strcmp(request->query, "variant=fex") == 0 ? "fex" : "regular");
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

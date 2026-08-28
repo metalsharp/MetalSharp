@@ -86,6 +86,7 @@ test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST)
 	@"$(JSON_TEST)"
 	@"$(MIGRATION_TEST)"
 	@"$(HTTP_SERVER_TEST)"
+	@python3 "$(CURDIR)/tests/updater_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/shadps4_update_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/pcsx2_update_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/sharpemu_update_test.py" "$(TARGET)"
@@ -111,6 +112,8 @@ asan-test:
 			METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 \
 			METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 \
 			"$(CURDIR)/tests/smoke.sh" "$(CURDIR)/build-asan/metalsharp-backend"; then \
+			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/updater_test.py" \
+				"$(CURDIR)/build-asan/metalsharp-backend" && \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/pcsx2_update_test.py" \
 				"$(CURDIR)/build-asan/metalsharp-backend" && \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/sharpemu_update_test.py" \

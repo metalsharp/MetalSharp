@@ -44,6 +44,11 @@ interface UpdateStatus {
   latest_version: string;
   download_url: string;
   download_size: number;
+  fex_available: boolean;
+  fex_download_url: string;
+  fex_download_size: number;
+  fex_supported: boolean;
+  macos_major: number;
   release_notes: string;
   release_name: string;
   error?: string;

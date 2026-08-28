@@ -171,7 +171,19 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
   }
   if (url === "/update/check") {
     const version = uiOnlyVersion();
-    return { ok: true, available: false, current_version: version, latest_version: version };
+    return {
+      ok: true,
+      available: false,
+      current_version: version,
+      latest_version: version,
+      download_url: "",
+      download_size: 0,
+      fex_available: false,
+      fex_download_url: "",
+      fex_download_size: 0,
+      fex_supported: false,
+      macos_major: 0,
+    };
   }
   if (url === "/steam/watch-steamapps") {
     return { ok: true, new_appids: [] };
