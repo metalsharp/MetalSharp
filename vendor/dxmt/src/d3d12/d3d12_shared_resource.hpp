@@ -8,12 +8,15 @@ namespace dxmt {
 class MTLD3D12Device;
 class MTLD3D12Resource;
 class MTLD3D12Heap;
+class MTLD3D12Fence;
 
 inline constexpr uint32_t kD3D12SharedResourceMagic = 0x4d534852u;
 inline constexpr uint32_t kD3D12SharedResourceVersion = 1;
 inline constexpr uint32_t kD3D12SharedResourceKindBuffer = 1;
 inline constexpr uint32_t kD3D12SharedResourceKindHeap = 2;
+inline constexpr uint32_t kD3D12SharedResourceKindFence = 3;
 inline constexpr uint64_t kD3D12SharedResourceDataOffset = 4096;
+inline constexpr uint64_t kD3D12SharedFenceValueOffset = 128;
 
 // Fixed-layout metadata stored in a named file mapping.  It contains no
 // process-local pointers or Metal object handles and can therefore be opened
@@ -49,6 +52,21 @@ struct D3D12SharedHeapMetadata {
 
 static_assert(sizeof(D3D12SharedHeapMetadata) % 8 == 0);
 
+struct D3D12SharedFenceMetadata {
+  uint32_t magic = kD3D12SharedResourceMagic;
+  uint32_t version = kD3D12SharedResourceVersion;
+  uint32_t kind = kD3D12SharedResourceKindFence;
+  uint32_t reserved = 0;
+  uint64_t mapping_size = 4096;
+  uint64_t value_offset = kD3D12SharedFenceValueOffset;
+  uint64_t initial_value = 0;
+  D3D12_FENCE_FLAGS flags = D3D12_FENCE_FLAG_NONE;
+  uint32_t reserved_flags = 0;
+  uint64_t reserved_tail[4] = {};
+};
+
+static_assert(sizeof(D3D12SharedFenceMetadata) % 8 == 0);
+
 HRESULT CreateSharedBufferMapping(MTLD3D12Resource *resource,
                                   const WCHAR *name, HANDLE *mapping);
 HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
@@ -57,5 +75,9 @@ HRESULT CreateSharedHeapMapping(MTLD3D12Heap *heap, const WCHAR *name,
                                 HANDLE *mapping);
 HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
                                   ID3D12Heap **heap);
+HRESULT CreateSharedFenceMapping(MTLD3D12Fence *fence, const WCHAR *name,
+                                 HANDLE *mapping);
+HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
+                                   ID3D12Fence **fence);
 
 } // namespace dxmt

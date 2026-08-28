@@ -1,6 +1,7 @@
 #include "d3d12_shared_resource.hpp"
 
 #include "d3d12_device.hpp"
+#include "d3d12_fence.hpp"
 #include "d3d12_resource.hpp"
 #include "d3d12_trace.hpp"
 #include <algorithm>
@@ -236,6 +237,99 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
   SHARETRACE("opened shared buffer mapping=%p resource=%p size=%llu",
              mapping, (void *)*resource,
              (unsigned long long)metadata.data_size);
+  return S_OK;
+}
+
+HRESULT CreateSharedFenceMapping(MTLD3D12Fence *fence, const WCHAR *name,
+                                 HANDLE *mapping) {
+  if (!fence || !name || !name[0] || !mapping)
+    return E_INVALIDARG;
+  *mapping = nullptr;
+  constexpr uint64_t mapping_size = 4096;
+  HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
+                                      PAGE_READWRITE, 0,
+                                      static_cast<DWORD>(mapping_size), name);
+  if (!section)
+    return HResultFromLastError();
+  if (GetLastError() == ERROR_ALREADY_EXISTS) {
+    CloseHandle(section);
+    return DXGI_ERROR_NAME_ALREADY_EXISTS;
+  }
+  void *view = MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+  if (!view) {
+    HRESULT hr = HResultFromLastError();
+    CloseHandle(section);
+    return hr;
+  }
+  D3D12SharedFenceMetadata metadata = {};
+  metadata.mapping_size = mapping_size;
+  metadata.initial_value = fence->GetCompletedValue();
+  metadata.flags = fence->GetFlags();
+  std::memcpy(view, &metadata, sizeof(metadata));
+  auto *shared_value = reinterpret_cast<volatile LONG64 *>(
+      static_cast<uint8_t *>(view) + metadata.value_offset);
+  InterlockedExchange64(shared_value, static_cast<LONG64>(metadata.initial_value));
+  HANDLE owner_mapping = nullptr;
+  HRESULT hr = DuplicateMappingHandle(section, &owner_mapping);
+  if (SUCCEEDED(hr))
+    fence->AdoptSharedMapping(owner_mapping, view, mapping_size,
+                              metadata.value_offset);
+  if (FAILED(hr)) {
+    if (owner_mapping)
+      CloseHandle(owner_mapping);
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return hr;
+  }
+  *mapping = section;
+  return S_OK;
+}
+
+HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
+                                   ID3D12Fence **fence) {
+  if (!device || !mapping || !fence)
+    return E_INVALIDARG;
+  *fence = nullptr;
+  void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+  if (!view)
+    return HResultFromLastError();
+  D3D12SharedFenceMetadata metadata = {};
+  std::memcpy(&metadata, view, sizeof(metadata));
+  if (metadata.magic != kD3D12SharedResourceMagic ||
+      metadata.version != kD3D12SharedResourceVersion ||
+      metadata.kind != kD3D12SharedResourceKindFence ||
+      metadata.mapping_size < metadata.value_offset + sizeof(LONG64) ||
+      metadata.value_offset < sizeof(metadata) ||
+      metadata.value_offset % alignof(LONG64) != 0) {
+    UnmapViewOfFile(view);
+    return DXGI_ERROR_INVALID_CALL;
+  }
+  auto *shared_value = reinterpret_cast<volatile LONG64 *>(
+      static_cast<uint8_t *>(view) + metadata.value_offset);
+  const uint64_t initial_value = static_cast<uint64_t>(
+      InterlockedCompareExchange64(shared_value, 0, 0));
+  HANDLE owner_mapping = nullptr;
+  HRESULT hr = DuplicateMappingHandle(mapping, &owner_mapping);
+  if (FAILED(hr)) {
+    UnmapViewOfFile(view);
+    return hr;
+  }
+  auto *created = new (std::nothrow)
+      MTLD3D12Fence(device, initial_value, metadata.flags);
+  if (!created) {
+    CloseHandle(owner_mapping);
+    UnmapViewOfFile(view);
+    return E_OUTOFMEMORY;
+  }
+  created->AdoptSharedMapping(owner_mapping, view, metadata.mapping_size,
+                              metadata.value_offset);
+  hr = created->QueryInterface(IID_ID3D12Fence,
+                               reinterpret_cast<void **>(fence));
+  created->Release();
+  if (FAILED(hr)) {
+    *fence = nullptr;
+    return hr;
+  }
   return S_OK;
 }
 

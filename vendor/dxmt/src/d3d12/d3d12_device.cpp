@@ -5095,6 +5095,34 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       }
       heap->Release();
     }
+    ID3D12Fence *fence = nullptr;
+    if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&fence)))) {
+      HANDLE public_mapping = nullptr;
+      HRESULT hr = CreateSharedFenceMapping(
+          static_cast<MTLD3D12Fence *>(fence), name, &public_mapping);
+      fence->Release();
+      if (SUCCEEDED(hr)) {
+        HANDLE retained_mapping = nullptr;
+        if (!DuplicateHandle(GetCurrentProcess(), public_mapping,
+                             GetCurrentProcess(), &retained_mapping, 0, FALSE,
+                             DUPLICATE_SAME_ACCESS)) {
+          HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
+          CloseHandle(public_mapping);
+          return duplicate_hr;
+        }
+        object->AddRef();
+        g_shared_handles.emplace(
+            public_mapping,
+            D3D12SharedHandleEntry{object, retained_mapping});
+        g_named_shared_handles.emplace(std::wstring(name), public_mapping);
+        *handle = public_mapping;
+        TRACE("CreateSharedHandle named fence object=%p name=%ls handle=%p",
+              (void *)object, name, public_mapping);
+        return S_OK;
+      }
+      if (hr != E_INVALIDARG)
+        return hr;
+    }
   }
 
   HANDLE public_handle = CreateEventA(nullptr, TRUE, FALSE, nullptr);
@@ -5155,6 +5183,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
       shared_heap->Release();
       return hr;
     }
+    ID3D12Fence *shared_fence = nullptr;
+    HRESULT shared_fence_hr =
+        OpenSharedFenceFromMapping(this, handle, &shared_fence);
+    if (SUCCEEDED(shared_fence_hr) && shared_fence) {
+      HRESULT hr = shared_fence->QueryInterface(riid, object);
+      shared_fence->Release();
+      return hr;
+    }
     return DXGI_ERROR_INVALID_CALL;
   }
   HRESULT hr = entry->second.object->QueryInterface(riid, object);
@@ -5182,15 +5218,20 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
     HRESULT hr = OpenSharedBufferFromMapping(this, opened_mapping,
                                              &shared_resource);
     ID3D12Heap *shared_heap = nullptr;
+    ID3D12Fence *shared_fence = nullptr;
     if (FAILED(hr) || !shared_resource)
       hr = OpenSharedHeapFromMapping(this, opened_mapping, &shared_heap);
-    if (FAILED(hr) || (!shared_resource && !shared_heap)) {
+    if (FAILED(hr) || (!shared_resource && !shared_heap))
+      hr = OpenSharedFenceFromMapping(this, opened_mapping, &shared_fence);
+    if (FAILED(hr) || (!shared_resource && !shared_heap && !shared_fence)) {
       CloseHandle(opened_mapping);
       return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
     }
     IUnknown *shared_object = shared_resource
                                    ? static_cast<IUnknown *>(shared_resource)
-                                   : static_cast<IUnknown *>(shared_heap);
+                                   : shared_heap
+                                         ? static_cast<IUnknown *>(shared_heap)
+                                         : static_cast<IUnknown *>(shared_fence);
     HANDLE retained_mapping = nullptr;
     if (!DuplicateHandle(GetCurrentProcess(), opened_mapping,
                          GetCurrentProcess(), &retained_mapping, 0, FALSE,
@@ -5200,6 +5241,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
         shared_resource->Release();
       if (shared_heap)
         shared_heap->Release();
+      if (shared_fence)
+        shared_fence->Release();
       CloseHandle(opened_mapping);
       return duplicate_hr;
     }

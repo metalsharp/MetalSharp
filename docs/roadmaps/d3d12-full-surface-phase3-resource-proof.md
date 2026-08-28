@@ -13,9 +13,10 @@
 - Resource and heap residency state tracks resident/evicted transitions and
   priority; mapping an evicted resource is rejected until it is made resident
   again.
-- Named buffer and CPU-visible heap sharing use platform file mappings with
+- Named buffers, CPU-visible heaps, and fences use platform file mappings with
   fixed metadata headers rather than a process-local object map. A second Wine
-  process can reconstruct a buffer and observe writes to the same backing.
+  process can reconstruct a buffer, observe writes to the same backing, and
+  observe a signaled fence value.
 - `OpenExistingHeapFromAddress` resolves a live mapped heap only for the owning
   device, and `OpenExistingHeapFromFileMapping` validates and reconstructs a
   shared CPU-visible heap.
@@ -46,6 +47,7 @@ The isolated source-staged probe passed with:
   "shared_handles.roundtrip_verified": true,
   "shared_handles.cross_process_verified": true,
   "shared_handles.heap_roundtrip_verified": true,
+  "shared_handles.fence_cross_process_verified": true,
   "buffers.address_heap_open_verified": true,
   "textures.unaligned_bc1_copy_verified": true,
   "sparse.unmapped_zero_verified": true,

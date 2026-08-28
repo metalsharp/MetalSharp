@@ -35,6 +35,10 @@ public:
   HRESULT STDMETHODCALLTYPE SetEventOnCompletion(uint64_t value,
                                                  HANDLE event) override;
   HRESULT STDMETHODCALLTYPE Signal(uint64_t value) override;
+  void AdoptSharedMapping(HANDLE mapping, void *mapping_view,
+                          uint64_t mapping_size, uint64_t value_offset);
+  bool IsShared() const { return m_shared_value != nullptr; }
+  D3D12_FENCE_FLAGS GetFlags() const { return m_flags; }
 
   WMT::Reference<WMT::SharedEvent> GetMTLSharedEvent() {
     return m_shared_event;
@@ -45,6 +49,10 @@ private:
   D3D12_FENCE_FLAGS m_flags;
   std::atomic<uint64_t> m_value;
   WMT::Reference<WMT::SharedEvent> m_shared_event;
+  HANDLE m_shared_mapping = nullptr;
+  void *m_shared_mapping_view = nullptr;
+  uint64_t m_shared_mapping_size = 0;
+  volatile LONG64 *m_shared_value = nullptr;
   ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
