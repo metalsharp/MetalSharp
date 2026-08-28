@@ -440,8 +440,7 @@ static CaseResult run_resource_binding_case() {
     bool verified = read_ok && std::memcmp(got, expected, sizeof(expected)) == 0;
     result.pass = SUCCEEDED(hr) && verified;
     result.hr = hr;
-    result.detail = verified
-                        ? "CBV/SRV/UAV dispatch and compute texture sampling verified"
+    result.detail = verified         ? "CBV/SRV/UAV dispatch and compute texture sampling verified"
                     : detail.empty() ? "resource binding mismatch"
                                      : detail;
     char extra[256] = {};

@@ -155,9 +155,7 @@ int main() {
     HRESULT present_fence_hr =
         device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&present_fence)) : E_FAIL;
     HRESULT dxgi_block_fence_hr =
-        device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
-                                     IID_PPV_ARGS(&dxgi_block_fence))
-               : E_FAIL;
+        device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&dxgi_block_fence)) : E_FAIL;
 
     const UINT64 buffer_bytes = 4096;
     D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -189,8 +187,7 @@ int main() {
                                         : E_FAIL;
     D3D12_RESOURCE_DESC timestamp_buffer_desc = buffer_desc(2 * sizeof(UINT64));
     HRESULT timestamp_readback_hr =
-        device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
-                                                 &timestamp_buffer_desc,
+        device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &timestamp_buffer_desc,
                                                  D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                  IID_PPV_ARGS(&timestamp_readback))
                : E_FAIL;
@@ -199,14 +196,11 @@ int main() {
     timestamp_heap_desc.Count = 2;
     HRESULT timestamp_heap_hr =
         device ? device->CreateQueryHeap(&timestamp_heap_desc, IID_PPV_ARGS(&timestamp_heap)) : E_FAIL;
-    HRESULT invalid_make_resident_hr =
-        device ? device->MakeResident(1, nullptr) : E_FAIL;
+    HRESULT invalid_make_resident_hr = device ? device->MakeResident(1, nullptr) : E_FAIL;
     HRESULT invalid_evict_hr = device ? device->Evict(1, nullptr) : E_FAIL;
-    ID3D12Pageable *null_pageable[] = {nullptr};
-    HRESULT null_make_resident_entry_hr =
-        device ? device->MakeResident(1, null_pageable) : E_FAIL;
-    HRESULT null_evict_entry_hr =
-        device ? device->Evict(1, null_pageable) : E_FAIL;
+    ID3D12Pageable* null_pageable[] = {nullptr};
+    HRESULT null_make_resident_entry_hr = device ? device->MakeResident(1, null_pageable) : E_FAIL;
+    HRESULT null_evict_entry_hr = device ? device->Evict(1, null_pageable) : E_FAIL;
 
     uint8_t* upload_ptr = nullptr;
     HRESULT map_upload_hr =
@@ -223,8 +217,7 @@ int main() {
         copy_list->EndQuery(timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0);
         copy_list->CopyBufferRegion(copy_buffer, 0, upload_buffer, 0, 16);
         copy_list->EndQuery(timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, 1);
-        copy_list->ResolveQueryData(timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP,
-                                    0, 2, timestamp_readback, 0);
+        copy_list->ResolveQueryData(timestamp_heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, timestamp_readback, 0);
     }
 
     if (render_list && copy_buffer && render_buffer) {
@@ -299,98 +292,53 @@ int main() {
     }
 
     IDXGIDevice3* dxgi_device3 = nullptr;
-    HRESULT dxgi_device3_qi_hr =
-        device ? device->QueryInterface(IID_PPV_ARGS(&dxgi_device3)) : E_FAIL;
+    HRESULT dxgi_device3_qi_hr = device ? device->QueryInterface(IID_PPV_ARGS(&dxgi_device3)) : E_FAIL;
     INT default_gpu_priority = INT_MIN;
     HRESULT get_default_gpu_priority_hr =
-        dxgi_device3
-            ? dxgi_device3->GetGPUThreadPriority(&default_gpu_priority)
-            : E_NOINTERFACE;
-    HRESULT set_gpu_priority_hr =
-        dxgi_device3 ? dxgi_device3->SetGPUThreadPriority(-7)
-                     : E_NOINTERFACE;
+        dxgi_device3 ? dxgi_device3->GetGPUThreadPriority(&default_gpu_priority) : E_NOINTERFACE;
+    HRESULT set_gpu_priority_hr = dxgi_device3 ? dxgi_device3->SetGPUThreadPriority(-7) : E_NOINTERFACE;
     INT updated_gpu_priority = INT_MIN;
     HRESULT get_updated_gpu_priority_hr =
-        dxgi_device3
-            ? dxgi_device3->GetGPUThreadPriority(&updated_gpu_priority)
-            : E_NOINTERFACE;
-    HRESULT set_invalid_gpu_priority_hr =
-        dxgi_device3 ? dxgi_device3->SetGPUThreadPriority(-8)
-                     : E_NOINTERFACE;
-    HRESULT get_null_gpu_priority_hr =
-        dxgi_device3 ? dxgi_device3->GetGPUThreadPriority(nullptr)
-                     : E_NOINTERFACE;
+        dxgi_device3 ? dxgi_device3->GetGPUThreadPriority(&updated_gpu_priority) : E_NOINTERFACE;
+    HRESULT set_invalid_gpu_priority_hr = dxgi_device3 ? dxgi_device3->SetGPUThreadPriority(-8) : E_NOINTERFACE;
+    HRESULT get_null_gpu_priority_hr = dxgi_device3 ? dxgi_device3->GetGPUThreadPriority(nullptr) : E_NOINTERFACE;
     UINT default_frame_latency = UINT_MAX;
     HRESULT get_default_frame_latency_hr =
-        dxgi_device3
-            ? dxgi_device3->GetMaximumFrameLatency(&default_frame_latency)
-            : E_NOINTERFACE;
-    HRESULT set_frame_latency_hr =
-        dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(7)
-                     : E_NOINTERFACE;
+        dxgi_device3 ? dxgi_device3->GetMaximumFrameLatency(&default_frame_latency) : E_NOINTERFACE;
+    HRESULT set_frame_latency_hr = dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(7) : E_NOINTERFACE;
     UINT updated_frame_latency = UINT_MAX;
     HRESULT get_updated_frame_latency_hr =
-        dxgi_device3
-            ? dxgi_device3->GetMaximumFrameLatency(&updated_frame_latency)
-            : E_NOINTERFACE;
-    HRESULT reset_frame_latency_hr =
-        dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(0)
-                     : E_NOINTERFACE;
+        dxgi_device3 ? dxgi_device3->GetMaximumFrameLatency(&updated_frame_latency) : E_NOINTERFACE;
+    HRESULT reset_frame_latency_hr = dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(0) : E_NOINTERFACE;
     UINT reset_frame_latency = UINT_MAX;
     HRESULT get_reset_frame_latency_hr =
-        dxgi_device3
-            ? dxgi_device3->GetMaximumFrameLatency(&reset_frame_latency)
-            : E_NOINTERFACE;
-    HRESULT set_invalid_frame_latency_hr =
-        dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(17)
-                     : E_NOINTERFACE;
+        dxgi_device3 ? dxgi_device3->GetMaximumFrameLatency(&reset_frame_latency) : E_NOINTERFACE;
+    HRESULT set_invalid_frame_latency_hr = dxgi_device3 ? dxgi_device3->SetMaximumFrameLatency(17) : E_NOINTERFACE;
     HRESULT zero_residency_hr =
-        dxgi_device3
-            ? dxgi_device3->QueryResourceResidency(nullptr, nullptr, 0)
-            : E_NOINTERFACE;
+        dxgi_device3 ? dxgi_device3->QueryResourceResidency(nullptr, nullptr, 0) : E_NOINTERFACE;
     HRESULT zero_offer_hr =
-        dxgi_device3
-            ? dxgi_device3->OfferResources(
-                  0, nullptr, DXGI_OFFER_RESOURCE_PRIORITY_NORMAL)
-            : E_NOINTERFACE;
+        dxgi_device3 ? dxgi_device3->OfferResources(0, nullptr, DXGI_OFFER_RESOURCE_PRIORITY_NORMAL) : E_NOINTERFACE;
     HRESULT invalid_offer_priority_hr =
-        dxgi_device3
-            ? dxgi_device3->OfferResources(
-                  0, nullptr,
-                  static_cast<DXGI_OFFER_RESOURCE_PRIORITY>(0))
-            : E_NOINTERFACE;
-    HRESULT zero_reclaim_hr =
-        dxgi_device3 ? dxgi_device3->ReclaimResources(0, nullptr, nullptr)
+        dxgi_device3 ? dxgi_device3->OfferResources(0, nullptr, static_cast<DXGI_OFFER_RESOURCE_PRIORITY>(0))
                      : E_NOINTERFACE;
-    HRESULT enqueue_null_event_hr =
-        dxgi_device3 ? dxgi_device3->EnqueueSetEvent(nullptr) : E_NOINTERFACE;
+    HRESULT zero_reclaim_hr = dxgi_device3 ? dxgi_device3->ReclaimResources(0, nullptr, nullptr) : E_NOINTERFACE;
+    HRESULT enqueue_null_event_hr = dxgi_device3 ? dxgi_device3->EnqueueSetEvent(nullptr) : E_NOINTERFACE;
     HANDLE enqueue_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
     HANDLE enqueue_event_observer = nullptr;
     BOOL duplicate_enqueue_event =
-        enqueue_event &&
-        DuplicateHandle(GetCurrentProcess(), enqueue_event,
-                        GetCurrentProcess(), &enqueue_event_observer, 0, FALSE,
-                        DUPLICATE_SAME_ACCESS);
-    HRESULT dxgi_queue_block_hr =
-        copy_queue && dxgi_block_fence
-            ? copy_queue->Wait(dxgi_block_fence, 1)
-            : E_FAIL;
-    HRESULT enqueue_set_event_hr =
-        dxgi_device3 && enqueue_event && SUCCEEDED(dxgi_queue_block_hr)
-            ? dxgi_device3->EnqueueSetEvent(enqueue_event)
-            : E_FAIL;
+        enqueue_event && DuplicateHandle(GetCurrentProcess(), enqueue_event, GetCurrentProcess(),
+                                         &enqueue_event_observer, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    HRESULT dxgi_queue_block_hr = copy_queue && dxgi_block_fence ? copy_queue->Wait(dxgi_block_fence, 1) : E_FAIL;
+    HRESULT enqueue_set_event_hr = dxgi_device3 && enqueue_event && SUCCEEDED(dxgi_queue_block_hr)
+                                       ? dxgi_device3->EnqueueSetEvent(enqueue_event)
+                                       : E_FAIL;
     if (enqueue_event)
         CloseHandle(enqueue_event);
-    DWORD enqueue_initial_wait =
-        enqueue_event_observer
-            ? WaitForSingleObject(enqueue_event_observer, 0)
-            : WAIT_FAILED;
-    HRESULT dxgi_block_release_hr =
-        dxgi_block_fence ? dxgi_block_fence->Signal(1) : E_FAIL;
-    DWORD enqueue_final_wait =
-        enqueue_event_observer && SUCCEEDED(dxgi_block_release_hr)
-            ? WaitForSingleObject(enqueue_event_observer, 15000)
-            : WAIT_FAILED;
+    DWORD enqueue_initial_wait = enqueue_event_observer ? WaitForSingleObject(enqueue_event_observer, 0) : WAIT_FAILED;
+    HRESULT dxgi_block_release_hr = dxgi_block_fence ? dxgi_block_fence->Signal(1) : E_FAIL;
+    DWORD enqueue_final_wait = enqueue_event_observer && SUCCEEDED(dxgi_block_release_hr)
+                                   ? WaitForSingleObject(enqueue_event_observer, 15000)
+                                   : WAIT_FAILED;
     if (enqueue_event_observer)
         CloseHandle(enqueue_event_observer);
 
@@ -438,16 +386,13 @@ int main() {
     UINT64* timestamp_ptr = nullptr;
     D3D12_RANGE timestamp_range = {0, sizeof(copy_timestamps)};
     HRESULT timestamp_map_hr =
-        timestamp_readback
-            ? timestamp_readback->Map(0, &timestamp_range,
-                                      reinterpret_cast<void**>(&timestamp_ptr))
-            : E_FAIL;
+        timestamp_readback ? timestamp_readback->Map(0, &timestamp_range, reinterpret_cast<void**>(&timestamp_ptr))
+                           : E_FAIL;
     bool copy_timestamps_ok = SUCCEEDED(timestamp_map_hr) && timestamp_ptr;
     if (copy_timestamps_ok) {
         copy_timestamps[0] = timestamp_ptr[0];
         copy_timestamps[1] = timestamp_ptr[1];
-        copy_timestamps_ok = copy_timestamps[0] != 0 &&
-                             copy_timestamps[1] >= copy_timestamps[0];
+        copy_timestamps_ok = copy_timestamps[0] != 0 && copy_timestamps[1] >= copy_timestamps[0];
         D3D12_RANGE written = {0, 0};
         timestamp_readback->Unmap(0, &written);
     }
@@ -481,43 +426,37 @@ int main() {
         direct_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT && present_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT &&
         compute_desc.Type == D3D12_COMMAND_LIST_TYPE_COMPUTE && copy_desc.Type == D3D12_COMMAND_LIST_TYPE_COPY;
     bool fences_ok = copy_completed >= 1 && render_completed >= 2 && compute_completed >= 3 && present_completed >= 4;
-    bool pass = SUCCEEDED(create_hr) && SUCCEEDED(direct_queue_hr) && SUCCEEDED(present_queue_hr) &&
-                SUCCEEDED(compute_queue_hr) && SUCCEEDED(copy_queue_hr) && SUCCEEDED(render_objects_hr) &&
-                SUCCEEDED(present_objects_hr) && SUCCEEDED(compute_objects_hr) && SUCCEEDED(copy_objects_hr) &&
-                SUCCEEDED(copy_fence_hr) && SUCCEEDED(render_fence_hr) && SUCCEEDED(compute_fence_hr) &&
-                SUCCEEDED(present_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(copy_buffer_hr) &&
-                SUCCEEDED(dxgi_block_fence_hr) && SUCCEEDED(dxgi_device3_qi_hr) &&
-                SUCCEEDED(get_default_gpu_priority_hr) && default_gpu_priority == 0 &&
-                SUCCEEDED(set_gpu_priority_hr) && SUCCEEDED(get_updated_gpu_priority_hr) &&
-                updated_gpu_priority == -7 && set_invalid_gpu_priority_hr == E_INVALIDARG &&
-                get_null_gpu_priority_hr == E_POINTER &&
-                SUCCEEDED(get_default_frame_latency_hr) && default_frame_latency == 3 &&
-                SUCCEEDED(set_frame_latency_hr) && SUCCEEDED(get_updated_frame_latency_hr) &&
-                updated_frame_latency == 7 && SUCCEEDED(reset_frame_latency_hr) &&
-                SUCCEEDED(get_reset_frame_latency_hr) && reset_frame_latency == 3 &&
-                set_invalid_frame_latency_hr == E_INVALIDARG && SUCCEEDED(zero_residency_hr) &&
-                SUCCEEDED(zero_offer_hr) && invalid_offer_priority_hr == E_INVALIDARG &&
-                SUCCEEDED(zero_reclaim_hr) &&
-                invalid_make_resident_hr == E_INVALIDARG &&
-                invalid_evict_hr == E_INVALIDARG &&
-                null_make_resident_entry_hr == E_INVALIDARG &&
-                null_evict_entry_hr == E_INVALIDARG &&
-                enqueue_null_event_hr == E_INVALIDARG && duplicate_enqueue_event &&
-                SUCCEEDED(dxgi_queue_block_hr) && SUCCEEDED(enqueue_set_event_hr) &&
-                enqueue_initial_wait == WAIT_TIMEOUT && SUCCEEDED(dxgi_block_release_hr) &&
-                enqueue_final_wait == WAIT_OBJECT_0 &&
-                SUCCEEDED(render_buffer_hr) && SUCCEEDED(readback_buffer_hr) && SUCCEEDED(map_upload_hr) &&
-                SUCCEEDED(copy_close_hr) && SUCCEEDED(render_close_hr) && SUCCEEDED(compute_close_hr) &&
-                SUCCEEDED(present_close_hr) && SUCCEEDED(copy_execute_hr) && SUCCEEDED(copy_signal_hr) &&
-                SUCCEEDED(render_wait_hr) && SUCCEEDED(render_execute_hr) && SUCCEEDED(render_signal_hr) &&
-                SUCCEEDED(compute_wait_hr) && SUCCEEDED(compute_execute_hr) && SUCCEEDED(compute_signal_hr) &&
-                SUCCEEDED(present_wait_hr) && SUCCEEDED(present_execute_hr) && SUCCEEDED(present_signal_hr) &&
-                SUCCEEDED(cpu_wait_hr) && SUCCEEDED(copy_allocator_reset_hr) && SUCCEEDED(render_allocator_reset_hr) &&
-                SUCCEEDED(compute_allocator_reset_hr) && SUCCEEDED(present_allocator_reset_hr) &&
-                SUCCEEDED(copy_list_reset_hr) && SUCCEEDED(render_list_reset_hr) && SUCCEEDED(compute_list_reset_hr) &&
-                SUCCEEDED(present_list_reset_hr) && SUCCEEDED(map_readback_hr) && readback_ok && queue_types_ok &&
-                fences_ok && SUCCEEDED(timestamp_frequency_hr) && SUCCEEDED(clock_calibration_hr) &&
-                SUCCEEDED(timestamp_heap_hr) && SUCCEEDED(timestamp_readback_hr) && copy_timestamps_ok;
+    bool pass =
+        SUCCEEDED(create_hr) && SUCCEEDED(direct_queue_hr) && SUCCEEDED(present_queue_hr) &&
+        SUCCEEDED(compute_queue_hr) && SUCCEEDED(copy_queue_hr) && SUCCEEDED(render_objects_hr) &&
+        SUCCEEDED(present_objects_hr) && SUCCEEDED(compute_objects_hr) && SUCCEEDED(copy_objects_hr) &&
+        SUCCEEDED(copy_fence_hr) && SUCCEEDED(render_fence_hr) && SUCCEEDED(compute_fence_hr) &&
+        SUCCEEDED(present_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(copy_buffer_hr) &&
+        SUCCEEDED(dxgi_block_fence_hr) && SUCCEEDED(dxgi_device3_qi_hr) && SUCCEEDED(get_default_gpu_priority_hr) &&
+        default_gpu_priority == 0 && SUCCEEDED(set_gpu_priority_hr) && SUCCEEDED(get_updated_gpu_priority_hr) &&
+        updated_gpu_priority == -7 && set_invalid_gpu_priority_hr == E_INVALIDARG &&
+        get_null_gpu_priority_hr == E_POINTER && SUCCEEDED(get_default_frame_latency_hr) &&
+        default_frame_latency == 3 && SUCCEEDED(set_frame_latency_hr) && SUCCEEDED(get_updated_frame_latency_hr) &&
+        updated_frame_latency == 7 && SUCCEEDED(reset_frame_latency_hr) && SUCCEEDED(get_reset_frame_latency_hr) &&
+        reset_frame_latency == 3 && set_invalid_frame_latency_hr == E_INVALIDARG && SUCCEEDED(zero_residency_hr) &&
+        SUCCEEDED(zero_offer_hr) && invalid_offer_priority_hr == E_INVALIDARG && SUCCEEDED(zero_reclaim_hr) &&
+        invalid_make_resident_hr == E_INVALIDARG && invalid_evict_hr == E_INVALIDARG &&
+        null_make_resident_entry_hr == E_INVALIDARG && null_evict_entry_hr == E_INVALIDARG &&
+        enqueue_null_event_hr == E_INVALIDARG && duplicate_enqueue_event && SUCCEEDED(dxgi_queue_block_hr) &&
+        SUCCEEDED(enqueue_set_event_hr) && enqueue_initial_wait == WAIT_TIMEOUT && SUCCEEDED(dxgi_block_release_hr) &&
+        enqueue_final_wait == WAIT_OBJECT_0 && SUCCEEDED(render_buffer_hr) && SUCCEEDED(readback_buffer_hr) &&
+        SUCCEEDED(map_upload_hr) && SUCCEEDED(copy_close_hr) && SUCCEEDED(render_close_hr) &&
+        SUCCEEDED(compute_close_hr) && SUCCEEDED(present_close_hr) && SUCCEEDED(copy_execute_hr) &&
+        SUCCEEDED(copy_signal_hr) && SUCCEEDED(render_wait_hr) && SUCCEEDED(render_execute_hr) &&
+        SUCCEEDED(render_signal_hr) && SUCCEEDED(compute_wait_hr) && SUCCEEDED(compute_execute_hr) &&
+        SUCCEEDED(compute_signal_hr) && SUCCEEDED(present_wait_hr) && SUCCEEDED(present_execute_hr) &&
+        SUCCEEDED(present_signal_hr) && SUCCEEDED(cpu_wait_hr) && SUCCEEDED(copy_allocator_reset_hr) &&
+        SUCCEEDED(render_allocator_reset_hr) && SUCCEEDED(compute_allocator_reset_hr) &&
+        SUCCEEDED(present_allocator_reset_hr) && SUCCEEDED(copy_list_reset_hr) && SUCCEEDED(render_list_reset_hr) &&
+        SUCCEEDED(compute_list_reset_hr) && SUCCEEDED(present_list_reset_hr) && SUCCEEDED(map_readback_hr) &&
+        readback_ok && queue_types_ok && fences_ok && SUCCEEDED(timestamp_frequency_hr) &&
+        SUCCEEDED(clock_calibration_hr) && SUCCEEDED(timestamp_heap_hr) && SUCCEEDED(timestamp_readback_hr) &&
+        copy_timestamps_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-queues.v1\",\n");
@@ -538,16 +477,12 @@ int main() {
     print_hr("timestamp_frequency", timestamp_frequency_hr);
     print_hr("clock_calibration", clock_calibration_hr);
     std::printf("    \"timestamp_frequency_value\": %" PRIu64 ",\n", direct_frequency);
-    std::printf("    \"copy_timestamp_heap_hr\": \"0x%08lx\",\n",
-                static_cast<unsigned long>(timestamp_heap_hr));
+    std::printf("    \"copy_timestamp_heap_hr\": \"0x%08lx\",\n", static_cast<unsigned long>(timestamp_heap_hr));
     std::printf("    \"copy_timestamp_readback_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(timestamp_readback_hr));
-    std::printf("    \"copy_timestamp_map_hr\": \"0x%08lx\",\n",
-                static_cast<unsigned long>(timestamp_map_hr));
-    std::printf("    \"copy_timestamp_values\": [%" PRIu64 ",%" PRIu64 "],\n",
-                copy_timestamps[0], copy_timestamps[1]);
-    std::printf("    \"copy_timestamps_verified\": %s,\n",
-                copy_timestamps_ok ? "true" : "false");
+    std::printf("    \"copy_timestamp_map_hr\": \"0x%08lx\",\n", static_cast<unsigned long>(timestamp_map_hr));
+    std::printf("    \"copy_timestamp_values\": [%" PRIu64 ",%" PRIu64 "],\n", copy_timestamps[0], copy_timestamps[1]);
+    std::printf("    \"copy_timestamps_verified\": %s,\n", copy_timestamps_ok ? "true" : "false");
     std::printf("    \"clock_gpu\": %" PRIu64 ",\n", direct_gpu_clock);
     std::printf("    \"clock_cpu\": %" PRIu64 "\n", direct_cpu_clock);
     std::printf("  },\n");
@@ -606,8 +541,7 @@ int main() {
     print_hr("dxgi_queue_block", dxgi_queue_block_hr);
     print_hr("enqueue_set_event", enqueue_set_event_hr);
     print_hr("dxgi_block_release", dxgi_block_release_hr);
-    std::printf("    \"enqueue_event_handle_duplicated\": %s,\n",
-                duplicate_enqueue_event ? "true" : "false");
+    std::printf("    \"enqueue_event_handle_duplicated\": %s,\n", duplicate_enqueue_event ? "true" : "false");
     std::printf("    \"enqueue_event_blocked_before_queue_completion\": %s,\n",
                 enqueue_initial_wait == WAIT_TIMEOUT ? "true" : "false");
     std::printf("    \"enqueue_event_signaled_after_all_queues\": %s,\n",
