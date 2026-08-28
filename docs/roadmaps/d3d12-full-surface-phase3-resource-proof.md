@@ -54,6 +54,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.misaligned_placement": "0x80070057",
   "textures.unaligned_bc1_copy_verified": true,
+  "formats.D24_UNORM_S8_UINT.plane_count": 2,
   "sparse.unmapped_zero_verified": true,
   "sparse.tier3_physical_page_ownership_verified": true,
   "sparse.volume_copy_verified": true,
