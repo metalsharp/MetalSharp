@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 BACKEND = Path(sys.argv[1]).resolve()
-VERSION = "0.61.0"
+VERSION = "0.62.0"
 
 
 def free_port() -> int:

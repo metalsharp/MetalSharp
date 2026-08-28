@@ -294,11 +294,11 @@ char* ms_update_check_json(void) {
     ms_json_writer writer;
     char* result;
     if (text == NULL)
-        return strdup("{\"ok\":false,\"error\":\"failed to fetch release\",\"current_version\":\"0.60.0\"}");
+        return strdup("{\"ok\":false,\"error\":\"failed to fetch release\",\"current_version\":\"0.61.0\"}");
     release = ms_json_parse(text, strlen(text), error, sizeof(error));
     free(text);
     if (release == NULL)
-        return strdup("{\"ok\":false,\"error\":\"failed to parse release\",\"current_version\":\"0.60.0\"}");
+        return strdup("{\"ok\":false,\"error\":\"failed to parse release\",\"current_version\":\"0.61.0\"}");
     tag = release_field_json(release, "tag_name");
     latest = clean_version(tag);
     name = release_field_json(release, "name");
