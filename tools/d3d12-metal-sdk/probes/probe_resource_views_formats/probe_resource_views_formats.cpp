@@ -854,16 +854,14 @@ static CaseResult run_view_binding_case() {
 
 static CaseResult run_castable_format_case() {
     CaseResult result = {"relaxed_castable_formats", false, E_FAIL, "", ""};
-    const char* hlsl =
-        "Texture2D<uint> input_texture:register(t0);"
-        "RWByteAddressBuffer output:register(u0);"
-        "[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){"
-        "output.Store(0,input_texture.Load(int3(0,0,0)));}";
-    const char* rgba_hlsl =
-        "Texture2D<uint4> input_texture:register(t0);"
-        "RWByteAddressBuffer output:register(u0);"
-        "[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){"
-        "output.Store4(0,input_texture.Load(int3(0,0,0)));}";
+    const char* hlsl = "Texture2D<uint> input_texture:register(t0);"
+                       "RWByteAddressBuffer output:register(u0);"
+                       "[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){"
+                       "output.Store(0,input_texture.Load(int3(0,0,0)));}";
+    const char* rgba_hlsl = "Texture2D<uint4> input_texture:register(t0);"
+                            "RWByteAddressBuffer output:register(u0);"
+                            "[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){"
+                            "output.Store4(0,input_texture.Load(int3(0,0,0)));}";
 
     ID3D12Device* device = nullptr;
     ID3D12Device10* device10 = nullptr;
@@ -922,8 +920,7 @@ static CaseResult run_castable_format_case() {
         hr = serialize_root_signature(root_desc, &root_blob, shader_errors);
     }
     if (SUCCEEDED(hr))
-        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
-                                         root_blob->GetBufferSize(),
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(), root_blob->GetBufferSize(),
                                          IID_PPV_ARGS(&root));
     if (SUCCEEDED(hr)) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
@@ -932,8 +929,7 @@ static CaseResult run_castable_format_case() {
         hr = device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso));
         if (SUCCEEDED(hr)) {
             desc.CS = {rgba_cs->GetBufferPointer(), rgba_cs->GetBufferSize()};
-            hr = device->CreateComputePipelineState(&desc,
-                                                     IID_PPV_ARGS(&rgba_pso));
+            hr = device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&rgba_pso));
         }
     }
     if (SUCCEEDED(hr))
@@ -948,38 +944,33 @@ static CaseResult run_castable_format_case() {
         hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap));
     }
 
-    D3D12_RESOURCE_DESC texture_desc = texture2d_desc(
-        1, 1, 1, 1, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_NONE);
+    D3D12_RESOURCE_DESC texture_desc = texture2d_desc(1, 1, 1, 1, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_NONE);
     D3D12_RESOURCE_DESC1 texture_desc1 = {};
     std::memcpy(&texture_desc1, &texture_desc, sizeof(texture_desc));
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
     UINT rows = 0;
     UINT64 row_bytes = 0;
     UINT64 upload_bytes = 0;
-    DXGI_FORMAT castable_formats[] = {
-        DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R8G8B8A8_UINT};
+    DXGI_FORMAT castable_formats[] = {DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R8G8B8A8_UINT};
     HRESULT invalid_list_hr = E_FAIL;
     bool invalid_list_rejected = false;
     if (SUCCEEDED(hr)) {
         const D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
         DXGI_FORMAT invalid_format = DXGI_FORMAT_R16_UINT;
         ID3D12Resource* invalid_resource = nullptr;
-        invalid_list_hr = device10->CreateCommittedResource3(
-            &props, D3D12_HEAP_FLAG_NONE, &texture_desc1,
-            D3D12_BARRIER_LAYOUT_COMMON, nullptr, nullptr, 1,
-            &invalid_format, IID_PPV_ARGS(&invalid_resource));
-        invalid_list_rejected = invalid_list_hr == E_INVALIDARG &&
-                                invalid_resource == nullptr;
+        invalid_list_hr = device10->CreateCommittedResource3(&props, D3D12_HEAP_FLAG_NONE, &texture_desc1,
+                                                             D3D12_BARRIER_LAYOUT_COMMON, nullptr, nullptr, 1,
+                                                             &invalid_format, IID_PPV_ARGS(&invalid_resource));
+        invalid_list_rejected = invalid_list_hr == E_INVALIDARG && invalid_resource == nullptr;
         safe_release(invalid_resource);
         if (!invalid_list_rejected)
             hr = E_FAIL;
     }
     if (SUCCEEDED(hr)) {
         const D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        hr = device10->CreateCommittedResource3(
-            &props, D3D12_HEAP_FLAG_NONE, &texture_desc1,
-            D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, nullptr,
-            2, castable_formats, IID_PPV_ARGS(&cast_texture));
+        hr = device10->CreateCommittedResource3(&props, D3D12_HEAP_FLAG_NONE, &texture_desc1,
+                                                D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, nullptr, 2, castable_formats,
+                                                IID_PPV_ARGS(&cast_texture));
     }
     if (SUCCEEDED(hr)) {
         D3D12_RESOURCE_ALLOCATION_INFO info = {};
@@ -992,99 +983,70 @@ static CaseResult run_castable_format_case() {
         hr = device->CreateHeap(&heap_desc, IID_PPV_ARGS(&cast_heap));
     }
     if (SUCCEEDED(hr))
-        hr = device10->CreatePlacedResource2(
-            cast_heap, 0, &texture_desc1, D3D12_BARRIER_LAYOUT_COPY_DEST,
-            nullptr, 2, castable_formats, IID_PPV_ARGS(&placed_cast_texture));
+        hr = device10->CreatePlacedResource2(cast_heap, 0, &texture_desc1, D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, 2,
+                                             castable_formats, IID_PPV_ARGS(&placed_cast_texture));
     if (SUCCEEDED(hr))
-        hr = device10->CreatePlacedResource2(
-            cast_heap, 0, &texture_desc1, D3D12_BARRIER_LAYOUT_COPY_DEST,
-            nullptr, 2, castable_formats, IID_PPV_ARGS(&alias_texture));
+        hr = device10->CreatePlacedResource2(cast_heap, 0, &texture_desc1, D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, 2,
+                                             castable_formats, IID_PPV_ARGS(&alias_texture));
     if (SUCCEEDED(hr)) {
-        device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &footprint,
-                                      &rows, &row_bytes, &upload_bytes);
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_UPLOAD,
-                                     upload_bytes, D3D12_RESOURCE_FLAG_NONE,
+        device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &footprint, &rows, &row_bytes, &upload_bytes);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_UPLOAD, upload_bytes, D3D12_RESOURCE_FLAG_NONE,
                                      D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
         uint8_t* mapped = nullptr;
         if (SUCCEEDED(hr))
             hr = upload->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr)) {
             const uint32_t one_float_bits = 0x3f800000u;
-            std::memcpy(mapped + footprint.Offset, &one_float_bits,
-                        sizeof(one_float_bits));
+            std::memcpy(mapped + footprint.Offset, &one_float_bits, sizeof(one_float_bits));
             upload->Unmap(0, nullptr);
         }
         if (SUCCEEDED(hr))
-            hr = create_committed_buffer(device, D3D12_HEAP_TYPE_UPLOAD,
-                                         upload_bytes, D3D12_RESOURCE_FLAG_NONE,
-                                         D3D12_RESOURCE_STATE_GENERIC_READ,
-                                         &alias_upload);
+            hr = create_committed_buffer(device, D3D12_HEAP_TYPE_UPLOAD, upload_bytes, D3D12_RESOURCE_FLAG_NONE,
+                                         D3D12_RESOURCE_STATE_GENERIC_READ, &alias_upload);
         if (SUCCEEDED(hr)) {
             uint8_t* alias_mapped = nullptr;
-            hr = alias_upload->Map(0, nullptr,
-                                   reinterpret_cast<void**>(&alias_mapped));
+            hr = alias_upload->Map(0, nullptr, reinterpret_cast<void**>(&alias_mapped));
             if (SUCCEEDED(hr) && alias_mapped) {
                 const uint32_t two_float_bits = 0x40000000u;
-                std::memcpy(alias_mapped + footprint.Offset, &two_float_bits,
-                            sizeof(two_float_bits));
+                std::memcpy(alias_mapped + footprint.Offset, &two_float_bits, sizeof(two_float_bits));
                 alias_upload->Unmap(0, nullptr);
             }
         }
     }
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256,
-                                     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                                      D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &output);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256,
-                                     D3D12_RESOURCE_FLAG_NONE,
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256, D3D12_RESOURCE_FLAG_NONE,
                                      D3D12_RESOURCE_STATE_COPY_DEST, &readback);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256,
-                                     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                                     &rejected_output);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &rejected_output);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256,
-                                     D3D12_RESOURCE_FLAG_NONE,
-                                     D3D12_RESOURCE_STATE_COPY_DEST,
-                                     &rejected_readback);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256, D3D12_RESOURCE_FLAG_NONE,
+                                     D3D12_RESOURCE_STATE_COPY_DEST, &rejected_readback);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256,
-                                     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                                     &placed_output);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &placed_output);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256,
-                                     D3D12_RESOURCE_FLAG_NONE,
-                                     D3D12_RESOURCE_STATE_COPY_DEST,
-                                     &placed_readback);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256, D3D12_RESOURCE_FLAG_NONE,
+                                     D3D12_RESOURCE_STATE_COPY_DEST, &placed_readback);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256,
-                                     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                                     &alias_output);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &alias_output);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256,
-                                     D3D12_RESOURCE_FLAG_NONE,
-                                     D3D12_RESOURCE_STATE_COPY_DEST,
-                                     &alias_readback);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256, D3D12_RESOURCE_FLAG_NONE,
+                                     D3D12_RESOURCE_STATE_COPY_DEST, &alias_readback);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256,
-                                     D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                                     &rgba_output);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &rgba_output);
     if (SUCCEEDED(hr))
-        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256,
-                                     D3D12_RESOURCE_FLAG_NONE,
-                                     D3D12_RESOURCE_STATE_COPY_DEST,
-                                     &rgba_readback);
+        hr = create_committed_buffer(device, D3D12_HEAP_TYPE_READBACK, 256, D3D12_RESOURCE_FLAG_NONE,
+                                     D3D12_RESOURCE_STATE_COPY_DEST, &rgba_readback);
 
     if (SUCCEEDED(hr)) {
-        const UINT increment = device->GetDescriptorHandleIncrementSize(
-            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        const D3D12_CPU_DESCRIPTOR_HANDLE cpu =
-            heap->GetCPUDescriptorHandleForHeapStart();
+        const UINT increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        const D3D12_CPU_DESCRIPTOR_HANDLE cpu = heap->GetCPUDescriptorHandleForHeapStart();
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
         srv.Format = DXGI_FORMAT_R32_UINT;
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -1096,28 +1058,19 @@ static CaseResult run_castable_format_case() {
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uav.Buffer.NumElements = 64;
         uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-        device->CreateUnorderedAccessView(output, nullptr, &uav,
-                                          offset_cpu(cpu, increment, 1));
+        device->CreateUnorderedAccessView(output, nullptr, &uav, offset_cpu(cpu, increment, 1));
         srv.Format = DXGI_FORMAT_R32_SINT;
-        device->CreateShaderResourceView(cast_texture, &srv,
-                                         offset_cpu(cpu, increment, 2));
-        device->CreateUnorderedAccessView(rejected_output, nullptr, &uav,
-                                          offset_cpu(cpu, increment, 3));
+        device->CreateShaderResourceView(cast_texture, &srv, offset_cpu(cpu, increment, 2));
+        device->CreateUnorderedAccessView(rejected_output, nullptr, &uav, offset_cpu(cpu, increment, 3));
         srv.Format = DXGI_FORMAT_R32_UINT;
-        device->CreateShaderResourceView(placed_cast_texture, &srv,
-                                         offset_cpu(cpu, increment, 4));
-        device->CreateUnorderedAccessView(placed_output, nullptr, &uav,
-                                          offset_cpu(cpu, increment, 5));
+        device->CreateShaderResourceView(placed_cast_texture, &srv, offset_cpu(cpu, increment, 4));
+        device->CreateUnorderedAccessView(placed_output, nullptr, &uav, offset_cpu(cpu, increment, 5));
         srv.Format = DXGI_FORMAT_R8G8B8A8_UINT;
-        device->CreateShaderResourceView(cast_texture, &srv,
-                                         offset_cpu(cpu, increment, 6));
-        device->CreateUnorderedAccessView(rgba_output, nullptr, &uav,
-                                          offset_cpu(cpu, increment, 7));
+        device->CreateShaderResourceView(cast_texture, &srv, offset_cpu(cpu, increment, 6));
+        device->CreateUnorderedAccessView(rgba_output, nullptr, &uav, offset_cpu(cpu, increment, 7));
         srv.Format = DXGI_FORMAT_R32_UINT;
-        device->CreateShaderResourceView(placed_cast_texture, &srv,
-                                         offset_cpu(cpu, increment, 8));
-        device->CreateUnorderedAccessView(alias_output, nullptr, &uav,
-                                          offset_cpu(cpu, increment, 9));
+        device->CreateShaderResourceView(placed_cast_texture, &srv, offset_cpu(cpu, increment, 8));
+        device->CreateUnorderedAccessView(alias_output, nullptr, &uav, offset_cpu(cpu, increment, 9));
 
         D3D12_TEXTURE_COPY_LOCATION src = {};
         src.pResource = upload;
@@ -1129,64 +1082,45 @@ static CaseResult run_castable_format_case() {
         list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
         dst.pResource = placed_cast_texture;
         list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-        D3D12_RESOURCE_BARRIER texture_barrier = transition_barrier(
-            cast_texture, D3D12_RESOURCE_STATE_COPY_DEST,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        D3D12_RESOURCE_BARRIER texture_barrier = transition_barrier(cast_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+                                                                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         D3D12_RESOURCE_BARRIER placed_texture_barrier = transition_barrier(
-            placed_cast_texture, D3D12_RESOURCE_STATE_COPY_DEST,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        D3D12_RESOURCE_BARRIER texture_barriers[] = {
-            texture_barrier, placed_texture_barrier};
+            placed_cast_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        D3D12_RESOURCE_BARRIER texture_barriers[] = {texture_barrier, placed_texture_barrier};
         list->ResourceBarrier(2, texture_barriers);
         ID3D12DescriptorHeap* heaps[] = {heap};
         list->SetDescriptorHeaps(1, heaps);
-        D3D12_GPU_DESCRIPTOR_HANDLE output_gpu =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE output_gpu = heap->GetGPUDescriptorHandleForHeapStart();
         output_gpu.ptr += increment;
         const UINT clear[4] = {};
-        list->ClearUnorderedAccessViewUint(
-            output_gpu, offset_cpu(cpu, increment, 1), output, clear, 0,
-            nullptr);
+        list->ClearUnorderedAccessViewUint(output_gpu, offset_cpu(cpu, increment, 1), output, clear, 0, nullptr);
         D3D12_RESOURCE_BARRIER clear_barrier = uav_barrier(output);
         list->ResourceBarrier(1, &clear_barrier);
-        D3D12_GPU_DESCRIPTOR_HANDLE rejected_gpu =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE rejected_gpu = heap->GetGPUDescriptorHandleForHeapStart();
         rejected_gpu.ptr += 3ull * increment;
-        list->ClearUnorderedAccessViewUint(
-            rejected_gpu, offset_cpu(cpu, increment, 3), rejected_output,
-            clear, 0, nullptr);
-        D3D12_RESOURCE_BARRIER rejected_clear_barrier =
-            uav_barrier(rejected_output);
+        list->ClearUnorderedAccessViewUint(rejected_gpu, offset_cpu(cpu, increment, 3), rejected_output, clear, 0,
+                                           nullptr);
+        D3D12_RESOURCE_BARRIER rejected_clear_barrier = uav_barrier(rejected_output);
         list->ResourceBarrier(1, &rejected_clear_barrier);
-        D3D12_GPU_DESCRIPTOR_HANDLE placed_gpu =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE placed_gpu = heap->GetGPUDescriptorHandleForHeapStart();
         placed_gpu.ptr += 5ull * increment;
-        list->ClearUnorderedAccessViewUint(
-            placed_gpu, offset_cpu(cpu, increment, 5), placed_output, clear,
-            0, nullptr);
-        D3D12_RESOURCE_BARRIER placed_clear_barrier =
-            uav_barrier(placed_output);
+        list->ClearUnorderedAccessViewUint(placed_gpu, offset_cpu(cpu, increment, 5), placed_output, clear, 0, nullptr);
+        D3D12_RESOURCE_BARRIER placed_clear_barrier = uav_barrier(placed_output);
         list->ResourceBarrier(1, &placed_clear_barrier);
-        D3D12_GPU_DESCRIPTOR_HANDLE rgba_gpu =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE rgba_gpu = heap->GetGPUDescriptorHandleForHeapStart();
         rgba_gpu.ptr += 7ull * increment;
-        list->ClearUnorderedAccessViewUint(
-            rgba_gpu, offset_cpu(cpu, increment, 7), rgba_output, clear, 0,
-            nullptr);
+        list->ClearUnorderedAccessViewUint(rgba_gpu, offset_cpu(cpu, increment, 7), rgba_output, clear, 0, nullptr);
         D3D12_RESOURCE_BARRIER rgba_clear_barrier = uav_barrier(rgba_output);
         list->ResourceBarrier(1, &rgba_clear_barrier);
         list->SetComputeRootSignature(root);
-        list->SetComputeRootDescriptorTable(
-            0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
         list->SetPipelineState(pso);
         list->Dispatch(1, 1, 1);
-        D3D12_GPU_DESCRIPTOR_HANDLE invalid_table =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE invalid_table = heap->GetGPUDescriptorHandleForHeapStart();
         invalid_table.ptr += 2ull * increment;
         list->SetComputeRootDescriptorTable(0, invalid_table);
         list->Dispatch(1, 1, 1);
-        D3D12_GPU_DESCRIPTOR_HANDLE placed_table =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE placed_table = heap->GetGPUDescriptorHandleForHeapStart();
         placed_table.ptr += 4ull * increment;
         list->SetComputeRootDescriptorTable(0, placed_table);
         list->Dispatch(1, 1, 1);
@@ -1204,53 +1138,40 @@ static CaseResult run_castable_format_case() {
         alias_dst.pResource = alias_texture;
         alias_dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         list->CopyTextureRegion(&alias_dst, 0, 0, 0, &alias_src, nullptr);
-        D3D12_RESOURCE_BARRIER alias_texture_source = transition_barrier(
-            alias_texture, D3D12_RESOURCE_STATE_COPY_DEST,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_RESOURCE_BARRIER alias_texture_source =
+            transition_barrier(alias_texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->ResourceBarrier(1, &alias_texture_source);
         D3D12_RESOURCE_BARRIER texture_to_alias = {};
         texture_to_alias.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
         texture_to_alias.Aliasing.pResourceBefore = alias_texture;
         texture_to_alias.Aliasing.pResourceAfter = placed_cast_texture;
         list->ResourceBarrier(1, &texture_to_alias);
-        D3D12_GPU_DESCRIPTOR_HANDLE alias_table =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE alias_table = heap->GetGPUDescriptorHandleForHeapStart();
         alias_table.ptr += 8ull * increment;
-        const D3D12_CPU_DESCRIPTOR_HANDLE alias_uav_cpu =
-            offset_cpu(cpu, increment, 9);
+        const D3D12_CPU_DESCRIPTOR_HANDLE alias_uav_cpu = offset_cpu(cpu, increment, 9);
         D3D12_GPU_DESCRIPTOR_HANDLE alias_uav_gpu = alias_table;
         alias_uav_gpu.ptr += increment;
-        list->ClearUnorderedAccessViewUint(
-            alias_uav_gpu, alias_uav_cpu, alias_output, clear, 0, nullptr);
+        list->ClearUnorderedAccessViewUint(alias_uav_gpu, alias_uav_cpu, alias_output, clear, 0, nullptr);
         list->SetComputeRootDescriptorTable(0, alias_table);
         list->Dispatch(1, 1, 1);
 
-        D3D12_GPU_DESCRIPTOR_HANDLE rgba_table =
-            heap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE rgba_table = heap->GetGPUDescriptorHandleForHeapStart();
         rgba_table.ptr += 6ull * increment;
         list->SetComputeRootDescriptorTable(0, rgba_table);
         list->SetPipelineState(rgba_pso);
         list->Dispatch(1, 1, 1);
         D3D12_RESOURCE_BARRIER output_barriers[] = {
             uav_barrier(output),
-            transition_barrier(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE),
             uav_barrier(rejected_output),
-            transition_barrier(rejected_output,
-                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            transition_barrier(rejected_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                D3D12_RESOURCE_STATE_COPY_SOURCE),
             uav_barrier(placed_output),
-            transition_barrier(placed_output,
-                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(placed_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE),
             uav_barrier(alias_output),
-            transition_barrier(alias_output,
-                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(alias_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE),
             uav_barrier(rgba_output),
-            transition_barrier(rgba_output,
-                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(rgba_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE),
         };
         list->ResourceBarrier(10, output_barriers);
         list->CopyResource(readback, output);
@@ -1267,38 +1188,32 @@ static CaseResult run_castable_format_case() {
     uint32_t alias_observed = 0;
     uint32_t rgba_observed[4] = {};
     const bool readback_ok =
-        SUCCEEDED(hr) && readback_u32(readback, &observed, 1) &&
-        readback_u32(rejected_readback, &rejected_value, 1) &&
-        readback_u32(placed_readback, &placed_observed, 1) &&
-        readback_u32(alias_readback, &alias_observed, 1) &&
+        SUCCEEDED(hr) && readback_u32(readback, &observed, 1) && readback_u32(rejected_readback, &rejected_value, 1) &&
+        readback_u32(placed_readback, &placed_observed, 1) && readback_u32(alias_readback, &alias_observed, 1) &&
         readback_u32(rgba_readback, rgba_observed, 4);
     const bool overlapping_alias_verified =
-        readback_ok && placed_observed == 0x3f800000u &&
-        alias_observed == 0x40000000u;
-    result.pass = invalid_list_rejected && readback_ok &&
-                  observed == 0x3f800000u && rejected_value == 0 &&
+        readback_ok && placed_observed == 0x3f800000u && alias_observed == 0x40000000u;
+    result.pass = invalid_list_rejected && readback_ok && observed == 0x3f800000u && rejected_value == 0 &&
                   overlapping_alias_verified;
-    result.pass = result.pass && rgba_observed[0] == 0 &&
-                  rgba_observed[1] == 0 && rgba_observed[2] == 128 &&
+    result.pass = result.pass && rgba_observed[0] == 0 && rgba_observed[1] == 0 && rgba_observed[2] == 128 &&
                   rgba_observed[3] == 63;
     result.hr = result.pass ? S_OK : hr;
-    result.detail = result.pass
-        ? "committed and placed R32_FLOAT resources passed declared R32_UINT/R8G8B8A8_UINT reads, an overlapping placed alias switched from 1.0 to 2.0, mismatched lists failed, and undeclared R32_SINT remained null"
-        : (shader_errors.empty() ? "declared castable-format readback failed" : shader_errors);
+    result.detail =
+        result.pass
+            ? "committed and placed R32_FLOAT resources passed declared R32_UINT/R8G8B8A8_UINT reads, an overlapping "
+              "placed alias switched from 1.0 to 2.0, mismatched lists failed, and undeclared R32_SINT remained null"
+            : (shader_errors.empty() ? "declared castable-format readback failed" : shader_errors);
     char extra[512] = {};
     std::snprintf(extra, sizeof(extra),
                   "\"device10_available\":%s,\"resource_format\":\"R32_FLOAT\","
                   "\"declared_view_format\":\"R32_UINT\",\"rejected_view_format\":\"R32_SINT\","
                   "\"observed_bits\":%u,\"rejected_view_value\":%u,"
-                  "\"placed_observed_bits\":%u,\"alias_observed_bits\":%u,\"overlapping_alias_verified\":%s,\"rgba8_uint_values\":[%u,%u,%u,%u],"
+                  "\"placed_observed_bits\":%u,\"alias_observed_bits\":%u,\"overlapping_alias_verified\":%s,\"rgba8_"
+                  "uint_values\":[%u,%u,%u,%u],"
                   "\"mismatched_unit_size_hr\":\"%s\",\"mismatched_unit_size_rejected\":%s",
-                  device10 ? "true" : "false", observed, rejected_value,
-                  placed_observed, alias_observed,
-                  overlapping_alias_verified ? "true" : "false",
-                  rgba_observed[0], rgba_observed[1], rgba_observed[2],
-                  rgba_observed[3],
-                  hr_hex(invalid_list_hr).c_str(),
-                  invalid_list_rejected ? "true" : "false");
+                  device10 ? "true" : "false", observed, rejected_value, placed_observed, alias_observed,
+                  overlapping_alias_verified ? "true" : "false", rgba_observed[0], rgba_observed[1], rgba_observed[2],
+                  rgba_observed[3], hr_hex(invalid_list_hr).c_str(), invalid_list_rejected ? "true" : "false");
     result.extra = extra;
 
     safe_release(rgba_readback);

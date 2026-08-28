@@ -287,10 +287,8 @@ static CaseResult run_command_list_reuse_case() {
     HRESULT null_reset_hr = E_FAIL;
     if (SUCCEEDED(allocator_reset_hr))
         null_reset_hr = list->Reset(nullptr, nullptr);
-    HRESULT list_reset_hr = SUCCEEDED(allocator_reset_hr) &&
-                                    null_reset_hr == E_INVALIDARG
-                                ? list->Reset(allocator, nullptr)
-                                : E_FAIL;
+    HRESULT list_reset_hr =
+        SUCCEEDED(allocator_reset_hr) && null_reset_hr == E_INVALIDARG ? list->Reset(allocator, nullptr) : E_FAIL;
     if (SUCCEEDED(list_reset_hr)) {
         D3D12_RESOURCE_BARRIER to_dst =
             transition_barrier(target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -309,18 +307,17 @@ static CaseResult run_command_list_reuse_case() {
     uint8_t got_second[64] = {};
     bool second_ok = SUCCEEDED(hr) && readback_bytes(readback, got_second, sizeof(got_second)) &&
                      std::memcmp(got_second, second, sizeof(second)) == 0;
-    result.pass = first_ok && second_ok && SUCCEEDED(allocator_reset_hr) &&
-                  repeated_close_hr == E_FAIL && null_reset_hr == E_INVALIDARG &&
-                  SUCCEEDED(list_reset_hr);
+    result.pass = first_ok && second_ok && SUCCEEDED(allocator_reset_hr) && repeated_close_hr == E_FAIL &&
+                  null_reset_hr == E_INVALIDARG && SUCCEEDED(list_reset_hr);
     result.hr = result.pass ? S_OK : hr;
-    result.detail = result.pass ? "command list close, repeated-close rejection, allocator reset, null-reset rejection, list reset, and reuse verified"
+    result.detail = result.pass ? "command list close, repeated-close rejection, allocator reset, null-reset "
+                                  "rejection, list reset, and reuse verified"
                                 : "command list reuse verification failed";
     result.extra = "\"first_verified\":" + std::string(first_ok ? "true" : "false") +
                    ",\"second_verified\":" + (second_ok ? "true" : "false") + ",\"allocator_reset\":\"" +
-                   hr_hex(allocator_reset_hr) + "\",\"repeated_close\":\"" +
-                   hr_hex(repeated_close_hr) + "\",\"null_reset\":\"" +
-                   hr_hex(null_reset_hr) + "\",\"list_reset\":\"" +
-                   hr_hex(list_reset_hr) + "\"";
+                   hr_hex(allocator_reset_hr) + "\",\"repeated_close\":\"" + hr_hex(repeated_close_hr) +
+                   "\",\"null_reset\":\"" + hr_hex(null_reset_hr) + "\",\"list_reset\":\"" + hr_hex(list_reset_hr) +
+                   "\"";
 
     safe_release(readback);
     safe_release(target);
@@ -513,15 +510,14 @@ static CaseResult run_write_buffer_immediate_case() {
 
         ID3D12GraphicsCommandList* submit = list;
         if (SUCCEEDED(hr) && type == D3D12_COMMAND_LIST_TYPE_BUNDLE) {
-            hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                IID_PPV_ARGS(&direct_allocator));
+            hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&direct_allocator));
             if (SUCCEEDED(hr))
-                hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                               direct_allocator, nullptr, IID_PPV_ARGS(&direct));
+                hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, direct_allocator, nullptr,
+                                               IID_PPV_ARGS(&direct));
             if (SUCCEEDED(hr)) {
                 direct->ExecuteBundle(list);
-                D3D12_RESOURCE_BARRIER barrier = transition_barrier(
-                    target, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_RESOURCE_BARRIER barrier =
+                    transition_barrier(target, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
                 direct->ResourceBarrier(1, &barrier);
                 direct->CopyResource(readback, target);
                 hr = direct->Close();
@@ -530,11 +526,10 @@ static CaseResult run_write_buffer_immediate_case() {
         } else if (SUCCEEDED(hr)) {
             hr = device->CreateCommandAllocator(type, IID_PPV_ARGS(&direct_allocator));
             if (SUCCEEDED(hr))
-                hr = device->CreateCommandList(0, type, direct_allocator, nullptr,
-                                               IID_PPV_ARGS(&direct));
+                hr = device->CreateCommandList(0, type, direct_allocator, nullptr, IID_PPV_ARGS(&direct));
             if (SUCCEEDED(hr)) {
-                D3D12_RESOURCE_BARRIER barrier = transition_barrier(
-                    target, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_RESOURCE_BARRIER barrier =
+                    transition_barrier(target, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
                 direct->ResourceBarrier(1, &barrier);
                 direct->CopyResource(readback, target);
                 hr = direct->Close();
@@ -567,9 +562,8 @@ static CaseResult run_write_buffer_immediate_case() {
 
     result.pass = type_pass[0] && type_pass[1] && type_pass[2];
     result.hr = result.pass ? S_OK : final_hr;
-    result.detail = result.pass
-                        ? "direct, compute, and bundle WriteBufferImmediate modes passed readback"
-                        : "WriteBufferImmediate command-list coverage failed";
+    result.detail = result.pass ? "direct, compute, and bundle WriteBufferImmediate modes passed readback"
+                                : "WriteBufferImmediate command-list coverage failed";
     result.extra = "\"direct\":" + std::string(type_pass[0] ? "true" : "false") +
                    ",\"compute\":" + std::string(type_pass[1] ? "true" : "false") +
                    ",\"bundle\":" + std::string(type_pass[2] ? "true" : "false") +
@@ -753,8 +747,7 @@ static CaseResult run_execute_indirect_constants_case() {
 
 static CaseResult run_enhanced_barrier_case() {
     CaseResult result = {"enhanced_barriers", false, E_FAIL, "", ""};
-    uint32_t expected[4] = {0x454e4831, 0x454e4832, 0x454e4833,
-                            0x454e4834};
+    uint32_t expected[4] = {0x454e4831, 0x454e4832, 0x454e4833, 0x454e4834};
     ID3D12Device* device = nullptr;
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
@@ -766,31 +759,23 @@ static CaseResult run_enhanced_barrier_case() {
     ID3D12Resource* texture = nullptr;
     HRESULT hr = create_device(&device);
     D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12 = {};
-    HRESULT options12_hr = SUCCEEDED(hr)
-                               ? device->CheckFeatureSupport(
-                                     D3D12_FEATURE_D3D12_OPTIONS12, &options12,
-                                     sizeof(options12))
-                               : hr;
+    HRESULT options12_hr =
+        SUCCEEDED(hr) ? device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12)) : hr;
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
     if (SUCCEEDED(hr))
-        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                            IID_PPV_ARGS(&allocator));
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
     if (SUCCEEDED(hr))
-        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                       allocator, nullptr,
-                                       IID_PPV_ARGS(&list));
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&list));
     if (SUCCEEDED(hr))
         hr = list->QueryInterface(IID_PPV_ARGS(&list7));
     if (SUCCEEDED(hr))
         hr = create_upload_buffer(device, expected, sizeof(expected), &upload);
     if (SUCCEEDED(hr))
-        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(expected),
-                           D3D12_RESOURCE_FLAG_NONE,
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(expected), D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &target);
     if (SUCCEEDED(hr))
-        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(expected),
-                           D3D12_RESOURCE_FLAG_NONE,
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(expected), D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &readback);
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
@@ -803,9 +788,8 @@ static CaseResult run_enhanced_barrier_case() {
         desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         desc.SampleDesc.Count = 1;
         desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        hr = device->CreateCommittedResource(
-            &heap, D3D12_HEAP_FLAG_NONE, &desc,
-            D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&texture));
+        hr = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                             IID_PPV_ARGS(&texture));
     }
     if (SUCCEEDED(hr)) {
         list7->CopyBufferRegion(target, 0, upload, 0, sizeof(expected));
@@ -853,23 +837,19 @@ static CaseResult run_enhanced_barrier_case() {
     }
     uint32_t got[4] = {};
     const bool values_verified =
-        SUCCEEDED(hr) && readback_u32(readback, got, 4) &&
-        std::memcmp(got, expected, sizeof(expected)) == 0;
-    result.pass = values_verified && SUCCEEDED(options12_hr) &&
-                  options12.EnhancedBarriersSupported;
+        SUCCEEDED(hr) && readback_u32(readback, got, 4) && std::memcmp(got, expected, sizeof(expected)) == 0;
+    result.pass = values_verified && SUCCEEDED(options12_hr) && options12.EnhancedBarriersSupported;
     result.hr = result.pass ? S_OK : hr;
-    result.detail = result.pass
-                        ? "global/buffer/texture enhanced barrier groups and ordered buffer copy verified"
-                        : "enhanced barrier interface, report, or ordered copy failed";
+    result.detail = result.pass ? "global/buffer/texture enhanced barrier groups and ordered buffer copy verified"
+                                : "enhanced barrier interface, report, or ordered copy failed";
     char extra[384] = {};
     std::snprintf(extra, sizeof(extra),
                   "\"options12_enhanced_barriers\":%s,\"group_count\":3,"
                   "\"global_barriers\":1,\"buffer_barriers\":1,"
                   "\"texture_barriers\":1,\"copy_values_verified\":%s,"
                   "\"values\":[%u,%u,%u,%u]",
-                  options12.EnhancedBarriersSupported ? "true" : "false",
-                  values_verified ? "true" : "false", got[0], got[1], got[2],
-                  got[3]);
+                  options12.EnhancedBarriersSupported ? "true" : "false", values_verified ? "true" : "false", got[0],
+                  got[1], got[2], got[3]);
     result.extra = extra;
     safe_release(texture);
     safe_release(readback);

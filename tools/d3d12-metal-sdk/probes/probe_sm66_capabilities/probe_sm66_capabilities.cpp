@@ -168,8 +168,7 @@ static D3D12_RESOURCE_DESC buffer_desc(UINT64 bytes, D3D12_RESOURCE_FLAGS flags 
     return desc;
 }
 
-static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
-                                ID3D12GraphicsCommandList* list) {
+static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12GraphicsCommandList* list) {
     HRESULT hr = list->Close();
     if (FAILED(hr))
         return hr;
@@ -257,8 +256,7 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     D3D12_ROOT_SIGNATURE_DESC desc = {};
     desc.NumParameters = 4;
     desc.pParameters = params;
-    desc.Flags =
-        D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
 
     ID3DBlob* blob = nullptr;
     ID3DBlob* error_blob = nullptr;
@@ -273,9 +271,8 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     return hr;
 }
 
-static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
-                         ID3D12PipelineState* pso, const AuditCase& audit_case,
-                         CaseResult& result) {
+static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12PipelineState* pso,
+                         const AuditCase& audit_case, CaseResult& result) {
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12GraphicsCommandList* list = nullptr;
@@ -321,13 +318,13 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dsv_heap));
     }
 
-    auto create_buffer = [&](UINT64 bytes, D3D12_HEAP_TYPE heap_type,
-                             D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES state,
-                             const void* initial_data, ID3D12Resource** resource) -> HRESULT {
+    auto create_buffer = [&](UINT64 bytes, D3D12_HEAP_TYPE heap_type, D3D12_RESOURCE_FLAGS flags,
+                             D3D12_RESOURCE_STATES state, const void* initial_data,
+                             ID3D12Resource** resource) -> HRESULT {
         D3D12_HEAP_PROPERTIES props = heap_props(heap_type);
         D3D12_RESOURCE_DESC desc = buffer_desc(bytes, flags);
-        HRESULT create_hr = device->CreateCommittedResource(
-            &props, D3D12_HEAP_FLAG_NONE, &desc, state, nullptr, IID_PPV_ARGS(resource));
+        HRESULT create_hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc, state, nullptr,
+                                                            IID_PPV_ARGS(resource));
         if (SUCCEEDED(create_hr) && initial_data) {
             void* mapped = nullptr;
             D3D12_RANGE read_range = {0, 0};
@@ -344,12 +341,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
     const uint32_t input0_data[16] = {10, 20, 30, 40};
     const uint32_t input1_data[16] = {100, 200, 300, 400};
     if (SUCCEEDED(hr))
-        hr = create_buffer(128, D3D12_HEAP_TYPE_DEFAULT,
-                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+        hr = create_buffer(128, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, &output);
     if (SUCCEEDED(hr))
-        hr = create_buffer(128, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_NONE,
-                           D3D12_RESOURCE_STATE_COPY_DEST, nullptr, &readback);
+        hr = create_buffer(128, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST,
+                           nullptr, &readback);
     if (SUCCEEDED(hr))
         hr = create_buffer(sizeof(input0_data), D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_GENERIC_READ, input0_data, &input0);
@@ -367,9 +363,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         texture_desc.SampleDesc.Count = 1;
         texture_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        hr = device->CreateCommittedResource(
-            &props, D3D12_HEAP_FLAG_NONE, &texture_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&texture));
+        hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &texture_desc,
+                                             D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&texture));
         if (SUCCEEDED(hr))
             hr = device->QueryInterface(IID_PPV_ARGS(&device10));
         if (SUCCEEDED(hr)) {
@@ -377,10 +372,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
             D3D12_RESOURCE_DESC1 texture_desc1 = {};
             std::memcpy(&texture_desc1, &texture_desc, sizeof(texture_desc));
             DXGI_FORMAT castable_format = DXGI_FORMAT_R32_UINT;
-            hr = device10->CreateCommittedResource3(
-                &props, D3D12_HEAP_FLAG_NONE, &texture_desc1,
-                D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, nullptr, 1,
-                &castable_format, IID_PPV_ARGS(&raw_texture));
+            hr = device10->CreateCommittedResource3(&props, D3D12_HEAP_FLAG_NONE, &texture_desc1,
+                                                    D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, nullptr, 1,
+                                                    &castable_format, IID_PPV_ARGS(&raw_texture));
         }
     }
     if (SUCCEEDED(hr)) {
@@ -395,9 +389,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
             upload_data[pixel * 4 + 2] = static_cast<uint8_t>(30 + pixel * 10);
             upload_data[pixel * 4 + 3] = static_cast<uint8_t>(40 + pixel * 10);
         }
-        hr = create_buffer(sizeof(upload_data), D3D12_HEAP_TYPE_UPLOAD,
-                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ,
-                           upload_data, &texture_upload);
+        hr = create_buffer(sizeof(upload_data), D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_GENERIC_READ, upload_data, &texture_upload);
     }
     if (SUCCEEDED(hr)) {
         D3D12_RESOURCE_DESC comparison_desc = {};
@@ -411,25 +404,21 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         comparison_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         comparison_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
         D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        hr = device->CreateCommittedResource(
-            &props, D3D12_HEAP_FLAG_NONE, &comparison_desc,
-            D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr,
-            IID_PPV_ARGS(&comparison_texture));
+        hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &comparison_desc,
+                                             D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr,
+                                             IID_PPV_ARGS(&comparison_texture));
     }
 
     if (SUCCEEDED(hr)) {
         const UINT resource_stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = resource_heap->GetCPUDescriptorHandleForHeapStart();
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        const bool typed_atomic64 =
-            std::strncmp(audit_case.name, "atomic64_typed_", 15) == 0 ||
-            std::strncmp(audit_case.name, "atomic64_signed_typed_", 22) == 0;
-        uav.Format = typed_atomic64 ? DXGI_FORMAT_R32G32_UINT
-                                    : DXGI_FORMAT_R32_TYPELESS;
+        const bool typed_atomic64 = std::strncmp(audit_case.name, "atomic64_typed_", 15) == 0 ||
+                                    std::strncmp(audit_case.name, "atomic64_signed_typed_", 22) == 0;
+        uav.Format = typed_atomic64 ? DXGI_FORMAT_R32G32_UINT : DXGI_FORMAT_R32_TYPELESS;
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uav.Buffer.NumElements = typed_atomic64 ? 16 : 32;
-        uav.Buffer.Flags = typed_atomic64 ? D3D12_BUFFER_UAV_FLAG_NONE
-                                          : D3D12_BUFFER_UAV_FLAG_RAW;
+        uav.Buffer.Flags = typed_atomic64 ? D3D12_BUFFER_UAV_FLAG_NONE : D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
 
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
@@ -460,13 +449,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
         dsv.Format = DXGI_FORMAT_D32_FLOAT;
         dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv_cpu =
-            dsv_heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv_cpu = dsv_heap->GetCPUDescriptorHandleForHeapStart();
         device->CreateDepthStencilView(comparison_texture, &dsv, dsv_cpu);
         dsv.Texture2D.MipSlice = 1;
         D3D12_CPU_DESCRIPTOR_HANDLE dsv_mip1 = dsv_cpu;
-        dsv_mip1.ptr += device->GetDescriptorHandleIncrementSize(
-            D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+        dsv_mip1.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
         device->CreateDepthStencilView(comparison_texture, &dsv, dsv_mip1);
 
         D3D12_SAMPLER_DESC sampler = {};
@@ -478,10 +465,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         device->CreateSampler(&sampler, sampler_heap->GetCPUDescriptorHandleForHeapStart());
         sampler.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
         sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-        D3D12_CPU_DESCRIPTOR_HANDLE comparison_sampler =
-            sampler_heap->GetCPUDescriptorHandleForHeapStart();
-        comparison_sampler.ptr += device->GetDescriptorHandleIncrementSize(
-            D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+        D3D12_CPU_DESCRIPTOR_HANDLE comparison_sampler = sampler_heap->GetCPUDescriptorHandleForHeapStart();
+        comparison_sampler.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
         device->CreateSampler(&sampler, comparison_sampler);
 
         D3D12_TEXTURE_COPY_LOCATION dst = {};
@@ -496,10 +481,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         src.PlacedFootprint.Footprint.Depth = 1;
         src.PlacedFootprint.Footprint.RowPitch = 256;
         list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-        list->ClearDepthStencilView(dsv_cpu, D3D12_CLEAR_FLAG_DEPTH, 0.25f, 0,
-                                    0, nullptr);
-        list->ClearDepthStencilView(dsv_mip1, D3D12_CLEAR_FLAG_DEPTH, 0.75f, 0,
-                                    0, nullptr);
+        list->ClearDepthStencilView(dsv_cpu, D3D12_CLEAR_FLAG_DEPTH, 0.25f, 0, 0, nullptr);
+        list->ClearDepthStencilView(dsv_mip1, D3D12_CLEAR_FLAG_DEPTH, 0.75f, 0, 0, nullptr);
         dst.pResource = raw_texture;
         src.PlacedFootprint.Footprint.Width = 1;
         list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
@@ -511,11 +494,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         texture_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         D3D12_RESOURCE_BARRIER raw_texture_barrier = texture_barrier;
         raw_texture_barrier.Transition.pResource = raw_texture;
-        D3D12_RESOURCE_BARRIER texture_barriers[] = {
-            texture_barrier, raw_texture_barrier, raw_texture_barrier};
+        D3D12_RESOURCE_BARRIER texture_barriers[] = {texture_barrier, raw_texture_barrier, raw_texture_barrier};
         texture_barriers[2].Transition.pResource = comparison_texture;
-        texture_barriers[2].Transition.StateBefore =
-            D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        texture_barriers[2].Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         list->ResourceBarrier(3, texture_barriers);
 
         ID3D12DescriptorHeap* heaps[] = {resource_heap, sampler_heap};
@@ -525,9 +506,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         list->SetComputeRootDescriptorTable(0, gpu);
         if (std::strncmp(audit_case.name, "atomic64_", 9) == 0) {
             const uint32_t zero[4] = {};
-            list->ClearUnorderedAccessViewUint(
-                gpu, resource_heap->GetCPUDescriptorHandleForHeapStart(),
-                output, zero, 0, nullptr);
+            list->ClearUnorderedAccessViewUint(gpu, resource_heap->GetCPUDescriptorHandleForHeapStart(), output, zero,
+                                               0, nullptr);
         }
         gpu.ptr += resource_stride;
         list->SetComputeRootDescriptorTable(1, gpu);
@@ -558,35 +538,29 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         hr = readback->Map(0, &range, reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr) && mapped) {
             result.readback_ok = true;
-            result.value_count = std::strcmp(audit_case.name, "int64_arithmetic") == 0
-                                     ? 8
-                                     : (std::strcmp(audit_case.name, "quad_vote_sm67") == 0
-                                            ? 32
-                                            : (std::strcmp(audit_case.name,
-                                                           "atomic64_raw_ops") == 0 ||
-                                               std::strcmp(audit_case.name,
-                                                           "atomic64_group_ops") == 0
-                                                   ? 16
-                                            : (std::strcmp(audit_case.name,
-                                                           "atomic64_typed_ops") == 0
-                                                   ? 16
-                                            : (std::strcmp(audit_case.name,
-                                                           "atomic64_descriptor_heap_ops") == 0
-                                                   ? 18
-                                            : (std::strcmp(audit_case.name,
-                                                           "atomic64_raw_add") == 0 ||
-                                               std::strcmp(audit_case.name,
-                                                           "atomic64_group_add") == 0 ||
-                                               std::strcmp(audit_case.name,
-                                                           "atomic64_typed_add") == 0 ||
-                                               std::strcmp(audit_case.name,
-                                                           "atomic64_compare_exchange") == 0 ||
-                                               std::strcmp(audit_case.name,
-                                                           "atomic64_group_compare_exchange") == 0 ||
-                                               std::strcmp(audit_case.name,
-                                                           "atomic64_descriptor_heap_add") == 0
-                                                   ? 2
-                                                   : 4)))));
+            result.value_count =
+                std::strcmp(audit_case.name, "int64_arithmetic") == 0
+                    ? 8
+                    : (std::strcmp(audit_case.name, "quad_vote_sm67") == 0
+                           ? 32
+                           : (std::strcmp(audit_case.name, "atomic64_raw_ops") == 0 ||
+                                      std::strcmp(audit_case.name, "atomic64_group_ops") == 0
+                                  ? 16
+                                  : (std::strcmp(audit_case.name, "atomic64_typed_ops") == 0
+                                         ? 16
+                                         : (std::strcmp(audit_case.name, "atomic64_descriptor_heap_ops") == 0
+                                                ? 18
+                                                : (std::strcmp(audit_case.name, "atomic64_raw_add") == 0 ||
+                                                           std::strcmp(audit_case.name, "atomic64_group_add") == 0 ||
+                                                           std::strcmp(audit_case.name, "atomic64_typed_add") == 0 ||
+                                                           std::strcmp(audit_case.name, "atomic64_compare_exchange") ==
+                                                               0 ||
+                                                           std::strcmp(audit_case.name,
+                                                                       "atomic64_group_compare_exchange") == 0 ||
+                                                           std::strcmp(audit_case.name,
+                                                                       "atomic64_descriptor_heap_add") == 0
+                                                       ? 2
+                                                       : 4)))));
             for (uint32_t i = 0; i < result.value_count; ++i)
                 result.observed[i] = mapped[i];
             if (std::strcmp(audit_case.name, "root_constants_uav") == 0) {
@@ -612,52 +586,39 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
                 const uint32_t expected[] = {2080, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "atomic64_typed_ops") == 0) {
-                const uint32_t expected[] = {
-                    10, 0, 0, 0, 15, 0, 15, 0,
-                    0, 0, 4, 0, 4, 0, 4, 0};
+                const uint32_t expected[] = {10, 0, 0, 0, 15, 0, 15, 0, 0, 0, 4, 0, 4, 0, 4, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
                 if (result.observed[12] >= 1 && result.observed[12] <= 4)
                     result.expected[12] = result.observed[12];
                 if (result.observed[14] >= 1 && result.observed[14] <= 4)
                     result.expected[14] = result.observed[14];
-            } else if (std::strcmp(audit_case.name,
-                                   "atomic64_signed_typed_ops") == 0) {
-                const uint32_t expected[] = {
-                    0xfffffffcu, 0xffffffffu, 0, 0};
+            } else if (std::strcmp(audit_case.name, "atomic64_signed_typed_ops") == 0) {
+                const uint32_t expected[] = {0xfffffffcu, 0xffffffffu, 0, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "atomic64_raw_ops") == 0) {
-                const uint32_t expected[] = {
-                    10, 0, 0, 0, 15, 0, 15, 0,
-                    4, 0, 4, 0, 0xfffffffcu, 0xffffffffu, 0, 0};
+                const uint32_t expected[] = {10, 0, 0, 0, 15, 0, 15, 0, 4, 0, 4, 0, 0xfffffffcu, 0xffffffffu, 0, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
                 if (result.observed[10] >= 1 && result.observed[10] <= 4)
                     result.expected[10] = result.observed[10];
             } else if (std::strcmp(audit_case.name, "atomic64_group_ops") == 0) {
-                const uint32_t expected[] = {
-                    10, 0, 0, 0, 15, 0, 15, 0,
-                    4, 0, 4, 0, 0xfffffffcu, 0xffffffffu, 0, 0};
+                const uint32_t expected[] = {10, 0, 0, 0, 15, 0, 15, 0, 4, 0, 4, 0, 0xfffffffcu, 0xffffffffu, 0, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
                 if (result.observed[10] >= 1 && result.observed[10] <= 4)
                     result.expected[10] = result.observed[10];
-            } else if (std::strcmp(audit_case.name,
-                                   "atomic64_compare_exchange") == 0) {
+            } else if (std::strcmp(audit_case.name, "atomic64_compare_exchange") == 0) {
                 const uint32_t expected[] = {4, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
-            } else if (std::strcmp(audit_case.name,
-                                   "atomic64_group_compare_exchange") == 0) {
+            } else if (std::strcmp(audit_case.name, "atomic64_group_compare_exchange") == 0) {
                 const uint32_t expected[] = {4, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
                 if (result.observed[0] >= 1 && result.observed[0] <= 4)
                     result.expected[0] = result.observed[0];
-            } else if (std::strcmp(audit_case.name,
-                                   "atomic64_descriptor_heap_add") == 0) {
+            } else if (std::strcmp(audit_case.name, "atomic64_descriptor_heap_add") == 0) {
                 const uint32_t expected[] = {2080, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
-            } else if (std::strcmp(audit_case.name,
-                                   "atomic64_descriptor_heap_ops") == 0) {
-                const uint32_t expected[] = {
-                    10, 0, 0, 0, 15, 0, 15, 0, 4, 0, 4, 0,
-                    0xfffffffcu, 0xffffffffu, 0, 0, 4, 0};
+            } else if (std::strcmp(audit_case.name, "atomic64_descriptor_heap_ops") == 0) {
+                const uint32_t expected[] = {10, 0, 0, 0,           15,          0, 15, 0, 4,
+                                             0,  4, 0, 0xfffffffcu, 0xffffffffu, 0, 0,  4, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
                 if (result.observed[10] >= 1 && result.observed[10] <= 4)
                     result.expected[10] = result.observed[10];
@@ -667,12 +628,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
                 std::fill(result.expected, result.expected + 32, 3u);
             } else if (std::strcmp(audit_case.name, "raw_gather_sm67") == 0) {
                 std::fill(result.expected, result.expected + 4, 0x281e140au);
-            } else if (std::strcmp(audit_case.name,
-                                   "programmable_offset_sm67") == 0) {
+            } else if (std::strcmp(audit_case.name, "programmable_offset_sm67") == 0) {
                 const uint32_t expected[] = {300, 341, 382, 383};
                 std::memcpy(result.expected, expected, sizeof(expected));
-            } else if (std::strcmp(audit_case.name,
-                                   "sample_cmp_level_sm67") == 0) {
+            } else if (std::strcmp(audit_case.name, "sample_cmp_level_sm67") == 0) {
                 const uint32_t expected[] = {25, 75, 0, 1};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else {
@@ -1057,17 +1016,23 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
         {"atomic64_raw_ops", "cs_atomic64_raw_ops", "cs_6_6", "atomic64_software_lock_operation_matrix", true},
-        {"atomic64_compare_exchange", "cs_atomic64_compare_exchange", "cs_6_6", "atomic64_compare_exchange_software_lock", true},
-        {"atomic64_descriptor_heap_add", "cs_atomic64_descriptor_heap_add", "cs_6_6", "atomic64_resource_descriptor_heap", true},
-        {"atomic64_descriptor_heap_ops", "cs_atomic64_descriptor_heap_ops", "cs_6_6", "atomic64_resource_descriptor_heap_operation_matrix", true},
+        {"atomic64_compare_exchange", "cs_atomic64_compare_exchange", "cs_6_6",
+         "atomic64_compare_exchange_software_lock", true},
+        {"atomic64_descriptor_heap_add", "cs_atomic64_descriptor_heap_add", "cs_6_6",
+         "atomic64_resource_descriptor_heap", true},
+        {"atomic64_descriptor_heap_ops", "cs_atomic64_descriptor_heap_ops", "cs_6_6",
+         "atomic64_resource_descriptor_heap_operation_matrix", true},
         {"atomic64_typed_add", "cs_atomic64_typed_add", "cs_6_6", "atomic64_typed_resource_software_lock", true},
         {"atomic64_typed_ops", "cs_atomic64_typed_ops", "cs_6_6", "atomic64_typed_resource_operation_matrix", true},
-        {"atomic64_signed_typed_ops", "cs_atomic64_signed_typed_ops", "cs_6_6", "atomic64_signed_typed_resource_operations", true},
+        {"atomic64_signed_typed_ops", "cs_atomic64_signed_typed_ops", "cs_6_6",
+         "atomic64_signed_typed_resource_operations", true},
         {"atomic64_group_add", "cs_atomic64_group_add", "cs_6_6", "atomic64_group_shared_software_lock", true},
         {"atomic64_group_ops", "cs_atomic64_group_ops", "cs_6_6", "atomic64_group_shared_operation_matrix", true},
-        {"atomic64_group_compare_exchange", "cs_atomic64_group_compare_exchange", "cs_6_6", "atomic64_group_shared_compare_exchange", true},
+        {"atomic64_group_compare_exchange", "cs_atomic64_group_compare_exchange", "cs_6_6",
+         "atomic64_group_shared_compare_exchange", true},
         {"texture_sampler", "cs_texture_sampler", "cs_6_6", "samplers_texture_paths", true},
-        {"programmable_offset_sm67", "cs_programmable_offset_sm67", "cs_6_7", "sm67_programmable_texture_offsets", true},
+        {"programmable_offset_sm67", "cs_programmable_offset_sm67", "cs_6_7", "sm67_programmable_texture_offsets",
+         true},
         {"raw_gather_sm67", "cs_raw_gather_sm67", "cs_6_7", "sm67_raw_gather", true},
         {"sample_cmp_level_sm67", "cs_sample_cmp_level_sm67", "cs_6_7", "sm67_sample_cmp_level", true},
         {"quad_vote_sm67", "cs_quad_vote_sm67", "cs_6_7", "sm67_quad_vote", true},
@@ -1087,36 +1052,27 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
     for (const auto& result : results) {
         compiler_acceptance_complete = compiler_acceptance_complete && result.compile_ok;
         pso_link_complete = pso_link_complete && result.pso_created;
-        runtime_complete = runtime_complete && result.runtime_executed && result.readback_ok &&
-                           result.mismatch_count == 0;
+        runtime_complete =
+            runtime_complete && result.runtime_executed && result.readback_ok && result.mismatch_count == 0;
     }
 
     auto atomic_case_passed = [&](const char* name) {
         for (const auto& result : results) {
             if (result.name == name)
-                return result.compile_ok && result.pso_created &&
-                       result.runtime_executed && result.readback_ok &&
+                return result.compile_ok && result.pso_created && result.runtime_executed && result.readback_ok &&
                        result.mismatch_count == 0;
         }
         return false;
     };
     bool atomic64_conservative =
-        SUCCEEDED(options9_hr) &&
-        options9.AtomicInt64OnTypedResourceSupported &&
-        options9.AtomicInt64OnGroupSharedSupported &&
-        atomic_case_passed("atomic64_raw_add") &&
-        atomic_case_passed("atomic64_raw_ops") &&
-        atomic_case_passed("atomic64_compare_exchange") &&
-        atomic_case_passed("atomic64_typed_add") &&
-        atomic_case_passed("atomic64_typed_ops") &&
-        atomic_case_passed("atomic64_signed_typed_ops") &&
-        atomic_case_passed("atomic64_group_add") &&
-        atomic_case_passed("atomic64_group_ops") &&
-        atomic_case_passed("atomic64_group_compare_exchange") &&
-        SUCCEEDED(options11_hr) &&
-        options11.AtomicInt64OnDescriptorHeapResourceSupported &&
-        atomic_case_passed("atomic64_descriptor_heap_add") &&
-        atomic_case_passed("atomic64_descriptor_heap_ops");
+        SUCCEEDED(options9_hr) && options9.AtomicInt64OnTypedResourceSupported &&
+        options9.AtomicInt64OnGroupSharedSupported && atomic_case_passed("atomic64_raw_add") &&
+        atomic_case_passed("atomic64_raw_ops") && atomic_case_passed("atomic64_compare_exchange") &&
+        atomic_case_passed("atomic64_typed_add") && atomic_case_passed("atomic64_typed_ops") &&
+        atomic_case_passed("atomic64_signed_typed_ops") && atomic_case_passed("atomic64_group_add") &&
+        atomic_case_passed("atomic64_group_ops") && atomic_case_passed("atomic64_group_compare_exchange") &&
+        SUCCEEDED(options11_hr) && options11.AtomicInt64OnDescriptorHeapResourceSupported &&
+        atomic_case_passed("atomic64_descriptor_heap_add") && atomic_case_passed("atomic64_descriptor_heap_ops");
     bool sm66_reportable = entrypoints_ok && atomic64_conservative;
     bool sm67_reportable = entrypoints_ok && atomic64_conservative;
     for (const auto& result : results) {
@@ -1127,12 +1083,10 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         sm67_reportable = sm67_reportable && case_passed;
     }
     const bool sm67_breadth_complete =
-        sm67_reportable && atomic_case_passed("programmable_offset_sm67") &&
-        atomic_case_passed("raw_gather_sm67") &&
-        atomic_case_passed("sample_cmp_level_sm67") &&
-        atomic_case_passed("quad_vote_sm67");
-    bool pass = entrypoints_ok && compiler_acceptance_complete && pso_link_complete &&
-                runtime_complete && atomic64_conservative;
+        sm67_reportable && atomic_case_passed("programmable_offset_sm67") && atomic_case_passed("raw_gather_sm67") &&
+        atomic_case_passed("sample_cmp_level_sm67") && atomic_case_passed("quad_vote_sm67");
+    bool pass = entrypoints_ok && compiler_acceptance_complete && pso_link_complete && runtime_complete &&
+                atomic64_conservative;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.sm66-capabilities.v1\",\n");
@@ -1170,10 +1124,10 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"runtime_correctness_complete\": %s,\n", runtime_complete ? "true" : "false");
     std::printf("    \"sm66_reportable\": %s,\n", sm66_reportable ? "true" : "false");
     std::printf("    \"sm67_reportable\": %s,\n", sm67_reportable ? "true" : "false");
-    std::printf("    \"decision\": \"%s\",\n",
-                sm67_reportable ? "SM 6.7 may be reported" : "SM 6.7 must not be reported until all runtime cases execute");
-    std::printf("    \"sm67_breadth_complete\": %s\n",
-                sm67_breadth_complete ? "true" : "false");
+    std::printf("    \"decision\": \"%s\",\n", sm67_reportable
+                                                   ? "SM 6.7 may be reported"
+                                                   : "SM 6.7 must not be reported until all runtime cases execute");
+    std::printf("    \"sm67_breadth_complete\": %s\n", sm67_breadth_complete ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {

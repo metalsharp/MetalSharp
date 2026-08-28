@@ -97,8 +97,7 @@ static D3D12_RESOURCE_DESC buffer_desc(UINT64 bytes, D3D12_RESOURCE_FLAGS flags)
     return desc;
 }
 
-static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
-                                ID3D12GraphicsCommandList* list) {
+static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12GraphicsCommandList* list) {
     HRESULT hr = list->Close();
     if (FAILED(hr))
         return hr;
@@ -235,8 +234,7 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         return 0x55555555u;
     if (std::strcmp(name, "read_lane") == 0)
         return 18;
-    if (std::strcmp(name, "active_any_all") == 0 ||
-        std::strcmp(name, "quad_any_all_sm67") == 0)
+    if (std::strcmp(name, "active_any_all") == 0 || std::strcmp(name, "quad_any_all_sm67") == 0)
         return 3;
     if (std::strcmp(name, "active_sum_min_max") == 0)
         return 63;
@@ -245,8 +243,8 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
     return 0xffffffffu;
 }
 
-static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
-                         ID3D12PipelineState* pso, CaseResult& result) {
+static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12PipelineState* pso,
+                         CaseResult& result) {
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12GraphicsCommandList* list = nullptr;
@@ -258,12 +256,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     HRESULT hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue));
     if (SUCCEEDED(hr))
-        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                            IID_PPV_ARGS(&allocator));
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
     if (SUCCEEDED(hr))
-        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                       allocator, nullptr,
-                                       IID_PPV_ARGS(&list));
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&list));
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -273,21 +268,15 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        D3D12_RESOURCE_DESC desc =
-            buffer_desc(32 * sizeof(uint32_t),
-                        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-        hr = device->CreateCommittedResource(
-            &props, D3D12_HEAP_FLAG_NONE, &desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-            IID_PPV_ARGS(&output));
+        D3D12_RESOURCE_DESC desc = buffer_desc(32 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                             nullptr, IID_PPV_ARGS(&output));
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_READBACK);
-        D3D12_RESOURCE_DESC desc =
-            buffer_desc(32 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE);
-        hr = device->CreateCommittedResource(
-            &props, D3D12_HEAP_FLAG_NONE, &desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
+        D3D12_RESOURCE_DESC desc = buffer_desc(32 * sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE);
+        hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                             nullptr, IID_PPV_ARGS(&readback));
     }
     if (SUCCEEDED(hr)) {
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
@@ -295,14 +284,12 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         uav.Buffer.NumElements = 32;
         uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-        device->CreateUnorderedAccessView(
-            output, nullptr, &uav, heap->GetCPUDescriptorHandleForHeapStart());
+        device->CreateUnorderedAccessView(output, nullptr, &uav, heap->GetCPUDescriptorHandleForHeapStart());
 
         ID3D12DescriptorHeap* heaps[] = {heap};
         list->SetDescriptorHeaps(1, heaps);
         list->SetComputeRootSignature(root);
-        list->SetComputeRootDescriptorTable(
-            0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
         list->SetPipelineState(pso);
         list->Dispatch(1, 1, 1);
 
@@ -311,10 +298,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root,
         barriers[0].UAV.pResource = output;
         barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barriers[1].Transition.pResource = output;
-        barriers[1].Transition.Subresource =
-            D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barriers[1].Transition.StateBefore =
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
         list->ResourceBarrier(2, barriers);
         list->CopyResource(readback, output);
@@ -488,8 +473,7 @@ void cs_prefix(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
     bool runtime_correctness_complete = compiler_acceptance_complete;
     for (const auto& result : results) {
         runtime_correctness_complete =
-            runtime_correctness_complete && result.runtime_executed &&
-            result.readback_ok && result.mismatch_count == 0;
+            runtime_correctness_complete && result.runtime_executed && result.readback_ok && result.mismatch_count == 0;
     }
     bool waveops_reportable = compiler_acceptance_complete && pso_link_complete && runtime_correctness_complete;
     bool pass = d3d12 && dxcompiler && dxil && create_device && serialize && hlsl_written && SUCCEEDED(create_hr) &&
