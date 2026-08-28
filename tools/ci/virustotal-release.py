@@ -193,8 +193,8 @@ def markdown_report(tag: str, results: list[dict[str, Any]]) -> str:
             "interpreted as a whole-installer verdict."
         ),
         "",
-        "| DMG | Part | Size | Detections | VirusTotal report |",
-        "| --- | ---: | ---: | ---: | --- |",
+        "| DMG | VirusTotal scan | Size | Detections |",
+        "| --- | --- | ---: | ---: |",
     ]
     for result in results:
         stats = result["stats"]
@@ -206,9 +206,8 @@ def markdown_report(tag: str, results: list[dict[str, Any]]) -> str:
         size_mib = int(result["size"]) / (1024 * 1024)
         report_url = f"https://www.virustotal.com/gui/file/{result['sha256']}"
         lines.append(
-            f"| `{dmg}` | {result['part']}/{result.get('part_count', PART_COUNT)} | "
-            f"{size_mib:.1f} MiB | "
-            f"{detected}/{total} | [Report]({report_url}) |"
+            f"| `{dmg}` | [Part {result['part']}]({report_url}) | "
+            f"{size_mib:.1f} MiB | {detected}/{total} |"
         )
     lines.extend(["", f"Scanned automatically for release `{tag}`.", END_MARKER, ""])
     return "\n".join(lines)
