@@ -340,6 +340,7 @@ int main(int argc, char** argv) {
     HRESULT address_heap_hr = E_FAIL;
     HRESULT address_resource_hr = E_FAIL;
     HRESULT address_open_hr = E_FAIL;
+    HRESULT misaligned_placement_hr = E_FAIL;
     bool address_heap_open_ok = false;
     auto probe_resource_shape = [&](const char* name, D3D12_RESOURCE_DESC desc,
                                     D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON) {
@@ -410,7 +411,8 @@ int main(int argc, char** argv) {
     bool resource_shapes_ok = !resource_shapes.empty();
     for (const auto& shape : resource_shapes)
         resource_shapes_ok = resource_shapes_ok && SUCCEEDED(shape.hr) && same_resource_desc(shape.created, shape.requested);
-    resource_shapes_ok = resource_shapes_ok && FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr);
+    resource_shapes_ok = resource_shapes_ok && FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr) &&
+                         FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -435,6 +437,14 @@ int main(int argc, char** argv) {
                                                                  D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                  IID_PPV_ARGS(&address_resource))
                                   : E_FAIL;
+        ID3D12Resource* misaligned_resource = nullptr;
+        misaligned_placement_hr = address_heap
+                                      ? device->CreatePlacedResource(address_heap, 1, &address_desc,
+                                                                     D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                                     IID_PPV_ARGS(&misaligned_resource))
+                                      : E_FAIL;
+        if (misaligned_resource)
+            misaligned_resource->Release();
         void* address = nullptr;
         if (address_resource && SUCCEEDED(address_resource->Map(0, nullptr, &address))) {
             ID3D12Device3* device3 = nullptr;
@@ -1851,6 +1861,7 @@ int main(int argc, char** argv) {
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("invalid_msaa_mips", invalid_msaa_mips_hr);
+    print_hr("misaligned_placement", misaligned_placement_hr);
     std::printf("    \"cases\": [\n");
     for (size_t i = 0; i < resource_shapes.size(); ++i) {
         const auto& shape = resource_shapes[i];
