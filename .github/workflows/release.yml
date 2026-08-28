@@ -236,12 +236,16 @@ jobs:
             "Configure MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, and one notarization credential set to produce a notarized DMG." \
             > dist/electron/DMG-SIGNING.txt
 
+      - name: Record release identity
+        run: printf '%s\n' "$GITHUB_REF_NAME" > dist/electron/RELEASE-TAG.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: MetalSharp-dmg
           path: |
             dist/electron/*.dmg
             dist/electron/DMG-SIGNING.txt
+            dist/electron/RELEASE-TAG.txt
             dist/bundles/metalsharp-bundle-manifest.tsv
 
   release:
