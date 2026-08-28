@@ -21,7 +21,6 @@ function ensureShellPath() {
     "/bin",
     "/usr/sbin",
     "/sbin",
-    `${home}/.cargo/bin`,
   ];
   const existing = new Set((process.env.PATH || "").split(":"));
   const additions = candidates.filter((c) => !existing.has(c));

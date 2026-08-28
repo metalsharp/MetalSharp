@@ -43,12 +43,12 @@
   "pipeline_stages": [
     {
       "id": "recipe-and-route",
-      "source": "app/src-rust/src/mtsp/engine.rs",
+      "source": "app/src-c/runtime/mtsp.c",
       "flow": "M12 selects the DXMT D3D12 node, deploys D3D12/DXGI/Winemetal plus D3D11 fallback DLLs, and keeps M11/M10/M9 as fallbacks."
     },
     {
       "id": "launch-env",
-      "source": "app/src-rust/src/mtsp/launcher.rs",
+      "source": "app/src-c/runtime/steam_actions.c",
       "flow": "The launcher combines Steam identity, DLL overrides, Wine DLL paths, app-local sidecars, cache env, optional developer M12 log env, and per-game compatibility env."
     },
     {
@@ -84,9 +84,9 @@
       "pinpoints": "M12 launcher env, shared logging, native trace routing, source comments, and required dev gates."
     },
     {
-      "id": "rust-launch-env",
-      "command": "cargo test m12_ --manifest-path app/src-rust/Cargo.toml",
-      "pinpoints": "M12 launch env, per-title logs, app-local sidecars, runtime deployment, and compatibility knobs."
+      "id": "c-launch-env",
+      "command": "make -C app/src-c test",
+      "pinpoints": "C backend launch routes, runtime deployment, HTTP behavior, and compatibility knobs."
     },
     {
       "id": "runtime-layout",
@@ -111,12 +111,12 @@
   ],
   "source_comments": [
     {
-      "path": "app/src-rust/src/mtsp/engine.rs",
+      "path": "app/src-c/runtime/steam_actions.c",
       "must_contain": "lib/dxmt_m12/x86_64-windows"
     },
     {
-      "path": "app/src-rust/src/mtsp/launcher.rs",
-      "must_contain": "M12 should use isolated M12 DLL path"
+      "path": "app/src-c/runtime/steam_actions.c",
+      "must_contain": "runtime/wine/lib/dxmt_m12/x86_64-windows"
     }
   ],
   "forbidden_m12_launcher_patterns": [
@@ -126,8 +126,8 @@
   "evidence": [
     {
       "kind": "launcher-tests",
-      "path": "app/src-rust/src/mtsp/launcher.rs",
-      "note": "M12 env tests assert app-local WineMetal sidecars, DXMT overrides, and per-title shared log routing."
+      "path": "app/src-c/tests/smoke.sh",
+      "note": "C backend smoke coverage exercises M12 route preparation and runtime dependency reporting."
     },
     {
       "kind": "ci-gate",

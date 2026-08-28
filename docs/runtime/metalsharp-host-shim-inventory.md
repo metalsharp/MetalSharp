@@ -31,8 +31,7 @@ Purpose: Phase 0 inventory of existing C, C++, and Objective-C host shims that c
 | PE loader shim registry | `src/loader/PELoader.cpp`, `src/loader/D3DShims.cpp` | Registers shim DLL exports and resolves imports for the native PE loader path. | stable | Keep as native-loader foundation; document boundary with Wine PE/unixlib path. |
 | Win32 shim layer | `src/win32/kernel32/*.cpp`, `include/metalsharp/Win32Types.h`, `include/metalsharp/ExtraShims.h` | Larger native-loader Win32 shim set for kernel32/ntdll/network/extra APIs. | stable | Use selectively for ABI service mapping; avoid duplicating behavior between FNA C shims and C++ Win32 shims. |
 | Anti-cheat database | `include/metalsharp/AntiCheatDB.h`, `src/runtime/DRMDetector.cpp` | Static detection tables now use evidence-backed support status strings instead of compatible/incompatible booleans. | diagnostic | Keep static statuses aligned with launch-recipe evidence and live protected-launch proof. |
-| Offline EAC mode naming | `app/src-rust/src/installer.rs`, `app/src-rust/src/main.rs` | Installer/UI text now avoids bypass wording, but endpoint names still expose the legacy `eac-toggle` route. | legacy-risk | Audit behavior, keep naming explicit if legitimate compatibility flag, remove if bypass-like. |
-| Runtime deploy glue | `app/src-rust/src/mtsp/launcher.rs`, `app/src-rust/src/setup.rs` | Copies shims into runtime/game folders and assembles launch env. The Mono/FNA launcher now has a native shim manifest for kernel32/user32/Carbon interpose plus bundled CoreAudio/GameController dylibs. | prototype | Extend the manifest pattern into versioned Host Runtime ABI asset selection and self-tests. |
+| Runtime deploy glue | `app/src-c/runtime/steam_actions.c`, `app/src-c/runtime/setup.c` | Copies shims into runtime/game folders and assembles launch env. The Mono/FNA launcher has a native shim manifest for kernel32/user32/Carbon interpose plus bundled CoreAudio/GameController dylibs. | prototype | Extend the manifest pattern into versioned Host Runtime ABI asset selection and self-tests. |
 
 ## Strongest Existing Pattern
 
@@ -73,7 +72,7 @@ Phase 1 should fix this by creating a versioned Host Runtime ABI and a manifest-
    - Carbon interpose: no, keep as legacy compatibility asset
 
 2. Which runtime owns process launch?
-   - Rust backend should own high-level launch orchestration.
+   - The C backend owns high-level launch orchestration.
    - Host ABI should own low-level host service calls.
    - Wine Steam should own account/session/download state.
    - Game bottle/compatdata should own per-game runtime state.

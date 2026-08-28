@@ -38,31 +38,21 @@ fs.writeFileSync("app/package-lock.json", `${JSON.stringify(packageLock, null, 2
 NODE
 
 perl -0pi -e "s/project\(metalsharp VERSION \K[0-9]+\.[0-9]+\.[0-9]+/$VERSION/" CMakeLists.txt
-perl -0pi -e "s/(\[package\]\nname = \"metalsharp-backend\"\nversion = \")\d+\.\d+\.\d+(\")/\${1}$VERSION\${2}/" app/src-rust/Cargo.toml
-perl -0pi -e "s/(\[\[package\]\]\nname = \"metalsharp-backend\"\nversion = \")\d+\.\d+\.\d+(\")/\${1}$VERSION\${2}/" app/src-rust/Cargo.lock
+perl -0pi -e "s/^VERSION \?= \K[0-9]+\.[0-9]+\.[0-9]+/$VERSION/m" app/src-c/Makefile
 
 node - "$VERSION" <<'NODE'
 const fs = require("fs");
 const version = process.argv[2];
-const escaped = version.replace(/\./g, "\\.");
 const packageJson = JSON.parse(fs.readFileSync("app/package.json", "utf8"));
 const packageLock = JSON.parse(fs.readFileSync("app/package-lock.json", "utf8"));
-const cargoToml = fs.readFileSync("app/src-rust/Cargo.toml", "utf8");
-const cargoLock = fs.readFileSync("app/src-rust/Cargo.lock", "utf8");
 const cmake = fs.readFileSync("CMakeLists.txt", "utf8");
+const cMakefile = fs.readFileSync("app/src-c/Makefile", "utf8");
 
 const checks = [
   ["app/package.json version", packageJson.version === version],
   ["app/package-lock.json top-level version", packageLock.version === version],
   ['app/package-lock.json packages[""] version', packageLock.packages?.[""]?.version === version],
-  [
-    "app/src-rust/Cargo.toml metalsharp-backend version",
-    new RegExp(`\\[package\\]\\s+name = "metalsharp-backend"\\s+version = "${escaped}"`).test(cargoToml),
-  ],
-  [
-    "app/src-rust/Cargo.lock metalsharp-backend version",
-    new RegExp(`\\[\\[package\\]\\]\\s+name = "metalsharp-backend"\\s+version = "${escaped}"`).test(cargoLock),
-  ],
+  ["app/src-c/Makefile backend version", cMakefile.includes(`VERSION ?= ${version}`)],
   ["CMakeLists.txt project version", cmake.includes(`project(metalsharp VERSION ${version} LANGUAGES C CXX OBJC OBJCXX)`)],
 ];
 

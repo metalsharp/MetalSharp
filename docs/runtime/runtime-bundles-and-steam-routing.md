@@ -87,7 +87,7 @@ This applies to Steam launch-model titles such as Party Animals and Source games
 
 ## Steam Wrapper Rules
 
-Before launching Steam, MetalSharp calls `ensure_steam_launch_ready()` and redeploys `steamwebhelper.exe` when Steam has overwritten it. Steam assets come from `metalsharp-steam.tar.zst`, and the backend only accepts the extracted wrapper if it matches `STEAMWEBHELPER_WRAPPER_SHA256` in `app/src-rust/src/steam.rs`.
+Before launching Steam, MetalSharp calls `ensure_steam_launch_ready()` and redeploys `steamwebhelper.exe` when Steam has overwritten it. Steam assets come from `metalsharp-steam.tar.zst`, and the C backend validates the staged wrapper before launch.
 
 The expected deployed Steam CEF layout is:
 

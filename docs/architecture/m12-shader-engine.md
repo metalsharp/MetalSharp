@@ -59,7 +59,7 @@ That proof must exist under at least one installed corpus source, and the source
 must also contain runtime-safe shader-engine material. This prevents a partial
 archive with one stray `.metallib` from passing M12 readiness.
 
-When a game uses the M12 cache namespace, `shader_cache.rs` copies runtime-safe
+When a game uses the M12 cache namespace, the C backend copies runtime-safe
 files into:
 
 ```text
