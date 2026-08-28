@@ -643,6 +643,12 @@ async function checkNeedsMigration(): Promise<boolean> {
   }
 
   const marker = hasPostUpdateMigrationMarker();
+  // Migration is an update handoff, not a general runtime-repair screen.
+  // Normal startup must never enter it solely because setup/runtime readiness
+  // checks disagree; SetupWizard owns incomplete-runtime repair. The updater
+  // writes this marker only after it has installed a replacement app bundle.
+  if (!marker.needed) return false;
+
   return new Promise((resolve) => {
     const req = http.get("http://127.0.0.1:9274/update/migrate/check", (res) => {
       const chunks: Buffer[] = [];
