@@ -40,7 +40,7 @@ Homebrew installs MetalSharp.app in /Applications. Open it and the setup wizard 
 
 For building from source, see [Install from Source](docs/guides/install-from-source.md).
 
-## Routes - Graphics Routes are intentionally separated to avoid launch conflicts.
+## Routes - _Graphics Routes are intentionally separated to avoid launch conflicts_
 
 | Route | Engine | Notes |
 |---|---|---|
@@ -55,14 +55,16 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 
 ## Features
 
-- **_Sharp Library_** - Import and run standalone Windows programs, installers, and launchers.
-- **_GOG Library_** - Download and play GOG games through the Sharp Library.
-- **_Epic Library_** - Download and play Epic Games through the Sharp Library.
-- **_GameJolt Library_** - Download, Manage, and Play GameJolt games through the Sharp Library.
-- **_Emulation Support_** -  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu.
-- **_Runtime Bottles_** - Select your launch method, repair missing assets, and switch between bottle runtimes.
-- **_MTSP Routing_** - Automatic pipeline selection based on game compatibility data and developer testing.
-- **_Steam Integration_** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates.
+| Feature | Notes |
+|---|---|
+| **_Sharp Library_** | Import and run standalone Windows programs, installers, and launchers |
+| **_GOG Library_** | Download and play GOG games through the Sharp Library |
+| **_Epic Library_** | Download and play Epic Games through the Sharp Library |
+| **_GameJolt Library_** | Download, Manage, and Play GameJolt games through the Sharp Library |
+| **_Emulation Support_** |  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu |
+| **_Runtime Bottles_** | Select your launch method, repair missing assets, and switch between bottle runtimes |
+| **_MTSP Routing_** | Automatic pipeline selection based on game compatibility data and developer testing |
+| **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
 
 ## Requirements
 
