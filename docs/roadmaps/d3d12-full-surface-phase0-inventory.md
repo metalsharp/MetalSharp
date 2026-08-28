@@ -3,10 +3,10 @@
 **State:** Phase 0 inventory complete; implementation and behavior gates remain open.
 **Stable baseline:** Microsoft DirectX Agility SDK 1.619.5 (`D3D12SDKVersion=619`)
 **Preview lane:** Agility SDK 1.721.3-preview (`D3D12SDKVersion=721`), opt-in only
-**Generated:** 2026-08-28T20:07:49.156924+00:00
-**Git HEAD:** `d4264bd8bdbeb6fd8382e91e6ede22bd04cf426f`
-**Runtime source files scanned:** 109
-**Runtime source tree SHA-256:** `251481495d4f1070860e3b5073f464dba2419b7021363d4808ed4434bb80294e`
+**Generated:** 2026-08-28T20:39:31.405241+00:00
+**Git HEAD:** `20b90b1630db916275a3eb8a2cc7fac25f6ec8be`
+**Runtime source files scanned:** 115
+**Runtime source tree SHA-256:** `de41f924d670fddf37e0281b574df33c27a00f2e01835efe1358ce8861c2192c`
 
 ## Interface census
 
@@ -17,11 +17,11 @@
 
 ## Static runtime findings
 
-- Total findings: **1004**
-- `capability_literal`: **73**
-- `empty_function_body`: **34**
-- `placeholder_return`: **417**
-- `success_or_zero_return`: **422**
+- Total findings: **1028**
+- `capability_literal`: **78**
+- `empty_function_body`: **36**
+- `placeholder_return`: **425**
+- `success_or_zero_return`: **431**
 - `unsupported_return`: **58**
 
 These findings are intentionally not suppressed. Later phases must attach a behavior probe and clear each legal-operation finding; expected invalid-input returns remain explicitly classified.

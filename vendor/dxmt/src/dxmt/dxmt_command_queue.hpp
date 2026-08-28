@@ -30,6 +30,7 @@
 #include "dxmt_resource_initializer.hpp"
 #include "dxmt_ring_bump_allocator.hpp"
 #include "dxmt_statistics.hpp"
+#include "dxmt_timeline.hpp"
 #include "log/log.hpp"
 #include "thread.hpp"
 #include "util_cpu_fence.hpp"
@@ -164,6 +165,7 @@ private:
   std::atomic_uint64_t ready_for_commit = 1;
   std::atomic_uint64_t chunk_ongoing = 0;
   CpuFence cpu_coherent;
+  ExecutionTimeline timeline_;
   CpuFence frame_latency_fence_;
   std::atomic_bool stopped;
 
@@ -278,8 +280,11 @@ public:
 
   void
   WaitCPUFence(uint64_t seq) {
-    cpu_coherent.wait(seq);
+    timeline_.waitCPU(seq);
   };
+
+  ExecutionTimeline &Timeline() { return timeline_; }
+  const ExecutionTimeline &Timeline() const { return timeline_; }
 
   std::tuple<WMT::Buffer, uint64_t>
   AllocateStagingBuffer(size_t size, size_t alignment) {

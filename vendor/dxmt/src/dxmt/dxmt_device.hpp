@@ -1,5 +1,6 @@
 #pragma once
 #include "dxmt_command_queue.hpp"
+#include "dxmt_provider.hpp"
 #include <memory>
 
 namespace dxmt {
@@ -12,6 +13,9 @@ public:
   virtual CommandQueue& queue() = 0;
   virtual WMTMetalVersion metalVersion() = 0;
   virtual uint64_t maxObjectThreadgroups() = 0;
+  virtual const HostCapabilities &capabilities() const = 0;
+  virtual ProviderSelection selectProvider(
+      const ProviderRequirements &requirements) const = 0;
 };
 
 struct DEVICE_DESC {

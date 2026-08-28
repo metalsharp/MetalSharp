@@ -112,6 +112,12 @@ public:
 
   WMT::Device GetMTLDevice();
   Device &GetDXMTDevice();
+  const HostCapabilities &GetHostCapabilities() const {
+    return m_device->capabilities();
+  }
+  ProviderSelection SelectProvider(const ProviderRequirements &requirements) const {
+    return m_device->selectProvider(requirements);
+  }
   bool SupportsMetalRaytracing() const {
     return m_metal_raytracing_supported;
   }

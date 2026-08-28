@@ -24,6 +24,13 @@ public:
     return max_object_threadgroups_;
   };
 
+  const HostCapabilities &capabilities() const final { return capabilities_; }
+
+  ProviderSelection selectProvider(
+      const ProviderRequirements &requirements) const final {
+    return SelectProvider(capabilities_, requirements);
+  }
+
   DeviceImpl(const DEVICE_DESC &desc) : device_(desc.device), cmd_queue_(device_) {
     uint64_t macos_major_version = 0, macos_minor_version = 0;
     int version_conf = Config::getInstance().getOption<int>("dxmt.shaderMetalVersion", 0);
@@ -53,6 +60,8 @@ public:
       max_object_threadgroups_ = -1ull;
       device_.setShouldMaximizeConcurrentCompilation(true);
     }
+    capabilities_ = ProbeHostCapabilities(device_, metal_version_,
+                                           max_object_threadgroups_);
   }
 
 private:
@@ -60,6 +69,7 @@ private:
   CommandQueue cmd_queue_;
   WMTMetalVersion metal_version_;
   uint64_t max_object_threadgroups_;
+  HostCapabilities capabilities_;
 };
 
 std::unique_ptr<Device>

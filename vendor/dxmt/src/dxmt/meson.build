@@ -6,6 +6,8 @@ dxmt_src = [
   'dxmt_capture.cpp',
   'dxmt_info.cpp',
   'dxmt_device.cpp',
+  'dxmt_capabilities.cpp',
+  'dxmt_provider.cpp',
   'dxmt_buffer.cpp',
   'dxmt_texture.cpp',
   'dxmt_context.cpp',

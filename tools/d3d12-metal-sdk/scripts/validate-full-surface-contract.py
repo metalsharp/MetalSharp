@@ -87,9 +87,13 @@ def validate(args: argparse.Namespace) -> list[str]:
         if stable_baseline.get("preview_lane") != "1.721.3-preview":
             errors.append("full-surface preview lane must be 1.721.3-preview")
 
-    for contract, name in ((full, "full-surface"), (matrix, "matrix"), (provider, "provider"), (policy, "no-op policy")):
+    for contract, name in ((full, "full-surface"), (matrix, "matrix"), (policy, "no-op policy")):
         if contract.get("state") != "phase0_inventory":
             errors.append(f"{name} contract must be phase0_inventory")
+    if provider.get("state") != "phase1_architecture":
+        errors.append("provider contract must be phase1_architecture")
+    if not provider.get("phase1_evidence"):
+        errors.append("provider contract is missing phase-1 evidence")
     if full.get("summary", {}).get("promotion_ready") is not False:
         errors.append("phase-0 full-surface contract cannot be promotion-ready")
     if provider.get("no_silent_fallback") is not True:
