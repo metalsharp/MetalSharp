@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Split release DMGs, scan each half with VirusTotal, and format release notes."""
+"""Split release DMGs into thirds, scan each part, and format release notes."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 MAX_VIRUSTOTAL_BYTES = 650 * 1024 * 1024
+PART_COUNT = 3
 START_MARKER = "<!-- virustotal-results:start -->"
 END_MARKER = "<!-- virustotal-results:end -->"
 
@@ -34,42 +35,44 @@ def sha256_file(path: Path) -> str:
 
 def split_dmg(path: Path, output_dir: Path, max_bytes: int = MAX_VIRUSTOTAL_BYTES) -> list[dict[str, Any]]:
     size = path.stat().st_size
-    if size < 2:
-        raise ScanError(f"DMG is too small to split: {path}")
+    if size < PART_COUNT:
+        raise ScanError(f"DMG is too small to split into {PART_COUNT} parts: {path}")
 
-    first_size = (size + 1) // 2
-    second_size = size - first_size
-    if max(first_size, second_size) > max_bytes:
+    base_size, remainder = divmod(size, PART_COUNT)
+    expected_sizes = [base_size + (1 if index < remainder else 0) for index in range(PART_COUNT)]
+    if max(expected_sizes) > max_bytes:
         raise ScanError(
-            f"{path.name} is {size} bytes; an equal half exceeds the "
+            f"{path.name} is {size} bytes; an equal third exceeds the "
             f"VirusTotal {max_bytes}-byte upload limit"
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     part_paths = [
-        output_dir / f"{path.name}.part-1-of-2",
-        output_dir / f"{path.name}.part-2-of-2",
+        output_dir / f"{path.name}.part-{index}-of-{PART_COUNT}"
+        for index in range(1, PART_COUNT + 1)
     ]
-    remaining = first_size
-    with path.open("rb") as source, part_paths[0].open("wb") as first:
-        while remaining:
-            chunk = source.read(min(8 * 1024 * 1024, remaining))
-            if not chunk:
-                raise ScanError(f"unexpected end of file while splitting {path}")
-            first.write(chunk)
-            remaining -= len(chunk)
-        with part_paths[1].open("wb") as second:
-            while chunk := source.read(8 * 1024 * 1024):
-                second.write(chunk)
+    with path.open("rb") as source:
+        for part, expected_size in zip(part_paths, expected_sizes, strict=True):
+            remaining = expected_size
+            with part.open("wb") as output:
+                while remaining:
+                    chunk = source.read(min(8 * 1024 * 1024, remaining))
+                    if not chunk:
+                        raise ScanError(f"unexpected end of file while splitting {path}")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+        if source.read(1):
+            raise ScanError(f"split did not consume exactly {size} bytes from {path}")
 
     actual_sizes = [part.stat().st_size for part in part_paths]
-    if actual_sizes != [first_size, second_size] or sum(actual_sizes) != size:
+    if actual_sizes != expected_sizes or sum(actual_sizes) != size:
         raise ScanError(f"split size verification failed for {path}")
 
     return [
         {
             "dmg": path.name,
             "part": index,
+            "part_count": PART_COUNT,
             "path": str(part),
             "size": part.stat().st_size,
             "sha256": sha256_file(part),
@@ -186,7 +189,7 @@ def markdown_report(tag: str, results: list[dict[str, Any]]) -> str:
         "",
         (
             "The release DMG exceeds VirusTotal's 650 MiB upload limit. Each report below "
-            "covers one raw half of a DMG, not a complete mountable DMG, and must not be "
+            "covers one raw third of a DMG, not a complete mountable DMG, and must not be "
             "interpreted as a whole-installer verdict."
         ),
         "",
@@ -203,7 +206,8 @@ def markdown_report(tag: str, results: list[dict[str, Any]]) -> str:
         size_mib = int(result["size"]) / (1024 * 1024)
         report_url = f"https://www.virustotal.com/gui/file/{result['sha256']}"
         lines.append(
-            f"| `{dmg}` | {result['part']}/2 | {size_mib:.1f} MiB | "
+            f"| `{dmg}` | {result['part']}/{result.get('part_count', PART_COUNT)} | "
+            f"{size_mib:.1f} MiB | "
             f"{detected}/{total} | [Report]({report_url}) |"
         )
     lines.extend(["", f"Scanned automatically for release `{tag}`.", END_MARKER, ""])
@@ -275,7 +279,7 @@ def scan_command(args: argparse.Namespace) -> int:
     for part in parts:
         path = Path(part["path"])
         print(
-            f"Uploading {part['dmg']} part {part['part']}/2 "
+            f"Uploading {part['dmg']} part {part['part']}/{part['part_count']} "
             f"({part['size']} bytes, sha256={part['sha256']})",
             flush=True,
         )
@@ -284,7 +288,7 @@ def scan_command(args: argparse.Namespace) -> int:
         result = {**part, "analysis_id": analysis_id, "stats": stats}
         results.append(result)
         print(
-            f"Completed {part['dmg']} part {part['part']}/2: "
+            f"Completed {part['dmg']} part {part['part']}/{part['part_count']}: "
             f"malicious={stats.get('malicious', 0)} suspicious={stats.get('suspicious', 0)}",
             flush=True,
         )
