@@ -55,9 +55,12 @@ The isolated source-staged command probe passed with these behavior checks:
 ```
 
 The resource probe independently records `atomic_copy_verified=true` and
-`discard_verified=true`. The D3D10/D3D11 legacy regression probe also passed
-against the same rebuilt runtime. All child waits are bounded and the source
-wrapper removes its disposable Wine clone and prefix after each invocation.
+`discard_verified=true`. The queue probe also passed with nonzero GPU/CPU clock
+calibration values, a 1 GHz timestamp frequency, cross-queue fence ordering,
+and exact null-output `E_POINTER` validation. The D3D10/D3D11 legacy
+regression probe also passed against the same rebuilt runtime. All child waits
+are bounded and the source wrapper removes its disposable Wine clone and prefix
+after each invocation.
 
 ## Remaining Phase 4 work
 
