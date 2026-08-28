@@ -750,6 +750,14 @@ Validate all required contract files:
 python3 tools/d3d12-metal-sdk/scripts/validate-contracts.py
 ```
 
+Generate the full-surface Phase 0 inventory (145 interfaces, method ownership,
+provider policy, matrix, and static no-op scan):
+
+```bash
+python3 tools/d3d12-metal-sdk/scripts/generate-full-surface-inventory.py
+python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-contract.py
+```
+
 Validate that every required probe group in the phase matrix has a runnable
 script token, contract coverage entry, and CI contract gate:
 

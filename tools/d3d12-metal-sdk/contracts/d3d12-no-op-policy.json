@@ -1,0 +1,45 @@
+{
+  "allowed_validation_outcomes": [
+    "E_INVALIDARG for malformed or out-of-domain input",
+    "E_NOINTERFACE for an interface outside the declared contract",
+    "documented device-removed or out-of-memory errors",
+    "documented invalid feature/query result for an unknown feature ID"
+  ],
+  "legal_request_forbidden_outcomes": [
+    "E_NOTIMPL",
+    "DXGI_ERROR_UNSUPPORTED",
+    "D3D12_ERROR_UNSUPPORTED",
+    "S_OK with no state change or observable side effect",
+    "empty command body",
+    "uninitialized output",
+    "false or zero capability report that is not behavior-derived",
+    "dropped command record"
+  ],
+  "promotion_rule": "Static inventory is evidence of a gap, never evidence of support; behavior probes must clear each finding.",
+  "scanner_patterns": {
+    "empty_bodies": "function body containing only whitespace/comments",
+    "placeholder_returns": [
+      "return false",
+      "return nullptr",
+      "return {}"
+    ],
+    "success_returns": [
+      "return S_OK",
+      "return TRUE",
+      "return 0"
+    ],
+    "unsupported_returns": [
+      "E_NOTIMPL",
+      "DXGI_ERROR_UNSUPPORTED",
+      "D3D12_ERROR_UNSUPPORTED"
+    ]
+  },
+  "schema": "metalsharp.d3d12-metal.no-op-policy.v1",
+  "scope": [
+    "vendor/dxmt/src/d3d12",
+    "vendor/dxmt/src/dxgi",
+    "vendor/dxmt/src/dxmt",
+    "vendor/dxmt/src/winemetal"
+  ],
+  "state": "phase0_inventory"
+}

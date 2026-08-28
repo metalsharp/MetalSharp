@@ -1,7 +1,7 @@
 # D3D12 Full-Surface Completion Roadmap
 
 **Created:** 2026-08-27  
-**Status:** Proposed — not complete; this roadmap supersedes the scoped
+**Status:** Active — Phase 0 complete; this roadmap supersedes the scoped
 FL12_2/SM6.7/DXR completion claim for purposes of full API coverage.  
 **Predecessor:** [D3D12 FL12_2 / SM6.7 / DXR completion roadmap](d3d12-fl12_2-sm67-dxr-completion-roadmap.md)  
 **Target:** MetalSharp's vendored DXMT D3D12/DXGI/WineMetal runtime  
@@ -349,7 +349,28 @@ The phases are deliberately ordered. Do not promote a later feature or widen
 its report while an earlier provider, ABI, memory, or synchronization phase is
 red.
 
-### Phase 0 — Freeze the full inventory and downgrade the completion claim
+### Phase status
+
+- [x] Phase 0 — Full inventory, source census, provider map, and no-op scan
+- [ ] Phase 1 — Provider, synchronization, and capability architecture
+- [ ] Phase 2 — COM objects, interfaces, and lifecycle
+- [ ] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
+- [ ] Phase 4 — Queues, commands, barriers, and indirect work
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution
+- [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats
+- [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders
+- [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions
+- [ ] Phase 9 — D3D12 video provider
+- [ ] Phase 10 — Protected resources and security-sensitive paths
+- [ ] Phase 11 — DSR and advanced display scaling
+- [ ] Phase 12 — DXGI factories, outputs, surfaces, presentation, and display
+- [ ] Phase 13 — Agility, caches, diagnostics, tools, and configuration
+- [ ] Phase 14 — Conservative reports and unsupported-ledger removal
+- [ ] Phase 14A — 1.721.3-preview compatibility lane (optional)
+- [ ] Phase 15 — Exhaustive validation, differential testing, and game coverage
+- [ ] Phase 16 — Reproducible staging and release delivery
+
+### Phase 0 — Freeze the full inventory and downgrade the completion claim **[COMPLETE]**
 
 **Goal:** Make the expanded target measurable and prevent the scoped gate from
 being mistaken for full completion.
@@ -376,6 +397,35 @@ being mistaken for full completion.
 - Zero unknown methods in the census.
 - Zero unexplained gaps between headers, QI/vtables, contracts, and source.
 - A full gap report is committed before feature implementation resumes.
+
+**Phase 0 completion evidence:**
+
+- Stable 1.619.5 inventory: **145 interfaces / 537 methods** with a primary
+  source owner recorded for every method.
+- Runtime static scan: **109 files / 1,004 findings**, including 58
+  unsupported-return candidates, 34 empty bodies, 73 capability literals, and
+  all success/placeholder-return candidates. Findings remain open work; none
+  are silently suppressed or promoted.
+- Source-tree digest is recorded in the census and validated by
+  `validate-interface-census.py`.
+- `validate-full-surface-contract.py`, `validate-contracts.py`,
+  `validate-probe-matrix.py`, shell syntax checks, and JSON parsing pass.
+
+**Updated files and connections:**
+
+- `tools/d3d12-metal-sdk/scripts/generate-full-surface-inventory.py` — builds
+  the synchronized phase-0 contracts and report from the stable interface
+  contract plus runtime sources.
+- `tools/d3d12-metal-sdk/scripts/check-noop-runtime-paths.py` — static gap
+  scanner consumed by the inventory generator and future phase gates.
+- `tools/d3d12-metal-sdk/scripts/validate-interface-census.py` — verifies all
+  145/537 contract rows and current runtime source digest.
+- `tools/d3d12-metal-sdk/scripts/validate-full-surface-contract.py` — validates
+  phase-0 state, provider policy, matrix, census, and scanner synchronization.
+- `tools/d3d12-metal-sdk/contracts/d3d12-{interface-census,no-op-policy,provider-contract,full-surface-contract,full-surface-matrix}.json`
+  — authoritative phase-0 artifacts consumed by later implementation phases.
+- `docs/roadmaps/d3d12-full-surface-phase0-inventory.md` — committed human
+  report connecting static findings to the implementation backlog.
 
 ### Phase 1 — Build the provider, synchronization, and capability architecture
 

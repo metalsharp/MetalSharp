@@ -1,0 +1,82 @@
+{
+  "feature_provider_requirements": {
+    "display": [
+      "display-coreanimation",
+      "cpu-reference"
+    ],
+    "ordinary_graphics": [
+      "metal-native",
+      "metal-emulation",
+      "cpu-reference"
+    ],
+    "protected_resources": [
+      "protected-platform"
+    ],
+    "sharing": [
+      "shared-mach-iosurface"
+    ],
+    "video": [
+      "videotoolbox-corevideo",
+      "cpu-reference"
+    ],
+    "work_graphs": [
+      "metal-emulation",
+      "cpu-reference"
+    ]
+  },
+  "no_silent_fallback": true,
+  "providers": [
+    {
+      "id": "metal-native",
+      "implementation_status": "planned",
+      "negative_evidence": [],
+      "positive_evidence": [],
+      "purpose": "Metal 3/4 native operation"
+    },
+    {
+      "id": "metal-emulation",
+      "implementation_status": "planned",
+      "negative_evidence": [],
+      "positive_evidence": [],
+      "purpose": "Metal compute/replay semantic provider"
+    },
+    {
+      "id": "cpu-reference",
+      "implementation_status": "planned",
+      "negative_evidence": [],
+      "positive_evidence": [],
+      "purpose": "Deterministic CPU/WARP-compatible provider"
+    },
+    {
+      "id": "videotoolbox-corevideo",
+      "implementation_status": "planned",
+      "negative_evidence": [],
+      "positive_evidence": [],
+      "purpose": "D3D12 video and surface provider"
+    },
+    {
+      "id": "display-coreanimation",
+      "implementation_status": "planned",
+      "negative_evidence": [],
+      "positive_evidence": [],
+      "purpose": "DXGI window/display/duplication provider"
+    },
+    {
+      "id": "shared-mach-iosurface",
+      "implementation_status": "planned",
+      "negative_evidence": [],
+      "positive_evidence": [],
+      "purpose": "Cross-process resources/heaps/fences"
+    },
+    {
+      "id": "protected-platform",
+      "implementation_status": "blocked-until-provider",
+      "negative_evidence": [],
+      "positive_evidence": [],
+      "purpose": "Protected-memory/security provider"
+    }
+  ],
+  "schema": "metalsharp.d3d12-metal.provider-contract.v1",
+  "selection_rule": "Select by caller SDK family, operation semantics, host capability, and passing behavior evidence.",
+  "state": "phase0_inventory"
+}

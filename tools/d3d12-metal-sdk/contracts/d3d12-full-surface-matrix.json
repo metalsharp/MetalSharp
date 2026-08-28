@@ -1,0 +1,140 @@
+{
+  "method_inventory": {
+    "interface_count": 145,
+    "method_count": 537,
+    "static_findings": 1004
+  },
+  "preview_sdk_version": "1.721.3-preview",
+  "promotion_rule": "Every row needs executable behavior, exact readback/side-effect evidence, invalid-input evidence, and source/runtime provenance.",
+  "required_categories": [
+    {
+      "behavior_status": "unverified",
+      "id": "inbox_no_agility_loader",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "agility_4_legacy",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "agility_600_legacy",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "agility_602_through_611",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "agility_613_through_616",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "agility_618",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "agility_619_stable",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "agility_721_preview_opt_in",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "com_all_145_interfaces_and_537_methods",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "resources_heaps_residency_and_sharing",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "queues_commands_barriers_and_indirect",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "shader_models_sm5x_through_sm69",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "graphics_raster_rov_vrs_msaa_and_formats",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "mesh_amplification_work_graphs_and_nodes",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "dxr_11_and_dxr_12_ser_omm",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "video_providers",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "protected_resources",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "dsr",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "dxgi_display_and_duplication",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "cache_debug_tools_and_configuration",
+      "negative_probe": null,
+      "positive_probe": null
+    },
+    {
+      "behavior_status": "unverified",
+      "id": "legacy_d3d10_d3d11_regression",
+      "negative_probe": null,
+      "positive_probe": null
+    }
+  ],
+  "schema": "metalsharp.d3d12-metal.full-surface-matrix.v1",
+  "stable_sdk_version": "1.619.5",
+  "state": "phase0_inventory"
+}
