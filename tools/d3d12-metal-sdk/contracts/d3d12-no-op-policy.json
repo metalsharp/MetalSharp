@@ -39,7 +39,8 @@
     "vendor/dxmt/src/d3d12",
     "vendor/dxmt/src/dxgi",
     "vendor/dxmt/src/dxmt",
-    "vendor/dxmt/src/winemetal"
+    "vendor/dxmt/src/winemetal",
+    "vendor/dxmt/src/util"
   ],
   "state": "phase0_inventory"
 }

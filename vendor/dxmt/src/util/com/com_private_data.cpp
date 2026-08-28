@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cwchar>
+#include <new>
 
 #include "com_private_data.hpp"
 
@@ -20,8 +21,11 @@ ComPrivateDataEntry::ComPrivateDataEntry() {}
 ComPrivateDataEntry::ComPrivateDataEntry(REFGUID guid, UINT size,
                                          const void *data)
     : m_guid(guid), m_type(ComPrivateDataType::Data), m_size(size),
-      m_data(std::malloc(size)) {
-  std::memcpy(m_data, data, size);
+      m_data(size ? std::malloc(size) : nullptr) {
+  if (m_size && !m_data)
+    throw std::bad_alloc();
+  if (m_size)
+    std::memcpy(m_data, data, size);
 }
 
 ComPrivateDataEntry::ComPrivateDataEntry(REFGUID guid, const IUnknown *iface)
@@ -80,7 +84,7 @@ HRESULT ComPrivateDataEntry::get(UINT &size, void *data) const {
       if (m_iface)
         m_iface->AddRef();
       std::memcpy(data, &m_iface, minSize);
-    } else {
+    } else if (minSize) {
       std::memcpy(data, m_data, minSize);
     }
   }
@@ -99,6 +103,8 @@ void ComPrivateDataEntry::destroy() {
 HRESULT ComPrivateData::setData(REFGUID guid, UINT size, const void *data) {
   std::lock_guard<std::mutex> lock(m_mutex);
   if (!data) {
+    if (size)
+      return E_INVALIDARG;
     for (auto it = m_entries.begin(); it != m_entries.end(); ++it) {
       if (it->hasGuid(guid)) {
         m_entries.erase(it);
@@ -107,13 +113,30 @@ HRESULT ComPrivateData::setData(REFGUID guid, UINT size, const void *data) {
     }
     return S_FALSE;
   }
-  this->insertEntry(ComPrivateDataEntry(guid, size, data));
+  try {
+    this->insertEntry(ComPrivateDataEntry(guid, size, data));
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
   return S_OK;
 }
 
 HRESULT ComPrivateData::setInterface(REFGUID guid, const IUnknown *iface) {
   std::lock_guard<std::mutex> lock(m_mutex);
-  this->insertEntry(ComPrivateDataEntry(guid, iface));
+  if (!iface) {
+    for (auto it = m_entries.begin(); it != m_entries.end(); ++it) {
+      if (it->hasGuid(guid)) {
+        m_entries.erase(it);
+        return S_OK;
+      }
+    }
+    return S_FALSE;
+  }
+  try {
+    this->insertEntry(ComPrivateDataEntry(guid, iface));
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
   return S_OK;
 }
 

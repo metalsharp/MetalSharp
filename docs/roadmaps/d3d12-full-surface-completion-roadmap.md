@@ -353,7 +353,7 @@ red.
 
 - [x] Phase 0 — Full inventory, source census, provider map, and no-op scan
 - [x] Phase 1 — Provider, synchronization, and capability architecture
-- [ ] Phase 2 — COM objects, interfaces, and lifecycle
+- [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [ ] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [ ] Phase 4 — Queues, commands, barriers, and indirect work
 - [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution
@@ -402,8 +402,8 @@ being mistaken for full completion.
 
 - Stable 1.619.5 inventory: **145 interfaces / 537 methods** with a primary
   source owner recorded for every method.
-- Runtime static scan: **109 files / 1,004 findings**, including 58
-  unsupported-return candidates, 34 empty bodies, 73 capability literals, and
+- Runtime static scan: **163 files / 1,153 findings**, including 58
+  unsupported-return candidates, 77 empty bodies, 78 capability literals, and
   all success/placeholder-return candidates. Findings remain open work; none
   are silently suppressed or promoted.
 - Source-tree digest is recorded in the census and validated by
@@ -492,7 +492,7 @@ Metal equivalent.
 - `docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md` — exact Phase 1
   commands and observed readbacks/logs.
 
-### Phase 2 — Complete COM objects, interface exposure, and lifecycle
+### Phase 2 — Complete core COM objects, interface exposure, and lifecycle **[COMPLETE]**
 
 **Goal:** Make the complete object model correct before adding more GPU work.
 
@@ -504,8 +504,9 @@ Metal equivalent.
   notifications, child-object lifetime, and parent/device links.
 - Implement InfoQueue storage/retrieval filters, message limits, breaks,
   mute state, callbacks, and exact buffer-size behavior.
-- Implement DRED/device-removed data, diagnostic callbacks, and live-object
-  reporting against the internal object registry.
+- Preserve the DRED/device-removed and live-object hooks required by the core
+  object lifetime model; complete diagnostic data, callbacks, and tooling in
+  Phase 13.
 - Implement lifetime owners/trackers and destruction callbacks.
 - Implement device factory/configuration/experimental-feature interfaces and
   reject only malformed requests.
@@ -516,8 +517,38 @@ Metal equivalent.
 
 - Interface census has no missing QI or vtable owner.
 - Every object category survives create/use/release/recreate cycles.
-- InfoQueue, DRED, lifetime, and private-data tests pass under x86_64 and
-  WOW64.
+- InfoQueue, lifetime, and private-data tests pass under x86_64 and WOW64;
+  DRED/tool behavior remains owned by Phase 13.
+
+**Phase 2 completion evidence:**
+
+- Source-staged object contract probe passed with **13 object categories** and
+  `info_queue_pass=true`, including repeated-QI identity, filters, stacks,
+  counters, message readback, break settings, mute state, and invalid-input
+  checks.
+- Private-data behavior passed across device, queue, allocator, command list,
+  fence, descriptor heap, heap, resource, query heap, command signature, root
+  signature, pipeline library, and shader-cache objects.
+- D3D10/D3D11 clear/copy/readback regression passed after the shared lifecycle
+  changes.
+- Clean source build passed **158/158** targets; disposable 18-artifact
+  staging and Winemetal ABI verification passed with zero failures.
+- Temporary prefixes, source-Wine clones, build products, probe caches, and
+  temporary stage data were removed. No Wine prefix markers remain in `/tmp`.
+- Phase proof: `docs/roadmaps/d3d12-full-surface-phase2-com-proof.md`.
+
+**Updated files and connections:**
+
+- `vendor/dxmt/src/d3d12/d3d12_device.cpp` — concrete InfoQueue storage,
+  filtering, counters, break/mute state, singleton QI, and device-owner
+  release.
+- `vendor/dxmt/src/d3d12/d3d12_device.hpp` — InfoQueue owner/mutex fields.
+- `vendor/dxmt/src/util/com/com_private_data.cpp` — validated private-data and
+  interface deletion/allocation semantics shared by all COM objects.
+- `tools/d3d12-metal-sdk/probes/probe_object_contracts/probe_object_contracts.cpp`
+  — executable InfoQueue and null-interface lifecycle assertions.
+- `docs/roadmaps/d3d12-full-surface-phase2-com-proof.md` — exact Phase 2
+  evidence and cleanup record.
 
 ### Phase 3 — Finish resources, heaps, virtual memory, residency, and sharing
 

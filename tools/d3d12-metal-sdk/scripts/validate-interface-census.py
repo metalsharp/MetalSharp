@@ -18,6 +18,7 @@ RUNTIME_ROOTS = (
     ROOT_DIR / "vendor/dxmt/src/dxgi",
     ROOT_DIR / "vendor/dxmt/src/dxmt",
     ROOT_DIR / "vendor/dxmt/src/winemetal",
+    ROOT_DIR / "vendor/dxmt/src/util",
 )
 EXTENSIONS = {".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm"}
 
