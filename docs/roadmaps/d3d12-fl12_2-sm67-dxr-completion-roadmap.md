@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-25
 
-**Status:** Active — promotion gate green; final staging and delivery pending
+**Status:** Scoped completion recorded; broader no-fail-closed work is tracked in the [full-surface completion roadmap](d3d12-full-surface-completion-roadmap.md).
 
 **Branch:** `feat/d3d12-fl12_2-sm67-dxr-completion`
 
