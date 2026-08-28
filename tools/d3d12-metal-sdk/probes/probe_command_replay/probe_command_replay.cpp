@@ -591,6 +591,7 @@ static CaseResult run_execute_indirect_constants_case() {
     ID3D12CommandSignature* draw_signature = nullptr;
     ID3D12CommandSignature* draw_indexed_signature = nullptr;
     ID3D12Resource* args = nullptr;
+    ID3D12Resource* count = nullptr;
     ID3D12Resource* output = nullptr;
     ID3D12Resource* readback = nullptr;
     std::string detail;
@@ -675,8 +676,19 @@ static CaseResult run_execute_indirect_constants_case() {
         D3D12_DISPATCH_ARGUMENTS dispatch;
     };
     IndirectArgs indirect_args = {31, {1, 1, 1}};
+    const uint32_t indirect_count = 1;
+    HRESULT args_write_hr = E_FAIL;
+    HRESULT count_write_hr = E_FAIL;
     if (SUCCEEDED(hr))
-        hr = create_upload_buffer(device, &indirect_args, sizeof(indirect_args), &args);
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(indirect_args), D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &args);
+    if (SUCCEEDED(hr))
+        args_write_hr = args->WriteToSubresource(0, nullptr, &indirect_args, sizeof(indirect_args), sizeof(indirect_args));
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(indirect_count), D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, &count);
+    if (SUCCEEDED(hr))
+        count_write_hr = count->WriteToSubresource(0, nullptr, &indirect_count, sizeof(indirect_count), sizeof(indirect_count));
     if (SUCCEEDED(hr))
         hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, 256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &output);
@@ -695,7 +707,7 @@ static CaseResult run_execute_indirect_constants_case() {
         list->SetComputeRootSignature(root);
         list->SetComputeRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
         list->SetPipelineState(pso);
-        list->ExecuteIndirect(compute_signature, 1, args, 0, nullptr, 0);
+        list->ExecuteIndirect(compute_signature, 1, args, 0, count, 0);
         D3D12_RESOURCE_BARRIER barriers[] = {
             uav_barrier(output),
             transition_barrier(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE),
@@ -712,23 +724,27 @@ static CaseResult run_execute_indirect_constants_case() {
     bool verified =
         SUCCEEDED(hr) && readback_u32(readback, got, 4) && got[0] == 31 && got[1] == 32 && got[2] == 33 && got[3] == 34;
     result.pass =
-        SUCCEEDED(hr) && SUCCEEDED(compute_sig_hr) && SUCCEEDED(draw_sig_hr) && SUCCEEDED(draw_indexed_sig_hr);
+        SUCCEEDED(hr) && SUCCEEDED(args_write_hr) && SUCCEEDED(count_write_hr) && verified &&
+        SUCCEEDED(compute_sig_hr) && SUCCEEDED(draw_sig_hr) && SUCCEEDED(draw_indexed_sig_hr);
     result.hr = result.pass ? S_OK : hr;
     result.detail =
-        verified ? "ExecuteIndirect dispatch with root constants verified; draw signatures accepted"
-                 : "ExecuteIndirect dispatch executes, but command-signature root constants are explicitly unsupported";
+        verified ? "GPU-only argument and count buffers, dispatch root constants, and draw signatures verified"
+                 : "ExecuteIndirect GPU-only argument/count or root-constant readback failed";
     char extra[512] = {};
     std::snprintf(extra, sizeof(extra),
+                  "\"args_write\":\"%s\",\"count_write\":\"%s\","
                   "\"dispatch_root_constants_verified\":%s,\"values\":[%u,%u,%u,%u],"
                   "\"draw_signature\":\"%s\",\"draw_indexed_signature\":\"%s\","
                   "\"draw_replay_verified\":false,\"draw_indexed_replay_verified\":false,"
                   "\"graphics_indirect_replay_status\":\"signature-only\"",
-                  verified ? "true" : "false", got[0], got[1], got[2], got[3], hr_hex(draw_sig_hr).c_str(),
+                  hr_hex(args_write_hr).c_str(), hr_hex(count_write_hr).c_str(), verified ? "true" : "false",
+                  got[0], got[1], got[2], got[3], hr_hex(draw_sig_hr).c_str(),
                   hr_hex(draw_indexed_sig_hr).c_str());
     result.extra = extra;
 
     safe_release(readback);
     safe_release(output);
+    safe_release(count);
     safe_release(args);
     safe_release(draw_indexed_signature);
     safe_release(draw_signature);
@@ -1073,7 +1089,8 @@ int main() {
     std::printf("    \"bundle_status_reported\": true,\n");
     std::printf("    \"write_buffer_immediate_direct_compute_bundle\": true,\n");
     std::printf("    \"execute_indirect_dispatch\": true,\n");
-    std::printf("    \"execute_indirect_root_constants_status_reported\": true,\n");
+    std::printf("    \"execute_indirect_gpu_argument_and_count\": true,\n");
+    std::printf("    \"execute_indirect_root_constants_verified\": true,\n");
     std::printf("    \"execute_indirect_graphics_replay_status_reported\": true,\n");
     std::printf("    \"enhanced_barrier_global_buffer_texture\": true,\n");
     std::printf("    \"predication_execution_verified\": true\n");

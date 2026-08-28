@@ -624,6 +624,12 @@ replayed with no dropped operation.
   readback/event/timestamp evidence.
 - No queue method returns success solely because it logged the call.
 
+**Phase 4 command milestone evidence:**
+`docs/roadmaps/d3d12-full-surface-phase4-command-proof.md` records the
+behavior-backed atomic-copy, discard, predication, GPU-only indirect argument,
+root-constant, and enhanced-barrier checks. The phase remains open until the
+remaining command inventory and provider-side effects pass the exit gate.
+
 ### Phase 5 — Complete the shader compiler and SM5.x–SM6.9 execution surface
 
 **Goal:** Replace the reduced synthetic corpus with complete declared shader

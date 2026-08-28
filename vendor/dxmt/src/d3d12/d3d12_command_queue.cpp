@@ -10694,22 +10694,81 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
 
         auto *arg_res = static_cast<MTLD3D12Resource *>(cmd->argument_buffer);
         void *arg_base = nullptr;
+        bool arg_mapped = false;
+        std::vector<uint8_t> arg_snapshot;
         HRESULT map_hr = arg_res->Map(0, nullptr, &arg_base);
-        if (FAILED(map_hr) || !arg_base) {
-          QTRACE("ExecuteIndirect SKIPPED argument buffer not CPU-visible "
-                 "hr=0x%08x",
-                 (unsigned)map_hr);
-          break;
+        if (SUCCEEDED(map_hr) && arg_base) {
+          arg_mapped = true;
+        } else {
+          const uint64_t snapshot_end =
+              cmd->argument_buffer_offset +
+              uint64_t(cmd->max_command_count) * sig_desc->ByteStride;
+          if (snapshot_end < cmd->argument_buffer_offset ||
+              snapshot_end > arg_res->GetBufferByteLength() ||
+              snapshot_end > UINT32_MAX) {
+            QTRACE("ExecuteIndirect SKIPPED argument range out of bounds "
+                   "offset=%llu count=%u stride=%u length=%llu",
+                   (unsigned long long)cmd->argument_buffer_offset,
+                   cmd->max_command_count, sig_desc->ByteStride,
+                   (unsigned long long)arg_res->GetBufferByteLength());
+            break;
+          }
+          try {
+            arg_snapshot.resize(static_cast<size_t>(snapshot_end));
+          } catch (const std::bad_alloc &) {
+            QTRACE("ExecuteIndirect SKIPPED argument snapshot allocation");
+            break;
+          }
+          HRESULT read_hr = arg_res->ReadFromSubresource(
+              arg_snapshot.data(), static_cast<UINT>(arg_snapshot.size()),
+              static_cast<UINT>(arg_snapshot.size()), 0, nullptr);
+          if (FAILED(read_hr)) {
+            QTRACE("ExecuteIndirect SKIPPED argument buffer readback hr=0x%08x "
+                   "map_hr=0x%08x",
+                   (unsigned)read_hr, (unsigned)map_hr);
+            break;
+          }
+          arg_base = arg_snapshot.data();
+          QTRACE("ExecuteIndirect read GPU-only argument buffer through "
+                 "validated snapshot bytes=%llu",
+                 (unsigned long long)arg_snapshot.size());
         }
 
         uint32_t command_count = cmd->max_command_count;
         if (cmd->count_buffer) {
           auto *count_res = static_cast<MTLD3D12Resource *>(cmd->count_buffer);
           void *count_base = nullptr;
+          bool count_mapped = false;
+          std::vector<uint8_t> count_snapshot;
           HRESULT count_hr = count_res->Map(0, nullptr, &count_base);
-          if (SUCCEEDED(count_hr) && count_base &&
-              cmd->count_buffer_offset + sizeof(uint32_t) <=
-                  count_res->GetBufferByteLength()) {
+          if (SUCCEEDED(count_hr) && count_base) {
+            count_mapped = true;
+          } else if (cmd->count_buffer_offset + sizeof(uint32_t) <=
+                     count_res->GetBufferByteLength() &&
+                     cmd->count_buffer_offset + sizeof(uint32_t) <= UINT32_MAX) {
+            const size_t snapshot_size =
+                static_cast<size_t>(cmd->count_buffer_offset + sizeof(uint32_t));
+            try {
+              count_snapshot.resize(snapshot_size);
+            } catch (const std::bad_alloc &) {
+              count_snapshot.clear();
+            }
+            HRESULT read_hr = count_snapshot.empty()
+                                  ? E_OUTOFMEMORY
+                                  : count_res->ReadFromSubresource(
+                                        count_snapshot.data(),
+                                        static_cast<UINT>(snapshot_size),
+                                        static_cast<UINT>(snapshot_size), 0,
+                                        nullptr);
+            if (SUCCEEDED(read_hr))
+              count_base = count_snapshot.data();
+            else
+              QTRACE("ExecuteIndirect count snapshot unavailable hr=0x%08x "
+                     "map_hr=0x%08x",
+                     (unsigned)read_hr, (unsigned)count_hr);
+          }
+          if (count_base && cmd->count_buffer_offset + sizeof(uint32_t) <=
+                                count_res->GetBufferByteLength()) {
             uint32_t gpu_count = *reinterpret_cast<const uint32_t *>(
                 static_cast<const uint8_t *>(count_base) +
                 cmd->count_buffer_offset);
@@ -10720,7 +10779,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             QTRACE("ExecuteIndirect count buffer unavailable hr=0x%08x",
                    (unsigned)count_hr);
           }
-          count_res->Unmap(0, nullptr);
+          if (count_mapped)
+            count_res->Unmap(0, nullptr);
         }
 
         auto replay_indirect_draw = [&](const D3D12_DRAW_ARGUMENTS &args) {
@@ -11104,7 +11164,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               break;
           }
         }
-        arg_res->Unmap(0, nullptr);
+        if (arg_mapped)
+          arg_res->Unmap(0, nullptr);
         break;
       }
       case CmdType::SetPredication: {
