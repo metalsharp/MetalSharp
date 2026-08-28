@@ -765,8 +765,15 @@ static CaseResult run_predication_case() {
     ID3D12Resource* output_suppressed = nullptr;
     ID3D12Resource* readback = nullptr;
     std::string detail;
+    struct PredicationFeature {
+        BOOL Supported;
+    } predication = {};
+    HRESULT predication_hr = E_FAIL;
 
     HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr))
+        predication_hr = device->CheckFeatureSupport(static_cast<D3D12_FEATURE>(50), &predication,
+                                                     sizeof(predication));
     if (SUCCEEDED(hr))
         hr = compile_shader(hlsl, "main", &cs, detail);
     if (SUCCEEDED(hr)) {
@@ -867,13 +874,15 @@ static CaseResult run_predication_case() {
         hr = execute_and_wait(device, queue, lists, 1, 1);
     }
     uint32_t values[2] = {};
-    const bool verified = SUCCEEDED(hr) && readback_u32(readback, values, 2) && values[0] == 1 && values[1] == 0;
+    const bool verified = SUCCEEDED(hr) && SUCCEEDED(predication_hr) && predication.Supported &&
+                          readback_u32(readback, values, 2) && values[0] == 1 && values[1] == 0;
     result.pass = verified;
     result.hr = verified ? S_OK : hr;
     result.detail = verified ? "nonzero predicate executes and zero predicate suppresses dispatch"
                              : "predication readback mismatch";
-    result.extra = std::string("\"executed_value\":") + std::to_string(values[0]) +
-                   ",\"suppressed_value\":" + std::to_string(values[1]);
+    result.extra = std::string("\"feature_supported\":") + (predication.Supported ? "true" : "false") +
+                   ",\"feature_hr\":\"" + hr_hex(predication_hr) + "\",\"executed_value\":" +
+                   std::to_string(values[0]) + ",\"suppressed_value\":" + std::to_string(values[1]);
 
     safe_release(readback);
     safe_release(output_suppressed);

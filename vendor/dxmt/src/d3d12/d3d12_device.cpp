@@ -4059,7 +4059,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *p = (D3D12FeatureBoolSupport *)feature_data;
     if (feature_data_size < sizeof(*p))
       return E_INVALIDARG;
-    p->Supported = FALSE;
+    p->Supported = TRUE;
     TRACE("  PREDICATION: Supported=%d", p->Supported);
     return S_OK;
   }
