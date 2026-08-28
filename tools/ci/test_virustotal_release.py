@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 SCRIPT = Path(__file__).with_name("virustotal-release.py")
 sys.dont_write_bytecode = True
@@ -82,6 +84,28 @@ class VirusTotalReleaseTests(unittest.TestCase):
             assets.write_text(json.dumps(payload))
             with self.assertRaisesRegex(MODULE.ScanError, "does not match exact"):
                 MODULE.validate_assets_command(args)
+
+    def test_large_file_upload_authenticates_without_key_in_argv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            part = Path(directory) / "MetalSharp.dmg.part-1-of-3"
+            part.write_bytes(b"partial payload")
+            client = MODULE.VirusTotalClient("test-api-key", api_interval_seconds=0)
+
+            with (
+                mock.patch.object(client, "_new_upload_url", return_value="https://upload.example.test/files"),
+                mock.patch.object(MODULE.subprocess, "run") as run,
+            ):
+                run.return_value = SimpleNamespace(
+                    returncode=0,
+                    stdout='{"data":{"id":"analysis-id"}}',
+                    stderr="",
+                )
+                self.assertEqual(client.upload(part), "analysis-id")
+
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index("--config") + 1], "-")
+            self.assertNotIn("test-api-key", " ".join(command))
+            self.assertIn('header = "x-apikey: test-api-key"', run.call_args.kwargs["input"])
 
     def test_markdown_discloses_partial_scan_limit(self) -> None:
         results = [
