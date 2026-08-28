@@ -343,6 +343,7 @@ CreateMTLTextureDescriptorInternal(
     }
   }
   pDescOut->pixel_format = ORIGINAL_FORMAT(metal_format.PixelFormat);
+  pDescOut->placement_sparse_page_size = 0;
 
   WMTTextureUsage metal_usage = WMTTextureUsageShaderRead;
 

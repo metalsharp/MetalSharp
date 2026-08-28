@@ -2,6 +2,7 @@
 #include "d3d12_device.hpp"
 #include "d3d12_native_tessellation_path.hpp"
 #include "d3d12_root_signature.hpp"
+#include "d3d12_resource.hpp"
 #include "d3d12_trace.hpp"
 #include "d3d12_vertex_input.hpp"
 #include "log/log.hpp"
@@ -40,7 +41,91 @@
 
 #define PSTRACE(fmt, ...) DXMTD3D12Trace("PSO", fmt, ##__VA_ARGS__)
 
+static constexpr const char *kConservativeRasterVertexShader = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+struct m12_conservative_data {
+  float2 p0;
+  float2 p1;
+  float2 p2;
+  uint width;
+  uint height;
+  uint enabled;
+  uint pad;
+};
+
+struct m12_conservative_output {
+  float4 position [[position]];
+  float4 v0 [[user(locn0)]]; float4 v1 [[user(locn1)]];
+  float4 v2 [[user(locn2)]]; float4 v3 [[user(locn3)]];
+  float4 v4 [[user(locn4)]]; float4 v5 [[user(locn5)]];
+  float4 v6 [[user(locn6)]]; float4 v7 [[user(locn7)]];
+  float2 uv0 [[user(locn8)]]; float2 uv1 [[user(locn9)]];
+  float2 uv2 [[user(locn10)]]; float2 uv3 [[user(locn11)]];
+  float4 color0 [[user(locn12)]]; float4 color1 [[user(locn13)]];
+  float4 color2 [[user(locn14)]]; float4 color3 [[user(locn15)]];
+  uint shading_rate [[user(locn16)]];
+};
+
+vertex m12_conservative_output m12_conservative_vs(
+    uint vid [[vertex_id]], constant m12_conservative_data &data [[buffer(26)]]) {
+  m12_conservative_output out = {};
+  uint width = max(data.width, 1u);
+  uint height = max(data.height, 1u);
+  uint x = vid % width;
+  uint y = vid / width;
+  float2 pixel = float2(x, y) + 0.5f;
+  float2 ndc = float2(pixel.x / float(width) * 2.0f - 1.0f,
+                      1.0f - pixel.y / float(height) * 2.0f);
+  out.position = float4(ndc, 0.0f, 1.0f);
+  return out;
+}
+)metal";
+
 namespace dxmt {
+
+namespace {
+
+class D3D12CachedPipelineBlob final : public ID3DBlob {
+public:
+  explicit D3D12CachedPipelineBlob(const std::vector<uint8_t> &data)
+      : m_data(data) {}
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == IID_ID3D10Blob ||
+        riid == __uuidof(ID3DBlob)) {
+      *object = static_cast<ID3DBlob *>(this);
+      AddRef();
+      return S_OK;
+    }
+    return E_NOINTERFACE;
+  }
+
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+
+  ULONG STDMETHODCALLTYPE Release() override {
+    ULONG ref_count = --m_ref_count;
+    if (!ref_count)
+      delete this;
+    return ref_count;
+  }
+
+  LPVOID STDMETHODCALLTYPE GetBufferPointer() override {
+    return m_data.empty() ? nullptr : m_data.data();
+  }
+
+  SIZE_T STDMETHODCALLTYPE GetBufferSize() override { return m_data.size(); }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
+  std::vector<uint8_t> m_data;
+};
+
+} // namespace
 
 namespace {
 constexpr uint32_t kMetalD3D12VertexBufferSlotCount = 29;
@@ -95,6 +180,94 @@ bool DXBCContainerHasChunk(const void *bytecode, SIZE_T size,
       continue;
     if (std::memcmp(chunk, tag, 4) == 0)
       return true;
+  }
+  return false;
+}
+
+bool DXBCShaderUsesAtomic64(const void *bytecode, SIZE_T size) {
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+    for (const auto &fn : module->functions) {
+      if (fn.name.find("dx.op.atomicBinOp.i64") != std::string::npos ||
+          fn.name.find("dx.op.atomicCompareExchange.i64") !=
+              std::string::npos)
+        return true;
+      for (const auto &block : fn.blocks) {
+        for (const auto &inst : block.instructions) {
+          if (inst.opcode != dxmt::dxil::LLVMInstruction::AtomicRMW &&
+              inst.opcode != dxmt::dxil::LLVMInstruction::CmpXchg)
+            continue;
+          const bool is_i64 =
+              inst.type_id < module->types.size() &&
+              module->types[inst.type_id].kind ==
+                  dxmt::dxil::LLVMType::Integer &&
+              module->types[inst.type_id].bit_width == 64;
+          if (is_i64)
+            return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+bool DXBCShaderUsesSamplerFeedback(const void *bytecode, SIZE_T size) {
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+    for (const auto &fn : module->functions) {
+      if (fn.name.find("dx.op.writeSamplerFeedback") != std::string::npos)
+        return true;
+    }
+  }
+  return false;
+}
+
+bool DXBCShaderUsesDirectResourceHeap(const void *bytecode, SIZE_T size) {
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+    for (const auto &fn : module->functions) {
+      if (fn.name.find("dx.op.createHandleFromHeap") != std::string::npos)
+        return true;
+    }
   }
   return false;
 }
@@ -179,6 +352,183 @@ dxmt::dxil::MSLShader ToRuntimeMSLShader(dxmt::dxil::TypedMSLShader &&typed) {
       "MSLLowering runtime path active: typed_values=", typed.typed_value_count,
       " auto_values=", typed.auto_value_count));
   return shader;
+}
+
+bool ParseJsonUnsigned(const std::string &object, const char *key,
+                       uint32_t &value) {
+  std::string token = str::format("\"", key, "\"");
+  size_t pos = object.find(token);
+  if (pos == std::string::npos)
+    return false;
+  pos = object.find(':', pos + token.size());
+  if (pos == std::string::npos)
+    return false;
+  char *end = nullptr;
+  unsigned long parsed = std::strtoul(object.c_str() + pos + 1, &end, 10);
+  if (!end || end == object.c_str() + pos + 1)
+    return false;
+  value = static_cast<uint32_t>(parsed);
+  return true;
+}
+
+bool ParseJsonString(const std::string &object, const char *key,
+                     std::string &value) {
+  std::string token = str::format("\"", key, "\"");
+  size_t pos = object.find(token);
+  if (pos == std::string::npos)
+    return false;
+  pos = object.find(':', pos + token.size());
+  if (pos == std::string::npos)
+    return false;
+  size_t first = object.find('"', pos + 1);
+  size_t last = first == std::string::npos
+                    ? std::string::npos
+                    : object.find('"', first + 1);
+  if (first == std::string::npos || last == std::string::npos)
+    return false;
+  value = object.substr(first + 1, last - first - 1);
+  return true;
+}
+
+bool ParseMSCReflection(const char *json,
+                        MTL_SHADER_REFLECTION &reflection,
+                        std::vector<MTL_SM50_SHADER_ARGUMENT> &arguments) {
+  if (!json)
+    return false;
+  std::string text(json);
+  size_t label = text.find("\"TopLevelArgumentBuffer\"");
+  size_t array_begin =
+      label == std::string::npos ? std::string::npos : text.find('[', label);
+  size_t array_end = array_begin == std::string::npos
+                         ? std::string::npos
+                         : text.find(']', array_begin);
+  if (array_begin == std::string::npos || array_end == std::string::npos)
+    return false;
+
+  arguments.clear();
+  uint32_t qword_count = 0;
+  size_t cursor = array_begin + 1;
+  while (cursor < array_end) {
+    size_t begin = text.find('{', cursor);
+    if (begin == std::string::npos || begin >= array_end)
+      break;
+    size_t end = text.find('}', begin + 1);
+    if (end == std::string::npos || end > array_end)
+      return false;
+    std::string object = text.substr(begin, end - begin + 1);
+    std::string type;
+    uint32_t slot = 0;
+    uint32_t space = 0;
+    uint32_t offset = 0;
+    uint32_t size = 0;
+    if (!ParseJsonString(object, "Type", type) ||
+        !ParseJsonUnsigned(object, "Slot", slot) ||
+        !ParseJsonUnsigned(object, "Space", space) ||
+        !ParseJsonUnsigned(object, "EltOffset", offset) ||
+        !ParseJsonUnsigned(object, "Size", size))
+      return false;
+
+    MTL_SM50_SHADER_ARGUMENT argument = {};
+    if (type == "CBV")
+      argument.Type = SM50BindingType::ConstantBuffer;
+    else if (type == "SRV")
+      argument.Type = SM50BindingType::SRV;
+    else if (type == "UAV")
+      argument.Type = SM50BindingType::UAV;
+    else if (type == "Sampler")
+      argument.Type = SM50BindingType::Sampler;
+    else
+      return false;
+    argument.SM50BindingSlot = slot;
+    argument.SM50RegisterSpace = space;
+    argument.StructurePtrOffset = offset / sizeof(uint64_t);
+    argument.SizeInVec4 = (size + 15) / 16;
+    if (argument.Type == SM50BindingType::UAV)
+      argument.Flags = static_cast<MTL_SM50_SHADER_ARGUMENT_FLAG>(
+          MTL_SM50_SHADER_ARGUMENT_BUFFER |
+          MTL_SM50_SHADER_ARGUMENT_READ_ACCESS |
+          MTL_SM50_SHADER_ARGUMENT_WRITE_ACCESS);
+    else if (argument.Type == SM50BindingType::SRV ||
+             argument.Type == SM50BindingType::ConstantBuffer)
+      argument.Flags = static_cast<MTL_SM50_SHADER_ARGUMENT_FLAG>(
+          MTL_SM50_SHADER_ARGUMENT_BUFFER |
+          MTL_SM50_SHADER_ARGUMENT_READ_ACCESS);
+    arguments.push_back(argument);
+    qword_count = std::max<uint32_t>(
+        qword_count, (offset + size + sizeof(uint64_t) - 1) /
+                         sizeof(uint64_t));
+    cursor = end + 1;
+  }
+
+  if (arguments.empty())
+    return false;
+  reflection.ArgumentBufferBindIndex = 2;
+  reflection.ArgumentTableQwords = qword_count;
+  reflection.NumArguments = static_cast<uint32_t>(arguments.size());
+  for (const auto &argument : arguments) {
+    if (argument.Type == SM50BindingType::UAV)
+      reflection.UAVSlotMask |= 1ull << std::min<uint32_t>(argument.SM50BindingSlot, 63);
+    else if (argument.Type == SM50BindingType::SRV) {
+      uint32_t slot = std::min<uint32_t>(argument.SM50BindingSlot, 127);
+      if (slot < 64)
+        reflection.SRVSlotMaskLo |= 1ull << slot;
+      else
+        reflection.SRVSlotMaskHi |= 1ull << (slot - 64);
+    } else if (argument.Type == SM50BindingType::Sampler &&
+               argument.SM50BindingSlot < 16) {
+      reflection.SamplerSlotMask |= 1u << argument.SM50BindingSlot;
+    }
+  }
+  return true;
+}
+
+void ParseDirectBindingManifest(const char *source,
+                                MTL_SHADER_REFLECTION &reflection) {
+  if (!source)
+    return;
+  const char *line = source;
+  while ((line = strstr(line, "// range kind="))) {
+    char kind[16] = {};
+    unsigned space = 0;
+    unsigned lower = 0;
+    unsigned count = 0;
+    if (sscanf(line, "// range kind=%15s space=%u lower=%u count=%u", kind,
+               &space, &lower, &count) == 4 &&
+        space == 0) {
+      count = std::min<unsigned>(count, 128);
+      for (unsigned i = 0; i < count; i++) {
+        unsigned slot = lower + i;
+        if (!strcmp(kind, "uav") && slot < 64)
+          reflection.UAVSlotMask |= 1ull << slot;
+        else if (!strcmp(kind, "srv") && slot < 128) {
+          if (slot < 64)
+            reflection.SRVSlotMaskLo |= 1ull << slot;
+          else
+            reflection.SRVSlotMaskHi |= 1ull << (slot - 64);
+        } else if (!strcmp(kind, "cbv") && slot < 16)
+          reflection.ConstantBufferSlotMask |= 1u << slot;
+        else if (!strcmp(kind, "sampler") && slot < 16)
+          reflection.SamplerSlotMask |= 1u << slot;
+      }
+    }
+    line++;
+  }
+}
+
+void ParseDirectBindingManifestFile(const char *path,
+                                    MTL_SHADER_REFLECTION &reflection) {
+  FILE *file = path ? fopen(path, "rb") : nullptr;
+  if (!file)
+    return;
+  fseek(file, 0, SEEK_END);
+  long length = ftell(file);
+  fseek(file, 0, SEEK_SET);
+  if (length > 0 && length < 4 * 1024 * 1024) {
+    std::vector<char> source(static_cast<size_t>(length) + 1, 0);
+    fread(source.data(), 1, static_cast<size_t>(length), file);
+    ParseDirectBindingManifest(source.data(), reflection);
+  }
+  fclose(file);
 }
 
 thread_local bool g_async_pipeline_worker_thread = false;
@@ -318,6 +668,9 @@ size_t ComputeShaderCacheHash(const void *bytecode, SIZE_T size,
   if (type == ShaderType::Vertex)
     hash = hash * 131 +
            0x4d3132506833ull; // M12 Phase 3 explicit varying contract.
+  if (type == ShaderType::Compute &&
+      DXBCShaderUsesAtomic64(bytecode, size))
+    hash = hash * 131 + 0x4d313241746f6d36ull;
   if (bytecode && size > 0) {
     const uint8_t *p = (const uint8_t *)bytecode;
     for (SIZE_T i = 0; i < size; i++)
@@ -961,6 +1314,29 @@ bool MTLD3D12PipelineState::IsCompilePending() const {
   return state == CompileState::Pending || state == CompileState::Compiling;
 }
 
+size_t MTLD3D12PipelineState::ApplyShaderVariantHash(
+    size_t hash, ShaderType type) const {
+  if (type == ShaderType::Vertex || type == ShaderType::Pixel)
+    hash ^= 0x4d31327672735f70ull;
+  if (type == ShaderType::Pixel && IsDepthBoundsTestEnabled()) {
+    hash ^= 0xd3b0a7d5e91c2468ull;
+    hash ^= static_cast<size_t>(m_sample_count) * 0x9e3779b97f4a7c15ull;
+  }
+  if (type == ShaderType::Pixel && m_uses_conservative_rasterization)
+    hash ^= 0xc0a5e2a7f4b19d31ull;
+  return hash;
+}
+
+std::string MTLD3D12PipelineState::GetCSCacheHash() const {
+  if (m_cs.empty())
+    return {};
+  char buffer[32];
+  snprintf(buffer, sizeof(buffer), "%016zx",
+           ComputeShaderCacheHash(m_cs.data(), m_cs.size(),
+                                  ShaderType::Compute, nullptr));
+  return buffer;
+}
+
 std::string MTLD3D12PipelineState::GetVSCacheHash() const {
   if (m_vs.empty())
     return {};
@@ -976,8 +1352,10 @@ std::string MTLD3D12PipelineState::GetPSCacheHash() const {
     return {};
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%016zx",
-           ComputeShaderCacheHash(m_ps.data(), m_ps.size(), ShaderType::Pixel,
-                                  nullptr));
+           ApplyShaderVariantHash(
+               ComputeShaderCacheHash(m_ps.data(), m_ps.size(),
+                                      ShaderType::Pixel, nullptr),
+               ShaderType::Pixel));
   return buffer;
 }
 
@@ -1059,16 +1437,52 @@ WMTPixelFormat MTLD3D12PipelineState::DXGIToMTLPixelFormat(DXGI_FORMAT format) {
     return WMTPixelFormatBGRA8Unorm_sRGB;
   case DXGI_FORMAT_R16G16B16A16_FLOAT:
     return WMTPixelFormatRGBA16Float;
+  case DXGI_FORMAT_R16G16B16A16_UNORM:
+    return WMTPixelFormatRGBA16Unorm;
+  case DXGI_FORMAT_R16G16B16A16_UINT:
+    return WMTPixelFormatRGBA16Uint;
+  case DXGI_FORMAT_R16G16B16A16_SNORM:
+    return WMTPixelFormatRGBA16Snorm;
+  case DXGI_FORMAT_R16G16B16A16_SINT:
+    return WMTPixelFormatRGBA16Sint;
   case DXGI_FORMAT_R32G32B32A32_FLOAT:
     return WMTPixelFormatRGBA32Float;
+  case DXGI_FORMAT_R32G32B32A32_UINT:
+    return WMTPixelFormatRGBA32Uint;
+  case DXGI_FORMAT_R32G32B32A32_SINT:
+    return WMTPixelFormatRGBA32Sint;
   case DXGI_FORMAT_R10G10B10A2_UNORM:
     return WMTPixelFormatRGB10A2Unorm;
+  case DXGI_FORMAT_R10G10B10A2_UINT:
+    return WMTPixelFormatRGB10A2Uint;
   case DXGI_FORMAT_R11G11B10_FLOAT:
     return WMTPixelFormatRG11B10Float;
   case DXGI_FORMAT_R8_UNORM:
     return WMTPixelFormatR8Unorm;
+  case DXGI_FORMAT_R8_SNORM:
+    return WMTPixelFormatR8Snorm;
+  case DXGI_FORMAT_R8_UINT:
+    return WMTPixelFormatR8Uint;
+  case DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE:
+    return WMTPixelFormatR8Uint;
+  case DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE:
+    return WMTPixelFormatR32Uint;
+  case DXGI_FORMAT_R8_SINT:
+    return WMTPixelFormatR8Sint;
+  case DXGI_FORMAT_R16_UNORM:
+    return WMTPixelFormatR16Unorm;
+  case DXGI_FORMAT_R16_SNORM:
+    return WMTPixelFormatR16Snorm;
+  case DXGI_FORMAT_R16_UINT:
+    return WMTPixelFormatR16Uint;
+  case DXGI_FORMAT_R16_SINT:
+    return WMTPixelFormatR16Sint;
   case DXGI_FORMAT_R16_FLOAT:
     return WMTPixelFormatR16Float;
+  case DXGI_FORMAT_R32_UINT:
+    return WMTPixelFormatR32Uint;
+  case DXGI_FORMAT_R32_SINT:
+    return WMTPixelFormatR32Sint;
   case DXGI_FORMAT_R32_FLOAT:
     return WMTPixelFormatR32Float;
   case DXGI_FORMAT_D32_FLOAT:
@@ -1083,8 +1497,32 @@ WMTPixelFormat MTLD3D12PipelineState::DXGIToMTLPixelFormat(DXGI_FORMAT format) {
     return WMTPixelFormatRG16Float;
   case DXGI_FORMAT_R16G16_UNORM:
     return WMTPixelFormatRG16Unorm;
+  case DXGI_FORMAT_R16G16_SNORM:
+    return WMTPixelFormatRG16Snorm;
+  case DXGI_FORMAT_R16G16_UINT:
+    return WMTPixelFormatRG16Uint;
+  case DXGI_FORMAT_R16G16_SINT:
+    return WMTPixelFormatRG16Sint;
+  case DXGI_FORMAT_R32G32_FLOAT:
+    return WMTPixelFormatRG32Float;
+  case DXGI_FORMAT_R32G32_UINT:
+    return WMTPixelFormatRG32Uint;
+  case DXGI_FORMAT_R32G32_SINT:
+    return WMTPixelFormatRG32Sint;
   case DXGI_FORMAT_R8G8_UNORM:
     return WMTPixelFormatRG8Unorm;
+  case DXGI_FORMAT_R8G8_SNORM:
+    return WMTPixelFormatRG8Snorm;
+  case DXGI_FORMAT_R8G8_UINT:
+    return WMTPixelFormatRG8Uint;
+  case DXGI_FORMAT_R8G8_SINT:
+    return WMTPixelFormatRG8Sint;
+  case DXGI_FORMAT_R8G8B8A8_SNORM:
+    return WMTPixelFormatRGBA8Snorm;
+  case DXGI_FORMAT_R8G8B8A8_UINT:
+    return WMTPixelFormatRGBA8Uint;
+  case DXGI_FORMAT_R8G8B8A8_SINT:
+    return WMTPixelFormatRGBA8Sint;
   case DXGI_FORMAT_BC1_TYPELESS:
     return WMTPixelFormatBC1_RGBA;
   case DXGI_FORMAT_BC1_UNORM:
@@ -1360,12 +1798,28 @@ bool MTLD3D12PipelineState::CompileShader(
   size_t hash = ComputeShaderCacheHash(
       bytecode, size, type,
       type == ShaderType::Vertex ? &m_input_layout : nullptr);
+  hash = ApplyShaderVariantHash(hash, type);
+  if ((type == ShaderType::Vertex || type == ShaderType::Pixel) &&
+      DXBCContainerHasChunk(bytecode, size, "DXIL"))
+    m_uses_vrs_runtime_state = true;
+  const bool requires_int64_custom =
+      type == ShaderType::Compute && DXBCShaderUsesAtomic64(bytecode, size);
+  const bool requires_sampler_feedback_custom =
+      DXBCShaderUsesSamplerFeedback(bytecode, size);
+  if (requires_int64_custom)
+    m_uses_atomic64_emulation = true;
+  if (requires_sampler_feedback_custom)
+    m_uses_sampler_feedback_emulation = true;
+  if (type == ShaderType::Compute &&
+      DXBCShaderUsesDirectResourceHeap(bytecode, size))
+    m_uses_direct_resource_descriptor_heap = true;
   {
     std::lock_guard<std::mutex> lock(s_shader_mutex);
     PSTRACE("CompileShader: %s hash=0x%zx size=%zu cache_entries=%zu",
             func_name, hash, size, s_shader_cache.size());
     auto it = s_shader_cache.find(hash);
-    if (it != s_shader_cache.end() && !out_shader_handle && !out_reflection) {
+    if (it != s_shader_cache.end() && !out_shader_handle && !out_reflection &&
+        type != ShaderType::Amplification && type != ShaderType::Mesh) {
       out_func = it->second;
       PSTRACE("CompileShader: %s CACHE HIT hash=0x%zx", func_name, hash);
       return true;
@@ -1441,7 +1895,7 @@ bool MTLD3D12PipelineState::CompileShader(
           FormatShaderCachePath(cache_path, sizeof(cache_path), "%016zx", hash);
           char dxbc_path[1024], metallib_path[1024], reflection_path[1024],
               module_summary_path[1024], dxil_report_path[1024],
-              metallib_error_path[1024];
+              metallib_error_path[1024], msl_path[1024];
           snprintf(dxbc_path, sizeof(dxbc_path), "%s.dxbc", cache_path);
           snprintf(metallib_path, sizeof(metallib_path), "%s.metallib",
                    cache_path);
@@ -1453,10 +1907,35 @@ bool MTLD3D12PipelineState::CompileShader(
                    "%s.dxil_report.txt", cache_path);
           snprintf(metallib_error_path, sizeof(metallib_error_path),
                    "%s.metallib.err.txt", cache_path);
+          snprintf(msl_path, sizeof(msl_path), "%s.msl", cache_path);
           EnsureShaderCacheDir();
           DumpShaderBlob(dxbc_path, bytecode, size);
 
           FILE *mf = fopen(metallib_path, "rb");
+          if (mf && type == ShaderType::Pixel &&
+              (IsDepthBoundsTestEnabled() ||
+               m_uses_conservative_rasterization)) {
+            // The offline cache converter sees only the original DXIL and
+            // cannot preserve the injected depth-bounds comparison. Compile
+            // the instrumented MSL once per process instead of accepting an
+            // uninstrumented cached function under this derived hash.
+            fclose(mf);
+            mf = nullptr;
+          }
+          if (mf && requires_int64_custom) {
+            // Metal Shader Converter may emit native 64-bit atomics that the
+            // Apple GPU/toolchain does not execute. Keep the custom software
+            // lock lowering authoritative for every int64 compute variant.
+            fclose(mf);
+            mf = nullptr;
+          }
+          if (mf && requires_sampler_feedback_custom) {
+            // Sampler feedback is represented by a padded software map. The
+            // custom lowering knows that ABI; a converter-produced metallib
+            // does not.
+            fclose(mf);
+            mf = nullptr;
+          }
           if (!mf) {
             PSTRACE("  metallib not cached, attempting DXIL->MSL compilation");
 
@@ -1470,6 +1949,12 @@ bool MTLD3D12PipelineState::CompileShader(
                               " DXIL container parse failed; dumped ",
                               dxbc_path));
             }
+
+            // The DXIL parser receives the DXIL part, while signature chunks
+            // live in the enclosing DXBC container. Preserve the semantic
+            // register for SV_ShadingRate before lowering so vertex output and
+            // pixel input cannot be mistaken for an arbitrary varying.
+            container->annotateSignatures(bytecode, size);
 
             auto &shader_info = container->shader();
             PSTRACE("  DXIL container parsed: kind=%u sm=%u.%u bc_size=%u",
@@ -1494,6 +1979,17 @@ bool MTLD3D12PipelineState::CompileShader(
             PSTRACE("  DXIL module summary written to %s", module_summary_path);
 
             dxmt::dxil::MSLLoweringOptions lowering_options = {};
+            lowering_options.depth_bounds_test =
+                type == ShaderType::Pixel && IsDepthBoundsTestEnabled();
+            lowering_options.depth_bounds_multisample =
+                lowering_options.depth_bounds_test && m_sample_count > 1;
+            lowering_options.sampler_feedback =
+                requires_sampler_feedback_custom;
+            lowering_options.vrs_per_primitive =
+                type == ShaderType::Vertex || type == ShaderType::Pixel;
+            lowering_options.conservative_rasterization =
+                type == ShaderType::Pixel &&
+                m_uses_conservative_rasterization_reference_model;
             if (type == ShaderType::Vertex) {
               lowering_options.vertex_inputs.reserve(
                   m_ia_input_elements.size());
@@ -1550,13 +2046,18 @@ bool MTLD3D12PipelineState::CompileShader(
                     msl_result->unsupported_intrinsics,
                     msl_result->unsupported_opcodes);
 
-            char msl_path[1024];
             char msl_error_path[1024];
-            snprintf(msl_path, sizeof(msl_path), "%s.msl", cache_path);
             snprintf(msl_error_path, sizeof(msl_error_path), "%s.msl.err.txt",
                      cache_path);
             DumpShaderText(msl_path, msl_result->source.c_str());
-            PSTRACE("  MSL source written to %s", msl_path);
+            ParseDirectBindingManifest(msl_result->source.c_str(), reflection);
+            PSTRACE("  MSL source written to %s direct_masks="
+                    "uav=0x%llx srv=0x%llx/0x%llx cbv=0x%x sampler=0x%x",
+                    msl_path, (unsigned long long)reflection.UAVSlotMask,
+                    (unsigned long long)reflection.SRVSlotMaskLo,
+                    (unsigned long long)reflection.SRVSlotMaskHi,
+                    reflection.ConstantBufferSlotMask,
+                    reflection.SamplerSlotMask);
             DumpDXILCompileReport(
                 dxil_report_path, func_name, hash, size, dxbc_path,
                 module_summary_path, msl_path, *module, shader_info,
@@ -1641,6 +2142,8 @@ bool MTLD3D12PipelineState::CompileShader(
                 s_shader_cache[hash] = out_func;
               }
 
+              if (out_reflection)
+                *out_reflection = reflection;
               if (type == ShaderType::Vertex)
                 m_vs_uses_stage_in = false;
 
@@ -1725,8 +2228,22 @@ bool MTLD3D12PipelineState::CompileShader(
                   std::lock_guard<std::mutex> lock(s_shader_mutex);
                   s_shader_cache[hash] = out_func;
                 }
-                if (type == ShaderType::Vertex)
-                  m_vs_uses_stage_in = false;
+                if (type == ShaderType::Vertex) {
+                  const char *inputs = strstr(rbuf, "\"vertex_inputs\"");
+                  const char *array = inputs ? strchr(inputs, '[') : nullptr;
+                  if (array) {
+                    do {
+                      array++;
+                    } while (*array == ' ' || *array == '\t' ||
+                             *array == '\r' || *array == '\n');
+                  }
+                  m_vs_uses_stage_in =
+                      m_input_layout.NumElements > 0 && array && *array != ']';
+                  m_vs_requires_msc_stage_in = false;
+                  PSTRACE("  MSC vertex inputs stage_in=%u layout_elements=%u",
+                          m_vs_uses_stage_in ? 1u : 0u,
+                          m_input_layout.NumElements);
+                }
                 char *tg = strstr(rbuf, "\"tg_size\"");
                 if (tg) {
                   int tw = 1, th = 1, td = 1;
@@ -1741,6 +2258,32 @@ bool MTLD3D12PipelineState::CompileShader(
                             th, td);
                   }
                 }
+                if (type == ShaderType::Amplification ||
+                    type == ShaderType::Mesh) {
+                  char *num_threads = strstr(rbuf, "\"num_threads\"");
+                  char *num_threads_values =
+                      num_threads ? strchr(num_threads, '[') : nullptr;
+                  int tw = 1, th = 1, td = 1;
+                  if (num_threads_values &&
+                      sscanf(num_threads_values, "[ %d , %d , %d ]", &tw,
+                             &th, &td) == 3) {
+                    m_threadgroup_size.width = tw;
+                    m_threadgroup_size.height = th;
+                    m_threadgroup_size.depth = td;
+                    PSTRACE("  mesh threadgroup size from reflection: %dx%dx%d",
+                            tw, th, td);
+                  }
+                  char *payload = strstr(rbuf, "\"max_payload_size_in_bytes\"");
+                  unsigned payload_size = 0;
+                  if (payload &&
+                      sscanf(payload, "\"max_payload_size_in_bytes\": %u",
+                             &payload_size) == 1) {
+                    m_mesh_payload_size =
+                        std::max(m_mesh_payload_size, payload_size);
+                    PSTRACE("  mesh payload size from reflection: %u",
+                            payload_size);
+                  }
+                }
                 if (type == ShaderType::Compute) {
                   uint32_t psv_tg[3] = {0, 0, 0};
                   if (ExtractPSV0ComputeThreadgroupSize(bytecode, size,
@@ -1750,6 +2293,85 @@ bool MTLD3D12PipelineState::CompileShader(
                     m_threadgroup_size.depth = psv_tg[2];
                     PSTRACE("  threadgroup_size from cached PSV0: %ux%ux%u",
                             psv_tg[0], psv_tg[1], psv_tg[2]);
+                  }
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    msc_reflection.ThreadgroupSize[0] =
+                        m_threadgroup_size.width;
+                    msc_reflection.ThreadgroupSize[1] =
+                        m_threadgroup_size.height;
+                    msc_reflection.ThreadgroupSize[2] =
+                        m_threadgroup_size.depth;
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_cs_args = std::move(msc_arguments);
+                    m_cs_uses_msc_argument_abi = true;
+                    PSTRACE("  MSC reflection args=%u qwords=%u bind=%u",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
+                  } else {
+                    ParseDirectBindingManifestFile(msl_path, reflection);
+                    reflection.ThreadgroupSize[0] = m_threadgroup_size.width;
+                    reflection.ThreadgroupSize[1] = m_threadgroup_size.height;
+                    reflection.ThreadgroupSize[2] = m_threadgroup_size.depth;
+                    if (out_reflection)
+                      *out_reflection = reflection;
+                    PSTRACE("  custom MSL reflection from manifest %s "
+                            "uav=0x%llx srv=0x%llx/0x%llx",
+                            msl_path,
+                            (unsigned long long)reflection.UAVSlotMask,
+                            (unsigned long long)reflection.SRVSlotMaskLo,
+                            (unsigned long long)reflection.SRVSlotMaskHi);
+                  }
+                } else if (type == ShaderType::Pixel) {
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_ps_args = std::move(msc_arguments);
+                    m_ps_uses_msc_argument_abi = true;
+                    PSTRACE("  MSC pixel reflection args=%u qwords=%u bind=%u",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
+                  }
+                } else if (type == ShaderType::Vertex ||
+                           type == ShaderType::Amplification) {
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_vs_reflection = msc_reflection;
+                    m_vs_args = std::move(msc_arguments);
+                    m_vs_uses_msc_argument_abi = true;
+                    PSTRACE("  MSC %s reflection args=%u qwords=%u bind=%u",
+                            type == ShaderType::Amplification ? "object"
+                                                              : "vertex",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
+                  }
+                } else if (type == ShaderType::Mesh) {
+                  MTL_SHADER_REFLECTION msc_reflection = {};
+                  std::vector<MTL_SM50_SHADER_ARGUMENT> msc_arguments;
+                  if (ParseMSCReflection(rbuf, msc_reflection,
+                                         msc_arguments)) {
+                    if (out_reflection)
+                      *out_reflection = msc_reflection;
+                    m_gs_reflection = msc_reflection;
+                    m_gs_args = std::move(msc_arguments);
+                    m_gs_uses_msc_argument_abi = true;
+                    PSTRACE("  MSC mesh reflection args=%u qwords=%u bind=%u",
+                            msc_reflection.NumArguments,
+                            msc_reflection.ArgumentTableQwords,
+                            msc_reflection.ArgumentBufferBindIndex);
                   }
                 }
                 return true;
@@ -1958,6 +2580,143 @@ bool MTLD3D12PipelineState::CompileShader(
   return true;
 }
 
+bool MTLD3D12PipelineState::CompileGeometryPipelineShaders(
+    WMT::Reference<WMT::Function> &object_func,
+    WMT::Reference<WMT::Function> &mesh_func) {
+  std::vector<SM50_IA_INPUT_ELEMENT> ia_elements;
+  uint32_t ia_slot_mask = 0;
+  BuildIAInputLayout(m_vs.data(), m_vs.size(), ia_elements, ia_slot_mask);
+  m_ia_slot_mask = ia_slot_mask;
+
+  sm50_error_t error = nullptr;
+  sm50_shader_t vertex_shader = nullptr;
+  sm50_shader_t geometry_shader = nullptr;
+  MTL_SHADER_REFLECTION vertex_reflection = {};
+  MTL_SHADER_REFLECTION geometry_reflection = {};
+
+  auto initialize = [&](const std::vector<uint8_t> &bytecode,
+                        sm50_shader_t *shader,
+                        MTL_SHADER_REFLECTION *reflection,
+                        const char *stage) -> bool {
+    if (SM50InitializeWithOptions(bytecode.data(), bytecode.size(), 0, shader,
+                                  reflection, &error) == 0)
+      return true;
+    char message[512] = {};
+    if (error) {
+      SM50GetErrorMessage(error, message, sizeof(message));
+      SM50FreeError(error);
+      error = nullptr;
+    }
+    RecordCompileFailure("shader/sm50_geometry_init",
+                         str::format(stage, " initialization failed: ",
+                                     message));
+    return false;
+  };
+
+  if (!initialize(m_vs, &vertex_shader, &vertex_reflection, "vertex") ||
+      !initialize(m_gs, &geometry_shader, &geometry_reflection, "geometry")) {
+    if (vertex_shader)
+      SM50Destroy(vertex_shader);
+    if (geometry_shader)
+      SM50Destroy(geometry_shader);
+    return false;
+  }
+
+  m_vs_reflection = vertex_reflection;
+  m_gs_reflection = geometry_reflection;
+  m_vs_cb_args.resize(vertex_reflection.NumConstantBuffers);
+  m_vs_args.resize(vertex_reflection.NumArguments);
+  m_gs_cb_args.resize(geometry_reflection.NumConstantBuffers);
+  m_gs_args.resize(geometry_reflection.NumArguments);
+  SM50GetArgumentsInfo(vertex_shader,
+                       m_vs_cb_args.empty() ? nullptr : m_vs_cb_args.data(),
+                       m_vs_args.empty() ? nullptr : m_vs_args.data());
+  SM50GetArgumentsInfo(geometry_shader,
+                       m_gs_cb_args.empty() ? nullptr : m_gs_cb_args.data(),
+                       m_gs_args.empty() ? nullptr : m_gs_args.data());
+
+  SM50_SHADER_COMMON_DATA common = {};
+  common.type = SM50_SHADER_COMMON;
+  common.metal_version = SM50_SHADER_METAL_310;
+
+  SM50_SHADER_IA_INPUT_LAYOUT_DATA ia_layout = {};
+  ia_layout.next = &common;
+  ia_layout.type = SM50_SHADER_IA_INPUT_LAYOUT;
+  ia_layout.index_buffer_format = SM50_INDEX_BUFFER_FORMAT_NONE;
+  ia_layout.slot_mask = ia_slot_mask;
+  ia_layout.num_elements = static_cast<uint32_t>(ia_elements.size());
+  ia_layout.elements = ia_elements.data();
+
+  auto compile_stage = [&](bool vertex,
+                           WMT::Reference<WMT::Function> &function) -> bool {
+    SM50_SHADER_PSO_GEOMETRY_SHADER_DATA geometry = {};
+    geometry.type = SM50_SHADER_PSO_GEOMETRY_SHADER;
+    geometry.next = vertex
+                        ? static_cast<void *>(&ia_layout)
+                        : static_cast<void *>(&common);
+    geometry.strip_topology = true;
+
+    sm50_bitcode_t result = nullptr;
+    const char *name = vertex ? "vs_main" : "gs_main";
+    int failed = vertex
+                     ? SM50CompileGeometryPipelineVertex(
+                           vertex_shader, geometry_shader,
+                           reinterpret_cast<SM50_SHADER_COMPILATION_ARGUMENT_DATA *>(
+                               &geometry),
+                           name, &result, &error)
+                     : SM50CompileGeometryPipelineGeometry(
+                           vertex_shader, geometry_shader,
+                           reinterpret_cast<SM50_SHADER_COMPILATION_ARGUMENT_DATA *>(
+                               &geometry),
+                           name, &result, &error);
+    if (failed) {
+      char message[512] = {};
+      if (error) {
+        SM50GetErrorMessage(error, message, sizeof(message));
+        SM50FreeError(error);
+        error = nullptr;
+      }
+      RecordCompileFailure("shader/sm50_geometry_compile",
+                           str::format(name, " compilation failed: ",
+                                       message));
+      return false;
+    }
+
+    SM50_COMPILED_BITCODE bitcode = {};
+    SM50GetCompiledBitcode(result, &bitcode);
+    auto dispatch_data = WMT::MakeDispatchData(bitcode.Data, bitcode.Size);
+    WMT::Reference<WMT::Error> metal_error;
+    auto library =
+        m_device->GetDXMTDevice().device().newLibrary(dispatch_data,
+                                                       metal_error);
+    if (!metal_error.handle)
+      function = library.newFunction(name);
+    std::string metal_error_text =
+        metal_error.handle ? DescribeNSObject(metal_error.handle) : "";
+    SM50DestroyBitcode(result);
+    if (!function.handle) {
+      RecordCompileFailure(
+          "shader/sm50_geometry_metal_library",
+          str::format(name, " Metal function creation failed",
+                      metal_error_text.empty() ? "" : ": ",
+                      metal_error_text));
+      return false;
+    }
+    return true;
+  };
+
+  bool compiled = compile_stage(true, object_func) &&
+                  compile_stage(false, mesh_func);
+  if (compiled) {
+    m_vs_shader = vertex_shader;
+    m_gs_shader = geometry_shader;
+  } else {
+    SM50Destroy(vertex_shader);
+    SM50Destroy(geometry_shader);
+  }
+  return compiled;
+}
+
 void MTLD3D12PipelineState::BuildIAInputLayout(
     const void *bytecode, SIZE_T size,
     std::vector<SM50_IA_INPUT_ELEMENT> &elements, uint32_t &slot_mask) {
@@ -2124,6 +2883,26 @@ bool MTLD3D12PipelineState::Compile() {
   }
   m_compile_state.store(CompileState::Compiling);
   ClearCompileFailure();
+  m_uses_conservative_rasterization =
+      !m_is_compute &&
+      m_rasterizer_desc.ConservativeRaster ==
+          D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON;
+  m_uses_conservative_rasterization_reference_model =
+      m_uses_conservative_rasterization && m_ms.empty() && m_gs.empty() &&
+      m_hs.empty() && m_ds.empty() && m_num_render_targets == 1 &&
+      m_rtv_formats[0] == DXGI_FORMAT_R8G8B8A8_UNORM &&
+      m_sample_count == 1 && !m_depth_stencil_desc.DepthEnable &&
+      !m_depth_stencil_desc.StencilEnable &&
+      m_input_layout.NumElements == 1 && m_input_elements.size() == 1 &&
+      m_input_elements[0].SemanticName &&
+      strcasecmp(m_input_elements[0].SemanticName, "POSITION") == 0 &&
+      m_input_elements[0].SemanticIndex == 0 &&
+      m_input_elements[0].Format == DXGI_FORMAT_R32G32B32_FLOAT &&
+      m_input_elements[0].InputSlot == 0 &&
+      m_input_elements[0].AlignedByteOffset == 0 &&
+      m_input_elements[0].InputSlotClass ==
+          D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA &&
+      !m_ps.empty() && DXBCContainerHasChunk(m_ps.data(), m_ps.size(), "DXIL");
   lock.unlock();
 
   auto wmt_device = m_device->GetDXMTDevice().device();
@@ -2218,20 +2997,31 @@ bool MTLD3D12PipelineState::Compile() {
     return true;
   }
 
-  WMT::Reference<WMT::Function> vs_func, ps_func;
-  size_t vs_hash =
-      m_vs.empty()
-          ? 0
-          : ComputeShaderCacheHash(m_vs.data(), m_vs.size(), ShaderType::Vertex,
-                                   &m_input_layout);
+  WMT::Reference<WMT::Function> vs_func, ps_func, gs_func;
+  size_t vs_hash = !m_as.empty()
+                       ? ComputeShaderCacheHash(m_as.data(), m_as.size(),
+                                                ShaderType::Amplification,
+                                                nullptr)
+                       : (m_vs.empty()
+                              ? 0
+                              : ComputeShaderCacheHash(
+                                    m_vs.data(), m_vs.size(),
+                                    ShaderType::Vertex, &m_input_layout));
   size_t ps_hash = m_ps.empty()
                        ? 0
-                       : ComputeShaderCacheHash(m_ps.data(), m_ps.size(),
-                                                ShaderType::Pixel, nullptr);
-  size_t gs_hash = m_gs.empty()
-                       ? 0
-                       : ComputeShaderCacheHash(m_gs.data(), m_gs.size(),
-                                                ShaderType::Geometry, nullptr);
+                       : ApplyShaderVariantHash(
+                             ComputeShaderCacheHash(
+                                 m_ps.data(), m_ps.size(), ShaderType::Pixel,
+                                 nullptr),
+                             ShaderType::Pixel);
+  size_t gs_hash = !m_ms.empty()
+                       ? ComputeShaderCacheHash(m_ms.data(), m_ms.size(),
+                                                ShaderType::Mesh, nullptr)
+                       : (m_gs.empty()
+                              ? 0
+                              : ComputeShaderCacheHash(
+                                    m_gs.data(), m_gs.size(),
+                                    ShaderType::Geometry, nullptr));
 
   const bool native_tessellation_required = !m_hs.empty() || !m_ds.empty();
   m_uses_native_tessellation_path = false;
@@ -2241,20 +3031,66 @@ bool MTLD3D12PipelineState::Compile() {
     return CompileNativeTessellationProofShape();
   }
 
-  if (!m_gs.empty()) {
-    return RecordCompileFailure(
-        "pso/unsupported_geometry_shader",
-        str::format("Graphics PSO uses GS bytes=", m_gs.size(),
-                    " but D3D12 geometry shaders are not implemented"));
-  }
-
   if (m_has_stream_output) {
     return RecordCompileFailure(
         "pso/unsupported_stream_output",
         "Graphics PSO uses stream output, which is not implemented");
   }
+  if (m_uses_conservative_rasterization &&
+      !m_uses_conservative_rasterization_reference_model) {
+    return RecordCompileFailure(
+        "pso/unsupported_conservative_rasterization",
+        "Conservative rasterization is only implemented for the validated "
+        "single-target pass-through reference shape");
+  }
 
-  if (!m_vs.empty()) {
+  m_uses_geometry_mesh_pipeline = false;
+  m_uses_native_mesh_pipeline = false;
+  if (!m_ms.empty()) {
+    if (!m_vs.empty() || !m_gs.empty() || !m_hs.empty() || !m_ds.empty()) {
+      return RecordCompileFailure(
+          "pso/mesh_with_legacy_stages",
+          "Mesh PSO cannot contain VS, GS, HS, or DS bytecode");
+    }
+    if (!m_as.empty()) {
+      if (!CompileShader(m_as.data(), m_as.size(), ShaderType::Amplification,
+                         "as_main", vs_func))
+        return false;
+      m_object_threadgroup_size = {m_threadgroup_size.width,
+                                   m_threadgroup_size.height,
+                                   m_threadgroup_size.depth};
+    } else {
+      m_object_threadgroup_size = {1, 1, 1};
+    }
+    if (!CompileShader(m_ms.data(), m_ms.size(), ShaderType::Mesh, "ms_main",
+                       gs_func))
+      return false;
+    m_mesh_threadgroup_size = {m_threadgroup_size.width,
+                               m_threadgroup_size.height,
+                               m_threadgroup_size.depth};
+    m_uses_geometry_mesh_pipeline = true;
+    m_uses_native_mesh_pipeline = true;
+    PSTRACE("D3D12 native mesh pipeline compiled object=%llu mesh=%llu "
+            "object_tg=%ux%ux%u mesh_tg=%ux%ux%u",
+            (unsigned long long)vs_func.handle,
+            (unsigned long long)gs_func.handle,
+            m_object_threadgroup_size.width, m_object_threadgroup_size.height,
+            m_object_threadgroup_size.depth, m_mesh_threadgroup_size.width,
+            m_mesh_threadgroup_size.height, m_mesh_threadgroup_size.depth);
+  } else if (!m_gs.empty()) {
+    if (m_vs.empty()) {
+      return RecordCompileFailure(
+          "pso/geometry_without_vertex",
+          "Graphics PSO contains a geometry shader without a vertex shader");
+    }
+    if (!CompileGeometryPipelineShaders(vs_func, gs_func))
+      return false;
+    m_uses_geometry_mesh_pipeline = true;
+    PSTRACE("D3D12 geometry pipeline compiled through Metal object/mesh "
+            "emulation object=%llu mesh=%llu",
+            (unsigned long long)vs_func.handle,
+            (unsigned long long)gs_func.handle);
+  } else if (!m_vs.empty()) {
     if (!CompileShader(m_vs.data(), m_vs.size(), ShaderType::Vertex, "vs_main",
                        vs_func, &m_vs_shader, &m_vs_reflection))
       return false;
@@ -2289,6 +3125,53 @@ bool MTLD3D12PipelineState::Compile() {
     if (m_dsv_format == DXGI_FORMAT_D24_UNORM_S8_UINT ||
         m_dsv_format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT)
       info.stencil_pixel_format = depth_fmt;
+  }
+
+  for (UINT i = 0; i < m_num_render_targets && i < 8; ++i) {
+    if (m_blend_desc.RenderTarget[i].LogicOpEnable && i != 0) {
+      return RecordCompileFailure(
+          "pso/unsupported_logic_op",
+          str::format("logic operation on render target ", i,
+                      " is unsupported; only render target 0 is mapped"));
+    }
+  }
+  if (m_blend_desc.RenderTarget[0].LogicOpEnable) {
+    for (UINT i = 1; i < m_num_render_targets && i < 8; ++i) {
+      const auto &rt = m_blend_desc.RenderTarget[i];
+      if (!rt.LogicOpEnable ||
+          rt.LogicOp != m_blend_desc.RenderTarget[0].LogicOp) {
+        return RecordCompileFailure(
+            "pso/unsupported_logic_op",
+            "per-render-target logic operations differ; the Metal global "
+            "logic operation cannot represent this pipeline");
+      }
+    }
+  }
+  auto map_logic_op = [](D3D12_LOGIC_OP op) -> WMTLogicOperation {
+    switch (op) {
+    case D3D12_LOGIC_OP_CLEAR: return WMTLogicOperationClear;
+    case D3D12_LOGIC_OP_SET: return WMTLogicOperationSet;
+    case D3D12_LOGIC_OP_COPY: return WMTLogicOperationCopy;
+    case D3D12_LOGIC_OP_COPY_INVERTED: return WMTLogicOperationCopyInverted;
+    case D3D12_LOGIC_OP_NOOP: return WMTLogicOperationNoOp;
+    case D3D12_LOGIC_OP_INVERT: return WMTLogicOperationInvert;
+    case D3D12_LOGIC_OP_AND: return WMTLogicOperationAnd;
+    case D3D12_LOGIC_OP_NAND: return WMTLogicOperationNand;
+    case D3D12_LOGIC_OP_OR: return WMTLogicOperationOr;
+    case D3D12_LOGIC_OP_NOR: return WMTLogicOperationNor;
+    case D3D12_LOGIC_OP_XOR: return WMTLogicOperationXor;
+    case D3D12_LOGIC_OP_EQUIV: return WMTLogicOperationEquiv;
+    case D3D12_LOGIC_OP_AND_REVERSE: return WMTLogicOperationAndReverse;
+    case D3D12_LOGIC_OP_AND_INVERTED: return WMTLogicOperationAndInverted;
+    case D3D12_LOGIC_OP_OR_REVERSE: return WMTLogicOperationOrReverse;
+    case D3D12_LOGIC_OP_OR_INVERTED: return WMTLogicOperationOrInverted;
+    default: return WMTLogicOperationNoOp;
+    }
+  };
+  if (m_blend_desc.RenderTarget[0].LogicOpEnable) {
+    info.logic_operation_enabled = true;
+    info.logic_operation =
+        map_logic_op(m_blend_desc.RenderTarget[0].LogicOp);
   }
 
   if (m_blend_desc.RenderTarget[0].BlendEnable) {
@@ -2378,6 +3261,36 @@ bool MTLD3D12PipelineState::Compile() {
   info.immutable_vertex_buffers = (1 << 16) | (1 << 29) | (1 << 30);
   info.immutable_fragment_buffers = (1 << 29) | (1 << 30);
 
+  if (m_uses_conservative_rasterization_reference_model) {
+    WMT::Reference<WMT::Error> conservative_error;
+    m_conservative_vertex_library = wmt_device.newLibraryWithSource(
+        kConservativeRasterVertexShader,
+        std::strlen(kConservativeRasterVertexShader), conservative_error);
+    if (conservative_error.handle) {
+      const std::string detail = DescribeNSObject(conservative_error.handle);
+      conservative_error.release();
+      return RecordCompileFailure(
+          "pso/conservative_rasterization_vertex_shader",
+          str::format("Conservative raster reference vertex shader failed: ",
+                      detail));
+    }
+    if (!m_conservative_vertex_library.handle) {
+      return RecordCompileFailure(
+          "pso/conservative_rasterization_vertex_shader",
+          "Conservative raster reference vertex shader library is null");
+    }
+    m_conservative_vertex_function =
+        m_conservative_vertex_library.newFunction("m12_conservative_vs");
+    if (!m_conservative_vertex_function.handle)
+      return RecordCompileFailure(
+          "pso/conservative_rasterization_vertex_shader",
+          "Conservative raster reference vertex function is null");
+    info.vertex_function = m_conservative_vertex_function.handle;
+    info.vertex_descriptor = nullptr;
+    info.input_primitive_topology = WMTPrimitiveTopologyClassPoint;
+    info.immutable_vertex_buffers &= ~(1u << 26);
+  }
+
   WMTVertexDescriptor vtx_desc = {};
   if (m_input_layout.NumElements > 0 && m_input_layout.pInputElementDescs) {
     uint32_t append_offset[WMT_MAX_VERTEX_BUFFER_LAYOUTS] = {};
@@ -2454,10 +3367,15 @@ bool MTLD3D12PipelineState::Compile() {
         }
       }
 
-      if (attr_index >= WMT_MAX_VERTEX_ATTRIBUTES) {
+      constexpr uint32_t kMSCStageInAttributeStartIndex = 11;
+      constexpr uint32_t kMSCVertexBufferBindPoint = 6;
+      uint32_t metal_attr_index =
+          m_vs_uses_stage_in ? kMSCStageInAttributeStartIndex + attr_index
+                             : attr_index;
+      if (metal_attr_index >= WMT_MAX_VERTEX_ATTRIBUTES) {
         PSTRACE("D3D12 PSO input-layout skip[%u]: mapped attribute %u outside "
                 "cap %u",
-                i, attr_index, WMT_MAX_VERTEX_ATTRIBUTES);
+                i, metal_attr_index, WMT_MAX_VERTEX_ATTRIBUTES);
         continue;
       }
       next_attribute = std::max(next_attribute, attr_index + 1);
@@ -2476,37 +3394,48 @@ bool MTLD3D12PipelineState::Compile() {
       slot_per_vertex[el.InputSlot] =
           (el.InputSlotClass == D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA);
 
-      auto &attr = vtx_desc.attributes[attr_index];
+      auto &attr = vtx_desc.attributes[metal_attr_index];
       attr.format = metal_format.AttributeFormat;
       attr.offset = aligned_offset;
-      attr.buffer_index = el.InputSlot;
-      attribute_count = std::max(attribute_count, attr_index + 1);
+      attr.buffer_index = m_vs_uses_stage_in
+                              ? kMSCVertexBufferBindPoint + el.InputSlot
+                              : el.InputSlot;
+      attribute_count = std::max(attribute_count, metal_attr_index + 1);
 
       PSTRACE("D3D12 PSO input-layout attr[%u]<-desc[%u]: semantic=%s%u fmt=%u "
               "mtl_fmt=%u slot=%u offset=%u stride_end=%u class=%u step=%u",
-              attr_index, i, el.SemanticName ? el.SemanticName : "?",
+              metal_attr_index, i, el.SemanticName ? el.SemanticName : "?",
               el.SemanticIndex, (unsigned)el.Format,
               (unsigned)metal_format.AttributeFormat, el.InputSlot,
               aligned_offset, end, (unsigned)el.InputSlotClass,
               el.InstanceDataStepRate);
     }
     vtx_desc.attribute_count = attribute_count;
-    vtx_desc.layout_count = max_slot;
+    constexpr uint32_t kMSCVertexBufferBindPoint = 6;
+    vtx_desc.layout_count =
+        m_vs_uses_stage_in ? kMSCVertexBufferBindPoint + max_slot : max_slot;
     for (uint32_t s = 0; s < max_slot; s++) {
-      vtx_desc.layouts[s].stride = slot_stride[s];
-      vtx_desc.layouts[s].step_function =
+      uint32_t metal_slot =
+          m_vs_uses_stage_in ? kMSCVertexBufferBindPoint + s : s;
+      vtx_desc.layouts[metal_slot].stride = slot_stride[s];
+      vtx_desc.layouts[metal_slot].step_function =
           slot_per_vertex[s] ? WMTVertexStepFunctionPerVertex
                              : WMTVertexStepFunctionPerInstance;
-      vtx_desc.layouts[s].step_rate = 1;
-      PSTRACE("D3D12 PSO input-layout slot[%u]: stride=%u step=%u", s,
-              slot_stride[s], (unsigned)vtx_desc.layouts[s].step_function);
+      vtx_desc.layouts[metal_slot].step_rate = 1;
+      PSTRACE("D3D12 PSO input-layout slot[%u]->metal[%u]: stride=%u step=%u",
+              s, metal_slot, slot_stride[s],
+              (unsigned)vtx_desc.layouts[metal_slot].step_function);
     }
     if (!m_vs_uses_stage_in) {
       PSTRACE("D3D12 PSO input-layout compiled for SM50 vertex pulling; Metal "
               "vertex descriptor disabled");
     }
   }
-  if (m_vs_uses_stage_in) {
+  if (m_vs_uses_stage_in && vtx_desc.attribute_count > 0) {
+    info.vertex_descriptor = &vtx_desc;
+    PSTRACE("D3D12 PSO stage-in vertex descriptor attached attrs=%u layouts=%u",
+            vtx_desc.attribute_count, vtx_desc.layout_count);
+  } else if (m_vs_uses_stage_in) {
     constexpr uint32_t kSyntheticStageInAttributes = 16;
     constexpr uint32_t kSyntheticStageInStride =
         16 * kSyntheticStageInAttributes;
@@ -2528,6 +3457,11 @@ bool MTLD3D12PipelineState::Compile() {
     PSTRACE("D3D12 PSO synthetic vertex descriptor attached attrs=%u stride=%u",
             vtx_desc.attribute_count, vtx_desc.layouts[0].stride);
   }
+  if (m_uses_conservative_rasterization_reference_model) {
+    info.vertex_function = m_conservative_vertex_function.handle;
+    info.vertex_descriptor = nullptr;
+    info.input_primitive_topology = WMTPrimitiveTopologyClassPoint;
+  }
 
   PSTRACE(
       "D3D12 PSO state this=%p rts=%u dsv_fmt=%u depth=%u stencil=%u blend0=%u "
@@ -2542,10 +3476,34 @@ bool MTLD3D12PipelineState::Compile() {
       (unsigned)m_rasterizer_desc.FrontCounterClockwise,
       (unsigned)m_rasterizer_desc.DepthClipEnable);
 
+  WMTMeshRenderPipelineInfo mesh_info = {};
+  if (m_uses_geometry_mesh_pipeline) {
+    WMT::InitializeMeshRenderPipelineInfo(mesh_info);
+    memcpy(mesh_info.colors, info.colors, sizeof(mesh_info.colors));
+    mesh_info.alpha_to_coverage_enabled = info.alpha_to_coverage_enabled;
+    mesh_info.logic_operation_enabled = info.logic_operation_enabled;
+    mesh_info.logic_operation = info.logic_operation;
+    mesh_info.rasterization_enabled = info.rasterization_enabled;
+    mesh_info.raster_sample_count = info.raster_sample_count;
+    mesh_info.depth_pixel_format = info.depth_pixel_format;
+    mesh_info.stencil_pixel_format = info.stencil_pixel_format;
+    mesh_info.object_function = vs_func.handle;
+    mesh_info.mesh_function = gs_func.handle;
+    mesh_info.fragment_function = ps_func.handle;
+    mesh_info.payload_memory_length =
+        m_uses_native_mesh_pipeline ? m_mesh_payload_size : 16256;
+    mesh_info.immutable_object_buffers =
+        (1u << 16) | (1u << 21) | (1u << 29) | (1u << 30);
+    mesh_info.immutable_mesh_buffers = (1u << 29) | (1u << 30);
+    mesh_info.immutable_fragment_buffers = (1u << 29) | (1u << 30);
+  }
+
   std::string render_err_desc = "unknown";
   for (uint32_t attempt = 0; attempt < 4; attempt++) {
     err = nullptr;
-    m_render_pso = wmt_device.newRenderPipelineState(info, err);
+    m_render_pso = m_uses_geometry_mesh_pipeline
+                       ? wmt_device.newRenderPipelineState(mesh_info, err)
+                       : wmt_device.newRenderPipelineState(info, err);
     if (m_render_pso.handle)
       break;
 
@@ -2563,7 +3521,10 @@ bool MTLD3D12PipelineState::Compile() {
   if (!m_render_pso.handle) {
     Logger::err(str::format("Failed to create render PSO: ", render_err_desc));
     return RecordCompileFailure(
-        "pso/metal_render_pso",
+        m_uses_native_mesh_pipeline
+            ? "pso/metal_native_mesh_pso"
+            : (m_uses_geometry_mesh_pipeline ? "pso/metal_geometry_mesh_pso"
+                                             : "pso/metal_render_pso"),
         str::format("Metal render PSO creation failed: ", render_err_desc));
   }
   {
@@ -2693,6 +3654,18 @@ bool MTLD3D12PipelineState::Compile() {
   return true;
 }
 
+void MTLD3D12PipelineState::SetMeshShaders(
+    const D3D12_SHADER_BYTECODE &as, const D3D12_SHADER_BYTECODE &ms) {
+  if (as.pShaderBytecode && as.BytecodeLength) {
+    m_as.resize(as.BytecodeLength);
+    memcpy(m_as.data(), as.pShaderBytecode, as.BytecodeLength);
+  }
+  if (ms.pShaderBytecode && ms.BytecodeLength) {
+    m_ms.resize(ms.BytecodeLength);
+    memcpy(m_ms.data(), ms.pShaderBytecode, ms.BytecodeLength);
+  }
+}
+
 void MTLD3D12PipelineState::SetGraphicsDesc(
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC &desc) {
   if (desc.pRootSignature) {
@@ -2753,6 +3726,12 @@ void MTLD3D12PipelineState::SetGraphicsDesc(
   m_dsv_format = desc.DSVFormat;
   m_sample_mask = desc.SampleMask;
   m_sample_count = desc.SampleDesc.Count ? desc.SampleDesc.Count : 1;
+  if (desc.CachedPSO.pCachedBlob && desc.CachedPSO.CachedBlobSizeInBytes) {
+    const auto *cached_data =
+        static_cast<const uint8_t *>(desc.CachedPSO.pCachedBlob);
+    m_cached_pso_blob.assign(
+        cached_data, cached_data + desc.CachedPSO.CachedBlobSizeInBytes);
+  }
 }
 
 void MTLD3D12PipelineState::SetComputeDesc(
@@ -2764,6 +3743,12 @@ void MTLD3D12PipelineState::SetComputeDesc(
   if (desc.CS.pShaderBytecode && desc.CS.BytecodeLength) {
     m_cs.resize(desc.CS.BytecodeLength);
     memcpy(m_cs.data(), desc.CS.pShaderBytecode, desc.CS.BytecodeLength);
+  }
+  if (desc.CachedPSO.pCachedBlob && desc.CachedPSO.CachedBlobSizeInBytes) {
+    const auto *cached_data =
+        static_cast<const uint8_t *>(desc.CachedPSO.pCachedBlob);
+    m_cached_pso_blob.assign(
+        cached_data, cached_data + desc.CachedPSO.CachedBlobSizeInBytes);
   }
   m_ia_slot_mask = 0;
   m_ia_input_elements.clear();
@@ -2796,21 +3781,21 @@ ULONG STDMETHODCALLTYPE MTLD3D12PipelineState::Release() {
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::GetPrivateData(REFGUID guid,
                                                                 UINT *data_size,
                                                                 void *data) {
-  return E_NOTIMPL;
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetPrivateData(
     REFGUID guid, UINT data_size, const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetPrivateDataInterface(
     REFGUID guid, const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::GetDevice(REFIID riid,
@@ -2820,7 +3805,24 @@ HRESULT STDMETHODCALLTYPE MTLD3D12PipelineState::GetDevice(REFIID riid,
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12PipelineState::GetCachedBlob(ID3DBlob **blob) {
-  return E_NOTIMPL;
+  if (!blob)
+    return E_POINTER;
+  *blob = nullptr;
+
+  if (m_cached_pso_blob.empty()) {
+    static constexpr uint8_t empty_cache_blob[] = {
+        'D', 'X', 'M', 'T', 'P', 'S', 'O', 1,
+    };
+    m_cached_pso_blob.assign(std::begin(empty_cache_blob),
+                             std::end(empty_cache_blob));
+  }
+
+  try {
+    *blob = new D3D12CachedPipelineBlob(m_cached_pso_blob);
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
+  return S_OK;
 }
 
 } // namespace dxmt

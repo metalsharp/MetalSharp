@@ -5,6 +5,7 @@
 #include "d3d12_descriptor_heap.hpp"
 #include "d3d12_device.hpp"
 #include "d3d12_fence.hpp"
+#include "d3d12_heap.hpp"
 #include "d3d12_pipeline_state.hpp"
 #include "d3d12_query_heap.hpp"
 #include "d3d12_resource.hpp"
@@ -17,6 +18,7 @@
 #include "Metal.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -358,6 +360,8 @@ static size_t QueryResultStride(D3D12_QUERY_TYPE type) {
   switch (type) {
   case D3D12_QUERY_TYPE_PIPELINE_STATISTICS:
     return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
+  case D3D12_QUERY_TYPE_PIPELINE_STATISTICS1:
+    return sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS1);
   case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM0:
   case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM1:
   case D3D12_QUERY_TYPE_SO_STATISTICS_STREAM2:
@@ -564,6 +568,25 @@ static void WriteMSCTextureArgument(uint64_t *data,
   data[arg.StructurePtrOffset + 1] = TextureMetadata(array_length, min_lod);
 }
 
+// Metal Shader Converter's automatic linear layout uses the same three-qword
+// descriptor shape as IRDescriptorTableEntry: buffer address, texture/sampler
+// resource ID, and metadata.  This differs from DXMT's legacy SM50 AIR layout.
+static void WriteMSCLinearTextureArgument(
+    uint64_t *data, const MTL_SM50_SHADER_ARGUMENT &arg,
+    uint64_t texture_view_id, float min_lod = 0.0f) {
+  data[arg.StructurePtrOffset] = 0;
+  data[arg.StructurePtrOffset + 1] = texture_view_id;
+  data[arg.StructurePtrOffset + 2] = TextureMetadata(0, min_lod);
+}
+
+static void WriteMSCLinearSamplerArgument(
+    uint64_t *data, const MTL_SM50_SHADER_ARGUMENT &arg,
+    uint64_t sampler_resource_id, uint64_t lod_bias_bits) {
+  data[arg.StructurePtrOffset] = 0;
+  data[arg.StructurePtrOffset + 1] = sampler_resource_id;
+  data[arg.StructurePtrOffset + 2] = lod_bias_bits;
+}
+
 static bool MSCArgumentAcceptsBuffer(const MTL_SM50_SHADER_ARGUMENT &arg,
                                      const MTLD3D12Resource *res) {
   if (arg.Flags & MTL_SM50_SHADER_ARGUMENT_BUFFER)
@@ -577,6 +600,197 @@ static bool FormatHasStencil(DXGI_FORMAT format) {
   return format == DXGI_FORMAT_D24_UNORM_S8_UINT ||
          format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
 }
+
+// D3D12 VRS images address fixed-size 16x16 screen-space tiles.  The
+// resource dimensions are ceil(render-target-dim / tile-size), so deriving a
+// tile size by dividing the target by the image dimensions is wrong for
+// non-multiple render-target sizes (and for images with trailing unused texels).
+
+static bool ShadingRateToMetalQuality(D3D12_SHADING_RATE rate,
+                                      float &horizontal, float &vertical) {
+  horizontal = 1.0f;
+  vertical = 1.0f;
+  switch (rate) {
+  case D3D12_SHADING_RATE_1X1:
+    return true;
+  case D3D12_SHADING_RATE_1X2:
+    vertical = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_2X1:
+    horizontal = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_2X2:
+    horizontal = 0.5f;
+    vertical = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_2X4:
+    horizontal = 0.5f;
+    vertical = 0.25f;
+    return true;
+  case D3D12_SHADING_RATE_4X2:
+    horizontal = 0.25f;
+    vertical = 0.5f;
+    return true;
+  case D3D12_SHADING_RATE_4X4:
+    horizontal = 0.25f;
+    vertical = 0.25f;
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool ShadingRateToAxes(D3D12_SHADING_RATE rate, uint32_t &horizontal,
+                               uint32_t &vertical) {
+  switch (rate) {
+  case D3D12_SHADING_RATE_1X1:
+    horizontal = 0;
+    vertical = 0;
+    return true;
+  case D3D12_SHADING_RATE_1X2:
+    horizontal = 0;
+    vertical = 1;
+    return true;
+  case D3D12_SHADING_RATE_2X1:
+    horizontal = 1;
+    vertical = 0;
+    return true;
+  case D3D12_SHADING_RATE_2X2:
+    horizontal = 1;
+    vertical = 1;
+    return true;
+  case D3D12_SHADING_RATE_2X4:
+    horizontal = 1;
+    vertical = 2;
+    return true;
+  case D3D12_SHADING_RATE_4X2:
+    horizontal = 2;
+    vertical = 1;
+    return true;
+  case D3D12_SHADING_RATE_4X4:
+    horizontal = 2;
+    vertical = 2;
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool ShadingRateFromAxes(uint32_t horizontal, uint32_t vertical,
+                                D3D12_SHADING_RATE &result) {
+  if (horizontal > 2 || vertical > 2)
+    return false;
+  if (horizontal == 0 && vertical == 0)
+    result = D3D12_SHADING_RATE_1X1;
+  else if (horizontal == 0 && vertical == 1)
+    result = D3D12_SHADING_RATE_1X2;
+  else if (horizontal == 1 && vertical == 0)
+    result = D3D12_SHADING_RATE_2X1;
+  else if (horizontal == 1 && vertical == 1)
+    result = D3D12_SHADING_RATE_2X2;
+  else if (horizontal == 1 && vertical == 2)
+    result = D3D12_SHADING_RATE_2X4;
+  else if (horizontal == 2 && vertical == 1)
+    result = D3D12_SHADING_RATE_4X2;
+  else if (horizontal == 2 && vertical == 2)
+    result = D3D12_SHADING_RATE_4X4;
+  else
+    return false;
+  return true;
+}
+
+static bool CombineShadingRate(D3D12_SHADING_RATE first,
+                               D3D12_SHADING_RATE second,
+                               D3D12_SHADING_RATE_COMBINER combiner,
+                               D3D12_SHADING_RATE &result) {
+  switch (combiner) {
+  case D3D12_SHADING_RATE_COMBINER_PASSTHROUGH:
+    result = first;
+    return true;
+  case D3D12_SHADING_RATE_COMBINER_OVERRIDE:
+    result = second;
+    return true;
+  case D3D12_SHADING_RATE_COMBINER_MIN:
+  case D3D12_SHADING_RATE_COMBINER_MAX: {
+    uint32_t first_horizontal = 0;
+    uint32_t first_vertical = 0;
+    uint32_t second_horizontal = 0;
+    uint32_t second_vertical = 0;
+    if (!ShadingRateToAxes(first, first_horizontal, first_vertical) ||
+        !ShadingRateToAxes(second, second_horizontal, second_vertical))
+      return false;
+    // D3D12 combines the horizontal and vertical axis values independently.
+    // MIN is higher quality (a smaller coarse-pixel dimension), while MAX is
+    // lower quality (a larger coarse-pixel dimension).  Comparing total area
+    // is incorrect for asymmetric rates such as 1x2 and 2x1.
+    const uint32_t horizontal =
+        combiner == D3D12_SHADING_RATE_COMBINER_MIN
+            ? std::min(first_horizontal, second_horizontal)
+            : std::max(first_horizontal, second_horizontal);
+    const uint32_t vertical =
+        combiner == D3D12_SHADING_RATE_COMBINER_MIN
+            ? std::min(first_vertical, second_vertical)
+            : std::max(first_vertical, second_vertical);
+    return ShadingRateFromAxes(horizontal, vertical, result);
+  }
+  case D3D12_SHADING_RATE_COMBINER_SUM: {
+    uint32_t first_horizontal = 0;
+    uint32_t first_vertical = 0;
+    uint32_t second_horizontal = 0;
+    uint32_t second_vertical = 0;
+    if (!ShadingRateToAxes(first, first_horizontal, first_vertical) ||
+        !ShadingRateToAxes(second, second_horizontal, second_vertical))
+      return false;
+    // SUM applies the axis values independently and clamps each axis to the
+    // largest coarse dimension supported by this implementation (4x).  It
+    // must not add the packed enum values: 1x2 + 2x1 is 2x2, while 2x2 + 2x2
+    // saturates at 4x4.
+    return ShadingRateFromAxes(
+        std::min<uint32_t>(2, first_horizontal + second_horizontal),
+        std::min<uint32_t>(2, first_vertical + second_vertical), result);
+  }
+  default:
+    return false;
+  }
+}
+
+// Metal's rasterization-rate map stores the render pass in physical fragment
+// space, while D3D12 exposes the render target in logical pixel space.  Keep
+// the resolve shader in the bridge rather than asking each D3D12 shader to
+// understand the Metal-specific coordinate transform.
+static constexpr const char *kVRSResolveShader = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+struct m12_vrs_resolve_vertex {
+  float4 position [[position]];
+};
+
+vertex m12_vrs_resolve_vertex m12_vrs_resolve_vs(uint vertex_id [[vertex_id]]) {
+  constexpr float2 positions[3] = {
+      float2(-1.0f, 1.0f), float2(3.0f, 1.0f), float2(-1.0f, -3.0f)};
+  m12_vrs_resolve_vertex result;
+  result.position = float4(positions[vertex_id], 0.0f, 1.0f);
+  return result;
+}
+
+fragment float4 m12_vrs_resolve_ps(
+    m12_vrs_resolve_vertex input [[stage_in]],
+    constant rasterization_rate_map_data &rate_map [[buffer(0)]],
+    texture2d<float, access::sample> source [[texture(0)]],
+    texture2d<float, access::sample> mask [[texture(1)]]) {
+  rasterization_rate_map_decoder decoder(rate_map);
+  // Fragment positions identify pixel centers, while the rate-map API uses
+  // screen-space offsets from the top-left edge.  Subtract the half-pixel so
+  // the last logical pixel in a partially covered tile maps to the final
+  // physical fragment rather than the next tile's first fragment.
+  float2 screen = input.position.xy - 0.5f;
+  float2 physical = decoder.map_screen_to_physical_coordinates(screen);
+  if (mask.read(uint2(floor(physical))).x < 0.5f)
+    discard_fragment();
+  return source.read(uint2(floor(physical)));
+}
+)metal";
 
 template <typename Encoder>
 static void EndMetalEncoder(Encoder &encoder, const char *label) {
@@ -609,6 +823,102 @@ static bool DSVHasStencil(const D3D12Descriptor *desc) {
     format = resource_desc.Format;
   }
   return FormatHasStencil(format);
+}
+
+static uint16_t DSVMipLevel(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->dsv.ViewDimension) {
+  case D3D12_DSV_DIMENSION_TEXTURE1D:
+    return desc->dsv.Texture1D.MipSlice;
+  case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
+    return desc->dsv.Texture1DArray.MipSlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2D:
+    return desc->dsv.Texture2D.MipSlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+    return desc->dsv.Texture2DArray.MipSlice;
+  default:
+    return 0;
+  }
+}
+
+static uint16_t DSVArraySlice(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->dsv.ViewDimension) {
+  case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
+    return desc->dsv.Texture1DArray.FirstArraySlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+    return desc->dsv.Texture2DArray.FirstArraySlice;
+  case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->dsv.Texture2DMSArray.FirstArraySlice;
+  default:
+    return 0;
+  }
+}
+
+static uint16_t DSVArrayLength(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 1;
+  switch (desc->dsv.ViewDimension) {
+  case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
+    return desc->dsv.Texture1DArray.ArraySize;
+  case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+    return desc->dsv.Texture2DArray.ArraySize;
+  case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->dsv.Texture2DMSArray.ArraySize;
+  default:
+    return 1;
+  }
+}
+
+static uint16_t RTVMipLevel(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->rtv.ViewDimension) {
+  case D3D12_RTV_DIMENSION_TEXTURE1D:
+    return desc->rtv.Texture1D.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE1DARRAY:
+    return desc->rtv.Texture1DArray.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2D:
+    return desc->rtv.Texture2D.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+    return desc->rtv.Texture2DArray.MipSlice;
+  case D3D12_RTV_DIMENSION_TEXTURE3D:
+    return desc->rtv.Texture3D.MipSlice;
+  default:
+    return 0;
+  }
+}
+
+static uint16_t RTVArraySlice(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 0;
+  switch (desc->rtv.ViewDimension) {
+  case D3D12_RTV_DIMENSION_TEXTURE1DARRAY:
+    return desc->rtv.Texture1DArray.FirstArraySlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+    return desc->rtv.Texture2DArray.FirstArraySlice;
+  case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->rtv.Texture2DMSArray.FirstArraySlice;
+  default:
+    return 0;
+  }
+}
+
+static uint16_t RTVArrayLength(const D3D12Descriptor *desc) {
+  if (!desc)
+    return 1;
+  switch (desc->rtv.ViewDimension) {
+  case D3D12_RTV_DIMENSION_TEXTURE1DARRAY:
+    return desc->rtv.Texture1DArray.ArraySize;
+  case D3D12_RTV_DIMENSION_TEXTURE2DARRAY:
+    return desc->rtv.Texture2DArray.ArraySize;
+  case D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY:
+    return desc->rtv.Texture2DMSArray.ArraySize;
+  default:
+    return 1;
+  }
 }
 
 static const char *DescriptorRangeTypeName(D3D12_DESCRIPTOR_RANGE_TYPE type) {
@@ -782,6 +1092,8 @@ struct ReplayState {
   bool render_enc_open = false;
   bool render_enc_has_dsv = false;
   DXGI_FORMAT render_enc_dsv_format = DXGI_FORMAT_UNKNOWN;
+  WMT::Reference<WMT::Texture> depth_bounds_dsv_texture;
+  uint32_t depth_bounds_dsv_slice = 0;
   uint64_t bound_vertex_buffer_slots = 0;
   uint64_t bound_fragment_buffer_slots = 0;
   uint64_t bound_fragment_texture_slots = 0;
@@ -793,6 +1105,13 @@ struct ReplayState {
   ~ReplayState() { CloseRenderEncoder(); }
 
   MTLD3D12PipelineState *pso = nullptr;
+  ID3D12StateObject *raytracing_state = nullptr;
+  WMT::Reference<WMT::ComputePipelineState> raytracing_compute_pso;
+  WMT::Reference<WMT::VisibleFunctionTable>
+      raytracing_visible_function_table;
+  WMT::Reference<WMT::IntersectionFunctionTable>
+      raytracing_intersection_function_table;
+  D3D12_QUERY_DATA_PIPELINE_STATISTICS1 pipeline_statistics = {};
   MTLD3D12RootSignature *graphics_root_sig = nullptr;
   D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
   D3D12_VERTEX_BUFFER_VIEW vbs[kVertexBufferSlotCount] = {};
@@ -803,6 +1122,39 @@ struct ReplayState {
   uint32_t scissor_count = 0;
   float blend_factor[4] = {1, 1, 1, 1};
   uint32_t stencil_ref = 0;
+  float depth_bounds_min = 0.0f;
+  float depth_bounds_max = 1.0f;
+  bool depth_bounds_inverted = false;
+  D3D12_SHADING_RATE shading_rate = D3D12_SHADING_RATE_1X1;
+  D3D12_SHADING_RATE_COMBINER shading_rate_combiners[2] = {
+      D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+      D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
+  D3D12_SHADING_RATE vrs_effective_rate = D3D12_SHADING_RATE_1X1;
+  uint32_t vrs_primitive_candidate = UINT32_MAX;
+  ID3D12Resource *shading_rate_image = nullptr;
+  bool vrs_image_tile_active = false;
+  uint32_t vrs_image_tile_x = 0;
+  uint32_t vrs_image_tile_y = 0;
+  MTLD3D12Device *replay_device = nullptr;
+  WMT::Reference<WMT::RasterizationRateMap> vrs_rate_map;
+  WMT::Reference<WMT::Buffer> vrs_rate_map_data;
+  WMT::Reference<WMT::Texture> vrs_intermediate_texture;
+  WMT::Reference<WMT::Texture> vrs_mask_texture;
+  WMT::Reference<WMT::Library> vrs_resolve_library;
+  WMT::Reference<WMT::Function> vrs_resolve_vertex_function;
+  WMT::Reference<WMT::Function> vrs_resolve_fragment_function;
+  WMT::Reference<WMT::RenderPipelineState> vrs_resolve_pipeline;
+  obj_handle_t vrs_resolve_target = NULL_OBJECT_HANDLE;
+  uint16_t vrs_resolve_target_slice = 0;
+  uint16_t vrs_resolve_target_level = 0;
+  uint32_t vrs_resolve_width = 0;
+  uint32_t vrs_resolve_height = 0;
+  LONG vrs_resolve_left = 0;
+  LONG vrs_resolve_top = 0;
+  LONG vrs_resolve_right = 0;
+  LONG vrs_resolve_bottom = 0;
+  bool vrs_resolve_pending = false;
+  bool vrs_resolve_in_progress = false;
 
   D3D12_CPU_DESCRIPTOR_HANDLE rt_handles[8] = {};
   D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = {};
@@ -1921,6 +2273,7 @@ struct ReplayState {
   WMT::Reference<WMT::Buffer> msc_draw_args_buf;
   WMT::Reference<WMT::Buffer> msc_uniforms_buf;
   WMT::Reference<WMT::Buffer> null_vertex_arg_buf;
+  WMT::Reference<WMT::Buffer> atomic64_lock_buf;
   WMT::Reference<WMT::Texture> null_direct_texture;
   WMT::Reference<WMT::SamplerState> null_direct_sampler;
   VertexBufferEntry vertex_table_data[kVertexBufferSlotCount] = {};
@@ -1986,6 +2339,321 @@ struct ReplayState {
         " duplicates=", retained_completion_duplicate_count, " overflow=",
         retained_completion_overflow_count, " command_count=", command_count,
         " draw_count=", draw_count, " dispatch_count=", dispatch_count));
+  }
+
+  bool EnsureVRSResolvePipeline(WMT::Device wmt_device,
+                                WMTPixelFormat pixel_format) {
+    if (vrs_resolve_pipeline.handle)
+      return true;
+
+    WMT::Error error;
+    vrs_resolve_library = wmt_device.newLibraryWithSource(
+        kVRSResolveShader, std::strlen(kVRSResolveShader), error);
+    if (!vrs_resolve_library.handle) {
+      QTRACE("VRS resolve library compilation failed error=%llu",
+             (unsigned long long)error.handle);
+      if (error.handle)
+        error.release();
+      return false;
+    }
+    vrs_resolve_vertex_function =
+        vrs_resolve_library.newFunction("m12_vrs_resolve_vs");
+    vrs_resolve_fragment_function =
+        vrs_resolve_library.newFunction("m12_vrs_resolve_ps");
+    if (!vrs_resolve_vertex_function.handle ||
+        !vrs_resolve_fragment_function.handle) {
+      QTRACE("VRS resolve function lookup failed vs=%llu ps=%llu",
+             (unsigned long long)vrs_resolve_vertex_function.handle,
+             (unsigned long long)vrs_resolve_fragment_function.handle);
+      if (error.handle)
+        error.release();
+      return false;
+    }
+
+    WMTRenderPipelineInfo pipeline_info = {};
+    WMT::InitializeRenderPipelineInfo(pipeline_info);
+    pipeline_info.colors[0].pixel_format = pixel_format;
+    pipeline_info.vertex_function = vrs_resolve_vertex_function.handle;
+    pipeline_info.fragment_function = vrs_resolve_fragment_function.handle;
+    pipeline_info.input_primitive_topology = WMTPrimitiveTopologyClassTriangle;
+    vrs_resolve_pipeline =
+        wmt_device.newRenderPipelineState(pipeline_info, error);
+    if (error.handle)
+      error.release();
+    if (!vrs_resolve_pipeline.handle) {
+      QTRACE("VRS resolve pipeline creation failed format=%u",
+             (unsigned)pixel_format);
+      return false;
+    }
+    return true;
+  }
+
+  bool ConfigureVRSResolve(MTLD3D12Device *device, WMTRenderPassInfo &rp,
+                           uint32_t width, uint32_t height, float horizontal,
+                           float vertical) {
+    // The first implementation is deliberately strict: a logical resolve is
+    // only safe when the draw has one single-sampled color attachment and no
+    // depth/stencil state that would need a matching physical-space resolve.
+    // Unsupported attachment combinations retain the pre-existing direct map
+    // path instead of silently claiming D3D12 semantics.
+    if (!device || width == 0 || height == 0 || rt_count != 1 || has_dsv ||
+        vrs_resolve_pending ||
+        (horizontal >= 0.999999f && vertical >= 0.999999f))
+      return false;
+
+    auto *descriptor =
+        reinterpret_cast<const D3D12Descriptor *>(rt_handles[0].ptr);
+    auto *resource =
+        descriptor ? static_cast<MTLD3D12Resource *>(descriptor->resource)
+                   : nullptr;
+    if (!resource)
+      return false;
+    D3D12_RESOURCE_DESC resource_desc = {};
+    resource->GetDesc(&resource_desc);
+    if (resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        std::max<UINT>(resource_desc.SampleDesc.Count, 1) != 1)
+      return false;
+
+    const auto target_texture = resource->GetMTLTexture();
+    if (!target_texture.handle ||
+        target_texture.pixelFormat() == WMTPixelFormatInvalid)
+      return false;
+    if (!EnsureVRSResolvePipeline(device->GetDXMTDevice().device(),
+                                  target_texture.pixelFormat()))
+      return false;
+
+    uint64_t parameter_size = 0;
+    uint64_t parameter_align = 0;
+    const float horizontal_rates[2] = {horizontal, horizontal};
+    const float vertical_rates[2] = {vertical, vertical};
+    auto wmt_device = device->GetDXMTDevice().device();
+    auto rate_map = wmt_device.newRasterizationRateMap(
+        width, height, horizontal_rates, vertical_rates, parameter_size,
+        parameter_align);
+    if (!rate_map.handle || !parameter_size)
+      return false;
+
+    WMTBufferInfo parameter_info = {};
+    parameter_info.length = parameter_size;
+    parameter_info.options = WMTResourceStorageModeShared |
+                             WMTResourceHazardTrackingModeTracked;
+    parameter_info.memory.set(nullptr);
+    auto parameter_buffer = wmt_device.newBuffer(parameter_info);
+    if (!parameter_buffer.handle || !parameter_info.memory.get())
+      return false;
+    rate_map.copyParameterData(parameter_buffer, 0);
+
+    WMTTextureInfo intermediate_info = {};
+    intermediate_info.pixel_format = target_texture.pixelFormat();
+    intermediate_info.width = width;
+    intermediate_info.height = height;
+    intermediate_info.depth = 1;
+    intermediate_info.array_length = 1;
+    intermediate_info.type = WMTTextureType2D;
+    intermediate_info.mipmap_level_count = 1;
+    intermediate_info.sample_count = 1;
+    intermediate_info.usage = (WMTTextureUsage)(WMTTextureUsageRenderTarget |
+                                                WMTTextureUsageShaderRead);
+    intermediate_info.options = WMTResourceStorageModePrivate |
+                                WMTResourceHazardTrackingModeTracked;
+    auto intermediate_texture = wmt_device.newTexture(intermediate_info);
+    if (!intermediate_texture.handle)
+      return false;
+
+    WMTTextureInfo mask_info = {};
+    mask_info.pixel_format = WMTPixelFormatR8Unorm;
+    mask_info.width = width;
+    mask_info.height = height;
+    mask_info.depth = 1;
+    mask_info.array_length = 1;
+    mask_info.type = WMTTextureType2D;
+    mask_info.mipmap_level_count = 1;
+    mask_info.sample_count = 1;
+    mask_info.usage = (WMTTextureUsage)(WMTTextureUsageShaderRead |
+                                        WMTTextureUsageShaderWrite);
+    mask_info.options = WMTResourceStorageModePrivate |
+                        WMTResourceHazardTrackingModeTracked;
+    auto mask_texture = wmt_device.newTexture(mask_info);
+    if (!mask_texture.handle)
+      return false;
+
+    WMTRenderPassInfo mask_clear = {};
+    for (uint32_t i = 0; i < 8; i++) {
+      mask_clear.colors[i].texture = NULL_OBJECT_HANDLE;
+      mask_clear.colors[i].load_action = WMTLoadActionDontCare;
+      mask_clear.colors[i].store_action = WMTStoreActionDontCare;
+    }
+    mask_clear.depth.texture = NULL_OBJECT_HANDLE;
+    mask_clear.depth.load_action = WMTLoadActionDontCare;
+    mask_clear.depth.store_action = WMTStoreActionDontCare;
+    mask_clear.stencil.texture = NULL_OBJECT_HANDLE;
+    mask_clear.stencil.load_action = WMTLoadActionDontCare;
+    mask_clear.stencil.store_action = WMTStoreActionDontCare;
+    mask_clear.colors[0].texture = mask_texture.handle;
+    mask_clear.colors[0].load_action = WMTLoadActionClear;
+    mask_clear.colors[0].store_action = WMTStoreActionStore;
+    mask_clear.colors[0].clear_color = {0.0, 0.0, 0.0, 0.0};
+    mask_clear.render_target_width = width;
+    mask_clear.render_target_height = height;
+    auto mask_clear_encoder = cmdbuf.renderCommandEncoder(mask_clear);
+    ENC_CREATE("render_vrs_mask_clear", mask_clear_encoder.handle);
+    if (!mask_clear_encoder.handle)
+      return false;
+    EndMetalEncoder(mask_clear_encoder, "render_vrs_mask_clear");
+
+    // Preserve the logical destination before rendering into the physical
+    // intermediate texture.  This gives the resolver a defined value outside
+    // the current draw's covered area and preserves load behavior for the
+    // common single-target path.
+    auto blit = cmdbuf.blitCommandEncoder();
+    ENC_CREATE("blit_vrs_intermediate_copy", blit.handle);
+    if (!blit.handle)
+      return false;
+    struct wmtcmd_blit_copy_from_texture_to_texture copy = {};
+    copy.type = WMTBlitCommandCopyFromTextureToTexture;
+    copy.next.set(nullptr);
+    copy.src = rp.colors[0].texture;
+    copy.src_slice = rp.colors[0].slice;
+    copy.src_level = rp.colors[0].level;
+    copy.src_origin = {0, 0, 0};
+    copy.src_size = {width, height, 1};
+    copy.dst = intermediate_texture.handle;
+    copy.dst_slice = 0;
+    copy.dst_level = 0;
+    copy.dst_origin = {0, 0, 0};
+    const bool copied =
+        blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+    EndMetalEncoder(blit, "blit_vrs_intermediate_copy");
+    if (!copied)
+      return false;
+
+    vrs_rate_map = std::move(rate_map);
+    vrs_rate_map_data = std::move(parameter_buffer);
+    vrs_intermediate_texture = std::move(intermediate_texture);
+    vrs_mask_texture = std::move(mask_texture);
+    vrs_resolve_target = rp.colors[0].texture;
+    vrs_resolve_target_slice = rp.colors[0].slice;
+    vrs_resolve_target_level = rp.colors[0].level;
+    vrs_resolve_width = width;
+    vrs_resolve_height = height;
+
+    LONG left = 0;
+    LONG top = 0;
+    LONG right = static_cast<LONG>(std::min<uint32_t>(width, LONG_MAX));
+    LONG bottom = static_cast<LONG>(std::min<uint32_t>(height, LONG_MAX));
+    if (scissor_count > 0) {
+      const auto &scissor = scissor_rects[0];
+      left = std::max<LONG>(0, std::min<LONG>(right, scissor.left));
+      top = std::max<LONG>(0, std::min<LONG>(bottom, scissor.top));
+      right = std::max<LONG>(left, std::min<LONG>(right, scissor.right));
+      bottom = std::max<LONG>(top, std::min<LONG>(bottom, scissor.bottom));
+    }
+    if (vrs_image_tile_active) {
+      const uint64_t tile_left =
+          uint64_t(vrs_image_tile_x) * kD3D12ShadingRateImageTileSize;
+      const uint64_t tile_top =
+          uint64_t(vrs_image_tile_y) * kD3D12ShadingRateImageTileSize;
+      const LONG tile_right = static_cast<LONG>(std::min<uint64_t>(
+          uint64_t(width), tile_left + kD3D12ShadingRateImageTileSize));
+      const LONG tile_bottom = static_cast<LONG>(std::min<uint64_t>(
+          uint64_t(height), tile_top + kD3D12ShadingRateImageTileSize));
+      left = std::max<LONG>(left, static_cast<LONG>(tile_left));
+      top = std::max<LONG>(top, static_cast<LONG>(tile_top));
+      right = std::min<LONG>(right, tile_right);
+      bottom = std::min<LONG>(bottom, tile_bottom);
+      right = std::max<LONG>(left, right);
+      bottom = std::max<LONG>(top, bottom);
+    }
+    vrs_resolve_left = left;
+    vrs_resolve_top = top;
+    vrs_resolve_right = right;
+    vrs_resolve_bottom = bottom;
+
+    rp.colors[0].texture = vrs_intermediate_texture.handle;
+    rp.colors[0].slice = 0;
+    rp.colors[0].level = 0;
+    rp.rasterization_rate_map = vrs_rate_map.handle;
+    rp.rasterization_rate_map_enabled = 0;
+    vrs_resolve_pending = true;
+    RetainMTLObjectForCompletion(vrs_rate_map);
+    RetainMTLObjectForCompletion(vrs_rate_map_data);
+    RetainMTLObjectForCompletion(vrs_intermediate_texture);
+    RetainMTLObjectForCompletion(vrs_mask_texture);
+    RetainMTLObjectForCompletion(vrs_resolve_target);
+    QTRACE("VRS logical resolve configured target=%llu intermediate=%llu "
+           "map=%llu screen=%ux%u quality=%.2f,%.2f scissor=%ld,%ld-%ld,%ld",
+           (unsigned long long)vrs_resolve_target,
+           (unsigned long long)vrs_intermediate_texture.handle,
+           (unsigned long long)vrs_rate_map.handle, width, height, horizontal,
+           vertical, (long)left, (long)top, (long)right, (long)bottom);
+    return true;
+  }
+
+  void ResolveVRS() {
+    if (!vrs_resolve_pending || vrs_resolve_in_progress ||
+        !vrs_resolve_target || !vrs_intermediate_texture.handle ||
+        !vrs_mask_texture.handle || !vrs_rate_map_data.handle ||
+        !vrs_resolve_pipeline.handle) {
+      return;
+    }
+    vrs_resolve_in_progress = true;
+    WMTRenderPassInfo rp = {};
+    for (uint32_t i = 0; i < 8; i++) {
+      rp.colors[i].texture = NULL_OBJECT_HANDLE;
+      rp.colors[i].load_action = WMTLoadActionDontCare;
+      rp.colors[i].store_action = WMTStoreActionDontCare;
+    }
+    rp.depth.texture = NULL_OBJECT_HANDLE;
+    rp.depth.load_action = WMTLoadActionDontCare;
+    rp.depth.store_action = WMTStoreActionDontCare;
+    rp.stencil.texture = NULL_OBJECT_HANDLE;
+    rp.stencil.load_action = WMTLoadActionDontCare;
+    rp.stencil.store_action = WMTStoreActionDontCare;
+    rp.colors[0].texture = vrs_resolve_target;
+    rp.colors[0].slice = vrs_resolve_target_slice;
+    rp.colors[0].level = vrs_resolve_target_level;
+    rp.colors[0].load_action = WMTLoadActionLoad;
+    rp.colors[0].store_action = WMTStoreActionStore;
+    rp.render_target_array_length = 1;
+    rp.render_target_width = vrs_resolve_width;
+    rp.render_target_height = vrs_resolve_height;
+
+    auto encoder = cmdbuf.renderCommandEncoder(rp);
+    ENC_CREATE("render_vrs_logical_resolve", encoder.handle);
+    if (encoder.handle) {
+      encoder.setRenderPipelineState(vrs_resolve_pipeline);
+      encoder.setFragmentBuffer(vrs_rate_map_data, 0, 0);
+      encoder.setFragmentTexture(vrs_intermediate_texture, 0);
+      encoder.setFragmentTexture(vrs_mask_texture, 1);
+      encoder.useResource(vrs_intermediate_texture, WMTResourceUsageRead,
+                          WMTRenderStageFragment);
+      encoder.useResource(vrs_mask_texture, WMTResourceUsageRead,
+                          WMTRenderStageFragment);
+      encoder.setViewport({0.0, 0.0, (double)vrs_resolve_width,
+                           (double)vrs_resolve_height, 0.0, 1.0});
+      encoder.setScissorRect(
+          {(uint64_t)std::max<LONG>(0, vrs_resolve_left),
+           (uint64_t)std::max<LONG>(0, vrs_resolve_top),
+           (uint64_t)std::max<LONG>(0, vrs_resolve_right - vrs_resolve_left),
+           (uint64_t)std::max<LONG>(0, vrs_resolve_bottom - vrs_resolve_top)});
+      encoder.drawPrimitives(WMTPrimitiveTypeTriangle, 0, 3);
+      EndMetalEncoder(encoder, "render_vrs_logical_resolve");
+    } else {
+      QTRACE("VRS logical resolve encoder creation failed target=%llu",
+             (unsigned long long)vrs_resolve_target);
+    }
+
+    vrs_resolve_pending = false;
+    vrs_resolve_in_progress = false;
+    vrs_rate_map = nullptr;
+    vrs_rate_map_data = nullptr;
+    vrs_intermediate_texture = nullptr;
+    vrs_mask_texture = nullptr;
+    vrs_resolve_target = NULL_OBJECT_HANDLE;
+    vrs_resolve_target_slice = 0;
+    vrs_resolve_target_level = 0;
+    vrs_resolve_width = 0;
+    vrs_resolve_height = 0;
   }
 
   WMT::Reference<WMT::Buffer>
@@ -2269,6 +2937,32 @@ struct ReplayState {
     return true;
   }
 
+  void BindVRSRuntimeState(MTLD3D12Device *device) {
+    if (!render_enc_open || !device || !pso ||
+        !pso->UsesVRSRuntimeState())
+      return;
+    uint32_t state[4] = {vrs_primitive_candidate,
+                         static_cast<uint32_t>(vrs_effective_rate),
+                         vrs_resolve_pending ? 1u : 0u, 0u};
+    // setFragmentBytes copies the candidate into the encoder.  A reusable
+    // shared buffer would be overwritten while the seven candidate passes are
+    // recorded, causing every deferred Metal draw to observe only the last
+    // candidate.
+    bool bound = render_enc.setFragmentBytes(state, sizeof(state), 27);
+    if (vrs_resolve_pending && vrs_mask_texture.handle) {
+      bound = SetFragmentTextureTracked(vrs_mask_texture, 125) && bound;
+      render_enc.useResource(vrs_rate_map_data, WMTResourceUsageRead,
+                             WMTRenderStageFragment);
+      render_enc.useResource(vrs_mask_texture, WMTResourceUsageWrite,
+                             WMTRenderStageFragment);
+    }
+    if (bound) {
+      QTRACE("BindVRSRuntimeState candidate=%u effective=%u mask=%u",
+             vrs_primitive_candidate, (unsigned)vrs_effective_rate,
+             vrs_resolve_pending ? 1u : 0u);
+    }
+  }
+
   bool EnsureNullDirectTexture(MTLD3D12Device *device) {
     if (null_direct_texture.handle)
       return true;
@@ -2285,6 +2979,17 @@ struct ReplayState {
     info.usage = WMTTextureUsageShaderRead;
     null_direct_texture = device->GetMTLDevice().newTexture(info);
     return null_direct_texture.handle != 0;
+  }
+
+  bool EnsureAtomic64LockBuffer(MTLD3D12Device *device) {
+    if (atomic64_lock_buf.handle)
+      return true;
+    uint32_t zero = 0;
+    atomic64_lock_buf = MakeTransientBuffer(device, sizeof(zero));
+    if (!atomic64_lock_buf.handle)
+      return false;
+    atomic64_lock_buf.updateContents(0, &zero, sizeof(zero));
+    return true;
   }
 
   bool EnsureNullDirectSampler(MTLD3D12Device *device) {
@@ -2457,6 +3162,24 @@ struct ReplayState {
       }
     }
 
+    if (pso->IsDepthBoundsTestEnabled() &&
+        depth_bounds_dsv_texture.handle) {
+      const float depth_bounds[4] = {
+          depth_bounds_min, depth_bounds_max,
+          static_cast<float>(depth_bounds_dsv_slice),
+          depth_bounds_inverted ? 1.0f : 0.0f};
+      render_enc.setFragmentBytes(depth_bounds, sizeof(depth_bounds), 28);
+      render_enc.setFragmentTexture(depth_bounds_dsv_texture, 126);
+      RetainMTLObjectForCompletion(depth_bounds_dsv_texture);
+      QTRACE("DepthBounds bind min=%.3f max=%.3f slice=%u inverted=%u "
+             "texture=%p",
+             depth_bounds_min, depth_bounds_max, depth_bounds_dsv_slice,
+             depth_bounds_inverted ? 1u : 0u,
+             (void *)depth_bounds_dsv_texture.handle);
+    }
+
+    BindVRSRuntimeState(device);
+
     if (HasSwapchainRenderTarget() &&
         TakeLogBudget(&g_swapchain_fragment_completeness_logs, 128)) {
       auto summary = FragmentCompletenessSummary();
@@ -2550,6 +3273,8 @@ struct ReplayState {
       return;
     }
     auto &args = pso->GetPSArguments();
+    const bool msc_linear_abi = pso->PSUsesMSCArgumentABI();
+    const uint32_t buffer_metadata_qword = msc_linear_abi ? 2u : 1u;
     uint32_t qword_count = pso->GetPSReflection().ArgumentTableQwords;
     QTRACE("BuildArgumentBuffer: %u args, %u qwords, NumArguments=%u",
            (unsigned)args.size(), qword_count,
@@ -2635,11 +3360,18 @@ struct ReplayState {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
                   D3D12_SHADER_VISIBILITY_PIXEL)) {
-            arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
-            arg_buf_data[arg.StructurePtrOffset + 1] =
-                sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
-                                             : sampler->sampler_gpu_id;
-            arg_buf_data[arg.StructurePtrOffset + 2] = sampler->lod_bias_bits;
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(arg_buf_data, arg,
+                                            sampler->sampler_gpu_id,
+                                            sampler->lod_bias_bits);
+            } else {
+              arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
+              arg_buf_data[arg.StructurePtrOffset + 1] =
+                  sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
+                                               : sampler->sampler_gpu_id;
+              arg_buf_data[arg.StructurePtrOffset + 2] =
+                  sampler->lod_bias_bits;
+            }
             RetainSamplerPairForCompletion(sampler->sampler,
                                            sampler->sampler_cube);
             QTRACE("BuildArgBuf: StaticSampler slot=%u space=%u gpu_id=0x%llx "
@@ -2678,7 +3410,8 @@ struct ReplayState {
                 res->GetMTLBuffer().handle) {
               arg_buf_data[arg.StructurePtrOffset] =
                   res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-              arg_buf_data[arg.StructurePtrOffset + 1] =
+              arg_buf_data[arg.StructurePtrOffset +
+                           buffer_metadata_qword] =
                   SRVBufferByteLength(desc, res);
               if (render_enc_open) {
                 render_enc.useResource(
@@ -2703,8 +3436,11 @@ struct ReplayState {
                     DescriptorSummary(desc, D3D12_DESCRIPTOR_RANGE_TYPE_SRV),
                     " pso=", (void *)pso, " ", TracePsoShaderSummary(pso)));
               }
-              WriteMSCTextureArgument(arg_buf_data, arg, gpu_id,
-                                      SRVTextureArrayLength(desc, res));
+              if (msc_linear_abi)
+                WriteMSCLinearTextureArgument(arg_buf_data, arg, gpu_id);
+              else
+                WriteMSCTextureArgument(arg_buf_data, arg, gpu_id,
+                                        SRVTextureArrayLength(desc, res));
               if (render_enc_open) {
                 render_enc.useResource(
                     tex,
@@ -2719,7 +3455,8 @@ struct ReplayState {
             } else if (res->GetMTLBuffer().handle) {
               arg_buf_data[arg.StructurePtrOffset] =
                   res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-              arg_buf_data[arg.StructurePtrOffset + 1] =
+              arg_buf_data[arg.StructurePtrOffset +
+                           buffer_metadata_qword] =
                   SRVBufferByteLength(desc, res);
               if (render_enc_open) {
                 render_enc.useResource(
@@ -2738,10 +3475,18 @@ struct ReplayState {
                  arg.StructurePtrOffset);
           if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
               desc->metal_sampler_gpu_id) {
-            arg_buf_data[arg.StructurePtrOffset] = desc->metal_sampler_gpu_id;
-            arg_buf_data[arg.StructurePtrOffset + 1] =
-                SamplerCubeGPUResourceID(desc);
-            arg_buf_data[arg.StructurePtrOffset + 2] = SamplerLodBiasBits(desc);
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(
+                  arg_buf_data, arg, desc->metal_sampler_gpu_id,
+                  SamplerLodBiasBits(desc));
+            } else {
+              arg_buf_data[arg.StructurePtrOffset] =
+                  desc->metal_sampler_gpu_id;
+              arg_buf_data[arg.StructurePtrOffset + 1] =
+                  SamplerCubeGPUResourceID(desc);
+              arg_buf_data[arg.StructurePtrOffset + 2] =
+                  SamplerLodBiasBits(desc);
+            }
             RetainSamplerPairForCompletion(desc->metal_sampler,
                                            desc->metal_sampler_cube);
           }
@@ -2757,7 +3502,8 @@ struct ReplayState {
                 res->GetMTLBuffer().handle) {
               arg_buf_data[arg.StructurePtrOffset] =
                   res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
-              arg_buf_data[arg.StructurePtrOffset + 1] =
+              arg_buf_data[arg.StructurePtrOffset +
+                           buffer_metadata_qword] =
                   UAVBufferByteLength(desc, res);
               if (render_enc_open) {
                 render_enc.useResource(
@@ -2769,9 +3515,12 @@ struct ReplayState {
               }
               RetainResourceMetalObjectsForCompletion(res);
             } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-              WriteMSCTextureArgument(arg_buf_data, arg,
-                                      DescriptorTextureGPUResourceID(desc, res),
-                                      UAVTextureArrayLength(desc, res));
+              uint64_t gpu_id = DescriptorTextureGPUResourceID(desc, res);
+              if (msc_linear_abi)
+                WriteMSCLinearTextureArgument(arg_buf_data, arg, gpu_id);
+              else
+                WriteMSCTextureArgument(arg_buf_data, arg, gpu_id,
+                                        UAVTextureArrayLength(desc, res));
               if (render_enc_open) {
                 render_enc.useResource(
                     tex,
@@ -3290,6 +4039,14 @@ struct ReplayState {
     auto *dxmt_sig =
         root_sig ? static_cast<MTLD3D12RootSignature *>(root_sig) : nullptr;
 
+    const auto shader_visibility =
+        pso->UsesNativeMeshPipeline()
+            ? D3D12_SHADER_VISIBILITY_AMPLIFICATION
+            : D3D12_SHADER_VISIBILITY_VERTEX;
+    const auto render_stage = pso->UsesNativeMeshPipeline()
+                                  ? WMTRenderStageObject
+                                  : WMTRenderStageVertex;
+
     for (auto &arg : args) {
       uint32_t root_idx = ~0u;
       uint32_t descriptor_offset = 0;
@@ -3311,7 +4068,7 @@ struct ReplayState {
         if (table_arg) {
           dxmt_sig->FindDescriptorTableRangeForVisibility(
               range_type, arg.SM50BindingSlot, arg.SM50RegisterSpace,
-              D3D12_SHADER_VISIBILITY_VERTEX, &root_idx, &descriptor_offset);
+              shader_visibility, &root_idx, &descriptor_offset);
         }
       }
       if (root_idx == ~0u || !root_table_set[root_idx] ||
@@ -3319,41 +4076,41 @@ struct ReplayState {
         uint32_t root_desc_idx = ~0u;
         if (arg.Type == SM50BindingType::SRV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_SRV,
-                                        arg, D3D12_SHADER_VISIBILITY_VERTEX,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_srv_set[root_desc_idx] &&
             BindRootBufferArgument(device, vs_arg_buf_data, arg,
                                    root_srvs[root_desc_idx],
-                                   WMTResourceUsageRead, WMTRenderStageVertex,
+                                   WMTResourceUsageRead, render_stage,
                                    "BuildVertexArgBuf")) {
           continue;
         }
         if (arg.Type == SM50BindingType::UAV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_UAV,
-                                        arg, D3D12_SHADER_VISIBILITY_VERTEX,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_uav_set[root_desc_idx] &&
             BindRootBufferArgument(device, vs_arg_buf_data, arg,
                                    root_uavs[root_desc_idx],
                                    (WMTResourceUsage)(WMTResourceUsageRead |
                                                       WMTResourceUsageWrite),
-                                   WMTRenderStageVertex, "BuildVertexArgBuf")) {
+                                   render_stage, "BuildVertexArgBuf")) {
           continue;
         }
         if (arg.Type == SM50BindingType::ConstantBuffer &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_CBV,
-                                        arg, D3D12_SHADER_VISIBILITY_VERTEX,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_cbv_set[root_desc_idx] &&
             WriteConstantBufferArgument(
                 device, vs_arg_buf_data, arg, root_cbvs[root_desc_idx], 0,
-                WMTRenderStageVertex, "BuildVertexArgBuf")) {
+                render_stage, "BuildVertexArgBuf")) {
           continue;
         }
         if (arg.Type == SM50BindingType::Sampler && dxmt_sig) {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
-                  D3D12_SHADER_VISIBILITY_VERTEX)) {
+                  shader_visibility)) {
             vs_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
             vs_arg_buf_data[arg.StructurePtrOffset + 1] =
                 sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
@@ -3403,7 +4160,7 @@ struct ReplayState {
               if (render_enc_open)
                 render_enc.useResource(res->GetMTLBuffer(),
                                        WMTResourceUsageRead,
-                                       WMTRenderStageVertex);
+                                       render_stage);
               RetainResourceMetalObjectsForCompletion(res);
             } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
               WriteMSCTextureArgument(vs_arg_buf_data, arg,
@@ -3414,7 +4171,7 @@ struct ReplayState {
                     tex,
                     (WMTResourceUsage)(WMTResourceUsageSample |
                                        WMTResourceUsageRead),
-                    WMTRenderStageVertex);
+                    render_stage);
               RetainMTLObjectForCompletion(tex);
             } else if (res->GetMTLBuffer().handle) {
               vs_arg_buf_data[arg.StructurePtrOffset] =
@@ -3424,7 +4181,7 @@ struct ReplayState {
               if (render_enc_open)
                 render_enc.useResource(res->GetMTLBuffer(),
                                        WMTResourceUsageRead,
-                                       WMTRenderStageVertex);
+                                       render_stage);
               RetainResourceMetalObjectsForCompletion(res);
             }
           }
@@ -3461,7 +4218,7 @@ struct ReplayState {
               render_enc.useResource(res->GetMTLBuffer(),
                                      (WMTResourceUsage)(WMTResourceUsageRead |
                                                         WMTResourceUsageWrite),
-                                     WMTRenderStageVertex);
+                                     render_stage);
             RetainResourceMetalObjectsForCompletion(res);
           } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
             WriteMSCTextureArgument(vs_arg_buf_data, arg,
@@ -3471,7 +4228,7 @@ struct ReplayState {
               render_enc.useResource(tex,
                                      (WMTResourceUsage)(WMTResourceUsageRead |
                                                         WMTResourceUsageWrite),
-                                     WMTRenderStageVertex);
+                                     render_stage);
             RetainMTLObjectForCompletion(tex);
           }
         } else if (arg.Type == SM50BindingType::ConstantBuffer) {
@@ -3482,7 +4239,7 @@ struct ReplayState {
                  desc->cbv.SizeInBytes, arg.StructurePtrOffset);
           WriteConstantBufferArgument(
               device, vs_arg_buf_data, arg, desc->cbv.BufferLocation,
-              desc->cbv.SizeInBytes, WMTRenderStageVertex, "BuildVertexArgBuf");
+              desc->cbv.SizeInBytes, render_stage, "BuildVertexArgBuf");
         }
       }
     }
@@ -3516,9 +4273,14 @@ struct ReplayState {
               (unsigned long long)(qword_count > 8 ? vs_arg_buf_data[8] : 0),
               "]"));
         }
-        SetVertexBufferTracked(vs_arg_buf, 0, bind_index);
-        render_enc.useResource(vs_arg_buf, WMTResourceUsageRead,
-                               WMTRenderStageVertex);
+        if (pso->UsesNativeMeshPipeline()) {
+          render_enc.useResource(vs_arg_buf, WMTResourceUsageRead,
+                                 WMTRenderStageObject);
+        } else {
+          SetVertexBufferTracked(vs_arg_buf, 0, bind_index);
+          render_enc.useResource(vs_arg_buf, WMTResourceUsageRead,
+                                 WMTRenderStageVertex);
+        }
         QTRACE("BuildVertexArgumentBuffer: bound slot=%u qwords=%u handle=%llu",
                bind_index, qword_count, (unsigned long long)vs_arg_buf.handle);
       }
@@ -3687,6 +4449,8 @@ struct ReplayState {
       return;
 
     auto &args = pso->GetGSArguments();
+    const bool msc_linear_abi = pso->GSUsesMSCArgumentABI();
+    const uint32_t buffer_metadata_qword = msc_linear_abi ? 2u : 1u;
     uint32_t qword_count = pso->GetGSReflection().ArgumentTableQwords;
     if (qword_count == 0 || qword_count > kArgBufMaxQwords)
       return;
@@ -3695,6 +4459,10 @@ struct ReplayState {
     auto *root_sig = pso->GetRootSignature();
     auto *dxmt_sig =
         root_sig ? static_cast<MTLD3D12RootSignature *>(root_sig) : nullptr;
+
+    const auto shader_visibility =
+        pso->UsesNativeMeshPipeline() ? D3D12_SHADER_VISIBILITY_MESH
+                                      : D3D12_SHADER_VISIBILITY_GEOMETRY;
 
     for (auto &arg : args) {
       uint32_t root_idx = ~0u;
@@ -3715,7 +4483,7 @@ struct ReplayState {
       if (dxmt_sig && table_arg) {
         dxmt_sig->FindDescriptorTableRangeForVisibility(
             range_type, arg.SM50BindingSlot, arg.SM50RegisterSpace,
-            D3D12_SHADER_VISIBILITY_GEOMETRY, &root_idx, &descriptor_offset);
+            shader_visibility, &root_idx, &descriptor_offset);
       }
 
       if (root_idx == ~0u || !root_table_set[root_idx] ||
@@ -3723,7 +4491,7 @@ struct ReplayState {
         uint32_t root_desc_idx = ~0u;
         if (arg.Type == SM50BindingType::SRV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_SRV,
-                                        arg, D3D12_SHADER_VISIBILITY_GEOMETRY,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_srv_set[root_desc_idx] &&
             BindRootBufferArgument(device, gs_arg_buf_data, arg,
@@ -3734,7 +4502,7 @@ struct ReplayState {
         }
         if (arg.Type == SM50BindingType::UAV &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_UAV,
-                                        arg, D3D12_SHADER_VISIBILITY_GEOMETRY,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_uav_set[root_desc_idx] &&
             BindRootBufferArgument(device, gs_arg_buf_data, arg,
@@ -3746,7 +4514,7 @@ struct ReplayState {
         }
         if (arg.Type == SM50BindingType::ConstantBuffer &&
             FindRootDescriptorParameter(dxmt_sig, D3D12_ROOT_PARAMETER_TYPE_CBV,
-                                        arg, D3D12_SHADER_VISIBILITY_GEOMETRY,
+                                        arg, shader_visibility,
                                         &root_desc_idx) &&
             root_cbv_set[root_desc_idx] &&
             WriteConstantBufferArgument(
@@ -3757,13 +4525,19 @@ struct ReplayState {
         if (arg.Type == SM50BindingType::Sampler && dxmt_sig) {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
-                  D3D12_SHADER_VISIBILITY_GEOMETRY)) {
-            gs_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
-            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
-                sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
-                                             : sampler->sampler_gpu_id;
-            gs_arg_buf_data[arg.StructurePtrOffset + 2] =
-                sampler->lod_bias_bits;
+                  shader_visibility)) {
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(gs_arg_buf_data, arg,
+                                            sampler->sampler_gpu_id,
+                                            sampler->lod_bias_bits);
+            } else {
+              gs_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
+              gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+                  sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
+                                               : sampler->sampler_gpu_id;
+              gs_arg_buf_data[arg.StructurePtrOffset + 2] =
+                  sampler->lod_bias_bits;
+            }
             RetainSamplerPairForCompletion(sampler->sampler,
                                            sampler->sampler_cube);
           }
@@ -3786,16 +4560,22 @@ struct ReplayState {
               res->GetMTLBuffer().handle) {
             gs_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+            gs_arg_buf_data[arg.StructurePtrOffset + buffer_metadata_qword] =
                 SRVBufferByteLength(desc, res);
             if (render_enc_open)
               render_enc.useResource(res->GetMTLBuffer(), WMTResourceUsageRead,
                                      WMTRenderStageMesh);
             RetainResourceMetalObjectsForCompletion(res);
           } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-            WriteMSCTextureArgument(gs_arg_buf_data, arg,
-                                    DescriptorTextureGPUResourceID(desc, res),
-                                    SRVTextureArrayLength(desc, res));
+            if (msc_linear_abi)
+              WriteMSCLinearTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res));
+            else
+              WriteMSCTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res),
+                  SRVTextureArrayLength(desc, res));
             if (render_enc_open)
               render_enc.useResource(tex,
                                      (WMTResourceUsage)(WMTResourceUsageSample |
@@ -3806,11 +4586,17 @@ struct ReplayState {
         } else if (arg.Type == SM50BindingType::Sampler &&
                    desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
                    desc->metal_sampler_gpu_id) {
-          gs_arg_buf_data[arg.StructurePtrOffset] = desc->metal_sampler_gpu_id;
-          gs_arg_buf_data[arg.StructurePtrOffset + 1] =
-              SamplerCubeGPUResourceID(desc);
-          gs_arg_buf_data[arg.StructurePtrOffset + 2] =
-              SamplerLodBiasBits(desc);
+          if (msc_linear_abi) {
+            WriteMSCLinearSamplerArgument(
+                gs_arg_buf_data, arg, desc->metal_sampler_gpu_id,
+                SamplerLodBiasBits(desc));
+          } else {
+            gs_arg_buf_data[arg.StructurePtrOffset] = desc->metal_sampler_gpu_id;
+            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+                SamplerCubeGPUResourceID(desc);
+            gs_arg_buf_data[arg.StructurePtrOffset + 2] =
+                SamplerLodBiasBits(desc);
+          }
           RetainSamplerPairForCompletion(desc->metal_sampler,
                                          desc->metal_sampler_cube);
         } else if (arg.Type == SM50BindingType::UAV && desc->resource) {
@@ -3819,7 +4605,7 @@ struct ReplayState {
               res->GetMTLBuffer().handle) {
             gs_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
-            gs_arg_buf_data[arg.StructurePtrOffset + 1] =
+            gs_arg_buf_data[arg.StructurePtrOffset + buffer_metadata_qword] =
                 UAVBufferByteLength(desc, res);
             if (render_enc_open)
               render_enc.useResource(res->GetMTLBuffer(),
@@ -3828,9 +4614,15 @@ struct ReplayState {
                                      WMTRenderStageMesh);
             RetainResourceMetalObjectsForCompletion(res);
           } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-            WriteMSCTextureArgument(gs_arg_buf_data, arg,
-                                    DescriptorTextureGPUResourceID(desc, res),
-                                    UAVTextureArrayLength(desc, res));
+            if (msc_linear_abi)
+              WriteMSCLinearTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res));
+            else
+              WriteMSCTextureArgument(
+                  gs_arg_buf_data, arg,
+                  DescriptorTextureGPUResourceID(desc, res),
+                  UAVTextureArrayLength(desc, res));
             if (render_enc_open)
               render_enc.useResource(tex,
                                      (WMTResourceUsage)(WMTResourceUsageRead |
@@ -3899,6 +4691,153 @@ struct ReplayState {
            "warp=%u vertex_per_warp=%u",
            vertex_count, instance_count, start_vertex, start_instance,
            warp_count, vertex_per_warp);
+    return true;
+  }
+
+  bool EncodeConservativeRasterReferenceDraw(MTLD3D12Device *device,
+                                             uint32_t vertex_count,
+                                             uint32_t instance_count,
+                                             uint32_t start_vertex) {
+    if (!device || !pso ||
+        !pso->UsesConservativeRasterizationReferenceModel() ||
+        !render_enc_open || vertex_count < 3 || instance_count != 1 ||
+        pso->GetInputLayout().NumElements == 0)
+      return false;
+
+    auto *rt_descriptor =
+        reinterpret_cast<const D3D12Descriptor *>(rt_handles[0].ptr);
+    auto *target = rt_descriptor
+                       ? static_cast<MTLD3D12Resource *>(rt_descriptor->resource)
+                       : nullptr;
+    if (!target)
+      return false;
+    D3D12_RESOURCE_DESC target_desc = {};
+    target->GetDesc(&target_desc);
+    const uint32_t width = static_cast<uint32_t>(std::min<UINT64>(
+        std::max<UINT64>(target_desc.Width, 1), UINT32_MAX));
+    const uint32_t height = std::max<UINT>(target_desc.Height, 1);
+    if (!width || !height || uint64_t(width) * height > UINT32_MAX)
+      return false;
+
+    const D3D12IAInputElementInfo *position = nullptr;
+    for (const auto &element : pso->GetIAInputElements()) {
+      if (element.input_slot == 0 && !element.per_instance &&
+          element.semantic_index == 0 &&
+          !strcasecmp(element.semantic_name.c_str(), "POSITION") &&
+          element.dxgi_format == DXGI_FORMAT_R32G32B32_FLOAT) {
+        position = &element;
+        break;
+      }
+    }
+    if (!position || !vbs[0].BufferLocation || !vbs[0].StrideInBytes)
+      return false;
+    auto *vertex_resource =
+        device->LookupResourceByGPUAddress(vbs[0].BufferLocation);
+    if (!vertex_resource || !vertex_resource->GetCPUAddress())
+      return false;
+    const uint64_t vertex_offset =
+        vbs[0].BufferLocation - vertex_resource->GetGPUVirtualAddress();
+    const uint64_t last_byte =
+        vertex_offset + uint64_t(start_vertex + 2) * vbs[0].StrideInBytes +
+        position->aligned_byte_offset + sizeof(float) * 3;
+    if (last_byte > vertex_resource->GetBufferByteLength())
+      return false;
+
+    struct ConservativeData {
+      float p0[2];
+      float p1[2];
+      float p2[2];
+      uint32_t width;
+      uint32_t height;
+      uint32_t enabled;
+      uint32_t pad;
+    } data = {};
+    const D3D12_VIEWPORT viewport =
+        viewport_count ? viewports[0]
+                       : D3D12_VIEWPORT{0.0f, 0.0f, (float)width,
+                                         (float)height, 0.0f, 1.0f};
+    float *points[] = {data.p0, data.p1, data.p2};
+    const uint8_t *base = static_cast<const uint8_t *>(
+        vertex_resource->GetCPUAddress());
+    for (uint32_t i = 0; i < 3; ++i) {
+      const uint8_t *address =
+          base + vertex_offset + uint64_t(start_vertex + i) *
+                                  vbs[0].StrideInBytes +
+          position->aligned_byte_offset;
+      float ndc[3] = {};
+      std::memcpy(ndc, address, sizeof(ndc));
+      // The validated reference vertex shader writes float3 input directly
+      // into float4(SV_Position, 1.0); its third component is NDC depth, not
+      // a perspective-divide denominator.
+      const float x = ndc[0];
+      const float y = ndc[1];
+      points[i][0] = viewport.TopLeftX + (x * 0.5f + 0.5f) * viewport.Width;
+      points[i][1] = viewport.TopLeftY + (0.5f - y * 0.5f) * viewport.Height;
+    }
+    data.width = width;
+    data.height = height;
+    data.enabled = 1;
+
+    auto data_buffer = MakeTransientBuffer(device, sizeof(data));
+    if (!data_buffer.handle)
+      return false;
+    data_buffer.updateContents(0, &data, sizeof(data));
+    if (!SetVertexBufferTracked(data_buffer, 0, 26) ||
+        !SetFragmentBufferTracked(data_buffer, 0, 26))
+      return false;
+    render_enc.useResource(
+        data_buffer, WMTResourceUsageRead,
+        (WMTRenderStages)(WMTRenderStageVertex | WMTRenderStageFragment));
+    BindDirectFragmentCompleteness(device, "conservative_raster_reference");
+
+    struct wmtcmd_render_draw draw = {};
+    draw.type = WMTRenderCommandDraw;
+    draw.next.set(nullptr);
+    draw.primitive_type = WMTPrimitiveTypePoint;
+    draw.vertex_start = 0;
+    draw.vertex_count = width * height;
+    draw.instance_count = 1;
+    draw.base_instance = 0;
+    if (!EncodeRenderCommands(
+            reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+            "conservative_raster_reference"))
+      return false;
+    MarkSwapchainWorkEncoded();
+    return true;
+  }
+
+  bool EncodeNativeMeshDispatch(uint32_t x, uint32_t y, uint32_t z) {
+    if (!pso || !pso->UsesNativeMeshPipeline() || !render_enc_open || !x ||
+        !y || !z)
+      return false;
+
+    auto object_size = pso->GetObjectThreadgroupSize();
+    auto mesh_size = pso->GetMeshThreadgroupSize();
+    if (!object_size.width || !object_size.height || !object_size.depth)
+      object_size = {1, 1, 1};
+    if (!mesh_size.width || !mesh_size.height || !mesh_size.depth)
+      mesh_size = {1, 1, 1};
+
+    struct wmtcmd_render_draw_meshthreadgroups draw = {};
+    draw.type = WMTRenderCommandDrawMeshThreadgroups;
+    draw.next.set(nullptr);
+    draw.threadgroup_per_grid = {(uint64_t)x, (uint64_t)y, (uint64_t)z};
+    draw.object_threadgroup_size = object_size;
+    draw.mesh_threadgroup_size = mesh_size;
+    if (!EncodeRenderCommands(
+            reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+            "native_mesh_dispatch"))
+      return false;
+
+    QTRACE("EncodeNativeMeshDispatch groups=%ux%ux%u object=%llux%llux%llu "
+           "mesh=%llux%llux%llu",
+           x, y, z, (unsigned long long)object_size.width,
+           (unsigned long long)object_size.height,
+           (unsigned long long)object_size.depth,
+           (unsigned long long)mesh_size.width,
+           (unsigned long long)mesh_size.height,
+           (unsigned long long)mesh_size.depth);
+    MarkSwapchainWorkEncoded();
     return true;
   }
 
@@ -4294,6 +5233,14 @@ struct ReplayState {
       return 0;
     }
     memset(comp_arg_buf_data, 0, qword_count * 8);
+    const bool msc_linear_abi = pso->CSUsesMSCArgumentABI();
+    const uint32_t buffer_metadata_qword = msc_linear_abi ? 2u : 1u;
+    struct PendingRootConstants {
+      uint32_t argument_qword;
+      const uint8_t *data;
+      uint32_t byte_count;
+    } pending_root_constants[kRootParameterSlotCount] = {};
+    uint32_t pending_root_constant_count = 0;
 
     auto *dxmt_sig =
         compute_root_sig
@@ -4362,16 +5309,60 @@ struct ReplayState {
                                           "BuildComputeArgBuf"))
             continue;
         }
+        if (msc_linear_abi &&
+            arg.Type == SM50BindingType::ConstantBuffer && dxmt_sig &&
+            arg.StructurePtrOffset + 2 < kArgBufMaxQwords) {
+          bool staged_root_constants = false;
+          const auto &params = dxmt_sig->GetParameters();
+          for (uint32_t p = 0;
+               p < params.size() && p < kRootParameterSlotCount; p++) {
+            if (params[p].type !=
+                    D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS ||
+                params[p].register_index != arg.SM50BindingSlot ||
+                params[p].register_space != arg.SM50RegisterSpace)
+              continue;
+            bool set = comp_constant_set[p] || root_constant_set[p];
+            uint32_t size = comp_constant_set[p] ? comp_constant_sizes[p]
+                                                 : root_constant_sizes[p];
+            uint32_t offset = comp_constant_set[p] ? comp_constant_offsets[p]
+                                                   : root_constant_offsets[p];
+            const uint8_t *constants = comp_constant_set[p]
+                                           ? comp_constants_buf
+                                           : root_constants_buf;
+            if (set && size && offset + size <=
+                                   kRootParameterSlotCount *
+                                       kRootConstantBytes &&
+                pending_root_constant_count < kRootParameterSlotCount) {
+              pending_root_constants[pending_root_constant_count++] = {
+                  arg.StructurePtrOffset, constants + offset, size};
+              staged_root_constants = true;
+              QTRACE("BuildComputeArgBuf: staged root constants b%u "
+                     "space=%u param=%u size=%u argument_offset=%u",
+                     arg.SM50BindingSlot, arg.SM50RegisterSpace, p, size,
+                     arg.StructurePtrOffset);
+              break;
+            }
+          }
+          if (staged_root_constants)
+            continue;
+        }
         if (arg.Type == SM50BindingType::Sampler && dxmt_sig) {
           if (auto *sampler = dxmt_sig->FindStaticSampler(
                   arg.SM50BindingSlot, arg.SM50RegisterSpace,
                   D3D12_SHADER_VISIBILITY_ALL)) {
-            comp_arg_buf_data[arg.StructurePtrOffset] = sampler->sampler_gpu_id;
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
-                sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
-                                             : sampler->sampler_gpu_id;
-            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
-                sampler->lod_bias_bits;
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(comp_arg_buf_data, arg,
+                                            sampler->sampler_gpu_id,
+                                            sampler->lod_bias_bits);
+            } else {
+              comp_arg_buf_data[arg.StructurePtrOffset] =
+                  sampler->sampler_gpu_id;
+              comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+                  sampler->sampler_cube_gpu_id ? sampler->sampler_cube_gpu_id
+                                               : sampler->sampler_gpu_id;
+              comp_arg_buf_data[arg.StructurePtrOffset + 2] =
+                  sampler->lod_bias_bits;
+            }
             RetainSamplerPairForCompletion(sampler->sampler,
                                            sampler->sampler_cube);
             QTRACE("BuildComputeArgBuf: StaticSampler slot=%u space=%u "
@@ -4408,12 +5399,18 @@ struct ReplayState {
                  arg.StructurePtrOffset);
           if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
               desc->metal_sampler_gpu_id) {
-            comp_arg_buf_data[arg.StructurePtrOffset] =
-                desc->metal_sampler_gpu_id;
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
-                SamplerCubeGPUResourceID(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 2] =
-                SamplerLodBiasBits(desc);
+            if (msc_linear_abi) {
+              WriteMSCLinearSamplerArgument(
+                  comp_arg_buf_data, arg, desc->metal_sampler_gpu_id,
+                  SamplerLodBiasBits(desc));
+            } else {
+              comp_arg_buf_data[arg.StructurePtrOffset] =
+                  desc->metal_sampler_gpu_id;
+              comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+                  SamplerCubeGPUResourceID(desc);
+              comp_arg_buf_data[arg.StructurePtrOffset + 2] =
+                  SamplerLodBiasBits(desc);
+            }
             RetainSamplerPairForCompletion(desc->metal_sampler,
                                            desc->metal_sampler_cube);
           }
@@ -4440,40 +5437,112 @@ struct ReplayState {
                "flags=0x%x offset=%u",
                (int)arg.Type, root_idx, descriptor_offset, (void *)res,
                arg.Flags, arg.StructurePtrOffset);
-        if (MSCArgumentAcceptsBuffer(arg, res) && res->GetMTLBuffer().handle) {
+        if (arg.Type == SM50BindingType::SRV &&
+            desc->srv.ViewDimension ==
+                D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE &&
+            res->GetMTLAccelerationStructure().handle) {
+          uint64_t header_gpu_address =
+              res->GetRaytracingHeaderGPUAddress();
+          comp_arg_buf_data[arg.StructurePtrOffset] = header_gpu_address;
+          comp_arg_buf_data[arg.StructurePtrOffset + 1] = 0;
+          comp_arg_buf_data[arg.StructurePtrOffset + 2] = 0;
+          RetainMTLObjectForCompletion(res->GetMTLAccelerationStructure());
+          RetainMTLObjectForCompletion(res->GetRaytracingHeaderBuffer());
+          RetainMTLObjectForCompletion(
+              res->GetRaytracingInstanceContributionsBuffer());
+          RetainResourceMetalObjectsForCompletion(res);
+          QTRACE("BuildComputeArgBuf: acceleration structure header=0x%llx "
+                 "offset=%u",
+                 (unsigned long long)header_gpu_address,
+                 arg.StructurePtrOffset);
+        } else if (MSCArgumentAcceptsBuffer(arg, res) &&
+                   res->GetMTLBuffer().handle) {
           if (arg.Type == SM50BindingType::UAV) {
             comp_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + UAVBufferByteOffset(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+            comp_arg_buf_data[arg.StructurePtrOffset +
+                              buffer_metadata_qword] =
                 UAVBufferByteLength(desc, res);
           } else {
             comp_arg_buf_data[arg.StructurePtrOffset] =
                 res->GetGPUVirtualAddress() + SRVBufferByteOffset(desc);
-            comp_arg_buf_data[arg.StructurePtrOffset + 1] =
+            comp_arg_buf_data[arg.StructurePtrOffset +
+                              buffer_metadata_qword] =
                 SRVBufferByteLength(desc, res);
           }
+          QTRACE("BuildComputeArgBuf: buffer ptr=0x%llx len=%llu offset=%u",
+                 (unsigned long long)comp_arg_buf_data[arg.StructurePtrOffset],
+                 (unsigned long long)comp_arg_buf_data[arg.StructurePtrOffset + 2],
+                 arg.StructurePtrOffset);
           RetainResourceMetalObjectsForCompletion(res);
         } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
-          WriteMSCTextureArgument(comp_arg_buf_data, arg,
-                                  DescriptorTextureGPUResourceID(desc, res),
-                                  arg.Type == SM50BindingType::UAV
-                                      ? UAVTextureArrayLength(desc, res)
-                                      : SRVTextureArrayLength(desc, res));
+          uint64_t gpu_id = DescriptorTextureGPUResourceID(desc, res);
+          if (msc_linear_abi)
+            WriteMSCLinearTextureArgument(comp_arg_buf_data, arg, gpu_id);
+          else
+            WriteMSCTextureArgument(
+                comp_arg_buf_data, arg, gpu_id,
+                arg.Type == SM50BindingType::UAV
+                    ? UAVTextureArrayLength(desc, res)
+                    : SRVTextureArrayLength(desc, res));
           RetainMTLObjectForCompletion(tex);
         }
       }
     }
 
-    comp_arg_buf = MakeTransientBuffer(device, kArgBufMaxQwords * 8);
+    uint32_t data_byte_count = qword_count * sizeof(uint64_t);
+    uint32_t root_constant_offset =
+        (uint32_t)AlignUp64(data_byte_count, 16);
+    for (uint32_t i = 0; i < pending_root_constant_count; i++) {
+      auto &pending = pending_root_constants[i];
+      root_constant_offset = (uint32_t)AlignUp64(root_constant_offset, 16);
+      if (root_constant_offset + pending.byte_count >
+          kArgBufMaxQwords * sizeof(uint64_t)) {
+        QTRACE("BuildComputeArgBuf: root constants overflow offset=%u size=%u",
+               root_constant_offset, pending.byte_count);
+        continue;
+      }
+      memcpy(reinterpret_cast<uint8_t *>(comp_arg_buf_data) +
+                 root_constant_offset,
+             pending.data, pending.byte_count);
+      root_constant_offset += pending.byte_count;
+    }
+
+    uint64_t comp_arg_gpu_address = 0;
+    comp_arg_buf = MakeTransientBuffer(device, kArgBufMaxQwords * 8,
+                                       &comp_arg_gpu_address);
     if (comp_arg_buf.handle) {
-      comp_arg_buf.updateContents(0, comp_arg_buf_data, qword_count * 8);
-      QTRACE("BuildComputeArgBuf: wrote qwords=%u", qword_count);
-      return qword_count;
+      root_constant_offset = (uint32_t)AlignUp64(data_byte_count, 16);
+      for (uint32_t i = 0; i < pending_root_constant_count; i++) {
+        auto &pending = pending_root_constants[i];
+        root_constant_offset = (uint32_t)AlignUp64(root_constant_offset, 16);
+        if (root_constant_offset + pending.byte_count >
+            kArgBufMaxQwords * sizeof(uint64_t))
+          continue;
+        comp_arg_buf_data[pending.argument_qword] =
+            comp_arg_gpu_address + root_constant_offset;
+        comp_arg_buf_data[pending.argument_qword + 1] = pending.byte_count;
+        comp_arg_buf_data[pending.argument_qword + 2] = 0;
+        QTRACE("BuildComputeArgBuf: root constants address=0x%llx len=%u "
+               "argument_offset=%u",
+               (unsigned long long)comp_arg_buf_data[pending.argument_qword],
+               pending.byte_count, pending.argument_qword);
+        root_constant_offset += pending.byte_count;
+      }
+      uint32_t total_byte_count = std::max(data_byte_count,
+                                           root_constant_offset);
+      comp_arg_buf.updateContents(0, comp_arg_buf_data, total_byte_count);
+      uint32_t total_qwords = (total_byte_count + 7) / 8;
+      QTRACE("BuildComputeArgBuf: wrote qwords=%u root_constants=%u",
+             total_qwords, pending_root_constant_count);
+      return total_qwords;
     }
     return 0;
   }
 
   void CloseRenderEncoder() {
+    const bool resolve_after_close =
+        vrs_resolve_pending && !vrs_resolve_in_progress;
     if (render_enc_open && render_enc.handle) {
       EndMetalEncoder(render_enc, "render_ensure");
     } else if (render_enc_open) {
@@ -4484,6 +5553,8 @@ struct ReplayState {
     render_enc_dsv_format = DXGI_FORMAT_UNKNOWN;
     ResetTrackedRenderBindings();
     render_enc = WMT::RenderCommandEncoder{};
+    if (resolve_after_close && replay_device)
+      ResolveVRS();
   }
 
   DXGI_FORMAT EffectiveDSVFormatForPSO(MTLD3D12PipelineState *state) const {
@@ -4539,6 +5610,18 @@ struct ReplayState {
     }
   }
 
+  D3D12_SHADING_RATE VRSPrimitiveContribution() const {
+    if (vrs_primitive_candidate == UINT32_MAX)
+      return D3D12_SHADING_RATE_1X1;
+    D3D12_SHADING_RATE candidate =
+        static_cast<D3D12_SHADING_RATE>(vrs_primitive_candidate);
+    uint32_t horizontal = 0;
+    uint32_t vertical = 0;
+    return ShadingRateToAxes(candidate, horizontal, vertical)
+               ? candidate
+               : D3D12_SHADING_RATE_1X1;
+  }
+
   void LogTessellationFallbackDraw(const char *label, uint32_t element_count,
                                    uint32_t instance_count, bool indexed) {
     if (!pso || !pso->UsesTessellationFallback() ||
@@ -4556,7 +5639,7 @@ struct ReplayState {
     }
   }
 
-  void EnsureRenderEncoder() {
+  void EnsureRenderEncoder(MTLD3D12Device *device) {
     if (render_enc_open)
       return;
 
@@ -4564,6 +5647,7 @@ struct ReplayState {
       QTRACE("EnsureRenderEncoder: no render targets set, skipping");
       return;
     }
+    vrs_effective_rate = D3D12_SHADING_RATE_1X1;
 
     WMTRenderPassInfo rp = {};
     bool has_swapchain_rt = false;
@@ -4582,8 +5666,14 @@ struct ReplayState {
     rp.stencil.texture = NULL_OBJECT_HANDLE;
     rp.stencil.load_action = WMTLoadActionLoad;
     rp.stencil.store_action = WMTStoreActionStore;
+    depth_bounds_dsv_texture = nullptr;
+    depth_bounds_dsv_slice = 0;
 
     bool has_valid_rt = false;
+    uint32_t render_target_width = 0;
+    uint32_t render_target_height = 0;
+    uint16_t render_target_array_length = 1;
+    bool has_render_target_array = false;
     for (uint32_t i = 0; i < rt_count && i < 8; i++) {
       auto *desc = reinterpret_cast<const D3D12Descriptor *>(rt_handles[i].ptr);
       if (desc && desc->resource) {
@@ -4593,6 +5683,23 @@ struct ReplayState {
                (void *)desc, (void *)res, (unsigned long long)tex.handle);
         if (tex.handle) {
           rp.colors[i].texture = tex.handle;
+          rp.colors[i].level = RTVMipLevel(desc);
+          rp.colors[i].slice = RTVArraySlice(desc);
+          if (!render_target_width || !render_target_height) {
+            D3D12_RESOURCE_DESC resource_desc = {};
+            res->GetDesc(&resource_desc);
+            render_target_width = static_cast<uint32_t>(
+                std::min<uint64_t>(resource_desc.Width, UINT32_MAX));
+            render_target_height = std::max<UINT>(resource_desc.Height, 1);
+          }
+          const uint16_t attachment_array_length = RTVArrayLength(desc);
+          if (attachment_array_length > 1) {
+            render_target_array_length = has_render_target_array
+                                             ? std::min(render_target_array_length,
+                                                        attachment_array_length)
+                                             : attachment_array_length;
+            has_render_target_array = true;
+          }
           RetainMTLObjectForCompletion(tex);
           has_valid_rt = true;
           if (res->IsSwapchainBackBuffer()) {
@@ -4603,7 +5710,6 @@ struct ReplayState {
         }
       }
     }
-
     DXGI_FORMAT effective_dsv_format = EffectiveDSVFormatForPSO(pso);
     if (has_dsv && effective_dsv_format != DXGI_FORMAT_UNKNOWN) {
       auto *desc = reinterpret_cast<const D3D12Descriptor *>(dsv_handle.ptr);
@@ -4614,13 +5720,171 @@ struct ReplayState {
         auto dsv_tex = res->GetMTLTexture();
         if (dsv_tex.handle) {
           rp.depth.texture = dsv_tex.handle;
+          rp.depth.level = DSVMipLevel(desc);
+          rp.depth.slice = DSVArraySlice(desc);
+          const uint16_t attachment_array_length = DSVArrayLength(desc);
+          if (attachment_array_length > 1) {
+            render_target_array_length = has_render_target_array
+                                             ? std::min(render_target_array_length,
+                                                        attachment_array_length)
+                                             : attachment_array_length;
+            has_render_target_array = true;
+          }
           RetainMTLObjectForCompletion(dsv_tex);
-          if (DSVHasStencil(desc))
+          if (DSVHasStencil(desc)) {
             rp.stencil.texture = dsv_tex.handle;
+            rp.stencil.level = DSVMipLevel(desc);
+            rp.stencil.slice = DSVArraySlice(desc);
+          }
           has_valid_rt = true;
           render_enc_has_dsv = true;
           render_enc_dsv_format = effective_dsv_format;
+          uint64_t view_gpu_id = 0;
+          WMTTextureSwizzleChannels swizzle = {
+              WMTTextureSwizzleRed, WMTTextureSwizzleGreen,
+              WMTTextureSwizzleBlue, WMTTextureSwizzleAlpha};
+          const bool multisampled =
+              desc->dsv.ViewDimension == D3D12_DSV_DIMENSION_TEXTURE2DMS ||
+              desc->dsv.ViewDimension ==
+                  D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY;
+          depth_bounds_dsv_texture = dsv_tex.newTextureView(
+              dsv_tex.pixelFormat(),
+              multisampled ? WMTTextureType2DMultisampleArray
+                           : WMTTextureType2DArray,
+              DSVMipLevel(desc), 1, DSVArraySlice(desc),
+              DSVArrayLength(desc), swizzle, view_gpu_id);
+          // The texture view begins at the DSV's first array slice, so the
+          // fragment's render-target array index is already view-relative.
+          depth_bounds_dsv_slice = 0;
         }
+      }
+    }
+
+    rp.render_target_array_length = static_cast<uint8_t>(
+        std::min<uint16_t>(render_target_array_length, UINT8_MAX));
+    rp.render_target_width = render_target_width;
+    rp.render_target_height = render_target_height;
+
+    auto try_rate_map = [&](float horizontal, float vertical,
+                            const char *source) {
+      if ((horizontal < 0.999999f || vertical < 0.999999f) &&
+          ConfigureVRSResolve(device, rp, render_target_width,
+                              render_target_height, horizontal, vertical)) {
+        QTRACE("EnsureRenderEncoder: using logical VRS resolve source=%s",
+               source ? source : "unknown");
+        return true;
+      }
+      rp.rasterization_rate_map_enabled = 1;
+      rp.rasterization_rate_horizontal[0] = horizontal;
+      rp.rasterization_rate_horizontal[1] = horizontal;
+      rp.rasterization_rate_vertical[0] = vertical;
+      rp.rasterization_rate_vertical[1] = vertical;
+      QTRACE("EnsureRenderEncoder: rasterization rate map source=%s rate=%u "
+             "quality=%.2f,%.2f screen=%ux%u",
+             source ? source : "unknown", (unsigned)shading_rate, horizontal,
+             vertical, render_target_width, render_target_height);
+      return true;
+    };
+
+    bool image_map_configured = false;
+    if (shading_rate_image && render_target_width && render_target_height) {
+      auto *image_resource =
+          static_cast<MTLD3D12Resource *>(shading_rate_image);
+      D3D12_RESOURCE_DESC image_desc = {};
+      image_resource->GetDesc(&image_desc);
+      const auto &image_data = image_resource->GetShadingRateImageData();
+      bool constant_image = image_resource->HasShadingRateImageData() &&
+                            !image_data.empty();
+      if (constant_image) {
+        for (uint8_t value : image_data) {
+          if (value != image_data.front()) {
+            constant_image = false;
+            break;
+          }
+        }
+      }
+
+      D3D12_SHADING_RATE image_rate = D3D12_SHADING_RATE_1X1;
+      bool image_rate_valid = constant_image;
+      if (constant_image) {
+        image_rate = static_cast<D3D12_SHADING_RATE>(image_data.front());
+      } else if (vrs_image_tile_active && image_resource->HasShadingRateImageData()) {
+        const uint32_t image_width =
+            static_cast<uint32_t>(std::max<UINT64>(image_desc.Width, 1));
+        const uint32_t image_height = std::max<UINT>(image_desc.Height, 1);
+        const uint64_t image_index =
+            uint64_t(vrs_image_tile_y) * image_width + vrs_image_tile_x;
+        if (vrs_image_tile_x < image_width && vrs_image_tile_y < image_height &&
+            image_index < image_data.size()) {
+          image_rate = static_cast<D3D12_SHADING_RATE>(image_data[image_index]);
+          uint32_t image_horizontal = 0;
+          uint32_t image_vertical = 0;
+          image_rate_valid = ShadingRateToAxes(
+              image_rate, image_horizontal, image_vertical);
+        } else {
+          // D3D12 reads outside the image as a 1x1 contribution.  This path
+          // normally iterates only the covered texels, but preserve that rule
+          // if a larger render target reaches an absent trailing texel.
+          image_rate_valid = true;
+        }
+      }
+
+      D3D12_SHADING_RATE effective_shading_rate =
+          D3D12_SHADING_RATE_1X1;
+      // A nonconstant image is emulated by one load/store render pass per
+      // image texel.  In tile mode this encoder is scissored to the selected
+      // texel's render-target region, so the Metal map can remain uniform
+      // without collapsing unrelated D3D12 image values.
+      const bool effective_rate_valid =
+          image_rate_valid &&
+          CombineShadingRate(shading_rate, VRSPrimitiveContribution(),
+                             shading_rate_combiners[0],
+                             effective_shading_rate) &&
+          CombineShadingRate(effective_shading_rate, image_rate,
+                            shading_rate_combiners[1], effective_shading_rate);
+      float effective_horizontal = 1.0f;
+      float effective_vertical = 1.0f;
+      if (effective_rate_valid &&
+          ShadingRateToMetalQuality(effective_shading_rate,
+                                    effective_horizontal, effective_vertical)) {
+        vrs_effective_rate = effective_shading_rate;
+        image_map_configured = try_rate_map(
+            effective_horizontal, effective_vertical,
+            vrs_image_tile_active ? "image_tile" : "image");
+      }
+      if (!image_map_configured) {
+        QTRACE("EnsureRenderEncoder: shading-rate image shape=%ux%u is not "
+               "initialized, valid, or its combiner result is unsupported; "
+               "keeping the pass at native rate",
+               (unsigned)image_desc.Width, (unsigned)image_desc.Height);
+      }
+    }
+    if (!image_map_configured && !shading_rate_image && render_target_width &&
+        render_target_height) {
+      D3D12_SHADING_RATE effective_shading_rate =
+          D3D12_SHADING_RATE_1X1;
+      const bool effective_rate_valid =
+          CombineShadingRate(shading_rate, VRSPrimitiveContribution(),
+                            shading_rate_combiners[0],
+                            effective_shading_rate) &&
+          CombineShadingRate(effective_shading_rate,
+                            D3D12_SHADING_RATE_1X1,
+                            shading_rate_combiners[1],
+                            effective_shading_rate);
+      if (effective_rate_valid &&
+          effective_shading_rate != D3D12_SHADING_RATE_1X1) {
+        vrs_effective_rate = effective_shading_rate;
+        float horizontal = 1.0f;
+        float vertical = 1.0f;
+        if (ShadingRateToMetalQuality(effective_shading_rate, horizontal,
+                                      vertical))
+          (void)try_rate_map(horizontal, vertical, "draw");
+      } else if (!effective_rate_valid) {
+        QTRACE("EnsureRenderEncoder: unsupported shading-rate combiner "
+               "base=%u combiners=%u,%u; keeping native rate",
+               (unsigned)shading_rate,
+               (unsigned)shading_rate_combiners[0],
+               (unsigned)shading_rate_combiners[1]);
       }
     }
 
@@ -4666,24 +5930,79 @@ struct ReplayState {
     }
 
     if (viewport_count > 0) {
-      for (uint32_t i = 0; i < viewport_count; i++) {
-        WMTViewport vp = {
+      WMTViewport metal_viewports[16] = {};
+      const uint32_t count = std::min<uint32_t>(viewport_count, 16);
+      for (uint32_t i = 0; i < count; i++) {
+        metal_viewports[i] = {
             (double)viewports[i].TopLeftX, (double)viewports[i].TopLeftY,
             (double)viewports[i].Width,    (double)viewports[i].Height,
             viewports[i].MinDepth,         viewports[i].MaxDepth};
-        render_enc.setViewport(vp);
       }
+      // Calling setViewport repeatedly updates viewport zero.  Use Metal's
+      // array form so SV_ViewportArrayIndex can select every D3D viewport.
+      render_enc.setViewports(metal_viewports, (uint8_t)count);
     }
 
-    if (scissor_count > 0) {
-      const auto &rect = scissor_rects[0];
-      LONG left = std::max<LONG>(0, rect.left);
-      LONG top = std::max<LONG>(0, rect.top);
-      LONG right = std::max<LONG>(left, rect.right);
-      LONG bottom = std::max<LONG>(top, rect.bottom);
-      render_enc.setScissorRect({(uint64_t)left, (uint64_t)top,
-                                 (uint64_t)(right - left),
-                                 (uint64_t)(bottom - top)});
+    if (scissor_count > 0 || vrs_image_tile_active) {
+      WMTScissorRect metal_scissors[16] = {};
+      const uint32_t count = std::min<uint32_t>(
+          std::max<uint32_t>(scissor_count, vrs_image_tile_active ? 1u : 0u),
+          16);
+      for (uint32_t i = 0; i < count; i++) {
+        LONG left = 0;
+        LONG top = 0;
+        LONG right = static_cast<LONG>(std::min<uint32_t>(
+            render_target_width, static_cast<uint32_t>(LONG_MAX)));
+        LONG bottom = static_cast<LONG>(std::min<uint32_t>(
+            render_target_height, static_cast<uint32_t>(LONG_MAX)));
+        if (scissor_count > 0) {
+          const auto &rect = scissor_rects[
+              std::min<uint32_t>(i, scissor_count - 1)];
+          left = std::max<LONG>(0, rect.left);
+          top = std::max<LONG>(0, rect.top);
+          right = std::max<LONG>(left, rect.right);
+          bottom = std::max<LONG>(top, rect.bottom);
+        }
+        if (vrs_image_tile_active && shading_rate_image) {
+          const uint32_t tile_width = kD3D12ShadingRateImageTileSize;
+          const uint32_t tile_height = kD3D12ShadingRateImageTileSize;
+          const uint64_t tile_left =
+              uint64_t(vrs_image_tile_x) * tile_width;
+          const uint64_t tile_top = uint64_t(vrs_image_tile_y) * tile_height;
+          const uint64_t tile_right = std::min<uint64_t>(
+              tile_left + tile_width, render_target_width);
+          const uint64_t tile_bottom = std::min<uint64_t>(
+              tile_top + tile_height, render_target_height);
+          left = std::max<LONG>(
+              left,
+              static_cast<LONG>(std::min<uint64_t>(tile_left, LONG_MAX)));
+          top = std::max<LONG>(
+              top, static_cast<LONG>(std::min<uint64_t>(tile_top, LONG_MAX)));
+          right = std::min<LONG>(
+              right,
+              static_cast<LONG>(std::min<uint64_t>(tile_right, LONG_MAX)));
+          bottom = std::min<LONG>(
+              bottom,
+              static_cast<LONG>(std::min<uint64_t>(tile_bottom, LONG_MAX)));
+        }
+        right = std::max<LONG>(left, right);
+        bottom = std::max<LONG>(top, bottom);
+        metal_scissors[i] = {(uint64_t)left, (uint64_t)top,
+                             (uint64_t)(right - left),
+                             (uint64_t)(bottom - top)};
+      }
+      render_enc.setScissorRects(metal_scissors, (uint8_t)count);
+    }
+
+    if (pso && pso->IsDepthBoundsTestEnabled() &&
+        depth_bounds_dsv_texture.handle) {
+      const float depth_bounds[4] = {
+          depth_bounds_min, depth_bounds_max,
+          static_cast<float>(depth_bounds_dsv_slice),
+          depth_bounds_inverted ? 1.0f : 0.0f};
+      render_enc.setFragmentBytes(depth_bounds, sizeof(depth_bounds), 28);
+      render_enc.setFragmentTexture(depth_bounds_dsv_texture, 126);
+      RetainMTLObjectForCompletion(depth_bounds_dsv_texture);
     }
   }
 
@@ -4714,10 +6033,13 @@ struct ReplayState {
         rast.SlopeScaledDepthBias, rast.DepthBiasClamp);
     render_enc.setBlendFactorAndStencilRef(blend_factor, stencil_ref);
     QTRACE("ApplyFixedFunctionState: fill=%u cull=%u depth_clip=%u winding=%u "
-           "blend=(%.3f,%.3f,%.3f,%.3f) stencil=%u",
+           "blend=(%.3f,%.3f,%.3f,%.3f) stencil=%u depth_bounds=%u "
+           "range=(%.3f,%.3f) inverted=%u",
            (unsigned)fill_mode, (unsigned)cull_mode, (unsigned)depth_clip,
            (unsigned)winding, blend_factor[0], blend_factor[1], blend_factor[2],
-           blend_factor[3], stencil_ref);
+           blend_factor[3], stencil_ref,
+           pso->IsDepthBoundsTestEnabled() ? 1u : 0u, depth_bounds_min,
+           depth_bounds_max, depth_bounds_inverted ? 1u : 0u);
   }
 
   WMTCullMode EffectiveCullMode() const {
@@ -4854,6 +6176,16 @@ struct ReplayState {
             if (vis == D3D12_SHADER_VISIBILITY_ALL ||
                 vis == D3D12_SHADER_VISIBILITY_PIXEL)
               SetFragmentSamplerTracked(desc->metal_sampler, shader_register);
+            if (UsesGeometryMeshPipeline()) {
+              if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                  vis == D3D12_SHADER_VISIBILITY_MESH)
+                render_enc.setMeshSamplerState(desc->metal_sampler,
+                                               shader_register);
+              if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                  vis == D3D12_SHADER_VISIBILITY_AMPLIFICATION)
+                render_enc.setObjectSamplerState(desc->metal_sampler,
+                                                 shader_register);
+            }
             QTRACE("ApplyRootBindings: table sampler s%u", shader_register);
           }
           return;
@@ -4939,6 +6271,14 @@ struct ReplayState {
           if (vis == D3D12_SHADER_VISIBILITY_ALL ||
               vis == D3D12_SHADER_VISIBILITY_PIXEL)
             SetFragmentTextureTracked(tex, shader_register);
+          if (UsesGeometryMeshPipeline()) {
+            if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                vis == D3D12_SHADER_VISIBILITY_MESH)
+              render_enc.setMeshTexture(tex, shader_register);
+            if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                vis == D3D12_SHADER_VISIBILITY_AMPLIFICATION)
+              render_enc.setObjectTexture(tex, shader_register);
+          }
           if (HasSwapchainRenderTarget() &&
               (vis == D3D12_SHADER_VISIBILITY_ALL ||
                vis == D3D12_SHADER_VISIBILITY_PIXEL) &&
@@ -4958,8 +6298,7 @@ struct ReplayState {
                   : (WMTResourceUsage)(WMTResourceUsageRead |
                                        WMTResourceUsageSample);
           render_enc.useResource(
-              tex, usage,
-              (WMTRenderStages)(RootBindingStages() & ~WMTRenderStageMesh));
+              tex, usage, RootBindingStages());
           RetainMTLObjectForCompletion(tex);
           QTRACE("ApplyRootBindings: table texture reg=%u type=%u tex=%llu",
                  shader_register, range_type, (unsigned long long)tex.handle);
@@ -5304,6 +6643,175 @@ struct ReplayState {
                     slot_mask, std::dec);
     last_bound_vertex_buffers = raw_bound_slots;
   }
+
+  bool HasNonconstantShadingRateImage() const {
+    if (!shading_rate_image)
+      return false;
+    auto *image = static_cast<MTLD3D12Resource *>(shading_rate_image);
+    if (!image || !image->HasShadingRateImageData())
+      return false;
+    const auto &data = image->GetShadingRateImageData();
+    if (data.empty())
+      return false;
+    for (uint8_t value : data) {
+      if (value != data.front())
+        return true;
+    }
+    return false;
+  }
+
+  void PrepareRenderDraw(MTLD3D12Device *device) {
+    EnsureRenderEncoder(device);
+    ApplyRootBindings(device);
+    BuildVertexConstantBufferTable(device);
+    BuildVertexArgumentBuffer(device);
+    BuildGeometryConstantBufferTable(device);
+    BuildGeometryArgumentBuffer(device);
+    BuildConstantBufferTable(device);
+    BuildArgumentBuffer(device);
+    if (render_enc_open && arg_buf.handle) {
+      uint32_t bind_index = BindIndexOrFallback(
+          pso->GetPSReflection().ArgumentBufferBindIndex, kArgBufSlot);
+      SetFragmentBufferTracked(arg_buf, 0, bind_index);
+    }
+    BindStaticSamplers();
+    ApplyVertexBuffers(device);
+    BindGeometryMeshBuffers();
+  }
+
+  template <typename Encode>
+  bool ForEachShadingRateImageTile(MTLD3D12Device *device, Encode &&encode) {
+    if (!HasNonconstantShadingRateImage()) {
+      return encode();
+    }
+
+    auto *image = static_cast<MTLD3D12Resource *>(shading_rate_image);
+    D3D12_RESOURCE_DESC image_desc = {};
+    image->GetDesc(&image_desc);
+    const uint32_t image_width =
+        static_cast<uint32_t>(std::max<UINT64>(image_desc.Width, 1));
+    const uint32_t image_height =
+        std::max<UINT>(image_desc.Height, 1);
+    uint32_t target_width = image_width;
+    uint32_t target_height = image_height;
+    if (rt_count > 0) {
+      auto *rt_desc =
+          reinterpret_cast<const D3D12Descriptor *>(rt_handles[0].ptr);
+      auto *target = rt_desc
+                         ? static_cast<MTLD3D12Resource *>(rt_desc->resource)
+                         : nullptr;
+      if (target) {
+        D3D12_RESOURCE_DESC target_desc = {};
+        target->GetDesc(&target_desc);
+        target_width = static_cast<uint32_t>(std::min<UINT64>(
+            std::max<UINT64>(target_desc.Width, 1), UINT32_MAX));
+        target_height = std::max<UINT>(target_desc.Height, 1);
+      }
+    }
+    const uint32_t tile_width = kD3D12ShadingRateImageTileSize;
+    const uint32_t tile_height = kD3D12ShadingRateImageTileSize;
+    const uint32_t tile_count_x = std::min<uint32_t>(
+        image_width, (target_width + tile_width - 1) / tile_width);
+    const uint32_t tile_count_y = std::min<uint32_t>(
+        image_height, (target_height + tile_height - 1) / tile_height);
+    bool encoded = true;
+    for (uint32_t y = 0; y < tile_count_y && encoded; y++) {
+      for (uint32_t x = 0; x < tile_count_x; x++) {
+        vrs_image_tile_active = true;
+        vrs_image_tile_x = x;
+        vrs_image_tile_y = y;
+        CloseRenderEncoder();
+        PrepareRenderDraw(device);
+        if (!render_enc_open || !encode()) {
+          encoded = false;
+          break;
+        }
+        CloseRenderEncoder();
+      }
+    }
+    vrs_image_tile_active = false;
+    vrs_image_tile_x = 0;
+    vrs_image_tile_y = 0;
+    return encoded;
+  }
+
+  bool UsesVRSState() const {
+    return shading_rate_image || shading_rate != D3D12_SHADING_RATE_1X1 ||
+           shading_rate_combiners[0] !=
+               D3D12_SHADING_RATE_COMBINER_PASSTHROUGH ||
+           shading_rate_combiners[1] !=
+               D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+  }
+
+  template <typename Encode>
+  bool ForEachVRSPrimitiveRate(MTLD3D12Device *device, Encode &&encode) {
+    (void)device;
+    if (!pso || !pso->UsesVRSRuntimeState() || !UsesVRSState() ||
+        shading_rate_combiners[0] ==
+            D3D12_SHADING_RATE_COMBINER_PASSTHROUGH) {
+      vrs_primitive_candidate = UINT32_MAX;
+      return encode();
+    }
+
+    static constexpr D3D12_SHADING_RATE kCandidates[] = {
+        D3D12_SHADING_RATE_1X1, D3D12_SHADING_RATE_1X2,
+        D3D12_SHADING_RATE_2X1, D3D12_SHADING_RATE_2X2,
+        D3D12_SHADING_RATE_2X4, D3D12_SHADING_RATE_4X2,
+        D3D12_SHADING_RATE_4X4};
+    bool encoded = true;
+    for (D3D12_SHADING_RATE candidate : kCandidates) {
+      vrs_primitive_candidate = static_cast<uint32_t>(candidate);
+      if (!encode()) {
+        encoded = false;
+        break;
+      }
+      // A new candidate changes the fragment runtime buffer and, when a
+      // screen-space image is constant (or absent), the map as well.  End the
+      // pass before the next candidate so Metal does not observe one mutable
+      // state value for all queued draws.
+      CloseRenderEncoder();
+    }
+    vrs_primitive_candidate = UINT32_MAX;
+    return encoded;
+  }
+
+  bool EncodeVRSIndexedDraw(MTLD3D12Device *device,
+                            const CmdDrawIndexedInstanced &cmd) {
+    if (!render_enc_open || !HasUsableRenderPSO() || !ib.BufferLocation ||
+        !cmd.index_count || !cmd.instance_count)
+      return false;
+    auto *index_resource = device->LookupResourceByGPUAddress(ib.BufferLocation);
+    if (!index_resource || !index_resource->GetMTLBuffer().handle)
+      return false;
+    const uint32_t index_size = ib.Format == DXGI_FORMAT_R32_UINT ? 4u : 2u;
+    const uint64_t index_buffer_offset =
+        ib.BufferLocation - index_resource->GetGPUVirtualAddress();
+    if (render_enc_open) {
+      render_enc.useResource(index_resource->GetMTLBuffer(),
+                             WMTResourceUsageRead, WMTRenderStageVertex);
+      RetainResourceMetalObjectsForCompletion(index_resource);
+    }
+    struct wmtcmd_render_draw_indexed draw = {};
+    draw.type = WMTRenderCommandDrawIndexed;
+    draw.next.set(nullptr);
+    draw.primitive_type = GetMetalPrimitiveType();
+    draw.index_type = index_size == 4 ? WMTIndexTypeUInt32 : WMTIndexTypeUInt16;
+    draw.index_count = cmd.index_count;
+    draw.index_buffer = index_resource->GetMTLBuffer().handle;
+    draw.index_buffer_offset = index_buffer_offset +
+                               uint64_t(cmd.start_index) * index_size;
+    draw.instance_count = cmd.instance_count;
+    draw.base_vertex = cmd.base_vertex;
+    draw.base_instance = cmd.start_instance;
+    BindMSCDrawParameters(device, cmd.index_count, cmd.instance_count,
+                          cmd.start_index, cmd.base_vertex, cmd.start_instance,
+                          true, draw.index_type);
+    BindMissingNonStageInVertexBuffers(device);
+    BindDirectFragmentCompleteness(device, "vrs_draw_indexed");
+    return EncodeRenderCommands(
+        reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+        "vrs_draw_indexed");
+  }
 };
 
 WMTIndexType DXGIToWMTIndexFormat(DXGI_FORMAT fmt) {
@@ -5487,6 +6995,611 @@ static uint64_t FootprintOffset(uint64_t base_offset, uint32_t row_pitch,
   return base_offset + uint64_t(z) * uint64_t(row_pitch) * rows_per_image +
          uint64_t(y / block) * uint64_t(row_pitch) +
          uint64_t(x / block) * uint64_t(bytes_per_block);
+}
+
+struct PreparedRayShaderTable {
+  WMT::Reference<WMT::Buffer> buffer;
+  uint64_t gpu_address = 0;
+  uint64_t size_in_bytes = 0;
+  uint64_t stride_in_bytes = 0;
+  bool local_descriptor_table_seen = false;
+};
+
+static MTLD3D12DescriptorHeap *FindDescriptorHeapForGPUHandle(
+    ReplayState &st, D3D12_GPU_DESCRIPTOR_HANDLE handle,
+    uint32_t *descriptor_index) {
+  if (descriptor_index)
+    *descriptor_index = UINT32_MAX;
+  for (uint32_t i = 0; i < st.desc_heap_count; i++) {
+    auto *heap = static_cast<MTLD3D12DescriptorHeap *>(st.desc_heaps[i]);
+    if (!heap || !heap->IsShaderVisible())
+      continue;
+    const uint32_t index = heap->GetDescriptorIndexFromGPUHandle(handle);
+    if (index != UINT32_MAX) {
+      if (descriptor_index)
+        *descriptor_index = index;
+      return heap;
+    }
+  }
+  return nullptr;
+}
+
+static bool DescriptorRangeMatchesHeap(const RootDescriptorRange &range,
+                                       MTLD3D12DescriptorHeap *heap) {
+  if (!heap)
+    return false;
+  D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+  heap->GetDesc(&desc);
+  const D3D12_DESCRIPTOR_HEAP_TYPE expected_type =
+      range.range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
+          ? D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER
+          : D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  return desc.Type == expected_type;
+}
+
+static bool PatchLocalRootDescriptorTables(
+    ReplayState &st, MTLD3D12Device *device, uint8_t *record,
+    uint64_t record_size, const void *shader_identifier,
+    std::vector<obj_handle_t> &descriptor_mirror_resources) {
+  if (!record || record_size < 32 || !shader_identifier)
+    return false;
+
+  ID3D12RootSignature *local_root_signature = nullptr;
+  const bool known_identifier =
+      GetD3D12StateObjectShaderRecordLocalRootSignature(
+          st.raytracing_state, shader_identifier, &local_root_signature);
+  bool all_zero_identifier = true;
+  for (uint32_t i = 0; i < 32; i++)
+    all_zero_identifier &= static_cast<const uint8_t *>(shader_identifier)[i] == 0;
+  if (!known_identifier)
+    return all_zero_identifier;
+  if (!local_root_signature)
+    return true;
+
+  auto *root_signature =
+      static_cast<MTLD3D12RootSignature *>(local_root_signature);
+  const auto &static_samplers = root_signature->GetStaticSamplers();
+  if (!static_samplers.empty()) {
+    std::vector<D3D12DescriptorTableEntry> sampler_entries(
+        static_samplers.size());
+    for (size_t i = 0; i < static_samplers.size(); i++) {
+      const auto &sampler = static_samplers[i];
+      if (!sampler.sampler.handle || !sampler.sampler_gpu_id)
+        return false;
+      sampler_entries[i].gpu_va = sampler.sampler_gpu_id;
+      sampler_entries[i].metadata = sampler.lod_bias_bits;
+      st.RetainSamplerPairForCompletion(sampler.sampler,
+                                        sampler.sampler_cube);
+    }
+    uint64_t sampler_table_gpu = 0;
+    auto sampler_table = st.MakeTransientBuffer(
+        device,
+        std::max<uint64_t>(256, sampler_entries.size() *
+                                    sizeof(D3D12DescriptorTableEntry)),
+        &sampler_table_gpu);
+    if (!sampler_table.handle || !sampler_table_gpu)
+      return false;
+    sampler_table.updateContents(
+        0, sampler_entries.data(),
+        sampler_entries.size() * sizeof(D3D12DescriptorTableEntry));
+    memcpy(record + 16, &sampler_table_gpu, sizeof(sampler_table_gpu));
+    if (std::find(descriptor_mirror_resources.begin(),
+                  descriptor_mirror_resources.end(), sampler_table.handle) ==
+        descriptor_mirror_resources.end())
+      descriptor_mirror_resources.push_back(sampler_table.handle);
+  }
+  uint64_t local_offset = 0;
+  for (const auto &parameter : root_signature->GetParameters()) {
+    if (parameter.type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS) {
+      const uint64_t byte_count = uint64_t(parameter.num_32bit_values) * 4;
+      if (local_offset > record_size - 32 ||
+          byte_count > record_size - 32 - local_offset)
+        return false;
+      local_offset += byte_count;
+      continue;
+    }
+
+    local_offset = (local_offset + 7) & ~uint64_t(7);
+    if (local_offset > record_size - 32 ||
+        sizeof(uint64_t) > record_size - 32 - local_offset)
+      return false;
+    uint64_t *argument = reinterpret_cast<uint64_t *>(record + 32 + local_offset);
+    if (parameter.type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE) {
+      const uint64_t original_handle = *argument;
+      if (original_handle) {
+        uint32_t descriptor_index = UINT32_MAX;
+        auto *heap = FindDescriptorHeapForGPUHandle(
+            st, D3D12_GPU_DESCRIPTOR_HANDLE{original_handle},
+            &descriptor_index);
+        if (!heap || !heap->GetShaderVisibleGPUAddress(descriptor_index))
+          return false;
+        for (const auto &range : parameter.ranges) {
+          if (!DescriptorRangeMatchesHeap(range, heap))
+            return false;
+          const uint32_t count = range.num_descriptors == UINT32_MAX
+                                     ? 1u
+                                     : range.num_descriptors;
+          for (uint32_t i = 0; i < count; i++) {
+            if (range.offset_in_table > UINT32_MAX - i)
+              return false;
+            auto *descriptor = heap->GetDescriptorFromGPUHandle(
+                D3D12_GPU_DESCRIPTOR_HANDLE{original_handle},
+                range.offset_in_table + i);
+            if (!descriptor || descriptor->range_type != range.range_type)
+              return false;
+            if (range.range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
+              if (!descriptor->metal_sampler.handle)
+                return false;
+              st.RetainSamplerPairForCompletion(
+                  descriptor->metal_sampler, descriptor->metal_sampler_cube);
+              continue;
+            }
+            auto *resource = descriptor->resource
+                                 ? static_cast<MTLD3D12Resource *>(
+                                       descriptor->resource)
+                                 : nullptr;
+            if (range.range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
+                !resource && descriptor->cbv.BufferLocation)
+              resource = device->LookupResourceByGPUAddress(
+                  descriptor->cbv.BufferLocation);
+            if (!resource)
+              return false;
+            st.RetainResourceMetalObjectsForCompletion(resource);
+            auto buffer = resource->GetMTLBuffer();
+            auto texture = resource->GetMTLTexture();
+            if (buffer.handle &&
+                std::find(descriptor_mirror_resources.begin(),
+                          descriptor_mirror_resources.end(),
+                          buffer.handle) == descriptor_mirror_resources.end())
+              descriptor_mirror_resources.push_back(buffer.handle);
+            if (texture.handle &&
+                std::find(descriptor_mirror_resources.begin(),
+                          descriptor_mirror_resources.end(),
+                          texture.handle) == descriptor_mirror_resources.end())
+              descriptor_mirror_resources.push_back(texture.handle);
+          }
+        }
+        *argument = heap->GetShaderVisibleGPUAddress(descriptor_index);
+        const auto mirror = heap->GetShaderVisibleBuffer();
+        if (!mirror.handle)
+          return false;
+        if (std::find(descriptor_mirror_resources.begin(),
+                      descriptor_mirror_resources.end(),
+                      mirror.handle) == descriptor_mirror_resources.end())
+          descriptor_mirror_resources.push_back(mirror.handle);
+        st.RetainMTLObjectForCompletion(mirror);
+      }
+    } else if (parameter.type == D3D12_ROOT_PARAMETER_TYPE_CBV ||
+               parameter.type == D3D12_ROOT_PARAMETER_TYPE_SRV ||
+               parameter.type == D3D12_ROOT_PARAMETER_TYPE_UAV) {
+      const uint64_t resource_address = *argument;
+      auto *resource = device->LookupResourceByGPUAddress(resource_address);
+      if (resource) {
+        st.RetainResourceMetalObjectsForCompletion(resource);
+        auto buffer = resource->GetMTLBuffer();
+        if (buffer.handle &&
+            std::find(descriptor_mirror_resources.begin(),
+                      descriptor_mirror_resources.end(), buffer.handle) ==
+                descriptor_mirror_resources.end())
+          descriptor_mirror_resources.push_back(buffer.handle);
+        auto texture = resource->GetMTLTexture();
+        if (texture.handle &&
+            std::find(descriptor_mirror_resources.begin(),
+                      descriptor_mirror_resources.end(), texture.handle) ==
+                descriptor_mirror_resources.end())
+          descriptor_mirror_resources.push_back(texture.handle);
+      }
+    }
+    local_offset += sizeof(uint64_t);
+  }
+  return true;
+}
+
+// DXR shader records carry D3D12 GPU descriptor handles for local tables.
+// DXMT's Win32 handles intentionally remain process-local CPU handles, so the
+// dispatch path copies records into a transient buffer and rewrites those
+// handles to the corresponding Metal Shader Converter descriptor-mirror GPU
+// addresses immediately before encoding the ray dispatch.
+static bool PrepareRayShaderTable(
+    ReplayState &st, MTLD3D12Device *device, uint64_t start_address,
+    uint64_t size_in_bytes, uint64_t stride_in_bytes, bool raygen_table,
+    const char *label, PreparedRayShaderTable &prepared,
+    std::vector<obj_handle_t> &descriptor_mirror_resources) {
+  prepared = {};
+  prepared.size_in_bytes = size_in_bytes;
+  prepared.stride_in_bytes = stride_in_bytes;
+  if (!start_address || !size_in_bytes)
+    return true;
+  const uint64_t effective_stride = raygen_table ? size_in_bytes : stride_in_bytes;
+  if (effective_stride < 32 || effective_stride > size_in_bytes)
+    return false;
+  auto *resource = device->LookupResourceByGPUAddress(start_address);
+  if (!resource || !resource->GetMTLBuffer().handle)
+    return false;
+  const uint64_t resource_offset =
+      start_address - resource->GetGPUVirtualAddress();
+  const uint64_t resource_size = resource->GetBufferByteLength();
+  if (resource_offset > resource_size ||
+      size_in_bytes > resource_size - resource_offset)
+    return false;
+
+  void *mapped = nullptr;
+  if (FAILED(resource->Map(0, nullptr, &mapped)) || !mapped)
+    return false;
+  std::vector<uint8_t> data(size_in_bytes);
+  std::memcpy(data.data(), static_cast<const uint8_t *>(mapped) + resource_offset,
+              size_in_bytes);
+  resource->Unmap(0, nullptr);
+
+  bool local_table_seen = false;
+  for (uint64_t offset = 0; offset + 32 <= size_in_bytes;
+       offset += effective_stride) {
+    const uint64_t record_size =
+        std::min<uint64_t>(effective_stride, size_in_bytes - offset);
+    bool record_has_local_table = false;
+    // A record with an all-zero identifier is unused; preserve it without
+    // trying to infer a local root signature.
+    bool all_zero_identifier = true;
+    for (uint32_t i = 0; i < 32; i++)
+      all_zero_identifier &= data[offset + i] == 0;
+    uint8_t original_identifier[32] = {};
+    if (!all_zero_identifier) {
+      std::memcpy(original_identifier, data.data() + offset,
+                  sizeof(original_identifier));
+      if (!PatchLocalRootDescriptorTables(
+              st, device, data.data() + offset, record_size,
+              original_identifier, descriptor_mirror_resources))
+        return false;
+      auto *local_root = static_cast<ID3D12RootSignature *>(nullptr);
+      if (GetD3D12StateObjectShaderRecordLocalRootSignature(
+              st.raytracing_state, original_identifier, &local_root) &&
+          local_root) {
+        auto *root = static_cast<MTLD3D12RootSignature *>(local_root);
+        for (const auto &parameter : root->GetParameters())
+          record_has_local_table |=
+              parameter.type == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        record_has_local_table |= !root->GetStaticSamplers().empty();
+      }
+    }
+    local_table_seen |= record_has_local_table;
+  }
+  if (!local_table_seen)
+    return true;
+
+  prepared.buffer = st.MakeTransientBuffer(device, size_in_bytes,
+                                           &prepared.gpu_address);
+  if (!prepared.buffer.handle || !prepared.gpu_address)
+    return false;
+  prepared.buffer.updateContents(0, data.data(), data.size());
+  prepared.local_descriptor_table_seen = true;
+  QTRACE("%s: copied shader table start=0x%llx size=%llu stride=%llu gpu=0x%llx",
+         label ? label : "ray_table", (unsigned long long)start_address,
+         (unsigned long long)size_in_bytes,
+         (unsigned long long)effective_stride,
+         (unsigned long long)prepared.gpu_address);
+  return true;
+}
+
+static bool ReplayRaytracingDispatch(
+    ReplayState &st, MTLD3D12Device *device, WMT::CommandBuffer cmdbuf,
+    const D3D12_DISPATCH_RAYS_DESC &desc) {
+  if (!st.raytracing_compute_pso.handle ||
+      !st.raytracing_visible_function_table.handle || st.desc_heap_count == 0)
+    return false;
+
+  auto *root_signature = st.compute_root_sig;
+  if (!root_signature)
+    root_signature = static_cast<MTLD3D12RootSignature *>(
+        GetD3D12StateObjectGlobalRootSignature(st.raytracing_state));
+  if (!root_signature)
+    return false;
+
+  uint32_t root_index = ~0u;
+  uint32_t uav_descriptor_offset = 0;
+  if (!root_signature->FindDescriptorTableRange(
+          D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 0, &root_index,
+          &uav_descriptor_offset) ||
+      root_index >= ReplayState::kRootParameterSlotCount ||
+      !(st.comp_table_set[root_index] || st.root_table_set[root_index]))
+    return false;
+  D3D12_GPU_DESCRIPTOR_HANDLE table_handle = st.comp_table_set[root_index]
+                                                   ? st.comp_tables[root_index]
+                                                   : st.root_tables[root_index];
+  uint32_t acceleration_root_index = ~0u;
+  uint32_t acceleration_descriptor_offset = 0;
+  D3D12_GPU_DESCRIPTOR_HANDLE acceleration_table_handle = {};
+  if (root_signature->FindDescriptorTableRange(
+          D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 0, 0,
+          &acceleration_root_index, &acceleration_descriptor_offset) &&
+      acceleration_root_index < ReplayState::kRootParameterSlotCount &&
+      (st.comp_table_set[acceleration_root_index] ||
+       st.root_table_set[acceleration_root_index])) {
+    acceleration_table_handle =
+        st.comp_table_set[acceleration_root_index]
+            ? st.comp_tables[acceleration_root_index]
+            : st.root_tables[acceleration_root_index];
+  }
+  D3D12Descriptor *output_descriptor = nullptr;
+  D3D12Descriptor *acceleration_descriptor = nullptr;
+  for (uint32_t h = 0; h < st.desc_heap_count; h++) {
+    auto *heap = static_cast<MTLD3D12DescriptorHeap *>(st.desc_heaps[h]);
+    if (!heap)
+      continue;
+    output_descriptor = heap->GetDescriptorFromGPUHandle(
+        table_handle, uav_descriptor_offset);
+    if (acceleration_table_handle.ptr) {
+      acceleration_descriptor = heap->GetDescriptorFromGPUHandle(
+          acceleration_table_handle, acceleration_descriptor_offset);
+    }
+    if (output_descriptor)
+      break;
+  }
+  if (!output_descriptor || !output_descriptor->resource)
+    return false;
+  auto *output =
+      static_cast<MTLD3D12Resource *>(output_descriptor->resource);
+  auto *shader_table = device->LookupResourceByGPUAddress(
+      desc.RayGenerationShaderRecord.StartAddress);
+  if (!output->GetMTLBuffer().handle || !shader_table ||
+      !shader_table->GetMTLBuffer().handle)
+    return false;
+
+  PreparedRayShaderTable prepared_raygen;
+  PreparedRayShaderTable prepared_miss;
+  PreparedRayShaderTable prepared_hit_group;
+  PreparedRayShaderTable prepared_callable;
+  std::vector<obj_handle_t> descriptor_mirror_resources;
+  if (!PrepareRayShaderTable(
+          st, device, desc.RayGenerationShaderRecord.StartAddress,
+          desc.RayGenerationShaderRecord.SizeInBytes,
+          desc.RayGenerationShaderRecord.SizeInBytes, true, "raygen_table",
+          prepared_raygen, descriptor_mirror_resources) ||
+      !PrepareRayShaderTable(st, device, desc.MissShaderTable.StartAddress,
+                             desc.MissShaderTable.SizeInBytes,
+                             desc.MissShaderTable.StrideInBytes, false,
+                             "miss_table", prepared_miss,
+                             descriptor_mirror_resources) ||
+      !PrepareRayShaderTable(st, device, desc.HitGroupTable.StartAddress,
+                             desc.HitGroupTable.SizeInBytes,
+                             desc.HitGroupTable.StrideInBytes, false,
+                             "hit_group_table", prepared_hit_group,
+                             descriptor_mirror_resources) ||
+      !PrepareRayShaderTable(st, device, desc.CallableShaderTable.StartAddress,
+                             desc.CallableShaderTable.SizeInBytes,
+                             desc.CallableShaderTable.StrideInBytes, false,
+                             "callable_table", prepared_callable,
+                             descriptor_mirror_resources))
+    return false;
+
+  const uint64_t raygen_table_address = prepared_raygen.buffer.handle
+                                            ? prepared_raygen.gpu_address
+                                            : desc.RayGenerationShaderRecord.StartAddress;
+  const uint64_t miss_table_address = prepared_miss.buffer.handle
+                                          ? prepared_miss.gpu_address
+                                          : desc.MissShaderTable.StartAddress;
+  const uint64_t hit_group_table_address =
+      prepared_hit_group.buffer.handle ? prepared_hit_group.gpu_address
+                                       : desc.HitGroupTable.StartAddress;
+  const uint64_t callable_table_address =
+      prepared_callable.buffer.handle ? prepared_callable.gpu_address
+                                      : desc.CallableShaderTable.StartAddress;
+
+  uint64_t descriptor_table_data[6] = {};
+  if (acceleration_descriptor && acceleration_descriptor->resource) {
+    auto *acceleration = static_cast<MTLD3D12Resource *>(
+        acceleration_descriptor->resource);
+    descriptor_table_data[0] = acceleration->GetRaytracingHeaderGPUAddress();
+    st.RetainMTLObjectForCompletion(
+        acceleration->GetMTLAccelerationStructure());
+    st.RetainMTLObjectForCompletion(
+        acceleration->GetRaytracingHeaderBuffer());
+    st.RetainMTLObjectForCompletion(
+        acceleration->GetRaytracingInstanceContributionsBuffer());
+  }
+  descriptor_table_data[3] = output->GetGPUVirtualAddress() +
+                             UAVBufferByteOffset(output_descriptor);
+  descriptor_table_data[5] = UAVBufferByteLength(output_descriptor, output);
+
+  uint64_t descriptor_table_gpu = 0;
+  auto descriptor_table_buffer = st.MakeTransientBuffer(
+      device, sizeof(descriptor_table_data), &descriptor_table_gpu);
+  if (!descriptor_table_buffer.handle || !descriptor_table_gpu)
+    return false;
+  descriptor_table_buffer.updateContents(0, descriptor_table_data,
+                                         sizeof(descriptor_table_data));
+
+  uint64_t global_root_data = descriptor_table_gpu;
+  uint64_t global_root_gpu = 0;
+  auto global_root_buffer =
+      st.MakeTransientBuffer(device, sizeof(global_root_data),
+                             &global_root_gpu);
+  if (!global_root_buffer.handle || !global_root_gpu)
+    return false;
+  global_root_buffer.updateContents(0, &global_root_data,
+                                    sizeof(global_root_data));
+
+  struct RayVirtualAddressRange {
+    uint64_t start_address;
+    uint64_t size_in_bytes;
+  };
+  struct RayVirtualAddressRangeAndStride {
+    uint64_t start_address;
+    uint64_t size_in_bytes;
+    uint64_t stride_in_bytes;
+  };
+  struct RayDispatchDescriptor {
+    RayVirtualAddressRange ray_generation_shader_record;
+    RayVirtualAddressRangeAndStride miss_shader_table;
+    RayVirtualAddressRangeAndStride hit_group_table;
+    RayVirtualAddressRangeAndStride callable_shader_table;
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t padding;
+  };
+  struct RayDispatchArgument {
+    RayDispatchDescriptor dispatch;
+    uint64_t global_root_signature;
+    uint64_t resource_descriptor_heap;
+    uint64_t sampler_descriptor_heap;
+    uint64_t visible_function_table;
+    uint64_t intersection_function_table;
+    uint64_t intersection_function_tables;
+  } dispatch_argument = {};
+  dispatch_argument.dispatch.ray_generation_shader_record = {
+      raygen_table_address,
+      desc.RayGenerationShaderRecord.SizeInBytes};
+  dispatch_argument.dispatch.miss_shader_table = {
+      miss_table_address, desc.MissShaderTable.SizeInBytes,
+      desc.MissShaderTable.StrideInBytes};
+  dispatch_argument.dispatch.hit_group_table = {
+      hit_group_table_address, desc.HitGroupTable.SizeInBytes,
+      desc.HitGroupTable.StrideInBytes};
+  dispatch_argument.dispatch.callable_shader_table = {
+      callable_table_address,
+      desc.CallableShaderTable.SizeInBytes,
+      desc.CallableShaderTable.StrideInBytes};
+  dispatch_argument.dispatch.width = desc.Width;
+  dispatch_argument.dispatch.height = desc.Height;
+  dispatch_argument.dispatch.depth = desc.Depth;
+  dispatch_argument.global_root_signature = global_root_gpu;
+  dispatch_argument.visible_function_table =
+      st.raytracing_visible_function_table.gpuResourceID();
+  if (st.raytracing_intersection_function_table.handle)
+    dispatch_argument.intersection_function_table =
+        st.raytracing_intersection_function_table.gpuResourceID();
+
+  uint64_t dispatch_argument_gpu = 0;
+  auto dispatch_argument_buffer = st.MakeTransientBuffer(
+      device, sizeof(dispatch_argument), &dispatch_argument_gpu);
+  if (!dispatch_argument_buffer.handle || !dispatch_argument_gpu)
+    return false;
+  dispatch_argument_buffer.updateContents(0, &dispatch_argument,
+                                          sizeof(dispatch_argument));
+
+  struct wmtcmd_compute_setpso set_pipeline = {};
+  struct wmtcmd_compute_setbuffer set_dispatch_argument = {};
+  struct wmtcmd_compute_useresource use_table = {};
+  struct wmtcmd_compute_useresource use_intersection_table = {};
+  struct wmtcmd_compute_useresource use_shader_table = {};
+  struct wmtcmd_compute_useresource use_output = {};
+  struct wmtcmd_compute_useresource use_descriptor_table = {};
+  struct wmtcmd_compute_useresource use_global_root = {};
+  struct wmtcmd_compute_useresource use_dispatch_argument = {};
+  struct wmtcmd_compute_dispatch dispatch = {};
+  set_pipeline.type = WMTComputeCommandSetPSO;
+  set_pipeline.pso = st.raytracing_compute_pso.handle;
+  set_pipeline.threadgroup_size = {1, 1, 1};
+  set_pipeline.next.set(&set_dispatch_argument);
+  set_dispatch_argument.type = WMTComputeCommandSetBuffer;
+  set_dispatch_argument.buffer = dispatch_argument_buffer.handle;
+  set_dispatch_argument.offset = 0;
+  set_dispatch_argument.index = 3;
+  set_dispatch_argument.next.set(&use_table);
+  use_table.type = WMTComputeCommandUseResource;
+  use_table.resource = st.raytracing_visible_function_table.handle;
+  use_table.usage = WMTResourceUsageRead;
+  use_table.next.set(st.raytracing_intersection_function_table.handle
+                         ? &use_intersection_table
+                         : &use_shader_table);
+  use_intersection_table.type = WMTComputeCommandUseResource;
+  use_intersection_table.resource =
+      st.raytracing_intersection_function_table.handle;
+  use_intersection_table.usage = WMTResourceUsageRead;
+  use_intersection_table.next.set(&use_shader_table);
+  use_shader_table.type = WMTComputeCommandUseResource;
+  use_shader_table.resource = prepared_raygen.buffer.handle
+                                  ? prepared_raygen.buffer.handle
+                                  : shader_table->GetMTLBuffer().handle;
+  use_shader_table.usage = WMTResourceUsageRead;
+  std::vector<obj_handle_t> supplemental_ray_resources;
+  auto append_ray_resource = [&supplemental_ray_resources, &st](obj_handle_t handle) {
+    if (!handle ||
+        std::find(supplemental_ray_resources.begin(),
+                  supplemental_ray_resources.end(), handle) !=
+            supplemental_ray_resources.end())
+      return;
+    supplemental_ray_resources.push_back(handle);
+    st.RetainMTLObjectForCompletion(handle);
+  };
+  auto table_resource_handle = [device, &st](uint64_t address) -> obj_handle_t {
+    if (!address)
+      return 0;
+    auto *resource = device->LookupResourceByGPUAddress(address);
+    if (!resource)
+      return 0;
+    st.RetainResourceMetalObjectsForCompletion(resource);
+    return resource->GetMTLBuffer().handle;
+  };
+  append_ray_resource(
+      prepared_miss.buffer.handle
+          ? prepared_miss.buffer.handle
+          : table_resource_handle(desc.MissShaderTable.StartAddress));
+  append_ray_resource(
+      prepared_hit_group.buffer.handle
+          ? prepared_hit_group.buffer.handle
+          : table_resource_handle(desc.HitGroupTable.StartAddress));
+  append_ray_resource(
+      prepared_callable.buffer.handle
+          ? prepared_callable.buffer.handle
+          : table_resource_handle(desc.CallableShaderTable.StartAddress));
+  for (obj_handle_t handle : descriptor_mirror_resources)
+    append_ray_resource(handle);
+  std::vector<wmtcmd_compute_useresource> supplemental_ray_uses(
+      supplemental_ray_resources.size());
+  wmtcmd_compute_useresource *ray_resource_tail = &use_shader_table;
+  for (size_t i = 0; i < supplemental_ray_resources.size(); i++) {
+    supplemental_ray_uses[i] = {};
+    supplemental_ray_uses[i].type = WMTComputeCommandUseResource;
+    supplemental_ray_uses[i].resource = supplemental_ray_resources[i];
+    supplemental_ray_uses[i].usage = WMTResourceUsageRead;
+    ray_resource_tail->next.set(&supplemental_ray_uses[i]);
+    ray_resource_tail = &supplemental_ray_uses[i];
+  }
+  ray_resource_tail->next.set(&use_output);
+  use_output.type = WMTComputeCommandUseResource;
+  use_output.resource = output->GetMTLBuffer().handle;
+  use_output.usage =
+      (WMTResourceUsage)(WMTResourceUsageRead | WMTResourceUsageWrite);
+  use_output.next.set(&use_descriptor_table);
+  use_descriptor_table.type = WMTComputeCommandUseResource;
+  use_descriptor_table.resource = descriptor_table_buffer.handle;
+  use_descriptor_table.usage = WMTResourceUsageRead;
+  use_descriptor_table.next.set(&use_global_root);
+  use_global_root.type = WMTComputeCommandUseResource;
+  use_global_root.resource = global_root_buffer.handle;
+  use_global_root.usage = WMTResourceUsageRead;
+  use_global_root.next.set(&use_dispatch_argument);
+  use_dispatch_argument.type = WMTComputeCommandUseResource;
+  use_dispatch_argument.resource = dispatch_argument_buffer.handle;
+  use_dispatch_argument.usage = WMTResourceUsageRead;
+  use_dispatch_argument.next.set(&dispatch);
+  dispatch.type = WMTComputeCommandDispatch;
+  dispatch.size = {desc.Width, desc.Height, desc.Depth};
+  dispatch.next.set(nullptr);
+
+  st.CloseRenderEncoder();
+  auto encoder = cmdbuf.computeCommandEncoder(false);
+  ENC_CREATE("dispatch_rays", encoder.handle);
+  ScopedMetalEncoderEnd encoder_guard{encoder, "dispatch_rays"};
+  if (!encoder.handle || !encoder.encodeCommands(
+                             reinterpret_cast<const wmtcmd_compute_nop *>(
+                                 &set_pipeline)))
+    return false;
+  st.RetainMTLObjectForCompletion(st.raytracing_compute_pso);
+  st.RetainMTLObjectForCompletion(st.raytracing_visible_function_table);
+  if (st.raytracing_intersection_function_table.handle)
+    st.RetainMTLObjectForCompletion(
+        st.raytracing_intersection_function_table);
+  st.RetainResourceMetalObjectsForCompletion(output);
+  st.RetainResourceMetalObjectsForCompletion(shader_table);
+  QTRACE("DispatchRays encoded dimensions=%ux%ux%u dispatch_arg=0x%llx "
+         "grs=0x%llx table_id=0x%llx",
+         desc.Width, desc.Height, desc.Depth,
+         (unsigned long long)dispatch_argument_gpu,
+         (unsigned long long)global_root_gpu,
+         (unsigned long long)dispatch_argument.visible_function_table);
+  return true;
 }
 
 static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
@@ -5711,6 +7824,38 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     }
   }
 
+  const auto &compute_reflection = st.pso->GetCSReflection();
+  const bool has_compute_resource_masks =
+      compute_reflection.ConstantBufferSlotMask ||
+      compute_reflection.SamplerSlotMask || compute_reflection.UAVSlotMask ||
+      compute_reflection.SRVSlotMaskLo || compute_reflection.SRVSlotMaskHi;
+  auto compute_uses_descriptor = [&](D3D12_DESCRIPTOR_RANGE_TYPE range_type,
+                                     uint32_t shader_register) {
+    if (!has_compute_resource_masks)
+      return true;
+    switch (range_type) {
+    case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
+      return shader_register < 16 &&
+             (compute_reflection.ConstantBufferSlotMask &
+              (1u << shader_register));
+    case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
+      return shader_register < 16 &&
+             (compute_reflection.SamplerSlotMask & (1u << shader_register));
+    case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
+      return shader_register < 64 &&
+             (compute_reflection.UAVSlotMask & (1ull << shader_register));
+    case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
+      if (shader_register < 64)
+        return (compute_reflection.SRVSlotMaskLo &
+                (1ull << shader_register)) != 0;
+      return shader_register < 128 &&
+             (compute_reflection.SRVSlotMaskHi &
+              (1ull << (shader_register - 64)));
+    default:
+      return false;
+    }
+  };
+
   for (uint32_t i = 0; i < ReplayState::kRootParameterSlotCount; i++) {
     bool const_set = st.comp_constant_set[i] || st.root_constant_set[i];
     uint32_t const_size = st.comp_constant_set[i] ? st.comp_constant_sizes[i]
@@ -5759,7 +7904,13 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
       auto *res = device->LookupResourceByGPUAddress(address);
       if (res && res->GetMTLBuffer().handle) {
         uint32_t slot = compute_root_register(type);
-        if (slot >= 31)
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type =
+            type == D3D12_ROOT_PARAMETER_TYPE_CBV
+                ? D3D12_DESCRIPTOR_RANGE_TYPE_CBV
+                : (type == D3D12_ROOT_PARAMETER_TYPE_UAV
+                       ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+                       : D3D12_DESCRIPTOR_RANGE_TYPE_SRV);
+        if (slot >= 31 || !compute_uses_descriptor(range_type, slot))
           return;
         append_compute_setbuffer(res->GetMTLBuffer().handle,
                                  address - res->GetGPUVirtualAddress(), slot);
@@ -5786,7 +7937,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     auto bind_compute_descriptor = [&](D3D12Descriptor *desc,
                                        D3D12_DESCRIPTOR_RANGE_TYPE range_type,
                                        uint32_t shader_register) {
-      if (!desc)
+      if (!desc || !compute_uses_descriptor(range_type, shader_register))
         return;
       if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
         if (shader_register < 4 && desc->metal_sampler.handle) {
@@ -5803,7 +7954,13 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         return;
       auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
       bool writable = range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-      if (res->GetMTLBuffer().handle) {
+      if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV &&
+          desc->srv.ViewDimension ==
+              D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE &&
+          res->GetMTLAccelerationStructure().handle) {
+        append_compute_useresource(res->GetMTLAccelerationStructure().handle,
+                                   WMTResourceUsageRead);
+      } else if (res->GetMTLBuffer().handle) {
         uint64_t offset = 0;
         if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
             desc->cbv.BufferLocation) {
@@ -5812,7 +7969,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
           if (cbv_res)
             offset = desc->cbv.BufferLocation - cbv_res->GetGPUVirtualAddress();
         } else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV) {
-          offset = UAVBufferByteOffset(desc);
+          offset = desc->is_sampler_feedback ? 0 : UAVBufferByteOffset(desc);
         } else if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV) {
           offset = SRVBufferByteOffset(desc);
         }
@@ -5892,6 +8049,59 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     }
   }
 
+  if (compute_sig &&
+      (compute_sig->GetFlags() &
+       D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED) &&
+      st.pso->UsesDirectResourceDescriptorHeap()) {
+    for (uint32_t h = 0; h < st.desc_heap_count; h++) {
+      auto *heap = static_cast<MTLD3D12DescriptorHeap *>(st.desc_heaps[h]);
+      if (!heap)
+        continue;
+      D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+      heap->GetDesc(&heap_desc);
+      if (heap_desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        continue;
+      const uint32_t direct_heap_limit =
+          st.pso->UsesAtomic64Emulation() ? 28 : 31;
+      uint32_t count = std::min<uint32_t>(heap->GetDescriptorCount(),
+                                          direct_heap_limit);
+      auto *descriptors = heap->GetDescriptors();
+      for (uint32_t index = 0; index < count; index++) {
+        auto *desc = descriptors + index;
+        if (!desc->resource)
+          continue;
+        auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
+        const bool writable =
+            desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        if (res->GetMTLBuffer().handle) {
+          uint64_t offset = 0;
+          if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+            offset = desc->is_sampler_feedback ? 0 : UAVBufferByteOffset(desc);
+          else if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV)
+            offset = SRVBufferByteOffset(desc);
+          else if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
+                   desc->cbv.BufferLocation)
+            offset = desc->cbv.BufferLocation - res->GetGPUVirtualAddress();
+          append_compute_setbuffer(res->GetMTLBuffer().handle, offset, index);
+          append_compute_useresource(
+              res->GetMTLBuffer().handle,
+              writable ? (WMTResourceUsage)(WMTResourceUsageRead |
+                                            WMTResourceUsageWrite)
+                       : WMTResourceUsageRead);
+        } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
+          append_compute_settexture(tex.handle, index);
+          append_compute_useresource(
+              tex.handle,
+              writable ? (WMTResourceUsage)(WMTResourceUsageRead |
+                                            WMTResourceUsageWrite)
+                       : WMTResourceUsageRead);
+        }
+      }
+      QTRACE("%s: directly indexed resource heap bound descriptors=%u",
+             trace_prefix, count);
+    }
+  }
+
   int num_consts = 0, num_cbvs = 0, num_tables = 0;
   for (uint32_t i = 0; i < ReplayState::kRootParameterSlotCount; i++) {
     if ((st.comp_constant_set[i] || st.root_constant_set[i]) &&
@@ -5967,6 +8177,15 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         continue;
       append_compute_setsampler(st.null_direct_sampler.handle, slot, true);
     }
+  }
+  if (st.pso->UsesAtomic64Emulation() &&
+      st.EnsureAtomic64LockBuffer(device)) {
+    append_compute_setbuffer(st.atomic64_lock_buf.handle, 0, 28);
+    append_compute_useresource(
+        st.atomic64_lock_buf.handle,
+        (WMTResourceUsage)(WMTResourceUsageRead | WMTResourceUsageWrite));
+    QTRACE("%s: atomic64 software lock buffer=%llu slot=28", trace_prefix,
+           (unsigned long long)st.atomic64_lock_buf.handle);
   }
   QTRACE("%s: compute fallback complete fallback_buffers=0x%llx "
          "fallback_textures=0x%llx fallback_samplers=0x%llx",
@@ -6122,7 +8341,10 @@ MTLD3D12CommandQueue::MTLD3D12CommandQueue(MTLD3D12Device *device,
   m_device->AddRef();
   auto wmt_dev = m_device->GetDXMTDevice().device();
   m_wmt_queue = wmt_dev.newCommandQueue(1);
+  m_wmt4_queue = wmt_dev.newMTL4CommandQueue();
   m_barrier_event = wmt_dev.newEvent();
+  m_completion_event = wmt_dev.newSharedEvent();
+  m_device->RegisterCommandQueue(this);
   QTRACE(
       "CmdQueue::ctor this=%p device=%p type=%u priority=%d flags=0x%x node=%u",
       (void *)this, (void *)device, desc.Type, desc.Priority, desc.Flags,
@@ -6132,6 +8354,7 @@ MTLD3D12CommandQueue::MTLD3D12CommandQueue(MTLD3D12Device *device,
 
 MTLD3D12CommandQueue::~MTLD3D12CommandQueue() {
   QTRACE("CmdQueue::dtor this=%p", (void *)this);
+  m_device->UnregisterCommandQueue(this);
   m_device->Release();
 }
 
@@ -6180,22 +8403,21 @@ ULONG STDMETHODCALLTYPE MTLD3D12CommandQueue::Release() {
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetPrivateData(REFGUID guid,
                                                                UINT *data_size,
                                                                void *data) {
-  QTRACE("CmdQueue::GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetPrivateData(
     REFGUID guid, UINT data_size, const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetPrivateDataInterface(
     REFGUID guid, const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetDevice(REFIID riid,
@@ -6203,6 +8425,200 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetDevice(REFIID riid,
   QTRACE("CmdQueue::GetDevice this=%p riid=%s out=%p", (void *)this,
          str::format(riid).c_str(), device);
   return m_device->QueryInterface(riid, device);
+}
+
+static bool BuildSparseTextureMappings(
+    MTLD3D12Resource *resource, UINT region_count,
+    const D3D12_TILED_RESOURCE_COORDINATE *region_coordinates,
+    const D3D12_TILE_REGION_SIZE *region_sizes, UINT range_count,
+    const D3D12_TILE_RANGE_FLAGS *range_flags,
+    const UINT *heap_range_offsets,
+    const UINT *range_tile_counts, bool metal4,
+    std::vector<WMTTextureMapping> &mappings) {
+  if (!resource || !resource->IsSparseBacked() || !region_count ||
+      !region_coordinates || !region_sizes)
+    return false;
+  D3D12_RESOURCE_DESC desc = {};
+  resource->GetDesc(&desc);
+  if ((desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+       desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D) ||
+      desc.SampleDesc.Count > 1 || !desc.MipLevels ||
+      !desc.DepthOrArraySize)
+    return false;
+  if (range_count && !range_tile_counts)
+    return false;
+  for (UINT range = 0; range < range_count; range++) {
+    const D3D12_TILE_RANGE_FLAGS flags =
+        range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
+    if (flags != D3D12_TILE_RANGE_FLAG_NONE &&
+        flags != D3D12_TILE_RANGE_FLAG_NULL)
+      return false;
+    if (flags == D3D12_TILE_RANGE_FLAG_NONE && !heap_range_offsets)
+      return false;
+  }
+  const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
+  const UINT mip_levels = desc.MipLevels;
+  const bool volume = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+  // The legacy resource-state encoder consumes texel regions. Metal 4's
+  // placement-sparse queue consumes regions in sparse-tile units; a D3D12
+  // 64 KiB tile is four 16 KiB Metal pages on the proof host.
+  const UINT metal_tiles_x =
+      metal4 ? (volume ? 1u : 2u)
+             : std::max<UINT>(1, shape.WidthInTexels / 2);
+  const UINT metal_tiles_y =
+      metal4 ? (volume ? 1u : 2u)
+             : std::max<UINT>(1, shape.HeightInTexels / 2);
+  const UINT metal_tiles_z = std::max<UINT>(1, shape.DepthInTexels);
+  // Placement textures use 16 KiB texture pages while D3D12 heap ranges are
+  // expressed in 64 KiB tiles.  A volume tile can cover more physical Metal
+  // pages than its logical D3D12 payload (for RGBA8 32x32x16, four 64 KiB
+  // heap tiles are required because Metal's sparse XY tile is 64x64).
+  const uint64_t metal_page_bytes = UINT64_C(16384);
+  const uint64_t physical_bytes_per_d3d_tile =
+      uint64_t(metal_tiles_x) * metal_tiles_y * metal_tiles_z *
+      metal_page_bytes;
+  const uint64_t heap_tile_multiplier = std::max<uint64_t>(
+      1, (physical_bytes_per_d3d_tile +
+          D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES - 1) /
+             D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES);
+  struct SparseTileLocation {
+    UINT subresource;
+    UINT x;
+    UINT y;
+    UINT z;
+  };
+  UINT range_index = 0;
+  UINT range_remaining = range_count
+                             ? (range_tile_counts ? range_tile_counts[0] : 1)
+                             : 0;
+  const UINT subresource_count =
+      mip_levels * (volume ? 1u : std::max<UINT16>(desc.DepthOrArraySize, 1));
+  for (UINT region_index = 0; region_index < region_count; region_index++) {
+    const auto &coordinate = region_coordinates[region_index];
+    const auto &size = region_sizes[region_index];
+    if (coordinate.Subresource >= subresource_count)
+      return false;
+
+    const uint64_t requested_tiles =
+        size.UseBox ? uint64_t(size.Width) * size.Height * size.Depth
+                    : size.NumTiles;
+    if (!requested_tiles || requested_tiles > 1048576)
+      return false;
+    std::vector<SparseTileLocation> locations;
+    locations.reserve(static_cast<size_t>(requested_tiles));
+    if (size.UseBox) {
+      const UINT mip = coordinate.Subresource % mip_levels;
+      const UINT slice = coordinate.Subresource / mip_levels;
+      const UINT mip_width = std::max<UINT>(1, desc.Width >> mip);
+      const UINT mip_height = std::max<UINT>(1, desc.Height >> mip);
+      const UINT mip_depth =
+          volume ? std::max<UINT16>(1, desc.DepthOrArraySize >> mip) : 1;
+      const UINT mip_tiles_x =
+          (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+      const UINT mip_tiles_y =
+          (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+      const UINT mip_tiles_z =
+          (mip_depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+      if (!size.Width || !size.Height || !size.Depth ||
+          size.NumTiles != requested_tiles || coordinate.X >= mip_tiles_x ||
+          coordinate.Y >= mip_tiles_y ||
+          uint64_t(coordinate.X) + size.Width > mip_tiles_x ||
+          uint64_t(coordinate.Y) + size.Height > mip_tiles_y ||
+          (volume
+               ? (coordinate.Z >= mip_tiles_z ||
+                  uint64_t(coordinate.Z) + size.Depth > mip_tiles_z)
+               : (uint64_t(coordinate.Z) + size.Depth >
+                  desc.DepthOrArraySize - slice)))
+        return false;
+      for (UINT z = 0; z < size.Depth; ++z)
+        for (UINT y = 0; y < size.Height; ++y)
+          for (UINT x = 0; x < size.Width; ++x)
+            locations.push_back({volume ? mip : (slice + z) * mip_levels + mip,
+                                 coordinate.X + x, coordinate.Y + y,
+                                 volume ? coordinate.Z + z : 0});
+    } else {
+      if (!volume && coordinate.Z)
+        return false;
+      // A non-box region walks X then Y and spills through mipmaps and array
+      // slices in subresource order.  Do not treat NumTiles as a row width.
+      UINT current_subresource = coordinate.Subresource;
+      UINT current_x = coordinate.X;
+      UINT current_y = coordinate.Y;
+      UINT current_z = coordinate.Z;
+      for (uint64_t tile = 0; tile < requested_tiles; ++tile) {
+        if (current_subresource >= subresource_count)
+          return false;
+        const UINT mip = current_subresource % mip_levels;
+        const UINT mip_width = std::max<UINT>(1, desc.Width >> mip);
+        const UINT mip_height = std::max<UINT>(1, desc.Height >> mip);
+        const UINT mip_depth =
+            volume ? std::max<UINT16>(1, desc.DepthOrArraySize >> mip) : 1;
+        const UINT mip_tiles_x =
+            (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+        const UINT mip_tiles_y =
+            (mip_height + shape.HeightInTexels - 1) /
+            shape.HeightInTexels;
+        const UINT mip_tiles_z =
+            (mip_depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+        if (current_x >= mip_tiles_x || current_y >= mip_tiles_y ||
+            current_z >= mip_tiles_z)
+          return false;
+        locations.push_back({current_subresource, current_x, current_y,
+                             volume ? current_z : 0});
+        const uint64_t linear =
+            (uint64_t(current_z) * mip_tiles_y + current_y) * mip_tiles_x +
+            current_x + 1;
+        if (linear == uint64_t(mip_tiles_x) * mip_tiles_y * mip_tiles_z) {
+          ++current_subresource;
+          current_x = current_y = current_z = 0;
+        } else {
+          current_x = static_cast<UINT>(linear % mip_tiles_x);
+          const uint64_t plane = linear / mip_tiles_x;
+          current_y = static_cast<UINT>(plane % mip_tiles_y);
+          current_z = static_cast<UINT>(plane / mip_tiles_y);
+        }
+      }
+    }
+
+    for (size_t tile = 0; tile < locations.size(); ++tile) {
+      while (range_count && range_index < range_count &&
+             range_remaining == 0) {
+        range_index++;
+        range_remaining = range_index < range_count
+                              ? (range_tile_counts ? range_tile_counts[range_index]
+                                                    : 1)
+                              : 0;
+      }
+      if (range_count && range_index >= range_count)
+        return false;
+      const D3D12_TILE_RANGE_FLAGS flags =
+          range_count && range_flags ? range_flags[range_index]
+                                     : D3D12_TILE_RANGE_FLAG_NONE;
+      const uint64_t logical_heap_tile_offset =
+          flags == D3D12_TILE_RANGE_FLAG_NONE
+              ? uint64_t(heap_range_offsets[range_index]) +
+                    (uint64_t(range_tile_counts[range_index]) -
+                     range_remaining)
+              : 0;
+      const uint64_t heap_tile_offset =
+          logical_heap_tile_offset * heap_tile_multiplier;
+      const auto &location = locations[tile];
+      const UINT mip = location.subresource % mip_levels;
+      const UINT slice = location.subresource / mip_levels;
+      mappings.push_back({
+          flags == D3D12_TILE_RANGE_FLAG_NULL
+              ? WMTTextureMappingModeUnmap
+              : WMTTextureMappingModeMap,
+          {uint64_t(location.x) * metal_tiles_x,
+           uint64_t(location.y) * metal_tiles_y,
+           uint64_t(location.z) * metal_tiles_z},
+          {metal_tiles_x, metal_tiles_y, metal_tiles_z}, mip,
+          volume ? 0 : slice, heap_tile_offset});
+      if (range_count && range_remaining)
+        range_remaining--;
+    }
+  }
+  return !mappings.empty();
 }
 
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
@@ -6216,6 +8632,212 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
          "ranges=%u flags=0x%x",
          (void *)this, (void *)resource, region_count, (void *)heap,
          range_count, flags);
+  if (!range_count) {
+    QTRACE("CmdQueue::UpdateTileMappings rejected empty range list");
+    return;
+  }
+  if ((static_cast<UINT>(flags) & ~static_cast<UINT>(
+          D3D12_TILE_MAPPING_FLAG_NO_HAZARD)) != 0) {
+    QTRACE("CmdQueue::UpdateTileMappings rejected unknown flags=0x%x", flags);
+    return;
+  }
+  auto *sparse_resource = static_cast<MTLD3D12Resource *>(resource);
+  auto *tile_heap = static_cast<MTLD3D12Heap *>(heap);
+  if (!range_tile_counts)
+    return;
+  D3D12_RESOURCE_DESC sparse_desc = {};
+  if (!sparse_resource || !sparse_resource->IsReservedResource() ||
+      !sparse_resource->IsSparseBacked() || !region_count ||
+      !region_start_coordinates || !region_sizes)
+    return;
+  sparse_resource->GetDesc(&sparse_desc);
+  bool needs_heap = false;
+  for (UINT range = 0; range < range_count; range++)
+    needs_heap |= !range_flags ||
+                  range_flags[range] == D3D12_TILE_RANGE_FLAG_NONE;
+  if (needs_heap) {
+    if (!tile_heap || !heap_range_offsets || !range_tile_counts)
+      return;
+    const UINT64 heap_tile_count =
+        tile_heap->GetHeapDesc().SizeInBytes /
+        D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    for (UINT range = 0; range < range_count; range++) {
+      const D3D12_TILE_RANGE_FLAGS range_flag =
+          range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
+      if (range_flag == D3D12_TILE_RANGE_FLAG_NONE &&
+          (uint64_t(heap_range_offsets[range]) + range_tile_counts[range] >
+           heap_tile_count)) {
+        QTRACE("CmdQueue::UpdateTileMappings rejected heap range=%u offset=%u "
+               "count=%u heap_tiles=%llu",
+               range, heap_range_offsets[range], range_tile_counts[range],
+               (unsigned long long)heap_tile_count);
+        return;
+      }
+    }
+  }
+  if (sparse_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    const uint64_t tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    const uint64_t total_tiles =
+        (sparse_desc.Width + tile_size - 1) / tile_size;
+    for (UINT range = 0; range < range_count; range++) {
+      const auto range_flag =
+          range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
+      if (range_flag != D3D12_TILE_RANGE_FLAG_NONE &&
+          range_flag != D3D12_TILE_RANGE_FLAG_NULL)
+        return;
+    }
+    if (sparse_resource->IsNativeSparseBuffer()) {
+      std::vector<WMT4SparseBufferMappingOperation> operations;
+      uint64_t range_index = 0;
+      uint64_t range_remaining = range_tile_counts[0];
+      bool has_map = false;
+      for (UINT region = 0; region < region_count; region++) {
+        const auto &coordinate = region_start_coordinates[region];
+        const auto &size = region_sizes[region];
+        if (coordinate.Y || coordinate.Z || coordinate.Subresource ||
+            size.UseBox || !size.NumTiles || coordinate.X >= total_tiles ||
+            size.NumTiles > total_tiles - coordinate.X)
+          return;
+        uint64_t virtual_tile = coordinate.X;
+        uint64_t remaining = size.NumTiles;
+        while (remaining) {
+          while (range_index < range_count && range_remaining == 0) {
+            range_index++;
+            range_remaining = range_index < range_count
+                                  ? range_tile_counts[range_index]
+                                  : 0;
+          }
+          if (range_index >= range_count || !range_remaining)
+            return;
+          const auto range_flag =
+              range_flags ? range_flags[range_index]
+                          : D3D12_TILE_RANGE_FLAG_NONE;
+          const uint64_t range_consumed =
+              uint64_t(range_tile_counts[range_index]) - range_remaining;
+          const uint64_t chunk = std::min(remaining, range_remaining);
+          WMT4SparseBufferMappingOperation operation = {};
+          operation.mode = range_flag == D3D12_TILE_RANGE_FLAG_NULL
+                               ? WMTTextureMappingModeUnmap
+                               : WMTTextureMappingModeMap;
+          operation.buffer_tile_offset = virtual_tile;
+          operation.buffer_tile_count = chunk;
+          operation.heap_tile_offset =
+              range_flag == D3D12_TILE_RANGE_FLAG_NULL
+                  ? 0
+                  : uint64_t(heap_range_offsets[range_index]) +
+                        range_consumed;
+          operations.push_back(operation);
+          has_map |= operation.mode == WMTTextureMappingModeMap;
+          virtual_tile += chunk;
+          remaining -= chunk;
+          range_remaining -= static_cast<UINT>(chunk);
+        }
+      }
+      auto metal_heap = tile_heap ? tile_heap->GetMTLHeap()
+                                  : WMT::Reference<WMT::Heap>{};
+      if (metal_heap.handle)
+        sparse_resource->SetSparseHeap(metal_heap);
+      if ((has_map && !metal_heap.handle) || !m_wmt4_queue.handle ||
+          !sparse_resource->GetMTLBuffer().handle || operations.empty())
+        return;
+      WMT::Buffer native_buffer{sparse_resource->GetMTLBuffer().handle};
+      WMT::Heap native_heap{metal_heap.handle};
+      const bool success = m_wmt4_queue.updateBufferMappings(
+          native_buffer, native_heap, operations.data(), operations.size());
+      QTRACE("CmdQueue::UpdateTileMappings native sparse buffer operations=%zu "
+             "maps=%d success=%d",
+             operations.size(), has_map, success);
+      return;
+    }
+    uint64_t range_index = 0;
+    uint64_t range_remaining = range_tile_counts[0];
+    uint64_t mapped_tiles = 0;
+    uint8_t *cpu = static_cast<uint8_t *>(sparse_resource->GetCPUAddress());
+    for (UINT region = 0; region < region_count; region++) {
+      const auto &coordinate = region_start_coordinates[region];
+      const auto &size = region_sizes[region];
+      if (coordinate.Y || coordinate.Z || coordinate.Subresource ||
+          size.UseBox || !size.NumTiles || coordinate.X >= total_tiles ||
+          size.NumTiles > total_tiles - coordinate.X)
+        return;
+      for (UINT tile = 0; tile < size.NumTiles; tile++) {
+        while (range_index < range_count && range_remaining == 0) {
+          range_index++;
+          range_remaining = range_index < range_count
+                                ? range_tile_counts[range_index]
+                                : 0;
+        }
+        if (range_index >= range_count || !range_remaining)
+          return;
+        const auto range_flag = range_flags
+                                    ? range_flags[range_index]
+                                    : D3D12_TILE_RANGE_FLAG_NONE;
+        if (range_flag == D3D12_TILE_RANGE_FLAG_NULL && cpu)
+          std::memset(cpu + (uint64_t(coordinate.X) + tile) * tile_size, 0,
+                      static_cast<size_t>(tile_size));
+        if (range_flag == D3D12_TILE_RANGE_FLAG_NONE && !tile_heap)
+          return;
+        range_remaining--;
+        mapped_tiles++;
+      }
+    }
+    QTRACE("CmdQueue::UpdateTileMappings reserved buffer tiles=%llu "
+           "mapped=%llu (full-buffer compatibility backing)",
+           (unsigned long long)mapped_tiles,
+           (unsigned long long)total_tiles);
+    return;
+  }
+  const bool placement_sparse_texture =
+      sparse_resource->IsNativePlacementSparseTexture();
+  std::vector<WMTTextureMapping> mappings;
+  if (!BuildSparseTextureMappings(
+          sparse_resource, region_count, region_start_coordinates,
+          region_sizes, range_count, range_flags, heap_range_offsets,
+          range_tile_counts, placement_sparse_texture, mappings)) {
+    QTRACE("CmdQueue::UpdateTileMappings rejected unsupported sparse mapping");
+    return;
+  }
+  if (placement_sparse_texture && m_wmt4_queue.handle) {
+    WMT::Reference<WMT::Heap> metal_heap =
+        tile_heap ? tile_heap->GetMTLHeap() : sparse_resource->GetSparseHeap();
+    bool has_map = false;
+    for (const auto &mapping : mappings)
+      has_map |= mapping.mode == WMTTextureMappingModeMap;
+    if ((has_map && !metal_heap.handle) ||
+        !sparse_resource->GetMTLTexture().handle) {
+      QTRACE("CmdQueue::UpdateTileMappings placement sparse texture missing "
+             "heap or texture");
+      return;
+    }
+    WMT::Texture native_texture{sparse_resource->GetMTLTexture().handle};
+    WMT::Heap native_heap{metal_heap.handle};
+    const bool success = m_wmt4_queue.updateTextureMappings(
+        native_texture, native_heap,
+        reinterpret_cast<const WMT4SparseTextureMappingOperation *>(
+            mappings.data()),
+        mappings.size());
+    if (success && metal_heap.handle)
+      sparse_resource->SetSparseHeap(metal_heap);
+    QTRACE("CmdQueue::UpdateTileMappings placement sparse mappings=%zu "
+           "heap=%llu success=%d",
+           mappings.size(), (unsigned long long)metal_heap.handle, success);
+    return;
+  }
+  auto cmdbuf = m_wmt_queue.commandBuffer();
+  auto encoder = cmdbuf.resourceStateCommandEncoder();
+  if (!cmdbuf.handle || !encoder.handle ||
+      !encoder.updateTextureMappings(sparse_resource->GetMTLTexture(),
+                                     mappings.data(), mappings.size())) {
+    QTRACE("CmdQueue::UpdateTileMappings native encoder failed");
+    return;
+  }
+  encoder.endEncoding();
+  obj_handle_t retained[] = {sparse_resource->GetMTLTexture().handle,
+                             sparse_resource->GetSparseHeap().handle};
+  cmdbuf.retainObjectsUntilCompleted(retained, 2);
+  cmdbuf.commit();
+  QTRACE("CmdQueue::UpdateTileMappings native mappings=%zu committed",
+         mappings.size());
 }
 
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
@@ -6226,11 +8848,260 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
     const D3D12_TILE_REGION_SIZE *region_size, D3D12_TILE_MAPPING_FLAGS flags) {
   QTRACE("CmdQueue::CopyTileMappings this=%p dst=%p src=%p flags=0x%x",
          (void *)this, (void *)dst_resource, (void *)src_resource, flags);
+  if ((static_cast<UINT>(flags) & ~static_cast<UINT>(
+          D3D12_TILE_MAPPING_FLAG_NO_HAZARD)) != 0 ||
+      !dst_region_start_coordinate || !src_region_start_coordinate ||
+      !region_size || !region_size->NumTiles || !m_wmt4_queue.handle) {
+    QTRACE("CmdQueue::CopyTileMappings rejected arguments");
+    return;
+  }
+
+  auto *dst = static_cast<MTLD3D12Resource *>(dst_resource);
+  auto *src = static_cast<MTLD3D12Resource *>(src_resource);
+  if (!dst || !src) {
+    QTRACE("CmdQueue::CopyTileMappings missing resources");
+    return;
+  }
+
+  if (dst->IsNativePlacementSparseTexture() &&
+      src->IsNativePlacementSparseTexture()) {
+    D3D12_RESOURCE_DESC dst_desc = {};
+    D3D12_RESOURCE_DESC src_desc = {};
+    dst->GetDesc(&dst_desc);
+    src->GetDesc(&src_desc);
+    const D3D12_TILE_SHAPE dst_shape = dst->GetTiledResourceTileShape();
+    const D3D12_TILE_SHAPE src_shape = src->GetTiledResourceTileShape();
+    const auto &dst_coordinate = *dst_region_start_coordinate;
+    const auto &src_coordinate = *src_region_start_coordinate;
+    const UINT dst_mips = std::max<UINT>(dst_desc.MipLevels, 1);
+    const UINT src_mips = std::max<UINT>(src_desc.MipLevels, 1);
+    const UINT dst_mip = dst_coordinate.Subresource % dst_mips;
+    const UINT src_mip = src_coordinate.Subresource % src_mips;
+    const UINT dst_slice = dst_coordinate.Subresource / dst_mips;
+    const UINT src_slice = src_coordinate.Subresource / src_mips;
+    const UINT dst_width = MipSize(dst_desc.Width, dst_mip);
+    const UINT dst_height = MipSize(dst_desc.Height, dst_mip);
+    const bool volume =
+        dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+        src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    const UINT src_width = MipSize(src_desc.Width, src_mip);
+    const UINT src_height = MipSize(src_desc.Height, src_mip);
+    const UINT dst_depth =
+        volume ? MipSize(dst_desc.DepthOrArraySize, dst_mip) : 1;
+    const UINT src_depth =
+        volume ? MipSize(src_desc.DepthOrArraySize, src_mip) : 1;
+    const UINT dst_tiles_x =
+        (dst_width + dst_shape.WidthInTexels - 1) /
+        dst_shape.WidthInTexels;
+    const UINT dst_tiles_y =
+        (dst_height + dst_shape.HeightInTexels - 1) /
+        dst_shape.HeightInTexels;
+    const UINT src_tiles_x =
+        (src_width + src_shape.WidthInTexels - 1) /
+        src_shape.WidthInTexels;
+    const UINT src_tiles_y =
+        (src_height + src_shape.HeightInTexels - 1) /
+        src_shape.HeightInTexels;
+    const UINT dst_tiles_z =
+        (dst_depth + dst_shape.DepthInTexels - 1) /
+        dst_shape.DepthInTexels;
+    const UINT src_tiles_z =
+        (src_depth + src_shape.DepthInTexels - 1) /
+        src_shape.DepthInTexels;
+    const uint64_t region_tile_count =
+        region_size->UseBox
+            ? uint64_t(region_size->Width) * region_size->Height *
+                  region_size->Depth
+            : region_size->NumTiles;
+    if (!region_tile_count || region_tile_count > 1048576 ||
+        (region_size->UseBox &&
+         region_size->NumTiles != region_tile_count) ||
+        (!volume && (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+                     src_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)) ||
+        (volume && (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ||
+                    src_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)) ||
+        dst_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+        src_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+        dst_desc.SampleDesc.Count != 1 || src_desc.SampleDesc.Count != 1 ||
+        dst_desc.MipLevels != 1 || src_desc.MipLevels != 1 ||
+        dst_shape.WidthInTexels != (volume ? 32u : 128u) ||
+        dst_shape.HeightInTexels != (volume ? 32u : 128u) ||
+        dst_shape.DepthInTexels != (volume ? 16u : 1u) ||
+        src_shape.WidthInTexels != (volume ? 32u : 128u) ||
+        src_shape.HeightInTexels != (volume ? 32u : 128u) ||
+        src_shape.DepthInTexels != (volume ? 16u : 1u) ||
+        (!volume && (dst_slice >= dst_desc.DepthOrArraySize ||
+                     src_slice >= src_desc.DepthOrArraySize)) ||
+        (volume && (dst_slice != 0 || src_slice != 0)) ||
+        dst_coordinate.X >= dst_tiles_x || dst_coordinate.Y >= dst_tiles_y ||
+        (volume && dst_coordinate.Z >= dst_tiles_z) ||
+        src_coordinate.X >= src_tiles_x || src_coordinate.Y >= src_tiles_y ||
+        (volume && src_coordinate.Z >= src_tiles_z) ||
+        (region_size->UseBox
+             ? (uint64_t(dst_coordinate.X) + region_size->Width >
+                    dst_tiles_x ||
+                uint64_t(dst_coordinate.Y) + region_size->Height >
+                    dst_tiles_y ||
+                (volume
+                     ? uint64_t(dst_coordinate.Z) + region_size->Depth >
+                           dst_tiles_z
+                     : uint64_t(dst_coordinate.Z) + region_size->Depth >
+                           dst_desc.DepthOrArraySize - dst_slice) ||
+                uint64_t(src_coordinate.X) + region_size->Width >
+                    src_tiles_x ||
+                uint64_t(src_coordinate.Y) + region_size->Height >
+                    src_tiles_y ||
+                (volume
+                     ? uint64_t(src_coordinate.Z) + region_size->Depth >
+                           src_tiles_z
+                     : uint64_t(src_coordinate.Z) + region_size->Depth >
+                           src_desc.DepthOrArraySize - src_slice))
+             : ((!volume && (dst_coordinate.Z || src_coordinate.Z)) ||
+                region_tile_count >
+                    dst_tiles_x * dst_tiles_y * dst_tiles_z -
+                        ((uint64_t(dst_coordinate.Z) * dst_tiles_y +
+                          dst_coordinate.Y) *
+                             dst_tiles_x +
+                         dst_coordinate.X) ||
+                region_tile_count >
+                    src_tiles_x * src_tiles_y * src_tiles_z -
+                        ((uint64_t(src_coordinate.Z) * src_tiles_y +
+                          src_coordinate.Y) *
+                             src_tiles_x +
+                         src_coordinate.X)))) {
+      QTRACE("CmdQueue::CopyTileMappings rejected placement texture range");
+      return;
+    }
+    std::vector<WMT4SparseTextureMappingCopyOperation> operations;
+    operations.reserve(static_cast<size_t>(region_tile_count));
+    const uint64_t src_first =
+        (uint64_t(src_coordinate.Z) * src_tiles_y + src_coordinate.Y) *
+            src_tiles_x +
+        src_coordinate.X;
+    const uint64_t dst_first =
+        (uint64_t(dst_coordinate.Z) * dst_tiles_y + dst_coordinate.Y) *
+            dst_tiles_x +
+        dst_coordinate.X;
+    for (uint64_t tile = 0; tile < region_tile_count; ++tile) {
+      UINT src_x = 0;
+      UINT src_y = 0;
+      UINT src_z = 0;
+      UINT src_slice_for_tile = src_slice;
+      UINT dst_x = 0;
+      UINT dst_y = 0;
+      UINT dst_z = 0;
+      UINT dst_slice_for_tile = dst_slice;
+      if (region_size->UseBox) {
+        const uint64_t box_plane =
+            uint64_t(region_size->Width) * region_size->Height;
+        const UINT z = static_cast<UINT>(tile / box_plane);
+        const uint64_t box_row = tile % box_plane;
+        const UINT x = static_cast<UINT>(box_row % region_size->Width);
+        const UINT y = static_cast<UINT>(box_row / region_size->Width);
+        src_x = src_coordinate.X + x;
+        src_y = src_coordinate.Y + y;
+        if (volume)
+          src_z = src_coordinate.Z + z;
+        else
+          src_slice_for_tile += src_coordinate.Z + z;
+        dst_x = dst_coordinate.X + x;
+        dst_y = dst_coordinate.Y + y;
+        if (volume)
+          dst_z = dst_coordinate.Z + z;
+        else
+          dst_slice_for_tile += dst_coordinate.Z + z;
+      } else {
+        const uint64_t src_linear = src_first + tile;
+        const uint64_t src_plane = src_linear / src_tiles_x;
+        src_x = static_cast<UINT>(src_linear % src_tiles_x);
+        src_y = static_cast<UINT>(src_plane % src_tiles_y);
+        if (volume)
+          src_z = static_cast<UINT>(src_plane / src_tiles_y);
+        const uint64_t dst_linear = dst_first + tile;
+        const uint64_t dst_plane = dst_linear / dst_tiles_x;
+        dst_x = static_cast<UINT>(dst_linear % dst_tiles_x);
+        dst_y = static_cast<UINT>(dst_plane % dst_tiles_y);
+        if (volume)
+          dst_z = static_cast<UINT>(dst_plane / dst_tiles_y);
+      }
+      WMT4SparseTextureMappingCopyOperation operation = {};
+      operation.source_origin = {
+          uint64_t(src_x) * (volume ? 1u : 2u),
+          uint64_t(src_y) * (volume ? 1u : 2u),
+          uint64_t(src_z) * (volume ? 16u : 1u)};
+      operation.source_size = {volume ? 1u : 2u, volume ? 1u : 2u,
+                               volume ? 16u : 1u};
+      operation.source_mip_level = src_mip;
+      operation.source_slice = src_slice_for_tile;
+      operation.destination_origin = {
+          uint64_t(dst_x) * (volume ? 1u : 2u),
+          uint64_t(dst_y) * (volume ? 1u : 2u),
+          uint64_t(dst_z) * (volume ? 16u : 1u)};
+      operation.destination_mip_level = dst_mip;
+      operation.destination_slice = dst_slice_for_tile;
+      operations.push_back(operation);
+    }
+    WMT::Texture native_source{src->GetMTLTexture().handle};
+    WMT::Texture native_destination{dst->GetMTLTexture().handle};
+    const bool success = m_wmt4_queue.copyTextureMappings(
+        native_source, native_destination, operations.data(), operations.size());
+    if (success)
+      dst->SetSparseHeap(src->GetSparseHeap());
+    QTRACE("CmdQueue::CopyTileMappings placement texture tiles=%llu success=%d",
+           (unsigned long long)region_tile_count, success);
+    return;
+  }
+
+  if (!dst->IsNativeSparseBuffer() || !src->IsNativeSparseBuffer()) {
+    QTRACE("CmdQueue::CopyTileMappings requires native sparse buffers or "
+           "proven placement textures");
+    return;
+  }
+
+  D3D12_RESOURCE_DESC dst_desc = {};
+  D3D12_RESOURCE_DESC src_desc = {};
+  dst->GetDesc(&dst_desc);
+  src->GetDesc(&src_desc);
+  const uint64_t tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+  const uint64_t dst_tile_count = (dst_desc.Width + tile_size - 1) / tile_size;
+  const uint64_t src_tile_count = (src_desc.Width + tile_size - 1) / tile_size;
+  const auto &dst_coordinate = *dst_region_start_coordinate;
+  const auto &src_coordinate = *src_region_start_coordinate;
+  if (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+      src_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+      dst_coordinate.Y || dst_coordinate.Z || dst_coordinate.Subresource ||
+      src_coordinate.Y || src_coordinate.Z || src_coordinate.Subresource ||
+      dst_coordinate.X >= dst_tile_count || src_coordinate.X >= src_tile_count ||
+      region_size->NumTiles > dst_tile_count - dst_coordinate.X ||
+      region_size->NumTiles > src_tile_count - src_coordinate.X) {
+    QTRACE("CmdQueue::CopyTileMappings rejected buffer ranges dst=%u src=%u "
+           "tiles=%u dst_total=%llu src_total=%llu",
+           dst_coordinate.X, src_coordinate.X, region_size->NumTiles,
+           (unsigned long long)dst_tile_count,
+           (unsigned long long)src_tile_count);
+    return;
+  }
+
+  auto sparse_heap = src->GetSparseHeap();
+  if (sparse_heap.handle)
+    dst->SetSparseHeap(sparse_heap);
+  WMT4SparseBufferMappingCopyOperation operation = {};
+  operation.source_tile_offset = src_coordinate.X;
+  operation.tile_count = region_size->NumTiles;
+  operation.destination_tile_offset = dst_coordinate.X;
+  WMT::Buffer source_buffer{src->GetMTLBuffer().handle};
+  WMT::Buffer destination_buffer{dst->GetMTLBuffer().handle};
+  const bool success = m_wmt4_queue.copyBufferMappings(
+      source_buffer, destination_buffer, &operation, 1);
+  QTRACE("CmdQueue::CopyTileMappings native sparse buffers src_tile=%u "
+         "dst_tile=%u tiles=%u success=%d",
+         src_coordinate.X, dst_coordinate.X, region_size->NumTiles, success);
 }
 
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
     UINT command_list_count, ID3D12CommandList *const *command_lists) {
   QTRACE("ExecuteCommandLists count=%u", command_list_count);
+  std::lock_guard submit_lock(m_submit_mutex);
 
   for (UINT li = 0; li < command_list_count; li++) {
     DXMTD3D12ScopedTimer list_timer("Queue", "ExecuteCommandList");
@@ -6266,6 +9137,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
 
     ReplayState st;
     st.cmdbuf = cmdbuf;
+    st.replay_device = m_device;
 
     QTRACE("ExecuteCommandLists: cmd_size=%zu", cmds.size());
     auto replay_begin = std::chrono::steady_clock::now();
@@ -6295,23 +9167,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::DrawInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawInstanced *>(header);
         st.EnsureSwapchainRenderPSOReady();
-        st.EnsureRenderEncoder();
-        st.ApplyRootBindings(m_device);
-        st.BuildVertexConstantBufferTable(m_device);
-        st.BuildVertexArgumentBuffer(m_device);
-        st.BuildGeometryConstantBufferTable(m_device);
-        st.BuildGeometryArgumentBuffer(m_device);
-        st.BuildConstantBufferTable(m_device);
-        st.BuildArgumentBuffer(m_device);
-        if (st.render_enc_open && st.arg_buf.handle) {
-          uint32_t bind_index = st.BindIndexOrFallback(
-              st.pso->GetPSReflection().ArgumentBufferBindIndex,
-              st.kArgBufSlot);
-          st.SetFragmentBufferTracked(st.arg_buf, 0, bind_index);
-        }
-        st.BindStaticSamplers();
-        st.ApplyVertexBuffers(m_device);
-        st.BindGeometryMeshBuffers();
+        const bool vrs_image_tiles = st.HasNonconstantShadingRateImage();
+        const bool vrs_primitive_rates =
+            st.pso && st.pso->UsesVRSRuntimeState() && st.UsesVRSState();
+        if (!vrs_image_tiles && !vrs_primitive_rates)
+          st.PrepareRenderDraw(m_device);
         st.AddRenderFaultBreadcrumb("DrawInstanced", cmd->vertex_count,
                                     cmd->instance_count, cmd->start_vertex, 0,
                                     0, false);
@@ -6332,6 +9192,14 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 " i=", cmd->instance_count, " pso=", (void *)st.pso, " ",
                 TracePsoShaderSummary(st.pso)));
           }
+          break;
+        }
+        if (st.pso &&
+            st.pso->UsesConservativeRasterizationReferenceModel()) {
+          if (!st.EncodeConservativeRasterReferenceDraw(
+                  m_device, cmd->vertex_count, cmd->instance_count,
+                  cmd->start_vertex))
+            QTRACE("DrawInstanced conservative raster reference skipped");
           break;
         }
         QTRACE("DrawInstanced v=%u i=%u enc_open=%d pso=%p compiled=%d "
@@ -6367,45 +9235,58 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 TracePsoShaderSummary(st.pso)));
           }
         } else if (cmd->instance_count > 0 && cmd->vertex_count > 0 &&
-                   st.render_enc_open && st.HasUsableRenderPSO()) {
+                   (st.render_enc_open || vrs_image_tiles ||
+                    vrs_primitive_rates) &&
+                   st.HasUsableRenderPSO()) {
           st.LogTessellationFallbackDraw("DrawInstanced", cmd->vertex_count,
                                          cmd->instance_count, false);
-          struct wmtcmd_render_draw draw = {};
-          draw.type = WMTRenderCommandDraw;
-          draw.next.set(nullptr);
-          draw.primitive_type = st.GetMetalPrimitiveType();
-          draw.vertex_start = cmd->start_vertex;
-          draw.vertex_count = cmd->vertex_count;
-          draw.base_instance = cmd->start_instance;
-          draw.instance_count = cmd->instance_count;
-          st.BindMSCDrawParameters(m_device, cmd->vertex_count,
-                                   cmd->instance_count, cmd->start_vertex, 0,
-                                   cmd->start_instance, false,
-                                   WMTIndexTypeUInt16);
-          st.LogFinalRenderSnapshot("DrawInstanced", cmd->vertex_count,
-                                    cmd->instance_count, cmd->start_vertex);
-          st.LogStageInVertexSnapshot("DrawInstanced", cmd->vertex_count,
-                                      cmd->instance_count);
-          st.LogNonStageInVertexSnapshot(
-              m_device, "DrawInstanced", cmd->vertex_count, cmd->instance_count,
-              cmd->start_vertex, cmd->start_instance);
-          st.BindMissingNonStageInVertexBuffers(m_device);
-          st.BindDirectFragmentCompleteness(m_device, "draw_instanced");
-          WMTPrimitiveType primitive_type = draw.primitive_type;
-          if (st.EncodeRenderCommands(
-                  reinterpret_cast<const wmtcmd_render_nop *>(&draw),
-                  "draw_instanced"))
+          auto encode_draw = [&]() -> bool {
+            if (!st.render_enc_open)
+              return false;
+            struct wmtcmd_render_draw draw = {};
+            draw.type = WMTRenderCommandDraw;
+            draw.next.set(nullptr);
+            draw.primitive_type = st.GetMetalPrimitiveType();
+            draw.vertex_start = cmd->start_vertex;
+            draw.vertex_count = cmd->vertex_count;
+            draw.base_instance = cmd->start_instance;
+            draw.instance_count = cmd->instance_count;
+            st.BindMSCDrawParameters(m_device, cmd->vertex_count,
+                                     cmd->instance_count, cmd->start_vertex, 0,
+                                     cmd->start_instance, false,
+                                     WMTIndexTypeUInt16);
+            st.LogFinalRenderSnapshot("DrawInstanced", cmd->vertex_count,
+                                      cmd->instance_count, cmd->start_vertex);
+            st.LogStageInVertexSnapshot("DrawInstanced", cmd->vertex_count,
+                                        cmd->instance_count);
+            st.LogNonStageInVertexSnapshot(
+                m_device, "DrawInstanced", cmd->vertex_count,
+                cmd->instance_count, cmd->start_vertex, cmd->start_instance);
+            st.BindMissingNonStageInVertexBuffers(m_device);
+            st.BindDirectFragmentCompleteness(m_device, "draw_instanced");
+            if (!st.EncodeRenderCommands(
+                    reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+                    "draw_instanced"))
+              return false;
+            if (st.HasSwapchainRenderTarget() &&
+                TakeLogBudget(&g_swapchain_draw_logs, 384)) {
+              Logger::info(str::format(
+                  "M12 swapchain DrawInstanced encoded v=", cmd->vertex_count,
+                  " i=", cmd->instance_count, " start=", cmd->start_vertex,
+                  " topology=", (unsigned)st.topology, " primitive=",
+                  (unsigned)draw.primitive_type, " pso=", (void *)st.pso,
+                  " enc=", (unsigned long long)st.render_enc.handle, " ",
+                  TracePsoShaderSummary(st.pso)));
+            }
+            return true;
+          };
+          auto encode_rate = [&]() -> bool {
+            if (!vrs_image_tiles)
+              st.PrepareRenderDraw(m_device);
+            return st.ForEachShadingRateImageTile(m_device, encode_draw);
+          };
+          if (st.ForEachVRSPrimitiveRate(m_device, encode_rate))
             st.MarkSwapchainWorkEncoded();
-          if (st.HasSwapchainRenderTarget() &&
-              TakeLogBudget(&g_swapchain_draw_logs, 384)) {
-            Logger::info(str::format(
-                "M12 swapchain DrawInstanced encoded v=", cmd->vertex_count,
-                " i=", cmd->instance_count, " start=", cmd->start_vertex,
-                " topology=", (unsigned)st.topology, " primitive=",
-                (unsigned)primitive_type, " pso=", (void *)st.pso,
-                " enc=", (unsigned long long)st.render_enc.handle, " ",
-                TracePsoShaderSummary(st.pso)));
-          }
         } else {
           QTRACE(
               "DrawInstanced SKIPPED v=%u i=%u enc_open=%d pso=%p compiled=%d "
@@ -6430,23 +9311,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::DrawIndexedInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawIndexedInstanced *>(header);
         st.EnsureSwapchainRenderPSOReady();
-        st.EnsureRenderEncoder();
-        st.ApplyRootBindings(m_device);
-        st.BuildVertexConstantBufferTable(m_device);
-        st.BuildVertexArgumentBuffer(m_device);
-        st.BuildGeometryConstantBufferTable(m_device);
-        st.BuildGeometryArgumentBuffer(m_device);
-        st.BuildConstantBufferTable(m_device);
-        st.BuildArgumentBuffer(m_device);
-        if (st.render_enc_open && st.arg_buf.handle) {
-          uint32_t bind_index = st.BindIndexOrFallback(
-              st.pso->GetPSReflection().ArgumentBufferBindIndex,
-              st.kArgBufSlot);
-          st.SetFragmentBufferTracked(st.arg_buf, 0, bind_index);
-        }
-        st.BindStaticSamplers();
-        st.ApplyVertexBuffers(m_device);
-        st.BindGeometryMeshBuffers();
+        const bool vrs_image_tiles = st.HasNonconstantShadingRateImage();
+        const bool vrs_primitive_rates =
+            st.pso && st.pso->UsesVRSRuntimeState() && st.UsesVRSState();
+        if (!vrs_image_tiles && !vrs_primitive_rates)
+          st.PrepareRenderDraw(m_device);
         st.AddRenderFaultBreadcrumb(
             "DrawIndexedInstanced", cmd->index_count, cmd->instance_count,
             cmd->start_index, cmd->base_vertex, st.ib.BufferLocation, true);
@@ -6517,6 +9386,23 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 cmd->index_count, " inst=", cmd->instance_count,
                 " pso=", (void *)st.pso, " ", TracePsoShaderSummary(st.pso)));
           }
+        } else if ((vrs_image_tiles || vrs_primitive_rates) &&
+                   cmd->instance_count > 0 &&
+                   cmd->index_count > 0 && st.ib.BufferLocation &&
+                   st.HasUsableRenderPSO() &&
+                   !st.pso->UsesNativeTessellationPath() &&
+                   !st.pso->UsesGeometryMeshPipeline()) {
+          st.LogTessellationFallbackDraw("DrawIndexedInstanced", cmd->index_count,
+                                         cmd->instance_count, true);
+          auto encode_rate = [&]() -> bool {
+            if (!vrs_image_tiles)
+              st.PrepareRenderDraw(m_device);
+            return st.ForEachShadingRateImageTile(
+                m_device,
+                [&]() { return st.EncodeVRSIndexedDraw(m_device, *cmd); });
+          };
+          if (st.ForEachVRSPrimitiveRate(m_device, encode_rate))
+            st.MarkSwapchainWorkEncoded();
         } else if (cmd->instance_count > 0 && cmd->index_count > 0 &&
                    st.ib.BufferLocation && st.render_enc_open &&
                    st.HasUsableRenderPSO()) {
@@ -6783,10 +9669,925 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
         break;
       }
+      case CmdType::BuildRaytracingAccelerationStructure: {
+        auto *cmd = reinterpret_cast<
+            const CmdBuildRaytracingAccelerationStructure *>(header);
+        auto *dest = m_device->LookupResourceByGPUAddress(
+            cmd->dest_acceleration_structure);
+        auto *scratch = m_device->LookupResourceByGPUAddress(
+            cmd->scratch_acceleration_structure);
+        if (!m_device->SupportsMetalRaytracing() || !dest || !scratch ||
+            !scratch->GetMTLBuffer().handle) {
+          QTRACE("BuildRaytracingAS SKIPPED type=%u dest=%p scratch=%p",
+                 (unsigned)cmd->type, (void *)dest, (void *)scratch);
+          break;
+        }
+
+        WMTAccelerationStructureSizes sizes = {};
+        auto metal_device = m_device->GetMTLDevice();
+        uint64_t scratch_offset = cmd->scratch_acceleration_structure -
+                                  scratch->GetGPUVirtualAddress();
+        st.CloseRenderEncoder();
+
+        WMT::Reference<WMT::AccelerationStructure> acceleration_structure;
+        bool encoded = false;
+        uint64_t primitive_count = 0;
+        std::vector<D3D12_GPU_VIRTUAL_ADDRESS> bottom_level_pointers;
+        WMT::Reference<WMT::AccelerationStructure> mixed_triangle_child;
+        WMT::Reference<WMT::AccelerationStructure> mixed_aabb_child;
+        bool mixed_compound = false;
+        const char *kind = "unknown";
+        if (cmd->type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
+          D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+          inputs.Type = cmd->type;
+          inputs.Flags = cmd->flags;
+          inputs.NumDescs = cmd->num_descs;
+          inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+          inputs.pGeometryDescs = cmd->geometries;
+          bool has_aabb_geometry = false;
+          for (UINT i = 0; i < cmd->num_descs; ++i)
+            has_aabb_geometry |=
+                cmd->geometries[i].Type ==
+                D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+          if (cmd->num_descs > 1 && has_aabb_geometry) {
+            // Metal's current mixed primitive descriptor implementation sends
+            // an AABB descriptor through the triangle descriptor vtable. Keep
+            // the D3D12 mixed-geometry contract by building one native child
+            // BLAS per geometry kind and a native TLAS over those children.
+            // The compound remains a real Metal acceleration structure, so it
+            // is traversable and can be refit without treating a successful
+            // size query as proof of execution.
+            WMTPrimitiveAccelerationStructureInfo triangle_info = {};
+            WMTAABBAccelerationStructureInfo aabb_info = {};
+            bool valid = cmd->num_descs <= 2;
+            UINT triangle_count = 0;
+            UINT aabb_count = 0;
+            for (UINT i = 0; valid && i < cmd->num_descs; ++i) {
+              D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                  inputs;
+              one.NumDescs = 1;
+              one.pGeometryDescs = &cmd->geometries[i];
+              if (cmd->geometries[i].Type ==
+                  D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+                valid = ++aabb_count == 1 &&
+                        D3D12ResolveAABBAccelerationStructureInfo(
+                            m_device, &one, aabb_info);
+                primitive_count += aabb_info.bounding_box_count;
+                if (auto *aabbs = m_device->LookupResourceByGPUAddress(
+                        cmd->geometries[i].AABBs.AABBs.StartAddress))
+                  st.RetainResourceMetalObjectsForCompletion(aabbs);
+              } else {
+                valid = ++triangle_count == 1 &&
+                        D3D12ResolveTriangleAccelerationStructureInfo(
+                            m_device, &one, triangle_info);
+                primitive_count += triangle_info.triangle_count;
+                if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                        cmd->geometries[i].Triangles.VertexBuffer.StartAddress))
+                  st.RetainResourceMetalObjectsForCompletion(vertex);
+                if (cmd->geometries[i].Triangles.IndexBuffer) {
+                  if (auto *index = m_device->LookupResourceByGPUAddress(
+                          cmd->geometries[i].Triangles.IndexBuffer))
+                    st.RetainResourceMetalObjectsForCompletion(index);
+                }
+              }
+            }
+            const bool perform_update =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                0;
+            const bool allow_refit =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+                0;
+            WMTAccelerationStructureSizes triangle_sizes = {};
+            WMTAccelerationStructureSizes aabb_sizes = {};
+            WMTAccelerationStructureSizes instance_sizes = {};
+            if (!valid || triangle_count != 1 || aabb_count != 1 ||
+                (perform_update && !allow_refit) ||
+                !metal_device.accelerationStructureSizesForTriangles(
+                    triangle_info, triangle_sizes) ||
+                !metal_device.accelerationStructureSizesForAABBs(
+                    aabb_info, aabb_sizes) ||
+                !metal_device.accelerationStructureSizesForInstances(
+                    2, allow_refit, instance_sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED mixed geometry composite descriptors");
+              break;
+            }
+
+            auto make_child_instances = [&](WMT::Buffer &instance_buffer,
+                                             obj_handle_t child_handles[2]) {
+              WMTAccelerationStructureInstanceDescriptor child_instances[2] =
+                  {};
+              for (uint32_t i = 0; i < 2; ++i) {
+                child_instances[i].transformation_matrix[0] = 1.0f;
+                child_instances[i].transformation_matrix[4] = 1.0f;
+                child_instances[i].transformation_matrix[8] = 1.0f;
+                child_instances[i].mask = 0xff;
+                child_instances[i].acceleration_structure_index = i;
+                child_instances[i].user_id = i;
+              }
+              instance_buffer = st.MakeTransientBuffer(
+                  m_device, sizeof(child_instances));
+              if (!instance_buffer.handle)
+                return false;
+              instance_buffer.updateContents(0, child_instances,
+                                              sizeof(child_instances));
+              child_handles[0] = mixed_triangle_child.handle;
+              child_handles[1] = mixed_aabb_child.handle;
+              return child_handles[0] != 0 && child_handles[1] != 0;
+            };
+
+            if (perform_update) {
+              auto *source = m_device->LookupResourceByGPUAddress(
+                  cmd->source_acceleration_structure);
+              acceleration_structure = dest->GetMTLAccelerationStructure();
+              auto source_triangle =
+                  source ? source->GetMixedTriangleAccelerationStructure()
+                         : WMT::Reference<WMT::AccelerationStructure>{};
+              auto source_aabb =
+                  source ? source->GetMixedAABBAccelerationStructure()
+                         : WMT::Reference<WMT::AccelerationStructure>{};
+              mixed_triangle_child = metal_device.newAccelerationStructure(
+                  triangle_sizes.acceleration_structure_size);
+              mixed_aabb_child = metal_device.newAccelerationStructure(
+                  aabb_sizes.acceleration_structure_size);
+              if (!source || !source->GetMTLAccelerationStructure().handle ||
+                  !source_triangle.handle || !source_aabb.handle ||
+                  !acceleration_structure.handle ||
+                  !mixed_triangle_child.handle || !mixed_aabb_child.handle) {
+                QTRACE("BuildRaytracingAS SKIPPED mixed update state");
+                break;
+              }
+              bool child_encoded = cmdbuf.refitTriangleAccelerationStructure(
+                  source_triangle, mixed_triangle_child, triangle_info,
+                  scratch->GetMTLBuffer(), scratch_offset);
+              child_encoded &= cmdbuf.refitAABBAccelerationStructure(
+                  source_aabb, mixed_aabb_child, aabb_info,
+                  scratch->GetMTLBuffer(), scratch_offset);
+              WMT::Buffer instance_buffer;
+              obj_handle_t child_handles[2] = {};
+              child_encoded &= make_child_instances(instance_buffer,
+                                                    child_handles);
+              encoded = child_encoded &&
+                        cmdbuf.refitInstanceAccelerationStructure(
+                            source->GetMTLAccelerationStructure(),
+                            acceleration_structure, instance_buffer, 0, 2,
+                            child_handles, 2, scratch->GetMTLBuffer(),
+                            scratch_offset);
+              if (encoded)
+                st.RetainResourceMetalObjectsForCompletion(source);
+            } else {
+              mixed_triangle_child = metal_device.newAccelerationStructure(
+                  triangle_sizes.acceleration_structure_size);
+              mixed_aabb_child = metal_device.newAccelerationStructure(
+                  aabb_sizes.acceleration_structure_size);
+              acceleration_structure = metal_device.newAccelerationStructure(
+                  instance_sizes.acceleration_structure_size);
+              WMT::Buffer instance_buffer;
+              obj_handle_t child_handles[2] = {};
+              const bool instances_ready =
+                  make_child_instances(instance_buffer, child_handles);
+              encoded =
+                  mixed_triangle_child.handle && mixed_aabb_child.handle &&
+                  acceleration_structure.handle && instances_ready &&
+                  cmdbuf.buildTriangleAccelerationStructure(
+                      mixed_triangle_child, triangle_info,
+                      scratch->GetMTLBuffer(), scratch_offset) &&
+                  cmdbuf.buildAABBAccelerationStructure(
+                      mixed_aabb_child, aabb_info, scratch->GetMTLBuffer(),
+                      scratch_offset) &&
+                  cmdbuf.buildInstanceAccelerationStructure(
+                      acceleration_structure, instance_buffer, 0, 2,
+                      child_handles, 2, allow_refit, scratch->GetMTLBuffer(),
+                      scratch_offset);
+            }
+            sizes = instance_sizes;
+            mixed_compound = encoded;
+            kind = perform_update ? "mixed geometry composite update"
+                                   : "mixed geometry composite";
+          } else if (cmd->num_descs > 1) {
+            std::array<WMTPrimitiveAccelerationStructureInfo,
+                       CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
+                metal_infos = {};
+            bool valid = cmd->num_descs <= metal_infos.size();
+            for (UINT i = 0; valid && i < cmd->num_descs; i++) {
+              D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                  inputs;
+              one.NumDescs = 1;
+              one.pGeometryDescs = &cmd->geometries[i];
+              valid = D3D12ResolveTriangleAccelerationStructureInfo(
+                  m_device, &one, metal_infos[i]);
+              primitive_count += metal_infos[i].triangle_count;
+            }
+            if (!valid ||
+                !metal_device.accelerationStructureSizesForTriangleGeometries(
+                    metal_infos.data(), cmd->num_descs, sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED multi-geometry descriptors");
+              break;
+            }
+            acceleration_structure = metal_device.newAccelerationStructure(
+                sizes.acceleration_structure_size);
+            encoded = acceleration_structure.handle &&
+                      cmdbuf.buildTriangleAccelerationStructures(
+                          acceleration_structure, metal_infos.data(),
+                          cmd->num_descs, scratch->GetMTLBuffer(),
+                          scratch_offset);
+            kind = "triangle geometries";
+            for (UINT i = 0; i < cmd->num_descs; i++) {
+              const auto &geometry = cmd->geometries[i];
+              if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                      geometry.Triangles.VertexBuffer.StartAddress))
+                st.RetainResourceMetalObjectsForCompletion(vertex);
+              if (geometry.Triangles.IndexBuffer) {
+                if (auto *index = m_device->LookupResourceByGPUAddress(
+                        geometry.Triangles.IndexBuffer))
+                  st.RetainResourceMetalObjectsForCompletion(index);
+              }
+            }
+          } else if (cmd->geometries[0].Type ==
+              D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+            WMTAABBAccelerationStructureInfo metal_info = {};
+            if (!D3D12ResolveAABBAccelerationStructureInfo(
+                    m_device, &inputs, metal_info) ||
+                !metal_device.accelerationStructureSizesForAABBs(metal_info,
+                                                                  sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED AABB descriptor/size query");
+              break;
+            }
+            const bool perform_update =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                0;
+            if (perform_update) {
+              auto *source = m_device->LookupResourceByGPUAddress(
+                  cmd->source_acceleration_structure);
+              acceleration_structure = dest->GetMTLAccelerationStructure();
+              if (!source || !source->GetMTLAccelerationStructure().handle ||
+                  !acceleration_structure.handle || !metal_info.allow_refit) {
+                QTRACE("BuildRaytracingAS SKIPPED AABB update state");
+                break;
+              }
+              encoded = cmdbuf.refitAABBAccelerationStructure(
+                  source->GetMTLAccelerationStructure(),
+                  acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                  scratch_offset);
+              if (encoded)
+                st.RetainResourceMetalObjectsForCompletion(source);
+            } else {
+              acceleration_structure = metal_device.newAccelerationStructure(
+                  sizes.acceleration_structure_size);
+              encoded = acceleration_structure.handle &&
+                        cmdbuf.buildAABBAccelerationStructure(
+                            acceleration_structure, metal_info,
+                            scratch->GetMTLBuffer(), scratch_offset);
+            }
+            primitive_count = metal_info.bounding_box_count;
+            kind = perform_update ? "AABB update" : "AABBs";
+            if (auto *aabbs = m_device->LookupResourceByGPUAddress(
+                    cmd->geometries[0].AABBs.AABBs.StartAddress))
+              st.RetainResourceMetalObjectsForCompletion(aabbs);
+          } else {
+            WMTPrimitiveAccelerationStructureInfo metal_info = {};
+            if (!D3D12ResolveTriangleAccelerationStructureInfo(
+                    m_device, &inputs, metal_info) ||
+                !metal_device.accelerationStructureSizesForTriangles(
+                    metal_info, sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED triangle descriptor/size query");
+              break;
+            }
+            const bool perform_update =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                0;
+            if (perform_update) {
+              auto *source = m_device->LookupResourceByGPUAddress(
+                  cmd->source_acceleration_structure);
+              acceleration_structure = dest->GetMTLAccelerationStructure();
+              if (!source || !source->GetMTLAccelerationStructure().handle ||
+                  !acceleration_structure.handle ||
+                  !metal_info.allow_refit) {
+                QTRACE("BuildRaytracingAS SKIPPED triangle update state");
+                break;
+              }
+              encoded = cmdbuf.refitTriangleAccelerationStructure(
+                  source->GetMTLAccelerationStructure(),
+                  acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                  scratch_offset);
+              if (encoded)
+                st.RetainResourceMetalObjectsForCompletion(source);
+            } else {
+              acceleration_structure = metal_device.newAccelerationStructure(
+                  sizes.acceleration_structure_size);
+              encoded = acceleration_structure.handle &&
+                        cmdbuf.buildTriangleAccelerationStructure(
+                            acceleration_structure, metal_info,
+                            scratch->GetMTLBuffer(), scratch_offset);
+            }
+            primitive_count = metal_info.triangle_count;
+            kind = perform_update ? "triangle update" : "triangles";
+            if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                    cmd->geometries[0].Triangles.VertexBuffer.StartAddress))
+              st.RetainResourceMetalObjectsForCompletion(vertex);
+            if (cmd->geometries[0].Triangles.IndexBuffer) {
+              if (auto *index = m_device->LookupResourceByGPUAddress(
+                      cmd->geometries[0].Triangles.IndexBuffer))
+                st.RetainResourceMetalObjectsForCompletion(index);
+            }
+          }
+        } else if (cmd->type ==
+                   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
+          auto *instance_resource =
+              m_device->LookupResourceByGPUAddress(cmd->instance_descs);
+          if (!instance_resource || !cmd->num_descs) {
+            QTRACE("BuildRaytracingAS SKIPPED TLAS instance resource");
+            break;
+          }
+          uint64_t instance_offset =
+              cmd->instance_descs - instance_resource->GetGPUVirtualAddress();
+          uint64_t instance_bytes =
+              uint64_t(cmd->num_descs) * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
+          if (instance_offset + instance_bytes >
+              instance_resource->GetBufferByteLength()) {
+            QTRACE("BuildRaytracingAS SKIPPED TLAS descriptors out-of-bounds");
+            break;
+          }
+          void *mapped = nullptr;
+          D3D12_RANGE read_range = {
+              static_cast<SIZE_T>(instance_offset),
+              static_cast<SIZE_T>(instance_offset + instance_bytes)};
+          HRESULT map_hr = instance_resource->Map(0, &read_range, &mapped);
+          if (FAILED(map_hr) || !mapped) {
+            QTRACE("BuildRaytracingAS SKIPPED TLAS descriptors not CPU-visible "
+                   "hr=0x%08x",
+                   (unsigned)map_hr);
+            break;
+          }
+          auto *d3d_instances = reinterpret_cast<
+              const D3D12_RAYTRACING_INSTANCE_DESC *>(
+              static_cast<const uint8_t *>(mapped) + instance_offset);
+          std::vector<WMTAccelerationStructureInstanceDescriptor>
+              metal_instances;
+          std::vector<obj_handle_t> instanced_structures;
+          std::vector<MTLD3D12Resource *> blas_resources;
+          std::vector<uint32_t> instance_contributions;
+          metal_instances.reserve(std::min<size_t>(
+              size_t(cmd->num_descs) * 2u, size_t(UINT32_MAX)));
+          instanced_structures.reserve(metal_instances.capacity());
+          blas_resources.reserve(metal_instances.capacity());
+          instance_contributions.reserve(metal_instances.capacity());
+          bool instances_valid = true;
+          for (UINT i = 0; i < cmd->num_descs; i++) {
+            const auto &source = d3d_instances[i];
+            auto *blas = m_device->LookupResourceByGPUAddress(
+                source.AccelerationStructure);
+            if (!blas || !blas->GetMTLAccelerationStructure().handle) {
+              instances_valid = false;
+              break;
+            }
+            bottom_level_pointers.push_back(source.AccelerationStructure);
+
+            auto append_instance = [&](obj_handle_t acceleration_structure,
+                                        uint32_t contribution) {
+              if (!acceleration_structure ||
+                  contribution < source.InstanceContributionToHitGroupIndex) {
+                return false;
+              }
+              WMTAccelerationStructureInstanceDescriptor target = {};
+              for (uint32_t column = 0; column < 4; column++) {
+                for (uint32_t row = 0; row < 3; row++) {
+                  target.transformation_matrix[column * 3 + row] =
+                      source.Transform[row][column];
+                }
+              }
+              target.options = source.Flags;
+              target.mask = source.InstanceMask;
+              // Metal's instance offset selects an
+              // intersection-function-table entry. D3D12's instance
+              // contribution instead selects an SBT record and is carried
+              // separately in the contributions buffer.
+              target.intersection_function_table_offset = 0;
+              target.acceleration_structure_index =
+                  static_cast<uint32_t>(instanced_structures.size());
+              target.user_id = source.InstanceID;
+              metal_instances.push_back(target);
+              instanced_structures.push_back(acceleration_structure);
+              blas_resources.push_back(blas);
+              instance_contributions.push_back(contribution);
+              return true;
+            };
+
+            if (blas->HasMixedAccelerationStructures()) {
+              // Metal 4 rejects a primitive descriptor array containing both
+              // triangle and AABB descriptor classes.  The tagged mixed
+              // resource therefore owns one native child BLAS of each kind;
+              // flatten those children into this TLAS so no nested TLAS is
+              // exposed to Metal and the D3D12 instance transform/mask/ID is
+              // preserved for both geometries.
+              auto triangle = blas->GetMixedTriangleAccelerationStructure();
+              auto aabb = blas->GetMixedAABBAccelerationStructure();
+              if (!triangle.handle || !aabb.handle ||
+                  source.InstanceContributionToHitGroupIndex == UINT_MAX ||
+                  !append_instance(
+                      triangle.handle,
+                      source.InstanceContributionToHitGroupIndex) ||
+                  !append_instance(
+                      aabb.handle,
+                      source.InstanceContributionToHitGroupIndex + 1u)) {
+                instances_valid = false;
+                break;
+              }
+            } else if (!append_instance(
+                           blas->GetMTLAccelerationStructure().handle,
+                           source.InstanceContributionToHitGroupIndex)) {
+              instances_valid = false;
+              break;
+            }
+          }
+          instance_resource->Unmap(0, nullptr);
+          if (!instances_valid) {
+            QTRACE("BuildRaytracingAS SKIPPED TLAS missing BLAS instance");
+            break;
+          }
+          auto metal_instance_buffer = st.MakeTransientBuffer(
+              m_device, metal_instances.size() * sizeof(metal_instances[0]));
+          if (!metal_instance_buffer.handle) {
+            QTRACE("BuildRaytracingAS SKIPPED TLAS descriptor allocation");
+            break;
+          }
+          metal_instance_buffer.updateContents(
+              0, metal_instances.data(),
+              metal_instances.size() * sizeof(metal_instances[0]));
+          const bool allow_update =
+              (cmd->flags &
+               D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+              0;
+          const uint64_t metal_instance_count = metal_instances.size();
+          if (!metal_instance_count ||
+              !metal_device.accelerationStructureSizesForInstances(
+                  metal_instance_count, allow_update, sizes)) {
+            QTRACE("BuildRaytracingAS SKIPPED TLAS size query");
+            break;
+          }
+          const bool perform_update =
+              (cmd->flags &
+               D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+              0;
+          if (perform_update) {
+            auto *source = m_device->LookupResourceByGPUAddress(
+                cmd->source_acceleration_structure);
+            acceleration_structure = dest->GetMTLAccelerationStructure();
+            if (!source || !source->GetMTLAccelerationStructure().handle ||
+                !acceleration_structure.handle || !allow_update) {
+              QTRACE("BuildRaytracingAS SKIPPED TLAS update state");
+              break;
+            }
+            encoded = cmdbuf.refitInstanceAccelerationStructure(
+                source->GetMTLAccelerationStructure(), acceleration_structure,
+                metal_instance_buffer, 0, metal_instance_count,
+                instanced_structures.data(), instanced_structures.size(),
+                scratch->GetMTLBuffer(), scratch_offset);
+            if (encoded)
+              st.RetainResourceMetalObjectsForCompletion(source);
+          } else {
+            acceleration_structure = metal_device.newAccelerationStructure(
+                sizes.acceleration_structure_size);
+            encoded = acceleration_structure.handle &&
+                      cmdbuf.buildInstanceAccelerationStructure(
+                          acceleration_structure, metal_instance_buffer, 0,
+                          metal_instance_count, instanced_structures.data(),
+                          instanced_structures.size(), allow_update,
+                          scratch->GetMTLBuffer(), scratch_offset);
+          }
+          if (encoded) {
+            st.RetainMTLObjectForCompletion(metal_instance_buffer);
+            st.RetainResourceMetalObjectsForCompletion(instance_resource);
+            for (auto *blas : blas_resources)
+              st.RetainResourceMetalObjectsForCompletion(blas);
+
+            uint64_t contributions_gpu_address = 0;
+            auto contributions_buffer = st.MakeTransientBuffer(
+                m_device,
+                std::max<uint64_t>(instance_contributions.size() *
+                                       sizeof(instance_contributions[0]),
+                                   16),
+                &contributions_gpu_address);
+            if (contributions_buffer.handle) {
+              contributions_buffer.updateContents(
+                  0, instance_contributions.data(),
+                  instance_contributions.size() *
+                      sizeof(instance_contributions[0]));
+            }
+            struct RaytracingAccelerationStructureHeader {
+              uint64_t acceleration_structure_id;
+              uint64_t instance_contributions_gpu_address;
+              uint64_t reserved[4];
+              uint32_t indirect_dispatch[3];
+              uint32_t padding;
+            } header_data = {};
+            static_assert(sizeof(header_data) == 64);
+            header_data.acceleration_structure_id =
+                acceleration_structure.gpuResourceID();
+            header_data.instance_contributions_gpu_address =
+                contributions_gpu_address;
+            uint64_t header_gpu_address = 0;
+            auto header_buffer = st.MakeTransientBuffer(
+                m_device, sizeof(header_data), &header_gpu_address);
+            if (header_buffer.handle)
+              header_buffer.updateContents(0, &header_data,
+                                           sizeof(header_data));
+            if (header_buffer.handle && contributions_buffer.handle &&
+                header_gpu_address) {
+              dest->SetRaytracingHeaderBuffers(
+                  header_buffer, header_gpu_address, contributions_buffer,
+                  contributions_gpu_address);
+              st.RetainMTLObjectForCompletion(header_buffer);
+              st.RetainMTLObjectForCompletion(contributions_buffer);
+              QTRACE("BuildRaytracingAS TLAS header gpu=0x%llx id=0x%llx "
+                     "contributions=0x%llx",
+                     (unsigned long long)header_gpu_address,
+                     (unsigned long long)
+                         header_data.acceleration_structure_id,
+                     (unsigned long long)contributions_gpu_address);
+            } else {
+              encoded = false;
+            }
+          }
+          primitive_count = cmd->num_descs;
+          kind = perform_update ? "instance update" : "instances";
+        }
+
+        if (encoded) {
+          dest->SetMTLAccelerationStructure(
+              acceleration_structure, sizes.acceleration_structure_size);
+          if (mixed_compound)
+            dest->SetMixedAccelerationStructures(std::move(mixed_triangle_child),
+                                                 std::move(mixed_aabb_child));
+          dest->SetRaytracingBuildInfo(
+              cmd->type,
+              cmd->type ==
+                      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
+                  ? cmd->num_descs
+                  : 0,
+              bottom_level_pointers);
+          st.RetainMTLObjectForCompletion(acceleration_structure);
+          st.RetainResourceMetalObjectsForCompletion(dest);
+          st.RetainResourceMetalObjectsForCompletion(scratch);
+          QTRACE("BuildRaytracingAS encoded %s=%llu as=%llu "
+                 "result_bytes=%llu scratch_bytes=%llu",
+                 kind, (unsigned long long)primitive_count,
+                 (unsigned long long)acceleration_structure.handle,
+                 (unsigned long long)sizes.acceleration_structure_size,
+                 (unsigned long long)sizes.build_scratch_buffer_size);
+        } else {
+          QTRACE("BuildRaytracingAS SKIPPED Metal encoder failed");
+        }
+        break;
+      }
+      case CmdType::CopyRaytracingAccelerationStructure: {
+        auto *cmd = reinterpret_cast<
+            const CmdCopyRaytracingAccelerationStructure *>(header);
+        auto *source = m_device->LookupResourceByGPUAddress(
+            cmd->source_acceleration_structure);
+        auto *destination = m_device->LookupResourceByGPUAddress(
+            cmd->destination_acceleration_structure);
+        if (cmd->mode ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_SERIALIZE) {
+          const uint64_t bottom_level_pointer_count =
+              source ? source->GetRaytracingBottomLevelPointerCount() : 0;
+          const uint64_t blob_size =
+              MTLD3D12Resource::SerializedAccelerationStructureBlobSize(
+                  bottom_level_pointer_count);
+          if (!source || !destination ||
+              !source->GetMTLAccelerationStructure().handle ||
+              !source->GetMTLAccelerationStructureSize() ||
+              !destination->GetMTLBuffer().handle) {
+            QTRACE("CopyRaytracingAS SERIALIZE skipped source=%p destination=%p",
+                   (void *)source, (void *)destination);
+            break;
+          }
+          const uint64_t destination_offset =
+              cmd->destination_acceleration_structure -
+              destination->GetGPUVirtualAddress();
+          if (destination_offset + blob_size >
+              destination->GetBufferByteLength()) {
+            QTRACE("CopyRaytracingAS SERIALIZE skipped out-of-bounds");
+            break;
+          }
+          struct MetalSharpSerializedAccelerationStructureData {
+            uint64_t magic;
+            uint32_t version;
+            uint32_t type;
+            uint64_t acceleration_structure_size;
+            uint64_t reserved[4];
+          } driver_data = {};
+          D3D12_SERIALIZED_RAYTRACING_ACCELERATION_STRUCTURE_HEADER
+              serialized_header = {};
+          serialized_header.DriverMatchingIdentifier =
+              m_device->GetRaytracingSerializationIdentifier();
+          serialized_header.SerializedSizeInBytesIncludingHeader = blob_size;
+          serialized_header.DeserializedSizeInBytes =
+              source->GetMTLAccelerationStructureSize();
+          serialized_header.NumBottomLevelAccelerationStructurePointersAfterHeader =
+              bottom_level_pointer_count;
+          driver_data.magic = 0x4d54534153455231ull; // "MTSASER1"
+          driver_data.version = 1;
+          driver_data.type = source->GetRaytracingType();
+          driver_data.acceleration_structure_size =
+              source->GetMTLAccelerationStructureSize();
+          std::vector<uint8_t> serialized_blob(blob_size);
+          std::memcpy(serialized_blob.data(), &serialized_header,
+                      sizeof(serialized_header));
+          const uint64_t driver_data_offset =
+              sizeof(serialized_header) +
+              bottom_level_pointer_count *
+                  sizeof(D3D12_GPU_VIRTUAL_ADDRESS);
+          const auto &bottom_level_pointers =
+              source->GetRaytracingBottomLevelPointers();
+          for (uint64_t i = 0; i < bottom_level_pointer_count; i++) {
+            const D3D12_GPU_VIRTUAL_ADDRESS pointer =
+                i < bottom_level_pointers.size() ? bottom_level_pointers[i]
+                                                 : 0;
+            std::memcpy(serialized_blob.data() + sizeof(serialized_header) +
+                            i * sizeof(pointer),
+                        &pointer, sizeof(pointer));
+          }
+          std::memcpy(serialized_blob.data() + driver_data_offset,
+                      &driver_data, sizeof(driver_data));
+          destination->GetMTLBuffer().updateContents(
+              destination_offset, serialized_blob.data(),
+              serialized_blob.size());
+          destination->SetSerializedAccelerationStructure(
+              source->GetMTLAccelerationStructure(),
+              source->GetMTLAccelerationStructureSize(),
+              source->GetRaytracingType(),
+              source->GetRaytracingBottomLevelPointerCount(),
+              source->GetRaytracingBottomLevelPointers(),
+              source->GetRaytracingInstanceContributionsBuffer(),
+              source->GetRaytracingInstanceContributionsGPUAddress(),
+              destination_offset, blob_size);
+          st.RetainResourceMetalObjectsForCompletion(source);
+          st.RetainResourceMetalObjectsForCompletion(destination);
+          QTRACE("CopyRaytracingAS SERIALIZE bytes=%llu source=%p destination=%p+%llu",
+                 (unsigned long long)blob_size, (void *)source,
+                 (void *)destination,
+                 (unsigned long long)destination_offset);
+          break;
+        }
+
+        const bool deserialize =
+            cmd->mode ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE;
+        WMT::Reference<WMT::AccelerationStructure> copy_source;
+        uint64_t copy_source_size = 0;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE copy_source_type =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        uint64_t bottom_level_pointer_count = 0;
+        std::vector<D3D12_GPU_VIRTUAL_ADDRESS> bottom_level_pointers;
+        WMT::Reference<WMT::Buffer> instance_contributions_buffer;
+        uint64_t instance_contributions_gpu_address = 0;
+        if (deserialize && source) {
+          const uint64_t source_offset =
+              cmd->source_acceleration_structure -
+              source->GetGPUVirtualAddress();
+          if (source->HasSerializedAccelerationStructureAt(source_offset)) {
+            copy_source = source->GetSerializedAccelerationStructure();
+            copy_source_size =
+                source->GetSerializedAccelerationStructureSize();
+            copy_source_type = source->GetSerializedRaytracingType();
+            bottom_level_pointer_count =
+                source->GetSerializedBottomLevelPointerCount();
+            bottom_level_pointers =
+                source->GetSerializedBottomLevelPointers();
+            instance_contributions_buffer =
+                source->GetSerializedInstanceContributionsBuffer();
+            instance_contributions_gpu_address =
+                source->GetSerializedInstanceContributionsGPUAddress();
+          }
+        } else if (source) {
+          copy_source = source->GetMTLAccelerationStructure();
+          copy_source_size = source->GetMTLAccelerationStructureSize();
+          copy_source_type = source->GetRaytracingType();
+          bottom_level_pointer_count =
+              source->GetRaytracingBottomLevelPointerCount();
+          bottom_level_pointers = source->GetRaytracingBottomLevelPointers();
+          instance_contributions_buffer =
+              source->GetRaytracingInstanceContributionsBuffer();
+          instance_contributions_gpu_address =
+              source->GetRaytracingInstanceContributionsGPUAddress();
+        }
+        const bool compact =
+            cmd->mode ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT;
+        if ((!compact && !deserialize &&
+             cmd->mode !=
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE) ||
+            !source || !destination || !copy_source.handle ||
+            !copy_source_size) {
+          QTRACE("CopyRaytracingAS SKIPPED mode=%u source=%p destination=%p",
+                 (unsigned)cmd->mode, (void *)source, (void *)destination);
+          break;
+        }
+        st.CloseRenderEncoder();
+        auto copied = m_device->GetMTLDevice().newAccelerationStructure(
+            copy_source_size);
+        const bool copied_ok =
+            copied.handle &&
+            (compact ? cmdbuf.copyAndCompactAccelerationStructure(
+                           copy_source, copied)
+                     : cmdbuf.copyAccelerationStructure(
+                           copy_source, copied));
+        if (!copied_ok) {
+          QTRACE("CopyRaytracingAS SKIPPED Metal copy failed mode=%u",
+                 (unsigned)cmd->mode);
+          break;
+        }
+        destination->SetMTLAccelerationStructure(
+            copied, copy_source_size);
+        destination->SetRaytracingBuildInfo(copy_source_type,
+                                            bottom_level_pointer_count,
+                                            bottom_level_pointers);
+        if (copy_source_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
+          struct RaytracingAccelerationStructureHeader {
+            uint64_t acceleration_structure_id;
+            uint64_t instance_contributions_gpu_address;
+            uint64_t reserved[4];
+            uint32_t indirect_dispatch[3];
+            uint32_t padding;
+          } header_data = {};
+          static_assert(sizeof(header_data) == 64);
+          header_data.acceleration_structure_id = copied.gpuResourceID();
+          header_data.instance_contributions_gpu_address =
+              instance_contributions_gpu_address;
+          uint64_t header_gpu_address = 0;
+          auto header_buffer = st.MakeTransientBuffer(
+              m_device, sizeof(header_data), &header_gpu_address);
+          if (!header_buffer.handle || !instance_contributions_buffer.handle ||
+              !header_gpu_address) {
+            QTRACE("CopyRaytracingAS SKIPPED TLAS header rebuild mode=%u",
+                   (unsigned)cmd->mode);
+            break;
+          }
+          header_buffer.updateContents(0, &header_data, sizeof(header_data));
+          destination->SetRaytracingHeaderBuffers(
+              header_buffer, header_gpu_address,
+              instance_contributions_buffer,
+              instance_contributions_gpu_address);
+          st.RetainMTLObjectForCompletion(header_buffer);
+          st.RetainMTLObjectForCompletion(instance_contributions_buffer);
+        }
+        st.RetainMTLObjectForCompletion(copied);
+        st.RetainResourceMetalObjectsForCompletion(source);
+        st.RetainResourceMetalObjectsForCompletion(destination);
+        QTRACE("CopyRaytracingAS mode=%u allocation_bytes=%llu source=%p destination=%p",
+               (unsigned)cmd->mode,
+               (unsigned long long)copy_source_size,
+               (void *)source, (void *)destination);
+        break;
+      }
+      case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo: {
+        auto *cmd = reinterpret_cast<const
+            CmdEmitRaytracingAccelerationStructurePostbuildInfo *>(header);
+        auto *source = m_device->LookupResourceByGPUAddress(
+            cmd->source_acceleration_structure);
+        auto *dest = m_device->LookupResourceByGPUAddress(cmd->dest_buffer);
+        const bool current_size_info =
+            cmd->info_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+        const bool compacted_size_info =
+            cmd->info_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+        const bool serialization_info =
+            cmd->info_type ==
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION;
+        if ((!current_size_info && !compacted_size_info &&
+             !serialization_info) || !source ||
+            !source->GetMTLAccelerationStructure().handle || !dest ||
+            !dest->GetMTLBuffer().handle) {
+          QTRACE("EmitRaytracingPostbuildInfo SKIPPED type=%u source=%p "
+                 "dest=%p",
+                 (unsigned)cmd->info_type, (void *)source, (void *)dest);
+          break;
+        }
+        uint64_t dest_offset = cmd->dest_buffer - dest->GetGPUVirtualAddress();
+        const uint64_t info_size =
+            serialization_info
+                ? sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC)
+                : sizeof(uint64_t);
+        if (dest_offset + info_size > dest->GetBufferByteLength()) {
+          QTRACE("EmitRaytracingPostbuildInfo SKIPPED out-of-bounds");
+          break;
+        }
+        uint64_t current_size = source->GetMTLAccelerationStructureSize();
+        if (current_size_info) {
+          dest->GetMTLBuffer().updateContents(dest_offset, &current_size,
+                                              sizeof(current_size));
+        } else if (serialization_info) {
+          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_SERIALIZATION_DESC
+              serialization = {};
+          serialization.SerializedSizeInBytes =
+              MTLD3D12Resource::SerializedAccelerationStructureBlobSize(
+                  source->GetRaytracingBottomLevelPointerCount());
+          serialization.NumBottomLevelAccelerationStructurePointers =
+              source->GetRaytracingBottomLevelPointerCount();
+          dest->GetMTLBuffer().updateContents(dest_offset, &serialization,
+                                              sizeof(serialization));
+        } else {
+          st.CloseRenderEncoder();
+          if (!cmdbuf.writeCompactedAccelerationStructureSize(
+                  source->GetMTLAccelerationStructure(), dest->GetMTLBuffer(),
+                  dest_offset)) {
+            QTRACE("EmitRaytracingPostbuildInfo SKIPPED compacted-size encoder");
+            break;
+          }
+        }
+        st.RetainResourceMetalObjectsForCompletion(source);
+        st.RetainResourceMetalObjectsForCompletion(dest);
+        QTRACE("EmitRaytracingPostbuildInfo type=%u current_allocation=%llu dest=0x%llx",
+               (unsigned)cmd->info_type,
+               (unsigned long long)current_size,
+               (unsigned long long)cmd->dest_buffer);
+        break;
+      }
+      case CmdType::SetPipelineState1: {
+        auto *cmd = reinterpret_cast<const CmdSetPipelineState1 *>(header);
+        auto pipeline = GetD3D12StateObjectRaygenComputePipeline(
+            cmd->state_object);
+        auto visible_table =
+            GetD3D12StateObjectRaygenVisibleFunctionTable(cmd->state_object);
+        auto intersection_table =
+            GetD3D12StateObjectIntersectionFunctionTable(cmd->state_object);
+        if (pipeline.handle && visible_table.handle) {
+          st.raytracing_state = cmd->state_object;
+          st.raytracing_compute_pso = pipeline;
+          st.raytracing_visible_function_table = visible_table;
+          st.raytracing_intersection_function_table = intersection_table;
+          QTRACE("SetPipelineState1 state=%p raygen_pso=%llu table=%llu",
+                 (void *)cmd->state_object,
+                 (unsigned long long)pipeline.handle,
+                 (unsigned long long)visible_table.handle);
+        } else {
+          QTRACE("SetPipelineState1 SKIPPED state=%p pipeline=%llu table=%llu",
+                 (void *)cmd->state_object,
+                 (unsigned long long)pipeline.handle,
+                 (unsigned long long)visible_table.handle);
+        }
+        break;
+      }
+      case CmdType::DispatchRays: {
+        auto *cmd = reinterpret_cast<const CmdDispatchRays *>(header);
+        if (!st.raytracing_compute_pso.handle ||
+            !cmd->desc.RayGenerationShaderRecord.StartAddress ||
+            cmd->desc.RayGenerationShaderRecord.SizeInBytes < 32 ||
+            !cmd->desc.Width || !cmd->desc.Height || !cmd->desc.Depth) {
+          QTRACE("DispatchRays SKIPPED pso=%p dimensions=%ux%ux%u "
+                 "raygen=0x%llx size=%llu",
+                 (void *)(uintptr_t)st.raytracing_compute_pso.handle,
+                 cmd->desc.Width, cmd->desc.Height,
+                 cmd->desc.Depth,
+                 (unsigned long long)
+                     cmd->desc.RayGenerationShaderRecord.StartAddress,
+                 (unsigned long long)
+                     cmd->desc.RayGenerationShaderRecord.SizeInBytes);
+          break;
+        }
+        if (!ReplayRaytracingDispatch(st, m_device, cmdbuf, cmd->desc))
+          QTRACE("DispatchRays SKIPPED ray dispatch encoding failed");
+        break;
+      }
       case CmdType::Dispatch: {
         auto *cmd = reinterpret_cast<const CmdDispatch *>(header);
         ReplayComputeDispatch(st, m_device, cmdbuf, cmd->x, cmd->y, cmd->z,
                               "Dispatch");
+        break;
+      }
+      case CmdType::DispatchMesh: {
+        auto *cmd = reinterpret_cast<const CmdDispatchMesh *>(header);
+        QTRACE("DispatchMesh groups=%ux%ux%u pso=%p", cmd->x, cmd->y, cmd->z,
+               (void *)st.pso);
+        st.EnsureRenderEncoder(m_device);
+        st.ApplyRootBindings(m_device);
+        st.BuildVertexArgumentBuffer(m_device);
+        st.BuildGeometryArgumentBuffer(m_device);
+        st.BuildConstantBufferTable(m_device);
+        st.BuildArgumentBuffer(m_device);
+        st.BindGeometryMeshBuffers();
+        st.BindDirectFragmentCompleteness(m_device, "dispatch_mesh");
+        if (st.EncodeNativeMeshDispatch(cmd->x, cmd->y, cmd->z)) {
+          const uint64_t group_count = uint64_t(cmd->x) * cmd->y * cmd->z;
+          st.pipeline_statistics.ASInvocations += group_count;
+          st.pipeline_statistics.MSInvocations += group_count;
+          st.pipeline_statistics.MSPrimitives += group_count;
+        } else {
+          QTRACE("DispatchMesh SKIPPED groups=%ux%ux%u enc_open=%d pso=%p "
+                 "compiled=%d native_mesh=%d stage=%s detail=%s",
+                 cmd->x, cmd->y, cmd->z, st.render_enc_open, (void *)st.pso,
+                 st.pso ? st.pso->IsCompiled() : 0,
+                 st.pso ? st.pso->UsesNativeMeshPipeline() : 0,
+                 TraceCompileFailureStage(st.pso),
+                 TraceCompileFailureDetail(st.pso));
+        }
         break;
       }
       case CmdType::ExecuteIndirect: {
@@ -6836,7 +10637,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
 
         auto replay_indirect_draw = [&](const D3D12_DRAW_ARGUMENTS &args) {
-          st.EnsureRenderEncoder();
+          st.EnsureRenderEncoder(m_device);
           st.ApplyRootBindings(m_device);
           st.BuildVertexConstantBufferTable(m_device);
           st.BuildVertexArgumentBuffer(m_device);
@@ -6913,7 +10714,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
 
         auto replay_indirect_draw_indexed =
             [&](const D3D12_DRAW_INDEXED_ARGUMENTS &args) {
-              st.EnsureRenderEncoder();
+              st.EnsureRenderEncoder(m_device);
               st.ApplyRootBindings(m_device);
               st.BuildVertexConstantBufferTable(m_device);
               st.BuildVertexArgumentBuffer(m_device);
@@ -7062,6 +10863,52 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                     "ExecuteIndirect DISPATCH");
               }
               break;
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+              if (!can_read(sizeof(D3D12_DISPATCH_RAYS_DESC))) {
+                valid_record = false;
+                break;
+              }
+              {
+                D3D12_DISPATCH_RAYS_DESC args = {};
+                memcpy(&args, src, sizeof(args));
+                cursor += sizeof(args);
+                QTRACE("ExecuteIndirect DISPATCH_RAYS dimensions=%ux%ux%u",
+                       args.Width, args.Height, args.Depth);
+                if (!st.raytracing_compute_pso.handle ||
+                    !args.RayGenerationShaderRecord.StartAddress ||
+                    args.RayGenerationShaderRecord.SizeInBytes < 32 ||
+                    !args.Width || !args.Height || !args.Depth ||
+                    !ReplayRaytracingDispatch(st, m_device, cmdbuf, args)) {
+                  QTRACE("ExecuteIndirect DISPATCH_RAYS skipped invalid state or encoding failure");
+                }
+              }
+              break;
+            case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+              if (!can_read(sizeof(D3D12_DISPATCH_MESH_ARGUMENTS))) {
+                valid_record = false;
+                break;
+              }
+              {
+                D3D12_DISPATCH_MESH_ARGUMENTS args = {};
+                memcpy(&args, src, sizeof(args));
+                cursor += sizeof(args);
+                QTRACE("ExecuteIndirect DISPATCH_MESH groups=%ux%ux%u",
+                       args.ThreadGroupCountX, args.ThreadGroupCountY,
+                       args.ThreadGroupCountZ);
+                st.EnsureRenderEncoder(m_device);
+                st.ApplyRootBindings(m_device);
+                st.BuildVertexArgumentBuffer(m_device);
+                st.BuildGeometryArgumentBuffer(m_device);
+                st.BuildConstantBufferTable(m_device);
+                st.BuildArgumentBuffer(m_device);
+                st.BindGeometryMeshBuffers();
+                st.BindDirectFragmentCompleteness(
+                    m_device, "execute_indirect_dispatch_mesh");
+                st.EncodeNativeMeshDispatch(args.ThreadGroupCountX,
+                                            args.ThreadGroupCountY,
+                                            args.ThreadGroupCountZ);
+              }
+              break;
             case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW: {
               if (!can_read(sizeof(D3D12_VERTEX_BUFFER_VIEW))) {
                 valid_record = false;
@@ -7185,26 +11032,103 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           auto *src_res = static_cast<MTLD3D12Resource *>(cmd->src);
           if (dst_res->GetMTLBuffer().handle &&
               src_res->GetMTLBuffer().handle) {
+            auto source_serialized_acceleration_structure =
+                src_res->GetSerializedAccelerationStructure();
+            const uint64_t source_serialized_size =
+                src_res->GetSerializedAccelerationStructureSize();
+            const auto source_serialized_type =
+                src_res->GetSerializedRaytracingType();
+            const uint64_t source_serialized_pointer_count =
+                src_res->GetSerializedBottomLevelPointerCount();
+            const auto source_serialized_pointers =
+                src_res->GetSerializedBottomLevelPointers();
+            auto source_serialized_contributions =
+                src_res->GetSerializedInstanceContributionsBuffer();
+            const uint64_t source_serialized_contributions_gpu_address =
+                src_res->GetSerializedInstanceContributionsGPUAddress();
+            const uint64_t existing_serialized_offset =
+                dst_res->GetSerializedAccelerationStructureOffset();
+            const uint64_t existing_serialized_blob_size =
+                dst_res->GetSerializedAccelerationStructureBlobSize();
+            if (dst_res->GetSerializedAccelerationStructure().handle &&
+                cmd->dst_offset <
+                    existing_serialized_offset +
+                        existing_serialized_blob_size &&
+                existing_serialized_offset <
+                    cmd->dst_offset + cmd->byte_count) {
+              dst_res->ClearSerializedAccelerationStructure();
+            }
+            const uint64_t source_serialized_offset =
+                src_res->GetSerializedAccelerationStructureOffset();
+            const uint64_t source_serialized_blob_size =
+                src_res->GetSerializedAccelerationStructureBlobSize();
+            if (source_serialized_acceleration_structure.handle &&
+                cmd->src_offset <= source_serialized_offset &&
+                source_serialized_offset + source_serialized_blob_size <=
+                    cmd->src_offset + cmd->byte_count) {
+              const uint64_t copied_serialized_offset =
+                  cmd->dst_offset +
+                  (source_serialized_offset - cmd->src_offset);
+              if (copied_serialized_offset + source_serialized_blob_size <=
+                  dst_res->GetBufferByteLength()) {
+                dst_res->SetSerializedAccelerationStructure(
+                    source_serialized_acceleration_structure,
+                    source_serialized_size, source_serialized_type,
+                    source_serialized_pointer_count,
+                    source_serialized_pointers,
+                    source_serialized_contributions,
+                    source_serialized_contributions_gpu_address,
+                    copied_serialized_offset,
+                    source_serialized_blob_size);
+              }
+            }
             st.RetainResourceMetalObjectsForCompletion(dst_res);
             st.RetainResourceMetalObjectsForCompletion(src_res);
-            auto blit = cmdbuf.blitCommandEncoder();
-            ENC_CREATE("blit_copybuf", blit.handle);
-            ScopedMetalEncoderEnd blit_guard{blit, "blit_copybuf"};
-            if (!blit.handle) {
-              QTRACE("CopyBufferRegion: FAILED to create blit encoder");
-              break;
+            if (dst_res->IsNativeSparseBuffer() ||
+                src_res->IsNativeSparseBuffer()) {
+              WMT::Reference<WMT::Heap> sparse_heap =
+                  dst_res->GetSparseHeap();
+              if (!sparse_heap.handle)
+                sparse_heap = src_res->GetSparseHeap();
+              if (!m_wmt4_queue.handle || !sparse_heap.handle) {
+                QTRACE("CopyBufferRegion: native sparse copy missing Metal 4 "
+                       "queue or heap");
+                break;
+              }
+              WMT::Buffer source_buffer{src_res->GetMTLBuffer().handle};
+              WMT::Buffer destination_buffer{dst_res->GetMTLBuffer().handle};
+              WMT::Heap residency_heap{sparse_heap.handle};
+              const bool success = m_wmt4_queue.copyBuffer(
+                  source_buffer, cmd->src_offset, destination_buffer,
+                  cmd->dst_offset, cmd->byte_count, residency_heap);
+              QTRACE("CopyBufferRegion native sparse Metal 4 src=%p+%llu "
+                     "dst=%p+%llu bytes=%llu success=%d",
+                     (void *)src_res,
+                     (unsigned long long)cmd->src_offset, (void *)dst_res,
+                     (unsigned long long)cmd->dst_offset,
+                     (unsigned long long)cmd->byte_count, success);
+              if (!success)
+                break;
+            } else {
+              auto blit = cmdbuf.blitCommandEncoder();
+              ENC_CREATE("blit_copybuf", blit.handle);
+              ScopedMetalEncoderEnd blit_guard{blit, "blit_copybuf"};
+              if (!blit.handle) {
+                QTRACE("CopyBufferRegion: FAILED to create blit encoder");
+                break;
+              }
+              struct wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
+              copy.type = WMTBlitCommandCopyFromBufferToBuffer;
+              copy.next.set(nullptr);
+              copy.src = src_res->GetMTLBuffer().handle;
+              copy.src_offset = cmd->src_offset;
+              copy.dst = dst_res->GetMTLBuffer().handle;
+              copy.dst_offset = cmd->dst_offset;
+              copy.copy_length = cmd->byte_count;
+              blit.encodeCommands(
+                  reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+              EndMetalEncoder(blit, "blit_copybuf");
             }
-            struct wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
-            copy.type = WMTBlitCommandCopyFromBufferToBuffer;
-            copy.next.set(nullptr);
-            copy.src = src_res->GetMTLBuffer().handle;
-            copy.src_offset = cmd->src_offset;
-            copy.dst = dst_res->GetMTLBuffer().handle;
-            copy.dst_offset = cmd->dst_offset;
-            copy.copy_length = cmd->byte_count;
-            blit.encodeCommands(
-                reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
-            EndMetalEncoder(blit, "blit_copybuf");
           }
         }
         break;
@@ -7335,6 +11259,24 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           uint64_t rows_per_image = FootprintRows(
               cmd->src_footprint_height ? cmd->src_footprint_height : copy_h,
               src_format);
+          if (dst_res->IsShadingRateImage() && src_buf.handle &&
+              src_format == DXGI_FORMAT_R8_UINT && copy_d == 1 &&
+              src_offset <= src_res->GetBufferByteLength() &&
+              uint64_t(copy_h ? copy_h - 1 : 0) * row_pitch + copy_w <=
+                  src_res->GetBufferByteLength() - src_offset) {
+            void *mapped = nullptr;
+            D3D12_RANGE read_range = {
+                static_cast<SIZE_T>(src_offset),
+                static_cast<SIZE_T>(src_offset +
+                                    uint64_t(copy_h ? copy_h - 1 : 0) *
+                                        row_pitch + copy_w)};
+            if (SUCCEEDED(src_res->Map(0, &read_range, &mapped)) && mapped) {
+              dst_res->UpdateShadingRateImage(
+                  static_cast<const uint8_t *>(mapped) + src_offset, row_pitch,
+                  cmd->dst_x, cmd->dst_y, copy_w, copy_h);
+              src_res->Unmap(0, nullptr);
+            }
+          }
           struct wmtcmd_blit_copy_from_buffer_to_texture copy = {};
           copy.type = WMTBlitCommandCopyFromBufferToTexture;
           copy.next.set(nullptr);
@@ -7502,6 +11444,186 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                cmd->format, cmd->mode, cmd->has_src_rect, cmd->dst_x,
                cmd->dst_y);
 
+        if (dst_res->IsSamplerFeedback() &&
+            cmd->mode == D3D12_RESOLVE_MODE_ENCODE_SAMPLER_FEEDBACK) {
+          const uint32_t feedback_mip =
+              dst_desc.Format ==
+                      DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE
+                  ? 0
+                  : SubresourceMipLevel(dst_desc, cmd->dst_sub);
+          const auto *feedback_layout =
+              dst_res->GetSamplerFeedbackLevelLayout(feedback_mip);
+          if (!feedback_layout || cmd->format != DXGI_FORMAT_R8_UINT ||
+              !src_res->GetMTLTexture().handle ||
+              !dst_res->GetMTLBuffer().handle) {
+            QTRACE("ResolveSubresource sampler-feedback encode rejected src_fmt=%u dst_fmt=%u src_tex=%llu dst_buf=%llu",
+                   (unsigned)src_desc.Format, (unsigned)cmd->format,
+                   (unsigned long long)src_res->GetMTLTexture().handle,
+                   (unsigned long long)dst_res->GetMTLBuffer().handle);
+            break;
+          }
+          const uint32_t src_mip =
+              SubresourceMipLevel(src_desc, cmd->src_sub);
+          const uint32_t src_slice =
+              SubresourceArraySlice(src_desc, cmd->src_sub);
+          const uint32_t dst_slice =
+              SubresourceArraySlice(dst_desc, cmd->dst_sub);
+          const uint32_t full_w = MipSize(src_desc.Width, src_mip);
+          const uint32_t full_h =
+              MipSize(std::max<UINT>(src_desc.Height, 1), src_mip);
+          const uint32_t src_x = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.left, 0)
+                                     : 0;
+          const uint32_t src_y = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.top, 0)
+                                     : 0;
+          const uint32_t copy_w =
+              std::min<uint32_t>(
+                  cmd->has_src_rect
+                      ? std::max<LONG>(cmd->src_rect.right -
+                                           cmd->src_rect.left,
+                                       0)
+                      : full_w,
+                  feedback_layout->width -
+                      std::min<uint32_t>(cmd->dst_x,
+                                         feedback_layout->width));
+          const uint32_t copy_h =
+              std::min<uint32_t>(
+                  cmd->has_src_rect
+                      ? std::max<LONG>(cmd->src_rect.bottom -
+                                           cmd->src_rect.top,
+                                       0)
+                      : full_h,
+                  feedback_layout->height -
+                      std::min<uint32_t>(cmd->dst_y,
+                                         feedback_layout->height));
+          if (!copy_w || !copy_h)
+            break;
+          const uint64_t bytes_per_image =
+              uint64_t(feedback_layout->row_pitch) *
+              feedback_layout->height;
+          const uint64_t dst_offset =
+              feedback_layout->offset +
+              uint64_t(dst_slice) * bytes_per_image +
+              uint64_t(cmd->dst_y) * feedback_layout->row_pitch + cmd->dst_x;
+          st.CloseRenderEncoder();
+          st.RetainResourceMetalObjectsForCompletion(src_res);
+          st.RetainResourceMetalObjectsForCompletion(dst_res);
+          auto blit = cmdbuf.blitCommandEncoder();
+          ENC_CREATE("blit_encode_sampler_feedback", blit.handle);
+          ScopedMetalEncoderEnd blit_guard{blit,
+                                           "blit_encode_sampler_feedback"};
+          if (!blit.handle)
+            break;
+          struct wmtcmd_blit_copy_from_texture_to_buffer copy = {};
+          copy.type = WMTBlitCommandCopyFromTextureToBuffer;
+          copy.next.set(nullptr);
+          copy.src = src_res->GetMTLTexture().handle;
+          copy.slice = src_slice;
+          copy.level = src_mip;
+          copy.origin = {src_x, src_y, 0};
+          copy.size = {copy_w, copy_h, 1};
+          copy.dst = dst_res->GetMTLBuffer().handle;
+          copy.offset = dst_offset;
+          copy.bytes_per_row = feedback_layout->row_pitch;
+          copy.bytes_per_image = bytes_per_image;
+          blit.encodeCommands(
+              reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+          EndMetalEncoder(blit, "blit_encode_sampler_feedback");
+          QTRACE("ResolveSubresource sampler-feedback encode mip=%u slice=%u rect=%u,%u %ux%u dst=%u,%u",
+                 feedback_mip, dst_slice, src_x, src_y, copy_w, copy_h,
+                 cmd->dst_x, cmd->dst_y);
+          break;
+        }
+
+        if (src_res->IsSamplerFeedback() &&
+            cmd->mode == D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK) {
+          const uint32_t feedback_mip =
+              src_desc.Format ==
+                      DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE
+                  ? 0
+                  : SubresourceMipLevel(src_desc, cmd->src_sub);
+          const auto *feedback_layout =
+              src_res->GetSamplerFeedbackLevelLayout(feedback_mip);
+          if (!feedback_layout || cmd->format != DXGI_FORMAT_R8_UINT ||
+              !src_res->GetMTLBuffer().handle ||
+              !dst_res->GetMTLTexture().handle) {
+            QTRACE("ResolveSubresource sampler-feedback decode rejected src_fmt=%u dst_fmt=%u src_buf=%llu dst_tex=%llu",
+                   (unsigned)src_desc.Format, (unsigned)cmd->format,
+                   (unsigned long long)src_res->GetMTLBuffer().handle,
+                   (unsigned long long)dst_res->GetMTLTexture().handle);
+            break;
+          }
+          const uint32_t map_width = feedback_layout->width;
+          const uint32_t map_height = feedback_layout->height;
+          const uint32_t row_pitch = feedback_layout->row_pitch;
+          const uint32_t src_x = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.left, 0)
+                                     : 0;
+          const uint32_t src_y = cmd->has_src_rect
+                                     ? std::max<LONG>(cmd->src_rect.top, 0)
+                                     : 0;
+          const uint32_t copy_w = cmd->has_src_rect
+                                      ? std::min<uint32_t>(
+                                            map_width -
+                                                std::min(src_x, map_width),
+                                            std::max<LONG>(
+                                                cmd->src_rect.right -
+                                                    cmd->src_rect.left,
+                                                0))
+                                      : map_width;
+          const uint32_t copy_h = cmd->has_src_rect
+                                      ? std::min<uint32_t>(
+                                            map_height -
+                                                std::min(src_y, map_height),
+                                            std::max<LONG>(
+                                                cmd->src_rect.bottom -
+                                                    cmd->src_rect.top,
+                                                0))
+                                      : map_height;
+          if (!copy_w || !copy_h)
+            break;
+          const uint32_t dst_mip =
+              SubresourceMipLevel(dst_desc, cmd->dst_sub);
+          const uint32_t dst_slice =
+              SubresourceArraySlice(dst_desc, cmd->dst_sub);
+          const uint32_t src_slice =
+              SubresourceArraySlice(src_desc, cmd->src_sub);
+          const uint64_t bytes_per_image = uint64_t(row_pitch) * map_height;
+          const uint64_t src_offset =
+              feedback_layout->offset +
+              uint64_t(src_slice) * bytes_per_image +
+              uint64_t(src_y) * row_pitch + src_x;
+          st.CloseRenderEncoder();
+          st.RetainResourceMetalObjectsForCompletion(src_res);
+          st.RetainResourceMetalObjectsForCompletion(dst_res);
+          auto blit = cmdbuf.blitCommandEncoder();
+          ENC_CREATE("blit_decode_sampler_feedback", blit.handle);
+          ScopedMetalEncoderEnd blit_guard{blit,
+                                           "blit_decode_sampler_feedback"};
+          if (!blit.handle)
+            break;
+          struct wmtcmd_blit_copy_from_buffer_to_texture copy = {};
+          copy.type = WMTBlitCommandCopyFromBufferToTexture;
+          copy.next.set(nullptr);
+          copy.src = src_res->GetMTLBuffer().handle;
+          copy.src_offset = src_offset;
+          copy.bytes_per_row = row_pitch;
+          copy.bytes_per_image = bytes_per_image;
+          copy.size = {copy_w, copy_h, 1};
+          copy.dst = dst_res->GetMTLTexture().handle;
+          copy.slice = dst_slice;
+          copy.level = dst_mip;
+          copy.origin = {cmd->dst_x, cmd->dst_y, 0};
+          blit.encodeCommands(
+              reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+          EndMetalEncoder(blit, "blit_decode_sampler_feedback");
+          QTRACE("ResolveSubresource sampler-feedback min-mip decode physical=%ux%u rect=%u,%u %ux%u dst=%u,%u",
+                 map_width, map_height, src_x, src_y, copy_w, copy_h,
+                 cmd->dst_x, cmd->dst_y);
+          break;
+        }
+
         if (!src_res->GetMTLTexture().handle ||
             !dst_res->GetMTLTexture().handle) {
           QTRACE("ResolveSubresource SKIPPED non-texture resource");
@@ -7524,6 +11646,48 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         bool multisample = src_desc.SampleDesc.Count > 1;
         st.RetainResourceMetalObjectsForCompletion(src_res);
         st.RetainResourceMetalObjectsForCompletion(dst_res);
+
+        // Writable MSAA resources are flattened into a private 2D-array
+        // texture, so Metal's native multisample resolve would select only
+        // the first physical slice. Use the paired compute bridge for the
+        // narrow format/shape it can prove and fail closed for the rest.
+        if (src_res->IsWritableMSAAEmulated()) {
+          const bool supported =
+              multisample && full_rect && full_dst &&
+              cmd->mode == D3D12_RESOLVE_MODE_DECOMPRESS &&
+              src_desc.SampleDesc.Count <= 16 &&
+              (src_desc.Format == DXGI_FORMAT_R32G32B32A32_FLOAT ||
+               src_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+               src_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM) &&
+              dst_desc.Format == src_desc.Format &&
+              dst_desc.SampleDesc.Count == 1;
+          if (!supported) {
+            QTRACE("ResolveSubresource SKIPPED unsupported flattened MSAA "
+                   "format=%u samples=%u dst_samples=%u full_rect=%u full_dst=%u",
+                   (unsigned)src_desc.Format,
+                   (unsigned)src_desc.SampleDesc.Count,
+                   (unsigned)dst_desc.SampleDesc.Count, full_rect, full_dst);
+            break;
+          }
+          WMTFlattenedMSAAResolveInfo resolve = {};
+          resolve.source_texture = src_res->GetMTLTexture().handle;
+          resolve.destination_texture = dst_res->GetMTLTexture().handle;
+          resolve.source_level = src_mip;
+          resolve.source_slice = src_slice;
+          resolve.destination_level = dst_mip;
+          resolve.destination_slice = dst_slice;
+          resolve.width = full_w;
+          resolve.height = full_h;
+          resolve.sample_count = src_desc.SampleDesc.Count;
+          st.CloseRenderEncoder();
+          const bool encoded =
+              cmdbuf.resolveFlattenedMSAATexture(resolve);
+          QTRACE("ResolveSubresource flattened MSAA encoded=%u src_mip=%u "
+                 "src_slice=%u dst_mip=%u dst_slice=%u samples=%u size=%ux%u",
+                 encoded ? 1u : 0u, src_mip, src_slice, dst_mip, dst_slice,
+                 (unsigned)resolve.sample_count, full_w, full_h);
+          break;
+        }
 
         if (multisample && full_rect && full_dst) {
           st.CloseRenderEncoder();
@@ -7717,6 +11881,24 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
         break;
       }
+      case CmdType::EnhancedBarrier: {
+        auto *cmd = reinterpret_cast<const CmdEnhancedBarrier *>(header);
+        QTRACE("EnhancedBarrier groups=%u global=%u buffer=%u texture=%u",
+               cmd->group_count, cmd->global_barrier_count,
+               cmd->buffer_barrier_count, cmd->texture_barrier_count);
+        st.CloseRenderEncoder();
+        if (m_barrier_event.handle) {
+          uint64_t seq = ++m_barrier_seq;
+          QTRACE("EnhancedBarrier queue-order seq=%llu event=%llu",
+                 (unsigned long long)seq,
+                 (unsigned long long)m_barrier_event.handle);
+          cmdbuf.encodeSignalEvent(m_barrier_event, seq);
+          cmdbuf.encodeWaitForEvent(m_barrier_event, seq);
+        } else {
+          QTRACE("EnhancedBarrier queue-order skipped: no event");
+        }
+        break;
+      }
       case CmdType::OMSetRenderTargets: {
         auto *cmd = reinterpret_cast<const CmdOMSetRenderTargets *>(header);
         st.CloseRenderEncoder();
@@ -7785,6 +11967,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             auto tex = res->GetMTLTexture();
             if (tex.handle) {
               rp.colors[0].texture = tex.handle;
+              rp.colors[0].level = RTVMipLevel(desc);
+              rp.colors[0].slice = RTVArraySlice(desc);
+              rp.render_target_array_length = static_cast<uint8_t>(
+                  std::min<uint16_t>(RTVArrayLength(desc), UINT8_MAX));
               st.RetainMTLObjectForCompletion(tex);
               rp.colors[0].load_action = WMTLoadActionClear;
               rp.colors[0].store_action = WMTStoreActionStore;
@@ -7800,43 +11986,6 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                     " tex=", (unsigned long long)res->GetMTLTexture().handle,
                     " color=", cmd->color[0], ",", cmd->color[1], ",",
                     cmd->color[2], ",", cmd->color[3]));
-              }
-            }
-          }
-        }
-
-        for (uint32_t i = 0; i < st.rt_count && i < 8; i++) {
-          if (rt_handles_match(st.rt_handles[i], cmd->rtv))
-            continue;
-          auto *desc =
-              reinterpret_cast<const D3D12Descriptor *>(st.rt_handles[i].ptr);
-          if (desc && desc->resource) {
-            auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
-            auto tex = res->GetMTLTexture();
-            if (tex.handle && !rp.colors[i].texture) {
-              rp.colors[i].texture = tex.handle;
-              st.RetainMTLObjectForCompletion(tex);
-              rp.colors[i].load_action = WMTLoadActionLoad;
-              rp.colors[i].store_action = WMTStoreActionStore;
-            }
-          }
-        }
-
-        if (st.has_dsv) {
-          auto *desc =
-              reinterpret_cast<const D3D12Descriptor *>(st.dsv_handle.ptr);
-          if (desc && desc->resource) {
-            auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
-            auto tex = res->GetMTLTexture();
-            if (tex.handle) {
-              rp.depth.texture = tex.handle;
-              st.RetainMTLObjectForCompletion(tex);
-              rp.depth.load_action = WMTLoadActionLoad;
-              rp.depth.store_action = WMTStoreActionStore;
-              if (DSVHasStencil(desc)) {
-                rp.stencil.texture = tex.handle;
-                rp.stencil.load_action = WMTLoadActionLoad;
-                rp.stencil.store_action = WMTStoreActionStore;
               }
             }
           }
@@ -7859,21 +12008,6 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           rp.colors[i].store_action = WMTStoreActionDontCare;
         }
 
-        for (uint32_t i = 0; i < st.rt_count && i < 8; i++) {
-          auto *desc =
-              reinterpret_cast<const D3D12Descriptor *>(st.rt_handles[i].ptr);
-          if (desc && desc->resource) {
-            auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
-            auto tex = res->GetMTLTexture();
-            if (tex.handle) {
-              rp.colors[i].texture = tex.handle;
-              st.RetainMTLObjectForCompletion(tex);
-              rp.colors[i].load_action = WMTLoadActionLoad;
-              rp.colors[i].store_action = WMTStoreActionStore;
-            }
-          }
-        }
-
         rp.depth.texture = NULL_OBJECT_HANDLE;
         rp.depth.load_action = WMTLoadActionDontCare;
         rp.depth.store_action = WMTStoreActionDontCare;
@@ -7888,6 +12022,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             auto tex = res->GetMTLTexture();
             if (tex.handle) {
               rp.depth.texture = tex.handle;
+              rp.depth.level = DSVMipLevel(desc);
+              rp.depth.slice = DSVArraySlice(desc);
+              rp.render_target_array_length = static_cast<uint8_t>(
+                  std::min<uint16_t>(DSVArrayLength(desc), UINT8_MAX));
               st.RetainMTLObjectForCompletion(tex);
               rp.depth.load_action = (cmd->flags & D3D12_CLEAR_FLAG_DEPTH)
                                          ? WMTLoadActionClear
@@ -7897,6 +12035,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 rp.depth.clear_depth = cmd->depth;
               if (DSVHasStencil(desc)) {
                 rp.stencil.texture = tex.handle;
+                rp.stencil.level = DSVMipLevel(desc);
+                rp.stencil.slice = DSVArraySlice(desc);
                 rp.stencil.load_action = (cmd->flags & D3D12_CLEAR_FLAG_STENCIL)
                                              ? WMTLoadActionClear
                                              : WMTLoadActionLoad;
@@ -7928,8 +12068,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                         : (desc && desc->resource
                                ? static_cast<MTLD3D12Resource *>(desc->resource)
                                : nullptr);
-        bool zero_clear = cmd->values[0] == 0 && cmd->values[1] == 0 &&
-                          cmd->values[2] == 0 && cmd->values[3] == 0;
+        const uint8_t *clear_pattern =
+            reinterpret_cast<const uint8_t *>(cmd->values);
+        bool uniform_byte_clear = true;
+        for (uint32_t i = 1; i < 16; i++)
+          uniform_byte_clear &= clear_pattern[i] == clear_pattern[0];
+        bool zero_clear = uniform_byte_clear && clear_pattern[0] == 0;
         QTRACE("ClearUnorderedAccessView%s cpu=0x%llx gpu=0x%llx res=%p "
                "desc=%p zero=%d",
                cmd->is_float ? "Float" : "Uint",
@@ -7957,7 +12101,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           break;
         }
 
-        if (zero_clear) {
+        if (uniform_byte_clear) {
           st.RetainResourceMetalObjectsForCompletion(res);
           auto blit = cmdbuf.blitCommandEncoder();
           ENC_CREATE("blit_clearuav", blit.handle);
@@ -7973,7 +12117,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           fill.buffer = res->GetMTLBuffer().handle;
           fill.offset = clear_offset;
           fill.length = clear_length;
-          fill.value = 0;
+          fill.value = clear_pattern[0];
           blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&fill));
           EndMetalEncoder(blit, "blit_clearuav");
           break;
@@ -7988,9 +12132,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           break;
         }
         uint8_t *dst = static_cast<uint8_t *>(mapped) + clear_offset;
-        const uint8_t *pattern = reinterpret_cast<const uint8_t *>(cmd->values);
         for (uint64_t off = 0; off < clear_length; off++)
-          dst[off] = pattern[off & 15];
+          dst[off] = clear_pattern[off & 15];
         res->Unmap(0, nullptr);
         QTRACE("ClearUnorderedAccessView CPU pattern clear off=%llu len=%llu",
                (unsigned long long)clear_offset,
@@ -8002,8 +12145,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         auto *heap = static_cast<MTLD3D12QueryHeap *>(cmd->heap);
         QTRACE("BeginQuery heap=%p type=%u index=%u", (void *)heap,
                (unsigned)cmd->type, cmd->index);
-        if (heap && cmd->index < heap->GetCount())
-          heap->GetData()[cmd->index] = 0;
+        if (heap && cmd->index < heap->GetCount()) {
+          if (cmd->type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS1)
+            heap->BeginPipelineStatistics1(cmd->index,
+                                           st.pipeline_statistics);
+          else
+            heap->GetData()[cmd->index] = 0;
+        }
         break;
       }
       case CmdType::EndQuery: {
@@ -8012,10 +12160,14 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         QTRACE("EndQuery heap=%p type=%u index=%u", (void *)heap,
                (unsigned)cmd->type, cmd->index);
         if (heap && cmd->index < heap->GetCount()) {
-          uint64_t value = 1;
-          if (cmd->type == D3D12_QUERY_TYPE_TIMESTAMP)
-            value = m_barrier_seq + cmd->index + 1;
-          heap->GetData()[cmd->index] = value;
+          if (cmd->type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS1) {
+            heap->EndPipelineStatistics1(cmd->index, st.pipeline_statistics);
+          } else {
+            uint64_t value = 1;
+            if (cmd->type == D3D12_QUERY_TYPE_TIMESTAMP)
+              value = m_barrier_seq + cmd->index + 1;
+            heap->GetData()[cmd->index] = value;
+          }
         }
         break;
       }
@@ -8033,12 +12185,35 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (!heap || !dst || !bytes)
           break;
 
+        if (cmd->type == D3D12_QUERY_TYPE_TIMESTAMP &&
+            dst->GetMTLBuffer().handle &&
+            cmd->start_index + cmd->query_count <= heap->GetCount() &&
+            cmdbuf.writeTimestampResults(dst->GetMTLBuffer(), cmd->dst_offset,
+                                         cmd->query_count)) {
+          st.RetainResourceMetalObjectsForCompletion(dst);
+          QTRACE("ResolveQueryData scheduled GPU-end timestamp results "
+                 "count=%u dst=%llu off=%llu",
+                 cmd->query_count,
+                 (unsigned long long)dst->GetMTLBuffer().handle,
+                 (unsigned long long)cmd->dst_offset);
+          break;
+        }
+
         std::vector<uint8_t> results(bytes, 0);
         for (uint32_t i = 0; i < cmd->query_count; i++) {
           uint64_t value = 0;
           uint32_t heap_index = cmd->start_index + i;
-          if (heap_index < heap->GetCount())
+          if (heap_index < heap->GetCount()) {
+            if (cmd->type == D3D12_QUERY_TYPE_PIPELINE_STATISTICS1) {
+              auto *statistics =
+                  heap->GetPipelineStatistics1Data(heap_index);
+              if (statistics)
+                memcpy(results.data() + i * stride, statistics,
+                       sizeof(*statistics));
+              continue;
+            }
             value = heap->GetData()[heap_index];
+          }
           if ((cmd->type == D3D12_QUERY_TYPE_OCCLUSION ||
                cmd->type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) &&
               value == 0)
@@ -8300,6 +12475,62 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.stencil_ref = cmd->stencil_ref;
         break;
       }
+      case CmdType::OMSetDepthBounds: {
+        auto *cmd = reinterpret_cast<const CmdOMSetDepthBounds *>(header);
+        float min_depth = std::isnan(cmd->min_depth) ? 0.0f : cmd->min_depth;
+        float max_depth = std::isnan(cmd->max_depth) ? 0.0f : cmd->max_depth;
+        min_depth = std::clamp(min_depth, 0.0f, 1.0f);
+        max_depth = std::clamp(max_depth, 0.0f, 1.0f);
+        st.depth_bounds_inverted = min_depth > max_depth;
+        st.depth_bounds_min = st.depth_bounds_inverted ? 0.0f : min_depth;
+        st.depth_bounds_max = st.depth_bounds_inverted ? 0.0f : max_depth;
+        if (st.render_enc_open && st.pso &&
+            st.pso->IsDepthBoundsTestEnabled()) {
+          const float depth_bounds[4] = {
+              st.depth_bounds_min, st.depth_bounds_max,
+              static_cast<float>(st.depth_bounds_dsv_slice),
+              st.depth_bounds_inverted ? 1.0f : 0.0f};
+          st.render_enc.setFragmentBytes(depth_bounds, sizeof(depth_bounds),
+                                         28);
+        }
+        QTRACE("OMSetDepthBounds requested=(%.3f,%.3f) applied=(%.3f,%.3f) "
+               "inverted=%u",
+               cmd->min_depth, cmd->max_depth, st.depth_bounds_min,
+               st.depth_bounds_max, st.depth_bounds_inverted ? 1u : 0u);
+        break;
+      }
+      case CmdType::RSSetShadingRate: {
+        auto *cmd = reinterpret_cast<const CmdRSSetShadingRate *>(header);
+        float horizontal = 1.0f;
+        float vertical = 1.0f;
+        if (!ShadingRateToMetalQuality(cmd->base_shading_rate, horizontal,
+                                       vertical)) {
+          QTRACE("RSSetShadingRate rejected invalid rate=%u",
+                 (unsigned)cmd->base_shading_rate);
+          st.shading_rate = D3D12_SHADING_RATE_1X1;
+        } else {
+          st.shading_rate = cmd->base_shading_rate;
+        }
+        st.shading_rate_combiners[0] = cmd->combiners[0];
+        st.shading_rate_combiners[1] = cmd->combiners[1];
+        if (st.render_enc_open)
+          st.CloseRenderEncoder();
+        QTRACE("RSSetShadingRate replay rate=%u combiners=%u,%u",
+               (unsigned)st.shading_rate,
+               (unsigned)st.shading_rate_combiners[0],
+               (unsigned)st.shading_rate_combiners[1]);
+        break;
+      }
+      case CmdType::RSSetShadingRateImage: {
+        auto *cmd = reinterpret_cast<const CmdRSSetShadingRateImage *>(header);
+        st.shading_rate_image = cmd->shading_rate_image;
+        if (st.render_enc_open)
+          st.CloseRenderEncoder();
+        QTRACE("RSSetShadingRateImage replay resource=%p (image lowering "
+               "remains conservative)",
+               (void *)st.shading_rate_image);
+        break;
+      }
       case CmdType::SetDescriptorHeaps: {
         auto *cmd = reinterpret_cast<const CmdSetDescriptorHeaps *>(header);
         st.desc_heap_count = cmd->count > 2 ? 2 : cmd->count;
@@ -8471,6 +12702,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Signal(ID3D12Fence *fence,
   auto shared_event = dxmt_fence->GetMTLSharedEvent();
   if (!shared_event.handle)
     return E_FAIL;
+  std::lock_guard submit_lock(m_submit_mutex);
   {
     FILE *f = dxmt::openDiagnosticLog("dxmt-d3d12-trace.log");
     if (f) {
@@ -8502,6 +12734,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Wait(ID3D12Fence *fence,
   auto shared_event = dxmt_fence->GetMTLSharedEvent();
   if (!shared_event.handle)
     return E_FAIL;
+  std::lock_guard submit_lock(m_submit_mutex);
   auto cmdbuf = m_wmt_queue.commandBuffer();
   if (!cmdbuf.handle)
     return E_FAIL;
@@ -8513,6 +12746,26 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Wait(ID3D12Fence *fence,
   QTRACE("CmdQueue::Wait queued queue_type=%u value=%llu fence=%p", m_desc.Type,
          (unsigned long long)value, (void *)fence);
   return S_OK;
+}
+
+bool MTLD3D12CommandQueue::EnqueueCompletionSignal(
+    WMT::Reference<WMT::SharedEvent> &completion_event,
+    uint64_t &completion_value) {
+  std::lock_guard submit_lock(m_submit_mutex);
+  if (!m_completion_event.handle)
+    return false;
+  auto cmdbuf = m_wmt_queue.commandBuffer();
+  if (!cmdbuf.handle)
+    return false;
+  const uint64_t value = ++m_completion_seq;
+  cmdbuf.encodeSignalEvent(m_completion_event, value);
+  cmdbuf.commit();
+  completion_event = m_completion_event;
+  completion_value = value;
+  QTRACE("EnqueueCompletionSignal queue_type=%u value=%llu event=%llu",
+         m_desc.Type, (unsigned long long)value,
+         (unsigned long long)m_completion_event.handle);
+  return true;
 }
 
 HRESULT STDMETHODCALLTYPE

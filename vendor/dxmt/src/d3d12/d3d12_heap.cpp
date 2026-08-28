@@ -15,8 +15,9 @@ MTLD3D12Heap::MTLD3D12Heap(MTLD3D12Device *device, const D3D12_HEAP_DESC &desc)
     (unsigned long long)desc.SizeInBytes, (unsigned long long)desc.Alignment,
     desc.Properties.Type, desc.Flags);
 
-  bool buffers_only =
-      (desc.Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) != 0 ||
+  const bool buffers_only =
+      (desc.Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) ==
+          D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS ||
       (desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) == 0;
   if (buffers_only && desc.SizeInBytes) {
     auto wmt_device = m_device->GetDXMTDevice().device();
@@ -37,8 +38,30 @@ MTLD3D12Heap::MTLD3D12Heap(MTLD3D12Device *device, const D3D12_HEAP_DESC &desc)
 
 MTLD3D12Heap::~MTLD3D12Heap() {
   HTRACE("dtor");
+  m_heap = nullptr;
   m_buffer = nullptr;
   m_device->Release();
+}
+
+WMT::Reference<WMT::Heap> MTLD3D12Heap::GetMTLHeap() {
+  if (m_heap.handle || m_desc.Properties.Type != D3D12_HEAP_TYPE_DEFAULT ||
+      !m_desc.SizeInBytes ||
+      (m_desc.Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) ==
+          D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS)
+    return m_heap;
+  auto wmt_device = m_device->GetDXMTDevice().device();
+  WMTHeapInfo info = {};
+  info.size = m_desc.SizeInBytes;
+  info.options = WMTResourceStorageModePrivate |
+                 WMTResourceHazardTrackingModeTracked;
+  info.type = WMTHeapTypePlacement;
+  info.max_compatible_placement_sparse_page_size = WMTSparsePageSize64;
+  m_heap = wmt_device.newHeap(info);
+  HTRACE("GetMTLHeap placement handle=%llu size=%llu flags=0x%x",
+         (unsigned long long)m_heap.handle,
+         (unsigned long long)m_desc.SizeInBytes,
+         (unsigned)m_desc.Flags);
+  return m_heap;
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -67,22 +90,22 @@ ULONG STDMETHODCALLTYPE MTLD3D12Heap::Release() {
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Heap::GetPrivateData(REFGUID guid, UINT *data_size, void *data) {
-  return E_NOTIMPL;
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Heap::SetPrivateData(REFGUID guid, UINT data_size,
                               const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Heap::SetPrivateDataInterface(REFGUID guid, const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Heap::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE

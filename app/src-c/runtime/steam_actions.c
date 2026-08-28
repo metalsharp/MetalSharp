@@ -428,13 +428,14 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
 }
 
 static void set_route_default_env(const char* pipeline) {
+    /* Capability reporting is behavior-gated in DXMT, never route-forced. */
+    unsetenv("DXMT_D3D12_UE_SM6_COMPAT");
     if (pipeline_is_dxmt(pipeline)) {
         setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "1", 1);
         setenv("DXMT_ASYNC_PIPELINE_COMPILE", "1", 1);
         if (!strcmp(pipeline, "m12")) {
             setenv("DXMT_METALFX_SPATIAL", "1", 1);
             setenv("DXMT_METALFX_TEMPORAL", "1", 1);
-            setenv("DXMT_D3D12_UE_SM6_COMPAT", "1", 1);
             setenv("DXMT_D3D12_PSO_WORKERS", "6", 1);
             setenv("DXMT_CONFIG", "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310", 1);
         } else {

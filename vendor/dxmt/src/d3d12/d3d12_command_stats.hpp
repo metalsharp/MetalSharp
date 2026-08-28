@@ -76,6 +76,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
                                        CmdType type) {
   switch (type) {
   case CmdType::DrawInstanced:
+  case CmdType::DispatchMesh:
     stats.draw_count++;
     break;
   case CmdType::DrawIndexedInstanced:
@@ -85,6 +86,9 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
     stats.indirect_count++;
     break;
   case CmdType::Dispatch:
+  case CmdType::DispatchRays:
+  case CmdType::BuildRaytracingAccelerationStructure:
+  case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo:
     stats.dispatch_count++;
     break;
   case CmdType::ClearRenderTargetView:
@@ -97,6 +101,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
     stats.clear_uav_count++;
     break;
   case CmdType::SetPipelineState:
+  case CmdType::SetPipelineState1:
     stats.set_pso_count++;
     break;
   case CmdType::SetGraphicsRootSignature:

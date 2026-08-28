@@ -86,9 +86,9 @@
         "methods": {
           "CopyTileMappings": {
             "difficulty": "very hard",
-            "metal": "MTLResourceStateCommandEncoder sparse copy",
-            "notes": "Copy tile mapping from one reserved resource to another.",
-            "translation": "copy sparse mapping metadata"
+            "metal": "MTL4CommandQueue sparse-buffer/texture mapping updates and mapping copies for native placement-sparse resources; broader texture layouts remain gated.",
+            "notes": "Copy tile mappings executes for native placement-sparse buffers and the focused single-mip RGBA8 texture path maps through an explicit D3D12 placement heap, copies its mapping to a second reserved texture, and reads the shared physical tile; broader sparse-texture layouts remain gated.",
+            "translation": "native MTL4 buffer and focused texture mapping update/copy; broader sparse texture layouts deferred"
           },
           "ExecuteCommandLists": {
             "difficulty": "very hard",
@@ -116,9 +116,9 @@
           },
           "UpdateTileMappings": {
             "difficulty": "very hard",
-            "metal": "MTLResourceStateCommandEncoder / MTLBlitCommandEncoder sparse updates",
-            "notes": "Sparse texture tile mapping. Metal sparse texture API.",
-            "translation": "resourceStateEncoder->updateSparseMappings(texture, tileMappings)"
+            "metal": "MTL4CommandQueue placement-sparse texture updates for the focused RGBA8 shape; MTLResourceStateCommandEncoder fallback for broader formats/mips",
+            "notes": "A single-mip 128x128x2 RGBA8 reserved texture now uses placement-sparse MTL4 mappings from a D3D12 heap and a second texture reads the shared physical page through CopyTileMappings; R8, R8G8, R10G10B10A2, R11G11B10, R16G16B16A16, R32G32B32A32, packed/partial mips, and standard mip readback retain the legacy sparse path. Reserved buffers use an MTL4 placement-sparse mapping path with a scoped full-buffer fallback and zero-after-unmap semantics. Broader placement ownership and physical residency transitions remain gated.",
+            "translation": "MTL4CommandQueue->updateTextureMappings(texture, placementHeap, tileMappings) for the proven RGBA8 shape; resourceStateEncoder fallback elsewhere"
           },
           "Wait": {
             "difficulty": "moderate",
@@ -258,8 +258,8 @@
           },
           "CreatePlacedResource": {
             "difficulty": "moderate",
-            "metal": "MTLHeap sub-allocation: MTLHeap::newBufferWithLength / newTextureWithDescriptor",
-            "notes": "Placed resources are sub-allocated from a heap at an offset. Maps to MTLHeap sub-allocation. Alignment and offset mapping required.",
+            "metal": "MTLHeap sub-allocation: MTLHeap::newBufferWithLength / newTextureWithDescriptor:offset:",
+            "notes": "Placed buffers retain the existing heap-backed buffer path. Default-heap placed textures use a native Metal placement heap and offset texture allocation when the heap can host textures; a focused overlapping R32_FLOAT alias switches contents through D3D12 aliasing barriers, and recorded copy/barrier resources retain caller-released objects until replay, while broader formats and heap-reuse matrices remain gated.",
             "translation": "heap->newBufferWithLength(length, options, offset) or heap->newTextureWithDescriptor(texDesc, offset)"
           },
           "CreateQueryHeap": {
@@ -300,9 +300,9 @@
           },
           "CreateSharedHandle": {
             "difficulty": "hard",
-            "metal": "MTLSharedTextureHandle / MTLSharedEvent",
-            "notes": "Cross-process sharing. MTLSharedTextureHandle for textures, MTLSharedEvent for fences. D3D12 handles map to Mach ports on macOS.",
-            "translation": "texture->newSharedTextureHandle() or event->newSharedEventHandle()"
+            "metal": "Process-local Win32 handle registry; MTLSharedTextureHandle / MTLSharedEvent remain future cross-process paths",
+            "notes": "Creates a retained process-local handle for D3D12 child objects, with named lookup and explicit rejection of unknown handles. Cross-process reconstruction remains unsupported because the current MetalSharp bridge has no shared-resource transport.",
+            "translation": "retain COM child behind a duplicated event handle and resolve it through the registry"
           },
           "CreateUnorderedAccessView": {
             "difficulty": "hard",
@@ -312,9 +312,9 @@
           },
           "Evict": {
             "difficulty": "easy",
-            "metal": "MTLResidencySet::removeResource",
-            "notes": "Remove from residency set. See MakeResident.",
-            "translation": "residencySet->removeResource(resource) or no-op"
+            "metal": "MTLResidencySet::removeResource (implicit on Apple unified memory)",
+            "notes": "Valid pageable arrays are accepted as resident-by-default on Apple unified memory; null arrays and null entries return E_INVALIDARG rather than false success.",
+            "translation": "validate pageable list; no physical eviction on unified memory"
           },
           "GetCopyableFootprints": {
             "difficulty": "moderate",
@@ -342,27 +342,27 @@
           },
           "GetResourceTiling": {
             "difficulty": "moderate",
-            "metal": "MTLDevice::sparseTileSizeWithTextureType / sparseTileSizeInBytesForSparsePageSize",
-            "notes": "Query sparse texture tile info. Maps to Metal sparse texture queries.",
-            "translation": "device->sparseTileSizeWithTextureType(type, format, samples)"
+            "metal": "D3D12 tile-shape calculation paired with Metal sparse texture allocation",
+            "notes": "The proven reserved-resource path reports standard tile shape and subresource tilings for 2D RGBA8, R8, R8G8, R10G10B10A2, R11G11B10, R16G16B16A16, and R32G32B32A32 resources, including two-level R8 mip layout, and a focused buffer path reports 64 KiB buffer tiles; broader packed-tail layouts, physical heap-page selection, and broader layouts remain gated.",
+            "translation": "calculate D3D12 standard tiling from format and resource dimensions"
           },
           "MakeResident": {
             "difficulty": "easy",
-            "metal": "MTLResidencySet / MTLDevice::makeResident (implicit)",
-            "notes": "Metal resources are resident by default. MTLResidencySet (macOS 13+) allows explicit management. Most implementations are no-ops or use MTLResidencySet.",
-            "translation": "residencySet->addResource(resource) or no-op"
+            "metal": "MTLResidencySet / implicit Apple unified-memory residency",
+            "notes": "Valid pageable arrays are accepted as resident-by-default on Apple unified memory; null arrays and null entries return E_INVALIDARG rather than false success.",
+            "translation": "validate pageable list; no physical make-resident transition on unified memory"
           },
           "OpenSharedHandle": {
             "difficulty": "hard",
-            "metal": "MTLDevice::newSharedTextureWithHandle / newSharedEventWithHandle",
-            "notes": "Open handle created by CreateSharedHandle.",
-            "translation": "device->newSharedTextureWithHandle(handle) or device->newSharedEventWithHandle(handle)"
+            "metal": "Process-local retained-object registry",
+            "notes": "Resolves a handle created by CreateSharedHandle and QueryInterfaces the retained D3D12 object; unknown handles return DXGI_ERROR_INVALID_CALL.",
+            "translation": "lookup retained COM child by duplicated event handle"
           },
           "OpenSharedHandleByName": {
             "difficulty": "very hard",
-            "metal": "N/A (no named shared resources in Metal)",
-            "notes": "Metal doesn't have named shared resources. Requires custom named handle registry.",
-            "translation": "custom named handle registry over Mach ports"
+            "metal": "Process-local named handle registry",
+            "notes": "Named lookup duplicates the registry handle and preserves object lifetime. Cross-process named sharing remains unsupported.",
+            "translation": "lookup name, duplicate registry handle, and resolve through OpenSharedHandle"
           },
           "SetEventOnMultipleFenceCompletion": {
             "difficulty": "moderate",
@@ -496,9 +496,9 @@
           },
           "CopyTiles": {
             "difficulty": "very hard",
-            "metal": "MTLBlitCommandEncoder sparse tile operations",
-            "notes": "Sparse resource tile copy. Complex mapping.",
-            "translation": "sparse tile copy via blit encoder"
+            "metal": "MTLBlitCommandEncoder texture/buffer copies over mapped sparse tiles",
+            "notes": "The proven 2D RGBA8, R8, R8G8, R10G10B10A2, R11G11B10, R16G16B16A16, and R32G32B32A32 paths expand D3D12 requests into exact 64 KiB placed-footprint copies and verify map/unmap readback, including standard two-level mip textures; a focused single-mip RGBA8 placement path maps through an explicit D3D12 heap and reads a shared physical tile through a second texture. A focused reserved-buffer path expands tile copies over native MTL4 sparse buffers, with a full compatibility fallback, MTL4 mapping-copy, and MTL4 buffer-copy readback proof; broader packed/partial-mip layouts, boxed regions, sparse-texture mapping copies, and physical residency transitions remain gated.",
+            "translation": "expand each standard tile into a buffer/texture blit"
           },
           "DiscardResource": {
             "difficulty": "easy",
@@ -573,10 +573,10 @@
             "translation": "renderEncoder->setBlendColorRed(r, g, b, a)"
           },
           "OMSetDepthBounds": {
-            "difficulty": "easy",
-            "metal": "MTLRenderCommandEncoder::setDepthBound (if supported, Metal 3+)",
-            "notes": "Direct mapping if MTLDevice supports depth bounds test.",
-            "translation": "renderEncoder->setDepthBounds(min, max)"
+            "difficulty": "moderate",
+            "metal": "fragment-stage comparison against a shader-readable view of the active depth attachment",
+            "notes": "Apple M4 rejects the macOS 26 native depth-bounds encoder state. DXMT records OMSetDepthBounds and injects a per-fragment stored-depth comparison only into PSOs whose DEPTH_STENCIL1/2 stream enables DepthBoundsTestEnable.",
+            "translation": "bind clamped bounds at fragment buffer 28 plus the active DSV mip/slice view at texture 126, then discard fragments outside the inclusive range"
           },
           "OMSetRenderTargets": {
             "difficulty": "moderate",

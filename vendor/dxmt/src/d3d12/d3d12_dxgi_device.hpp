@@ -1,12 +1,15 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "dxgi_interfaces.h"
 #include "dxmt_device.hpp"
 #include "d3d12.h"
 #include "Metal.hpp"
 #include <atomic>
 #include <memory>
+#include <mutex>
+#include <unordered_set>
 
 namespace dxmt {
 
@@ -61,7 +64,12 @@ private:
   Com<IMTLDXGIAdapter> m_adapter;
   MTLD3D12Device *m_d3d12_device;
   D3DKMT_HANDLE m_kmt = 0;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
+  std::atomic<INT> m_gpu_thread_priority = {0};
+  std::atomic<UINT> m_maximum_frame_latency = {3};
+  std::mutex m_offered_resource_mutex;
+  std::unordered_set<IDXGIResource *> m_offered_resources;
 };
 
 } // namespace dxmt

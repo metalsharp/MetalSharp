@@ -151,6 +151,7 @@ int main() {
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS9 options9 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS11 options11 = {};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS14 options14 = {};
     D3D12_FEATURE_DATA_FORMAT_SUPPORT stream_output_format = {};
     stream_output_format.Format = DXGI_FORMAT_R32_FLOAT;
 
@@ -164,10 +165,15 @@ int main() {
     HRESULT options7_hr = E_FAIL;
     HRESULT options9_hr = E_FAIL;
     HRESULT options11_hr = E_FAIL;
+    HRESULT options14_hr = E_FAIL;
     HRESULT stream_output_format_hr = E_FAIL;
     HRESULT create_reserved_resource_hr = E_FAIL;
     HRESULT query_device5_hr = E_NOINTERFACE;
     HRESULT create_state_object_hr = E_NOINTERFACE;
+    HRESULT invalid_feature_hr = E_FAIL;
+    HRESULT zero_size_feature_hr = E_FAIL;
+    HRESULT null_data_feature_hr = E_FAIL;
+    HRESULT null_feature_level_list_hr = E_FAIL;
 
     if (device) {
         fl_hr = device->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &feature_levels, sizeof(feature_levels));
@@ -180,8 +186,19 @@ int main() {
         options7_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
         options9_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS9, &options9, sizeof(options9));
         options11_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS11, &options11, sizeof(options11));
+        options14_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS14, &options14, sizeof(options14));
         stream_output_format_hr = device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &stream_output_format,
                                                               sizeof(stream_output_format));
+        UINT invalid_feature_payload = 0xdeadbeefu;
+        invalid_feature_hr = device->CheckFeatureSupport(static_cast<D3D12_FEATURE>(0xffffffffu),
+                                                         &invalid_feature_payload, sizeof(invalid_feature_payload));
+        zero_size_feature_hr = device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &invalid_feature_payload, 0);
+        null_data_feature_hr =
+            device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, nullptr, sizeof(invalid_feature_payload));
+        D3D12_FEATURE_DATA_FEATURE_LEVELS null_feature_level_list = {};
+        null_feature_level_list.NumFeatureLevels = 1;
+        null_feature_level_list_hr = device->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &null_feature_level_list,
+                                                                 sizeof(null_feature_level_list));
 
         D3D12_RESOURCE_DESC reserved_desc = {};
         reserved_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -214,23 +231,27 @@ int main() {
     bool shader_model_target_ok = SUCCEEDED(sm_hr) && shader_model.HighestShaderModel >= D3D_SHADER_MODEL_6_5;
     bool shader_model_6_6_or_better = SUCCEEDED(sm_hr) && shader_model.HighestShaderModel >= D3D_SHADER_MODEL_6_6;
     bool binding_tier_ok = SUCCEEDED(options_hr) && options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3;
-    bool wave_ops_not_reported =
-        SUCCEEDED(options1_hr) && !options1.WaveOps && options1.WaveLaneCountMin == 0 && options1.WaveLaneCountMax == 0;
-    bool atomic64_conservative = (!SUCCEEDED(options9_hr) || (!options9.AtomicInt64OnTypedResourceSupported &&
-                                                              !options9.AtomicInt64OnGroupSharedSupported)) &&
-                                 (!SUCCEEDED(options11_hr) || !options11.AtomicInt64OnDescriptorHeapResourceSupported);
-    bool advanced_conservative =
-        (!SUCCEEDED(options5_hr) || options5.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED) &&
-        (!SUCCEEDED(options7_hr) || (options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
-                                     options7.SamplerFeedbackTier == D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED)) &&
-        (!SUCCEEDED(options9_hr) || options9.WaveMMATier == D3D12_WAVE_MMA_TIER_NOT_SUPPORTED);
+    bool wave_ops_proven_reported = SUCCEEDED(options1_hr) && options1.WaveOps && options1.WaveLaneCountMin == 32 &&
+                                    options1.WaveLaneCountMax == 32;
+    bool atomic64_conservative = SUCCEEDED(options9_hr) && options9.AtomicInt64OnTypedResourceSupported &&
+                                 options9.AtomicInt64OnGroupSharedSupported && SUCCEEDED(options11_hr) &&
+                                 options11.AtomicInt64OnDescriptorHeapResourceSupported;
+    bool advanced_features_reported =
+        SUCCEEDED(options5_hr) && options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 && SUCCEEDED(options7_hr) &&
+        options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 &&
+        options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9 &&
+        (!SUCCEEDED(options9_hr) || options9.WaveMMATier == D3D12_WAVE_MMA_TIER_NOT_SUPPORTED) &&
+        SUCCEEDED(options14_hr) && options14.AdvancedTextureOpsSupported && options14.WriteableMSAATexturesSupported;
     bool stream_output_conservative =
         SUCCEEDED(stream_output_format_hr) && !(stream_output_format.Support1 & D3D12_FORMAT_SUPPORT1_SO_BUFFER);
     bool reserved_resources_unsupported = FAILED(create_reserved_resource_hr);
     bool state_objects_unsupported = FAILED(query_device5_hr) || FAILED(create_state_object_hr);
+    bool feature_query_validation = invalid_feature_hr == E_INVALIDARG && zero_size_feature_hr == E_INVALIDARG &&
+                                    null_data_feature_hr == E_POINTER && null_feature_level_list_hr == E_INVALIDARG;
     bool pass = SUCCEEDED(create_hr) && feature_level_ok && shader_model_target_ok && binding_tier_ok &&
-                wave_ops_not_reported && atomic64_conservative && advanced_conservative && stream_output_conservative &&
-                reserved_resources_unsupported && state_objects_unsupported;
+                wave_ops_proven_reported && atomic64_conservative && advanced_features_reported &&
+                stream_output_conservative && reserved_resources_unsupported && state_objects_unsupported &&
+                feature_query_validation;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-device-caps.v1\",\n");
@@ -258,6 +279,7 @@ int main() {
     print_hr("check", options_hr);
     std::printf("    \"resource_binding_tier\": %u,\n", static_cast<unsigned>(options.ResourceBindingTier));
     std::printf("    \"resource_heap_tier\": %u,\n", static_cast<unsigned>(options.ResourceHeapTier));
+    std::printf("    \"output_merger_logic_op\": %s,\n", options.OutputMergerLogicOp ? "true" : "false");
     std::printf("    \"rovs_supported\": %s,\n", options.ROVsSupported ? "true" : "false");
     std::printf("    \"conservative_rasterization_tier\": %u\n",
                 static_cast<unsigned>(options.ConservativeRasterizationTier));
@@ -268,7 +290,7 @@ int main() {
     std::printf("    \"wave_lane_count_min\": %u,\n", options1.WaveLaneCountMin);
     std::printf("    \"wave_lane_count_max\": %u,\n", options1.WaveLaneCountMax);
     std::printf("    \"int64_shader_ops\": %s,\n", options1.Int64ShaderOps ? "true" : "false");
-    std::printf("    \"wave_ops_not_reported\": %s\n", wave_ops_not_reported ? "true" : "false");
+    std::printf("    \"wave_ops_proven_reported\": %s\n", wave_ops_proven_reported ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"advanced_features\": {\n");
     print_hr("options2", options2_hr);
@@ -279,6 +301,8 @@ int main() {
     std::printf("    \"mesh_shader_tier\": %u,\n", static_cast<unsigned>(options7.MeshShaderTier));
     std::printf("    \"sampler_feedback_tier\": %u,\n", static_cast<unsigned>(options7.SamplerFeedbackTier));
     print_hr("options9", options9_hr);
+    std::printf("    \"mesh_shader_pipeline_stats_supported\": %s,\n",
+                options9.MeshShaderPipelineStatsSupported ? "true" : "false");
     std::printf("    \"atomic64_typed_resource\": %s,\n",
                 options9.AtomicInt64OnTypedResourceSupported ? "true" : "false");
     std::printf("    \"atomic64_group_shared\": %s,\n", options9.AtomicInt64OnGroupSharedSupported ? "true" : "false");
@@ -287,6 +311,11 @@ int main() {
     std::printf("    \"atomic64_descriptor_heap_resource\": %s\n",
                 options11.AtomicInt64OnDescriptorHeapResourceSupported ? "true" : "false");
     std::printf("  },\n");
+    std::printf("  \"options14\": {\n");
+    print_hr("check", options14_hr);
+    std::printf("    \"advanced_texture_ops\": %s,\n", options14.AdvancedTextureOpsSupported ? "true" : "false");
+    std::printf("    \"writeable_msaa_textures\": %s\n", options14.WriteableMSAATexturesSupported ? "true" : "false");
+    std::printf("  },\n");
     std::printf("  \"unsupported_policy\": {\n");
     print_hr("stream_output_format", stream_output_format_hr);
     std::printf("    \"stream_output_so_buffer_advertised\": %s,\n",
@@ -294,21 +323,29 @@ int main() {
     print_hr("create_reserved_resource", create_reserved_resource_hr);
     print_hr("query_device5", query_device5_hr);
     print_hr("create_state_object", create_state_object_hr);
+    print_hr("invalid_feature", invalid_feature_hr);
+    print_hr("zero_size_feature", zero_size_feature_hr);
+    print_hr("null_data_feature", null_data_feature_hr);
+    print_hr("null_feature_level_list", null_feature_level_list_hr);
     std::printf("    \"stream_output_conservative\": %s,\n", stream_output_conservative ? "true" : "false");
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
-    std::printf("    \"state_objects_unsupported\": %s\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"state_objects_unsupported\": %s,\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"feature_query_validation\": %s\n", feature_query_validation ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"requirements\": {\n");
     std::printf("    \"feature_level_12_0_or_better\": %s,\n", feature_level_ok ? "true" : "false");
     std::printf("    \"shader_model_6_5_or_better\": %s,\n", shader_model_target_ok ? "true" : "false");
     std::printf("    \"shader_model_6_6_or_better\": %s,\n", shader_model_6_6_or_better ? "true" : "false");
     std::printf("    \"binding_tier_3\": %s,\n", binding_tier_ok ? "true" : "false");
-    std::printf("    \"wave_ops_not_reported\": %s,\n", wave_ops_not_reported ? "true" : "false");
+    std::printf("    \"wave_ops_proven_reported\": %s,\n", wave_ops_proven_reported ? "true" : "false");
     std::printf("    \"atomic64_conservative\": %s,\n", atomic64_conservative ? "true" : "false");
-    std::printf("    \"advanced_features_conservative\": %s,\n", advanced_conservative ? "true" : "false");
+    std::printf("    \"advanced_features_reported\": %s,\n", advanced_features_reported ? "true" : "false");
+    std::printf("    \"mesh_shader_pipeline_stats_supported\": %s,\n",
+                options9.MeshShaderPipelineStatsSupported ? "true" : "false");
     std::printf("    \"stream_output_conservative\": %s,\n", stream_output_conservative ? "true" : "false");
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
-    std::printf("    \"state_objects_unsupported\": %s\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"state_objects_unsupported\": %s,\n", state_objects_unsupported ? "true" : "false");
+    std::printf("    \"feature_query_validation\": %s\n", feature_query_validation ? "true" : "false");
     std::printf("  }\n");
     std::printf("}\n");
 

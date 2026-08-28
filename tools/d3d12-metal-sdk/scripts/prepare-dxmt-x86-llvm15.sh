@@ -60,6 +60,11 @@ else
     -Denable_nvngx=true
 fi
 
+# Git checkouts do not preserve source mtimes.  Discard prior target outputs so
+# a retained build directory cannot silently stage a stale PE/Unix runtime
+# (especially the Winemetal export surface) when the source contents changed.
+ninja -C "${BUILD_DIR}" -t clean >/dev/null
+
 ninja -C "${BUILD_DIR}" \
   src/dxgi/dxgi.dll \
   src/dxgi/dxgi_dxmt.dll \

@@ -214,6 +214,7 @@ def inspect_sources(contract: dict) -> dict:
 
     required_pe = list(contract.get("required_pe_exports", []))
     required_unix = list(contract.get("required_unix_call_entries", []))
+    required_render_commands = list(contract.get("required_render_command_stream_entries", []))
     header_exports = exported_api_names(header_text)
     thunk_defs = thunk_definition_names(thunk_text)
     normal_table = unix_call_table(unix_text, "__wine_unix_call_funcs")
@@ -235,6 +236,12 @@ def inspect_sources(contract: dict) -> dict:
         "missing_required_pe_thunk_defs": [name for name in required_pe if name not in thunk_defs],
         "missing_required_unix_entries": [name for name in required_unix if name not in normal_table],
         "missing_required_wow64_entries": [name for name in required_unix if name not in wow64_table],
+        "missing_required_render_commands_in_header": [
+            name for name in required_render_commands if name not in header_text
+        ],
+        "missing_required_render_command_handlers": [
+            name for name in required_render_commands if f"case {name}:" not in unix_text
+        ],
         "unix_call_codes_without_table_entry": [code for code in sorted(call_codes) if code >= len(normal_table)],
         "wow64_table_mismatch": []
         if normal_table == normalized_wow64_table
@@ -250,6 +257,7 @@ def inspect_sources(contract: dict) -> dict:
         "abi_version": contract.get("abi_version"),
         "required_pe_exports": required_pe,
         "required_unix_call_entries": required_unix,
+        "required_render_command_stream_entries": required_render_commands,
         "header_export_count": len(header_exports),
         "pe_thunk_definition_count": len(thunk_defs),
         "unix_call_count": len(normal_table),

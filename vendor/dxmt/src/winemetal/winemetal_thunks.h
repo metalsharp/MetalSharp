@@ -77,6 +77,43 @@ struct unixcall_mtldevice_newbuffer {
   obj_handle_t ret;
 };
 
+struct unixcall_mtldevice_newsparsebuffer {
+  obj_handle_t device;
+  struct WMTMemoryPointer info;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtldevice_newmtl4commandqueue {
+  obj_handle_t device;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtldevice_newheap {
+  obj_handle_t device;
+  struct WMTMemoryPointer info;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtlheap_newtexture {
+  obj_handle_t heap;
+  struct WMTMemoryPointer info;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtlheap_newbuffer_offset {
+  obj_handle_t heap;
+  struct WMTMemoryPointer info;
+  uint64_t offset;
+  obj_handle_t ret;
+};
+
+struct unixcall_mtlheap_newtexture_offset {
+  obj_handle_t heap;
+  struct WMTMemoryPointer info;
+  uint64_t offset;
+  obj_handle_t ret;
+};
+
 struct unixcall_mtldevice_newsamplerstate {
   obj_handle_t device;
   struct WMTMemoryPointer info;
@@ -93,6 +130,17 @@ struct unixcall_mtldevice_newtexture {
   obj_handle_t device;
   struct WMTMemoryPointer info;
   obj_handle_t ret;
+};
+
+struct unixcall_mtldevice_newrasterizationratemap {
+  obj_handle_t device;
+  uint32_t screen_width;
+  uint32_t screen_height;
+  float horizontal[2];
+  float vertical[2];
+  obj_handle_t ret_map;
+  uint64_t ret_parameter_size;
+  uint64_t ret_parameter_align;
 };
 
 struct unixcall_mtlbuffer_newtexture {
@@ -147,6 +195,61 @@ struct unixcall_mtldevice_newmeshrenderpso {
 struct unixcall_generic_obj_cmd_noret {
   obj_handle_t encoder;
   struct WMTConstMemoryPointer cmd_head;
+};
+
+struct unixcall_mtlresource_state_update_texture_mappings {
+  obj_handle_t encoder;
+  obj_handle_t texture;
+  struct WMTConstMemoryPointer mappings;
+  uint64_t mapping_count;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtl4commandqueue_update_texture_mappings {
+  obj_handle_t queue;
+  obj_handle_t texture;
+  obj_handle_t heap;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtl4commandqueue_copy_texture_mappings {
+  obj_handle_t queue;
+  obj_handle_t source_texture;
+  obj_handle_t destination_texture;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtl4commandqueue_update_buffer_mappings {
+  obj_handle_t queue;
+  obj_handle_t buffer;
+  obj_handle_t heap;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtl4commandqueue_copy_buffer_mappings {
+  obj_handle_t queue;
+  obj_handle_t source_buffer;
+  obj_handle_t destination_buffer;
+  struct WMTConstMemoryPointer operations;
+  uint64_t operation_count;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtl4commandqueue_copy_buffer {
+  obj_handle_t queue;
+  obj_handle_t source_buffer;
+  uint64_t source_offset;
+  obj_handle_t destination_buffer;
+  uint64_t destination_offset;
+  uint64_t size;
+  obj_handle_t residency_heap;
+  uint64_t ret_success;
 };
 
 struct unixcall_mtltexture_replaceregion {
@@ -394,6 +497,193 @@ struct unixcall_mtldevice_newlibrary_source {
   uint64_t source_length;
   obj_handle_t ret_error;
   obj_handle_t ret_library;
+};
+
+struct unixcall_mtldevice_acceleration_structure_sizes {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer info;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_new_acceleration_structure {
+  obj_handle_t device;
+  uint64_t size;
+  obj_handle_t ret_acceleration_structure;
+};
+
+struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_acceleration_structure_sizes_for_instances {
+  obj_handle_t device;
+  uint64_t instance_count;
+  uint64_t allow_refit;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_new_raytracing_compute_pipeline {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t ret_visible_function_table;
+  obj_handle_t ret_intersection_function_table;
+  obj_handle_t ret_error;
+  obj_handle_t ret_pipeline;
+};
+
+struct unixcall_mtlcommandbuffer_build_instance_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  obj_handle_t instance_descriptor_buffer;
+  uint64_t instance_descriptor_buffer_offset;
+  uint64_t instance_count;
+  struct WMTConstMemoryPointer instanced_acceleration_structures;
+  uint64_t instanced_acceleration_structure_count;
+  uint64_t allow_refit;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_refit_instance_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  obj_handle_t instance_descriptor_buffer;
+  uint64_t instance_descriptor_buffer_offset;
+  uint64_t instance_count;
+  struct WMTConstMemoryPointer instanced_acceleration_structures;
+  uint64_t instanced_acceleration_structure_count;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_resolve_flattened_msaa_texture {
+  obj_handle_t cmdbuf;
+  struct WMTConstMemoryPointer info;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_write_timestamp_results {
+  obj_handle_t cmdbuf;
+  obj_handle_t destination_buffer;
+  uint64_t destination_offset;
+  uint32_t result_count;
+  uint32_t reserved;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_acceleration_structure_sizes_for_aabbs {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer info;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_build_aabb_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_refit_aabb_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_copy_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_copy_and_compact_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_write_compacted_acceleration_structure_size {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_buffer;
+  uint64_t destination_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_acceleration_structure_sizes_for_triangle_geometries {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structures {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_acceleration_structure_sizes_for_mixed_geometries {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_build_mixed_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_refit_mixed_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
+  struct WMTConstMemoryPointer info;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
 };
 
 #pragma pack(pop)

@@ -354,6 +354,7 @@ void MTLD3D12RootSignature::Parse(const void *blob, SIZE_T blob_size) {
             data + src.parameter_offset);
         rp.register_space = constants->register_space;
         rp.register_index = constants->shader_register;
+        rp.num_32bit_values = constants->num_32bit_values;
         break;
       }
       case D3D12_ROOT_PARAMETER_TYPE_CBV:
@@ -533,6 +534,7 @@ void MTLD3D12RootSignature::Parse(const void *blob, SIZE_T blob_size) {
     if (p->type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS) {
       rp.register_space = p->constants.register_space;
       rp.register_index = p->constants.register_index;
+      rp.num_32bit_values = p->constants.num_32bit_values;
     } else if (p->type == D3D12_ROOT_PARAMETER_TYPE_CBV ||
                p->type == D3D12_ROOT_PARAMETER_TYPE_SRV ||
                p->type == D3D12_ROOT_PARAMETER_TYPE_UAV) {
@@ -719,24 +721,24 @@ ULONG STDMETHODCALLTYPE MTLD3D12RootSignature::Release() {
 HRESULT STDMETHODCALLTYPE
 MTLD3D12RootSignature::GetPrivateData(REFGUID guid, UINT *data_size,
                                       void *data) {
-  return E_NOTIMPL;
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12RootSignature::SetPrivateData(REFGUID guid, UINT data_size,
                                       const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12RootSignature::SetPrivateDataInterface(REFGUID guid,
                                                const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12RootSignature::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE

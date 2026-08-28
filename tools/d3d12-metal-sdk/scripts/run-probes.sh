@@ -16,6 +16,11 @@ GAME_DIR=""
 RUN_LOADER=1
 RUN_AGILITY=1
 RUN_CAPS=1
+RUN_LEGACY_REGRESSION=1
+# FL12_2/SM6.7 target gate is opt-in until its implementation phases land.
+RUN_FEATURE_LEVELS=0
+RUN_FL12_2_GATE=0
+RUN_OBJECT_CONTRACTS=0
 RUN_DXGI=1
 RUN_RESOURCES=1
 RUN_QUEUES=1
@@ -24,6 +29,11 @@ RUN_SHADERS=1
 RUN_DXIL_SEMANTICS=1
 RUN_SHADER_CORPUS=1
 RUN_SM66_CAPABILITIES=1
+RUN_WRITABLE_MSAA=1
+RUN_WRITABLE_MSAA_ONLY=0
+RUN_VRS=0
+RUN_VRS_ONLY=0
+RUN_SAMPLER_FEEDBACK=1
 RUN_WAVE_OPS=1
 RUN_REFLECTION_ABI=1
 RUN_GRAPHICS_PSO=1
@@ -31,11 +41,13 @@ RUN_COMPUTE_PSO=1
 RUN_COMMAND_REPLAY=1
 RUN_BARRIERS_RENDER_PASS=1
 RUN_RESOURCE_VIEWS_FORMATS=1
-RUN_RENDER_HEADLESS=0
+RUN_RENDER_HEADLESS=1
 RUN_MINI=1
 RUN_WINEMETAL_ABI=1
 RUN_PRESENT_WINDOWED=0
 RUN_FULL_STRESS=0
+MINI_PROBE_FILTER="${METALSHARP_MINI_PROBE_FILTER:-}"
+DLL_OVERRIDES="${DXMT_PROBE_DLL_OVERRIDES:-d3d12,dxgi,d3d11,d3d10core,winemetal=n,b}"
 MINI_PROBES=(
   create_device
   command_queue
@@ -51,7 +63,12 @@ MINI_PROBES=(
   subnautica_geometry_dxil_replay
   dxil_texture_color_output
   compute_first_use_dispatch
+  dxr_acceleration_structures
 )
+
+mini_probe_selected() {
+  [[ -z "$MINI_PROBE_FILTER" || "$1" == "$MINI_PROBE_FILTER" ]]
+}
 
 usage() {
   cat <<'USAGE'
@@ -73,12 +90,26 @@ Options:
   --no-agility          Skip probe_agility_ue5.
   --agility-only        Run only the Agility SDK surface probe.
   --no-caps             Skip probe_device_caps.
+  --legacy-regression   Run the D3D10/D3D11 clear-copy-readback regression gate.
+  --no-legacy-regression
+                        Skip the D3D10/D3D11 clear-copy-readback regression gate.
+  --legacy-regression-only
+                        Run only the D3D10/D3D11 clear-copy-readback regression gate.
   --caps-only           Run only the feature support / unsupported policy probe.
+  --feature-levels      Run the target FL11_0-through-12_2 and SM6.7 probe.
+  --feature-levels-only Run only the target feature-level and SM6.7 probe.
+  --fl12-2-gate         Run the full opt-in FL12_2 query/behavior/provenance gate.
+  --object-contracts    Run D3D12 object private-data/COM semantics.
+  --object-contracts-only
+                        Run only D3D12 object private-data/COM semantics.
   --no-dxgi             Skip probe_dxgi_factory.
   --dxgi-only           Run only the DXGI factory probe.
   --no-resources        Skip probe_resources.
+  --resources-only      Run only the resource upload/copy/format probe.
   --no-queues           Skip probe_queues.
+  --queues-only         Run only the command-queue/fence/timestamp probe.
   --no-descriptors      Skip probe_descriptors.
+  --descriptors-only    Run only the descriptor ABI probe.
   --no-shaders          Skip probe_shaders.
   --dxil-semantics      Run the DXIL semantic opcode-group probe.
   --semantic-only       Run only the DXIL semantic opcode-group probe.
@@ -88,6 +119,15 @@ Options:
                         Skip the SM 6.6 capability audit probe.
   --sm66-capabilities-only
                         Run only the SM 6.6 capability audit probe.
+  --no-writable-msaa   Skip the writable MSAA texture probe.
+  --writable-msaa-only Run only the writable MSAA texture probe.
+  --vrs                Run the opt-in VRS/rasterization-rate map probe.
+  --vrs-only           Run only the opt-in VRS/rasterization-rate map probe.
+  --no-sampler-feedback
+                        Skip the sampler-feedback compute and pixel probes.
+  --sampler-feedback    Run the sampler-feedback compute and pixel probes.
+  --sampler-feedback-only
+                        Run only the sampler-feedback compute and pixel probes.
   --no-wave-ops        Skip the WaveOps capability audit probe.
   --wave-ops-only      Run only the WaveOps capability audit probe.
   --no-reflection-abi  Skip the reflection/descriptor ABI probe.
@@ -172,6 +212,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --agility-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=1
       RUN_CAPS=0
@@ -193,13 +234,55 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-caps)
       RUN_CAPS=0
       shift
       ;;
+    --legacy-regression)
+      RUN_LEGACY_REGRESSION=1
+      shift
+      ;;
+    --no-legacy-regression)
+      RUN_LEGACY_REGRESSION=0
+      shift
+      ;;
+    --legacy-regression-only)
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      RUN_LEGACY_REGRESSION=1
+      shift
+      ;;
     --caps-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=1
@@ -221,6 +304,110 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
+    --feature-levels)
+      RUN_FEATURE_LEVELS=1
+      shift
+      ;;
+    --feature-levels-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=1
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
+    --fl12-2-gate)
+      # The aggregate validator consumes every query and behavior dependency.
+      # Force the complete required matrix here so an opt-in gate cannot
+      # accidentally combine a fresh feature-level/VRS result with stale or
+      # missing core, shader, ABI, or mini-probe evidence.  Later explicit
+      # --no-* options may still narrow an ordinary probe run, but callers
+      # should expect the aggregate gate to fail if they do so.
+      RUN_FL12_2_GATE=1
+      RUN_LOADER=1
+      RUN_AGILITY=1
+      RUN_CAPS=1
+      RUN_LEGACY_REGRESSION=1
+      RUN_FEATURE_LEVELS=1
+      RUN_OBJECT_CONTRACTS=1
+      RUN_DXGI=1
+      RUN_RESOURCES=1
+      RUN_QUEUES=1
+      RUN_DESCRIPTORS=1
+      RUN_SHADERS=1
+      RUN_DXIL_SEMANTICS=1
+      RUN_SHADER_CORPUS=1
+      RUN_SM66_CAPABILITIES=1
+      RUN_WRITABLE_MSAA=1
+      RUN_VRS=1
+      RUN_SAMPLER_FEEDBACK=1
+      RUN_WAVE_OPS=1
+      RUN_REFLECTION_ABI=1
+      RUN_GRAPHICS_PSO=1
+      RUN_COMPUTE_PSO=1
+      RUN_COMMAND_REPLAY=1
+      RUN_BARRIERS_RENDER_PASS=1
+      RUN_RESOURCE_VIEWS_FORMATS=1
+      RUN_RENDER_HEADLESS=1
+      RUN_MINI=1
+      RUN_WINEMETAL_ABI=1
+      RUN_VRS_ONLY=0
+      RUN_WRITABLE_MSAA_ONLY=0
+      MINI_PROBE_FILTER=""
+      shift
+      ;;
+    --object-contracts)
+      RUN_OBJECT_CONTRACTS=1
+      shift
+      ;;
+    --object-contracts-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=1
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-dxgi)
@@ -228,6 +415,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --dxgi-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -249,18 +437,109 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-resources)
       RUN_RESOURCES=0
       shift
       ;;
+    --resources-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=1
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
     --no-queues)
       RUN_QUEUES=0
       shift
       ;;
+    --queues-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=1
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
     --no-descriptors)
       RUN_DESCRIPTORS=0
+      shift
+      ;;
+    --descriptors-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=1
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
       shift
       ;;
     --no-shaders)
@@ -272,6 +551,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --semantic-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -293,6 +573,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RESOURCE_VIEWS_FORMATS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-shader-corpus)
@@ -300,6 +581,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --shader-corpus-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -321,6 +603,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-sm66-capabilities)
@@ -328,6 +611,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --sm66-capabilities-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -339,6 +623,7 @@ while [[ $# -gt 0 ]]; do
       RUN_DXIL_SEMANTICS=0
       RUN_SHADER_CORPUS=0
       RUN_SM66_CAPABILITIES=1
+      RUN_WRITABLE_MSAA=0
       RUN_WAVE_OPS=0
       RUN_REFLECTION_ABI=0
       RUN_GRAPHICS_PSO=0
@@ -349,6 +634,61 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
+    --no-writable-msaa)
+      RUN_WRITABLE_MSAA=0
+      shift
+      ;;
+    --writable-msaa-only)
+      RUN_WRITABLE_MSAA_ONLY=1
+      shift
+      ;;
+    --vrs)
+      RUN_VRS=1
+      shift
+      ;;
+    --vrs-only)
+      RUN_VRS_ONLY=1
+      shift
+      ;;
+    --no-sampler-feedback)
+      RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
+    --sampler-feedback)
+      RUN_SAMPLER_FEEDBACK=1
+      shift
+      ;;
+    --sampler-feedback-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_SAMPLER_FEEDBACK=1
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
       shift
       ;;
     --no-wave-ops)
@@ -356,6 +696,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --wave-ops-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -377,6 +718,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-reflection-abi)
@@ -384,6 +726,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --reflection-abi-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -405,6 +748,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-graphics-pso)
@@ -412,6 +756,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --graphics-pso-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -433,6 +778,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-compute-pso)
@@ -440,6 +786,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --compute-pso-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -461,6 +808,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-command-replay)
@@ -468,6 +816,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --command-replay-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -489,6 +838,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-barriers-render-pass)
@@ -496,6 +846,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --barriers-render-pass-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -517,6 +868,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-resource-views-formats)
@@ -524,6 +876,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --resource-views-formats-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -545,6 +898,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-render-headless)
@@ -560,6 +914,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --winemetal-abi-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -582,6 +937,7 @@ while [[ $# -gt 0 ]]; do
       RUN_MINI=0
       RUN_WINEMETAL_ABI=1
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-mini)
@@ -589,6 +945,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --mini-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -610,6 +967,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RESOURCE_VIEWS_FORMATS=0
       RUN_MINI=1
       RUN_PRESENT_WINDOWED=0
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --windowed-present)
@@ -617,6 +975,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --swapchain-only)
+      RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
       RUN_AGILITY=0
       RUN_CAPS=0
@@ -638,6 +997,7 @@ while [[ $# -gt 0 ]]; do
       RUN_RENDER_HEADLESS=0
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=1
+      RUN_SAMPLER_FEEDBACK=0
       shift
       ;;
     --no-windowed-present)
@@ -660,6 +1020,70 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$RUN_WRITABLE_MSAA_ONLY" == "1" ]]; then
+  RUN_LEGACY_REGRESSION=0
+  RUN_LOADER=0
+  RUN_AGILITY=0
+  RUN_CAPS=0
+  RUN_FEATURE_LEVELS=0
+  RUN_OBJECT_CONTRACTS=0
+  RUN_DXGI=0
+  RUN_RESOURCES=0
+  RUN_QUEUES=0
+  RUN_DESCRIPTORS=0
+  RUN_SHADERS=0
+  RUN_DXIL_SEMANTICS=0
+  RUN_SHADER_CORPUS=0
+  RUN_SM66_CAPABILITIES=0
+  RUN_WRITABLE_MSAA=1
+  RUN_VRS=0
+  RUN_SAMPLER_FEEDBACK=0
+  RUN_WAVE_OPS=0
+  RUN_REFLECTION_ABI=0
+  RUN_GRAPHICS_PSO=0
+  RUN_COMPUTE_PSO=0
+  RUN_COMMAND_REPLAY=0
+  RUN_BARRIERS_RENDER_PASS=0
+  RUN_RESOURCE_VIEWS_FORMATS=0
+  RUN_RENDER_HEADLESS=0
+  RUN_MINI=0
+  RUN_WINEMETAL_ABI=0
+  RUN_PRESENT_WINDOWED=0
+  RUN_FULL_STRESS=0
+fi
+
+if [[ "$RUN_VRS_ONLY" == "1" ]]; then
+  RUN_LEGACY_REGRESSION=0
+  RUN_LOADER=0
+  RUN_AGILITY=0
+  RUN_CAPS=0
+  RUN_FEATURE_LEVELS=0
+  RUN_OBJECT_CONTRACTS=0
+  RUN_DXGI=0
+  RUN_RESOURCES=0
+  RUN_QUEUES=0
+  RUN_DESCRIPTORS=0
+  RUN_SHADERS=0
+  RUN_DXIL_SEMANTICS=0
+  RUN_SHADER_CORPUS=0
+  RUN_SM66_CAPABILITIES=0
+  RUN_WRITABLE_MSAA=0
+  RUN_VRS=1
+  RUN_SAMPLER_FEEDBACK=0
+  RUN_WAVE_OPS=0
+  RUN_REFLECTION_ABI=0
+  RUN_GRAPHICS_PSO=0
+  RUN_COMPUTE_PSO=0
+  RUN_COMMAND_REPLAY=0
+  RUN_BARRIERS_RENDER_PASS=0
+  RUN_RESOURCE_VIEWS_FORMATS=0
+  RUN_RENDER_HEADLESS=0
+  RUN_MINI=0
+  RUN_WINEMETAL_ABI=0
+  RUN_PRESENT_WINDOWED=0
+  RUN_FULL_STRESS=0
+fi
+
 if [[ "$PROFILE" == "metalsharp" ]]; then
   WINE_BIN="${WINE_BIN:-$HOME/.metalsharp/runtime/wine/bin/wine}"
   if [[ "$WINE_BIN" == "wine" && -x "$HOME/.metalsharp/runtime/wine/bin/wine" ]]; then
@@ -681,6 +1105,9 @@ fi
 
 WINDOWS_DIR="$DXMT_RUNTIME/x86_64-windows"
 UNIX_DIR="$DXMT_RUNTIME/x86_64-unix"
+# Wine's builtin-module search expects a route root containing the architecture
+# subdirectories, not the x86_64-windows directory itself.
+PROBE_WINEDLLPATH="${DXMT_PROBE_WINEDLLPATH:-$DXMT_RUNTIME}"
 RUNTIME_LIB_DIR="$(dirname "$DXMT_RUNTIME")"
 WINE_RUNTIME_ROOT="$(dirname "$RUNTIME_LIB_DIR")"
 WINE_UNIX_DIR="$RUNTIME_LIB_DIR/wine/x86_64-unix"
@@ -691,11 +1118,35 @@ if [[ -n "$GAME_DIR" ]]; then
   fi
   WINDOWS_DIR="$GAME_DIR"
 fi
-DXMT_DYLD_LIBRARY_PATH="$WINE_UNIX_DIR:$UNIX_DIR:${DYLD_LIBRARY_PATH:-}"
+# Prefer the selected DXMT runtime's Unix half.  The Wine runtime also ships a
+# winemetal.so, but loading it first silently pairs source-built PE DLLs with a
+# stale Unix call table and corrupts ABI return values (notably SM50Initialize).
+DXMT_DYLD_LIBRARY_PATH="$UNIX_DIR:$WINE_UNIX_DIR:${DYLD_LIBRARY_PATH:-}"
 DXMT_WINEMETAL_UNIXLIB_NAME="winemetal.so"
+PROBE_WINEMETAL_UNIXLIB_LINK=""
+cleanup_probe_winemetal_unixlib() {
+  if [[ -n "$PROBE_WINEMETAL_UNIXLIB_LINK" ]]; then
+    rm -f "$PROBE_WINEMETAL_UNIXLIB_LINK"
+  fi
+}
+trap cleanup_probe_winemetal_unixlib EXIT
+
+# Wine's Unix-library loader resolves module names from its own Unix DLL
+# directory before DYLD_LIBRARY_PATH/WINEDLLPATH.  Register the selected DXMT
+# runtime under a unique temporary module name so the PE and Unix halves always
+# come from the same staged build, then remove the registration on exit.
+if [[ -f "$UNIX_DIR/winemetal.so" ]]; then
+  mkdir -p "$WINE_UNIX_DIR"
+  DXMT_WINEMETAL_UNIXLIB_NAME="winemetal-d3d12-probe-$$-${RANDOM}.so"
+  PROBE_WINEMETAL_UNIXLIB_LINK="$WINE_UNIX_DIR/$DXMT_WINEMETAL_UNIXLIB_NAME"
+  ln -s "$UNIX_DIR/winemetal.so" "$PROBE_WINEMETAL_UNIXLIB_LINK"
+fi
 PROBE_EXE="$SDK_DIR/out/bin/probe_loader.exe"
 AGILITY_PROBE_EXE="$SDK_DIR/out/bin/probe_agility_ue5.exe"
 CAPS_PROBE_EXE="$SDK_DIR/out/bin/probe_device_caps.exe"
+LEGACY_REGRESSION_PROBE_EXE="$SDK_DIR/out/bin/probe_legacy_regression.exe"
+FEATURE_LEVELS_PROBE_EXE="$SDK_DIR/out/bin/probe_feature_levels.exe"
+OBJECT_CONTRACTS_PROBE_EXE="$SDK_DIR/out/bin/probe_object_contracts.exe"
 DXGI_PROBE_EXE="$SDK_DIR/out/bin/probe_dxgi_factory.exe"
 RESOURCES_PROBE_EXE="$SDK_DIR/out/bin/probe_resources.exe"
 QUEUES_PROBE_EXE="$SDK_DIR/out/bin/probe_queues.exe"
@@ -704,6 +1155,10 @@ SHADERS_PROBE_EXE="$SDK_DIR/out/bin/probe_shaders.exe"
 DXIL_SEMANTICS_PROBE_EXE="$SDK_DIR/out/bin/probe_dxil_semantics.exe"
 SHADER_CORPUS_PROBE_EXE="$SDK_DIR/out/bin/probe_shader_corpus.exe"
 SM66_CAPABILITIES_PROBE_EXE="$SDK_DIR/out/bin/probe_sm66_capabilities.exe"
+WRITABLE_MSAA_PROBE_EXE="$SDK_DIR/out/bin/probe_writable_msaa.exe"
+VRS_PROBE_EXE="$SDK_DIR/out/bin/probe_vrs.exe"
+SAMPLER_FEEDBACK_PROBE_EXE="$SDK_DIR/out/bin/probe_sampler_feedback.exe"
+SAMPLER_FEEDBACK_PIXEL_PROBE_EXE="$SDK_DIR/out/bin/probe_sampler_feedback_pixel.exe"
 WAVE_OPS_PROBE_EXE="$SDK_DIR/out/bin/probe_wave_ops.exe"
 REFLECTION_ABI_PROBE_EXE="$SDK_DIR/out/bin/probe_reflection_abi.exe"
 GRAPHICS_PSO_PROBE_EXE="$SDK_DIR/out/bin/probe_graphics_pso.exe"
@@ -755,12 +1210,13 @@ if [[ "$WINDOWS_DIR" == *"/gptk/"* || "$WINDOWS_DIR" == *"/lib/gptk/"* ]]; then
 fi
 
 NEED_BUILD=0
-if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
 
 for mini_probe in "${MINI_PROBES[@]}"; do
-  if [[ ! -f "$SDK_DIR/out/bin/probe_mini_${mini_probe}.exe" ]]; then
+  if mini_probe_selected "$mini_probe" &&
+     [[ ! -f "$SDK_DIR/out/bin/probe_mini_${mini_probe}.exe" ]]; then
     NEED_BUILD=1
   fi
 done
@@ -770,9 +1226,20 @@ if [[ "$NEED_BUILD" == "1" ]]; then
 fi
 
 mkdir -p "$RESULTS_DIR"
-if [[ -z "$SHADER_CACHE_DIR" ]]; then
+shader_cache_explicit=0
+if [[ -n "$SHADER_CACHE_DIR" ]]; then
+  shader_cache_explicit=1
+else
   SHADER_CACHE_DIR="$RESULTS_DIR/shader-cache-$PROFILE"
 fi
+# Warm-up and final runs within this invocation intentionally share a cache,
+# but a default profile cache must not inherit entries from an earlier runtime
+# or source build. Converter cache keys are not a complete runtime identity,
+# so stale entries can make a clean-prefix probe bind the wrong stage ABI.
+if [[ "$shader_cache_explicit" == "0" ]]; then
+  rm -rf "$SHADER_CACHE_DIR"
+fi
+mkdir -p "$SHADER_CACHE_DIR"
 
 if [[ -z "${MS_ROOT:-}" ]]; then
   if [[ -f "$WINE_RUNTIME_ROOT/etc/mscompatdb_rules.toml" ]]; then
@@ -808,6 +1275,8 @@ WINE_BIN="$PROBE_WINE_WRAPPER"
 RESULT_FILE="$RESULTS_DIR/probe-loader-${PROFILE}.json"
 AGILITY_RESULT_FILE="$RESULTS_DIR/probe-agility-ue5-${PROFILE}.json"
 CAPS_RESULT_FILE="$RESULTS_DIR/probe-device-caps-${PROFILE}.json"
+FEATURE_LEVELS_RESULT_FILE="$RESULTS_DIR/probe-feature-levels-${PROFILE}.json"
+OBJECT_CONTRACTS_RESULT_FILE="$RESULTS_DIR/probe-object-contracts-${PROFILE}.json"
 DXGI_RESULT_FILE="$RESULTS_DIR/probe-dxgi-factory-${PROFILE}.json"
 RESOURCES_RESULT_FILE="$RESULTS_DIR/probe-resources-${PROFILE}.json"
 QUEUES_RESULT_FILE="$RESULTS_DIR/probe-queues-${PROFILE}.json"
@@ -820,6 +1289,9 @@ SHADER_CORPUS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-warmup-${PROF
 SHADER_CORPUS_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-${PROFILE}.json"
 SM66_CAPABILITIES_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-warmup-${PROFILE}.json"
 SM66_CAPABILITIES_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-${PROFILE}.json"
+WRITABLE_MSAA_RESULT_FILE="$RESULTS_DIR/probe-writable-msaa-${PROFILE}.json"
+SAMPLER_FEEDBACK_RESULT_FILE="$RESULTS_DIR/probe-sampler-feedback-${PROFILE}.json"
+SAMPLER_FEEDBACK_PIXEL_RESULT_FILE="$RESULTS_DIR/probe-sampler-feedback-pixel-${PROFILE}.json"
 WAVE_OPS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-wave-ops-warmup-${PROFILE}.json"
 WAVE_OPS_RESULT_FILE="$RESULTS_DIR/probe-wave-ops-${PROFILE}.json"
 REFLECTION_ABI_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-reflection-abi-warmup-${PROFILE}.json"
@@ -832,26 +1304,63 @@ RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${
 RENDER_HEADLESS_RESULT_FILE="$RESULTS_DIR/probe-render-headless-${PROFILE}.json"
 PRESENT_WINDOWED_RESULT_FILE="$RESULTS_DIR/probe-present-windowed-${PROFILE}.json"
 WINEMETAL_ABI_RESULT_FILE="$RESULTS_DIR/winemetal-abi-${PROFILE}.json"
+VRS_RESULT_FILE="$RESULTS_DIR/probe-vrs-${PROFILE}.json"
+LEGACY_REGRESSION_RESULT_FILE="$RESULTS_DIR/probe-legacy-regression-${PROFILE}.json"
+
+if [[ "$RUN_FL12_2_GATE" == "1" ]]; then
+  # The aggregate gate must never combine a newly captured identity with a
+  # result left by an earlier partial or different-runtime invocation.  Every
+  # dependency is rerun by this mode; deleting its output makes an interrupted
+  # or skipped probe a visible missing-evidence failure.
+  FL12_2_GATE_RESULT_STEMS=(
+    probe-feature-levels
+    probe-render-headless
+    probe-descriptors
+    probe-wave-ops
+    probe-sm66-capabilities
+    probe-mini-mesh_object_shader_pso
+    probe-queues
+    probe-command-replay
+    probe-resource-views-formats
+    probe-resources
+    probe-sampler-feedback
+    probe-sampler-feedback-pixel
+    probe-vrs
+    probe-graphics-pso
+    probe-mini-dxr_acceleration_structures
+    probe-writable-msaa
+    winemetal-abi
+    probe-legacy-regression
+  )
+  for stem in "${FL12_2_GATE_RESULT_STEMS[@]}"; do
+    rm -f "$RESULTS_DIR/${stem}-${PROFILE}.json"
+  done
+fi
 
 run_probe_exe() {
   local exe="$1"
   local result_file="$2"
   local strict_deferred_pso=0
   local enable_geometry_mesh="${DXMT_D3D12_ENABLE_GEOMETRY_MESH:-0}"
+  local d3d12_trace="${DXMT_D3D12_TRACE:-0}"
   if [[ "$(basename "$exe")" == "probe_mini_subnautica_geometry_dxil_replay.exe" ]]; then
     strict_deferred_pso=1
     enable_geometry_mesh=1
   fi
+  if [[ "$(basename "$exe")" == "probe_shaders.exe" ]]; then
+    d3d12_trace=1
+  fi
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
     DXMT_D3D12_ENABLE_GEOMETRY_MESH="$enable_geometry_mesh" \
     DXMT_D3D12_FAIL_DEFERRED_PSO="$strict_deferred_pso" \
+    DXMT_D3D12_TRACE="$d3d12_trace" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
     "$WINE_BIN" "$exe" > "$result_file"
   )
@@ -953,8 +1462,8 @@ HLSL
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -962,6 +1471,513 @@ HLSL
     "$WINE_BIN" probe_mini_dxil_texture_color_output.exe >/dev/null || true
   )
   convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+}
+
+prepare_mesh_shader_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_mesh_shader.hlsl"
+
+  cat > "$hlsl" <<'HLSL'
+struct MeshVertex {
+  float4 position : SV_Position;
+};
+
+struct MeshPrimitive {
+  uint render_target_index : SV_RenderTargetArrayIndex;
+};
+
+struct MeshPayload {
+  float horizontal_offset;
+  uint signature;
+  uint render_target_index;
+  float depth;
+};
+
+groupshared MeshPayload payload;
+
+cbuffer MeshConstants : register(b0) {
+  float mesh_scale;
+};
+
+cbuffer AmplificationConstants : register(b1) {
+  uint amplification_enabled;
+};
+
+ByteAddressBuffer mesh_control : register(t0);
+ByteAddressBuffer amplification_control : register(t1);
+Texture2D<float> mesh_texture : register(t1);
+SamplerState mesh_sampler : register(s0);
+RWByteAddressBuffer mesh_output : register(u0);
+
+[numthreads(1, 1, 1)]
+void as_main(uint3 group_id : SV_GroupID) {
+  payload.horizontal_offset = (group_id.x & 1) ? 0.05 : 0.0;
+  payload.signature = 0x4153504c;
+  payload.render_target_index = group_id.x & 1;
+  payload.depth = (group_id.x & 1) ? 0.75 : 0.25;
+  DispatchMesh(amplification_enabled * amplification_control.Load(0),
+               1, 1, payload);
+}
+
+[outputtopology("triangle")]
+[numthreads(32, 1, 1)]
+void ms_main(in payload MeshPayload payload,
+             out vertices MeshVertex vertices[3],
+             out primitives MeshPrimitive primitives[1],
+             out indices uint3 triangles[1],
+             uint group_thread_id : SV_GroupIndex) {
+  SetMeshOutputCounts(3, 1);
+  float texture_control = mesh_texture.SampleLevel(mesh_sampler, float2(0.5, 0.5), 0.0);
+  float resolved_scale = mesh_scale * asfloat(mesh_control.Load(0)) * texture_control;
+  mesh_output.Store(0, 0x4d534831);
+  mesh_output.Store(8 + group_thread_id * 4,
+                    payload.signature + group_thread_id);
+  if (group_thread_id == 0) {
+    vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, payload.depth, 1.0);
+    primitives[0].render_target_index = payload.render_target_index;
+    triangles[0] = uint3(0, 1, 2);
+  } else if (group_thread_id == 1) {
+    vertices[1].position = float4(( 0.0 + payload.horizontal_offset) * resolved_scale,  0.8 * resolved_scale, payload.depth, 1.0);
+  } else if (group_thread_id == 2) {
+    vertices[2].position = float4(( 0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, payload.depth, 1.0);
+  }
+}
+
+float4 ps_main() : SV_Target0 {
+  return float4(0.25, 0.5, 0.75, 0.5);
+}
+HLSL
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E as_main -T as_6_5 -Fo probe_mesh_shader_as.cso probe_mesh_shader.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ms_main -T ms_6_5 -Fo probe_mesh_shader_ms.cso probe_mesh_shader.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 -Fo probe_mesh_shader_ps.cso probe_mesh_shader.hlsl >/dev/null
+  )
+
+  mkdir -p "$SHADER_CACHE_DIR"
+  # Each failed stage emits its DXIL blob before PSO construction stops. Walk
+  # AS -> MS -> PS in bounded warm-up passes, converting newly emitted blobs
+  # after each pass, so the final mini gate executes the complete pipeline.
+  for _mesh_warmup_pass in 1 2 3; do
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      "$WINE_BIN" probe_mini_mesh_object_shader_pso.exe >/dev/null || true
+    )
+    convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+  done
+}
+
+prepare_conservative_raster_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_conservative_raster.hlsl"
+  cat > "$hlsl" <<'HLSL'
+struct VSIn { float3 position : POSITION; };
+struct VSOut { float4 position : SV_Position; };
+VSOut vs_main(VSIn input) {
+  VSOut output;
+  output.position = float4(input.position, 1.0);
+  return output;
+}
+float4 ps_main() : SV_Target0 {
+  return float4(1.0, 0.0, 0.0, 1.0);
+}
+HLSL
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    "$WINE_BIN" dxc.exe -nologo -T vs_6_0 -E vs_main -HV 2021 \
+      -Fo probe_conservative_raster_vs.cso probe_conservative_raster.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    "$WINE_BIN" dxc.exe -nologo -T ps_6_0 -E ps_main -HV 2021 \
+      -Fo probe_conservative_raster_ps.cso probe_conservative_raster.hlsl >/dev/null
+  )
+}
+
+prepare_dxr_acceleration_structure_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_dxr_inline.hlsl"
+  local raygen_hlsl="$SDK_DIR/out/bin/probe_dxr_raygen.hlsl"
+  local raygen_cso="$SDK_DIR/out/bin/probe_dxr_raygen.cso"
+  local raygen_root="$SDK_DIR/out/bin/probe_dxr_raygen_root.json"
+  local closest_hit_local_root="$SDK_DIR/out/bin/probe_dxr_closest_hit_local_root.json"
+  local procedural_compiler="$SDK_DIR/out/bin/compile-procedural-raytracing"
+
+  DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
+    xcrun clang++ -std=c++17 -I/usr/local/include \
+      "$SDK_DIR/scripts/compile-procedural-raytracing.cpp" \
+      -L/usr/local/lib -lmetalirconverter -o "$procedural_compiler"
+
+  cat > "$hlsl" <<'HLSL'
+RaytracingAccelerationStructure scene : register(t0);
+RWByteAddressBuffer output : register(u0);
+
+[numthreads(1, 1, 1)]
+void cs_main() {
+  RayQuery<RAY_FLAG_NONE> query;
+  RayDesc ray;
+  ray.Origin = float3(0.0, 0.0, -2.0);
+  ray.TMin = 0.0;
+  ray.Direction = float3(0.0, 0.0, 1.0);
+  ray.TMax = 10.0;
+  query.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
+  while (query.Proceed()) {
+    if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+      query.CommitNonOpaqueTriangleHit();
+  }
+  output.Store(0, query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 1 : 0);
+}
+HLSL
+
+  cat > "$raygen_root" <<'JSON'
+{
+  "RootSignature": {
+    "Flags": "IRRootSignatureFlagNone",
+    "NumParameters": 1,
+    "NumStaticSamplers": 0,
+    "Parameters": [{
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeSRV",
+          "RegisterSpace": 0
+        }, {
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 1,
+          "RangeType": "IRDescriptorRangeTypeUAV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 2
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }],
+    "StaticSamplers": []
+  },
+  "version": "IRRootSignatureVersion_1_1"
+}
+JSON
+
+  cat > "$closest_hit_local_root" <<'JSON'
+{
+  "RootSignature": {
+    "Flags": "IRRootSignatureFlagLocalRootSignature",
+    "NumParameters": 4,
+    "NumStaticSamplers": 1,
+    "Parameters": [{
+      "Constants": {
+        "Num32BitValues": 1,
+        "ShaderRegister": 1,
+        "RegisterSpace": 0
+      },
+      "ParameterType": "IRRootParameterType32BitConstants",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 1,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeSRV",
+          "RegisterSpace": 0
+        }, {
+          "BaseShaderRegister": 2,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 1,
+          "RangeType": "IRDescriptorRangeTypeSRV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 2
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 1,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeUAV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 1
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 2,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeCBV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 1
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }, {
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeSampler",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 1
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }],
+    "StaticSamplers": [{
+      "AddressU": "IRTextureAddressModeClamp",
+      "AddressV": "IRTextureAddressModeClamp",
+      "AddressW": "IRTextureAddressModeClamp",
+      "BorderColor": "IRStaticBorderColorOpaqueBlack",
+      "ComparisonFunc": "IRComparisonFunctionAlways",
+      "Filter": "IRFilterMinMagMipPoint",
+      "MaxAnisotropy": 1,
+      "MaxLOD": 3.4028234663852886e+38,
+      "MinLOD": 0,
+      "MipLODBias": 0,
+      "RegisterSpace": 0,
+      "ShaderRegister": 1,
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }]
+  },
+  "version": "IRRootSignatureVersion_1_1"
+}
+JSON
+
+  cat > "$raygen_hlsl" <<'HLSL'
+RaytracingAccelerationStructure scene : register(t0);
+RWByteAddressBuffer output : register(u0);
+cbuffer ClosestHitLocalRoot : register(b1) {
+  uint closest_hit_local_marker;
+};
+ByteAddressBuffer closest_hit_local_buffer : register(t1);
+RWByteAddressBuffer closest_hit_local_output : register(u1);
+cbuffer ClosestHitLocalCBV : register(b2) {
+  uint closest_hit_local_cbv_marker;
+};
+Texture2D<float4> closest_hit_local_texture : register(t2);
+SamplerState closest_hit_local_sampler : register(s0);
+SamplerState closest_hit_local_static_sampler : register(s1);
+
+struct MissPayload {
+  uint value;
+};
+
+struct CallablePayload {
+  uint value;
+};
+
+[shader("raygeneration")]
+void raygen() {
+  uint ray_index = DispatchRaysIndex().x;
+  RayDesc ray;
+  ray.Origin = ray_index == 2 ? float3(2.0, 0.0, -2.0)
+                              : ray_index == 3 ? float3(4.6, -0.6, -2.0)
+                              : ray_index == 4 ? float3(4.0, 0.0, -2.0)
+                                               : float3(0.0, 0.0, -2.0);
+  ray.TMin = 0.0;
+  ray.Direction = ray_index == 0 ? float3(0.0, 1.0, 0.0)
+                                 : float3(0.0, 0.0, 1.0);
+  ray.TMax = 10.0;
+  MissPayload payload;
+  payload.value = 0;
+  TraceRay(scene, RAY_FLAG_NONE, 0x02, 0, 0,
+           ray_index == 0 ? 1 : 0, ray, payload);
+  output.Store(ray_index < 3 ? 4 + ray_index * 4
+                              : ray_index == 3 ? 24 : 28,
+               payload.value);
+  if (ray_index == 0) {
+    CallablePayload callable_payload;
+    callable_payload.value = 0;
+    CallShader(1, callable_payload);
+    output.Store(16, callable_payload.value);
+    output.Store(20, 42);
+  }
+}
+
+[shader("miss")]
+void miss_shader(inout MissPayload payload) {
+  payload.value = closest_hit_local_marker == 0x4c4f434c
+                      ? 0x4d495353
+                      : 0x4d495346;
+}
+
+[shader("closesthit")]
+void closest_hit(inout MissPayload payload,
+                 BuiltInTriangleIntersectionAttributes attributes) {
+  bool any_hit_ran = payload.value == 0x414e5948;
+  RayDesc recursive_ray;
+  recursive_ray.Origin = float3(0.0, 0.0, -2.0);
+  recursive_ray.TMin = 0.0;
+  recursive_ray.Direction = float3(0.0, 1.0, 0.0);
+  recursive_ray.TMax = 10.0;
+  MissPayload recursive_payload;
+  recursive_payload.value = 0;
+  TraceRay(scene, RAY_FLAG_NONE, 0xff, 0, 0, 0,
+           recursive_ray, recursive_payload);
+  closest_hit_local_output.Store(0, 0x4c525557);
+  payload.value = any_hit_ran && recursive_payload.value == 0x4d495353 &&
+                          closest_hit_local_marker == 0x4c4f434c &&
+                          closest_hit_local_buffer.Load(0) == 0x53525631 &&
+                          closest_hit_local_cbv_marker == 0x43425631 &&
+                          closest_hit_local_texture.SampleLevel(
+                              closest_hit_local_sampler, float2(0.5, 0.5), 0).r >
+                              0.9 &&
+                          closest_hit_local_texture.SampleLevel(
+                              closest_hit_local_static_sampler,
+                              float2(0.5, 0.5), 0).r > 0.9
+                      ? 0x52454332
+                      : 0x48495431;
+}
+
+[shader("anyhit")]
+void any_hit(inout MissPayload payload,
+             BuiltInTriangleIntersectionAttributes attributes) {
+  payload.value = 0x414e5948;
+}
+
+[shader("callable")]
+void callable_shader(inout CallablePayload payload) {
+  payload.value = closest_hit_local_marker == 0x4c4f434c
+                      ? 0x43414c4c
+                      : 0x43414c46;
+}
+
+struct ProceduralAttributes {
+  float marker;
+};
+
+[shader("intersection")]
+void procedural_intersection() {
+  ProceduralAttributes attributes;
+  attributes.marker = 19.0;
+  ReportHit(1.0, 0, attributes);
+}
+
+[shader("closesthit")]
+void procedural_closest_hit(inout MissPayload payload,
+                            ProceduralAttributes attributes) {
+  payload.value = attributes.marker == 19.0 ? 0x50524f43 : 0x50524f46;
+}
+HLSL
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_5 \
+      -Fo probe_dxr_inline.cso probe_dxr_inline.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -T lib_6_5 \
+      -Fo probe_dxr_raygen.cso probe_dxr_raygen.hlsl >/dev/null
+  )
+
+  mkdir -p "$SHADER_CACHE_DIR"
+  for _dxr_warmup_pass in 1 2; do
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      "$WINE_BIN" probe_mini_dxr_acceleration_structures.exe >/dev/null || true
+    )
+    convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+    local converter="$METAL_SHADER_CONVERTER"
+    if [[ -z "$converter" ]]; then
+      converter="$(command -v metal-shaderconverter || true)"
+    fi
+    if [[ -n "$converter" && -x "$converter" ]]; then
+      local dxbc
+      shopt -s nullglob
+      for dxbc in "$SHADER_CACHE_DIR"/*.dxbc; do
+        if ! cmp -s "$dxbc" "$raygen_cso"; then
+          continue
+        fi
+        local base="${dxbc%.dxbc}"
+        if DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" raygen "$base.metallib" \
+          "$closest_hit_local_root" \
+          >"$base.raygen-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" @ray-dispatch \
+          "$base.raydispatch.metallib" "$closest_hit_local_root" \
+          >"$base.raydispatch-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" miss_shader "$base.miss.metallib" \
+          "$closest_hit_local_root" \
+          >"$base.miss-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" closest_hit "$base.closesthit.metallib" \
+          "$closest_hit_local_root" \
+          >"$base.closesthit-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" callable_shader "$base.callable.metallib" \
+          "$closest_hit_local_root" \
+          >"$base.callable-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" any_hit "$base.anyhit.metallib" \
+          "$closest_hit_local_root" \
+          >"$base.anyhit-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" @triangle-wrapper \
+          "$base.rayintersection.metallib" "$closest_hit_local_root" \
+          >"$base.rayintersection-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" procedural_intersection \
+          "$base.proceduralintersection.metallib" "$closest_hit_local_root" \
+          >"$base.proceduralintersection-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" procedural_closest_hit \
+          "$base.proceduralclosesthit.metallib" "$closest_hit_local_root" \
+          >"$base.proceduralclosesthit-msc.log" 2>&1 &&
+          DYLD_LIBRARY_PATH=/usr/local/lib "$procedural_compiler" \
+          "$dxbc" "$raygen_root" @procedural-wrapper \
+          "$base.proceduralwrapper.metallib" "$closest_hit_local_root" \
+          >"$base.proceduralwrapper-msc.log" 2>&1; then
+          rm -f "$base.msc.fail"
+        fi
+      done
+      shopt -u nullglob
+    fi
+  done
 }
 
 prepare_dxil_semantic_probes() {
@@ -1036,8 +2052,8 @@ HLSL
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1048,10 +2064,91 @@ HLSL
   convert_dxil_shader_cache "$SHADER_CACHE_DIR"
 }
 
+SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+SOURCE_TREE_SHA256="$(python3 - "$ROOT_DIR" <<'PY'
+import hashlib
+import pathlib
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1])
+try:
+    listed = subprocess.check_output(
+        ["git", "-C", str(root), "ls-files", "-co", "--exclude-standard",
+         "vendor/dxmt", "tools/d3d12-metal-sdk"],
+        text=True,
+    ).splitlines()
+except (OSError, subprocess.CalledProcessError):
+    listed = []
+
+def is_source_path(relative):
+    return not (
+        relative.startswith("vendor/dxmt/build-")
+        or relative.startswith("tools/d3d12-metal-sdk/results/")
+        or relative.startswith("tools/d3d12-metal-sdk/out/")
+        or relative.startswith("tools/d3d12-metal-sdk/cache/")
+        or "/__pycache__/" in relative
+        or relative.endswith("/__pycache__")
+        or relative.endswith(".pyc")
+    )
+
+digest = hashlib.sha256()
+for relative in sorted(path for path in listed if is_source_path(path) and (root / path).is_file()):
+    path = root / relative
+    digest.update(relative.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(path.read_bytes())
+    digest.update(b"\0")
+print(digest.hexdigest())
+PY
+)"
+# Generated build outputs, probe results, and shader caches are deliberately
+# excluded from source identity.  Otherwise a clean source checkout appears
+# dirty merely because the manifest-driven build produced tracked PE/Unix
+# artifacts, weakening the provenance check in the aggregate gate.
+SOURCE_DIRTY="$(python3 - "$ROOT_DIR" <<'PY'
+import subprocess
+import sys
+
+root = sys.argv[1]
+status = subprocess.check_output(
+    ["git", "-C", root, "status", "--porcelain", "--untracked-files=all",
+     "--", "vendor/dxmt", "tools/d3d12-metal-sdk"],
+    text=True,
+)
+
+def generated(path):
+    return (
+        path.startswith("vendor/dxmt/build-")
+        or path.startswith("tools/d3d12-metal-sdk/results/")
+        or path.startswith("tools/d3d12-metal-sdk/out/")
+        or path.startswith("tools/d3d12-metal-sdk/cache/")
+        or "/__pycache__/" in path
+        or path.endswith("/__pycache__")
+        or path.endswith(".pyc")
+    )
+
+changed = []
+for line in status.splitlines():
+    if len(line) >= 4:
+        path = line[3:]
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[-1]
+        if not generated(path):
+            changed.append(path)
+print("true" if changed else "false")
+PY
+)"
+RUN_STARTED_AT="$(date +%s)"
+
 cat > "$RESULTS_DIR/host-runtime-${PROFILE}.json" <<EOF
 {
   "schema": "metalsharp.d3d12-metal.host-runtime.v1",
   "profile": "$PROFILE",
+  "source_commit": "$SOURCE_COMMIT",
+  "source_tree_sha256": "$SOURCE_TREE_SHA256",
+  "source_dirty": $SOURCE_DIRTY,
+  "run_started_at": $RUN_STARTED_AT,
   "wine": "$REAL_WINE_BIN",
   "prefix": "$WINE_PREFIX",
   "dxmt_runtime": "$DXMT_RUNTIME",
@@ -1088,14 +2185,22 @@ if [[ "$RUN_WINEMETAL_ABI" == "1" ]]; then
 fi
 
 if [[ "$RUN_MINI" == "1" ]]; then
-  prepare_dxil_color_probe
+  if mini_probe_selected dxil_texture_color_output; then
+    prepare_dxil_color_probe
+  fi
+  if mini_probe_selected mesh_object_shader_pso; then
+    prepare_mesh_shader_probe
+  fi
+  if mini_probe_selected dxr_acceleration_structures; then
+    prepare_dxr_acceleration_structure_probe
+  fi
 fi
 
 if [[ "$RUN_LOADER" == "1" ]]; then
   # DXMT is shipped as PE DLLs; native-first avoids Wine resolving stale builtin shims.
   WINEPREFIX="$WINE_PREFIX" \
-  WINEDLLPATH="$WINDOWS_DIR" \
-  WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+  WINEDLLPATH="$PROBE_WINEDLLPATH" \
+  WINEDLLOVERRIDES="$DLL_OVERRIDES" \
   DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
   DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
   D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1108,8 +2213,8 @@ if [[ "$RUN_AGILITY" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1125,12 +2230,18 @@ fi
 # JSON. Keep collecting the rest of the matrix and let compare-contract decide pass/fail.
 set +e
 
+if [[ "$RUN_LEGACY_REGRESSION" == "1" ]]; then
+  run_probe_exe \
+    "$LEGACY_REGRESSION_PROBE_EXE" \
+    "$LEGACY_REGRESSION_RESULT_FILE"
+fi
+
 if [[ "$RUN_CAPS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1142,12 +2253,42 @@ if [[ "$RUN_CAPS" == "1" ]]; then
   echo "$CAPS_RESULT_FILE"
 fi
 
+if [[ "$RUN_FEATURE_LEVELS" == "1" ]]; then
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+    D3D12_METAL_SDK_PROFILE="$PROFILE" \
+    D3D12_METAL_SDK_AGILITY_VERSION="$AGILITY_SDK_VERSION" \
+    D3D12_METAL_SDK_AGILITY_PATH="$AGILITY_SDK_PATH" \
+    "$WINE_BIN" "$FEATURE_LEVELS_PROBE_EXE" > "$FEATURE_LEVELS_RESULT_FILE"
+  )
+  echo "$FEATURE_LEVELS_RESULT_FILE"
+fi
+
+if [[ "$RUN_OBJECT_CONTRACTS" == "1" ]]; then
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+    D3D12_METAL_SDK_PROFILE="$PROFILE" \
+    "$WINE_BIN" "$OBJECT_CONTRACTS_PROBE_EXE" > "$OBJECT_CONTRACTS_RESULT_FILE"
+  )
+  echo "$OBJECT_CONTRACTS_RESULT_FILE"
+fi
+
 if [[ "$RUN_DXGI" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1160,8 +2301,8 @@ if [[ "$RUN_RESOURCES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1174,8 +2315,8 @@ if [[ "$RUN_QUEUES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1188,8 +2329,8 @@ if [[ "$RUN_DESCRIPTORS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1202,8 +2343,8 @@ if [[ "$RUN_SHADERS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1217,8 +2358,8 @@ if [[ "$RUN_SHADERS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1237,8 +2378,8 @@ if [[ "$RUN_DXIL_SEMANTICS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1253,8 +2394,8 @@ if [[ "$RUN_SHADER_CORPUS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1266,8 +2407,8 @@ if [[ "$RUN_SHADER_CORPUS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1282,8 +2423,8 @@ if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1295,8 +2436,8 @@ if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1307,12 +2448,50 @@ if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then
   echo "$SM66_CAPABILITIES_RESULT_FILE"
 fi
 
+if [[ "$RUN_WRITABLE_MSAA" == "1" &&
+      ("$RUN_SM66_CAPABILITIES" == "1" || "$RUN_WRITABLE_MSAA_ONLY" == "1") ]]; then
+  run_probe_exe \
+    "$WRITABLE_MSAA_PROBE_EXE" \
+    "$WRITABLE_MSAA_RESULT_FILE"
+fi
+
+if [[ "$RUN_VRS" == "1" ]]; then
+  run_probe_exe "$VRS_PROBE_EXE" "$VRS_RESULT_FILE"
+fi
+
+if [[ "$RUN_SAMPLER_FEEDBACK" == "1" ]]; then
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+    DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+    D3D12_METAL_SDK_PROFILE="$PROFILE" \
+    "$WINE_BIN" "$SAMPLER_FEEDBACK_PROBE_EXE" > "$SAMPLER_FEEDBACK_RESULT_FILE"
+  )
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+    DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+    D3D12_METAL_SDK_PROFILE="$PROFILE" \
+    "$WINE_BIN" "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" > "$SAMPLER_FEEDBACK_PIXEL_RESULT_FILE"
+  )
+  echo "$SAMPLER_FEEDBACK_RESULT_FILE"
+  echo "$SAMPLER_FEEDBACK_PIXEL_RESULT_FILE"
+fi
+
 if [[ "$RUN_WAVE_OPS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1324,8 +2503,8 @@ if [[ "$RUN_WAVE_OPS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1340,8 +2519,8 @@ if [[ "$RUN_REFLECTION_ABI" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1353,8 +2532,8 @@ if [[ "$RUN_REFLECTION_ABI" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1366,11 +2545,12 @@ if [[ "$RUN_REFLECTION_ABI" == "1" ]]; then
 fi
 
 if [[ "$RUN_GRAPHICS_PSO" == "1" ]]; then
+  prepare_conservative_raster_probe
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1384,8 +2564,8 @@ if [[ "$RUN_COMPUTE_PSO" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -1399,8 +2579,8 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1413,8 +2593,8 @@ if [[ "$RUN_BARRIERS_RENDER_PASS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1427,8 +2607,8 @@ if [[ "$RUN_RESOURCE_VIEWS_FORMATS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1441,8 +2621,8 @@ if [[ "$RUN_RENDER_HEADLESS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1453,6 +2633,9 @@ fi
 
 if [[ "$RUN_MINI" == "1" ]]; then
   for mini_probe in "${MINI_PROBES[@]}"; do
+    if ! mini_probe_selected "$mini_probe"; then
+      continue
+    fi
     run_probe_exe \
       "$SDK_DIR/out/bin/probe_mini_${mini_probe}.exe" \
       "$RESULTS_DIR/probe-mini-${mini_probe}-${PROFILE}.json"
@@ -1463,8 +2646,8 @@ if [[ "$RUN_PRESENT_WINDOWED" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1481,8 +2664,8 @@ if [[ "$RUN_FULL_STRESS" == "1" ]]; then
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
-    WINEDLLPATH="$WINDOWS_DIR" \
-    WINEDLLOVERRIDES="d3d12,dxgi,d3d11,d3d10core,winemetal=n,b" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
@@ -1492,4 +2675,15 @@ if [[ "$RUN_FULL_STRESS" == "1" ]]; then
       2> "$FULL_STRESS_RESULT_DIR/probe_full_stress.stderr.log"
   )
   echo "$FULL_STRESS_RESULT_DIR"
+fi
+
+if [[ "$RUN_FL12_2_GATE" == "1" ]]; then
+  python3 "$SDK_DIR/scripts/validate-fl12-2-gate.py" \
+    --profile "$PROFILE" \
+    --results-dir "$RESULTS_DIR" \
+    --source-root "$ROOT_DIR"
+  gate_status=$?
+  if [[ "$gate_status" != "0" ]]; then
+    exit "$gate_status"
+  fi
 fi

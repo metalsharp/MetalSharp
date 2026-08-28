@@ -290,6 +290,21 @@ public:
   }
 };
 
+class RasterizationRateMap : public Object {
+public:
+  void copyParameterData(Buffer buffer, uint64_t offset) {
+    MTLRasterizationRateMap_copyParameterData(handle, buffer.handle, offset);
+  }
+};
+
+class AccelerationStructure : public Resource {
+public:
+  uint64_t
+  gpuResourceID() const {
+    return MTLAccelerationStructure_gpuResourceID(handle);
+  }
+};
+
 class SamplerState : public Object {
 public:
 };
@@ -311,8 +326,96 @@ public:
   }
 };
 
+class ResourceStateCommandEncoder : public CommandEncoder {
+public:
+  bool updateTextureMappings(
+      Texture texture, const WMTTextureMapping *mappings,
+      uint64_t mapping_count) {
+    return MTLResourceStateCommandEncoder_updateTextureMappings(
+        handle, texture.handle, mappings, mapping_count);
+  }
+};
+
+class Heap : public Object {
+public:
+  Reference<Texture> newTexture(WMTTextureInfo &info) {
+    return Reference<Texture>(MTLHeap_newTexture(handle, &info));
+  }
+
+  Reference<Texture> newTexture(WMTTextureInfo &info, uint64_t offset) {
+    return Reference<Texture>(
+        MTLHeap_newTextureAtOffset(handle, &info, offset));
+  }
+
+  Reference<Buffer> newBuffer(WMTBufferInfo &info, uint64_t offset) {
+    return Reference<Buffer>(
+        MTLHeap_newBufferAtOffset(handle, &info, offset));
+  }
+};
+
+class CommandQueue4 : public Object {
+public:
+  bool updateTextureMappings(
+      Texture texture, Heap heap,
+      const WMT4SparseTextureMappingOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_updateTextureMappings(
+        handle, texture.handle, heap.handle, operations, operation_count);
+  }
+
+  bool copyTextureMappings(
+      Texture source_texture, Texture destination_texture,
+      const WMT4SparseTextureMappingCopyOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_copyTextureMappings(
+        handle, source_texture.handle, destination_texture.handle, operations,
+        operation_count);
+  }
+
+  bool updateBufferMappings(
+      Buffer buffer, Heap heap,
+      const WMT4SparseBufferMappingOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_updateBufferMappings(
+        handle, buffer.handle, heap.handle, operations, operation_count);
+  }
+
+  bool copyBufferMappings(
+      Buffer source_buffer, Buffer destination_buffer,
+      const WMT4SparseBufferMappingCopyOperation *operations,
+      uint64_t operation_count) {
+    return MTL4CommandQueue_copyBufferMappings(
+        handle, source_buffer.handle, destination_buffer.handle, operations,
+        operation_count);
+  }
+
+  bool copyBuffer(Buffer source_buffer, uint64_t source_offset,
+                  Buffer destination_buffer, uint64_t destination_offset,
+                  uint64_t size, Heap residency_heap) {
+    return MTL4CommandQueue_copyBuffer(
+        handle, source_buffer.handle, source_offset, destination_buffer.handle,
+        destination_offset, size, residency_heap.handle);
+  }
+};
+
 class ComputePipelineState : public Object {
 public:
+};
+
+class VisibleFunctionTable : public Resource {
+public:
+  uint64_t
+  gpuResourceID() const {
+    return MTLVisibleFunctionTable_gpuResourceID(handle);
+  }
+};
+
+class IntersectionFunctionTable : public Resource {
+public:
+  uint64_t
+  gpuResourceID() const {
+    return MTLVisibleFunctionTable_gpuResourceID(handle);
+  }
 };
 
 class RenderPipelineState : public Object {
@@ -425,9 +528,51 @@ public:
   };
 
   bool
+  setMeshTexture(Texture texture, uint8_t index) {
+    struct wmtcmd_render_settexture cmd;
+    cmd.type = WMTRenderCommandSetMeshTexture;
+    cmd.next.set(nullptr);
+    cmd.texture = texture;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  };
+
+  bool
+  setObjectTexture(Texture texture, uint8_t index) {
+    struct wmtcmd_render_settexture cmd;
+    cmd.type = WMTRenderCommandSetObjectTexture;
+    cmd.next.set(nullptr);
+    cmd.texture = texture;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  };
+
+  bool
   setFragmentSamplerState(SamplerState sampler, uint8_t index) {
     struct wmtcmd_render_setsamplerstate cmd;
     cmd.type = WMTRenderCommandSetFragmentSamplerState;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.sampler = sampler.handle;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
+  setMeshSamplerState(SamplerState sampler, uint8_t index) {
+    struct wmtcmd_render_setsamplerstate cmd;
+    cmd.type = WMTRenderCommandSetMeshSamplerState;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.sampler = sampler.handle;
+    cmd.index = index;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
+  setObjectSamplerState(SamplerState sampler, uint8_t index) {
+    struct wmtcmd_render_setsamplerstate cmd;
+    cmd.type = WMTRenderCommandSetObjectSamplerState;
     cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
     cmd.next.set(nullptr);
     cmd.sampler = sampler.handle;
@@ -480,12 +625,38 @@ public:
   }
 
   bool
+  setViewports(const WMTViewport *viewports, uint8_t viewport_count) {
+    if (!viewports || !viewport_count)
+      return false;
+    struct wmtcmd_render_setviewports cmd;
+    cmd.type = WMTRenderCommandSetViewports;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.viewports.set((void *)viewports);
+    cmd.viewport_count = viewport_count;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
   setViewport(WMTViewport viewport) {
     struct wmtcmd_render_setviewport cmd;
     cmd.type = WMTRenderCommandSetViewport;
     cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
     cmd.next.set(nullptr);
     cmd.viewport = viewport;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
+  setScissorRects(const WMTScissorRect *scissors, uint8_t rect_count) {
+    if (!scissors || !rect_count)
+      return false;
+    struct wmtcmd_render_setscissorrects cmd;
+    cmd.type = WMTRenderCommandSetScissorRects;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.scissor_rects.set((void *)scissors);
+    cmd.rect_count = rect_count;
     return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
   }
 
@@ -680,6 +851,13 @@ public:
     MTLCommandBuffer_retainObjectsUntilCompleted(handle, objects, count);
   }
 
+  bool
+  writeTimestampResults(Buffer destination, uint64_t offset,
+                        uint32_t count) {
+    return MTLCommandBuffer_writeTimestampResults(handle, destination.handle,
+                                                  offset, count);
+  }
+
   WMTCommandBufferStatus
   status() {
     return MTLCommandBuffer_status(handle);
@@ -708,6 +886,142 @@ public:
   void
   encodeWaitForEvent(Event event, uint64_t value) {
     return MTLCommandBuffer_encodeWaitForEvent(handle, event.handle, value);
+  }
+
+  ResourceStateCommandEncoder resourceStateCommandEncoder() {
+    return ResourceStateCommandEncoder{
+        MTLCommandBuffer_resourceStateCommandEncoder(handle)};
+  }
+
+  bool
+  buildTriangleAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      const WMTPrimitiveAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildTriangleAccelerationStructure(
+        handle, acceleration_structure.handle, &info, scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
+  bool
+  buildTriangleAccelerationStructures(
+      AccelerationStructure acceleration_structure,
+      const WMTPrimitiveAccelerationStructureInfo *infos, uint64_t info_count,
+      Buffer scratch_buffer, uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildTriangleAccelerationStructures(
+        handle, acceleration_structure.handle, infos, info_count,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
+  buildAABBAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      const WMTAABBAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildAABBAccelerationStructure(
+        handle, acceleration_structure.handle, &info, scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
+  bool
+  buildMixedAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      const WMTAccelerationStructureGeometryInfo *infos, uint64_t info_count,
+      Buffer scratch_buffer, uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildMixedAccelerationStructure(
+        handle, acceleration_structure.handle, infos, info_count,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
+  refitAABBAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      const WMTAABBAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitAABBAccelerationStructure(
+        handle, source.handle, destination.handle, &info,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
+  refitMixedAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      const WMTAccelerationStructureGeometryInfo *infos, uint64_t info_count,
+      Buffer scratch_buffer, uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitMixedAccelerationStructure(
+        handle, source.handle, destination.handle, infos, info_count,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
+  copyAccelerationStructure(AccelerationStructure source,
+                            AccelerationStructure destination) {
+    return MTLCommandBuffer_copyAccelerationStructure(
+        handle, source.handle, destination.handle);
+  }
+
+  bool
+  copyAndCompactAccelerationStructure(AccelerationStructure source,
+                                      AccelerationStructure destination) {
+    return MTLCommandBuffer_copyAndCompactAccelerationStructure(
+        handle, source.handle, destination.handle);
+  }
+
+  bool
+  writeCompactedAccelerationStructureSize(AccelerationStructure source,
+                                           Buffer destination,
+                                           uint64_t destination_offset) {
+    return MTLCommandBuffer_writeCompactedAccelerationStructureSize(
+        handle, source.handle, destination.handle, destination_offset);
+  }
+
+  bool
+  refitTriangleAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      const WMTPrimitiveAccelerationStructureInfo &info, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitTriangleAccelerationStructure(
+        handle, source.handle, destination.handle, &info,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
+  buildInstanceAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      Buffer instance_descriptor_buffer,
+      uint64_t instance_descriptor_buffer_offset, uint64_t instance_count,
+      const obj_handle_t *instanced_acceleration_structures,
+      uint64_t instanced_acceleration_structure_count, bool allow_refit,
+      Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildInstanceAccelerationStructure(
+        handle, acceleration_structure.handle, instance_descriptor_buffer.handle,
+        instance_descriptor_buffer_offset, instance_count,
+        instanced_acceleration_structures,
+        instanced_acceleration_structure_count, allow_refit,
+        scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
+  bool
+  refitInstanceAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      Buffer instance_descriptor_buffer,
+      uint64_t instance_descriptor_buffer_offset, uint64_t instance_count,
+      const obj_handle_t *instanced_acceleration_structures,
+      uint64_t instanced_acceleration_structure_count, Buffer scratch_buffer,
+      uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitInstanceAccelerationStructure(
+        handle, source.handle, destination.handle,
+        instance_descriptor_buffer.handle, instance_descriptor_buffer_offset,
+        instance_count, instanced_acceleration_structures,
+        instanced_acceleration_structure_count, scratch_buffer.handle,
+        scratch_buffer_offset);
+  }
+
+  bool
+  resolveFlattenedMSAATexture(const WMTFlattenedMSAAResolveInfo &info) {
+    return MTLCommandBuffer_resolveFlattenedMSAATexture(handle, &info);
   }
 
   RenderCommandEncoder
@@ -843,6 +1157,67 @@ public:
     return Reference<Buffer>(MTLDevice_newBuffer(handle, &info));
   }
 
+  Reference<Buffer>
+  newSparseBuffer(WMTSparseBufferInfo &info) {
+    return Reference<Buffer>(MTLDevice_newSparseBuffer(handle, &info));
+  }
+
+  Reference<CommandQueue4> newMTL4CommandQueue() {
+    return Reference<CommandQueue4>(MTLDevice_newMTL4CommandQueue(handle));
+  }
+
+  Reference<Heap>
+  newHeap(WMTHeapInfo &info) {
+    return Reference<Heap>(MTLDevice_newHeap(handle, &info));
+  }
+
+  bool
+  accelerationStructureSizesForTriangles(
+      const WMTPrimitiveAccelerationStructureInfo &info,
+      WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForTriangles(handle, &info,
+                                                            &sizes);
+  }
+
+  bool
+  accelerationStructureSizesForTriangleGeometries(
+      const WMTPrimitiveAccelerationStructureInfo *infos, uint64_t info_count,
+      WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForTriangleGeometries(
+        handle, infos, info_count, &sizes);
+  }
+
+  bool
+  accelerationStructureSizesForMixedGeometries(
+      const WMTAccelerationStructureGeometryInfo *infos,
+      uint64_t info_count, WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForMixedGeometries(
+        handle, infos, info_count, &sizes);
+  }
+
+  bool
+  accelerationStructureSizesForAABBs(
+      const WMTAABBAccelerationStructureInfo &info,
+      WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForAABBs(handle, &info, &sizes);
+  }
+
+  bool
+  accelerationStructureSizesForInstances(
+      uint64_t instance_count, bool allow_refit,
+      WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForInstances(handle,
+                                                            instance_count,
+                                                            allow_refit,
+                                                            &sizes);
+  }
+
+  Reference<AccelerationStructure>
+  newAccelerationStructure(uint64_t size) {
+    return Reference<AccelerationStructure>(
+        MTLDevice_newAccelerationStructure(handle, size));
+  }
+
   Reference<SamplerState>
   newSamplerState(WMTSamplerInfo &info) {
     return Reference<SamplerState>(MTLDevice_newSamplerState(handle, &info));
@@ -856,6 +1231,17 @@ public:
   Reference<Texture>
   newTexture(WMTTextureInfo &info) {
     return Reference<Texture>(MTLDevice_newTexture(handle, &info));
+  }
+
+  Reference<RasterizationRateMap>
+  newRasterizationRateMap(uint32_t screen_width, uint32_t screen_height,
+                          const float *horizontal, const float *vertical,
+                          uint64_t &parameter_size,
+                          uint64_t &parameter_align) {
+    return Reference<RasterizationRateMap>(
+        MTLDevice_newRasterizationRateMap(
+            handle, screen_width, screen_height, horizontal, vertical,
+            &parameter_size, &parameter_align));
   }
 
   Reference<Library>
@@ -920,6 +1306,23 @@ public:
     return Reference<ComputePipelineState>(MTLDevice_newComputePipelineState(handle, &info, &error.handle));
   }
 
+  Reference<ComputePipelineState>
+  newRaytracingComputePipelineState(
+      const WMTRaytracingComputePipelineInfo &info,
+      Reference<VisibleFunctionTable> &visible_function_table,
+      Reference<IntersectionFunctionTable> &intersection_function_table,
+      Error &error) {
+    obj_handle_t table = 0;
+    obj_handle_t intersection_table = 0;
+    auto pipeline = Reference<ComputePipelineState>(
+        MTLDevice_newRaytracingComputePipelineState(
+            handle, &info, &table, &intersection_table, &error.handle));
+    visible_function_table = Reference<VisibleFunctionTable>(table);
+    intersection_function_table =
+        Reference<IntersectionFunctionTable>(intersection_table);
+    return pipeline;
+  }
+
   Reference<RenderPipelineState>
   newRenderPipelineState(const WMTMeshRenderPipelineInfo &info, Error &error) {
     return Reference<RenderPipelineState>(MTLDevice_newMeshRenderPipelineState(handle, &info, &error.handle));
@@ -953,6 +1356,11 @@ public:
   bool
   supportsBCTextureCompression() {
     return MTLDevice_supportsBCTextureCompression(handle);
+  }
+
+  bool
+  supportsRaytracing() {
+    return MTLDevice_supportsRaytracing(handle);
   }
 
   bool

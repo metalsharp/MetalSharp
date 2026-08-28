@@ -1,7 +1,8 @@
 # m12_game.exe
 
-`m12_game.exe` is a DX12-only Wine/Metal stress harness for M12. It is meant to
-exercise backend surfaces without launching a real game.
+`m12_game.exe` is a bounded DX12-only Wine/Metal rendering harness for M12. It
+exercises backend surfaces without launching a real game and requests
+`D3D_FEATURE_LEVEL_12_2` explicitly.
 
 The default harness case is a 10-second 3D RGB cube scene with a depth buffer,
 ground plane, projected shadow, dynamic vertex updates, indexed draws, and
@@ -10,7 +11,7 @@ a real game launch.
 
 The harness currently covers:
 
-- device, queue, swapchain, RTV, fence, and present creation
+- explicit feature-level 12_2 device creation, queue, swapchain, RTV, fence, and present creation
 - clear-only present
 - sparse vertex buffers using slots 0 and 3
 - `DrawInstanced` and `DrawIndexedInstanced`
@@ -47,8 +48,10 @@ until 15 seconds by default. It deliberately stresses:
 - procedural fullscreen triangle-strip draws using `SV_VertexID`
 - splash and scene readback diagnostics
 
-Current hard-failure checkpoint: the beach stress scene compiles and stages,
-creates the D3D12 device at feature level 12_0, creates compute/graphics PSOs,
+The separate `m12_stress_game.exe` title-shaped experiment is not part of the
+roadmap gate. Its historical hard-failure checkpoint is retained below for
+reference only: the beach scene compiles and stages, creates the D3D12 device at
+feature level 12_0, creates compute/graphics PSOs,
 uploads the title texture, builds 13k+ scene vertices, and closes the first
 frame command list. The current backend then hits Metal's
 `Command encoder released without endEncoding` assertion before present. That

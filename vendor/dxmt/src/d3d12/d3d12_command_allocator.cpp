@@ -51,26 +51,25 @@ ULONG STDMETHODCALLTYPE MTLD3D12CommandAllocator::Release() {
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12CommandAllocator::GetPrivateData(REFGUID guid, UINT *data_size,
-                                          void *data) {
-  CATRACE("GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+                                         void *data) {
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12CommandAllocator::SetPrivateData(REFGUID guid, UINT data_size,
                                          const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12CommandAllocator::SetPrivateDataInterface(REFGUID guid,
                                                   const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12CommandAllocator::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE

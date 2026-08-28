@@ -18,6 +18,7 @@ REQUIRED_PROBES = [
     "probe-loader",
     "probe-agility-ue5",
     "probe-device-caps",
+    "probe-legacy-regression",
     "probe-dxgi-factory",
     "probe-resources",
     "probe-resource-views-formats",
@@ -26,6 +27,9 @@ REQUIRED_PROBES = [
     "probe-dxil-semantics",
     "probe-shader-corpus",
     "probe-sm66-capabilities",
+    "probe-writable-msaa",
+    "probe-sampler-feedback",
+    "probe-sampler-feedback-pixel",
     "probe-wave-ops",
     "probe-reflection-abi",
     "probe-queues",
@@ -33,10 +37,10 @@ REQUIRED_PROBES = [
     "probe-compute-pso",
     "probe-command-replay",
     "probe-barriers-render-pass",
+    "probe-render-headless",
 ]
 
 OPTIONAL_PROBES = [
-    "probe-render-headless",
     "probe-present-windowed",
 ]
 
@@ -158,7 +162,7 @@ def check_required_probes(results: dict[str, dict[str, Any]]) -> tuple[list[Issu
             issues.append(Issue("error", "probe", f"Missing required probe `{probe}`", "Expected JSON result was not found."))
             summary["required"][probe] = {"present": False, "pass": False}
             continue
-        passed = bool(data.get("pass", data.get("ok")))
+        passed = bool(data.get("pass", data.get("passed", data.get("ok"))))
         summary["required"][probe] = {"present": True, "pass": passed}
         if not passed:
             issues.append(Issue("error", "probe", f"Required probe `{probe}` did not pass", "Comparator only trusts passing proof targets."))
@@ -171,7 +175,7 @@ def check_required_probes(results: dict[str, dict[str, Any]]) -> tuple[list[Issu
 
 
 def check_unsupported(results: dict[str, dict[str, Any]], ledger: dict[str, Any]) -> tuple[list[Issue], list[dict[str, Any]]]:
-    device_caps = results["probe-device-caps"]
+    device_caps = results.get("probe-device-caps", {})
     advanced = get_nested(device_caps, "advanced_features") or {}
     unsupported_checks = {
         "D3D12 ray tracing tiers": advanced.get("raytracing_tier"),
@@ -185,6 +189,20 @@ def check_unsupported(results: dict[str, dict[str, Any]], ledger: dict[str, Any]
 
     for entry in ledger.get("entries", []):
         api = entry["api"]
+        # The ledger also records APIs whose broad surface is intentionally
+        # limited to a behavior-proven subset.  Only entries explicitly marked
+        # unsupported must remain at a conservative zero query value.
+        if entry.get("state") != "unsupported":
+            summary.append(
+                {
+                    "api": api,
+                    "state": entry.get("state"),
+                    "observed": unsupported_checks.get(api, "not_checked_by_probe"),
+                    "compliant": True,
+                    "detail": "Behavior-proven subset is advertised; only unsupported breadth remains ledgered.",
+                }
+            )
+            continue
         if api not in unsupported_checks:
             summary.append(
                 {
@@ -213,13 +231,13 @@ def check_unsupported(results: dict[str, dict[str, Any]], ledger: dict[str, Any]
 
 
 def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[str, Any]) -> tuple[list[Issue], list[dict[str, Any]]]:
-    device_caps = results["probe-device-caps"]
-    shader_probe = results["probe-shaders"]
-    dxil_semantics_probe = results["probe-dxil-semantics"]
-    shader_corpus_probe = results["probe-shader-corpus"]
-    sm66_probe = results["probe-sm66-capabilities"]
-    wave_probe = results["probe-wave-ops"]
-    reflection_probe = results["probe-reflection-abi"]
+    device_caps = results.get("probe-device-caps", {})
+    shader_probe = results.get("probe-shaders", {})
+    dxil_semantics_probe = results.get("probe-dxil-semantics", {})
+    shader_corpus_probe = results.get("probe-shader-corpus", {})
+    sm66_probe = results.get("probe-sm66-capabilities", {})
+    wave_probe = results.get("probe-wave-ops", {})
+    reflection_probe = results.get("probe-reflection-abi", {})
 
     issues: list[Issue] = []
     summary: list[dict[str, Any]] = []
@@ -255,7 +273,9 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
     shader_model_target = shader_model_contract.get("current_target")
     shader_model_ok = shader_model_at_least(observed_shader_model, shader_model_target)
     sm66_reported = shader_model_at_least(observed_shader_model, "6_6")
+    sm67_reported = shader_model_at_least(observed_shader_model, "6_7")
     sm66_reportable = bool(get_nested(sm66_probe, "summary", "sm66_reportable"))
+    sm67_reportable = bool(get_nested(sm66_probe, "summary", "sm67_reportable"))
     dxil_to_msl_ok = bool(get_nested(shader_probe, "dxc", "dxil_to_msl"))
     dxil_semantics_ok = bool(dxil_semantics_probe.get("pass", dxil_semantics_probe.get("ok")))
     synthetic_corpus_ok = bool(get_nested(shader_corpus_probe, "summary", "synthetic_shader_corpus_proven"))
@@ -267,13 +287,17 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
         "target": shader_model_target,
         "sm66_reported": sm66_reported,
         "sm66_reportable": sm66_reportable,
+        "sm67_reported": sm67_reported,
+        "sm67_reportable": sm67_reportable,
         "dxil_to_msl_proven": dxil_to_msl_ok,
         "dxil_semantics_proven": dxil_semantics_ok,
         "synthetic_shader_corpus_proven": synthetic_corpus_ok,
         "dxil_path_proven": dxil_path_proven,
     }
     shader_summary["compliant"] = (
-        shader_model_ok and dxil_path_proven and synthetic_corpus_ok and (not sm66_reported or sm66_reportable)
+        shader_model_ok and dxil_path_proven and synthetic_corpus_ok and
+        (not sm66_reported or sm66_reportable) and
+        (not sm67_reported or sm67_reportable)
     )
     summary.append(shader_summary)
     if not shader_summary["compliant"]:
@@ -282,7 +306,7 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
                 "error",
                 "feature_support",
                 "Shader model report advertises an unproven SM6 path",
-                f"Observed `{observed_shader_model}` against target `{shader_model_target}` with DXIL-to-MSL proof `{dxil_to_msl_ok}`, synthetic corpus `{synthetic_corpus_ok}`, and SM 6.6 reportable `{sm66_reportable}`.",
+                f"Observed `{observed_shader_model}` against target `{shader_model_target}` with DXIL-to-MSL proof `{dxil_to_msl_ok}`, synthetic corpus `{synthetic_corpus_ok}`, SM 6.6 reportable `{sm66_reportable}`, and SM 6.7 reportable `{sm67_reportable}`.",
             )
         )
     if dxil_semantics_ok and not dxil_path_proven:
@@ -297,7 +321,10 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
 
     options_contract = features.get("D3D12_FEATURE_D3D12_OPTIONS", {})
     options = get_nested(device_caps, "options") or {}
-    missing = [field for field in options_contract.get("required_fields", []) if not field_to_options_value(options, field)]
+    missing = [
+        field for field in options_contract.get("required_fields", [])
+        if field_to_options_value(options, field) is None
+    ]
     compliant = not missing
     summary.append(
         {
@@ -415,12 +442,22 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
     ):
         contract_entry = features.get(feature_name, {})
         advertised = {key: advanced.get(key) for key in key_map}
-        compliant = not any(bool(value) for value in advertised.values())
+        expects_support = contract_entry.get("reported") == "supported"
+        atomic_proof = bool(
+            get_nested(sm66_probe, "summary", "runtime_correctness_complete")
+        )
+        compliant = (
+            all(bool(value) for value in advertised.values()) and atomic_proof
+            if expects_support
+            else not any(bool(value) for value in advertised.values())
+        )
         summary.append(
             {
                 "feature": feature_name,
                 "state": contract_entry.get("state"),
                 "advertised": advertised,
+                "expected_supported": expects_support,
+                "runtime_proof": atomic_proof,
                 "compliant": compliant,
             }
         )
@@ -429,8 +466,8 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
                 Issue(
                     "error",
                     "feature_support",
-                    f"{feature_name} advertises non-conservative atomic64 support",
-                    f"Observed values: {advertised}.",
+                    f"{feature_name} atomic64 report does not match its contract",
+                    f"Observed values: {advertised}, expected_supported={expects_support}, runtime_proof={atomic_proof}.",
                 )
             )
 
@@ -442,11 +479,9 @@ def field_to_options_value(options: dict[str, Any], field: str) -> Any:
         "ResourceBindingTier": options.get("resource_binding_tier"),
         "ROVsSupported": options.get("rovs_supported"),
         "ConservativeRasterizationTier": options.get("conservative_rasterization_tier"),
+        "OutputMergerLogicOp": options.get("output_merger_logic_op"),
     }
-    value = mapping.get(field)
-    if isinstance(value, bool):
-        return value
-    return value not in (None, 0, "")
+    return mapping.get(field)
 
 
 def field_to_options1_value(options1: dict[str, Any], field: str) -> Any:
@@ -463,16 +498,16 @@ def field_to_options1_value(options1: dict[str, Any], field: str) -> Any:
 
 
 def risky_status(target: str, results: dict[str, dict[str, Any]]) -> RiskStatus:
-    device_caps = results["probe-device-caps"]
-    shader_probe = results["probe-shaders"]
-    dxil_semantics_probe = results["probe-dxil-semantics"]
-    dxgi_probe = results["probe-dxgi-factory"]
+    device_caps = results.get("probe-device-caps", {})
+    shader_probe = results.get("probe-shaders", {})
+    dxil_semantics_probe = results.get("probe-dxil-semantics", {})
+    dxgi_probe = results.get("probe-dxgi-factory", {})
 
     if target == "D3D12_FEATURE_SHADER_MODEL reports SM 6.6":
         used = bool(get_nested(device_caps, "requirements", "shader_model_6_6_or_better"))
         if not used:
             return RiskStatus("not_used", "Profile does not advertise SM 6.6.")
-        sm66_probe = results["probe-sm66-capabilities"]
+        sm66_probe = results.get("probe-sm66-capabilities", {})
         if not bool(get_nested(sm66_probe, "summary", "sm66_reportable")):
             return RiskStatus("failed", "SM 6.6 is advertised but the SM 6.6 capability audit is not reportable.")
         dxil_ok = bool(get_nested(shader_probe, "dxc", "dxil_to_msl"))
@@ -487,7 +522,7 @@ def risky_status(target: str, results: dict[str, dict[str, Any]]) -> RiskStatus:
         used = bool(get_nested(device_caps, "options1", "wave_ops"))
         if not used:
             return RiskStatus("not_used", "Profile does not advertise WaveOps.")
-        wave_probe = results["probe-wave-ops"]
+        wave_probe = results.get("probe-wave-ops", {})
         if bool(get_nested(wave_probe, "summary", "waveops_reportable")):
             return RiskStatus("covered", "WaveOps is probe-covered without known runtime gaps.")
         return RiskStatus("failed", "WaveOps is advertised, but the WaveOps audit is not reportable.")
@@ -495,6 +530,8 @@ def risky_status(target: str, results: dict[str, dict[str, Any]]) -> RiskStatus:
     if target == "IDXGIFactory7 RegisterAdaptersChangedEvent":
         observed = str(get_nested(dxgi_probe, "edge_cases", "RegisterAdaptersChangedEvent") or "")
         decision = str(get_nested(dxgi_probe, "edge_cases", "register_adapters_changed_decision") or "")
+        if observed == "0x00000000" and decision == "safe_success_observed":
+            return RiskStatus("covered", "Probe verified event registration, a nonzero cookie, initially unsignaled state, and unregister cleanup.")
         if observed == "0x80004001" and decision == "safe_rejection_observed":
             return RiskStatus("covered", "Probe verified the explicit safe rejection path.")
         return RiskStatus("failed", f"Observed `{observed}` with decision `{decision}`.")

@@ -63,7 +63,7 @@ static PIPELINES: OnceLock<Vec<PipelineNode>> = OnceLock::new();
 const DXMT_70_PERCENT_UPSCALE_CONFIG: &str =
     "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310";
 const DXMT_M12_SAFE_CONFIG: &str =
-    "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310";
+    "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;d3d12.maxFeatureLevel=12_2;dxmt.shaderMetalVersion=310";
 
 pub fn pipelines() -> &'static Vec<PipelineNode> {
     PIPELINES.get_or_init(|| {
@@ -145,7 +145,6 @@ pub fn pipelines() -> &'static Vec<PipelineNode> {
                     EnvVar { key: "DXMT_METALFX_SPATIAL", value: "1" },
                     EnvVar { key: "DXMT_METALFX_TEMPORAL", value: "1" },
                     EnvVar { key: "DXMT_ASYNC_PIPELINE_COMPILE", value: "1" },
-                    EnvVar { key: "DXMT_D3D12_UE_SM6_COMPAT", value: "1" },
                     EnvVar { key: "DXMT_D3D12_PSO_WORKERS", value: "6" },
                     EnvVar { key: "DXMT_CONFIG", value: DXMT_M12_SAFE_CONFIG },
                 ],

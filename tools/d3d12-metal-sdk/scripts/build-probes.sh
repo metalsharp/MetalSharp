@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SDK_DIR="$ROOT_DIR/tools/d3d12-metal-sdk"
 OUT_DIR="$SDK_DIR/out/bin"
 CXX="${CXX:-x86_64-w64-mingw32-g++}"
-AGILITY_VERSION="${AGILITY_VERSION:-1.619.3}"
+AGILITY_VERSION="${AGILITY_VERSION:-1.619.5}"
 AGILITY_BIN="${AGILITY_BIN:-}"
 DXC_BIN_DIR="${DXC_BIN_DIR:-}"
 
@@ -89,6 +89,21 @@ build_probe \
   -o "$OUT_DIR/probe_device_caps.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_legacy_regression/probe_legacy_regression.cpp" \
+  -ld3d11 \
+  -ld3d10 \
+  -ldxgi \
+  -o "$OUT_DIR/probe_legacy_regression.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_feature_levels/probe_feature_levels.cpp" \
+  -o "$OUT_DIR/probe_feature_levels.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_object_contracts/probe_object_contracts.cpp" \
+  -o "$OUT_DIR/probe_object_contracts.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_dxgi_factory/probe_dxgi_factory.cpp" \
   -o "$OUT_DIR/probe_dxgi_factory.exe"
 
@@ -125,6 +140,22 @@ build_probe \
 build_probe \
   "$SDK_DIR/probes/probe_sm66_capabilities/probe_sm66_capabilities.cpp" \
   -o "$OUT_DIR/probe_sm66_capabilities.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_writable_msaa/probe_writable_msaa.cpp" \
+  -o "$OUT_DIR/probe_writable_msaa.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_vrs/probe_vrs.cpp" \
+  -o "$OUT_DIR/probe_vrs.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_sampler_feedback/probe_sampler_feedback.cpp" \
+  -o "$OUT_DIR/probe_sampler_feedback.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_sampler_feedback_pixel/probe_sampler_feedback_pixel.cpp" \
+  -o "$OUT_DIR/probe_sampler_feedback_pixel.exe"
 
 build_probe \
   "$SDK_DIR/probes/probe_wave_ops/probe_wave_ops.cpp" \
@@ -200,10 +231,14 @@ build_mini_probe 11 texture_sample
 build_mini_probe 12 subnautica_geometry_dxil_replay
 build_mini_probe 13 dxil_texture_color_output
 build_mini_probe 14 compute_first_use_dispatch
+build_mini_probe 15 dxr_acceleration_structures
 
 echo "$OUT_DIR/probe_loader.exe"
 echo "$OUT_DIR/probe_agility_ue5.exe"
 echo "$OUT_DIR/probe_device_caps.exe"
+echo "$OUT_DIR/probe_legacy_regression.exe"
+echo "$OUT_DIR/probe_feature_levels.exe"
+echo "$OUT_DIR/probe_object_contracts.exe"
 echo "$OUT_DIR/probe_dxgi_factory.exe"
 echo "$OUT_DIR/probe_m12_runtime_identity.exe"
 echo "$OUT_DIR/probe_resources.exe"
@@ -213,6 +248,10 @@ echo "$OUT_DIR/probe_shaders.exe"
 echo "$OUT_DIR/probe_dxil_semantics.exe"
 echo "$OUT_DIR/probe_shader_corpus.exe"
 echo "$OUT_DIR/probe_sm66_capabilities.exe"
+echo "$OUT_DIR/probe_writable_msaa.exe"
+echo "$OUT_DIR/probe_vrs.exe"
+echo "$OUT_DIR/probe_sampler_feedback.exe"
+echo "$OUT_DIR/probe_sampler_feedback_pixel.exe"
 echo "$OUT_DIR/probe_wave_ops.exe"
 echo "$OUT_DIR/probe_reflection_abi.exe"
 echo "$OUT_DIR/probe_graphics_pso.exe"
@@ -239,3 +278,4 @@ echo "$OUT_DIR/probe_mini_texture_sample.exe"
 echo "$OUT_DIR/probe_mini_subnautica_geometry_dxil_replay.exe"
 echo "$OUT_DIR/probe_mini_dxil_texture_color_output.exe"
 echo "$OUT_DIR/probe_mini_compute_first_use_dispatch.exe"
+echo "$OUT_DIR/probe_mini_dxr_acceleration_structures.exe"

@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <mutex>
 #include <vector>
 #include <unknwn.h>
 
@@ -87,9 +88,12 @@ public:
 
   HRESULT setInterface(REFGUID guid, const IUnknown *iface);
 
+  HRESULT setName(LPCWSTR name);
+
   HRESULT getData(REFGUID guid, UINT *size, void *data);
 
 private:
+  std::mutex m_mutex;
   std::vector<ComPrivateDataEntry> m_entries;
 
   ComPrivateDataEntry *findEntry(REFGUID guid);

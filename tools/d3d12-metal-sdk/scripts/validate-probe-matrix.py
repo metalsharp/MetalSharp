@@ -14,7 +14,11 @@ CONTRACTS_DIR = SDK_DIR / "contracts"
 
 REQUIRED_GROUPS = {
     "loader_runtime_route": ["probe-loader"],
+    "fl12_2_aggregate_gate": ["validate-fl12-2-gate"],
     "device_caps_feature_reports": ["probe-device-caps"],
+    "legacy_d3d10_d3d11_readback": ["probe-legacy-regression"],
+    "feature_levels_11_0_through_12_2": ["probe-feature-levels"],
+    "d3d12_object_private_data_com": ["probe-object-contracts"],
     "dxgi_factory_swapchain": ["probe-dxgi-factory", "probe-mini-swapchain-present"],
     "queues_fences_command_lists": ["probe-queues", "probe-command-replay", "probe-mini-command-queue"],
     "resources_heaps_views_mapping_copies": ["probe-resources", "probe-resource-views-formats", "probe-mini-texture-sample"],
@@ -24,9 +28,12 @@ REQUIRED_GROUPS = {
     "dxil_opcode_groups": ["probe-dxil-semantics", "probe-mini-dxil-texture-color-output"],
     "synthetic_shader_corpus": ["probe-shader-corpus"],
     "sm66_capability_audit": ["probe-sm66-capabilities"],
+    "writable_msaa_texture": ["probe-writable-msaa"],
+    "sampler_feedback_tier_0_9": ["probe-sampler-feedback", "probe-sampler-feedback-pixel"],
     "waveops_capability_audit": ["probe-wave-ops"],
     "shader_reflection_argument_binding": ["probe-shaders", "probe-reflection-abi"],
     "barriers_resource_state": ["probe-barriers-render-pass"],
+    "render_target_logic_op": ["probe-render-headless", "probe-graphics-pso"],
     "query_heaps_timestamps_counters": ["probe-queues", "probe-barriers-render-pass"],
     "indirect_commands": ["probe-command-replay"],
     "agility_sdk_compiler_cache": ["probe-agility-ue5"],
@@ -50,6 +57,7 @@ def collect_probe_tokens() -> set[str]:
     run_probes = (SDK_DIR / "scripts" / "run-probes.sh").read_text(encoding="utf-8")
     compare_contract = (SDK_DIR / "scripts" / "compare-contract.py").read_text(encoding="utf-8")
     tokens = set(re.findall(r"probe[-_][A-Za-z0-9_-]+", run_probes + "\n" + compare_contract))
+    tokens.update(re.findall(r"validate-[A-Za-z0-9-]+", run_probes + "\n" + compare_contract))
     normalized = {token.replace("_", "-").removesuffix("-exe") for token in tokens}
     if "winemetal-abi" in run_probes:
         normalized.add("winemetal-abi")

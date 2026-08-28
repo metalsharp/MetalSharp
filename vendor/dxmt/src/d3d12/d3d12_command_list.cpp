@@ -93,12 +93,126 @@ void MTLD3D12GraphicsCommandList::RetainPipelineState(
   m_referenced_pipeline_states.push_back(pipeline_state);
 }
 
+void MTLD3D12GraphicsCommandList::RetainStateObject(
+    ID3D12StateObject *state_object) {
+  if (!state_object)
+    return;
+  state_object->AddRef();
+  m_referenced_state_objects.push_back(state_object);
+}
+
+void MTLD3D12GraphicsCommandList::RetainResource(ID3D12Resource *resource) {
+  if (!resource)
+    return;
+  resource->AddRef();
+  m_referenced_resources.push_back(resource);
+}
+
+void MTLD3D12GraphicsCommandList::RetainGPUAddress(
+    D3D12_GPU_VIRTUAL_ADDRESS address) {
+  if (!address)
+    return;
+  RetainResource(m_device->LookupResourceByGPUAddress(address));
+}
+
+void MTLD3D12GraphicsCommandList::RetainDescriptor(
+    D3D12_CPU_DESCRIPTOR_HANDLE descriptor) {
+  if (!descriptor.ptr)
+    return;
+  auto *entry = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
+  if (!entry || !entry->owner)
+    return;
+  entry->owner->AddRef();
+  m_referenced_descriptor_heaps.push_back(entry->owner);
+  RetainResource(entry->resource);
+  RetainResource(entry->resource_uav_counter);
+  RetainResource(entry->sampler_feedback_target);
+}
+
+void MTLD3D12GraphicsCommandList::RetainRootSignature(
+    ID3D12RootSignature *root_signature) {
+  if (!root_signature)
+    return;
+  root_signature->AddRef();
+  m_referenced_root_signatures.push_back(root_signature);
+}
+
+void MTLD3D12GraphicsCommandList::RetainQueryHeap(
+    ID3D12QueryHeap *query_heap) {
+  if (!query_heap)
+    return;
+  query_heap->AddRef();
+  m_referenced_query_heaps.push_back(query_heap);
+}
+
+void MTLD3D12GraphicsCommandList::RetainCommandSignature(
+    ID3D12CommandSignature *signature) {
+  if (!signature)
+    return;
+  signature->AddRef();
+  m_referenced_command_signatures.push_back(signature);
+}
+
+void MTLD3D12GraphicsCommandList::RetainReferencedObjectsInto(
+    MTLD3D12GraphicsCommandList *target) const {
+  if (!target)
+    return;
+  for (auto *pipeline_state : m_referenced_pipeline_states)
+    target->RetainPipelineState(pipeline_state);
+  for (auto *state_object : m_referenced_state_objects)
+    target->RetainStateObject(state_object);
+  for (auto *descriptor_heap : m_referenced_descriptor_heaps) {
+    if (descriptor_heap) {
+      descriptor_heap->AddRef();
+      target->m_referenced_descriptor_heaps.push_back(descriptor_heap);
+    }
+  }
+  for (auto *root_signature : m_referenced_root_signatures)
+    target->RetainRootSignature(root_signature);
+  for (auto *query_heap : m_referenced_query_heaps)
+    target->RetainQueryHeap(query_heap);
+  for (auto *signature : m_referenced_command_signatures)
+    target->RetainCommandSignature(signature);
+  for (auto *resource : m_referenced_resources)
+    target->RetainResource(resource);
+}
+
 void MTLD3D12GraphicsCommandList::ReleaseReferencedPipelineStates() {
   for (auto *pipeline_state : m_referenced_pipeline_states) {
     if (pipeline_state)
       pipeline_state->Release();
   }
   m_referenced_pipeline_states.clear();
+  for (auto *state_object : m_referenced_state_objects) {
+    if (state_object)
+      state_object->Release();
+  }
+  m_referenced_state_objects.clear();
+  for (auto *descriptor_heap : m_referenced_descriptor_heaps) {
+    if (descriptor_heap)
+      descriptor_heap->Release();
+  }
+  m_referenced_descriptor_heaps.clear();
+  for (auto *root_signature : m_referenced_root_signatures) {
+    if (root_signature)
+      root_signature->Release();
+  }
+  m_referenced_root_signatures.clear();
+  for (auto *query_heap : m_referenced_query_heaps) {
+    if (query_heap)
+      query_heap->Release();
+  }
+  m_referenced_query_heaps.clear();
+  for (auto *signature : m_referenced_command_signatures) {
+    if (signature)
+      signature->Release();
+  }
+  m_referenced_command_signatures.clear();
+  for (auto *resource : m_referenced_resources) {
+    if (resource)
+      resource->Release();
+  }
+  m_referenced_resources.clear();
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -115,7 +229,8 @@ MTLD3D12GraphicsCommandList::QueryInterface(REFIID riid, void **ppvObject) {
       riid == IID_ID3D12GraphicsCommandList3 ||
       riid == IID_ID3D12GraphicsCommandList4 ||
       riid == IID_ID3D12GraphicsCommandList5 ||
-      riid == IID_ID3D12GraphicsCommandList6) {
+      riid == IID_ID3D12GraphicsCommandList6 ||
+      riid == IID_ID3D12GraphicsCommandList7) {
     *ppvObject = ref(this);
     return S_OK;
   }
@@ -141,25 +256,26 @@ ULONG STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Release() {
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12GraphicsCommandList::GetPrivateData(REFGUID guid, UINT *data_size,
-                                             void *data) {
-  CLTRACE("GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+                                            void *data) {
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12GraphicsCommandList::SetPrivateData(REFGUID guid, UINT data_size,
                                             const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12GraphicsCommandList::SetPrivateDataInterface(REFGUID guid,
                                                      const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12GraphicsCommandList::SetName(LPCWSTR name) { return S_OK; }
+MTLD3D12GraphicsCommandList::SetName(LPCWSTR name) {
+  return m_private_data.setName(name);
+}
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12GraphicsCommandList::GetDevice(REFIID riid, void **device) {
@@ -173,6 +289,8 @@ MTLD3D12GraphicsCommandList::GetType() {
 
 HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Close() {
   CLTRACE("Close");
+  if (m_closed)
+    return E_FAIL;
   m_closed = true;
   LogCommandListLifecycle("close", m_debug_id, m_type, m_cmds, m_closed);
   return S_OK;
@@ -181,6 +299,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Close() {
 HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Reset(
     ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state) {
   CLTRACE("Reset");
+  if (!m_closed || !allocator)
+    return !m_closed ? E_FAIL : E_INVALIDARG;
+  auto *new_allocator = static_cast<MTLD3D12CommandAllocator *>(allocator);
+  if (!new_allocator || new_allocator->GetType() != m_type)
+    return E_INVALIDARG;
+  if (new_allocator != m_allocator) {
+    new_allocator->AddRef();
+    if (m_allocator)
+      m_allocator->Release();
+    m_allocator = new_allocator;
+  }
   m_closed = false;
   ReleaseReferencedPipelineStates();
   m_cmds.clear();
@@ -256,6 +385,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyBufferRegion(
   cmd.src = src;
   cmd.src_offset = src_offset;
   cmd.byte_count = byte_count;
+  RetainResource(dst);
+  RetainResource(src);
   Emit(cmd);
 }
 
@@ -297,6 +428,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTextureRegion(
     cmd.src_box = *src_box;
     cmd.has_src_box = 1;
   }
+  RetainResource(dst->pResource);
+  RetainResource(src->pResource);
   Emit(cmd);
 }
 
@@ -308,6 +441,8 @@ MTLD3D12GraphicsCommandList::CopyResource(ID3D12Resource *dst,
   cmd.header = {CmdType::CopyResource, sizeof(cmd)};
   cmd.dst = dst;
   cmd.src = src;
+  RetainResource(dst);
+  RetainResource(src);
   Emit(cmd);
 }
 
@@ -316,7 +451,420 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     const D3D12_TILED_RESOURCE_COORDINATE *tile_region_start_coordinate,
     const D3D12_TILE_REGION_SIZE *tile_region_size,
     ID3D12Resource *buffer, UINT64 buffer_offset,
-    D3D12_TILE_COPY_FLAGS flags) {}
+    D3D12_TILE_COPY_FLAGS flags) {
+  auto *resource = static_cast<MTLD3D12Resource *>(tiled_resource);
+  if (!resource || !resource->IsSparseBacked() || !tile_region_start_coordinate ||
+      !tile_region_size || !buffer || !tile_region_size->NumTiles) {
+    CLTRACE("CopyTiles rejected resource=%p buffer=%p tiles=%u flags=0x%x",
+            (void *)tiled_resource, (void *)buffer,
+            tile_region_size ? tile_region_size->NumTiles : 0,
+            (unsigned)flags);
+    return;
+  }
+  D3D12_RESOURCE_DESC resource_desc = {};
+  resource->GetDesc(&resource_desc);
+  const UINT allowed_flags =
+      D3D12_TILE_COPY_FLAG_NO_HAZARD |
+      D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE |
+      D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER;
+  if ((static_cast<UINT>(flags) & ~allowed_flags) != 0) {
+    CLTRACE("CopyTiles rejected unknown flags=0x%x", (unsigned)flags);
+    return;
+  }
+  const bool tile_buffer_to_resource =
+      (flags & D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE) !=
+      0;
+  const bool tile_resource_to_buffer =
+      (flags & D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER) !=
+      0;
+  if (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    D3D12_RESOURCE_DESC source_desc = {};
+    static_cast<MTLD3D12Resource *>(buffer)->GetDesc(&source_desc);
+    const auto &coordinate = *tile_region_start_coordinate;
+    const uint64_t tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    const uint64_t total_tiles =
+        (resource_desc.Width + tile_size - 1) / tile_size;
+    const uint64_t first_tile = coordinate.X;
+    const uint64_t tile_count = tile_region_size->NumTiles;
+    if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+        tile_region_size->UseBox ||
+        tile_buffer_to_resource == tile_resource_to_buffer || coordinate.Y ||
+        coordinate.Z || coordinate.Subresource ||
+        buffer_offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0 ||
+        first_tile >= total_tiles || tile_count > total_tiles - first_tile ||
+        buffer_offset > source_desc.Width ||
+        tile_count * tile_size > source_desc.Width - buffer_offset) {
+      CLTRACE("CopyTiles rejected buffer range x=%llu tiles=%llu offset=%llu",
+              (unsigned long long)first_tile, (unsigned long long)tile_count,
+              (unsigned long long)buffer_offset);
+      return;
+    }
+    for (uint64_t tile = 0; tile < tile_count; tile++) {
+      const uint64_t tiled_offset = (first_tile + tile) * tile_size;
+      const uint64_t linear_offset = buffer_offset + tile * tile_size;
+      if (tile_buffer_to_resource)
+        CopyBufferRegion(tiled_resource, tiled_offset, buffer, linear_offset,
+                         tile_size);
+      else
+        CopyBufferRegion(buffer, linear_offset, tiled_resource, tiled_offset,
+                         tile_size);
+    }
+    CLTRACE("CopyTiles buffer %s tiles=%u buffer=%p+%llu",
+            tile_buffer_to_resource ? "to_reserved" : "from_reserved",
+            tile_region_size->NumTiles, (void *)buffer,
+            (unsigned long long)buffer_offset);
+    return;
+  }
+  resource->GetDesc(&resource_desc);
+  const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
+  const bool buffer_to_texture =
+      (flags & D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE) !=
+      0;
+  const bool texture_to_buffer =
+      (flags & D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER) !=
+      0;
+  const bool volume =
+      resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+  const bool array_texture =
+      resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+      resource_desc.DepthOrArraySize > 1;
+  if (buffer_to_texture == texture_to_buffer ||
+      (resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+       !volume) ||
+      resource_desc.SampleDesc.Count > 1 ||
+      buffer_offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0) {
+    CLTRACE("CopyTiles rejected direction/shape flags=0x%x dim=%u samples=%u",
+            (unsigned)flags, (unsigned)resource_desc.Dimension,
+            resource_desc.SampleDesc.Count);
+    return;
+  }
+  D3D12_RESOURCE_DESC buffer_desc = {};
+  static_cast<MTLD3D12Resource *>(buffer)->GetDesc(&buffer_desc);
+  if (buffer_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
+    CLTRACE("CopyTiles rejected non-buffer destination/source=%p", (void *)buffer);
+    return;
+  }
+  const UINT bytes_per_block = [&] {
+    switch (resource_desc.Format) {
+    case DXGI_FORMAT_R8_TYPELESS:
+    case DXGI_FORMAT_R8_UNORM:
+    case DXGI_FORMAT_R8_UINT:
+    case DXGI_FORMAT_R8_SNORM:
+    case DXGI_FORMAT_R8_SINT:
+    case DXGI_FORMAT_A8_UNORM:
+      return 1u;
+    case DXGI_FORMAT_R8G8_TYPELESS:
+    case DXGI_FORMAT_R8G8_UNORM:
+    case DXGI_FORMAT_R8G8_UINT:
+    case DXGI_FORMAT_R8G8_SNORM:
+    case DXGI_FORMAT_R8G8_SINT:
+    case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_R16_FLOAT:
+    case DXGI_FORMAT_R16_UNORM:
+    case DXGI_FORMAT_R16_UINT:
+    case DXGI_FORMAT_R16_SNORM:
+    case DXGI_FORMAT_R16_SINT:
+      return 2u;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+    case DXGI_FORMAT_R8G8B8A8_UINT:
+    case DXGI_FORMAT_R8G8B8A8_SNORM:
+    case DXGI_FORMAT_R8G8B8A8_SINT:
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+    case DXGI_FORMAT_R10G10B10A2_UINT:
+    case DXGI_FORMAT_R11G11B10_FLOAT:
+    case DXGI_FORMAT_R32_TYPELESS:
+    case DXGI_FORMAT_R32_FLOAT:
+    case DXGI_FORMAT_R32_UINT:
+    case DXGI_FORMAT_R32_SINT:
+      return 4u;
+    case DXGI_FORMAT_R16G16_TYPELESS:
+    case DXGI_FORMAT_R16G16_FLOAT:
+    case DXGI_FORMAT_R16G16_UNORM:
+    case DXGI_FORMAT_R16G16_UINT:
+    case DXGI_FORMAT_R16G16_SNORM:
+    case DXGI_FORMAT_R16G16_SINT:
+    case DXGI_FORMAT_R32G32_TYPELESS:
+    case DXGI_FORMAT_R32G32_FLOAT:
+    case DXGI_FORMAT_R32G32_UINT:
+    case DXGI_FORMAT_R32G32_SINT:
+      return 8u;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R16G16B16A16_UINT:
+    case DXGI_FORMAT_R16G16B16A16_SNORM:
+    case DXGI_FORMAT_R16G16B16A16_SINT:
+      return 8u;
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_UINT:
+    case DXGI_FORMAT_R32G32B32A32_SINT:
+      return 16u;
+    case DXGI_FORMAT_BC1_TYPELESS:
+    case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB:
+    case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC4_UNORM:
+    case DXGI_FORMAT_BC4_SNORM:
+      return 8u;
+    case DXGI_FORMAT_BC2_TYPELESS:
+    case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB:
+    case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC3_UNORM:
+    case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC5_TYPELESS:
+    case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC5_SNORM:
+    case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC6H_UF16:
+    case DXGI_FORMAT_BC6H_SF16:
+    case DXGI_FORMAT_BC7_TYPELESS:
+    case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return 16u;
+    default:
+      return 0u;
+    }
+  }();
+  const UINT block_extent = [&] {
+    switch (resource_desc.Format) {
+    case DXGI_FORMAT_BC1_TYPELESS:
+    case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB:
+    case DXGI_FORMAT_BC2_TYPELESS:
+    case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB:
+    case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC3_UNORM:
+    case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC4_UNORM:
+    case DXGI_FORMAT_BC4_SNORM:
+    case DXGI_FORMAT_BC5_TYPELESS:
+    case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC5_SNORM:
+    case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC6H_UF16:
+    case DXGI_FORMAT_BC6H_SF16:
+    case DXGI_FORMAT_BC7_TYPELESS:
+    case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return 4u;
+    default:
+      return 1u;
+    }
+  }();
+  const uint64_t tile_blocks_x =
+      (shape.WidthInTexels + block_extent - 1) / block_extent;
+  const uint64_t tile_blocks_y =
+      (shape.HeightInTexels + block_extent - 1) / block_extent;
+  if (!bytes_per_block || tile_blocks_x * tile_blocks_y *
+                              shape.DepthInTexels * bytes_per_block !=
+                          D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES) {
+    CLTRACE("CopyTiles rejected unsupported tile format=%u shape=%ux%ux%u",
+            (unsigned)resource_desc.Format, shape.WidthInTexels,
+            shape.HeightInTexels, shape.DepthInTexels);
+    return;
+  }
+  const auto &coordinate = *tile_region_start_coordinate;
+  const UINT mip_levels = std::max<UINT>(1, resource_desc.MipLevels);
+  const UINT subresource_count =
+      volume ? mip_levels
+             : mip_levels * std::max<UINT16>(resource_desc.DepthOrArraySize, 1);
+  if (!resource_desc.MipLevels || coordinate.Subresource >= subresource_count) {
+    CLTRACE("CopyTiles rejected coordinate z=%u subresource=%u", coordinate.Z,
+            coordinate.Subresource);
+    return;
+  }
+  const UINT mip = coordinate.Subresource % mip_levels;
+  const UINT mip_width = std::max<UINT>(1, resource_desc.Width >> mip);
+  const UINT mip_height = std::max<UINT>(1, resource_desc.Height >> mip);
+  const UINT mip_depth =
+      volume ? std::max<UINT16>(1, resource_desc.DepthOrArraySize >> mip) : 1;
+  if (mip_width < shape.WidthInTexels || mip_height < shape.HeightInTexels ||
+      mip_depth < shape.DepthInTexels) {
+    CLTRACE("CopyTiles rejected partial mip=%u size=%ux%ux%u tile=%ux%ux%u",
+            mip, mip_width, mip_height, mip_depth, shape.WidthInTexels,
+            shape.HeightInTexels, shape.DepthInTexels);
+    return;
+  }
+  const UINT tiles_x =
+      (mip_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+  const UINT tiles_y =
+      (mip_height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+  const UINT tiles_z =
+      (mip_depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+  const UINT coordinate_array_slice = coordinate.Subresource / mip_levels;
+  const UINT array_tiles_z =
+      array_texture && coordinate_array_slice < resource_desc.DepthOrArraySize
+          ? resource_desc.DepthOrArraySize - coordinate_array_slice
+          : 1;
+  struct TileLocation {
+    UINT subresource;
+    UINT x;
+    UINT y;
+    UINT z;
+  };
+  std::vector<TileLocation> locations;
+  const uint64_t region_tile_count = tile_region_size->UseBox
+                                         ? uint64_t(tile_region_size->Width) *
+                                               tile_region_size->Height *
+                                               tile_region_size->Depth
+                                         : tile_region_size->NumTiles;
+  if (!region_tile_count || region_tile_count > 1048576 ||
+      uint64_t(buffer_offset) + region_tile_count *
+                                    D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES >
+          static_cast<MTLD3D12Resource *>(buffer)->GetBufferByteLength()) {
+    CLTRACE("CopyTiles rejected tile count=%llu buffer_offset=%llu",
+            (unsigned long long)region_tile_count,
+            (unsigned long long)buffer_offset);
+    return;
+  }
+  locations.reserve(static_cast<size_t>(region_tile_count));
+  if (tile_region_size->UseBox) {
+    const UINT box_width = tile_region_size->Width;
+    const UINT box_height = tile_region_size->Height;
+    const UINT box_depth = tile_region_size->Depth;
+    const UINT box_z_limit = volume ? tiles_z : array_tiles_z;
+    if (tile_region_size->NumTiles != region_tile_count || !box_width ||
+        !box_height || !box_depth || coordinate.X >= tiles_x ||
+        coordinate.Y >= tiles_y || coordinate.Z >= box_z_limit ||
+        uint64_t(coordinate.X) + box_width > tiles_x ||
+        uint64_t(coordinate.Y) + box_height > tiles_y ||
+        uint64_t(coordinate.Z) + box_depth > box_z_limit) {
+      CLTRACE("CopyTiles rejected box x=%u y=%u z=%u tiles=%ux%ux%u count=%u",
+              coordinate.X, coordinate.Y, coordinate.Z, box_width, box_height,
+              box_depth, tile_region_size->NumTiles);
+      return;
+    }
+    const uint64_t box_plane = uint64_t(box_width) * box_height;
+    for (uint64_t tile = 0; tile < region_tile_count; tile++) {
+      const UINT z = static_cast<UINT>(tile / box_plane) + coordinate.Z;
+      const uint64_t box_row = tile % box_plane;
+      const UINT y = static_cast<UINT>(box_row / box_width) + coordinate.Y;
+      const UINT x = static_cast<UINT>(box_row % box_width) + coordinate.X;
+      const UINT subresource =
+          array_texture
+              ? ((coordinate_array_slice + z) * mip_levels + mip)
+              : coordinate.Subresource;
+      locations.push_back({subresource, x, y, array_texture ? 0 : z});
+    }
+  } else {
+    if (!volume && coordinate.Z)
+      return;
+    // A non-box region walks X, Y, Z and then spills into subsequent
+    // subresources.  Keeping the expanded locations here also makes the
+    // generated CopyTextureRegion records preserve the correct mip/array
+    // when one request crosses a row, volume plane, or mip boundary.
+    UINT current_subresource = coordinate.Subresource;
+    UINT current_x = coordinate.X;
+    UINT current_y = coordinate.Y;
+    UINT current_z = coordinate.Z;
+    for (uint64_t tile = 0; tile < region_tile_count; tile++) {
+      if (current_subresource >= subresource_count)
+        return;
+      const UINT current_mip = current_subresource % mip_levels;
+      const UINT current_width =
+          std::max<UINT>(1, resource_desc.Width >> current_mip);
+      const UINT current_height =
+          std::max<UINT>(1, resource_desc.Height >> current_mip);
+      const UINT current_depth =
+          volume ? std::max<UINT16>(
+                       1, resource_desc.DepthOrArraySize >> current_mip)
+                 : 1;
+      const UINT current_tiles_x =
+          (current_width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+      const UINT current_tiles_y =
+          (current_height + shape.HeightInTexels - 1) /
+          shape.HeightInTexels;
+      const UINT current_tiles_z =
+          (current_depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+      if (current_width < shape.WidthInTexels ||
+          current_height < shape.HeightInTexels ||
+          current_depth < shape.DepthInTexels || current_x >= current_tiles_x ||
+          current_y >= current_tiles_y || current_z >= current_tiles_z) {
+        CLTRACE("CopyTiles rejected spill subresource=%u x=%u y=%u z=%u",
+                current_subresource, current_x, current_y, current_z);
+        return;
+      }
+      locations.push_back(
+          {current_subresource, current_x, current_y, current_z});
+      const uint64_t linear =
+          (uint64_t(current_z) * current_tiles_y + current_y) *
+              current_tiles_x +
+          current_x + 1;
+      if (linear == uint64_t(current_tiles_x) * current_tiles_y *
+                        current_tiles_z) {
+        current_subresource++;
+        current_x = current_y = current_z = 0;
+      } else {
+        current_x = static_cast<UINT>(linear % current_tiles_x);
+        const uint64_t plane = linear / current_tiles_x;
+        current_y = static_cast<UINT>(plane % current_tiles_y);
+        current_z = static_cast<UINT>(plane / current_tiles_y);
+      }
+    }
+  }
+  const UINT row_pitch =
+      static_cast<UINT>(tile_blocks_x * bytes_per_block);
+  for (uint64_t tile = 0; tile < locations.size(); tile++) {
+    const TileLocation &location = locations[static_cast<size_t>(tile)];
+    const UINT x = location.x;
+    const UINT y = location.y;
+    const UINT z = location.z;
+    CmdCopyTextureRegion cmd = {};
+    cmd.header = {CmdType::CopyTextureRegion, sizeof(cmd)};
+    if (buffer_to_texture) {
+      cmd.dst_resource = tiled_resource;
+      cmd.dst_type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+      cmd.dst_subresource = location.subresource;
+      cmd.dst_x = x * shape.WidthInTexels;
+      cmd.dst_y = y * shape.HeightInTexels;
+      cmd.dst_z = z * shape.DepthInTexels;
+      cmd.src_resource = buffer;
+      cmd.src_type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+      cmd.src_offset = buffer_offset +
+                       uint64_t(tile) *
+                           D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+      cmd.src_footprint_format = resource_desc.Format;
+      cmd.src_footprint_width = shape.WidthInTexels;
+      cmd.src_footprint_height = shape.HeightInTexels;
+      cmd.src_footprint_depth = shape.DepthInTexels;
+      cmd.src_footprint_row_pitch = row_pitch;
+    } else {
+      cmd.dst_resource = buffer;
+      cmd.dst_type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+      cmd.dst_offset = buffer_offset +
+                       uint64_t(tile) *
+                           D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+      cmd.dst_footprint_format = resource_desc.Format;
+      cmd.dst_footprint_width = shape.WidthInTexels;
+      cmd.dst_footprint_height = shape.HeightInTexels;
+      cmd.dst_footprint_depth = shape.DepthInTexels;
+      cmd.dst_footprint_row_pitch = row_pitch;
+      cmd.src_resource = tiled_resource;
+      cmd.src_type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+      cmd.src_subresource = location.subresource;
+      cmd.has_src_box = 1;
+      cmd.src_box = {x * shape.WidthInTexels, y * shape.HeightInTexels,
+                     z * shape.DepthInTexels, (x + 1) * shape.WidthInTexels,
+                     (y + 1) * shape.HeightInTexels,
+                     (z + 1) * shape.DepthInTexels};
+    }
+    Emit(cmd);
+  }
+  CLTRACE("CopyTiles %s tiles=%llu tile=%ux%ux%u buffer=%p+%llu",
+          buffer_to_texture ? "buffer_to_texture" : "texture_to_buffer",
+          (unsigned long long)region_tile_count, shape.WidthInTexels,
+          shape.HeightInTexels, shape.DepthInTexels, (void *)buffer,
+          (unsigned long long)buffer_offset);
+  RetainResource(tiled_resource);
+  RetainResource(buffer);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresource(
     ID3D12Resource *dst, UINT dst_sub, ID3D12Resource *src, UINT src_sub,
@@ -329,6 +877,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresource(
   cmd.src_sub = src_sub;
   cmd.format = format;
   cmd.mode = D3D12_RESOLVE_MODE_DECOMPRESS;
+  RetainResource(dst);
+  RetainResource(src);
   Emit(cmd);
 }
 
@@ -396,6 +946,24 @@ MTLD3D12GraphicsCommandList::SetPipelineState(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResourceBarrier(
     UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers) {
+  if (barrier_count && !barriers)
+    return;
+  for (UINT i = 0; i < barrier_count; i++) {
+    switch (barriers[i].Type) {
+    case D3D12_RESOURCE_BARRIER_TYPE_TRANSITION:
+      RetainResource(barriers[i].Transition.pResource);
+      break;
+    case D3D12_RESOURCE_BARRIER_TYPE_ALIASING:
+      RetainResource(barriers[i].Aliasing.pResourceBefore);
+      RetainResource(barriers[i].Aliasing.pResourceAfter);
+      break;
+    case D3D12_RESOURCE_BARRIER_TYPE_UAV:
+      RetainResource(barriers[i].UAV.pResource);
+      break;
+    default:
+      break;
+    }
+  }
   size_t extra = barrier_count * sizeof(D3D12_RESOURCE_BARRIER);
   auto total = sizeof(CmdResourceBarrier) - sizeof(D3D12_RESOURCE_BARRIER) + extra;
   auto offset = m_cmds.size();
@@ -408,6 +976,47 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResourceBarrier(
          barriers, extra);
 }
 
+void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Barrier(
+    UINT32 num_barrier_groups,
+    const D3D12_BARRIER_GROUP *barrier_groups) {
+  if (!num_barrier_groups || !barrier_groups)
+    return;
+  CmdEnhancedBarrier cmd = {};
+  cmd.header = {CmdType::EnhancedBarrier, sizeof(cmd)};
+  cmd.group_count = num_barrier_groups;
+  for (UINT32 i = 0; i < num_barrier_groups; i++) {
+    const auto &group = barrier_groups[i];
+    if (!group.NumBarriers || !group.pGlobalBarriers)
+      continue;
+    switch (group.Type) {
+    case D3D12_BARRIER_TYPE_GLOBAL:
+      cmd.global_barrier_count += group.NumBarriers;
+      break;
+    case D3D12_BARRIER_TYPE_BUFFER:
+      cmd.buffer_barrier_count += group.NumBarriers;
+      if (group.pBufferBarriers) {
+        for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++)
+          RetainResource(group.pBufferBarriers[barrier].pResource);
+      }
+      break;
+    case D3D12_BARRIER_TYPE_TEXTURE:
+      cmd.texture_barrier_count += group.NumBarriers;
+      if (group.pTextureBarriers) {
+        for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++)
+          RetainResource(group.pTextureBarriers[barrier].pResource);
+      }
+      break;
+    default:
+      CLTRACE("Barrier ignored unknown group type=%u", (unsigned)group.Type);
+      break;
+    }
+  }
+  Emit(cmd);
+  CLTRACE("Barrier groups=%u global=%u buffer=%u texture=%u",
+          cmd.group_count, cmd.global_barrier_count, cmd.buffer_barrier_count,
+          cmd.texture_barrier_count);
+}
+
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteBundle(
     ID3D12GraphicsCommandList *command_list) {
   CLTRACE("ExecuteBundle cmds=%zu", command_list ? static_cast<MTLD3D12GraphicsCommandList*>(command_list)->GetCommands().size() : 0);
@@ -415,11 +1024,31 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteBundle(
     auto *bundle = static_cast<MTLD3D12GraphicsCommandList*>(command_list);
     const auto &bundle_cmds = bundle->GetCommands();
     m_cmds.insert(m_cmds.end(), bundle_cmds.begin(), bundle_cmds.end());
+    bundle->RetainReferencedObjectsInto(this);
   }
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetDescriptorHeaps(
     UINT heap_count, ID3D12DescriptorHeap *const *heaps) {
+  if (heap_count && !heaps)
+    return;
+  for (UINT i = 0; i < heap_count; i++) {
+    if (heaps[i]) {
+      heaps[i]->AddRef();
+      m_referenced_descriptor_heaps.push_back(heaps[i]);
+      auto *dxmt_heap = static_cast<MTLD3D12DescriptorHeap *>(heaps[i]);
+      if (dxmt_heap) {
+        for (uint32_t descriptor_index = 0;
+             descriptor_index < dxmt_heap->GetDescriptorCount();
+             descriptor_index++) {
+          const auto &descriptor = dxmt_heap->GetDescriptors()[descriptor_index];
+          RetainResource(descriptor.resource);
+          RetainResource(descriptor.resource_uav_counter);
+          RetainResource(descriptor.sampler_feedback_target);
+        }
+      }
+    }
+  }
   size_t extra = heap_count * sizeof(ID3D12DescriptorHeap *);
   auto total = sizeof(CmdSetDescriptorHeaps) - sizeof(ID3D12DescriptorHeap *) + extra;
   auto offset = m_cmds.size();
@@ -437,6 +1066,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetComputeRootSignature(
   CmdSetRootSignature cmd = {};
   cmd.header = {CmdType::SetComputeRootSignature, sizeof(cmd)};
   cmd.root_sig = root_signature;
+  RetainRootSignature(root_signature);
   Emit(cmd);
 }
 
@@ -445,6 +1075,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetGraphicsRootSignature(
   CmdSetRootSignature cmd = {};
   cmd.header = {CmdType::SetGraphicsRootSignature, sizeof(cmd)};
   cmd.root_sig = root_signature;
+  RetainRootSignature(root_signature);
   Emit(cmd);
 }
 
@@ -531,6 +1162,7 @@ MTLD3D12GraphicsCommandList::SetComputeRootConstantBufferView(
   cmd.header = {CmdType::SetComputeRootConstantBufferView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -541,6 +1173,7 @@ MTLD3D12GraphicsCommandList::SetGraphicsRootConstantBufferView(
   cmd.header = {CmdType::SetGraphicsRootConstantBufferView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -551,6 +1184,7 @@ MTLD3D12GraphicsCommandList::SetComputeRootShaderResourceView(
   cmd.header = {CmdType::SetComputeRootShaderResourceView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -561,6 +1195,7 @@ MTLD3D12GraphicsCommandList::SetGraphicsRootShaderResourceView(
   cmd.header = {CmdType::SetGraphicsRootShaderResourceView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -571,6 +1206,7 @@ MTLD3D12GraphicsCommandList::SetComputeRootUnorderedAccessView(
   cmd.header = {CmdType::SetComputeRootUnorderedAccessView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -581,6 +1217,7 @@ MTLD3D12GraphicsCommandList::SetGraphicsRootUnorderedAccessView(
   cmd.header = {CmdType::SetGraphicsRootUnorderedAccessView, sizeof(cmd)};
   cmd.root_param_index = root_parameter_index;
   cmd.address = address;
+  RetainGPUAddress(address);
   Emit(cmd);
 }
 
@@ -588,8 +1225,10 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetIndexBuffer(
     const D3D12_INDEX_BUFFER_VIEW *view) {
   CmdIASetIndexBuffer cmd = {};
   cmd.header = {CmdType::IASetIndexBuffer, sizeof(cmd)};
-  if (view)
+  if (view) {
     cmd.view = *view;
+    RetainGPUAddress(view->BufferLocation);
+  }
   Emit(cmd);
 }
 
@@ -605,9 +1244,12 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetVertexBuffers(
   cmd.start_slot = start_slot;
   cmd.count = count;
   memcpy(m_cmds.data() + offset, &cmd, sizeof(CmdIASetVertexBuffers) - sizeof(D3D12_VERTEX_BUFFER_VIEW));
-  if (views)
+  if (views) {
     memcpy(m_cmds.data() + offset + sizeof(CmdIASetVertexBuffers) - sizeof(D3D12_VERTEX_BUFFER_VIEW),
            views, extra);
+    for (UINT i = 0; i < count; i++)
+      RetainGPUAddress(views[i].BufferLocation);
+  }
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SOSetTargets(
@@ -629,6 +1271,10 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetRenderTargets(
   }
   if (dsv)
     cmd.dsv = *dsv;
+  for (UINT i = 0; rts && i < rt_count && i < 8; i++)
+    RetainDescriptor(rts[i]);
+  if (dsv)
+    RetainDescriptor(*dsv);
   Emit(cmd);
 }
 
@@ -641,6 +1287,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearDepthStencilView(
   cmd.flags = flags;
   cmd.depth = depth;
   cmd.stencil = stencil;
+  RetainDescriptor(dsv);
   Emit(cmd);
 }
 
@@ -654,6 +1301,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearRenderTargetView(
     memcpy(cmd.color, color, 16);
   else
     TRACE("ClearRenderTargetView called with null color pointer");
+  RetainDescriptor(rtv);
   Emit(cmd);
 }
 
@@ -668,6 +1316,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearUnorderedAccessViewUint
   cmd.resource = resource;
   if (values)
     memcpy(cmd.values, values, sizeof(cmd.values));
+  RetainResource(resource);
+  RetainDescriptor(cpu_handle);
   Emit(cmd);
 }
 
@@ -684,6 +1334,8 @@ MTLD3D12GraphicsCommandList::ClearUnorderedAccessViewFloat(
   cmd.is_float = 1;
   if (values)
     memcpy(cmd.values, values, sizeof(cmd.values));
+  RetainResource(resource);
+  RetainDescriptor(cpu_handle);
   Emit(cmd);
 }
 
@@ -697,6 +1349,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginQuery(
   cmd.heap = heap;
   cmd.type = type;
   cmd.index = index;
+  RetainQueryHeap(heap);
   Emit(cmd);
 }
 
@@ -707,6 +1360,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EndQuery(
   cmd.heap = heap;
   cmd.type = type;
   cmd.index = index;
+  RetainQueryHeap(heap);
   Emit(cmd);
 }
 
@@ -722,6 +1376,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveQueryData(
   cmd.query_count = query_count;
   cmd.dst_buffer = dst_buffer;
   cmd.dst_offset = aligned_dst_buffer_offset;
+  RetainQueryHeap(heap);
+  RetainResource(dst_buffer);
   Emit(cmd);
 }
 
@@ -750,6 +1406,9 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteIndirect(
   cmd.argument_buffer_offset = arg_buffer_offset;
   cmd.count_buffer = count_buffer;
   cmd.count_buffer_offset = count_buffer_offset;
+  RetainCommandSignature(command_signature);
+  RetainResource(arg_buffer);
+  RetainResource(count_buffer);
   Emit(cmd);
 }
 
@@ -768,7 +1427,13 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::AtomicCopyBufferUINT64(
     const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges) {}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetDepthBounds(
-    FLOAT min, FLOAT max) {}
+    FLOAT min, FLOAT max) {
+  CmdOMSetDepthBounds cmd = {};
+  cmd.header = {CmdType::OMSetDepthBounds, sizeof(cmd)};
+  cmd.min_depth = min;
+  cmd.max_depth = max;
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetSamplePositions(
     UINT sample_count, UINT pixel_count,
@@ -794,6 +1459,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresourceRegion(
     cmd.has_src_rect = 1;
     cmd.src_rect = *src_rect;
   }
+  RetainResource(dst_resource);
+  RetainResource(src_resource);
   Emit(cmd);
 }
 
@@ -897,37 +1564,208 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteMetaCommand(
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc,
     UINT num_post_build_info_descs,
-    const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *post_build_info_descs) {}
+    const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *post_build_info_descs) {
+  if (!desc) {
+    CLTRACE("BuildRaytracingAccelerationStructure ignored null descriptor");
+    return;
+  }
+  if (desc->Inputs.Type ==
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
+    if (!desc->Inputs.NumDescs ||
+        desc->Inputs.NumDescs >
+            CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs ||
+        (desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY &&
+         !desc->Inputs.pGeometryDescs) ||
+        (desc->Inputs.DescsLayout ==
+             D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+         !desc->Inputs.ppGeometryDescs)) {
+      CLTRACE("BuildRaytracingAccelerationStructure unsupported BLAS "
+              "descriptors=%u layout=%u",
+              desc->Inputs.NumDescs, (unsigned)desc->Inputs.DescsLayout);
+      return;
+    }
+  } else if (desc->Inputs.Type !=
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ||
+             !desc->Inputs.NumDescs || !desc->Inputs.InstanceDescs) {
+    CLTRACE("BuildRaytracingAccelerationStructure unsupported TLAS inputs");
+    return;
+  }
+
+  CmdBuildRaytracingAccelerationStructure cmd = {};
+  cmd.header = {CmdType::BuildRaytracingAccelerationStructure, sizeof(cmd)};
+  cmd.dest_acceleration_structure = desc->DestAccelerationStructureData;
+  cmd.scratch_acceleration_structure = desc->ScratchAccelerationStructureData;
+  cmd.source_acceleration_structure = desc->SourceAccelerationStructureData;
+  cmd.type = desc->Inputs.Type;
+  cmd.flags = desc->Inputs.Flags;
+  cmd.descs_layout = desc->Inputs.DescsLayout;
+  cmd.num_descs = desc->Inputs.NumDescs;
+  cmd.instance_descs = desc->Inputs.InstanceDescs;
+  if (desc->Inputs.Type ==
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
+    for (UINT i = 0; i < desc->Inputs.NumDescs; i++) {
+      const auto *geometry =
+          desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? &desc->Inputs.pGeometryDescs[i]
+              : desc->Inputs.ppGeometryDescs[i];
+      if (!geometry) {
+        CLTRACE("BuildRaytracingAccelerationStructure null geometry=%u", i);
+        return;
+      }
+      cmd.geometries[i] = *geometry;
+    }
+  }
+  RetainGPUAddress(cmd.dest_acceleration_structure);
+  RetainGPUAddress(cmd.scratch_acceleration_structure);
+  RetainGPUAddress(cmd.source_acceleration_structure);
+  RetainGPUAddress(cmd.instance_descs);
+  for (UINT i = 0; i < cmd.num_descs &&
+                   cmd.type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+       i++) {
+    const auto &geometry = cmd.geometries[i];
+    if (geometry.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES) {
+      RetainGPUAddress(geometry.Triangles.VertexBuffer.StartAddress);
+      RetainGPUAddress(geometry.Triangles.IndexBuffer);
+    } else if (geometry.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+      RetainGPUAddress(geometry.AABBs.AABBs.StartAddress);
+    }
+  }
+  Emit(cmd);
+  for (UINT i = 0; post_build_info_descs &&
+                   i < num_post_build_info_descs;
+       i++) {
+    EmitRaytracingAccelerationStructurePostbuildInfo(
+        &post_build_info_descs[i], 1,
+        &desc->DestAccelerationStructureData);
+  }
+  CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "
+          "scratch=0x%llx postbuild=%u",
+          (unsigned)cmd.type,
+          (unsigned long long)cmd.dest_acceleration_structure,
+          (unsigned long long)cmd.scratch_acceleration_structure,
+          num_post_build_info_descs);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EmitRaytracingAccelerationStructurePostbuildInfo(
     const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC *descs,
     UINT num_acceleration_structures,
-    const D3D12_GPU_VIRTUAL_ADDRESS *source_acceleration_structure_data) {}
+    const D3D12_GPU_VIRTUAL_ADDRESS *source_acceleration_structure_data) {
+  if (!descs || !source_acceleration_structure_data ||
+      num_acceleration_structures != 1) {
+    CLTRACE("EmitRaytracingPostbuildInfo unsupported count=%u",
+            num_acceleration_structures);
+    return;
+  }
+  CmdEmitRaytracingAccelerationStructurePostbuildInfo cmd = {};
+  cmd.header = {CmdType::EmitRaytracingAccelerationStructurePostbuildInfo,
+                sizeof(cmd)};
+  cmd.info_type = descs->InfoType;
+  cmd.dest_buffer = descs->DestBuffer;
+  cmd.source_acceleration_structure = source_acceleration_structure_data[0];
+  RetainGPUAddress(cmd.dest_buffer);
+  RetainGPUAddress(cmd.source_acceleration_structure);
+  Emit(cmd);
+  CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",
+          (unsigned)cmd.info_type, (unsigned long long)cmd.dest_buffer,
+          (unsigned long long)cmd.source_acceleration_structure);
+}
 
-void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
+void STDMETHODCALLTYPE
+MTLD3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
     D3D12_GPU_VIRTUAL_ADDRESS dest_acceleration_structure_data,
     D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure_data,
-    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) {}
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) {
+  if (mode != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE &&
+      mode != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT &&
+      mode != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_SERIALIZE &&
+      mode !=
+          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE) {
+    CLTRACE("CopyRaytracingAccelerationStructure unsupported mode=%u",
+            (unsigned)mode);
+    return;
+  }
+  CmdCopyRaytracingAccelerationStructure cmd = {};
+  cmd.header = {CmdType::CopyRaytracingAccelerationStructure, sizeof(cmd)};
+  cmd.destination_acceleration_structure = dest_acceleration_structure_data;
+  cmd.source_acceleration_structure = source_acceleration_structure_data;
+  cmd.mode = mode;
+  RetainGPUAddress(dest_acceleration_structure_data);
+  RetainGPUAddress(source_acceleration_structure_data);
+  Emit(cmd);
+  CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "
+          "destination=0x%llx",
+          (unsigned)mode,
+          (unsigned long long)source_acceleration_structure_data,
+          (unsigned long long)dest_acceleration_structure_data);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetPipelineState1(
     ID3D12StateObject *state_object) {
-  CLTRACE("SetPipelineState1 -> noop (raytracing)");
+  CmdSetPipelineState1 cmd = {};
+  cmd.header = {CmdType::SetPipelineState1, sizeof(cmd)};
+  cmd.state_object = state_object;
+  RetainStateObject(state_object);
+  Emit(cmd);
+  CLTRACE("SetPipelineState1 state=%p", (void *)state_object);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchRays(
-    const D3D12_DISPATCH_RAYS_DESC *desc) {}
+    const D3D12_DISPATCH_RAYS_DESC *desc) {
+  if (!desc) {
+    CLTRACE("DispatchRays ignored null descriptor");
+    return;
+  }
+  CmdDispatchRays cmd = {};
+  cmd.header = {CmdType::DispatchRays, sizeof(cmd)};
+  cmd.desc = *desc;
+  RetainGPUAddress(desc->RayGenerationShaderRecord.StartAddress);
+  RetainGPUAddress(desc->MissShaderTable.StartAddress);
+  RetainGPUAddress(desc->HitGroupTable.StartAddress);
+  RetainGPUAddress(desc->CallableShaderTable.StartAddress);
+  Emit(cmd);
+  CLTRACE("DispatchRays dimensions=%ux%ux%u raygen=0x%llx",
+          desc->Width, desc->Height, desc->Depth,
+          (unsigned long long)desc->RayGenerationShaderRecord.StartAddress);
+}
 
 /*** ID3D12GraphicsCommandList5 ***/
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetShadingRate(
     D3D12_SHADING_RATE base_shading_rate,
-    const D3D12_SHADING_RATE_COMBINER *combiners) {}
+    const D3D12_SHADING_RATE_COMBINER *combiners) {
+  CmdRSSetShadingRate cmd = {};
+  cmd.header = {CmdType::RSSetShadingRate, sizeof(cmd)};
+  cmd.base_shading_rate = base_shading_rate;
+  for (UINT i = 0; i < 2; ++i)
+    cmd.combiners[i] = combiners ? combiners[i]
+                                  : D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+  Emit(cmd);
+  CLTRACE("RSSetShadingRate rate=%u combiners=%u,%u",
+          (unsigned)base_shading_rate, (unsigned)cmd.combiners[0],
+          (unsigned)cmd.combiners[1]);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetShadingRateImage(
-    ID3D12Resource *shading_rate_image) {}
+    ID3D12Resource *shading_rate_image) {
+  CmdRSSetShadingRateImage cmd = {};
+  cmd.header = {CmdType::RSSetShadingRateImage, sizeof(cmd)};
+  cmd.shading_rate_image = shading_rate_image;
+  RetainResource(shading_rate_image);
+  Emit(cmd);
+  CLTRACE("RSSetShadingRateImage resource=%p", (void *)shading_rate_image);
+}
 
 /*** ID3D12GraphicsCommandList6 ***/
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchMesh(
     UINT thread_group_count_x, UINT thread_group_count_y,
-    UINT thread_group_count_z) {}
+    UINT thread_group_count_z) {
+  CLTRACE("DispatchMesh %ux%ux%u", thread_group_count_x,
+          thread_group_count_y, thread_group_count_z);
+  CmdDispatchMesh cmd = {};
+  cmd.header = {CmdType::DispatchMesh, sizeof(cmd)};
+  cmd.x = thread_group_count_x;
+  cmd.y = thread_group_count_y;
+  cmd.z = thread_group_count_z;
+  Emit(cmd);
+}
 
 } // namespace dxmt

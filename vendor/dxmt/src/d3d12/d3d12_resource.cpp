@@ -37,12 +37,225 @@ SampleCountForResourceDesc(const D3D12_RESOURCE_DESC &desc,
   return 1;
 }
 
+static D3D12_TILE_SHAPE TileShapeForFormat(DXGI_FORMAT format,
+                                            bool volume = false) {
+  // Volume tiled resources use a 4x4x4 tile grouping.  Their standard tile
+  // shape is not the 2D shape divided by an arbitrary slice count; it is
+  // selected from the format's bits per texel/block as specified by D3D12.
+  if (volume) {
+    switch (format) {
+    case DXGI_FORMAT_R8_TYPELESS:
+    case DXGI_FORMAT_R8_UNORM:
+    case DXGI_FORMAT_R8_UINT:
+    case DXGI_FORMAT_R8_SNORM:
+    case DXGI_FORMAT_R8_SINT:
+    case DXGI_FORMAT_A8_UNORM:
+      return {64, 32, 32};
+    case DXGI_FORMAT_R8G8_TYPELESS:
+    case DXGI_FORMAT_R8G8_UNORM:
+    case DXGI_FORMAT_R8G8_UINT:
+    case DXGI_FORMAT_R8G8_SNORM:
+    case DXGI_FORMAT_R8G8_SINT:
+    case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_R16_FLOAT:
+    case DXGI_FORMAT_R16_UNORM:
+    case DXGI_FORMAT_R16_UINT:
+    case DXGI_FORMAT_R16_SNORM:
+    case DXGI_FORMAT_R16_SINT:
+      return {32, 32, 32};
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+    case DXGI_FORMAT_R8G8B8A8_UINT:
+    case DXGI_FORMAT_R8G8B8A8_SNORM:
+    case DXGI_FORMAT_R8G8B8A8_SINT:
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+    case DXGI_FORMAT_R10G10B10A2_UINT:
+    case DXGI_FORMAT_R11G11B10_FLOAT:
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+    case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8X8_UNORM:
+    case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+    case DXGI_FORMAT_R32_TYPELESS:
+    case DXGI_FORMAT_R32_FLOAT:
+    case DXGI_FORMAT_R32_UINT:
+    case DXGI_FORMAT_R32_SINT:
+      return {32, 32, 16};
+    case DXGI_FORMAT_R16G16_TYPELESS:
+    case DXGI_FORMAT_R16G16_FLOAT:
+    case DXGI_FORMAT_R16G16_UNORM:
+    case DXGI_FORMAT_R16G16_UINT:
+    case DXGI_FORMAT_R16G16_SNORM:
+    case DXGI_FORMAT_R16G16_SINT:
+    case DXGI_FORMAT_R32G32_TYPELESS:
+    case DXGI_FORMAT_R32G32_FLOAT:
+    case DXGI_FORMAT_R32G32_UINT:
+    case DXGI_FORMAT_R32G32_SINT:
+      return {32, 16, 16};
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R16G16B16A16_UINT:
+    case DXGI_FORMAT_R16G16B16A16_SNORM:
+    case DXGI_FORMAT_R16G16B16A16_SINT:
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_UINT:
+    case DXGI_FORMAT_R32G32B32A32_SINT:
+      return {16, 16, 16};
+    case DXGI_FORMAT_BC1_TYPELESS:
+    case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB:
+    case DXGI_FORMAT_BC4_TYPELESS:
+    case DXGI_FORMAT_BC4_UNORM:
+    case DXGI_FORMAT_BC4_SNORM:
+      return {128, 64, 16};
+    case DXGI_FORMAT_BC2_TYPELESS:
+    case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB:
+    case DXGI_FORMAT_BC3_TYPELESS:
+    case DXGI_FORMAT_BC3_UNORM:
+    case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC5_TYPELESS:
+    case DXGI_FORMAT_BC5_UNORM:
+    case DXGI_FORMAT_BC5_SNORM:
+    case DXGI_FORMAT_BC6H_TYPELESS:
+    case DXGI_FORMAT_BC6H_UF16:
+    case DXGI_FORMAT_BC6H_SF16:
+    case DXGI_FORMAT_BC7_TYPELESS:
+    case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return {64, 64, 16};
+    default:
+      break;
+    }
+  }
+
+  switch (format) {
+  case DXGI_FORMAT_R8_TYPELESS:
+  case DXGI_FORMAT_R8_UNORM:
+  case DXGI_FORMAT_R8_UINT:
+  case DXGI_FORMAT_R8_SNORM:
+  case DXGI_FORMAT_R8_SINT:
+  case DXGI_FORMAT_A8_UNORM:
+    return {256, 256, 1};
+  case DXGI_FORMAT_R8G8_TYPELESS:
+  case DXGI_FORMAT_R8G8_UNORM:
+  case DXGI_FORMAT_R8G8_UINT:
+  case DXGI_FORMAT_R8G8_SNORM:
+  case DXGI_FORMAT_R8G8_SINT:
+  case DXGI_FORMAT_R16_TYPELESS:
+  case DXGI_FORMAT_R16_FLOAT:
+  case DXGI_FORMAT_R16_UNORM:
+  case DXGI_FORMAT_R16_UINT:
+  case DXGI_FORMAT_R16_SNORM:
+  case DXGI_FORMAT_R16_SINT:
+    return {256, 128, 1};
+  case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+  case DXGI_FORMAT_R8G8B8A8_UNORM:
+  case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+  case DXGI_FORMAT_R8G8B8A8_UINT:
+  case DXGI_FORMAT_R8G8B8A8_SNORM:
+  case DXGI_FORMAT_R8G8B8A8_SINT:
+  case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+  case DXGI_FORMAT_R10G10B10A2_UNORM:
+  case DXGI_FORMAT_R10G10B10A2_UINT:
+  case DXGI_FORMAT_R11G11B10_FLOAT:
+  case DXGI_FORMAT_R32_TYPELESS:
+  case DXGI_FORMAT_R32_FLOAT:
+  case DXGI_FORMAT_R32_UINT:
+  case DXGI_FORMAT_R32_SINT:
+    return {128, 128, 1};
+  case DXGI_FORMAT_R16G16_TYPELESS:
+  case DXGI_FORMAT_R16G16_FLOAT:
+  case DXGI_FORMAT_R16G16_UNORM:
+  case DXGI_FORMAT_R16G16_UINT:
+  case DXGI_FORMAT_R16G16_SNORM:
+  case DXGI_FORMAT_R16G16_SINT:
+  case DXGI_FORMAT_R32G32_TYPELESS:
+  case DXGI_FORMAT_R32G32_FLOAT:
+  case DXGI_FORMAT_R32G32_UINT:
+  case DXGI_FORMAT_R32G32_SINT:
+    return {128, 64, 1};
+  case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+  case DXGI_FORMAT_R16G16B16A16_FLOAT:
+  case DXGI_FORMAT_R16G16B16A16_UNORM:
+  case DXGI_FORMAT_R16G16B16A16_UINT:
+  case DXGI_FORMAT_R16G16B16A16_SNORM:
+  case DXGI_FORMAT_R16G16B16A16_SINT:
+    return {128, 64, 1};
+  case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+  case DXGI_FORMAT_R32G32B32A32_FLOAT:
+  case DXGI_FORMAT_R32G32B32A32_UINT:
+  case DXGI_FORMAT_R32G32B32A32_SINT:
+    return {64, 64, 1};
+  case DXGI_FORMAT_BC1_TYPELESS:
+  case DXGI_FORMAT_BC1_UNORM:
+  case DXGI_FORMAT_BC1_UNORM_SRGB:
+  case DXGI_FORMAT_BC4_TYPELESS:
+  case DXGI_FORMAT_BC4_UNORM:
+  case DXGI_FORMAT_BC4_SNORM:
+    return {512, 256, 1};
+  case DXGI_FORMAT_BC2_TYPELESS:
+  case DXGI_FORMAT_BC2_UNORM:
+  case DXGI_FORMAT_BC2_UNORM_SRGB:
+  case DXGI_FORMAT_BC3_TYPELESS:
+  case DXGI_FORMAT_BC3_UNORM:
+  case DXGI_FORMAT_BC3_UNORM_SRGB:
+  case DXGI_FORMAT_BC5_TYPELESS:
+  case DXGI_FORMAT_BC5_UNORM:
+  case DXGI_FORMAT_BC5_SNORM:
+  case DXGI_FORMAT_BC6H_TYPELESS:
+  case DXGI_FORMAT_BC6H_UF16:
+  case DXGI_FORMAT_BC6H_SF16:
+  case DXGI_FORMAT_BC7_TYPELESS:
+  case DXGI_FORMAT_BC7_UNORM:
+  case DXGI_FORMAT_BC7_UNORM_SRGB:
+    return {256, 256, 1};
+  default:
+    return {128, 128, 1};
+  }
+}
+
+static uint64_t SparseHeapSizeForResource(const D3D12_RESOURCE_DESC &desc) {
+  const bool volume = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+  const D3D12_TILE_SHAPE shape = TileShapeForFormat(desc.Format, volume);
+  const uint64_t slices =
+      volume ? 1 : std::max<uint32_t>(1, desc.DepthOrArraySize);
+  const uint64_t mips = std::max<uint32_t>(1, desc.MipLevels);
+  uint64_t tile_count = 0;
+  for (uint64_t slice = 0; slice < slices; slice++) {
+    for (uint64_t mip = 0; mip < mips; mip++) {
+      const uint64_t width = std::max<uint64_t>(1, desc.Width >> mip);
+      const uint64_t height = std::max<uint64_t>(1, desc.Height >> mip);
+      const uint64_t depth =
+          volume ? std::max<uint64_t>(1, desc.DepthOrArraySize >> mip) : 1;
+      const uint64_t tiles_x =
+          (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+      const uint64_t tiles_y =
+          (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+      const uint64_t tiles_z =
+          (depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+      tile_count += tiles_x * tiles_y * tiles_z;
+    }
+  }
+  const uint64_t size = tile_count * UINT64_C(65536);
+  // Apple's default sparse page is 16 KiB; one D3D12 standard tile is 64 KiB.
+  return std::max<uint64_t>(UINT64_C(65536),
+                            (size + UINT64_C(16383)) & ~UINT64_C(16383));
+}
+
 MTLD3D12Resource::MTLD3D12Resource(
     MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
     D3D12_RESOURCE_STATES initial_state,
-    D3D12_HEAP_PROPERTIES heap_properties, D3D12_HEAP_FLAGS heap_flags)
+    D3D12_HEAP_PROPERTIES heap_properties, D3D12_HEAP_FLAGS heap_flags,
+    bool reserved)
     : m_device(device), m_desc(desc), m_state(initial_state),
-      m_heap_properties(heap_properties), m_heap_flags(heap_flags) {
+      m_heap_properties(heap_properties), m_heap_flags(heap_flags),
+      m_is_reserved(reserved) {
   InitializeResource(WMT::Reference<WMT::Buffer>{}, nullptr, 0, 0);
 }
 
@@ -60,6 +273,21 @@ MTLD3D12Resource::MTLD3D12Resource(
                      backing_gpu_addr, backing_offset);
 }
 
+MTLD3D12Resource::MTLD3D12Resource(
+    MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
+    D3D12_RESOURCE_STATES initial_state,
+    D3D12_HEAP_PROPERTIES heap_properties,
+    D3D12_HEAP_FLAGS heap_flags,
+    WMT::Reference<WMT::Texture> backing_texture,
+    uint64_t backing_texture_gpu_id, uint64_t backing_offset)
+    : m_device(device), m_desc(desc), m_state(initial_state),
+      m_heap_properties(heap_properties), m_heap_flags(heap_flags),
+      m_tex_gpu_resource_id(backing_texture_gpu_id),
+      m_backing_offset(backing_offset) {
+  m_mtl_texture = std::move(backing_texture);
+  InitializeResource(WMT::Reference<WMT::Buffer>{}, nullptr, 0, 0);
+}
+
 void MTLD3D12Resource::InitializeResource(
     WMT::Reference<WMT::Buffer> backing_buffer, void *backing_cpu_addr,
     uint64_t backing_gpu_addr, uint64_t backing_offset) {
@@ -71,11 +299,32 @@ void MTLD3D12Resource::InitializeResource(
     m_desc.Width, m_desc.Height, m_desc.DepthOrArraySize);
 
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
-    bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
-                           m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
+    bool cpu_accessible =
+        m_is_reserved || m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
+        m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK;
     WMTBufferInfo buf_info = {};
     buf_info.length = m_desc.Width ? m_desc.Width : 256;
-    if (backing_buffer.handle) {
+    if (m_is_reserved && !backing_buffer.handle) {
+      WMTSparseBufferInfo sparse_info = {};
+      sparse_info.length = m_desc.Width ? m_desc.Width : 256;
+      sparse_info.options = WMTResourceStorageModePrivate |
+                            WMTResourceHazardTrackingModeTracked;
+      sparse_info.sparse_page_size = WMTSparsePageSize64;
+      m_mtl_buffer = wmt_device.newSparseBuffer(sparse_info);
+      if (m_mtl_buffer.handle) {
+        m_native_sparse_buffer = true;
+        m_gpu_addr = sparse_info.gpu_address;
+        buf_info.length = sparse_info.length;
+        buf_info.options = sparse_info.options;
+        buf_info.gpu_address = m_gpu_addr;
+        m_buf_info = buf_info;
+        RTRACE("ctor: native sparse buffer gpu=0x%llx len=%llu page=%u",
+               (unsigned long long)m_gpu_addr,
+               (unsigned long long)sparse_info.length,
+               sparse_info.sparse_page_size);
+      }
+    }
+    if (!m_native_sparse_buffer && backing_buffer.handle) {
       m_mtl_buffer = std::move(backing_buffer);
       m_cpu_addr = backing_cpu_addr
                        ? static_cast<void *>(static_cast<char *>(backing_cpu_addr) +
@@ -97,7 +346,7 @@ void MTLD3D12Resource::InitializeResource(
                                  (unsigned long long)m_gpu_addr, " off=",
                                  (unsigned long long)backing_offset));
       }
-    } else {
+    } else if (!m_native_sparse_buffer) {
       buf_info.options =
           cpu_accessible ? WMTResourceStorageModeShared
                          : WMTResourceStorageModePrivate;
@@ -105,6 +354,8 @@ void MTLD3D12Resource::InitializeResource(
       m_cpu_addr = buf_info.memory.get_accessible_or_null();
       m_gpu_addr = buf_info.gpu_address;
       m_buf_info = buf_info;
+      if (m_is_reserved && m_cpu_addr)
+        std::memset(m_cpu_addr, 0, static_cast<size_t>(m_desc.Width));
       RTRACE("ctor: buffer cpu=%p gpu=0x%llx len=%llu opts=%u heap_type=%u",
              m_cpu_addr, (unsigned long long)m_gpu_addr,
              (unsigned long long)m_desc.Width, (unsigned)buf_info.options,
@@ -119,6 +370,22 @@ void MTLD3D12Resource::InitializeResource(
   } else {
     bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
                            m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
+    m_is_shading_rate_image =
+        m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        m_desc.Format == DXGI_FORMAT_R8_UINT &&
+        std::max<UINT>(m_desc.SampleDesc.Count, 1) == 1 &&
+        std::max<UINT16>(m_desc.MipLevels, 1) == 1 &&
+        std::max<UINT16>(m_desc.DepthOrArraySize, 1) == 1 &&
+        m_desc.Width <= UINT32_MAX && m_desc.Height <= UINT32_MAX;
+    if (m_is_shading_rate_image) {
+      const uint64_t byte_count =
+          std::max<uint64_t>(m_desc.Width, 1) *
+          std::max<uint64_t>(m_desc.Height, 1);
+      if (byte_count <= UINT32_MAX)
+        m_shading_rate_image_data.resize(static_cast<size_t>(byte_count));
+      else
+        m_is_shading_rate_image = false;
+    }
     WMTTextureInfo tex_info = {};
     tex_info.width = m_desc.Width;
     tex_info.height = m_desc.Height;
@@ -130,24 +397,83 @@ void MTLD3D12Resource::InitializeResource(
             ? m_desc.DepthOrArraySize
             : 1;
     tex_info.mipmap_level_count = m_desc.MipLevels ? m_desc.MipLevels : 1;
-    tex_info.type = TextureTypeForResourceDesc(m_desc);
-    tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
-    if (tex_info.sample_count > 1)
+    m_writable_msaa_emulated =
+        m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        m_desc.SampleDesc.Count > 1 &&
+        (m_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+        !(m_desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
+                          D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+    if (m_writable_msaa_emulated) {
+      // Metal exposes multisampled textures as read-only shader resources.
+      // Represent a writable D3D12 MSAA UAV as ordinary array slices, with
+      // each logical array slice expanded by the sample count. The DXIL
+      // lowering selects the flattened sample slice explicitly.
+      tex_info.type = WMTTextureType2DArray;
+      tex_info.array_length =
+          std::max<UINT16>(m_desc.DepthOrArraySize, 1) *
+          std::max<UINT>(m_desc.SampleDesc.Count, 1);
+      tex_info.sample_count = 1;
       tex_info.mipmap_level_count = 1;
+    } else {
+      tex_info.type = TextureTypeForResourceDesc(m_desc);
+      tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
+      if (tex_info.sample_count > 1)
+        tex_info.mipmap_level_count = 1;
+    }
     tex_info.usage = (WMTTextureUsage)(WMTTextureUsageRenderTarget |
                                       WMTTextureUsageShaderRead |
                                       WMTTextureUsageShaderWrite |
                                       WMTTextureUsagePixelFormatView);
     tex_info.options = cpu_accessible ? WMTResourceStorageModeShared : WMTResourceStorageModePrivate;
     tex_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(static_cast<DXGI_FORMAT>(m_desc.Format));
-    if (tex_info.pixel_format == WMTPixelFormatInvalid)
-      tex_info.pixel_format = WMTPixelFormatBGRA8Unorm;
+    if (tex_info.pixel_format == WMTPixelFormatInvalid) {
+      RTRACE("ctor: unsupported texture format=%u; refusing fallback",
+             (unsigned)m_desc.Format);
+      return;
+    }
 
-    RTRACE("ctor: about to newTexture type=%u fmt=%u %ux%u depth=%u arr=%u mip=%u sample=%u opts=%u",
-      tex_info.type, tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height,
+    RTRACE("ctor: writable_msaa=%d flags=0x%x samples=%u about to newTexture "
+           "type=%u fmt=%u %ux%u depth=%u arr=%u mip=%u sample=%u opts=%u",
+      m_writable_msaa_emulated ? 1 : 0, (unsigned)m_desc.Flags,
+      (unsigned)m_desc.SampleDesc.Count, tex_info.type, tex_info.pixel_format,
+      (unsigned)tex_info.width, (unsigned)tex_info.height,
       (unsigned)tex_info.depth, (unsigned)tex_info.array_length,
-       (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count, (unsigned)tex_info.options);
-    m_mtl_texture = wmt_device.newTexture(tex_info);
+      (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count,
+      (unsigned)tex_info.options);
+    const bool placement_sparse_candidate =
+        m_is_reserved && m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+        std::max<UINT16>(m_desc.MipLevels, 1) == 1;
+    if (placement_sparse_candidate) {
+      // Metal 4 placement-sparse textures are created without a backing heap;
+      // UpdateTileMappings supplies the D3D12 placement heap later. This keeps
+      // the proven single-mip RGBA8 shape eligible for physical cross-resource
+      // page aliases. Use the MTL4 queue as the availability probe so older
+      // Metal falls back to the legacy resource-state sparse heap path below.
+      auto mtl4_probe = wmt_device.newMTL4CommandQueue();
+      if (mtl4_probe.handle) {
+        tex_info.placement_sparse_page_size = WMTSparsePageSize16;
+        m_mtl_texture = wmt_device.newTexture(tex_info);
+        m_native_placement_sparse_texture = m_mtl_texture.handle != 0;
+      }
+    } else if (!m_is_reserved && !m_mtl_texture.handle) {
+      m_mtl_texture = wmt_device.newTexture(tex_info);
+    }
+    if (!m_mtl_texture.handle && m_is_reserved) {
+      // Older Metal falls back to the existing private sparse heap path. Clear
+      // the placement-only descriptor field before creating that texture.
+      tex_info.placement_sparse_page_size = 0;
+      WMTHeapInfo heap_info = {};
+      heap_info.size = SparseHeapSizeForResource(m_desc);
+      heap_info.options = WMTResourceStorageModePrivate |
+                          WMTResourceHazardTrackingModeTracked;
+      heap_info.type = WMTHeapTypeSparse;
+      // Metal's 16 KiB sparse page is the largest page granularity available
+      // on the proof host and four pages make one D3D12 64 KiB tile.
+      heap_info.sparse_page_size = WMTSparsePageSize16;
+      m_sparse_heap = wmt_device.newHeap(heap_info);
+      if (m_sparse_heap.handle)
+        m_mtl_texture = m_sparse_heap.newTexture(tex_info);
+    }
     m_tex_gpu_resource_id = tex_info.gpu_resource_id;
     if (!m_mtl_texture.handle) {
       RTRACE("ctor: texture creation FAILED type=%u fmt=%u %ux%u arr=%u",
@@ -171,6 +497,8 @@ void MTLD3D12Resource::InitializeResource(
 }
 
 WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
+  if (m_is_reserved)
+    return m_mtl_texture;
   if (!m_mtl_texture.handle && m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
     bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
                            m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
@@ -183,15 +511,27 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
     tex_info.array_length = (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
                                   ? m_desc.DepthOrArraySize : 1;
     tex_info.mipmap_level_count = m_desc.MipLevels ? m_desc.MipLevels : 1;
-    tex_info.type = TextureTypeForResourceDesc(m_desc);
-    tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
-    if (tex_info.sample_count > 1)
+    if (m_writable_msaa_emulated) {
+      tex_info.type = WMTTextureType2DArray;
+      tex_info.array_length =
+          std::max<UINT16>(m_desc.DepthOrArraySize, 1) *
+          std::max<UINT>(m_desc.SampleDesc.Count, 1);
+      tex_info.sample_count = 1;
       tex_info.mipmap_level_count = 1;
+    } else {
+      tex_info.type = TextureTypeForResourceDesc(m_desc);
+      tex_info.sample_count = SampleCountForResourceDesc(m_desc, tex_info.type);
+      if (tex_info.sample_count > 1)
+        tex_info.mipmap_level_count = 1;
+    }
     tex_info.usage = (WMTTextureUsage)(WMTTextureUsageRenderTarget | WMTTextureUsageShaderRead | WMTTextureUsageShaderWrite | WMTTextureUsagePixelFormatView);
     tex_info.options = cpu_accessible ? WMTResourceStorageModeShared : WMTResourceStorageModePrivate;
     tex_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(static_cast<DXGI_FORMAT>(m_desc.Format));
-    if (tex_info.pixel_format == WMTPixelFormatInvalid)
-      tex_info.pixel_format = WMTPixelFormatBGRA8Unorm;
+    if (tex_info.pixel_format == WMTPixelFormatInvalid) {
+      RTRACE("GetMTLTexture: unsupported texture format=%u; refusing fallback",
+             (unsigned)m_desc.Format);
+      return m_mtl_texture;
+    }
     RTRACE("GetMTLTexture: creating type=%u fmt=%u %ux%ux%u arr=%u mip=%u sample=%u opts=%u",
       tex_info.type, tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height,
       (unsigned)tex_info.depth, (unsigned)tex_info.array_length, (unsigned)tex_info.mipmap_level_count,
@@ -208,15 +548,119 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
 }
 
 uint32_t MTLD3D12Resource::GetTextureArrayLength() const {
+  if (m_writable_msaa_emulated)
+    return std::max<UINT16>(m_desc.DepthOrArraySize, 1) *
+           std::max<UINT>(m_desc.SampleDesc.Count, 1);
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
     return m_desc.DepthOrArraySize ? m_desc.DepthOrArraySize : 1;
   return 1;
+}
+
+void MTLD3D12Resource::UpdateShadingRateImage(
+    const void *data, uint32_t row_pitch, uint32_t dst_x, uint32_t dst_y,
+    uint32_t width, uint32_t height) {
+  if (!m_is_shading_rate_image || !data || !row_pitch ||
+      dst_x >= m_desc.Width || dst_y >= std::max<UINT>(m_desc.Height, 1) ||
+      width > m_desc.Width - dst_x ||
+      height > std::max<UINT>(m_desc.Height, 1) - dst_y ||
+      m_shading_rate_image_data.empty())
+    return;
+  const uint8_t *source = static_cast<const uint8_t *>(data);
+  const uint32_t image_width = static_cast<uint32_t>(m_desc.Width);
+  for (uint32_t row = 0; row < height; ++row) {
+    std::memcpy(m_shading_rate_image_data.data() +
+                    uint64_t(dst_y + row) * image_width + dst_x,
+                source + uint64_t(row) * row_pitch, width);
+  }
+  m_shading_rate_image_initialized = true;
 }
 
 uint64_t MTLD3D12Resource::GetBufferByteLength() const {
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     return m_desc.Width;
   return m_buf_info.length;
+}
+
+D3D12_TILE_SHAPE MTLD3D12Resource::GetTiledResourceTileShape() const {
+  if (IsBuffer())
+    return {D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, 1, 1};
+  return TileShapeForFormat(
+      m_desc.Format, m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D);
+}
+
+bool MTLD3D12Resource::ConfigureSamplerFeedback(
+    const D3D12_MIP_REGION &region) {
+  if (m_desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE &&
+      m_desc.Format != DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)
+    return false;
+
+  const uint32_t region_width = std::max<UINT>(region.Width, 1);
+  const uint32_t region_height = std::max<UINT>(region.Height, 1);
+  m_sampler_feedback_data_offset = 512;
+  const uint64_t array_length = std::max<uint16_t>(m_desc.DepthOrArraySize, 1);
+  const bool min_mip =
+      m_desc.Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE;
+  const uint32_t level_count =
+      min_mip ? 1u : std::min<uint32_t>(std::max<uint16_t>(m_desc.MipLevels, 1),
+                                        16u);
+  m_sampler_feedback_levels.clear();
+  m_sampler_feedback_levels.reserve(level_count);
+  uint64_t next_offset = m_sampler_feedback_data_offset;
+  for (uint32_t mip = 0; mip < level_count; ++mip) {
+    const uint64_t logical_width = std::max<uint64_t>(m_desc.Width >> mip, 1);
+    const uint32_t logical_height =
+        std::max<uint32_t>(std::max<UINT>(m_desc.Height, 1) >> mip, 1);
+    D3D12SamplerFeedbackLevelLayout level = {};
+    level.width = static_cast<uint32_t>(
+        (logical_width + region_width - 1) / region_width);
+    level.height = (logical_height + region_height - 1) / region_height;
+    level.row_pitch = (std::max<uint32_t>(level.width, 1) + 255u) & ~255u;
+    level.offset = next_offset;
+    next_offset += uint64_t(level.row_pitch) * level.height * array_length;
+    m_sampler_feedback_levels.push_back(level);
+  }
+  m_sampler_feedback_width = m_sampler_feedback_levels[0].width;
+  m_sampler_feedback_height = m_sampler_feedback_levels[0].height;
+  m_sampler_feedback_row_pitch = m_sampler_feedback_levels[0].row_pitch;
+
+  WMTBufferInfo info = {};
+  info.length = next_offset;
+  info.options = WMTResourceStorageModeShared;
+  auto buffer = m_device->GetDXMTDevice().device().newBuffer(info);
+  if (!buffer.handle) {
+    RTRACE("ConfigureSamplerFeedback: buffer creation failed width=%u height=%u row=%u",
+           m_sampler_feedback_width, m_sampler_feedback_height,
+           m_sampler_feedback_row_pitch);
+    return false;
+  }
+
+  uint32_t header[128] = {};
+  header[0] = 0x4d534642u;
+  header[1] = m_sampler_feedback_width;
+  header[2] = m_sampler_feedback_height;
+  header[3] = m_sampler_feedback_row_pitch;
+  header[4] = min_mip ? 0u : 1u;
+  header[5] = static_cast<uint32_t>(array_length);
+  header[6] = static_cast<uint32_t>(m_sampler_feedback_data_offset);
+  header[8] = 0u; // software lock, deliberately 32-bit aligned
+  header[9] = level_count;
+  for (uint32_t mip = 0; mip < level_count; ++mip) {
+    const auto &level = m_sampler_feedback_levels[mip];
+    header[10 + mip * 4 + 0] = static_cast<uint32_t>(level.offset);
+    header[10 + mip * 4 + 1] = level.width;
+    header[10 + mip * 4 + 2] = level.height;
+    header[10 + mip * 4 + 3] = level.row_pitch;
+  }
+  buffer.updateContents(0, header, sizeof(header));
+  m_mtl_buffer = std::move(buffer);
+  m_buf_info = info;
+  m_is_sampler_feedback = true;
+  RTRACE("ConfigureSamplerFeedback: fmt=%u logical=%llux%u region=%ux%u physical=%ux%u row=%u bytes=%llu",
+         (unsigned)m_desc.Format, (unsigned long long)m_desc.Width,
+         (unsigned)m_desc.Height, region_width, region_height,
+         m_sampler_feedback_width, m_sampler_feedback_height,
+         m_sampler_feedback_row_pitch, (unsigned long long)info.length);
+  return true;
 }
 
 MTLD3D12Resource::~MTLD3D12Resource() {
@@ -259,23 +703,22 @@ ULONG STDMETHODCALLTYPE MTLD3D12Resource::Release() {
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Resource::GetPrivateData(REFGUID guid, UINT *data_size, void *data) {
-  RTRACE("GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+  return m_private_data.getData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Resource::SetPrivateData(REFGUID guid, UINT data_size,
                                  const void *data) {
-  return S_OK;
+  return m_private_data.setData(guid, data_size, data);
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Resource::SetPrivateDataInterface(REFGUID guid, const IUnknown *data) {
-  return S_OK;
+  return m_private_data.setInterface(guid, data);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Resource::SetName(LPCWSTR name) {
-  return S_OK;
+  return m_private_data.setName(name);
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -287,14 +730,25 @@ MTLD3D12Resource::Map(UINT sub_resource,
                                                  const D3D12_RANGE *read_range,
                                                  void **data) {
   RTRACE("Map sub=%u", sub_resource);
+  (void)read_range;
   if (!data)
     return E_POINTER;
   if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
-    RTRACE("Map: invalid dimension, returning fake pointer");
-    *data = (void*)1;
-    return S_OK;
+    RTRACE("Map: invalid resource dimension=%u", (unsigned)m_desc.Dimension);
+    *data = nullptr;
+    return E_INVALIDARG;
   }
-  if (m_cpu_addr) {
+  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+  const UINT array_size =
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+  if (sub_resource >= mip_levels * array_size) {
+    *data = nullptr;
+    return E_INVALIDARG;
+  }
+  if (m_cpu_addr &&
+      !(m_is_reserved && m_heap_properties.Type == D3D12_HEAP_TYPE_DEFAULT)) {
     *data = m_cpu_addr;
     RTRACE("Map returning cpu_addr=%p gpu_addr=0x%llx", m_cpu_addr, (unsigned long long)m_gpu_addr);
     return S_OK;
@@ -328,9 +782,15 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
   RTRACE("WriteToSubresource sub=%u box=%p", dst_sub_resource, dst_box);
   if (!src_data)
     return E_POINTER;
-  if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
-    return S_OK;
-  }
+  if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+    return E_INVALIDARG;
+  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+  const UINT array_size =
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+  if (dst_sub_resource >= mip_levels * array_size)
+    return E_INVALIDARG;
   if (m_cpu_addr) {
     if (dst_box) {
       UINT rows = dst_box->bottom - dst_box->top;
@@ -347,7 +807,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
     }
     return S_OK;
   }
-  return S_OK;
+  RTRACE("WriteToSubresource unsupported without CPU-visible backing");
+  return E_NOTIMPL;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
@@ -358,9 +819,16 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
   if (!dst_data)
     return E_POINTER;
   if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
-    RTRACE("ReadFromSubresource: invalid dimension %u, this=%p is NOT a resource! Skipping.", m_desc.Dimension, (void*)this);
-    return S_OK;
+    RTRACE("ReadFromSubresource: invalid dimension %u", m_desc.Dimension);
+    return E_INVALIDARG;
   }
+  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+  const UINT array_size =
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+  if (src_sub_resource >= mip_levels * array_size)
+    return E_INVALIDARG;
   if (m_cpu_addr) {
     UINT rows = m_desc.Height ? m_desc.Height : 1;
     if (src_box) {
@@ -379,12 +847,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
     }
     return S_OK;
   }
-  if (m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
-    UINT total = dst_slice_pitch ? dst_slice_pitch : dst_row_pitch * (m_desc.Height ? m_desc.Height : 1);
-    if (total) memset(dst_data, 0, total);
-    return S_OK;
-  }
-  return S_OK;
+  RTRACE("ReadFromSubresource unsupported without CPU-visible backing");
+  return E_NOTIMPL;
 }
 
 HRESULT STDMETHODCALLTYPE

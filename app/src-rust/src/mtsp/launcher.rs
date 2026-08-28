@@ -5932,7 +5932,7 @@ mod tests {
         assert!(!keys.contains("DXMT_LOG_PATH"));
         assert!(keys.contains("METALSHARP_CACHE_SUMMARY"));
         assert!(keys.contains("DXMT_CONFIG"));
-        assert_eq!(env_value(&env, "DXMT_D3D12_UE_SM6_COMPAT"), Some("1"));
+        assert_eq!(env_value(&env, "DXMT_D3D12_UE_SM6_COMPAT"), None);
         let unixlib =
             env.iter().find(|(key, _)| key == "DXMT_WINEMETAL_UNIXLIB").map(|(_, value)| value.as_str()).unwrap();
         assert_eq!(unixlib, "winemetal.so");

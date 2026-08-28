@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "Metal.hpp"
 #include <atomic>
@@ -44,6 +45,7 @@ private:
   D3D12_FENCE_FLAGS m_flags;
   std::atomic<uint64_t> m_value;
   WMT::Reference<WMT::SharedEvent> m_shared_event;
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
 

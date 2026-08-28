@@ -15,7 +15,10 @@ DEFAULT_CONTRACT_ROOT = ROOT_DIR / "tools" / "d3d12-metal-sdk" / "contracts"
 REQUIRED_CONTRACTS = [
     "d3d12-metal-contract.json",
     "agility-1.619.3-contract.json",
+    "agility-1.619.5-contract.json",
+    "d3d12-sdk-compatibility-matrix.json",
     "feature-support-contract.json",
+    "fl12-2-gate-contract.json",
     "dxgi-contract.json",
     "unsupported-api-ledger.json",
     "risky-stub-ledger.json",
@@ -30,7 +33,6 @@ REQUIRED_UNSUPPORTED_APIS = {
     "D3D12 state objects",
     "D3D12 mesh shader tiers",
     "D3D12 amplification shader tiers",
-    "D3D12 sampler feedback tier",
     "D3D12 work graphs",
     "D3D12 node shaders",
     "D3D12 video encode/decode/process APIs",
@@ -40,8 +42,6 @@ REQUIRED_UNSUPPORTED_APIS = {
     "D3D12 sparse and reserved resources",
     "D3D12 geometry shaders outside proven emulation",
     "D3D12 hull/domain tessellation shaders",
-    "D3D12 WaveOps feature report",
-    "D3D12 Shader Model 6.6 feature report",
 }
 
 
@@ -148,6 +148,56 @@ def validate_waivers(path: Path, data: dict[str, Any], errors: list[str]) -> Non
                 )
 
 
+def validate_fl12_2_gate(path: Path, data: dict[str, Any], errors: list[str]) -> None:
+    validate_evidence(path, data, errors)
+    target = data.get("target")
+    require(isinstance(target, dict), f"{path}: target must be an object", errors)
+    if isinstance(target, dict):
+        require(target.get("feature_level") == "12_2", f"{path}: target.feature_level must be `12_2`", errors)
+        require(target.get("shader_model") == "6_7", f"{path}: target.shader_model must be `6_7`", errors)
+        levels = target.get("expected_levels")
+        require(
+            levels == ["11_0", "11_1", "12_0", "12_1", "12_2"],
+            f"{path}: target.expected_levels must enumerate 11_0 through 12_2",
+            errors,
+        )
+        require(target.get("promotion_is_atomic") is True, f"{path}: promotion_is_atomic must be true", errors)
+
+    identity = data.get("identity")
+    require(isinstance(identity, dict), f"{path}: identity must be an object", errors)
+    if isinstance(identity, dict):
+        for key in ("environment_result", "host_runtime_result", "wine_version", "required_artifacts"):
+            require(bool(identity.get(key)), f"{path}: identity.{key} is required", errors)
+        require(identity.get("wine_version") == "wine-11.5", f"{path}: identity.wine_version must be wine-11.5", errors)
+        require(
+            isinstance(identity.get("required_artifacts"), list) and len(identity["required_artifacts"]) > 0,
+            f"{path}: identity.required_artifacts must be a non-empty list",
+            errors,
+        )
+
+    valid_operators = {"equals", "at_least", "bitmask_all", "hr_success"}
+    for section in ("query_requirements", "behavior_requirements"):
+        entries = data.get(section)
+        require(isinstance(entries, list) and len(entries) > 0, f"{path}: {section} must be non-empty", errors)
+        if not isinstance(entries, list):
+            continue
+        ids: set[str] = set()
+        for index, entry in enumerate(entries):
+            prefix = f"{path}: {section}[{index}]"
+            require(isinstance(entry, dict), f"{prefix} must be an object", errors)
+            if not isinstance(entry, dict):
+                continue
+            check_id = entry.get("id")
+            require(isinstance(check_id, str) and bool(check_id), f"{prefix} missing id", errors)
+            if isinstance(check_id, str) and check_id:
+                require(check_id not in ids, f"{prefix} duplicates id `{check_id}`", errors)
+                ids.add(check_id)
+            for key in ("api", "probe", "path"):
+                require(isinstance(entry.get(key), str) and bool(entry.get(key)), f"{prefix} missing {key}", errors)
+            require(entry.get("operator") in valid_operators, f"{prefix} has invalid operator `{entry.get('operator')}`", errors)
+            require("expected" in entry, f"{prefix} missing expected value", errors)
+
+
 def validate_reference_contract(path: Path, data: dict[str, Any], errors: list[str]) -> None:
     validate_evidence(path, data, errors)
     require(isinstance(data.get("summary"), dict), f"{path}: missing summary", errors)
@@ -167,14 +217,23 @@ def validate_winemetal_bridge(path: Path, data: dict[str, Any], errors: list[str
             require(isinstance(value, str) and bool(value), f"{path}: source_audit.{key} missing", errors)
             if isinstance(value, str) and value:
                 require((ROOT_DIR / value).exists(), f"{path}: source_audit.{key} path does not exist: {value}", errors)
-    for key in ("required_pe_exports", "required_unix_call_entries", "probe_coverage"):
+    for key in (
+        "required_pe_exports",
+        "required_unix_call_entries",
+        "required_render_command_stream_entries",
+        "probe_coverage",
+    ):
         value = data.get(key)
         require(isinstance(value, list) and len(value) > 0, f"{path}: {key} must be non-empty list", errors)
     sizes = data.get("critical_unixcall_struct_sizes")
     require(isinstance(sizes, dict) and len(sizes) > 0, f"{path}: critical_unixcall_struct_sizes must be non-empty object", errors)
     if isinstance(sizes, dict):
         for struct_name, size in sizes.items():
-            require(struct_name.startswith("unixcall_"), f"{path}: invalid unixcall struct name `{struct_name}`", errors)
+            require(
+                struct_name.startswith("unixcall_") or struct_name == "WMTRenderPassInfo",
+                f"{path}: invalid unixcall struct name `{struct_name}`",
+                errors,
+            )
             require(isinstance(size, int) and size > 0 and size % 8 == 0, f"{path}: invalid size for `{struct_name}`: {size}", errors)
     deferred = data.get("deferred_until_claimed")
     require(isinstance(deferred, list), f"{path}: deferred_until_claimed must be list", errors)
@@ -184,6 +243,46 @@ def validate_winemetal_bridge(path: Path, data: dict[str, Any], errors: list[str
             if isinstance(entry, dict):
                 require(bool(entry.get("surface")), f"{path}: deferred_until_claimed[{i}] missing surface", errors)
                 require(bool(entry.get("reason")), f"{path}: deferred_until_claimed[{i}] missing reason", errors)
+
+
+def validate_sdk_compatibility_matrix(path: Path, data: dict[str, Any], errors: list[str]) -> None:
+    validate_evidence(path, data, errors)
+    stable = data.get("stable_baseline")
+    require(isinstance(stable, dict), f"{path}: stable_baseline must be an object", errors)
+    if isinstance(stable, dict):
+        require(stable.get("package_version") == "1.619.5", f"{path}: stable baseline must be 1.619.5", errors)
+        require(stable.get("d3d12_sdk_version") == 619, f"{path}: stable baseline SDK version must be 619", errors)
+        require(stable.get("promotion_authority") is True, f"{path}: stable baseline must be authoritative", errors)
+        require(bool(stable.get("contract")), f"{path}: stable baseline contract is required", errors)
+
+    preview = data.get("preview_lane")
+    require(isinstance(preview, dict), f"{path}: preview_lane must be an object", errors)
+    if isinstance(preview, dict):
+        require(preview.get("package_version") == "1.721.3-preview", f"{path}: preview lane must be 1.721.3-preview", errors)
+        require(preview.get("d3d12_sdk_version") == 721, f"{path}: preview lane SDK version must be 721", errors)
+        require(preview.get("promotion_authority") is False, f"{path}: preview lane cannot be authoritative", errors)
+        require(preview.get("opt_in_only") is True, f"{path}: preview lane must be opt-in only", errors)
+
+    families = data.get("families")
+    require(isinstance(families, list) and len(families) > 0, f"{path}: families must be a non-empty list", errors)
+    if isinstance(families, list):
+        ids: set[str] = set()
+        for index, family in enumerate(families):
+            prefix = f"{path}: families[{index}]"
+            require(isinstance(family, dict), f"{prefix} must be an object", errors)
+            if not isinstance(family, dict):
+                continue
+            family_id = family.get("id")
+            require(isinstance(family_id, str) and bool(family_id), f"{prefix}.id is required", errors)
+            if isinstance(family_id, str) and family_id:
+                require(family_id not in ids, f"{prefix} duplicates id `{family_id}`", errors)
+                ids.add(family_id)
+            require(isinstance(family.get("sdk_version_values"), list), f"{prefix}.sdk_version_values must be a list", errors)
+            require(isinstance(family.get("representative_packages"), list), f"{prefix}.representative_packages must be a list", errors)
+            require(isinstance(family.get("required"), bool), f"{prefix}.required must be boolean", errors)
+
+        require("inbox-no-agility" in ids, f"{path}: missing inbox-no-agility family", errors)
+        require("agility-619" in ids, f"{path}: missing agility-619 family", errors)
 
 
 def validate_contracts(root: Path) -> list[str]:
@@ -203,8 +302,14 @@ def validate_contracts(root: Path) -> list[str]:
         if not isinstance(data, dict):
             continue
         require(bool(data.get("schema")), f"{path}: missing schema", errors)
-        if name in {"d3d12-metal-contract.json", "agility-1.619.3-contract.json"}:
+        if name in {
+            "d3d12-metal-contract.json",
+            "agility-1.619.3-contract.json",
+            "agility-1.619.5-contract.json",
+        }:
             validate_reference_contract(path, data, errors)
+        elif name == "d3d12-sdk-compatibility-matrix.json":
+            validate_sdk_compatibility_matrix(path, data, errors)
         elif name in {"unsupported-api-ledger.json", "risky-stub-ledger.json"}:
             validate_ledgers(path, data, errors)
             if name == "unsupported-api-ledger.json":
@@ -215,6 +320,8 @@ def validate_contracts(root: Path) -> list[str]:
             validate_waivers(path, data, errors)
         elif name == "feature-support-contract.json":
             validate_feature_support(path, data, waiver_ids, errors)
+        elif name == "fl12-2-gate-contract.json":
+            validate_fl12_2_gate(path, data, errors)
         elif name == "winemetal-bridge-contract.json":
             validate_winemetal_bridge(path, data, errors)
         else:

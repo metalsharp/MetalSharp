@@ -12,6 +12,8 @@
 #include "Metal.hpp"
 
 #include <algorithm>
+#include <mutex>
+#include <unordered_map>
 
 #define DATRACE(fmt, ...) DXMTDXGITrace("DXGIAdapter", fmt, ##__VA_ARGS__)
 
@@ -49,6 +51,14 @@ public:
   };
 
   ~MTLDXGIAdapter() {
+    {
+      std::lock_guard lock(budget_event_mutex_);
+      for (const auto &[cookie, event] : budget_events_) {
+        (void)cookie;
+        CloseHandle(event);
+      }
+      budget_events_.clear();
+    }
     if (local_kmt_) {
       D3DKMT_CLOSEADAPTER close = {};
       close.hAdapter = local_kmt_;
@@ -273,12 +283,18 @@ public:
   HRESULT STDMETHODCALLTYPE
   RegisterHardwareContentProtectionTeardownStatusEvent(HANDLE event,
                                                        DWORD *cookie) override {
-    assert(0 && "TODO");
+    if (cookie)
+      *cookie = 0;
+    if (!event || !cookie)
+      return E_INVALIDARG;
+    DATRACE("RegisterHardwareContentProtectionTeardownStatusEvent -> unsupported");
+    return DXGI_ERROR_UNSUPPORTED;
   }
 
   void STDMETHODCALLTYPE
   UnregisterHardwareContentProtectionTeardownStatus(DWORD cookie) override {
-    assert(0 && "TODO");
+    DATRACE("UnregisterHardwareContentProtectionTeardownStatus cookie=%u",
+            cookie);
   }
 
   HRESULT STDMETHODCALLTYPE QueryVideoMemoryInfo(
@@ -301,6 +317,17 @@ public:
     uint64_t budget = device_.hasUnifiedMemory()
                           ? umaBudgetFromWorkingSet(working_set)
                           : working_set;
+    {
+      std::lock_guard lock(budget_event_mutex_);
+      const uint32_t group = uint32_t(MemorySegmentGroup);
+      if (last_budget_[group] && last_budget_[group] != budget) {
+        for (const auto &[cookie, event] : budget_events_) {
+          (void)cookie;
+          SetEvent(event);
+        }
+      }
+      last_budget_[group] = budget;
+    }
     uint64_t usage = MemorySegmentGroup == DXGI_MEMORY_SEGMENT_GROUP_LOCAL
                          ? device_.currentAllocatedSize()
                          : 0;
@@ -351,12 +378,35 @@ public:
 
   HRESULT STDMETHODCALLTYPE RegisterVideoMemoryBudgetChangeNotificationEvent(
       HANDLE event, DWORD *cookie) override {
-    assert(0 && "TODO");
+    if (cookie)
+      *cookie = 0;
+    if (!event || !cookie)
+      return E_INVALIDARG;
+    HANDLE duplicate = nullptr;
+    if (!DuplicateHandle(GetCurrentProcess(), event, GetCurrentProcess(),
+                         &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+      return HRESULT_FROM_WIN32(GetLastError());
+    std::lock_guard lock(budget_event_mutex_);
+    DWORD value = next_budget_event_cookie_++;
+    while (!value || budget_events_.contains(value))
+      value = next_budget_event_cookie_++;
+    budget_events_.emplace(value, duplicate);
+    *cookie = value;
+    DATRACE("RegisterVideoMemoryBudgetChangeNotificationEvent event=%p cookie=%u",
+            event, value);
+    return S_OK;
   }
 
   void STDMETHODCALLTYPE
   UnregisterVideoMemoryBudgetChangeNotification(DWORD cookie) override {
-    assert(0 && "TODO");
+    std::lock_guard lock(budget_event_mutex_);
+    auto entry = budget_events_.find(cookie);
+    if (entry == budget_events_.end())
+      return;
+    CloseHandle(entry->second);
+    budget_events_.erase(entry);
+    DATRACE("UnregisterVideoMemoryBudgetChangeNotification cookie=%u",
+            cookie);
   }
 
   WMT::Device STDMETHODCALLTYPE GetMTLDevice() final { return device_; }
@@ -368,6 +418,10 @@ private:
   Com<IDXGIFactory> factory_;
   DxgiOptions options_;
   uint64_t mem_reserved_[2] = {0, 0};
+  uint64_t last_budget_[2] = {0, 0};
+  std::mutex budget_event_mutex_;
+  std::unordered_map<DWORD, HANDLE> budget_events_;
+  DWORD next_budget_event_cookie_ = 1;
 };
 
 Com<IMTLDXGIAdapter> CreateAdapter(WMT::Device Device,

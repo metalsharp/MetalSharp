@@ -16,27 +16,21 @@
 #define PLTRACE(fmt, ...) TRACE(fmt, ##__VA_ARGS__)
 #include "d3d12_root_signature.hpp"
 #include "com/com_object.hpp"
+#include "config/config.hpp"
 #include "log/log.hpp"
 #include "thread.hpp"
 #include "util_string.hpp"
 #include "d3d12_resource.hpp"
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <utility>
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
 #include <windows.h>
-
-static bool dxmt_d3d12_env_enabled(const char *name) {
-  char value[16] = {};
-  DWORD len = GetEnvironmentVariableA(name, value, sizeof(value));
-  if (!len)
-    return false;
-  return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' ||
-         value[0] == 't' || value[0] == 'T';
-}
 
 static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep) {
   if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION ||
@@ -115,6 +109,39 @@ void install_crash_handler() { AddVectoredExceptionHandler(1, crash_handler); }
 
 namespace dxmt {
 
+D3D_FEATURE_LEVEL D3D12ConfiguredMaximumFeatureLevel() {
+  static const D3D_FEATURE_LEVEL maximum = [] {
+    const auto configured = Config::getInstance().getOption<std::string>(
+        "d3d12.maxFeatureLevel", "");
+    if (configured.empty())
+      return kD3D12BuildMaximumFeatureLevel;
+
+    static const std::pair<const char *, D3D_FEATURE_LEVEL> levels[] = {
+        {"11_0", D3D_FEATURE_LEVEL_11_0},
+        {"11_1", D3D_FEATURE_LEVEL_11_1},
+        {"12_0", D3D_FEATURE_LEVEL_12_0},
+        {"12_1", D3D_FEATURE_LEVEL_12_1},
+        {"12_2", D3D_FEATURE_LEVEL_12_2},
+    };
+    D3D_FEATURE_LEVEL requested = kD3D12BuildMaximumFeatureLevel;
+    bool valid = false;
+    for (const auto &[name, level] : levels) {
+      if (configured == name) {
+        requested = level;
+        valid = true;
+        break;
+      }
+    }
+    if (!valid) {
+      Logger::warn(str::format("D3D12 invalid maxFeatureLevel=", configured,
+                               "; using build maximum"));
+      return kD3D12BuildMaximumFeatureLevel;
+    }
+    return std::min(requested, kD3D12BuildMaximumFeatureLevel);
+  }();
+  return maximum;
+}
+
 static const GUID IID_ID3D12Device11_ = {
     0x5405c344,
     0xd457,
@@ -147,6 +174,37 @@ static const GUID IID_ID3D12StateObjectProperties2_ = {
     {0xae, 0x5e, 0xce, 0x22, 0x2d, 0xd0, 0xb8, 0x84}};
 
 namespace {
+
+struct D3D12SharedHandleEntry {
+  IUnknown *object = nullptr;
+  HANDLE retained_handle = nullptr;
+};
+
+std::mutex g_shared_handle_mutex;
+std::unordered_map<HANDLE, D3D12SharedHandleEntry> g_shared_handles;
+std::unordered_map<std::wstring, HANDLE> g_named_shared_handles;
+
+void ReleaseSharedHandleEntry(D3D12SharedHandleEntry &entry) {
+  if (entry.object)
+    entry.object->Release();
+  if (entry.retained_handle)
+    CloseHandle(entry.retained_handle);
+  entry = {};
+}
+
+struct D3D12SharedHandleRegistryCleanup {
+  ~D3D12SharedHandleRegistryCleanup() {
+    std::lock_guard lock(g_shared_handle_mutex);
+    for (auto &[handle, entry] : g_shared_handles) {
+      (void)handle;
+      ReleaseSharedHandleEntry(entry);
+    }
+    g_shared_handles.clear();
+    g_named_shared_handles.clear();
+  }
+};
+
+D3D12SharedHandleRegistryCleanup g_shared_handle_registry_cleanup;
 
 static UINT64 AlignTo(UINT64 value, UINT64 alignment) {
   return alignment ? ((value + alignment - 1) & ~(alignment - 1)) : value;
@@ -361,6 +419,14 @@ TextureTypeForSrvView(const D3D12_SHADER_RESOURCE_VIEW_DESC &desc,
   }
 }
 
+static bool IsWritableMSAAResourceDesc(const D3D12_RESOURCE_DESC &desc) {
+  return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+         desc.SampleDesc.Count > 1 &&
+         (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+         !(desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
+                         D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+}
+
 static WMTTextureType
 TextureTypeForUavView(const D3D12_UNORDERED_ACCESS_VIEW_DESC &desc,
                       const D3D12_RESOURCE_DESC &resource_desc) {
@@ -370,7 +436,9 @@ TextureTypeForUavView(const D3D12_UNORDERED_ACCESS_VIEW_DESC &desc,
   case D3D12_UAV_DIMENSION_TEXTURE1DARRAY:
     return WMTTextureType1DArray;
   case D3D12_UAV_DIMENSION_TEXTURE2D:
-    return WMTTextureType2D;
+    return IsWritableMSAAResourceDesc(resource_desc)
+               ? WMTTextureType2DArray
+               : WMTTextureType2D;
   case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
     return WMTTextureType2DArray;
   case D3D12_UAV_DIMENSION_TEXTURE3D:
@@ -482,12 +550,21 @@ static void UavViewRange(const D3D12_UNORDERED_ACCESS_VIEW_DESC &desc,
     break;
   case D3D12_UAV_DIMENSION_TEXTURE2D:
     mip_start = desc.Texture2D.MipSlice;
-    slice_count = 1;
+    slice_count = IsWritableMSAAResourceDesc(resource_desc)
+                      ? std::max<UINT>(resource_desc.SampleDesc.Count, 1) *
+                            std::max<UINT>(resource_desc.DepthOrArraySize, 1)
+                      : 1;
     break;
   case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
     mip_start = desc.Texture2DArray.MipSlice;
-    slice_start = desc.Texture2DArray.FirstArraySlice;
-    slice_count = desc.Texture2DArray.ArraySize;
+    if (IsWritableMSAAResourceDesc(resource_desc)) {
+      const UINT samples = std::max<UINT>(resource_desc.SampleDesc.Count, 1);
+      slice_start = static_cast<uint16_t>(desc.Texture2DArray.FirstArraySlice * samples);
+      slice_count = static_cast<uint16_t>(desc.Texture2DArray.ArraySize * samples);
+    } else {
+      slice_start = desc.Texture2DArray.FirstArraySlice;
+      slice_count = desc.Texture2DArray.ArraySize;
+    }
     break;
   case D3D12_UAV_DIMENSION_TEXTURE3D:
     mip_start = desc.Texture3D.MipSlice;
@@ -512,6 +589,12 @@ static void CreateDescriptorTextureView(D3D12Descriptor *descriptor,
   resource->GetDesc(&resource_desc);
   if (format == DXGI_FORMAT_UNKNOWN)
     format = resource_desc.Format;
+  if (!resource->IsViewFormatAllowed(format)) {
+    TRACE("CreateDescriptorTextureView rejected undeclared cast res=%p "
+          "resource_fmt=%u view_fmt=%u",
+          (void *)resource, (unsigned)resource_desc.Format, (unsigned)format);
+    return;
+  }
   WMTPixelFormat metal_format =
       MTLD3D12PipelineState::DXGIToMTLPixelFormat(format);
   if (metal_format == WMTPixelFormatInvalid)
@@ -556,6 +639,149 @@ static void CreateDescriptorTextureView(D3D12Descriptor *descriptor,
         (unsigned long long)descriptor->metal_texture_view.handle,
         (unsigned long long)gpu_id, (unsigned)format, (unsigned)type, mip_start,
         mip_count, slice_start, slice_count);
+}
+
+static uint32_t DescriptorFormatByteSize(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_R32G32B32A32_FLOAT:
+  case DXGI_FORMAT_R32G32B32A32_UINT:
+  case DXGI_FORMAT_R32G32B32A32_SINT:
+    return 16;
+  case DXGI_FORMAT_R32G32B32_FLOAT:
+  case DXGI_FORMAT_R32G32B32_UINT:
+  case DXGI_FORMAT_R32G32B32_SINT:
+    return 12;
+  case DXGI_FORMAT_R16G16B16A16_FLOAT:
+  case DXGI_FORMAT_R16G16B16A16_UNORM:
+  case DXGI_FORMAT_R16G16B16A16_UINT:
+  case DXGI_FORMAT_R16G16B16A16_SNORM:
+  case DXGI_FORMAT_R16G16B16A16_SINT:
+  case DXGI_FORMAT_R32G32_FLOAT:
+  case DXGI_FORMAT_R32G32_UINT:
+  case DXGI_FORMAT_R32G32_SINT:
+    return 8;
+  case DXGI_FORMAT_R8G8B8A8_UNORM:
+  case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+  case DXGI_FORMAT_R8G8B8A8_UINT:
+  case DXGI_FORMAT_R8G8B8A8_SNORM:
+  case DXGI_FORMAT_R8G8B8A8_SINT:
+  case DXGI_FORMAT_B8G8R8A8_UNORM:
+  case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+  case DXGI_FORMAT_R16G16_FLOAT:
+  case DXGI_FORMAT_R16G16_UNORM:
+  case DXGI_FORMAT_R16G16_UINT:
+  case DXGI_FORMAT_R16G16_SNORM:
+  case DXGI_FORMAT_R16G16_SINT:
+  case DXGI_FORMAT_R32_FLOAT:
+  case DXGI_FORMAT_R32_UINT:
+  case DXGI_FORMAT_R32_SINT:
+    return 4;
+  case DXGI_FORMAT_R16_FLOAT:
+  case DXGI_FORMAT_R16_UNORM:
+  case DXGI_FORMAT_R16_UINT:
+  case DXGI_FORMAT_R16_SNORM:
+  case DXGI_FORMAT_R16_SINT:
+  case DXGI_FORMAT_R8G8_UNORM:
+  case DXGI_FORMAT_R8G8_UINT:
+  case DXGI_FORMAT_R8G8_SNORM:
+  case DXGI_FORMAT_R8G8_SINT:
+    return 2;
+  case DXGI_FORMAT_R8_UNORM:
+  case DXGI_FORMAT_R8_UINT:
+  case DXGI_FORMAT_R8_SNORM:
+  case DXGI_FORMAT_R8_SINT:
+    return 1;
+  default:
+    return 4;
+  }
+}
+
+static uint64_t DescriptorSamplerLodBiasBits(const D3D12Descriptor *descriptor) {
+  uint32_t bits = 0;
+  if (!descriptor)
+    return 0;
+  static_assert(sizeof(bits) == sizeof(descriptor->sampler.MipLODBias));
+  memcpy(&bits, &descriptor->sampler.MipLODBias, sizeof(bits));
+  return bits;
+}
+
+static uint64_t DescriptorBufferStride(DXGI_FORMAT format,
+                                       UINT structure_byte_stride) {
+  return structure_byte_stride ? structure_byte_stride
+                               : DescriptorFormatByteSize(format);
+}
+
+static void UpdateDescriptorTableMirror(MTLD3D12Device *device,
+                                        D3D12Descriptor *descriptor) {
+  if (!device || !descriptor || !descriptor->owner)
+    return;
+
+  D3D12DescriptorTableEntry entry = {};
+  if (descriptor->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER ||
+      descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
+    entry.gpu_va = descriptor->metal_sampler_gpu_id;
+    entry.metadata = DescriptorSamplerLodBiasBits(descriptor);
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  if (descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV) {
+    entry.gpu_va = descriptor->cbv.BufferLocation;
+    entry.metadata = descriptor->cbv.SizeInBytes;
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  auto *resource = descriptor->resource
+                       ? static_cast<MTLD3D12Resource *>(descriptor->resource)
+                       : nullptr;
+  if (!resource) {
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  const bool is_srv =
+      descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+  const bool is_uav =
+      descriptor->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+  if (!is_srv && !is_uav) {
+    descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
+    return;
+  }
+
+  if ((is_srv && descriptor->srv.ViewDimension ==
+                         D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)) {
+    entry.gpu_va = resource->GetRaytracingHeaderGPUAddress();
+    if (!entry.gpu_va)
+      entry.gpu_va = resource->GetGPUVirtualAddress();
+  } else if (resource->IsBuffer()) {
+    const DXGI_FORMAT format = is_srv ? descriptor->srv.Format
+                                      : descriptor->uav.Format;
+    const UINT structure_byte_stride =
+        is_srv ? descriptor->srv.Buffer.StructureByteStride
+               : descriptor->uav.Buffer.StructureByteStride;
+    const uint64_t stride = DescriptorBufferStride(format, structure_byte_stride);
+    const uint64_t first_element =
+        is_srv ? descriptor->srv.Buffer.FirstElement
+               : descriptor->uav.Buffer.FirstElement;
+    const uint64_t num_elements =
+        is_srv ? descriptor->srv.Buffer.NumElements
+               : descriptor->uav.Buffer.NumElements;
+    entry.gpu_va = resource->GetGPUVirtualAddress() + first_element * stride;
+    entry.metadata = (num_elements * stride) & UINT64_C(0xffffffff);
+    const bool raw_buffer =
+        is_srv ? (descriptor->srv.Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0
+               : (descriptor->uav.Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0;
+    if (!structure_byte_stride && format != DXGI_FORMAT_UNKNOWN &&
+        !raw_buffer)
+      entry.metadata |= UINT64_C(1) << 63;
+    entry.texture_view_id = descriptor->metal_texture_gpu_id;
+  } else {
+    entry.texture_view_id = descriptor->metal_texture_gpu_id
+                                ? descriptor->metal_texture_gpu_id
+                                : resource->GetTextureGPUResourceID();
+  }
+  descriptor->owner->UpdateShaderVisibleDescriptor(descriptor, entry);
 }
 
 } // namespace
@@ -1083,18 +1309,21 @@ public:
     }
     return E_NOINTERFACE;
   }
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
   }
@@ -1102,6 +1331,7 @@ public:
 
 private:
   MTLD3D12Device *m_device;
+  ComPrivateData m_private_data;
   D3D12_COMMAND_SIGNATURE_DESC m_desc;
   std::vector<D3D12_INDIRECT_ARGUMENT_DESC> m_argument_descs;
 };
@@ -1155,18 +1385,21 @@ public:
     return E_NOINTERFACE;
   }
 
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
 
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
@@ -1263,6 +1496,7 @@ private:
   }
 
   MTLD3D12Device *m_device;
+  ComPrivateData m_private_data;
   std::unordered_map<std::wstring, ID3D12PipelineState *> m_entries;
 };
 
@@ -1277,24 +1511,697 @@ public:
     if (base) {
       base->AddRef();
       m_base = base;
+      auto *source = static_cast<MTLD3D12StateObject *>(base);
+      m_type = source->m_type;
+      m_subobject_types = source->m_subobject_types;
+      m_exports = source->m_exports;
+      m_export_imports = source->m_export_imports;
+      m_shader_identifiers = source->m_shader_identifiers;
+      m_shader_stack_sizes = source->m_shader_stack_sizes;
+      m_pipeline_stack_size = source->m_pipeline_stack_size;
+      m_max_trace_recursion_depth = source->m_max_trace_recursion_depth;
+      m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
+      m_raygen_visible_function_table =
+          source->m_raygen_visible_function_table;
+      m_intersection_function_table = source->m_intersection_function_table;
+      for (const auto &entry : source->m_local_root_signatures) {
+        if (entry.second)
+          entry.second->AddRef();
+        m_local_root_signatures.emplace(entry.first, entry.second);
+      }
+      m_global_root_signature = source->m_global_root_signature;
+      if (m_global_root_signature)
+        m_global_root_signature->AddRef();
     }
-    if (desc) {
+    if (desc && !base) {
       m_type = desc->Type;
       m_subobject_types.reserve(desc->NumSubobjects);
       for (UINT i = 0; i < desc->NumSubobjects; i++) {
         m_subobject_types.push_back(desc->pSubobjects[i].Type);
       }
     }
-    for (size_t i = 0; i < sizeof(m_shader_identifier); i++)
-      m_shader_identifier[i] = static_cast<uint8_t>(0xA5u ^ (i * 17u));
     TRACE("StateObject create type=%u subobjects=%zu base=%p", (unsigned)m_type,
           m_subobject_types.size(), base);
   }
 
   virtual ~MTLD3D12StateObject() {
+    if (m_global_root_signature)
+      m_global_root_signature->Release();
+    for (const auto &entry : m_local_root_signatures) {
+      if (entry.second)
+        entry.second->Release();
+    }
+    for (auto *collection : m_existing_collections) {
+      if (collection)
+        collection->Release();
+    }
     if (m_base)
       m_base->Release();
     m_device->Release();
+  }
+
+  bool Initialize(const D3D12_STATE_OBJECT_DESC *desc) {
+    if (!desc ||
+        (desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE &&
+         desc->Type != D3D12_STATE_OBJECT_TYPE_COLLECTION))
+      return false;
+
+    D3D12_SHADER_BYTECODE raytracing_library = {};
+    bool collection_relink_required = false;
+    std::vector<const D3D12_EXISTING_COLLECTION_DESC *>
+        existing_collections;
+    std::unordered_map<const D3D12_STATE_SUBOBJECT *, ID3D12RootSignature *>
+        local_root_subobjects;
+    std::vector<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *>
+        local_root_associations;
+    for (UINT i = 0; i < desc->NumSubobjects; i++) {
+      const auto &subobject = desc->pSubobjects[i];
+      if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY &&
+          subobject.pDesc) {
+        const auto *library =
+            static_cast<const D3D12_DXIL_LIBRARY_DESC *>(subobject.pDesc);
+        if (!library->DXILLibrary.pShaderBytecode ||
+            !library->DXILLibrary.BytecodeLength)
+          return false;
+        raytracing_library = library->DXILLibrary;
+        for (UINT e = 0; e < library->NumExports; e++) {
+          if (library->pExports[e].Name) {
+            m_exports.emplace_back(library->pExports[e].Name);
+            m_export_imports[library->pExports[e].Name] =
+                library->pExports[e].ExportToRename
+                    ? library->pExports[e].ExportToRename
+                    : library->pExports[e].Name;
+          }
+        }
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE &&
+                 subobject.pDesc) {
+        const auto *root = static_cast<const D3D12_GLOBAL_ROOT_SIGNATURE *>(
+            subobject.pDesc);
+        if (root->pGlobalRootSignature) {
+          if (m_global_root_signature)
+            m_global_root_signature->Release();
+          m_global_root_signature = root->pGlobalRootSignature;
+          m_global_root_signature->AddRef();
+        }
+      } else if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
+                 subobject.pDesc) {
+        const auto *hit_group =
+            static_cast<const D3D12_HIT_GROUP_DESC *>(subobject.pDesc);
+        if (hit_group->HitGroupExport) {
+          m_exports.emplace_back(hit_group->HitGroupExport);
+          collection_relink_required = true;
+        }
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_EXISTING_COLLECTION &&
+                 subobject.pDesc) {
+        const auto *collection =
+            static_cast<const D3D12_EXISTING_COLLECTION_DESC *>(
+                subobject.pDesc);
+        if (!collection->pExistingCollection ||
+            (collection->NumExports && !collection->pExports))
+          return false;
+        existing_collections.push_back(collection);
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE &&
+                 subobject.pDesc) {
+        const auto *local_root =
+            static_cast<const D3D12_LOCAL_ROOT_SIGNATURE *>(subobject.pDesc);
+        if (!local_root->pLocalRootSignature)
+          return false;
+        local_root_subobjects.emplace(&subobject,
+                                      local_root->pLocalRootSignature);
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION &&
+                 subobject.pDesc) {
+        local_root_associations.push_back(
+            static_cast<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION *>(
+                subobject.pDesc));
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG &&
+                 subobject.pDesc) {
+        const auto *config =
+            static_cast<const D3D12_RAYTRACING_PIPELINE_CONFIG *>(
+                subobject.pDesc);
+        m_max_trace_recursion_depth = config->MaxTraceRecursionDepth;
+      }
+    }
+    for (const auto *association : local_root_associations) {
+      if (!association || !association->pSubobjectToAssociate ||
+          !association->NumExports || !association->pExports)
+        return false;
+      auto local_root =
+          local_root_subobjects.find(association->pSubobjectToAssociate);
+      // SUBOBJECT_TO_EXPORTS_ASSOCIATION is also used for shader and pipeline
+      // configuration. Only associations whose target is a local-root
+      // subobject contribute local-root record metadata here.
+      if (local_root == local_root_subobjects.end())
+        continue;
+      for (UINT e = 0; e < association->NumExports; e++) {
+        const WCHAR *export_name = association->pExports[e];
+        if (!export_name || m_local_root_signatures.count(export_name))
+          return false;
+        local_root->second->AddRef();
+        m_local_root_signatures.emplace(export_name, local_root->second);
+      }
+    }
+    if (!existing_collections.empty() &&
+        !raytracing_library.pShaderBytecode) {
+      if (collection_relink_required)
+        return false;
+      auto import_export = [this](MTLD3D12StateObject *source,
+                                  const wchar_t *name,
+                                  const wchar_t *source_name) {
+        if (!name || !source_name || m_shader_identifiers.count(name))
+          return false;
+        auto identifier = source->m_shader_identifiers.find(source_name);
+        if (identifier == source->m_shader_identifiers.end())
+          return false;
+        std::array<uint8_t, 32> imported_identifier = identifier->second;
+        if (wcscmp(name, source_name) != 0) {
+          uint64_t export_hash = 1469598103934665603ull;
+          for (const WCHAR *p = name; *p; p++) {
+            export_hash ^= static_cast<uint16_t>(*p);
+            export_hash *= 1099511628211ull;
+          }
+          memcpy(imported_identifier.data() + 24, &export_hash,
+                 sizeof(export_hash));
+        }
+        std::wstring canonical_name(source_name);
+        auto canonical = source->m_export_imports.find(source_name);
+        if (canonical != source->m_export_imports.end())
+          canonical_name = canonical->second;
+        auto local_root = source->m_local_root_signatures.find(source_name);
+        if (local_root != source->m_local_root_signatures.end() &&
+            local_root->second) {
+          local_root->second->AddRef();
+          m_local_root_signatures[name] = local_root->second;
+        }
+        m_exports.emplace_back(name);
+        m_export_imports[name] = canonical_name;
+        m_shader_identifiers[name] = imported_identifier;
+        return true;
+      };
+
+      for (const auto *collection : existing_collections) {
+        auto *source = static_cast<MTLD3D12StateObject *>(
+            collection->pExistingCollection);
+        if (!source->m_raygen_compute_pipeline.handle ||
+            !source->m_raygen_visible_function_table.handle)
+          return false;
+        if (!m_raygen_compute_pipeline.handle) {
+          m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
+          m_raygen_visible_function_table =
+              source->m_raygen_visible_function_table;
+          m_intersection_function_table =
+              source->m_intersection_function_table;
+        } else if (m_raygen_compute_pipeline.handle !=
+                       source->m_raygen_compute_pipeline.handle ||
+                   m_raygen_visible_function_table.handle !=
+                       source->m_raygen_visible_function_table.handle ||
+                   m_intersection_function_table.handle !=
+                       source->m_intersection_function_table.handle) {
+          // Merging independently linked Metal function tables requires a
+          // relink. Collections derived from the same executable table can be
+          // merged without changing any shader identifiers or function slots.
+          return false;
+        }
+        if (m_global_root_signature && source->m_global_root_signature &&
+            m_global_root_signature != source->m_global_root_signature)
+          return false;
+        if (!m_global_root_signature && source->m_global_root_signature) {
+          m_global_root_signature = source->m_global_root_signature;
+          m_global_root_signature->AddRef();
+        }
+
+        if (collection->NumExports) {
+          for (UINT e = 0; e < collection->NumExports; e++) {
+            const auto &export_desc = collection->pExports[e];
+            if (export_desc.Flags != D3D12_EXPORT_FLAG_NONE ||
+                !import_export(source, export_desc.Name,
+                               export_desc.ExportToRename
+                                   ? export_desc.ExportToRename
+                                   : export_desc.Name))
+              return false;
+          }
+        } else {
+          for (const auto &export_name : source->m_exports) {
+            if (!import_export(source, export_name.c_str(),
+                               export_name.c_str()))
+              return false;
+          }
+        }
+        m_pipeline_stack_size =
+            std::max(m_pipeline_stack_size, source->m_pipeline_stack_size);
+        collection->pExistingCollection->AddRef();
+        m_existing_collections.push_back(collection->pExistingCollection);
+      }
+      TRACE("StateObject merged collections=%zu exports=%zu pso=%llu",
+            existing_collections.size(), m_exports.size(),
+            (unsigned long long)m_raygen_compute_pipeline.handle);
+      RebuildShaderStackSizes();
+      return !m_exports.empty();
+    }
+    if (!existing_collections.empty())
+      return false;
+    if (!raytracing_library.pShaderBytecode ||
+        !raytracing_library.BytecodeLength)
+      return false;
+    if (m_exports.empty())
+      m_exports.emplace_back(L"raygen");
+    const bool has_miss_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"miss_shader") !=
+        m_exports.end();
+    const bool has_closest_hit_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"closest_hit") !=
+            m_exports.end() &&
+        std::find(m_exports.begin(), m_exports.end(), L"hit_group") !=
+            m_exports.end();
+    const bool has_callable_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"callable_shader") !=
+        m_exports.end();
+    const bool has_any_hit_shader =
+        std::find(m_exports.begin(), m_exports.end(), L"any_hit") !=
+            m_exports.end() &&
+        has_closest_hit_shader;
+    const bool has_procedural_hit_group =
+        std::find(m_exports.begin(), m_exports.end(),
+                  L"procedural_intersection") != m_exports.end() &&
+        std::find(m_exports.begin(), m_exports.end(),
+                  L"procedural_closest_hit") != m_exports.end() &&
+        std::find(m_exports.begin(), m_exports.end(),
+                  L"procedural_hit_group") != m_exports.end();
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
+    compute_desc.pRootSignature = m_global_root_signature;
+    compute_desc.CS = raytracing_library;
+    auto *pipeline = new MTLD3D12PipelineState(m_device, true);
+    pipeline->SetComputeDesc(compute_desc);
+    std::string cache_hash = pipeline->GetCSCacheHash();
+    const char *cache_env = std::getenv("DXMT_SHADER_CACHE_PATH");
+    std::string cache_dir =
+        cache_env && cache_env[0] ? cache_env : "/tmp/dxmt_shader_cache";
+    while (cache_dir.size() > 1 &&
+           (cache_dir.back() == '/' || cache_dir.back() == '\\'))
+      cache_dir.pop_back();
+    std::string raygen_path = cache_dir + "/" + cache_hash + ".metallib";
+    std::string dispatch_path =
+        cache_dir + "/" + cache_hash + ".raydispatch.metallib";
+    std::string miss_path = cache_dir + "/" + cache_hash + ".miss.metallib";
+    std::string closest_hit_path =
+        cache_dir + "/" + cache_hash + ".closesthit.metallib";
+    std::string callable_path =
+        cache_dir + "/" + cache_hash + ".callable.metallib";
+    std::string any_hit_path =
+        cache_dir + "/" + cache_hash + ".anyhit.metallib";
+    std::string intersection_path =
+        cache_dir + "/" + cache_hash + ".rayintersection.metallib";
+    std::string procedural_intersection_path =
+        cache_dir + "/" + cache_hash + ".proceduralintersection.metallib";
+    std::string procedural_closest_hit_path =
+        cache_dir + "/" + cache_hash + ".proceduralclosesthit.metallib";
+    std::string procedural_wrapper_path =
+        cache_dir + "/" + cache_hash + ".proceduralwrapper.metallib";
+
+    auto read_file = [](const std::string &path, std::vector<uint8_t> &data) {
+      FILE *file = fopen(path.c_str(), "rb");
+      if (!file)
+        return false;
+      fseek(file, 0, SEEK_END);
+      long size = ftell(file);
+      fseek(file, 0, SEEK_SET);
+      if (size <= 0) {
+        fclose(file);
+        return false;
+      }
+      data.resize(static_cast<size_t>(size));
+      bool ok = fread(data.data(), 1, data.size(), file) == data.size();
+      fclose(file);
+      return ok;
+    };
+    std::vector<uint8_t> raygen_data;
+    std::vector<uint8_t> dispatch_data;
+    std::vector<uint8_t> miss_data;
+    std::vector<uint8_t> closest_hit_data;
+    std::vector<uint8_t> callable_data;
+    std::vector<uint8_t> any_hit_data;
+    std::vector<uint8_t> intersection_data;
+    std::vector<uint8_t> procedural_intersection_data;
+    std::vector<uint8_t> procedural_closest_hit_data;
+    std::vector<uint8_t> procedural_wrapper_data;
+    if (!read_file(raygen_path, raygen_data) ||
+        !read_file(dispatch_path, dispatch_data) ||
+        (has_miss_shader && !read_file(miss_path, miss_data)) ||
+        (has_closest_hit_shader &&
+         !read_file(closest_hit_path, closest_hit_data)) ||
+        (has_callable_shader && !read_file(callable_path, callable_data)) ||
+        (has_any_hit_shader && !read_file(any_hit_path, any_hit_data)) ||
+        (has_any_hit_shader &&
+         !read_file(intersection_path, intersection_data)) ||
+        (has_procedural_hit_group &&
+         (!read_file(procedural_intersection_path,
+                     procedural_intersection_data) ||
+          !read_file(procedural_closest_hit_path,
+                     procedural_closest_hit_data) ||
+          !read_file(procedural_wrapper_path, procedural_wrapper_data)))) {
+      pipeline->RequestCompile(false);
+      TRACE("StateObject raygen cache miss visible=%s dispatch=%s miss=%s",
+            raygen_path.c_str(), dispatch_path.c_str(), miss_path.c_str());
+      pipeline->Release();
+      return false;
+    }
+    pipeline->Release();
+
+    auto metal_device = m_device->GetMTLDevice();
+    WMT::Reference<WMT::Error> error;
+    auto raygen_library_handle = metal_device.newLibrary(
+        raygen_data.data(), raygen_data.size(), error);
+    if (!raygen_library_handle.handle || error.handle)
+      return false;
+    error = nullptr;
+    auto dispatch_library_handle = metal_device.newLibrary(
+        dispatch_data.data(), dispatch_data.size(), error);
+    if (!dispatch_library_handle.handle || error.handle)
+      return false;
+    WMT::Reference<WMT::Library> miss_library_handle;
+    WMT::Reference<WMT::Function> miss_function;
+    if (has_miss_shader) {
+      error = nullptr;
+      miss_library_handle = metal_device.newLibrary(
+          miss_data.data(), miss_data.size(), error);
+      if (!miss_library_handle.handle || error.handle)
+        return false;
+      miss_function = miss_library_handle.newFunction("miss_shader");
+      if (!miss_function.handle)
+        return false;
+    }
+    WMT::Reference<WMT::Library> closest_hit_library_handle;
+    WMT::Reference<WMT::Function> closest_hit_function;
+    if (has_closest_hit_shader) {
+      error = nullptr;
+      closest_hit_library_handle = metal_device.newLibrary(
+          closest_hit_data.data(), closest_hit_data.size(), error);
+      if (!closest_hit_library_handle.handle || error.handle)
+        return false;
+      closest_hit_function =
+          closest_hit_library_handle.newFunction("closest_hit");
+      if (!closest_hit_function.handle)
+        return false;
+    }
+    WMT::Reference<WMT::Library> callable_library_handle;
+    WMT::Reference<WMT::Function> callable_function;
+    if (has_callable_shader) {
+      error = nullptr;
+      callable_library_handle = metal_device.newLibrary(
+          callable_data.data(), callable_data.size(), error);
+      if (!callable_library_handle.handle || error.handle)
+        return false;
+      callable_function =
+          callable_library_handle.newFunction("callable_shader");
+      if (!callable_function.handle)
+        return false;
+    }
+    WMT::Reference<WMT::Library> any_hit_library_handle;
+    WMT::Reference<WMT::Function> any_hit_function;
+    if (has_any_hit_shader) {
+      error = nullptr;
+      any_hit_library_handle = metal_device.newLibrary(
+          any_hit_data.data(), any_hit_data.size(), error);
+      if (!any_hit_library_handle.handle || error.handle)
+        return false;
+      any_hit_function = any_hit_library_handle.newFunction("any_hit");
+      if (!any_hit_function.handle)
+        return false;
+    }
+    WMT::Reference<WMT::Library> intersection_library_handle;
+    WMT::Reference<WMT::Function> intersection_function;
+    if (has_any_hit_shader) {
+      error = nullptr;
+      intersection_library_handle = metal_device.newLibrary(
+          intersection_data.data(), intersection_data.size(), error);
+      if (!intersection_library_handle.handle || error.handle)
+        return false;
+      intersection_function = intersection_library_handle.newFunction(
+          "irconverter.wrapper.intersection.function.triangle");
+      if (!intersection_function.handle)
+        return false;
+    }
+    WMT::Reference<WMT::Library> procedural_intersection_library_handle;
+    WMT::Reference<WMT::Library> procedural_closest_hit_library_handle;
+    WMT::Reference<WMT::Library> procedural_wrapper_library_handle;
+    WMT::Reference<WMT::Function> procedural_intersection_function;
+    WMT::Reference<WMT::Function> procedural_closest_hit_function;
+    WMT::Reference<WMT::Function> procedural_wrapper_function;
+    if (has_procedural_hit_group) {
+      error = nullptr;
+      procedural_intersection_library_handle = metal_device.newLibrary(
+          procedural_intersection_data.data(),
+          procedural_intersection_data.size(), error);
+      if (!procedural_intersection_library_handle.handle || error.handle)
+        return false;
+      procedural_intersection_function =
+          procedural_intersection_library_handle.newFunction(
+              "procedural_intersection");
+      error = nullptr;
+      procedural_closest_hit_library_handle = metal_device.newLibrary(
+          procedural_closest_hit_data.data(),
+          procedural_closest_hit_data.size(), error);
+      if (!procedural_closest_hit_library_handle.handle || error.handle)
+        return false;
+      procedural_closest_hit_function =
+          procedural_closest_hit_library_handle.newFunction(
+              "procedural_closest_hit");
+      error = nullptr;
+      procedural_wrapper_library_handle = metal_device.newLibrary(
+          procedural_wrapper_data.data(), procedural_wrapper_data.size(),
+          error);
+      if (!procedural_wrapper_library_handle.handle || error.handle)
+        return false;
+      procedural_wrapper_function =
+          procedural_wrapper_library_handle.newFunction(
+              "irconverter.wrapper.intersection.function.procedural");
+      if (!procedural_intersection_function.handle ||
+          !procedural_closest_hit_function.handle ||
+          !procedural_wrapper_function.handle)
+        return false;
+    }
+    auto raygen_function = raygen_library_handle.newFunction("raygen");
+    auto dispatch_function =
+        dispatch_library_handle.newFunction("RaygenIndirection");
+    if (!raygen_function.handle || !dispatch_function.handle)
+      return false;
+    WMTRaytracingComputePipelineInfo pipeline_info = {};
+    pipeline_info.dispatch_function = dispatch_function.handle;
+    pipeline_info.raygen_function = raygen_function.handle;
+    pipeline_info.miss_function = miss_function.handle;
+    pipeline_info.closest_hit_function = closest_hit_function.handle;
+    pipeline_info.callable_function = callable_function.handle;
+    pipeline_info.any_hit_function = any_hit_function.handle;
+    pipeline_info.intersection_function = intersection_function.handle;
+    pipeline_info.procedural_intersection_function =
+        procedural_intersection_function.handle;
+    pipeline_info.procedural_closest_hit_function =
+        procedural_closest_hit_function.handle;
+    pipeline_info.procedural_wrapper_function =
+        procedural_wrapper_function.handle;
+    error = nullptr;
+    m_raygen_compute_pipeline = metal_device.newRaytracingComputePipelineState(
+        pipeline_info, m_raygen_visible_function_table,
+        m_intersection_function_table, error);
+    if (!m_raygen_compute_pipeline.handle ||
+        !m_raygen_visible_function_table.handle || error.handle)
+      return false;
+
+    for (const auto &export_name : m_exports) {
+      std::array<uint8_t, 32> identifier = {};
+      auto import = m_export_imports.find(export_name);
+      const std::wstring &canonical_name =
+          import == m_export_imports.end() ? export_name : import->second;
+      const uint64_t visible_function_index =
+          canonical_name == L"raygen"       ? 1ull
+          : canonical_name == L"miss_shader" ? 2ull
+          : canonical_name == L"hit_group" ||
+                    canonical_name == L"closest_hit"
+              ? 3ull
+          : canonical_name == L"callable_shader" ? 4ull
+          : canonical_name == L"any_hit" ? 5ull
+          : canonical_name == L"procedural_intersection"
+              ? 6ull
+          : canonical_name == L"procedural_closest_hit" ||
+                    canonical_name == L"procedural_hit_group"
+              ? 7ull
+              : 0ull;
+      const uint64_t intersection_function_index =
+          canonical_name == L"hit_group" && has_any_hit_shader
+              ? 5ull
+          : canonical_name == L"procedural_hit_group" &&
+                    has_procedural_hit_group
+              ? 6ull
+              : 0ull;
+      memcpy(identifier.data(), &intersection_function_index,
+             sizeof(intersection_function_index));
+      memcpy(identifier.data() + sizeof(uint64_t),
+             &visible_function_index, sizeof(visible_function_index));
+      uint64_t export_hash = 1469598103934665603ull;
+      for (WCHAR c : export_name) {
+        export_hash ^= static_cast<uint16_t>(c);
+        export_hash *= 1099511628211ull;
+      }
+      memcpy(identifier.data() + 24, &export_hash, sizeof(export_hash));
+      m_shader_identifiers.emplace(export_name, identifier);
+    }
+    RebuildShaderStackSizes();
+    TRACE("StateObject raygen pipeline compiled exports=%zu pso=%llu "
+          "visible_table=%llu",
+          m_exports.size(),
+          (unsigned long long)m_raygen_compute_pipeline.handle,
+          (unsigned long long)m_raygen_visible_function_table.handle);
+    return true;
+  }
+
+  bool InitializeAddition(const D3D12_STATE_OBJECT_DESC *desc) {
+    if (!desc || !m_base ||
+        desc->Type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ||
+        !m_raygen_compute_pipeline.handle ||
+        !m_raygen_visible_function_table.handle)
+      return false;
+    for (UINT i = 0; i < desc->NumSubobjects; i++) {
+      const auto &subobject = desc->pSubobjects[i];
+      m_subobject_types.push_back(subobject.Type);
+      if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
+          subobject.pDesc) {
+        const auto *hit_group =
+            static_cast<const D3D12_HIT_GROUP_DESC *>(subobject.pDesc);
+        if (!hit_group->HitGroupExport)
+          return false;
+        const wchar_t *template_name =
+            hit_group->Type == D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE
+                ? L"procedural_hit_group"
+                : L"hit_group";
+        auto template_identifier = m_shader_identifiers.find(template_name);
+        if (template_identifier == m_shader_identifiers.end())
+          return false;
+        std::array<uint8_t, 32> identifier = template_identifier->second;
+        uint64_t export_hash = 1469598103934665603ull;
+        for (const WCHAR *p = hit_group->HitGroupExport; *p; p++) {
+          export_hash ^= static_cast<uint16_t>(*p);
+          export_hash *= 1099511628211ull;
+        }
+        memcpy(identifier.data() + 24, &export_hash, sizeof(export_hash));
+        m_exports.emplace_back(hit_group->HitGroupExport);
+        m_shader_identifiers[hit_group->HitGroupExport] = identifier;
+        m_export_imports[hit_group->HitGroupExport] = template_name;
+        RebuildShaderStackSizes();
+        auto local_root = m_local_root_signatures.find(template_name);
+        if (local_root != m_local_root_signatures.end() &&
+            local_root->second) {
+          local_root->second->AddRef();
+          m_local_root_signatures[hit_group->HitGroupExport] =
+              local_root->second;
+        }
+      } else if (subobject.Type ==
+                     D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE &&
+                 subobject.pDesc) {
+        const auto *root = static_cast<const D3D12_GLOBAL_ROOT_SIGNATURE *>(
+            subobject.pDesc);
+        if (root->pGlobalRootSignature != m_global_root_signature)
+          return false;
+      } else if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
+        // New Metal functions require relinking the visible-function tables;
+        // alias growth only accepts hit groups assembled from base exports.
+        return false;
+      } else if (subobject.Type !=
+                     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG &&
+                 subobject.Type !=
+                     D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG &&
+                 subobject.Type !=
+                     D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG) {
+        return false;
+      }
+    }
+    TRACE("StateObject addition initialized base=%p exports=%zu subobjects=%zu",
+          (void *)m_base, m_exports.size(), m_subobject_types.size());
+    return true;
+  }
+
+  WMT::Reference<WMT::ComputePipelineState> RaygenComputePipeline() const {
+    return m_raygen_compute_pipeline;
+  }
+
+  WMT::Reference<WMT::VisibleFunctionTable> RaygenVisibleFunctionTable() const {
+    return m_raygen_visible_function_table;
+  }
+
+  WMT::Reference<WMT::IntersectionFunctionTable>
+  IntersectionFunctionTable() const {
+    return m_intersection_function_table;
+  }
+
+  ID3D12RootSignature *GlobalRootSignature() const {
+    return m_global_root_signature;
+  }
+
+  bool ShaderRecordLocalRootSignature(
+      const void *shader_identifier,
+      ID3D12RootSignature **local_root_signature) const {
+    if (!shader_identifier || !local_root_signature)
+      return false;
+    *local_root_signature = nullptr;
+    for (const auto &identifier : m_shader_identifiers) {
+      if (memcmp(identifier.second.data(), shader_identifier,
+                 identifier.second.size()) != 0)
+        continue;
+      auto local_root = m_local_root_signatures.find(identifier.first);
+      if (local_root != m_local_root_signatures.end())
+        *local_root_signature = local_root->second;
+      return true;
+    }
+    return false;
+  }
+
+  void RebuildShaderStackSizes() {
+    m_shader_stack_sizes.clear();
+    uint64_t maximum_stack_size = 0;
+    for (const auto &export_name : m_exports) {
+      auto import = m_export_imports.find(export_name);
+      const std::wstring &canonical_name =
+          import == m_export_imports.end() ? export_name : import->second;
+      uint64_t stack_size = 0;
+      if (canonical_name == L"raygen")
+        stack_size = 64;
+      else if (canonical_name == L"miss_shader")
+        stack_size = 64;
+      else if (canonical_name == L"callable_shader")
+        stack_size = 64;
+      else if (canonical_name == L"closest_hit")
+        stack_size = 96;
+      else if (canonical_name == L"any_hit")
+        stack_size = 64;
+      else if (canonical_name == L"procedural_intersection")
+        stack_size = 64;
+      else if (canonical_name == L"procedural_closest_hit")
+        stack_size = 96;
+      else if (canonical_name == L"hit_group") {
+        m_shader_stack_sizes[export_name + L"::anyhit"] = 64;
+        m_shader_stack_sizes[export_name + L"::closesthit"] = 96;
+      } else if (canonical_name == L"procedural_hit_group") {
+        m_shader_stack_sizes[export_name + L"::intersection"] = 64;
+        m_shader_stack_sizes[export_name + L"::closesthit"] = 96;
+      }
+      if (stack_size) {
+        m_shader_stack_sizes[export_name] = stack_size;
+        maximum_stack_size = std::max(maximum_stack_size, stack_size);
+      }
+    }
+    for (const auto &entry : m_shader_stack_sizes)
+      maximum_stack_size = std::max(maximum_stack_size, entry.second);
+    if (m_type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE &&
+        !m_pipeline_stack_size && maximum_stack_size) {
+      const uint64_t recursion = std::max<uint32_t>(
+          1, std::min<uint32_t>(m_max_trace_recursion_depth, 2));
+      m_pipeline_stack_size = std::min<uint64_t>(
+          UINT64_C(0xfffffffe), maximum_stack_size * (recursion + 1));
+    }
   }
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
@@ -1325,18 +2232,21 @@ public:
     return count;
   }
 
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
 
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
@@ -1345,13 +2255,23 @@ public:
   void *STDMETHODCALLTYPE GetShaderIdentifier(LPCWSTR export_name) override {
     TRACE("StateObjectProperties::GetShaderIdentifier export=%ls",
           export_name ? export_name : L"(null)");
-    return m_shader_identifier;
+    if (!export_name)
+      return nullptr;
+    auto identifier = m_shader_identifiers.find(export_name);
+    return identifier == m_shader_identifiers.end()
+               ? nullptr
+               : identifier->second.data();
   }
 
   UINT64 STDMETHODCALLTYPE GetShaderStackSize(LPCWSTR export_name) override {
     TRACE("StateObjectProperties::GetShaderStackSize export=%ls",
           export_name ? export_name : L"(null)");
-    return 0;
+    if (!export_name)
+      return UINT64_C(0xffffffff);
+    auto stack_size = m_shader_stack_sizes.find(export_name);
+    return stack_size == m_shader_stack_sizes.end()
+               ? UINT64_C(0xffffffff)
+               : stack_size->second;
   }
 
   UINT64 STDMETHODCALLTYPE GetPipelineStackSize() override {
@@ -1363,6 +2283,9 @@ public:
   void STDMETHODCALLTYPE SetPipelineStackSize(UINT64 stack_size) override {
     TRACE("StateObjectProperties::SetPipelineStackSize %llu",
           (unsigned long long)stack_size);
+    if (m_type != D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE ||
+        stack_size >= UINT64_C(0xffffffff))
+      return;
     m_pipeline_stack_size = stack_size;
   }
 
@@ -1387,36 +2310,101 @@ public:
   }
 
   HRESULT STDMETHODCALLTYPE GetGlobalRootSignatureForProgram(
-      LPCWSTR program_name, REFIID, void **root_signature) override {
+      LPCWSTR program_name, REFIID riid, void **root_signature) override {
     TRACE("StateObjectProperties2::GetGlobalRootSignatureForProgram "
-          "program=%ls -> E_NOINTERFACE",
-          program_name ? program_name : L"(null)");
+          "program=%ls root=%p",
+          program_name ? program_name : L"(null)",
+          (void *)m_global_root_signature);
     if (!root_signature)
       return E_POINTER;
     *root_signature = nullptr;
-    return E_NOINTERFACE;
+    return m_global_root_signature
+               ? m_global_root_signature->QueryInterface(riid, root_signature)
+               : E_NOINTERFACE;
   }
 
   HRESULT STDMETHODCALLTYPE GetGlobalRootSignatureForShader(
-      LPCWSTR export_name, REFIID, void **root_signature) override {
+      LPCWSTR export_name, REFIID riid, void **root_signature) override {
     TRACE("StateObjectProperties2::GetGlobalRootSignatureForShader export=%ls "
-          "-> E_NOINTERFACE",
-          export_name ? export_name : L"(null)");
+          "root=%p",
+          export_name ? export_name : L"(null)",
+          (void *)m_global_root_signature);
     if (!root_signature)
       return E_POINTER;
     *root_signature = nullptr;
-    return E_NOINTERFACE;
+    return m_global_root_signature
+               ? m_global_root_signature->QueryInterface(riid, root_signature)
+               : E_NOINTERFACE;
   }
 
 private:
   MTLD3D12Device *m_device = nullptr;
   ID3D12StateObject *m_base = nullptr;
+  std::vector<ID3D12StateObject *> m_existing_collections;
+  ID3D12RootSignature *m_global_root_signature = nullptr;
+  std::unordered_map<std::wstring, ID3D12RootSignature *>
+      m_local_root_signatures;
+  WMT::Reference<WMT::ComputePipelineState> m_raygen_compute_pipeline;
+  WMT::Reference<WMT::VisibleFunctionTable>
+      m_raygen_visible_function_table;
+  WMT::Reference<WMT::IntersectionFunctionTable>
+      m_intersection_function_table;
+  ComPrivateData m_private_data;
   std::atomic<ULONG> m_ref_count{1};
   D3D12_STATE_OBJECT_TYPE m_type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
   std::vector<D3D12_STATE_SUBOBJECT_TYPE> m_subobject_types;
-  uint8_t m_shader_identifier[32] = {};
+  std::vector<std::wstring> m_exports;
+  std::unordered_map<std::wstring, std::wstring> m_export_imports;
+  std::unordered_map<std::wstring, std::array<uint8_t, 32>>
+      m_shader_identifiers;
+  std::unordered_map<std::wstring, UINT64> m_shader_stack_sizes;
   UINT64 m_pipeline_stack_size = 0;
+  UINT32 m_max_trace_recursion_depth = 1;
 };
+
+WMT::Reference<WMT::ComputePipelineState>
+GetD3D12StateObjectRaygenComputePipeline(ID3D12StateObject *state_object) {
+  if (!state_object)
+    return {};
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->RaygenComputePipeline();
+}
+
+WMT::Reference<WMT::VisibleFunctionTable>
+GetD3D12StateObjectRaygenVisibleFunctionTable(
+    ID3D12StateObject *state_object) {
+  if (!state_object)
+    return {};
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->RaygenVisibleFunctionTable();
+}
+
+WMT::Reference<WMT::IntersectionFunctionTable>
+GetD3D12StateObjectIntersectionFunctionTable(
+    ID3D12StateObject *state_object) {
+  if (!state_object)
+    return {};
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->IntersectionFunctionTable();
+}
+
+ID3D12RootSignature *
+GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object) {
+  if (!state_object)
+    return nullptr;
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->GlobalRootSignature();
+}
+
+bool GetD3D12StateObjectShaderRecordLocalRootSignature(
+    ID3D12StateObject *state_object, const void *shader_identifier,
+    ID3D12RootSignature **local_root_signature) {
+  if (!state_object)
+    return false;
+  return static_cast<MTLD3D12StateObject *>(state_object)
+      ->ShaderRecordLocalRootSignature(shader_identifier,
+                                       local_root_signature);
+}
 
 class MTLD3D12ShaderCacheSession : public ComObject<ID3D12ShaderCacheSession> {
 public:
@@ -1446,18 +2434,21 @@ public:
     return E_NOINTERFACE;
   }
 
-  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT *, void *) override {
-    return E_NOTIMPL;
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return m_private_data.getData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT,
-                                           const void *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return m_private_data.setData(guid, size, data);
   }
-  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID,
-                                                    const IUnknown *) override {
-    return S_OK;
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+      REFGUID guid, const IUnknown *data) override {
+    return m_private_data.setInterface(guid, data);
   }
-  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override {
+    return m_private_data.setName(name);
+  }
 
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override {
     return m_device->QueryInterface(riid, device);
@@ -1541,6 +2532,7 @@ private:
   }
 
   MTLD3D12Device *m_device;
+  ComPrivateData m_private_data;
   D3D12_SHADER_CACHE_SESSION_DESC m_desc;
   std::unordered_map<std::string, std::vector<uint8_t>> m_values;
   bool m_delete_on_destroy = false;
@@ -1633,10 +2625,40 @@ static void device_vtable_watcher() {
   }
 }
 
+static const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER &
+RaytracingSerializationIdentifierForProcess() {
+  static const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER identifier =
+      []() {
+        D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER value = {};
+        value.DriverOpaqueGUID =
+            {0x4d545341, 0x5345, 0x5231,
+             {0x81, 0x27, 0x4d, 0x65, 0x74, 0x61, 0x6c, 0x34}};
+        const uint32_t process_id = GetCurrentProcessId();
+        LARGE_INTEGER counter = {};
+        QueryPerformanceCounter(&counter);
+        const uint32_t format_version = 1;
+        std::memcpy(value.DriverOpaqueVersioningData, &process_id,
+                    sizeof(process_id));
+        std::memcpy(value.DriverOpaqueVersioningData + sizeof(process_id),
+                    &counter.QuadPart, sizeof(counter.QuadPart));
+        std::memcpy(value.DriverOpaqueVersioningData + sizeof(process_id) +
+                        sizeof(counter.QuadPart),
+                    &format_version, sizeof(format_version));
+        return value;
+      }();
+  return identifier;
+}
+
 MTLD3D12Device::MTLD3D12Device(std::unique_ptr<Device> &&device,
                                IMTLDXGIAdapter *pAdapter)
     : m_device(std::move(device)), m_adapter(pAdapter) {
   m_format_inspector.Inspect(GetMTLDevice());
+  m_metal_raytracing_supported = GetMTLDevice().supportsRaytracing();
+  m_raytracing_serialization_identifier =
+      RaytracingSerializationIdentifierForProcess();
+  Logger::info(str::format("D3D12 Metal raytracing hardware support=",
+                           m_metal_raytracing_supported ? 1 : 0,
+                           " (DXR tier remains gated on behavior)"));
   if (m_adapter)
     m_adapter->AddRef();
   m_expected_vtable = *(void **)this;
@@ -1691,6 +2713,101 @@ WMT::Device MTLD3D12Device::GetMTLDevice() { return m_device->device(); }
 
 Device &MTLD3D12Device::GetDXMTDevice() { return *m_device; }
 
+namespace {
+
+struct D3D12QueueCompletionPoint {
+  WMT::Reference<WMT::SharedEvent> event;
+  uint64_t value;
+};
+
+struct D3D12DeviceEventWaitContext {
+  std::vector<D3D12QueueCompletionPoint> points;
+  HANDLE event;
+};
+
+DWORD WINAPI D3D12DeviceEventWaitThread(void *argument) {
+  auto *context = static_cast<D3D12DeviceEventWaitContext *>(argument);
+  for (const auto &point : context->points)
+    point.event.waitUntilSignaledValue(point.value, UINT64_MAX);
+  SetEvent(context->event);
+  CloseHandle(context->event);
+  delete context;
+  return 0;
+}
+
+} // namespace
+
+void MTLD3D12Device::RegisterCommandQueue(MTLD3D12CommandQueue *queue) {
+  std::lock_guard lock(m_command_queue_mutex);
+  m_command_queues.push_back(queue);
+  TRACE("RegisterCommandQueue queue=%p count=%zu", (void *)queue,
+        m_command_queues.size());
+}
+
+void MTLD3D12Device::UnregisterCommandQueue(MTLD3D12CommandQueue *queue) {
+  std::lock_guard lock(m_command_queue_mutex);
+  auto entry = std::find(m_command_queues.begin(), m_command_queues.end(),
+                         queue);
+  if (entry != m_command_queues.end())
+    m_command_queues.erase(entry);
+  TRACE("UnregisterCommandQueue queue=%p count=%zu", (void *)queue,
+        m_command_queues.size());
+}
+
+HRESULT MTLD3D12Device::EnqueueSetEvent(HANDLE event) {
+  if (!event)
+    return E_INVALIDARG;
+
+  HANDLE duplicate = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), event, GetCurrentProcess(),
+                       &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+    return HRESULT_FROM_WIN32(GetLastError());
+
+  auto *context = new (std::nothrow) D3D12DeviceEventWaitContext;
+  if (!context) {
+    CloseHandle(duplicate);
+    return E_OUTOFMEMORY;
+  }
+  context->event = duplicate;
+
+  try {
+    std::lock_guard lock(m_command_queue_mutex);
+    context->points.reserve(m_command_queues.size());
+    for (auto *queue : m_command_queues) {
+      D3D12QueueCompletionPoint point = {};
+      if (!queue->EnqueueCompletionSignal(point.event, point.value)) {
+        CloseHandle(duplicate);
+        delete context;
+        return E_FAIL;
+      }
+      context->points.push_back(std::move(point));
+    }
+  } catch (const std::bad_alloc &) {
+    CloseHandle(duplicate);
+    delete context;
+    return E_OUTOFMEMORY;
+  }
+
+  TRACE("EnqueueSetEvent event=%p queue_count=%zu", event,
+        context->points.size());
+  if (context->points.empty()) {
+    SetEvent(duplicate);
+    CloseHandle(duplicate);
+    delete context;
+    return S_OK;
+  }
+
+  HANDLE thread =
+      CreateThread(nullptr, 0, D3D12DeviceEventWaitThread, context, 0, nullptr);
+  if (!thread) {
+    CloseHandle(duplicate);
+    delete context;
+    return HRESULT_FROM_WIN32(GetLastError());
+  }
+  CloseHandle(thread);
+  return S_OK;
+}
+
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::QueryInterface(REFIID riid,
                                                          void **ppvObject) {
   if (!ppvObject)
@@ -1727,7 +2844,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::QueryInterface(REFIID riid,
   }
 
   if (m_dxgi_device) {
-    if (riid == IID_IDXGIDevice) {
+    if (riid == IID_IDXGIDevice || riid == __uuidof(IDXGIDevice1) ||
+        riid == __uuidof(IDXGIDevice2) ||
+        riid == __uuidof(IDXGIDevice3)) {
       TRACE("D3D12Device::QI(%s) -> delegating DXGI to dxgi_device",
             str::format(riid).c_str());
       return m_dxgi_device->QueryInterface(riid, ppvObject);
@@ -1788,7 +2907,9 @@ MTLD3D12Device::SetPrivateDataInterface(REFGUID guid, const IUnknown *data) {
   return m_private_data.setInterface(guid, data);
 }
 
-HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetName(LPCWSTR name) { return S_OK; }
+HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetName(LPCWSTR name) {
+  return m_private_data.setName(name);
+}
 
 UINT STDMETHODCALLTYPE MTLD3D12Device::GetNodeCount() { return 1; }
 
@@ -1821,6 +2942,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandAllocator(
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
     void **pipeline_state) {
+  return CreateGraphicsPipelineStateInternal(desc, riid, pipeline_state,
+                                             false);
+}
+
+HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
+    const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
+    void **pipeline_state, bool depth_bounds_test_enable) {
   if (!desc || !pipeline_state)
     return E_POINTER;
   InitReturnPtr(pipeline_state);
@@ -1871,6 +2999,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
 
   auto pso = new MTLD3D12PipelineState(this, false);
   pso->SetGraphicsDesc(*desc);
+  pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
   bool compiled = pso->RequestCompile(!native_tessellation_required);
   auto failure_stage = pso->GetCompileFailureStage();
   auto failure_detail = pso->GetCompileFailureDetail();
@@ -1978,6 +3107,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
           "(ReadFromSubresource->CheckFeatureSupport)",
           feature_data, (void *)this);
   }
+  if (!feature_data)
+    return feature_data_size ? E_POINTER : E_INVALIDARG;
+  if (!feature_data_size)
+    return E_INVALIDARG;
   switch ((UINT)feature) {
   case D3D12_FEATURE_D3D12_OPTIONS: {
     auto *opts = (D3D12_FEATURE_DATA_D3D12_OPTIONS *)feature_data;
@@ -1986,13 +3119,18 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     opts->DoublePrecisionFloatShaderOps = FALSE;
     opts->OutputMergerLogicOp = TRUE;
     opts->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
-    opts->TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
+    opts->TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_3;
     opts->ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
     opts->PSSpecifiedStencilRefSupported = TRUE;
     opts->TypedUAVLoadAdditionalFormats = TRUE;
-    opts->ROVsSupported = TRUE;
+    // Rasterizer-ordered UAV access is not implemented by the Metal render
+    // encoder.  A normal UAV barrier is not an ROV substitute.
+    opts->ROVsSupported = FALSE;
+    // The bounded reference-model coverage path is used for supported
+    // rasterizer descriptions; unsupported combinations still fail during
+    // pipeline creation rather than silently falling back.
     opts->ConservativeRasterizationTier =
-        D3D12_CONSERVATIVE_RASTERIZATION_TIER_1;
+        D3D12_CONSERVATIVE_RASTERIZATION_TIER_3;
     opts->MaxGPUVirtualAddressBitsPerResource = 40;
     opts->StandardSwizzle64KBSupported = FALSE;
     opts->CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
@@ -2025,9 +3163,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *fl = (D3D12_FEATURE_DATA_FEATURE_LEVELS *)feature_data;
     if (feature_data_size < sizeof(*fl))
       return E_INVALIDARG;
+    if (fl->NumFeatureLevels && !fl->pFeatureLevelsRequested)
+      return E_INVALIDARG;
     fl->MaxSupportedFeatureLevel = D3D_FEATURE_LEVEL_9_1;
     for (UINT i = 0; i < fl->NumFeatureLevels; i++) {
-      if (fl->pFeatureLevelsRequested[i] <= D3D_FEATURE_LEVEL_12_1 &&
+      if (fl->pFeatureLevelsRequested[i] <= D3D12ConfiguredMaximumFeatureLevel() &&
           fl->pFeatureLevelsRequested[i] > fl->MaxSupportedFeatureLevel) {
         fl->MaxSupportedFeatureLevel = fl->pFeatureLevelsRequested[i];
       }
@@ -2056,6 +3196,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
                                   D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD |
                                   D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE);
       TRACE("  FORMAT_SUPPORT: format=%u Support1=0x%x Support2=0x%x",
+            (unsigned)fmt->Format, (unsigned)fmt->Support1,
+            (unsigned)fmt->Support2);
+      return S_OK;
+    }
+    if (fmt->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+        fmt->Format ==
+            DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE) {
+      fmt->Support1 = (D3D12_FORMAT_SUPPORT1)(
+          D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_MIP);
+      fmt->Support2 = D3D12_FORMAT_SUPPORT2_NONE;
+      TRACE("  FORMAT_SUPPORT: sampler-feedback format=%u Support1=0x%x Support2=0x%x",
             (unsigned)fmt->Format, (unsigned)fmt->Support1,
             (unsigned)fmt->Support2);
       return S_OK;
@@ -2222,16 +3373,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *sm = (D3D12_FEATURE_DATA_SHADER_MODEL *)feature_data;
     if (feature_data_size < sizeof(*sm))
       return E_INVALIDARG;
-    const bool ue_sm6_compat =
-        dxmt_d3d12_env_enabled("DXMT_D3D12_UE_SM6_COMPAT");
-    const D3D_SHADER_MODEL max_shader_model =
-        ue_sm6_compat ? static_cast<D3D_SHADER_MODEL>(0x66)
-                      : static_cast<D3D_SHADER_MODEL>(0x65);
+    constexpr D3D_SHADER_MODEL max_shader_model =
+        static_cast<D3D_SHADER_MODEL>(0x67);
     if (sm->HighestShaderModel == 0 ||
         sm->HighestShaderModel > max_shader_model)
       sm->HighestShaderModel = max_shader_model;
-    TRACE("  SHADER_MODEL: HighestSM=%u ue_sm6_compat=%d",
-          (unsigned)sm->HighestShaderModel, ue_sm6_compat);
+    TRACE("  SHADER_MODEL: HighestSM=%u behavior-backed maximum=%u",
+          (unsigned)sm->HighestShaderModel, (unsigned)max_shader_model);
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS1: {
@@ -2268,7 +3416,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS2 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->DepthBoundsTestSupported = FALSE;
+    o->DepthBoundsTestSupported = TRUE;
     o->ProgrammableSamplePositionsTier =
         D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
     return S_OK;
@@ -2287,9 +3435,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS3 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->CopyQueueTimestampQueriesSupported = FALSE;
+    o->CopyQueueTimestampQueriesSupported = TRUE;
     o->CastingFullyTypedFormatSupported = TRUE;
-    o->WriteBufferImmediateSupportFlags = D3D12_COMMAND_LIST_SUPPORT_FLAG_NONE;
+    o->WriteBufferImmediateSupportFlags =
+        (D3D12_COMMAND_LIST_SUPPORT_FLAGS)(
+            D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT |
+            D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE |
+            D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE);
     o->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
     o->BarycentricsSupported = FALSE;
     TRACE("  OPTIONS3: CopyQueueTS=%d CastFullyTyped=%d WriteBufImm=0x%x "
@@ -2323,7 +3475,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return E_INVALIDARG;
     o->SRVOnlyTiledResourceTier3 = FALSE;
     o->RenderPassesTier = D3D12_RENDER_PASS_TIER_1;
-    o->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+    o->RaytracingTier = D3D12_RAYTRACING_TIER_1_1;
     TRACE("  OPTIONS5: SRVTiled3=%d RenderPassesTier=%u RayTier=%u",
           o->SRVOnlyTiledResourceTier3, o->RenderPassesTier, o->RaytracingTier);
     return S_OK;
@@ -2332,10 +3484,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS6 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->AdditionalShadingRatesSupported = FALSE;
-    o->PerPrimitiveShadingRateSupportedWithViewportIndexing = FALSE;
-    o->VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
-    o->ShadingRateImageTileSize = 0;
+    o->AdditionalShadingRatesSupported = TRUE;
+    o->PerPrimitiveShadingRateSupportedWithViewportIndexing = TRUE;
+    o->VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_2;
+    o->ShadingRateImageTileSize = kD3D12ShadingRateImageTileSize;
     o->BackgroundProcessingSupported = FALSE;
     return S_OK;
   }
@@ -2343,41 +3495,45 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS7 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->MeshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
-    o->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
+    o->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;
+    o->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_0_9;
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS8: {
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS8 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->UnalignedBlockTexturesSupported = FALSE;
+    o->UnalignedBlockTexturesSupported = TRUE;
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS9: {
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS9 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    const bool ue_sm6_compat =
-        dxmt_d3d12_env_enabled("DXMT_D3D12_UE_SM6_COMPAT");
-    o->MeshShaderPipelineStatsSupported = FALSE;
+    // PIPELINE_STATISTICS1 is software-accounted from successful AS/MS
+    // dispatches and has an exact two-group runtime/readback proof. This is
+    // independent of the still-conservative MeshShaderTier report.
+    o->MeshShaderPipelineStatsSupported = TRUE;
     o->MeshShaderSupportsFullRangeRenderTargetArrayIndex = FALSE;
-    o->AtomicInt64OnTypedResourceSupported = ue_sm6_compat ? TRUE : FALSE;
-    o->AtomicInt64OnGroupSharedSupported = ue_sm6_compat ? TRUE : FALSE;
+    o->AtomicInt64OnTypedResourceSupported = TRUE;
+    o->AtomicInt64OnGroupSharedSupported = TRUE;
     o->DerivativesInMeshAndAmplificationShadersSupported = FALSE;
     TRACE("  OPTIONS9: MeshStats=%d FullRTArray=%d Atomic64Typed=%d "
-          "Atomic64GroupShared=%d ue_sm6_compat=%d",
+          "Atomic64GroupShared=%d",
           o->MeshShaderPipelineStatsSupported,
           o->MeshShaderSupportsFullRangeRenderTargetArrayIndex,
           o->AtomicInt64OnTypedResourceSupported,
-          o->AtomicInt64OnGroupSharedSupported, ue_sm6_compat);
+          o->AtomicInt64OnGroupSharedSupported);
     return S_OK;
   }
   case D3D12_FEATURE_D3D12_OPTIONS10: {
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS10 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->VariableRateShadingSumCombinerSupported = FALSE;
+    // SUM is implemented axis-wise and is covered by the constant-image
+    // SUM/SUM readback.  This independent cap does not promote the overall
+    // VariableShadingRateTier.
+    o->VariableRateShadingSumCombinerSupported = TRUE;
     o->MeshShaderPerPrimitiveShadingRateSupported = FALSE;
     return S_OK;
   }
@@ -2385,12 +3541,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS11 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    const bool ue_sm6_compat =
-        dxmt_d3d12_env_enabled("DXMT_D3D12_UE_SM6_COMPAT");
-    o->AtomicInt64OnDescriptorHeapResourceSupported =
-        ue_sm6_compat ? TRUE : FALSE;
-    TRACE("  OPTIONS11: Atomic64DescriptorHeap=%d ue_sm6_compat=%d",
-          o->AtomicInt64OnDescriptorHeapResourceSupported, ue_sm6_compat);
+    o->AtomicInt64OnDescriptorHeapResourceSupported = TRUE;
+    TRACE("  OPTIONS11: Atomic64DescriptorHeap=%d",
+          o->AtomicInt64OnDescriptorHeapResourceSupported);
     return S_OK;
   }
   case 41: { // D3D12_FEATURE_D3D12_OPTIONS12
@@ -2398,8 +3551,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     o->MSPrimitivesPipelineStatisticIncludesCulledPrimitives = 0;
-    o->EnhancedBarriersSupported = FALSE;
-    o->RelaxedFormatCastingSupported = FALSE;
+    o->EnhancedBarriersSupported = TRUE;
+    o->RelaxedFormatCastingSupported = TRUE;
     TRACE("  OPTIONS12: EnhancedBarriers=%d RelaxedFormatCasting=%d",
           o->EnhancedBarriersSupported, o->RelaxedFormatCastingSupported);
     return S_OK;
@@ -2417,7 +3570,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     memset(o, 0, sizeof(*o));
-    TRACE("  OPTIONS14: conservative unsupported");
+    o->AdvancedTextureOpsSupported = TRUE;
+    o->WriteableMSAATexturesSupported = TRUE;
+    TRACE("  OPTIONS14: AdvancedTextureOps=%d WriteableMSAA=%d",
+          o->AdvancedTextureOpsSupported,
+          o->WriteableMSAATexturesSupported);
     return S_OK;
   }
   case 44: { // D3D12_FEATURE_D3D12_OPTIONS15
@@ -2672,12 +3829,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     return S_OK;
   }
   default:
-    TRACE("CheckFeatureSupport UNHANDLED feature=%u size=%u -> zeroing and "
-          "returning S_OK",
+    TRACE("CheckFeatureSupport UNHANDLED feature=%u size=%u -> E_INVALIDARG",
           feature, feature_data_size);
-    if (feature_data && feature_data_size > 0)
-      memset(feature_data, 0, feature_data_size);
-    return S_OK;
+    memset(feature_data, 0, feature_data_size);
+    return E_INVALIDARG;
   }
 }
 
@@ -2704,6 +3859,11 @@ MTLD3D12Device::CreateDescriptorHeap(const D3D12_DESCRIPTOR_HEAP_DESC *desc,
   MTLD3D12DescriptorHeap *heap = new (raw) MTLD3D12DescriptorHeap(this, *desc);
   TRACE("CreateDescriptorHeap: heap=%p data=%p", (void *)heap,
         heap->GetDescriptors());
+  if (!heap->HasShaderVisibleMirror()) {
+    TRACE("CreateDescriptorHeap: shader-visible mirror allocation failed");
+    heap->Release();
+    return E_OUTOFMEMORY;
+  }
   HRESULT hr = heap->QueryInterface(riid, descriptor_heap);
   heap->Release();
   return hr;
@@ -2741,8 +3901,16 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateConstantBufferView(
     return;
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    d->resource = nullptr;
+    d->resource_uav_counter = nullptr;
+    d->is_sampler_feedback = false;
+    d->sampler_feedback_target = nullptr;
+    d->metal_texture_view = {};
+    d->metal_texture_gpu_id = 0;
     d->cbv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -2758,6 +3926,19 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
   CheckVtable("CreateShaderResourceView");
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    d->is_sampler_feedback = false;
+    d->sampler_feedback_target = nullptr;
+    if (!resource && desc &&
+        desc->ViewDimension ==
+            D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE) {
+      resource = LookupResourceByGPUAddress(
+          desc->RaytracingAccelerationStructure.Location);
+      TRACE("CreateShaderResourceView resolved acceleration structure "
+            "location=0x%llx resource=%p",
+            (unsigned long long)
+                desc->RaytracingAccelerationStructure.Location,
+            (void *)resource);
+    }
     d->resource = resource;
     d->metal_texture_view = {};
     d->metal_texture_gpu_id = 0;
@@ -2770,13 +3951,24 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
         uint16_t mip_start = 0, mip_count = 1, slice_start = 0, slice_count = 1;
         SrvViewRange(*desc, resource_desc, mip_start, mip_count, slice_start,
                      slice_count);
-        CreateDescriptorTextureView(d, dxmt_res, desc->Format,
-                                    TextureTypeForSrvView(*desc, resource_desc),
-                                    mip_start, mip_count, slice_start,
-                                    slice_count);
+        if (!dxmt_res->IsViewFormatAllowed(desc->Format)) {
+          d->resource = nullptr;
+        } else if (resource_desc.Format == DXGI_FORMAT_D32_FLOAT &&
+                   desc->Format == DXGI_FORMAT_R32_FLOAT) {
+          // Metal comparison sampling requires the underlying Depth32 texture,
+          // not an R32Float color view of the same storage.
+          d->metal_texture_gpu_id = 0;
+        } else {
+          CreateDescriptorTextureView(
+              d, dxmt_res, desc->Format,
+              TextureTypeForSrvView(*desc, resource_desc), mip_start,
+              mip_count, slice_start, slice_count);
+        }
       }
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -2795,6 +3987,8 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateUnorderedAccessView(
   CheckVtable("CreateUnorderedAccessView");
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    d->is_sampler_feedback = false;
+    d->sampler_feedback_target = nullptr;
     d->resource = resource;
     d->resource_uav_counter = counter_resource;
     d->metal_texture_view = {};
@@ -2808,13 +4002,19 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateUnorderedAccessView(
         uint16_t mip_start = 0, mip_count = 1, slice_start = 0, slice_count = 1;
         UavViewRange(*desc, resource_desc, mip_start, mip_count, slice_start,
                      slice_count);
-        CreateDescriptorTextureView(d, dxmt_res, desc->Format,
-                                    TextureTypeForUavView(*desc, resource_desc),
-                                    mip_start, mip_count, slice_start,
-                                    slice_count);
+        if (!dxmt_res->IsViewFormatAllowed(desc->Format)) {
+          d->resource = nullptr;
+        } else {
+          CreateDescriptorTextureView(
+              d, dxmt_res, desc->Format,
+              TextureTypeForUavView(*desc, resource_desc), mip_start,
+              mip_count, slice_start, slice_count);
+        }
       }
     }
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -2830,10 +4030,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateRenderTargetView(
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
     d->resource = resource;
+    auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
+    if (desc && dxmt_res &&
+        !dxmt_res->IsViewFormatAllowed(desc->Format)) {
+      TRACE("CreateRenderTargetView rejected undeclared cast res=%p fmt=%u",
+            (void *)resource, (unsigned)desc->Format);
+      d->resource = nullptr;
+    }
     if (desc)
       d->rtv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
+    UpdateDescriptorTableMirror(this, d);
     TRACE("CreateRenderTargetView desc=%p res=%p tex=%llu fmt=%u dim=%u",
           (void *)d, (void *)resource,
           dxmt_res ? (unsigned long long)dxmt_res->GetMTLTexture().handle
@@ -2855,9 +4062,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateDepthStencilView(
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
     d->resource = resource;
+    auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
+    if (desc && dxmt_res &&
+        !dxmt_res->IsViewFormatAllowed(desc->Format)) {
+      TRACE("CreateDepthStencilView rejected undeclared cast res=%p fmt=%u",
+            (void *)resource, (unsigned)desc->Format);
+      d->resource = nullptr;
+    }
     if (desc)
       d->dsv = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -2867,6 +4082,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
   if (d && desc) {
     d->sampler = *desc;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
 
     WMTSamplerInfo info = {};
     switch (desc->Filter) {
@@ -2947,9 +4163,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
     info.lod_max_clamp = desc->MaxLOD;
     info.normalized_coords = true;
     info.support_argument_buffers = true;
-    if (desc->Filter == D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR ||
-        desc->Filter == D3D12_FILTER_COMPARISON_MIN_MAG_POINT_MIP_LINEAR ||
-        desc->Filter == D3D12_FILTER_COMPARISON_MIN_LINEAR_MAG_MIP_POINT) {
+    if (D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter)) {
       if (desc->ComparisonFunc >= D3D12_COMPARISON_FUNC_LESS &&
           desc->ComparisonFunc <= D3D12_COMPARISON_FUNC_ALWAYS) {
         info.compare_function = (WMTCompareFunction)(desc->ComparisonFunc - 1);
@@ -2972,6 +4186,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
     }
     d->metal_sampler_cube = GetMTLDevice().newSamplerState(cube_info);
     d->metal_sampler_cube_gpu_id = cube_info.gpu_resource_id;
+    UpdateDescriptorTableMirror(this, d);
   }
 }
 
@@ -3027,7 +4242,10 @@ void STDMETHODCALLTYPE MTLD3D12Device::CopyDescriptors(
               "resource! copying to dst %p",
               (void *)src, (void *)dst);
       }
+      auto *dst_owner = dst->owner;
       *dst = *src;
+      dst->owner = dst_owner;
+      UpdateDescriptorTableMirror(this, dst);
       src_offset++;
     }
   }
@@ -3153,6 +4371,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   auto res = new MTLD3D12Resource(
       this, *desc, initial_state,
       heap_properties ? *heap_properties : D3D12_HEAP_PROPERTIES{}, heap_flags);
+  if (!res->IsValid()) {
+    TRACE("CreateCommittedResource unsupported resource backing dim=%u fmt=%u",
+          (unsigned)desc->Dimension, (unsigned)desc->Format);
+    res->Release();
+    return E_INVALIDARG;
+  }
   if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
       desc->Width >= (64ull << 20)) {
     Logger::info(
@@ -3241,9 +4465,25 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
 
   auto heap_buffer =
       mt_heap ? mt_heap->GetMTLBuffer() : WMT::Reference<WMT::Buffer>{};
-  bool use_heap_backing = mt_heap &&
-                          desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
-                          heap_buffer.handle != NULL_OBJECT_HANDLE;
+  WMT::Reference<WMT::Buffer> placed_buffer;
+  uint64_t placed_buffer_gpu = 0;
+  if (mt_heap && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+      heap_props.Type == D3D12_HEAP_TYPE_DEFAULT) {
+    auto placement_heap = mt_heap->GetMTLHeap();
+    if (placement_heap.handle) {
+      WMTBufferInfo buffer_info = {};
+      buffer_info.length = desc->Width;
+      buffer_info.options = WMTResourceStorageModePrivate;
+      placed_buffer = placement_heap.newBuffer(buffer_info, heap_offset);
+      placed_buffer_gpu = buffer_info.gpu_address;
+      if (!placed_buffer.handle)
+        TRACE("CreatePlacedResource native heap buffer allocation failed");
+    }
+  }
+  bool use_heap_backing =
+      placed_buffer.handle ||
+      (mt_heap && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+       heap_buffer.handle != NULL_OBJECT_HANDLE);
   if (desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
       desc->Width >= (64ull << 20)) {
     Logger::info(str::format(
@@ -3251,13 +4491,80 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
         heap_offset, " heap_backing=", use_heap_backing ? 1 : 0, " heap_gpu=0x",
         (unsigned long long)(mt_heap ? mt_heap->GetGPUAddress() : 0)));
   }
-  auto res = use_heap_backing
+
+  WMT::Reference<WMT::Texture> placed_texture;
+  uint64_t placed_texture_gpu_id = 0;
+  if (mt_heap && desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
+    auto placement_heap = mt_heap->GetMTLHeap();
+    if (!placement_heap.handle)
+      return E_NOTIMPL;
+    WMTTextureInfo texture_info = {};
+    texture_info.width = static_cast<uint32_t>(desc->Width);
+    texture_info.height = desc->Height ? desc->Height : 1;
+    texture_info.depth =
+        desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+            ? desc->DepthOrArraySize
+            : 1;
+    texture_info.array_length =
+        desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+            ? desc->DepthOrArraySize
+            : 1;
+    texture_info.mipmap_level_count = desc->MipLevels ? desc->MipLevels : 1;
+    const UINT samples = desc->SampleDesc.Count ? desc->SampleDesc.Count : 1;
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+      texture_info.type = desc->DepthOrArraySize > 1
+                              ? WMTTextureType1DArray
+                              : WMTTextureType1D;
+    else if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+      texture_info.type = WMTTextureType3D;
+    else if (samples > 1)
+      texture_info.type = desc->DepthOrArraySize > 1
+                              ? WMTTextureType2DMultisampleArray
+                              : WMTTextureType2DMultisample;
+    else
+      texture_info.type = desc->DepthOrArraySize > 1
+                              ? WMTTextureType2DArray
+                              : WMTTextureType2D;
+    texture_info.sample_count = samples;
+    if (samples > 1)
+      texture_info.mipmap_level_count = 1;
+    texture_info.usage =
+        (WMTTextureUsage)(WMTTextureUsageRenderTarget |
+                          WMTTextureUsageShaderRead |
+                          WMTTextureUsageShaderWrite |
+                          WMTTextureUsagePixelFormatView);
+    texture_info.options = WMTResourceStorageModePrivate;
+    texture_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(
+        static_cast<DXGI_FORMAT>(desc->Format));
+    if (texture_info.pixel_format == WMTPixelFormatInvalid)
+      return E_INVALIDARG;
+    placed_texture = placement_heap.newTexture(texture_info, heap_offset);
+    placed_texture_gpu_id = texture_info.gpu_resource_id;
+    if (!placed_texture.handle)
+      return E_NOTIMPL;
+  }
+  auto res = placed_buffer.handle
                  ? new MTLD3D12Resource(this, *desc, initial_state, heap_props,
-                                        heap_flags, heap_buffer,
-                                        mt_heap->GetCPUAddress(),
-                                        mt_heap->GetGPUAddress(), heap_offset)
+                                        heap_flags, std::move(placed_buffer),
+                                        nullptr, placed_buffer_gpu, 0)
+                 : use_heap_backing
+                       ? new MTLD3D12Resource(
+                             this, *desc, initial_state, heap_props, heap_flags,
+                             heap_buffer, mt_heap->GetCPUAddress(),
+                             mt_heap->GetGPUAddress(), heap_offset)
+                       : placed_texture.handle
+                       ? new MTLD3D12Resource(
+                             this, *desc, initial_state, heap_props, heap_flags,
+                             std::move(placed_texture), placed_texture_gpu_id,
+                             heap_offset)
                  : new MTLD3D12Resource(this, *desc, initial_state, heap_props,
                                         heap_flags);
+  if (!res->IsValid()) {
+    TRACE("CreatePlacedResource unsupported resource backing dim=%u fmt=%u",
+          (unsigned)desc->Dimension, (unsigned)desc->Format);
+    res->Release();
+    return E_INVALIDARG;
+  }
   HRESULT hr = res->QueryInterface(riid, resource);
   TRACE("CreatePlacedResource out=%p hr=0x%lx", resource ? *resource : nullptr,
         hr);
@@ -3278,52 +4585,188 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   InitReturnPtr(resource);
   if (!desc)
     return E_INVALIDARG;
+  const bool reserved_buffer =
+      desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+      desc->Format == DXGI_FORMAT_UNKNOWN && desc->Width &&
+      desc->Width % D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES == 0 &&
+      desc->Height == 1 && desc->DepthOrArraySize == 1 &&
+      desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 &&
+      desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+  const bool standard_mip_color_format =
+      desc->Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+      desc->Format == DXGI_FORMAT_R8G8B8A8_TYPELESS ||
+      desc->Format == DXGI_FORMAT_R32_FLOAT ||
+      desc->Format == DXGI_FORMAT_R32_TYPELESS;
+  const bool standard_mip_r8_format =
+      desc->Format == DXGI_FORMAT_R8_UNORM;
+  const UINT mip_count = std::max<UINT>(1, desc->MipLevels);
+  const uint64_t smallest_mip_width =
+      std::max<uint64_t>(1, desc->Width >> (mip_count - 1));
+  const uint64_t smallest_mip_height =
+      std::max<uint64_t>(1, static_cast<uint64_t>(desc->Height) >>
+                                (mip_count - 1));
+  const bool standard_mip_texture =
+      desc->MipLevels == 1 ||
+      (desc->MipLevels > 1 && desc->MipLevels <= 16 &&
+       ((standard_mip_color_format && smallest_mip_width >= 128 &&
+         smallest_mip_height >= 128) ||
+        (standard_mip_r8_format && smallest_mip_width >= 128 &&
+         smallest_mip_height >= 128)));
+  const bool reserved_texture =
+      (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D) &&
+      desc->MipLevels && standard_mip_texture &&
+      desc->SampleDesc.Count <= 1 && desc->Width && desc->Height &&
+      desc->DepthOrArraySize &&
+      MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc->Format) !=
+          WMTPixelFormatInvalid;
+  if (!reserved_buffer && !reserved_texture) {
+    TRACE("CreateReservedResource rejected unsupported sparse shape dim=%u "
+          "samples=%u format=%u",
+          (unsigned)desc->Dimension, desc->SampleDesc.Count,
+          (unsigned)desc->Format);
+    return E_NOTIMPL;
+  }
 
   D3D12_HEAP_PROPERTIES heap_properties = {};
   heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
-  heap_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-  heap_properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-  heap_properties.CreationNodeMask = 1;
-  heap_properties.VisibleNodeMask = 1;
-
-  auto res = new MTLD3D12Resource(this, *desc, initial_state, heap_properties,
-                                  D3D12_HEAP_FLAG_NONE);
+  auto res = new MTLD3D12Resource(this, *desc, initial_state,
+                                  heap_properties, D3D12_HEAP_FLAG_NONE, true);
+  if (!res->IsSparseBacked()) {
+    TRACE("CreateReservedResource native sparse texture allocation failed");
+    res->Release();
+    return E_NOTIMPL;
+  }
   HRESULT hr = res->QueryInterface(riid, resource);
-  TRACE("CreateReservedResource sparse-compat out=%p hr=0x%lx",
-        resource ? *resource : nullptr, hr);
-  Logger::info(
-      str::format("M12 sparse reserved resource compat dim=", desc->Dimension,
-                  " width=", desc->Width, " flags=0x", (unsigned)desc->Flags));
   res->Release();
+  TRACE("CreateReservedResource sparse texture out=%p hr=0x%lx",
+        resource ? *resource : nullptr, hr);
   return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
     ID3D12DeviceChild *object, const SECURITY_ATTRIBUTES *attributes,
     DWORD access, const WCHAR *name, HANDLE *handle) {
-  return E_NOTIMPL;
+  (void)attributes;
+  (void)access;
+  if (!handle)
+    return E_POINTER;
+  *handle = nullptr;
+  if (!object)
+    return E_INVALIDARG;
+
+  std::lock_guard lock(g_shared_handle_mutex);
+  if (name && g_named_shared_handles.contains(std::wstring(name)))
+    return DXGI_ERROR_NAME_ALREADY_EXISTS;
+
+  HANDLE public_handle = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+  if (!public_handle)
+    return HRESULT_FROM_WIN32(GetLastError());
+  HANDLE retained_handle = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), public_handle,
+                       GetCurrentProcess(), &retained_handle, 0, FALSE,
+                       DUPLICATE_SAME_ACCESS)) {
+    HRESULT hr = HRESULT_FROM_WIN32(GetLastError());
+    CloseHandle(public_handle);
+    return hr;
+  }
+
+  auto existing = g_shared_handles.find(public_handle);
+  if (existing != g_shared_handles.end()) {
+    ReleaseSharedHandleEntry(existing->second);
+    g_shared_handles.erase(existing);
+  }
+  object->AddRef();
+  g_shared_handles.emplace(
+      public_handle, D3D12SharedHandleEntry{object, retained_handle});
+  if (name)
+    g_named_shared_handles.emplace(std::wstring(name), public_handle);
+  *handle = public_handle;
+  TRACE("CreateSharedHandle object=%p name=%ls handle=%p", (void *)object,
+        name ? name : L"(null)", public_handle);
+  return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
                                                            REFIID riid,
                                                            void **object) {
-  return E_NOTIMPL;
+  if (!object)
+    return E_POINTER;
+  *object = nullptr;
+  if (!handle)
+    return E_INVALIDARG;
+  std::lock_guard lock(g_shared_handle_mutex);
+  auto entry = g_shared_handles.find(handle);
+  if (entry == g_shared_handles.end() || !entry->second.object)
+    return DXGI_ERROR_INVALID_CALL;
+  HRESULT hr = entry->second.object->QueryInterface(riid, object);
+  TRACE("OpenSharedHandle handle=%p riid=%s out=%p hr=0x%lx", handle,
+        str::format(riid).c_str(), *object, hr);
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
     const WCHAR *name, DWORD access, HANDLE *handle) {
-  return E_NOTIMPL;
+  (void)access;
+  if (!handle)
+    return E_POINTER;
+  *handle = nullptr;
+  if (!name)
+    return E_INVALIDARG;
+  std::lock_guard lock(g_shared_handle_mutex);
+  auto named = g_named_shared_handles.find(std::wstring(name));
+  if (named == g_named_shared_handles.end())
+    return DXGI_ERROR_NOT_FOUND;
+  auto entry = g_shared_handles.find(named->second);
+  if (entry == g_shared_handles.end() || !entry->second.retained_handle)
+    return DXGI_ERROR_INVALID_CALL;
+
+  HANDLE opened = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), entry->second.retained_handle,
+                       GetCurrentProcess(), &opened, 0, FALSE,
+                       DUPLICATE_SAME_ACCESS))
+    return HRESULT_FROM_WIN32(GetLastError());
+  HANDLE retained_opened = nullptr;
+  if (!DuplicateHandle(GetCurrentProcess(), opened, GetCurrentProcess(),
+                       &retained_opened, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+    HRESULT hr = HRESULT_FROM_WIN32(GetLastError());
+    CloseHandle(opened);
+    return hr;
+  }
+  entry->second.object->AddRef();
+  auto existing = g_shared_handles.find(opened);
+  if (existing != g_shared_handles.end()) {
+    ReleaseSharedHandleEntry(existing->second);
+    g_shared_handles.erase(existing);
+  }
+  g_shared_handles.emplace(
+      opened, D3D12SharedHandleEntry{entry->second.object, retained_opened});
+  *handle = opened;
+  TRACE("OpenSharedHandleByName name=%ls handle=%p", name, opened);
+  return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::MakeResident(
     UINT object_count, ID3D12Pageable *const *objects) {
   TRACE("MakeResident count=%u objects=%p", object_count, (void *)objects);
+  if (object_count && !objects)
+    return E_INVALIDARG;
+  for (UINT i = 0; i < object_count; i++)
+    if (!objects[i])
+      return E_INVALIDARG;
+  // Apple unified-memory resources are resident by default. The validation is
+  // still important: a null entry must not become false-successful residency.
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Device::Evict(UINT object_count, ID3D12Pageable *const *objects) {
   TRACE("Evict count=%u objects=%p", object_count, (void *)objects);
+  if (object_count && !objects)
+    return E_INVALIDARG;
+  for (UINT i = 0; i < object_count; i++)
+    if (!objects[i])
+      return E_INVALIDARG;
   return S_OK;
 }
 
@@ -3483,6 +4926,8 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
     D3D12_TILE_SHAPE *standard_tile_shape, UINT *sub_resource_tiling_count,
     UINT first_sub_resource_tiling,
     D3D12_SUBRESOURCE_TILING *sub_resource_tilings) {
+  const UINT requested_tiling_count =
+      sub_resource_tiling_count ? *sub_resource_tiling_count : 0;
   TRACE("GetResourceTiling res=%p total=%p packed=%p shape=%p count=%p "
         "first=%u tilings=%p",
         (void *)resource, (void *)total_tile_count, (void *)packed_mip_info,
@@ -3496,6 +4941,160 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
     *standard_tile_shape = {};
   if (sub_resource_tiling_count)
     *sub_resource_tiling_count = 0;
+
+  auto *reserved = resource ? static_cast<MTLD3D12Resource *>(resource)
+                            : nullptr;
+  if (!reserved || !reserved->IsReservedResource() ||
+      !reserved->IsSparseBacked())
+    return;
+  D3D12_RESOURCE_DESC desc = {};
+  reserved->GetDesc(&desc);
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    const UINT total_tiles = static_cast<UINT>(
+        (desc.Width + D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES - 1) /
+        D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES);
+    if (total_tile_count)
+      *total_tile_count = total_tiles;
+    if (packed_mip_info)
+      *packed_mip_info = {};
+    if (standard_tile_shape)
+      *standard_tile_shape = {D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, 1, 1};
+    if (sub_resource_tiling_count) {
+      const UINT requested = requested_tiling_count;
+      if (first_sub_resource_tiling != 0) {
+        *sub_resource_tiling_count = 0;
+      } else {
+        *sub_resource_tiling_count = requested ? std::min(requested, 1u) : 1;
+        if (sub_resource_tilings && requested)
+          sub_resource_tilings[0] = {total_tiles, 1, 1, 0};
+      }
+    }
+    return;
+  }
+  const bool volume = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+  const bool array_texture =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  if ((!array_texture && !volume) || desc.SampleDesc.Count > 1 ||
+      !desc.MipLevels || !desc.DepthOrArraySize)
+    return;
+
+  const D3D12_TILE_SHAPE shape = reserved->GetTiledResourceTileShape();
+  const UINT mip_levels = desc.MipLevels;
+  // A volume's DepthOrArraySize is its texel depth, not an array-slice count.
+  const UINT array_size = volume ? 1 : desc.DepthOrArraySize;
+  const UINT tiling_count = mip_levels * array_size;
+  UINT standard_mip_count = mip_levels;
+  // The R8 standard tile is 256x256. Once a mip becomes smaller than that
+  // shape, D3D12 describes the remaining mip chain as a packed/non-standard
+  // tail even though the Metal sparse texture may expose some of those levels
+  // as individually addressable pages.
+  if (volume && mip_levels > 1) {
+    for (UINT mip = 0; mip < mip_levels; mip++) {
+      const UINT width = std::max<UINT>(1, desc.Width >> mip);
+      const UINT height = std::max<UINT>(1, desc.Height >> mip);
+      const UINT depth = std::max<UINT>(1, desc.DepthOrArraySize >> mip);
+      if (width < shape.WidthInTexels || height < shape.HeightInTexels ||
+          depth < shape.DepthInTexels) {
+        standard_mip_count = mip;
+        break;
+      }
+    }
+  } else if (desc.Format == DXGI_FORMAT_R8_UNORM && mip_levels > 1) {
+    for (UINT mip = 0; mip < mip_levels; mip++) {
+      const UINT width = std::max<UINT>(1, desc.Width >> mip);
+      const UINT height = std::max<UINT>(1, desc.Height >> mip);
+      if (width < shape.WidthInTexels || height < shape.HeightInTexels) {
+        standard_mip_count = mip;
+        break;
+      }
+    }
+  }
+  const UINT packed_mip_count = mip_levels - standard_mip_count;
+  const UINT packed_tile_count = packed_mip_count ? 1u : 0u;
+  UINT standard_tiles_per_slice = 0;
+  for (UINT mip = 0; mip < standard_mip_count; mip++) {
+    const UINT width = std::max<UINT>(1, desc.Width >> mip);
+    const UINT height = std::max<UINT>(1, desc.Height >> mip);
+    const UINT width_tiles =
+        (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+    const UINT height_tiles =
+        (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+    const UINT depth =
+        volume ? std::max<UINT>(1, desc.DepthOrArraySize >> mip) : 1;
+    const UINT depth_tiles =
+        (depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+    standard_tiles_per_slice += width_tiles * height_tiles * depth_tiles;
+  }
+  UINT total_tiles = 0;
+  for (UINT array_slice = 0; array_slice < array_size; array_slice++) {
+    const UINT slice_start =
+        array_slice * (standard_tiles_per_slice + packed_tile_count);
+    for (UINT mip = 0; mip < mip_levels; mip++) {
+      const UINT subresource = array_slice * mip_levels + mip;
+      if (sub_resource_tilings && sub_resource_tiling_count &&
+          subresource >= first_sub_resource_tiling &&
+          subresource < first_sub_resource_tiling +
+                            requested_tiling_count) {
+        const UINT output_index = subresource - first_sub_resource_tiling;
+        if (mip < standard_mip_count) {
+          const UINT width = std::max<UINT>(1, desc.Width >> mip);
+          const UINT height = std::max<UINT>(1, desc.Height >> mip);
+          const UINT width_tiles =
+              (width + shape.WidthInTexels - 1) / shape.WidthInTexels;
+          const UINT height_tiles =
+              (height + shape.HeightInTexels - 1) / shape.HeightInTexels;
+          const UINT depth =
+              volume ? std::max<UINT>(1, desc.DepthOrArraySize >> mip) : 1;
+          const UINT depth_tiles =
+              (depth + shape.DepthInTexels - 1) / shape.DepthInTexels;
+          UINT prior_tiles = 0;
+          for (UINT prior_mip = 0; prior_mip < mip; prior_mip++) {
+            const UINT prior_width =
+                std::max<UINT>(1, desc.Width >> prior_mip);
+            const UINT prior_height =
+                std::max<UINT>(1, desc.Height >> prior_mip);
+            const UINT prior_depth = volume
+                                          ? std::max<UINT>(
+                                                1, desc.DepthOrArraySize >>
+                                                       prior_mip)
+                                          : 1;
+            prior_tiles +=
+                ((prior_width + shape.WidthInTexels - 1) /
+                 shape.WidthInTexels) *
+                ((prior_height + shape.HeightInTexels - 1) /
+                 shape.HeightInTexels) *
+                ((prior_depth + shape.DepthInTexels - 1) /
+                 shape.DepthInTexels);
+          }
+          sub_resource_tilings[output_index] = {
+              width_tiles, static_cast<UINT16>(height_tiles),
+              static_cast<UINT16>(depth_tiles), slice_start + prior_tiles};
+        } else {
+          sub_resource_tilings[output_index] = {0, 0, 0,
+                                                 D3D12_PACKED_TILE};
+        }
+      }
+    }
+    total_tiles += standard_tiles_per_slice + packed_tile_count;
+  }
+  if (total_tile_count)
+    *total_tile_count = total_tiles;
+  if (packed_mip_info) {
+    packed_mip_info->NumStandardMips =
+        static_cast<UINT8>(std::min<UINT>(standard_mip_count, 255));
+    packed_mip_info->NumPackedMips =
+        static_cast<UINT8>(std::min<UINT>(packed_mip_count, 255));
+    packed_mip_info->NumTilesForPackedMips = packed_tile_count;
+    packed_mip_info->StartTileIndexInOverallResource =
+        packed_mip_count ? standard_tiles_per_slice : 0;
+  }
+  if (standard_tile_shape)
+    *standard_tile_shape = shape;
+  if (sub_resource_tiling_count)
+    *sub_resource_tiling_count = requested_tiling_count
+                                     ? std::min(requested_tiling_count,
+                                                tiling_count)
+                                     : tiling_count;
 }
 
 LUID *STDMETHODCALLTYPE MTLD3D12Device::GetAdapterLuid(LUID *__ret) {
@@ -3650,6 +5249,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetResidencyPriority(
     const D3D12_RESIDENCY_PRIORITY *priorities) {
   TRACE("SetResidencyPriority count=%u objects=%p priorities=%p", object_count,
         (void *)objects, (void *)priorities);
+  if (object_count && (!objects || !priorities))
+    return E_INVALIDARG;
+  for (UINT i = 0; i < object_count; i++)
+    if (!objects[i])
+      return E_INVALIDARG;
   return S_OK;
 }
 
@@ -3669,8 +5273,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
 
   D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_desc = {};
   D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
+  D3D12_SHADER_BYTECODE amplification_shader = {};
+  D3D12_SHADER_BYTECODE mesh_shader = {};
   bool has_cs = false;
   bool is_compute = true;
+  bool depth_bounds_test_enable = false;
   ID3D12RootSignature *created_stream_root_signature = nullptr;
   struct CreatedRootSignatureGuard {
     ID3D12RootSignature *&root_signature;
@@ -3777,6 +5384,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
       if (!read_pipeline_stream_subobject(subobject, end,
                                           &graphics_desc.DepthStencilState))
         return E_INVALIDARG;
+      depth_bounds_test_enable = false;
       is_compute = false;
       advanced =
           advance_pipeline_stream<D3D12_DEPTH_STENCIL_DESC>(&stream, end);
@@ -3870,6 +5478,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
         return E_INVALIDARG;
       graphics_desc.DepthStencilState =
           convert_depth_stencil_desc1(depth_stencil);
+      depth_bounds_test_enable = depth_stencil.DepthBoundsTestEnable;
       is_compute = false;
       advanced = advance_pipeline_stream<D3D12DepthStencilDesc1>(&stream, end);
       break;
@@ -3890,6 +5499,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
         return E_INVALIDARG;
       graphics_desc.DepthStencilState =
           convert_depth_stencil_desc2(depth_stencil);
+      depth_bounds_test_enable = depth_stencil.DepthBoundsTestEnable;
       TRACE("CreatePipelineState: depth-stencil2 depth=%d stencil=%d "
             "depth_bounds=%d",
             depth_stencil.DepthEnable, depth_stencil.StencilEnable,
@@ -3945,14 +5555,21 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
       advanced = advance_pipeline_stream<D3D12_SHADER_BYTECODE>(&stream, end);
       break;
     }
-    case 24:   // AS
-    case 25: { // MS
-      D3D12_SHADER_BYTECODE shader = {};
-      if (!read_pipeline_stream_subobject(subobject, end, &shader))
+    case 24: { // AS
+      if (!read_pipeline_stream_subobject(subobject, end,
+                                          &amplification_shader))
         return E_INVALIDARG;
-      TRACE("CreatePipelineState: mesh/amplification shader subobject type=%u "
-            "ignored",
-            type);
+      TRACE("CreatePipelineState: amplification shader bytes=%zu",
+            amplification_shader.BytecodeLength);
+      is_compute = false;
+      advanced = advance_pipeline_stream<D3D12_SHADER_BYTECODE>(&stream, end);
+      break;
+    }
+    case 25: { // MS
+      if (!read_pipeline_stream_subobject(subobject, end, &mesh_shader))
+        return E_INVALIDARG;
+      TRACE("CreatePipelineState: mesh shader bytes=%zu",
+            mesh_shader.BytecodeLength);
       is_compute = false;
       advanced = advance_pipeline_stream<D3D12_SHADER_BYTECODE>(&stream, end);
       break;
@@ -3977,11 +5594,41 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
     return CreateComputePipelineState(&compute_desc, riid, ppPipelineState);
   }
 
+  if (mesh_shader.pShaderBytecode && mesh_shader.BytecodeLength) {
+    if (has_cs) {
+      TRACE("CreatePipelineState: mesh and compute shaders are mutually exclusive");
+      return E_INVALIDARG;
+    }
+    auto *pso = new MTLD3D12PipelineState(this, false);
+    pso->SetGraphicsDesc(graphics_desc);
+    pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
+    pso->SetMeshShaders(amplification_shader, mesh_shader);
+    bool compiled = pso->RequestCompile(false);
+    TRACE("ID3D12Device2::CreatePipelineState mesh compile=%d stage=%s "
+          "detail=%s",
+          compiled, pso->GetCompileFailureStage().c_str(),
+          pso->GetCompileFailureDetail().c_str());
+    if (!compiled) {
+      pso->Release();
+      return E_FAIL;
+    }
+    HRESULT hr = pso->QueryInterface(riid, ppPipelineState);
+    pso->Release();
+    return hr;
+  }
+
+  if (amplification_shader.pShaderBytecode &&
+      amplification_shader.BytecodeLength) {
+    TRACE("CreatePipelineState: amplification shader without mesh shader");
+    return E_INVALIDARG;
+  }
+
   TRACE("ID3D12Device2::CreatePipelineState -> delegating to CreateGraphicsPSO "
         "VS=%p PS=%p NumRT=%u",
         graphics_desc.VS.pShaderBytecode, graphics_desc.PS.pShaderBytecode,
         graphics_desc.NumRenderTargets);
-  return CreateGraphicsPipelineState(&graphics_desc, riid, ppPipelineState);
+  return CreateGraphicsPipelineStateInternal(
+      &graphics_desc, riid, ppPipelineState, depth_bounds_test_enable);
 }
 
 /*** ID3D12Device3 ***/
@@ -4058,7 +5705,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource1(
     const D3D12_CLEAR_VALUE *optimized_clear_value,
     ID3D12ProtectedResourceSession *protected_session, REFIID riid,
     void **resource) {
-  TRACE("ID3D12Device4::CreateReservedResource1 -> E_NOTIMPL");
+  TRACE("ID3D12Device4::CreateReservedResource1 protected=%p",
+        (void *)protected_session);
+  if (protected_session)
+    return E_NOTIMPL;
   return CreateReservedResource(desc, initial_state, optimized_clear_value,
                                 riid, resource);
 }
@@ -4112,7 +5762,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateMetaCommand(
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateStateObject(
     const D3D12_STATE_OBJECT_DESC *desc, REFIID riid, void **state_object) {
-  TRACE("ID3D12Device5::CreateStateObject type=%u subobjects=%u -> E_NOTIMPL",
+  TRACE("ID3D12Device5::CreateStateObject type=%u subobjects=%u",
         desc ? (unsigned)desc->Type : 0xFFFFFFFFu,
         desc ? desc->NumSubobjects : 0);
   if (!state_object)
@@ -4120,7 +5770,129 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateStateObject(
   *state_object = nullptr;
   if (!desc || (desc->NumSubobjects && !desc->pSubobjects))
     return E_INVALIDARG;
-  return E_NOTIMPL;
+  auto *object = new MTLD3D12StateObject(this, desc);
+  if (!object->Initialize(desc)) {
+    object->Release();
+    return E_FAIL;
+  }
+  HRESULT hr = object->QueryInterface(riid, state_object);
+  object->Release();
+  return hr;
+}
+
+static bool D3D12ResolveTriangleGeometryInfo(
+    MTLD3D12Device *device,
+    const D3D12_RAYTRACING_GEOMETRY_DESC *geometry,
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags,
+    WMTPrimitiveAccelerationStructureInfo &info) {
+  info = {};
+  if (!device)
+    return false;
+  if (!geometry ||
+      geometry->Type != D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES ||
+      geometry->Triangles.VertexFormat != DXGI_FORMAT_R32G32B32_FLOAT ||
+      !geometry->Triangles.VertexBuffer.StartAddress ||
+      !geometry->Triangles.VertexBuffer.StrideInBytes)
+    return false;
+
+  auto *vertex_resource = device->LookupResourceByGPUAddress(
+      geometry->Triangles.VertexBuffer.StartAddress);
+  if (!vertex_resource || !vertex_resource->GetMTLBuffer().handle)
+    return false;
+
+  info.vertex_buffer = vertex_resource->GetMTLBuffer().handle;
+  info.vertex_buffer_offset = geometry->Triangles.VertexBuffer.StartAddress -
+                              vertex_resource->GetGPUVirtualAddress();
+  info.vertex_stride = geometry->Triangles.VertexBuffer.StrideInBytes;
+  info.opaque =
+      (geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) != 0;
+  info.allow_refit =
+      (flags &
+       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) != 0;
+
+  if (geometry->Triangles.IndexFormat == DXGI_FORMAT_UNKNOWN) {
+    info.index_type = WMTAccelerationStructureIndexTypeNone;
+    info.triangle_count = geometry->Triangles.VertexCount / 3;
+  } else {
+    if (geometry->Triangles.IndexFormat != DXGI_FORMAT_R16_UINT &&
+        geometry->Triangles.IndexFormat != DXGI_FORMAT_R32_UINT)
+      return false;
+    auto *index_resource = device->LookupResourceByGPUAddress(
+        geometry->Triangles.IndexBuffer);
+    if (!index_resource || !index_resource->GetMTLBuffer().handle)
+      return false;
+    info.index_buffer = index_resource->GetMTLBuffer().handle;
+    info.index_buffer_offset = geometry->Triangles.IndexBuffer -
+                               index_resource->GetGPUVirtualAddress();
+    info.index_type = geometry->Triangles.IndexFormat == DXGI_FORMAT_R32_UINT
+                          ? WMTAccelerationStructureIndexTypeUInt32
+                          : WMTAccelerationStructureIndexTypeUInt16;
+    info.triangle_count = geometry->Triangles.IndexCount / 3;
+  }
+  return info.triangle_count != 0;
+}
+
+bool D3D12ResolveTriangleAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTPrimitiveAccelerationStructureInfo &info) {
+  if (!device || !inputs ||
+      inputs->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ||
+      inputs->NumDescs != 1)
+    return false;
+  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+  if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
+    geometry = inputs->pGeometryDescs;
+  else if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+           inputs->ppGeometryDescs)
+    geometry = inputs->ppGeometryDescs[0];
+  return D3D12ResolveTriangleGeometryInfo(device, geometry, inputs->Flags,
+                                          info);
+}
+
+bool D3D12ResolveAABBAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTAABBAccelerationStructureInfo &info) {
+  info = {};
+  if (!device || !inputs ||
+      inputs->Type != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ||
+      inputs->NumDescs != 1)
+    return false;
+
+  const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+  if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY) {
+    geometry = inputs->pGeometryDescs;
+  } else if (inputs->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+             inputs->ppGeometryDescs) {
+    geometry = inputs->ppGeometryDescs[0];
+  }
+  if (!geometry ||
+      geometry->Type !=
+          D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS ||
+      !geometry->AABBs.AABBs.StartAddress ||
+      !geometry->AABBs.AABBs.StrideInBytes ||
+      !geometry->AABBs.AABBCount)
+    return false;
+
+  auto *resource = device->LookupResourceByGPUAddress(
+      geometry->AABBs.AABBs.StartAddress);
+  if (!resource || !resource->GetMTLBuffer().handle)
+    return false;
+  info.bounding_box_buffer = resource->GetMTLBuffer().handle;
+  info.bounding_box_buffer_offset = geometry->AABBs.AABBs.StartAddress -
+                                    resource->GetGPUVirtualAddress();
+  info.bounding_box_stride = geometry->AABBs.AABBs.StrideInBytes;
+  info.bounding_box_count = geometry->AABBs.AABBCount;
+  info.opaque =
+      (geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) != 0;
+  // Entry zero hosts the triangle indirection wrapper. Procedural geometry
+  // selects the procedural indirection wrapper at entry one.
+  info.intersection_function_table_offset = 1;
+  info.allow_refit =
+      (inputs->Flags &
+       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) != 0;
+  return true;
 }
 
 void STDMETHODCALLTYPE
@@ -4128,9 +5900,207 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *desc,
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO *info) {
   TRACE("ID3D12Device5::GetRaytracingAccelerationStructurePrebuildInfo");
-  if (info) {
-    memset(info, 0, sizeof(*info));
+  if (!info)
+    return;
+  memset(info, 0, sizeof(*info));
+  if (!m_metal_raytracing_supported)
+    return;
+
+  if (!desc)
+    return;
+  WMTAccelerationStructureSizes sizes = {};
+  uint64_t primitive_count = 0;
+  const char *kind = "unknown";
+  if (desc->Type ==
+      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
+    if (!desc->NumDescs) {
+      TRACE("  prebuild Metal TLAS size query failed: no instances");
+      return;
+    }
+    // A logical D3D12 instance can refer to the tagged mixed-geometry BLAS
+    // fallback.  The replay path flattens that BLAS into one triangle and one
+    // AABB instance because Metal does not safely accept mixed descriptor
+    // arrays on this toolchain.  Reserve the worst-case two Metal instances
+    // per D3D12 instance; over-allocation is legal for prebuild results and
+    // avoids making the destination too small when the instance buffer is not
+    // CPU-readable at query time.
+    const uint64_t metal_instance_count =
+        std::min<uint64_t>(uint64_t(desc->NumDescs) * 2u, UINT32_MAX);
+    if (!GetMTLDevice().accelerationStructureSizesForInstances(
+            metal_instance_count,
+            (desc->Flags &
+             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+                0,
+            sizes)) {
+      TRACE("  prebuild Metal TLAS size query failed");
+      return;
+    }
+    primitive_count = metal_instance_count;
+    kind = "TLAS instances";
+  } else if (desc->NumDescs > 1) {
+    if (desc->NumDescs >
+        CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs) {
+      TRACE("  prebuild too many BLAS geometries=%u", desc->NumDescs);
+      return;
+    }
+    bool has_aabb_geometry = false;
+    for (UINT i = 0; i < desc->NumDescs; ++i) {
+      const auto *geometry =
+          desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? (desc->pGeometryDescs ? &desc->pGeometryDescs[i] : nullptr)
+              : (desc->ppGeometryDescs ? desc->ppGeometryDescs[i] : nullptr);
+      has_aabb_geometry |=
+          geometry &&
+          geometry->Type ==
+              D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+    }
+    if (has_aabb_geometry) {
+      WMTPrimitiveAccelerationStructureInfo triangle_info = {};
+      WMTAABBAccelerationStructureInfo aabb_info = {};
+      bool valid = true;
+      UINT triangle_count = 0;
+      UINT aabb_count = 0;
+      for (UINT i = 0; valid && i < desc->NumDescs; ++i) {
+        const auto *geometry =
+            desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+                ? (desc->pGeometryDescs ? &desc->pGeometryDescs[i] : nullptr)
+                : (desc->ppGeometryDescs ? desc->ppGeometryDescs[i] : nullptr);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one = *desc;
+        one.NumDescs = 1;
+        one.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        if (geometry &&
+            geometry->Type ==
+                D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+          one.pGeometryDescs = geometry;
+          valid = ++aabb_count == 1 &&
+                  D3D12ResolveAABBAccelerationStructureInfo(this, &one,
+                                                             aabb_info);
+          if (valid)
+            primitive_count += aabb_info.bounding_box_count;
+        } else {
+          one.pGeometryDescs = geometry;
+          valid = ++triangle_count == 1 &&
+                  D3D12ResolveTriangleGeometryInfo(this, geometry, desc->Flags,
+                                                    triangle_info);
+          if (valid)
+            primitive_count += triangle_info.triangle_count;
+        }
+      }
+      WMTAccelerationStructureSizes triangle_sizes = {};
+      WMTAccelerationStructureSizes aabb_sizes = {};
+      WMTAccelerationStructureSizes instance_sizes = {};
+      const bool allow_update =
+          (desc->Flags &
+           D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+          0;
+      if (!valid || triangle_count != 1 || aabb_count != 1 ||
+          !GetMTLDevice().accelerationStructureSizesForTriangles(
+              triangle_info, triangle_sizes) ||
+          !GetMTLDevice().accelerationStructureSizesForAABBs(
+              aabb_info, aabb_sizes) ||
+          !GetMTLDevice().accelerationStructureSizesForInstances(
+              2, allow_update, instance_sizes)) {
+        TRACE("  prebuild mixed-geometry composite size query failed valid=%d "
+              "triangles=%u aabbs=%u tri_handle=%llu aabb_handle=%llu "
+              "aabb_addr=0x%llx stride=%u count=%u "
+              "tri_size=%llu aabb_size=%llu instance_size=%llu",
+              valid ? 1 : 0, triangle_count, aabb_count,
+              (unsigned long long)triangle_info.vertex_buffer,
+              (unsigned long long)aabb_info.bounding_box_buffer,
+              (unsigned long long)(desc->pGeometryDescs && desc->NumDescs > 1
+                                       ? desc->pGeometryDescs[1].AABBs.AABBs.StartAddress
+                                       : 0),
+              desc->pGeometryDescs && desc->NumDescs > 1
+                  ? desc->pGeometryDescs[1].AABBs.AABBs.StrideInBytes
+                  : 0,
+              desc->pGeometryDescs && desc->NumDescs > 1
+                  ? desc->pGeometryDescs[1].AABBs.AABBCount
+                  : 0,
+              (unsigned long long)triangle_sizes.acceleration_structure_size,
+              (unsigned long long)aabb_sizes.acceleration_structure_size,
+              (unsigned long long)instance_sizes.acceleration_structure_size);
+        return;
+      }
+      sizes.acceleration_structure_size =
+          instance_sizes.acceleration_structure_size;
+      sizes.build_scratch_buffer_size = std::max(
+          {triangle_sizes.build_scratch_buffer_size,
+           aabb_sizes.build_scratch_buffer_size,
+           instance_sizes.build_scratch_buffer_size});
+      sizes.refit_scratch_buffer_size = std::max(
+          {triangle_sizes.refit_scratch_buffer_size,
+           aabb_sizes.refit_scratch_buffer_size,
+           instance_sizes.refit_scratch_buffer_size});
+      kind = "BLAS mixed geometries";
+    } else {
+    std::array<WMTPrimitiveAccelerationStructureInfo,
+               CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
+        metal_infos = {};
+    for (UINT i = 0; i < desc->NumDescs; i++) {
+      const auto *geometry =
+          desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? (desc->pGeometryDescs ? &desc->pGeometryDescs[i] : nullptr)
+              : (desc->ppGeometryDescs ? desc->ppGeometryDescs[i] : nullptr);
+      if (!D3D12ResolveTriangleGeometryInfo(this, geometry, desc->Flags,
+                                            metal_infos[i])) {
+        TRACE("  prebuild unsupported multi-geometry BLAS entry=%u", i);
+        return;
+      }
+      primitive_count += metal_infos[i].triangle_count;
+    }
+    if (!GetMTLDevice().accelerationStructureSizesForTriangleGeometries(
+            metal_infos.data(), desc->NumDescs, sizes)) {
+      TRACE("  prebuild multi-geometry Metal size query failed");
+      return;
+    }
+    kind = "BLAS triangle geometries";
+    }
+  } else {
+    const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
+    if (desc->NumDescs == 1 &&
+        desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY)
+      geometry = desc->pGeometryDescs;
+    else if (desc->NumDescs == 1 &&
+             desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
+             desc->ppGeometryDescs)
+      geometry = desc->ppGeometryDescs[0];
+    if (geometry &&
+        geometry->Type ==
+            D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+      WMTAABBAccelerationStructureInfo metal_info = {};
+      if (!D3D12ResolveAABBAccelerationStructureInfo(this, desc, metal_info) ||
+          !GetMTLDevice().accelerationStructureSizesForAABBs(metal_info,
+                                                             sizes)) {
+        TRACE("  prebuild unsupported AABB input shape");
+        return;
+      }
+      primitive_count = metal_info.bounding_box_count;
+      kind = "BLAS AABBs";
+    } else {
+      WMTPrimitiveAccelerationStructureInfo metal_info = {};
+      if (!D3D12ResolveTriangleAccelerationStructureInfo(this, desc,
+                                                          metal_info) ||
+          !GetMTLDevice().accelerationStructureSizesForTriangles(metal_info,
+                                                                 sizes)) {
+        TRACE("  prebuild unsupported input shape");
+        return;
+      }
+      primitive_count = metal_info.triangle_count;
+      kind = "BLAS triangles";
+    }
   }
+  auto align_256 = [](uint64_t value) { return (value + 255ull) & ~255ull; };
+  info->ResultDataMaxSizeInBytes =
+      align_256(sizes.acceleration_structure_size);
+  info->ScratchDataSizeInBytes =
+      align_256(sizes.build_scratch_buffer_size);
+  info->UpdateScratchDataSizeInBytes =
+      align_256(sizes.refit_scratch_buffer_size);
+  TRACE("  prebuild %s=%llu result=%llu scratch=%llu update=%llu", kind,
+        (unsigned long long)primitive_count,
+        (unsigned long long)info->ResultDataMaxSizeInBytes,
+        (unsigned long long)info->ScratchDataSizeInBytes,
+        (unsigned long long)info->UpdateScratchDataSizeInBytes);
 }
 
 D3D12_DRIVER_MATCHING_IDENTIFIER_STATUS STDMETHODCALLTYPE
@@ -4138,7 +6108,19 @@ MTLD3D12Device::CheckDriverMatchingIdentifier(
     D3D12_SERIALIZED_DATA_TYPE serialized_data_type,
     const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER
         *identifier_to_check) {
-  TRACE("ID3D12Device5::CheckDriverMatchingIdentifier -> UNRECOGNIZED");
+  if (serialized_data_type !=
+      D3D12_SERIALIZED_DATA_RAYTRACING_ACCELERATION_STRUCTURE)
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_UNSUPPORTED_TYPE;
+  if (!identifier_to_check)
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
+  const auto &expected = GetRaytracingSerializationIdentifier();
+  if (!std::memcmp(identifier_to_check, &expected, sizeof(expected))) {
+    TRACE("ID3D12Device5::CheckDriverMatchingIdentifier -> COMPATIBLE");
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_COMPATIBLE_WITH_DEVICE;
+  }
+  if (!std::memcmp(&identifier_to_check->DriverOpaqueGUID,
+                   &expected.DriverOpaqueGUID, sizeof(expected.DriverOpaqueGUID)))
+    return D3D12_DRIVER_MATCHING_IDENTIFIER_INCOMPATIBLE_VERSION;
   return D3D12_DRIVER_MATCHING_IDENTIFIER_UNRECOGNIZED;
 }
 
@@ -4155,16 +6137,24 @@ HRESULT STDMETHODCALLTYPE
 MTLD3D12Device::AddToStateObject(const D3D12_STATE_OBJECT_DESC *addition,
                                  ID3D12StateObject *state_object_to_grow_from,
                                  REFIID riid, void **new_state_object) {
-  TRACE("ID3D12Device7::AddToStateObject type=%u subobjects=%u base=%p -> "
-        "E_NOTIMPL",
+  TRACE("ID3D12Device7::AddToStateObject type=%u subobjects=%u base=%p",
         addition ? (unsigned)addition->Type : 0xFFFFFFFFu,
         addition ? addition->NumSubobjects : 0, state_object_to_grow_from);
   if (!new_state_object)
     return E_POINTER;
   *new_state_object = nullptr;
-  if (!addition || (addition->NumSubobjects && !addition->pSubobjects))
+  if (!addition || !state_object_to_grow_from ||
+      (addition->NumSubobjects && !addition->pSubobjects))
     return E_INVALIDARG;
-  return E_NOTIMPL;
+  auto *object =
+      new MTLD3D12StateObject(this, addition, state_object_to_grow_from);
+  if (!object->InitializeAddition(addition)) {
+    object->Release();
+    return E_NOTIMPL;
+  }
+  HRESULT hr = object->QueryInterface(riid, new_state_object);
+  object->Release();
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateProtectedResourceSession1(
@@ -4176,6 +6166,26 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateProtectedResourceSession1(
 
 /*** ID3D12Device8 ***/
 static const int MAX_DESCS = 256;
+
+static bool IsSamplerFeedbackFormat(DXGI_FORMAT format) {
+  return format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+         format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE;
+}
+
+static bool ValidateSamplerFeedbackResourceDesc(
+    const D3D12_RESOURCE_DESC1 &desc) {
+  if (!IsSamplerFeedbackFormat(desc.Format))
+    return true;
+  return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+         desc.Width != 0 && desc.Height != 0 &&
+         desc.DepthOrArraySize != 0 && desc.SampleDesc.Count == 1 &&
+         desc.SampleDesc.Quality == 0 &&
+         desc.Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN &&
+         (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+         desc.SamplerFeedbackMipRegion.Width != 0 &&
+         desc.SamplerFeedbackMipRegion.Height != 0 &&
+         desc.SamplerFeedbackMipRegion.Depth <= 1;
+}
 
 D3D12_RESOURCE_ALLOCATION_INFO *STDMETHODCALLTYPE
 MTLD3D12Device::GetResourceAllocationInfo2(
@@ -4200,6 +6210,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource2(
     const D3D12_CLEAR_VALUE *optimized_clear_value,
     ID3D12ProtectedResourceSession *protected_session, REFIID riid_resource,
     void **resource) {
+  if (!desc || !resource)
+    return E_POINTER;
+  if (!ValidateSamplerFeedbackResourceDesc(*desc)) {
+    InitReturnPtr(resource);
+    return E_INVALIDARG;
+  }
   if (protected_session) {
     TRACE("ID3D12Device8::CreateCommittedResource2 -> E_NOTIMPL (protected "
           "session)");
@@ -4207,9 +6223,22 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource2(
   }
   D3D12_RESOURCE_DESC desc_compat;
   memcpy(&desc_compat, desc, sizeof(D3D12_RESOURCE_DESC));
-  return CreateCommittedResource(heap_properties, heap_flags, &desc_compat,
-                                 initial_resource_state, optimized_clear_value,
-                                 riid_resource, resource);
+  HRESULT hr = CreateCommittedResource(
+      heap_properties, heap_flags, &desc_compat, initial_resource_state,
+      optimized_clear_value, riid_resource, resource);
+  if (SUCCEEDED(hr) && resource && *resource &&
+      (desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+       desc->Format ==
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)) {
+    if (!static_cast<MTLD3D12Resource *>(
+             static_cast<ID3D12Resource *>(*resource))
+             ->ConfigureSamplerFeedback(desc->SamplerFeedbackMipRegion)) {
+      static_cast<ID3D12Resource *>(*resource)->Release();
+      *resource = nullptr;
+      hr = E_OUTOFMEMORY;
+    }
+  }
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource1(
@@ -4217,16 +6246,99 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource1(
     D3D12_RESOURCE_STATES initial_state,
     const D3D12_CLEAR_VALUE *optimized_clear_value, REFIID riid,
     void **resource) {
+  if (!desc || !resource)
+    return E_POINTER;
+  if (!ValidateSamplerFeedbackResourceDesc(*desc)) {
+    InitReturnPtr(resource);
+    return E_INVALIDARG;
+  }
   D3D12_RESOURCE_DESC desc_compat;
   memcpy(&desc_compat, desc, sizeof(D3D12_RESOURCE_DESC));
-  return CreatePlacedResource(heap, heap_offset, &desc_compat, initial_state,
-                              optimized_clear_value, riid, resource);
+  HRESULT hr = CreatePlacedResource(heap, heap_offset, &desc_compat,
+                                    initial_state, optimized_clear_value, riid,
+                                    resource);
+  if (SUCCEEDED(hr) && resource && *resource &&
+      (desc->Format == DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE ||
+       desc->Format ==
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)) {
+    if (!static_cast<MTLD3D12Resource *>(
+             static_cast<ID3D12Resource *>(*resource))
+             ->ConfigureSamplerFeedback(desc->SamplerFeedbackMipRegion)) {
+      static_cast<ID3D12Resource *>(*resource)->Release();
+      *resource = nullptr;
+      hr = E_OUTOFMEMORY;
+    }
+  }
+  return hr;
 }
 
 void STDMETHODCALLTYPE MTLD3D12Device::CreateSamplerFeedbackUnorderedAccessView(
     ID3D12Resource *targeted_resource, ID3D12Resource *feedback_resource,
     D3D12_CPU_DESCRIPTOR_HANDLE dst_descriptor) {
-  TRACE("ID3D12Device8::CreateSamplerFeedbackUnorderedAccessView -> noop");
+  auto *d = reinterpret_cast<D3D12Descriptor *>(dst_descriptor.ptr);
+  auto *feedback = static_cast<MTLD3D12Resource *>(feedback_resource);
+  auto *target = static_cast<MTLD3D12Resource *>(targeted_resource);
+  if (d) {
+    d->resource = nullptr;
+    d->resource_uav_counter = nullptr;
+    d->sampler_feedback_target = nullptr;
+    d->is_sampler_feedback = false;
+    d->metal_texture_view = {};
+    d->metal_texture_gpu_id = 0;
+  }
+  if (!d || !feedback || !target || !feedback->IsSamplerFeedback()) {
+    UpdateDescriptorTableMirror(this, d);
+    TRACE("CreateSamplerFeedbackUAV rejected target=%p feedback=%p desc=%p configured=%d",
+          (void *)targeted_resource, (void *)feedback_resource, (void *)d,
+          feedback ? feedback->IsSamplerFeedback() : 0);
+    return;
+  }
+  D3D12_RESOURCE_DESC target_desc = {};
+  D3D12_RESOURCE_DESC feedback_desc = {};
+  target->GetDesc(&target_desc);
+  feedback->GetDesc(&feedback_desc);
+  if (target_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      feedback_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      target_desc.Width != feedback_desc.Width ||
+      target_desc.Height != feedback_desc.Height ||
+      target_desc.DepthOrArraySize != feedback_desc.DepthOrArraySize ||
+      target_desc.MipLevels != feedback_desc.MipLevels ||
+      target_desc.SampleDesc.Count != 1 ||
+      feedback_desc.SampleDesc.Count != 1 ||
+      !(feedback_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) ||
+      (feedback_desc.Format !=
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIN_MIP_OPAQUE &&
+       feedback_desc.Format !=
+           DXGI_FORMAT_SAMPLER_FEEDBACK_MIP_REGION_USED_OPAQUE)) {
+    TRACE("CreateSamplerFeedbackUAV rejected dimensions/formats target_dim=%u feedback_dim=%u format=%u",
+          (unsigned)target_desc.Dimension, (unsigned)feedback_desc.Dimension,
+          (unsigned)feedback_desc.Format);
+    return;
+  }
+  d->resource = feedback_resource;
+  d->resource_uav_counter = nullptr;
+  d->sampler_feedback_target = targeted_resource;
+  d->is_sampler_feedback = true;
+  d->metal_texture_view = {};
+  d->metal_texture_gpu_id = 0;
+  d->type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+  d->uav = {};
+  d->uav.Format = DXGI_FORMAT_R32_TYPELESS;
+  d->uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+  d->uav.Buffer.FirstElement = feedback->GetSamplerFeedbackDataOffset() / 4;
+  d->uav.Buffer.NumElements = static_cast<UINT>(
+      (feedback->GetBufferByteLength() -
+       feedback->GetSamplerFeedbackDataOffset()) /
+      4);
+  d->uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+  UpdateDescriptorTableMirror(this, d);
+  TRACE("CreateSamplerFeedbackUAV target=%p feedback=%p physical=%ux%u row=%u bytes=%llu",
+        (void *)targeted_resource, (void *)feedback_resource,
+        feedback->GetSamplerFeedbackWidth(),
+        feedback->GetSamplerFeedbackHeight(),
+        feedback->GetSamplerFeedbackRowPitch(),
+        (unsigned long long)feedback->GetBufferByteLength());
 }
 
 void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints1(
@@ -4275,6 +6387,85 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandQueue1(
 }
 
 /*** ID3D12Device10 ***/
+static D3D12_RESOURCE_STATES
+ResourceStateForBarrierLayout(D3D12_BARRIER_LAYOUT layout) {
+  switch (layout) {
+  case D3D12_BARRIER_LAYOUT_GENERIC_READ:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ:
+    return D3D12_RESOURCE_STATE_GENERIC_READ;
+  case D3D12_BARRIER_LAYOUT_RENDER_TARGET:
+    return D3D12_RESOURCE_STATE_RENDER_TARGET;
+  case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS:
+    return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+  case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE:
+    return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+  case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ:
+    return D3D12_RESOURCE_STATE_DEPTH_READ;
+  case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE:
+    return static_cast<D3D12_RESOURCE_STATES>(
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+  case D3D12_BARRIER_LAYOUT_COPY_SOURCE:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE:
+    return D3D12_RESOURCE_STATE_COPY_SOURCE;
+  case D3D12_BARRIER_LAYOUT_COPY_DEST:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST:
+    return D3D12_RESOURCE_STATE_COPY_DEST;
+  case D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE:
+    return D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+  case D3D12_BARRIER_LAYOUT_RESOLVE_DEST:
+    return D3D12_RESOURCE_STATE_RESOLVE_DEST;
+  case D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE:
+    return D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE;
+  default:
+    return D3D12_RESOURCE_STATE_COMMON;
+  }
+}
+
+static bool ValidateCastableFormats(const D3D12_RESOURCE_DESC1 *desc,
+                                    UINT32 count,
+                                    const DXGI_FORMAT *formats) {
+  if (!desc)
+    return false;
+  if (!count)
+    return true;
+  if (!formats || desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    return false;
+  const UINT resource_block = FormatBlockSize(desc->Format);
+  const UINT resource_bytes = FormatBytesPerTexel(desc->Format);
+  if (!resource_bytes)
+    return false;
+  for (UINT32 i = 0; i < count; i++) {
+    const DXGI_FORMAT format = formats[i];
+    const UINT view_block = FormatBlockSize(format);
+    const UINT view_bytes = FormatBytesPerTexel(format);
+    if (format == DXGI_FORMAT_UNKNOWN || !view_bytes ||
+        MTLD3D12PipelineState::DXGIToMTLPixelFormat(format) ==
+            WMTPixelFormatInvalid)
+      return false;
+    if (resource_block == 1) {
+      if (view_block != 1 || view_bytes != resource_bytes)
+        return false;
+      continue;
+    }
+    if (view_bytes != resource_bytes)
+      return false;
+    if (view_block == resource_block)
+      continue;
+    if (view_block != 1 || desc->MipLevels != 1 ||
+        desc->DepthOrArraySize != 1)
+      return false;
+  }
+  return true;
+}
+
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource3(
     const D3D12_HEAP_PROPERTIES *heap_properties, D3D12_HEAP_FLAGS heap_flags,
     const D3D12_RESOURCE_DESC1 *desc, D3D12_BARRIER_LAYOUT initial_layout,
@@ -4287,11 +6478,25 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource3(
           "session)");
     return E_NOTIMPL;
   }
-  TRACE("ID3D12Device10::CreateCommittedResource3 -> delegating to "
-        "CreateCommittedResource2");
-  return CreateCommittedResource2(
-      heap_properties, heap_flags, desc, (D3D12_RESOURCE_STATES)initial_layout,
+  if (!ValidateCastableFormats(desc, castable_formats_count,
+                               castable_formats)) {
+    TRACE("ID3D12Device10::CreateCommittedResource3 rejected invalid "
+          "castable-format list count=%u",
+          castable_formats_count);
+    return E_INVALIDARG;
+  }
+  TRACE("ID3D12Device10::CreateCommittedResource3 castable_formats=%u",
+        castable_formats_count);
+  HRESULT hr = CreateCommittedResource2(
+      heap_properties, heap_flags, desc,
+      ResourceStateForBarrierLayout(initial_layout),
       optimized_clear_value, protected_session, riid_resource, resource);
+  if (SUCCEEDED(hr) && resource && *resource) {
+    static_cast<MTLD3D12Resource *>(
+        static_cast<ID3D12Resource *>(*resource))
+        ->SetCastableFormats(castable_formats_count, castable_formats);
+  }
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource2(
@@ -4300,11 +6505,24 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource2(
     const D3D12_CLEAR_VALUE *optimized_clear_value,
     UINT32 castable_formats_count, DXGI_FORMAT *castable_formats, REFIID riid,
     void **resource) {
-  TRACE("ID3D12Device10::CreatePlacedResource2 -> delegating to "
-        "CreatePlacedResource1");
-  return CreatePlacedResource1(heap, heap_offset, desc,
-                               (D3D12_RESOURCE_STATES)initial_layout,
-                               optimized_clear_value, riid, resource);
+  if (!ValidateCastableFormats(desc, castable_formats_count,
+                               castable_formats)) {
+    TRACE("ID3D12Device10::CreatePlacedResource2 rejected invalid "
+          "castable-format list count=%u",
+          castable_formats_count);
+    return E_INVALIDARG;
+  }
+  TRACE("ID3D12Device10::CreatePlacedResource2 castable_formats=%u",
+        castable_formats_count);
+  HRESULT hr = CreatePlacedResource1(
+      heap, heap_offset, desc, ResourceStateForBarrierLayout(initial_layout),
+      optimized_clear_value, riid, resource);
+  if (SUCCEEDED(hr) && resource && *resource) {
+    static_cast<MTLD3D12Resource *>(
+        static_cast<ID3D12Resource *>(*resource))
+        ->SetCastableFormats(castable_formats_count, castable_formats);
+  }
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource2(
@@ -4313,9 +6531,19 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource2(
     ID3D12ProtectedResourceSession *protected_session,
     UINT32 castable_formats_count, DXGI_FORMAT *castable_formats, REFIID riid,
     void **resource) {
-  TRACE("ID3D12Device10::CreateReservedResource2 -> E_NOTIMPL");
-  return CreateReservedResource(desc, (D3D12_RESOURCE_STATES)initial_layout,
-                                optimized_clear_value, riid, resource);
+  TRACE("ID3D12Device10::CreateReservedResource2 protected=%p castable=%u",
+        (void *)protected_session, castable_formats_count);
+  if (protected_session ||
+      (castable_formats_count && !castable_formats))
+    return E_INVALIDARG;
+  HRESULT hr = CreateReservedResource(
+      desc, ResourceStateForBarrierLayout(initial_layout), optimized_clear_value,
+      riid, resource);
+  if (SUCCEEDED(hr) && resource && *resource && castable_formats_count)
+    static_cast<MTLD3D12Resource *>(
+        static_cast<ID3D12Resource *>(*resource))
+        ->SetCastableFormats(castable_formats_count, castable_formats);
+  return hr;
 }
 
 /*** ID3D12Device11Compat ***/

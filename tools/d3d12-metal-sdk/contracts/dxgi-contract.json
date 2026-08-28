@@ -11,8 +11,8 @@
       "path": "vendor/dxmt/src/dxgi/dxgi_adapter.cpp"
     },
     {
-      "kind": "probe_todo",
-      "note": "Phase 5 will prove factory and adapter behavior.",
+      "kind": "probe",
+      "note": "Factory/adapter probing covers interfaces through IDXGIFactory7 and IDXGIAdapter3, stable enumeration, memory-budget reporting/event lifetime, and safe content-protection rejection.",
       "path": "tools/d3d12-metal-sdk/probes/probe_dxgi_factory"
     }
   ],
@@ -20,7 +20,9 @@
     "IDXGIAdapter": {
       "required_behavior": [
         "GetDesc and GetDesc1 return stable fields",
-        "QueryInterface failures log the exact IID and return E_NOINTERFACE"
+        "QueryInterface failures log the exact IID and return E_NOINTERFACE",
+        "IDXGIAdapter3 video-memory budget event registration owns a duplicate event handle until unregister",
+        "unsupported hardware-content-protection teardown notifications return DXGI_ERROR_UNSUPPORTED without asserting"
       ],
       "state": "stub_risky"
     },
@@ -28,9 +30,22 @@
       "required_behavior": [
         "QueryInterface succeeds for IDXGIFactory through IDXGIFactory7",
         "EnumAdapterByGpuPreference returns the Metal-backed adapter",
-        "RegisterAdaptersChangedEvent behavior is explicit and probe-covered"
+        "RegisterAdaptersChangedEvent duplicates and owns the caller event until successful unregister",
+        "adapter-change events remain unsignaled while the static Metal device list is unchanged and unknown cookies are rejected"
       ],
       "state": "stub_risky"
+    },
+    "IDXGIDevice3": {
+      "required_behavior": [
+        "D3D12 device QueryInterface succeeds for IDXGIDevice through IDXGIDevice3",
+        "EnqueueSetEvent remains unsignaled while any command queue is blocked on earlier work",
+        "EnqueueSetEvent signals only after completion markers on every live D3D12 queue and retains its own event handle",
+        "EnqueueSetEvent rejects a null handle with E_INVALIDARG",
+        "GPU thread priority persists across set/get and rejects values outside the relative -7 through 7 range",
+        "maximum frame latency defaults to 3, persists values from 1 through 16, and resets to 3 when set to zero",
+        "offer/reclaim validates arguments and preserves contents on the unified-memory backend"
+      ],
+      "state": "partial_runtime_proven"
     },
     "IDXGISwapChain": {
       "required_behavior": [

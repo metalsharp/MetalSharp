@@ -10,10 +10,23 @@
 #include <unordered_map>
 #include <mutex>
 #include <new>
+#include <vector>
 
 namespace dxmt {
 
+// The FL12_2 promotion is gated by the repository-owned aggregate probe. Keep
+// this value synchronized with the behavior-backed capability matrix.
+inline constexpr D3D_FEATURE_LEVEL kD3D12BuildMaximumFeatureLevel =
+    D3D_FEATURE_LEVEL_12_2;
+inline constexpr UINT kD3D12ShadingRateImageTileSize = 16;
+
+// Reads d3d12.maxFeatureLevel, but never exceeds the behavior-backed build
+// maximum above.
+D3D_FEATURE_LEVEL D3D12ConfiguredMaximumFeatureLevel();
+
 class MTLD3D12Resource;
+class MTLD3D12PipelineState;
+class MTLD3D12CommandQueue;
 
 enum D3D12SamplerFlagsCompat : UINT {
   D3D12SamplerFlagNoneCompat = 0x0,
@@ -57,6 +70,29 @@ struct ID3D12Device12Compat : public ID3D12Device11Compat {
 const D3D12_COMMAND_SIGNATURE_DESC *
 GetD3D12CommandSignatureDesc(ID3D12CommandSignature *signature);
 
+bool D3D12ResolveTriangleAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTPrimitiveAccelerationStructureInfo &info);
+bool D3D12ResolveAABBAccelerationStructureInfo(
+    MTLD3D12Device *device,
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS *inputs,
+    WMTAABBAccelerationStructureInfo &info);
+
+WMT::Reference<WMT::ComputePipelineState>
+GetD3D12StateObjectRaygenComputePipeline(ID3D12StateObject *state_object);
+WMT::Reference<WMT::VisibleFunctionTable>
+GetD3D12StateObjectRaygenVisibleFunctionTable(
+    ID3D12StateObject *state_object);
+WMT::Reference<WMT::IntersectionFunctionTable>
+GetD3D12StateObjectIntersectionFunctionTable(
+    ID3D12StateObject *state_object);
+ID3D12RootSignature *
+GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object);
+bool GetD3D12StateObjectShaderRecordLocalRootSignature(
+    ID3D12StateObject *state_object, const void *shader_identifier,
+    ID3D12RootSignature **local_root_signature);
+
 class MTLD3D12Device : public ID3D12Device12Compat {
 public:
   MTLD3D12Device(std::unique_ptr<Device> &&device,
@@ -76,10 +112,20 @@ public:
 
   WMT::Device GetMTLDevice();
   Device &GetDXMTDevice();
+  bool SupportsMetalRaytracing() const {
+    return m_metal_raytracing_supported;
+  }
+  const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER &
+  GetRaytracingSerializationIdentifier() const {
+    return m_raytracing_serialization_identifier;
+  }
 
   void RegisterResource(MTLD3D12Resource *res);
   void UnregisterResource(MTLD3D12Resource *res);
   MTLD3D12Resource *LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr);
+  void RegisterCommandQueue(MTLD3D12CommandQueue *queue);
+  void UnregisterCommandQueue(MTLD3D12CommandQueue *queue);
+  HRESULT EnqueueSetEvent(HANDLE event);
 
   /*** IUnknown ***/
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid,
@@ -434,8 +480,15 @@ public:
       D3D12_RESOURCE_ALLOCATION_INFO1 *resource_allocation_info1) override;
 
 private:
+  HRESULT CreateGraphicsPipelineStateInternal(
+      const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
+      void **pipeline_state, bool depth_bounds_test_enable);
+
   std::unique_ptr<Device> m_device;
   FormatCapabilityInspector m_format_inspector;
+  bool m_metal_raytracing_supported = false;
+  D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER
+      m_raytracing_serialization_identifier = {};
   Com<IMTLDXGIAdapter> m_adapter;
   IMTLDXGIDevice *m_dxgi_device = nullptr;
   std::atomic_bool m_dxgi_owner_released = false;
@@ -444,6 +497,8 @@ private:
   std::atomic<uint32_t> m_refPrivate = {1ul};
   std::mutex m_resource_mutex;
   std::unordered_map<uint64_t, MTLD3D12Resource *> m_resources_by_gpu_addr;
+  std::mutex m_command_queue_mutex;
+  std::vector<MTLD3D12CommandQueue *> m_command_queues;
   void *m_expected_vtable = nullptr;
   void CheckVtable(const char *where);
 };

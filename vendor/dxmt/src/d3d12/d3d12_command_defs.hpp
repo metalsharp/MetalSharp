@@ -9,6 +9,7 @@ enum class CmdType : uint32_t {
   DrawInstanced,
   DrawIndexedInstanced,
   Dispatch,
+  DispatchMesh,
   ExecuteIndirect,
   CopyBufferRegion,
   CopyTextureRegion,
@@ -38,12 +39,21 @@ enum class CmdType : uint32_t {
   ClearDepthStencilView,
   ClearUnorderedAccessView,
   ResourceBarrier,
+  EnhancedBarrier,
   SetDescriptorHeaps,
   ResolveSubresource,
   WriteBufferImmediate,
   BeginQuery,
   EndQuery,
   ResolveQueryData,
+  BuildRaytracingAccelerationStructure,
+  CopyRaytracingAccelerationStructure,
+  EmitRaytracingAccelerationStructurePostbuildInfo,
+  SetPipelineState1,
+  DispatchRays,
+  OMSetDepthBounds,
+  RSSetShadingRate,
+  RSSetShadingRateImage,
 };
 
 struct CmdHeader {
@@ -71,6 +81,57 @@ struct CmdDrawIndexedInstanced {
 struct CmdDispatch {
   CmdHeader header;
   uint32_t x, y, z;
+};
+
+struct CmdDispatchMesh {
+  CmdHeader header;
+  uint32_t x, y, z;
+};
+
+struct CmdSetPipelineState1 {
+  CmdHeader header;
+  ID3D12StateObject *state_object;
+};
+
+struct CmdDispatchRays {
+  CmdHeader header;
+  D3D12_DISPATCH_RAYS_DESC desc;
+};
+
+struct CmdEnhancedBarrier {
+  CmdHeader header;
+  uint32_t group_count;
+  uint32_t global_barrier_count;
+  uint32_t buffer_barrier_count;
+  uint32_t texture_barrier_count;
+};
+
+struct CmdEmitRaytracingAccelerationStructurePostbuildInfo {
+  CmdHeader header;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_TYPE info_type;
+  D3D12_GPU_VIRTUAL_ADDRESS dest_buffer;
+  D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure;
+};
+
+struct CmdBuildRaytracingAccelerationStructure {
+  CmdHeader header;
+  D3D12_GPU_VIRTUAL_ADDRESS dest_acceleration_structure;
+  D3D12_GPU_VIRTUAL_ADDRESS scratch_acceleration_structure;
+  D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS flags;
+  D3D12_ELEMENTS_LAYOUT descs_layout;
+  UINT num_descs;
+  D3D12_GPU_VIRTUAL_ADDRESS instance_descs;
+  static constexpr UINT kMaxGeometryDescs = 64;
+  D3D12_RAYTRACING_GEOMETRY_DESC geometries[kMaxGeometryDescs];
+};
+
+struct CmdCopyRaytracingAccelerationStructure {
+  CmdHeader header;
+  D3D12_GPU_VIRTUAL_ADDRESS destination_acceleration_structure;
+  D3D12_GPU_VIRTUAL_ADDRESS source_acceleration_structure;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode;
 };
 
 struct CmdExecuteIndirect {
@@ -248,6 +309,23 @@ struct CmdResolveSubresource {
   D3D12_RESOLVE_MODE mode;
   uint8_t has_src_rect;
   D3D12_RECT src_rect;
+};
+
+struct CmdOMSetDepthBounds {
+  CmdHeader header;
+  float min_depth;
+  float max_depth;
+};
+
+struct CmdRSSetShadingRate {
+  CmdHeader header;
+  D3D12_SHADING_RATE base_shading_rate;
+  D3D12_SHADING_RATE_COMBINER combiners[2];
+};
+
+struct CmdRSSetShadingRateImage {
+  CmdHeader header;
+  ID3D12Resource *shading_rate_image;
 };
 
 struct CmdWriteBufferImmediateEntry {

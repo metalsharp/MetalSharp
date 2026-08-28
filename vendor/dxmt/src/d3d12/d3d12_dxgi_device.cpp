@@ -45,18 +45,19 @@ ULONG STDMETHODCALLTYPE MTLD3D12DXGIDevice::Release() {
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12DXGIDevice::GetPrivateData(REFGUID Name, UINT *pDataSize, void *pData) {
-  DDTRACE("GetPrivateData E_NOTIMPL");
-  return E_NOTIMPL;
+  return m_private_data.getData(Name, pDataSize, pData);
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::SetPrivateData(REFGUID Name, UINT DataSize, const void *pData) {
-  return S_OK;
+MTLD3D12DXGIDevice::SetPrivateData(REFGUID Name, UINT DataSize,
+                                   const void *pData) {
+  return m_private_data.setData(Name, DataSize, pData);
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::SetPrivateDataInterface(REFGUID Name, const IUnknown *pUnknown) {
-  return S_OK;
+MTLD3D12DXGIDevice::SetPrivateDataInterface(REFGUID Name,
+                                            const IUnknown *pUnknown) {
+  return m_private_data.setInterface(Name, pUnknown);
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -114,7 +115,7 @@ HRESULT STDMETHODCALLTYPE
 MTLD3D12DXGIDevice::QueryResourceResidency(IUnknown *const *ppResources,
                                            DXGI_RESIDENCY *pResidency,
                                            UINT ResourceCount) {
-  if (!ppResources || !pResidency)
+  if (ResourceCount && (!ppResources || !pResidency))
     return E_INVALIDARG;
   for (UINT i = 0; i < ResourceCount; i++)
     pResidency[i] = DXGI_RESIDENCY_FULLY_RESIDENT;
@@ -122,22 +123,35 @@ MTLD3D12DXGIDevice::QueryResourceResidency(IUnknown *const *ppResources,
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::SetGPUThreadPriority(INT Priority) { return S_OK; }
-
-HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::GetGPUThreadPriority(INT *pPriority) {
-  if (pPriority)
-    *pPriority = 0;
+MTLD3D12DXGIDevice::SetGPUThreadPriority(INT Priority) {
+  if (Priority < -7 || Priority > 7)
+    return E_INVALIDARG;
+  m_gpu_thread_priority.store(Priority, std::memory_order_release);
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::SetMaximumFrameLatency(UINT MaxLatency) { return S_OK; }
+MTLD3D12DXGIDevice::GetGPUThreadPriority(INT *pPriority) {
+  if (!pPriority)
+    return E_POINTER;
+  *pPriority = m_gpu_thread_priority.load(std::memory_order_acquire);
+  return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE
+MTLD3D12DXGIDevice::SetMaximumFrameLatency(UINT MaxLatency) {
+  if (MaxLatency > 16)
+    return E_INVALIDARG;
+  m_maximum_frame_latency.store(MaxLatency ? MaxLatency : 3,
+                                std::memory_order_release);
+  return S_OK;
+}
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12DXGIDevice::GetMaximumFrameLatency(UINT *pMaxLatency) {
-  if (pMaxLatency)
-    *pMaxLatency = 2;
+  if (!pMaxLatency)
+    return E_POINTER;
+  *pMaxLatency = m_maximum_frame_latency.load(std::memory_order_acquire);
   return S_OK;
 }
 
@@ -145,6 +159,17 @@ HRESULT STDMETHODCALLTYPE
 MTLD3D12DXGIDevice::OfferResources(UINT NumResources,
                                    IDXGIResource *const *ppResources,
                                    DXGI_OFFER_RESOURCE_PRIORITY Priority) {
+  if (Priority < DXGI_OFFER_RESOURCE_PRIORITY_LOW ||
+      Priority > DXGI_OFFER_RESOURCE_PRIORITY_HIGH ||
+      (NumResources && !ppResources))
+    return E_INVALIDARG;
+  for (UINT i = 0; i < NumResources; i++) {
+    if (!ppResources[i])
+      return E_INVALIDARG;
+  }
+  std::lock_guard lock(m_offered_resource_mutex);
+  for (UINT i = 0; i < NumResources; i++)
+    m_offered_resources.insert(ppResources[i]);
   return S_OK;
 }
 
@@ -152,11 +177,26 @@ HRESULT STDMETHODCALLTYPE
 MTLD3D12DXGIDevice::ReclaimResources(UINT NumResources,
                                      IDXGIResource *const *ppResources,
                                      WINBOOL *pDiscarded) {
+  if (NumResources && !ppResources)
+    return E_INVALIDARG;
+  if (pDiscarded) {
+    for (UINT i = 0; i < NumResources; i++)
+      pDiscarded[i] = FALSE;
+  }
+  std::lock_guard lock(m_offered_resource_mutex);
+  for (UINT i = 0; i < NumResources; i++) {
+    if (!ppResources[i] || !m_offered_resources.contains(ppResources[i]))
+      return E_INVALIDARG;
+  }
+  for (UINT i = 0; i < NumResources; i++)
+    m_offered_resources.erase(ppResources[i]);
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
-MTLD3D12DXGIDevice::EnqueueSetEvent(HANDLE hEvent) { return E_FAIL; }
+MTLD3D12DXGIDevice::EnqueueSetEvent(HANDLE hEvent) {
+  return m_d3d12_device->EnqueueSetEvent(hEvent);
+}
 
 void STDMETHODCALLTYPE MTLD3D12DXGIDevice::Trim() {}
 

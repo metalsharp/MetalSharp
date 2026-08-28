@@ -19,6 +19,21 @@ DEFAULT_D3D12_MAP = Path("/Volumes/AverySSD/metalsharp/metal-api-table/final/d3d
 DEFAULT_AGILITY_MAP = Path(
     "/Volumes/AverySSD/metalsharp/metal-api-table/final/agility_sdk_d3d12_to_metal_map.json"
 )
+CURRENT_AGILITY_SDK_VERSION = "1.619.5"
+STABLE_AGILITY_SDK_INPUTS = {
+    "package_id": "Microsoft.Direct3D.D3D12",
+    "package_version": "1.619.5",
+    "package_url": "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/1.619.5/microsoft.direct3d.d3d12.1.619.5.nupkg",
+    "package_sha256": "0e9bcf32aac9a79343ede9b21e4864950ee54577e3d8e19bfcdf002bb4e9bfd6",
+    "d3d12_sdk_version": 619,
+    "headers": {
+        "d3d12.h": "dc55b65d24bf5c83079be5c3c708df8862b1d46308a3c8232886ad6f707932b8",
+        "d3d12sdklayers.h": "27cdc0e48f426d41e3ae62263f39343273d55dd098bc0bd9dae1bb46247a804a",
+        "d3d12video.h": "9ccd140cedfb962696e05604f42207697d4e1802d1aa639ce16511f62616bbfd",
+        "d3dcommon.h": "8c236985415516302faf0cb725fa78312cb1ac05ba866e29eeab23d695a0f5cb",
+        "D3D12Events.h": "15f8e02fe5d2c8961836c11c82df4d2c60e66758bec63395baea1576bca958cb",
+    },
+}
 
 
 def sha256(path: Path) -> str:
@@ -83,10 +98,10 @@ def make_d3d12_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def make_agility_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
-    return {
+def make_agility_contract(source: Path, data: dict[str, Any], agility_sdk_version: str) -> dict[str, Any]:
+    contract = {
         "schema": "metalsharp.d3d12-metal.agility-contract.v1",
-        "agility_sdk_version": "1.619.3",
+        "agility_sdk_version": agility_sdk_version,
         "source": {
             "path": str(source),
             "sha256": sha256(source),
@@ -96,7 +111,7 @@ def make_agility_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
             {
                 "kind": "source_map",
                 "path": str(source),
-                "note": "Generated from Microsoft.Direct3D.D3D12 NuGet package v1.619.3 and Metal SDK headers.",
+                "note": f"Generated from Microsoft.Direct3D.D3D12 NuGet package v{agility_sdk_version} and Metal SDK headers.",
             }
         ],
         "summary": {
@@ -107,9 +122,33 @@ def make_agility_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
         "contract_state": "reference_import",
         "data": data,
     }
+    if agility_sdk_version == CURRENT_AGILITY_SDK_VERSION:
+        contract["stable_release"] = True
+        contract["d3d12_sdk_version"] = 619
+        contract["sdk_inputs"] = STABLE_AGILITY_SDK_INPUTS
+        contract["supersedes"] = "agility-1.619.3-contract.json"
+        contract["source"]["sdk_package"] = "Microsoft.Direct3D.D3D12 1.619.5"
+        contract["evidence"] = [
+            {
+                "kind": "nuget_package",
+                "path": STABLE_AGILITY_SDK_INPUTS["package_url"],
+                "note": "Official Microsoft.Direct3D.D3D12 1.619.5 package; D3D12SDKVersion 619; SHA-256 is recorded in sdk_inputs.package_sha256.",
+            },
+            {
+                "kind": "header_snapshot",
+                "path": "tools/d3d12-metal-sdk/out/agility/1.619.5/build/native/include",
+                "note": "Pinned 1.619.5 headers and D3D12Events.h; per-file SHA-256 values are recorded in sdk_inputs.headers.",
+            },
+            {
+                "kind": "source_map",
+                "path": str(source),
+                "note": "Generated interface map shared with the historical 1.619.3 contract; the package/header delta is recorded in sdk_inputs.",
+            },
+        ]
+    return contract
 
 
-def feature_support_contract() -> dict[str, Any]:
+def feature_support_contract(agility_contract_name: str) -> dict[str, Any]:
     return {
         "schema": "metalsharp.d3d12-metal.feature-support.v1",
         "purpose": "Keep D3D12 feature reports aligned with executable implementation reality.",
@@ -126,6 +165,15 @@ def feature_support_contract() -> dict[str, Any]:
             },
         ],
         "features": {
+            "D3D12_FEATURE_LEVEL_12_2_TARGET": {
+                "state": "required",
+                "tier": "required",
+                "reported": "unsupported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_feature_levels",
+                "expected_levels": ["11_0", "11_1", "12_0", "12_1", "12_2"],
+                "current_target": "12_2",
+                "risk": "Raising the central maximum before every FL12_2 behavior gate passes would recreate false-success device creation.",
+            },
             "D3D12_FEATURE_FEATURE_LEVELS": {
                 "state": "required",
                 "tier": "required",
@@ -140,8 +188,8 @@ def feature_support_contract() -> dict[str, Any]:
                 "tier": "required",
                 "reported": "supported",
                 "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
-                "current_target": "6_5",
-                "risk": "SM 6.6 must stay unreported until the SM 6.6 compiler, descriptor, resource, sampler, 64-bit, atomic, barrier, and runtime corpus is reportable.",
+                "current_target": "6_7",
+                "risk": "SM 6.7 is behavior-backed by the SM 6.6 root-constant, descriptor-indexing, 64-bit, atomic/barrier, and texture/sampler runtime corpus plus SM 6.7 QuadAny/QuadAll dispatch/readback; additional SM 6.7 advanced texture operations remain separate optional behavior gates.",
             },
             "D3D12_SYNTHETIC_SHADER_CORPUS": {
                 "state": "required",
@@ -172,26 +220,64 @@ def feature_support_contract() -> dict[str, Any]:
             "D3D12_FEATURE_D3D12_OPTIONS1": {
                 "state": "required",
                 "tier": "required",
-                "reported": "partial",
+                "reported": "supported",
                 "probe": "tools/d3d12-metal-sdk/probes/probe_wave_ops",
-                "required_fields": ["Int64ShaderOps"],
-                "risk": "WaveOps must stay unreported until compute-first DXIL wave probes execute and validate results.",
+                "probe_status": "passed",
+                "required_fields": ["WaveOps", "WaveLaneCountMin", "WaveLaneCountMax", "Int64ShaderOps"],
+                "risk": "WaveOps reporting must remain coupled to the 32-lane dispatch/readback corpus.",
+            },
+            "D3D12_FEATURE_D3D12_OPTIONS3_WRITE_BUFFER_IMMEDIATE": {
+                "state": "required",
+                "tier": "required",
+                "reported": "supported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_command_replay",
+                "probe_status": "copy_timestamp_and_write_immediate_readbacks_passed",
+                "required_fields": [
+                    "CopyQueueTimestampQueriesSupported",
+                    "D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT",
+                    "D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE",
+                    "D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE",
+                ],
+                "risk": "Copy-queue timestamps are coalesced to the Metal command buffer GPU end time and resolved through a completion handler; write-immediate flags are coupled to exact default, marker-in, and marker-out GPU virtual-address readback coverage on direct, compute, and inlined bundle command lists.",
+            },
+            "D3D12_FEATURE_D3D12_OPTIONS8": {
+                "state": "required",
+                "tier": "required",
+                "reported": "supported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_resources",
+                "probe_status": "unaligned_bc1_copy_readback_passed",
+                "required_fields": ["UnalignedBlockTexturesSupported"],
+                "risk": "The support report is backed by creation and upload/readback of a 7x5 BC1 texture with exact two-row block payload validation.",
+            },
+            "D3D12_FEATURE_D3D12_OPTIONS7": {
+                "state": "required",
+                "tier": "required",
+                "reported": "partial",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
+                "behavior_probes": [
+                    "tools/d3d12-metal-sdk/probes/probe_sampler_feedback",
+                    "tools/d3d12-metal-sdk/probes/probe_mini_suite",
+                    "tools/d3d12-metal-sdk/probes/probe_device_caps",
+                ],
+                "probe_status": "sampler_feedback_tier_0_9_passed_mesh_pipeline_statistics1_proven_mesh_tier_gated",
+                "required_fields": ["MeshShaderTier", "SamplerFeedbackTier", "PIPELINE_STATISTICS1 ASInvocations/MSInvocations/MSPrimitives"],
+                "risk": "Tier 0.9 is backed by exact min-mip/mip-used, 2D/array, clear, encode/decode, contention, and all-four-write-form probes. Mesh AS/MS pipeline statistics now pass the focused invocation/primitive probe; mesh tier remains gated on mixed render-state and broader shader/payload breadth.",
             },
             "D3D12_FEATURE_D3D12_OPTIONS9": {
-                "state": "stub_safe",
-                "tier": "stubbed-safe",
-                "reported": "unsupported",
-                "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+                "state": "required",
+                "tier": "required",
+                "reported": "supported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
                 "required_fields": ["AtomicInt64OnTypedResourceSupported", "AtomicInt64OnGroupSharedSupported"],
-                "risk": "Should stay conservative unless atomic64 is actually implemented.",
+                "risk": "Typed and group-shared atomic64 use SIMD-cooperative software locks and pass stress plus full operation matrices.",
             },
             "D3D12_FEATURE_D3D12_OPTIONS11": {
-                "state": "stub_safe",
-                "tier": "stubbed-safe",
-                "reported": "unsupported",
-                "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+                "state": "required",
+                "tier": "required",
+                "reported": "supported",
+                "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
                 "required_fields": ["AtomicInt64OnDescriptorHeapResourceSupported"],
-                "risk": "Should stay conservative unless descriptor-heap atomic64 is implemented.",
+                "risk": "Directly indexed descriptor-heap atomic64 passes stress and full operation matrices through the software lock path.",
             },
         },
     }
@@ -253,9 +339,9 @@ def unsupported_ledger() -> dict[str, Any]:
         "entries": [
             {
                 "api": "D3D12 ray tracing tiers",
-                "state": "unsupported",
-                "tier": "unsupported",
-                "reason": "No DXR-to-Metal acceleration structure or shader table implementation is proven.",
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "Foundational DXR acceleration structures, ray queries, state objects, shader tables, local SRV/UAV/CBV/sampler descriptor-table mirrors, static local sampler records, shader stack-size queries, and DispatchRays execution are proven on the M4, while mixed primitive BLAS, cross-process reconstruction, new-library growth, and broader shader-table matrices remain gated.",
                 "evidence": ["tools/d3d12-metal-sdk/contracts/feature-support-contract.json"],
             },
             {
@@ -263,13 +349,6 @@ def unsupported_ledger() -> dict[str, Any]:
                 "state": "unsupported",
                 "tier": "unsupported",
                 "reason": "No mesh/amplification shader translation path is proven.",
-                "evidence": ["tools/d3d12-metal-sdk/contracts/feature-support-contract.json"],
-            },
-            {
-                "api": "D3D12 sampler feedback tier",
-                "state": "unsupported",
-                "tier": "unsupported",
-                "reason": "No sampler feedback emulation or Metal-backed equivalent is proven.",
                 "evidence": ["tools/d3d12-metal-sdk/contracts/feature-support-contract.json"],
             },
             {
@@ -287,7 +366,7 @@ def unsupported_ledger() -> dict[str, Any]:
                 "state": "unsupported",
                 "tier": "unsupported",
                 "reason": "No D3D12 video command list, decoder, encoder, processor, or VideoToolbox bridge is implemented in the DXMT D3D12 path.",
-                "evidence": ["tools/d3d12-metal-sdk/contracts/agility-1.619.3-contract.json"],
+                "evidence": [f"tools/d3d12-metal-sdk/contracts/{agility_contract_name}"],
             },
             {
                 "api": "D3D12 protected resource sessions",
@@ -304,13 +383,13 @@ def unsupported_ledger() -> dict[str, Any]:
                 "state": "unsupported",
                 "tier": "unsupported",
                 "reason": "Device-side DSR factory behavior is not implemented or required for the current Metal backend.",
-                "evidence": ["tools/d3d12-metal-sdk/contracts/agility-1.619.3-contract.json"],
+                "evidence": [f"tools/d3d12-metal-sdk/contracts/{agility_contract_name}"],
             },
             {
                 "api": "D3D12 state objects",
-                "state": "unsupported",
-                "tier": "unsupported",
-                "reason": "State object creation and growth require DXR/work-graph subsystems that are not implemented; calls must fail deterministically.",
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "State-object creation, collection filtering/merging, identifiers, local SRV/UAV/CBV/sampler descriptor-table mirrors and static local sampler records and shader stack-size behavior are proven in the focused DXR probe; new-library growth and broader state-object matrices remain gated.",
                 "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_device_caps"],
             },
             {
@@ -336,10 +415,17 @@ def unsupported_ledger() -> dict[str, Any]:
             },
             {
                 "api": "D3D12 sparse and reserved resources",
-                "state": "unsupported",
-                "tier": "unsupported",
-                "reason": "Metal sparse backing is not implemented or probed; reserved resources must fail instead of falling back to committed allocation.",
-                "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_device_caps"],
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "Native Metal sparse-backed 2D RGBA8-array reserved texture creation, tiling, two-subresource mapping/unmapping, and exact CopyTiles round-trip are proven; heap-page selection, aliases, packed mips, buffers, and broader layouts remain gated.",
+                "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_resources"],
+            },
+            {
+                "api": "D3D12 cross-process shared resources",
+                "state": "limited_to_proven_probe",
+                "tier": "stubbed-safe",
+                "reason": "CreateSharedHandle, OpenSharedHandle, and named lookup are proven only through a retained process-local registry; cross-process Metal resource/heap transport is not implemented and must not be reported as portable sharing.",
+                "evidence": ["vendor/dxmt/src/d3d12/d3d12_device.cpp", "tools/d3d12-metal-sdk/probes/probe_resources"],
             },
             {
                 "api": "D3D12 geometry shaders outside proven emulation",
@@ -354,28 +440,6 @@ def unsupported_ledger() -> dict[str, Any]:
                 "tier": "unsupported",
                 "reason": "No Metal tessellation translation path is proven; hull/domain PSOs remain rejected.",
                 "evidence": ["tools/d3d12-metal-sdk/probes/probe_graphics_pso"],
-            },
-            {
-                "api": "D3D12 WaveOps feature report",
-                "state": "not_reported",
-                "tier": "unsupported",
-                "reason": "The WaveOps audit compiles the compute-first DXIL wave corpus, but wave intrinsic runtime correctness is not proven; the device must report WaveOps false.",
-                "evidence": [
-                    "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-                    "tools/d3d12-metal-sdk/probes/probe_wave_ops",
-                    "tools/d3d12-metal-sdk/contracts/feature-support-contract.json",
-                ],
-            },
-            {
-                "api": "D3D12 Shader Model 6.6 feature report",
-                "state": "not_reported",
-                "tier": "unsupported",
-                "reason": "The SM 6.6 audit can compile and link the synthetic corpus, but descriptor indexing, sampler/texture, 64-bit, atomic, barrier, and root-constant cases do not yet have runtime correctness proof; the device must report SM 6.5 instead.",
-                "evidence": [
-                    "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-                    "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
-                    "tools/d3d12-metal-sdk/contracts/feature-support-contract.json",
-                ],
             },
         ],
     }
@@ -401,6 +465,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--d3d12-map", type=Path, default=DEFAULT_D3D12_MAP)
     parser.add_argument("--agility-map", type=Path, default=DEFAULT_AGILITY_MAP)
+    parser.add_argument("--agility-version", default=CURRENT_AGILITY_SDK_VERSION)
     parser.add_argument("--out", type=Path, default=Path("tools/d3d12-metal-sdk/contracts"))
     args = parser.parse_args()
 
@@ -408,8 +473,12 @@ def main() -> int:
     agility_data = load_json(args.agility_map)
 
     write_json(args.out / "d3d12-metal-contract.json", make_d3d12_contract(args.d3d12_map, d3d12_data))
-    write_json(args.out / "agility-1.619.3-contract.json", make_agility_contract(args.agility_map, agility_data))
-    write_json(args.out / "feature-support-contract.json", feature_support_contract())
+    agility_contract_name = f"agility-{args.agility_version}-contract.json"
+    write_json(
+        args.out / agility_contract_name,
+        make_agility_contract(args.agility_map, agility_data, args.agility_version),
+    )
+    write_json(args.out / "feature-support-contract.json", feature_support_contract(agility_contract_name))
     write_json(args.out / "dxgi-contract.json", dxgi_contract())
     write_json(args.out / "unsupported-api-ledger.json", unsupported_ledger())
     write_json(args.out / "risky-stub-ledger.json", risky_stub_ledger())

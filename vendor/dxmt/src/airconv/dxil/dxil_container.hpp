@@ -66,11 +66,25 @@ struct DxilParsedShader {
   DxilShaderModel shader_model;
   DxilBitcodeRef bitcode;
   std::string entry_point;
+  int32_t shading_rate_input_register = -1;
+  int32_t shading_rate_output_register = -1;
+  int32_t shading_rate_output_id = -1;
+  int32_t viewport_index_output_register = -1;
+  int32_t viewport_index_output_id = -1;
+  int32_t render_target_array_index_output_register = -1;
+  int32_t render_target_array_index_output_id = -1;
+  int32_t viewport_index_input_register = -1;
+  int32_t render_target_array_index_input_register = -1;
 };
 
 class DXILContainer {
 public:
   static std::optional<DXILContainer> parse(const void *data, size_t size);
+
+  // Signature parts live in the outer DXBC container, while callers often
+  // pass only the DXIL part to parse().  Annotate a parsed shader with the
+  // system-value registers when the original container is available.
+  void annotateSignatures(const void *container, size_t size);
 
   const DxilParsedShader &shader() const { return m_shader; }
 

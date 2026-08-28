@@ -1,6 +1,7 @@
 #pragma once
 
 #include "com/com_pointer.hpp"
+#include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "d3d12_vertex_input.hpp"
 #include "Metal.hpp"
@@ -71,6 +72,11 @@ public:
   HRESULT STDMETHODCALLTYPE GetCachedBlob(ID3DBlob **blob) override;
 
   void SetGraphicsDesc(const D3D12_GRAPHICS_PIPELINE_STATE_DESC &desc);
+  void SetDepthBoundsTestEnable(bool enable) {
+    m_depth_bounds_test_enable = enable;
+  }
+  void SetMeshShaders(const D3D12_SHADER_BYTECODE &as,
+                      const D3D12_SHADER_BYTECODE &ms);
   void SetComputeDesc(const D3D12_COMPUTE_PIPELINE_STATE_DESC &desc);
 
   bool RequestCompile(bool allow_async);
@@ -111,6 +117,10 @@ public:
   const D3D12_DEPTH_STENCIL_DESC &GetDepthStencilDesc() const {
     return m_depth_stencil_desc;
   }
+  bool IsDepthBoundsTestEnabled() const {
+    return m_depth_bounds_test_enable &&
+           m_dsv_format != DXGI_FORMAT_UNKNOWN;
+  }
   const D3D12_BLEND_DESC &GetBlendDesc() const { return m_blend_desc; }
   UINT GetNumRenderTargets() const { return m_num_render_targets; }
   DXGI_FORMAT GetRTVFormat(UINT index) const {
@@ -127,6 +137,16 @@ public:
             (uint64_t)m_threadgroup_size.height,
             (uint64_t)m_threadgroup_size.depth};
   }
+  struct WMTSize GetObjectThreadgroupSize() const {
+    return {(uint64_t)m_object_threadgroup_size.width,
+            (uint64_t)m_object_threadgroup_size.height,
+            (uint64_t)m_object_threadgroup_size.depth};
+  }
+  struct WMTSize GetMeshThreadgroupSize() const {
+    return {(uint64_t)m_mesh_threadgroup_size.width,
+            (uint64_t)m_mesh_threadgroup_size.height,
+            (uint64_t)m_mesh_threadgroup_size.depth};
+  }
 
   const MTL_SHADER_REFLECTION &GetCSReflection() const {
     return m_cs_reflection;
@@ -134,6 +154,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetCSArguments() const {
     return m_cs_args;
   }
+  bool CSUsesMSCArgumentABI() const { return m_cs_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetCSConstantBuffers() const {
     return m_cs_cb_args;
   }
@@ -143,9 +164,11 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetVSArguments() const {
     return m_vs_args;
   }
+  bool VSUsesMSCArgumentABI() const { return m_vs_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetVSConstantBuffers() const {
     return m_vs_cb_args;
   }
+  std::string GetCSCacheHash() const;
   std::string GetVSCacheHash() const;
   const MTL_SHADER_REFLECTION &GetPSReflection() const {
     return m_ps_reflection;
@@ -153,6 +176,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetPSArguments() const {
     return m_ps_args;
   }
+  bool PSUsesMSCArgumentABI() const { return m_ps_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetPSConstantBuffers() const {
     return m_ps_cb_args;
   }
@@ -163,6 +187,7 @@ public:
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetGSArguments() const {
     return m_gs_args;
   }
+  bool GSUsesMSCArgumentABI() const { return m_gs_uses_msc_argument_abi; }
   const std::vector<MTL_SM50_SHADER_ARGUMENT> &GetGSConstantBuffers() const {
     return m_gs_cb_args;
   }
@@ -182,6 +207,7 @@ public:
   bool UsesGeometryMeshPipeline() const {
     return m_uses_geometry_mesh_pipeline;
   }
+  bool UsesNativeMeshPipeline() const { return m_uses_native_mesh_pipeline; }
   bool UsesNativeTessellationPath() const {
     return m_uses_native_tessellation_path;
   }
@@ -189,6 +215,20 @@ public:
     return m_native_tessellation_control_points;
   }
   bool UsesTessellationFallback() const { return m_uses_tessellation_fallback; }
+  bool UsesAtomic64Emulation() const { return m_uses_atomic64_emulation; }
+  bool UsesSamplerFeedbackEmulation() const {
+    return m_uses_sampler_feedback_emulation;
+  }
+  bool UsesVRSRuntimeState() const { return m_uses_vrs_runtime_state; }
+  bool UsesConservativeRasterization() const {
+    return m_uses_conservative_rasterization;
+  }
+  bool UsesConservativeRasterizationReferenceModel() const {
+    return m_uses_conservative_rasterization_reference_model;
+  }
+  bool UsesDirectResourceDescriptorHeap() const {
+    return m_uses_direct_resource_descriptor_heap;
+  }
 
   static WMTPixelFormat DXGIToMTLPixelFormat(DXGI_FORMAT format);
 
@@ -209,11 +249,15 @@ private:
                      WMT::Reference<WMT::Function> &out_func,
                      sm50_shader_t *out_shader_handle = nullptr,
                      MTL_SHADER_REFLECTION *out_reflection = nullptr);
+  bool CompileGeometryPipelineShaders(
+      WMT::Reference<WMT::Function> &object_func,
+      WMT::Reference<WMT::Function> &mesh_func);
   void ClearCompileFailure();
   bool RecordCompileFailure(const char *stage, const std::string &detail);
   void BuildIAInputLayout(const void *bytecode, SIZE_T size,
                           std::vector<SM50_IA_INPUT_ELEMENT> &elements,
                           uint32_t &slot_mask);
+  size_t ApplyShaderVariantHash(size_t hash, ShaderType type) const;
 
   static std::mutex s_shader_mutex;
   static std::unordered_map<size_t, WMT::Reference<WMT::Function>>
@@ -227,10 +271,17 @@ private:
   std::string m_compile_failure_stage;
   std::string m_compile_failure_detail;
   ID3D12RootSignature *m_root_sig = nullptr;
-  std::vector<uint8_t> m_vs, m_ps, m_gs, m_hs, m_ds, m_cs;
+  std::vector<uint8_t> m_vs, m_ps, m_gs, m_hs, m_ds, m_cs, m_as, m_ms;
   D3D12_BLEND_DESC m_blend_desc = {};
   D3D12_RASTERIZER_DESC m_rasterizer_desc = {};
   D3D12_DEPTH_STENCIL_DESC m_depth_stencil_desc = {};
+  bool m_depth_bounds_test_enable = false;
+  bool m_uses_atomic64_emulation = false;
+  bool m_uses_sampler_feedback_emulation = false;
+  bool m_uses_vrs_runtime_state = false;
+  bool m_uses_conservative_rasterization = false;
+  bool m_uses_conservative_rasterization_reference_model = false;
+  bool m_uses_direct_resource_descriptor_heap = false;
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;
   std::vector<std::string> m_input_semantic_names;
@@ -238,6 +289,7 @@ private:
   bool m_vs_uses_stage_in = false;
   bool m_vs_requires_msc_stage_in = false;
   bool m_uses_geometry_mesh_pipeline = false;
+  bool m_uses_native_mesh_pipeline = false;
   bool m_uses_native_tessellation_path = false;
   bool m_uses_tessellation_fallback = false;
   uint32_t m_native_tessellation_control_points = 0;
@@ -252,28 +304,38 @@ private:
   std::vector<uint8_t> m_cached_pso_blob;
 
   WMT::Reference<WMT::RenderPipelineState> m_render_pso;
+  WMT::Reference<WMT::Library> m_conservative_vertex_library;
+  WMT::Reference<WMT::Function> m_conservative_vertex_function;
   WMT::Reference<WMT::RenderPipelineState>
       m_native_tessellation_indexed_render_pso;
   WMT::Reference<WMT::ComputePipelineState> m_compute_pso;
   WMT::Reference<WMT::DepthStencilState> m_depth_stencil_state;
-  struct {
+  struct ThreadgroupSize {
     uint32_t width = 1, height = 1, depth = 1;
-  } m_threadgroup_size;
+  };
+  ThreadgroupSize m_threadgroup_size;
+  ThreadgroupSize m_object_threadgroup_size;
+  ThreadgroupSize m_mesh_threadgroup_size;
+  uint32_t m_mesh_payload_size = 0;
 
   MTL_SHADER_REFLECTION m_cs_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_cs_args;
+  bool m_cs_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_cs_cb_args;
   sm50_shader_t m_cs_shader = nullptr;
   MTL_SHADER_REFLECTION m_vs_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_vs_args;
+  bool m_vs_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_vs_cb_args;
   sm50_shader_t m_vs_shader = nullptr;
   MTL_SHADER_REFLECTION m_ps_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_ps_args;
+  bool m_ps_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_ps_cb_args;
   sm50_shader_t m_ps_shader = nullptr;
   MTL_SHADER_REFLECTION m_gs_reflection = {};
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_gs_args;
+  bool m_gs_uses_msc_argument_abi = false;
   std::vector<MTL_SM50_SHADER_ARGUMENT> m_gs_cb_args;
   sm50_shader_t m_gs_shader = nullptr;
   uint32_t m_ia_slot_mask = 0;
@@ -282,6 +344,7 @@ private:
       m_vs_stage_in_register_map;
   std::vector<StageInVertexAttributeInfo> m_vs_stage_in_attribute_order;
 
+  ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
 
