@@ -142,18 +142,21 @@ static HRESULT execute_and_wait(ID3D12Device *device,
   return hr;
 }
 
-static uint32_t count_nonzero(ID3D12Resource *readback) {
+static uint32_t count_nonzero(ID3D12Resource *readback, uint32_t width = 64,
+                              uint32_t height = 64,
+                              uint32_t row_pitch = 256) {
   if (!readback)
     return 0;
   uint8_t *data = nullptr;
-  D3D12_RANGE range = {0, 64u * 64u * 4u};
+  D3D12_RANGE range = {0, static_cast<SIZE_T>(row_pitch) * height};
   if (FAILED(readback->Map(0, &range, reinterpret_cast<void **>(&data))) ||
       !data)
     return 0;
   uint32_t count = 0;
-  for (uint32_t y = 0; y < 64; ++y) {
-    const uint32_t *row = reinterpret_cast<const uint32_t *>(data + y * 256);
-    for (uint32_t x = 0; x < 64; ++x)
+  for (uint32_t y = 0; y < height; ++y) {
+    const uint32_t *row =
+        reinterpret_cast<const uint32_t *>(data + y * row_pitch);
+    for (uint32_t x = 0; x < width; ++x)
       count += row[x] != 0;
   }
   readback->Unmap(0, nullptr);
@@ -161,15 +164,17 @@ static uint32_t count_nonzero(ID3D12Resource *readback) {
 }
 
 static bool readback_pixel(ID3D12Resource *readback, uint32_t x, uint32_t y,
-                           uint32_t &value) {
-  if (!readback || x >= 64 || y >= 64)
+                           uint32_t &value, uint32_t width = 64,
+                           uint32_t height = 64,
+                           uint32_t row_pitch = 256) {
+  if (!readback || x >= width || y >= height)
     return false;
   uint8_t *data = nullptr;
-  D3D12_RANGE range = {0, 256u * (y + 1)};
+  D3D12_RANGE range = {0, static_cast<SIZE_T>(row_pitch) * (y + 1)};
   if (FAILED(readback->Map(0, &range, reinterpret_cast<void **>(&data))) ||
       !data)
     return false;
-  std::memcpy(&value, data + y * 256u + x * sizeof(uint32_t),
+  std::memcpy(&value, data + y * row_pitch + x * sizeof(uint32_t),
               sizeof(value));
   readback->Unmap(0, nullptr);
   return true;
@@ -186,7 +191,12 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
                            ID3D12DescriptorHeap *rtv_heap,
                            const D3D12_SHADING_RATE_COMBINER *combiners_arg =
                                nullptr,
-                           ID3D12Resource *index_buffer = nullptr) {
+                           ID3D12Resource *index_buffer = nullptr,
+                           UINT vertex_count = 3,
+                           UINT start_vertex = 0,
+                           UINT target_width = 64,
+                           UINT target_height = 64,
+                           UINT readback_row_pitch = 256) {
   if (base_shading_rate != D3D12_SHADING_RATE_1X1 ||
       shading_rate_image || combiners_arg) {
     const D3D12_SHADING_RATE_COMBINER default_combiners[2] = {
@@ -203,15 +213,19 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
   list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
   const float clear_color[4] = {0, 0, 0, 0};
   list->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
-  D3D12_VIEWPORT viewport = {0, 0, 64, 64, 0, 1};
-  D3D12_RECT scissor = {0, 0, 64, 64};
+  D3D12_VIEWPORT viewport = {0, 0, static_cast<float>(target_width),
+                             static_cast<float>(target_height), 0, 1};
+  D3D12_RECT scissor = {0, 0, static_cast<LONG>(target_width),
+                        static_cast<LONG>(target_height)};
   list->RSSetViewports(1, &viewport);
   list->RSSetScissorRects(1, &scissor);
   list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   D3D12_VERTEX_BUFFER_VIEW vbv = {};
   vbv.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
-  vbv.SizeInBytes = 36;
-  vbv.StrideInBytes = 12;
+  D3D12_RESOURCE_DESC vertex_desc = {};
+  vertex_buffer->GetDesc(&vertex_desc);
+  vbv.SizeInBytes = static_cast<UINT>(vertex_desc.Width);
+  vbv.StrideInBytes = 20;
   list->IASetVertexBuffers(0, 1, &vbv);
   if (index_buffer) {
     D3D12_INDEX_BUFFER_VIEW ibv = {};
@@ -221,7 +235,7 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
     list->IASetIndexBuffer(&ibv);
     list->DrawIndexedInstanced(3, 1, 0, 0, 0);
   } else {
-    list->DrawInstanced(3, 1, 0, 0);
+    list->DrawInstanced(vertex_count, 1, start_vertex, 0);
   }
   D3D12_RESOURCE_BARRIER target_barrier = {};
   target_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -237,10 +251,10 @@ static HRESULT record_draw(ID3D12GraphicsCommandList *list,
   destination.pResource = readback;
   destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
   destination.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  destination.PlacedFootprint.Footprint.Width = 64;
-  destination.PlacedFootprint.Footprint.Height = 64;
+  destination.PlacedFootprint.Footprint.Width = target_width;
+  destination.PlacedFootprint.Footprint.Height = target_height;
   destination.PlacedFootprint.Footprint.Depth = 1;
-  destination.PlacedFootprint.Footprint.RowPitch = 256;
+  destination.PlacedFootprint.Footprint.RowPitch = readback_row_pitch;
   list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
   return S_OK;
 }
@@ -250,18 +264,29 @@ int main() {
   const char *vs_path = "Z:\\tmp\\metalsharp_vrs_vs.dxil";
   const char *ps_path = "Z:\\tmp\\metalsharp_vrs_ps.dxil";
   const char *source = R"(
-struct VSIn { float3 position : POSITION; };
-struct VSOut { float4 position : SV_Position; uint primitive_rate : SV_ShadingRate; };
+struct VSIn {
+  float3 position : POSITION;
+  uint primitive_rate : RATE;
+  uint viewport_index : VIEW;
+};
+struct VSOut {
+  float4 position : SV_Position;
+  uint primitive_rate : SV_ShadingRate;
+  uint viewport_index : SV_ViewportArrayIndex;
+  uint render_target_index : SV_RenderTargetArrayIndex;
+};
 VSOut vs_main(VSIn input) {
   VSOut output;
   output.position = float4(input.position, 1.0);
-  output.primitive_rate = 5;
+  output.primitive_rate = input.primitive_rate;
+  output.viewport_index = input.viewport_index;
+  output.render_target_index = input.viewport_index;
   return output;
 }
 float4 ps_main(VSOut input) : SV_Target0 {
-  return input.primitive_rate == 5
-             ? float4(1.0, 0.0, 0.0, 1.0)
-             : float4(0.0, 1.0, 0.0, 1.0);
+  return input.primitive_rate == 0
+             ? float4(0.0, 1.0, 0.0, 1.0)
+             : float4(1.0, 0.0, 0.0, 1.0);
 }
 )";
   bool source_ok = write_file(shader_path, source);
@@ -305,9 +330,13 @@ float4 ps_main(VSOut input) : SV_Target0 {
                               root_blob->GetBufferSize(), IID_PPV_ARGS(&root))
                         : E_FAIL;
 
-  D3D12_INPUT_ELEMENT_DESC input = {
-      "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
-      D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0};
+  D3D12_INPUT_ELEMENT_DESC inputs[3] = {
+      {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+       D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+      {"RATE", 0, DXGI_FORMAT_R32_UINT, 0, 12,
+       D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+      {"VIEW", 0, DXGI_FORMAT_R32_UINT, 0, 16,
+       D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
   D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
   pso_desc.pRootSignature = root;
   pso_desc.VS = {vs.data(), vs.size()};
@@ -318,7 +347,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
   pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
   pso_desc.RasterizerState.DepthClipEnable = TRUE;
-  pso_desc.InputLayout = {&input, 1};
+  pso_desc.InputLayout = {inputs, 3};
   pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
   pso_desc.NumRenderTargets = 1;
   pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -340,6 +369,13 @@ float4 ps_main(VSOut input) : SV_Target0 {
   ID3D12Resource *vertex_buffer = nullptr;
   ID3D12Resource *index_buffer = nullptr;
   ID3D12DescriptorHeap *rtv_heap = nullptr;
+  ID3D12Resource *logical_target65 = nullptr;
+  ID3D12Resource *logical_readback65 = nullptr;
+  ID3D12DescriptorHeap *logical_rtv65_heap = nullptr;
+  ID3D12Resource *viewport_array_target = nullptr;
+  ID3D12Resource *viewport_array_readback = nullptr;
+  ID3D12Resource *viewport_array_vertex_buffer = nullptr;
+  ID3D12DescriptorHeap *viewport_array_rtv_heap = nullptr;
   D3D12_COMMAND_QUEUE_DESC queue_desc = {};
   HRESULT queue_hr = device ? device->CreateCommandQueue(
                                   &queue_desc, IID_PPV_ARGS(&queue))
@@ -402,7 +438,14 @@ float4 ps_main(VSOut input) : SV_Target0 {
                                   D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                   IID_PPV_ARGS(&readback))
                             : E_FAIL;
-  const float vertices[9] = {-1, -1, 0, 3, -1, 0, -1, 3, 0};
+  struct Vertex {
+    float position[3];
+    uint32_t primitive_rate;
+    uint32_t viewport_index;
+  };
+  const Vertex vertices[6] = {
+      {{-1, -1, 0}, 0, 0}, {{3, -1, 0}, 0, 0}, {{-1, 3, 0}, 0, 0},
+      {{1, -1, 0}, 10, 0}, {{1, 1, 0}, 10, 0}, {{-1, 1, 0}, 10, 0}};
   D3D12_HEAP_PROPERTIES upload_heap = heap_properties(D3D12_HEAP_TYPE_UPLOAD);
   D3D12_RESOURCE_DESC vertex_desc = buffer_desc(sizeof(vertices));
   HRESULT vertex_hr = SUCCEEDED(readback_hr)
@@ -473,6 +516,97 @@ float4 ps_main(VSOut input) : SV_Target0 {
     device->CreateRenderTargetView(
         target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
 
+  D3D12_RESOURCE_DESC logical_target65_desc = target_desc;
+  logical_target65_desc.Width = 65;
+  logical_target65_desc.Height = 65;
+  HRESULT logical_target65_hr =
+      SUCCEEDED(rtv_hr)
+          ? device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &logical_target65_desc,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+                IID_PPV_ARGS(&logical_target65))
+          : E_FAIL;
+  D3D12_RESOURCE_DESC logical_readback65_desc = buffer_desc(512u * 65u);
+  HRESULT logical_readback65_hr =
+      SUCCEEDED(logical_target65_hr)
+          ? device->CreateCommittedResource(
+                &readback_heap, D3D12_HEAP_FLAG_NONE,
+                &logical_readback65_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                nullptr, IID_PPV_ARGS(&logical_readback65))
+          : E_FAIL;
+  D3D12_DESCRIPTOR_HEAP_DESC logical_rtv65_desc = rtv_desc;
+  HRESULT logical_rtv65_hr =
+      SUCCEEDED(logical_readback65_hr)
+          ? device->CreateDescriptorHeap(&logical_rtv65_desc,
+                                         IID_PPV_ARGS(&logical_rtv65_heap))
+          : E_FAIL;
+  if (SUCCEEDED(logical_rtv65_hr))
+    device->CreateRenderTargetView(
+        logical_target65, nullptr,
+        logical_rtv65_heap->GetCPUDescriptorHandleForHeapStart());
+
+  D3D12_RESOURCE_DESC viewport_array_desc = target_desc;
+  viewport_array_desc.DepthOrArraySize = 2;
+  HRESULT viewport_array_target_hr =
+      SUCCEEDED(logical_rtv65_hr)
+          ? device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &viewport_array_desc,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+                IID_PPV_ARGS(&viewport_array_target))
+          : E_FAIL;
+  D3D12_RESOURCE_DESC viewport_array_readback_desc =
+      buffer_desc(256u * 64u * 2u);
+  HRESULT viewport_array_readback_hr =
+      SUCCEEDED(viewport_array_target_hr)
+          ? device->CreateCommittedResource(
+                &readback_heap, D3D12_HEAP_FLAG_NONE,
+                &viewport_array_readback_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&viewport_array_readback))
+          : E_FAIL;
+  D3D12_RESOURCE_DESC viewport_array_vertex_desc = buffer_desc(6u * 20u);
+  HRESULT viewport_array_vertex_hr =
+      SUCCEEDED(viewport_array_readback_hr)
+          ? device->CreateCommittedResource(
+                &upload_heap, D3D12_HEAP_FLAG_NONE,
+                &viewport_array_vertex_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&viewport_array_vertex_buffer))
+          : E_FAIL;
+  if (SUCCEEDED(viewport_array_vertex_hr)) {
+    struct ViewportVertex {
+      float position[3];
+      uint32_t primitive_rate;
+      uint32_t viewport_index;
+    } viewport_vertices[6] = {
+        {{-1, -1, 0}, 0, 1}, {{3, -1, 0}, 0, 1}, {{-1, 3, 0}, 0, 1},
+        {{-1, -1, 0}, 0, 1}, {{3, -1, 0}, 0, 1}, {{-1, 3, 0}, 0, 1}};
+    void *mapped = nullptr;
+    viewport_array_vertex_hr =
+        viewport_array_vertex_buffer->Map(0, nullptr, &mapped);
+    if (SUCCEEDED(viewport_array_vertex_hr)) {
+      std::memcpy(mapped, viewport_vertices, sizeof(viewport_vertices));
+      viewport_array_vertex_buffer->Unmap(0, nullptr);
+    }
+  }
+  D3D12_DESCRIPTOR_HEAP_DESC viewport_array_rtv_desc = {};
+  viewport_array_rtv_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+  viewport_array_rtv_desc.NumDescriptors = 1;
+  HRESULT viewport_array_rtv_hr =
+      SUCCEEDED(viewport_array_vertex_hr)
+          ? device->CreateDescriptorHeap(&viewport_array_rtv_desc,
+                                         IID_PPV_ARGS(&viewport_array_rtv_heap))
+          : E_FAIL;
+  if (SUCCEEDED(viewport_array_rtv_hr)) {
+    D3D12_RENDER_TARGET_VIEW_DESC view = {};
+    view.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    view.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+    view.Texture2DArray.ArraySize = 2;
+    device->CreateRenderTargetView(
+        viewport_array_target, &view,
+        viewport_array_rtv_heap->GetCPUDescriptorHandleForHeapStart());
+  }
+
   HRESULT baseline_record_hr =
       SUCCEEDED(rtv_hr) ? record_draw(
           list, list5, root, pso, target, D3D12_SHADING_RATE_1X1, nullptr,
@@ -487,7 +621,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   const bool primitive_semantic_readback =
       readback_pixel(readback, 0, 0, primitive_semantic_pixel);
   const bool primitive_semantic_verified =
-      primitive_semantic_readback && primitive_semantic_pixel == 0xff0000ffu;
+      primitive_semantic_readback && primitive_semantic_pixel == 0xff00ff00u;
 
   HRESULT reset_hr = SUCCEEDED(baseline_execute_hr)
                          ? allocator->Reset()
@@ -517,6 +651,8 @@ float4 ps_main(VSOut input) : SV_Target0 {
   HRESULT vrs_execute_hr =
       SUCCEEDED(vrs_record_hr) ? execute_and_wait(device, queue, list) : E_FAIL;
   uint32_t vrs_pixels = count_nonzero(readback);
+  uint32_t vrs_pixel = 0;
+  readback_pixel(readback, 0, 0, vrs_pixel);
 
   HRESULT image_reset_hr = SUCCEEDED(vrs_execute_hr)
                                ? allocator->Reset()
@@ -572,9 +708,13 @@ float4 ps_main(VSOut input) : SV_Target0 {
       SUCCEEDED(image_record_hr) ? execute_and_wait(device, queue, list)
                                  : E_FAIL;
   uint32_t image_pixels = count_nonzero(readback);
+  uint32_t image_pixel = 0;
+  readback_pixel(readback, 0, 0, image_pixel);
 
   uint32_t cross_image_min_pixels = 0;
   uint32_t cross_image_max_pixels = 0;
+  uint32_t cross_image_min_pixel = 0;
+  uint32_t cross_image_max_pixel = 0;
   HRESULT cross_image_last_hr = image_execute_hr;
   const D3D12_SHADING_RATE_COMBINER cross_image_combiners[2][2] = {
       {D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
@@ -654,16 +794,22 @@ float4 ps_main(VSOut input) : SV_Target0 {
         SUCCEEDED(cross_record_hr) ? execute_and_wait(device, queue, list)
                                    : E_FAIL;
     uint32_t pixels = count_nonzero(readback);
-    if (i == 0)
+    uint32_t pixel = 0;
+    readback_pixel(readback, 0, 0, pixel);
+    if (i == 0) {
       cross_image_min_pixels = pixels;
-    else
+      cross_image_min_pixel = pixel;
+    } else {
       cross_image_max_pixels = pixels;
+      cross_image_max_pixel = pixel;
+    }
   }
 
   // Exercise the post-rasterizer and screen-space combiners with SUM. The
   // cross-image loop leaves a constant 2x1 image selected; combining it with
   // a 1x2 draw rate must produce 2x2 through independent axis addition.
   uint32_t sum_image_pixels = 0;
+  uint32_t sum_image_pixel = 0;
   HRESULT sum_image_reset_hr = cross_image_last_hr;
   HRESULT sum_image_record_hr = E_FAIL;
   HRESULT sum_image_execute_hr = E_FAIL;
@@ -694,17 +840,21 @@ float4 ps_main(VSOut input) : SV_Target0 {
     if (SUCCEEDED(sum_image_record_hr))
       sum_image_execute_hr = execute_and_wait(device, queue, list);
     sum_image_pixels = count_nonzero(readback);
+    readback_pixel(readback, 0, 0, sum_image_pixel);
     sum_image_combiner_ok = SUCCEEDED(sum_image_reset_hr) &&
                             SUCCEEDED(sum_image_record_hr) &&
                             SUCCEEDED(sum_image_execute_hr) &&
-                            sum_image_pixels == vrs_pixels;
+                            sum_image_pixels == baseline_pixels &&
+                            sum_image_pixel == 0xff0000ffu;
   }
 
-  // Use a checkerboard of 1x1 and 2x2 image texels.  DXMT lowers each
-  // nonconstant texel as an isolated load/store render pass with a matching
-  // scissor, so this case must differ from both uniform image results while
-  // preserving the full-screen triangle coverage.
+  // Use a checkerboard of 1x1 and 2x2 image texels. DXMT lowers each
+  // nonconstant texel as an isolated physical render pass and resolves it
+  // back into the logical target, so the full-screen coverage must remain
+  // complete while the final SV_ShadingRate color differs by tile.
   uint32_t nonconstant_image_pixels = 0;
+  uint32_t nonconstant_image_1x1_pixel = 0;
+  uint32_t nonconstant_image_2x2_pixel = 0;
   HRESULT nonconstant_image_reset_hr = sum_image_execute_hr;
   HRESULT nonconstant_image_record_hr = E_FAIL;
   HRESULT nonconstant_image_execute_hr = E_FAIL;
@@ -789,20 +939,23 @@ float4 ps_main(VSOut input) : SV_Target0 {
     if (SUCCEEDED(nonconstant_image_record_hr))
       nonconstant_image_execute_hr = execute_and_wait(device, queue, list);
     nonconstant_image_pixels = count_nonzero(readback);
+    readback_pixel(readback, 8, 8, nonconstant_image_1x1_pixel);
+    readback_pixel(readback, 24, 8, nonconstant_image_2x2_pixel);
     nonconstant_image_ok = SUCCEEDED(nonconstant_image_reset_hr) &&
                            nonconstant_image_pattern_written &&
                            SUCCEEDED(nonconstant_image_record_hr) &&
                            SUCCEEDED(nonconstant_image_execute_hr) &&
-                           nonconstant_image_pixels > 0 &&
-                           nonconstant_image_pixels < baseline_pixels &&
-                           nonconstant_image_pixels == 2320 &&
-                           nonconstant_image_pixels != image_pixels;
+                           nonconstant_image_pixels == baseline_pixels &&
+                           nonconstant_image_1x1_pixel == 0xff00ff00u &&
+                           nonconstant_image_2x2_pixel == 0xff0000ffu;
   }
 
   // The same image must cover indexed draws. This is kept as a separate
   // command-list recording so the replay path cannot accidentally reuse the
   // non-indexed vertex-start state from the preceding case.
   uint32_t nonconstant_indexed_pixels = 0;
+  uint32_t nonconstant_indexed_1x1_pixel = 0;
+  uint32_t nonconstant_indexed_2x2_pixel = 0;
   HRESULT nonconstant_indexed_reset_hr = nonconstant_image_execute_hr;
   HRESULT nonconstant_indexed_record_hr = E_FAIL;
   HRESULT nonconstant_indexed_execute_hr = E_FAIL;
@@ -833,10 +986,190 @@ float4 ps_main(VSOut input) : SV_Target0 {
     if (SUCCEEDED(nonconstant_indexed_record_hr))
       nonconstant_indexed_execute_hr = execute_and_wait(device, queue, list);
     nonconstant_indexed_pixels = count_nonzero(readback);
+    readback_pixel(readback, 8, 8, nonconstant_indexed_1x1_pixel);
+    readback_pixel(readback, 24, 8, nonconstant_indexed_2x2_pixel);
     nonconstant_indexed_ok = SUCCEEDED(nonconstant_indexed_reset_hr) &&
                             SUCCEEDED(nonconstant_indexed_record_hr) &&
                             SUCCEEDED(nonconstant_indexed_execute_hr) &&
-                            nonconstant_indexed_pixels == 2320;
+                            nonconstant_indexed_pixels == baseline_pixels &&
+                            nonconstant_indexed_1x1_pixel == 0xff00ff00u &&
+                            nonconstant_indexed_2x2_pixel == 0xff0000ffu;
+  }
+
+  // Exercise genuinely varying per-primitive rates in one draw.  The
+  // second triangle starts at vertex three and has a provoking vertex with
+  // x=1, so the shader selects 4x4 for it while the first triangle remains
+  // 1x1.  The replay path renders candidate rates independently and filters
+  // the flat rate varying before each logical resolve.
+  uint32_t per_primitive_pixels = 0;
+  uint32_t per_primitive_left_pixel = 0;
+  uint32_t per_primitive_right_pixel = 0;
+  HRESULT per_primitive_reset_hr = nonconstant_indexed_execute_hr;
+  HRESULT per_primitive_record_hr = E_FAIL;
+  HRESULT per_primitive_execute_hr = E_FAIL;
+  bool per_primitive_ok = false;
+  if (SUCCEEDED(per_primitive_reset_hr)) {
+    per_primitive_reset_hr = allocator->Reset();
+    if (SUCCEEDED(per_primitive_reset_hr))
+      per_primitive_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(per_primitive_reset_hr)) {
+      D3D12_RESOURCE_BARRIER restore_target = {};
+      restore_target.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      restore_target.Transition.pResource = target;
+      restore_target.Transition.Subresource =
+          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      restore_target.Transition.StateBefore =
+          D3D12_RESOURCE_STATE_COPY_SOURCE;
+      restore_target.Transition.StateAfter =
+          D3D12_RESOURCE_STATE_RENDER_TARGET;
+      list->ResourceBarrier(1, &restore_target);
+      const D3D12_SHADING_RATE_COMBINER per_primitive_combiners[2] = {
+          D3D12_SHADING_RATE_COMBINER_OVERRIDE,
+          D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
+      per_primitive_record_hr = record_draw(
+          list, list5, root, pso, target, D3D12_SHADING_RATE_1X1, nullptr,
+          readback, vertex_buffer, rtv_heap, per_primitive_combiners, nullptr,
+          6, 0);
+    }
+    if (SUCCEEDED(per_primitive_record_hr))
+      per_primitive_execute_hr = execute_and_wait(device, queue, list);
+    per_primitive_pixels = count_nonzero(readback);
+    readback_pixel(readback, 8, 56, per_primitive_left_pixel);
+    readback_pixel(readback, 56, 8, per_primitive_right_pixel);
+    per_primitive_ok = SUCCEEDED(per_primitive_reset_hr) &&
+                       SUCCEEDED(per_primitive_record_hr) &&
+                       SUCCEEDED(per_primitive_execute_hr) &&
+                       per_primitive_pixels == baseline_pixels &&
+                       per_primitive_left_pixel == 0xff00ff00u &&
+                       per_primitive_right_pixel == 0xff0000ffu;
+  }
+
+  // A 65x65 target exercises the fixed 16x16 image-tile rule and the
+  // partially covered trailing row/column.  The resolver must restore all
+  // 4225 logical pixels rather than exposing Metal's 34x34 physical result.
+  uint32_t logical65_pixels = 0;
+  uint32_t logical65_corner_pixel = 0;
+  HRESULT logical65_reset_hr = per_primitive_execute_hr;
+  HRESULT logical65_record_hr = E_FAIL;
+  HRESULT logical65_execute_hr = E_FAIL;
+  bool logical65_ok = false;
+  if (SUCCEEDED(logical65_reset_hr) && SUCCEEDED(logical_target65_hr) &&
+      SUCCEEDED(logical_readback65_hr) && SUCCEEDED(logical_rtv65_hr)) {
+    logical65_reset_hr = allocator->Reset();
+    if (SUCCEEDED(logical65_reset_hr))
+      logical65_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(logical65_reset_hr)) {
+      const D3D12_SHADING_RATE_COMBINER logical_combiners[2] = {
+          D3D12_SHADING_RATE_COMBINER_MAX,
+          D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
+      logical65_record_hr = record_draw(
+          list, list5, root, pso, logical_target65, D3D12_SHADING_RATE_2X2,
+          nullptr, logical_readback65, vertex_buffer, logical_rtv65_heap,
+          logical_combiners, nullptr, 3, 0, 65, 65, 512);
+    }
+    if (SUCCEEDED(logical65_record_hr))
+      logical65_execute_hr = execute_and_wait(device, queue, list);
+    logical65_pixels = count_nonzero(logical_readback65, 65, 65, 512);
+    readback_pixel(logical_readback65, 64, 64, logical65_corner_pixel, 65, 65,
+                   512);
+    logical65_ok = SUCCEEDED(logical65_reset_hr) &&
+                   SUCCEEDED(logical65_record_hr) &&
+                   SUCCEEDED(logical65_execute_hr) && logical65_pixels == 4225 &&
+                   logical65_corner_pixel == 0xff0000ffu;
+  }
+
+  uint32_t viewport_array_slice0_pixels = 0;
+  uint32_t viewport_array_slice1_pixels = 0;
+  uint32_t viewport_array_slice0_pixel = 0;
+  uint32_t viewport_array_slice1_pixel = 0;
+  HRESULT viewport_array_reset_hr = logical65_execute_hr;
+  HRESULT viewport_array_record_hr = E_FAIL;
+  HRESULT viewport_array_execute_hr = E_FAIL;
+  bool viewport_array_ok = false;
+  if (SUCCEEDED(viewport_array_reset_hr) &&
+      SUCCEEDED(viewport_array_target_hr) &&
+      SUCCEEDED(viewport_array_readback_hr) &&
+      SUCCEEDED(viewport_array_vertex_hr) &&
+      SUCCEEDED(viewport_array_rtv_hr)) {
+    viewport_array_reset_hr = allocator->Reset();
+    if (SUCCEEDED(viewport_array_reset_hr))
+      viewport_array_reset_hr = list->Reset(allocator, nullptr);
+    if (SUCCEEDED(viewport_array_reset_hr)) {
+      list->SetPipelineState(pso);
+      list->SetGraphicsRootSignature(root);
+      D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+          viewport_array_rtv_heap->GetCPUDescriptorHandleForHeapStart();
+      const float clear_color[4] = {0, 0, 0, 0};
+      list->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+      D3D12_VIEWPORT viewports[2] = {{0, 0, 64, 64, 0, 1},
+                                     {0, 0, 64, 64, 0, 1}};
+      D3D12_RECT scissors[2] = {{0, 0, 64, 64}, {0, 0, 64, 64}};
+      list->RSSetViewports(2, viewports);
+      list->RSSetScissorRects(2, scissors);
+      list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      D3D12_VERTEX_BUFFER_VIEW vbv = {};
+      vbv.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+      vbv.SizeInBytes = 3u * 20u;
+      vbv.StrideInBytes = 20;
+      list->IASetVertexBuffers(0, 1, &vbv);
+      list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+      list->DrawInstanced(3, 1, 0, 0);
+      vbv.BufferLocation = viewport_array_vertex_buffer->GetGPUVirtualAddress();
+      list->IASetVertexBuffers(0, 1, &vbv);
+      list->DrawInstanced(3, 1, 0, 0);
+      D3D12_RESOURCE_BARRIER barrier = {};
+      barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      barrier.Transition.pResource = viewport_array_target;
+      barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+      barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+      barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+      list->ResourceBarrier(1, &barrier);
+      for (UINT slice = 0; slice < 2; ++slice) {
+        D3D12_TEXTURE_COPY_LOCATION source = {};
+        source.pResource = viewport_array_target;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        source.SubresourceIndex = slice;
+        D3D12_TEXTURE_COPY_LOCATION destination = {};
+        destination.pResource = viewport_array_readback;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint.Offset = 16384u * slice;
+        destination.PlacedFootprint.Footprint.Format =
+            DXGI_FORMAT_R8G8B8A8_UNORM;
+        destination.PlacedFootprint.Footprint.Width = 64;
+        destination.PlacedFootprint.Footprint.Height = 64;
+        destination.PlacedFootprint.Footprint.Depth = 1;
+        destination.PlacedFootprint.Footprint.RowPitch = 256;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+      }
+      viewport_array_record_hr = S_OK;
+    }
+    if (SUCCEEDED(viewport_array_record_hr))
+      viewport_array_execute_hr = execute_and_wait(device, queue, list);
+    if (SUCCEEDED(viewport_array_execute_hr)) {
+      uint8_t *mapped = nullptr;
+      D3D12_RANGE range = {0, 32768};
+      viewport_array_execute_hr = viewport_array_readback->Map(
+          0, &range, reinterpret_cast<void **>(&mapped));
+      if (SUCCEEDED(viewport_array_execute_hr) && mapped) {
+        const uint32_t *slice0 = reinterpret_cast<const uint32_t *>(mapped);
+        const uint32_t *slice1 = reinterpret_cast<const uint32_t *>(
+            mapped + 16384u);
+        for (uint32_t i = 0; i < 64u * 64u; ++i) {
+          viewport_array_slice0_pixels += slice0[i] != 0;
+          viewport_array_slice1_pixels += slice1[i] != 0;
+        }
+        viewport_array_slice0_pixel = slice0[0];
+        viewport_array_slice1_pixel = slice1[0];
+        viewport_array_readback->Unmap(0, nullptr);
+      }
+    }
+    viewport_array_ok = SUCCEEDED(viewport_array_reset_hr) &&
+                        SUCCEEDED(viewport_array_record_hr) &&
+                        SUCCEEDED(viewport_array_execute_hr) &&
+                        viewport_array_slice0_pixels == 4096 &&
+                        viewport_array_slice1_pixels == 4096 &&
+                        viewport_array_slice0_pixel == 0xff00ff00u &&
+                        viewport_array_slice1_pixel == 0xff00ff00u;
   }
 
   const D3D12_SHADING_RATE rate_matrix_rates[] = {
@@ -878,14 +1211,16 @@ float4 ps_main(VSOut input) : SV_Target0 {
     rate_matrix_ok &= SUCCEEDED(matrix_reset_hr) &&
                       SUCCEEDED(matrix_record_hr) &&
                       SUCCEEDED(matrix_execute_hr) &&
-                      rate_matrix_pixels[i] > 0 &&
-                      rate_matrix_pixels[i] < baseline_pixels;
+                      rate_matrix_pixels[i] == baseline_pixels;
     rate_matrix_last_hr = matrix_execute_hr;
   }
 
   const bool cross_image_combiner_ok =
-      SUCCEEDED(cross_image_last_hr) && cross_image_min_pixels == baseline_pixels &&
-      cross_image_max_pixels == vrs_pixels;
+      SUCCEEDED(cross_image_last_hr) &&
+      cross_image_min_pixels == baseline_pixels &&
+      cross_image_max_pixels == baseline_pixels &&
+      cross_image_min_pixel == 0xff00ff00u &&
+      cross_image_max_pixel == 0xff0000ffu;
   const bool passed = source_ok && vs_dxc == 0 && ps_dxc == 0 && !vs.empty() &&
                       !ps.empty() && SUCCEEDED(device_hr) &&
                       SUCCEEDED(root_serialize_hr) && SUCCEEDED(root_hr) &&
@@ -900,15 +1235,17 @@ float4 ps_main(VSOut input) : SV_Target0 {
                       SUCCEEDED(baseline_execute_hr) && baseline_pixels == 4096 &&
                       primitive_semantic_verified &&
                       SUCCEEDED(reset_hr) && SUCCEEDED(vrs_record_hr) &&
-                      SUCCEEDED(vrs_execute_hr) && vrs_pixels > 0 &&
-                      vrs_pixels < baseline_pixels &&
+                      SUCCEEDED(vrs_execute_hr) &&
+                      vrs_pixels == baseline_pixels &&
+                      vrs_pixel == 0xff0000ffu &&
                       SUCCEEDED(image_reset_hr) && image_copy_recorded &&
                       SUCCEEDED(image_record_hr) && SUCCEEDED(image_execute_hr) &&
-                      image_pixels > 0 && image_pixels < baseline_pixels &&
+                      image_pixels == baseline_pixels &&
+                      image_pixel == 0xff0000ffu &&
                       image_pixels == vrs_pixels && cross_image_combiner_ok &&
                       sum_image_combiner_ok && nonconstant_image_ok &&
-                      nonconstant_indexed_ok &&
-                      rate_matrix_ok &&
+                      nonconstant_indexed_ok && per_primitive_ok &&
+                      logical65_ok && viewport_array_ok && rate_matrix_ok &&
                       SUCCEEDED(rate_matrix_last_hr);
   std::printf("{\n");
   std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-vrs.v1\",\n");
@@ -925,6 +1262,12 @@ float4 ps_main(VSOut input) : SV_Target0 {
               hr_hex(shading_rate_image_hr).c_str());
   std::printf("  \"shading_rate_upload_hr\": \"%s\",\n",
               hr_hex(shading_rate_upload_hr).c_str());
+  std::printf("  \"logical_target65_hr\": \"%s\",\n",
+              hr_hex(logical_target65_hr).c_str());
+  std::printf("  \"logical_readback65_hr\": \"%s\",\n",
+              hr_hex(logical_readback65_hr).c_str());
+  std::printf("  \"logical_rtv65_hr\": \"%s\",\n",
+              hr_hex(logical_rtv65_hr).c_str());
   std::printf("  \"baseline_record_hr\": \"%s\",\n",
               hr_hex(baseline_record_hr).c_str());
   std::printf("  \"baseline_execute_hr\": \"%s\",\n",
@@ -941,6 +1284,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"vrs_rate\": \"2x2\",\n");
   std::printf("  \"vrs_combiners\": [\"MAX\", \"PASSTHROUGH\"],\n");
   std::printf("  \"vrs_pixels\": %u,\n", vrs_pixels);
+  std::printf("  \"vrs_pixel\": %u,\n", vrs_pixel);
   std::printf("  \"image_reset_hr\": \"%s\",\n",
               hr_hex(image_reset_hr).c_str());
   std::printf("  \"image_copy_recorded\": %s,\n",
@@ -952,20 +1296,22 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"image_rate\": \"2x2\",\n");
   std::printf("  \"image_combiners\": [\"PASSTHROUGH\", \"OVERRIDE\"],\n");
   std::printf("  \"image_pixels\": %u,\n", image_pixels);
-  std::printf("  \"rate_reduced\": %s,\n",
-              (vrs_pixels > 0 && vrs_pixels < baseline_pixels) ? "true"
-                                                                 : "false");
-  std::printf("  \"image_rate_reduced\": %s,\n",
-              (image_pixels > 0 && image_pixels < baseline_pixels &&
-               image_pixels == vrs_pixels)
-                  ? "true"
-                  : "false");
+  std::printf("  \"image_pixel\": %u,\n", image_pixel);
+  // Logical-resolution reconstruction intentionally restores every covered
+  // pixel; the physical-rate reduction is exercised inside Metal and is not
+  // inferred from the resolved target's nonzero count.
+  std::printf("  \"rate_reduced\": false,\n");
+  std::printf("  \"image_rate_reduced\": false,\n");
   std::printf("  \"cross_image_min_rate\": \"1x1\",\n");
   std::printf("  \"cross_image_min_pixels\": %u,\n",
               cross_image_min_pixels);
   std::printf("  \"cross_image_max_rate\": \"2x2\",\n");
   std::printf("  \"cross_image_max_pixels\": %u,\n",
               cross_image_max_pixels);
+  std::printf("  \"cross_image_min_pixel\": %u,\n",
+              cross_image_min_pixel);
+  std::printf("  \"cross_image_max_pixel\": %u,\n",
+              cross_image_max_pixel);
   std::printf("  \"cross_image_combiner_verified\": %s,\n",
               cross_image_combiner_ok ? "true" : "false");
   std::printf("  \"sum_image_reset_hr\": \"%s\",\n",
@@ -977,6 +1323,7 @@ float4 ps_main(VSOut input) : SV_Target0 {
   std::printf("  \"sum_image_rate\": \"2x2\",\n");
   std::printf("  \"sum_image_combiners\": [\"SUM\", \"SUM\"],\n");
   std::printf("  \"sum_image_pixels\": %u,\n", sum_image_pixels);
+  std::printf("  \"sum_image_pixel\": %u,\n", sum_image_pixel);
   std::printf("  \"sum_image_combiner_verified\": %s,\n",
               sum_image_combiner_ok ? "true" : "false");
   std::printf("  \"nonconstant_image_reset_hr\": \"%s\",\n",
@@ -989,7 +1336,12 @@ float4 ps_main(VSOut input) : SV_Target0 {
               nonconstant_image_pattern_written ? "true" : "false");
   std::printf("  \"nonconstant_image_pixels\": %u,\n",
               nonconstant_image_pixels);
-  std::printf("  \"nonconstant_image_expected_pixels\": 2320,\n");
+  std::printf("  \"nonconstant_image_expected_pixels\": %u,\n",
+              baseline_pixels);
+  std::printf("  \"nonconstant_image_1x1_pixel\": %u,\n",
+              nonconstant_image_1x1_pixel);
+  std::printf("  \"nonconstant_image_2x2_pixel\": %u,\n",
+              nonconstant_image_2x2_pixel);
   std::printf("  \"nonconstant_image_verified\": %s,\n",
               nonconstant_image_ok ? "true" : "false");
   std::printf("  \"nonconstant_indexed_reset_hr\": \"%s\",\n",
@@ -1000,8 +1352,53 @@ float4 ps_main(VSOut input) : SV_Target0 {
               hr_hex(nonconstant_indexed_execute_hr).c_str());
   std::printf("  \"nonconstant_indexed_pixels\": %u,\n",
               nonconstant_indexed_pixels);
+  std::printf("  \"nonconstant_indexed_1x1_pixel\": %u,\n",
+              nonconstant_indexed_1x1_pixel);
+  std::printf("  \"nonconstant_indexed_2x2_pixel\": %u,\n",
+              nonconstant_indexed_2x2_pixel);
   std::printf("  \"nonconstant_indexed_verified\": %s,\n",
               nonconstant_indexed_ok ? "true" : "false");
+  std::printf("  \"per_primitive_reset_hr\": \"%s\",\n",
+              hr_hex(per_primitive_reset_hr).c_str());
+  std::printf("  \"per_primitive_record_hr\": \"%s\",\n",
+              hr_hex(per_primitive_record_hr).c_str());
+  std::printf("  \"per_primitive_execute_hr\": \"%s\",\n",
+              hr_hex(per_primitive_execute_hr).c_str());
+  std::printf("  \"per_primitive_pixels\": %u,\n", per_primitive_pixels);
+  std::printf("  \"per_primitive_left_pixel\": %u,\n",
+              per_primitive_left_pixel);
+  std::printf("  \"per_primitive_right_pixel\": %u,\n",
+              per_primitive_right_pixel);
+  std::printf("  \"per_primitive_verified\": %s,\n",
+              per_primitive_ok ? "true" : "false");
+  std::printf("  \"logical65_reset_hr\": \"%s\",\n",
+              hr_hex(logical65_reset_hr).c_str());
+  std::printf("  \"logical65_record_hr\": \"%s\",\n",
+              hr_hex(logical65_record_hr).c_str());
+  std::printf("  \"logical65_execute_hr\": \"%s\",\n",
+              hr_hex(logical65_execute_hr).c_str());
+  std::printf("  \"logical65_pixels\": %u,\n", logical65_pixels);
+  std::printf("  \"logical65_expected_pixels\": 4225,\n");
+  std::printf("  \"logical65_corner_pixel\": %u,\n",
+              logical65_corner_pixel);
+  std::printf("  \"logical65_verified\": %s,\n",
+              logical65_ok ? "true" : "false");
+  std::printf("  \"viewport_array_reset_hr\": \"%s\",\n",
+              hr_hex(viewport_array_reset_hr).c_str());
+  std::printf("  \"viewport_array_record_hr\": \"%s\",\n",
+              hr_hex(viewport_array_record_hr).c_str());
+  std::printf("  \"viewport_array_execute_hr\": \"%s\",\n",
+              hr_hex(viewport_array_execute_hr).c_str());
+  std::printf("  \"viewport_array_slice0_pixels\": %u,\n",
+              viewport_array_slice0_pixels);
+  std::printf("  \"viewport_array_slice1_pixels\": %u,\n",
+              viewport_array_slice1_pixels);
+  std::printf("  \"viewport_array_slice0_pixel\": %u,\n",
+              viewport_array_slice0_pixel);
+  std::printf("  \"viewport_array_slice1_pixel\": %u,\n",
+              viewport_array_slice1_pixel);
+  std::printf("  \"viewport_array_index_verified\": %s,\n",
+              viewport_array_ok ? "true" : "false");
   std::printf("  \"rate_matrix\": [");
   for (size_t i = 0; i < 5; ++i) {
     if (i)
@@ -1025,15 +1422,21 @@ float4 ps_main(VSOut input) : SV_Target0 {
               sum_image_combiner_ok ? "true" : "false");
   std::printf("    \"per_primitive_semantic_complete\": %s,\n",
               primitive_semantic_verified ? "true" : "false");
-  // A constant image and a per-draw rate cannot prove arbitrary image or
-  // per-primitive semantics, so keep those facts explicit until their
-  // focused matrices execute.
+  std::printf("    \"per_primitive_viewport_indexing_complete\": %s,\n",
+              viewport_array_ok ? "true" : "false");
+  // Keep each subset explicit: the aggregate gate consumes these fields
+  // rather than inferring Tier 2 from one successful draw.
   std::printf("    \"nonconstant_image_complete\": %s,\n",
               nonconstant_image_ok ? "true" : "false");
   std::printf("    \"nonconstant_indexed_complete\": %s,\n",
               nonconstant_indexed_ok ? "true" : "false");
-  std::printf("    \"per_primitive_complete\": false,\n");
-  std::printf("    \"logical_resolution_complete\": false,\n");
+  std::printf("    \"per_primitive_complete\": %s,\n",
+              per_primitive_ok ? "true" : "false");
+  std::printf("    \"logical_resolution_complete\": %s,\n",
+              (vrs_pixels == baseline_pixels && image_pixels == baseline_pixels &&
+               nonconstant_image_ok && nonconstant_indexed_ok && logical65_ok)
+                  ? "true"
+                  : "false");
   std::printf("    \"lifecycle_complete\": %s,\n",
               (SUCCEEDED(image_reset_hr) && SUCCEEDED(image_record_hr) &&
                SUCCEEDED(image_execute_hr) &&
@@ -1041,11 +1444,24 @@ float4 ps_main(VSOut input) : SV_Target0 {
                SUCCEEDED(nonconstant_indexed_execute_hr))
                   ? "true"
                   : "false");
-  std::printf("    \"tier2_matrix_complete\": false\n");
+  std::printf("    \"tier2_matrix_complete\": %s\n",
+              (rate_matrix_ok && cross_image_combiner_ok &&
+               sum_image_combiner_ok && nonconstant_image_ok &&
+               nonconstant_indexed_ok && per_primitive_ok && logical65_ok &&
+               viewport_array_ok)
+                  ? "true"
+                  : "false");
   std::printf("  }\n");
   std::printf("}\n");
   std::fflush(stdout);
 
+  release(viewport_array_rtv_heap);
+  release(viewport_array_vertex_buffer);
+  release(viewport_array_readback);
+  release(viewport_array_target);
+  release(logical_rtv65_heap);
+  release(logical_readback65);
+  release(logical_target65);
   release(rtv_heap);
   release(vertex_buffer);
   release(readback);

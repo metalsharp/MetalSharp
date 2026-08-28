@@ -42,14 +42,32 @@ static void parse_signature(const uint8_t *data, size_t size, bool input,
   for (uint32_t i = 0; i < parameter_count; ++i) {
     const uint8_t *element = data + parameter_offset + uint64_t(i) * 0x20;
     const uint32_t system_value = read_u32(element + 0x0c);
-    if (system_value != 24) // DxilProgramSigSemantic::ShadingRate
-      continue;
     const int32_t register_index =
         static_cast<int32_t>(read_u32(element + 0x14));
-    if (input)
-      shader.shading_rate_input_register = register_index;
-    else
-      shader.shading_rate_output_register = register_index;
+    if (system_value == 24) { // DxilProgramSigSemantic::ShadingRate
+      if (input)
+        shader.shading_rate_input_register = register_index;
+      else {
+        shader.shading_rate_output_register = register_index;
+        shader.shading_rate_output_id = static_cast<int32_t>(i);
+      }
+    } else if (system_value == 5) {
+      // DxilProgramSigSemantic::ViewportArrayIndex.
+      if (input)
+        shader.viewport_index_input_register = register_index;
+      else {
+        shader.viewport_index_output_register = register_index;
+        shader.viewport_index_output_id = static_cast<int32_t>(i);
+      }
+    } else if (system_value == 4) {
+      // DxilProgramSigSemantic::RenderTargetArrayIndex.
+      if (input)
+        shader.render_target_array_index_input_register = register_index;
+      else {
+        shader.render_target_array_index_output_register = register_index;
+        shader.render_target_array_index_output_id = static_cast<int32_t>(i);
+      }
+    }
   }
 }
 

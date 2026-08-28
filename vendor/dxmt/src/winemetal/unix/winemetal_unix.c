@@ -667,6 +667,53 @@ _MTLDevice_newTexture(void *obj) {
 }
 
 static NTSTATUS
+_MTLDevice_newRasterizationRateMap(void *obj) {
+  struct unixcall_mtldevice_newrasterizationratemap *params = obj;
+  params->ret_map = 0;
+  params->ret_parameter_size = 0;
+  params->ret_parameter_align = 0;
+  if (!params->device || !params->screen_width || !params->screen_height)
+    return STATUS_SUCCESS;
+
+  id<MTLDevice> device = (id<MTLDevice>)params->device;
+  if (![device supportsRasterizationRateMapWithLayerCount:1])
+    return STATUS_SUCCESS;
+
+  MTLRasterizationRateLayerDescriptor *layer =
+      [[MTLRasterizationRateLayerDescriptor alloc]
+          initWithSampleCount:MTLSizeMake(2, 2, 1)
+                    horizontal:params->horizontal
+                      vertical:params->vertical];
+  MTLRasterizationRateMapDescriptor *descriptor =
+      [MTLRasterizationRateMapDescriptor
+          rasterizationRateMapDescriptorWithScreenSize:
+              MTLSizeMake(params->screen_width, params->screen_height, 1)
+                                          layer:layer];
+  id<MTLRasterizationRateMap> map =
+      [device newRasterizationRateMapWithDescriptor:descriptor];
+  if (map) {
+    MTLSizeAndAlign parameter_info = map.parameterBufferSizeAndAlign;
+    params->ret_map = (obj_handle_t)map;
+    params->ret_parameter_size = parameter_info.size;
+    params->ret_parameter_align = parameter_info.align;
+  }
+  [descriptor release];
+  [layer release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLRasterizationRateMap_copyParameterData(void *obj) {
+  struct unixcall_generic_obj_obj_uint64_noret *params = obj;
+  if (!params->handle || !params->arg0)
+    return STATUS_SUCCESS;
+  [(id<MTLRasterizationRateMap>)params->handle
+      copyParameterDataToBuffer:(id<MTLBuffer>)params->arg0
+                          offset:(NSUInteger)params->arg1];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLDevice_newHeap(void *obj) {
   struct unixcall_mtldevice_newheap *params = obj;
   struct WMTHeapInfo *info = params->info.ptr;
@@ -788,6 +835,32 @@ _MTLResourceStateCommandEncoder_updateTextureMappings(void *obj) {
   return STATUS_SUCCESS;
 }
 
+// Metal 4 mapping calls enqueue work on their MTL4 queue.  DXMT's existing
+// blit/replay path intentionally uses the legacy MTLCommandQueue, so make the
+// queue operation visible before returning to the caller.  Without this
+// ordering a subsequent legacy blit can legally observe an unmapped placement
+// sparse texture even though updateTextureMappings returned successfully.
+static void
+wait_for_mtl4_queue_mapping(id<MTL4CommandQueue> queue) {
+  if (!queue)
+    return;
+  if (@available(macOS 26.0, *)) {
+    id<MTLSharedEvent> event = [[queue device] newSharedEvent];
+    if (!event)
+      return;
+    [queue signalEvent:event value:1];
+    BOOL signaled = [event waitUntilSignaledValue:1 timeoutMS:10000];
+    if (!signaled) {
+      FILE *dl = winemetal_critical_log();
+      if (dl) {
+        fprintf(dl, "[winemetal] MTL4 sparse mapping wait timed out\n");
+        fclose(dl);
+      }
+    }
+    [event release];
+  }
+}
+
 static NTSTATUS
 _MTL4CommandQueue_updateTextureMappings(void *obj) {
   struct unixcall_mtl4commandqueue_update_texture_mappings *params = obj;
@@ -822,6 +895,7 @@ _MTL4CommandQueue_updateTextureMappings(void *obj) {
                    operations:native
                         count:(NSUInteger)params->operation_count];
     free(native);
+    wait_for_mtl4_queue_mapping((id<MTL4CommandQueue>)params->queue);
     params->ret_success = 1;
   }
   return STATUS_SUCCESS;
@@ -868,6 +942,7 @@ _MTL4CommandQueue_copyTextureMappings(void *obj) {
                             operations:native
                                  count:(NSUInteger)params->operation_count];
     free(native);
+    wait_for_mtl4_queue_mapping((id<MTL4CommandQueue>)params->queue);
     params->ret_success = 1;
   }
   return STATUS_SUCCESS;
@@ -906,6 +981,7 @@ _MTL4CommandQueue_updateBufferMappings(void *obj) {
                    operations:native
                         count:(NSUInteger)params->operation_count];
     free(native);
+    wait_for_mtl4_queue_mapping((id<MTL4CommandQueue>)params->queue);
     params->ret_success = 1;
   }
   return STATUS_SUCCESS;
@@ -940,6 +1016,7 @@ _MTL4CommandQueue_copyBufferMappings(void *obj) {
                           operations:native
                                count:(NSUInteger)params->operation_count];
     free(native);
+    wait_for_mtl4_queue_mapping((id<MTL4CommandQueue>)params->queue);
     params->ret_success = 1;
   }
   return STATUS_SUCCESS;
@@ -1462,9 +1539,12 @@ _MTLCommandBuffer_renderCommandEncoder(void *obj) {
     descriptor.tileHeight = info->tile_height;
   }
   id<MTLRasterizationRateMap> rate_map = nil;
+  bool owns_rate_map = false;
   MTLRasterizationRateLayerDescriptor *rate_layer = nil;
   MTLRasterizationRateMapDescriptor *rate_descriptor = nil;
-  if (info->rasterization_rate_map_enabled &&
+  if (info->rasterization_rate_map) {
+    rate_map = (id<MTLRasterizationRateMap>)info->rasterization_rate_map;
+  } else if (info->rasterization_rate_map_enabled &&
       info->render_target_width && info->render_target_height) {
     bool rates_valid = true;
     for (unsigned i = 0; i < 2; ++i) {
@@ -1489,14 +1569,18 @@ _MTLCommandBuffer_renderCommandEncoder(void *obj) {
                                           layer:rate_layer];
       rate_map = [device
           newRasterizationRateMapWithDescriptor:rate_descriptor];
+      owns_rate_map = true;
       if (rate_map)
         descriptor.rasterizationRateMap = rate_map;
     }
   }
+  if (rate_map && !descriptor.rasterizationRateMap)
+    descriptor.rasterizationRateMap = rate_map;
 
   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle renderCommandEncoderWithDescriptor:descriptor];
 
-  [rate_map release];
+  if (owns_rate_map)
+    [rate_map release];
   [rate_descriptor release];
   [rate_layer release];
   [descriptor release];
@@ -2703,6 +2787,71 @@ create_aabb_acceleration_structure_descriptor(
   return descriptor;
 }
 
+static MTLPrimitiveAccelerationStructureDescriptor *
+create_mixed_acceleration_structure_descriptor(
+    const struct WMTAccelerationStructureGeometryInfo *infos,
+    uint64_t info_count) {
+  if (!infos || !info_count || info_count > 64)
+    return nil;
+  NSMutableArray<MTLAccelerationStructureGeometryDescriptor *> *geometries =
+      [NSMutableArray arrayWithCapacity:(NSUInteger)info_count];
+  bool allow_refit = false;
+  for (uint64_t i = 0; i < info_count; ++i) {
+    const struct WMTAccelerationStructureGeometryInfo *info = &infos[i];
+    if (info->type == WMTAccelerationStructureGeometryTriangles) {
+      const struct WMTPrimitiveAccelerationStructureInfo *triangle =
+          &info->geometry.triangles;
+      if (!triangle->vertex_buffer || !triangle->triangle_count)
+        return nil;
+      MTLAccelerationStructureTriangleGeometryDescriptor *geometry =
+          [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+      geometry.vertexBuffer = (id<MTLBuffer>)triangle->vertex_buffer;
+      geometry.vertexBufferOffset = triangle->vertex_buffer_offset;
+      geometry.vertexStride = triangle->vertex_stride;
+      geometry.vertexFormat = MTLAttributeFormatFloat3;
+      geometry.triangleCount = triangle->triangle_count;
+      geometry.opaque = triangle->opaque != 0;
+      if (triangle->index_buffer &&
+          triangle->index_type != WMTAccelerationStructureIndexTypeNone) {
+        geometry.indexBuffer = (id<MTLBuffer>)triangle->index_buffer;
+        geometry.indexBufferOffset = triangle->index_buffer_offset;
+        geometry.indexType =
+            triangle->index_type == WMTAccelerationStructureIndexTypeUInt32
+                ? MTLIndexTypeUInt32
+                : MTLIndexTypeUInt16;
+      }
+      [geometries addObject:geometry];
+      allow_refit |= triangle->allow_refit != 0;
+    } else if (info->type == WMTAccelerationStructureGeometryAABBs) {
+      const struct WMTAABBAccelerationStructureInfo *aabb =
+          &info->geometry.aabbs;
+      if (!aabb->bounding_box_buffer || !aabb->bounding_box_count)
+        return nil;
+      MTLAccelerationStructureBoundingBoxGeometryDescriptor *geometry =
+          [MTLAccelerationStructureBoundingBoxGeometryDescriptor descriptor];
+      geometry.boundingBoxBuffer = (id<MTLBuffer>)aabb->bounding_box_buffer;
+      geometry.boundingBoxBufferOffset = aabb->bounding_box_buffer_offset;
+      geometry.boundingBoxStride = aabb->bounding_box_stride;
+      geometry.boundingBoxCount = aabb->bounding_box_count;
+      geometry.opaque = aabb->opaque != 0;
+      geometry.intersectionFunctionTableOffset =
+          aabb->intersection_function_table_offset;
+      [geometries addObject:geometry];
+      allow_refit |= aabb->allow_refit != 0;
+    } else {
+      return nil;
+    }
+  }
+  if (!geometries.count)
+    return nil;
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+  descriptor.geometryDescriptors = geometries;
+  if (allow_refit)
+    descriptor.usage = MTLAccelerationStructureUsageRefit;
+  return descriptor;
+}
+
 static NTSTATUS
 _MTLDevice_accelerationStructureSizesForAABBs(void *obj) {
   struct unixcall_mtldevice_acceleration_structure_sizes_for_aabbs *params =
@@ -2768,6 +2917,92 @@ _MTLCommandBuffer_refitAABBAccelerationStructure(void *obj) {
     return STATUS_SUCCESS;
   MTLPrimitiveAccelerationStructureDescriptor *descriptor =
       create_aabb_acceleration_structure_descriptor(info);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      refitAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->source_acceleration_structure
+                       descriptor:descriptor
+                      destination:(id<MTLAccelerationStructure>)
+                                      params->destination_acceleration_structure
+                    scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
+              scratchBufferOffset:params->scratch_buffer_offset];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_accelerationStructureSizesForMixedGeometries(void *obj) {
+  struct unixcall_mtldevice_acceleration_structure_sizes_for_mixed_geometries
+      *params = obj;
+  const struct WMTAccelerationStructureGeometryInfo *infos =
+      params->infos.ptr;
+  struct WMTAccelerationStructureSizes *sizes = params->sizes.ptr;
+  params->ret_success = 0;
+  if (!params->device || !sizes)
+    return STATUS_SUCCESS;
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_mixed_acceleration_structure_descriptor(infos, params->info_count);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  MTLAccelerationStructureSizes metal_sizes =
+      [(id<MTLDevice>)params->device
+          accelerationStructureSizesWithDescriptor:descriptor];
+  sizes->acceleration_structure_size = metal_sizes.accelerationStructureSize;
+  sizes->build_scratch_buffer_size = metal_sizes.buildScratchBufferSize;
+  sizes->refit_scratch_buffer_size = metal_sizes.refitScratchBufferSize;
+  params->ret_success = sizes->acceleration_structure_size != 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_buildMixedAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_build_mixed_acceleration_structure *params =
+      obj;
+  const struct WMTAccelerationStructureGeometryInfo *infos =
+      params->infos.ptr;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->acceleration_structure ||
+      !params->scratch_buffer)
+    return STATUS_SUCCESS;
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_mixed_acceleration_structure_descriptor(infos, params->info_count);
+  if (!descriptor)
+    return STATUS_SUCCESS;
+  id<MTLAccelerationStructureCommandEncoder> encoder =
+      [(id<MTLCommandBuffer>)params->cmdbuf
+          accelerationStructureCommandEncoder];
+  if (!encoder)
+    return STATUS_SUCCESS;
+  [encoder
+      buildAccelerationStructure:
+          (id<MTLAccelerationStructure>)params->acceleration_structure
+                       descriptor:descriptor
+                     scratchBuffer:(id<MTLBuffer>)params->scratch_buffer
+               scratchBufferOffset:params->scratch_buffer_offset];
+  [encoder endEncoding];
+  params->ret_success = 1;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandBuffer_refitMixedAccelerationStructure(void *obj) {
+  struct unixcall_mtlcommandbuffer_refit_mixed_acceleration_structure *params =
+      obj;
+  const struct WMTAccelerationStructureGeometryInfo *infos =
+      params->infos.ptr;
+  params->ret_success = 0;
+  if (!params->cmdbuf || !params->source_acceleration_structure ||
+      !params->destination_acceleration_structure || !params->scratch_buffer)
+    return STATUS_SUCCESS;
+  MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+      create_mixed_acceleration_structure_descriptor(infos, params->info_count);
   if (!descriptor)
     return STATUS_SUCCESS;
   id<MTLAccelerationStructureCommandEncoder> encoder =
@@ -5110,6 +5345,11 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
     &_MTL4CommandQueue_updateTextureMappings,
     &_MTL4CommandQueue_copyTextureMappings,
+    &_MTLDevice_newRasterizationRateMap,
+    &_MTLRasterizationRateMap_copyParameterData,
+    &_MTLDevice_accelerationStructureSizesForMixedGeometries,
+    &_MTLCommandBuffer_buildMixedAccelerationStructure,
+    &_MTLCommandBuffer_refitMixedAccelerationStructure,
 };
 
 #ifndef DXMT_NATIVE
@@ -5283,5 +5523,10 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandBuffer_resolveFlattenedMSAATexture,
     &_MTL4CommandQueue_updateTextureMappings,
     &_MTL4CommandQueue_copyTextureMappings,
+    &_MTLDevice_newRasterizationRateMap,
+    &_MTLRasterizationRateMap_copyParameterData,
+    &_MTLDevice_accelerationStructureSizesForMixedGeometries,
+    &_MTLCommandBuffer_buildMixedAccelerationStructure,
+    &_MTLCommandBuffer_refitMixedAccelerationStructure,
 };
 #endif

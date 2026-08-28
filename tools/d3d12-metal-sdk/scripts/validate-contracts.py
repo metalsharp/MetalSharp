@@ -227,7 +227,11 @@ def validate_winemetal_bridge(path: Path, data: dict[str, Any], errors: list[str
     require(isinstance(sizes, dict) and len(sizes) > 0, f"{path}: critical_unixcall_struct_sizes must be non-empty object", errors)
     if isinstance(sizes, dict):
         for struct_name, size in sizes.items():
-            require(struct_name.startswith("unixcall_"), f"{path}: invalid unixcall struct name `{struct_name}`", errors)
+            require(
+                struct_name.startswith("unixcall_") or struct_name == "WMTRenderPassInfo",
+                f"{path}: invalid unixcall struct name `{struct_name}`",
+                errors,
+            )
             require(isinstance(size, int) and size > 0 and size % 8 == 0, f"{path}: invalid size for `{struct_name}`: {size}", errors)
     deferred = data.get("deferred_until_claimed")
     require(isinstance(deferred, list), f"{path}: deferred_until_claimed must be list", errors)

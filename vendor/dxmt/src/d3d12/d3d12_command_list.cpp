@@ -454,8 +454,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     D3D12_TILE_COPY_FLAGS flags) {
   auto *resource = static_cast<MTLD3D12Resource *>(tiled_resource);
   if (!resource || !resource->IsSparseBacked() || !tile_region_start_coordinate ||
-      !tile_region_size || !buffer || tile_region_size->UseBox ||
-      !tile_region_size->NumTiles) {
+      !tile_region_size || !buffer || !tile_region_size->NumTiles) {
     CLTRACE("CopyTiles rejected resource=%p buffer=%p tiles=%u flags=0x%x",
             (void *)tiled_resource, (void *)buffer,
             tile_region_size ? tile_region_size->NumTiles : 0,
@@ -488,6 +487,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     const uint64_t first_tile = coordinate.X;
     const uint64_t tile_count = tile_region_size->NumTiles;
     if (source_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER ||
+        tile_region_size->UseBox ||
         tile_buffer_to_resource == tile_resource_to_buffer || coordinate.Y ||
         coordinate.Z || coordinate.Subresource ||
         buffer_offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0 ||

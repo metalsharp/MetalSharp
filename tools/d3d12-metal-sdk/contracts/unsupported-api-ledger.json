@@ -3,11 +3,12 @@
     {
       "api": "D3D12 ray tracing tiers",
       "evidence": [
+        "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "The target M4 builds a twelve-geometry indexed/non-indexed triangle BLAS plus a procedural-AABB BLAS and a twelve-instance TLAS, refits triangle/AABB/TLAS geometry, clones and compacts the triangle BLAS after an exact compacted-size report, serializes and deserializes BLAS/TLAS data with standard headers and exact TLAS pointer lists, and traverses deserialized structures after releasing every source D3D12 acceleration-structure resource. Inline RayQuery and direct/indirect DispatchRays cover filtered multi-collection inheritance/merging, collection lifetime, invalid-export rejection, state-object growth, local-root constant and GPU-resident SRV/UAV/CBV/sampler descriptor-table mirrors used by five 96-byte-stride local records, raygen, triangle any-hit/closest-hit, procedural intersection, callable, and depth-2 recursion. Mixed triangle/AABB geometry in one BLAS crashes the available Metal descriptor route; persistent cross-process reconstruction, new-library growth, and broader shader-table matrices remain unproven.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "DXR Tier 1.1 is advertised only for the behavior-proven acceleration-structure, state-object, shader-table, direct/indirect dispatch, and tagged mixed triangle/AABB child-hit matrix. Cross-process serialized reconstruction and shader-table shapes outside that matrix remain unsupported.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 mesh shader tiers",
@@ -15,7 +16,7 @@
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "AS/MS pipeline streams, stage-specific CBV/SRV/UAV plus texture/sampler resources, 32 mesh lanes, sixteen-byte payloads, two dispatch groups, direct/indirect DispatchMesh, payload-selected SV_RenderTargetArrayIndex output into two independently read-back RTV array layers, a layered D32_FLOAT depth pass with one exact accepted and one exact rejected payload depth, exact layered additive color/alpha blending, and exact filled-versus-wireframe rasterization pass at runtime. PIPELINE_STATISTICS1 now reports exact AS/MS invocation and primitive counts for the focused two-group dispatch. Broader mixed render-state matrices and broader shader/payload coverage remain required before reporting tier 1.",
+      "reason": "Mesh Tier 1 is advertised for the behavior-proven AS/MS direct/indirect, payload, layered depth/blend/wireframe, render-target-array, and PIPELINE_STATISTICS1 matrix. Work-graph execution and mesh per-primitive VRS remain explicitly unsupported.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

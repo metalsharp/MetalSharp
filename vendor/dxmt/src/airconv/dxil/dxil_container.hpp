@@ -68,6 +68,13 @@ struct DxilParsedShader {
   std::string entry_point;
   int32_t shading_rate_input_register = -1;
   int32_t shading_rate_output_register = -1;
+  int32_t shading_rate_output_id = -1;
+  int32_t viewport_index_output_register = -1;
+  int32_t viewport_index_output_id = -1;
+  int32_t render_target_array_index_output_register = -1;
+  int32_t render_target_array_index_output_id = -1;
+  int32_t viewport_index_input_register = -1;
+  int32_t render_target_array_index_input_register = -1;
 };
 
 class DXILContainer {
