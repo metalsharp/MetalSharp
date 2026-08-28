@@ -62,14 +62,14 @@ _The Vulkan Launch Family used by `VKD3D`_
 
 VKD3D-Family Dlls:
 
-| DLL | Used By |
-|---|---|
-| `d3d12.dll`,`d3d12core.dll` | VKD3D-Proton Dll's |
-| `d3d11.dll` | DXVK-MacOS Dll |
-| `d3d10core.dll` | DXVK-MacOS Dll |
-| `d3d9.dll` | DXVK-MacOS Dll |
-| `dxgi.dll` | DXVK-MacOS Dll with d3d12 support |
-| `MoltenVK.dylib`, `Moltenvk_icd.json` | Metal Renderer for VKD3D |
+| DLL | Notes | Used By |
+|---|---|---|
+| `d3d12.dll`,`d3d12core.dll` | VKD3D-Proton Dll's | VKD3D |
+| `d3d11.dll` | DXVK-MacOS Dll | VKD3D |
+| `d3d10core.dll` | DXVK-MacOS Dll | VKD3D |
+| `d3d9.dll` | DXVK-MacOS Dll | VKD3D |
+| `dxgi.dll` | DXVK-MacOS Dll with d3d12 support | VKD3D |
+| `MoltenVK.dylib`, `Moltenvk_icd.json` | Metal Renderer for VKD3D | VKD3D |
 
 
 
