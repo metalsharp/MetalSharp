@@ -32,9 +32,9 @@ Install MetalSharp from the official Homebrew tap:
 brew install --cask metalsharp/tap/metalsharp
 ```
 
-Homebrew installs `MetalSharp.app` in `/Applications`. Open it and the setup wizard handles the remaining runtime dependencies.
+Homebrew installs MetalSharp.app in /Applications. Open it and the setup wizard handles the remaining runtime dependencies.
 
-Alternatively, download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it.
+Alternatively, download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
 
 If Gatekeeper cannot verify the app, open **System Settings → Privacy & Security** and choose **Open Anyway** for MetalSharp. VirusTotal scans are included with release notes when available.
 
@@ -51,19 +51,22 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 | **M10(32)** | D3D10 32Bit to Metal (DXMT) | |
 | **M9** | D3D9 To Metal, DXMT Overrides | |
 | **Mono/FNA** | Windows XNA/FNA via native Mono | |
-| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. | Optional upgrade to GPTK 3 |
+| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. | Optional upgrade to GPTK 3, Requires Steam-Emu to Play |
 
 ## Features
 
 - **Sharp Library** - Import and run standalone Windows programs, installers, and launchers.
-- **Sharp GOG Library** - Download and play GOG games througn the sharp library. 
+- **GOG Library** - Download and play GOG games through the Sharp Library.
+- **Epic Library** - Download and play Epic Games through the Sharp Library.
+- **GameJolt Library** - Download, Manage, and Play GameJolt games through the Sharp Library.
+- **Emulation Support** -  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu.
 - **Runtime Bottles** - Select your launch method, repair missing assets, and switch between bottle runtimes.
 - **MTSP Routing** - Automatic pipeline selection based on game compatibility data and developer testing.
 - **Steam Integration** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates.
 
 ## Requirements
 
-- Apple Silicon Mac M1-M5, macOS 14+
+- Apple Silicon Mac M1-M5, macOS 15+
 - About 2 GB free space
 - Homebrew (installed by setup wizard)
 
