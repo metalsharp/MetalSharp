@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   scan:
-    name: Scan released DMG halves
+    name: Scan released DMG thirds
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'

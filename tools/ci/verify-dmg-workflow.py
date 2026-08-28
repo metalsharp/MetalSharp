@@ -196,8 +196,8 @@ def check_workflows() -> None:
     scanner = read("tools/ci/virustotal-release.py")
     for required in [
         "650 * 1024 * 1024",
-        "part-1-of-2",
-        "part-2-of-2",
+        "part-{index}-of-{PART_COUNT}",
+        "PART_COUNT = 3",
         "files/upload_url",
         "/api/v3/analyses/",
         "partial-file scans",
