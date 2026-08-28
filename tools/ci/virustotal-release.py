@@ -127,6 +127,10 @@ class VirusTotalClient:
         return upload_url
 
     def upload(self, path: Path) -> str:
+        if "\n" in self.api_key or "\r" in self.api_key:
+            raise ScanError("VIRUSTOTAL_API_KEY contains an invalid newline")
+        escaped_api_key = self.api_key.replace("\\", "\\\\").replace('"', '\\"')
+        curl_config = f'header = "x-apikey: {escaped_api_key}"\n'
         for attempt in range(1, 4):
             upload_url = self._new_upload_url()
             command = [
@@ -134,13 +138,21 @@ class VirusTotalClient:
                 "--silent",
                 "--show-error",
                 "--fail-with-body",
+                "--config",
+                "-",
                 "--request",
                 "POST",
                 "--form",
                 f"file=@{path};filename={path.name}",
                 upload_url,
             ]
-            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+            completed = subprocess.run(
+                command,
+                input=curl_config,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             if completed.returncode == 0:
                 try:
                     payload = json.loads(completed.stdout)
