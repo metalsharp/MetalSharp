@@ -4,10 +4,20 @@
 #include <string.h>
 #include <unistd.h>
 
+static unsigned steam_stop_calls = 0;
+
 char* ms_setup_install_all_json(const char* home, int* status) {
     (void)home;
     (void)status;
     return NULL;
+}
+
+char* ms_steam_stop_json(const char* home, int* status) {
+    assert(home != NULL);
+    steam_stop_calls++;
+    if (status)
+        *status = 200;
+    return strdup("{\"ok\":true,\"running\":false}");
 }
 
 #include "../runtime/migration.c"
@@ -37,6 +47,8 @@ int main(void) {
     snprintf(home, sizeof(home), "/tmp/metalsharp-migration-test-%ld", (long)getpid());
     remove_tree_local(home);
     make_directory(home);
+    assert(stop_managed_wine_processes(home));
+    assert(steam_stop_calls == 1);
 
     snprintf(path, sizeof(path), "%s/setup.json", home);
     write_file(path, "{\"completed\":true,\"deviceName\":\"test\"}");

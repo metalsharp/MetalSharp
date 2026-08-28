@@ -2,6 +2,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/setup.h"
+#include "metalsharp_backend/steam_actions.h"
 #include <CommonCrypto/CommonDigest.h>
 #include <dirent.h>
 #include <errno.h>
@@ -1221,51 +1222,12 @@ static void update_existing_wine_prefixes(const char* home) {
     free(gog);
 }
 
-static bool contains_case_insensitive(const char* value, const char* needle) {
-    size_t length = strlen(needle);
-    if (!length)
-        return true;
-    for (const char* p = value; p && *p; p++)
-        if (!strncasecmp(p, needle, length))
-            return true;
-    return false;
-}
-
-static bool steam_update_process_alive(const char* prefix) {
-    FILE* processes = popen("ps axo pid=,command=", "r");
-    char line[PATH_MAX * 2];
-    bool alive = false;
-    if (!processes)
-        return false;
-    while (fgets(line, sizeof(line), processes)) {
-        if (strstr(line, prefix) &&
-            (contains_case_insensitive(line, "steam.exe") || contains_case_insensitive(line, "steamupdate.exe"))) {
-            alive = true;
-            break;
-        }
-    }
-    pclose(processes);
-    return alive;
-}
-
-static void wait_for_steam_update_windows(const char* home) {
-    char* prefix = path_join(home, "prefix-steam");
-    bool first_open = false, first_close = false, second_open = false;
-    if (!prefix)
-        return;
-    for (unsigned attempt = 0; attempt < 8; attempt++) {
-        bool alive = steam_update_process_alive(prefix);
-        if (alive && !first_open)
-            first_open = true;
-        else if (!alive && first_open && !first_close)
-            first_close = true;
-        else if (alive && first_close && !second_open)
-            second_open = true;
-        else if (!alive && second_open)
-            break;
-        sleep(2);
-    }
-    free(prefix);
+static bool stop_managed_wine_processes(const char* home) {
+    int status = 500;
+    char* result = ms_steam_stop_json(home, &status);
+    bool stopped = result != NULL && status == 200 && strstr(result, "\"running\":false") != NULL;
+    free(result);
+    return stopped;
 }
 
 static bool steam_library_has_manifest(const char* library) {
@@ -1596,7 +1558,17 @@ static void* migration_worker(void* opaque) {
         unlink(install_progress_path);
         free(install_progress_path);
     }
-    (void)write_migration_progress(job->home, "running", 1, "Ensuring extract tools (zstd) are available...", NULL);
+    (void)write_migration_progress(job->home, "running", 1,
+                                   "Stopping managed Wine processes and ensuring extract tools are available...", NULL);
+    if (!stop_managed_wine_processes(job->home)) {
+        (void)write_migration_progress(job->home, "error", 1, "Could not stop managed Wine processes",
+                                       "managed_wine_shutdown_failed");
+        unlink(job->lock_path);
+        free(job->home);
+        free(job->lock_path);
+        free(job);
+        return NULL;
+    }
     if (!ensure_migration_zstd()) {
         (void)write_migration_progress(job->home, "error", 1, "Failed to install zstd", "zstd_unavailable");
         unlink(job->lock_path);
@@ -1664,6 +1636,16 @@ static void* migration_worker(void* opaque) {
             (void)write_migration_progress(job->home, "running", 6,
                                            "Updating Wine prefixes and registering external Steam libraries...", NULL);
             update_existing_wine_prefixes(job->home);
+            if (!stop_managed_wine_processes(job->home)) {
+                (void)write_migration_progress(job->home, "error", 6,
+                                               "Could not stop Wine processes started while updating prefixes",
+                                               "managed_wine_shutdown_failed");
+                unlink(job->lock_path);
+                free(job->home);
+                free(job->lock_path);
+                free(job);
+                return NULL;
+            }
             register_external_steam_libraries(job->home);
             {
                 char* crash = path_join(job->home, "prefix-steam/drive_c/Program Files (x86)/Steam/.crash");
@@ -1671,7 +1653,6 @@ static void* migration_worker(void* opaque) {
                     unlink(crash);
                 free(crash);
             }
-            wait_for_steam_update_windows(job->home);
             if (!runtime_ready(job->home)) {
                 (void)write_migration_progress(job->home, "error", 7,
                                                "Update verification failed: runtime bundle is incomplete",
