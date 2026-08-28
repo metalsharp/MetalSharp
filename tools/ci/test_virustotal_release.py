@@ -84,23 +84,28 @@ class VirusTotalReleaseTests(unittest.TestCase):
                 MODULE.validate_assets_command(args)
 
     def test_markdown_discloses_partial_scan_limit(self) -> None:
-        report = MODULE.markdown_report(
-            "v1.2.3",
-            [
-                {
-                    "dmg": "MetalSharp.dmg",
-                    "part": 1,
-                    "part_count": 3,
-                    "size": 1024 * 1024,
-                    "sha256": "a" * 64,
-                    "stats": {"malicious": 0, "suspicious": 1, "undetected": 9},
-                }
-            ],
-        )
+        results = [
+            {
+                "dmg": "MetalSharp.dmg",
+                "part": part,
+                "part_count": 3,
+                "size": 1024 * 1024,
+                "sha256": character * 64,
+                "stats": {"malicious": 0, "suspicious": 1, "undetected": 9},
+            }
+            for part, character in enumerate(("a", "b", "c"), start=1)
+        ]
+        report = MODULE.markdown_report("v1.2.3", results)
         self.assertIn("one raw third", report)
         self.assertIn("not a complete mountable DMG", report)
-        self.assertIn("1/10", report)
-        self.assertIn(f"https://www.virustotal.com/gui/file/{'a' * 64}", report)
+        self.assertEqual(report.count("1/10"), 3)
+        for part, character in enumerate(("a", "b", "c"), start=1):
+            self.assertIn(
+                f"[Part {part}](https://www.virustotal.com/gui/file/{character * 64})",
+                report,
+            )
+        self.assertNotIn("[Report]", report)
+        self.assertNotIn("| 1/3 |", report)
 
 
 if __name__ == "__main__":
