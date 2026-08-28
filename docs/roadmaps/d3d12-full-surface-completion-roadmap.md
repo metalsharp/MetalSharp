@@ -352,7 +352,7 @@ red.
 ### Phase status
 
 - [x] Phase 0 — Full inventory, source census, provider map, and no-op scan
-- [ ] Phase 1 — Provider, synchronization, and capability architecture
+- [x] Phase 1 — Provider, synchronization, and capability architecture
 - [ ] Phase 2 — COM objects, interfaces, and lifecycle
 - [ ] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [ ] Phase 4 — Queues, commands, barriers, and indirect work
@@ -427,7 +427,7 @@ being mistaken for full completion.
 - `docs/roadmaps/d3d12-full-surface-phase0-inventory.md` — committed human
   report connecting static findings to the implementation backlog.
 
-### Phase 1 — Build the provider, synchronization, and capability architecture
+### Phase 1 — Build the provider, synchronization, and capability architecture **[COMPLETE]**
 
 **Goal:** Establish the infrastructure needed for features with no direct
 Metal equivalent.
@@ -454,6 +454,43 @@ Metal equivalent.
   same timeline model.
 - A provider test can execute one resource write, barrier, readback, release,
   and callback on every available provider.
+
+**Phase 1 completion evidence:**
+
+- Clean cross-build passed **158/158** targets, including the host capability,
+  provider-selection, timeline, and resource-state integration units.
+- The provider/timeline architecture probe passed **12 selection cases** plus
+  the timeline case with `no_silent_fallback=true`.
+- Source-staged M4 `--caps-only`, `--queues-only`, and
+  `--barriers-render-pass-only` probes passed; the host snapshot recorded
+  Metal 3.2/4 capability inputs, shared events, MTL4 queue, native
+  raytracing, and sample-count mask `0x16`.
+- Temporary stage/runtime, prefix, and source-Wine clones were deleted after
+  each run; no `drive_c` or Wine registry markers remain under `/tmp`.
+- `check-winemetal-abi.py` passed against the disposable source-staged runtime
+  with zero missing exports and zero failures.
+- Phase proof: `docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md`.
+
+**Updated files and connections:**
+
+- `vendor/dxmt/src/dxmt/dxmt_capabilities.hpp/.cpp` — host capability snapshot
+  consumed by `dxmt_device.cpp` and D3D12 device logging.
+- `vendor/dxmt/src/dxmt/dxmt_provider.hpp/.cpp` — explicit provider
+  requirements/selection consumed by `Device` and `MTLD3D12Device`.
+- `vendor/dxmt/src/dxmt/dxmt_timeline.hpp` — CPU/GPU timeline abstraction
+  consumed by `dxmt_command_queue.hpp/.cpp` and existing queue event paths.
+- `vendor/dxmt/src/d3d12/d3d12_resource_state.hpp` — encoder-independent
+  state/layout tracker consumed by `d3d12_resource.hpp` and queue barrier
+  replay.
+- `vendor/dxmt/src/dxmt/meson.build` — compiles the new provider/capability
+  units into every DXMT build.
+- `tools/d3d12-metal-sdk/probes/probe_provider_architecture/` and
+  `tools/d3d12-metal-sdk/scripts/run-provider-architecture-probe.sh` — native
+  provider/timeline proof without committing binaries.
+- `tools/d3d12-metal-sdk/contracts/d3d12-provider-contract.json` — records
+  provider, timeline, host-capability, and later-phase ownership.
+- `docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md` — exact Phase 1
+  commands and observed readbacks/logs.
 
 ### Phase 2 — Complete COM objects, interface exposure, and lifecycle
 

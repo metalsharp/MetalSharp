@@ -287,25 +287,53 @@ def no_op_policy() -> dict[str, Any]:
 
 def provider_contract() -> dict[str, Any]:
     providers = [
-        ("metal-native", "Metal 3/4 native operation", "planned"),
-        ("metal-emulation", "Metal compute/replay semantic provider", "planned"),
-        ("cpu-reference", "Deterministic CPU/WARP-compatible provider", "planned"),
-        ("videotoolbox-corevideo", "D3D12 video and surface provider", "planned"),
-        ("display-coreanimation", "DXGI window/display/duplication provider", "planned"),
-        ("shared-mach-iosurface", "Cross-process resources/heaps/fences", "planned"),
-        ("protected-platform", "Protected-memory/security provider", "blocked-until-provider"),
+        ("metal-native", "Metal 3/4 native operation", "phase1_integrated"),
+        ("metal-emulation", "Metal compute/replay semantic provider", "phase1_selection_integrated"),
+        ("cpu-reference", "Deterministic CPU/WARP-compatible provider", "phase1_selection_integrated"),
+        ("videotoolbox-corevideo", "D3D12 video and surface provider", "selection_reserved_phase9"),
+        ("display-coreanimation", "DXGI window/display/duplication provider", "selection_reserved_phase12"),
+        ("shared-mach-iosurface", "Cross-process resources/heaps/fences", "selection_reserved_phase3"),
+        ("protected-platform", "Protected-memory/security provider", "selection_reserved_phase10"),
     ]
     return {
         "schema": "metalsharp.d3d12-metal.provider-contract.v1",
-        "state": "phase0_inventory",
+        "state": "phase1_architecture",
         "selection_rule": "Select by caller SDK family, operation semantics, host capability, and passing behavior evidence.",
         "no_silent_fallback": True,
+        "host_capabilities": {
+            "schema_version": 1,
+            "implementation": "vendor/dxmt/src/dxmt/dxmt_capabilities.cpp",
+            "interface": "vendor/dxmt/src/dxmt/dxmt_capabilities.hpp",
+            "probe": "tools/d3d12-metal-sdk/scripts/run-source-probes.sh --caps-only",
+        },
+        "timeline": {
+            "schema_version": 1,
+            "implementation": "vendor/dxmt/src/dxmt/dxmt_timeline.hpp",
+            "queue_integration": "vendor/dxmt/src/dxmt/dxmt_command_queue.cpp",
+            "probe": "tools/d3d12-metal-sdk/scripts/run-provider-architecture-probe.sh",
+            "status": "phase1_proven",
+        },
+        "resource_state": {
+            "schema_version": 1,
+            "implementation": "vendor/dxmt/src/d3d12/d3d12_resource_state.hpp",
+            "resource_integration": "vendor/dxmt/src/d3d12/d3d12_resource.hpp",
+            "replay_integration": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp",
+            "probe": "tools/d3d12-metal-sdk/scripts/run-source-probes.sh --barriers-render-pass-only",
+            "status": "phase1_integrated",
+        },
+        "phase1_evidence": [
+            "tools/d3d12-metal-sdk/scripts/run-provider-architecture-probe.sh",
+            "docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md",
+        ],
         "providers": [
             {
                 "id": provider_id,
                 "purpose": purpose,
                 "implementation_status": status,
-                "positive_evidence": [],
+                "positive_evidence": [
+                    "tools/d3d12-metal-sdk/scripts/run-provider-architecture-probe.sh",
+                    "docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md",
+                ],
                 "negative_evidence": [],
             }
             for provider_id, purpose, status in providers

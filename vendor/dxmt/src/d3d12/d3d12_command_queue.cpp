@@ -11855,6 +11855,19 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                    barrier.Transition.Subresource,
                    barrier.Transition.StateBefore,
                    barrier.Transition.StateAfter, barrier.Flags);
+            auto *resource = static_cast<MTLD3D12Resource *>(
+                barrier.Transition.pResource);
+            if (resource) {
+              const bool tracked = resource->ApplyLegacyStateTransition(
+                  barrier.Transition.Subresource,
+                  barrier.Transition.StateBefore,
+                  barrier.Transition.StateAfter);
+              QTRACE("  barrier[%u] state-tracker tracked=%u generation=%llu",
+                     i, tracked ? 1u : 0u,
+                     (unsigned long long)resource->GetStateGeneration());
+              if (!tracked)
+                QTRACE("  barrier[%u] state mismatch was retained for provider diagnostics", i);
+            }
           } else if (barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV) {
             QTRACE("  barrier[%u] uav res=%p flags=0x%x", i,
                    (void *)barrier.UAV.pResource, barrier.Flags);
@@ -11862,6 +11875,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             QTRACE("  barrier[%u] alias before=%p after=%p flags=0x%x", i,
                    (void *)barrier.Aliasing.pResourceBefore,
                    (void *)barrier.Aliasing.pResourceAfter, barrier.Flags);
+            if (barrier.Aliasing.pResourceBefore)
+              static_cast<MTLD3D12Resource *>(barrier.Aliasing.pResourceBefore)
+                  ->MarkAliasedState();
+            if (barrier.Aliasing.pResourceAfter)
+              static_cast<MTLD3D12Resource *>(barrier.Aliasing.pResourceAfter)
+                  ->MarkAliasedState();
           } else {
             QTRACE("  barrier[%u] type=%u flags=0x%x", i, barrier.Type,
                    barrier.Flags);

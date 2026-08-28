@@ -3,6 +3,7 @@
 #include "com/com_pointer.hpp"
 #include "com/com_private_data.hpp"
 #include "d3d12.h"
+#include "d3d12_resource_state.hpp"
 #include "Metal.hpp"
 #include "winemetal.h"
 #include <atomic>
@@ -104,6 +105,26 @@ public:
   HRESULT STDMETHODCALLTYPE
   GetHeapProperties(D3D12_HEAP_PROPERTIES *heap_properties,
                     D3D12_HEAP_FLAGS *flags) override;
+
+  D3D12_RESOURCE_STATES GetTrackedState(
+      UINT subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES) const {
+    return m_state_tracker.snapshot(subresource).legacy_state;
+  }
+  D3D12_BARRIER_LAYOUT GetTrackedLayout(
+      UINT subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES) const {
+    return m_state_tracker.snapshot(subresource).layout;
+  }
+  uint64_t GetStateGeneration() const { return m_state_tracker.generation(); }
+  bool ApplyLegacyStateTransition(UINT subresource,
+                                  D3D12_RESOURCE_STATES before,
+                                  D3D12_RESOURCE_STATES after) {
+    return m_state_tracker.transitionLegacy(subresource, before, after);
+  }
+  bool ApplyLayoutTransition(UINT subresource, D3D12_BARRIER_LAYOUT before,
+                             D3D12_BARRIER_LAYOUT after) {
+    return m_state_tracker.transitionLayout(subresource, before, after);
+  }
+  void MarkAliasedState() { m_state_tracker.markAliased(); }
 
   bool IsBuffer() const {
     return m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -357,7 +378,7 @@ private:
 
   MTLD3D12Device *m_device;
   D3D12_RESOURCE_DESC m_desc;
-  D3D12_RESOURCE_STATES m_state;
+  ResourceStateTracker m_state_tracker;
   D3D12_HEAP_PROPERTIES m_heap_properties;
   D3D12_HEAP_FLAGS m_heap_flags = D3D12_HEAP_FLAG_NONE;
   WMTBufferInfo m_buf_info = {};

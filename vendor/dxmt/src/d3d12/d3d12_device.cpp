@@ -2653,12 +2653,28 @@ MTLD3D12Device::MTLD3D12Device(std::unique_ptr<Device> &&device,
                                IMTLDXGIAdapter *pAdapter)
     : m_device(std::move(device)), m_adapter(pAdapter) {
   m_format_inspector.Inspect(GetMTLDevice());
-  m_metal_raytracing_supported = GetMTLDevice().supportsRaytracing();
+  const auto &host_capabilities = m_device->capabilities();
+  m_metal_raytracing_supported =
+      host_capabilities.supports_native_raytracing;
   m_raytracing_serialization_identifier =
       RaytracingSerializationIdentifierForProcess();
-  Logger::info(str::format("D3D12 Metal raytracing hardware support=",
-                           m_metal_raytracing_supported ? 1 : 0,
-                           " (DXR tier remains gated on behavior)"));
+  Logger::info(str::format(
+      "D3D12 host capabilities schema=", host_capabilities.schema_version,
+      " metal=", host_capabilities.metal_version,
+      " registry=0x", std::hex, host_capabilities.registry_id, std::dec,
+      " family7=", HostCapabilityBool(host_capabilities.apple_family7),
+      " family8=", HostCapabilityBool(host_capabilities.apple_family8),
+      " family9=", HostCapabilityBool(host_capabilities.apple_family9),
+      " mtl4=", HostCapabilityBool(host_capabilities.supports_mtl4_command_queue),
+      " shared_events=", HostCapabilityBool(host_capabilities.supports_shared_events),
+      " raytracing=", HostCapabilityBool(host_capabilities.supports_native_raytracing),
+      " sample_mask=0x", std::hex, host_capabilities.texture_sample_counts_mask,
+      std::dec));
+  const auto native_provider = m_device->selectProvider({});
+  Logger::info(str::format("D3D12 default provider=",
+                           ProviderKindName(native_provider.kind),
+                           " available=", native_provider.available ? 1 : 0,
+                           " (feature promotion remains behavior-gated)"));
   if (m_adapter)
     m_adapter->AddRef();
   m_expected_vtable = *(void **)this;

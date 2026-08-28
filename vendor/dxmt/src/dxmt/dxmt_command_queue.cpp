@@ -34,6 +34,7 @@ CommandChunk::allocate_cpu_heap(size_t size, size_t alignment) {
 }
 
 CommandQueue::CommandQueue(WMT::Device device) :
+    timeline_(device, cpu_coherent),
     encodeThread([this]() { this->EncodingThread(); }),
     finishThread([this]() { this->WaitForFinishThread(); }),
     device(device),
@@ -60,7 +61,9 @@ CommandQueue::CommandQueue(WMT::Device device) :
     chunk.queue = this;
     chunk.reset();
   };
-  event = device.newSharedEvent();
+  // Keep the historical public event handle and the provider timeline on
+  // the same underlying Metal shared event.
+  event = timeline_.sharedEvent();
 
   std::string env = env::getEnvVar("DXMT_CAPTURE_FRAME");
 
@@ -210,7 +213,7 @@ CommandQueue::WaitForFinishThread() {
       frame_latency_fence_.signal(chunk.signal_frame_latency_fence_);
 
     chunk.reset();
-    cpu_coherent.signal(internal_seq);
+    timeline_.completeCPU(internal_seq);
     chunk_ongoing.fetch_sub(1, std::memory_order_release);
     chunk_ongoing.notify_one();
 
