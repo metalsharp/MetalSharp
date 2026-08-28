@@ -20,6 +20,7 @@ DEFAULT_ROOTS = (
     Path("vendor/dxmt/src/dxgi"),
     Path("vendor/dxmt/src/dxmt"),
     Path("vendor/dxmt/src/winemetal"),
+    Path("vendor/dxmt/src/util"),
 )
 EXTENSIONS = {".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm"}
 

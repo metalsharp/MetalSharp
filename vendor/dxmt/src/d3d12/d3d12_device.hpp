@@ -27,6 +27,7 @@ D3D_FEATURE_LEVEL D3D12ConfiguredMaximumFeatureLevel();
 class MTLD3D12Resource;
 class MTLD3D12PipelineState;
 class MTLD3D12CommandQueue;
+class MTLD3D12InfoQueue;
 
 enum D3D12SamplerFlagsCompat : UINT {
   D3D12SamplerFlagNoneCompat = 0x0,
@@ -499,6 +500,8 @@ private:
   IMTLDXGIDevice *m_dxgi_device = nullptr;
   std::atomic_bool m_dxgi_owner_released = false;
   ComPrivateData m_private_data;
+  MTLD3D12InfoQueue *m_info_queue = nullptr;
+  std::mutex m_info_queue_mutex;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};
   std::mutex m_resource_mutex;

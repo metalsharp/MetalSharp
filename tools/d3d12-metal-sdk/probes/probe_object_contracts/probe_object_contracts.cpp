@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <d3d12.h>
+#include <d3d12sdklayers.h>
 
 extern "C" {
 __declspec(dllexport) UINT D3D12SDKVersion = 619;
@@ -108,6 +109,10 @@ static ObjectResult test_object(const char* name, HRESULT create_hr, ID3D12Objec
     result.interface_match = readback_interface == interface_value && interface_size == sizeof(readback_interface);
     if (readback_interface)
         readback_interface->Release();
+    UINT interface_missing_size = 0;
+    const bool interface_delete_ok =
+        SUCCEEDED(object->SetPrivateDataInterface(kInterfaceGuid, nullptr)) &&
+        object->GetPrivateData(kInterfaceGuid, &interface_missing_size, nullptr) == DXGI_ERROR_NOT_FOUND;
 
     static constexpr WCHAR expected_name[] = L"MetalSharp D3D12 object contract";
     result.set_name_hr = object->SetName(expected_name);
@@ -124,9 +129,125 @@ static ObjectResult test_object(const char* name, HRESULT create_hr, ID3D12Objec
                   result.queried_size == sizeof(expected_payload) && result.short_hr == DXGI_ERROR_MORE_DATA &&
                   result.short_size_correct && SUCCEEDED(result.get_hr) && result.payload_match &&
                   result.source_copy_isolated && SUCCEEDED(result.interface_set_hr) &&
-                  SUCCEEDED(result.interface_get_hr) && result.interface_match && SUCCEEDED(result.set_name_hr) &&
-                  result.name_match && SUCCEEDED(result.delete_hr) && result.missing_hr == DXGI_ERROR_NOT_FOUND;
+                  SUCCEEDED(result.interface_get_hr) && result.interface_match && interface_delete_ok &&
+                  SUCCEEDED(result.set_name_hr) && result.name_match && SUCCEEDED(result.delete_hr) &&
+                  result.missing_hr == DXGI_ERROR_NOT_FOUND;
     return result;
+}
+
+static bool test_info_queue(ID3D12Device* device, std::string& failure) {
+    ID3D12InfoQueue* queue = nullptr;
+    HRESULT hr = device->QueryInterface(IID_PPV_ARGS(&queue));
+    if (FAILED(hr) || !queue) {
+        failure = "QueryInterface(ID3D12InfoQueue)";
+        return false;
+    }
+    ID3D12InfoQueue* second_queue = nullptr;
+    hr = device->QueryInterface(IID_PPV_ARGS(&second_queue));
+    if (FAILED(hr) || second_queue != queue) {
+        if (second_queue)
+            second_queue->Release();
+        queue->Release();
+        failure = "shared QueryInterface(ID3D12InfoQueue)";
+        return false;
+    }
+    second_queue->Release();
+
+    auto fail = [&](const char* step) {
+        failure = step;
+        queue->Release();
+        return false;
+    };
+
+    queue->ClearStoredMessages();
+    if (FAILED(queue->SetMessageCountLimit(2)))
+        return fail("SetMessageCountLimit");
+    if (FAILED(queue->AddMessage(D3D12_MESSAGE_CATEGORY_APPLICATION_DEFINED,
+                                 D3D12_MESSAGE_SEVERITY_INFO,
+                                 static_cast<D3D12_MESSAGE_ID>(1), "info")) ||
+        FAILED(queue->AddMessage(D3D12_MESSAGE_CATEGORY_EXECUTION,
+                                 D3D12_MESSAGE_SEVERITY_WARNING,
+                                 static_cast<D3D12_MESSAGE_ID>(2), "warning")) ||
+        FAILED(queue->AddMessage(D3D12_MESSAGE_CATEGORY_EXECUTION,
+                                 D3D12_MESSAGE_SEVERITY_ERROR,
+                                 static_cast<D3D12_MESSAGE_ID>(3), "error")))
+        return fail("AddMessage");
+    if (queue->GetNumStoredMessages() != 2 ||
+        queue->GetNumMessagesAllowedByStorageFilter() != 3 ||
+        queue->GetNumMessagesDiscardedByMessageCountLimit() != 1)
+        return fail("message counters");
+
+    D3D12_MESSAGE_SEVERITY denied_severity = D3D12_MESSAGE_SEVERITY_WARNING;
+    D3D12_INFO_QUEUE_FILTER storage_filter = {};
+    storage_filter.DenyList.NumSeverities = 1;
+    storage_filter.DenyList.pSeverityList = &denied_severity;
+    if (FAILED(queue->AddStorageFilterEntries(&storage_filter)) ||
+        FAILED(queue->AddMessage(D3D12_MESSAGE_CATEGORY_EXECUTION,
+                                 D3D12_MESSAGE_SEVERITY_WARNING,
+                                 static_cast<D3D12_MESSAGE_ID>(4), "denied")) ||
+        queue->GetNumMessagesDeniedByStorageFilter() != 1 ||
+        queue->GetNumStoredMessages() != 2)
+        return fail("storage filter");
+
+    SIZE_T message_length = 0;
+    if (queue->GetMessage(0, nullptr, &message_length) != DXGI_ERROR_MORE_DATA ||
+        message_length <= sizeof(D3D12_MESSAGE))
+        return fail("message size query");
+    std::vector<uint8_t> message_storage(message_length);
+    auto* message = reinterpret_cast<D3D12_MESSAGE*>(message_storage.data());
+    SIZE_T supplied_length = message_storage.size();
+    if (FAILED(queue->GetMessage(0, message, &supplied_length)) ||
+        !message->pDescription ||
+        std::string(message->pDescription, message->DescriptionByteLength) != "info")
+        return fail("message readback");
+
+    D3D12_MESSAGE_SEVERITY allowed_severity = D3D12_MESSAGE_SEVERITY_INFO;
+    D3D12_INFO_QUEUE_FILTER retrieval_filter = {};
+    retrieval_filter.AllowList.NumSeverities = 1;
+    retrieval_filter.AllowList.pSeverityList = &allowed_severity;
+    if (FAILED(queue->AddRetrievalFilterEntries(&retrieval_filter)) ||
+        queue->GetNumStoredMessagesAllowedByRetrievalFilter() != 1)
+        return fail("retrieval filter");
+    if (queue->GetStorageFilterStackSize() != 0 ||
+        FAILED(queue->PushEmptyStorageFilter()) ||
+        queue->GetStorageFilterStackSize() != 1) {
+        return fail("storage filter stack");
+    }
+    queue->PopStorageFilter();
+    if (queue->GetStorageFilterStackSize() != 0 ||
+        FAILED(queue->PushCopyOfRetrievalFilter()) ||
+        queue->GetRetrievalFilterStackSize() != 1) {
+        return fail("retrieval filter stack");
+    }
+    queue->PopRetrievalFilter();
+
+    if (FAILED(queue->SetBreakOnCategory(D3D12_MESSAGE_CATEGORY_EXECUTION, TRUE)) ||
+        !queue->GetBreakOnCategory(D3D12_MESSAGE_CATEGORY_EXECUTION) ||
+        FAILED(queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE)) ||
+        !queue->GetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR) ||
+        FAILED(queue->SetBreakOnID(static_cast<D3D12_MESSAGE_ID>(3), TRUE)) ||
+        !queue->GetBreakOnID(static_cast<D3D12_MESSAGE_ID>(3)))
+        return fail("break settings");
+    queue->SetMuteDebugOutput(TRUE);
+    if (!queue->GetMuteDebugOutput())
+        return fail("mute setting");
+
+    D3D12_INFO_QUEUE_FILTER invalid_filter = {};
+    invalid_filter.AllowList.NumIDs = 1;
+    if (queue->AddStorageFilterEntries(&invalid_filter) != E_INVALIDARG)
+        return fail("invalid filter validation");
+
+    queue->ClearStoredMessages();
+    queue->ClearStorageFilter();
+    queue->ClearRetrievalFilter();
+    const bool pass = queue->GetNumStoredMessages() == 0 &&
+                      queue->GetNumStoredMessagesAllowedByRetrievalFilter() == 0 &&
+                      queue->GetStorageFilterStackSize() == 0 &&
+                      queue->GetRetrievalFilterStackSize() == 0;
+    queue->Release();
+    if (!pass)
+        failure = "clear filters/messages";
+    return pass;
 }
 
 static void append_result(std::vector<ObjectResult>& results, const char* name, HRESULT hr, ID3D12Object* object,
@@ -152,6 +273,8 @@ int main() {
         create_device ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, kDeviceIid, reinterpret_cast<void**>(&device))
                       : E_NOINTERFACE;
     std::vector<ObjectResult> results;
+    bool info_queue_pass = false;
+    std::string info_queue_error;
     if (device) {
         device->AddRef();
         append_result(results, "device", device_hr, device, device);
@@ -268,9 +391,11 @@ int main() {
         append_result(results, "shader_cache_session", hr, shader_cache, device);
         if (device9)
             device9->Release();
+
+        info_queue_pass = test_info_queue(device, info_queue_error);
     }
 
-    bool pass = SUCCEEDED(device_hr) && !results.empty();
+    bool pass = SUCCEEDED(device_hr) && !results.empty() && info_queue_pass;
     for (const auto& result : results)
         pass = pass && result.pass;
 
@@ -279,6 +404,9 @@ int main() {
     std::printf("  \"profile\": \"%s\",\n", json_escape(profile).c_str());
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"object_count\": %zu,\n", results.size());
+    std::printf("  \"info_queue_pass\": %s,\n", info_queue_pass ? "true" : "false");
+    if (!info_queue_error.empty())
+        std::printf("  \"info_queue_error\": \"%s\",\n", json_escape(info_queue_error).c_str());
     std::printf("  \"objects\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {
         const auto& r = results[i];

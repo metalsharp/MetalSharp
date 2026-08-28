@@ -26,6 +26,7 @@ RUNTIME_ROOTS = (
     ROOT_DIR / "vendor" / "dxmt" / "src" / "dxgi",
     ROOT_DIR / "vendor" / "dxmt" / "src" / "dxmt",
     ROOT_DIR / "vendor" / "dxmt" / "src" / "winemetal",
+    ROOT_DIR / "vendor" / "dxmt" / "src" / "util",
 )
 STABLE_CONTRACT = CONTRACT_DIR / "agility-1.619.5-contract.json"
 
@@ -258,6 +259,7 @@ def no_op_policy() -> dict[str, Any]:
             "vendor/dxmt/src/dxgi",
             "vendor/dxmt/src/dxmt",
             "vendor/dxmt/src/winemetal",
+            "vendor/dxmt/src/util",
         ],
         "legal_request_forbidden_outcomes": [
             "E_NOTIMPL",
