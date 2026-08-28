@@ -320,6 +320,20 @@ function deleteInstalledUpdateDmg(): string | null {
   return dmgPath;
 }
 
+function deleteStaleUpdateAppBackups(): string[] {
+  if (process.platform !== "darwin") return [];
+  const applications = "/Applications";
+  const backupPattern = /^\.MetalSharp\.app\.(?:previous|update)\.\d+$/;
+  const deleted: string[] = [];
+  for (const entry of fs.readdirSync(applications, { withFileTypes: true })) {
+    if (!backupPattern.test(entry.name) || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
+    const candidate = path.join(applications, entry.name);
+    fs.rmSync(candidate, { recursive: true, force: true });
+    deleted.push(candidate);
+  }
+  return deleted;
+}
+
 function spawnFreshInstalledAppAfterExit(appPath: string) {
   const script = `current_pid=${process.pid}\napp_path=${JSON.stringify(appPath)}\nwhile kill -0 "$current_pid" 2>/dev/null; do sleep 0.2; done\n/usr/bin/open -n "$app_path"\n`;
   const child = spawn("/bin/sh", ["-c", script], {
@@ -1084,6 +1098,24 @@ function registerIpc() {
       return { ok: false, error: "Installed MetalSharp.app was not found in /Applications." };
     }
 
+    // Prefix updates can execute Wine Run entries (including Steam's silent
+    // startup) even after the updater stopped the old runtime. Before launching
+    // the normal app, fail closed unless the migration backend has terminated
+    // every managed Wine/Steam process it can see.
+    try {
+      const rawStop = await requestMigrationBackend("POST", "/steam/stop", undefined, 15000);
+      const wrapped = rawStop as { data?: unknown };
+      const stop = (wrapped?.data ?? rawStop) as { ok?: boolean; running?: boolean; error?: string };
+      if (stop?.ok !== true || stop?.running !== false) {
+        return {
+          ok: false,
+          error: stop?.error ?? "Managed Wine processes did not stop; MetalSharp was not relaunched.",
+        };
+      }
+    } catch (error) {
+      return { ok: false, error: `Could not stop managed Wine processes: ${backendErrorMessage(error)}` };
+    }
+
     // Remove cached updater DMGs before tearing down the backend; this keeps the
     // user's disk from retaining the old installer image after a successful update.
     try {
@@ -1100,6 +1132,13 @@ function registerIpc() {
     }
     updaterBridge.clearInstallStatus();
 
+    let deletedBackupApps: string[] = [];
+    try {
+      deletedBackupApps = deleteStaleUpdateAppBackups();
+    } catch (error) {
+      console.warn("Migration handoff: failed to delete an updater backup app", error);
+    }
+
     clearPostUpdateMigrationMarker();
 
     // User-requested order: close any leftover MetalSharp app instances first,
@@ -1114,7 +1153,7 @@ function registerIpc() {
     spawnFreshInstalledAppAfterExit(appPath);
 
     setTimeout(() => app.exit(0), 50);
-    return { ok: true, deletedDmg, launched: appPath };
+    return { ok: true, deletedDmg, deletedBackupApps, launched: appPath };
   });
 
   ipcMain.handle("app:eject-dmg", async () => {
