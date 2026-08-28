@@ -44,6 +44,7 @@ jobs:
         run: METALSHARP_REPAIR_BUNDLES=0 METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE=1 tools/dmg/create-bundles.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          METALSHARP_BUNDLE_REPO: ${{ github.repository }}
 
       - name: Build self-contained developer SDK
         run: |
@@ -162,6 +163,7 @@ jobs:
           find dist/staged-bundles -type d | sort | sed -n '1,120p'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          METALSHARP_BUNDLE_REPO: ${{ github.repository }}
 
       - name: Check Apple signing credentials
         id: apple-signing
