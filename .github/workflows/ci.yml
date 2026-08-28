@@ -128,8 +128,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install clang-format
-        run: brew install clang-format zstd
+      - name: Install native test tools
+        run: brew install clang-format zstd unar
 
       - name: Install Rosetta for x86_64 runtime tests
         run: sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
