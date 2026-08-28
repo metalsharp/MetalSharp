@@ -19,6 +19,21 @@ DEFAULT_D3D12_MAP = Path("/Volumes/AverySSD/metalsharp/metal-api-table/final/d3d
 DEFAULT_AGILITY_MAP = Path(
     "/Volumes/AverySSD/metalsharp/metal-api-table/final/agility_sdk_d3d12_to_metal_map.json"
 )
+CURRENT_AGILITY_SDK_VERSION = "1.619.5"
+STABLE_AGILITY_SDK_INPUTS = {
+    "package_id": "Microsoft.Direct3D.D3D12",
+    "package_version": "1.619.5",
+    "package_url": "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/1.619.5/microsoft.direct3d.d3d12.1.619.5.nupkg",
+    "package_sha256": "0e9bcf32aac9a79343ede9b21e4864950ee54577e3d8e19bfcdf002bb4e9bfd6",
+    "d3d12_sdk_version": 619,
+    "headers": {
+        "d3d12.h": "dc55b65d24bf5c83079be5c3c708df8862b1d46308a3c8232886ad6f707932b8",
+        "d3d12sdklayers.h": "27cdc0e48f426d41e3ae62263f39343273d55dd098bc0bd9dae1bb46247a804a",
+        "d3d12video.h": "9ccd140cedfb962696e05604f42207697d4e1802d1aa639ce16511f62616bbfd",
+        "d3dcommon.h": "8c236985415516302faf0cb725fa78312cb1ac05ba866e29eeab23d695a0f5cb",
+        "D3D12Events.h": "15f8e02fe5d2c8961836c11c82df4d2c60e66758bec63395baea1576bca958cb",
+    },
+}
 
 
 def sha256(path: Path) -> str:
@@ -83,10 +98,10 @@ def make_d3d12_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def make_agility_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
-    return {
+def make_agility_contract(source: Path, data: dict[str, Any], agility_sdk_version: str) -> dict[str, Any]:
+    contract = {
         "schema": "metalsharp.d3d12-metal.agility-contract.v1",
-        "agility_sdk_version": "1.619.3",
+        "agility_sdk_version": agility_sdk_version,
         "source": {
             "path": str(source),
             "sha256": sha256(source),
@@ -96,7 +111,7 @@ def make_agility_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
             {
                 "kind": "source_map",
                 "path": str(source),
-                "note": "Generated from Microsoft.Direct3D.D3D12 NuGet package v1.619.3 and Metal SDK headers.",
+                "note": f"Generated from Microsoft.Direct3D.D3D12 NuGet package v{agility_sdk_version} and Metal SDK headers.",
             }
         ],
         "summary": {
@@ -107,9 +122,33 @@ def make_agility_contract(source: Path, data: dict[str, Any]) -> dict[str, Any]:
         "contract_state": "reference_import",
         "data": data,
     }
+    if agility_sdk_version == CURRENT_AGILITY_SDK_VERSION:
+        contract["stable_release"] = True
+        contract["d3d12_sdk_version"] = 619
+        contract["sdk_inputs"] = STABLE_AGILITY_SDK_INPUTS
+        contract["supersedes"] = "agility-1.619.3-contract.json"
+        contract["source"]["sdk_package"] = "Microsoft.Direct3D.D3D12 1.619.5"
+        contract["evidence"] = [
+            {
+                "kind": "nuget_package",
+                "path": STABLE_AGILITY_SDK_INPUTS["package_url"],
+                "note": "Official Microsoft.Direct3D.D3D12 1.619.5 package; D3D12SDKVersion 619; SHA-256 is recorded in sdk_inputs.package_sha256.",
+            },
+            {
+                "kind": "header_snapshot",
+                "path": "tools/d3d12-metal-sdk/out/agility/1.619.5/build/native/include",
+                "note": "Pinned 1.619.5 headers and D3D12Events.h; per-file SHA-256 values are recorded in sdk_inputs.headers.",
+            },
+            {
+                "kind": "source_map",
+                "path": str(source),
+                "note": "Generated interface map shared with the historical 1.619.3 contract; the package/header delta is recorded in sdk_inputs.",
+            },
+        ]
+    return contract
 
 
-def feature_support_contract() -> dict[str, Any]:
+def feature_support_contract(agility_contract_name: str) -> dict[str, Any]:
     return {
         "schema": "metalsharp.d3d12-metal.feature-support.v1",
         "purpose": "Keep D3D12 feature reports aligned with executable implementation reality.",
@@ -327,7 +366,7 @@ def unsupported_ledger() -> dict[str, Any]:
                 "state": "unsupported",
                 "tier": "unsupported",
                 "reason": "No D3D12 video command list, decoder, encoder, processor, or VideoToolbox bridge is implemented in the DXMT D3D12 path.",
-                "evidence": ["tools/d3d12-metal-sdk/contracts/agility-1.619.3-contract.json"],
+                "evidence": [f"tools/d3d12-metal-sdk/contracts/{agility_contract_name}"],
             },
             {
                 "api": "D3D12 protected resource sessions",
@@ -344,7 +383,7 @@ def unsupported_ledger() -> dict[str, Any]:
                 "state": "unsupported",
                 "tier": "unsupported",
                 "reason": "Device-side DSR factory behavior is not implemented or required for the current Metal backend.",
-                "evidence": ["tools/d3d12-metal-sdk/contracts/agility-1.619.3-contract.json"],
+                "evidence": [f"tools/d3d12-metal-sdk/contracts/{agility_contract_name}"],
             },
             {
                 "api": "D3D12 state objects",
@@ -426,6 +465,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--d3d12-map", type=Path, default=DEFAULT_D3D12_MAP)
     parser.add_argument("--agility-map", type=Path, default=DEFAULT_AGILITY_MAP)
+    parser.add_argument("--agility-version", default=CURRENT_AGILITY_SDK_VERSION)
     parser.add_argument("--out", type=Path, default=Path("tools/d3d12-metal-sdk/contracts"))
     args = parser.parse_args()
 
@@ -433,8 +473,12 @@ def main() -> int:
     agility_data = load_json(args.agility_map)
 
     write_json(args.out / "d3d12-metal-contract.json", make_d3d12_contract(args.d3d12_map, d3d12_data))
-    write_json(args.out / "agility-1.619.3-contract.json", make_agility_contract(args.agility_map, agility_data))
-    write_json(args.out / "feature-support-contract.json", feature_support_contract())
+    agility_contract_name = f"agility-{args.agility_version}-contract.json"
+    write_json(
+        args.out / agility_contract_name,
+        make_agility_contract(args.agility_map, agility_data, args.agility_version),
+    )
+    write_json(args.out / "feature-support-contract.json", feature_support_contract(agility_contract_name))
     write_json(args.out / "dxgi-contract.json", dxgi_contract())
     write_json(args.out / "unsupported-api-ledger.json", unsupported_ledger())
     write_json(args.out / "risky-stub-ledger.json", risky_stub_ledger())

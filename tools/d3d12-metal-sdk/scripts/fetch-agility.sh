@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SDK_DIR="$ROOT_DIR/tools/d3d12-metal-sdk"
 OUT_DIR="$SDK_DIR/out/agility"
-AGILITY_VERSION="${AGILITY_VERSION:-1.619.3}"
+AGILITY_VERSION="${AGILITY_VERSION:-1.619.5}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       cat <<'USAGE'
 Usage:
-  fetch-agility.sh [--version 1.619.3]
+  fetch-agility.sh [--version 1.619.5]
 
 Downloads the official Microsoft.Direct3D.D3D12 NuGet package for the requested
 Agility SDK version and extracts it under tools/d3d12-metal-sdk/out/agility/.

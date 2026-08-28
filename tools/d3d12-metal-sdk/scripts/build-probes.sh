@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SDK_DIR="$ROOT_DIR/tools/d3d12-metal-sdk"
 OUT_DIR="$SDK_DIR/out/bin"
 CXX="${CXX:-x86_64-w64-mingw32-g++}"
-AGILITY_VERSION="${AGILITY_VERSION:-1.619.3}"
+AGILITY_VERSION="${AGILITY_VERSION:-1.619.5}"
 AGILITY_BIN="${AGILITY_BIN:-}"
 DXC_BIN_DIR="${DXC_BIN_DIR:-}"
 
