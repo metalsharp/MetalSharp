@@ -4,9 +4,15 @@ on:
   workflow_run:
     workflows: ["Release CI"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Release CI run ID whose exact artifact should be rescanned
+        required: true
+        type: string
 
 concurrency:
-  group: virustotal-release-${{ github.event.workflow_run.id }}
+  group: virustotal-release-${{ github.event.workflow_run.id || inputs.release_run_id || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -17,15 +23,41 @@ jobs:
   scan:
     name: Scan released DMG thirds
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push'
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
-      - name: Check out the released revision
+      - name: Resolve successful Release CI run
+        id: source
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUN_ID" in
+            ''|*[!0-9]*) echo "Invalid Release CI run ID: $REQUESTED_RUN_ID" >&2; exit 1 ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REQUESTED_RUN_ID" > release-run.json
+          test "$(jq -r .name release-run.json)" = "Release CI"
+          test "$(jq -r .event release-run.json)" = "push"
+          test "$(jq -r .conclusion release-run.json)" = "success"
+          head_sha="$(jq -r .head_sha release-run.json)"
+          test -n "$head_sha"
+          test "$head_sha" != "null"
+          if [ -n "$REQUESTED_HEAD_SHA" ]; then
+            test "$head_sha" = "$REQUESTED_HEAD_SHA"
+          fi
+          printf 'release_run_id=%s\n' "$REQUESTED_RUN_ID" >> "$GITHUB_OUTPUT"
+          printf 'head_sha=%s\n' "$head_sha" >> "$GITHUB_OUTPUT"
+          printf 'Validated successful Release CI run %s at %s\n' "$REQUESTED_RUN_ID" "$head_sha"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_RUN_ID: ${{ github.event.workflow_run.id || inputs.release_run_id }}
+          REQUESTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+
+      - name: Check out scanner revision
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || steps.source.outputs.head_sha }}
 
       - name: Download the exact Release CI artifact
         run: |
@@ -37,7 +69,7 @@ jobs:
             --dir release-artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
+          RELEASE_RUN_ID: ${{ steps.source.outputs.release_run_id }}
 
       - name: Validate release identity
         id: release
@@ -62,7 +94,7 @@ jobs:
           printf 'Validated release %s at %s\n' "$tag" "$resolved_sha"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
 
       - name: Split and scan every released DMG
         run: |
@@ -98,7 +130,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: VirusTotal-results-${{ github.event.workflow_run.id }}
+          name: VirusTotal-results-${{ steps.source.outputs.release_run_id }}
           path: |
             virustotal-results.json
             virustotal-results.md
