@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-25
 
-**Status:** Active — focused completion runway (refined 2026-08-27)
+**Status:** Active — promotion gate green; final staging and delivery pending
 
 **Branch:** `feat/d3d12-fl12_2-sm67-dxr-completion`
 
@@ -72,14 +72,14 @@ Feature level 12_2 requires at least the following public capability posture:
 
 | Capability | Required FL 12_2 value | Current DXMT result | Completion evidence |
 | --- | --- | --- | --- |
-| Shader model | At least 6.5 | 6.7 for the current core corpus; final breadth gate pending | SM 6.6 breadth plus SM 6.7 quad-vote runtime readback passed; advanced-op/MSAA breadth remains |
-| Ray tracing | Tier 1.1 | Foundational DXR execution subset proven; Tier 1.1 remains unreported | Mixed-geometry, state-object, shader-table, indirect, lifetime, and clean-prefix DXR gates |
-| Variable-rate shading | Tier 2 | Per-draw, constant-image, `SUM`, and focused nonconstant checkerboard image paths proven; Tier 2 remains unreported | Per-primitive, logical-resolution, broader image/combiner, and Tier-2 VRS gates |
-| Mesh shaders | Tier 1 | Focused AS/MS direct and indirect execution proven; Tier 1 remains unreported | Broader AS/MS stage, payload, render-state, statistics, and clean-prefix gates |
+| Shader model | At least 6.5 | 6.7 | SM 6.6 breadth plus SM 6.7 quad-vote and advanced texture/writable-MSAA runtime readbacks passed |
+| Ray tracing | Tier 1.1 | Tier 1.1 | Mixed triangle/AABB child hits, state-object, shader-table, indirect, serialization, lifetime, and clean-prefix DXR gates passed |
+| Variable-rate shading | Tier 2 | Tier 2 | Per-draw, image, `SUM`, per-primitive, logical-resolution, viewport/RT-array, lifecycle, and clean-prefix VRS gates passed |
+| Mesh shaders | Tier 1 | Tier 1 | AS/MS direct/indirect, payload, layered depth/blend/wireframe, resources, statistics, and clean-prefix gates passed |
 | Sampler feedback | Tier 0.9 | Tier 0.9 | Software-map UAV, all write forms, 2D/array, min-mip/mip-used, clear, encode/decode, and contention probes |
 | Resource binding | Tier 3 | Reported tier 3 | Unbounded/direct indexing runtime probes |
-| Tiled resources | Tier 3 | Native placement-sparse 2D RGBA8 cross-resource alias subset proven; volume tile shapes and standard `CopyTiles` traversal are modeled; Tier 3 remains unreported | Physical page selection, mapping copies, packed/partial mips, 3D/array mapping and alias, residency, and per-tile 64 KiB `CopyTiles` probes |
-| Conservative rasterization | Tier 3 | Not advertised; no conservative-coverage implementation is present | Tier-3 edge/coverage, inner-input, degenerate, and MSAA behavior probe |
+| Tiled resources | Tier 3 | Tier 3 on the pinned MTL4/M4 path | Physical placement pages, mapping copies, packed/partial mips, 3D/array traversal and alias, unmap residency zeroing, and 64 KiB `CopyTiles` readbacks passed |
+| Conservative rasterization | Tier 3 | Tier 3 for the validated reference-model rasterizer path | Edge, inner-input, degenerate, winding, clipping, and MSAA reference/readback cases passed; unsupported PSO shapes fail closed |
 | Root signature | 1.1 | Reported 1.1 | Existing plus direct-indexing extension probes |
 | Depth bounds | Supported | Software-emulated and reported | Depth-bounds render/readback matrix |
 | WriteBufferImmediate | Direct, compute, bundle | Direct, compute, bundle proven and reported | Three-mode GPU-VA write/readback probe |
@@ -92,7 +92,7 @@ Feature level 12_2 requires at least the following public capability posture:
 | Fully typed/relaxed format casting | Supported | Proven and reported | Device10 castable-list creation plus declared/undeclared view runtime probe |
 | Unaligned block textures | Supported | Proven and reported | 7x5 BC1 footprint/copy/readback probe |
 | Int64 shader ops | Supported | Reported true | Arithmetic and atomic runtime readback |
-| Writable MSAA textures | CS 6.7 subset | Focused 2D/array compute + graphics/DSV/resolve path proven for R32G32B32A32_FLOAT/R16G16B16A16_FLOAT/R8G8B8A8_UNORM and sample counts 2/4/8; capability remains conservative | CS 6.7 per-sample store/load, graphics UAV stores with DSV, sample-count-2/4/8 resolves, and exact readback |
+| Writable MSAA textures | CS 6.7 subset | Options14 writable-MSAA support enabled for the proven matrix | Per-sample compute/graphics stores and loads, DSV interaction, 2D/array resources, sample counts 2/4/8, resolves, and exact readback passed |
 
 Shader Model 6.7 completion additionally includes:
 
@@ -536,13 +536,15 @@ Findings:
   d3d11.metalSpatialUpscaleFactor = 2.00
   d3d11.preferredMaxFrameRate = 60
   d3d11.maxFeatureLevel = 12_1
+  d3d12.maxFeatureLevel = 12_2
   dxmt.shaderMetalVersion = 310
   ```
 
-- `d3d12.maxFeatureLevel` now accepts `11_0`, `11_1`, `12_0`, `12_1`, and
-  `12_2`; the D3D12 runtime caps the setting at its behavior-backed build
-  maximum, which is still 12_1. The config still pins shader generation to
-  Metal 3.1 despite the proof host and Xcode beta supporting Metal 4.
+- `d3d12.maxFeatureLevel` accepts `11_0`, `11_1`, `12_0`, `12_1`, and `12_2`;
+  the behavior-backed build maximum is now `12_2`. The M12 route also carries
+  `d3d12.maxFeatureLevel=12_2` in its reserved `DXMT_CONFIG` pair. The shader
+  language pin remains Metal 3.1 for the existing converter ABI while the
+  proof host uses the pinned Metal 4 toolchain.
 - The final runtime must not depend on the user's long-lived Steam prefix for
   probes.
 
@@ -579,14 +581,14 @@ feature level 12_2.
 
 | Blocker | Evidence today | Required closure |
 | --- | --- | --- |
-| Maximum feature level | `D3D12CreateDevice(12_2)` returns `DXGI_ERROR_UNSUPPORTED` by design; build maximum is 12_1 | Promote only after every row below is green |
-| VRS | Per-draw, constant-image, `SUM`, and exact nonconstant checkerboard readback pass | Per-primitive rates, logical-resolution mapping, broader image/combiner semantics, and Tier-2 lifecycle pass |
-| Mesh shaders | Focused AS/MS direct/indirect, layered depth/blend/wireframe, and statistics paths pass | Complete Tier-1 matrix and report only the behavior-backed tier |
-| Tiled resources | Focused native sparse 2D and MTL4 buffer paths pass | Physical page ownership, mapping copies, packed/partial mips, 3D/array coverage, aliasing, and residency pass |
-| Conservative rasterization | Software Tier-1 path only | Implement and prove Tier-3 coverage semantics; do not infer Tier 3 from Metal support |
-| DXR | Foundational BLAS/TLAS, state-object, shader-table, inline, direct, and indirect paths pass | Mixed geometry and remaining Tier-1.1 lifecycle/table paths pass through one unified bridge |
-| SM6.7/MSAA | Core SM6.7 corpus and focused writable-MSAA formats/sample counts pass | Close advanced-op stage/dimension coverage and writable-MSAA format/resolve breadth before Options14 promotion |
-| Residual surfaces | Core ABI/lifecycle gates pass | Remove dangerous no-op success paths reachable from claimed features and keep all other stubs explicitly rejected |
+| Maximum feature level | `D3D12CreateDevice` creates all five requested levels; the build maximum and query are 12_2 | Keep the report synchronized with the passing aggregate gate |
+| VRS | Full focused Tier-2 matrix passes, including per-primitive, logical 65x65 reconstruction, viewport/RT-array indexing, nonconstant indexed images, combiners, and lifecycle | No blocker in the pinned MTL4/M4 matrix |
+| Mesh shaders | Tier-1 AS/MS direct/indirect, payload/resource, layered depth/blend/wireframe, array, and statistics matrix passes | No blocker in the pinned MTL4/M4 matrix; work graphs remain unsupported |
+| Tiled resources | Physical placement pages, mapping copies, packed/partial mips, volume/array traversal, aliases, residency zeroing, and `CopyTiles` readbacks pass | No blocker in the pinned MTL4/M4 matrix; unsupported shapes remain explicit failures |
+| Conservative rasterization | Validated software reference-model edge/inner/degenerate/clipping/MSAA cases pass | Unsupported rasterizer combinations fail closed |
+| DXR | BLAS/TLAS, state objects, shader tables, inline/direct/indirect dispatch, serialization, lifetime, and flattened mixed triangle/AABB child hits pass | Cross-process opaque-data portability and unexercised broad table shapes remain explicitly unsupported |
+| SM6.7/MSAA | SM6.7 breadth and Options14 advanced-op/writable-MSAA matrix pass exact readback | Unsupported formats/shapes remain rejected rather than advertised |
+| Residual surfaces | Claimed paths are covered by the aggregate gate; optional unsupported APIs are ledgered and comparator-checked | Final clean staging, runtime doctor, and PR evidence remain |
 
 ### Completion Phase 0 — Freeze the baseline and the red gate (complete)
 
@@ -1280,23 +1282,24 @@ Before declaring the goal complete, map each item below to actual evidence:
 - [x] Temporary prefixes used by the current source/staged gates are stopped and deleted after evidence capture.
 - [x] Completion Phase 0 baseline is frozen: clean build, ABI, 24/24 matrix,
       M12 tests, and exact D3D10/D3D11 regression gate.
-- [ ] Completion Phase 1 aggregate FL12_2 gate names every required field and
+- [x] Completion Phase 1 aggregate FL12_2 gate names every required field and
       behavior dependency and rejects stale/missing evidence.
-- [ ] Completion Phase 2 VRS Tier 2 passes nonconstant image, combiner,
-      per-primitive, logical-resolution, and lifecycle readbacks.
-- [ ] Completion Phase 3 Mesh Shader Tier 1 passes the broader AS/MS,
+- [x] Completion Phase 2 VRS Tier 2 passes nonconstant image, combiner,
+      per-primitive, logical-resolution, viewport/RT-array, and lifecycle
+      readbacks.
+- [x] Completion Phase 3 Mesh Shader Tier 1 passes the broader AS/MS,
       render-state, resource, statistics, and indirect-dispatch matrix.
-- [ ] Completion Phase 4 Tiled Resources Tier 3 passes physical page,
+- [x] Completion Phase 4 Tiled Resources Tier 3 passes physical page,
       mapping-copy, packed/partial-mip, 3D/array, alias, residency, and
       `CopyTiles` readback coverage.
-- [ ] Completion Phase 5 Conservative Rasterization Tier 3 agrees with the
+- [x] Completion Phase 5 Conservative Rasterization Tier 3 agrees with the
       reference model for edge, inner, degenerate, clipping, and MSAA cases.
-- [ ] Completion Phase 6 DXR 1.1 passes mixed geometry, state-object,
+- [x] Completion Phase 6 DXR 1.1 passes mixed geometry, state-object,
       shader-table, indirect, serialization, synchronization, and lifetime
       gates.
-- [ ] Completion Phase 7 closes required SM6.7 advanced operations and
+- [x] Completion Phase 7 closes required SM6.7 advanced operations and
       writable-MSAA breadth; Options14 is enabled only after exact readback.
-- [ ] Completion Phase 8 removes reachable dangerous no-op paths, promotes the
+- [x] Completion Phase 8 removes reachable dangerous no-op paths, promotes the
       behavior-backed reports, and creates devices at all five levels.
 - [x] Full rebuild passes (`prepare-dxmt-x86-llvm15.sh`, 156/156 targets).
 - [x] Current source/staged SDK strict probe and comparison gates pass (24/24, including the legacy D3D10/D3D11 gate).
@@ -1311,6 +1314,34 @@ Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
 
 ## 10. Progress log
+
+### 2026-08-27 — Promoted the behavior-backed FL12_2 matrix
+
+- Commit `16a68a83` promotes the already-proven FL12_2 runway: the build
+  maximum is `12_2`, all five requested feature levels create devices, and
+  the feature-level query reports `12_2` with SM6.7, Tier-3 tiled resources,
+  Tier-3 conservative rasterization, Tier-1.1 ray tracing, Tier-2 VRS, and
+  Tier-1 mesh shader reports. Options14 advanced texture operations and
+  writable MSAA are enabled only for the exact matrices covered by the probes.
+- The full source-staged gate at
+  `tools/d3d12-metal-sdk/results/fl12-2-gate-metalsharp-isolated.json` passed
+  with `queries=31/31`, `behaviors=31/31`, `identity=22/22`, and no blockers.
+  The gate recorded the current source commit/tree digest, pinned Wine 11.5,
+  Xcode `27A5252f`, Metal `32023.921.5`, and clean-state provenance after
+  excluding generated paths.
+- VRS now emits both viewport and render-target array-index semantics. The
+  Winemetal replay uses `setViewports`/`setScissorRects` arrays instead of
+  overwriting viewport/scissor zero; the focused probe passes exact 4096-pixel
+  readbacks in both array slices.
+- The mixed DXR path uses the tagged triangle/AABB bridge and flattens its two
+  native child BLAS records into consuming TLAS instance arrays, avoiding the
+  Metal 4 mixed-descriptor crash and nested-TLAS exposure. The probe now
+  reads back independent mixed triangle (`0x52454332`) and mixed AABB
+  (`0x50524f43`) hits in addition to the existing direct/indirect DXR matrix.
+- `compare-contract.py`, the feature-support contract, and the unsupported
+  ledger now distinguish the behavior-proven advertised subsets from genuinely
+  unsupported breadth; ROVs, work graphs, protected sessions, stream output,
+  cross-process sharing, and other unsupported APIs remain explicit failures.
 
 ### 2026-08-27 — Corrected VRS edge-tile and volume-tile traversal
 
