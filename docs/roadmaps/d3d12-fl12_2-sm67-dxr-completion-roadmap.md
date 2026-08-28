@@ -1304,7 +1304,7 @@ Before declaring the goal complete, map each item below to actual evidence:
 - [x] Full rebuild passes (`prepare-dxmt-x86-llvm15.sh`, 156/156 targets).
 - [x] Current source/staged SDK strict probe and comparison gates pass (24/24, including the legacy D3D10/D3D11 gate).
 - [x] D3D10/D3D11 regressions pass through the source-staged exact clear/copy/readback gate; the game harness now stages those DLLs when supplied.
-- [ ] Completion Phase 9 final staging proves manifest-selected PE/Unix hashes,
+- [x] Completion Phase 9 final staging proves manifest-selected PE/Unix hashes,
       runtime layout, and a fresh-prefix M12 launch at feature level 12_2.
 - [x] Working tree contains only intended PR changes.
 - [ ] Branch is pushed.
@@ -1314,6 +1314,25 @@ Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
 
 ## 10. Progress log
+
+### 2026-08-27 — Completed final Phase 9 staging and live proof
+
+- `tools/d3d12-metal-sdk/results/stage-runtime-fl12-2-final.json` records the
+  manifest-selected source build staged into the isolated M12 runtime with 18
+  artifact records, `failure_count=0`, and no PE/Unix hash mismatches.
+- `tools/d3d12-metal-sdk/results/runtime-preflight-fl12-2-final.json` passes
+  the final runtime layout and sidecar checks with `failure_count=0`.
+- A fresh disposable Wine 11.5 clone and prefix ran the bounded `m12_game.exe`
+  harness (not the title-shaped stress experiment) with
+  `d3d12.maxFeatureLevel=12_2` and `dxmt.shaderMetalVersion=310`. The rebuilt
+  harness requests `D3D_FEATURE_LEVEL_12_2` explicitly; the run created the
+  device at `FL 49664` (`12_2`), presented 81 frames, and read back
+  `bright=2009`, `chroma=2009`, checksum
+  `0xd56a46f1e5743cb5`, ending with `=== m12_game.exe PASS ===`.
+  The temporary runtime, prefix, and wineserver were stopped and deleted; the
+  captured log is `/tmp/m12-final-roadmap-live-harness.log`.
+- The aggregate gate remains `pass=true`, `promotion_ready=true`, with
+  `queries=31/31`, `behaviors=31/31`, `identity=22/22`, and no blockers.
 
 ### 2026-08-27 — Promoted the behavior-backed FL12_2 matrix
 

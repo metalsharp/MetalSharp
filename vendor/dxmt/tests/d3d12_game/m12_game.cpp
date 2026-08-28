@@ -284,8 +284,9 @@ static bool createHarness(Harness &h) {
   if (!checkHr("CreateDXGIFactory2", hr))
     return false;
 
-  hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&h.device));
-  if (!checkHr("D3D12CreateDevice", hr))
+  hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_2,
+                          IID_PPV_ARGS(&h.device));
+  if (!checkHr("D3D12CreateDevice feature_level=12_2", hr))
     return false;
 
   D3D12_COMMAND_QUEUE_DESC queueDesc = {};
