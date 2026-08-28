@@ -26,7 +26,15 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 ## Quick Start
 
-Download the latest DMG from [Releases](https://github.com/aaf2tbz/metalsharp/releases), drag MetalSharp into `/Applications`, and open it. The setup wizard handles the rest.
+Install MetalSharp from the official Homebrew tap:
+
+```bash
+brew install --cask metalsharp/tap/metalsharp
+```
+
+Homebrew installs `MetalSharp.app` in `/Applications`. Open it and the setup wizard handles the remaining runtime dependencies.
+
+Alternatively, download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it.
 
 If Gatekeeper cannot verify the app, open **System Settings → Privacy & Security** and choose **Open Anyway** for MetalSharp. VirusTotal scans are included with release notes when available.
 
