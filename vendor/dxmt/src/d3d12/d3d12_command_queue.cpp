@@ -12159,6 +12159,47 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                (unsigned long long)clear_length);
         break;
       }
+      case CmdType::DiscardResource: {
+        auto *cmd = reinterpret_cast<const CmdDiscardResource *>(header);
+        auto *res = static_cast<MTLD3D12Resource *>(cmd->resource);
+        st.CloseRenderEncoder();
+        if (!res || !res->GetMTLBuffer().handle) {
+          QTRACE("DiscardResource skipped non-buffer resource=%p",
+                 (void *)res);
+          break;
+        }
+        const uint64_t length = res->GetBufferByteLength();
+        if (!length)
+          break;
+        st.RetainResourceMetalObjectsForCompletion(res);
+        if (res->GetCPUAddress()) {
+          void *mapped = nullptr;
+          if (SUCCEEDED(res->Map(0, nullptr, &mapped)) && mapped) {
+            std::memset(mapped, 0, static_cast<size_t>(length));
+            res->Unmap(0, nullptr);
+            QTRACE("DiscardResource CPU zero resource=%p len=%llu",
+                   (void *)res, (unsigned long long)length);
+          }
+          break;
+        }
+        auto blit = cmdbuf.blitCommandEncoder();
+        ENC_CREATE("blit_discard", blit.handle);
+        ScopedMetalEncoderEnd blit_guard{blit, "blit_discard"};
+        if (!blit.handle)
+          break;
+        struct wmtcmd_blit_fillbuffer fill = {};
+        fill.type = WMTBlitCommandFillBuffer;
+        fill.next.set(nullptr);
+        fill.buffer = res->GetMTLBuffer().handle;
+        fill.offset = 0;
+        fill.length = length;
+        fill.value = 0;
+        blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&fill));
+        EndMetalEncoder(blit, "blit_discard");
+        QTRACE("DiscardResource GPU zero resource=%p len=%llu",
+               (void *)res, (unsigned long long)length);
+        break;
+      }
       case CmdType::BeginQuery: {
         auto *cmd = reinterpret_cast<const CmdQuery *>(header);
         auto *heap = static_cast<MTLD3D12QueryHeap *>(cmd->heap);
