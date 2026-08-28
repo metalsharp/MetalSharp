@@ -4,6 +4,8 @@ This directory is the repo-owned development SDK for D3D12 to Metal work through
 
 MetalSharp is one host profile for this SDK. The probes are normal Windows executables that should also run under standalone Wine prefixes, DXMT development prefixes, and future host integrations.
 
+The stable development baseline is Microsoft DirectX Agility SDK 1.619.5 (`D3D12SDKVersion=619`). The SDK runner keeps compatibility lanes for inbox/no-Agility callers and older stable Agility families; Agility 1.721.3-preview (`D3D12SDKVersion=721`) is an isolated opt-in lane and is never mixed into stable evidence. See [the full-surface roadmap](../../docs/roadmaps/d3d12-full-surface-completion-roadmap.md) and [the SDK compatibility matrix](contracts/d3d12-sdk-compatibility-matrix.json).
+
 The released `metalsharp-d3d12-developer-sdk.tar.zst` package is self-contained:
 it includes this SDK source plus a staged developer Wine/DXMT runtime under
 `runtime/`. See [docs/developer-runtime.md](docs/developer-runtime.md) for the
@@ -734,10 +736,12 @@ The DXGI factory probe records factory creation, `IDXGIFactory*` QueryInterface 
 
 ## Contract Commands
 
-Generate the first-class contract files from the current external source maps:
+Generate the first-class contract files from the current external source maps
+(the default output is the stable 1.619.5 contract):
 
 ```bash
-python3 tools/d3d12-metal-sdk/scripts/generate-contracts.py
+python3 tools/d3d12-metal-sdk/scripts/generate-contracts.py \
+  --agility-version 1.619.5
 ```
 
 Validate all required contract files:
@@ -756,7 +760,9 @@ python3 tools/d3d12-metal-sdk/scripts/validate-probe-matrix.py
 Phase 1 imports:
 
 - `contracts/d3d12-metal-contract.json` from `/Volumes/AverySSD/metalsharp/metal-api-table/final/d3d12_to_metal_map.json`
-- `contracts/agility-1.619.3-contract.json` from `/Volumes/AverySSD/metalsharp/metal-api-table/final/agility_sdk_d3d12_to_metal_map.json`
+- `contracts/agility-1.619.5-contract.json` from `/Volumes/AverySSD/metalsharp/metal-api-table/final/agility_sdk_d3d12_to_metal_map.json`, with exact package/header hashes recorded in `sdk_inputs`
+- `contracts/agility-1.619.3-contract.json` retained as the historical scoped-gate reference
+- `contracts/d3d12-sdk-compatibility-matrix.json` for inbox, historical stable, current stable, and preview lanes
 - `contracts/feature-support-contract.json`
 - `contracts/dxgi-contract.json`
 - `contracts/unsupported-api-ledger.json`

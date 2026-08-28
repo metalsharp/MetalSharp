@@ -1,0 +1,109 @@
+{
+  "schema": "metalsharp.d3d12-metal.sdk-compatibility-matrix.v1",
+  "purpose": "Keep one stable D3D12 implementation compatible with inbox callers and multiple Agility SDK generations without mixing SDK payloads.",
+  "stable_baseline": {
+    "package_id": "Microsoft.Direct3D.D3D12",
+    "package_version": "1.619.5",
+    "d3d12_sdk_version": 619,
+    "contract": "tools/d3d12-metal-sdk/contracts/agility-1.619.5-contract.json",
+    "release_channel": "stable",
+    "promotion_authority": true
+  },
+  "preview_lane": {
+    "package_id": "Microsoft.Direct3D.D3D12",
+    "package_version": "1.721.3-preview",
+    "d3d12_sdk_version": 721,
+    "contract": "tools/d3d12-metal-sdk/contracts/agility-1.721.3-preview-contract.json",
+    "contract_status": "planned_import",
+    "release_channel": "preview",
+    "promotion_authority": false,
+    "opt_in_only": true
+  },
+  "families": [
+    {
+      "id": "inbox-no-agility",
+      "kind": "inbox",
+      "sdk_version_values": [],
+      "representative_packages": [],
+      "required": true,
+      "notes": "The OS-selected D3D12 runtime path; required for games that do not opt into Agility."
+    },
+    {
+      "id": "agility-4",
+      "kind": "stable",
+      "sdk_version_values": [4],
+      "representative_packages": ["1.4.10"],
+      "required": true,
+      "notes": "DirectX 12 Ultimate and SM6.6-era caller behavior."
+    },
+    {
+      "id": "agility-600",
+      "kind": "stable",
+      "sdk_version_values": [600],
+      "representative_packages": ["1.600.10"],
+      "required": true,
+      "notes": "Representative 600-family validation and state behavior."
+    },
+    {
+      "id": "agility-602-through-611",
+      "kind": "stable",
+      "sdk_version_values": [602, 606, 608, 610, 611],
+      "representative_packages": ["1.602.4", "1.606.4", "1.608.3", "1.610.4", "1.611.2"],
+      "required": true,
+      "notes": "Representative patch for each public SDK version family; verify changed validation and barriers."
+    },
+    {
+      "id": "agility-613-through-616",
+      "kind": "stable",
+      "sdk_version_values": [613, 614, 615, 616],
+      "representative_packages": ["1.613.3", "1.614.0", "1.615.1", "1.616.1"],
+      "required": true,
+      "notes": "Includes retail Work Graphs/SM6.8, video, OMM, and tight-alignment history."
+    },
+    {
+      "id": "agility-618",
+      "kind": "stable",
+      "sdk_version_values": [618],
+      "representative_packages": ["1.618.5"],
+      "required": true,
+      "notes": "Includes Advanced Shader Delivery and state-database/cache behavior."
+    },
+    {
+      "id": "agility-619",
+      "kind": "stable",
+      "sdk_version_values": [619],
+      "representative_packages": ["1.619.5"],
+      "required": true,
+      "notes": "Authoritative stable release lane; includes SM6.9 and DXR 1.2 additions."
+    },
+    {
+      "id": "agility-721-preview",
+      "kind": "preview",
+      "sdk_version_values": [721],
+      "representative_packages": ["1.721.3-preview"],
+      "contract_status": "planned_import",
+      "required": false,
+      "notes": "Separate opt-in preview lane for SM6.10 and other preview-only additions."
+    }
+  ],
+  "rules": [
+    "The process-exported D3D12SDKVersion must match the selected Agility package family.",
+    "D3D12Core.dll and d3d12SDKLayers.dll must come from the same exact package version.",
+    "The translator must preserve older vtables, validation, layout, and error semantics while implementing the stable superset.",
+    "Feature reports are the intersection of caller SDK contract, host/provider capability, and passing behavior evidence.",
+    "Historical stable lanes are release blockers for compatibility; preview is never allowed to alter the stable result.",
+    "Every lane records exact package, header, runtime, loader-path, and provider hashes."
+  ],
+  "evidence": [
+    {
+      "kind": "official_release_table",
+      "path": "https://devblogs.microsoft.com/directx/directx12agility/",
+      "note": "Microsoft's Agility SDK download page identifies 1.619.5 as the latest stable release and 1.721.3-preview as the latest preview at roadmap authoring time."
+    },
+    {
+      "kind": "loader_contract",
+      "path": "https://devblogs.microsoft.com/directx/gettingstarted-dx12agility/",
+      "note": "Microsoft documents D3D12SDKVersion/D3D12SDKPath selection and matching D3D12Core/D3D12SDKLayers requirements."
+    }
+  ]
+}

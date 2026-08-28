@@ -5,7 +5,14 @@
 FL12_2/SM6.7/DXR completion claim for purposes of full API coverage.  
 **Predecessor:** [D3D12 FL12_2 / SM6.7 / DXR completion roadmap](d3d12-fl12_2-sm67-dxr-completion-roadmap.md)  
 **Target:** MetalSharp's vendored DXMT D3D12/DXGI/WineMetal runtime  
-**Reference contract:** `tools/d3d12-metal-sdk/contracts/agility-1.619.3-contract.json`  
+**Stable release baseline:** Microsoft DirectX Agility SDK 1.619.5
+(`D3D12SDKVersion=619`, released 2026-07-30)
+
+**Preview compatibility lane:** Agility SDK 1.721.3-preview
+(`D3D12SDKVersion=721`, never a stable promotion gate)
+
+**Reference contract:** `tools/d3d12-metal-sdk/contracts/agility-1.619.5-contract.json`
+
 **Proof host:** Apple M4, Metal 4, macOS, Xcode 27 beta 6 (`27A5252f`, Metal
 `32023.921.5`), MetalSharp Wine 11.5
 
@@ -44,33 +51,38 @@ checks, and negative validation pass.
 
 ### 1.1 What “full surface” means here
 
-The target is the functional D3D12/DXGI surface represented by the Agility
-1.619.3 reference contract and the vendored Windows headers, including:
+The target is the functional D3D12/DXGI surface represented by the latest
+stable Agility 1.619.5 reference contract and the vendored Windows headers,
+including:
 
 1. Core D3D12 device, object, resource, heap, descriptor, fence, query,
    pipeline, queue, command-list, swapchain, and state-object interfaces.
 2. Feature levels `11_0`, `11_1`, `12_0`, `12_1`, and `12_2`, with all feature
    reports backed by the behavior they advertise.
-3. SM5.x DXBC/AIR and SM6.0 through SM6.7 DXIL paths, including every opcode,
+3. SM5.x DXBC/AIR and SM6.0 through SM6.9 DXIL paths, including every opcode,
    intrinsic, stage, resource dimension, legal view, and diagnostic in the
-   declared shader-model target.
+   stable shader-model target. SM6.10 preview behavior is tracked only in the
+   separate preview lane below.
 4. All D3D12 feature families currently represented in the SDK contract:
-   resources, residency, sparse/tiled memory, barriers, VRS, MSAA, ROVs,
+   resources, residency, sparse/tiled memory through Tier 4, barriers, VRS, MSAA, ROVs,
    conservative rasterization, view instancing, mesh/amplification shaders,
-   work graphs, DXR, video, protected resources, DSR, caches, and Agility
-   extensions.
+   work graphs, DXR 1.1 plus the stable 1.619 DXR 1.2 additions, video,
+   protected resources, DSR, caches, and Agility extensions.
 5. DXGI 1.6 factory, adapter, output, resource, surface, display, sharing,
    event, overlay, duplication, and presentation behavior.
 6. Agility configuration, compiler/cache, pipeline/state-object cache, debug,
    DRED, tools, lifetime, sharing-contract, and newer interface methods in the
-   1.619.3 contract.
+   1.619.5 contract.
 7. ABI parity across x86_64 PE, x86_64 Unix, WOW64 call paths, Wine loader
    routing, and all matching Winemetal exports.
 
-The 145 interfaces listed by `agility-1.619.3-contract.json` are an inventory
+The 145 interfaces listed by `agility-1.619.5-contract.json` are an inventory
 input, not proof that the current implementation already exposes all of them.
 The first phase produces a method-level inventory and resolves every missing
-method explicitly.
+method explicitly. The 1.619.5 package also publishes `D3D12Events.h` and adds
+the current OMM-descriptor and tight-alignment constants; those inputs are
+part of the stable contract even though the 1.619.3 interface method count is
+unchanged.
 
 ### 1.2 Required implementation strategies
 
@@ -97,6 +109,60 @@ If the M4/macOS host cannot provide a required security or hardware guarantee,
 that is a platform feasibility blocker requiring a real provider or a target
 host/backend change. It must not be converted into a silent downgrade and must
 not be declared complete with a fail-closed return.
+
+### 1.3 SDK compatibility policy
+
+Using the newest SDK as the only target would not maximize game
+compatibility. Agility is side-by-side: an application may export a
+`D3D12SDKVersion` and select an app-local `D3D12Core.dll`, while another game
+uses the inbox runtime or an older Agility release. The runtime therefore uses
+1.619.5 as the **development and stable-surface superset**, but it must keep a
+version-aware compatibility profile for older callers.
+
+The compatibility matrix is:
+
+| Caller/runtime family | SDK version value | Roadmap treatment |
+| --- | ---: | --- |
+| No Agility / inbox D3D12 | OS-selected | Required legacy regression lane; preserve the inbox-compatible ABI and feature behavior |
+| Agility 1.4.9–1.4.10 | `4` | Required legacy lane; DirectX 12 Ultimate/SM6.6-era behavior |
+| Agility 1.600.x | `600` | Required legacy lane; test representative `.10` patch where applicable |
+| Agility 1.602.x–1.611.x | `602`–`611` | Required compatibility lane; test each public version family and its changed validation/features |
+| Agility 1.613.x–1.616.x | `613`–`616` | Required compatibility lane; includes retail Work Graphs/SM6.8, video, OMM, and tight-alignment history |
+| Agility 1.618.x | `618` | Required compatibility lane; includes Advanced Shader Delivery and related cache/state-database behavior |
+| **Agility 1.619.5 stable** | **`619`** | **Authoritative release contract and full-surface promotion gate** |
+| Agility 1.721.3-preview | `721` | Separate opt-in preview gate; never used to make the stable 1.619.5 claim pass |
+
+The matrix does not require shipping every historical patch DLL. It requires
+testing representative callers from each ABI/semantic family and the exact
+latest stable package. A patch release with the same numeric
+`D3D12SDKVersion` still gets a pinned package hash and header/runtime
+provenance, because its validation and bug-fix behavior can matter.
+
+Compatibility rules:
+
+- Do not overwrite or mix an application's Agility `D3D12Core.dll` and
+  `D3D12SDKLayers.dll` from different SDK families. The SDK version exported by
+  the process must match the selected package according to Microsoft's loader
+  contract.
+- Do not replace older callers with preview-only interfaces. Expose the
+  versioned superset through the translation layer and preserve old vtable,
+  validation, layout, and error semantics.
+- Normalize feature reports by both caller SDK family and actual host/provider
+  capability. A newer SDK does not make an unsupported Metal operation
+  supported, and an older caller must not observe a newer preview field as a
+  false success.
+- Add a loader probe for inbox/no-Agility, every representative stable family,
+  stable 619, and preview 721. Record selected SDK version, path, package
+  hashes, interface census, feature reports, and behavior readbacks.
+- A stable promotion requires the 1.619.5 matrix plus all older compatibility
+  lanes. A preview promotion, if ever requested, is a separate release with
+  its own contract, binary hashes, and explicit opt-in.
+
+The stable target follows Microsoft's official release channel, not a moving
+"latest" URL. When Microsoft publishes a newer stable package, add it as a
+new pinned contract and rerun the full matrix before changing the stable
+baseline. Preview packages may be evaluated in parallel but never silently
+become the production target.
 
 ---
 
@@ -148,6 +214,9 @@ for feature families that this roadmap must implement before reporting support:
 - Mesh per-primitive VRS.
 - Triangle fan, dynamic strip-cut, dynamic depth bias, GPU upload heaps.
 - Non-normalized samplers and manual write tracking.
+- Tier 4 tiled resources, including the stable 1.619 sparse-resource additions.
+- SM6.9 long vectors, required 16/64-bit wave operations, float16 specials,
+  SER, and opacity micromaps.
 - Options 13, 17, 20, and other zeroed extension fields.
 - Work graphs, node shaders, `SampleCmp` gradient/bias, extended command info.
 - Tight alignment, hardware copy, async commands, fence barriers, and barrier
@@ -157,9 +226,9 @@ for feature families that this roadmap must implement before reporting support:
 - Protected-resource support.
 
 The current contract also needs reconciliation: `D3D12_OPTIONS.TiledResourcesTier`
-is reported as Tier 3 while the unsupported ledger still says the full Tier 3
-surface is not proven. This roadmap requires one authoritative state and a
-full matrix, not contradictory documents.
+is reported as Tier 3 while the unsupported ledger still says the broader Tier 3
+surface is not proven, and stable 1.619.5 defines Tier 4. This roadmap requires
+one authoritative state and a full Tier 1–4 matrix, not contradictory documents.
 
 ### 2.3 Explicit no-op and false-success audit starting points
 
@@ -205,6 +274,8 @@ Add these repository-owned artifacts before broad implementation begins:
 - `contracts/d3d12-full-surface-matrix.json` — positive and negative cases.
 - `contracts/d3d12-provider-contract.json` — native, emulated, CPU,
   VideoToolbox, display, shared-memory, and protected providers.
+- `contracts/d3d12-sdk-compatibility-matrix.json` — inbox, historical stable,
+  current stable 1.619.5, and preview 1.721.3 version families.
 - `contracts/d3d12-interface-census.json` — IIDs, vtable order, methods,
   header provenance, and implementation owner.
 - `contracts/d3d12-no-op-policy.json` — forbidden empty bodies, forbidden
@@ -213,9 +284,11 @@ Add these repository-owned artifacts before broad implementation begins:
 - `results/d3d12-full-surface-gate-<profile>.md` — human-readable summary.
 
 The existing `feature-support-contract.json`, `unsupported-api-ledger.json`,
-`risky-stub-ledger.json`, `agility-1.619.3-contract.json`, and probe matrix
-remain inputs. The new contract becomes the merge authority for the expanded
-scope.
+`risky-stub-ledger.json`, the historical
+`agility-1.619.3-contract.json`, the stable
+`agility-1.619.5-contract.json`, and the probe matrix remain inputs. The new
+full-surface contract and compatibility matrix become the merge authority for
+the expanded scope.
 
 ### 3.2 Required record for every method or feature
 
@@ -250,6 +323,24 @@ Every phase's focused probe must include, where applicable:
 8. A fresh source-staged Wine 11.5 run with the matching runtime.
 9. Captured evidence copied out before Wine/prefix deletion.
 
+### 3.4 SDK-version proof requirements
+
+Every compatibility-lane result must record all of the following rather than
+only the SDK major number:
+
+- Exact NuGet package version, `D3D12SDKVersion`, package URL, and SHA-256 for
+  `D3D12Core.dll`, `d3d12SDKLayers.dll`, headers, and tools.
+- Whether the process used inbox D3D12, app-local Agility, the stable 619
+  provider, or preview 721.
+- `D3D12SDKPath`/`D3D12SDKVersion` exports and the selected loader path.
+- Interface census, vtable sizes, feature-query results, and behavior
+  readbacks for that lane.
+- Any intentional version-specific validation or compatibility behavior.
+
+The stable 1.619.5 gate is authoritative for release. Historical lanes prove
+that the superset implementation remains compatible; the preview lane proves
+only opt-in preview behavior and cannot change the stable result.
+
 ---
 
 ## 4. Sequential implementation phases
@@ -265,8 +356,12 @@ being mistaken for full completion.
 
 **Work:**
 
-- Generate the interface census from the vendored headers and Agility 1.619.3
-  contract, covering all 145 listed interfaces and every method.
+- Generate the interface census from the stable 1.619.5 headers/contract and
+  the version matrix, covering all 145 listed interfaces and every method.
+- Diff stable 1.619.5 against the historical 1.619.3 contract and record the
+  OMM-descriptor alignment, tight-alignment constants, `D3D12Events.h`, and
+  validation-message changes instead of silently treating patch releases as
+  identical.
 - Enumerate direct `E_NOTIMPL`, `DXGI_ERROR_UNSUPPORTED`, empty method bodies,
   uninitialized outputs, unconditional `S_OK`, false/zero capability fields,
   and capability reports that exceed their probes.
@@ -357,7 +452,8 @@ surface.
 - Replace all-resident bookkeeping with real residency state, priorities,
   `MakeResident`, `Evict`, `EnqueueMakeResident`, trim, reclaim, and resource
   residency queries.
-- Finish reserved resources and Tier 3 sparse behavior:
+- Finish reserved resources and Tier 1–4 sparse behavior, including the stable
+  1.619 Tier 4 additions:
   `GetResourceTiling`, standard and packed/partial mips, 1D/2D/3D/array/cube
   layouts, all supported formats, physical page ownership, update/copy tile
   mappings, cross-queue ordering, unmap zeroing, aliasing, and `CopyTiles`.
@@ -410,7 +506,7 @@ replayed with no dropped operation.
   readback/event/timestamp evidence.
 - No queue method returns success solely because it logged the call.
 
-### Phase 5 — Complete the shader compiler and SM5.x–SM6.7 execution surface
+### Phase 5 — Complete the shader compiler and SM5.x–SM6.9 execution surface
 
 **Goal:** Replace the reduced synthetic corpus with complete declared shader
 semantics.
@@ -418,7 +514,8 @@ semantics.
 **Work:**
 
 - Define exact supported shader-model range and stage matrix for SM5.x DXBC/AIR
-  and SM6.0–SM6.7 DXIL; keep D3DCompile/DXC provenance in every result.
+  and SM6.0–SM6.9 DXIL; keep D3DCompile/DXC provenance in every result.
+  Track SM6.10 separately under the 1.721.3-preview lane.
 - Complete DXIL container/version/signature/root-signature/reflection parsing.
 - Implement all declared DXIL opcodes and intrinsics rather than generating a
   default value when lowering is unsupported.
@@ -430,9 +527,13 @@ semantics.
 - Implement diagnostics with stage/opcode/intrinsic/resource reasons and make
   pipeline creation fail only for malformed/invalid shaders, not due to an
   unimplemented legal operation in the declared model.
-- Finish advanced SM6.7 texture behavior across applicable stages and views:
+- Finish advanced SM6.7–SM6.9 texture behavior across applicable stages and
+  views:
   programmable offsets, raw gather, `SampleCmpLevel`, gradient/bias forms,
   mip selection, borders, arrays, depth, and typed/castable views.
+- Add the stable 1.619 SM6.9 operations: long vectors, required 16-bit and
+  64-bit shader/wave operations, 16-bit float specials, and the DXR 1.2 shader
+  interfaces used by SER and opacity micromaps.
 - Finish Int64 and atomic64 semantics for every declared resource class and
   operation without same-SIMD lock deadlock.
 - Implement complete shader cache/compiler factory/session behavior, cache
@@ -519,10 +620,10 @@ semantics.
 - No work-graph or node method remains an absent interface, empty command, or
   placeholder property.
 
-### Phase 8 — Complete DXR 1.0/1.1 without a narrowed matrix
+### Phase 8 — Complete DXR 1.0/1.1 plus stable DXR 1.2 additions
 
 **Goal:** Turn the current foundational DXR bridge into complete declared DXR
-1.1 behavior.
+1.1 behavior and implement the stable 1.619 DXR 1.2 additions.
 
 **Work:**
 
@@ -540,6 +641,13 @@ semantics.
 - Complete state-object collections, independent linking, import renaming,
   missing-export validation, `AddToStateObject`, new-library growth, and every
   valid collection/state-object composition.
+- Implement stable DXR 1.2 Shader Execution Reordering (SER), including its
+  shader/compiler interfaces, dispatch/reorder behavior, synchronization,
+  and deterministic fallback when native Metal ordering is unavailable.
+- Implement opacity micromap (OMM) arrays, descriptors, build/update,
+  compaction, serialization, alignment, intersection/any-hit behavior, and
+  exact visibility readback. Include the stable 1.619 four-byte OMM descriptor
+  alignment and 128-byte array alignment rules.
 - Make serialized AS data process-independent where D3D12 requires it. Use a
   documented portable representation and platform resource rehydration rather
   than embedding process-local pointers or Metal object identities.
@@ -552,9 +660,11 @@ semantics.
 
 - Full DXR contract passes with triangle, AABB, mixed-BLAS, multi-instance,
   state-object, collection, table, recursion, indirect, serialization,
-  synchronization, and release/lifetime matrices.
+  synchronization, release/lifetime, SER, and OMM matrices.
 - No DXR ledger row remains `limited_to_proven_probe`.
 - `D3D12_OPTIONS5.RaytracingTier` is reported only from this full result.
+- Stable DXR 1.2 fields are reported only from the 1.619.5 behavior gate;
+  preview-only 1.721 features remain in the preview lane.
 
 ### Phase 9 — Implement D3D12 video through a real media provider
 
@@ -735,6 +845,33 @@ path.
   proven metadata-only methods whose state change is tested.
 - The generated full-surface contract has zero blockers and zero limited rows.
 
+### Phase 14A — Maintain the 1.721.3-preview compatibility lane (optional)
+
+**Goal:** Keep the implementation ready for callers that deliberately opt in
+to the newest preview without contaminating the stable release claim.
+
+**Work:**
+
+- Import the exact 1.721.3-preview package and create a separate
+  `agility-1.721.3-preview-contract.json` with package/header/runtime hashes.
+- Diff the preview contract against stable 1.619.5 and inventory every new or
+  changed interface, structure, enum, validation rule, and feature query.
+- Add preview-only probes for SM6.10, LinAlg `VectorAccumulate`, partial and
+  generic programs, GUID texture layouts, depth UAVs, compute linear algebra,
+  dump-file configuration, and preview state-object/work-graph behavior.
+- Preserve separate loader/runtime artifacts and never use preview headers or
+  debug layers in the stable 619 evidence.
+- Mark each preview result as `preview`, `not_release`, and `opt_in`; a preview
+  failure cannot make the stable gate green or red.
+
+**Exit gate:**
+
+- The preview lane has its own zero-unknown interface census and explicit
+  pass/fail result.
+- Preview-only features are never advertised to a stable 619 caller.
+- If a release elects to support preview callers, the preview gate becomes a
+  separate release blocker with its own versioned runtime and rollback plan.
+
 ### Phase 15 — Exhaustive validation, differential testing, and game coverage
 
 **Goal:** Demonstrate that the full surface works outside one-purpose probes.
@@ -908,6 +1045,7 @@ fixed:
 
 ```sh
 # 0. Contract and inventory
+tools/d3d12-metal-sdk/scripts/fetch-agility.sh --version 1.619.5
 python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-contract.py
 python3 tools/d3d12-metal-sdk/scripts/validate-interface-census.py
 python3 tools/d3d12-metal-sdk/scripts/check-noop-runtime-paths.py
@@ -960,17 +1098,19 @@ This roadmap is complete only when all of the following are true:
 5. Feature queries are generated from passing behavior evidence.
 6. The unsupported ledger contains no `unsupported` or
    `limited_to_proven_probe` entries for the declared target.
-7. DXR Tier 1.1, SM6.7, VRS Tier 2, Mesh Tier 1, Tiled Resources Tier 3,
-   Conservative Rasterization Tier 3, ROVs, writable MSAA, work graphs,
-   video, protected resources, DSR, stream output, sharing, and all other
-   declared surfaces have exact behavior evidence.
+7. DXR Tier 1.1 plus stable DXR 1.2 additions, SM6.9, VRS Tier 2, Mesh Tier 1,
+   Tiled Resources Tier 4, Conservative Rasterization Tier 3, ROVs, writable
+   MSAA, work graphs, video, protected resources, DSR, stream output, sharing,
+   and all other declared surfaces have exact behavior evidence.
 8. All 145 Agility-contract interfaces and their methods are accounted for.
-9. D3D10/D3D11 regression coverage remains green.
-10. PE/Unix/WOW64 ABI, exports, runtime hashes, provider selection, and
+9. Inbox/no-Agility and historical stable SDK compatibility lanes remain
+   green, with stable 1.619.5 as the authoritative release lane.
+10. D3D10/D3D11 regression coverage remains green.
+11. PE/Unix/WOW64 ABI, exports, runtime hashes, provider selection, and
     staging layout pass.
-11. Full isolated-prefix, differential, fuzz, lifetime, concurrency, and
+12. Full isolated-prefix, differential, fuzz, lifetime, concurrency, and
     representative live-consumer validation passes.
-12. Generated artifacts are absent from the commit, the branch is pushed, and
+13. Generated artifacts are absent from the commit, the branch is pushed, and
     the PR summary links the final full-surface evidence.
 
 Until these conditions hold, the full-surface goal remains open regardless of
@@ -987,7 +1127,9 @@ whether the scoped FL12_2 gate is green.
 | Work graphs have no native Metal scheduler | Implement a persistent compute/CPU scheduler and prove ordering/records |
 | Video APIs are not Metal APIs | Use VideoToolbox/CoreVideo with explicit surface/resource synchronization |
 | Cross-process Metal object transport differs from Windows handles | Use Mach/IOSurface/platform transport and test restart/lifetime/security |
-| Full shader-model breadth is larger than the current corpus | Generate the opcode/intrinsic/stage matrix and require zero unhandled lowering |
+| Full shader-model breadth is larger than the current corpus | Generate the opcode/intrinsic/stage matrix through stable SM6.9 and require zero unhandled lowering; isolate SM6.10 preview work |
+| Games use different Agility SDK generations | Keep a version-aware superset runtime and test inbox, historical stable, current stable, and preview lanes separately |
+| Stable and preview headers drift | Pin exact package/header hashes and never use preview headers or layers in the stable 619 gate |
 | Current reports overstate limited implementations | Generate reports only from the full behavior ledger |
 | Large scope causes stale artifacts or hidden regressions | Keep phase gates sequential, manifest-stage artifacts, and rerun ABI/hash gates |
 | Real games hide unsupported paths | Use real games as additional coverage, never as a replacement for method-level probes |
@@ -999,10 +1141,13 @@ whether the scoped FL12_2 gate is green.
 ### 2026-08-27 — Expanded the target beyond scoped FL12_2 completion
 
 - Recorded that the previous FL12_2/SM6.7/DXR PR proves a scoped surface, not
-  the entire Agility 1.619.3 functional API.
+  the entire Agility 1.619.5 functional API.
 - Converted the 14 current unsupported/limited ledger rows, explicit no-op
   methods, false-success paths, feature-query gaps, and DXGI/display stubs
   into this full-surface implementation backlog.
 - Established the no-fail-closed acceptance rule: legal target operations need
   a native, emulated, CPU, OS-backed, or security-backed provider with exact
   behavior evidence.
+- Selected stable Agility 1.619.5 (`D3D12SDKVersion=619`) as the release
+  baseline, with older/no-Agility compatibility lanes and a separate
+  non-promoted 1.721.3-preview lane.

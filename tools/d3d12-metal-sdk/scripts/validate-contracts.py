@@ -15,6 +15,8 @@ DEFAULT_CONTRACT_ROOT = ROOT_DIR / "tools" / "d3d12-metal-sdk" / "contracts"
 REQUIRED_CONTRACTS = [
     "d3d12-metal-contract.json",
     "agility-1.619.3-contract.json",
+    "agility-1.619.5-contract.json",
+    "d3d12-sdk-compatibility-matrix.json",
     "feature-support-contract.json",
     "fl12-2-gate-contract.json",
     "dxgi-contract.json",
@@ -243,6 +245,46 @@ def validate_winemetal_bridge(path: Path, data: dict[str, Any], errors: list[str
                 require(bool(entry.get("reason")), f"{path}: deferred_until_claimed[{i}] missing reason", errors)
 
 
+def validate_sdk_compatibility_matrix(path: Path, data: dict[str, Any], errors: list[str]) -> None:
+    validate_evidence(path, data, errors)
+    stable = data.get("stable_baseline")
+    require(isinstance(stable, dict), f"{path}: stable_baseline must be an object", errors)
+    if isinstance(stable, dict):
+        require(stable.get("package_version") == "1.619.5", f"{path}: stable baseline must be 1.619.5", errors)
+        require(stable.get("d3d12_sdk_version") == 619, f"{path}: stable baseline SDK version must be 619", errors)
+        require(stable.get("promotion_authority") is True, f"{path}: stable baseline must be authoritative", errors)
+        require(bool(stable.get("contract")), f"{path}: stable baseline contract is required", errors)
+
+    preview = data.get("preview_lane")
+    require(isinstance(preview, dict), f"{path}: preview_lane must be an object", errors)
+    if isinstance(preview, dict):
+        require(preview.get("package_version") == "1.721.3-preview", f"{path}: preview lane must be 1.721.3-preview", errors)
+        require(preview.get("d3d12_sdk_version") == 721, f"{path}: preview lane SDK version must be 721", errors)
+        require(preview.get("promotion_authority") is False, f"{path}: preview lane cannot be authoritative", errors)
+        require(preview.get("opt_in_only") is True, f"{path}: preview lane must be opt-in only", errors)
+
+    families = data.get("families")
+    require(isinstance(families, list) and len(families) > 0, f"{path}: families must be a non-empty list", errors)
+    if isinstance(families, list):
+        ids: set[str] = set()
+        for index, family in enumerate(families):
+            prefix = f"{path}: families[{index}]"
+            require(isinstance(family, dict), f"{prefix} must be an object", errors)
+            if not isinstance(family, dict):
+                continue
+            family_id = family.get("id")
+            require(isinstance(family_id, str) and bool(family_id), f"{prefix}.id is required", errors)
+            if isinstance(family_id, str) and family_id:
+                require(family_id not in ids, f"{prefix} duplicates id `{family_id}`", errors)
+                ids.add(family_id)
+            require(isinstance(family.get("sdk_version_values"), list), f"{prefix}.sdk_version_values must be a list", errors)
+            require(isinstance(family.get("representative_packages"), list), f"{prefix}.representative_packages must be a list", errors)
+            require(isinstance(family.get("required"), bool), f"{prefix}.required must be boolean", errors)
+
+        require("inbox-no-agility" in ids, f"{path}: missing inbox-no-agility family", errors)
+        require("agility-619" in ids, f"{path}: missing agility-619 family", errors)
+
+
 def validate_contracts(root: Path) -> list[str]:
     errors: list[str] = []
     waiver_ids = active_waiver_ids(root, errors)
@@ -260,8 +302,14 @@ def validate_contracts(root: Path) -> list[str]:
         if not isinstance(data, dict):
             continue
         require(bool(data.get("schema")), f"{path}: missing schema", errors)
-        if name in {"d3d12-metal-contract.json", "agility-1.619.3-contract.json"}:
+        if name in {
+            "d3d12-metal-contract.json",
+            "agility-1.619.3-contract.json",
+            "agility-1.619.5-contract.json",
+        }:
             validate_reference_contract(path, data, errors)
+        elif name == "d3d12-sdk-compatibility-matrix.json":
+            validate_sdk_compatibility_matrix(path, data, errors)
         elif name in {"unsupported-api-ledger.json", "risky-stub-ledger.json"}:
             validate_ledgers(path, data, errors)
             if name == "unsupported-api-ledger.json":
