@@ -11120,6 +11120,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::CopyBufferRegion: {
         auto *cmd = reinterpret_cast<const CmdCopyBufferRegion *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("CopyBufferRegion predication rejected execution");
+          break;
+        }
         QTRACE("CopyBufferRegion dst=%p +%llu src=%p +%llu bytes=%llu",
                (void *)cmd->dst, (unsigned long long)cmd->dst_offset,
                (void *)cmd->src, (unsigned long long)cmd->src_offset,
@@ -11233,6 +11237,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::CopyTextureRegion: {
         auto *cmd = reinterpret_cast<const CmdCopyTextureRegion *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("CopyTextureRegion predication rejected execution");
+          break;
+        }
         auto *dst_res = static_cast<MTLD3D12Resource *>(cmd->dst_resource);
         auto *src_res = static_cast<MTLD3D12Resource *>(cmd->src_resource);
         QTRACE(
@@ -11467,6 +11475,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::CopyResource: {
         auto *cmd = reinterpret_cast<const CmdCopyResource *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("CopyResource predication rejected execution");
+          break;
+        }
         auto *dst_res = static_cast<MTLD3D12Resource *>(cmd->dst);
         auto *src_res = static_cast<MTLD3D12Resource *>(cmd->src);
         if (!dst_res || !src_res)
@@ -11527,6 +11539,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::ResolveSubresource: {
         auto *cmd = reinterpret_cast<const CmdResolveSubresource *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("ResolveSubresource predication rejected execution");
+          break;
+        }
         auto *dst_res = static_cast<MTLD3D12Resource *>(cmd->dst);
         auto *src_res = static_cast<MTLD3D12Resource *>(cmd->src);
         if (!dst_res || !src_res)
