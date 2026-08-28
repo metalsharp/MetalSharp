@@ -1163,6 +1163,39 @@ struct ReplayState {
 
   ID3D12DescriptorHeap *desc_heaps[2] = {};
   uint32_t desc_heap_count = 0;
+  ID3D12Resource *predication_buffer = nullptr;
+  uint64_t predication_offset = 0;
+  D3D12_PREDICATION_OP predication_operation =
+      D3D12_PREDICATION_OP_NOT_EQUAL_ZERO;
+
+  bool PredicationAllows() const {
+    if (!predication_buffer)
+      return true;
+    auto *resource = static_cast<MTLD3D12Resource *>(predication_buffer);
+    const uint64_t buffer_length =
+        resource ? resource->GetBufferByteLength() : 0;
+    if (!resource || !resource->GetMTLBuffer().handle || buffer_length < 4 ||
+        predication_offset > buffer_length - 4)
+      return false;
+    uint32_t value = 0;
+    if (resource->GetCPUAddress()) {
+      std::memcpy(&value,
+                  static_cast<const uint8_t *>(resource->GetCPUAddress()) +
+                      predication_offset,
+                  sizeof(value));
+    } else if (FAILED(resource->ReadFromSubresource(
+                   &value, sizeof(value), sizeof(value), 0, nullptr))) {
+      return false;
+    }
+    switch (predication_operation) {
+    case D3D12_PREDICATION_OP_EQUAL_ZERO:
+      return value == 0;
+    case D3D12_PREDICATION_OP_NOT_EQUAL_ZERO:
+      return value != 0;
+    default:
+      return false;
+    }
+  }
 
   static constexpr uint32_t kRootConstantBytes = 256;
   static constexpr uint32_t kRootParameterSlotCount =
@@ -9166,6 +9199,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       switch (header->type) {
       case CmdType::DrawInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawInstanced *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("DrawInstanced predication rejected execution");
+          break;
+        }
         st.EnsureSwapchainRenderPSOReady();
         const bool vrs_image_tiles = st.HasNonconstantShadingRateImage();
         const bool vrs_primitive_rates =
@@ -9310,6 +9347,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::DrawIndexedInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawIndexedInstanced *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("DrawIndexedInstanced predication rejected execution");
+          break;
+        }
         st.EnsureSwapchainRenderPSOReady();
         const bool vrs_image_tiles = st.HasNonconstantShadingRateImage();
         const bool vrs_primitive_rates =
@@ -10558,6 +10599,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::Dispatch: {
         auto *cmd = reinterpret_cast<const CmdDispatch *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("Dispatch predication rejected execution");
+          break;
+        }
         ReplayComputeDispatch(st, m_device, cmdbuf, cmd->x, cmd->y, cmd->z,
                               "Dispatch");
         break;
@@ -10592,6 +10637,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::ExecuteIndirect: {
         auto *cmd = reinterpret_cast<const CmdExecuteIndirect *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("ExecuteIndirect predication rejected execution");
+          break;
+        }
         const auto *sig_desc = GetD3D12CommandSignatureDesc(cmd->signature);
         QTRACE("ExecuteIndirect max=%u sig=%p args=%p+%llu count=%p+%llu",
                cmd->max_command_count, (void *)cmd->signature,
@@ -11018,6 +11067,17 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           }
         }
         arg_res->Unmap(0, nullptr);
+        break;
+      }
+      case CmdType::SetPredication: {
+        auto *cmd = reinterpret_cast<const CmdSetPredication *>(header);
+        st.predication_buffer = cmd->buffer;
+        st.predication_offset = cmd->aligned_buffer_offset;
+        st.predication_operation = cmd->operation;
+        QTRACE("SetPredication buffer=%p offset=%llu operation=%u",
+               (void *)cmd->buffer,
+               (unsigned long long)cmd->aligned_buffer_offset,
+               (unsigned)cmd->operation);
         break;
       }
       case CmdType::CopyBufferRegion: {

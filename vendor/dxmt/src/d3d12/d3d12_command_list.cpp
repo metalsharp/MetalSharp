@@ -1396,7 +1396,15 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveQueryData(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetPredication(
     ID3D12Resource *buffer, UINT64 aligned_buffer_offset,
-    D3D12_PREDICATION_OP operation) {}
+    D3D12_PREDICATION_OP operation) {
+  CmdSetPredication cmd = {};
+  cmd.header = {CmdType::SetPredication, sizeof(cmd)};
+  cmd.buffer = buffer;
+  cmd.aligned_buffer_offset = aligned_buffer_offset;
+  cmd.operation = operation;
+  RetainResource(buffer);
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetMarker(
     UINT metadata, const void *data, UINT size) {}
