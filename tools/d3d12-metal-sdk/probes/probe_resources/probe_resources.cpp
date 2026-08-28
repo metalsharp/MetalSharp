@@ -18,6 +18,13 @@ struct FormatProbe {
     UINT support2 = 0;
 };
 
+struct ResourceShapeProbe {
+    const char* name;
+    D3D12_RESOURCE_DESC requested = {};
+    HRESULT hr = E_FAIL;
+    D3D12_RESOURCE_DESC created = {};
+};
+
 struct SparseFormatProbe {
     const char* name;
     DXGI_FORMAT format;
@@ -298,6 +305,9 @@ int main(int argc, char** argv) {
     ID3D12Heap* shared_heap_source = nullptr;
     ID3D12Heap* shared_heap_open = nullptr;
     ID3D12Heap* shared_heap_file_open = nullptr;
+    std::vector<ResourceShapeProbe> resource_shapes;
+    HRESULT invalid_zero_width_hr = E_FAIL;
+    HRESULT invalid_msaa_mips_hr = E_FAIL;
     HANDLE shared_heap_handle = nullptr;
     HRESULT shared_heap_create_hr = E_FAIL;
     HRESULT shared_heap_open_hr = E_FAIL;
@@ -331,6 +341,76 @@ int main(int argc, char** argv) {
     HRESULT address_resource_hr = E_FAIL;
     HRESULT address_open_hr = E_FAIL;
     bool address_heap_open_ok = false;
+    auto probe_resource_shape = [&](const char* name, D3D12_RESOURCE_DESC desc,
+                                    D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON) {
+        ResourceShapeProbe probe = {};
+        probe.name = name;
+        probe.requested = desc;
+        ID3D12Resource* resource = nullptr;
+        probe.hr = device ? device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &desc, initial_state,
+                                                            nullptr, IID_PPV_ARGS(&resource))
+                          : E_FAIL;
+        if (resource) {
+            probe.created = resource->GetDesc();
+            resource->Release();
+        }
+        resource_shapes.push_back(probe);
+    };
+    if (device) {
+        D3D12_RESOURCE_DESC shape = texture_desc(17, 1, DXGI_FORMAT_R8_UNORM);
+        shape.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+        probe_resource_shape("texture1d", shape);
+        shape.DepthOrArraySize = 3;
+        probe_resource_shape("texture1d_array", shape);
+        shape = texture_desc(19, 11, DXGI_FORMAT_R8G8B8A8_UNORM);
+        shape.DepthOrArraySize = 4;
+        probe_resource_shape("texture2d_array", shape);
+        shape.DepthOrArraySize = 6;
+        probe_resource_shape("texture2d_cube", shape);
+        shape = texture_desc(33, 17, DXGI_FORMAT_R8G8B8A8_UNORM);
+        shape.MipLevels = 6;
+        probe_resource_shape("texture2d_mips", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        shape.SampleDesc.Count = 4;
+        probe_resource_shape("texture2d_msaa4", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_D32_FLOAT);
+        shape.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        probe_resource_shape("texture2d_depth", shape, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R32_TYPELESS);
+        probe_resource_shape("texture2d_typeless", shape);
+        shape = texture_desc(7, 5, DXGI_FORMAT_BC1_UNORM);
+        probe_resource_shape("texture2d_bc1_unaligned", shape);
+        shape = texture_desc(7, 5, DXGI_FORMAT_R8_UNORM);
+        shape.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+        shape.DepthOrArraySize = 4;
+        probe_resource_shape("texture3d", shape);
+        ID3D12Resource* invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid = texture_desc(0, 1, DXGI_FORMAT_R8_UNORM);
+        invalid_zero_width_hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &invalid,
+                                                                 D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                                                 IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        invalid = texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        invalid.SampleDesc.Count = 4;
+        invalid.MipLevels = 2;
+        invalid_msaa_mips_hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &invalid,
+                                                                D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                                                IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+    }
+    auto same_resource_desc = [](const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
+        return a.Dimension == b.Dimension && a.Alignment == b.Alignment && a.Width == b.Width &&
+               a.Height == b.Height && a.DepthOrArraySize == b.DepthOrArraySize && a.MipLevels == b.MipLevels &&
+               a.Format == b.Format && a.SampleDesc.Count == b.SampleDesc.Count &&
+               a.SampleDesc.Quality == b.SampleDesc.Quality && a.Layout == b.Layout && a.Flags == b.Flags;
+    };
+    bool resource_shapes_ok = !resource_shapes.empty();
+    for (const auto& shape : resource_shapes)
+        resource_shapes_ok = resource_shapes_ok && SUCCEEDED(shape.hr) && same_resource_desc(shape.created, shape.requested);
+    resource_shapes_ok = resource_shapes_ok && FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -1711,7 +1791,7 @@ int main(int argc, char** argv) {
         mipped_reserved_tiling_count == 2 && SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
-        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && atomic_copy_ok && discard_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && atomic_copy_ok && discard_ok && resource_shapes_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
@@ -1766,6 +1846,26 @@ int main(int argc, char** argv) {
     print_hr("address_resource_create", address_resource_hr);
     print_hr("address_open", address_open_hr);
     std::printf("    \"address_heap_open_verified\": %s\n", address_heap_open_ok ? "true" : "false");
+    std::printf("  },\n");
+    std::printf("  \"resource_shapes\": {\n");
+    std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
+    print_hr("invalid_zero_width", invalid_zero_width_hr);
+    print_hr("invalid_msaa_mips", invalid_msaa_mips_hr);
+    std::printf("    \"cases\": [\n");
+    for (size_t i = 0; i < resource_shapes.size(); ++i) {
+        const auto& shape = resource_shapes[i];
+        std::printf("      {\"name\":\"%s\",\"hr\":\"0x%08lx\",\"dimension\":%u,"
+                    "\"width\":%llu,\"height\":%u,\"depth_or_array\":%u,\"mips\":%u,"
+                    "\"format\":%u,\"samples\":%u,\"roundtrip\":%s}%s\n",
+                    shape.name, static_cast<unsigned long>(static_cast<uint32_t>(shape.hr)),
+                    static_cast<unsigned>(shape.requested.Dimension),
+                    static_cast<unsigned long long>(shape.requested.Width), shape.requested.Height,
+                    shape.requested.DepthOrArraySize, shape.requested.MipLevels,
+                    static_cast<unsigned>(shape.requested.Format), shape.requested.SampleDesc.Count,
+                    SUCCEEDED(shape.hr) && same_resource_desc(shape.created, shape.requested) ? "true" : "false",
+                    i + 1 == resource_shapes.size() ? "" : ",");
+    }
+    std::printf("    ]\n");
     std::printf("  },\n");
     std::printf("  \"shared_handles\": {\n");
     print_hr("create", shared_create_hr);
