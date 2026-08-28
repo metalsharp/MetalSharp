@@ -14,8 +14,11 @@ struct FormatProbe {
     const char* name;
     DXGI_FORMAT format;
     HRESULT hr = E_FAIL;
+    HRESULT format_info_hr = E_FAIL;
     UINT support1 = 0;
     UINT support2 = 0;
+    UINT plane_count = 0;
+    UINT expected_plane_count = 1;
 };
 
 struct ResourceShapeProbe {
@@ -147,6 +150,10 @@ static D3D12_RESOURCE_BARRIER transition_barrier(ID3D12Resource* resource, D3D12
 static void print_format_json(const FormatProbe& probe, bool last) {
     std::printf("    \"%s\": {\n", probe.name);
     std::printf("      \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(probe.hr)));
+    std::printf("      \"format_info_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(probe.format_info_hr)));
+    std::printf("      \"plane_count\": %u,\n", probe.plane_count);
+    std::printf("      \"expected_plane_count\": %u,\n", probe.expected_plane_count);
     std::printf("      \"support1\": %u,\n", probe.support1);
     std::printf("      \"support2\": %u,\n", probe.support2);
     std::printf("      \"render_target\": %s,\n",
@@ -1715,7 +1722,7 @@ int main(int argc, char** argv) {
         {"B8G8R8A8_UNORM", DXGI_FORMAT_B8G8R8A8_UNORM},
         {"R16G16B16A16_FLOAT", DXGI_FORMAT_R16G16B16A16_FLOAT},
         {"R32_FLOAT", DXGI_FORMAT_R32_FLOAT},
-        {"D24_UNORM_S8_UINT", DXGI_FORMAT_D24_UNORM_S8_UINT},
+        {"D24_UNORM_S8_UINT", DXGI_FORMAT_D24_UNORM_S8_UINT, E_FAIL, E_FAIL, 0, 0, 0, 2},
         {"D32_FLOAT", DXGI_FORMAT_D32_FLOAT},
         {"R32_UINT", DXGI_FORMAT_R32_UINT},
     };
@@ -1726,11 +1733,18 @@ int main(int argc, char** argv) {
             device ? device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)) : E_FAIL;
         format.support1 = support.Support1;
         format.support2 = support.Support2;
+        D3D12_FEATURE_DATA_FORMAT_INFO format_info = {};
+        format_info.Format = format.format;
+        format.format_info_hr = device ? device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_INFO, &format_info,
+                                                                       sizeof(format_info))
+                                       : E_FAIL;
+        format.plane_count = format_info.PlaneCount;
     }
 
     bool format_support_ok = true;
     for (const auto& format : formats) {
-        if (FAILED(format.hr))
+        if (FAILED(format.hr) || FAILED(format.format_info_hr) ||
+            format.plane_count != format.expected_plane_count)
             format_support_ok = false;
     }
     bool sparse_format_matrix_ok = !sparse_format_probes.empty();

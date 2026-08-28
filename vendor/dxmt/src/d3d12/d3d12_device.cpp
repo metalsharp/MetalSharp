@@ -352,6 +352,26 @@ static UINT FormatBytesPerTexel(DXGI_FORMAT format) {
   }
 }
 
+static UINT FormatPlaneCount(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_R24G8_TYPELESS:
+  case DXGI_FORMAT_D24_UNORM_S8_UINT:
+  case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+  case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
+  case DXGI_FORMAT_R32G8X24_TYPELESS:
+  case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+  case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+  case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+  case DXGI_FORMAT_NV12:
+  case DXGI_FORMAT_P010:
+  case DXGI_FORMAT_P016:
+  case DXGI_FORMAT_420_OPAQUE:
+    return 2;
+  default:
+    return 1;
+  }
+}
+
 static UINT64 ResourcePlacementAlignment(const D3D12_RESOURCE_DESC &desc) {
   if (desc.Alignment)
     return desc.Alignment;
@@ -3757,7 +3777,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *fi = (D3D12_FEATURE_DATA_FORMAT_INFO *)feature_data;
     if (feature_data_size < sizeof(*fi))
       return E_INVALIDARG;
-    fi->PlaneCount = 1;
+    fi->PlaneCount = FormatPlaneCount(fi->Format);
     return S_OK;
   }
   case D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT: {
