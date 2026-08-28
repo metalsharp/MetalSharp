@@ -88,6 +88,7 @@ test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST)
 	@"$(MIGRATION_TEST)"
 	@"$(HTTP_SERVER_TEST)"
 	@python3 "$(CURDIR)/tests/updater_test.py" "$(TARGET)"
+	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/shadps4_update_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/pcsx2_update_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/sharpemu_update_test.py" "$(TARGET)"
@@ -116,6 +117,8 @@ asan-test:
 			"$(CURDIR)/tests/smoke.sh" "$(CURDIR)/build-asan/metalsharp-backend"; then \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/updater_test.py" \
 				"$(CURDIR)/build-asan/metalsharp-backend" && \
+			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/steam_process_test.py" \
+				"$(CURDIR)/build-asan/metalsharp-backend" && \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/pcsx2_update_test.py" \
 				"$(CURDIR)/build-asan/metalsharp-backend" && \
 			ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 python3 "$(CURDIR)/tests/sharpemu_update_test.py" \
@@ -129,7 +132,7 @@ $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/met
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/json_test.c
 
-$(MIGRATION_TEST): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_test.c include/metalsharp_backend/migration.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
+$(MIGRATION_TEST): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_test.c include/metalsharp_backend/migration.h include/metalsharp_backend/steam_actions.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/migration_test.c -lpthread
 

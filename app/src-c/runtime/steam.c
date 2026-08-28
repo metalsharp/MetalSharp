@@ -3,6 +3,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/mtsp.h"
+#include "metalsharp_backend/steam_actions.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -37,9 +38,8 @@ static bool steam_regular_file(const char* path) {
 }
 
 static bool steam_exe_name_allowed(const char* name) {
-    return name && strcasecmp(name, "unitycrashhandler64.exe") != 0 &&
-           !contains_ci(name, "crashreport") && !contains_ci(name, "uninstall") && !contains_ci(name, "setup") &&
-           !contains_ci(name, "d3dconfig");
+    return name && strcasecmp(name, "unitycrashhandler64.exe") != 0 && !contains_ci(name, "crashreport") &&
+           !contains_ci(name, "uninstall") && !contains_ci(name, "setup") && !contains_ci(name, "d3dconfig");
 }
 
 static void find_steam_executable(const char* directory, unsigned depth, char** result, int* score) {
@@ -66,8 +66,8 @@ static void find_steam_executable(const char* directory, unsigned depth, char** 
             free(path);
             continue;
         }
-        if (!S_ISREG(st.st_mode) || strcasecmp(entry->d_name + strlen(entry->d_name) -
-                                                    (strlen(entry->d_name) >= 4 ? 4 : 0), ".exe") != 0 ||
+        if (!S_ISREG(st.st_mode) ||
+            strcasecmp(entry->d_name + strlen(entry->d_name) - (strlen(entry->d_name) >= 4 ? 4 : 0), ".exe") != 0 ||
             !steam_exe_name_allowed(entry->d_name)) {
             free(path);
             continue;
@@ -540,7 +540,9 @@ static char* fetch_owned_games_json(const char* key, const char* steam_id) {
     if (!steam_query_value_safe(key) || !steam_query_value_safe(steam_id))
         return NULL;
     snprintf(command, sizeof(command),
-             "curl -sL -m 15 'https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=%s&steamid=%s&include_appinfo=1&include_played_free_games=1&format=json'",
+             "curl -sL -m 15 "
+             "'https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/"
+             "?key=%s&steamid=%s&include_appinfo=1&include_played_free_games=1&format=json'",
              key, steam_id);
     pipe = popen(command, "r");
     if (!pipe)
@@ -783,8 +785,8 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     ms_json_writer_key(w, "available_pipelines");
     ms_json_writer_array_begin(w);
     {
-        static const char* pipeline_ids[] = {"m12", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "d3dmetal",
-                                             "fna_arm64"};
+        static const char* pipeline_ids[] = {"m12",    "vkd3d", "m11",      "m11_32",   "m10",
+                                             "m10_32", "m9",    "d3dmetal", "fna_arm64"};
         for (size_t i = 0; i < sizeof(pipeline_ids) / sizeof(pipeline_ids[0]); i++) {
             ms_json_writer_object_begin(w);
             ms_json_writer_key(w, "id");
@@ -1185,21 +1187,19 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     char* wine_wrapper = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
     char* install_lock = join_path(metalsharp_home, ".steam-installing");
     char* mac_app = home == NULL ? NULL : join_path(home, "Applications/Steam.app");
-    char* mac_bundle = home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/Steam.AppBundle/Steam/Steam.app");
+    char* mac_bundle =
+        home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/Steam.AppBundle/Steam/Steam.app");
     bool windows_installed = wine_exe != NULL && access(wine_exe, F_OK) == 0;
     bool installing = install_lock != NULL && access(install_lock, F_OK) == 0;
     bool mac_installed = access("/Applications/Steam.app", F_OK) == 0 ||
                          (mac_app != NULL && access(mac_app, F_OK) == 0) ||
                          (mac_bundle != NULL && access(mac_bundle, F_OK) == 0);
-    bool running = false;
+    bool running = ms_steam_process_running(metalsharp_home);
     bool mac_running = false;
     FILE* process_pipe = popen("/bin/ps axo command=", "r");
     char process_line[2048];
     if (process_pipe != NULL) {
         while (fgets(process_line, sizeof(process_line), process_pipe) != NULL) {
-            if (strstr(process_line, metalsharp_home) != NULL && contains_ci(process_line, "steam.exe")) {
-                running = true;
-            }
             if (strstr(process_line, "/Steam.app/Contents/MacOS/steam_osx") != NULL ||
                 strstr(process_line, "Steam Helper.app/Contents/MacOS") != NULL)
                 mac_running = true;
@@ -1243,7 +1243,7 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, running);
     ms_json_writer_key(&writer, "metalsharp_wine_available");
     ms_json_writer_bool(&writer, (wine != NULL && access(wine, F_OK) == 0) ||
-                                      (wine_wrapper != NULL && access(wine_wrapper, F_OK) == 0));
+                                     (wine_wrapper != NULL && access(wine_wrapper, F_OK) == 0));
     ms_json_writer_key(&writer, "installing");
     ms_json_writer_bool(&writer, installing);
     ms_json_writer_object_end(&writer);

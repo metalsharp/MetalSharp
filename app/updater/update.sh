@@ -142,6 +142,24 @@ run_privileged() {
     osascript -e "do shell script \"${command//\"/\\\"}\" with administrator privileges" 2>/dev/null
 }
 
+cleanup_update_app_backups() {
+    local candidate
+    local name
+    local quoted
+    for candidate in /Applications/.MetalSharp.app.previous.* /Applications/.MetalSharp.app.update.*; do
+        if [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; then
+            continue
+        fi
+        name="$(basename "$candidate")"
+        if [[ ! "$name" =~ ^\.MetalSharp\.app\.(previous|update)\.[0-9]+$ ]]; then
+            continue
+        fi
+        rm -rf "$candidate" 2>/dev/null && continue
+        printf -v quoted '%q' "$candidate"
+        run_privileged "rm -rf $quoted" || true
+    done
+}
+
 verify_app_bundle() {
     local app_path="$1"
     for required in \
@@ -324,6 +342,7 @@ fi
 require_app_version "$APP_PATH" "Installed app"
 
 rm -rf "$BACKUP_APP_PATH" 2>/dev/null || true
+cleanup_update_app_backups
 write_status "installed" 80 "New version installed"
 
 mkdir -p "$MS_DIR"
