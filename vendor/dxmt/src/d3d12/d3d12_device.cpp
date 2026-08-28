@@ -5028,6 +5028,44 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
   if (name && g_named_shared_handles.contains(std::wstring(name)))
     return DXGI_ERROR_NAME_ALREADY_EXISTS;
 
+  // Named buffers use a file mapping with a fixed, pointer-free metadata
+  // header so another Wine process can recreate the resource and share its
+  // CPU/GPU-visible backing. Keep the legacy event registry for other object
+  // kinds until their platform providers are implemented.
+  if (name) {
+    ID3D12Resource *resource = nullptr;
+    if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&resource)))) {
+      auto *resource_impl = static_cast<MTLD3D12Resource *>(resource);
+      const bool is_buffer = resource_impl->IsBuffer();
+      if (is_buffer) {
+        HANDLE public_mapping = nullptr;
+        HRESULT hr = CreateSharedBufferMapping(resource_impl, name,
+                                               &public_mapping);
+        resource->Release();
+        if (FAILED(hr))
+          return hr;
+        HANDLE retained_mapping = nullptr;
+        if (!DuplicateHandle(GetCurrentProcess(), public_mapping,
+                             GetCurrentProcess(), &retained_mapping, 0, FALSE,
+                             DUPLICATE_SAME_ACCESS)) {
+          HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
+          CloseHandle(public_mapping);
+          return duplicate_hr;
+        }
+        object->AddRef();
+        g_shared_handles.emplace(
+            public_mapping,
+            D3D12SharedHandleEntry{object, retained_mapping});
+        g_named_shared_handles.emplace(std::wstring(name), public_mapping);
+        *handle = public_mapping;
+        TRACE("CreateSharedHandle named buffer object=%p name=%ls handle=%p",
+              (void *)object, name, public_mapping);
+        return S_OK;
+      }
+      resource->Release();
+    }
+  }
+
   HANDLE public_handle = CreateEventA(nullptr, TRUE, FALSE, nullptr);
   if (!public_handle)
     return HRESULT_FROM_WIN32(GetLastError());
@@ -5066,8 +5104,20 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
     return E_INVALIDARG;
   std::lock_guard lock(g_shared_handle_mutex);
   auto entry = g_shared_handles.find(handle);
-  if (entry == g_shared_handles.end() || !entry->second.object)
+  if (entry == g_shared_handles.end() || !entry->second.object) {
+    // A named mapping may have been inherited or duplicated from another
+    // process without a local registry entry. Reconstruct its buffer from the
+    // pointer-free metadata before reporting an invalid handle.
+    ID3D12Resource *shared_resource = nullptr;
+    HRESULT cross_process_hr =
+        OpenSharedBufferFromMapping(this, handle, &shared_resource);
+    if (SUCCEEDED(cross_process_hr) && shared_resource) {
+      HRESULT hr = shared_resource->QueryInterface(riid, object);
+      shared_resource->Release();
+      return hr;
+    }
     return DXGI_ERROR_INVALID_CALL;
+  }
   HRESULT hr = entry->second.object->QueryInterface(riid, object);
   TRACE("OpenSharedHandle handle=%p riid=%s out=%p hr=0x%lx", handle,
         str::format(riid).c_str(), *object, hr);
@@ -5084,8 +5134,36 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
     return E_INVALIDARG;
   std::lock_guard lock(g_shared_handle_mutex);
   auto named = g_named_shared_handles.find(std::wstring(name));
-  if (named == g_named_shared_handles.end())
-    return DXGI_ERROR_NOT_FOUND;
+  if (named == g_named_shared_handles.end()) {
+    HANDLE opened_mapping =
+        OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, name);
+    if (!opened_mapping)
+      return DXGI_ERROR_NOT_FOUND;
+    ID3D12Resource *shared_resource = nullptr;
+    HRESULT hr = OpenSharedBufferFromMapping(this, opened_mapping,
+                                             &shared_resource);
+    if (FAILED(hr) || !shared_resource) {
+      CloseHandle(opened_mapping);
+      return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
+    }
+    HANDLE retained_mapping = nullptr;
+    if (!DuplicateHandle(GetCurrentProcess(), opened_mapping,
+                         GetCurrentProcess(), &retained_mapping, 0, FALSE,
+                         DUPLICATE_SAME_ACCESS)) {
+      HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
+      shared_resource->Release();
+      CloseHandle(opened_mapping);
+      return duplicate_hr;
+    }
+    g_shared_handles.emplace(
+        opened_mapping,
+        D3D12SharedHandleEntry{shared_resource, retained_mapping});
+    g_named_shared_handles.emplace(std::wstring(name), opened_mapping);
+    *handle = opened_mapping;
+    TRACE("OpenSharedHandleByName cross-process name=%ls handle=%p resource=%p",
+          name, opened_mapping, (void *)shared_resource);
+    return S_OK;
+  }
   auto entry = g_shared_handles.find(named->second);
   if (entry == g_shared_handles.end() || !entry->second.retained_handle)
     return DXGI_ERROR_INVALID_CALL;
@@ -5120,11 +5198,21 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::MakeResident(
   TRACE("MakeResident count=%u objects=%p", object_count, (void *)objects);
   if (object_count && !objects)
     return E_INVALIDARG;
-  for (UINT i = 0; i < object_count; i++)
+  for (UINT i = 0; i < object_count; i++) {
     if (!objects[i])
       return E_INVALIDARG;
-  // Apple unified-memory resources are resident by default. The validation is
-  // still important: a null entry must not become false-successful residency.
+    ID3D12Resource *resource = nullptr;
+    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&resource)))) {
+      static_cast<MTLD3D12Resource *>(resource)->MakeResident();
+      resource->Release();
+      continue;
+    }
+    ID3D12Heap *heap = nullptr;
+    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&heap)))) {
+      static_cast<MTLD3D12Heap *>(heap)->MakeResident();
+      heap->Release();
+    }
+  }
   return S_OK;
 }
 
@@ -5133,9 +5221,21 @@ MTLD3D12Device::Evict(UINT object_count, ID3D12Pageable *const *objects) {
   TRACE("Evict count=%u objects=%p", object_count, (void *)objects);
   if (object_count && !objects)
     return E_INVALIDARG;
-  for (UINT i = 0; i < object_count; i++)
+  for (UINT i = 0; i < object_count; i++) {
     if (!objects[i])
       return E_INVALIDARG;
+    ID3D12Resource *resource = nullptr;
+    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&resource)))) {
+      static_cast<MTLD3D12Resource *>(resource)->Evict();
+      resource->Release();
+      continue;
+    }
+    ID3D12Heap *heap = nullptr;
+    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&heap)))) {
+      static_cast<MTLD3D12Heap *>(heap)->Evict();
+      heap->Release();
+    }
+  }
   return S_OK;
 }
 
@@ -5620,9 +5720,22 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetResidencyPriority(
         (void *)objects, (void *)priorities);
   if (object_count && (!objects || !priorities))
     return E_INVALIDARG;
-  for (UINT i = 0; i < object_count; i++)
+  for (UINT i = 0; i < object_count; i++) {
     if (!objects[i])
       return E_INVALIDARG;
+    ID3D12Resource *resource = nullptr;
+    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&resource)))) {
+      static_cast<MTLD3D12Resource *>(resource)->SetResidencyPriority(
+          priorities[i]);
+      resource->Release();
+      continue;
+    }
+    ID3D12Heap *heap = nullptr;
+    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&heap)))) {
+      static_cast<MTLD3D12Heap *>(heap)->SetResidencyPriority(priorities[i]);
+      heap->Release();
+    }
+  }
   return S_OK;
 }
 

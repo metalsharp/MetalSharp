@@ -4,6 +4,8 @@
 #include "com/com_private_data.hpp"
 #include "d3d12.h"
 #include "d3d12_resource_state.hpp"
+#include "d3d12_residency.hpp"
+#include "d3d12_shared_resource.hpp"
 #include "Metal.hpp"
 #include "winemetal.h"
 #include <atomic>
@@ -125,6 +127,25 @@ public:
     return m_state_tracker.transitionLayout(subresource, before, after);
   }
   void MarkAliasedState() { m_state_tracker.markAliased(); }
+  bool IsResident() const { return m_residency.isResident(); }
+  void MakeResident() { m_residency.makeResident(); }
+  void Evict() { m_residency.evict(); }
+  D3D12_RESIDENCY_PRIORITY GetResidencyPriority() const {
+    return m_residency.priority();
+  }
+  void SetResidencyPriority(D3D12_RESIDENCY_PRIORITY priority) {
+    m_residency.setPriority(priority);
+  }
+  HRESULT AttachSharedBacking(HANDLE mapping, void *mapping_view,
+                              uint64_t mapping_size, uint64_t data_offset,
+                              bool preserve_contents);
+  void AdoptSharedMapping(HANDLE mapping, void *mapping_view,
+                          uint64_t mapping_size, uint64_t data_offset) {
+    m_shared_mapping = mapping;
+    m_shared_mapping_view = mapping_view;
+    m_shared_mapping_size = mapping_size;
+    m_shared_data_offset = data_offset;
+  }
 
   bool IsBuffer() const {
     return m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -379,6 +400,7 @@ private:
   MTLD3D12Device *m_device;
   D3D12_RESOURCE_DESC m_desc;
   ResourceStateTracker m_state_tracker;
+  ResidencyState m_residency;
   D3D12_HEAP_PROPERTIES m_heap_properties;
   D3D12_HEAP_FLAGS m_heap_flags = D3D12_HEAP_FLAG_NONE;
   WMTBufferInfo m_buf_info = {};
@@ -435,6 +457,10 @@ private:
   MTLD3D12SwapChain *m_swapchain = nullptr;
   D3D12SwapchainBackbufferWork m_swapchain_work = {};
   ComPrivateData m_private_data;
+  HANDLE m_shared_mapping = nullptr;
+  void *m_shared_mapping_view = nullptr;
+  uint64_t m_shared_mapping_size = 0;
+  uint64_t m_shared_data_offset = 0;
 
   void *m_cpu_addr = nullptr;
   uint64_t m_gpu_addr = 0;
