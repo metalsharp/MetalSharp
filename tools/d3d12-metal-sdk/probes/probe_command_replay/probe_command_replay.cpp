@@ -745,6 +745,153 @@ static CaseResult run_execute_indirect_constants_case() {
     return result;
 }
 
+static CaseResult run_predication_case() {
+    CaseResult result = {"predication", false, E_FAIL, "", ""};
+    const char* hlsl = "RWByteAddressBuffer outbuf:register(u0);"
+                       "[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){"
+                       "outbuf.Store(0,1);}";
+    ID3D12Device* device = nullptr;
+    ID3DBlob* cs = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* heap = nullptr;
+    ID3D12Resource* predicate_true = nullptr;
+    ID3D12Resource* predicate_false = nullptr;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* output_suppressed = nullptr;
+    ID3D12Resource* readback = nullptr;
+    std::string detail;
+
+    HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr))
+        hr = compile_shader(hlsl, "main", &cs, detail);
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_RANGE range = {};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        range.NumDescriptors = 1;
+        range.BaseShaderRegister = 0;
+        D3D12_ROOT_PARAMETER parameter = {};
+        parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameter.DescriptorTable.NumDescriptorRanges = 1;
+        parameter.DescriptorTable.pDescriptorRanges = &range;
+        D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+        root_desc.NumParameters = 1;
+        root_desc.pParameters = &parameter;
+        hr = serialize_root_signature(root_desc, &root_blob, detail);
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(), root_blob->GetBufferSize(),
+                                          IID_PPV_ARGS(&root));
+    if (SUCCEEDED(hr)) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = root;
+        desc.CS = {cs->GetBufferPointer(), cs->GetBufferSize()};
+        hr = device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE, allocator, nullptr, IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = 2;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap));
+    }
+    const uint32_t one = 1;
+    const uint32_t zero = 0;
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, &one, sizeof(one), &predicate_true);
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, &zero, sizeof(zero), &predicate_false);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(uint32_t),
+                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                           D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &output);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(uint32_t),
+                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                           D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &output_suppressed);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, 2 * sizeof(uint32_t),
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST, &readback);
+    if (SUCCEEDED(hr)) {
+        const uint32_t initial = 0;
+        hr = output->WriteToSubresource(0, nullptr, &initial, sizeof(initial), sizeof(initial));
+        if (SUCCEEDED(hr))
+            hr = output_suppressed->WriteToSubresource(0, nullptr, &initial, sizeof(initial), sizeof(initial));
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 1;
+        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(output, nullptr, &uav, heap->GetCPUDescriptorHandleForHeapStart());
+        D3D12_CPU_DESCRIPTOR_HANDLE second_cpu = heap->GetCPUDescriptorHandleForHeapStart();
+        second_cpu.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        device->CreateUnorderedAccessView(output_suppressed, nullptr, &uav, second_cpu);
+        ID3D12DescriptorHeap* heaps[] = {heap};
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetComputeRootSignature(root);
+        list->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetPipelineState(pso);
+        list->SetPredication(predicate_true, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->Dispatch(1, 1, 1);
+        D3D12_GPU_DESCRIPTOR_HANDLE second_gpu = heap->GetGPUDescriptorHandleForHeapStart();
+        second_gpu.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        list->SetComputeRootDescriptorTable(0, second_gpu);
+        list->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->Dispatch(1, 1, 1);
+        list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        D3D12_RESOURCE_BARRIER barriers[] = {
+            uav_barrier(output),
+            uav_barrier(output_suppressed),
+            transition_barrier(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+        };
+        list->ResourceBarrier(4, barriers);
+        list->CopyBufferRegion(readback, 0, output, 0, sizeof(uint32_t));
+        list->CopyBufferRegion(readback, sizeof(uint32_t), output_suppressed, 0, sizeof(uint32_t));
+        hr = list->Close();
+    }
+    if (SUCCEEDED(hr)) {
+        ID3D12CommandList* lists[] = {list};
+        hr = execute_and_wait(device, queue, lists, 1, 1);
+    }
+    uint32_t values[2] = {};
+    const bool verified = SUCCEEDED(hr) && readback_u32(readback, values, 2) && values[0] == 1 && values[1] == 0;
+    result.pass = verified;
+    result.hr = verified ? S_OK : hr;
+    result.detail = verified ? "nonzero predicate executes and zero predicate suppresses dispatch"
+                             : "predication readback mismatch";
+    result.extra = std::string("\"executed_value\":") + std::to_string(values[0]) +
+                   ",\"suppressed_value\":" + std::to_string(values[1]);
+
+    safe_release(readback);
+    safe_release(output_suppressed);
+    safe_release(output);
+    safe_release(predicate_false);
+    safe_release(predicate_true);
+    safe_release(heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(root_blob);
+    safe_release(cs);
+    safe_release(device);
+    return result;
+}
+
 static CaseResult run_enhanced_barrier_case() {
     CaseResult result = {"enhanced_barriers", false, E_FAIL, "", ""};
     uint32_t expected[4] = {0x454e4831, 0x454e4832, 0x454e4833, 0x454e4834};
@@ -893,6 +1040,7 @@ int main() {
         cases.push_back(run_bundle_status_case());
         cases.push_back(run_write_buffer_immediate_case());
         cases.push_back(run_execute_indirect_constants_case());
+        cases.push_back(run_predication_case());
         cases.push_back(run_enhanced_barrier_case());
     }
 
@@ -913,11 +1061,7 @@ int main() {
     std::printf("    \"execute_indirect_root_constants_status_reported\": true,\n");
     std::printf("    \"execute_indirect_graphics_replay_status_reported\": true,\n");
     std::printf("    \"enhanced_barrier_global_buffer_texture\": true,\n");
-    std::printf("    \"predication_status_reported\": true\n");
-    std::printf("  },\n");
-    std::printf("  \"predication\": {\n");
-    std::printf("    \"supported\": false,\n");
-    std::printf("    \"detail\": \"SetPredication is currently a no-op in the DXMT D3D12 command-list bridge\"\n");
+    std::printf("    \"predication_execution_verified\": true\n");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < cases.size(); ++i)

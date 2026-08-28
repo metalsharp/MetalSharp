@@ -11,6 +11,7 @@ enum class CmdType : uint32_t {
   Dispatch,
   DispatchMesh,
   ExecuteIndirect,
+  SetPredication,
   CopyBufferRegion,
   CopyTextureRegion,
   CopyResource,
@@ -143,6 +144,13 @@ struct CmdExecuteIndirect {
   uint64_t argument_buffer_offset;
   ID3D12Resource *count_buffer;
   uint64_t count_buffer_offset;
+};
+
+struct CmdSetPredication {
+  CmdHeader header;
+  ID3D12Resource *buffer;
+  uint64_t aligned_buffer_offset;
+  D3D12_PREDICATION_OP operation;
 };
 
 struct CmdCopyBufferRegion {
