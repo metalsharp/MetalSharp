@@ -1340,7 +1340,20 @@ MTLD3D12GraphicsCommandList::ClearUnorderedAccessViewFloat(
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DiscardResource(
-    ID3D12Resource *resource, const D3D12_DISCARD_REGION *region) {}
+    ID3D12Resource *resource, const D3D12_DISCARD_REGION *region) {
+  CmdDiscardResource cmd = {};
+  cmd.header = {CmdType::DiscardResource, sizeof(cmd)};
+  cmd.resource = resource;
+  if (region) {
+    cmd.first_subresource = region->FirstSubresource;
+    cmd.num_subresources = region->NumSubresources;
+  } else {
+    cmd.first_subresource = 0;
+    cmd.num_subresources = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  }
+  RetainResource(resource);
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginQuery(
     ID3D12QueryHeap *heap, D3D12_QUERY_TYPE type, UINT index) {
@@ -1417,14 +1430,42 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::AtomicCopyBufferUINT(
     ID3D12Resource *src_buffer, UINT64 src_offset,
     UINT dependent_resource_count,
     ID3D12Resource *const *dependent_resources,
-    const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges) {}
+    const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges) {
+  (void)dependent_sub_resource_ranges;
+  CmdCopyBufferRegion cmd = {};
+  cmd.header = {CmdType::CopyBufferRegion, sizeof(cmd)};
+  cmd.dst = dst_buffer;
+  cmd.dst_offset = dst_offset;
+  cmd.src = src_buffer;
+  cmd.src_offset = src_offset;
+  cmd.byte_count = sizeof(UINT);
+  RetainResource(dst_buffer);
+  RetainResource(src_buffer);
+  for (UINT i = 0; i < dependent_resource_count; i++)
+    RetainResource(dependent_resources ? dependent_resources[i] : nullptr);
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::AtomicCopyBufferUINT64(
     ID3D12Resource *dst_buffer, UINT64 dst_offset,
     ID3D12Resource *src_buffer, UINT64 src_offset,
     UINT dependent_resource_count,
     ID3D12Resource *const *dependent_resources,
-    const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges) {}
+    const D3D12_SUBRESOURCE_RANGE_UINT64 *dependent_sub_resource_ranges) {
+  (void)dependent_sub_resource_ranges;
+  CmdCopyBufferRegion cmd = {};
+  cmd.header = {CmdType::CopyBufferRegion, sizeof(cmd)};
+  cmd.dst = dst_buffer;
+  cmd.dst_offset = dst_offset;
+  cmd.src = src_buffer;
+  cmd.src_offset = src_offset;
+  cmd.byte_count = sizeof(UINT64);
+  RetainResource(dst_buffer);
+  RetainResource(src_buffer);
+  for (UINT i = 0; i < dependent_resource_count; i++)
+    RetainResource(dependent_resources ? dependent_resources[i] : nullptr);
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetDepthBounds(
     FLOAT min, FLOAT max) {

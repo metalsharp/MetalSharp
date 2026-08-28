@@ -38,6 +38,7 @@ enum class CmdType : uint32_t {
   ClearRenderTargetView,
   ClearDepthStencilView,
   ClearUnorderedAccessView,
+  DiscardResource,
   ResourceBarrier,
   EnhancedBarrier,
   SetDescriptorHeaps,
@@ -283,6 +284,13 @@ struct CmdClearUAV {
   ID3D12Resource *resource;
   uint32_t values[4];
   uint8_t is_float;
+};
+
+struct CmdDiscardResource {
+  CmdHeader header;
+  ID3D12Resource *resource;
+  uint32_t first_subresource;
+  uint32_t num_subresources;
 };
 
 struct CmdResourceBarrier {
