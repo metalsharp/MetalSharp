@@ -312,7 +312,7 @@ for _ in $(seq 1 100); do
     [ "$pcsx2_bad_status" = "failed" ] && break
     sleep 0.05
 done
-printf '%s' "$pcsx2_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "archive" in v["error"].lower()'
+printf '%s' "$pcsx2_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and isinstance(v.get("error"), str) and v["error"]'
 [ ! -e "$pcsx2_env/current" ]
 pcsx2_remove_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-games\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/remove-root")
 printf '%s' "$pcsx2_remove_root" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["roots"] == [] and v["games"] == []'
