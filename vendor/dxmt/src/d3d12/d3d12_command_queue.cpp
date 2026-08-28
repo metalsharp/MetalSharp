@@ -5170,6 +5170,38 @@ struct ReplayState {
     return true;
   }
 
+  uint64_t StageComputeRootConstantsAsConstantBuffer(
+      MTLD3D12Device *device, uint32_t root_idx) {
+    if (root_idx >= kRootParameterSlotCount)
+      return 0;
+    const bool set = comp_constant_set[root_idx] || root_constant_set[root_idx];
+    const uint32_t offset = comp_constant_set[root_idx]
+                                ? comp_constant_offsets[root_idx]
+                                : root_constant_offsets[root_idx];
+    const uint32_t size = comp_constant_set[root_idx]
+                              ? comp_constant_sizes[root_idx]
+                              : root_constant_sizes[root_idx];
+    const uint8_t *data = comp_constant_set[root_idx]
+                              ? comp_constants_buf
+                              : root_constants_buf;
+    if (!set || !size || offset >= kRootParameterSlotCount * kRootConstantBytes ||
+        size > kRootParameterSlotCount * kRootConstantBytes - offset)
+      return 0;
+
+    uint64_t staged_gpu_address = 0;
+    auto staged = MakeTransientBuffer(
+        device, std::max<uint32_t>(256, std::min<uint32_t>(size, kRootConstantBytes)),
+        &staged_gpu_address);
+    if (!staged.handle || !staged_gpu_address)
+      return 0;
+    staged.updateContents(0, data + offset,
+                          std::min<uint32_t>(size, kRootConstantBytes));
+    QTRACE("BuildComputeCBVTable: staged root constants param=%u gpu=0x%llx "
+           "size=%u",
+           root_idx, (unsigned long long)staged_gpu_address, size);
+    return staged_gpu_address;
+  }
+
   uint32_t BuildComputeConstantBufferTable(MTLD3D12Device *device) {
     if (!pso || pso->GetCSConstantBuffers().empty())
       return 0;
@@ -5195,7 +5227,8 @@ struct ReplayState {
         auto &params = dxmt_sig->GetParameters();
         for (uint32_t p = 0; p < params.size() && p < kRootParameterSlotCount;
              p++) {
-          if (params[p].type == D3D12_ROOT_PARAMETER_TYPE_CBV &&
+          if ((params[p].type == D3D12_ROOT_PARAMETER_TYPE_CBV ||
+               params[p].type == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS) &&
               params[p].register_index == arg.SM50BindingSlot &&
               params[p].register_space == arg.SM50RegisterSpace) {
             root_idx = p;
@@ -5208,6 +5241,11 @@ struct ReplayState {
         gpu_address = comp_cbvs[root_idx];
       } else if (root_idx != ~0u && root_cbv_set[root_idx]) {
         gpu_address = root_cbvs[root_idx];
+      } else if (root_idx != ~0u && dxmt_sig &&
+                 root_idx < dxmt_sig->GetParameters().size() &&
+                 dxmt_sig->GetParameters()[root_idx].type ==
+                     D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS) {
+        gpu_address = StageComputeRootConstantsAsConstantBuffer(device, root_idx);
       } else if (dxmt_sig) {
         uint32_t table_root_idx = ~0u;
         uint32_t descriptor_offset = 0;
