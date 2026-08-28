@@ -82,6 +82,7 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 -include $(OBJECTS:.o=.d)
 
 test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST)
+	@python3 "$(CURDIR)/tests/migration_hash_contract_test.py"
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); HOME="$$test_home" METALSHARP_PORT="$$test_port" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
 	@"$(MIGRATION_TEST)"
@@ -92,7 +93,8 @@ test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST)
 	@python3 "$(CURDIR)/tests/sharpemu_update_test.py" "$(TARGET)"
 
 asan-test:
-	@set -eu; trap 'rm -rf "$(CURDIR)/build-asan"' EXIT INT TERM; \
+	@set -eu; python3 "$(CURDIR)/tests/migration_hash_contract_test.py"; \
+	trap 'rm -rf "$(CURDIR)/build-asan"' EXIT INT TERM; \
 	$(MAKE) BUILD_DIR="$(CURDIR)/build-asan" TARGET="$(CURDIR)/build-asan/metalsharp-backend" \
 		JSON_TEST="$(CURDIR)/build-asan/json-test" \
 		CFLAGS='-std=c11 -O1 -g -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Werror -fno-omit-frame-pointer -fsanitize=address,undefined' all; \
