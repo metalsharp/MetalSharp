@@ -347,6 +347,8 @@ int main(int argc, char** argv) {
     HRESULT address_heap_hr = E_FAIL;
     HRESULT address_resource_hr = E_FAIL;
     HRESULT address_open_hr = E_FAIL;
+    HRESULT invalid_heap_alignment_hr = E_FAIL;
+    HRESULT invalid_heap_flags_hr = E_FAIL;
     HRESULT misaligned_placement_hr = E_FAIL;
     bool address_heap_open_ok = false;
     auto probe_resource_shape = [&](const char* name, D3D12_RESOURCE_DESC desc,
@@ -419,6 +421,7 @@ int main(int argc, char** argv) {
     for (const auto& shape : resource_shapes)
         resource_shapes_ok = resource_shapes_ok && SUCCEEDED(shape.hr) && same_resource_desc(shape.created, shape.requested);
     resource_shapes_ok = resource_shapes_ok && FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr) &&
+                         FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -438,6 +441,18 @@ int main(int argc, char** argv) {
         address_heap_desc.Properties = upload_heap;
         address_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         address_heap_hr = device->CreateHeap(&address_heap_desc, IID_PPV_ARGS(&address_heap));
+        D3D12_HEAP_DESC invalid_heap_desc = address_heap_desc;
+        invalid_heap_desc.Alignment = 123;
+        ID3D12Heap* invalid_heap = nullptr;
+        invalid_heap_alignment_hr = device->CreateHeap(&invalid_heap_desc, IID_PPV_ARGS(&invalid_heap));
+        if (invalid_heap)
+            invalid_heap->Release();
+        invalid_heap_desc = address_heap_desc;
+        invalid_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_DENY_BUFFERS;
+        invalid_heap = nullptr;
+        invalid_heap_flags_hr = device->CreateHeap(&invalid_heap_desc, IID_PPV_ARGS(&invalid_heap));
+        if (invalid_heap)
+            invalid_heap->Release();
         D3D12_RESOURCE_DESC address_desc = buffer_desc(4096);
         address_resource_hr = address_heap
                                   ? device->CreatePlacedResource(address_heap, 0, &address_desc,
@@ -1876,6 +1891,8 @@ int main(int argc, char** argv) {
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("invalid_msaa_mips", invalid_msaa_mips_hr);
     print_hr("misaligned_placement", misaligned_placement_hr);
+    print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
+    print_hr("invalid_heap_flags", invalid_heap_flags_hr);
     std::printf("    \"cases\": [\n");
     for (size_t i = 0; i < resource_shapes.size(); ++i) {
         const auto& shape = resource_shapes[i];
