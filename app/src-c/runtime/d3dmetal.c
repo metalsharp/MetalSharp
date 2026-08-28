@@ -17,25 +17,31 @@
 #include <time.h>
 #include <unistd.h>
 
-#define GPTK_APP "/Applications/Game Porting Toolkit.app"
-#define GPTK_ROOT GPTK_APP "/Contents/Resources/wine"
-#define GPTK_WINE GPTK_ROOT "/bin/wine64"
-#define GPTK_PE GPTK_ROOT "/lib/wine/x86_64-windows"
-#define GPTK_FRAMEWORK GPTK_ROOT "/lib/external/D3DMetal.framework"
-#define GPTK3_DMG_NAME "Game_Porting_Toolkit_3.0.dmg"
+#define GPTK_APP             "/Applications/Game Porting Toolkit.app"
+#define GPTK_ROOT            GPTK_APP "/Contents/Resources/wine"
+#define GPTK_WINE            GPTK_ROOT "/bin/wine64"
+#define GPTK_PE              GPTK_ROOT "/lib/wine/x86_64-windows"
+#define GPTK_FRAMEWORK       GPTK_ROOT "/lib/external/D3DMetal.framework"
+#define GPTK3_DMG_NAME       "Game_Porting_Toolkit_3.0.dmg"
 #define GPTK3_INNER_DMG_NAME "Evaluation environment for Windows games 3.0.dmg"
-#define GPTK3_MSC_PKG_NAME "Metal Shader Converter 3.0.pkg"
-#define GPTK3_MIN_DMG_SIZE (80ULL * 1024ULL * 1024ULL)
+#define GPTK3_MSC_PKG_NAME   "Metal Shader Converter 3.0.pkg"
+#define GPTK3_MIN_DMG_SIZE   (80ULL * 1024ULL * 1024ULL)
 
-static const char* gptk_route_dlls[] = {"d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "nvapi64.dll",
-                                        "nvngx-on-metalfx.dll"};
-static const char* gptk_vc_dlls[] = {"concrt140.dll",       "msvcp140.dll",       "msvcp140_1.dll",
-                                     "msvcp140_2.dll",       "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
-                                     "vcomp140.dll",         "vcruntime140.dll",   "vcruntime140_1.dll"};
-static const char* gptk3_route_dlls[] = {"d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "nvapi64.dll",
-                                         "nvngx-on-metalfx.dll", "atidxx64.dll"};
-static const char* gptk3_route_unix[] = {"d3d10.so", "d3d11.so", "d3d12.so", "dxgi.so", "nvapi64.so",
-                                         "nvngx-on-metalfx.so", "atidxx64.so"};
+static const char* gptk_route_dlls[] = {"d3d10.dll", "d3d11.dll",   "d3d12.dll",
+                                        "dxgi.dll",  "nvapi64.dll", "nvngx-on-metalfx.dll"};
+static const char* gptk_vc_dlls[] = {"concrt140.dll",
+                                     "msvcp140.dll",
+                                     "msvcp140_1.dll",
+                                     "msvcp140_2.dll",
+                                     "msvcp140_atomic_wait.dll",
+                                     "msvcp140_codecvt_ids.dll",
+                                     "vcomp140.dll",
+                                     "vcruntime140.dll",
+                                     "vcruntime140_1.dll"};
+static const char* gptk3_route_dlls[] = {
+    "d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "nvapi64.dll", "nvngx-on-metalfx.dll", "atidxx64.dll"};
+static const char* gptk3_route_unix[] = {
+    "d3d10.so", "d3d11.so", "d3d12.so", "dxgi.so", "nvapi64.so", "nvngx-on-metalfx.so", "atidxx64.so"};
 static char gptk3_overlay_error[PATH_MAX * 2];
 typedef struct dstate {
     char id[129], name[256], game_dir[1024], game_exe[1024], error[256], last_launch_log[1024], last_launch_status[32],
@@ -223,8 +229,9 @@ static bool run_dittoo(const char* source, const char* target) {
 static bool replace_framework(const char* source, const char* target) {
     char temp[PATH_MAX];
     char backup[PATH_MAX];
-    char* const temp_remove[] = {(char*)"/bin/rm", (char*)"rm", (char*)"-rf", temp, NULL};
-    char* const backup_remove[] = {(char*)"/bin/rm", (char*)"rm", (char*)"-rf", backup, NULL};
+    char* const temp_remove[] = {(char*)"/bin/rm", (char*)"-rf", temp, NULL};
+    char* const backup_remove[] = {(char*)"/bin/rm", (char*)"-rf", backup, NULL};
+    char* const target_remove[] = {(char*)"/bin/rm", (char*)"-rf", (char*)target, NULL};
     bool had_target = access(target, F_OK) == 0;
     bool moved_target = false;
     snprintf(temp, sizeof(temp), "%s.metalsharp-tmp", target);
@@ -249,11 +256,9 @@ static bool replace_framework(const char* source, const char* target) {
         return false;
     }
     if (!framework_ready(target)) {
-        (void)run_process("/bin/rm", backup_remove, NULL, NULL);
+        (void)run_process("/bin/rm", target_remove, NULL, NULL);
         if (moved_target)
             (void)rename(backup, target);
-        else
-            (void)run_process("/bin/rm", temp_remove, NULL, NULL);
         return false;
     }
     if (moved_target)
@@ -342,7 +347,8 @@ static char* parse_hdiutil_mount(const char* output) {
         struct stat info;
         while (mount && isspace((unsigned char)*mount))
             mount++;
-        if (device && kind && mount && !strncmp(device, "/dev/", 5) && stat(mount, &info) == 0 && S_ISDIR(info.st_mode)) {
+        if (device && kind && mount && !strncmp(device, "/dev/", 5) && stat(mount, &info) == 0 &&
+            S_ISDIR(info.st_mode)) {
             char* result = strdup(mount);
             free(copy);
             return result;
@@ -383,7 +389,8 @@ static void detach_dmg(const char* mount) {
 }
 
 static bool install_msc_pkg(const char* pkg) {
-    char* installer_args[] = {(char*)"/usr/sbin/installer", (char*)"-pkg", (char*)pkg, (char*)"-target", (char*)"/", NULL};
+    char* installer_args[] = {
+        (char*)"/usr/sbin/installer", (char*)"-pkg", (char*)pkg, (char*)"-target", (char*)"/", NULL};
     bool installed = run_process("/usr/sbin/installer", installer_args, NULL, NULL);
     if (!installed) {
         char* quoted = shell_quote(pkg);
@@ -459,7 +466,8 @@ static bool overlay_gptk3_redist(const char* redist) {
             return false;
         }
         if (!mkdirs(GPTK_PE) || !copy_file_checked(source, target)) {
-            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "could not copy GPTK 3 Windows payload: %s", target);
+            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "could not copy GPTK 3 Windows payload: %s",
+                     target);
             return false;
         }
     }
@@ -471,7 +479,8 @@ static bool overlay_gptk3_redist(const char* redist) {
             return false;
         }
         if (!mkdirs(GPTK_ROOT "/lib/wine/x86_64-unix") || !copy_file_checked(source, target)) {
-            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "could not copy GPTK 3 Unix payload: %s", target);
+            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "could not copy GPTK 3 Unix payload: %s",
+                     target);
             return false;
         }
     }
@@ -480,20 +489,23 @@ static bool overlay_gptk3_redist(const char* redist) {
     if (ok && framework_source && framework_target) {
         ok = framework_ready(framework_source) && replace_framework(framework_source, framework_target);
         if (!ok)
-            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "could not replace GPTK 3 framework: %s", framework_target);
+            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "could not replace GPTK 3 framework: %s",
+                     framework_target);
     } else
         ok = false;
     {
         char* source_file = path_join(redist, "lib/external/libd3dshared.dylib");
         char* target_file = path_join(GPTK_ROOT, "lib/external/libd3dshared.dylib");
         if (ok && source_file && target_file) {
-            if (!file_ready(source_file) || !mkdirs(GPTK_ROOT "/lib/external") || !copy_file_checked(source_file, target_file)) {
+            if (!file_ready(source_file) || !mkdirs(GPTK_ROOT "/lib/external") ||
+                !copy_file_checked(source_file, target_file)) {
                 snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "could not copy GPTK 3 external payload: %s",
                          target_file);
                 ok = false;
             }
         } else if (ok) {
-            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error), "GPTK 3 external payload paths could not be built");
+            snprintf(gptk3_overlay_error, sizeof(gptk3_overlay_error),
+                     "GPTK 3 external payload paths could not be built");
             ok = false;
         }
         free(source_file);
@@ -948,8 +960,7 @@ static bool persist_d3dmetal_manifest(const char* home, const dstate* s) {
                 ms_json_writer_string(&writer, s->game_dir);
             else
                 ms_json_writer_null(&writer);
-        }
-        else if (!strcmp(key, "health"))
+        } else if (!strcmp(key, "health"))
             ms_json_writer_string(&writer, s->ready ? "ready" : "needs_repair");
         else if (!strcmp(key, "last_launch_pid")) {
             if (s->last_launch_pid)
@@ -1130,10 +1141,11 @@ static void refresh_d3dmetal_state(const char* home, dstate* s) {
     snprintf(s->step[1], 20, "%s", rosetta_ready() ? "installed" : "missing");
     snprintf(s->step[2], 20, "%s", gptk ? "updated" : "missing");
     snprintf(s->step[3], 20, "%s", prefix && gptk_vcpp_ready(home) ? "installed" : "missing");
-    snprintf(s->step[4], 20, "%s", prefix && gptk_vcpp_ready(home) && d3dmetal_game_local_ready(s) ? "seeded" : "missing");
+    snprintf(s->step[4], 20, "%s",
+             prefix && gptk_vcpp_ready(home) && d3dmetal_game_local_ready(s) ? "seeded" : "missing");
     snprintf(s->step[5], 20, "%s", gptk3_installed(home) ? "installed" : "missing");
-    s->ready = !strcmp(s->step[0], "installed") && !strcmp(s->step[1], "installed") &&
-               !strcmp(s->step[2], "updated") && !strcmp(s->step[3], "installed") && !strcmp(s->step[4], "seeded");
+    s->ready = !strcmp(s->step[0], "installed") && !strcmp(s->step[1], "installed") && !strcmp(s->step[2], "updated") &&
+               !strcmp(s->step[3], "installed") && !strcmp(s->step[4], "seeded");
 }
 
 static void actions_json(ms_json_writer* w, const dstate* s) {
@@ -1187,8 +1199,8 @@ static bool resolve_id(const ms_json* j, char* id, size_t n, unsigned long long*
     return id[0] && strlen(id) <= 128;
 }
 
-static bool ensure_d3dmetal_bottle_manifest(const char* home, const char* id, unsigned long long appid, const char* name,
-                                            const char* game_dir) {
+static bool ensure_d3dmetal_bottle_manifest(const char* home, const char* id, unsigned long long appid,
+                                            const char* name, const char* game_dir) {
     char* bottles = path_join(home, "bottles");
     char* directory = bottles ? path_join(bottles, id) : NULL;
     char* path = directory ? path_join(directory, "bottle.json") : NULL;
@@ -1269,8 +1281,9 @@ char* ms_d3dmetal_json(const char* home, const char* action, const unsigned char
                 while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
                 }
             if (pid >= 0 && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0)
-                return strdup("{\"ok\":true,\"download_opened\":true,\"download_required\":true,\"download_url\":\"https://"
-                              "developer.apple.com/download/all/?q=game%20porting%20toolkit\"}");
+                return strdup(
+                    "{\"ok\":true,\"download_opened\":true,\"download_required\":true,\"download_url\":\"https://"
+                    "developer.apple.com/download/all/?q=game%20porting%20toolkit\"}");
             return bad("Could not launch /usr/bin/open");
         }
         free(downloaded);

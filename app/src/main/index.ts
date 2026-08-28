@@ -1524,7 +1524,7 @@ function registerIpc() {
 
   ipcMain.handle("backend:is-alive", async () => {
     if (isUiOnlyRuntime()) return true;
-    return bridge.isAlive();
+    return bridge.isAliveOrBusy();
   });
 
   ipcMain.handle("updater:ensure-ready", async () => {

@@ -6,6 +6,7 @@ INSTALL_TARGET ?= $(TARGET)
 VERSION ?= 0.60.0
 JSON_TEST ?= $(BUILD_DIR)/json-test
 MIGRATION_TEST ?= $(BUILD_DIR)/migration-test
+HTTP_SERVER_TEST ?= $(BUILD_DIR)/http-server-test
 
 CFLAGS ?= -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L
 CFLAGS += -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong
@@ -84,10 +85,11 @@ parity-test: $(TARGET)
 	@test -n "$(RUST_BACKEND)" || (echo "set RUST_BACKEND to the Rust reference executable" >&2; exit 2)
 	python3 "$(CURDIR)/tests/differential_parity.py" --c "$(TARGET)" --rust "$(RUST_BACKEND)"
 
-test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST)
+test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST)
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); HOME="$$test_home" METALSHARP_PORT="$$test_port" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
 	@"$(MIGRATION_TEST)"
+	@"$(HTTP_SERVER_TEST)"
 	@python3 "$(CURDIR)/tests/shadps4_update_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/pcsx2_update_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/sharpemu_update_test.py" "$(TARGET)"
@@ -129,6 +131,10 @@ $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/met
 $(MIGRATION_TEST): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_test.c include/metalsharp_backend/migration.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/migration_test.c -lpthread
+
+$(HTTP_SERVER_TEST): runtime/http_server.c tests/http_server_test.c include/metalsharp_backend/http_server.h
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/http_server.c tests/http_server_test.c
 
 clean:
 	rm -rf "$(BUILD_DIR)"
