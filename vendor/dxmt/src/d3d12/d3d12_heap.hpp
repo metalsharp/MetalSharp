@@ -6,6 +6,7 @@
 #include "d3d12_residency.hpp"
 #include "Metal.hpp"
 #include <atomic>
+#include <cstdint>
 
 namespace dxmt {
 
@@ -47,6 +48,14 @@ public:
   void SetResidencyPriority(D3D12_RESIDENCY_PRIORITY priority) {
     m_residency.setPriority(priority);
   }
+  bool ContainsAddress(const void *address) const;
+  bool IsOwnedBy(const MTLD3D12Device *device) const {
+    return m_device == device;
+  }
+  bool IsValid() const { return m_buffer.handle || m_heap.handle; }
+  HRESULT AttachSharedBacking(HANDLE mapping, void *mapping_view,
+                              uint64_t mapping_size, uint64_t data_offset,
+                              bool preserve_contents);
 
 private:
   MTLD3D12Device *m_device;
@@ -55,10 +64,17 @@ private:
   WMT::Reference<WMT::Buffer> m_buffer;
   WMT::Reference<WMT::Heap> m_heap;
   ResidencyState m_residency;
+  HANDLE m_shared_mapping = nullptr;
+  void *m_shared_mapping_view = nullptr;
+  uint64_t m_shared_mapping_size = 0;
+  uint64_t m_shared_data_offset = 0;
   void *m_cpu_addr = nullptr;
   uint64_t m_gpu_addr = 0;
   ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };
+
+MTLD3D12Heap *FindHeapContainingAddress(const void *address,
+                                         const MTLD3D12Device *device = nullptr);
 
 } // namespace dxmt

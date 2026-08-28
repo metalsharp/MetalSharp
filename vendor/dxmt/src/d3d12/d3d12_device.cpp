@@ -5064,6 +5064,37 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       }
       resource->Release();
     }
+    ID3D12Heap *heap = nullptr;
+    if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
+      auto *heap_impl = static_cast<MTLD3D12Heap *>(heap);
+      const bool shareable_heap = heap_impl->GetCPUAddress() != nullptr;
+      if (shareable_heap) {
+        HANDLE public_mapping = nullptr;
+        HRESULT hr = CreateSharedHeapMapping(heap_impl, name,
+                                             &public_mapping);
+        heap->Release();
+        if (FAILED(hr))
+          return hr;
+        HANDLE retained_mapping = nullptr;
+        if (!DuplicateHandle(GetCurrentProcess(), public_mapping,
+                             GetCurrentProcess(), &retained_mapping, 0, FALSE,
+                             DUPLICATE_SAME_ACCESS)) {
+          HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
+          CloseHandle(public_mapping);
+          return duplicate_hr;
+        }
+        object->AddRef();
+        g_shared_handles.emplace(
+            public_mapping,
+            D3D12SharedHandleEntry{object, retained_mapping});
+        g_named_shared_handles.emplace(std::wstring(name), public_mapping);
+        *handle = public_mapping;
+        TRACE("CreateSharedHandle named heap object=%p name=%ls handle=%p",
+              (void *)object, name, public_mapping);
+        return S_OK;
+      }
+      heap->Release();
+    }
   }
 
   HANDLE public_handle = CreateEventA(nullptr, TRUE, FALSE, nullptr);
@@ -5116,6 +5147,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
       shared_resource->Release();
       return hr;
     }
+    ID3D12Heap *shared_heap = nullptr;
+    HRESULT shared_heap_hr =
+        OpenSharedHeapFromMapping(this, handle, &shared_heap);
+    if (SUCCEEDED(shared_heap_hr) && shared_heap) {
+      HRESULT hr = shared_heap->QueryInterface(riid, object);
+      shared_heap->Release();
+      return hr;
+    }
     return DXGI_ERROR_INVALID_CALL;
   }
   HRESULT hr = entry->second.object->QueryInterface(riid, object);
@@ -5142,22 +5181,31 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
     ID3D12Resource *shared_resource = nullptr;
     HRESULT hr = OpenSharedBufferFromMapping(this, opened_mapping,
                                              &shared_resource);
-    if (FAILED(hr) || !shared_resource) {
+    ID3D12Heap *shared_heap = nullptr;
+    if (FAILED(hr) || !shared_resource)
+      hr = OpenSharedHeapFromMapping(this, opened_mapping, &shared_heap);
+    if (FAILED(hr) || (!shared_resource && !shared_heap)) {
       CloseHandle(opened_mapping);
       return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
     }
+    IUnknown *shared_object = shared_resource
+                                   ? static_cast<IUnknown *>(shared_resource)
+                                   : static_cast<IUnknown *>(shared_heap);
     HANDLE retained_mapping = nullptr;
     if (!DuplicateHandle(GetCurrentProcess(), opened_mapping,
                          GetCurrentProcess(), &retained_mapping, 0, FALSE,
                          DUPLICATE_SAME_ACCESS)) {
       HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
-      shared_resource->Release();
+      if (shared_resource)
+        shared_resource->Release();
+      if (shared_heap)
+        shared_heap->Release();
       CloseHandle(opened_mapping);
       return duplicate_hr;
     }
     g_shared_handles.emplace(
         opened_mapping,
-        D3D12SharedHandleEntry{shared_resource, retained_mapping});
+        D3D12SharedHandleEntry{shared_object, retained_mapping});
     g_named_shared_handles.emplace(std::wstring(name), opened_mapping);
     *handle = opened_mapping;
     TRACE("OpenSharedHandleByName cross-process name=%ls handle=%p resource=%p",
@@ -6116,14 +6164,40 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
 /*** ID3D12Device3 ***/
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenExistingHeapFromAddress(
     const void *address, REFIID riid, void **heap) {
-  TRACE("ID3D12Device3::OpenExistingHeapFromAddress -> E_NOTIMPL");
-  return E_NOTIMPL;
+  TRACE("ID3D12Device3::OpenExistingHeapFromAddress address=%p", address);
+  if (!heap)
+    return E_POINTER;
+  InitReturnPtr(heap);
+  if (!address)
+    return E_INVALIDARG;
+  auto existing = FindHeapContainingAddress(address, this);
+  if (!existing)
+    return DXGI_ERROR_NOT_FOUND;
+  HRESULT hr = existing->QueryInterface(riid, heap);
+  existing->Release();
+  TRACE("ID3D12Device3::OpenExistingHeapFromAddress out=%p hr=0x%lx",
+        *heap, hr);
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenExistingHeapFromFileMapping(
     HANDLE file_mapping, REFIID riid, void **heap) {
-  TRACE("ID3D12Device3::OpenExistingHeapFromFileMapping -> E_NOTIMPL");
-  return E_NOTIMPL;
+  TRACE("ID3D12Device3::OpenExistingHeapFromFileMapping mapping=%p",
+        file_mapping);
+  if (!heap)
+    return E_POINTER;
+  InitReturnPtr(heap);
+  if (!file_mapping)
+    return E_INVALIDARG;
+  ID3D12Heap *opened_heap = nullptr;
+  HRESULT hr = OpenSharedHeapFromMapping(this, file_mapping, &opened_heap);
+  if (FAILED(hr) || !opened_heap)
+    return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
+  hr = opened_heap->QueryInterface(riid, heap);
+  opened_heap->Release();
+  TRACE("ID3D12Device3::OpenExistingHeapFromFileMapping out=%p hr=0x%lx",
+        *heap, hr);
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::EnqueueMakeResident(
