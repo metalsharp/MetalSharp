@@ -49,6 +49,9 @@ The isolated source-staged probe passed with:
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.fence_cross_process_verified": true,
   "buffers.address_heap_open_verified": true,
+  "resource_shapes.all_created_and_roundtripped": true,
+  "resource_shapes.invalid_zero_width": "0x80070057",
+  "resource_shapes.invalid_msaa_mips": "0x80070057",
   "textures.unaligned_bc1_copy_verified": true,
   "sparse.unmapped_zero_verified": true,
   "sparse.tier3_physical_page_ownership_verified": true,
@@ -83,7 +86,8 @@ The legacy regression probe passed after the resource and backing changes.
   removed before delivery; no runtime binaries are committed.
 
 This checkpoint completes the behavior-backed resource, sparse-resource,
-residency, and buffer-sharing subset. The full Phase 3 exit gate remains open
-for heap/file-mapping reopening, shared heaps/fences/events, and exhaustive
-legal-shape coverage; those items remain explicitly ledgered rather than
-promoted by query results alone.
+residency, sharing, legal-shape creation, and malformed-descriptor validation
+subset. The full Phase 3 exit gate remains open for exhaustive allocation and
+footprint/plane behavior, every legal sparse tier and aliasing case, real
+reclaim/trim behavior, and shared-event/security/LUID coverage; those items
+remain explicitly ledgered rather than promoted by query results alone.

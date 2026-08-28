@@ -360,6 +360,36 @@ static UINT64 ResourcePlacementAlignment(const D3D12_RESOURCE_DESC &desc) {
   return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 }
 
+static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
+  if (desc.Dimension < D3D12_RESOURCE_DIMENSION_BUFFER ||
+      desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D || !desc.Width ||
+      !desc.SampleDesc.Count)
+    return false;
+
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    return desc.Height == 1 && desc.DepthOrArraySize == 1 &&
+           desc.MipLevels == 1 && desc.Format == DXGI_FORMAT_UNKNOWN &&
+           desc.SampleDesc.Count == 1 && desc.SampleDesc.Quality == 0 &&
+           desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+  }
+
+  if (!desc.Height || !desc.DepthOrArraySize ||
+      desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR ||
+      (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+       (desc.Height != 1 || desc.SampleDesc.Count != 1)) ||
+      (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+       desc.SampleDesc.Count != 1))
+    return false;
+
+  // A multisampled resource has exactly one mip and uses the normal tiled
+  // texture layout. Do not silently normalize malformed descriptors.
+  if (desc.SampleDesc.Count > 1 &&
+      (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       desc.MipLevels != 1 || desc.Layout != D3D12_TEXTURE_LAYOUT_UNKNOWN))
+    return false;
+  return true;
+}
+
 static UINT64 EstimateResourceAllocationSize(const D3D12_RESOURCE_DESC &desc) {
   if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
     return AlignTo(std::max<UINT64>(desc.Width, 1),
@@ -4736,6 +4766,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   if (!desc || !resource)
     return E_POINTER;
   InitReturnPtr(resource);
+  if (!IsValidResourceDesc(*desc))
+    return E_INVALIDARG;
 
   auto res = new MTLD3D12Resource(
       this, *desc, initial_state,
@@ -4807,6 +4839,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
   if (!desc || !resource || !heap)
     return E_POINTER;
   InitReturnPtr(resource);
+  if (!IsValidResourceDesc(*desc))
+    return E_INVALIDARG;
 
   D3D12_HEAP_PROPERTIES heap_props = {};
   D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
@@ -4953,6 +4987,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
     return E_POINTER;
   InitReturnPtr(resource);
   if (!desc)
+    return E_INVALIDARG;
+  if (!IsValidResourceDesc(*desc))
     return E_INVALIDARG;
   const bool reserved_buffer =
       desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
