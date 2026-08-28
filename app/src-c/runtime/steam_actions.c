@@ -1,3 +1,8 @@
+#ifdef __APPLE__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
+#endif
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
@@ -10,6 +15,11 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <netinet/in.h>
+#include <sys/resource.h>
+#include <sys/types.h>
+#ifdef __APPLE__
+#include <libproc.h>
+#endif
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -2193,17 +2203,66 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     setenv("WINEMSYNC", "1", 1);
 }
 
-static bool wine_steam_running(const char* home) {
-    char prefix[PATH_MAX];
+static bool process_cwd_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    struct proc_vnodepathinfo info;
+    int bytes = proc_pidinfo((int)pid, PROC_PIDVNODEPATHINFO, 0, &info, (int)sizeof(info));
+    size_t length = strlen(root);
+    return bytes == (int)sizeof(info) && !strncmp(info.pvi_cdir.vip_path, root, length) &&
+           (info.pvi_cdir.vip_path[length] == '\0' || info.pvi_cdir.vip_path[length] == '/');
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool process_executable_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    char executable[PROC_PIDPATHINFO_MAXSIZE];
+    int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
+    size_t length = strlen(root);
+    return bytes > 0 && !strncmp(executable, root, length) && (executable[length] == '\0' || executable[length] == '/');
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool wine_process_owned(pid_t pid, const char* command, const char* prefix, const char* runtime) {
+    return strstr(command, prefix) != NULL || process_cwd_within(pid, prefix) ||
+           process_executable_within(pid, runtime);
+}
+
+static bool managed_wine_process_running(const char* home, bool steam_only) {
+    char prefix[PATH_MAX], runtime[PATH_MAX];
     FILE* pipe;
-    char line[2048];
+    char line[4096];
     bool running = false;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    pipe = popen("/bin/ps axo command=", "r");
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return false;
     while (fgets(line, sizeof(line), pipe)) {
-        if (strstr(line, prefix) && (strstr(line, "Steam.exe") || strstr(line, "steam.exe"))) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        bool candidate;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX)
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        candidate =
+            steam_only ? (contains_ci(end, "c:\\program files (x86)\\steam") ||
+                          contains_ci(end, "steamwebhelper.exe") || contains_ci(end, "steamwebhelper_real.exe"))
+                       : (wine_steam_cleanup_target(end, prefix) || process_executable_within((pid_t)raw_pid, runtime));
+        if (candidate && wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
             running = true;
             break;
         }
@@ -2212,11 +2271,16 @@ static bool wine_steam_running(const char* home) {
     return running;
 }
 
+bool ms_steam_process_running(const char* home) {
+    return managed_wine_process_running(home, true);
+}
+
 static void signal_wine_steam_processes(const char* home, int signal_number) {
-    char prefix[PATH_MAX];
+    char prefix[PATH_MAX], runtime[PATH_MAX];
     FILE* pipe;
     char line[4096];
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return;
@@ -2232,7 +2296,8 @@ static void signal_wine_steam_processes(const char* home, int signal_number) {
             continue;
         while (*end == ' ' || *end == '\t')
             end++;
-        if (wine_steam_cleanup_target(end, prefix))
+        if ((wine_steam_cleanup_target(end, prefix) || process_executable_within((pid_t)raw_pid, runtime)) &&
+            wine_process_owned((pid_t)raw_pid, end, prefix, runtime))
             (void)kill((pid_t)raw_pid, signal_number);
     }
     pclose(pipe);
@@ -2390,7 +2455,7 @@ char* ms_steam_launch_json(const char* home, int* status) {
         return err("Steam is not installed — use the setup wizard to install it first");
     }
     redirect_wine_steam_desktop(home);
-    if (wine_steam_running(home)) {
+    if (ms_steam_process_running(home)) {
         free(steam);
         free(ui);
         free(steam_dir);
@@ -2422,7 +2487,7 @@ char* ms_steam_stop_json(const char* home, int* status) {
     usleep(500000);
     {
         ms_json_writer w;
-        bool running = wine_steam_running(home);
+        bool running = managed_wine_process_running(home, false);
         ms_json_writer_init(&w);
         ms_json_writer_object_begin(&w);
         ms_json_writer_key(&w, "ok");
@@ -2488,7 +2553,7 @@ char* ms_steam_mac_launch_json(const char* home, int* status) {
         return err("macOS Steam is not installed");
     }
     free(app);
-    if (wine_steam_running(home)) {
+    if (ms_steam_process_running(home)) {
         if (status)
             *status = 500;
         return err("Wine Steam is running. Stop Wine Steam before launching macOS Steam.");
@@ -3644,7 +3709,7 @@ static char* launch_game_via_steam_json(const char* home, unsigned id, int* stat
     char url[64];
     char *steam_result, *error_text;
     pid_t pid;
-    if (!wine_steam_running(home)) {
+    if (!ms_steam_process_running(home)) {
         int steam_status = 500;
         steam_result = ms_steam_launch_json(home, &steam_status);
         free(steam_result);
@@ -3653,9 +3718,9 @@ static char* launch_game_via_steam_json(const char* home, unsigned id, int* stat
                 *status = steam_status;
             return err("Wine Steam could not be started for this game");
         }
-        for (int i = 0; i < 12 && !wine_steam_running(home); i++)
+        for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
             sleep(1);
-        if (!wine_steam_running(home)) {
+        if (!ms_steam_process_running(home)) {
             if (status)
                 *status = 500;
             return err("Wine Steam was started but did not become ready for game launch");
@@ -4175,7 +4240,7 @@ char* ms_steam_mac_launch_game_json(const char* home, const char* body, size_t l
         return err("appid required");
     if (status)
         *status = 500;
-    if (wine_steam_running(home))
+    if (ms_steam_process_running(home))
         return err("Wine Steam is running. Stop Wine Steam before launching through MacOS Steam.");
     if (!macos_game_installed(id))
         return err("This game is not installed in macOS Steam. Download it through macOS Steam before using the MacOS "
@@ -4244,7 +4309,7 @@ static bool wine_steam_cleanup_target(const char* command, const char* prefix) {
 }
 
 char* ms_steam_stop_targets_json(const char* home, int* status) {
-    char prefix[PATH_MAX];
+    char prefix[PATH_MAX], runtime[PATH_MAX];
     char line[4096];
     FILE* pipe;
     unsigned count = 0;
@@ -4252,6 +4317,7 @@ char* ms_steam_stop_targets_json(const char* home, int* status) {
     if (status)
         *status = 200;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -4278,7 +4344,8 @@ char* ms_steam_stop_targets_json(const char* home, int* status) {
                 if (newline)
                     *newline = '\0';
             }
-            target = wine_steam_cleanup_target(end, prefix);
+            target = (wine_steam_cleanup_target(end, prefix) || process_executable_within((pid_t)raw_pid, runtime)) &&
+                     wine_process_owned((pid_t)raw_pid, end, prefix, runtime);
             if (target) {
                 ms_json_writer_object_begin(&w);
                 ms_json_writer_key(&w, "pid");

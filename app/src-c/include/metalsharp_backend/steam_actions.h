@@ -1,6 +1,8 @@
 #ifndef METALSHARP_BACKEND_STEAM_ACTIONS_H
 #define METALSHARP_BACKEND_STEAM_ACTIONS_H
+#include <stdbool.h>
 #include <stddef.h>
+bool ms_steam_process_running(const char*);
 char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
 char* ms_steam_mac_launch_json(const char*, int*);
