@@ -165,6 +165,8 @@ static int run_shared_child() {
                             : E_NOINTERFACE;
     HANDLE shared_handle = nullptr;
     ID3D12Resource* resource = nullptr;
+    HANDLE fence_handle = nullptr;
+    ID3D12Fence* shared_fence = nullptr;
     HRESULT open_name_hr = device ? device->OpenSharedHandleByName(L"metalsharp-probe-buffer", GENERIC_ALL,
                                                                     &shared_handle)
                                   : E_FAIL;
@@ -173,6 +175,13 @@ static int run_shared_child() {
                           : E_FAIL;
     uint32_t before = 0;
     void* mapped = nullptr;
+    HRESULT fence_name_hr = device ? device->OpenSharedHandleByName(L"metalsharp-probe-fence", GENERIC_ALL,
+                                                                      &fence_handle)
+                                    : E_FAIL;
+    HRESULT fence_open_hr = SUCCEEDED(fence_name_hr) && device
+                                ? device->OpenSharedHandle(fence_handle, IID_PPV_ARGS(&shared_fence))
+                                : E_FAIL;
+    const uint64_t fence_value = shared_fence ? shared_fence->GetCompletedValue() : 0;
     HRESULT map_hr = resource ? resource->Map(0, nullptr, &mapped) : E_FAIL;
     if (SUCCEEDED(map_hr) && mapped) {
         std::memcpy(&before, mapped, sizeof(before));
@@ -181,6 +190,7 @@ static int run_shared_child() {
         resource->Unmap(0, nullptr);
     }
     const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_name_hr) && SUCCEEDED(open_hr) &&
+                      SUCCEEDED(fence_name_hr) && SUCCEEDED(fence_open_hr) && fence_value == 7 &&
                       SUCCEEDED(map_hr) && before == 0x1234abcdu;
     // The parent owns the machine-readable probe stream; keep child output
     // silent so it cannot corrupt the parent's JSON document.
@@ -188,6 +198,10 @@ static int run_shared_child() {
         resource->Release();
     if (shared_handle)
         CloseHandle(shared_handle);
+    if (fence_handle)
+        CloseHandle(fence_handle);
+    if (shared_fence)
+        shared_fence->Release();
     if (device)
         device->Release();
     // Do not unload d3d12.dll explicitly: DXMT owns worker-thread state and
@@ -253,6 +267,18 @@ int main(int argc, char** argv) {
         device ? device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&list))
                : E_FAIL;
     HRESULT fence_hr = device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) : E_FAIL;
+    ID3D12Fence* shared_fence = nullptr;
+    HANDLE shared_fence_handle = nullptr;
+    HRESULT shared_fence_create_hr = device
+                                         ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                                               IID_PPV_ARGS(&shared_fence))
+                                         : E_FAIL;
+    HRESULT shared_fence_handle_hr =
+        shared_fence ? device->CreateSharedHandle(shared_fence, nullptr, GENERIC_ALL,
+                                                   L"metalsharp-probe-fence", &shared_fence_handle)
+                     : E_FAIL;
+    HRESULT shared_fence_signal_hr =
+        shared_fence ? shared_fence->Signal(7) : E_FAIL;
 
     const UINT64 buffer_bytes = 4096;
     D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -1662,7 +1688,8 @@ int main(int argc, char** argv) {
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && shared_handle_roundtrip &&
         format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
-        shared_heap_roundtrip_ok;
+        shared_heap_roundtrip_ok && SUCCEEDED(shared_fence_create_hr) &&
+        SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr);
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -1718,7 +1745,11 @@ int main(int argc, char** argv) {
     print_hr("heap_create", shared_heap_create_hr);
     print_hr("heap_open", shared_heap_open_hr);
     print_hr("heap_file_open", shared_heap_file_open_hr);
-    std::printf("    \"heap_roundtrip_verified\": %s\n", shared_heap_roundtrip_ok ? "true" : "false");
+    std::printf("    \"heap_roundtrip_verified\": %s,\n", shared_heap_roundtrip_ok ? "true" : "false");
+    print_hr("fence_create", shared_fence_create_hr);
+    print_hr("fence_handle_create", shared_fence_handle_hr);
+    print_hr("fence_signal", shared_fence_signal_hr);
+    std::printf("    \"fence_cross_process_verified\": %s\n", cross_process_shared_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"textures\": {\n");
     print_hr("texture_create", texture_hr);
