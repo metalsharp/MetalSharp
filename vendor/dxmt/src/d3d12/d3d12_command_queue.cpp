@@ -13007,8 +13007,9 @@ HRESULT STDMETHODCALLTYPE
 MTLD3D12CommandQueue::GetTimestampFrequency(UINT64 *frequency) {
   QTRACE("CmdQueue::GetTimestampFrequency this=%p out=%p", (void *)this,
          frequency);
-  if (frequency)
-    *frequency = 1000000000;
+  if (!frequency)
+    return E_POINTER;
+  *frequency = 1000000000;
   return S_OK;
 }
 
@@ -13016,10 +13017,32 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetClockCalibration(
     UINT64 *gpu_timestamp, UINT64 *cpu_timestamp) {
   QTRACE("CmdQueue::GetClockCalibration this=%p gpu=%p cpu=%p", (void *)this,
          gpu_timestamp, cpu_timestamp);
-  if (gpu_timestamp)
-    *gpu_timestamp = 0;
-  if (cpu_timestamp)
-    *cpu_timestamp = 0;
+  if (!gpu_timestamp || !cpu_timestamp)
+    return E_POINTER;
+  *gpu_timestamp = 0;
+  *cpu_timestamp = 0;
+
+  // Metal exposes GPU start/end times on completed command buffers in the
+  // same host time domain used by its timestamp queries. Submit an empty
+  // calibration buffer so the returned GPU value is a real queue timestamp,
+  // not a CPU placeholder or an unconditional zero.
+  std::lock_guard submit_lock(m_submit_mutex);
+  auto calibration = m_wmt_queue.commandBuffer();
+  if (!calibration.handle)
+    return E_FAIL;
+  calibration.commit();
+  calibration.waitUntilCompleted();
+  const uint64_t gpu = calibration.gpuEndTime();
+  LARGE_INTEGER qpc = {};
+  const uint64_t cpu = QueryPerformanceCounter(&qpc)
+                           ? static_cast<uint64_t>(qpc.QuadPart)
+                           : 0;
+  if (!gpu || !cpu)
+    return E_FAIL;
+  *gpu_timestamp = gpu;
+  *cpu_timestamp = cpu;
+  QTRACE("CmdQueue::GetClockCalibration gpu=%llu cpu=%llu",
+         (unsigned long long)gpu, (unsigned long long)cpu);
   return S_OK;
 }
 

@@ -419,8 +419,13 @@ int main() {
     UINT64 direct_gpu_clock = 0;
     UINT64 direct_cpu_clock = 0;
     HRESULT timestamp_frequency_hr = direct_queue ? direct_queue->GetTimestampFrequency(&direct_frequency) : E_FAIL;
+    HRESULT null_timestamp_frequency_hr = direct_queue ? direct_queue->GetTimestampFrequency(nullptr) : E_FAIL;
     HRESULT clock_calibration_hr =
         direct_queue ? direct_queue->GetClockCalibration(&direct_gpu_clock, &direct_cpu_clock) : E_FAIL;
+    HRESULT null_clock_calibration_hr =
+        direct_queue ? direct_queue->GetClockCalibration(&direct_gpu_clock, nullptr) : E_FAIL;
+    const bool clock_calibration_ok = SUCCEEDED(clock_calibration_hr) && direct_gpu_clock != 0 &&
+                                      direct_cpu_clock != 0;
 
     bool queue_types_ok =
         direct_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT && present_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT &&
@@ -455,8 +460,9 @@ int main() {
         SUCCEEDED(present_allocator_reset_hr) && SUCCEEDED(copy_list_reset_hr) && SUCCEEDED(render_list_reset_hr) &&
         SUCCEEDED(compute_list_reset_hr) && SUCCEEDED(present_list_reset_hr) && SUCCEEDED(map_readback_hr) &&
         readback_ok && queue_types_ok && fences_ok && SUCCEEDED(timestamp_frequency_hr) &&
-        SUCCEEDED(clock_calibration_hr) && SUCCEEDED(timestamp_heap_hr) && SUCCEEDED(timestamp_readback_hr) &&
-        copy_timestamps_ok;
+        null_timestamp_frequency_hr == E_POINTER && clock_calibration_ok &&
+        null_clock_calibration_hr == E_POINTER && SUCCEEDED(timestamp_heap_hr) &&
+        SUCCEEDED(timestamp_readback_hr) && copy_timestamps_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-queues.v1\",\n");
@@ -475,7 +481,9 @@ int main() {
     std::printf("    \"compute_type\": %u,\n", compute_desc.Type);
     std::printf("    \"copy_type\": %u,\n", copy_desc.Type);
     print_hr("timestamp_frequency", timestamp_frequency_hr);
+    print_hr("null_timestamp_frequency", null_timestamp_frequency_hr);
     print_hr("clock_calibration", clock_calibration_hr);
+    print_hr("null_clock_calibration", null_clock_calibration_hr);
     std::printf("    \"timestamp_frequency_value\": %" PRIu64 ",\n", direct_frequency);
     std::printf("    \"copy_timestamp_heap_hr\": \"0x%08lx\",\n", static_cast<unsigned long>(timestamp_heap_hr));
     std::printf("    \"copy_timestamp_readback_hr\": \"0x%08lx\",\n",
@@ -484,7 +492,8 @@ int main() {
     std::printf("    \"copy_timestamp_values\": [%" PRIu64 ",%" PRIu64 "],\n", copy_timestamps[0], copy_timestamps[1]);
     std::printf("    \"copy_timestamps_verified\": %s,\n", copy_timestamps_ok ? "true" : "false");
     std::printf("    \"clock_gpu\": %" PRIu64 ",\n", direct_gpu_clock);
-    std::printf("    \"clock_cpu\": %" PRIu64 "\n", direct_cpu_clock);
+    std::printf("    \"clock_cpu\": %" PRIu64 ",\n", direct_cpu_clock);
+    std::printf("    \"clock_calibration_verified\": %s\n", clock_calibration_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"command_lists\": {\n");
     print_hr("render_objects", render_objects_hr);
