@@ -4825,6 +4825,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateHeap(
   if (!desc || !heap)
     return E_POINTER;
   InitReturnPtr(heap);
+  if (!desc->SizeInBytes ||
+      (desc->Alignment &&
+       desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
+       desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT) ||
+      ((desc->Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) &&
+       (desc->Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)))
+    return E_INVALIDARG;
 
   D3D12_HEAP_DESC normalized = *desc;
   if (!normalized.Alignment)
