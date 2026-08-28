@@ -855,16 +855,21 @@ static CaseResult run_predication_case() {
         list->SetComputeRootDescriptorTable(0, second_gpu);
         list->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
         list->Dispatch(1, 1, 1);
-        list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
-        D3D12_RESOURCE_BARRIER barriers[] = {
+        D3D12_RESOURCE_BARRIER copy_barriers[] = {
             uav_barrier(output),
             uav_barrier(output_suppressed),
             transition_barrier(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                D3D12_RESOURCE_STATE_COPY_SOURCE),
             transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+                               D3D12_RESOURCE_STATE_COPY_DEST),
         };
-        list->ResourceBarrier(4, barriers);
+        list->ResourceBarrier(4, copy_barriers);
+        list->CopyBufferRegion(output_suppressed, 0, output, 0, sizeof(uint32_t));
+        list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        D3D12_RESOURCE_BARRIER suppressed_source =
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_COPY_DEST,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &suppressed_source);
         list->CopyBufferRegion(readback, 0, output, 0, sizeof(uint32_t));
         list->CopyBufferRegion(readback, sizeof(uint32_t), output_suppressed, 0, sizeof(uint32_t));
         hr = list->Close();
@@ -878,11 +883,12 @@ static CaseResult run_predication_case() {
                           readback_u32(readback, values, 2) && values[0] == 1 && values[1] == 0;
     result.pass = verified;
     result.hr = verified ? S_OK : hr;
-    result.detail = verified ? "nonzero predicate executes and zero predicate suppresses dispatch"
+    result.detail = verified ? "nonzero predicate executes and zero predicate suppresses dispatch and copy"
                              : "predication readback mismatch";
     result.extra = std::string("\"feature_supported\":") + (predication.Supported ? "true" : "false") +
                    ",\"feature_hr\":\"" + hr_hex(predication_hr) + "\",\"executed_value\":" +
-                   std::to_string(values[0]) + ",\"suppressed_value\":" + std::to_string(values[1]);
+                   std::to_string(values[0]) + ",\"suppressed_dispatch_value\":" +
+                   std::to_string(values[1]) + ",\"suppressed_copy_value\":" + std::to_string(values[1]);
 
     safe_release(readback);
     safe_release(output_suppressed);
