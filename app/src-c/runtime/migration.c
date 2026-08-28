@@ -77,10 +77,10 @@ static const char* const migration_m12_hashes[][2] = {
     {"x86_64-windows/winemetal.dll", "f6844535ce448e6c525884c8c630298895d7cad97c64eade0f85208a804b9003"},
     {"x86_64-windows/nvapi64.dll", "2eeb618e67c0c2a8d8ff0d84bf45cf69828118c15e894881126e2b94e40d1f83"},
     {"x86_64-windows/nvngx.dll", "cc268b8d89eecef4312a010d25cf77d169c1c68c0875ac1b224d2bc118b921e3"},
-    {"x86_64-unix/winemetal.so", "fb46317af86ab157d37a5fb8f781368675047614e86786a74f72a5514b8574d9"},
-    {"x86_64-unix/libc++.1.dylib", "3f0da0b4025c6fb5e50fc23c8a1feea67c839b40df93baff3b2781089b42ad35"},
-    {"x86_64-unix/libc++abi.1.dylib", "9a95b4ce2be40951b688c394db99f79b7e0b81fa2372e5e49615319869e72e49"},
-    {"x86_64-unix/libunwind.1.dylib", "964d4e5d6242163e4e8099efd08ba75540f253257b834bf5b7a45f8c84b4ea78"}};
+    {"x86_64-unix/winemetal.so", "2a635d713446f26eb275eede947574d9c03f3165a74f7828d3f48fadd9ffd519"},
+    {"x86_64-unix/libc++.1.dylib", "9bfcf5310f95ebaeddaa55482debbb115a5cb109244dece727a314933dcbcc15"},
+    {"x86_64-unix/libc++abi.1.dylib", "b819a65788f8f4e8bc1e67a601e8e3d59c52c14a74910e61f2e7307006340fb4"},
+    {"x86_64-unix/libunwind.1.dylib", "105e72335d9e919e32028d151934b97d4b75267528023cb7f22111ac8065de0e"}};
 static const char* const migration_vkd3d_hashes[][2] = {
     {"x86_64-windows/d3d12.dll", "ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e"},
     {"x86_64-windows/d3d12core.dll", "78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8"},
