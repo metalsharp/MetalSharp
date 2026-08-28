@@ -145,7 +145,7 @@ export class BackendBridge {
     this.proc = null;
 
     // Also find and kill any backend still listening on our port.
-    const pid = await this.getBackendPid();
+    const pid = (await this.getBackendPid()) ?? (await this.getListeningBackendPid());
     if (pid) {
       try {
         process.kill(pid, "SIGTERM");
@@ -296,6 +296,13 @@ export class BackendBridge {
   }
 
   private async shouldRestart(binPath: string): Promise<boolean> {
+    // A production app launch must own a freshly spawned copy of its packaged
+    // backend. Version strings cannot distinguish two locally rebuilt binaries
+    // with the same release number, and an orphan may still own port 9274.
+    if (!this.devMode && !this.proc && ((await this.isAlive()) || (await this.getListeningBackendPid()))) {
+      return true;
+    }
+
     if (!(await this.isAlive())) {
       // /status can be queued behind the synchronous library route. If the
       // expected backend still owns the port, preserve it and let the caller

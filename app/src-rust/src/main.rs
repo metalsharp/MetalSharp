@@ -1153,7 +1153,6 @@ fn route(req: &HttpRequest) -> RouteResponse {
         (HttpMethod::Get, "/sharp-library") => resp(200, sharp_library::handle_get_library()),
         (HttpMethod::Get, "/sharp-library/epic/status") => resp(200, epic::status()),
         (HttpMethod::Get, "/sharp-library/epic/games") => resp(200, epic::games(false)),
-        (HttpMethod::Get, "/sharp-library/launchers/status") => resp(200, sharp_library::handle_launcher_status()),
         (HttpMethod::Get, "/bottles") => resp(200, bottles::handle_list_bottles()),
         (HttpMethod::Post, "/d3dmetal/bottles/save") => {
             let body = read_body(req);
@@ -2065,30 +2064,6 @@ fn route(req: &HttpRequest) -> RouteResponse {
         (HttpMethod::Post, "/sharp-library/epic/uninstall") => {
             let body = read_body(req);
             resp(200, epic::uninstall(&Value::Object(body)))
-        },
-        (HttpMethod::Post, "/sharp-library/launchers/install") => {
-            let body = read_body(req);
-            app_log(&format!(
-                "[SHARP-LIB] launcher install: {}",
-                body.get("launcher").and_then(|value| value.as_str()).unwrap_or("?")
-            ));
-            resp(200, sharp_library::handle_launcher_install(&body))
-        },
-        (HttpMethod::Post, "/sharp-library/launchers/launch") => {
-            let body = read_body(req);
-            app_log(&format!(
-                "[SHARP-LIB] launcher launch: {}",
-                body.get("launcher").and_then(|value| value.as_str()).unwrap_or("?")
-            ));
-            resp(200, sharp_library::handle_launcher_launch(&body))
-        },
-        (HttpMethod::Post, "/sharp-library/launchers/stop") => {
-            let body = read_body(req);
-            app_log(&format!(
-                "[SHARP-LIB] launcher stop: {}",
-                body.get("launcher").and_then(|value| value.as_str()).unwrap_or("?")
-            ));
-            resp(200, sharp_library::handle_launcher_stop(&body))
         },
         (HttpMethod::Post, "/sharp-library/import-bottle-app") => {
             let body = read_body(req);

@@ -156,7 +156,15 @@ def force_stop_old_runtime(status_file, backend_pid, app_pid, target_version):
     write_status(status_file, "stopping_old_runtime", 5, "Force-stopping the old MetalSharp app and backend...", new_version=target_version)
     kill_pid(backend_pid, timeout=5)
     force_kill_process_names(["metalsharp-backend"], grace=1)
-    subprocess.run(["osascript", "-e", 'tell application id "com.metalsharp.app" to quit'], capture_output=True, timeout=10)
+    # AppleScript launches a target application before sending `quit`. Guard
+    # the call so an update applied while MetalSharp is already closed cannot
+    # open an old registered bundle and enter its startup flow.
+    if app_pid and is_pid_alive(app_pid):
+        subprocess.run(
+            ["osascript", "-e", 'tell application id "com.metalsharp.app" to quit'],
+            capture_output=True,
+            timeout=10,
+        )
     if app_pid:
         kill_pid(app_pid, timeout=5)
     force_kill_process_names([

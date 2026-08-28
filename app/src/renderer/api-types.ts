@@ -238,21 +238,6 @@ type MetalsharpAPI = {
     checks?: { dir: string; ok: boolean; error?: string }[];
     error?: string;
   }>;
-  wineDiskAccessStatus: () => Promise<{
-    ok: boolean;
-    available: boolean;
-    granted: boolean;
-    path?: string;
-    version?: string;
-    error?: string;
-  }>;
-  setWineDiskAccess: () => Promise<{
-    ok: boolean;
-    path?: string;
-    version?: string;
-    message?: string;
-    error?: string;
-  }>;
   copyText: (text: string) => Promise<{ ok: boolean; error?: string }>;
   restartBackend: () => Promise<{ ok: boolean; error?: string }>;
   isBackendAlive: () => Promise<boolean>;

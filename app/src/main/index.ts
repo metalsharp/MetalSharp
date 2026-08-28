@@ -216,6 +216,35 @@ function ensureMetalsharpDirs() {
   }
 }
 
+function removeMetalsharpData(root: string): boolean {
+  try {
+    fs.rmSync(root, { recursive: true, force: true });
+    return true;
+  } catch {
+    // Managed emulator releases are intentionally installed read-only. Make
+    // directories removable after the user has explicitly confirmed a full
+    // uninstall, then retry without following symlinks.
+    const pending = [root];
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      try {
+        fs.chmodSync(current, 0o700);
+        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+          if (entry.isDirectory() && !entry.isSymbolicLink()) pending.push(path.join(current, entry.name));
+        }
+      } catch {}
+    }
+
+    try {
+      fs.rmSync(root, { recursive: true, force: true });
+      return true;
+    } catch (error) {
+      console.error("Failed to remove MetalSharp data:", error);
+      return false;
+    }
+  }
+}
+
 function verifyMetalsharpDataAccess() {
   ensureMetalsharpDirs();
   const base = getMetalsharpDir();
@@ -596,6 +625,23 @@ function registerForceQuitGamesShortcut(): void {
 }
 
 async function checkNeedsMigration(): Promise<boolean> {
+  const setupPath = path.join(getMetalsharpDir(), "setup.json");
+  const prefixPath = path.join(getMetalsharpDir(), "prefix-steam");
+  try {
+    if (!fs.existsSync(setupPath)) {
+      clearPostUpdateMigrationMarker();
+      return false;
+    }
+    const setup = JSON.parse(fs.readFileSync(setupPath, "utf8"));
+    if (setup?.completed !== true && !fs.existsSync(prefixPath)) {
+      clearPostUpdateMigrationMarker();
+      return false;
+    }
+  } catch {
+    clearPostUpdateMigrationMarker();
+    return false;
+  }
+
   const marker = hasPostUpdateMigrationMarker();
   return new Promise((resolve) => {
     const req = http.get("http://127.0.0.1:9274/update/migrate/check", (res) => {
@@ -605,7 +651,7 @@ async function checkNeedsMigration(): Promise<boolean> {
         try {
           const data = JSON.parse(Buffer.concat(chunks).toString());
           const needed = data.ok && data.needed === true;
-          if (!needed && !marker.needed) clearPostUpdateMigrationMarker();
+          if (!needed) clearPostUpdateMigrationMarker();
           resolve(needed);
         } catch {
           resolve(marker.needed);
@@ -1460,95 +1506,6 @@ function registerIpc() {
     return verifyMetalsharpDataAccess();
   });
 
-  const metalsharpWineDiskAccess = async () => {
-    const metalsharpDir = getMetalsharpDir();
-    // Windows processes execute in this Wine 11.5 host image after the small bin/wine loader hands off.
-    // Full Disk Access must target this exact Mach-O, not MetalSharp.app or a GPTK preloader.
-    const wine = path.join(metalsharpDir, "runtime/wine/lib/wine/x86_64-unix/wine");
-    const wrapper = path.join(metalsharpDir, "runtime/wine/bin/metalsharp-wine");
-    const prefix = path.join(metalsharpDir, "prefix-steam");
-    if (!fs.existsSync(wine) || !fs.existsSync(wrapper) || !fs.existsSync(prefix)) {
-      return { ok: true, available: false, granted: false, path: wine };
-    }
-    let version = "";
-    try {
-      version = execFileSync(wine, ["--version"], { encoding: "utf8", timeout: 10_000 }).trim();
-    } catch (error) {
-      return {
-        ok: false,
-        available: false,
-        granted: false,
-        path: wine,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-    if (version !== "wine-11.5") {
-      return {
-        ok: false,
-        available: false,
-        granted: false,
-        path: wine,
-        version,
-        error: `Expected MetalSharp Wine 11.5, found ${version || "an unknown build"}`,
-      };
-    }
-    const protectedPath = `Z:${path.join(os.homedir(), "Library/Safari").replaceAll("/", "\\")}`;
-    const granted = await new Promise<boolean>((resolve) => {
-      execFile(
-        wrapper,
-        ["cmd.exe", "/d", "/c", `dir "${protectedPath}" >nul`],
-        {
-          env: { ...process.env, WINEPREFIX: prefix },
-          timeout: 20_000,
-          windowsHide: true,
-          maxBuffer: 256 * 1024,
-        },
-        (error) => resolve(!error),
-      );
-    });
-    return { ok: true, available: true, granted, path: wine, version };
-  };
-
-  ipcMain.handle("app:wine-disk-access-status", async () => {
-    if (isUiOnlyRuntime()) return { ok: true, available: true, granted: false, version: "wine-11.5" };
-    return metalsharpWineDiskAccess();
-  });
-
-  ipcMain.handle("app:set-wine-disk-access", async () => {
-    if (process.platform !== "darwin") return { ok: false, error: "Full Disk Access is only available on macOS." };
-    const status = await metalsharpWineDiskAccess();
-    if (!status.ok || !status.available || !status.path) {
-      return { ok: false, error: status.error ?? "MetalSharp Wine 11.5 is not installed." };
-    }
-    if (status.granted) return { ok: true, path: status.path, version: status.version, message: "Access is enabled." };
-    const prefix = path.join(getMetalsharpDir(), "prefix-steam");
-    const wineserver = path.join(getMetalsharpDir(), "runtime/wine/bin/wineserver");
-    if (fs.existsSync(prefix) && fs.existsSync(wineserver)) {
-      try {
-        execFileSync(wineserver, ["-k"], {
-          env: { ...process.env, WINEPREFIX: prefix },
-          stdio: "ignore",
-          timeout: 10_000,
-        });
-      } catch {
-        // A stopped or absent prefix server is already the desired state.
-      }
-    }
-    clipboard.writeText(status.path);
-    shell.showItemInFolder(status.path);
-    try {
-      await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-    return {
-      ok: true,
-      path: status.path,
-      version: status.version,
-      message: "Add the revealed Wine executable to Full Disk Access and turn it on.",
-    };
-  });
-
   ipcMain.handle("app:copy-text", async (_e, text: string) => {
     clipboard.writeText(text);
     return { ok: true };
@@ -1629,13 +1586,7 @@ function registerIpc() {
     await cleanup();
 
     const msDir = getMetalsharpDir();
-    let dataRemoved = false;
-    try {
-      fs.rmSync(msDir, { recursive: true, force: true });
-      dataRemoved = true;
-    } catch (e) {
-      console.error("Failed to remove MetalSharp data:", e);
-    }
+    const dataRemoved = removeMetalsharpData(msDir);
 
     // Spawn a detached shell that waits for this process to exit, then
     // moves the app bundle to the macOS Trash.
@@ -1651,18 +1602,21 @@ function registerIpc() {
       spawn("/bin/bash", ["-c", script], { detached: true, stdio: "ignore" }).unref();
     }
 
-    // Show success dialog — user must close the app to finish.
+    // Report the real data-removal result — user must close the app to finish.
     if (mainWindow && !mainWindow.isDestroyed()) {
       await dialog.showMessageBox(mainWindow, {
-        type: "info",
-        title: "MetalSharp Uninstalled",
-        message: "MetalSharp data has been removed successfully.",
-        detail:
-          "All Wine prefixes, bottles, Steam, runtime, and settings have been deleted. " +
-          (appBundle
-            ? "When you close this window, MetalSharp will be moved to the Trash."
-            : "Close this window to exit MetalSharp.") +
-          "\n\nClick OK to close the app.",
+        type: dataRemoved ? "info" : "error",
+        title: dataRemoved ? "MetalSharp Uninstalled" : "MetalSharp Uninstall Incomplete",
+        message: dataRemoved
+          ? "MetalSharp data has been removed successfully."
+          : `MetalSharp could not completely remove ${msDir}.`,
+        detail: dataRemoved
+          ? "All Wine prefixes, bottles, Steam, runtime, and settings have been deleted. " +
+            (appBundle
+              ? "When you close this window, MetalSharp will be moved to the Trash."
+              : "Close this window to exit MetalSharp.") +
+            "\n\nClick OK to close the app."
+          : "Some files remain on disk. MetalSharp will not claim that uninstall completed successfully.",
         buttons: ["OK"],
         defaultId: 0,
         noLink: true,
