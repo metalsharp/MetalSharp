@@ -28,6 +28,7 @@ const updateDownloading = inject<Ref<boolean>>("updateDownloading")!;
 const updateProgress = inject<Ref<number>>("updateProgress")!;
 const updateMessage = inject<Ref<string>>("updateMessage")!;
 const startUpdateDownload = inject<() => void>("startUpdateDownload")!;
+const startFexUpdateDownload = inject<() => void>("startFexUpdateDownload")!;
 const steamApiKey = inject<Ref<string | null>>("steamApiKey")!;
 const setupDeviceName = inject<Ref<string>>("setupDeviceName")!;
 const reloadLibrary = inject<() => Promise<void>>("loadLibrary")!;
@@ -717,7 +718,19 @@ function uninstallMetalsharp() {
           <div class="settings-desc">v{{ updateStatus.latest_version }} is ready to download</div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-primary btn-sm" @click="startUpdateDownload">Download &amp; Install</button>
+          <button class="btn btn-primary btn-sm" @click="startUpdateDownload()">Download &amp; Install</button>
+        </div>
+      </div>
+      <div
+        v-if="updateStatus?.ok && updateStatus?.available && updateStatus?.fex_available && !updateDownloading"
+        class="settings-row"
+      >
+        <div>
+          <div class="settings-label">FEX Update</div>
+          <div class="settings-desc">macOS 27+ only · experimental and potentially less stable than baseline</div>
+        </div>
+        <div class="settings-value">
+          <button class="btn btn-secondary btn-sm" @click="startFexUpdateDownload">Update to FEX Version</button>
         </div>
       </div>
       <div v-if="updateDownloading" class="settings-row">
