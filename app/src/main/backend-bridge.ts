@@ -190,6 +190,11 @@ export class BackendBridge {
     });
   }
 
+  async isAliveOrBusy(): Promise<boolean> {
+    if (await this.isAlive()) return true;
+    return (await this.getListeningBackendPid()) !== null;
+  }
+
   async getBackendPid(): Promise<number | null> {
     return new Promise((resolve) => {
       const req = http.get(`http://127.0.0.1:${this.port}/status`, (res) => {
