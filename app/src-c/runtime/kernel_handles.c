@@ -829,7 +829,7 @@ char* ms_kernel_handle_seed_demo(const char* body, size_t length) {
     ms_json_writer_u64(&w, limit);
     ms_json_writer_key(&w, "totalHandles");
     ms_json_writer_u64(&w, table->count + limit);
-    ms_json_writer_key(&w, "typeCounts"); /* Rust reports counts after insertion; emit after constructing below. */
+    ms_json_writer_key(&w, "typeCounts"); /* Emit counts after constructing the entries below. */
     for (i = 0; i < limit; ++i) {
         handle_entry e;
         memset(&e, 0, sizeof(e));

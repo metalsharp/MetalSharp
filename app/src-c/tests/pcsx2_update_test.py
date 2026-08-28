@@ -335,7 +335,8 @@ def test_data_path_capability_probe() -> None:
         write_release(archive, release)
         with Backend(root, archive, release) as backend:
             assert request(backend.port, "POST", "/sharp-library/pcsx2/update/install")["ok"]
-            assert wait_progress(backend.port)["status"] == "completed"
+            progress = wait_progress(backend.port)
+            assert progress["status"] == "completed", progress
             status = request(backend.port, "GET", "/sharp-library/pcsx2/status")
             assert status["dataPathFlag"] is True
             capabilities = json.loads(

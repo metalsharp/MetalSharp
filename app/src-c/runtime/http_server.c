@@ -1,3 +1,10 @@
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include "metalsharp_backend/http_server.h"
 
 #include <arpa/inet.h>
@@ -46,7 +53,11 @@ static ssize_t find_header_end(const unsigned char* buffer, size_t length) {
 static bool send_all(int fd, const void* data, size_t length) {
     const unsigned char* cursor = (const unsigned char*)data;
     while (length > 0) {
-        ssize_t sent = send(fd, cursor, length, 0);
+        int flags = 0;
+#ifdef MSG_NOSIGNAL
+        flags |= MSG_NOSIGNAL;
+#endif
+        ssize_t sent = send(fd, cursor, length, flags);
         if (sent < 0) {
             if (errno == EINTR)
                 continue;
@@ -293,6 +304,15 @@ int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http
             close(client_fd);
             continue;
         }
+#ifdef SO_NOSIGPIPE
+        /* Renderer requests can time out while a long-running backend action
+         * is still completing. A later response to that closed socket must
+         * return EPIPE, not terminate the entire backend with SIGPIPE. */
+        {
+            int no_sigpipe = 1;
+            (void)setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+        }
+#endif
         (void)fcntl(client_fd, F_SETFL, 0);
         {
             ms_http_request request;

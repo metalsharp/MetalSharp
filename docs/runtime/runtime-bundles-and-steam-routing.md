@@ -16,7 +16,7 @@ Current split bundle roots:
 |---|---|
 | `metalsharp-electron.tar.zst` | Contains `electron/`, the built Electron application payload. |
 | `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the legacy DXMT D3D9/D3D10/D3D11 surface and the isolated M12 D3D12 surface. |
-| `metalsharp-runtime.tar.zst` | Contains `runtime/`, the Wine runtime, host ABI, and backend executable. |
+| `metalsharp-runtime.tar.zst` | Contains `runtime/`, base Wine 11.5, host ABI, and backend executable. |
 | `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, GPTK, DXVK, Goldberg, EAC toggle, shims, and runtime support assets. |
 | `metalsharp-scripts-tools.tar.zst` | Contains `scripts/tools/`, updater scripts, configs, native tools, and CEF helpers. |
 | `metalsharp-steam.tar.zst` | Contains `steam/`, the Steam installer and Steam CEF wrapper assets. |
@@ -87,7 +87,7 @@ This applies to Steam launch-model titles such as Party Animals and Source games
 
 ## Steam Wrapper Rules
 
-Before launching Steam, MetalSharp calls `ensure_steam_launch_ready()` and redeploys `steamwebhelper.exe` when Steam has overwritten it. Steam assets come from `metalsharp-steam.tar.zst`, and the backend only accepts the extracted wrapper if it matches `STEAMWEBHELPER_WRAPPER_SHA256` in `app/src-rust/src/steam.rs`.
+Before launching Steam, MetalSharp calls `ensure_steam_launch_ready()` and redeploys `steamwebhelper.exe` when Steam has overwritten it. Steam assets come from `metalsharp-steam.tar.zst`, and the C backend validates the staged wrapper before launch.
 
 The expected deployed Steam CEF layout is:
 

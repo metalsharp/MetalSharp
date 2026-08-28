@@ -39,7 +39,7 @@ Every struct starts with `struct_size` so newer hosts can append fields without 
 The initial implementation removes two brittle assumptions from the runtime:
 
 - `src/wine/mscoree_unix.c` no longer uses a machine-local absolute Mono path. It accepts `METALSHARP_MONO_LIB`, `METALSHARP_MONO_ROOT`, `METALSHARP_MONO_ASSEMBLY_DIR`, and `METALSHARP_MONO_CONFIG_DIR`, with portable `METALSHARP_HOME`/`HOME` fallbacks.
-- `src/fna/shims/steam_shim.c` no longer hardcodes the Steam bridge port only in native code. It accepts `METALSHARP_STEAM_BRIDGE_PORT`, and the Rust launcher reports/passes the same value.
+- `src/fna/shims/steam_shim.c` accepts `METALSHARP_STEAM_BRIDGE_PORT`, and the C launch route reports/passes the same value.
 - The backend exposes `GET /runtime/host-abi` so the app can inspect the current ABI version, service list, bridge port, and managed runtime environment contract.
 
 These are small changes, but they are the necessary shape: bottle manifests and installer runtime profiles can now configure shims through explicit runtime state instead of requiring patched binaries or one global machine assumption.

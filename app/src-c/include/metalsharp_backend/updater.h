@@ -6,7 +6,7 @@
 char* ms_update_check_json(void);
 char* ms_update_progress_json(const char* metalsharp_home);
 char* ms_update_cleanup_json(const char* metalsharp_home);
-char* ms_update_dmg_path_json(const char* metalsharp_home);
-char* ms_update_start_json(const char* metalsharp_home);
+char* ms_update_dmg_path_json(const char* metalsharp_home, const char* variant);
+char* ms_update_start_json(const char* metalsharp_home, const unsigned char* body, size_t body_length);
 
 #endif

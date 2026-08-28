@@ -1,4 +1,5 @@
 #include "metalsharp_backend/backend.h"
+#include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/logs.h"
 
 #include <errno.h>
@@ -58,6 +59,7 @@ int main(void) {
                  (unsigned)port);
         ms_log_event(context.metalsharp_home, message);
     }
+    ms_epic_sync_on_startup(context.metalsharp_home);
 
     for (attempt = 1; attempt <= 30 && !stop_requested; ++attempt) {
         if (ms_http_serve(port, &stop_requested, ms_backend_handle, &context) == 0) {

@@ -84,7 +84,13 @@ force_stop_old_runtime() {
     sleep 1
     pkill -9 -x metalsharp-backend 2>/dev/null || true
 
-    osascript -e 'tell application id "com.metalsharp.app" to quit' >/dev/null 2>&1 || true
+    # AppleScript launches a target application before sending `quit`. Never
+    # invoke it unless the exact app process that requested this update is
+    # still alive, or an update applied while MetalSharp is closed can open an
+    # old registered bundle and accidentally enter its startup flow.
+    if pid_alive "$APP_PID"; then
+        osascript -e 'tell application id "com.metalsharp.app" to quit' >/dev/null 2>&1 || true
+    fi
     kill_pid "$APP_PID" 5 || true
     force_kill_process_names 2 "MetalSharp" "MetalSharp Helper" "MetalSharp Helper (GPU)" "MetalSharp Helper (Renderer)" "MetalSharp Helper (Plugin)"
 

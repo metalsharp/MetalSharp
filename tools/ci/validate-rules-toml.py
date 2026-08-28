@@ -2,7 +2,7 @@
 """Validate `configs/mtsp-rules.toml` is well-formed.
 
 This is a lightweight validator that runs anywhere Python + `toml` is available,
-without needing the Rust toolchain. It checks:
+without compiling the backend. It checks:
 
 1. The TOML parses.
 2. No duplicate `[overrides.APPID]` top-level sections.

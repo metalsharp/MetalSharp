@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue";
+import { computed, nextTick, ref, onMounted, onUnmounted, type Component } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import type { SharpApp } from "../api-types";
@@ -16,6 +16,15 @@ import IconHardDrive from "~icons/lucide/hard-drive";
 import IconPackage from "~icons/lucide/package";
 import IconScanLine from "~icons/lucide/scan-line";
 import IconShieldCheck from "~icons/lucide/shield-check";
+import IconFlaskConical from "~icons/lucide/flask-conical";
+import IconChevronDown from "~icons/lucide/chevron-down";
+import IconCheck from "~icons/lucide/check";
+import IconLibrary from "~icons/lucide/library";
+import IconRocket from "~icons/lucide/rocket";
+import IconDisc3 from "~icons/lucide/disc-3";
+import IconCpu from "~icons/lucide/cpu";
+import IconMonitorCog from "~icons/lucide/monitor-cog";
+import IconMicroscope from "~icons/lucide/microscope";
 import sharpLogoUrl from "../icon.png";
 
 const refreshIcon = computed(() => themedNavIcon("refresh"));
@@ -177,11 +186,39 @@ interface GameJoltGame {
   install_dir: string;
   exe_path: string;
   installed: boolean;
+  bottleInitialized: boolean;
+  pipeline: string;
+  mouseMode: "no-recenter" | "auto";
   native: boolean;
   engine: string;
   cover_path?: string | null;
   bottle_id?: string;
   available_pipelines: { id: string; name: string; recommended?: boolean }[];
+}
+
+interface EpicStatus {
+  ok: boolean;
+  toolAvailable: boolean;
+  toolVersion: string;
+  toolPath: string;
+  authenticated: boolean;
+  account?: string | null;
+  configPath: string;
+  gameRoot: string;
+  error?: string;
+}
+
+interface EpicGame {
+  appName: string;
+  title: string;
+  version?: string | null;
+  artworkUrl?: string | null;
+  installed: boolean;
+  installPath?: string | null;
+  executable?: string | null;
+  installSize: number;
+  running?: boolean;
+  downloading?: boolean;
 }
 
 interface GogGame {
@@ -429,21 +466,26 @@ interface Rpcs3UpdateProgress {
   targetTag?: string | null;
 }
 
-type SharpSource = "installers" | "gog" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4" | "sharpemu";
+type SharpSource = "installers" | "gog" | "epic" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4" | "sharpemu";
 
 const toast = useToast();
 const sourceMode = ref<SharpSource>("installers");
-const sourceTabs = [
-  { id: "installers" as const, label: "Installers" },
-  { id: "gog" as const, label: "GOG" },
-  { id: "gamejolt" as const, label: "GameJolt" },
-  { id: "pcsx2" as const, label: "PCSX2" },
-  { id: "rpcs3" as const, label: "RPCS3" },
-  { id: "shadps4" as const, label: "ShadPS4" },
-  { id: "sharpemu" as const, label: "SharpEmu" },
+const sourcePickerOpen = ref(false);
+const sourcePickerList = ref<HTMLElement | null>(null);
+const sourceTabs: Array<{ id: SharpSource; label: string; detail: string; icon: Component }> = [
+  { id: "installers", label: "Installers", detail: "Windows applications", icon: IconPackage },
+  { id: "gog", label: "GOG", detail: "GOG games library", icon: IconLibrary },
+  { id: "epic", label: "Epic", detail: "Epic games library", icon: IconGamepad2 },
+  { id: "gamejolt", label: "GameJolt", detail: "Indie games library", icon: IconRocket },
+  { id: "pcsx2", label: "PCSX2", detail: "PlayStation 2", icon: IconDisc3 },
+  { id: "rpcs3", label: "RPCS3", detail: "PlayStation 3", icon: IconCpu },
+  { id: "shadps4", label: "shadPS4", detail: "PlayStation 4", icon: IconMonitorCog },
+  { id: "sharpemu", label: "SharpEmu", detail: "PlayStation 5 research", icon: IconMicroscope },
 ];
+const currentSource = computed(() => sourceTabs.find((source) => source.id === sourceMode.value) ?? sourceTabs[0]);
 const headerTitle = computed(() => {
   if (sourceMode.value === "gog") return "GOG Games Library";
+  if (sourceMode.value === "epic") return "Epic Games Library";
   if (sourceMode.value === "gamejolt") return "GameJolt Library";
   if (sourceMode.value === "pcsx2") return "PCSX2 Library";
   if (sourceMode.value === "rpcs3") return "RPCS3 Library";
@@ -453,6 +495,7 @@ const headerTitle = computed(() => {
 });
 const headerSubtitle = computed(() => {
   if (sourceMode.value === "gog") return "Connect, sync, install, and play GOG games through MetalSharp.";
+  if (sourceMode.value === "epic") return "Connect, sync, install, and play owned Epic games through MetalSharp.";
   if (sourceMode.value === "gamejolt") return "Play GameJolt games from internal or external GameJolt storage.";
   if (sourceMode.value === "pcsx2")
     return "Install, configure, and launch owned PlayStation 2 disc dumps through an isolated PCSX2 environment.";
@@ -484,6 +527,11 @@ const recentLogLines = ref<Record<string, string[]>>({});
 const recentCrashReports = ref<Record<string, CrashReport[]>>({});
 const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
+const epicStatus = ref<EpicStatus | null>(null);
+const epicGames = ref<EpicGame[]>([]);
+const epicLoading = ref<Record<string, boolean>>({});
+const epicProgress = ref<Record<string, number>>({});
+const epicBottleOpen = ref<Record<string, boolean>>({});
 let savedGogEngines: Record<string, string> = {};
 try {
   savedGogEngines = JSON.parse(localStorage.getItem("metalsharp-gog-engines") ?? "{}");
@@ -1966,6 +2014,213 @@ async function removeSharpemuRuntime() {
   } else toast.show(result?.error ?? "Could not remove SharpEmu runtime", "error");
 }
 
+async function refreshEpic(forceSync = false) {
+  const statusResult = await api<EpicStatus>("GET", "/sharp-library/epic/status");
+  if (statusResult?.ok) epicStatus.value = statusResult;
+  if (!statusResult?.ok || !statusResult.authenticated) {
+    epicGames.value = [];
+    return;
+  }
+  const gamesResult = await api<{
+    ok: boolean;
+    authenticated: boolean;
+    account?: string | null;
+    gameRoot: string;
+    games: EpicGame[];
+    error?: string;
+  }>(
+    forceSync ? "POST" : "GET",
+    forceSync ? "/sharp-library/epic/sync" : "/sharp-library/epic/games",
+    {},
+    10 * 60 * 1000,
+  );
+  if (gamesResult?.ok) {
+    epicGames.value = [...(gamesResult.games ?? [])].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
+    );
+    for (const game of epicGames.value) {
+      if (game.downloading && epicProgress.value[game.appName] === undefined) {
+        epicProgress.value[game.appName] = 0;
+        void monitorEpicProgress(game);
+      }
+    }
+  } else if (forceSync) toast.show(gamesResult?.error ?? "Epic library sync failed", "error");
+}
+
+async function installEpicSupport() {
+  epicLoading.value.tool = true;
+  const result = await api<EpicStatus>("POST", "/sharp-library/epic/install-tool", {}, 30 * 60 * 1000);
+  epicLoading.value.tool = false;
+  if (result?.ok && result.toolAvailable) {
+    epicStatus.value = result;
+    toast.show("Epic support installed", "success");
+  } else toast.show(result?.error ?? "Could not install Epic support", "error");
+}
+
+async function loginEpic() {
+  if (!epicStatus.value?.toolAvailable) {
+    await installEpicSupport();
+    if (!epicStatus.value?.toolAvailable) return;
+  }
+  epicLoading.value.login = true;
+  const authorization = await getAPI().epicOAuthLogin();
+  if (!authorization.ok || !authorization.code) {
+    epicLoading.value.login = false;
+    toast.show(authorization.error ?? "Epic sign-in cancelled", "error");
+    return;
+  }
+  const result = await api<EpicStatus>("POST", "/sharp-library/epic/auth", { code: authorization.code }, 90 * 1000);
+  epicLoading.value.login = false;
+  if (result?.ok && result.authenticated) {
+    epicStatus.value = result;
+    toast.show(`Connected to Epic${result.account ? ` as ${result.account}` : ""}`, "success");
+    await syncEpicLibrary();
+  } else toast.show(result?.error ?? "Epic authentication failed", "error");
+}
+
+async function logoutEpic() {
+  if (!confirm("Disconnect Epic Games? Installed games and isolated game bottles will stay on disk.")) return;
+  epicLoading.value.login = true;
+  const result = await api<EpicStatus>("POST", "/sharp-library/epic/logout", {});
+  epicLoading.value.login = false;
+  if (result?.ok) {
+    epicStatus.value = result;
+    epicGames.value = [];
+    toast.show("Epic Games disconnected", "success");
+  } else toast.show(result?.error ?? "Epic logout failed", "error");
+}
+
+async function handleEpicAuthButton() {
+  if (epicStatus.value?.authenticated) await logoutEpic();
+  else await loginEpic();
+}
+
+async function syncEpicLibrary() {
+  epicLoading.value.sync = true;
+  await refreshEpic(true);
+  epicLoading.value.sync = false;
+  if (epicStatus.value?.authenticated) toast.show("Epic library synced", "success");
+}
+
+async function installEpicGame(game: EpicGame) {
+  const installPath = await getAPI().pickDirectory(`Choose install folder for ${game.title}`);
+  if (!installPath) return;
+  epicLoading.value[`${game.appName}:install`] = true;
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>(
+    "POST",
+    "/sharp-library/epic/install",
+    { appName: game.appName, installPath },
+    30 * 1000,
+  );
+  epicLoading.value[`${game.appName}:install`] = false;
+  if (result?.ok) {
+    toast.show(`Downloading ${game.title} to ${installPath}`, "success");
+    void monitorEpicProgress(game);
+  } else toast.show(result?.error ?? `Could not download ${game.title}`, "error");
+}
+
+async function initializeEpicBottle(game: EpicGame) {
+  epicLoading.value[`${game.appName}:initialize`] = true;
+  const result = await api<{ ok: boolean; error?: string }>(
+    "POST",
+    "/sharp-library/epic/initialize",
+    { appName: game.appName, pipeline: game.pipeline || "auto", mouseMode: game.mouseMode || "no-recenter" },
+    5 * 60 * 1000,
+  );
+  epicLoading.value[`${game.appName}:initialize`] = false;
+  if (result?.ok) {
+    game.bottleInitialized = true;
+    toast.show(`${game.title} bottle initialized`, "success");
+  } else toast.show(result?.error ?? `Could not initialize ${game.title}`, "error");
+}
+
+function toggleEpicBottle(game: EpicGame) {
+  epicBottleOpen.value[game.appName] = !epicBottleOpen.value[game.appName];
+}
+
+async function updateEpicBottle(game: EpicGame) {
+  if (!game.bottleInitialized) return;
+  await initializeEpicBottle(game);
+}
+
+async function monitorEpicProgress(game: EpicGame) {
+  for (let attempt = 0; attempt < 21600; attempt++) {
+    const result = await api<{ ok: boolean; active: boolean; percent: number; message?: string; error?: string }>(
+      "POST",
+      "/sharp-library/epic/progress",
+      { appName: game.appName },
+    );
+    if (!result?.ok) return;
+    epicProgress.value[game.appName] = result.percent ?? 0;
+    if (!result.active) {
+      await refreshEpic(false);
+      delete epicProgress.value[game.appName];
+      if (epicLoading.value[`${game.appName}:cancelled`]) {
+        delete epicLoading.value[`${game.appName}:cancelled`];
+        return;
+      }
+      const installed = epicGames.value.find((candidate) => candidate.appName === game.appName)?.installed;
+      toast.show(
+        installed ? `${game.title} installed` : `${game.title} download stopped; inspect its install log`,
+        installed ? "success" : "error",
+      );
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+}
+
+async function cancelEpicInstall(game: EpicGame) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/epic/cancel", {
+    appName: game.appName,
+  });
+  if (result?.ok) {
+    epicLoading.value[`${game.appName}:cancelled`] = true;
+    delete epicProgress.value[game.appName];
+    toast.show(`${game.title} download stopped`, "success");
+  } else toast.show(result?.error ?? `Could not stop ${game.title} download`, "error");
+}
+
+async function playEpicGame(game: EpicGame) {
+  epicLoading.value[`${game.appName}:play`] = true;
+  const result = await api<{ ok: boolean; pid?: number; error?: string }>(
+    "POST",
+    "/sharp-library/epic/play",
+    { appName: game.appName },
+    5 * 60 * 1000,
+  );
+  epicLoading.value[`${game.appName}:play`] = false;
+  if (result?.ok) {
+    game.running = true;
+    toast.show(`${game.title} launched`, "success");
+  } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+}
+
+async function stopEpicGame(game: EpicGame) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/epic/stop", {
+    appName: game.appName,
+  });
+  if (result?.ok) game.running = false;
+  else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+}
+
+async function uninstallEpicGame(game: EpicGame) {
+  if (!confirm(`Uninstall ${game.title}? This deletes its downloaded Epic game files and isolated Wine bottle.`))
+    return;
+  epicLoading.value[`${game.appName}:uninstall`] = true;
+  const result = await api<{ ok: boolean; error?: string }>(
+    "POST",
+    "/sharp-library/epic/uninstall",
+    { appName: game.appName },
+    10 * 60 * 1000,
+  );
+  epicLoading.value[`${game.appName}:uninstall`] = false;
+  if (result?.ok) {
+    await refreshEpic(false);
+    toast.show(`${game.title} uninstalled`, "success");
+  } else toast.show(result?.error ?? `Could not uninstall ${game.title}`, "error");
+}
+
 async function load() {
   const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
     api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
@@ -1990,7 +2245,7 @@ async function load() {
     }
   }
   if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
-  await Promise.all([loadGameJolt(), refreshRpcs3(), refreshShadps4()]);
+  await Promise.all([loadGameJolt(), refreshEpic(false), refreshRpcs3(), refreshShadps4()]);
   await syncGameJolt(false);
 }
 
@@ -2129,7 +2384,7 @@ async function handleGogAuthButton() {
 
 async function loginGog() {
   if (!gogStatus.value?.authUrl) return;
-  // If the Rust backend hasn't staged the OAuth helper yet, refresh status and
+  // If the backend hasn't staged the OAuth helper yet, refresh status and
   // try once more — this protects users who hit Login before the gogdl
   // bootstrap has finished copying tools/gog-oauth-electron into ~/.metalsharp.
   if (gogStatus.value?.oauthHelperAvailable === false) {
@@ -2286,9 +2541,25 @@ async function refreshSharpLibrary() {
   toast.show("Sharp Library refreshed", "success");
 }
 
+async function toggleSourcePicker() {
+  sourcePickerOpen.value = !sourcePickerOpen.value;
+  if (!sourcePickerOpen.value) return;
+  await nextTick();
+  sourcePickerList.value
+    ?.querySelector<HTMLElement>(".sharp-source-option.active")
+    ?.scrollIntoView({ block: "nearest" });
+}
+
+function chooseSource(mode: SharpSource) {
+  sourcePickerOpen.value = false;
+  selectSource(mode);
+}
+
 function selectSource(mode: SharpSource) {
   sourceMode.value = mode;
-  if (mode === "pcsx2") {
+  if (mode === "epic") {
+    void refreshEpic(false);
+  } else if (mode === "pcsx2") {
     void refreshPcsx2();
     if (!pcsx2Update.value) void checkPcsx2Update(false);
   } else if (mode === "shadps4") {
@@ -2318,6 +2589,14 @@ async function refreshCurrentSource() {
   }
   if (sourceMode.value === "sharpemu") {
     await refreshSharpemu(true);
+    return;
+  }
+  if (sourceMode.value === "epic") {
+    if (epicStatus.value?.authenticated) await syncEpicLibrary();
+    else {
+      await refreshEpic(false);
+      toast.show("Epic status refreshed", "success");
+    }
     return;
   }
   if (sourceMode.value === "gog") {
@@ -3046,371 +3325,442 @@ onUnmounted(() => {
         <p>{{ headerSubtitle }}</p>
       </div>
       <div class="sharp-header-controls">
-        <nav class="source-tabs" role="tablist" aria-label="Sharp Library sources">
+        <div class="sharp-source-picker" @keydown.esc="sourcePickerOpen = false">
           <button
-            v-for="tab in sourceTabs"
-            :key="tab.id"
-            class="source-tab"
-            :class="{ active: sourceMode === tab.id }"
+            class="sharp-source-trigger"
+            :class="{ open: sourcePickerOpen }"
             type="button"
-            role="tab"
-            :aria-selected="sourceMode === tab.id"
-            @click="selectSource(tab.id)"
+            aria-haspopup="listbox"
+            :aria-expanded="sourcePickerOpen"
+            aria-label="Choose Sharp Library source"
+            @click="toggleSourcePicker"
           >
-            {{ tab.label }}
+            <span class="sharp-source-trigger-icon">
+              <component :is="currentSource.icon" width="17" height="17" />
+            </span>
+            <span class="sharp-source-trigger-copy">
+              <small>Sharp Source</small>
+              <strong>{{ currentSource.label }}</strong>
+            </span>
+            <IconChevronDown class="sharp-source-chevron" width="16" height="16" />
           </button>
-        </nav>
-        <div v-if="sourceMode === 'pcsx2'" class="emulator-header-actions">
+          <div v-if="sourcePickerOpen" class="sharp-source-backdrop" @click="sourcePickerOpen = false"></div>
+          <div v-if="sourcePickerOpen" class="sharp-source-popover">
+            <div class="sharp-source-popover-header">
+              <span>Sharp Library</span>
+              <small>Choose a collection</small>
+            </div>
+            <div ref="sourcePickerList" class="sharp-source-list" role="listbox" aria-label="Sharp Library sources">
+              <button
+                v-for="source in sourceTabs"
+                :key="source.id"
+                class="sharp-source-option"
+                :class="{ active: sourceMode === source.id }"
+                type="button"
+                role="option"
+                :aria-selected="sourceMode === source.id"
+                @click="chooseSource(source.id)"
+              >
+                <span class="sharp-source-option-icon">
+                  <component :is="source.icon" width="16" height="16" />
+                </span>
+                <span class="sharp-source-option-copy">
+                  <strong>{{ source.label }}</strong>
+                  <small>{{ source.detail }}</small>
+                </span>
+                <IconCheck v-if="sourceMode === source.id" class="sharp-source-check" width="15" height="15" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="sharp-header-actions">
+          <div v-if="sourceMode === 'pcsx2'" class="emulator-header-actions">
+            <button
+              class="btn btn-primary"
+              :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
+              @click="installOrUpdatePcsx2"
+            >
+              <component :is="refreshIcon" width="15" height="15" />
+              {{ pcsx2Loading.update ? "Installing…" : pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+            </button>
+            <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
+              <IconX width="15" height="15" /> Stop PCSX2
+            </button>
+            <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
+              <IconExternalLink width="15" height="15" /> Open PCSX2
+            </button>
+          </div>
+          <div v-else-if="sourceMode === 'rpcs3'" class="emulator-header-actions">
+            <button
+              class="btn btn-primary"
+              :disabled="rpcs3Loading.update || rpcs3Loading.check"
+              @click="installOrUpdateRpcs3"
+            >
+              <component :is="refreshIcon" width="15" height="15" />
+              {{ rpcs3Loading.update ? "Installing…" : rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
+            </button>
+            <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
+              <IconExternalLink width="14" height="14" /> Open RPCS3
+            </button>
+          </div>
+          <div v-else-if="sourceMode === 'shadps4'" class="emulator-header-actions">
+            <button
+              class="btn btn-primary"
+              :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
+              @click="installOrUpdateShadps4"
+            >
+              <component :is="refreshIcon" width="15" height="15" />
+              {{ shadps4Loading.update ? "Installing…" : shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
+            </button>
+          </div>
+          <div v-else-if="sourceMode === 'sharpemu'" class="emulator-header-actions">
+            <button
+              class="btn btn-primary"
+              :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
+              @click="installOrUpdateSharpemu"
+            >
+              <component :is="refreshIcon" width="15" height="15" />
+              {{ sharpemuLoading.update ? "Installing…" : sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
+            </button>
+          </div>
+          <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
+            <IconUpload class="btn-icon" width="14" height="14" />
+            <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
+          </button>
           <button
-            class="btn btn-primary"
-            :disabled="!pcsx2Status?.supported || pcsx2Loading.update || pcsx2Loading.check"
-            @click="installOrUpdatePcsx2"
+            v-if="sourceMode === 'gog'"
+            class="btn btn-secondary"
+            :disabled="gogLoading.setup || gogLoading.removing"
+            :title="
+              gogStatus?.prefixInitialized
+                ? 'Remove the GOG Wine prefix. Downloaded GOG games stay on disk but cannot launch until the prefix is re-created.'
+                : 'Create the isolated Wine prefix required to install and launch GOG games.'
+            "
+            @click="gogStatus?.prefixInitialized ? removeGogPrefix() : initializeGogPrefix()"
           >
-            <component :is="refreshIcon" width="15" height="15" />
-            {{ pcsx2Loading.update ? "Installing…" : pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+            <span class="btn-label-long">{{
+              gogLoading.removing
+                ? "Removing…"
+                : gogLoading.setup
+                  ? "Initializing…"
+                  : gogStatus?.prefixInitialized
+                    ? "Remove Prefix"
+                    : "Initialize GOG Prefix"
+            }}</span
+            ><span class="btn-label-short">Prefix</span>
           </button>
-          <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
-            <IconX width="15" height="15" /> Stop PCSX2
+          <button
+            v-if="sourceMode === 'gog' && showGogInstallMono"
+            class="btn btn-primary"
+            :disabled="
+              gogLoading.mono ||
+              (gogMonoStatus?.running && !gogMonoStatus?.stalled) ||
+              (gogMonoStatus?.downloading && !gogMonoStatus?.stalled)
+            "
+            :title="gogMonoButtonTitle()"
+            @click="installGogMono"
+          >
+            <span class="btn-label-long">{{ gogMonoButtonLabel() }}</span
+            ><span class="btn-label-short">Mono</span>
           </button>
-          <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
-            <IconExternalLink width="15" height="15" /> Open PCSX2
+          <button
+            v-if="sourceMode === 'gog' && showGogInstallMono && (gogMonoStatus?.stalled || gogMonoStatus?.running)"
+            class="btn btn-secondary btn-sm"
+            :disabled="gogLoading.mono"
+            title="Kill any stuck Wine Mono processes and reset the install state"
+            @click="resetGogMonoInstall"
+          >
+            <span class="btn-label-long">Reset</span><span class="btn-label-short">Reset</span>
+          </button>
+          <button v-if="sourceMode === 'gamejolt'" class="btn btn-secondary" @click="chooseGameJoltStorage">
+            <span class="btn-label-long">{{ gamejoltStorage ? "Change Folder" : "Choose GameJolt Folder" }}</span>
+            <span class="btn-label-short">{{ gamejoltStorage ? "Change" : "Folder" }}</span>
+          </button>
+          <button
+            v-if="sourceMode === 'epic' && !epicStatus?.toolAvailable"
+            class="btn btn-secondary"
+            :disabled="epicLoading.tool"
+            @click="installEpicSupport"
+          >
+            <IconDownload width="14" height="14" />
+            <span class="btn-label-long">{{ epicLoading.tool ? "Installing…" : "Install Epic Support" }}</span>
+            <span class="btn-label-short">Setup</span>
+          </button>
+          <button
+            v-if="sourceMode === 'epic' && epicStatus?.toolAvailable"
+            class="btn btn-primary"
+            :disabled="epicLoading.login"
+            :title="epicStatus?.authenticated ? 'Disconnect this Epic account' : 'Sign in through Epic Games'"
+            @click="handleEpicAuthButton"
+          >
+            <span class="btn-label-long">{{
+              epicStatus?.authenticated
+                ? epicStatus.account || "Epic Connected"
+                : epicLoading.login
+                  ? "Connecting…"
+                  : "Login to Epic"
+            }}</span>
+            <span class="btn-label-short">{{ epicStatus?.authenticated ? "Connected" : "Login" }}</span>
+          </button>
+          <button
+            v-if="sourceMode === 'gog'"
+            class="btn btn-primary"
+            :disabled="gogLoading.login || !gogStatus?.prefixInitialized"
+            :title="
+              gogStatus?.oauthHelperAvailable === false
+                ? 'GOG OAuth helper is missing; click “Prefix” or refresh to stage the new bundled helper.'
+                : 'Sign in to GOG to enable library sync and downloads'
+            "
+            @click="handleGogAuthButton"
+          >
+            <span class="btn-label-long">{{
+              gogStatus?.authenticated ? "GOG Connected" : gogLoading.login ? "Connecting…" : "Login to GOG"
+            }}</span
+            ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
+          </button>
+          <button
+            v-if="
+              sourceMode !== 'pcsx2' && sourceMode !== 'rpcs3' && sourceMode !== 'shadps4' && sourceMode !== 'sharpemu'
+            "
+            class="btn btn-secondary"
+            :disabled="(sourceMode === 'gog' && gogLoading.sync) || (sourceMode === 'epic' && epicLoading.sync)"
+            @click="sourceMode === 'gamejolt' ? syncGameJolt() : refreshCurrentSource()"
+          >
+            <component :is="refreshIcon" class="btn-icon" width="14" height="14" />
+            <span class="btn-label-long">{{
+              sourceMode === "gog"
+                ? gogLoading.sync
+                  ? "Syncing…"
+                  : "Sync GOG"
+                : sourceMode === "epic"
+                  ? epicLoading.sync
+                    ? "Syncing…"
+                    : "Sync Epic"
+                  : sourceMode === "gamejolt"
+                    ? gamejoltLoading
+                      ? "Scanning…"
+                      : "Sync GameJolt"
+                    : "Refresh"
+            }}</span
+            ><span class="btn-label-short">{{
+              sourceMode === "gog" || sourceMode === "epic" || sourceMode === "gamejolt" ? "Sync" : "Refresh"
+            }}</span>
           </button>
         </div>
-        <div v-else-if="sourceMode === 'rpcs3'" class="emulator-header-actions">
-          <button
-            class="btn btn-primary"
-            :disabled="rpcs3Loading.update || rpcs3Loading.check"
-            @click="installOrUpdateRpcs3"
-          >
-            <component :is="refreshIcon" width="15" height="15" />
-            {{ rpcs3Loading.update ? "Installing…" : rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
-          </button>
-          <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
-            <IconExternalLink width="14" height="14" /> Open RPCS3
-          </button>
-        </div>
-        <div v-else-if="sourceMode === 'shadps4'" class="emulator-header-actions">
-          <button
-            class="btn btn-primary"
-            :disabled="!shadps4Status?.supported || shadps4Loading.update || shadps4Loading.check"
-            @click="installOrUpdateShadps4"
-          >
-            <component :is="refreshIcon" width="15" height="15" />
-            {{ shadps4Loading.update ? "Installing…" : shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
-          </button>
-        </div>
-        <div v-else-if="sourceMode === 'sharpemu'" class="emulator-header-actions">
-          <button
-            class="btn btn-primary"
-            :disabled="!sharpemuStatus?.supported || sharpemuLoading.update || sharpemuLoading.check"
-            @click="installOrUpdateSharpemu"
-          >
-            <component :is="refreshIcon" width="15" height="15" />
-            {{ sharpemuLoading.update ? "Installing…" : sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
-          </button>
-        </div>
-        <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
-          <IconUpload class="btn-icon" width="14" height="14" />
-          <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
-        </button>
-        <button
-          v-if="sourceMode === 'gog'"
-          class="btn btn-secondary"
-          :disabled="gogLoading.setup || gogLoading.removing"
-          :title="
-            gogStatus?.prefixInitialized
-              ? 'Remove the GOG Wine prefix. Downloaded GOG games stay on disk but cannot launch until the prefix is re-created.'
-              : 'Create the isolated Wine prefix required to install and launch GOG games.'
-          "
-          @click="gogStatus?.prefixInitialized ? removeGogPrefix() : initializeGogPrefix()"
-        >
-          <span class="btn-label-long">{{
-            gogLoading.removing
-              ? "Removing…"
-              : gogLoading.setup
-                ? "Initializing…"
-                : gogStatus?.prefixInitialized
-                  ? "Remove Prefix"
-                  : "Initialize GOG Prefix"
-          }}</span
-          ><span class="btn-label-short">Prefix</span>
-        </button>
-        <button
-          v-if="sourceMode === 'gog' && showGogInstallMono"
-          class="btn btn-primary"
-          :disabled="
-            gogLoading.mono ||
-            (gogMonoStatus?.running && !gogMonoStatus?.stalled) ||
-            (gogMonoStatus?.downloading && !gogMonoStatus?.stalled)
-          "
-          :title="gogMonoButtonTitle()"
-          @click="installGogMono"
-        >
-          <span class="btn-label-long">{{ gogMonoButtonLabel() }}</span
-          ><span class="btn-label-short">Mono</span>
-        </button>
-        <button
-          v-if="sourceMode === 'gog' && showGogInstallMono && (gogMonoStatus?.stalled || gogMonoStatus?.running)"
-          class="btn btn-secondary btn-sm"
-          :disabled="gogLoading.mono"
-          title="Kill any stuck Wine Mono processes and reset the install state"
-          @click="resetGogMonoInstall"
-        >
-          <span class="btn-label-long">Reset</span><span class="btn-label-short">Reset</span>
-        </button>
-        <button v-if="sourceMode === 'gamejolt'" class="btn btn-secondary" @click="chooseGameJoltStorage">
-          <span class="btn-label-long">{{ gamejoltStorage ? "Change Folder" : "Choose GameJolt Folder" }}</span>
-          <span class="btn-label-short">{{ gamejoltStorage ? "Change" : "Folder" }}</span>
-        </button>
-        <button
-          v-if="sourceMode === 'gog'"
-          class="btn btn-primary"
-          :disabled="gogLoading.login || !gogStatus?.prefixInitialized"
-          :title="
-            gogStatus?.oauthHelperAvailable === false
-              ? 'GOG OAuth helper is missing; click “Prefix” or refresh to stage the new bundled helper.'
-              : 'Sign in to GOG to enable library sync and downloads'
-          "
-          @click="handleGogAuthButton"
-        >
-          <span class="btn-label-long">{{
-            gogStatus?.authenticated ? "GOG Connected" : gogLoading.login ? "Connecting…" : "Login to GOG"
-          }}</span
-          ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
-        </button>
-        <button
-          v-if="
-            sourceMode !== 'pcsx2' && sourceMode !== 'rpcs3' && sourceMode !== 'shadps4' && sourceMode !== 'sharpemu'
-          "
-          class="btn btn-secondary"
-          :disabled="sourceMode === 'gog' && gogLoading.sync"
-          @click="sourceMode === 'gamejolt' ? syncGameJolt() : refreshCurrentSource()"
-        >
-          <component :is="refreshIcon" class="btn-icon" width="14" height="14" />
-          <span class="btn-label-long">{{
-            sourceMode === "gog"
-              ? gogLoading.sync
-                ? "Syncing…"
-                : "Sync GOG"
-              : sourceMode === "gamejolt"
-                ? gamejoltLoading
-                  ? "Scanning…"
-                  : "Sync GameJolt"
-                : "Refresh"
-          }}</span
-          ><span class="btn-label-short">{{
-            sourceMode === "gog" || sourceMode === "gamejolt" ? "Sync" : "Refresh"
-          }}</span>
-        </button>
       </div>
     </div>
 
     <div class="sharp-body view-body-surface">
       <template v-if="sourceMode === 'installers'">
-        <div v-if="apps.length === 0" class="empty-state">
-          <div class="empty-icon">
-            <IconMonitor width="48" height="48" />
-          </div>
-          <h2>No applications installed</h2>
-          <p>Click "Install Windows Program" to add a Windows application</p>
-        </div>
+        <section class="installer-workspace">
+          <div class="installer-library-column">
+            <div v-if="apps.length === 0" class="empty-state">
+              <div class="empty-icon">
+                <IconMonitor width="48" height="48" />
+              </div>
+              <h2>No applications installed</h2>
+              <p>Install a Windows program to add it to the Sharp Library.</p>
+            </div>
 
-        <div v-else class="sharp-grid">
-          <div v-for="app in apps" :key="app.id" class="sharp-card" :class="{ running: runningSharpPids[app.id] }">
-            <div class="sharp-card-banner">
-              <img
-                v-if="app.cover"
-                :src="`http://127.0.0.1:9274/sharp-library/cover?id=${app.id}`"
-                :alt="app.name"
-                :style="{ objectPosition: coverPosition(app) }"
-              />
-              <img v-else :src="sharpLogoUrl" :alt="`${app.name} default artwork`" class="sharp-cover-fallback" />
-              <button
-                v-if="runningSharpPids[app.id]"
-                class="running-close-button"
-                title="Close application"
-                @click="stopSharpApp(app)"
-              >
-                <IconX width="14" height="14" />
-              </button>
-            </div>
-            <div class="sharp-card-body">
-              <div class="sharp-card-title">{{ app.name }}</div>
-              <div class="sharp-card-meta">
-                <span class="badge badge-ok">Sharp App</span>
-                <span v-if="bottleForApp(app)" class="badge" :class="bottleBadgeClass(bottleForApp(app)!.health)">
-                  {{ bottleBadgeLabel(bottleForApp(app)!) }}
-                </span>
-                <span class="sharp-card-size">{{ formatBytes(app.size_bytes) }}</span>
-              </div>
-              <div
-                v-if="bottleForApp(app)?.last_launch_status === 'exited' && bottleForApp(app)?.last_launch_log"
-                class="sharp-card-bottle"
-              >
-                <span class="sharp-card-launch-log">
-                  <a
-                    href="#"
-                    @click.prevent="openBottleLaunchLog(bottleForApp(app)!)"
-                    :title="bottleForApp(app)!.last_launch_log ?? ''"
-                  >
-                    Open launch log
-                  </a>
-                </span>
-              </div>
-              <div class="sharp-card-actions">
-                <div class="sharp-card-actions-row">
-                  <button v-if="runningSharpPids[app.id]" class="btn btn-stop" @click="stopSharpApp(app)">Stop</button>
-                  <button v-else class="btn btn-play" @click="launchApp(app.id, app.engine)">Play</button>
-                  <select
-                    class="control-input"
-                    :value="app.engine"
-                    @change="updateEngine(app.id, ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option v-if="app.engine === 'm12'" value="m12" hidden>M12</option>
-                    <option v-for="option in engineOptions" :key="option.id" :value="option.id">
-                      {{ option.name }}
-                    </option>
-                  </select>
+            <div v-else class="sharp-grid">
+              <div v-for="app in apps" :key="app.id" class="sharp-card" :class="{ running: runningSharpPids[app.id] }">
+                <div class="sharp-card-banner">
+                  <img
+                    v-if="app.cover"
+                    :src="`http://127.0.0.1:9274/sharp-library/cover?id=${app.id}`"
+                    :alt="app.name"
+                    :style="{ objectPosition: coverPosition(app) }"
+                  />
+                  <img v-else :src="sharpLogoUrl" :alt="`${app.name} default artwork`" class="sharp-cover-fallback" />
                   <button
-                    class="btn btn-secondary sharp-tools-button"
-                    type="button"
-                    :aria-expanded="cardToolsOpen[app.id] === true"
-                    @click="cardToolsOpen[app.id] = !cardToolsOpen[app.id]"
+                    v-if="runningSharpPids[app.id]"
+                    class="running-close-button"
+                    title="Close application"
+                    @click="stopSharpApp(app)"
                   >
-                    Tools
+                    <IconX width="14" height="14" />
                   </button>
                 </div>
-                <div v-if="cardToolsOpen[app.id]" class="sharp-card-tools">
-                  <div class="sharp-tool-actions">
-                    <button class="btn btn-secondary btn-sm" @click="setCover(app.id)">Set Cover</button>
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      :disabled="!app.bottle_id"
-                      :title="
-                        app.bottle_id
-                          ? 'Copy a file into this app bottle prefix'
-                          : 'This app is not associated with a bottle'
-                      "
-                      @click="addAsset(app)"
-                    >
-                      Add Asset
-                    </button>
+                <div class="sharp-card-body">
+                  <div class="sharp-card-title">{{ app.name }}</div>
+                  <div class="sharp-card-meta">
+                    <span class="badge badge-ok">Sharp App</span>
+                    <span v-if="bottleForApp(app)" class="badge" :class="bottleBadgeClass(bottleForApp(app)!.health)">
+                      {{ bottleBadgeLabel(bottleForApp(app)!) }}
+                    </span>
+                    <span class="sharp-card-size">{{ formatBytes(app.size_bytes) }}</span>
                   </div>
-                  <div v-if="app.cover" class="cover-position-controls">
-                    <label>
-                      <span>X</span>
-                      <input
-                        v-model.number="app.cover_position_x"
-                        type="range"
-                        min="0"
-                        max="100"
-                        @change="updateCoverPosition(app)"
-                      />
-                    </label>
-                    <label>
-                      <span>Y</span>
-                      <input
-                        v-model.number="app.cover_position_y"
-                        type="range"
-                        min="0"
-                        max="100"
-                        @change="updateCoverPosition(app)"
-                      />
-                    </label>
-                  </div>
-                  <button class="btn btn-danger btn-sm sharp-uninstall-button" @click="uninstallApp(app.id)">
-                    Uninstall
-                  </button>
-                </div>
-                <div v-if="launchErrors[app.id]" class="launch-failure">
-                  <span>Last launch failed</span>
-                  <strong>{{ launchErrors[app.id] }}</strong>
-                </div>
-                <details v-if="doctorOpen[app.id]" class="doctor-panel" open>
-                  <summary class="drawer-summary">
-                    <span>Launch Doctor</span>
-                    <small>{{ doctorReports[app.id]?.summary ?? "Checking launch prerequisites" }}</small>
-                  </summary>
-                  <div v-if="doctorLoading[app.id]" class="doctor-loading">Checking launch prerequisites...</div>
-                  <template v-else-if="doctorReports[app.id]">
-                    <div class="doctor-summary">
-                      <span class="badge" :class="doctorReports[app.id]?.ready ? 'badge-ok' : 'badge-warn'">
-                        {{ doctorReports[app.id]?.ready ? "Ready" : "Blocked" }}
-                      </span>
-                      <span>{{ doctorReports[app.id]?.summary }}</span>
-                    </div>
-                    <div class="doctor-checks">
-                      <div
-                        v-for="check in doctorReports[app.id]?.checks ?? []"
-                        :key="check.id"
-                        class="doctor-check"
-                        :class="{ failed: !check.ok }"
+                  <div
+                    v-if="bottleForApp(app)?.last_launch_status === 'exited' && bottleForApp(app)?.last_launch_log"
+                    class="sharp-card-bottle"
+                  >
+                    <span class="sharp-card-launch-log">
+                      <a
+                        href="#"
+                        @click.prevent="openBottleLaunchLog(bottleForApp(app)!)"
+                        :title="bottleForApp(app)!.last_launch_log ?? ''"
                       >
-                        <span class="doctor-check-state">{{ check.ok ? "OK" : "!" }}</span>
-                        <span class="doctor-check-label">{{ check.label }}</span>
-                        <span class="doctor-check-detail">
-                          {{ check.detail }}
-                          <button
-                            v-if="!check.ok || check.id === 'launcher_exe'"
-                            class="doctor-action"
-                            @click="runDoctorAction(app, check)"
-                          >
-                            {{ doctorActionLabel(check, app) }}
-                          </button>
-                        </span>
+                        Open launch log
+                      </a>
+                    </span>
+                  </div>
+                  <div class="sharp-card-actions">
+                    <div class="sharp-card-actions-row">
+                      <button v-if="runningSharpPids[app.id]" class="btn btn-stop" @click="stopSharpApp(app)">
+                        Stop
+                      </button>
+                      <button v-else class="btn btn-play" @click="launchApp(app.id, app.engine)">Play</button>
+                      <select
+                        class="control-input"
+                        :value="app.engine"
+                        @change="updateEngine(app.id, ($event.target as HTMLSelectElement).value)"
+                      >
+                        <option v-if="app.engine === 'm12'" value="m12" hidden>M12</option>
+                        <option v-for="option in engineOptions" :key="option.id" :value="option.id">
+                          {{ option.name }}
+                        </option>
+                      </select>
+                      <button
+                        class="btn btn-secondary sharp-tools-button"
+                        type="button"
+                        :aria-expanded="cardToolsOpen[app.id] === true"
+                        @click="cardToolsOpen[app.id] = !cardToolsOpen[app.id]"
+                      >
+                        Tools
+                      </button>
+                    </div>
+                    <div v-if="cardToolsOpen[app.id]" class="sharp-card-tools">
+                      <div class="sharp-tool-actions">
+                        <button class="btn btn-secondary btn-sm" @click="setCover(app.id)">Set Cover</button>
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          :disabled="!app.bottle_id"
+                          :title="
+                            app.bottle_id
+                              ? 'Copy a file into this app bottle prefix'
+                              : 'This app is not associated with a bottle'
+                          "
+                          @click="addAsset(app)"
+                        >
+                          Add Asset
+                        </button>
                       </div>
+                      <div v-if="app.cover" class="cover-position-controls">
+                        <label>
+                          <span>X</span>
+                          <input
+                            v-model.number="app.cover_position_x"
+                            type="range"
+                            min="0"
+                            max="100"
+                            @change="updateCoverPosition(app)"
+                          />
+                        </label>
+                        <label>
+                          <span>Y</span>
+                          <input
+                            v-model.number="app.cover_position_y"
+                            type="range"
+                            min="0"
+                            max="100"
+                            @change="updateCoverPosition(app)"
+                          />
+                        </label>
+                      </div>
+                      <button class="btn btn-danger btn-sm sharp-uninstall-button" @click="uninstallApp(app.id)">
+                        Uninstall
+                      </button>
                     </div>
-                    <div v-if="doctorReports[app.id]?.recipe.launch_args.length" class="doctor-notes">
-                      <div>Args: {{ doctorReports[app.id]?.recipe.launch_args.join(" ") }}</div>
+                    <div v-if="launchErrors[app.id]" class="launch-failure">
+                      <span>Last launch failed</span>
+                      <strong>{{ launchErrors[app.id] }}</strong>
                     </div>
-                    <div v-if="doctorReports[app.id]?.blockers.length" class="doctor-notes blocked">
-                      <div v-for="blocker in doctorReports[app.id]?.blockers" :key="blocker">{{ blocker }}</div>
-                    </div>
-                    <div v-if="doctorReports[app.id]?.warnings.length" class="doctor-notes">
-                      <div v-for="warning in doctorReports[app.id]?.warnings" :key="warning">{{ warning }}</div>
-                    </div>
-                  </template>
-                </details>
-                <details v-if="diagnosticsOpen[app.id]" class="diagnostics-panel" open>
-                  <summary class="drawer-summary">
-                    <span>Logs and crash reports</span>
-                    <small
-                      >{{ recentCrashReports[app.id]?.length ?? 0 }} crash reports ·
-                      {{ recentLogLines[app.id]?.length ?? 0 }} log lines</small
-                    >
-                  </summary>
-                  <div class="diagnostics-toolbar">
-                    <button class="btn btn-secondary btn-sm" @click="clearShaderCache(app)">
-                      Clear All Shader Caches
-                    </button>
-                    <button class="btn btn-secondary btn-sm" @click="openLogFolder">Open Logs</button>
-                    <button class="btn btn-secondary btn-sm" @click="copyDiagnosticBundle(app)">Copy Bundle</button>
+                    <details v-if="doctorOpen[app.id]" class="doctor-panel" open>
+                      <summary class="drawer-summary">
+                        <span>Launch Doctor</span>
+                        <small>{{ doctorReports[app.id]?.summary ?? "Checking launch prerequisites" }}</small>
+                      </summary>
+                      <div v-if="doctorLoading[app.id]" class="doctor-loading">Checking launch prerequisites...</div>
+                      <template v-else-if="doctorReports[app.id]">
+                        <div class="doctor-summary">
+                          <span class="badge" :class="doctorReports[app.id]?.ready ? 'badge-ok' : 'badge-warn'">
+                            {{ doctorReports[app.id]?.ready ? "Ready" : "Blocked" }}
+                          </span>
+                          <span>{{ doctorReports[app.id]?.summary }}</span>
+                        </div>
+                        <div class="doctor-checks">
+                          <div
+                            v-for="check in doctorReports[app.id]?.checks ?? []"
+                            :key="check.id"
+                            class="doctor-check"
+                            :class="{ failed: !check.ok }"
+                          >
+                            <span class="doctor-check-state">{{ check.ok ? "OK" : "!" }}</span>
+                            <span class="doctor-check-label">{{ check.label }}</span>
+                            <span class="doctor-check-detail">
+                              {{ check.detail }}
+                              <button
+                                v-if="!check.ok || check.id === 'launcher_exe'"
+                                class="doctor-action"
+                                @click="runDoctorAction(app, check)"
+                              >
+                                {{ doctorActionLabel(check, app) }}
+                              </button>
+                            </span>
+                          </div>
+                        </div>
+                        <div v-if="doctorReports[app.id]?.recipe.launch_args.length" class="doctor-notes">
+                          <div>Args: {{ doctorReports[app.id]?.recipe.launch_args.join(" ") }}</div>
+                        </div>
+                        <div v-if="doctorReports[app.id]?.blockers.length" class="doctor-notes blocked">
+                          <div v-for="blocker in doctorReports[app.id]?.blockers" :key="blocker">{{ blocker }}</div>
+                        </div>
+                        <div v-if="doctorReports[app.id]?.warnings.length" class="doctor-notes">
+                          <div v-for="warning in doctorReports[app.id]?.warnings" :key="warning">{{ warning }}</div>
+                        </div>
+                      </template>
+                    </details>
+                    <details v-if="diagnosticsOpen[app.id]" class="diagnostics-panel" open>
+                      <summary class="drawer-summary">
+                        <span>Logs and crash reports</span>
+                        <small
+                          >{{ recentCrashReports[app.id]?.length ?? 0 }} crash reports ·
+                          {{ recentLogLines[app.id]?.length ?? 0 }} log lines</small
+                        >
+                      </summary>
+                      <div class="diagnostics-toolbar">
+                        <button class="btn btn-secondary btn-sm" @click="clearShaderCache(app)">
+                          Clear All Shader Caches
+                        </button>
+                        <button class="btn btn-secondary btn-sm" @click="openLogFolder">Open Logs</button>
+                        <button class="btn btn-secondary btn-sm" @click="copyDiagnosticBundle(app)">Copy Bundle</button>
+                      </div>
+                      <div v-if="recentCrashReports[app.id]?.length" class="diagnostics-section">
+                        <div class="diagnostics-title">Recent crash reports</div>
+                        <div v-for="report in recentCrashReports[app.id]" :key="report.file" class="crash-row">
+                          <span>{{ report.name }}</span>
+                          <small>{{ report.timestamp }} · {{ report.source }}</small>
+                        </div>
+                      </div>
+                      <div class="diagnostics-section">
+                        <div class="diagnostics-title">Recent launch log</div>
+                        <pre class="log-tail">{{
+                          (recentLogLines[app.id] ?? ["No recent log lines loaded."]).join("\n")
+                        }}</pre>
+                      </div>
+                    </details>
                   </div>
-                  <div v-if="recentCrashReports[app.id]?.length" class="diagnostics-section">
-                    <div class="diagnostics-title">Recent crash reports</div>
-                    <div v-for="report in recentCrashReports[app.id]" :key="report.file" class="crash-row">
-                      <span>{{ report.name }}</span>
-                      <small>{{ report.timestamp }} · {{ report.source }}</small>
-                    </div>
-                  </div>
-                  <div class="diagnostics-section">
-                    <div class="diagnostics-title">Recent launch log</div>
-                    <pre class="log-tail">{{
-                      (recentLogLines[app.id] ?? ["No recent log lines loaded."]).join("\n")
-                    }}</pre>
-                  </div>
-                </details>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </section>
       </template>
 
       <template v-else-if="sourceMode === 'gog'">
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-            <h2>gogdl is not installed</h2>
-            <p>Install gogdl under ~/.metalsharp/tools/gogdl or set METALSHARP_GOGDL_BIN.</p>
+            <h2>Init The Prefix To Get Started</h2>
           </div>
           <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
             <h2>Initialize GOG prefix</h2>
@@ -3485,7 +3835,7 @@ onUnmounted(() => {
                       Stop
                     </button>
                     <button
-                      v-else-if="game.installed"
+                      v-else-if="game.installed && game.bottleInitialized"
                       class="btn btn-play"
                       :disabled="gogLoading[`${game.productId}:play`]"
                       @click="playGogGame(game)"
@@ -3527,6 +3877,156 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="sourceMode === 'epic'">
+        <section class="gog-panel epic-panel">
+          <div v-if="!epicStatus?.toolAvailable" class="empty-state compact">
+            <h2>Install Epic support</h2>
+            <p>
+              MetalSharp uses the pinned open-source Legendary client to access your owned library without running the
+              Epic Games Launcher. Downloads stay under {{ epicStatus?.gameRoot || "MetalSharp’s Epic library" }}.
+            </p>
+          </div>
+          <div v-else-if="!epicStatus?.authenticated" class="empty-state compact">
+            <h2>Login to Epic Games</h2>
+            <p>Sign in through Epic’s website. MetalSharp stores Legendary account state only under ~/.metalsharp.</p>
+          </div>
+          <div v-else-if="epicGames.length === 0" class="empty-state compact">
+            <h2>No installable Epic games found</h2>
+            <p>
+              Sync your library after adding games to your Epic account. Third-party launcher-only titles are omitted.
+            </p>
+          </div>
+
+          <div v-else class="sharp-grid">
+            <article
+              v-for="game in epicGames"
+              :key="game.appName"
+              class="sharp-card gog-card epic-card"
+              :class="{ running: game.running }"
+            >
+              <div class="sharp-card-banner">
+                <img v-if="game.artworkUrl" :src="game.artworkUrl" :alt="game.title" />
+                <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
+                <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopEpicGame(game)">
+                  <IconX width="14" height="14" />
+                </button>
+              </div>
+              <div class="sharp-card-body">
+                <div class="sharp-card-title">{{ game.title }}</div>
+                <div class="sharp-card-meta">
+                  <span class="badge" :class="game.running || game.installed ? 'badge-ok' : 'badge-muted'">
+                    {{
+                      game.running
+                        ? "Running"
+                        : game.downloading
+                          ? "Downloading"
+                          : game.installed
+                            ? "Installed"
+                            : "Epic"
+                    }}
+                  </span>
+                  <span v-if="game.version" class="sharp-card-size">{{ game.version }}</span>
+                  <span v-else-if="game.installSize" class="sharp-card-size">{{ formatBytes(game.installSize) }}</span>
+                </div>
+                <div v-if="epicProgress[game.appName] !== undefined && !game.installed" class="gog-progress">
+                  <div class="gog-progress-bar">
+                    <span :style="{ width: `${epicProgress[game.appName] ?? 0}%` }"></span>
+                  </div>
+                  <small>{{ Math.floor(epicProgress[game.appName] ?? 0) }}%</small>
+                </div>
+                <div class="sharp-card-actions">
+                  <div class="sharp-card-actions-row" :class="{ 'epic-installed-actions': game.installed }">
+                    <button
+                      v-if="game.installed"
+                      class="icon-button epic-bottle-button"
+                      :aria-expanded="Boolean(epicBottleOpen[game.appName])"
+                      title="Bottle"
+                      @click="toggleEpicBottle(game)"
+                    >
+                      <IconFlaskConical width="17" height="17" />
+                    </button>
+                    <button v-if="game.running" class="btn btn-stop" @click="stopEpicGame(game)">Stop</button>
+                    <button
+                      v-else-if="game.installed && game.bottleInitialized"
+                      class="btn btn-play"
+                      :disabled="epicLoading[`${game.appName}:play`]"
+                      @click="playEpicGame(game)"
+                    >
+                      {{ epicLoading[`${game.appName}:play`] ? "Starting…" : "Play" }}
+                    </button>
+                    <button
+                      v-else-if="game.installed"
+                      class="btn btn-primary"
+                      :disabled="epicLoading[`${game.appName}:initialize`]"
+                      @click="initializeEpicBottle(game)"
+                    >
+                      {{ epicLoading[`${game.appName}:initialize`] ? "Initializing…" : "Initialize Bottle" }}
+                    </button>
+                    <button
+                      v-else-if="epicProgress[game.appName] !== undefined"
+                      class="btn btn-stop"
+                      @click="cancelEpicInstall(game)"
+                    >
+                      Stop Download
+                    </button>
+                    <button
+                      v-else
+                      class="btn btn-primary"
+                      :disabled="epicLoading[`${game.appName}:install`]"
+                      @click="installEpicGame(game)"
+                    >
+                      {{ epicLoading[`${game.appName}:install`] ? "Starting…" : "Install" }}
+                    </button>
+                    <button
+                      v-if="game.installed"
+                      class="btn btn-danger"
+                      :disabled="epicLoading[`${game.appName}:uninstall`] || game.running"
+                      @click="uninstallEpicGame(game)"
+                    >
+                      Uninstall
+                    </button>
+                  </div>
+                  <div v-if="game.installed && epicBottleOpen[game.appName]" class="epic-bottle-dropdown">
+                    <div class="epic-bottle-heading">
+                      <span>Bottle Options</span>
+                      <span class="badge" :class="game.bottleInitialized ? 'badge-ok' : 'badge-warn'">
+                        {{ game.bottleInitialized ? "Ready" : "Initialize Required" }}
+                      </span>
+                    </div>
+                    <label class="epic-bottle-field">
+                      <span>Graphics Backend</span>
+                      <select
+                        v-model="game.pipeline"
+                        class="control-input gog-pipeline-select"
+                        aria-label="Epic bottle pipeline"
+                        @change="updateEpicBottle(game)"
+                      >
+                        <option value="auto">Auto</option>
+                        <option v-for="option in engineOptions" :key="option.id" :value="option.id">
+                          {{ option.name }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="epic-bottle-field">
+                      <span>Mouse</span>
+                      <select
+                        v-model="game.mouseMode"
+                        class="control-input gog-pipeline-select"
+                        aria-label="Epic bottle mouse mode"
+                        @change="updateEpicBottle(game)"
+                      >
+                        <option value="no-recenter">No Recenter</option>
+                        <option value="auto">Mouse Auto</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </article>
           </div>
         </section>
       </template>
@@ -4757,6 +5257,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
   position: relative;
+  z-index: 5;
 }
 .sharp-body {
   flex: 1;
@@ -4784,7 +5285,11 @@ onUnmounted(() => {
 }
 @media (max-width: 1040px) {
   .sharp-header {
-    height: 202px;
+    height: 160px;
+  }
+  .sharp-header-controls,
+  .sharp-header-actions {
+    flex-wrap: nowrap;
   }
 }
 .btn-label-short {
@@ -4804,6 +5309,13 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sharp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .btn-icon {
   flex-shrink: 0;
@@ -4844,49 +5356,205 @@ onUnmounted(() => {
 .emulator-header-actions .btn {
   gap: 7px;
 }
-.source-tabs {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 2px;
-  min-height: 34px;
-  max-width: 100%;
-  overflow-x: auto;
-  flex-shrink: 1;
-  border-bottom: 1px solid var(--border-strong);
-  scrollbar-width: none;
-}
-.source-tabs::-webkit-scrollbar {
-  display: none;
-}
-.source-tab {
-  flex: 0 0 auto;
+.sharp-source-picker {
   position: relative;
-  padding: 0 12px;
-  color: var(--text-secondary);
-  border: 0;
+  z-index: 42;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+.sharp-source-trigger {
+  position: relative;
+  z-index: 44;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  width: 218px;
+  height: 40px;
+  padding: 5px 10px 5px 6px;
+  overflow: hidden;
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 5%, transparent), transparent 58%),
+    color-mix(in srgb, var(--bg-card) 90%, transparent);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.045),
+    0 5px 18px color-mix(in srgb, var(--card-glow) 55%, transparent);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition);
+}
+.sharp-source-trigger:hover,
+.sharp-source-trigger.open {
+  border-color: var(--accent-dim);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 7%, transparent), transparent 60%),
+    color-mix(in srgb, var(--bg-card-hover) 90%, transparent);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.06),
+    0 7px 22px var(--card-glow);
+}
+.sharp-source-trigger-icon,
+.sharp-source-option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-glow) 76%, transparent);
+}
+.sharp-source-trigger-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.sharp-source-trigger-copy,
+.sharp-source-option-copy {
+  display: grid;
+  min-width: 0;
+}
+.sharp-source-trigger-copy {
+  gap: 1px;
+}
+.sharp-source-trigger-copy small {
+  color: var(--text-dim);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sharp-source-trigger-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sharp-source-chevron {
+  color: var(--text-dim);
+  transition:
+    transform var(--transition),
+    color var(--transition);
+}
+.sharp-source-trigger.open .sharp-source-chevron {
+  color: var(--accent);
+  transform: rotate(180deg);
+}
+.sharp-source-backdrop {
+  position: fixed;
+  z-index: 41;
+  inset: 0;
+}
+.sharp-source-popover {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 262px;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-card) 96%, transparent);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.05),
+    0 18px 42px color-mix(in srgb, var(--card-glow) 82%, rgba(0, 0, 0, 0.34));
+  backdrop-filter: blur(24px) saturate(145%);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
+}
+.sharp-source-popover-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 5px 9px 8px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.sharp-source-popover-header small {
+  opacity: 0.7;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+}
+.sharp-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(55vh, 352px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--accent-dim) transparent;
+  scrollbar-width: thin;
+}
+.sharp-source-list::-webkit-scrollbar {
+  width: 4px;
+}
+.sharp-source-list::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: var(--accent-dim);
+}
+.sharp-source-option {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 5px 9px 5px 6px;
+  color: var(--text-primary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
-  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition);
+}
+.sharp-source-option:hover {
+  border-color: var(--border);
+  background: var(--sidebar-hover);
+}
+.sharp-source-option.active {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent-glow) 82%, transparent), transparent 92%),
+    color-mix(in srgb, var(--accent-glow) 34%, transparent);
+}
+.sharp-source-option-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+.sharp-source-option-copy {
+  gap: 2px;
+}
+.sharp-source-option-copy strong {
+  overflow: hidden;
   font-size: 12px;
   font-weight: 700;
-  cursor: pointer;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.source-tab::after {
-  position: absolute;
-  right: 8px;
-  bottom: -1px;
-  left: 8px;
-  height: 2px;
-  content: "";
-  background: transparent;
+.sharp-source-option-copy small {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.source-tab:hover {
-  color: var(--text-primary);
-}
-.source-tab.active {
-  color: var(--text-primary);
-}
-.source-tab.active::after {
-  background: var(--accent);
+.sharp-source-check {
+  color: var(--accent);
 }
 
 .support-drawer {
@@ -5439,6 +6107,60 @@ onUnmounted(() => {
   min-width: 0;
   flex: 1 1 auto;
 }
+.epic-installed-actions {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr);
+  width: 100%;
+}
+.epic-installed-actions > .btn {
+  width: 100%;
+  min-width: 0;
+}
+.epic-bottle-button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 44%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-input));
+  color: var(--accent);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.epic-bottle-button:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--bg-card-hover);
+}
+.epic-bottle-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.epic-bottle-dropdown {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-surface) 78%, transparent);
+}
+.epic-bottle-heading,
+.epic-bottle-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.epic-bottle-field .control-input {
+  width: min(150px, 62%);
+  min-width: 0;
+}
 .sharp-tools-button {
   flex: 0 0 auto;
 }
@@ -5488,7 +6210,6 @@ onUnmounted(() => {
   margin-top: 8px;
   width: 100%;
 }
-
 .launch-failure {
   display: flex;
   flex-direction: column;
@@ -5702,6 +6423,30 @@ details[open] > .drawer-summary {
   gap: 14px;
   align-items: start;
   min-width: 0;
+}
+.installer-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  width: 100%;
+  max-width: 1180px;
+  min-width: 0;
+  margin: 0 auto;
+}
+.installer-library-column {
+  min-width: 0;
+}
+.installer-library-column .sharp-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 320px));
+  justify-content: start;
+}
+.emulator-library-column .sharp-grid {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 320px));
+  justify-content: start;
+}
+.installer-library-column > .empty-state {
+  min-height: 320px;
 }
 .emulator-main-header,
 .emulator-library-column {
@@ -6205,23 +6950,67 @@ details[open] > .drawer-summary {
 }
 @media (max-width: 920px) {
   .emulator-workspace {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
+    grid-template-columns: minmax(0, 1fr) 176px;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
   }
   .emulator-main-header,
-  .emulator-sidebar,
   .emulator-library-column {
     grid-column: 1;
-    grid-row: auto;
+  }
+  .emulator-main-header {
+    grid-row: 1;
+  }
+  .emulator-library-column {
+    grid-row: 2;
   }
   .emulator-sidebar {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    flex-direction: column;
   }
   .emulator-sidebar .rpcs3-command-bar {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    grid-column: auto;
+    flex-direction: column;
+  }
+  .emulator-sidebar .rpcs3-command {
+    min-height: 44px;
+    padding: 9px 10px;
+  }
+  .emulator-sidebar .rpcs3-command small {
+    display: none;
+  }
+  .rpcs3-overview {
+    gap: 12px;
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .rpcs3-overview-main {
+    gap: 10px;
+  }
+  .rpcs3-brand-mark {
+    width: 42px;
+    height: 42px;
+    border-radius: 11px;
+  }
+  .rpcs3-title-row {
+    gap: 6px;
+  }
+  .rpcs3-title-row h2 {
+    font-size: 20px;
+  }
+  .emulator-platform-label {
+    font-size: 12px;
+  }
+  .rpcs3-overview-copy p {
+    font-size: 10px;
+    line-height: 1.45;
+  }
+  .rpcs3-stat {
+    gap: 7px;
+    padding: 8px 9px;
   }
   .rpcs3-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6231,15 +7020,11 @@ details[open] > .drawer-summary {
   }
 }
 @media (max-width: 620px) {
-  .emulator-sidebar,
-  .emulator-sidebar .rpcs3-command-bar {
-    grid-template-columns: 1fr;
-  }
   .rpcs3-overview {
     padding: 18px;
   }
   .rpcs3-stats,
-  .rpcs3-command-bar {
+  .emulator-main-header .rpcs3-command-bar {
     grid-template-columns: 1fr;
   }
 }
@@ -6391,7 +7176,8 @@ details[open] > .drawer-summary {
   color: var(--text-secondary);
   line-height: 1.5;
 }
-.source-tab:focus-visible,
+.sharp-source-trigger:focus-visible,
+.sharp-source-option:focus-visible,
 .rpcs3-dashboard button:focus-visible,
 .rpcs3-dashboard summary:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 82%, white);

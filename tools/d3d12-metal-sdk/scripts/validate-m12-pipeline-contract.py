@@ -38,7 +38,7 @@ REQUIRED_STAGE_IDS = {
 
 REQUIRED_GATE_IDS = {
     "pipeline-contract",
-    "rust-launch-env",
+    "c-launch-env",
     "runtime-layout",
     "shader-engine",
     "m12-check",
@@ -119,30 +119,33 @@ def validate_contract_shape(data: dict[str, Any], errors: list[str]) -> None:
 
 
 def validate_source_contract(data: dict[str, Any], errors: list[str]) -> None:
-    launcher = read_rel("app/src-rust/src/mtsp/launcher.rs", errors)
-    engine = read_rel("app/src-rust/src/mtsp/engine.rs", errors)
+    launcher = read_rel("app/src-c/runtime/steam_actions.c", errors)
+    catalog = read_rel("app/src-c/runtime/mtsp.c", errors)
     log_cpp = read_rel("vendor/dxmt/src/util/log/log.cpp", errors)
 
     for pattern in [
-        "steam_pipeline_env_pairs",
-        "build_cache_paths",
-        "m12-pipeline",
+        "canonical_pipeline",
+        "set_route_paths",
+        "set_launch_cache_env",
         "DXMT_WINEMETAL_UNIXLIB",
         "DXMT_PIPELINE_CACHE_PATH",
         "METALSHARP_SHADER_CACHE_PATH",
-        "DXMT_LOG_PATH",
         "dxmt_m12",
     ]:
         require(pattern in launcher, f"launcher missing `{pattern}`", errors)
 
     for pattern in [
-        "id: PipelineId::M12",
-        "lib/dxmt_m12/x86_64-windows",
-        "lib/dxmt_m12/x86_64-unix",
-        "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b",
-        'shader_cache_subdir: Some("m12")',
+        '"m12", "M12", "D3D12 -> Metal via DXMT"',
+        '"dxmt"',
     ]:
-        require(pattern in engine, f"engine missing `{pattern}`", errors)
+        require(pattern in catalog, f"pipeline catalog missing `{pattern}`", errors)
+
+    for pattern in [
+        "runtime/wine/lib/dxmt_m12/x86_64-windows",
+        "runtime/wine/lib/dxmt_m12/x86_64-unix",
+        "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b",
+    ]:
+        require(pattern in launcher, f"launcher missing `{pattern}`", errors)
 
     require("DXMT_LOG_PATH" in log_cpp, "DXMT logger missing `DXMT_LOG_PATH`", errors)
     require(
@@ -164,31 +167,30 @@ def validate_source_contract(data: dict[str, Any], errors: list[str]) -> None:
 
 
 def validate_m12_route_guards(data: dict[str, Any], errors: list[str]) -> None:
-    engine = read_rel("app/src-rust/src/mtsp/engine.rs", errors)
-    launcher = read_rel("app/src-rust/src/mtsp/launcher.rs", errors)
+    launcher = read_rel("app/src-c/runtime/steam_actions.c", errors)
 
-    def m12_engine_block() -> str:
-        start = engine.find("id: PipelineId::M12")
-        end = engine.find("id: PipelineId::M11", start)
+    def m12_override_block() -> str:
+        function_start = launcher.find("static const char* pipeline_overrides")
+        start = launcher.find('if (!strcmp(pipeline, "m12"))', function_start)
+        end = launcher.find('if (!strcmp(pipeline, "vkd3d"))', start)
         if start == -1 or end == -1:
             return ""
-        return engine[start:end]
+        return launcher[start:end]
 
-    block = m12_engine_block()
-    require(bool(block), "could not isolate M12 engine block", errors)
+    block = m12_override_block()
+    require(bool(block), "could not isolate M12 override block", errors)
 
     forbidden = [str(item) for item in data.get("forbidden_m12_launcher_patterns", [])]
     require(bool(forbidden), "forbidden_m12_launcher_patterns must be non-empty", errors)
     for pattern in forbidden:
-        require(pattern not in block, f"M12 engine block must not contain `{pattern}`", errors)
+        require(pattern not in block, f"M12 override block must not contain `{pattern}`", errors)
 
     for pattern in [
-        'assert!(m12_overrides.contains("dxgi_dxmt"))',
-        '!m12.deploy_dlls.iter().any(|dll| dll.filename == "metalsharp_ntdll_hook.dll")',
-        'winedllpath.contains("dxmt_m12/x86_64-windows")',
-        'path.contains("dxmt_m12")',
+        "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b",
+        "runtime/wine/lib/dxmt_m12/x86_64-windows",
+        "lib/dxmt_m12/x86_64-windows",
     ]:
-        require(pattern in engine + launcher, f"M12 route guard missing `{pattern}`", errors)
+        require(pattern in launcher, f"M12 route guard missing `{pattern}`", errors)
 
 
 def validate_evidence(data: dict[str, Any], errors: list[str]) -> None:

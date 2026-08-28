@@ -93,41 +93,6 @@ jobs:
       - name: Build renderer
         run: npx vite build
 
-  rust:
-    name: Rust CI
-    runs-on: macos-14
-    defaults:
-      run:
-        working-directory: app/src-rust
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app/src-rust
-
-      - name: Format
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Sign with EndpointSecurity entitlements
-        run: |
-          codesign --force --sign - \
-            --entitlements entitlements.plist \
-            target/release/metalsharp-backend
-
-      - name: Test
-        run: cargo test
-
   electron:
     name: Electron CI
     runs-on: macos-14
@@ -163,8 +128,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install clang-format
-        run: brew install clang-format zstd
+      - name: Install native test tools
+        run: brew install clang-format zstd unar
+
+      - name: Install Rosetta for x86_64 runtime tests
+        run: sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+
+      - name: C backend tests
+        run: make -C app/src-c test
 
       - name: D3D12 Metal SDK contracts
         run: |
@@ -231,3 +202,6 @@ jobs:
 
       - name: Verify DMG workflow contract
         run: python3 tools/ci/verify-dmg-workflow.py
+
+      - name: Test VirusTotal release scanner
+        run: python3 tools/ci/test_virustotal_release.py

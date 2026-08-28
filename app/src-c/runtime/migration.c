@@ -3,8 +3,8 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/setup.h"
 #include <CommonCrypto/CommonDigest.h>
-#include <errno.h>
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
@@ -12,29 +12,47 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "0.60.0"
+#define MIGRATION_VERSION "0.61.0"
 #define MIGRATION_SCHEMA  5
 
-static const char* const migration_payload_denies[] = {
-    "steamapps", "common", "downloading", "shadercache", "compatdata", "prefix", "prefix-steam", "drive_c",
-    "dosdevices", "Program Files", "Program Files (x86)", "Steam", "runtime", "downloads", "updates",
-    "updater-tools", "tmp", "Temp", "cache", "logs", "crashes"};
+static const char* const migration_payload_denies[] = {"steamapps",
+                                                       "common",
+                                                       "downloading",
+                                                       "shadercache",
+                                                       "compatdata",
+                                                       "prefix",
+                                                       "prefix-steam",
+                                                       "drive_c",
+                                                       "dosdevices",
+                                                       "Program Files",
+                                                       "Program Files (x86)",
+                                                       "Steam",
+                                                       "runtime",
+                                                       "downloads",
+                                                       "updates",
+                                                       "updater-tools",
+                                                       "tmp",
+                                                       "Temp",
+                                                       "cache",
+                                                       "logs",
+                                                       "crashes"};
 static const char* const migration_setting_names[] = {
-    "setup.json", "steam_config.json", "bottle.json", "library.json", "apps.json", "routes.json", "settings.json",
-    "preferences.json", "user.reg", "userdef.reg", "system.reg", "libraryfolders.vdf", "config.vdf", "loginusers.vdf",
-    "localconfig.vdf", "shortcuts.vdf", "steam_autocloud.vdf"};
+    "setup.json",    "steam_config.json",   "bottle.json",      "library.json",   "apps.json",
+    "routes.json",   "settings.json",       "preferences.json", "user.reg",       "userdef.reg",
+    "system.reg",    "libraryfolders.vdf",  "config.vdf",       "loginusers.vdf", "localconfig.vdf",
+    "shortcuts.vdf", "steam_autocloud.vdf", "location.txt"};
 static const char* const migration_setting_exts[] = {"json", "toml", "plist", "vdf", "reg", "ini", "cfg", "conf"};
 static const char* const migration_steam_deny_names[] = {
     "cache", "common", "compatdata", "crashes", "depotcache", "downloading", "logs", "shadercache", "Temp", "tmp"};
-static const char* const migration_steam_exts[] = {
-    "acf", "cfg", "conf", "dll", "ini", "json", "manifest", "plist", "reg", "toml", "vdf"};
+static const char* const migration_steam_exts[] = {"acf",      "cfg",   "conf", "dll",  "ini", "json",
+                                                   "manifest", "plist", "reg",  "toml", "vdf"};
 
 typedef struct migration_link {
     char* name;
@@ -190,10 +208,9 @@ static bool migration_manifest_current(const char* path) {
 static bool migration_moltenvk_current(const char* home) {
     const char* library_hash = "8249d81ebf2d46f82b16ca166c2e5cca5d76d91d0a412cd6d3db1aaa6e8430bf";
     const char* lane_hash = "578ff08cd0d8734619357541771a5abc9c3470ca300030219a971a9e9dbbe466";
-    const char* relative[] = {"runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib",
-                              "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib",
-                              "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib",
-                              "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib"};
+    const char* relative[] = {
+        "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.dylib", "runtime/wine/lib/wine/x86_64-unix/libMoltenVK.1.dylib",
+        "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib", "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib"};
     char *lane_icd = path_join(home, "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json"),
          *runtime_icd = path_join(home, "runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json"), *library = NULL,
          *text = NULL;
@@ -212,11 +229,12 @@ static bool migration_moltenvk_current(const char* home) {
         char *format = NULL, *api = NULL, *path = NULL;
         bool portability = false;
         const ms_json* icd = value ? ms_json_object_get(value, "ICD") : NULL;
-        current = value && ms_json_type_of(value) == MS_JSON_OBJECT && icd &&
-                  ms_json_as_string(ms_json_object_get(value, "file_format_version"), &format) && !strcmp(format, "1.0.0") &&
-                  ms_json_as_string(ms_json_object_get(icd, "api_version"), &api) && !strcmp(api, "1.4.0") &&
-                  ms_json_as_bool(ms_json_object_get(icd, "is_portability_driver"), &portability) && portability &&
-                  ms_json_as_string(ms_json_object_get(icd, "library_path"), &path) && library && !strcmp(path, library);
+        current =
+            value && ms_json_type_of(value) == MS_JSON_OBJECT && icd &&
+            ms_json_as_string(ms_json_object_get(value, "file_format_version"), &format) && !strcmp(format, "1.0.0") &&
+            ms_json_as_string(ms_json_object_get(icd, "api_version"), &api) && !strcmp(api, "1.4.0") &&
+            ms_json_as_bool(ms_json_object_get(icd, "is_portability_driver"), &portability) && portability &&
+            ms_json_as_string(ms_json_object_get(icd, "library_path"), &path) && library && !strcmp(path, library);
         free(format);
         free(api);
         free(path);
@@ -278,13 +296,15 @@ static bool extension_in_list(const char* path, const char* const* list, size_t 
 static bool allowed_setting_file(const char* path, bool steam_metadata) {
     const char* name = strrchr(path, '/');
     name = name ? name + 1 : path;
-    if (name_in_list(name, migration_payload_denies, sizeof(migration_payload_denies) / sizeof(migration_payload_denies[0])))
+    if (name_in_list(name, migration_payload_denies,
+                     sizeof(migration_payload_denies) / sizeof(migration_payload_denies[0])))
         return false;
-    if (name_in_list(name, migration_setting_names, sizeof(migration_setting_names) / sizeof(migration_setting_names[0])))
+    if (name_in_list(name, migration_setting_names,
+                     sizeof(migration_setting_names) / sizeof(migration_setting_names[0])))
         return true;
     return extension_in_list(path, steam_metadata ? migration_steam_exts : migration_setting_exts,
                              steam_metadata ? sizeof(migration_steam_exts) / sizeof(migration_steam_exts[0])
-                                             : sizeof(migration_setting_exts) / sizeof(migration_setting_exts[0]));
+                                            : sizeof(migration_setting_exts) / sizeof(migration_setting_exts[0]));
 }
 
 static void normalize_steam_config(char** data) {
@@ -352,14 +372,15 @@ static bool steam_config_has_api_key(const char* data) {
     if (!data)
         return false;
     value = ms_json_parse(data, strlen(data), error, sizeof(error));
-    if (value && ms_json_type_of(value) == MS_JSON_OBJECT && ms_json_as_string(ms_json_object_get(value, "steam_api_key"), &key))
+    if (value && ms_json_type_of(value) == MS_JSON_OBJECT &&
+        ms_json_as_string(ms_json_object_get(value, "steam_api_key"), &key))
         result = key && key[0];
     free(key);
     ms_json_free(value);
     return result;
 }
 
-/* mode 0 is a complete non-symlink copy, mode 1 is Rust's settings-only
+/* mode 0 is a complete non-symlink copy, mode 1 is a settings-only
  * filter, and mode 2 is the broader Steam metadata filter. */
 static bool copy_tree_filtered(const char* source, const char* destination, int mode) {
     DIR* dir;
@@ -392,12 +413,13 @@ static bool copy_tree_filtered(const char* source, const char* destination, int 
         }
         if (S_ISDIR(st.st_mode)) {
             if (mode == 1 && name_in_list(entry->d_name, migration_payload_denies,
-                                           sizeof(migration_payload_denies) / sizeof(migration_payload_denies[0])))
+                                          sizeof(migration_payload_denies) / sizeof(migration_payload_denies[0])))
                 keep = false;
-            if (mode == 3 && name_in_list(entry->d_name, (const char* const[]){"downloads", "updates", "updater-tools", "tmp"}, 4))
+            if (mode == 3 &&
+                name_in_list(entry->d_name, (const char* const[]){"downloads", "updates", "updater-tools", "tmp"}, 4))
                 keep = false;
             if (mode == 2 && name_in_list(entry->d_name, migration_steam_deny_names,
-                                           sizeof(migration_steam_deny_names) / sizeof(migration_steam_deny_names[0])))
+                                          sizeof(migration_steam_deny_names) / sizeof(migration_steam_deny_names[0])))
                 keep = false;
             if (keep && !copy_tree_filtered(src, dst, mode)) {
                 free(src);
@@ -527,11 +549,16 @@ static void restore_links(const char* prefix, migration_link* links) {
     free(dosdevices);
 }
 static bool runtime_ready(const char* home) {
-    const char* required[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json", "runtime/host/HostRuntimeABI.h",
+    const char* required[] = {"runtime/wine/bin/metalsharp-wine",
+                              "runtime/host/manifest.json",
+                              "runtime/host/HostRuntimeABI.h",
                               "runtime/wine/lib/wine/x86_64-windows/d3d9.dll",
                               "runtime/wine/lib/wine/x86_64-windows/d3d10.dll",
-                              "runtime/wine/lib/wine/x86_64-windows/d3d10_1.dll", "runtime/goldberg/x86/steam_api.dll",
-                              "runtime/goldberg/x64/steam_api64.dll", "configs/mtsp-rules.toml", "runtime/wine/etc/dxmt.conf",
+                              "runtime/wine/lib/wine/x86_64-windows/d3d10_1.dll",
+                              "runtime/goldberg/x86/steam_api.dll",
+                              "runtime/goldberg/x64/steam_api64.dll",
+                              "configs/mtsp-rules.toml",
+                              "runtime/wine/etc/dxmt.conf",
                               "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json",
                               "runtime/wine/lib/dxmt_m12/metalsharp-dxmt-runtime.json",
                               "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib",
@@ -558,14 +585,18 @@ static bool runtime_ready(const char* home) {
         char *unix_dir = path_join(home, "runtime/wine/lib/wine/x86_64-unix"),
              *dxmt_manifest = path_join(home, "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json"),
              *m12_manifest = path_join(home, "runtime/wine/lib/dxmt_m12/metalsharp-dxmt-runtime.json");
-        ok = ok && directory_local(unix_dir) && migration_manifest_current(dxmt_manifest) && migration_manifest_current(m12_manifest);
+        ok = ok && directory_local(unix_dir) && migration_manifest_current(dxmt_manifest) &&
+             migration_manifest_current(m12_manifest);
         {
             char *m12_root = path_join(home, "runtime/wine/lib/dxmt_m12"), *dxvk_root = path_join(home, "vkd3d/dxvk"),
                  *vkd3d_root = path_join(home, "vkd3d/vkd3d-proton");
             ok = ok && m12_root && dxvk_root && vkd3d_root &&
-                 hash_set_current(m12_root, migration_m12_hashes, sizeof(migration_m12_hashes) / sizeof(migration_m12_hashes[0])) &&
-                 hash_set_current(dxvk_root, migration_dxvk_hashes, sizeof(migration_dxvk_hashes) / sizeof(migration_dxvk_hashes[0])) &&
-                 hash_set_current(vkd3d_root, migration_vkd3d_hashes, sizeof(migration_vkd3d_hashes) / sizeof(migration_vkd3d_hashes[0])) &&
+                 hash_set_current(m12_root, migration_m12_hashes,
+                                  sizeof(migration_m12_hashes) / sizeof(migration_m12_hashes[0])) &&
+                 hash_set_current(dxvk_root, migration_dxvk_hashes,
+                                  sizeof(migration_dxvk_hashes) / sizeof(migration_dxvk_hashes[0])) &&
+                 hash_set_current(vkd3d_root, migration_vkd3d_hashes,
+                                  sizeof(migration_vkd3d_hashes) / sizeof(migration_vkd3d_hashes[0])) &&
                  migration_moltenvk_current(home);
             free(m12_root);
             free(dxvk_root);
@@ -615,7 +646,7 @@ static int compare_versions(const char* left, const char* right) {
 static bool preserve_user_data(const char* home, preserved_data* out) {
     char template_path[PATH_MAX];
     char *cache = NULL, *prefix = NULL, *gptk = NULL, *games = NULL, *library = NULL, *bottles = NULL,
-         *sharp_prefix = NULL, *source = NULL, *destination = NULL;
+         *sharp_prefix = NULL, *epic = NULL, *launcher_games = NULL, *source = NULL, *destination = NULL;
     DIR* dir = NULL;
     struct dirent* entry;
     memset(out, 0, sizeof(*out));
@@ -648,6 +679,8 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
     games = path_join(home, "games");
     library = path_join(home, "sharp-library");
     sharp_prefix = path_join(home, "sharp-prefix");
+    epic = path_join(home, "epic");
+    launcher_games = path_join(home, "launcher-games");
     bottles = path_join(home, "bottles");
     if (prefix) {
         out->steam_links = collect_links(prefix);
@@ -686,6 +719,20 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
         free(destination);
         destination = NULL;
     }
+    if (epic) {
+        destination = path_join(out->temp, "epic");
+        if (!copy_tree_filtered(epic, destination, 1))
+            goto fail;
+        free(destination);
+        destination = NULL;
+    }
+    if (launcher_games) {
+        destination = path_join(out->temp, "launcher-games");
+        if (!copy_tree_filtered(launcher_games, destination, 1))
+            goto fail;
+        free(destination);
+        destination = NULL;
+    }
     if (cache) {
         destination = path_join(out->temp, "cache");
         if (!copy_tree_filtered(cache, destination, 3))
@@ -703,7 +750,7 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
         if (dir) {
             while ((entry = readdir(dir)) != NULL) {
                 char *name_prefix, *src_prefix, *dst_prefix;
-                if (!strncmp(entry->d_name, "steam_", 6)) {
+                if (!strncmp(entry->d_name, "steam_", 6) || !strncmp(entry->d_name, "epic_", 5)) {
                     name_prefix = path_join(bottles, entry->d_name);
                     src_prefix = name_prefix ? path_join(name_prefix, "prefix") : NULL;
                     dst_prefix = src_prefix ? path_join(out->temp, "bottles") : NULL;
@@ -717,7 +764,9 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
                         free(dst_prefix);
                         dst_prefix = n;
                     }
-                    if (src_prefix && dst_prefix && directory_local(src_prefix) && !copy_tree_filtered(src_prefix, dst_prefix, 2)) {
+                    int prefix_mode = !strncmp(entry->d_name, "epic_", 5) ? 1 : 2;
+                    if (src_prefix && dst_prefix && directory_local(src_prefix) &&
+                        !copy_tree_filtered(src_prefix, dst_prefix, prefix_mode)) {
                         free(name_prefix);
                         free(src_prefix);
                         free(dst_prefix);
@@ -733,7 +782,8 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
                 name_prefix = path_join(bottles, entry->d_name);
                 src_prefix = name_prefix ? path_join(name_prefix, "prefix") : NULL;
                 destination = path_join(out->temp, "bottles/gog-prefix/prefix");
-                if (src_prefix && destination && directory_local(src_prefix) && !copy_tree_filtered(src_prefix, destination, 0))
+                if (src_prefix && destination && directory_local(src_prefix) &&
+                    !copy_tree_filtered(src_prefix, destination, 0))
                     goto fail;
                 free(name_prefix);
                 free(src_prefix);
@@ -750,6 +800,8 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
     free(games);
     free(library);
     free(sharp_prefix);
+    free(epic);
+    free(launcher_games);
     free(bottles);
     return true;
 fail:
@@ -762,6 +814,8 @@ fail:
     free(games);
     free(library);
     free(sharp_prefix);
+    free(epic);
+    free(launcher_games);
     free(bottles);
     free(out->setup);
     free(out->steam_config);
@@ -786,8 +840,15 @@ static void free_preserved_data(preserved_data* data) {
 }
 
 static void remove_old_runtime(const char* home) {
-    const char* names[] = {"runtime", "configs", "cache", "logs", "shader-cache", "crashes", "SteamSetup.exe",
-                           "install_progress.json", "update_progress.json"};
+    const char* names[] = {"runtime",
+                           "configs",
+                           "cache",
+                           "logs",
+                           "shader-cache",
+                           "crashes",
+                           "SteamSetup.exe",
+                           "install_progress.json",
+                           "update_progress.json"};
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         char* path = path_join(home, names[i]);
         remove_tree_local(path);
@@ -912,7 +973,7 @@ static void restore_preserved_data(const char* home, const preserved_data* data)
     free(src);
     free(dst);
     {
-        const char* names[] = {"games", "sharp-library"};
+        const char* names[] = {"games", "sharp-library", "epic", "launcher-games"};
         for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
             src = path_join(data->temp, names[i]);
             dst = path_join(home, names[i]);
@@ -948,19 +1009,21 @@ static void restore_preserved_data(const char* home, const preserved_data* data)
             free(gog_dst);
         }
         /* The settings-only bottle copy intentionally skips every prefix.
-         * Restore Steam bottle metadata separately, just like Rust. */
+         * Restore Steam and Epic bottle metadata separately. */
         DIR* dir = opendir(src);
         if (dir) {
             struct dirent* entry;
             while ((entry = readdir(dir)) != NULL) {
-                if (strncmp(entry->d_name, "steam_", 6) != 0)
+                bool steam_bottle = strncmp(entry->d_name, "steam_", 6) == 0;
+                bool epic_bottle = strncmp(entry->d_name, "epic_", 5) == 0;
+                if (!steam_bottle && !epic_bottle)
                     continue;
                 char *steam_src = path_join(src, entry->d_name), *steam_dst = path_join(dst, entry->d_name);
-                char *p_src = steam_src ? path_join(steam_src, "prefix") : NULL;
-                char *p_dst = steam_dst ? path_join(steam_dst, "prefix") : NULL;
+                char* p_src = steam_src ? path_join(steam_src, "prefix") : NULL;
+                char* p_dst = steam_dst ? path_join(steam_dst, "prefix") : NULL;
                 if (p_src && p_dst && directory_local(p_src)) {
                     (void)mkdir(steam_dst, 0700);
-                    (void)copy_tree_filtered(p_src, p_dst, 2);
+                    (void)copy_tree_filtered(p_src, p_dst, epic_bottle ? 1 : 2);
                 }
                 free(steam_src);
                 free(steam_dst);
@@ -1006,9 +1069,9 @@ static void write_migration_report(const char* home, bool preserved, bool restor
     FILE* f;
     ms_json_writer writer;
     char* payload;
-    const char* categories[] = {"setup.json", "steam_config", "cache", "prefix-steam", "prefix-gptk", "games",
-                                "sharp-library", "sharp-prefix", "bottles"};
-    const char* reason = "Rust-compatible migration preservation/restoration pass";
+    const char* categories[] = {"setup.json",    "steam_config", "cache", "prefix-steam",   "prefix-gptk", "games",
+                                "sharp-library", "sharp-prefix", "epic",  "launcher-games", "bottles"};
+    const char* reason = "migration preservation/restoration pass";
     if (logs)
         (void)mkdir(logs, 0700);
     path = logs ? path_join(logs, "migration-report-latest.json") : NULL;
@@ -1033,7 +1096,7 @@ static void write_migration_report(const char* home, bool preserved, bool restor
                 ms_json_writer_string(&writer, phase == 0 ? "preserve" : "restore");
                 ms_json_writer_key(&writer, "outcome");
                 ms_json_writer_string(&writer, phase == 0 ? (preserved ? "preserved" : "failed")
-                                                           : (restored ? "restored" : "failed"));
+                                                          : (restored ? "restored" : "failed"));
                 ms_json_writer_key(&writer, "category");
                 ms_json_writer_string(&writer, categories[i]);
                 ms_json_writer_key(&writer, "path");
@@ -1175,7 +1238,8 @@ static bool steam_update_process_alive(const char* prefix) {
     if (!processes)
         return false;
     while (fgets(line, sizeof(line), processes)) {
-        if (strstr(line, prefix) && (contains_case_insensitive(line, "steam.exe") || contains_case_insensitive(line, "steamupdate.exe"))) {
+        if (strstr(line, prefix) &&
+            (contains_case_insensitive(line, "steam.exe") || contains_case_insensitive(line, "steamupdate.exe"))) {
             alive = true;
             break;
         }
@@ -1324,7 +1388,8 @@ static void register_external_steam_libraries(const char* home) {
                             snprintf(line, sizeof(line), "\"%d\"", next_index);
                         }
                         used += (size_t)snprintf(output + used, capacity - used,
-                                                 "\n\t\"%d\"\n\t{\n\t\t\"path\"\t\t\"%c:\\\\\"\n\t}\n", next_index++, drive);
+                                                 "\n\t\"%d\"\n\t{\n\t\t\"path\"\t\t\"%c:\\\\\"\n\t}\n", next_index++,
+                                                 drive);
                     }
                 }
                 if (close)
@@ -1409,7 +1474,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.60.0\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.61.0\"}");
     free(p);
     return out;
 }
@@ -1417,7 +1482,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.60.0\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.61.0\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;
@@ -1655,7 +1720,8 @@ char* ms_migration_start_json(const char* home) {
          *lock_path = path_join(home, "migration.lock"), *marker_path = path_join(home, ".post-update-migration");
     char* marker_text = marker_path ? read_text(marker_path) : NULL;
     char marker_error[128];
-    ms_json* marker = marker_text ? ms_json_parse(marker_text, strlen(marker_text), marker_error, sizeof(marker_error)) : NULL;
+    ms_json* marker =
+        marker_text ? ms_json_parse(marker_text, strlen(marker_text), marker_error, sizeof(marker_error)) : NULL;
     char* target = marker ? json_str(marker, "target_version") : NULL;
     bool marker_needed = marker ? json_bool(marker, "needed", false) : false;
     int lock_fd;
@@ -1665,7 +1731,8 @@ char* ms_migration_start_json(const char* home) {
     if (target && compare_versions(target, MIGRATION_VERSION) > 0) {
         char message[256];
         snprintf(message, sizeof(message),
-                 "Update handoff targeted MetalSharp v%s, but the running app is v%s. Relaunch the installed update and retry migration.",
+                 "Update handoff targeted MetalSharp v%s, but the running app is v%s. Relaunch the installed update "
+                 "and retry migration.",
                  target, MIGRATION_VERSION);
         free(setup_path);
         free(progress);
