@@ -103,6 +103,10 @@ def check_bundle_scripts() -> None:
         "--bundle-dir \"$BUNDLE_DIR\" \"$asset\"",
         "Refreshing stale bundle",
         "metalsharp-bundle-manifest.tsv",
+        "REMOTE_MANIFEST",
+        "asset_matches_release_manifest",
+        "Downloaded bundle does not match release manifest",
+        "metalsharp/MetalSharp",
     ]:
         if needle not in create_bundles:
             fail(f"create-bundles.sh no longer performs {needle}")
@@ -150,6 +154,7 @@ def check_workflows() -> None:
         "Create GitHub Release",
         "Record release identity",
         "RELEASE-TAG.txt",
+        "METALSHARP_BUNDLE_REPO: ${{ github.repository }}",
     ]:
         if required not in release:
             fail(f"release workflow missing publish step: {required}")

@@ -6,8 +6,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUNDLE_DIR="$PROJECT_ROOT/app/bundles"
 OUT_DIR="$PROJECT_ROOT/dist/bundles"
 RELEASE_TAG="${METALSHARP_BUNDLE_TAG:-bundles}"
-REPO="${METALSHARP_BUNDLE_REPO:-aaf2tbz/metalsharp}"
+REPO="${METALSHARP_BUNDLE_REPO:-metalsharp/MetalSharp}"
 MANIFEST="$PROJECT_ROOT/tools/bundles/asset-manifest.tsv"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-create-bundles.XXXXXX")"
+REMOTE_MANIFEST="$TMP_DIR/metalsharp-bundle-manifest.tsv"
+trap 'rm -rf "$TMP_DIR"' EXIT
 REPAIR_BUNDLES="${METALSHARP_REPAIR_BUNDLES:-1}"
 SKIP_DEVELOPER_SDK="${METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE:-0}"
 # M12 (dxmt-m12) dll refresh is off by default. Rebuilding the m12 lane from a
@@ -17,20 +20,56 @@ SKIP_DEVELOPER_SDK="${METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE:-0}"
 REPAIR_M12="${METALSHARP_REPAIR_M12:-0}"
 
 mkdir -p "$BUNDLE_DIR" "$OUT_DIR"
+curl -fL --retry 3 -o "$REMOTE_MANIFEST" \
+  "https://github.com/$REPO/releases/download/$RELEASE_TAG/metalsharp-bundle-manifest.tsv"
+
+release_asset_info() {
+  local asset="$1"
+  awk -F '\t' -v asset="$asset" \
+    '$1 == asset && $3 ~ /^[0-9a-f]{64}$/ && $4 ~ /^[0-9]+$/ { print $3 "\t" $4; exit }' \
+    "$REMOTE_MANIFEST"
+}
+
+asset_matches_release_manifest() {
+  local asset="$1"
+  local path="$2"
+  local info expected_sha expected_size actual_sha actual_size
+  info="$(release_asset_info "$asset")"
+  [ -n "$info" ] || return 1
+  expected_sha="${info%%$'\t'*}"
+  expected_size="${info#*$'\t'}"
+  [ -s "$path" ] || return 1
+  actual_sha="$(shasum -a 256 "$path" | awk '{print $1}')"
+  actual_size="$(wc -c < "$path" | tr -d ' ')"
+  [ "$actual_sha" = "$expected_sha" ] && [ "$actual_size" = "$expected_size" ]
+}
 
 download_asset() {
   local asset="$1"
   local dest="$2"
-  if [ -s "$dest" ]; then
+  local partial="$dest.part"
+  if [ -z "$(release_asset_info "$asset")" ]; then
+    echo "Release manifest is missing a valid row for: $asset" >&2
+    return 1
+  fi
+  if [ -s "$dest" ] && asset_matches_release_manifest "$asset" "$dest"; then
     if "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$BUNDLE_DIR" "$asset" >/dev/null 2>&1; then
-      echo "SKIP bundle: $asset"
+      echo "SKIP bundle: $asset (matches release manifest)"
       return 0
     fi
+  fi
+  if [ -e "$dest" ]; then
     echo "Refreshing stale bundle: $asset"
-    rm -f "$dest"
   fi
   echo "Downloading bundle: $asset"
-  curl -fL --retry 3 -o "$dest" "https://github.com/$REPO/releases/download/$RELEASE_TAG/$asset"
+  rm -f "$partial"
+  curl -fL --retry 3 -o "$partial" "https://github.com/$REPO/releases/download/$RELEASE_TAG/$asset"
+  if ! asset_matches_release_manifest "$asset" "$partial"; then
+    echo "Downloaded bundle does not match release manifest: $asset" >&2
+    rm -f "$partial"
+    return 1
+  fi
+  mv "$partial" "$dest"
 }
 
 repair_graphics_m12_bundle() {

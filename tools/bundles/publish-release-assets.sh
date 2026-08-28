@@ -15,7 +15,7 @@ USAGE
   exit 2
 fi
 
-REPO="${METALSHARP_BUNDLE_REPO:-${GITHUB_REPOSITORY:-aaf2tbz/metalsharp}}"
+REPO="${METALSHARP_BUNDLE_REPO:-${GITHUB_REPOSITORY:-metalsharp/MetalSharp}}"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-release-assets.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
