@@ -243,13 +243,16 @@ int main() {
         options9.AtomicInt64OnGroupSharedSupported &&
         SUCCEEDED(options11_hr) &&
         options11.AtomicInt64OnDescriptorHeapResourceSupported;
-    bool advanced_conservative =
-        (!SUCCEEDED(options5_hr) || options5.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED) &&
-        (SUCCEEDED(options7_hr) &&
-         options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED &&
-         options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9) &&
-        (!SUCCEEDED(options9_hr) || options9.WaveMMATier == D3D12_WAVE_MMA_TIER_NOT_SUPPORTED) &&
-        SUCCEEDED(options14_hr) && !options14.AdvancedTextureOpsSupported;
+    bool advanced_features_reported =
+        SUCCEEDED(options5_hr) &&
+        options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 &&
+        SUCCEEDED(options7_hr) &&
+        options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 &&
+        options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9 &&
+        (!SUCCEEDED(options9_hr) ||
+         options9.WaveMMATier == D3D12_WAVE_MMA_TIER_NOT_SUPPORTED) &&
+        SUCCEEDED(options14_hr) && options14.AdvancedTextureOpsSupported &&
+        options14.WriteableMSAATexturesSupported;
     bool stream_output_conservative =
         SUCCEEDED(stream_output_format_hr) && !(stream_output_format.Support1 & D3D12_FORMAT_SUPPORT1_SO_BUFFER);
     bool reserved_resources_unsupported = FAILED(create_reserved_resource_hr);
@@ -259,7 +262,7 @@ int main() {
         null_data_feature_hr == E_POINTER &&
         null_feature_level_list_hr == E_INVALIDARG;
     bool pass = SUCCEEDED(create_hr) && feature_level_ok && shader_model_target_ok && binding_tier_ok &&
-                wave_ops_proven_reported && atomic64_conservative && advanced_conservative && stream_output_conservative &&
+                wave_ops_proven_reported && atomic64_conservative && advanced_features_reported && stream_output_conservative &&
                 reserved_resources_unsupported && state_objects_unsupported &&
                 feature_query_validation;
 
@@ -351,7 +354,7 @@ int main() {
     std::printf("    \"binding_tier_3\": %s,\n", binding_tier_ok ? "true" : "false");
     std::printf("    \"wave_ops_proven_reported\": %s,\n", wave_ops_proven_reported ? "true" : "false");
     std::printf("    \"atomic64_conservative\": %s,\n", atomic64_conservative ? "true" : "false");
-    std::printf("    \"advanced_features_conservative\": %s,\n", advanced_conservative ? "true" : "false");
+    std::printf("    \"advanced_features_reported\": %s,\n", advanced_features_reported ? "true" : "false");
     std::printf("    \"mesh_shader_pipeline_stats_supported\": %s,\n",
                 options9.MeshShaderPipelineStatsSupported ? "true" : "false");
     std::printf("    \"stream_output_conservative\": %s,\n",  stream_output_conservative ? "true" : "false");

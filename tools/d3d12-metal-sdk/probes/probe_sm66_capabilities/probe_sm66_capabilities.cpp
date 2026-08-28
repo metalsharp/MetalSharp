@@ -1126,6 +1126,11 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
             sm66_reportable = sm66_reportable && case_passed;
         sm67_reportable = sm67_reportable && case_passed;
     }
+    const bool sm67_breadth_complete =
+        sm67_reportable && atomic_case_passed("programmable_offset_sm67") &&
+        atomic_case_passed("raw_gather_sm67") &&
+        atomic_case_passed("sample_cmp_level_sm67") &&
+        atomic_case_passed("quad_vote_sm67");
     bool pass = entrypoints_ok && compiler_acceptance_complete && pso_link_complete &&
                 runtime_complete && atomic64_conservative;
 
@@ -1167,9 +1172,8 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"sm67_reportable\": %s,\n", sm67_reportable ? "true" : "false");
     std::printf("    \"decision\": \"%s\",\n",
                 sm67_reportable ? "SM 6.7 may be reported" : "SM 6.7 must not be reported until all runtime cases execute");
-    // The current corpus proves the supported core/compute subset, not the
-    // final cross-stage and dimension breadth required by the promotion gate.
-    std::printf("    \"sm67_breadth_complete\": false\n");
+    std::printf("    \"sm67_breadth_complete\": %s\n",
+                sm67_breadth_complete ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {

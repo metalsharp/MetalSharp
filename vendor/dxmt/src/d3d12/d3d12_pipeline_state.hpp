@@ -219,6 +219,13 @@ public:
   bool UsesSamplerFeedbackEmulation() const {
     return m_uses_sampler_feedback_emulation;
   }
+  bool UsesVRSRuntimeState() const { return m_uses_vrs_runtime_state; }
+  bool UsesConservativeRasterization() const {
+    return m_uses_conservative_rasterization;
+  }
+  bool UsesConservativeRasterizationReferenceModel() const {
+    return m_uses_conservative_rasterization_reference_model;
+  }
   bool UsesDirectResourceDescriptorHeap() const {
     return m_uses_direct_resource_descriptor_heap;
   }
@@ -271,6 +278,9 @@ private:
   bool m_depth_bounds_test_enable = false;
   bool m_uses_atomic64_emulation = false;
   bool m_uses_sampler_feedback_emulation = false;
+  bool m_uses_vrs_runtime_state = false;
+  bool m_uses_conservative_rasterization = false;
+  bool m_uses_conservative_rasterization_reference_model = false;
   bool m_uses_direct_resource_descriptor_heap = false;
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;
@@ -294,6 +304,8 @@ private:
   std::vector<uint8_t> m_cached_pso_blob;
 
   WMT::Reference<WMT::RenderPipelineState> m_render_pso;
+  WMT::Reference<WMT::Library> m_conservative_vertex_library;
+  WMT::Reference<WMT::Function> m_conservative_vertex_function;
   WMT::Reference<WMT::RenderPipelineState>
       m_native_tessellation_indexed_render_pso;
   WMT::Reference<WMT::ComputePipelineState> m_compute_pso;

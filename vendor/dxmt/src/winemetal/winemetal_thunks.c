@@ -319,6 +319,38 @@ MTLDevice_newTexture(obj_handle_t device, struct WMTTextureInfo *info) {
 }
 
 WINEMETAL_API obj_handle_t
+MTLDevice_newRasterizationRateMap(
+    obj_handle_t device, uint32_t screen_width, uint32_t screen_height,
+    const float *horizontal, const float *vertical, uint64_t *parameter_size,
+    uint64_t *parameter_align) {
+  struct unixcall_mtldevice_newrasterizationratemap params = {};
+  params.device = device;
+  params.screen_width = screen_width;
+  params.screen_height = screen_height;
+  if (horizontal)
+    memcpy(params.horizontal, horizontal, sizeof(params.horizontal));
+  if (vertical)
+    memcpy(params.vertical, vertical, sizeof(params.vertical));
+  UNIX_CALL(169, &params);
+  if (parameter_size)
+    *parameter_size = params.ret_parameter_size;
+  if (parameter_align)
+    *parameter_align = params.ret_parameter_align;
+  return params.ret_map;
+}
+
+WINEMETAL_API void
+MTLRasterizationRateMap_copyParameterData(obj_handle_t map,
+                                           obj_handle_t buffer,
+                                           uint64_t offset) {
+  struct unixcall_generic_obj_obj_uint64_noret params;
+  params.handle = map;
+  params.arg0 = buffer;
+  params.arg1 = offset;
+  UNIX_CALL(170, &params);
+}
+
+WINEMETAL_API obj_handle_t
 MTLBuffer_newTexture(obj_handle_t buffer, struct WMTTextureInfo *info, uint64_t offset, uint64_t bytes_per_row) {
   struct unixcall_mtlbuffer_newtexture params;
   params.buffer = buffer;
@@ -1632,6 +1664,60 @@ MTLCommandBuffer_buildTriangleAccelerationStructures(
   params.ret_success = 0;
   UNIX_CALL(152, &params);
   return params.ret_success;
+}
+
+WINEMETAL_API bool
+MTLDevice_accelerationStructureSizesForMixedGeometries(
+    obj_handle_t device,
+    const struct WMTAccelerationStructureGeometryInfo *infos,
+    uint64_t info_count, struct WMTAccelerationStructureSizes *sizes) {
+  struct unixcall_mtldevice_acceleration_structure_sizes_for_mixed_geometries
+      params;
+  params.device = device;
+  WMT_MEMPTR_SET(params.infos, infos);
+  params.info_count = info_count;
+  WMT_MEMPTR_SET(params.sizes, sizes);
+  params.ret_success = 0;
+  UNIX_CALL(171, &params);
+  return params.ret_success != 0;
+}
+
+WINEMETAL_API bool
+MTLCommandBuffer_buildMixedAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTAccelerationStructureGeometryInfo *infos,
+    uint64_t info_count, obj_handle_t scratch_buffer,
+    uint64_t scratch_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_build_mixed_acceleration_structure params;
+  params.cmdbuf = cmdbuf;
+  params.acceleration_structure = acceleration_structure;
+  WMT_MEMPTR_SET(params.infos, infos);
+  params.info_count = info_count;
+  params.scratch_buffer = scratch_buffer;
+  params.scratch_buffer_offset = scratch_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(172, &params);
+  return params.ret_success != 0;
+}
+
+WINEMETAL_API bool
+MTLCommandBuffer_refitMixedAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_acceleration_structure,
+    const struct WMTAccelerationStructureGeometryInfo *infos,
+    uint64_t info_count, obj_handle_t scratch_buffer,
+    uint64_t scratch_buffer_offset) {
+  struct unixcall_mtlcommandbuffer_refit_mixed_acceleration_structure params;
+  params.cmdbuf = cmdbuf;
+  params.source_acceleration_structure = source_acceleration_structure;
+  params.destination_acceleration_structure = destination_acceleration_structure;
+  WMT_MEMPTR_SET(params.infos, infos);
+  params.info_count = info_count;
+  params.scratch_buffer = scratch_buffer;
+  params.scratch_buffer_offset = scratch_buffer_offset;
+  params.ret_success = 0;
+  UNIX_CALL(173, &params);
+  return params.ret_success != 0;
 }
 
 WINEMETAL_API bool

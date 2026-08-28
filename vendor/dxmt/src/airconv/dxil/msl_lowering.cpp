@@ -636,7 +636,10 @@ static void emitBindingManifest(LowerContext &ctx) {
 
 static void emitDefaultVertexVaryingWrites(std::ostream &os,
                                            bool procedural_fullscreen,
-                                           bool has_draw_args) {
+                                           bool has_draw_args,
+                                           bool has_shading_rate_output,
+                                           bool has_viewport_index_output,
+                                           bool has_render_target_array_index_output) {
     os << "  out.position = float4(0.0, 0.0, 0.0, 1.0);\n";
     for (uint32_t i = 0; i < 8; i++)
         os << "  out.v" << i << " = float4(0.0);\n";
@@ -644,6 +647,12 @@ static void emitDefaultVertexVaryingWrites(std::ostream &os,
         os << "  out.uv" << i << " = float2(0.0);\n";
     for (uint32_t i = 0; i < 4; i++)
         os << "  out.color" << i << " = float4(0.0);\n";
+    if (has_shading_rate_output)
+        os << "  out.shading_rate = 0u;\n";
+    if (has_viewport_index_output)
+        os << "  out.viewport_array_index = 0u;\n";
+    if (has_render_target_array_index_output)
+        os << "  out.render_target_array_index = 0u;\n";
     if (procedural_fullscreen) {
         if (has_draw_args)
             os << "  uint m12_draw_vcount = m12_draw_vertex_count(buf29, buf30);\n";
@@ -668,6 +677,13 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     if (ctx.uses_atomic64_emulation)
         ctx.binding_plan.direct_buffer_count =
             std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
+    if (ctx.options.vrs_per_primitive && ctx.shader.kind == DxilShaderKind::Pixel)
+        ctx.binding_plan.direct_buffer_count =
+            std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 27);
+    if (ctx.options.conservative_rasterization &&
+        ctx.shader.kind == DxilShaderKind::Pixel)
+        ctx.binding_plan.direct_buffer_count =
+            std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 26);
     os << kMetalHeader;
     emitBindingManifest(ctx);
 
@@ -846,6 +862,15 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     os << "  float2 uv2 [[user(locn10)]]; float2 uv3 [[user(locn11)]];\n";
     os << "  float4 color0 [[user(locn12)]]; float4 color1 [[user(locn13)]];\n";
     os << "  float4 color2 [[user(locn14)]]; float4 color3 [[user(locn15)]];\n";
+    if (ctx.shader.kind == DxilShaderKind::Pixel &&
+        ctx.shader.shading_rate_input_register >= 0)
+        os << "  uint shading_rate [[user(locn16)]];\n";
+    if (ctx.shader.kind == DxilShaderKind::Pixel &&
+        ctx.shader.viewport_index_input_register >= 0)
+        os << "  uint viewport_array_index [[viewport_array_index]];\n";
+    if (ctx.shader.kind == DxilShaderKind::Pixel &&
+        ctx.shader.render_target_array_index_input_register >= 0)
+        os << "  uint render_target_array_index [[render_target_array_index]];\n";
     os << "};\n\n";
 
     os << "struct output_v {\n";
@@ -858,6 +883,15 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     os << "  float2 uv2 [[user(locn10)]]; float2 uv3 [[user(locn11)]];\n";
     os << "  float4 color0 [[user(locn12)]]; float4 color1 [[user(locn13)]];\n";
     os << "  float4 color2 [[user(locn14)]]; float4 color3 [[user(locn15)]];\n";
+    if (ctx.shader.kind == DxilShaderKind::Vertex &&
+        ctx.shader.shading_rate_output_register >= 0)
+        os << "  uint shading_rate [[user(locn16)]];\n";
+    if (ctx.shader.kind == DxilShaderKind::Vertex &&
+        ctx.shader.viewport_index_output_register >= 0)
+        os << "  uint viewport_array_index [[viewport_array_index]];\n";
+    if (ctx.shader.kind == DxilShaderKind::Vertex &&
+        ctx.shader.render_target_array_index_output_register >= 0)
+        os << "  uint render_target_array_index [[render_target_array_index]];\n";
     os << "};\n\n";
 
     if (ctx.shader.kind == DxilShaderKind::Vertex) {
@@ -1004,8 +1038,19 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  output_v out = {};\n";
         emitDefaultVertexVaryingWrites(
             os, ctx.vertex_procedural_fullscreen_fallback,
-            ctx.binding_plan.direct_buffer_count > 30);
+            ctx.binding_plan.direct_buffer_count > 30,
+            ctx.shader.shading_rate_output_register >= 0,
+            ctx.shader.viewport_index_output_register >= 0,
+            ctx.shader.render_target_array_index_output_register >= 0);
     } else if (ctx.shader.kind == DxilShaderKind::Pixel) {
+        if (ctx.options.conservative_rasterization) {
+            os << "struct m12_conservative_data { float2 p0; float2 p1; float2 p2; uint width; uint height; uint enabled; uint pad; };\n";
+            os << "static inline float m12_cons_cross(float2 a, float2 b, float2 c) { return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x); }\n";
+            os << "static inline bool m12_cons_point_in_tri(float2 p, float2 a, float2 b, float2 c) { float e=1.0e-5f; float s0=m12_cons_cross(a,b,p), s1=m12_cons_cross(b,c,p), s2=m12_cons_cross(c,a,p); return (s0 >= -e && s1 >= -e && s2 >= -e) || (s0 <= e && s1 <= e && s2 <= e); }\n";
+            os << "static inline bool m12_cons_point_in_box(float2 p, float2 lo, float2 hi) { return p.x >= lo.x-1.0e-5f && p.x <= hi.x+1.0e-5f && p.y >= lo.y-1.0e-5f && p.y <= hi.y+1.0e-5f; }\n";
+            os << "static inline bool m12_cons_seg_intersects(float2 a, float2 b, float2 c, float2 d) { float e=1.0e-5f; float ab_c=m12_cons_cross(a,b,c), ab_d=m12_cons_cross(a,b,d), cd_a=m12_cons_cross(c,d,a), cd_b=m12_cons_cross(c,d,b); return ((ab_c >= -e && ab_d <= e) || (ab_c <= e && ab_d >= -e)) && ((cd_a >= -e && cd_b <= e) || (cd_a <= e && cd_b >= -e)); }\n";
+            os << "static inline bool m12_cons_triangle_pixel(float2 a, float2 b, float2 c, float2 lo) { float2 hi=lo+1.0f; float2 q0=float2(lo.x,lo.y), q1=float2(hi.x,lo.y), q2=float2(hi.x,hi.y), q3=float2(lo.x,hi.y); if (m12_cons_point_in_box(a,lo,hi) || m12_cons_point_in_box(b,lo,hi) || m12_cons_point_in_box(c,lo,hi)) return true; if (m12_cons_point_in_tri(q0,a,b,c) || m12_cons_point_in_tri(q1,a,b,c) || m12_cons_point_in_tri(q2,a,b,c) || m12_cons_point_in_tri(q3,a,b,c)) return true; return m12_cons_seg_intersects(a,b,q0,q1) || m12_cons_seg_intersects(a,b,q1,q2) || m12_cons_seg_intersects(a,b,q2,q3) || m12_cons_seg_intersects(a,b,q3,q0) || m12_cons_seg_intersects(b,c,q0,q1) || m12_cons_seg_intersects(b,c,q1,q2) || m12_cons_seg_intersects(b,c,q2,q3) || m12_cons_seg_intersects(b,c,q3,q0) || m12_cons_seg_intersects(c,a,q0,q1) || m12_cons_seg_intersects(c,a,q1,q2) || m12_cons_seg_intersects(c,a,q2,q3) || m12_cons_seg_intersects(c,a,q3,q0); }\n";
+        }
         if (ctx.options.depth_bounds_test)
             ctx.binding_plan.direct_buffer_count =
                 std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
@@ -1013,6 +1058,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  input_v in [[stage_in]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
             os << "  device char* buf" << i << " [[buffer(" << i << ")]],\n";
+        if (ctx.options.conservative_rasterization)
+            os << "  constant m12_conservative_data& m12_conservative [[buffer(26)]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
             bool srv_slot = false;
             bool uav_slot = false;
@@ -1036,12 +1083,19 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             else
                 os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
         }
+        if (ctx.options.vrs_per_primitive)
+            os << "  texture2d<float, access::write> m12_vrs_mask [[texture(125)]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++) {
             os << "  sampler samp" << i << " [[sampler(" << i << ")]]";
             os << (i + 1 == ctx.binding_plan.direct_sampler_count &&
-                           !ctx.options.depth_bounds_test
+                           !ctx.options.depth_bounds_test &&
+                           !ctx.options.vrs_per_primitive
                        ? "\n"
                        : ",\n");
+        }
+        if (ctx.options.vrs_per_primitive) {
+            os << "  constant uint4& m12_vrs_state [[buffer(27)]]";
+            os << (ctx.options.depth_bounds_test ? ",\n" : "\n");
         }
         if (ctx.options.depth_bounds_test) {
             os << "  constant float4& m12_depth_bounds [[buffer(28)]],\n";
@@ -1057,6 +1111,22 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 os << "\n";
         }
         os << ") {\n";
+        if (ctx.options.conservative_rasterization) {
+            os << "  if (m12_conservative.enabled != 0u && !m12_cons_triangle_pixel(m12_conservative.p0, m12_conservative.p1, m12_conservative.p2, floor(in.position.xy))) discard_fragment();\n";
+        }
+        if (ctx.options.vrs_per_primitive) {
+            if (ctx.shader.shading_rate_input_register >= 0)
+                os << "  if (m12_vrs_state.x != 0xffffffffu && "
+                       "in.shading_rate != m12_vrs_state.x) "
+                       "discard_fragment();\n";
+            os << "  if (m12_vrs_state.z != 0u) {\n";
+            // With a Metal rate map, fragment positions are in the physical
+            // framebuffer coordinate space.  The mask follows that same
+            // space; the resolve shader maps logical screen coordinates back
+            // to it through rasterization_rate_map_data.
+            os << "    m12_vrs_mask.write(float4(1.0f), uint2(floor(in.position.xy)));\n";
+            os << "  }\n";
+        }
         if (ctx.options.depth_bounds_test) {
             os << "  float m12_stored_depth = m12_depth_bounds_texture.read("
                   "uint2(in.position.xy), m12_depth_layer + "
@@ -1974,6 +2044,7 @@ static std::string coerceResolvedValue(const std::string &value, const MSLType &
         return defaultForType(target);
     if ((DXILIRBuilder::isFloatType(target) || DXILIRBuilder::isIntType(target)) &&
         (exprContainsRawResourceHandle(resolved) || exprContainsPointerSyntax(resolved)) &&
+        resolved.find("m12_load_vertex_attr(") == std::string::npos &&
         resolved.find("reinterpret_cast<device ") == std::string::npos &&
         resolved.find("reinterpret_cast<thread ") == std::string::npos &&
         resolved.find("reinterpret_cast<threadgroup ") == std::string::npos)
@@ -3703,12 +3774,26 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             if (ctx.shader.shading_rate_input_register >= 0 &&
                 static_cast<int32_t>(input_id) ==
                     ctx.shader.shading_rate_input_register)
-                return "static_cast<uint>(" + varyingField("in", input_id) + ".x)";
+                return ctx.options.vrs_per_primitive
+                           ? "m12_vrs_state.y"
+                           : "static_cast<uint>(" +
+                                 varyingField("in", input_id) + ".x)";
+            if (ctx.shader.viewport_index_input_register >= 0 &&
+                static_cast<int32_t>(input_id) ==
+                    ctx.shader.viewport_index_input_register)
+                return "static_cast<uint>(in.viewport_array_index)";
+            if (ctx.shader.render_target_array_index_input_register >= 0 &&
+                static_cast<int32_t>(input_id) ==
+                    ctx.shader.render_target_array_index_input_register)
+                return "static_cast<uint>(in.render_target_array_index)";
             return varyingField("in", input_id) + componentSuffix(comp);
         }
         if (ctx.shader.kind == DxilShaderKind::Vertex) {
             if (isLoadInputI32(callee_name) && shouldLowerLoadInputI32AsVertexId(ctx, input_id))
                 return comp == 0 ? "vid" : "0u";
+            if (isLoadInputI32(callee_name))
+                return "static_cast<uint>(" + vertexPullField(ctx, input_id) +
+                       componentSuffix(comp) + ")";
             return vertexPullField(ctx, input_id) + componentSuffix(comp);
         }
         return "0.0";
@@ -3726,10 +3811,18 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "";
         }
         if (ctx.shader.kind == DxilShaderKind::Vertex) {
-            if (ctx.shader.shading_rate_output_register >= 0 &&
+            if (ctx.shader.shading_rate_output_id >= 0 &&
                 static_cast<int32_t>(output_id) ==
-                    ctx.shader.shading_rate_output_register)
-                return varyingField("out", output_id) + ".x = static_cast<float>(" + val + ")";
+                    ctx.shader.shading_rate_output_id)
+                return "out.shading_rate = static_cast<uint>(" + val + ")";
+            if (ctx.shader.viewport_index_output_id >= 0 &&
+                static_cast<int32_t>(output_id) ==
+                    ctx.shader.viewport_index_output_id)
+                return "out.viewport_array_index = static_cast<uint>(" + val + ")";
+            if (ctx.shader.render_target_array_index_output_id >= 0 &&
+                static_cast<int32_t>(output_id) ==
+                    ctx.shader.render_target_array_index_output_id)
+                return "out.render_target_array_index = static_cast<uint>(" + val + ")";
             bool simple_input_passthrough =
                 ctx.current_fn && ctx.current_fn->name.find("SimpleVS") != std::string::npos;
             if (!ctx.options.vertex_inputs.empty() &&

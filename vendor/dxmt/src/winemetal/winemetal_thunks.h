@@ -132,6 +132,17 @@ struct unixcall_mtldevice_newtexture {
   obj_handle_t ret;
 };
 
+struct unixcall_mtldevice_newrasterizationratemap {
+  obj_handle_t device;
+  uint32_t screen_width;
+  uint32_t screen_height;
+  float horizontal[2];
+  float vertical[2];
+  obj_handle_t ret_map;
+  uint64_t ret_parameter_size;
+  uint64_t ret_parameter_align;
+};
+
 struct unixcall_mtlbuffer_newtexture {
   obj_handle_t buffer;
   struct WMTMemoryPointer info;
@@ -629,6 +640,35 @@ struct unixcall_mtldevice_acceleration_structure_sizes_for_triangle_geometries {
 struct unixcall_mtlcommandbuffer_build_triangle_acceleration_structures {
   obj_handle_t cmdbuf;
   obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtldevice_acceleration_structure_sizes_for_mixed_geometries {
+  obj_handle_t device;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  struct WMTMemoryPointer sizes;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_build_mixed_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t acceleration_structure;
+  struct WMTConstMemoryPointer infos;
+  uint64_t info_count;
+  obj_handle_t scratch_buffer;
+  uint64_t scratch_buffer_offset;
+  uint64_t ret_success;
+};
+
+struct unixcall_mtlcommandbuffer_refit_mixed_acceleration_structure {
+  obj_handle_t cmdbuf;
+  obj_handle_t source_acceleration_structure;
+  obj_handle_t destination_acceleration_structure;
   struct WMTConstMemoryPointer infos;
   uint64_t info_count;
   obj_handle_t scratch_buffer;

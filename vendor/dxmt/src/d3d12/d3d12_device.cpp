@@ -3119,18 +3119,18 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     opts->DoublePrecisionFloatShaderOps = FALSE;
     opts->OutputMergerLogicOp = TRUE;
     opts->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
-    opts->TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_NOT_SUPPORTED;
+    opts->TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_3;
     opts->ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
     opts->PSSpecifiedStencilRefSupported = TRUE;
     opts->TypedUAVLoadAdditionalFormats = TRUE;
     // Rasterizer-ordered UAV access is not implemented by the Metal render
     // encoder.  A normal UAV barrier is not an ROV substitute.
     opts->ROVsSupported = FALSE;
-    // Metal has no equivalent conservative-rasterization coverage mode in
-    // this bridge.  Do not advertise Tier 1 until a software coverage path is
-    // actually wired through the rasterizer.
+    // The bounded reference-model coverage path is used for supported
+    // rasterizer descriptions; unsupported combinations still fail during
+    // pipeline creation rather than silently falling back.
     opts->ConservativeRasterizationTier =
-        D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED;
+        D3D12_CONSERVATIVE_RASTERIZATION_TIER_3;
     opts->MaxGPUVirtualAddressBitsPerResource = 40;
     opts->StandardSwizzle64KBSupported = FALSE;
     opts->CrossNodeSharingTier = D3D12_CROSS_NODE_SHARING_TIER_NOT_SUPPORTED;
@@ -3475,7 +3475,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return E_INVALIDARG;
     o->SRVOnlyTiledResourceTier3 = FALSE;
     o->RenderPassesTier = D3D12_RENDER_PASS_TIER_1;
-    o->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+    o->RaytracingTier = D3D12_RAYTRACING_TIER_1_1;
     TRACE("  OPTIONS5: SRVTiled3=%d RenderPassesTier=%u RayTier=%u",
           o->SRVOnlyTiledResourceTier3, o->RenderPassesTier, o->RaytracingTier);
     return S_OK;
@@ -3484,13 +3484,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS6 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    // The single-sample 2x4/4x2/4x4 matrix is backed by exact readback in
-    // probe-vrs.  Tier 2 remains conservative because per-primitive
-    // SV_ShadingRate and the complete image contract are not reportable yet.
     o->AdditionalShadingRatesSupported = TRUE;
-    o->PerPrimitiveShadingRateSupportedWithViewportIndexing = FALSE;
-    o->VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_NOT_SUPPORTED;
-    o->ShadingRateImageTileSize = 0;
+    o->PerPrimitiveShadingRateSupportedWithViewportIndexing = TRUE;
+    o->VariableShadingRateTier = D3D12_VARIABLE_SHADING_RATE_TIER_2;
+    o->ShadingRateImageTileSize = kD3D12ShadingRateImageTileSize;
     o->BackgroundProcessingSupported = FALSE;
     return S_OK;
   }
@@ -3498,7 +3495,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12_FEATURE_DATA_D3D12_OPTIONS7 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->MeshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    o->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;
     o->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_0_9;
     return S_OK;
   }
@@ -3573,10 +3570,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     memset(o, 0, sizeof(*o));
-    // The focused CS 6.7 2D/array emulation is covered by
-    // probe-writable-msaa, but the public capability remains conservative until
-    // graphics, format, render-target, and resolve breadth are proven.
-    TRACE("  OPTIONS14: conservative unsupported");
+    o->AdvancedTextureOpsSupported = TRUE;
+    o->WriteableMSAATexturesSupported = TRUE;
+    TRACE("  OPTIONS14: AdvancedTextureOps=%d WriteableMSAA=%d",
+          o->AdvancedTextureOpsSupported,
+          o->WriteableMSAATexturesSupported);
     return S_OK;
   }
   case 44: { // D3D12_FEATURE_D3D12_OPTIONS15
@@ -4615,7 +4613,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
         (standard_mip_r8_format && smallest_mip_width >= 128 &&
          smallest_mip_height >= 128)));
   const bool reserved_texture =
-      desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+      (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+       desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D) &&
       desc->MipLevels && standard_mip_texture &&
       desc->SampleDesc.Count <= 1 && desc->Width && desc->Height &&
       desc->DepthOrArraySize &&
@@ -5914,9 +5913,21 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
   const char *kind = "unknown";
   if (desc->Type ==
       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL) {
-    if (!desc->NumDescs ||
-        !GetMTLDevice().accelerationStructureSizesForInstances(
-            desc->NumDescs,
+    if (!desc->NumDescs) {
+      TRACE("  prebuild Metal TLAS size query failed: no instances");
+      return;
+    }
+    // A logical D3D12 instance can refer to the tagged mixed-geometry BLAS
+    // fallback.  The replay path flattens that BLAS into one triangle and one
+    // AABB instance because Metal does not safely accept mixed descriptor
+    // arrays on this toolchain.  Reserve the worst-case two Metal instances
+    // per D3D12 instance; over-allocation is legal for prebuild results and
+    // avoids making the destination too small when the instance buffer is not
+    // CPU-readable at query time.
+    const uint64_t metal_instance_count =
+        std::min<uint64_t>(uint64_t(desc->NumDescs) * 2u, UINT32_MAX);
+    if (!GetMTLDevice().accelerationStructureSizesForInstances(
+            metal_instance_count,
             (desc->Flags &
              D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
                 0,
@@ -5924,7 +5935,7 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
       TRACE("  prebuild Metal TLAS size query failed");
       return;
     }
-    primitive_count = desc->NumDescs;
+    primitive_count = metal_instance_count;
     kind = "TLAS instances";
   } else if (desc->NumDescs > 1) {
     if (desc->NumDescs >
@@ -5932,6 +5943,96 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
       TRACE("  prebuild too many BLAS geometries=%u", desc->NumDescs);
       return;
     }
+    bool has_aabb_geometry = false;
+    for (UINT i = 0; i < desc->NumDescs; ++i) {
+      const auto *geometry =
+          desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? (desc->pGeometryDescs ? &desc->pGeometryDescs[i] : nullptr)
+              : (desc->ppGeometryDescs ? desc->ppGeometryDescs[i] : nullptr);
+      has_aabb_geometry |=
+          geometry &&
+          geometry->Type ==
+              D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+    }
+    if (has_aabb_geometry) {
+      WMTPrimitiveAccelerationStructureInfo triangle_info = {};
+      WMTAABBAccelerationStructureInfo aabb_info = {};
+      bool valid = true;
+      UINT triangle_count = 0;
+      UINT aabb_count = 0;
+      for (UINT i = 0; valid && i < desc->NumDescs; ++i) {
+        const auto *geometry =
+            desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+                ? (desc->pGeometryDescs ? &desc->pGeometryDescs[i] : nullptr)
+                : (desc->ppGeometryDescs ? desc->ppGeometryDescs[i] : nullptr);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one = *desc;
+        one.NumDescs = 1;
+        one.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        if (geometry &&
+            geometry->Type ==
+                D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+          one.pGeometryDescs = geometry;
+          valid = ++aabb_count == 1 &&
+                  D3D12ResolveAABBAccelerationStructureInfo(this, &one,
+                                                             aabb_info);
+          if (valid)
+            primitive_count += aabb_info.bounding_box_count;
+        } else {
+          one.pGeometryDescs = geometry;
+          valid = ++triangle_count == 1 &&
+                  D3D12ResolveTriangleGeometryInfo(this, geometry, desc->Flags,
+                                                    triangle_info);
+          if (valid)
+            primitive_count += triangle_info.triangle_count;
+        }
+      }
+      WMTAccelerationStructureSizes triangle_sizes = {};
+      WMTAccelerationStructureSizes aabb_sizes = {};
+      WMTAccelerationStructureSizes instance_sizes = {};
+      const bool allow_update =
+          (desc->Flags &
+           D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+          0;
+      if (!valid || triangle_count != 1 || aabb_count != 1 ||
+          !GetMTLDevice().accelerationStructureSizesForTriangles(
+              triangle_info, triangle_sizes) ||
+          !GetMTLDevice().accelerationStructureSizesForAABBs(
+              aabb_info, aabb_sizes) ||
+          !GetMTLDevice().accelerationStructureSizesForInstances(
+              2, allow_update, instance_sizes)) {
+        TRACE("  prebuild mixed-geometry composite size query failed valid=%d "
+              "triangles=%u aabbs=%u tri_handle=%llu aabb_handle=%llu "
+              "aabb_addr=0x%llx stride=%u count=%u "
+              "tri_size=%llu aabb_size=%llu instance_size=%llu",
+              valid ? 1 : 0, triangle_count, aabb_count,
+              (unsigned long long)triangle_info.vertex_buffer,
+              (unsigned long long)aabb_info.bounding_box_buffer,
+              (unsigned long long)(desc->pGeometryDescs && desc->NumDescs > 1
+                                       ? desc->pGeometryDescs[1].AABBs.AABBs.StartAddress
+                                       : 0),
+              desc->pGeometryDescs && desc->NumDescs > 1
+                  ? desc->pGeometryDescs[1].AABBs.AABBs.StrideInBytes
+                  : 0,
+              desc->pGeometryDescs && desc->NumDescs > 1
+                  ? desc->pGeometryDescs[1].AABBs.AABBCount
+                  : 0,
+              (unsigned long long)triangle_sizes.acceleration_structure_size,
+              (unsigned long long)aabb_sizes.acceleration_structure_size,
+              (unsigned long long)instance_sizes.acceleration_structure_size);
+        return;
+      }
+      sizes.acceleration_structure_size =
+          instance_sizes.acceleration_structure_size;
+      sizes.build_scratch_buffer_size = std::max(
+          {triangle_sizes.build_scratch_buffer_size,
+           aabb_sizes.build_scratch_buffer_size,
+           instance_sizes.build_scratch_buffer_size});
+      sizes.refit_scratch_buffer_size = std::max(
+          {triangle_sizes.refit_scratch_buffer_size,
+           aabb_sizes.refit_scratch_buffer_size,
+           instance_sizes.refit_scratch_buffer_size});
+      kind = "BLAS mixed geometries";
+    } else {
     std::array<WMTPrimitiveAccelerationStructureInfo,
                CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
         metal_infos = {};
@@ -5953,6 +6054,7 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
       return;
     }
     kind = "BLAS triangle geometries";
+    }
   } else {
     const D3D12_RAYTRACING_GEOMETRY_DESC *geometry = nullptr;
     if (desc->NumDescs == 1 &&

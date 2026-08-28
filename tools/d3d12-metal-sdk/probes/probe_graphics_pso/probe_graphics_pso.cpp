@@ -146,6 +146,57 @@ static HRESULT compile_shader(const char* source, const char* entry, const char*
     return hr;
 }
 
+static std::vector<uint8_t> read_binary_file(const char *path) {
+    HANDLE file = CreateFileA(path, GENERIC_READ,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE |
+                                  FILE_SHARE_DELETE,
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                              nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return {};
+    LARGE_INTEGER size = {};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 ||
+        size.QuadPart > 16 * 1024 * 1024) {
+        CloseHandle(file);
+        return {};
+    }
+    std::vector<uint8_t> data(static_cast<size_t>(size.QuadPart));
+    DWORD read = 0;
+    const bool ok = ReadFile(file, data.data(), static_cast<DWORD>(data.size()),
+                             &read, nullptr) &&
+                    read == data.size();
+    CloseHandle(file);
+    return ok ? data : std::vector<uint8_t>{};
+}
+
+static HRESULT execute_and_wait(ID3D12Device *device,
+                                ID3D12CommandQueue *queue,
+                                ID3D12GraphicsCommandList *list) {
+    HRESULT hr = list ? list->Close() : E_FAIL;
+    if (FAILED(hr))
+        return hr;
+    ID3D12CommandList *lists[] = {list};
+    queue->ExecuteCommandLists(1, lists);
+    ID3D12Fence *fence = nullptr;
+    hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    HANDLE event_handle = nullptr;
+    if (SUCCEEDED(hr)) {
+        hr = queue->Signal(fence, 1);
+        event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    }
+    if (SUCCEEDED(hr) && !event_handle)
+        hr = HRESULT_FROM_WIN32(GetLastError());
+    if (SUCCEEDED(hr))
+        hr = fence->SetEventOnCompletion(1, event_handle);
+    if (SUCCEEDED(hr) &&
+        WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
+        hr = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    if (event_handle)
+        CloseHandle(event_handle);
+    safe_release(fence);
+    return hr;
+}
+
 static HRESULT serialize_root_signature(ID3DBlob** blob, std::string& errors) {
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     D3D12SerializeRootSignatureFn serialize =
@@ -221,6 +272,299 @@ static void run_cached_blob_case(ID3D12Device* device, const char* name, D3D12_G
     results.push_back({name, hr, true, ok, detail});
 }
 
+struct ConservativePoint {
+    float x;
+    float y;
+};
+
+static float conservative_cross(ConservativePoint a, ConservativePoint b,
+                               ConservativePoint c) {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+static bool conservative_point_in_box(ConservativePoint point,
+                                      ConservativePoint low,
+                                      ConservativePoint high) {
+    constexpr float epsilon = 1.0e-5f;
+    return point.x >= low.x - epsilon && point.x <= high.x + epsilon &&
+           point.y >= low.y - epsilon && point.y <= high.y + epsilon;
+}
+
+static bool conservative_point_in_triangle(ConservativePoint point,
+                                           ConservativePoint a,
+                                           ConservativePoint b,
+                                           ConservativePoint c) {
+    constexpr float epsilon = 1.0e-5f;
+    const float s0 = conservative_cross(a, b, point);
+    const float s1 = conservative_cross(b, c, point);
+    const float s2 = conservative_cross(c, a, point);
+    return (s0 >= -epsilon && s1 >= -epsilon && s2 >= -epsilon) ||
+           (s0 <= epsilon && s1 <= epsilon && s2 <= epsilon);
+}
+
+static bool conservative_segments_intersect(ConservativePoint a,
+                                            ConservativePoint b,
+                                            ConservativePoint c,
+                                            ConservativePoint d) {
+    constexpr float epsilon = 1.0e-5f;
+    const float ab_c = conservative_cross(a, b, c);
+    const float ab_d = conservative_cross(a, b, d);
+    const float cd_a = conservative_cross(c, d, a);
+    const float cd_b = conservative_cross(c, d, b);
+    return ((ab_c >= -epsilon && ab_d <= epsilon) ||
+            (ab_c <= epsilon && ab_d >= -epsilon)) &&
+           ((cd_a >= -epsilon && cd_b <= epsilon) ||
+            (cd_a <= epsilon && cd_b >= -epsilon));
+}
+
+static bool conservative_triangle_pixel(ConservativePoint a,
+                                        ConservativePoint b,
+                                        ConservativePoint c,
+                                        ConservativePoint low) {
+    const ConservativePoint high = {low.x + 1.0f, low.y + 1.0f};
+    const ConservativePoint q0 = {low.x, low.y};
+    const ConservativePoint q1 = {high.x, low.y};
+    const ConservativePoint q2 = {high.x, high.y};
+    const ConservativePoint q3 = {low.x, high.y};
+    if (conservative_point_in_box(a, low, high) ||
+        conservative_point_in_box(b, low, high) ||
+        conservative_point_in_box(c, low, high))
+        return true;
+    if (conservative_point_in_triangle(q0, a, b, c) ||
+        conservative_point_in_triangle(q1, a, b, c) ||
+        conservative_point_in_triangle(q2, a, b, c) ||
+        conservative_point_in_triangle(q3, a, b, c))
+        return true;
+    const ConservativePoint edges[][2] = {{a, b}, {b, c}, {c, a}};
+    const ConservativePoint box_edges[][2] = {{q0, q1}, {q1, q2},
+                                                {q2, q3}, {q3, q0}};
+    for (const auto &edge : edges)
+        for (const auto &box_edge : box_edges)
+            if (conservative_segments_intersect(edge[0], edge[1],
+                                                box_edge[0], box_edge[1]))
+                return true;
+    return false;
+}
+
+static D3D12_RESOURCE_DESC conservative_buffer_desc(UINT64 bytes) {
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = bytes;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    return desc;
+}
+
+static bool run_conservative_coverage_probe(ID3D12Device *device,
+                                            ID3D12RootSignature *root,
+                                            const std::vector<uint8_t> &vs,
+                                            const std::vector<uint8_t> &ps,
+                                            uint32_t &case_count,
+                                            uint32_t &rendered_pixels) {
+    if (!device || !root || vs.empty() || ps.empty())
+        return false;
+
+    const D3D12_INPUT_ELEMENT_DESC input = {
+        "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
+    pso_desc.pRootSignature = root;
+    pso_desc.VS = {vs.data(), vs.size()};
+    pso_desc.PS = {ps.data(), ps.size()};
+    pso_desc.BlendState = default_blend_desc();
+    pso_desc.SampleMask = UINT_MAX;
+    pso_desc.RasterizerState = default_rasterizer_desc();
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.RasterizerState.ConservativeRaster =
+        D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON;
+    pso_desc.DepthStencilState = default_depth_stencil_desc();
+    pso_desc.InputLayout = {&input, 1};
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.SampleDesc.Count = 1;
+
+    ID3D12PipelineState *pso = nullptr;
+    if (FAILED(device->CreateGraphicsPipelineState(
+            &pso_desc, IID_PPV_ARGS(&pso))) || !pso)
+        return false;
+
+    struct Triangle {
+        float x[3];
+        float y[3];
+    };
+    const Triangle triangles[] = {
+        {{-0.90f, 0.10f, 0.90f}, {-0.90f, 0.90f, -0.20f}},
+        {{0.90f, 0.10f, -0.90f}, {-0.20f, 0.90f, -0.90f}},
+        {{-1.20f, -0.20f, 0.20f}, {0.20f, 1.20f, -1.20f}},
+    };
+    constexpr uint32_t width = 8;
+    constexpr uint32_t height = 8;
+    constexpr uint32_t row_pitch = 256;
+    bool all_ok = true;
+    case_count = static_cast<uint32_t>(sizeof(triangles) / sizeof(triangles[0]));
+    rendered_pixels = 0;
+    for (const Triangle &triangle : triangles) {
+        ID3D12CommandQueue *queue = nullptr;
+        ID3D12CommandAllocator *allocator = nullptr;
+        ID3D12GraphicsCommandList *list = nullptr;
+        ID3D12Resource *target = nullptr;
+        ID3D12Resource *readback = nullptr;
+        ID3D12Resource *vertex_buffer = nullptr;
+        ID3D12DescriptorHeap *rtv_heap = nullptr;
+
+        D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+        HRESULT hr = device->CreateCommandQueue(
+            &queue_desc, IID_PPV_ARGS(&queue));
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                            allocator, nullptr,
+                                            IID_PPV_ARGS(&list));
+
+        D3D12_HEAP_PROPERTIES default_heap = {};
+        default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_HEAP_PROPERTIES upload_heap = {};
+        upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+        D3D12_HEAP_PROPERTIES readback_heap = {};
+        readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC target_desc = {};
+        target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        target_desc.Width = width;
+        target_desc.Height = height;
+        target_desc.DepthOrArraySize = 1;
+        target_desc.MipLevels = 1;
+        target_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        target_desc.SampleDesc.Count = 1;
+        target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        D3D12_RESOURCE_DESC vertex_desc = conservative_buffer_desc(36);
+        D3D12_RESOURCE_DESC readback_desc = conservative_buffer_desc(
+            row_pitch * height);
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+                D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+                IID_PPV_ARGS(&target));
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommittedResource(
+                &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&readback));
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommittedResource(
+                &upload_heap, D3D12_HEAP_FLAG_NONE, &vertex_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&vertex_buffer));
+        if (SUCCEEDED(hr)) {
+            void *mapped = nullptr;
+            hr = vertex_buffer->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr)) {
+                float vertices[9] = {
+                    triangle.x[0], triangle.y[0], 0.0f,
+                    triangle.x[1], triangle.y[1], 0.0f,
+                    triangle.x[2], triangle.y[2], 0.0f};
+                std::memcpy(mapped, vertices, sizeof(vertices));
+                vertex_buffer->Unmap(0, nullptr);
+            }
+        }
+        D3D12_DESCRIPTOR_HEAP_DESC rtv_desc = {};
+        rtv_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        rtv_desc.NumDescriptors = 1;
+        if (SUCCEEDED(hr))
+            hr = device->CreateDescriptorHeap(&rtv_desc,
+                                              IID_PPV_ARGS(&rtv_heap));
+        if (SUCCEEDED(hr))
+            device->CreateRenderTargetView(
+                target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
+        if (SUCCEEDED(hr)) {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+                rtv_heap->GetCPUDescriptorHandleForHeapStart();
+            const float clear[4] = {0, 0, 0, 0};
+            list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+            list->SetPipelineState(pso);
+            list->SetGraphicsRootSignature(root);
+            D3D12_VIEWPORT viewport = {0, 0, (float)width, (float)height, 0, 1};
+            D3D12_RECT scissor = {0, 0, (LONG)width, (LONG)height};
+            list->RSSetViewports(1, &viewport);
+            list->RSSetScissorRects(1, &scissor);
+            list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            D3D12_VERTEX_BUFFER_VIEW vbv = {};
+            vbv.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+            vbv.SizeInBytes = 36;
+            vbv.StrideInBytes = 12;
+            list->IASetVertexBuffers(0, 1, &vbv);
+            list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            list->DrawInstanced(3, 1, 0, 0);
+            D3D12_RESOURCE_BARRIER barrier = {};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = target;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            list->ResourceBarrier(1, &barrier);
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint.Footprint.Format =
+                DXGI_FORMAT_R8G8B8A8_UNORM;
+            dst.PlacedFootprint.Footprint.Width = width;
+            dst.PlacedFootprint.Footprint.Height = height;
+            dst.PlacedFootprint.Footprint.Depth = 1;
+            dst.PlacedFootprint.Footprint.RowPitch = row_pitch;
+            list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+            hr = execute_and_wait(device, queue, list);
+        }
+
+        bool case_ok = SUCCEEDED(hr);
+        if (case_ok) {
+            uint8_t *mapped = nullptr;
+            D3D12_RANGE range = {0, row_pitch * height};
+            case_ok = SUCCEEDED(readback->Map(
+                0, &range, reinterpret_cast<void **>(&mapped))) && mapped;
+            if (case_ok) {
+                ConservativePoint points[3] = {};
+                for (uint32_t i = 0; i < 3; ++i) {
+                    points[i] = {((triangle.x[i] * 0.5f) + 0.5f) * width,
+                                 (0.5f - triangle.y[i] * 0.5f) * height};
+                }
+                for (uint32_t y = 0; y < height; ++y) {
+                    const uint32_t *row = reinterpret_cast<const uint32_t *>(
+                        mapped + y * row_pitch);
+                    for (uint32_t x = 0; x < width; ++x) {
+                        const bool expected = conservative_triangle_pixel(
+                            points[0], points[1], points[2],
+                            {(float)x, (float)y});
+                        const uint32_t actual = row[x];
+                        case_ok &= expected ? actual == 0xff0000ffu
+                                             : actual == 0u;
+                        rendered_pixels += actual == 0xff0000ffu;
+                    }
+                }
+                readback->Unmap(0, nullptr);
+            }
+        }
+        all_ok &= case_ok;
+        safe_release(rtv_heap);
+        safe_release(vertex_buffer);
+        safe_release(readback);
+        safe_release(target);
+        safe_release(list);
+        safe_release(allocator);
+        safe_release(queue);
+    }
+    safe_release(pso);
+    return all_ok;
+}
+
 int main() {
     const std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
 
@@ -254,6 +598,10 @@ int main() {
     ID3DBlob* vs = nullptr;
     ID3DBlob* ps = nullptr;
     ID3DBlob* ps_mrt = nullptr;
+    const std::vector<uint8_t> conservative_vs =
+        read_binary_file("probe_conservative_raster_vs.cso");
+    const std::vector<uint8_t> conservative_ps =
+        read_binary_file("probe_conservative_raster_ps.cso");
     HRESULT vs_hr = compile_shader(hlsl, "vs_main", "vs_5_0", &vs, errors);
     HRESULT ps_hr = compile_shader(hlsl, "ps_main", "ps_5_0", &ps, errors);
     HRESULT ps_mrt_hr = compile_shader(hlsl, "ps_mrt", "ps_5_0", &ps_mrt, errors);
@@ -362,6 +710,14 @@ int main() {
         cases_ok = cases_ok && result.ok;
     bool pass = SUCCEEDED(create_hr) && SUCCEEDED(root_blob_hr) && SUCCEEDED(root_hr) && SUCCEEDED(vs_hr) &&
                 SUCCEEDED(ps_hr) && SUCCEEDED(ps_mrt_hr) && cases_ok;
+    uint32_t conservative_case_count = 0;
+    uint32_t conservative_rendered_pixels = 0;
+    const bool conservative_rasterization_ok =
+        run_conservative_coverage_probe(device, root, conservative_vs,
+                                        conservative_ps,
+                                        conservative_case_count,
+                                        conservative_rendered_pixels);
+    pass = pass && conservative_rasterization_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-graphics-pso.v1\",\n");
@@ -404,9 +760,12 @@ int main() {
     std::printf("    \"cached_blob\": true,\n");
     std::printf("    \"unsupported_stream_output_rejected\": true,\n");
     std::printf("    \"unsupported_hs_ds_rejected\": true,\n");
-    // ConservativeRaster is deliberately unsupported until the edge/coverage
-    // reference model is wired through the raster path.
-    std::printf("    \"conservative_rasterization_tier3_verified\": false\n");
+    std::printf("    \"conservative_rasterization_case_count\": %u,\n",
+                conservative_case_count);
+    std::printf("    \"conservative_rasterization_rendered_pixels\": %u,\n",
+                conservative_rendered_pixels);
+    std::printf("    \"conservative_rasterization_tier3_verified\": %s\n",
+                conservative_rasterization_ok ? "true" : "false");
     std::printf("  }\n");
     std::printf("}\n");
 

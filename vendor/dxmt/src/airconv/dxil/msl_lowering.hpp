@@ -40,10 +40,18 @@ struct MSLVertexInputElement {
 };
 
 struct MSLLoweringOptions {
-    std::vector<MSLVertexInputElement> vertex_inputs;
-    bool depth_bounds_test = false;
-    bool depth_bounds_multisample = false;
-    bool sampler_feedback = false;
+  std::vector<MSLVertexInputElement> vertex_inputs;
+  bool depth_bounds_test = false;
+  bool depth_bounds_multisample = false;
+  bool sampler_feedback = false;
+  // Reserve the DXMT fragment runtime slot and carry the flat
+  // SV_ShadingRate-producing value through a dedicated interface member.  A
+  // command-list replay can then select the effective rate without confusing
+  // the source semantic with Metal's screen-space rate map.
+  bool vrs_per_primitive = false;
+  // Replace ordinary point-in-triangle rasterization with the bounded
+  // conservative coverage replay path for the supported reference model.
+  bool conservative_rasterization = false;
 };
 
 inline uint32_t MSLResolveVertexInputTableIndex(uint32_t shader_register,

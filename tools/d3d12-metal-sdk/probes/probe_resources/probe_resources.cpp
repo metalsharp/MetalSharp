@@ -285,12 +285,17 @@ int main() {
     ID3D12Resource* texture_readback = nullptr;
     ID3D12Resource* unsupported_texture = nullptr;
     ID3D12Heap* sparse_heap = nullptr;
+    ID3D12Heap* volume_heap = nullptr;
     ID3D12Heap* copy_mapping_heap = nullptr;
     ID3D12Resource* reserved_texture = nullptr;
     ID3D12Resource* placement_alias_texture = nullptr;
+    ID3D12Resource* volume_texture = nullptr;
+    ID3D12Resource* volume_alias_texture = nullptr;
     ID3D12Resource* sparse_upload = nullptr;
     ID3D12Resource* sparse_readback = nullptr;
     ID3D12Resource* sparse_unmapped_readback = nullptr;
+    ID3D12Resource* volume_readback = nullptr;
+    ID3D12Resource* volume_alias_readback = nullptr;
     ID3D12Resource* reserved_buffer = nullptr;
     ID3D12Resource* reserved_buffer_readback = nullptr;
     ID3D12Resource* reserved_buffer_unmapped_readback = nullptr;
@@ -309,9 +314,12 @@ int main() {
     ID3D12Resource* r8_partial_upload = nullptr;
     ID3D12Resource* r8_partial_readback = nullptr;
     HRESULT sparse_heap_hr = E_FAIL;
+    HRESULT volume_heap_hr = E_FAIL;
     HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
     HRESULT placement_alias_texture_hr = E_FAIL;
+    HRESULT volume_texture_hr = E_FAIL;
+    HRESULT volume_alias_texture_hr = E_FAIL;
     HRESULT sparse_upload_hr = E_FAIL;
     HRESULT sparse_readback_hr = E_FAIL;
     HRESULT sparse_unmapped_readback_hr = E_FAIL;
@@ -325,6 +333,23 @@ int main() {
     HRESULT reserved_buffer_readback_hr = E_FAIL;
     HRESULT reserved_buffer_unmapped_readback_hr = E_FAIL;
     HRESULT placement_alias_readback_hr = E_FAIL;
+    HRESULT volume_readback_hr = E_FAIL;
+    HRESULT volume_alias_readback_hr = E_FAIL;
+    HRESULT volume_tiling_hr = E_FAIL;
+    HRESULT volume_alias_tiling_hr = E_FAIL;
+    HRESULT volume_readback_map_hr = E_FAIL;
+    HRESULT volume_alias_readback_map_hr = E_FAIL;
+    UINT volume_total_tiles = 0;
+    UINT volume_alias_total_tiles = 0;
+    UINT volume_tiling_count = 1;
+    UINT volume_alias_tiling_count = 1;
+    D3D12_TILE_SHAPE volume_tile_shape = {};
+    D3D12_TILE_SHAPE volume_alias_tile_shape = {};
+    D3D12_SUBRESOURCE_TILING volume_tiling = {};
+    D3D12_SUBRESOURCE_TILING volume_alias_tiling = {};
+    bool volume_copy_ok = false;
+    bool volume_alias_copy_ok = false;
+    bool volume_physical_page_ownership_ok = false;
     HRESULT mapping_copy_source_hr = E_FAIL;
     HRESULT mapping_copy_destination_hr = E_FAIL;
     HRESULT mapping_copy_readback_hr = E_FAIL;
@@ -503,6 +528,44 @@ int main() {
                      &placement_alias_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                      nullptr, IID_PPV_ARGS(&placement_alias_texture))
                : E_FAIL;
+    D3D12_RESOURCE_DESC volume_desc = reserved_desc;
+    volume_desc.Width = 32;
+    volume_desc.Height = 32;
+    volume_desc.DepthOrArraySize = 32;
+    volume_desc.MipLevels = 1;
+    volume_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    volume_texture_hr =
+        device ? device->CreateReservedResource(
+                     &volume_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&volume_texture))
+               : E_FAIL;
+    D3D12_RESOURCE_DESC volume_alias_desc = volume_desc;
+    volume_alias_texture_hr =
+        device ? device->CreateReservedResource(
+                     &volume_alias_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&volume_alias_texture))
+               : E_FAIL;
+    if (device && volume_texture) {
+        volume_tiling_hr = S_OK;
+        device->GetResourceTiling(
+            volume_texture, &volume_total_tiles, nullptr, &volume_tile_shape,
+            &volume_tiling_count, 0, &volume_tiling);
+    }
+    if (device && volume_alias_texture) {
+        volume_alias_tiling_hr = S_OK;
+        device->GetResourceTiling(volume_alias_texture, &volume_alias_total_tiles,
+                                  nullptr, &volume_alias_tile_shape,
+                                  &volume_alias_tiling_count, 0,
+                                  &volume_alias_tiling);
+    }
+    D3D12_HEAP_DESC volume_heap_desc = sparse_heap_desc;
+    // Metal's 16 KiB placement pages use a 64x64 RGBA8 XY tile for a
+    // volume. One D3D12 32x32x16 tile therefore consumes four 64 KiB heap
+    // tiles; reserve two such logical tiles for the two depth regions.
+    volume_heap_desc.SizeInBytes = sparse_tile_bytes * 4;
+    volume_heap_hr = device ? device->CreateHeap(&volume_heap_desc,
+                                                   IID_PPV_ARGS(&volume_heap))
+                            : E_FAIL;
     D3D12_RESOURCE_DESC reserved_buffer_desc =
         buffer_desc(sparse_tile_bytes);
     reserved_buffer_hr =
@@ -558,6 +621,20 @@ int main() {
                      &reserved_buffer_readback_desc,
                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                      IID_PPV_ARGS(&placement_alias_readback))
+               : E_FAIL;
+    volume_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &reserved_buffer_readback_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&volume_readback))
+               : E_FAIL;
+    volume_alias_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &reserved_buffer_readback_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&volume_alias_readback))
                : E_FAIL;
     mapping_copy_source_hr =
         device ? device->CreateReservedResource(
@@ -817,6 +894,52 @@ int main() {
             reserved_texture, &coordinates[1], &region_sizes[1], sparse_readback,
             sparse_tile_size,
             D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+    }
+    if (queue && volume_heap && volume_texture && volume_alias_texture &&
+        sparse_upload && volume_readback && volume_alias_readback &&
+        volume_total_tiles == 2 && volume_alias_total_tiles == 2 &&
+        volume_tiling_count == 1 && volume_alias_tiling_count == 1 &&
+        volume_tile_shape.WidthInTexels == 32 &&
+        volume_tile_shape.HeightInTexels == 32 &&
+        volume_tile_shape.DepthInTexels == 16) {
+        D3D12_TILED_RESOURCE_COORDINATE volume_coordinate = {};
+        D3D12_TILE_REGION_SIZE volume_region = {};
+        volume_region.UseBox = TRUE;
+        volume_region.Width = 1;
+        volume_region.Height = 1;
+        volume_region.Depth = 2;
+        volume_region.NumTiles = 2;
+        D3D12_TILE_RANGE_FLAGS volume_range_flag =
+            D3D12_TILE_RANGE_FLAG_NONE;
+        UINT volume_heap_offset = 0;
+        UINT volume_range_count = 1;
+        UINT volume_range_tiles = 2;
+        queue->UpdateTileMappings(
+            volume_texture, 1, &volume_coordinate, &volume_region, volume_heap,
+            volume_range_count, &volume_range_flag, &volume_heap_offset,
+            &volume_range_tiles,
+            D3D12_TILE_MAPPING_FLAG_NONE);
+        queue->CopyTileMappings(
+            volume_alias_texture, &volume_coordinate, volume_texture,
+            &volume_coordinate, &volume_region,
+            D3D12_TILE_MAPPING_FLAG_NONE);
+        list->CopyTiles(
+            volume_texture, &volume_coordinate, &volume_region, sparse_upload,
+            0, D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+        D3D12_RESOURCE_BARRIER volume_barrier = transition_barrier(
+            volume_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &volume_barrier);
+        D3D12_RESOURCE_BARRIER volume_alias_barrier = transition_barrier(
+            volume_alias_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &volume_alias_barrier);
+        list->CopyTiles(
+            volume_texture, &volume_coordinate, &volume_region, volume_readback,
+            0, D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+        list->CopyTiles(volume_alias_texture, &volume_coordinate, &volume_region,
+                        volume_alias_readback, 0,
+                        D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
     if (list && queue && reserved_buffer && sparse_heap && sparse_upload &&
         reserved_buffer_readback && reserved_buffer_total_tiles == 2 &&
@@ -1390,6 +1513,45 @@ int main() {
         }
         placement_alias_readback->Unmap(0, nullptr);
     }
+    uint8_t *volume_readback_ptr = nullptr;
+    volume_readback_map_hr =
+        volume_readback
+            ? volume_readback->Map(
+                  0, nullptr, reinterpret_cast<void **>(&volume_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(volume_readback_map_hr) && volume_readback_ptr) {
+        volume_copy_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_bytes; ++i) {
+            if (volume_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                volume_copy_ok = false;
+                break;
+            }
+        }
+        volume_readback->Unmap(0, nullptr);
+    }
+    uint8_t *volume_alias_readback_ptr = nullptr;
+    volume_alias_readback_map_hr =
+        volume_alias_readback
+            ? volume_alias_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&volume_alias_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(volume_alias_readback_map_hr) &&
+        volume_alias_readback_ptr) {
+        volume_alias_copy_ok = true;
+        for (UINT64 i = 0; i < sparse_tile_bytes; ++i) {
+            if (volume_alias_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                volume_alias_copy_ok = false;
+                break;
+            }
+        }
+        volume_alias_readback->Unmap(0, nullptr);
+    }
+    volume_physical_page_ownership_ok =
+        volume_copy_ok && volume_alias_copy_ok && volume_total_tiles == 2 &&
+        volume_tile_shape.DepthInTexels == 16;
     uint8_t *mapping_copy_readback_ptr = nullptr;
     mapping_copy_readback_map_hr =
         mapping_copy_readback
@@ -1562,6 +1724,16 @@ int main() {
                 SUCCEEDED(placement_alias_readback_hr) &&
                 SUCCEEDED(placement_alias_readback_map_hr) &&
                 placement_alias_copy_ok &&
+                SUCCEEDED(volume_heap_hr) &&
+                SUCCEEDED(volume_texture_hr) &&
+                SUCCEEDED(volume_alias_texture_hr) &&
+                SUCCEEDED(volume_tiling_hr) &&
+                SUCCEEDED(volume_alias_tiling_hr) &&
+                SUCCEEDED(volume_readback_hr) &&
+                SUCCEEDED(volume_alias_readback_hr) &&
+                SUCCEEDED(volume_readback_map_hr) &&
+                SUCCEEDED(volume_alias_readback_map_hr) &&
+                volume_physical_page_ownership_ok &&
                 SUCCEEDED(sparse_tiling_hr) && SUCCEEDED(sparse_upload_hr) && SUCCEEDED(sparse_readback_hr) &&
                 SUCCEEDED(sparse_upload_map_hr) &&
                 SUCCEEDED(sparse_readback_map_hr) && sparse_copy_ok &&
@@ -1857,9 +2029,26 @@ int main() {
     std::printf("      \"copy_verified\": %s\n",
                 mipped_reserved_copy_ok ? "true" : "false");
     std::printf("    },\n");
-    // The focused placement alias is not sufficient to claim Tier 3 physical
-    // page ownership for every supported tiled-resource layout.
-    std::printf("    \"tier3_physical_page_ownership_verified\": false\n");
+    print_hr("volume_heap_create", volume_heap_hr);
+    print_hr("volume_texture_create", volume_texture_hr);
+    print_hr("volume_alias_texture_create", volume_alias_texture_hr);
+    print_hr("volume_tiling", volume_tiling_hr);
+    print_hr("volume_alias_tiling", volume_alias_tiling_hr);
+    print_hr("volume_readback_create", volume_readback_hr);
+    print_hr("volume_alias_readback_create", volume_alias_readback_hr);
+    print_hr("volume_readback_map", volume_readback_map_hr);
+    print_hr("volume_alias_readback_map", volume_alias_readback_map_hr);
+    std::printf("    \"volume_total_tiles\": %u,\n", volume_total_tiles);
+    std::printf("    \"volume_tile_shape\": [%u, %u, %u],\n",
+                volume_tile_shape.WidthInTexels,
+                volume_tile_shape.HeightInTexels,
+                volume_tile_shape.DepthInTexels);
+    std::printf("    \"volume_copy_verified\": %s,\n",
+                volume_copy_ok ? "true" : "false");
+    std::printf("    \"volume_alias_copy_verified\": %s,\n",
+                volume_alias_copy_ok ? "true" : "false");
+    std::printf("    \"tier3_physical_page_ownership_verified\": %s\n",
+                volume_physical_page_ownership_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"formats\": {\n");
     for (size_t i = 0; i < formats.size(); ++i)

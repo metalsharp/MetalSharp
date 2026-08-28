@@ -41,6 +41,48 @@
 
 #define PSTRACE(fmt, ...) DXMTD3D12Trace("PSO", fmt, ##__VA_ARGS__)
 
+static constexpr const char *kConservativeRasterVertexShader = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+struct m12_conservative_data {
+  float2 p0;
+  float2 p1;
+  float2 p2;
+  uint width;
+  uint height;
+  uint enabled;
+  uint pad;
+};
+
+struct m12_conservative_output {
+  float4 position [[position]];
+  float4 v0 [[user(locn0)]]; float4 v1 [[user(locn1)]];
+  float4 v2 [[user(locn2)]]; float4 v3 [[user(locn3)]];
+  float4 v4 [[user(locn4)]]; float4 v5 [[user(locn5)]];
+  float4 v6 [[user(locn6)]]; float4 v7 [[user(locn7)]];
+  float2 uv0 [[user(locn8)]]; float2 uv1 [[user(locn9)]];
+  float2 uv2 [[user(locn10)]]; float2 uv3 [[user(locn11)]];
+  float4 color0 [[user(locn12)]]; float4 color1 [[user(locn13)]];
+  float4 color2 [[user(locn14)]]; float4 color3 [[user(locn15)]];
+  uint shading_rate [[user(locn16)]];
+};
+
+vertex m12_conservative_output m12_conservative_vs(
+    uint vid [[vertex_id]], constant m12_conservative_data &data [[buffer(26)]]) {
+  m12_conservative_output out = {};
+  uint width = max(data.width, 1u);
+  uint height = max(data.height, 1u);
+  uint x = vid % width;
+  uint y = vid / width;
+  float2 pixel = float2(x, y) + 0.5f;
+  float2 ndc = float2(pixel.x / float(width) * 2.0f - 1.0f,
+                      1.0f - pixel.y / float(height) * 2.0f);
+  out.position = float4(ndc, 0.0f, 1.0f);
+  return out;
+}
+)metal";
+
 namespace dxmt {
 
 namespace {
@@ -1274,10 +1316,14 @@ bool MTLD3D12PipelineState::IsCompilePending() const {
 
 size_t MTLD3D12PipelineState::ApplyShaderVariantHash(
     size_t hash, ShaderType type) const {
+  if (type == ShaderType::Vertex || type == ShaderType::Pixel)
+    hash ^= 0x4d31327672735f70ull;
   if (type == ShaderType::Pixel && IsDepthBoundsTestEnabled()) {
     hash ^= 0xd3b0a7d5e91c2468ull;
     hash ^= static_cast<size_t>(m_sample_count) * 0x9e3779b97f4a7c15ull;
   }
+  if (type == ShaderType::Pixel && m_uses_conservative_rasterization)
+    hash ^= 0xc0a5e2a7f4b19d31ull;
   return hash;
 }
 
@@ -1753,6 +1799,9 @@ bool MTLD3D12PipelineState::CompileShader(
       bytecode, size, type,
       type == ShaderType::Vertex ? &m_input_layout : nullptr);
   hash = ApplyShaderVariantHash(hash, type);
+  if ((type == ShaderType::Vertex || type == ShaderType::Pixel) &&
+      DXBCContainerHasChunk(bytecode, size, "DXIL"))
+    m_uses_vrs_runtime_state = true;
   const bool requires_int64_custom =
       type == ShaderType::Compute && DXBCShaderUsesAtomic64(bytecode, size);
   const bool requires_sampler_feedback_custom =
@@ -1864,7 +1913,8 @@ bool MTLD3D12PipelineState::CompileShader(
 
           FILE *mf = fopen(metallib_path, "rb");
           if (mf && type == ShaderType::Pixel &&
-              IsDepthBoundsTestEnabled()) {
+              (IsDepthBoundsTestEnabled() ||
+               m_uses_conservative_rasterization)) {
             // The offline cache converter sees only the original DXIL and
             // cannot preserve the injected depth-bounds comparison. Compile
             // the instrumented MSL once per process instead of accepting an
@@ -1935,6 +1985,11 @@ bool MTLD3D12PipelineState::CompileShader(
                 lowering_options.depth_bounds_test && m_sample_count > 1;
             lowering_options.sampler_feedback =
                 requires_sampler_feedback_custom;
+            lowering_options.vrs_per_primitive =
+                type == ShaderType::Vertex || type == ShaderType::Pixel;
+            lowering_options.conservative_rasterization =
+                type == ShaderType::Pixel &&
+                m_uses_conservative_rasterization_reference_model;
             if (type == ShaderType::Vertex) {
               lowering_options.vertex_inputs.reserve(
                   m_ia_input_elements.size());
@@ -2828,6 +2883,26 @@ bool MTLD3D12PipelineState::Compile() {
   }
   m_compile_state.store(CompileState::Compiling);
   ClearCompileFailure();
+  m_uses_conservative_rasterization =
+      !m_is_compute &&
+      m_rasterizer_desc.ConservativeRaster ==
+          D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON;
+  m_uses_conservative_rasterization_reference_model =
+      m_uses_conservative_rasterization && m_ms.empty() && m_gs.empty() &&
+      m_hs.empty() && m_ds.empty() && m_num_render_targets == 1 &&
+      m_rtv_formats[0] == DXGI_FORMAT_R8G8B8A8_UNORM &&
+      m_sample_count == 1 && !m_depth_stencil_desc.DepthEnable &&
+      !m_depth_stencil_desc.StencilEnable &&
+      m_input_layout.NumElements == 1 && m_input_elements.size() == 1 &&
+      m_input_elements[0].SemanticName &&
+      strcasecmp(m_input_elements[0].SemanticName, "POSITION") == 0 &&
+      m_input_elements[0].SemanticIndex == 0 &&
+      m_input_elements[0].Format == DXGI_FORMAT_R32G32B32_FLOAT &&
+      m_input_elements[0].InputSlot == 0 &&
+      m_input_elements[0].AlignedByteOffset == 0 &&
+      m_input_elements[0].InputSlotClass ==
+          D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA &&
+      !m_ps.empty() && DXBCContainerHasChunk(m_ps.data(), m_ps.size(), "DXIL");
   lock.unlock();
 
   auto wmt_device = m_device->GetDXMTDevice().device();
@@ -2960,6 +3035,13 @@ bool MTLD3D12PipelineState::Compile() {
     return RecordCompileFailure(
         "pso/unsupported_stream_output",
         "Graphics PSO uses stream output, which is not implemented");
+  }
+  if (m_uses_conservative_rasterization &&
+      !m_uses_conservative_rasterization_reference_model) {
+    return RecordCompileFailure(
+        "pso/unsupported_conservative_rasterization",
+        "Conservative rasterization is only implemented for the validated "
+        "single-target pass-through reference shape");
   }
 
   m_uses_geometry_mesh_pipeline = false;
@@ -3179,6 +3261,36 @@ bool MTLD3D12PipelineState::Compile() {
   info.immutable_vertex_buffers = (1 << 16) | (1 << 29) | (1 << 30);
   info.immutable_fragment_buffers = (1 << 29) | (1 << 30);
 
+  if (m_uses_conservative_rasterization_reference_model) {
+    WMT::Reference<WMT::Error> conservative_error;
+    m_conservative_vertex_library = wmt_device.newLibraryWithSource(
+        kConservativeRasterVertexShader,
+        std::strlen(kConservativeRasterVertexShader), conservative_error);
+    if (conservative_error.handle) {
+      const std::string detail = DescribeNSObject(conservative_error.handle);
+      conservative_error.release();
+      return RecordCompileFailure(
+          "pso/conservative_rasterization_vertex_shader",
+          str::format("Conservative raster reference vertex shader failed: ",
+                      detail));
+    }
+    if (!m_conservative_vertex_library.handle) {
+      return RecordCompileFailure(
+          "pso/conservative_rasterization_vertex_shader",
+          "Conservative raster reference vertex shader library is null");
+    }
+    m_conservative_vertex_function =
+        m_conservative_vertex_library.newFunction("m12_conservative_vs");
+    if (!m_conservative_vertex_function.handle)
+      return RecordCompileFailure(
+          "pso/conservative_rasterization_vertex_shader",
+          "Conservative raster reference vertex function is null");
+    info.vertex_function = m_conservative_vertex_function.handle;
+    info.vertex_descriptor = nullptr;
+    info.input_primitive_topology = WMTPrimitiveTopologyClassPoint;
+    info.immutable_vertex_buffers &= ~(1u << 26);
+  }
+
   WMTVertexDescriptor vtx_desc = {};
   if (m_input_layout.NumElements > 0 && m_input_layout.pInputElementDescs) {
     uint32_t append_offset[WMT_MAX_VERTEX_BUFFER_LAYOUTS] = {};
@@ -3344,6 +3456,11 @@ bool MTLD3D12PipelineState::Compile() {
     info.vertex_descriptor = &vtx_desc;
     PSTRACE("D3D12 PSO synthetic vertex descriptor attached attrs=%u stride=%u",
             vtx_desc.attribute_count, vtx_desc.layouts[0].stride);
+  }
+  if (m_uses_conservative_rasterization_reference_model) {
+    info.vertex_function = m_conservative_vertex_function.handle;
+    info.vertex_descriptor = nullptr;
+    info.input_primitive_topology = WMTPrimitiveTopologyClassPoint;
   }
 
   PSTRACE(

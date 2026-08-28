@@ -193,6 +193,27 @@ public:
       uint64_t acceleration_structure_size) {
     m_mtl_acceleration_structure = std::move(acceleration_structure);
     m_mtl_acceleration_structure_size = acceleration_structure_size;
+    m_mixed_triangle_acceleration_structure = nullptr;
+    m_mixed_aabb_acceleration_structure = nullptr;
+  }
+  void SetMixedAccelerationStructures(
+      WMT::Reference<WMT::AccelerationStructure> triangle_acceleration_structure,
+      WMT::Reference<WMT::AccelerationStructure> aabb_acceleration_structure) {
+    m_mixed_triangle_acceleration_structure =
+        std::move(triangle_acceleration_structure);
+    m_mixed_aabb_acceleration_structure = std::move(aabb_acceleration_structure);
+  }
+  WMT::Reference<WMT::AccelerationStructure>
+  GetMixedTriangleAccelerationStructure() {
+    return m_mixed_triangle_acceleration_structure;
+  }
+  WMT::Reference<WMT::AccelerationStructure>
+  GetMixedAABBAccelerationStructure() {
+    return m_mixed_aabb_acceleration_structure;
+  }
+  bool HasMixedAccelerationStructures() const {
+    return m_mixed_triangle_acceleration_structure.handle &&
+           m_mixed_aabb_acceleration_structure.handle;
   }
   uint64_t GetMTLAccelerationStructureSize() const {
     return m_mtl_acceleration_structure_size;
@@ -345,6 +366,10 @@ private:
   WMT::Reference<WMT::Texture> m_mtl_texture;
   WMT::Reference<WMT::AccelerationStructure> m_mtl_acceleration_structure;
   uint64_t m_mtl_acceleration_structure_size = 0;
+  WMT::Reference<WMT::AccelerationStructure>
+      m_mixed_triangle_acceleration_structure;
+  WMT::Reference<WMT::AccelerationStructure>
+      m_mixed_aabb_acceleration_structure;
   WMT::Reference<WMT::Buffer> m_raytracing_header_buffer;
   WMT::Reference<WMT::Buffer>
       m_raytracing_instance_contributions_buffer;

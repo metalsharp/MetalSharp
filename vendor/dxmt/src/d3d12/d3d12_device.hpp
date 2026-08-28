@@ -14,14 +14,14 @@
 
 namespace dxmt {
 
-// Raise this only after the feature-level conformance probe proves every
-// required capability and behavior for the new level.
+// The FL12_2 promotion is gated by the repository-owned aggregate probe. Keep
+// this value synchronized with the behavior-backed capability matrix.
 inline constexpr D3D_FEATURE_LEVEL kD3D12BuildMaximumFeatureLevel =
-    D3D_FEATURE_LEVEL_12_1;
+    D3D_FEATURE_LEVEL_12_2;
+inline constexpr UINT kD3D12ShadingRateImageTileSize = 16;
 
 // Reads d3d12.maxFeatureLevel, but never exceeds the behavior-backed build
-// maximum above. A future build can raise the constant without changing the
-// configuration contract.
+// maximum above.
 D3D_FEATURE_LEVEL D3D12ConfiguredMaximumFeatureLevel();
 
 class MTLD3D12Resource;

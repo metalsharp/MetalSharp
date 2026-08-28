@@ -1580,6 +1580,37 @@ HLSL
   done
 }
 
+prepare_conservative_raster_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_conservative_raster.hlsl"
+  cat > "$hlsl" <<'HLSL'
+struct VSIn { float3 position : POSITION; };
+struct VSOut { float4 position : SV_Position; };
+VSOut vs_main(VSIn input) {
+  VSOut output;
+  output.position = float4(input.position, 1.0);
+  return output;
+}
+float4 ps_main() : SV_Target0 {
+  return float4(1.0, 0.0, 0.0, 1.0);
+}
+HLSL
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    "$WINE_BIN" dxc.exe -nologo -T vs_6_0 -E vs_main -HV 2021 \
+      -Fo probe_conservative_raster_vs.cso probe_conservative_raster.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    "$WINE_BIN" dxc.exe -nologo -T ps_6_0 -E ps_main -HV 2021 \
+      -Fo probe_conservative_raster_ps.cso probe_conservative_raster.hlsl >/dev/null
+  )
+}
+
 prepare_dxr_acceleration_structure_probe() {
   local hlsl="$SDK_DIR/out/bin/probe_dxr_inline.hlsl"
   local raygen_hlsl="$SDK_DIR/out/bin/probe_dxr_raygen.hlsl"
@@ -1774,7 +1805,9 @@ void raygen() {
   uint ray_index = DispatchRaysIndex().x;
   RayDesc ray;
   ray.Origin = ray_index == 2 ? float3(2.0, 0.0, -2.0)
-                              : float3(0.0, 0.0, -2.0);
+                              : ray_index == 3 ? float3(4.6, -0.6, -2.0)
+                              : ray_index == 4 ? float3(4.0, 0.0, -2.0)
+                                               : float3(0.0, 0.0, -2.0);
   ray.TMin = 0.0;
   ray.Direction = ray_index == 0 ? float3(0.0, 1.0, 0.0)
                                  : float3(0.0, 0.0, 1.0);
@@ -1783,7 +1816,9 @@ void raygen() {
   payload.value = 0;
   TraceRay(scene, RAY_FLAG_NONE, 0x02, 0, 0,
            ray_index == 0 ? 1 : 0, ray, payload);
-  output.Store(4 + ray_index * 4, payload.value);
+  output.Store(ray_index < 3 ? 4 + ray_index * 4
+                              : ray_index == 3 ? 24 : 28,
+               payload.value);
   if (ray_index == 0) {
     CallablePayload callable_payload;
     callable_payload.value = 0;
@@ -2510,6 +2545,7 @@ if [[ "$RUN_REFLECTION_ABI" == "1" ]]; then
 fi
 
 if [[ "$RUN_GRAPHICS_PSO" == "1" ]]; then
+  prepare_conservative_raster_probe
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \

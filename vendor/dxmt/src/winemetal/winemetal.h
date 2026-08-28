@@ -293,6 +293,24 @@ struct WMTAABBAccelerationStructureInfo {
   uint32_t reserved;
 };
 
+enum WMTAccelerationStructureGeometryType : uint32_t {
+  WMTAccelerationStructureGeometryTriangles = 0,
+  WMTAccelerationStructureGeometryAABBs = 1,
+};
+
+// A tagged geometry record lets one primitive acceleration structure contain
+// both triangle and procedural AABB geometries.  Keep the existing triangle
+// and AABB records ABI-stable; the mixed entry is only used by the new
+// explicitly tagged entry points below.
+struct WMTAccelerationStructureGeometryInfo {
+  enum WMTAccelerationStructureGeometryType type;
+  uint32_t reserved;
+  union {
+    struct WMTPrimitiveAccelerationStructureInfo triangles;
+    struct WMTAABBAccelerationStructureInfo aabbs;
+  } geometry;
+};
+
 struct WMTAccelerationStructureSizes {
   uint64_t acceleration_structure_size;
   uint64_t build_scratch_buffer_size;
@@ -310,6 +328,7 @@ struct WMTAccelerationStructureInstanceDescriptor {
 
 STATIC_ASSERT(sizeof(WMTPrimitiveAccelerationStructureInfo) == 64);
 STATIC_ASSERT(sizeof(WMTAABBAccelerationStructureInfo) == 48);
+STATIC_ASSERT(sizeof(WMTAccelerationStructureGeometryInfo) == 72);
 STATIC_ASSERT(sizeof(WMTAccelerationStructureSizes) == 24);
 
 struct WMTFlattenedMSAAResolveInfo {
@@ -366,6 +385,21 @@ WINEMETAL_API bool MTLDevice_accelerationStructureSizesForTriangleGeometries(
 WINEMETAL_API bool MTLCommandBuffer_buildTriangleAccelerationStructures(
     obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
     const struct WMTPrimitiveAccelerationStructureInfo *infos,
+    uint64_t info_count, obj_handle_t scratch_buffer,
+    uint64_t scratch_buffer_offset);
+WINEMETAL_API bool MTLDevice_accelerationStructureSizesForMixedGeometries(
+    obj_handle_t device,
+    const struct WMTAccelerationStructureGeometryInfo *infos,
+    uint64_t info_count, struct WMTAccelerationStructureSizes *sizes);
+WINEMETAL_API bool MTLCommandBuffer_buildMixedAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t acceleration_structure,
+    const struct WMTAccelerationStructureGeometryInfo *infos,
+    uint64_t info_count, obj_handle_t scratch_buffer,
+    uint64_t scratch_buffer_offset);
+WINEMETAL_API bool MTLCommandBuffer_refitMixedAccelerationStructure(
+    obj_handle_t cmdbuf, obj_handle_t source_acceleration_structure,
+    obj_handle_t destination_acceleration_structure,
+    const struct WMTAccelerationStructureGeometryInfo *infos,
     uint64_t info_count, obj_handle_t scratch_buffer,
     uint64_t scratch_buffer_offset);
 WINEMETAL_API bool MTLCommandBuffer_refitTriangleAccelerationStructure(
@@ -707,6 +741,17 @@ STATIC_ASSERT(sizeof(WMTTextureInfo) == 48);
 
 WINEMETAL_API obj_handle_t MTLDevice_newTexture(obj_handle_t device, struct WMTTextureInfo *info);
 
+// A rasterization-rate map is intentionally exposed as a retained object so
+// DXMT can use the same compiled map for the render pass and its logical-size
+// resolve pass.  The parameter data is copied into a shared buffer by the
+// caller before it is bound to the resolve shader.
+WINEMETAL_API obj_handle_t MTLDevice_newRasterizationRateMap(
+    obj_handle_t device, uint32_t screen_width, uint32_t screen_height,
+    const float *horizontal, const float *vertical,
+    uint64_t *parameter_size, uint64_t *parameter_align);
+WINEMETAL_API void MTLRasterizationRateMap_copyParameterData(
+    obj_handle_t map, obj_handle_t buffer, uint64_t offset);
+
 WINEMETAL_API obj_handle_t
 MTLBuffer_newTexture(obj_handle_t buffer, struct WMTTextureInfo *info, uint64_t offset, uint64_t bytes_per_row);
 
@@ -895,13 +940,14 @@ struct WMTRenderPassInfo {
   uint32_t render_target_height;
   uint32_t render_target_width;
   obj_handle_t visibility_buffer;
+  obj_handle_t rasterization_rate_map;
   float rasterization_rate_horizontal[2];
   float rasterization_rate_vertical[2];
   uint8_t rasterization_rate_map_enabled;
   uint8_t rasterization_rate_reserved[7];
 };
 
-STATIC_ASSERT(sizeof(WMTRenderPassInfo) == 688);
+STATIC_ASSERT(sizeof(WMTRenderPassInfo) == 696);
 
 WINEMETAL_API obj_handle_t MTLCommandBuffer_renderCommandEncoder(obj_handle_t cmdbuf, struct WMTRenderPassInfo *info);
 

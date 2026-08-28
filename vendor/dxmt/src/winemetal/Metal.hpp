@@ -290,6 +290,13 @@ public:
   }
 };
 
+class RasterizationRateMap : public Object {
+public:
+  void copyParameterData(Buffer buffer, uint64_t offset) {
+    MTLRasterizationRateMap_copyParameterData(handle, buffer.handle, offset);
+  }
+};
+
 class AccelerationStructure : public Resource {
 public:
   uint64_t
@@ -618,12 +625,38 @@ public:
   }
 
   bool
+  setViewports(const WMTViewport *viewports, uint8_t viewport_count) {
+    if (!viewports || !viewport_count)
+      return false;
+    struct wmtcmd_render_setviewports cmd;
+    cmd.type = WMTRenderCommandSetViewports;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.viewports.set((void *)viewports);
+    cmd.viewport_count = viewport_count;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
   setViewport(WMTViewport viewport) {
     struct wmtcmd_render_setviewport cmd;
     cmd.type = WMTRenderCommandSetViewport;
     cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
     cmd.next.set(nullptr);
     cmd.viewport = viewport;
+    return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
+  setScissorRects(const WMTScissorRect *scissors, uint8_t rect_count) {
+    if (!scissors || !rect_count)
+      return false;
+    struct wmtcmd_render_setscissorrects cmd;
+    cmd.type = WMTRenderCommandSetScissorRects;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.scissor_rects.set((void *)scissors);
+    cmd.rect_count = rect_count;
     return MTLRenderCommandEncoder_encodeCommands(handle, (const wmtcmd_base *)&cmd);
   }
 
@@ -891,12 +924,32 @@ public:
   }
 
   bool
+  buildMixedAccelerationStructure(
+      AccelerationStructure acceleration_structure,
+      const WMTAccelerationStructureGeometryInfo *infos, uint64_t info_count,
+      Buffer scratch_buffer, uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_buildMixedAccelerationStructure(
+        handle, acceleration_structure.handle, infos, info_count,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
   refitAABBAccelerationStructure(
       AccelerationStructure source, AccelerationStructure destination,
       const WMTAABBAccelerationStructureInfo &info, Buffer scratch_buffer,
       uint64_t scratch_buffer_offset) {
     return MTLCommandBuffer_refitAABBAccelerationStructure(
         handle, source.handle, destination.handle, &info,
+        scratch_buffer.handle, scratch_buffer_offset);
+  }
+
+  bool
+  refitMixedAccelerationStructure(
+      AccelerationStructure source, AccelerationStructure destination,
+      const WMTAccelerationStructureGeometryInfo *infos, uint64_t info_count,
+      Buffer scratch_buffer, uint64_t scratch_buffer_offset) {
+    return MTLCommandBuffer_refitMixedAccelerationStructure(
+        handle, source.handle, destination.handle, infos, info_count,
         scratch_buffer.handle, scratch_buffer_offset);
   }
 
@@ -1135,6 +1188,14 @@ public:
   }
 
   bool
+  accelerationStructureSizesForMixedGeometries(
+      const WMTAccelerationStructureGeometryInfo *infos,
+      uint64_t info_count, WMTAccelerationStructureSizes &sizes) {
+    return MTLDevice_accelerationStructureSizesForMixedGeometries(
+        handle, infos, info_count, &sizes);
+  }
+
+  bool
   accelerationStructureSizesForAABBs(
       const WMTAABBAccelerationStructureInfo &info,
       WMTAccelerationStructureSizes &sizes) {
@@ -1170,6 +1231,17 @@ public:
   Reference<Texture>
   newTexture(WMTTextureInfo &info) {
     return Reference<Texture>(MTLDevice_newTexture(handle, &info));
+  }
+
+  Reference<RasterizationRateMap>
+  newRasterizationRateMap(uint32_t screen_width, uint32_t screen_height,
+                          const float *horizontal, const float *vertical,
+                          uint64_t &parameter_size,
+                          uint64_t &parameter_align) {
+    return Reference<RasterizationRateMap>(
+        MTLDevice_newRasterizationRateMap(
+            handle, screen_width, screen_height, horizontal, vertical,
+            &parameter_size, &parameter_align));
   }
 
   Reference<Library>

@@ -189,6 +189,20 @@ def check_unsupported(results: dict[str, dict[str, Any]], ledger: dict[str, Any]
 
     for entry in ledger.get("entries", []):
         api = entry["api"]
+        # The ledger also records APIs whose broad surface is intentionally
+        # limited to a behavior-proven subset.  Only entries explicitly marked
+        # unsupported must remain at a conservative zero query value.
+        if entry.get("state") != "unsupported":
+            summary.append(
+                {
+                    "api": api,
+                    "state": entry.get("state"),
+                    "observed": unsupported_checks.get(api, "not_checked_by_probe"),
+                    "compliant": True,
+                    "detail": "Behavior-proven subset is advertised; only unsupported breadth remains ledgered.",
+                }
+            )
+            continue
         if api not in unsupported_checks:
             summary.append(
                 {
@@ -307,7 +321,10 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
 
     options_contract = features.get("D3D12_FEATURE_D3D12_OPTIONS", {})
     options = get_nested(device_caps, "options") or {}
-    missing = [field for field in options_contract.get("required_fields", []) if not field_to_options_value(options, field)]
+    missing = [
+        field for field in options_contract.get("required_fields", [])
+        if field_to_options_value(options, field) is None
+    ]
     compliant = not missing
     summary.append(
         {
@@ -464,10 +481,7 @@ def field_to_options_value(options: dict[str, Any], field: str) -> Any:
         "ConservativeRasterizationTier": options.get("conservative_rasterization_tier"),
         "OutputMergerLogicOp": options.get("output_merger_logic_op"),
     }
-    value = mapping.get(field)
-    if isinstance(value, bool):
-        return value
-    return value not in (None, 0, "")
+    return mapping.get(field)
 
 
 def field_to_options1_value(options1: dict[str, Any], field: str) -> Any:

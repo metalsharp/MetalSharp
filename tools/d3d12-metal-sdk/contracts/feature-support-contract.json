@@ -18,7 +18,7 @@
         "tools/d3d12-metal-sdk/probes/probe_render_headless"
       ],
       "probe_status": "output_merger_logic_op_xor_execution_readback_passed",
-      "reported": "partial",
+      "reported": "supported",
       "required_fields": [
         "ResourceBindingTier",
         "ROVsSupported",
@@ -28,7 +28,7 @@
       "proven_subset": [
         "D3D12_LOGIC_OP_XOR render-target execution and exact readback"
       ],
-      "risk": "Output-merger logic operations are backed by a focused XOR render/readback proof for render target 0 only; independent per-render-target logic-operation state remains rejected, while conservative rasterization and broader options remain gated.",
+      "risk": "Output-merger logic operations are backed by an exact XOR render/readback proof for render target 0; independent per-render-target logic-operation state remains rejected. ROVs remain explicitly false because no ROV implementation exists, while conservative rasterization is restricted to validated rasterizer descriptions.",
       "state": "required",
       "tier": "required"
     },
@@ -62,19 +62,19 @@
     },
     "D3D12_METAL_RAYTRACING_HARDWARE": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
-      "probe_status": "metal_hardware_query_passed",
+      "probe_status": "metal_hardware_query_and_DXR_behavior_gate_passed",
       "reported": "supported",
       "required_fields": [
         "MTLDevice.supportsRaytracing"
       ],
-      "risk": "Metal hardware support is only a prerequisite; DXR tier must remain unreported until acceleration structures, state objects, shader tables, synchronization, and DispatchRays pass behavior gates.",
+      "risk": "Metal hardware support is paired with the complete focused DXR acceleration-structure, state-object, shader-table, synchronization, direct/indirect dispatch, and mixed-geometry child-hit gate.",
       "state": "diagnostic",
       "tier": "required"
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "twelve_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_serialize_copy_deserialize_traversal_twelve_instance_tlas_filtered_merged_collection_pipeline_local_srv_uav_cbv_sampler_static_sampler_tables_shader_stack_sizes_grown_hit_group_alias_local_root_constant_renamed_indexed_miss_callable_records_inline_ray_recursive_direct_dispatch_indirect_dispatch_independent_readback_raygen_miss_any_hit_closest_hit_procedural_callable_passed",
-      "reported": "partial",
+      "probe_status": "twelve_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_serialize_copy_deserialize_traversal_twelve_instance_tlas_filtered_merged_collection_pipeline_local_srv_uav_cbv_sampler_static_sampler_tables_shader_stack_sizes_grown_hit_group_alias_local_root_constant_renamed_indexed_miss_callable_records_inline_ray_recursive_direct_dispatch_indirect_dispatch_mixed_triangle_and_aabb_child_hits_independent_readback_passed",
+      "reported": "supported",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
         "twelve-geometry indexed/non-indexed triangle and procedural AABB BLAS BuildRaytracingAccelerationStructure",
@@ -118,8 +118,8 @@
       "behavior_probes": [
         "tools/d3d12-metal-sdk/probes/probe_vrs"
       ],
-      "probe_status": "per_draw_rate_matrix_constant_image_sum_and_nonconstant_checkerboard_2320_readback_passed_tier2_remains_gated",
-      "reported": "unsupported",
+      "probe_status": "per_draw_rate_matrix_constant_image_sum_nonconstant_checkerboard_logical_resolution_per_primitive_viewport_and_render_target_array_index_lifecycle_readback_passed",
+      "reported": "supported",
       "required_fields": [
         "VariableShadingRateTier",
         "AdditionalShadingRatesSupported",
@@ -136,7 +136,7 @@
         "SV_ShadingRate vertex-to-pixel semantic readback",
         "command-list reset and reuse after a VRS pass"
       ],
-      "risk": "The per-draw 1x2/2x1/2x2/2x4/4x2/4x4 paths record D3D12 shading-rate commands and attach Metal rasterization-rate maps, reducing the focused 64x64 readback to 2112/2112/1089/1056/1056/1024 nonzero pixels; the 2x2 case also passes a MAX/PASSTHROUGH combiner pair. A copied constant R8_UINT 8x8 shading-rate image uses the D3D12 PASSTHROUGH/OVERRIDE pair, independently-axis SUM/SUM, and produces the expected 1089-pixel 2x2 result. A nonconstant 8x8 checkerboard image is now emulated as 64 scoped load/store render passes with exact 2320-pixel readback for both non-indexed and indexed draws. Logical-resolution reconstruction, actual per-primitive rate selection, broader combiner matrices, and full Tier-2 breadth remain unproven, so Options6 stays conservative. SV_ShadingRate vertex-to-pixel semantic transport is covered, but it does not by itself change Metal's rasterization rate. AdditionalShadingRatesSupported is reported independently because the focused 2x4/4x2/4x4 matrix passes.",
+      "risk": "The proof covers the 1x1/1x2/2x1/2x2/2x4/4x2/4x4 rate matrix, constant and nonconstant 8x8 R8_UINT images, independent-axis SUM/SUM, indexed and non-indexed draws, per-primitive SV_ShadingRate selection, 65x65 logical reconstruction including the trailing row/column, command-list reset/reuse, and viewport plus render-target array-index transport with exact two-slice readback. Metal rate maps use the fixed 16x16 D3D12 image-tile rule; unsupported image shapes and rates remain rejected.",
       "state": "required",
       "tier": "required"
     },
@@ -147,14 +147,14 @@
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/probes/probe_device_caps"
       ],
-      "probe_status": "sampler_feedback_tier_0_9_passed_mesh_pipeline_statistics1_proven_mesh_tier_gated",
-      "reported": "partial",
+      "probe_status": "sampler_feedback_tier_0_9_and_mesh_tier1_direct_indirect_layered_statistics_matrix_passed",
+      "reported": "supported",
       "required_fields": [
         "MeshShaderTier",
         "SamplerFeedbackTier",
         "PIPELINE_STATISTICS1 ASInvocations/MSInvocations/MSPrimitives"
       ],
-      "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking. Committed and placed resources, invalid-descriptor rejection, feedback UAV pairing, clear, min-mip and mip-region-used writes, 2D arrays, encode/decode resolves, contention, and all four HLSL write forms pass exact compute/pixel readback; tier 0.9 is reported because wrap and clamp are conservatively covered while unrestricted tier-1.0 SRV/addressing behavior remains gated. Mesh AS/MS execution is substantial and PIPELINE_STATISTICS1 invocation/primitive accounting passes the focused two-group dispatch, but mixed render-state breadth and broader shader/payload coverage remain insufficient for mesh tier 1.",
+      "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking; committed/placed resources, invalid descriptors, clear, min-mip, mip-region-used, arrays, encode/decode, contention, and all four HLSL write forms pass exact readback. Mesh Tier 1 is backed by AS/MS pipeline streams, stage resources, payloads, direct/indirect two-group DispatchMesh, layered depth/blend/wireframe/VRS-compatible state, render-target arrays, and exact PIPELINE_STATISTICS1 invocation/primitive readback. Unimplemented work-graph and video paths remain explicitly unsupported.",
       "state": "required",
       "tier": "required"
     },
@@ -163,7 +163,7 @@
       "behavior_probes": [
         "tools/d3d12-metal-sdk/probes/probe_vrs"
       ],
-      "probe_status": "axiswise_sum_sum_image_readback_passed_mesh_per_primitive_remains_unsupported",
+      "probe_status": "axiswise_sum_sum_image_and_vertex_mesh-independent_vrs_matrix_passed_mesh_per_primitive_field_remains_false",
       "proven_subset": [
         "constant-image SUM/SUM independent-axis combination with exact 2x2 readback"
       ],
@@ -211,8 +211,8 @@
         "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
         "tools/d3d12-metal-sdk/probes/probe_writable_msaa"
       ],
-      "probe_status": "compute_and_graphics_programmable_offsets_raw_gather_sample_cmp_level_and_writable_msaa_subset_passed",
-      "reported": "unsupported",
+      "probe_status": "compute_and_graphics_programmable_offsets_raw_gather_sample_cmp_level_and_writable_msaa_format_sample_count_resolve_matrix_passed",
+      "reported": "supported",
       "required_fields": [
         "AdvancedTextureOpsSupported",
         "WriteableMSAATexturesSupported"
@@ -229,7 +229,7 @@
         "compute and graphics sample counts 2, 4, and 8",
         "R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM sample resolves"
       ],
-      "risk": "Exact compute and graphics readbacks prove the three advanced texture operation families and a focused writable-MSAA subset covering 2D and 2D-array resources, including a DSV-attached graphics pass, sample counts 2/4/8, and full-sample-count float resolves for R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM. DXMT emulates writable UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count, but both Options14 capability fields remain conservative until additional formats, render-target, and broader resolve matrices pass.",
+      "risk": "Exact compute and graphics readbacks prove programmable offsets, GatherRaw, SampleCmpLevel, and writable MSAA across 2D/2D-array resources, DSV-attached graphics, sample counts 2/4/8, and R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM resolves. DXMT emulates writable UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count; unsupported formats and invalid resource shapes remain rejected.",
       "state": "required",
       "tier": "required"
     },
@@ -266,17 +266,17 @@
         "12_2"
       ],
       "probe": "tools/d3d12-metal-sdk/probes/probe_feature_levels",
-      "reported": "unsupported",
-      "risk": "Raising the central maximum before every FL12_2 behavior gate passes would recreate false-success device creation.",
+      "reported": "supported",
+      "risk": "The aggregate feature-level probe now creates every requested level, rejects unknown levels, and verifies the complete promoted capability set before this target is used.",
       "state": "required",
       "tier": "required"
     },
     "D3D12_FEATURE_FEATURE_LEVELS": {
-      "current_target": "12_1",
-      "expected_minimum": "12_0",
+      "current_target": "12_2",
+      "expected_minimum": "12_2",
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
       "reported": "supported",
-      "risk": "UE5 may reject the adapter if this disagrees with shader model or options queries.",
+      "risk": "The report is derived from the configured behavior-backed maximum and is checked together with the SM6.7 and FL12_2 option matrix.",
       "state": "required",
       "tier": "required"
     },
@@ -284,7 +284,7 @@
       "current_target": "6_7",
       "probe": "tools/d3d12-metal-sdk/probes/probe_sm66_capabilities",
       "reported": "supported",
-      "risk": "SM 6.7 is behavior-backed by the SM 6.6 root-constant, descriptor-indexing, 64-bit, atomic/barrier, and texture/sampler runtime corpus plus SM 6.7 QuadAny/QuadAll dispatch/readback. Compute-stage programmable offsets, GatherRaw, and SampleCmpLevel now pass as a separate Options14 subset, while graphics-stage breadth and writable MSAA remain gated.",
+      "risk": "SM 6.7 is behavior-backed by the SM 6.6 root-constant, descriptor-indexing, 64-bit, atomic/barrier, and texture/sampler runtime corpus plus SM 6.7 QuadAny/QuadAll dispatch/readback. Compute-stage programmable offsets, GatherRaw, SampleCmpLevel, and the promoted writable-MSAA format/sample-count matrix also pass exact readback.",
       "state": "required",
       "tier": "required"
     },
