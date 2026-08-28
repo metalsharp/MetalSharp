@@ -21,22 +21,6 @@ Known launcher hints are stored in the classifier output as `known_launcher:<id>
 
 Known launchers default to the bare Wine pipeline during install/bootstrap. That keeps store launchers from inheriting game-specific graphics routes such as M9 before the actual child game executable exists. Once a launcher installs or starts a game, that child executable still gets its own bottle/runtime route.
 
-## Sharp Library Launcher Surface
-
-The main Sharp Library **Installers** tab exposes fixed right-side actions for three official launcher installers. Each action creates or reuses one stable bottle and downloads into its `installers/` directory before launch:
-
-| Action     | Bottle              | Official installer source                                         |
-| ---------- | ------------------- | ----------------------------------------------------------------- |
-| EA App     | `EA-Prefix`         | `origin-a.akamaihd.net/.../EAappInstaller.exe`                    |
-| Rockstar   | `Rockstar-Prefix`   | `gamedownloads.rockstargames.com/.../Rockstar-Games-Launcher.exe` |
-| Ubisoft    | `Ubisoft-Prefix`    | `https://ubi.li/4vxt9`                                            |
-
-The backend owns this allowlist; the renderer sends only the launcher identifier. Downloads require HTTPS, use fixed local filenames, land atomically, and are checked for an EXE or MSI signature before launch. Every installer runs with `WINEPREFIX` set to its dedicated bottle prefix. Once a prefix exists, its Installers-tab action becomes `Launch <app>` and launches the installed client. If setup has not completed yet, MetalSharp reopens the already verified cached installer rather than downloading it again.
-
-Install and launch runs write `~/.metalsharp/bottles/<bottle>/logs/launcher-install.log` and `launcher-launch.log` so compatibility passes can be diagnosed without sharing prefix state between launchers.
-
-The Installers sidebar also exposes **Set Disk Access** until MetalSharp Wine can read a macOS-protected location. It verifies Wine 11.5, reveals and copies the exact host process image at `~/.metalsharp/runtime/wine/lib/wine/x86_64-unix/wine`, and opens macOS Full Disk Access settings. This is deliberately not the `bin/wine` loader, MetalSharp.app, or GPTK's `wine64-preloader`. macOS requires the user to add and enable the revealed executable; applications cannot modify TCC consent directly. MetalSharp probes access through that Wine build and removes the button after consent becomes effective.
-
 ## Native Epic Library Path
 
 The Sharp Library **Epic** tab is the supported game-download path when the Windows launcher reaches `DP-06`. It uses upstream [Legendary](https://github.com/legendary-gl/legendary) 0.21.0 out of process rather than patching Wine, ADVAPI32, NTDLL, or Epic binaries.

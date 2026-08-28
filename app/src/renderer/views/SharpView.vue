@@ -508,31 +508,6 @@ const headerSubtitle = computed(() => {
   return "Install and manage Windows applications outside Steam.";
 });
 const apps = ref<SharpApp[]>([]);
-type LauncherInstallerId = "ea" | "rockstar" | "ubisoft";
-const launcherInstallers: Array<{ id: LauncherInstallerId; name: string; prefix: string; detail: string }> = [
-  { id: "ea", name: "EA App", prefix: "EA-Prefix", detail: "EA desktop installer" },
-  { id: "rockstar", name: "Rockstar", prefix: "Rockstar-Prefix", detail: "Rockstar Games Launcher" },
-  { id: "ubisoft", name: "Ubisoft", prefix: "Ubisoft-Prefix", detail: "Ubisoft Connect installer" },
-];
-const launcherInstallerLoading = ref<Record<LauncherInstallerId, boolean>>({
-  ea: false,
-  rockstar: false,
-  ubisoft: false,
-});
-const launcherPrefixCreated = ref<Record<LauncherInstallerId, boolean>>({
-  ea: false,
-  rockstar: false,
-  ubisoft: false,
-});
-const launcherRuntimeReady = ref<Record<LauncherInstallerId, boolean>>({
-  ea: true,
-  rockstar: true,
-  ubisoft: true,
-});
-const wineDiskAccessGranted = ref<boolean | null>(null);
-const wineDiskAccessOpening = ref(false);
-const wineDiskAccessPending = ref(false);
-let wineDiskAccessPollTimer: ReturnType<typeof setInterval> | null = null;
 const cardToolsOpen = ref<Record<string, boolean>>({});
 const bottles = ref<BottleManifest[]>([]);
 const runtimeProfiles = ref<RuntimeProfileDefinition[]>([]);
@@ -2247,18 +2222,13 @@ async function uninstallEpicGame(game: EpicGame) {
 }
 
 async function load() {
-  const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult, launcherStatusResult] =
-    await Promise.all([
-      api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
-      api<{ ok: boolean; bottles: BottleManifest[] }>("GET", "/bottles"),
-      api<{ ok: boolean; profiles: RuntimeProfileDefinition[] }>("GET", "/bottles/profiles"),
-      api<{ ok: boolean; status: GogStatus }>("GET", "/sharp-library/gog/status"),
-      api<{ ok: boolean; games: GogGame[]; status: GogStatus }>("GET", "/sharp-library/gog/games"),
-      api<{
-        ok: boolean;
-        launchers: Array<{ id: LauncherInstallerId; prefixCreated: boolean; runtimeReady: boolean }>;
-      }>("GET", "/sharp-library/launchers/status"),
-    ]);
+  const [result, bottleResult, profileResult, gogStatusResult, gogGamesResult] = await Promise.all([
+    api<{ ok: boolean; apps: SharpApp[] }>("GET", "/sharp-library"),
+    api<{ ok: boolean; bottles: BottleManifest[] }>("GET", "/bottles"),
+    api<{ ok: boolean; profiles: RuntimeProfileDefinition[] }>("GET", "/bottles/profiles"),
+    api<{ ok: boolean; status: GogStatus }>("GET", "/sharp-library/gog/status"),
+    api<{ ok: boolean; games: GogGame[]; status: GogStatus }>("GET", "/sharp-library/gog/games"),
+  ]);
   if (result?.ok) {
     apps.value = [...result.apps].sort(sharpAppNameSort);
   }
@@ -2272,12 +2242,6 @@ async function load() {
     gogStatus.value = gogGamesResult.status;
     for (const game of gogGames.value) {
       if (game.status === "downloading") void monitorGogProgress(game.productId);
-    }
-  }
-  if (launcherStatusResult?.ok) {
-    for (const launcher of launcherStatusResult.launchers) {
-      launcherPrefixCreated.value[launcher.id] = launcher.prefixCreated;
-      launcherRuntimeReady.value[launcher.id] = launcher.runtimeReady;
     }
   }
   if (gogStatus.value?.prefixInitialized) void refreshGogMonoStatus();
@@ -2665,76 +2629,6 @@ async function installExe() {
   } else {
     toast.show(result?.error ?? "Failed to install", "error");
   }
-}
-
-async function runLauncherAction(launcher: (typeof launcherInstallers)[number]) {
-  const launching = launcherPrefixCreated.value[launcher.id];
-  if (!launcherRuntimeReady.value[launcher.id]) {
-    toast.show(`${launcher.name} compatibility runtime is unavailable. Reinstall MetalSharp.`, "error");
-    return;
-  }
-  launcherInstallerLoading.value[launcher.id] = true;
-  toast.show(launching ? `Launching ${launcher.name}…` : `Preparing ${launcher.name} in ${launcher.prefix}…`);
-  const result = await api<{
-    ok: boolean;
-    name?: string;
-    bottleId?: string;
-    prefixPath?: string;
-    logPath?: string;
-    message?: string;
-    error?: string;
-  }>("POST", launching ? "/sharp-library/launchers/launch" : "/sharp-library/launchers/install", {
-    launcher: launcher.id,
-  });
-  launcherInstallerLoading.value[launcher.id] = false;
-  if (result?.ok) {
-    launcherPrefixCreated.value[launcher.id] = true;
-    toast.show(
-      result.message ??
-        (launching ? `Launching ${launcher.name}` : `${launcher.name} download started in ${launcher.prefix}`),
-      "success",
-    );
-    await load();
-  } else {
-    toast.show(result?.error ?? `Failed to ${launching ? "launch" : "install"} ${launcher.name}`, "error");
-  }
-}
-
-async function refreshWineDiskAccess() {
-  const result = await getAPI().wineDiskAccessStatus();
-  if (!result?.ok || !result.available) return;
-  const wasGranted = wineDiskAccessGranted.value;
-  wineDiskAccessGranted.value = result.granted;
-  if (result.granted && wineDiskAccessPending.value) {
-    wineDiskAccessPending.value = false;
-    if (wineDiskAccessPollTimer) clearInterval(wineDiskAccessPollTimer);
-    wineDiskAccessPollTimer = null;
-    toast.show("Full Disk Access enabled for MetalSharp Wine 11.5", "success");
-  } else if (wasGranted === null && result.error) {
-    toast.show(result.error, "error");
-  }
-}
-
-async function setWineDiskAccess() {
-  wineDiskAccessOpening.value = true;
-  const result = await getAPI().setWineDiskAccess();
-  wineDiskAccessOpening.value = false;
-  if (!result?.ok) {
-    toast.show(result?.error ?? "Could not open Full Disk Access settings", "error");
-    return;
-  }
-  wineDiskAccessPending.value = true;
-  toast.show(
-    "MetalSharp revealed the exact Wine 11.5 executable and copied its path. Add it in Full Disk Access and turn it on.",
-    "info",
-    12_000,
-  );
-  if (wineDiskAccessPollTimer) clearInterval(wineDiskAccessPollTimer);
-  wineDiskAccessPollTimer = setInterval(() => void refreshWineDiskAccess(), 3000);
-}
-
-function checkWineDiskAccessOnFocus() {
-  if (wineDiskAccessGranted.value === false) void refreshWineDiskAccess();
 }
 
 async function refreshBottle(id: string) {
@@ -3379,7 +3273,6 @@ function formatBytes(bytes: number): string {
 let removeGameJoltDownloadListener: (() => void) | null = null;
 onMounted(() => {
   void load();
-  void refreshWineDiskAccess();
   void refreshGameJoltProcessState();
   gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
   pcsx2ProcessPollTimer = setInterval(() => {
@@ -3395,7 +3288,6 @@ onMounted(() => {
     if (sourceMode.value === "sharpemu" && sharpemuStatus.value?.installed) void refreshSharpemu();
   }, 3000);
   removeGameJoltDownloadListener = getAPI().onGameJoltDownload(handleGameJoltDownload);
-  window.addEventListener("focus", checkWineDiskAccessOnFocus);
 });
 onUnmounted(() => {
   stopGogMonoPoll();
@@ -3413,8 +3305,6 @@ onUnmounted(() => {
   if (sharpemuProcessPollTimer) clearInterval(sharpemuProcessPollTimer);
   sharpemuProcessPollTimer = null;
   stopSharpemuUpdatePoll();
-  if (wineDiskAccessPollTimer) clearInterval(wineDiskAccessPollTimer);
-  wineDiskAccessPollTimer = null;
   removeGameJoltDownloadListener?.();
   removeGameJoltDownloadListener = null;
   if (gamejoltDragPointerId !== null) {
@@ -3424,7 +3314,6 @@ onUnmounted(() => {
   window.removeEventListener("pointermove", moveGameJoltBrowserDrag);
   window.removeEventListener("pointerup", endGameJoltBrowserDrag);
   window.removeEventListener("pointercancel", endGameJoltBrowserDrag);
-  window.removeEventListener("focus", checkWineDiskAccessOnFocus);
 });
 </script>
 
@@ -3670,7 +3559,7 @@ onUnmounted(() => {
                 <IconMonitor width="48" height="48" />
               </div>
               <h2>No applications installed</h2>
-              <p>Install a Windows program or choose a launcher from the right.</p>
+              <p>Install a Windows program to add it to the Sharp Library.</p>
             </div>
 
             <div v-else class="sharp-grid">
@@ -3865,58 +3754,13 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          <aside class="emulator-sidebar installer-sidebar" aria-label="Launcher installers">
-            <div class="rpcs3-command-bar">
-              <button
-                v-for="launcher in launcherInstallers"
-                :key="launcher.id"
-                class="rpcs3-command"
-                type="button"
-                :disabled="launcherInstallerLoading[launcher.id]"
-                @click="runLauncherAction(launcher)"
-              >
-                <IconExternalLink v-if="launcherPrefixCreated[launcher.id]" width="17" height="17" />
-                <IconDownload v-else width="17" height="17" />
-                <span>
-                  <strong>{{
-                    launcherInstallerLoading[launcher.id]
-                      ? launcherPrefixCreated[launcher.id]
-                        ? "Launching…"
-                        : "Starting…"
-                      : launcherPrefixCreated[launcher.id]
-                        ? `Launch ${launcher.name}`
-                        : launcher.name
-                  }}</strong>
-                  <small>{{
-                    launcherPrefixCreated[launcher.id] ? launcher.prefix : `${launcher.detail} · ${launcher.prefix}`
-                  }}</small>
-                </span>
-              </button>
-              <button
-                v-if="wineDiskAccessGranted === false"
-                class="rpcs3-command"
-                type="button"
-                :disabled="wineDiskAccessOpening"
-                @click="setWineDiskAccess"
-              >
-                <IconShieldCheck width="17" height="17" />
-                <span>
-                  <strong>{{ wineDiskAccessOpening ? "Opening Settings…" : "Set Disk Access" }}</strong>
-                  <small>{{
-                    wineDiskAccessPending ? "Waiting for Wine 11.5 access" : "Drag Wine into Settings to Enable"
-                  }}</small>
-                </span>
-              </button>
-            </div>
-          </aside>
         </section>
       </template>
 
       <template v-else-if="sourceMode === 'gog'">
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-            <h2>gogdl is not installed</h2>
-            <p>Install gogdl under ~/.metalsharp/tools/gogdl or set METALSHARP_GOGDL_BIN.</p>
+            <h2>Init The Prefix To Get Started</h2>
           </div>
           <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
             <h2>Initialize GOG prefix</h2>
@@ -6582,7 +6426,7 @@ details[open] > .drawer-summary {
 }
 .installer-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 238px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   width: 100%;
@@ -7173,28 +7017,6 @@ details[open] > .drawer-summary {
   }
   .rpcs3-command-bar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .installer-workspace {
-    grid-template-columns: minmax(0, 1fr) 176px;
-    gap: 10px;
-  }
-  .installer-sidebar {
-    display: flex;
-    grid-column: 2;
-    grid-row: 1;
-    flex-direction: column;
-  }
-  .installer-sidebar .rpcs3-command-bar {
-    display: flex;
-    grid-column: auto;
-    flex-direction: column;
-  }
-  .installer-sidebar .rpcs3-command {
-    min-height: 44px;
-    padding: 9px 10px;
-  }
-  .installer-sidebar .rpcs3-command small {
-    display: none;
   }
 }
 @media (max-width: 620px) {

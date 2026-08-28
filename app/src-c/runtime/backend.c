@@ -1757,34 +1757,6 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
-    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/launchers/install") == 0) {
-        body = ms_sharp_launcher_install_json(context->metalsharp_home, request->body, request->body_length);
-        if (body == NULL)
-            return false;
-        set_json_response(response, 200, body);
-        return true;
-    }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/launchers/status") == 0) {
-        body = ms_sharp_launcher_status_json(context->metalsharp_home);
-        if (body == NULL)
-            return false;
-        set_json_response(response, 200, body);
-        return true;
-    }
-    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/launchers/launch") == 0) {
-        body = ms_sharp_launcher_launch_json(context->metalsharp_home, request->body, request->body_length);
-        if (body == NULL)
-            return false;
-        set_json_response(response, 200, body);
-        return true;
-    }
-    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/launchers/stop") == 0) {
-        body = ms_sharp_launcher_stop_json(context->metalsharp_home, request->body, request->body_length);
-        if (body == NULL)
-            return false;
-        set_json_response(response, 200, body);
-        return true;
-    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/import-bottle-app") == 0) {
         body = ms_sharp_action_json(context->metalsharp_home, request->body, request->body_length, "import");
         if (body == NULL)

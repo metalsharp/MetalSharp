@@ -117,20 +117,8 @@ curl --silent --fail "http://127.0.0.1:$port/sharp-library/cover?id=$sharp_id" -
 cmp "$home/smoke-cover.png" "$home/sharp-library/$sharp_id.png"
 sharp_library=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library")
 printf '%s' "$sharp_library" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["apps"]) == 1'
-launcher_missing=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/launchers/install")
-printf '%s' "$launcher_missing" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "launcher required"'
-launcher_unknown=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"unknown"}' "http://127.0.0.1:$port/sharp-library/launchers/install")
-printf '%s' "$launcher_unknown" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "unknown launcher"'
-launcher_epic_removed=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"epic"}' "http://127.0.0.1:$port/sharp-library/launchers/install")
-printf '%s' "$launcher_epic_removed" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "unknown launcher"'
-launcher_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/launchers/status")
-printf '%s' "$launcher_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and [x["id"] for x in v["launchers"]] == ["ea", "rockstar", "ubisoft"] and not any(x["prefixCreated"] for x in v["launchers"]); assert all(x["runtimeReady"] for x in v["launchers"])'
-launcher_stop_missing=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/launchers/stop")
-printf '%s' "$launcher_stop_missing" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "launcher required"'
-launcher_launch_missing=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/launchers/launch")
-printf '%s' "$launcher_launch_missing" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "launcher required"'
-launcher_launch_unknown=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"launcher":"unknown"}' "http://127.0.0.1:$port/sharp-library/launchers/launch")
-printf '%s' "$launcher_launch_unknown" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "unknown launcher"'
+launcher_status_code=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$port/sharp-library/launchers/status")
+test "$launcher_status_code" = "404"
 epic_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/epic/status")
 printf '%s' "$epic_status" | python3 -c 'import json, os, sys; v=json.load(sys.stdin); assert v["ok"] and not v["toolAvailable"] and not v["authenticated"] and v["toolVersion"] == "0.21.0" and v["configPath"] == os.environ["METALSHARP_HOME"] + "/epic/legendary"'
 epic_auth_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"code":"short"}' "http://127.0.0.1:$port/sharp-library/epic/auth")
