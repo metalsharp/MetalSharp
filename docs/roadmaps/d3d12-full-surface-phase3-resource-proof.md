@@ -13,9 +13,12 @@
 - Resource and heap residency state tracks resident/evicted transitions and
   priority; mapping an evicted resource is rejected until it is made resident
   again.
-- Named buffer sharing uses a platform file mapping with a fixed metadata
-  header rather than a process-local object map. A second Wine process can
-  reconstruct the D3D12 resource and observe writes to the same backing.
+- Named buffer and CPU-visible heap sharing use platform file mappings with
+  fixed metadata headers rather than a process-local object map. A second Wine
+  process can reconstruct a buffer and observe writes to the same backing.
+- `OpenExistingHeapFromAddress` resolves a live mapped heap only for the owning
+  device, and `OpenExistingHeapFromFileMapping` validates and reconstructs a
+  shared CPU-visible heap.
 - Resource lifetime, placed-resource aliasing, reserved buffers/textures,
   packed and partial mips, volume tiling, format variants, tile mapping,
   unmapped zeroing, and physical-page ownership remain behavior-backed by the
@@ -42,6 +45,8 @@ The isolated source-staged probe passed with:
   "buffers.residency_state_verified": true,
   "shared_handles.roundtrip_verified": true,
   "shared_handles.cross_process_verified": true,
+  "shared_handles.heap_roundtrip_verified": true,
+  "buffers.address_heap_open_verified": true,
   "textures.unaligned_bc1_copy_verified": true,
   "sparse.unmapped_zero_verified": true,
   "sparse.tier3_physical_page_ownership_verified": true,

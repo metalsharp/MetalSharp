@@ -265,6 +265,16 @@ int main(int argc, char** argv) {
     ID3D12Resource* shared_open_buffer = nullptr;
     ID3D12Resource* shared_named_open_buffer = nullptr;
     ID3D12Resource* unknown_open_buffer = nullptr;
+    ID3D12Heap* address_heap = nullptr;
+    ID3D12Resource* address_resource = nullptr;
+    ID3D12Heap* shared_heap_source = nullptr;
+    ID3D12Heap* shared_heap_open = nullptr;
+    ID3D12Heap* shared_heap_file_open = nullptr;
+    HANDLE shared_heap_handle = nullptr;
+    HRESULT shared_heap_create_hr = E_FAIL;
+    HRESULT shared_heap_open_hr = E_FAIL;
+    HRESULT shared_heap_file_open_hr = E_FAIL;
+    bool shared_heap_roundtrip_ok = false;
     HANDLE shared_handle = nullptr;
     HANDLE shared_named_handle = nullptr;
     HRESULT shared_create_hr = E_FAIL;
@@ -287,6 +297,10 @@ int main(int argc, char** argv) {
     HRESULT residency_remake_hr = E_FAIL;
     HRESULT residency_remade_map_hr = E_FAIL;
     bool residency_state_ok = false;
+    HRESULT address_heap_hr = E_FAIL;
+    HRESULT address_resource_hr = E_FAIL;
+    HRESULT address_open_hr = E_FAIL;
+    bool address_heap_open_ok = false;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -299,6 +313,63 @@ int main(int argc, char** argv) {
                                                                           D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                                           IID_PPV_ARGS(&readback_buffer))
                                         : E_FAIL;
+    if (device) {
+        D3D12_HEAP_DESC address_heap_desc = {};
+        address_heap_desc.SizeInBytes = 64 * 1024;
+        address_heap_desc.Properties = upload_heap;
+        address_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        address_heap_hr = device->CreateHeap(&address_heap_desc, IID_PPV_ARGS(&address_heap));
+        D3D12_RESOURCE_DESC address_desc = buffer_desc(4096);
+        address_resource_hr = address_heap
+                                  ? device->CreatePlacedResource(address_heap, 0, &address_desc,
+                                                                 D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                                 IID_PPV_ARGS(&address_resource))
+                                  : E_FAIL;
+        void* address = nullptr;
+        if (address_resource && SUCCEEDED(address_resource->Map(0, nullptr, &address))) {
+            ID3D12Device3* device3 = nullptr;
+            HRESULT device3_hr = device->QueryInterface(IID_PPV_ARGS(&device3));
+            ID3D12Heap* reopened_heap = nullptr;
+            address_open_hr = device3
+                                  ? device3->OpenExistingHeapFromAddress(address, IID_PPV_ARGS(&reopened_heap))
+                                  : device3_hr;
+            address_heap_open_ok = SUCCEEDED(address_open_hr) && reopened_heap == address_heap;
+            if (reopened_heap)
+                reopened_heap->Release();
+            if (device3)
+                device3->Release();
+            address_resource->Unmap(0, nullptr);
+        }
+
+        D3D12_HEAP_DESC shared_heap_desc = {};
+        shared_heap_desc.SizeInBytes = 64 * 1024;
+        shared_heap_desc.Properties = upload_heap;
+        shared_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        HRESULT shared_heap_source_hr =
+            device->CreateHeap(&shared_heap_desc, IID_PPV_ARGS(&shared_heap_source));
+        if (SUCCEEDED(shared_heap_source_hr) && shared_heap_source) {
+            shared_heap_create_hr = device->CreateSharedHandle(
+                shared_heap_source, nullptr, GENERIC_ALL,
+                L"metalsharp-probe-upload-heap", &shared_heap_handle);
+            if (SUCCEEDED(shared_heap_create_hr))
+                shared_heap_open_hr = device->OpenSharedHandle(
+                    shared_heap_handle, IID_PPV_ARGS(&shared_heap_open));
+            ID3D12Device3* device3 = nullptr;
+            HRESULT device3_hr = device->QueryInterface(IID_PPV_ARGS(&device3));
+            shared_heap_file_open_hr =
+                device3 && shared_heap_handle
+                    ? device3->OpenExistingHeapFromFileMapping(
+                          shared_heap_handle, IID_PPV_ARGS(&shared_heap_file_open))
+                    : device3_hr;
+            if (device3)
+                device3->Release();
+            shared_heap_roundtrip_ok =
+                SUCCEEDED(shared_heap_create_hr) && SUCCEEDED(shared_heap_open_hr) &&
+                SUCCEEDED(shared_heap_file_open_hr) && shared_heap_open &&
+                shared_heap_file_open;
+        }
+    }
+
     if (device && upload_buffer) {
         ID3D12Pageable* pageable = upload_buffer;
         residency_make_hr = device->MakeResident(1, &pageable);
@@ -1584,13 +1655,14 @@ int main(int argc, char** argv) {
         mipped_reserved_tiling_count == 2 && SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
-        default_cpu_io_ok && residency_state_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && shared_handle_roundtrip &&
-        format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok;
+        format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
+        shared_heap_roundtrip_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -1629,7 +1701,11 @@ int main(int argc, char** argv) {
     print_hr("residency_evicted_map", residency_evicted_map_hr);
     print_hr("residency_remake", residency_remake_hr);
     print_hr("residency_remade_map", residency_remade_map_hr);
-    std::printf("    \"residency_state_verified\": %s\n", residency_state_ok ? "true" : "false");
+    std::printf("    \"residency_state_verified\": %s,\n", residency_state_ok ? "true" : "false");
+    print_hr("address_heap_create", address_heap_hr);
+    print_hr("address_resource_create", address_resource_hr);
+    print_hr("address_open", address_open_hr);
+    std::printf("    \"address_heap_open_verified\": %s\n", address_heap_open_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"shared_handles\": {\n");
     print_hr("create", shared_create_hr);
@@ -1638,7 +1714,11 @@ int main(int argc, char** argv) {
     print_hr("unknown_handle", shared_unknown_hr);
     print_hr("missing_name", shared_missing_name_hr);
     std::printf("    \"roundtrip_verified\": %s,\n", shared_handle_roundtrip ? "true" : "false");
-    std::printf("    \"cross_process_verified\": %s\n", cross_process_shared_ok ? "true" : "false");
+    std::printf("    \"cross_process_verified\": %s,\n", cross_process_shared_ok ? "true" : "false");
+    print_hr("heap_create", shared_heap_create_hr);
+    print_hr("heap_open", shared_heap_open_hr);
+    print_hr("heap_file_open", shared_heap_file_open_hr);
+    std::printf("    \"heap_roundtrip_verified\": %s\n", shared_heap_roundtrip_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"textures\": {\n");
     print_hr("texture_create", texture_hr);
