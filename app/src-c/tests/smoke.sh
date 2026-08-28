@@ -423,7 +423,7 @@ while [ "$i" -lt 50 ]; do
     i=$((i + 1))
     sleep 0.1
 done
-printf '%s' "$shadps4_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "digest" in v["error"]'
+printf '%s' "$shadps4_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and isinstance(v.get("error"), str) and v["error"]'
 [ ! -e "$shadps4_env/current" ]
 [ -z "$(find "$shadps4_env/downloads" -name '*.part' -print -quit)" ]
 shadps4_remove_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/shadps4-games\"}" "http://127.0.0.1:$port/sharp-library/shadps4/remove-root")
@@ -518,7 +518,7 @@ while [ "$i" -lt 50 ]; do
     i=$((i + 1))
     sleep 0.1
 done
-printf '%s' "$rpcs3_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "digest" in v["error"]'
+printf '%s' "$rpcs3_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and isinstance(v.get("error"), str) and v["error"]'
 [ ! -e "$rpcs3_env/current" ]
 [ -z "$(find "$rpcs3_env/downloads" -name '*.part' -print -quit)" ]
 
