@@ -1,0 +1,45 @@
+{
+  "forbidden_until_behavior_proven": [
+    "query_only_capability_promotion",
+    "legal_e_notimpl_or_unsupported_return",
+    "legal_s_ok_noop",
+    "dropped_command",
+    "uninitialized_output"
+  ],
+  "inventory": {
+    "interface_census": "tools/d3d12-metal-sdk/contracts/d3d12-interface-census.json",
+    "no_op_policy": "tools/d3d12-metal-sdk/contracts/d3d12-no-op-policy.json",
+    "static_scan": "docs/roadmaps/d3d12-full-surface-phase0-inventory.md"
+  },
+  "required_surfaces": [
+    "core_d3d12_d3dgi_interfaces",
+    "sm5x_to_sm69_dxil_and_dxbc",
+    "graphics_compute_copy_and_video_queues",
+    "resources_heaps_residency_and_tiled_resources_tier4",
+    "enhanced_and_legacy_barriers",
+    "vrs_msaa_rov_conservative_raster_and_view_instancing",
+    "mesh_amplification_work_graphs_and_node_shaders",
+    "dxr_1_1_and_stable_dxr_1_2_ser_omm",
+    "video_toolbox_corevideo",
+    "protected_resources",
+    "dsr",
+    "dxgi_1_6_display_duplication_and_composition",
+    "agility_debug_cache_tools_and_sharing"
+  ],
+  "schema": "metalsharp.d3d12-metal.full-surface-contract.v1",
+  "stable_baseline": {
+    "d3d12_sdk_version": 619,
+    "interface_contract": "tools/d3d12-metal-sdk/contracts/agility-1.619.5-contract.json",
+    "package": "Microsoft.Direct3D.D3D12",
+    "preview_lane": "1.721.3-preview",
+    "version": "1.619.5"
+  },
+  "state": "phase0_inventory",
+  "summary": {
+    "interface_count": 145,
+    "legal_methods_require_behavior_proof": true,
+    "method_count": 537,
+    "promotion_ready": false,
+    "static_finding_count": 1004
+  }
+}
