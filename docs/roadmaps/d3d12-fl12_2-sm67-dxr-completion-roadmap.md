@@ -1307,8 +1307,8 @@ Before declaring the goal complete, map each item below to actual evidence:
 - [x] Completion Phase 9 final staging proves manifest-selected PE/Unix hashes,
       runtime layout, and a fresh-prefix M12 launch at feature level 12_2.
 - [x] Working tree contains only intended PR changes.
-- [ ] Branch is pushed.
-- [ ] PR is opened with evidence and no uncovered requirement.
+- [x] Branch is pushed.
+- [x] PR #557 is opened with evidence and no uncovered required failure.
 
 Until every checked item has concrete evidence, this roadmap remains active and
 the goal is not complete.
