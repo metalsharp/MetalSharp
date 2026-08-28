@@ -4852,10 +4852,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
     heap_flags = heap_desc.Flags;
     D3D12_RESOURCE_ALLOCATION_INFO info = {};
     GetResourceAllocationInfo(&info, 0, 1, desc);
-    if (heap_offset % info.Alignment) {
+    if (info.Alignment && heap_offset % info.Alignment) {
       TRACE("CreatePlacedResource misaligned offset=%llu align=%llu",
             (unsigned long long)heap_offset,
             (unsigned long long)info.Alignment);
+      return E_INVALIDARG;
     }
     if (heap_offset > heap_desc.SizeInBytes ||
         info.SizeInBytes > heap_desc.SizeInBytes - heap_offset) {
