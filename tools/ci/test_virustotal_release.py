@@ -20,24 +20,25 @@ SPEC.loader.exec_module(MODULE)
 
 
 class VirusTotalReleaseTests(unittest.TestCase):
-    def test_split_dmg_creates_two_verified_halves(self) -> None:
+    def test_split_dmg_creates_three_verified_parts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "MetalSharp-test.dmg"
             source.write_bytes(b"abcdefghijk")
-            parts = MODULE.split_dmg(source, root / "parts", max_bytes=6)
+            parts = MODULE.split_dmg(source, root / "parts", max_bytes=4)
 
-            self.assertEqual([part["size"] for part in parts], [6, 5])
+            self.assertEqual([part["size"] for part in parts], [4, 4, 3])
             rebuilt = b"".join(Path(part["path"]).read_bytes() for part in parts)
             self.assertEqual(rebuilt, source.read_bytes())
-            self.assertEqual([part["part"] for part in parts], [1, 2])
+            self.assertEqual([part["part"] for part in parts], [1, 2, 3])
+            self.assertEqual([part["part_count"] for part in parts], [3, 3, 3])
 
-    def test_split_dmg_rejects_oversized_halves(self) -> None:
+    def test_split_dmg_rejects_oversized_thirds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "too-large.dmg"
             source.write_bytes(b"a" * 13)
-            with self.assertRaisesRegex(MODULE.ScanError, "equal half exceeds"):
-                MODULE.split_dmg(source, Path(directory) / "parts", max_bytes=6)
+            with self.assertRaisesRegex(MODULE.ScanError, "equal third exceeds"):
+                MODULE.split_dmg(source, Path(directory) / "parts", max_bytes=4)
 
     def test_replace_marked_section_is_idempotent(self) -> None:
         first_section = (
@@ -89,13 +90,14 @@ class VirusTotalReleaseTests(unittest.TestCase):
                 {
                     "dmg": "MetalSharp.dmg",
                     "part": 1,
+                    "part_count": 3,
                     "size": 1024 * 1024,
                     "sha256": "a" * 64,
                     "stats": {"malicious": 0, "suspicious": 1, "undetected": 9},
                 }
             ],
         )
-        self.assertIn("one raw half", report)
+        self.assertIn("one raw third", report)
         self.assertIn("not a complete mountable DMG", report)
         self.assertIn("1/10", report)
         self.assertIn(f"https://www.virustotal.com/gui/file/{'a' * 64}", report)
