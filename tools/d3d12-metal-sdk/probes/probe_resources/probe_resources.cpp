@@ -153,7 +153,79 @@ static void print_format_json(const FormatProbe& probe, bool last) {
     std::printf("    }%s\n", last ? "" : ",");
 }
 
-int main() {
+static int run_shared_child() {
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
+    auto create_device = reinterpret_cast<CreateDeviceFn>(
+        reinterpret_cast<void*>(d3d12 ? GetProcAddress(d3d12, "D3D12CreateDevice") : nullptr));
+    ID3D12Device* device = nullptr;
+    HRESULT create_hr = create_device
+                            ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, IID_D3D12DeviceProbe,
+                                            reinterpret_cast<void**>(&device))
+                            : E_NOINTERFACE;
+    HANDLE shared_handle = nullptr;
+    ID3D12Resource* resource = nullptr;
+    HRESULT open_name_hr = device ? device->OpenSharedHandleByName(L"metalsharp-probe-buffer", GENERIC_ALL,
+                                                                    &shared_handle)
+                                  : E_FAIL;
+    HRESULT open_hr = SUCCEEDED(open_name_hr) && device
+                          ? device->OpenSharedHandle(shared_handle, IID_PPV_ARGS(&resource))
+                          : E_FAIL;
+    uint32_t before = 0;
+    void* mapped = nullptr;
+    HRESULT map_hr = resource ? resource->Map(0, nullptr, &mapped) : E_FAIL;
+    if (SUCCEEDED(map_hr) && mapped) {
+        std::memcpy(&before, mapped, sizeof(before));
+        const uint32_t after = 0xdecafbad;
+        std::memcpy(mapped, &after, sizeof(after));
+        resource->Unmap(0, nullptr);
+    }
+    const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_name_hr) && SUCCEEDED(open_hr) &&
+                      SUCCEEDED(map_hr) && before == 0x1234abcdu;
+    // The parent owns the machine-readable probe stream; keep child output
+    // silent so it cannot corrupt the parent's JSON document.
+    if (resource)
+        resource->Release();
+    if (shared_handle)
+        CloseHandle(shared_handle);
+    if (device)
+        device->Release();
+    // Do not unload d3d12.dll explicitly: DXMT owns worker-thread state and
+    // Wine's loader lock can otherwise outlive the child device teardown.
+    return pass ? 0 : 1;
+}
+
+static bool launch_shared_child() {
+    char module_path[MAX_PATH] = {};
+    if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
+        return false;
+    std::string command = std::string("\"") + module_path + "\" --shared-child";
+    std::vector<char> command_line(command.begin(), command.end());
+    command_line.push_back('\0');
+    STARTUPINFOA startup = {};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process = {};
+    if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup,
+                        &process))
+        return false;
+    const DWORD wait_result = WaitForSingleObject(process.hProcess, 30000);
+    if (wait_result != WAIT_OBJECT_0) {
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return false;
+    }
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exit_code == 0;
+}
+
+int main(int argc, char** argv) {
+    if (argc == 2 && std::strcmp(argv[1], "--shared-child") == 0)
+        return run_shared_child();
+
     std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
 
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
@@ -204,8 +276,17 @@ int main() {
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = 0;
     D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
     bool command_resource_lifetime_ok = false;
+    bool cross_process_shared_ok = false;
     HRESULT default_write_subresource_hr = E_FAIL;
     HRESULT default_read_subresource_hr = E_FAIL;
+    bool default_cpu_io_verified = false;
+    HRESULT residency_make_hr = E_FAIL;
+    HRESULT residency_priority_hr = E_FAIL;
+    HRESULT residency_evict_hr = E_FAIL;
+    HRESULT residency_evicted_map_hr = E_FAIL;
+    HRESULT residency_remake_hr = E_FAIL;
+    HRESULT residency_remade_map_hr = E_FAIL;
+    bool residency_state_ok = false;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -218,6 +299,33 @@ int main() {
                                                                           D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                                           IID_PPV_ARGS(&readback_buffer))
                                         : E_FAIL;
+    if (device && upload_buffer) {
+        ID3D12Pageable* pageable = upload_buffer;
+        residency_make_hr = device->MakeResident(1, &pageable);
+        D3D12_RESIDENCY_PRIORITY priority = D3D12_RESIDENCY_PRIORITY_HIGH;
+        ID3D12Device1* residency_device1 = nullptr;
+        HRESULT residency_device1_hr = device->QueryInterface(IID_PPV_ARGS(&residency_device1));
+        residency_priority_hr = residency_device1
+                                    ? residency_device1->SetResidencyPriority(1, &pageable, &priority)
+                                    : residency_device1_hr;
+        if (residency_device1)
+            residency_device1->Release();
+        residency_evict_hr = device->Evict(1, &pageable);
+        void* evicted_map = nullptr;
+        residency_evicted_map_hr = upload_buffer->Map(0, nullptr, &evicted_map);
+        residency_remake_hr = device->MakeResident(1, &pageable);
+        void* remade_map = nullptr;
+        residency_remade_map_hr = upload_buffer->Map(0, nullptr, &remade_map);
+        if (SUCCEEDED(residency_remade_map_hr))
+            upload_buffer->Unmap(0, nullptr);
+        residency_state_ok = SUCCEEDED(residency_make_hr) &&
+                             SUCCEEDED(residency_priority_hr) &&
+                             SUCCEEDED(residency_evict_hr) &&
+                             residency_evicted_map_hr == DXGI_ERROR_INVALID_CALL &&
+                             SUCCEEDED(residency_remake_hr) &&
+                             SUCCEEDED(residency_remade_map_hr) && remade_map;
+    }
+
     if (device && default_buffer) {
         uint8_t cpu_io_scratch[64] = {};
         const uint32_t cpu_io_value = 0x12345678u;
@@ -225,6 +333,9 @@ int main() {
             default_buffer->WriteToSubresource(0, nullptr, &cpu_io_value, sizeof(cpu_io_value), sizeof(cpu_io_value));
         default_read_subresource_hr = default_buffer->ReadFromSubresource(cpu_io_scratch, sizeof(cpu_io_scratch),
                                                                           sizeof(cpu_io_scratch), 0, nullptr);
+        default_cpu_io_verified = SUCCEEDED(default_write_subresource_hr) &&
+                                  SUCCEEDED(default_read_subresource_hr) &&
+                                  std::memcmp(cpu_io_scratch, &cpu_io_value, sizeof(cpu_io_value)) == 0;
         shared_create_hr = device->CreateSharedHandle(default_buffer, nullptr, GENERIC_ALL, L"metalsharp-probe-buffer",
                                                       &shared_handle);
         if (SUCCEEDED(shared_create_hr))
@@ -234,6 +345,24 @@ int main() {
         if (SUCCEEDED(shared_open_named_hr))
             shared_open_named_hr =
                 device->OpenSharedHandle(shared_named_handle, IID_PPV_ARGS(&shared_named_open_buffer));
+        void* shared_parent_data = nullptr;
+        if (SUCCEEDED(shared_create_hr) && SUCCEEDED(default_buffer->Map(0, nullptr, &shared_parent_data)) &&
+            shared_parent_data) {
+            const uint32_t shared_parent_value = 0x1234abcdu;
+            std::memcpy(shared_parent_data, &shared_parent_value, sizeof(shared_parent_value));
+            default_buffer->Unmap(0, nullptr);
+            cross_process_shared_ok = launch_shared_child();
+            shared_parent_data = nullptr;
+            if (cross_process_shared_ok && SUCCEEDED(default_buffer->Map(0, nullptr, &shared_parent_data)) &&
+                shared_parent_data) {
+                uint32_t shared_child_value = 0;
+                std::memcpy(&shared_child_value, shared_parent_data, sizeof(shared_child_value));
+                cross_process_shared_ok = shared_child_value == 0xdecafbad;
+                default_buffer->Unmap(0, nullptr);
+            } else {
+                cross_process_shared_ok = false;
+            }
+        }
         HANDLE unknown_shared_handle = CreateEventA(nullptr, TRUE, FALSE, nullptr);
         if (unknown_shared_handle) {
             shared_unknown_hr = device->OpenSharedHandle(unknown_shared_handle, IID_PPV_ARGS(&unknown_open_buffer));
@@ -1395,8 +1524,7 @@ int main() {
                                   sparse_format.copy_ok;
     }
 
-    const bool default_cpu_io_rejected =
-        default_write_subresource_hr == E_NOTIMPL && default_read_subresource_hr == E_NOTIMPL;
+    const bool default_cpu_io_ok = default_cpu_io_verified;
     const bool shared_handle_roundtrip =
         SUCCEEDED(shared_create_hr) && SUCCEEDED(shared_open_hr) && SUCCEEDED(shared_open_named_hr) && shared_handle &&
         shared_named_handle && shared_open_buffer && shared_named_open_buffer &&
@@ -1455,13 +1583,14 @@ int main() {
         SUCCEEDED(mipped_reserved_readback_map_hr) && mipped_reserved_copy_ok && mipped_reserved_total_tiles == 5 &&
         mipped_reserved_tiling_count == 2 && SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
-        sparse_unmapped_zero_ok && command_resource_lifetime_ok && default_cpu_io_rejected && sparse_total_tiles == 2 &&
-        sparse_tiling_count == 2 && sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
+        sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
+        default_cpu_io_ok && residency_state_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+        sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && shared_handle_roundtrip &&
-        format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected;
+        format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -1493,7 +1622,14 @@ int main() {
     std::printf("    \"upload_gpu_va_nonzero\": %s,\n", upload_gpu_va != 0 ? "true" : "false");
     std::printf("    \"default_gpu_va_nonzero\": %s,\n", default_gpu_va != 0 ? "true" : "false");
     std::printf("    \"command_resource_lifetime_verified\": %s,\n", command_resource_lifetime_ok ? "true" : "false");
-    std::printf("    \"default_cpu_io_rejected\": %s\n", default_cpu_io_rejected ? "true" : "false");
+    std::printf("    \"default_cpu_io_verified\": %s,\n", default_cpu_io_verified ? "true" : "false");
+    print_hr("residency_make", residency_make_hr);
+    print_hr("residency_priority", residency_priority_hr);
+    print_hr("residency_evict", residency_evict_hr);
+    print_hr("residency_evicted_map", residency_evicted_map_hr);
+    print_hr("residency_remake", residency_remake_hr);
+    print_hr("residency_remade_map", residency_remade_map_hr);
+    std::printf("    \"residency_state_verified\": %s\n", residency_state_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"shared_handles\": {\n");
     print_hr("create", shared_create_hr);
@@ -1501,7 +1637,8 @@ int main() {
     print_hr("open_by_name", shared_open_named_hr);
     print_hr("unknown_handle", shared_unknown_hr);
     print_hr("missing_name", shared_missing_name_hr);
-    std::printf("    \"roundtrip_verified\": %s\n", shared_handle_roundtrip ? "true" : "false");
+    std::printf("    \"roundtrip_verified\": %s,\n", shared_handle_roundtrip ? "true" : "false");
+    std::printf("    \"cross_process_verified\": %s\n", cross_process_shared_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"textures\": {\n");
     print_hr("texture_create", texture_hr);

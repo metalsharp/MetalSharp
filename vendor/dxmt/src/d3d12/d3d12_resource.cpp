@@ -4,10 +4,208 @@
 #include "d3d12_trace.hpp"
 #include "log/log.hpp"
 #include "util_string.hpp"
+#include <algorithm>
+#include <cstring>
 
 #define RTRACE(fmt, ...) DXMTD3D12Trace("Resource", fmt, ##__VA_ARGS__)
 
 namespace dxmt {
+
+namespace {
+
+static bool SubmitBufferCopy(WMT::Device device, WMT::Buffer source,
+                             uint64_t source_offset, WMT::Buffer destination,
+                             uint64_t destination_offset, uint64_t length) {
+  if (!device.handle || !source.handle || !destination.handle || !length)
+    return false;
+  auto queue = device.newCommandQueue(1);
+  if (!queue.handle)
+    return false;
+  auto command_buffer = queue.commandBuffer();
+  if (!command_buffer.handle)
+    return false;
+  auto blit = command_buffer.blitCommandEncoder();
+  if (!blit.handle)
+    return false;
+  wmtcmd_blit_copy_from_buffer_to_buffer command = {};
+  command.type = WMTBlitCommandCopyFromBufferToBuffer;
+  command.next.set(nullptr);
+  command.src = source.handle;
+  command.src_offset = source_offset;
+  command.dst = destination.handle;
+  command.dst_offset = destination_offset;
+  command.copy_length = length;
+  if (!blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&command))) {
+    blit.endEncoding();
+    return false;
+  }
+  blit.endEncoding();
+  command_buffer.commit();
+  command_buffer.waitUntilCompleted();
+  return command_buffer.status() != WMTCommandBufferStatusError;
+}
+
+static bool SubmitTextureReadback(WMT::Device device, WMT::Texture source,
+                                  uint32_t slice, uint32_t level,
+                                  WMTOrigin origin, WMTSize size,
+                                  WMT::Buffer destination, uint64_t offset,
+                                  uint32_t bytes_per_row,
+                                  uint32_t bytes_per_image) {
+  if (!device.handle || !source.handle || !destination.handle ||
+      !bytes_per_row || !bytes_per_image)
+    return false;
+  auto queue = device.newCommandQueue(1);
+  if (!queue.handle)
+    return false;
+  auto command_buffer = queue.commandBuffer();
+  if (!command_buffer.handle)
+    return false;
+  auto blit = command_buffer.blitCommandEncoder();
+  if (!blit.handle)
+    return false;
+  wmtcmd_blit_copy_from_texture_to_buffer command = {};
+  command.type = WMTBlitCommandCopyFromTextureToBuffer;
+  command.next.set(nullptr);
+  command.src = source.handle;
+  command.slice = slice;
+  command.level = level;
+  command.origin = origin;
+  command.size = size;
+  command.dst = destination.handle;
+  command.offset = offset;
+  command.bytes_per_row = bytes_per_row;
+  command.bytes_per_image = bytes_per_image;
+  if (!blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&command))) {
+    blit.endEncoding();
+    return false;
+  }
+  blit.endEncoding();
+  command_buffer.commit();
+  command_buffer.waitUntilCompleted();
+  return command_buffer.status() != WMTCommandBufferStatusError;
+}
+
+static bool IsBlockCompressedFormat(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_BC1_TYPELESS:
+  case DXGI_FORMAT_BC1_UNORM:
+  case DXGI_FORMAT_BC1_UNORM_SRGB:
+  case DXGI_FORMAT_BC2_TYPELESS:
+  case DXGI_FORMAT_BC2_UNORM:
+  case DXGI_FORMAT_BC2_UNORM_SRGB:
+  case DXGI_FORMAT_BC3_TYPELESS:
+  case DXGI_FORMAT_BC3_UNORM:
+  case DXGI_FORMAT_BC3_UNORM_SRGB:
+  case DXGI_FORMAT_BC4_TYPELESS:
+  case DXGI_FORMAT_BC4_UNORM:
+  case DXGI_FORMAT_BC4_SNORM:
+  case DXGI_FORMAT_BC5_TYPELESS:
+  case DXGI_FORMAT_BC5_UNORM:
+  case DXGI_FORMAT_BC5_SNORM:
+  case DXGI_FORMAT_BC6H_TYPELESS:
+  case DXGI_FORMAT_BC6H_UF16:
+  case DXGI_FORMAT_BC6H_SF16:
+  case DXGI_FORMAT_BC7_TYPELESS:
+  case DXGI_FORMAT_BC7_UNORM:
+  case DXGI_FORMAT_BC7_UNORM_SRGB:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static uint32_t PackedTextureRowBytes(DXGI_FORMAT format, uint64_t width) {
+  if (IsBlockCompressedFormat(format)) {
+    const uint64_t blocks = std::max<uint64_t>(1, (width + 3) / 4);
+    const bool eight_byte_block =
+        format == DXGI_FORMAT_BC1_TYPELESS ||
+        format == DXGI_FORMAT_BC1_UNORM ||
+        format == DXGI_FORMAT_BC1_UNORM_SRGB ||
+        format == DXGI_FORMAT_BC4_TYPELESS ||
+        format == DXGI_FORMAT_BC4_UNORM ||
+        format == DXGI_FORMAT_BC4_SNORM;
+    return static_cast<uint32_t>(blocks * (eight_byte_block ? 8 : 16));
+  }
+
+  switch (format) {
+  case DXGI_FORMAT_R8_TYPELESS:
+  case DXGI_FORMAT_R8_UNORM:
+  case DXGI_FORMAT_R8_UINT:
+  case DXGI_FORMAT_R8_SNORM:
+  case DXGI_FORMAT_R8_SINT:
+  case DXGI_FORMAT_A8_UNORM:
+    return static_cast<uint32_t>(width);
+  case DXGI_FORMAT_R8G8_TYPELESS:
+  case DXGI_FORMAT_R8G8_UNORM:
+  case DXGI_FORMAT_R8G8_UINT:
+  case DXGI_FORMAT_R8G8_SNORM:
+  case DXGI_FORMAT_R8G8_SINT:
+  case DXGI_FORMAT_R16_TYPELESS:
+  case DXGI_FORMAT_R16_FLOAT:
+  case DXGI_FORMAT_D16_UNORM:
+  case DXGI_FORMAT_R16_UNORM:
+  case DXGI_FORMAT_R16_UINT:
+  case DXGI_FORMAT_R16_SNORM:
+  case DXGI_FORMAT_R16_SINT:
+    return static_cast<uint32_t>(width * 2);
+  case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+  case DXGI_FORMAT_R32G32B32A32_FLOAT:
+  case DXGI_FORMAT_R32G32B32A32_UINT:
+  case DXGI_FORMAT_R32G32B32A32_SINT:
+    return static_cast<uint32_t>(width * 16);
+  case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+  case DXGI_FORMAT_R16G16B16A16_FLOAT:
+  case DXGI_FORMAT_R16G16B16A16_UNORM:
+  case DXGI_FORMAT_R16G16B16A16_UINT:
+  case DXGI_FORMAT_R16G16B16A16_SNORM:
+  case DXGI_FORMAT_R16G16B16A16_SINT:
+  case DXGI_FORMAT_R32G32_TYPELESS:
+  case DXGI_FORMAT_R32G32_FLOAT:
+  case DXGI_FORMAT_R32G32_UINT:
+  case DXGI_FORMAT_R32G32_SINT:
+  case DXGI_FORMAT_R32G8X24_TYPELESS:
+  case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+  case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+  case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+    return static_cast<uint32_t>(width * 8);
+  default:
+    return static_cast<uint32_t>(width * 4);
+  }
+}
+
+static bool ResolveSubresourceRegion(const D3D12_RESOURCE_DESC &desc,
+                                     UINT subresource,
+                                     const D3D12_BOX *requested,
+                                     UINT &mip, UINT &slice, WMTOrigin &origin,
+                                     WMTSize &size) {
+  const UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
+  const UINT array_size =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(desc.DepthOrArraySize, 1);
+  if (subresource >= mip_levels * array_size)
+    return false;
+  mip = subresource % mip_levels;
+  slice = subresource / mip_levels;
+  const uint64_t width = std::max<uint64_t>(1, desc.Width >> mip);
+  const uint64_t height = std::max<uint64_t>(1, desc.Height >> mip);
+  const uint64_t depth =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? std::max<uint64_t>(1, desc.DepthOrArraySize >> mip)
+          : 1;
+  D3D12_BOX box = requested ? *requested
+                            : D3D12_BOX{0, 0, 0, static_cast<UINT>(width),
+                                        static_cast<UINT>(height),
+                                        static_cast<UINT>(depth)};
+  if (box.left >= box.right || box.top >= box.bottom || box.front >= box.back ||
+      box.right > width || box.bottom > height || box.back > depth)
+    return false;
+  origin = {box.left, box.top, box.front};
+  size = {box.right - box.left, box.bottom - box.top, box.back - box.front};
+  return true;
+}
+
+} // namespace
 
 static std::atomic<uint64_t> g_next_texture_virtual_address{0x200000000000ull};
 
@@ -665,6 +863,12 @@ bool MTLD3D12Resource::ConfigureSamplerFeedback(
 
 MTLD3D12Resource::~MTLD3D12Resource() {
   m_device->UnregisterResource(this);
+  if (m_shared_mapping_view)
+    UnmapViewOfFile(m_shared_mapping_view);
+  if (m_shared_mapping)
+    CloseHandle(m_shared_mapping);
+  m_shared_mapping_view = nullptr;
+  m_shared_mapping = nullptr;
   m_mtl_buffer = nullptr;
   m_mtl_texture = nullptr;
   m_device->Release();
@@ -733,6 +937,10 @@ MTLD3D12Resource::Map(UINT sub_resource,
   (void)read_range;
   if (!data)
     return E_POINTER;
+  if (!m_residency.isResident()) {
+    *data = nullptr;
+    return DXGI_ERROR_INVALID_CALL;
+  }
   if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
     RTRACE("Map: invalid resource dimension=%u", (unsigned)m_desc.Dimension);
     *data = nullptr;
@@ -758,7 +966,20 @@ MTLD3D12Resource::Map(UINT sub_resource,
 }
 
 void STDMETHODCALLTYPE MTLD3D12Resource::Unmap(
-    UINT sub_resource, const D3D12_RANGE *written_range) {}
+    UINT sub_resource, const D3D12_RANGE *written_range) {
+  RTRACE("Unmap sub=%u written_range=%p", sub_resource, written_range);
+  if (!m_cpu_addr || !m_mtl_buffer.handle ||
+      m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    return;
+  if (sub_resource != 0)
+    return;
+  const UINT64 start = written_range ? written_range->Begin : 0;
+  const UINT64 end = written_range ? written_range->End : m_desc.Width;
+  if (start >= end || start >= m_desc.Width)
+    return;
+  m_mtl_buffer.didModifyRange(
+      start, std::min<UINT64>(end, m_desc.Width) - start);
+}
 
 D3D12_RESOURCE_DESC *STDMETHODCALLTYPE
 MTLD3D12Resource::GetDesc(D3D12_RESOURCE_DESC *__ret) {
@@ -782,73 +1003,136 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
   RTRACE("WriteToSubresource sub=%u box=%p", dst_sub_resource, dst_box);
   if (!src_data)
     return E_POINTER;
-  if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D)
-    return E_INVALIDARG;
-  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
-  const UINT array_size =
-      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
-          ? 1
-          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
-  if (dst_sub_resource >= mip_levels * array_size)
-    return E_INVALIDARG;
-  if (m_cpu_addr) {
-    if (dst_box) {
-      UINT rows = dst_box->bottom - dst_box->top;
-      UINT depth = dst_box->back - dst_box->front;
-      for (UINT z = 0; z < depth; z++) {
-        for (UINT y = 0; y < rows; y++) {
-          memcpy((char *)m_cpu_addr + (dst_box->front + z) * src_slice_pitch + (dst_box->top + y) * src_row_pitch + dst_box->left,
-                 (char *)src_data + z * src_slice_pitch + y * src_row_pitch,
-                 dst_box->right - dst_box->left);
-        }
-      }
-    } else {
-      memcpy(m_cpu_addr, src_data, src_slice_pitch ? src_slice_pitch : src_row_pitch);
+  if (!m_residency.isResident())
+    return DXGI_ERROR_INVALID_CALL;
+  if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    if (dst_sub_resource || dst_box || !src_row_pitch)
+      return E_INVALIDARG;
+    const uint64_t length = src_slice_pitch ? src_slice_pitch : src_row_pitch;
+    if (!length || length > m_desc.Width || !m_mtl_buffer.handle)
+      return E_INVALIDARG;
+    if (m_cpu_addr) {
+      std::memcpy(m_cpu_addr, src_data, static_cast<size_t>(length));
+      return S_OK;
     }
+    WMTBufferInfo staging_info = {};
+    staging_info.length = length;
+    staging_info.options = WMTResourceStorageModeShared;
+    auto staging = m_device->GetDXMTDevice().device().newBuffer(staging_info);
+    void *staging_data = staging_info.memory.get_accessible_or_null();
+    if (!staging.handle || !staging_data)
+      return E_FAIL;
+    std::memcpy(staging_data, src_data, static_cast<size_t>(length));
+    if (!SubmitBufferCopy(m_device->GetDXMTDevice().device(), staging, 0,
+                          m_mtl_buffer, 0, length))
+      return E_FAIL;
     return S_OK;
   }
-  RTRACE("WriteToSubresource unsupported without CPU-visible backing");
-  return E_NOTIMPL;
+  if (!src_row_pitch)
+    return E_INVALIDARG;
+
+  UINT mip = 0;
+  UINT slice = 0;
+  WMTOrigin origin = {};
+  WMTSize size = {};
+  if (!ResolveSubresourceRegion(m_desc, dst_sub_resource, dst_box, mip, slice,
+                                origin, size))
+    return E_INVALIDARG;
+  const uint64_t row_bytes =
+      PackedTextureRowBytes(m_desc.Format, size.width);
+  if (src_row_pitch < row_bytes)
+    return E_INVALIDARG;
+  const uint64_t image_bytes =
+      src_slice_pitch ? src_slice_pitch : uint64_t(src_row_pitch) * size.height;
+  if (image_bytes < uint64_t(src_row_pitch) * size.height)
+    return E_INVALIDARG;
+
+  if (m_mtl_texture.handle) {
+    m_mtl_texture.replaceRegion(origin, size, mip, slice, src_data,
+                                src_row_pitch, image_bytes);
+    return S_OK;
+  }
+  RTRACE("WriteToSubresource failed: texture backing is unavailable");
+  return E_FAIL;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
     void *dst_data, UINT dst_row_pitch, UINT dst_slice_pitch,
     UINT src_sub_resource, const D3D12_BOX *src_box) {
-  void *vtable = *(void**)this;
-  RTRACE("ReadFromSubresource dst=%p row_pitch=%u slice_pitch=%u sub=%u box=%p dim=%u this=%p vtable=%p", dst_data, dst_row_pitch, dst_slice_pitch, src_sub_resource, src_box, m_desc.Dimension, (void*)this, vtable);
+  RTRACE("ReadFromSubresource dst=%p row_pitch=%u slice_pitch=%u sub=%u "
+         "box=%p dim=%u this=%p",
+         dst_data, dst_row_pitch, dst_slice_pitch, src_sub_resource, src_box,
+         m_desc.Dimension, (void *)this);
   if (!dst_data)
     return E_POINTER;
-  if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
-    RTRACE("ReadFromSubresource: invalid dimension %u", m_desc.Dimension);
-    return E_INVALIDARG;
-  }
-  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
-  const UINT array_size =
-      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
-          ? 1
-          : std::max<UINT>(m_desc.DepthOrArraySize, 1);
-  if (src_sub_resource >= mip_levels * array_size)
-    return E_INVALIDARG;
-  if (m_cpu_addr) {
-    UINT rows = m_desc.Height ? m_desc.Height : 1;
-    if (src_box) {
-      UINT copy_rows = src_box->bottom - src_box->top;
-      UINT copy_depth = src_box->back - src_box->front;
-      UINT copy_width = src_box->right - src_box->left;
-      for (UINT z = 0; z < copy_depth; z++) {
-        for (UINT y = 0; y < copy_rows; y++) {
-          memcpy((char *)dst_data + z * dst_slice_pitch + y * dst_row_pitch,
-                 (char *)m_cpu_addr + (src_box->front + z) * rows * dst_row_pitch + (src_box->top + y) * dst_row_pitch + src_box->left,
-                 copy_width);
-        }
-      }
-    } else {
-      memcpy(dst_data, m_cpu_addr, dst_slice_pitch ? dst_slice_pitch : dst_row_pitch);
+  if (!m_residency.isResident())
+    return DXGI_ERROR_INVALID_CALL;
+
+  if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    if (src_sub_resource || !dst_row_pitch || dst_row_pitch > m_desc.Width)
+      return E_INVALIDARG;
+    const uint64_t length = dst_row_pitch;
+    if (m_cpu_addr) {
+      std::memcpy(dst_data, m_cpu_addr, static_cast<size_t>(length));
+      return S_OK;
     }
+    if (!m_mtl_buffer.handle)
+      return E_FAIL;
+    WMTBufferInfo staging_info = {};
+    staging_info.length = length;
+    staging_info.options = WMTResourceStorageModeShared;
+    auto staging = m_device->GetDXMTDevice().device().newBuffer(staging_info);
+    void *staging_data = staging_info.memory.get_accessible_or_null();
+    if (!staging.handle || !staging_data ||
+        !SubmitBufferCopy(m_device->GetDXMTDevice().device(), m_mtl_buffer, 0,
+                          staging, 0, length))
+      return E_FAIL;
+    std::memcpy(dst_data, staging_data, static_cast<size_t>(length));
     return S_OK;
   }
-  RTRACE("ReadFromSubresource unsupported without CPU-visible backing");
-  return E_NOTIMPL;
+
+  if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D ||
+      !dst_row_pitch)
+    return E_INVALIDARG;
+  UINT mip = 0;
+  UINT slice = 0;
+  WMTOrigin origin = {};
+  WMTSize size = {};
+  if (!ResolveSubresourceRegion(m_desc, src_sub_resource, src_box, mip, slice,
+                                origin, size))
+    return E_INVALIDARG;
+  const uint64_t row_bytes = PackedTextureRowBytes(m_desc.Format, size.width);
+  if (dst_row_pitch < row_bytes)
+    return E_INVALIDARG;
+  const uint64_t slice_pitch = dst_slice_pitch
+                                   ? dst_slice_pitch
+                                   : uint64_t(dst_row_pitch) * size.height;
+  if (slice_pitch < uint64_t(dst_row_pitch) * size.height)
+    return E_INVALIDARG;
+  if (!m_mtl_texture.handle)
+    return E_FAIL;
+
+  WMTBufferInfo staging_info = {};
+  staging_info.length = slice_pitch * size.depth;
+  staging_info.options = WMTResourceStorageModeShared;
+  auto staging = m_device->GetDXMTDevice().device().newBuffer(staging_info);
+  void *staging_data = staging_info.memory.get_accessible_or_null();
+  if (!staging.handle || !staging_data ||
+      !SubmitTextureReadback(m_device->GetDXMTDevice().device(), m_mtl_texture,
+                             slice, mip, origin, size, staging, 0,
+                             dst_row_pitch, static_cast<uint32_t>(slice_pitch)))
+    return E_FAIL;
+
+  const auto *source = static_cast<const uint8_t *>(staging_data);
+  auto *destination = static_cast<uint8_t *>(dst_data);
+  for (uint64_t z = 0; z < size.depth; z++) {
+    for (uint64_t y = 0; y < size.height; y++) {
+      std::memcpy(destination + z * slice_pitch + y * dst_row_pitch,
+                  source + z * slice_pitch + y * dst_row_pitch,
+                  static_cast<size_t>(row_bytes));
+    }
+  }
+  return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
