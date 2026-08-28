@@ -5,7 +5,7 @@
 - Verified: Rain World, Schedule 1, Nidhogg 2, Undertale, Goat Simulator
 
 ## Phase 1: Engine Variants + Game Routing — COMPLETE
-- `Engine::AfmtMetal` and `Engine::AfmtD3D9` added to `launch.rs`
+- AFMT Metal and D3D9 routes added to `app/src-c/runtime/steam_actions.c`
 - Games routed, backend deployed
 
 ## Phase 2: D3D12 Conformance Probes — COMPLETE

@@ -135,9 +135,9 @@ Struct-aware InsertValue:
 **Current state:** All Steam games use `~/.metalsharp/prefix-steam/`. The compatdata doc says per-game prefixes are "future work."
 
 **Files:**
-- `metalsharp-repo/app/src-rust/src/mtsp/launcher.rs` line 963 (shared prefix)
-- `metalsharp-repo/app/src-rust/src/steam.rs` line 15 (`steam_prefix()`)
-- `metalsharp-repo/app/src-rust/src/mtsp/bottles.rs` line 324 (`steam_launch_prefix()`)
+- `metalsharp-repo/app/src-c/runtime/steam_actions.c` (shared prefix launch)
+- `metalsharp-repo/app/src-c/runtime/steam.c` (Steam lifecycle)
+- `metalsharp-repo/app/src-c/runtime/bottles.c` (bottle prefix contract)
 - `metalsharp-repo/docs/runtime/compatdata-architecture.md` line 23
 
 **Work:**
@@ -155,8 +155,8 @@ Struct-aware InsertValue:
 **Current state:** MetalSharp detects missing components but doesn't auto-install them. Proton copies base redists into every new prefix.
 
 **Files:**
-- `metalsharp-repo/app/src-rust/src/mtsp/recipe.rs` (`recipe_component_satisfied`)
-- `metalsharp-repo/app/src-rust/src/bottles.rs` (component system)
+- `metalsharp-repo/app/src-c/runtime/steam_actions.c` (route readiness)
+- `metalsharp-repo/app/src-c/runtime/bottles.c` (component system)
 
 **Work:**
 - Create `~/.metalsharp/runtime/redist/` central DLL cache (d3dcompiler_*, d3dx9_*, xinput1_3, xaudio*, vcruntime140, msvcp140, ucrtbase, atl, openal, physx)
@@ -171,8 +171,8 @@ Struct-aware InsertValue:
 **Current state:** Component repair requires manual trigger or Runtime Doctor. Proton auto-installs CommonRedist during game install.
 
 **Files:**
-- `metalsharp-repo/app/src-rust/src/mtsp/setup.rs` (runtime setup)
-- `metalsharp-repo/app/src-rust/src/bottles.rs` (component repair)
+- `metalsharp-repo/app/src-c/runtime/setup.c` (runtime setup)
+- `metalsharp-repo/app/src-c/runtime/bottles.c` (component repair)
 
 **Work:**
 - On first game launch, check component requirements from `mtsp-rules.toml`
@@ -193,12 +193,12 @@ Struct-aware InsertValue:
 
 ### 3A. Compat Config Flag System
 
-**Current state:** Per-game fixes are hardcoded in Rust (Subnautica 2 UE5 args in `launcher.rs`, preferred exe names in `recipe.rs`). Proton uses a flag system that Steam can toggle from the cloud.
+**Current state:** Some per-game fixes remain hardcoded in the C launch route. Proton uses a flag system that Steam can toggle from the cloud.
 
 **Files:**
 - `metalsharp-repo/configs/mtsp-rules.toml` (current 64-game rules)
-- `metalsharp-repo/app/src-rust/src/mtsp/rules.rs` (parser)
-- `metalsharp-repo/app/src-rust/src/mtsp/launcher.rs` (hardcoded fixes)
+- `metalsharp-repo/app/src-c/runtime/mtsp.c` (rules parser)
+- `metalsharp-repo/app/src-c/runtime/steam_actions.c` (hardcoded fixes)
 
 **Work:**
 - Extend `mtsp-rules.toml` with flag fields:
@@ -215,10 +215,10 @@ Struct-aware InsertValue:
   ]
   launch_args = ["-NoNanite", "-NoShaderPipelineCache"]
   ```
-- Migrate hardcoded fixes from Rust to TOML data
-- Eliminate `scripts/setup-*-deps.sh` shell scripts (move logic into TOML + Rust)
+- Migrate hardcoded fixes from C to TOML data
+- Eliminate `scripts/setup-*-deps.sh` shell scripts (move logic into TOML + C)
 
-**Milestone:** All per-game behavior is expressed in TOML. Zero game-specific hardcoded logic in Rust.
+**Milestone:** All per-game behavior is expressed in TOML. Zero game-specific hardcoded logic in C.
 
 ### 3B. Proton Game Fix Mining
 
@@ -243,7 +243,7 @@ Struct-aware InsertValue:
 **Current state:** Subnautica 2 has hardcoded `write_marked_config_block()` for Engine.ini. No other games get config patches.
 
 **Files:**
-- `metalsharp-repo/app/src-rust/src/mtsp/launcher.rs` (write_marked_config_block)
+- `metalsharp-repo/app/src-c/runtime/steam_actions.c` (launch configuration)
 
 **Work:**
 - Generalize to data-driven config patch system in TOML

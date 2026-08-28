@@ -49,7 +49,8 @@ int main(void) {
 
     snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files (x86)/Steam/steamapps", home);
     make_directory(path);
-    snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files (x86)/Steam/steamapps/appmanifest_440.acf", home);
+    snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files (x86)/Steam/steamapps/appmanifest_440.acf",
+             home);
     write_file(path, "manifest");
     snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files/Game", home);
     make_directory(path);
@@ -60,19 +61,54 @@ int main(void) {
     make_directory(path);
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", home);
     write_file(path, "gog settings");
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/drive_c/windows", home);
+    make_directory(path);
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/bottle.json", home);
+    write_file(path, "{\"id\":\"epic_TestGame\",\"mouse_mode\":\"no-recenter\"}");
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/user.reg", home);
+    write_file(path, "MouseWarpOverride=disable");
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/system.reg", home);
+    write_file(path, "Wine registry");
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/drive_c/windows/runtime.dll", home);
+    write_file(path, "runtime payload");
+    snprintf(path, sizeof(path), "%s/epic/legendary", home);
+    make_directory(path);
+    snprintf(path, sizeof(path), "%s/epic/library.json", home);
+    write_file(path, "[]");
+    snprintf(path, sizeof(path), "%s/epic/legendary/user.json", home);
+    write_file(path, "{\"displayName\":\"Player\"}");
+    snprintf(path, sizeof(path), "%s/launcher-games/epic", home);
+    make_directory(path);
+    snprintf(path, sizeof(path), "%s/launcher-games/epic/location.txt", home);
+    write_file(path, "/Volumes/Games/Epic\n");
     snprintf(path, sizeof(path), "%s/compatdata/old", home);
     make_directory(path);
     snprintf(path, sizeof(path), "%s/compatdata/old/state", home);
     write_file(path, "deprecated");
 
     assert(preserve_user_data(home, &preserved));
-    snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files (x86)/Steam/steamapps/appmanifest_440.acf", preserved.temp);
+    snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files (x86)/Steam/steamapps/appmanifest_440.acf",
+             preserved.temp);
     assert(file_exists(path));
     snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files/Game/game.exe", preserved.temp);
     assert(!file_exists(path));
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", preserved.temp);
     assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/user.reg", preserved.temp);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/drive_c/windows/runtime.dll", preserved.temp);
+    assert(!file_exists(path));
+    snprintf(path, sizeof(path), "%s/epic/library.json", preserved.temp);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/launcher-games/epic/location.txt", preserved.temp);
+    assert(file_exists(path));
 
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame", home);
+    remove_tree_local(path);
+    snprintf(path, sizeof(path), "%s/epic", home);
+    remove_tree_local(path);
+    snprintf(path, sizeof(path), "%s/launcher-games", home);
+    remove_tree_local(path);
     remove_old_runtime(home);
     restore_preserved_data(home, &preserved);
     snprintf(path, sizeof(path), "%s/setup.json", home);
@@ -88,6 +124,16 @@ int main(void) {
         assert(strstr(contents, "steam_api_key") != NULL);
     }
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", home);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/user.reg", home);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/system.reg", home);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/epic/legendary/user.json", home);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/epic/library.json", home);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/launcher-games/epic/location.txt", home);
     assert(file_exists(path));
     snprintf(path, sizeof(path), "%s/compatdata", home);
     assert(!file_exists(path));

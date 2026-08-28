@@ -21,7 +21,6 @@ function ensureShellPath() {
     "/bin",
     "/usr/sbin",
     "/sbin",
-    `${home}/.cargo/bin`,
   ];
   const existing = new Set((process.env.PATH || "").split(":"));
   const additions = candidates.filter((c) => !existing.has(c));
@@ -172,7 +171,19 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
   }
   if (url === "/update/check") {
     const version = uiOnlyVersion();
-    return { ok: true, available: false, current_version: version, latest_version: version };
+    return {
+      ok: true,
+      available: false,
+      current_version: version,
+      latest_version: version,
+      download_url: "",
+      download_size: 0,
+      fex_available: false,
+      fex_download_url: "",
+      fex_download_size: 0,
+      fex_supported: false,
+      macos_major: 0,
+    };
   }
   if (url === "/steam/watch-steamapps") {
     return { ok: true, new_appids: [] };
@@ -213,6 +224,35 @@ function ensureMetalsharpDirs() {
   ];
   for (const d of dirs) {
     fs.mkdirSync(path.join(base, d), { recursive: true });
+  }
+}
+
+function removeMetalsharpData(root: string): boolean {
+  try {
+    fs.rmSync(root, { recursive: true, force: true });
+    return true;
+  } catch {
+    // Managed emulator releases are intentionally installed read-only. Make
+    // directories removable after the user has explicitly confirmed a full
+    // uninstall, then retry without following symlinks.
+    const pending = [root];
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      try {
+        fs.chmodSync(current, 0o700);
+        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+          if (entry.isDirectory() && !entry.isSymbolicLink()) pending.push(path.join(current, entry.name));
+        }
+      } catch {}
+    }
+
+    try {
+      fs.rmSync(root, { recursive: true, force: true });
+      return true;
+    } catch (error) {
+      console.error("Failed to remove MetalSharp data:", error);
+      return false;
+    }
   }
 }
 
@@ -565,6 +605,19 @@ function forceQuitRunningGames(): void {
   );
   req.on("error", (e) => console.warn("Force-quit games request failed:", e));
   req.end();
+
+  const epicReq = http.request(
+    {
+      hostname: "127.0.0.1",
+      port,
+      path: "/sharp-library/epic/stop-all",
+      method: "POST",
+      headers: { "Content-Length": 0 },
+    },
+    (res) => res.resume(),
+  );
+  epicReq.on("error", (e) => console.warn("Force-quit Epic games request failed:", e));
+  epicReq.end();
 }
 
 // Cmd+Opt+Q force-quits all running games but leaves the Wine Steam client up.
@@ -583,7 +636,30 @@ function registerForceQuitGamesShortcut(): void {
 }
 
 async function checkNeedsMigration(): Promise<boolean> {
+  const setupPath = path.join(getMetalsharpDir(), "setup.json");
+  const prefixPath = path.join(getMetalsharpDir(), "prefix-steam");
+  try {
+    if (!fs.existsSync(setupPath)) {
+      clearPostUpdateMigrationMarker();
+      return false;
+    }
+    const setup = JSON.parse(fs.readFileSync(setupPath, "utf8"));
+    if (setup?.completed !== true && !fs.existsSync(prefixPath)) {
+      clearPostUpdateMigrationMarker();
+      return false;
+    }
+  } catch {
+    clearPostUpdateMigrationMarker();
+    return false;
+  }
+
   const marker = hasPostUpdateMigrationMarker();
+  // Migration is an update handoff, not a general runtime-repair screen.
+  // Normal startup must never enter it solely because setup/runtime readiness
+  // checks disagree; SetupWizard owns incomplete-runtime repair. The updater
+  // writes this marker only after it has installed a replacement app bundle.
+  if (!marker.needed) return false;
+
   return new Promise((resolve) => {
     const req = http.get("http://127.0.0.1:9274/update/migrate/check", (res) => {
       const chunks: Buffer[] = [];
@@ -592,7 +668,7 @@ async function checkNeedsMigration(): Promise<boolean> {
         try {
           const data = JSON.parse(Buffer.concat(chunks).toString());
           const needed = data.ok && data.needed === true;
-          if (!needed && !marker.needed) clearPostUpdateMigrationMarker();
+          if (!needed) clearPostUpdateMigrationMarker();
           resolve(needed);
         } catch {
           resolve(marker.needed);
@@ -1459,7 +1535,7 @@ function registerIpc() {
 
   ipcMain.handle("backend:is-alive", async () => {
     if (isUiOnlyRuntime()) return true;
-    return bridge.isAlive();
+    return bridge.isAliveOrBusy();
   });
 
   ipcMain.handle("updater:ensure-ready", async () => {
@@ -1527,13 +1603,7 @@ function registerIpc() {
     await cleanup();
 
     const msDir = getMetalsharpDir();
-    let dataRemoved = false;
-    try {
-      fs.rmSync(msDir, { recursive: true, force: true });
-      dataRemoved = true;
-    } catch (e) {
-      console.error("Failed to remove MetalSharp data:", e);
-    }
+    const dataRemoved = removeMetalsharpData(msDir);
 
     // Spawn a detached shell that waits for this process to exit, then
     // moves the app bundle to the macOS Trash.
@@ -1549,18 +1619,21 @@ function registerIpc() {
       spawn("/bin/bash", ["-c", script], { detached: true, stdio: "ignore" }).unref();
     }
 
-    // Show success dialog — user must close the app to finish.
+    // Report the real data-removal result — user must close the app to finish.
     if (mainWindow && !mainWindow.isDestroyed()) {
       await dialog.showMessageBox(mainWindow, {
-        type: "info",
-        title: "MetalSharp Uninstalled",
-        message: "MetalSharp data has been removed successfully.",
-        detail:
-          "All Wine prefixes, bottles, Steam, runtime, and settings have been deleted. " +
-          (appBundle
-            ? "When you close this window, MetalSharp will be moved to the Trash."
-            : "Close this window to exit MetalSharp.") +
-          "\n\nClick OK to close the app.",
+        type: dataRemoved ? "info" : "error",
+        title: dataRemoved ? "MetalSharp Uninstalled" : "MetalSharp Uninstall Incomplete",
+        message: dataRemoved
+          ? "MetalSharp data has been removed successfully."
+          : `MetalSharp could not completely remove ${msDir}.`,
+        detail: dataRemoved
+          ? "All Wine prefixes, bottles, Steam, runtime, and settings have been deleted. " +
+            (appBundle
+              ? "When you close this window, MetalSharp will be moved to the Trash."
+              : "Close this window to exit MetalSharp.") +
+            "\n\nClick OK to close the app."
+          : "Some files remain on disk. MetalSharp will not claim that uninstall completed successfully.",
         buttons: ["OK"],
         defaultId: 0,
         noLink: true,
@@ -1568,6 +1641,118 @@ function registerIpc() {
     }
 
     app.quit();
+  });
+
+  ipcMain.handle("epic:oauth-login", async () => {
+    if (!mainWindow) return { ok: false, error: "Main window is not ready." };
+
+    const loginUrl = "https://legendary.gl/epiclogin";
+    const allowedHost = (urlText: string) => {
+      try {
+        const url = new URL(urlText);
+        if (url.protocol !== "https:") return false;
+        const host = url.hostname.toLowerCase();
+        return (
+          host === "legendary.gl" ||
+          host === "epicgames.com" ||
+          host.endsWith(".epicgames.com") ||
+          host === "accounts.google.com" ||
+          host.endsWith(".google.com") ||
+          host === "appleid.apple.com" ||
+          host === "www.facebook.com" ||
+          host === "facebook.com" ||
+          host === "login.live.com" ||
+          host.endsWith(".playstation.com") ||
+          host.endsWith(".sonyentertainmentnetwork.com") ||
+          host.endsWith(".nintendo.net") ||
+          host === "steamcommunity.com"
+        );
+      } catch {
+        return false;
+      }
+    };
+
+    return new Promise<{ ok: boolean; code?: string; error?: string }>((resolve) => {
+      let settled = false;
+      let inspectionTimer: NodeJS.Timeout | null = null;
+      const win = new BrowserWindow({
+        width: 980,
+        height: 720,
+        minWidth: 760,
+        minHeight: 580,
+        parent: mainWindow ?? undefined,
+        title: "Sign in to Epic Games",
+        autoHideMenuBar: true,
+        backgroundColor: "#18181b",
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          partition: `epic-auth-${Date.now()}`,
+        },
+      });
+
+      const finish = (result: { ok: boolean; code?: string; error?: string }) => {
+        if (settled) return;
+        settled = true;
+        if (inspectionTimer) {
+          clearInterval(inspectionTimer);
+          inspectionTimer = null;
+        }
+        if (!win.isDestroyed()) win.close();
+        resolve(result);
+      };
+      const inspectLoginResult = async () => {
+        if (settled || win.isDestroyed()) return;
+        try {
+          const current = new URL(win.webContents.getURL());
+          const host = current.hostname.toLowerCase();
+          const resultHost = host === "legendary.gl" || host === "epicgames.com" || host.endsWith(".epicgames.com");
+          if (current.protocol !== "https:" || !resultHost) return;
+          const text = await win.webContents.executeJavaScript("document.body ? document.body.innerText : ''", true);
+          if (typeof text !== "string" || !text.trim().startsWith("{")) return;
+          const response = JSON.parse(text) as { authorizationCode?: unknown; code?: unknown; error?: unknown };
+          const code =
+            typeof response.authorizationCode === "string"
+              ? response.authorizationCode
+              : typeof response.code === "string"
+                ? response.code
+                : "";
+          if (code) finish({ ok: true, code });
+          else if (typeof response.error === "string") finish({ ok: false, error: response.error });
+        } catch {
+          // The login document may not contain its JSON result yet.
+        }
+      };
+
+      win.setMenuBarVisibility(false);
+      win.webContents.setWindowOpenHandler(({ url }) => {
+        if (allowedHost(url)) void win.loadURL(url);
+        return { action: "deny" };
+      });
+      win.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+      win.webContents.on("will-navigate", (event, url) => {
+        if (!allowedHost(url)) event.preventDefault();
+      });
+      win.webContents.on("will-redirect", (event, url) => {
+        if (!allowedHost(url)) event.preventDefault();
+      });
+      win.webContents.on("did-finish-load", () => void inspectLoginResult());
+      win.webContents.on("did-navigate", () => void inspectLoginResult());
+      win.webContents.on("did-navigate-in-page", () => void inspectLoginResult());
+      inspectionTimer = setInterval(() => void inspectLoginResult(), 250);
+      win.on("closed", () => {
+        if (inspectionTimer) {
+          clearInterval(inspectionTimer);
+          inspectionTimer = null;
+        }
+        if (!settled) {
+          settled = true;
+          resolve({ ok: false, error: "Epic sign-in was closed before authorization completed." });
+        }
+      });
+      win.loadURL(loginUrl).catch((error: Error) => finish({ ok: false, error: error.message }));
+    });
   });
 
   ipcMain.handle("gog:oauth-login", async (_e, authUrl: string) => {

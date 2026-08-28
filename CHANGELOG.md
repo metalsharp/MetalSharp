@@ -6,26 +6,24 @@ Testing-surface hardening, pre-commit strictness, and compatibility database ref
 
 ### Added
 
-- **`tools/ci/validate-rules-toml.py`** — lightweight Python validator for `configs/mtsp-rules.toml`. Catches: TOML parse errors, duplicate `[overrides.APPID]` sections, missing/empty `name`, missing/unknown `pipeline`, unrecognized sub-table keys. Runs in CI without the Rust toolchain.
+- **`tools/ci/validate-rules-toml.py`** — lightweight Python validator for `configs/mtsp-rules.toml`. Catches: TOML parse errors, duplicate `[overrides.APPID]` sections, missing/empty `name`, missing/unknown `pipeline`, and unrecognized sub-table keys.
 - **`tools/ci/check-doc-freshness.py`** — warns on docs without an `Updated:` header or older than 120 days; also verifies `CHANGELOG.md` has a section for the current version. Warn-only by default; `--strict` makes it an error.
-- **`.github/hooks/pre-commit`** + README — opt-in shared pre-commit hook. Runs `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test --lib`, `clang-format --dry-run --Werror`, `tsc --noEmit`, `biome ci`, `prettier --check`, and the rules-TOML/doc-freshness validators locally when relevant files are staged.
-- **`shipped_rules_toml_is_well_formed`** Rust test — same checks as the Python rules TOML validator, runs as part of `cargo test`.
+- **`.github/hooks/pre-commit`** + README — opt-in shared pre-commit hook. Runs `clang-format --dry-run --Werror`, `tsc --noEmit`, `biome ci`, `prettier --check`, and the rules-TOML/doc-freshness validators locally when relevant files are staged.
 - **609 default rule entries** for Steam AppIDs — bulk-add of game compatibility rules for DX9/10/11/12 pipelines, sourced from Steam store data and community testing. Pipeline distribution: m9: 54, m10: 2, m11: 471, m11_32: 70, m12: 12.
 
 ### Changed
 
-- **Pre-commit policy: fail-hard on missing toolchains.** Previously the pre-commit hook would warn and silently skip a check if the required toolchain (cargo, clang-format, node_modules, python3) wasn't installed. That made it possible for a `cargo fmt` violation to slip past locally and only get caught in CI. The hook now fails the commit in that case, with an install hint.
+- **Pre-commit policy: fail-hard on missing toolchains.** The hook fails when required formatting, Node, or Python tooling is absent instead of silently skipping checks.
 - **Compatibility database** — `docs/compatibility/GAMES-SUPPORTED.md` now documents the M9, M10, M11, M11-32, M12, and D3DMetal pipeline coverage and corrects the Party Animals AppID (1260320; the prior 1823720 was incorrect).
 
 ### Fixed
 
 - **Party Animals AppID correction** — was 1823720 (Mail Mole); correct ID is 1260320.
-- **rustfmt violation** in the new `shipped_rules_toml_is_well_formed` test caught in CI, fixed by collapsing the multi-line chain call.
 
 ### Documentation
 
 - Added `**Updated:** 2026-07-08` headers to 37 docs that lacked a date stamp.
-- Archived 4 dead/historical roadmaps to `docs/archive/roadmaps/` (`metalsharp-final-roadmap.md`, `dx12-pipeline-complete-roadmap.md`, `beta7-dxmt-cohesion-roadmap.md`) and 1 phase PR summary to `docs/archive/optimization-roadmap/`. New `docs/archive/README.md` documents the archive policy.
+- Archived dead/historical roadmaps to `docs/archive/roadmaps/`. `docs/archive/README.md` documents the archive policy.
 - Removed `docs/compatibility/game-compat.md` (a 4-line redirect stub pointing to GAMES-SUPPORTED.md).
 
 ## v0.54.1 — 2026-07-08
@@ -88,7 +86,7 @@ GOG MetalSharp Games launcher, M12 release path, D3DMetal GPTK explicit lane, de
 ### Changed
 
 - **Library card grid** — cards now lay out in a fixed 2-column grid; glass sidebar active route shimmers on route change; the developer theme is opt-in.
-- **Dependency bumps** — bumps `vue`, `lucide-icons`, `biome`, `electron`, and the `sha2` Rust crate. Patches vulnerable npm transitive deps.
+- **Dependency bumps** — bumps `vue`, `lucide-icons`, `biome`, and `electron`. Patches vulnerable npm transitive deps.
 - **CI: CodeQL C** — restored and then removed (job was kept active in the meantime).
 - **Subnautica 2** — now launches directly on M12 (no more guard).
 

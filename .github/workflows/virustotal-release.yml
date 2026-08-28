@@ -1,0 +1,115 @@
+name: VirusTotal Release Scan
+
+on:
+  workflow_run:
+    workflows: ["Release CI"]
+    types: [completed]
+
+concurrency:
+  group: virustotal-release-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  scan:
+    name: Scan released DMG halves
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Check out the released revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Download the exact Release CI artifact
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifact
+          gh run download "$RELEASE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name MetalSharp-dmg \
+            --dir release-artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
+
+      - name: Validate release identity
+        id: release
+        run: |
+          set -euo pipefail
+          mapfile -t tag_files < <(find release-artifact -type f -name RELEASE-TAG.txt -print)
+          test "${#tag_files[@]}" -eq 1
+          tag="$(tr -d '\r\n' < "${tag_files[0]}")"
+          case "$tag" in
+            v[0-9]*) ;;
+            *) echo "Invalid release tag in artifact: $tag" >&2; exit 1 ;;
+          esac
+          resolved_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)"
+          test "$resolved_sha" = "$RELEASE_HEAD_SHA"
+          gh release view "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets > published-release.json
+          python3 tools/ci/virustotal-release.py validate-assets \
+            --artifact-dir release-artifact \
+            --assets-json published-release.json
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'Validated release %s at %s\n' "$tag" "$resolved_sha"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Split and scan every released DMG
+        run: |
+          python3 tools/ci/virustotal-release.py scan \
+            --artifact-dir release-artifact \
+            --tag "$RELEASE_TAG" \
+            --part-dir virustotal-parts \
+            --json-output virustotal-results.json \
+            --markdown-output virustotal-results.md
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+
+      - name: Add VirusTotal links to release notes
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json body \
+            --jq .body > release-body.md
+          python3 tools/ci/virustotal-release.py merge-body \
+            --body release-body.md \
+            --section virustotal-results.md \
+            --output release-body-updated.md
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes-file release-body-updated.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+
+      - name: Upload VirusTotal scan record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VirusTotal-results-${{ github.event.workflow_run.id }}
+          path: |
+            virustotal-results.json
+            virustotal-results.md
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Fail on malicious or suspicious detections
+        run: |
+          detections="$(jq '[.results[].stats | (.malicious // 0) + (.suspicious // 0)] | add // 0' virustotal-results.json)"
+          if [ "$detections" -ne 0 ]; then
+            echo "VirusTotal reported $detections malicious or suspicious detections." >&2
+            exit 1
+          fi
+          echo "VirusTotal reported no malicious or suspicious detections."

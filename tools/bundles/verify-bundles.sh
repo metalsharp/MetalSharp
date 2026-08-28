@@ -108,7 +108,7 @@ archive_contains_root() {
   local path="$1"
   local root="$2"
   local listing
-  listing="$(tar --use-compress-program=unzstd -tf "$path" "$root" 2>/dev/null || true)"
+  listing="$(tar --use-compress-program=unzstd -tf "$path" 2>/dev/null || true)"
   awk -v root="$root" 'index($0, root "/") == 1 || $0 == root { found=1 } END { exit found ? 0 : 1 }' \
     <<< "$listing"
 }
@@ -330,16 +330,25 @@ verify_fna_payloads() {
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-fna-payloads.XXXXXX")"
 
-  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" \
+  tar --use-compress-program=unzstd -xf "$path" -C "$tmp" \
     "$root/libFNA3D.0.dylib" \
     "$root/libFAudio.0.dylib" \
     "$root/libSDL2-2.0.0.dylib" \
     "$root/fmod/libfmod.dylib" \
-    "$root/fmod/libfmodstudio.dylib"; then
-    echo "$label INVALID: $path is missing FNA native payloads" >&2
-    rm -rf "$tmp"
-    return 1
-  fi
+    "$root/fmod/libfmodstudio.dylib" >/dev/null 2>&1 || true
+  local required
+  for required in \
+    "$root/libFNA3D.0.dylib" \
+    "$root/libFAudio.0.dylib" \
+    "$root/libSDL2-2.0.0.dylib" \
+    "$root/fmod/libfmod.dylib" \
+    "$root/fmod/libfmodstudio.dylib"; do
+    if [ ! -s "$tmp/$required" ]; then
+      echo "$label INVALID: $path is missing $required" >&2
+      rm -rf "$tmp"
+      return 1
+    fi
+  done
 
   local failed=0
   dylib_uses_sdl2 "$tmp/$root/libFNA3D.0.dylib" "$label FNA3D" || failed=1
@@ -357,14 +366,21 @@ verify_fna_kickstart_payloads() {
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-fna-kickstart.XXXXXX")"
 
-  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" \
+  tar --use-compress-program=unzstd -xf "$path" -C "$tmp" \
     "$root/libFNA3D.0.dylib" \
     "$root/libFAudio.0.dylib" \
-    "$root/libSDL2-2.0.0.dylib"; then
-    echo "$label INVALID: $path is missing FNA kickstart native payloads" >&2
-    rm -rf "$tmp"
-    return 1
-  fi
+    "$root/libSDL2-2.0.0.dylib" >/dev/null 2>&1 || true
+  local required
+  for required in \
+    "$root/libFNA3D.0.dylib" \
+    "$root/libFAudio.0.dylib" \
+    "$root/libSDL2-2.0.0.dylib"; do
+    if [ ! -s "$tmp/$required" ]; then
+      echo "$label INVALID: $path is missing $required" >&2
+      rm -rf "$tmp"
+      return 1
+    fi
+  done
 
   local failed=0
   dylib_uses_sdl2 "$tmp/$root/libFNA3D.0.dylib" "$label kickstart FNA3D" || failed=1

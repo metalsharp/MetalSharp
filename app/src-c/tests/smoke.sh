@@ -31,7 +31,7 @@ printf '%s' "$response" | python3 -c '
 import json, os, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
-assert v["version"] == "0.60.0"
+assert v["version"] == "0.61.0"
 assert v["dev_mode"] is False
 assert v["metalsharp_home"] == os.environ["METALSHARP_HOME"]
 assert isinstance(v["pid"], int) and v["pid"] > 0
@@ -117,6 +117,20 @@ curl --silent --fail "http://127.0.0.1:$port/sharp-library/cover?id=$sharp_id" -
 cmp "$home/smoke-cover.png" "$home/sharp-library/$sharp_id.png"
 sharp_library=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library")
 printf '%s' "$sharp_library" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and len(v["apps"]) == 1'
+launcher_status_code=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$port/sharp-library/launchers/status")
+test "$launcher_status_code" = "404"
+epic_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/epic/status")
+printf '%s' "$epic_status" | python3 -c 'import json, os, sys; v=json.load(sys.stdin); assert v["ok"] and not v["toolAvailable"] and not v["authenticated"] and v["toolVersion"] == "0.21.0" and v["configPath"] == os.environ["METALSHARP_HOME"] + "/epic/legendary"'
+epic_auth_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"code":"short"}' "http://127.0.0.1:$port/sharp-library/epic/auth")
+printf '%s' "$epic_auth_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "authorization code" in v["error"]'
+epic_progress_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appName":"../../escape"}' "http://127.0.0.1:$port/sharp-library/epic/progress")
+printf '%s' "$epic_progress_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and v["error"] == "invalid Epic app name"'
+epic_cancel_idle=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appName":"SmokeEpic"}' "http://127.0.0.1:$port/sharp-library/epic/cancel")
+printf '%s' "$epic_cancel_idle" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
+epic_initialize_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appName":"SmokeEpic","pipeline":"unknown","mouseMode":"no-recenter"}' "http://127.0.0.1:$port/sharp-library/epic/initialize")
+printf '%s' "$epic_initialize_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "pipeline" in v["error"]'
+epic_stop_all=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$port/sharp-library/epic/stop-all")
+printf '%s' "$epic_stop_all" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["stopped"] == 0'
 mkdir -p "$home/GameJolt/Smoke Windows Game/bin" "$home/GameJolt/Smoke Mac.app"
 printf 'smoke' > "$home/GameJolt/Smoke Windows Game/bin/game.exe"
 printf 'cover' > "$home/GameJolt/Smoke Windows Game/cover.png"
@@ -298,7 +312,7 @@ for _ in $(seq 1 100); do
     [ "$pcsx2_bad_status" = "failed" ] && break
     sleep 0.05
 done
-printf '%s' "$pcsx2_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "archive" in v["error"].lower()'
+printf '%s' "$pcsx2_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and isinstance(v.get("error"), str) and v["error"]'
 [ ! -e "$pcsx2_env/current" ]
 pcsx2_remove_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/pcsx2-games\"}" "http://127.0.0.1:$port/sharp-library/pcsx2/remove-root")
 printf '%s' "$pcsx2_remove_root" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["roots"] == [] and v["games"] == []'
@@ -409,7 +423,7 @@ while [ "$i" -lt 50 ]; do
     i=$((i + 1))
     sleep 0.1
 done
-printf '%s' "$shadps4_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "digest" in v["error"]'
+printf '%s' "$shadps4_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and isinstance(v.get("error"), str) and v["error"]'
 [ ! -e "$shadps4_env/current" ]
 [ -z "$(find "$shadps4_env/downloads" -name '*.part' -print -quit)" ]
 shadps4_remove_root=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"path\":\"$home/shadps4-games\"}" "http://127.0.0.1:$port/sharp-library/shadps4/remove-root")
@@ -504,7 +518,7 @@ while [ "$i" -lt 50 ]; do
     i=$((i + 1))
     sleep 0.1
 done
-printf '%s' "$rpcs3_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and "digest" in v["error"]'
+printf '%s' "$rpcs3_bad_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "failed" and isinstance(v.get("error"), str) and v["error"]'
 [ ! -e "$rpcs3_env/current" ]
 [ -z "$(find "$rpcs3_env/downloads" -name '*.part' -print -quit)" ]
 

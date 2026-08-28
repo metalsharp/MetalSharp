@@ -33,8 +33,8 @@ mkdir -p build
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
 cmake --build build --parallel $(sysctl -n hw.ncpu)
 
-# Rust backend
-cd app/src-rust && cargo build --release && cd ../..
+# C backend
+make -C app/src-c
 
 # Electron frontend
 cd app && npm install && npm run build && cd ..

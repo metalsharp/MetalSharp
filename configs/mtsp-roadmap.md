@@ -4,7 +4,7 @@
 
 MTSP (Metal Translation & Shading Pipeline) replaces hardcoded per-game launch
 logic with a unified, data-driven pipeline system. Adding a game means editing
-TOML, not Rust code.
+TOML, not backend source code.
 
 ## Phase 0 — Core Engine (current)
 
@@ -17,7 +17,7 @@ TOML, not Rust code.
 - [x] Backward-compatible launch delegates
 - [x] GPTK dependency removed
 - [x] M9 D3D9 route under the DXMT launch/cache family
-- [x] Clippy clean, fmt pass, CI green
+- [x] C formatting and tests pass; CI green
 
 ## Phase 1 — Frontend Integration
 

@@ -81,8 +81,6 @@ This is both a user-safety rule and a product strategy rule. A runtime that gets
 
 The current tree still has one legacy endpoint naming issue to clean up during the anti-cheat classification phase:
 
-- `app/src-rust/src/installer.rs` now presents the legacy toggle asset as `Offline EAC Mode`.
-- `app/src-rust/src/main.rs` exposes `/eac-toggle/status` and `/eac-toggle/toggle`.
 - `include/metalsharp/AntiCheatDB.h` now uses evidence-backed support status strings instead of a broad compatible/incompatible boolean.
 
 Recommended correction:

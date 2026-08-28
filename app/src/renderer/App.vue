@@ -91,6 +91,9 @@ const updateChangelog = computed(() => {
 
 const fullUpdateChangelog = computed(() => updateStatus.value?.release_notes?.trim() ?? "");
 
+const fexNotice =
+  "FEX Version Notice\n\nThe FEX DMG only works on macOS 27 or newer. The FEX version is experimental, so expect more potential bugs than the baseline MetalSharp version.\n\nSelect OK to continue or Cancel to keep the baseline version.";
+
 const renderedChangelog = computed(() => {
   const src = fullUpdateChangelog.value;
   return src ? (marked.parse(src, { gfm: true, breaks: true }) as string) : "";
@@ -109,6 +112,7 @@ provide("updateDownloading", updateDownloading);
 provide("updateProgress", updateProgress);
 provide("updateMessage", updateMessage);
 provide("startUpdateDownload", startUpdateDownload);
+provide("startFexUpdateDownload", startFexUpdateDownload);
 provide("steamApiKey", steamApiKey);
 provide("setupDeviceName", setupDeviceName);
 provide("developerMode", developerMode);
@@ -182,7 +186,20 @@ async function checkForUpdates() {
   }
 }
 
-async function startUpdateDownload() {
+async function startFexUpdateDownload() {
+  if (!window.confirm(fexNotice)) return;
+  if (!updateStatus.value?.fex_supported) {
+    const detected = updateStatus.value?.macos_major;
+    toast.show(
+      detected ? `FEX requires macOS 27 or newer (macOS ${detected} detected)` : "FEX requires macOS 27 or newer",
+      "error",
+    );
+    return;
+  }
+  await startUpdateDownload("fex");
+}
+
+async function startUpdateDownload(variant: "regular" | "fex" = "regular") {
   if (updateDownloading.value) return;
   const backend = getAPI();
   const ready = await backend.updaterEnsureReady();
@@ -200,8 +217,9 @@ async function startUpdateDownload() {
     toast.show("Update version is unavailable", "error");
     return;
   }
-  if (!updateStatus.value?.download_url) {
-    toast.show("Update DMG asset is unavailable", "error");
+  const downloadUrl = variant === "fex" ? updateStatus.value?.fex_download_url : updateStatus.value?.download_url;
+  if (!downloadUrl) {
+    toast.show(variant === "fex" ? "FEX update DMG is unavailable" : "Update DMG asset is unavailable", "error");
     return;
   }
   updateDownloading.value = true;
@@ -209,7 +227,7 @@ async function startUpdateDownload() {
   updateMessage.value = "Starting download...";
   await backend.updaterClearStatus();
 
-  const startResult = await api<{ ok: boolean; error?: string }>("POST", "/update/start");
+  const startResult = await api<{ ok: boolean; error?: string }>("POST", "/update/start", { variant });
   if (!startResult?.ok) {
     toast.show(startResult?.error ?? "Failed to start download", "error");
     updateDownloading.value = false;
@@ -230,14 +248,16 @@ async function startUpdateDownload() {
     if (progress.status === "downloaded" || progress.status === "complete") {
       if (updatePollTimer) clearInterval(updatePollTimer);
       updatePollTimer = null;
-      const dmgResult = await api<{ ok: boolean; path?: string; version?: string }>("GET", "/update/dmg-path");
+      const dmgResult = await api<{ ok: boolean; path?: string; version?: string }>(
+        "GET",
+        `/update/dmg-path?variant=${variant}`,
+      );
       if (!dmgResult?.path) {
         toast.show("Download complete but DMG not found", "error");
         updateDownloading.value = false;
         return;
       }
-      const installVersion = dmgResult.version ?? targetVersion;
-      const spawnResult = await backend.updaterSpawnInstall(dmgResult.path, pid, installVersion);
+      const spawnResult = await backend.updaterSpawnInstall(dmgResult.path, pid, targetVersion);
       if (!spawnResult?.ok) {
         toast.show(spawnResult?.error ?? "Failed to start installer", "error");
         updateDownloading.value = false;
@@ -305,7 +325,12 @@ function startHealthPolling() {
     if (steamLibraryPollInFlight) return;
     steamLibraryPollInFlight = true;
     try {
-      const result = await api<{ ok?: boolean; new_appids?: number[] }>("GET", "/steam/watch-steamapps", undefined, 30_000);
+      const result = await api<{ ok?: boolean; new_appids?: number[] }>(
+        "GET",
+        "/steam/watch-steamapps",
+        undefined,
+        30_000,
+      );
       if (result?.new_appids && result.new_appids.length > 0) {
         // Surface a freshly installed game as fast as possible. The non-forced
         // library load reads appmanifests directly (no network sync, no scan),
@@ -415,8 +440,15 @@ onMounted(async () => {
         <div v-if="updateDownloading" class="update-banner-progress">
           <div class="update-banner-progress-fill" :style="{ width: updateProgress + '%' }"></div>
         </div>
-        <button v-if="!updateDownloading" class="update-banner-btn" @click="startUpdateDownload">
+        <button v-if="!updateDownloading" class="update-banner-btn" @click="startUpdateDownload()">
           Download &amp; Install
+        </button>
+        <button
+          v-if="!updateDownloading && updateStatus.fex_available"
+          class="update-banner-btn update-banner-secondary"
+          @click="startFexUpdateDownload"
+        >
+          Update to FEX Version
         </button>
         <button
           v-if="!updateDownloading && fullUpdateChangelog"
@@ -623,9 +655,15 @@ onMounted(async () => {
 .update-changelog-body :deep(h3:first-child) {
   margin-top: 0;
 }
-.update-changelog-body :deep(h1) { font-size: 18px; }
-.update-changelog-body :deep(h2) { font-size: 16px; }
-.update-changelog-body :deep(h3) { font-size: 14px; }
+.update-changelog-body :deep(h1) {
+  font-size: 18px;
+}
+.update-changelog-body :deep(h2) {
+  font-size: 16px;
+}
+.update-changelog-body :deep(h3) {
+  font-size: 14px;
+}
 .update-changelog-body :deep(p) {
   margin: 8px 0;
 }

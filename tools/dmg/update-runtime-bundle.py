@@ -113,6 +113,10 @@ def main() -> None:
         shutil.copy2(args.backend, backend_dst)
         backend_dst.chmod(0o755)
 
+        launchers = runtime_root / "launchers"
+        if launchers.exists():
+            shutil.rmtree(launchers)
+
         write_archive(extracted, args.out)
         print(f"updated runtime bundle: {args.out}")
         print(f"  added {len(added)} shim DLLs + refreshed backend")

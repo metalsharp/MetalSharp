@@ -78,6 +78,9 @@ static char* read_file(const char* path, size_t max_size) {
 }
 
 static char* curl_release_json(void) {
+    const char* fixture = getenv("METALSHARP_UPDATE_RELEASE_JSON");
+    if (fixture != NULL && fixture[0] != '\0')
+        return read_file(fixture, 8 * 1024 * 1024);
     FILE* pipe =
         popen("/usr/bin/curl --fail --silent --show-error --location --max-time 20 -A 'MetalSharp/" MS_BACKEND_VERSION
               "' '" MS_RELEASE_API "'",
@@ -198,57 +201,110 @@ static char* release_field_json(const ms_json* release, const char* field) {
     return value;
 }
 
-static bool release_asset(const ms_json* release, char** url, unsigned long long* size) {
+static bool contains_case_insensitive(const char* text, const char* needle) {
+    size_t needle_length;
+    if (text == NULL || needle == NULL || (needle_length = strlen(needle)) == 0)
+        return false;
+    for (; *text != '\0'; ++text) {
+        size_t i = 0;
+        while (i < needle_length && text[i] != '\0' &&
+               tolower((unsigned char)text[i]) == tolower((unsigned char)needle[i]))
+            i++;
+        if (i == needle_length)
+            return true;
+    }
+    return false;
+}
+
+static bool has_dmg_suffix(const char* name) {
+    size_t length = name == NULL ? 0 : strlen(name);
+    return length >= 4 && name[length - 4] == '.' && tolower((unsigned char)name[length - 3]) == 'd' &&
+           tolower((unsigned char)name[length - 2]) == 'm' && tolower((unsigned char)name[length - 1]) == 'g';
+}
+
+static int host_macos_major(void) {
+    const char* override = getenv("METALSHARP_UPDATE_HOST_MACOS");
+    char version[64] = "";
+    if (override != NULL && override[0] != '\0')
+        return atoi(override);
+    FILE* pipe = popen("/usr/bin/sw_vers -productVersion", "r");
+    if (pipe == NULL)
+        return 0;
+    if (fgets(version, sizeof(version), pipe) == NULL)
+        version[0] = '\0';
+    if (pclose(pipe) != 0)
+        return 0;
+    return atoi(version);
+}
+
+typedef struct {
+    char* regular_url;
+    unsigned long long regular_size;
+    bool regular_arm64;
+    char* fex_url;
+    unsigned long long fex_size;
+    bool fex_arm64;
+} release_assets;
+
+static void release_assets_free(release_assets* selected) {
+    free(selected->regular_url);
+    free(selected->fex_url);
+    memset(selected, 0, sizeof(*selected));
+}
+
+static void release_assets_find(const ms_json* release, release_assets* selected) {
     const ms_json* assets = ms_json_object_get(release, "assets");
     size_t i;
-    if (url != NULL)
-        *url = NULL;
-    if (size != NULL)
-        *size = 0;
+    memset(selected, 0, sizeof(*selected));
     for (i = 0; i < ms_json_array_length(assets); ++i) {
         const ms_json* asset = ms_json_array_get(assets, i);
         char* name = release_field_json(asset, "name");
-        char* candidate_url;
-        long long candidate_size;
-        bool match = name != NULL && (strstr(name, "-arm64.dmg") != NULL || strstr(name, ".dmg") != NULL);
-        if (!match) {
+        if (!has_dmg_suffix(name)) {
             free(name);
             continue;
         }
-        candidate_url = release_field_json(asset, "browser_download_url");
-        candidate_size = 0;
+        char* candidate_url = release_field_json(asset, "browser_download_url");
+        long long candidate_size = 0;
         (void)ms_json_as_i64(ms_json_object_get(asset, "size"), &candidate_size);
+        bool fex = contains_case_insensitive(name, "FEX");
+        bool arm64 = contains_case_insensitive(name, "arm64");
         free(name);
-        if (url != NULL)
-            *url = candidate_url;
-        else
+        char** selected_url = fex ? &selected->fex_url : &selected->regular_url;
+        unsigned long long* selected_size = fex ? &selected->fex_size : &selected->regular_size;
+        bool* selected_arm64 = fex ? &selected->fex_arm64 : &selected->regular_arm64;
+        if (candidate_url == NULL || candidate_url[0] == '\0' ||
+            (*selected_url != NULL && (!arm64 || *selected_arm64))) {
             free(candidate_url);
-        if (size != NULL && candidate_size > 0)
-            *size = (unsigned long long)candidate_size;
-        return candidate_url != NULL;
+            continue;
+        }
+        free(*selected_url);
+        *selected_url = candidate_url;
+        *selected_size = candidate_size > 0 ? (unsigned long long)candidate_size : 0;
+        *selected_arm64 = arm64;
     }
-    return false;
 }
 
 char* ms_update_check_json(void) {
     char* text = curl_release_json();
     char error[128];
     ms_json* release;
-    char *tag, *latest, *name, *body, *url = NULL;
-    unsigned long long size = 0;
+    char *tag, *latest, *name, *body;
+    release_assets assets;
+    int macos_major;
     ms_json_writer writer;
     char* result;
     if (text == NULL)
-        return strdup("{\"ok\":false,\"error\":\"failed to fetch release\",\"current_version\":\"0.60.0\"}");
+        return strdup("{\"ok\":false,\"error\":\"failed to fetch release\",\"current_version\":\"0.61.0\"}");
     release = ms_json_parse(text, strlen(text), error, sizeof(error));
     free(text);
     if (release == NULL)
-        return strdup("{\"ok\":false,\"error\":\"failed to parse release\",\"current_version\":\"0.60.0\"}");
+        return strdup("{\"ok\":false,\"error\":\"failed to parse release\",\"current_version\":\"0.61.0\"}");
     tag = release_field_json(release, "tag_name");
     latest = clean_version(tag);
     name = release_field_json(release, "name");
     body = release_field_json(release, "body");
-    (void)release_asset(release, &url, &size);
+    release_assets_find(release, &assets);
+    macos_major = host_macos_major();
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
@@ -260,9 +316,19 @@ char* ms_update_check_json(void) {
     ms_json_writer_key(&writer, "available");
     ms_json_writer_bool(&writer, latest != NULL && version_compare(latest, MS_BACKEND_VERSION) > 0);
     ms_json_writer_key(&writer, "download_url");
-    ms_json_writer_string(&writer, url == NULL ? "" : url);
+    ms_json_writer_string(&writer, assets.regular_url == NULL ? "" : assets.regular_url);
     ms_json_writer_key(&writer, "download_size");
-    ms_json_writer_u64(&writer, size);
+    ms_json_writer_u64(&writer, assets.regular_size);
+    ms_json_writer_key(&writer, "fex_available");
+    ms_json_writer_bool(&writer, assets.fex_url != NULL);
+    ms_json_writer_key(&writer, "fex_download_url");
+    ms_json_writer_string(&writer, assets.fex_url == NULL ? "" : assets.fex_url);
+    ms_json_writer_key(&writer, "fex_download_size");
+    ms_json_writer_u64(&writer, assets.fex_size);
+    ms_json_writer_key(&writer, "fex_supported");
+    ms_json_writer_bool(&writer, macos_major >= 27);
+    ms_json_writer_key(&writer, "macos_major");
+    ms_json_writer_i64(&writer, macos_major);
     ms_json_writer_key(&writer, "release_notes");
     ms_json_writer_string(&writer, body == NULL ? "" : body);
     ms_json_writer_key(&writer, "release_name");
@@ -273,7 +339,7 @@ char* ms_update_check_json(void) {
     free(latest);
     free(name);
     free(body);
-    free(url);
+    release_assets_free(&assets);
     ms_json_free(release);
     return result;
 }
@@ -366,21 +432,27 @@ char* ms_update_cleanup_json(const char* metalsharp_home) {
     return result;
 }
 
-char* ms_update_dmg_path_json(const char* metalsharp_home) {
+char* ms_update_dmg_path_json(const char* metalsharp_home, const char* variant) {
     char* dir = join_path(metalsharp_home, "cache/updates");
     DIR* entries;
     struct dirent* entry;
     char* found = NULL;
     char* version = NULL;
+    bool want_fex = variant != NULL && strcmp(variant, "fex") == 0;
     if (dir != NULL && (entries = opendir(dir)) != NULL) {
         while ((entry = readdir(entries)) != NULL) {
             size_t length = strlen(entry->d_name);
-            if (length > 13 && strncmp(entry->d_name, "MetalSharp-", 11) == 0 &&
-                strcmp(entry->d_name + length - 4, ".dmg") == 0) {
+            bool is_fex = contains_case_insensitive(entry->d_name, "FEX");
+            if (length > 15 && strncmp(entry->d_name, "MetalSharp-", 11) == 0 && has_dmg_suffix(entry->d_name) &&
+                is_fex == want_fex) {
                 free(found);
                 found = join_path(dir, entry->d_name);
                 free(version);
-                version = strndup(entry->d_name + 11, length - 15);
+                size_t version_length = length - 15;
+                if (is_fex && version_length > 4 &&
+                    contains_case_insensitive(entry->d_name + 11 + version_length - 4, "-FEX"))
+                    version_length -= 4;
+                version = strndup(entry->d_name + 11, version_length);
             }
         }
         closedir(entries);
@@ -407,7 +479,23 @@ char* ms_update_dmg_path_json(const char* metalsharp_home) {
     }
 }
 
-char* ms_update_start_json(const char* metalsharp_home) {
+char* ms_update_start_json(const char* metalsharp_home, const unsigned char* body, size_t body_length) {
+    bool fex = false;
+    if (body_length > 0) {
+        char parse_error[128];
+        ms_json* request = ms_json_parse((const char*)body, body_length, parse_error, sizeof(parse_error));
+        char* variant = request == NULL ? NULL : release_field_json(request, "variant");
+        if (request == NULL || variant == NULL || (strcmp(variant, "regular") != 0 && strcmp(variant, "fex") != 0)) {
+            free(variant);
+            ms_json_free(request);
+            return strdup("{\"ok\":false,\"error\":\"update variant must be regular or fex\"}");
+        }
+        fex = strcmp(variant, "fex") == 0;
+        free(variant);
+        ms_json_free(request);
+    }
+    if (fex && host_macos_major() < 27)
+        return strdup("{\"ok\":false,\"error\":\"FEX updates require macOS 27 or newer\"}");
     char* lock = join_path(metalsharp_home, "update.lock");
     char* dir = join_path(metalsharp_home, "cache/updates");
     if (lock == NULL || dir == NULL || mkdir_p(dir) == false) {
@@ -446,17 +534,18 @@ char* ms_update_start_json(const char* metalsharp_home) {
         char* info = ms_update_check_json();
         char error[128];
         ms_json* json = info == NULL ? NULL : ms_json_parse(info, strlen(info), error, sizeof(error));
-        char* url = json == NULL ? NULL : release_field_json(json, "download_url");
+        char* url = json == NULL ? NULL : release_field_json(json, fex ? "fex_download_url" : "download_url");
         char* latest = json == NULL ? NULL : release_field_json(json, "latest_version");
         free(info);
         ms_json_free(json);
         if (url == NULL || latest == NULL || url[0] == '\0') {
             (void)write_progress(metalsharp_home, "error", 0, "No DMG download URL found", "no_download_url");
         } else {
-            char* name = (char*)malloc(strlen(latest) + 16);
+            size_t name_size = strlen(latest) + (fex ? 20 : 16);
+            char* name = (char*)malloc(name_size);
             char* tmp;
             if (name != NULL) {
-                (void)snprintf(name, strlen(latest) + 16, "MetalSharp-%s.dmg", latest);
+                (void)snprintf(name, name_size, fex ? "MetalSharp-%s-FEX.dmg" : "MetalSharp-%s.dmg", latest);
                 tmp = join_path(dir, "download.dmg.tmp");
                 char* dest = join_path(dir, name);
                 bool downloaded = false;

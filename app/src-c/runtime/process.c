@@ -286,7 +286,7 @@ char* ms_process_launch_json(const char* home, const char* body, size_t len, int
 }
 
 char* ms_process_launch_auto_json(const char* home, const char* body, size_t len, int* status) {
-    /* Rust's /game/launch-auto is the direct pipeline entry point.  It is not
+    /* /game/launch-auto is the direct pipeline entry point. It is not
      * the same operation as /steam/launch-game with its default Steam route. */
     return ms_steam_launch_auto_json(home, body, len, status);
 }

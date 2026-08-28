@@ -141,4 +141,4 @@ Electron path-opening IPC independently permits only the isolated shadPS4 enviro
 
 The C smoke and update-transaction suites cover provider registration, host rejection, SFO discovery, artwork, root preservation, module/font import, process launch/stop, active-session update handoff, rollback, runtime state preservation, wrong size/digest, traversal, duplicate ZIP entries, symlinks, missing runtime files, wrong Mach-O architecture, invalid ICD manifests, failed local signing, failed CLI probes, failed activation, and `.part` cleanup.
 
-The packaged application must additionally pass C normal/ASAN tests, Rust parity tests, frontend checks, code-sign verification, installed-backend route checks, and manual normal/narrow UI inspection.
+The packaged application must additionally pass C normal/ASAN tests, frontend checks, code-sign verification, installed-backend route checks, and manual normal/narrow UI inspection.

@@ -1,10 +1,11 @@
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <dirent.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,29 +98,51 @@ static ms_json* load_array(const char* home) {
     free(p);
     return j && ms_json_type_of(j) == MS_JSON_ARRAY ? j : (ms_json_free(j), ms_json_parse("[]", 2, e, sizeof(e)));
 }
+static bool write_text_atomic(const char* path, const char* raw) {
+    char* temporary = NULL;
+    FILE* f = NULL;
+    int temporary_fd = -1;
+    bool ok = false;
+    if (!path || !raw)
+        return false;
+    size_t temporary_size = strlen(path) + 48;
+    temporary = malloc(temporary_size);
+    if (temporary)
+        snprintf(temporary, temporary_size, "%s.tmp.XXXXXX", path);
+    temporary_fd = temporary ? mkstemp(temporary) : -1;
+    f = temporary_fd >= 0 ? fdopen(temporary_fd, "wb") : NULL;
+    if (!f || fputs(raw, f) < 0) {
+        if (f)
+            fclose(f);
+        else if (temporary_fd >= 0)
+            close(temporary_fd);
+        if (temporary)
+            unlink(temporary);
+        free(temporary);
+        return false;
+    }
+    bool flushed = fflush(f) == 0 && fsync(fileno(f)) == 0;
+    bool closed = fclose(f) == 0;
+    ok = flushed && closed && chmod(temporary, 0600) == 0 && rename(temporary, path) == 0;
+    if (!ok)
+        unlink(temporary);
+    free(temporary);
+    return ok;
+}
 static bool save_array(const char* home, const ms_json* a) {
     char *d = join(home, "sharp-library"), *p, *raw;
-    FILE* f;
+    bool ok;
     if (!d || !mkdir_p(d)) {
         free(d);
         return false;
     }
     p = join(d, "library.json");
     raw = ms_json_stringify(a);
-    f = p ? fopen(p, "wb") : NULL;
-    if (!f || !raw || fputs(raw, f) < 0) {
-        if (f)
-            fclose(f);
-        free(d);
-        free(p);
-        free(raw);
-        return false;
-    }
-    fclose(f);
+    ok = p && raw && write_text_atomic(p, raw);
     free(d);
     free(p);
     free(raw);
-    return true;
+    return ok;
 }
 static char* field(const ms_json* j, const char* key, const char* fallback) {
     char* s = NULL;
@@ -188,8 +211,8 @@ static bool contains_ci(const char* text, const char* needle) {
 static bool is_moonscraper_installer(const char* path) {
     const char* name = path ? strrchr(path, '/') : NULL;
     name = name ? name + 1 : path;
-    return name && !strncasecmp(name, "msce.", 5) && contains_ci(name, ".installer.") &&
-           strlen(name) > 4 && !strcasecmp(name + strlen(name) - 4, ".exe");
+    return name && !strncasecmp(name, "msce.", 5) && contains_ci(name, ".installer.") && strlen(name) > 4 &&
+           !strcasecmp(name + strlen(name) - 4, ".exe");
 }
 
 static const char* innoextract_binary(void) {
@@ -338,9 +361,8 @@ static char* bottle_prefix(const char* home, const char* bottle_id) {
 static char* extract_moonscraper(const char* home, const char* source, char** install_dir_out, char** bottle_id_out) {
     const char* extractor = innoextract_binary();
     const char* bottle_id = "installer_moonscraper";
-    char *bottle_dir = join(home, "bottles/installer_moonscraper"), *prefix = NULL, *staging = NULL,
-         *app_dir = NULL, *executable = NULL, *install_dir = NULL, *install_parent = NULL, *log_dir = NULL,
-         *log_path = NULL;
+    char *bottle_dir = join(home, "bottles/installer_moonscraper"), *prefix = NULL, *staging = NULL, *app_dir = NULL,
+         *executable = NULL, *install_dir = NULL, *install_parent = NULL, *log_dir = NULL, *log_path = NULL;
     int status = 0;
     pid_t pid;
     FILE* log = NULL;
@@ -380,7 +402,8 @@ static char* extract_moonscraper(const char* home, const char* source, char** in
         goto fail;
     {
         char* installed_executable = join(install_dir, "Moonscraper Chart Editor.exe");
-        bool bottle_ok = installed_executable && write_moonscraper_bottle(home, source, install_dir, installed_executable, prefix);
+        bool bottle_ok =
+            installed_executable && write_moonscraper_bottle(home, source, install_dir, installed_executable, prefix);
         free(installed_executable);
         if (!bottle_ok)
             goto fail;
@@ -414,6 +437,7 @@ fail:
     free(log_path);
     return NULL;
 }
+
 static bool has_id(const ms_json* a, const char* id) {
     size_t i;
     for (i = 0; i < ms_json_array_length(a); i++) {
@@ -584,8 +608,8 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                     free(dir);
                     free(src);
                     ms_json_free(j);
-                    return failure(!innoextract_binary() ? "innoextract is required for MoonScraper installers" :
-                                                            "MoonScraper native extraction failed");
+                    return failure(!innoextract_binary() ? "innoextract is required for MoonScraper installers"
+                                                         : "MoonScraper native extraction failed");
                 }
             } else {
                 exe = strdup(src);
@@ -750,7 +774,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         }
         if (!strcmp(action, "launch") || !strcmp(action, "relaunch")) {
             const ms_json* app = NULL;
-            char *exe_path = NULL, *bottle_id = NULL, *prefix = NULL;
+            char *exe_path = NULL, *work_dir = NULL, *bottle_id = NULL, *prefix = NULL;
             for (size_t i = 0; i < ms_json_array_length(a); i++) {
                 char* item_id = field(ms_json_array_get(a, i), "id", "");
                 if (!strcmp(item_id, id)) {
@@ -762,12 +786,14 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             }
             if (app) {
                 exe_path = field(app, "exe_path", "");
+                work_dir = field(app, "install_dir", "");
                 bottle_id = field(app, "bottle_id", "");
                 if (bottle_id[0])
                     prefix = bottle_prefix(home, bottle_id);
             }
             if (!exe_path || !exe_path[0] || access(exe_path, F_OK) != 0) {
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -777,6 +803,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             }
             if (bottle_id[0] && (!prefix || !prefix[0])) {
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -788,6 +815,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (!wine || access(wine, X_OK) != 0) {
                 free(wine);
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -799,6 +827,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (pid < 0) {
                 free(wine);
                 free(exe_path);
+                free(work_dir);
                 free(bottle_id);
                 free(prefix);
                 ms_json_free(a);
@@ -809,11 +838,14 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (pid == 0) {
                 if (prefix)
                     setenv("WINEPREFIX", prefix, 1);
+                if (work_dir && work_dir[0])
+                    (void)chdir(work_dir);
                 execl(wine, wine, exe_path, (char*)NULL);
                 _exit(127);
             }
             free(wine);
             free(exe_path);
+            free(work_dir);
             free(bottle_id);
             free(prefix);
             ms_json_free(a);

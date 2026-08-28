@@ -16,7 +16,7 @@ Build the installer classifier around real families:
 - Generic 32-bit `.exe`
 - Generic 64-bit `.exe`
 - Java launchers, like Minecraft
-- WebView launchers, like EA, Ubisoft, Battle.net, Epic, and Rockstar
+- WebView launchers, like EA, Ubisoft, Epic, and Rockstar
 - Electron/Squirrel launchers, like GOG Galaxy or itch-style apps
 - Legacy .NET installers
 - Console/admin tools, like `BERCon.exe`
@@ -28,7 +28,7 @@ Known launchers should install through `WineBare`, not M9/M11/M12. Graphics pipe
 Each installer family needs a default bottle runtime:
 
 - Minecraft / Java launcher: Wine bottle, Java launcher profile, CEF compatibility
-- EA / Ubisoft / Epic / Battle.net: WebView profile with `webview2`, `gecko`, `dotnet48`, `vcrun2019`, and `corefonts`
+- EA / Ubisoft / Epic: WebView profile with `webview2`, `gecko`, `dotnet48`, `vcrun2019`, and `corefonts`
 - GOG / Electron: Launcher profile with CEF/Electron wrapper support
 - Generic `.msi`: Game install profile with MSI logging enabled
 - Legacy .NET: Win32/Win64 .NET profile with real `dotnet48`
@@ -60,12 +60,11 @@ Use clean bottles for each proof target:
 1. Minecraft MSI
 2. EA App installer
 3. Ubisoft Connect installer
-4. Battle.net installer
-5. Epic Games Launcher installer
-6. GOG Galaxy installer
-7. One generic small game/demo `.exe`
-8. One generic `.msi`
-9. Real BattlEye Steam title with shipped `BEService` assets
+4. Epic Games Launcher installer
+5. GOG Galaxy installer
+6. One generic small game/demo `.exe`
+7. One generic `.msi`
+8. Real BattlEye Steam title with shipped `BEService` assets
 
 Each test records:
 
@@ -116,7 +115,7 @@ Minecraft is the hard proof case here. EA, Ubisoft, and Epic likely reuse the sa
 
 ## Phase 7: Steam-Adjacent Launcher Flow
 
-For Steam games requiring EA, Ubisoft, or Battle.net:
+For Steam games requiring EA or Ubisoft:
 
 - Steam remains the session/identity owner
 - the game bottle becomes launch-authoritative for runtime assets
@@ -200,7 +199,7 @@ Likely runtime: .NET custom action or MSI service behavior.
 4. Elden Ring EAC EOS dry-run repair resolves the game-local setup executable through `steam_1245620`.
 5. Rubicon EAC EOS actual repair completed successfully in `steam_1888160`; launch Rubicon next and capture whether failure moves to EAC bootstrap, offline mode, or online/vendor block.
 6. Repair Ubisoft `corefonts` and `webview2`, relaunch `UbisoftConnect.exe`, and capture whether the next failure is rendering, service/elevation, or auth.
-7. Run Battle.net or Epic after that.
+7. Run Epic after that.
 8. Save BattlEye for a real Steam title, because Rubicon and Elden Ring are EAC EOS targets and `BERCon.exe` is not the runtime installer.
 
 ## Implementation Notes

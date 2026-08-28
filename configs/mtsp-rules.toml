@@ -437,7 +437,7 @@ name = "Dome Keeper"
 pipeline = "fna_arm64"
 name = "DREDGE"
 # Unity-Mono (Unity 2021.3.5f1, MonoBleedingEdge, x86 PE32) — discovered and
-# validated by mono_profile.rs; the FNA lane deploys the version-matched mono.
+# validated by the backend; the FNA lane deploys the version-matched Mono runtime.
 
 [overrides.1092790]
 pipeline = "m11_32"

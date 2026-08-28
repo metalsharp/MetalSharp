@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ARCHIVE = PROJECT_ROOT / "app" / "bundles" / "metalsharp-runtime.tar.zst"
 DEFAULT_HOST = PROJECT_ROOT / "app" / "native" / "host"
-DEFAULT_BACKEND = PROJECT_ROOT / "app" / "src-rust" / "target" / "release" / "metalsharp-backend"
+DEFAULT_BACKEND = PROJECT_ROOT / "app" / "src-c" / "build" / "metalsharp-backend"
 DEFAULT_METALSHARP_LIB = PROJECT_ROOT / "lib" / "metalsharp"
 
 

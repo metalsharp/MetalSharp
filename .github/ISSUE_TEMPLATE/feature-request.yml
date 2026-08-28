@@ -16,7 +16,7 @@ body:
         - Graphics / Rendering
         - Steam Integration
         - Electron App / UI
-        - Rust Backend
+        - C Backend
         - Wine / DXMT
         - FNA / XNA
         - Build / CI
