@@ -34,7 +34,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
     "@electron/notarize": "^2.5.0",
-    "@iconify-json/lucide": "^1.2.118",
+    "@iconify-json/lucide": "^1.2.126",
     "@types/node": "^26.2.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "electron": "^43.4.0",
