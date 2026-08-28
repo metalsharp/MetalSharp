@@ -1374,7 +1374,7 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
                      "metalsharp-setup-host-runtime");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "dxmt_runtime", "DXMT M9-M11 Runtime",
-                     "Bundled D3D9/D3D10/D3D11-to-Metal runtime (0.60.0-m12-isolated-surface-v1) staged under "
+                     "Bundled D3D9/D3D10/D3D11-to-Metal runtime (0.61.0-m12-isolated-surface-v1) staged under "
                      "runtime/wine/lib/dxmt.",
                      dxmt_ready, true, "metalsharp-setup-dxmt");
     if (runtime != NULL) {

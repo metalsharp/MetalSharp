@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define MS_BACKEND_DEFAULT_VERSION "0.60.0"
+#define MS_BACKEND_DEFAULT_VERSION "0.61.0"
 #ifndef MS_BACKEND_VERSION
 #define MS_BACKEND_VERSION MS_BACKEND_DEFAULT_VERSION
 #endif

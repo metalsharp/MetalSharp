@@ -31,7 +31,7 @@ printf '%s' "$response" | python3 -c '
 import json, os, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
-assert v["version"] == "0.60.0"
+assert v["version"] == "0.61.0"
 assert v["dev_mode"] is False
 assert v["metalsharp_home"] == os.environ["METALSHARP_HOME"]
 assert isinstance(v["pid"], int) and v["pid"] > 0
