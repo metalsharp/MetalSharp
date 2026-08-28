@@ -26,7 +26,11 @@ MetalSharp is an application designed to run Windows Steam and Windows Steam gam
 
 ## Quick Start
 
-Install MetalSharp from the official Homebrew tap:
+Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
+
+If Gatekeeper cannot verify the app, open **_System Settings → Privacy & Security_** and choose **_Open Anyway_** for MetalSharp. VirusTotal scans are included with release notes when available.
+
+Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 
 ```bash
 brew install --cask metalsharp/tap/metalsharp
@@ -34,35 +38,31 @@ brew install --cask metalsharp/tap/metalsharp
 
 Homebrew installs MetalSharp.app in /Applications. Open it and the setup wizard handles the remaining runtime dependencies.
 
-Alternatively, download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
-
-If Gatekeeper cannot verify the app, open **System Settings → Privacy & Security** and choose **Open Anyway** for MetalSharp. VirusTotal scans are included with release notes when available.
-
 For building from source, see [Install from Source](docs/guides/install-from-source.md).
 
-## Routes
+## Routes - Graphics Routes are intentionally separated to avoid launch conflicts.
 
 | Route | Engine | Notes |
 |---|---|---|
-| **VKD3D** | D3D12/D3D11/D3D10/D3D9 through Vulkan | D3D12 Still In Development |
-| **M11** | D3D11 to Metal (DXMT) | |
-| **M11(32)** | D3D11 32Bit to Metal (DXMT) | |
-| **M10** | D3D10 to Metal (DXMT) | |
-| **M10(32)** | D3D10 32Bit to Metal (DXMT) | |
-| **M9** | D3D9 To Metal, DXMT Overrides | |
-| **Mono/FNA** | Windows XNA/FNA via native Mono | |
-| **D3DMetal** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. | Optional upgrade to GPTK 3, Requires Steam-Emu to Play |
+| **_VKD3D_** | D3D12/D3D11/D3D10/D3D9 through Vulkan | D3D12 Still In Development |
+| **_M11_** | D3D11 to Metal (DXMT) | |
+| **_M11(32)_** | D3D11 32Bit to Metal (DXMT) | |
+| **_M10_** | D3D10 to Metal (DXMT) | |
+| **_M10(32)_** | D3D10 32Bit to Metal (DXMT) | |
+| **_M9_** | D3D9 To Metal, DXMT Overrides | |
+| **_Mono/FNA_** | Windows XNA/FNA via native Mono | |
+| **_D3DMetal_** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. | Optional upgrade to GPTK 3, Requires Steam-Emu to Play |
 
 ## Features
 
-- **Sharp Library** - Import and run standalone Windows programs, installers, and launchers.
-- **GOG Library** - Download and play GOG games through the Sharp Library.
-- **Epic Library** - Download and play Epic Games through the Sharp Library.
-- **GameJolt Library** - Download, Manage, and Play GameJolt games through the Sharp Library.
-- **Emulation Support** -  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu.
-- **Runtime Bottles** - Select your launch method, repair missing assets, and switch between bottle runtimes.
-- **MTSP Routing** - Automatic pipeline selection based on game compatibility data and developer testing.
-- **Steam Integration** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates.
+- **_Sharp Library_** - Import and run standalone Windows programs, installers, and launchers.
+- **_GOG Library_** - Download and play GOG games through the Sharp Library.
+- **_Epic Library_** - Download and play Epic Games through the Sharp Library.
+- **_GameJolt Library_** - Download, Manage, and Play GameJolt games through the Sharp Library.
+- **_Emulation Support_** -  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu.
+- **_Runtime Bottles_** - Select your launch method, repair missing assets, and switch between bottle runtimes.
+- **_MTSP Routing_** - Automatic pipeline selection based on game compatibility data and developer testing.
+- **_Steam Integration_** - Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates.
 
 ## Requirements
 
