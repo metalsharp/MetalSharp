@@ -7,7 +7,8 @@
 ## Implemented behavior
 
 - `AtomicCopyBufferUINT` and `AtomicCopyBufferUINT64` record bounded buffer-copy
-  commands and retain destination, source, and dependent resources.
+  commands and retain destination, source, and dependent resources. The
+  resource probe checks independent 32-bit and 64-bit readbacks.
 - `DiscardResource` records the requested resource and subresource range and
   zeroes buffer backing during replay, including CPU-visible and GPU-private
   buffers.
