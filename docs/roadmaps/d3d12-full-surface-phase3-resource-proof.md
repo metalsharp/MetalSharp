@@ -27,7 +27,9 @@
 - Resource lifetime, placed-resource aliasing, reserved buffers/textures,
   packed and partial mips, volume tiling, format variants, tile mapping,
   unmapped zeroing, and physical-page ownership remain behavior-backed by the
-  resource probe.
+  resource probe. The sparse format matrix now executes exact one-tile
+  round-trips for R8G8, packed 10/11-bit, RGBA16, RGBA32, RGBA8_UINT, R32,
+  and BC1/BC4/BC7 (with each reported D3D12 tile shape checked).
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
