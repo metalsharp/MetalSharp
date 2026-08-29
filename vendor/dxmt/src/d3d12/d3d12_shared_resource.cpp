@@ -2,9 +2,12 @@
 
 #include "d3d12_device.hpp"
 #include "d3d12_fence.hpp"
+#include "d3d12_pipeline_state.hpp"
 #include "d3d12_resource.hpp"
 #include "d3d12_trace.hpp"
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -55,6 +58,68 @@ static HRESULT DuplicateMappingHandle(HANDLE source, HANDLE *duplicate) {
                        duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
     return HResultFromLastError();
   return S_OK;
+}
+
+static bool FillSharedTextureInfo(const D3D12_RESOURCE_DESC &desc,
+                                  WMTTextureInfo &info) {
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ||
+      desc.Dimension < D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+      desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D ||
+      !desc.Width || !desc.Height || !desc.DepthOrArraySize ||
+      !desc.MipLevels || !desc.SampleDesc.Count)
+    return false;
+  info = {};
+  info.type = WMTTextureType2D;
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D) {
+    info.type = desc.DepthOrArraySize > 1 ? WMTTextureType1DArray
+                                         : WMTTextureType1D;
+  } else if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
+    info.type = WMTTextureType3D;
+  } else if (desc.SampleDesc.Count > 1) {
+    info.type = desc.DepthOrArraySize > 1
+                    ? WMTTextureType2DMultisampleArray
+                    : WMTTextureType2DMultisample;
+  } else if (desc.DepthOrArraySize > 1) {
+    info.type = WMTTextureType2DArray;
+  }
+  info.width = desc.Width;
+  info.height = desc.Height;
+  info.depth = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                   ? desc.DepthOrArraySize
+                   : 1;
+  info.array_length =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+              desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+          ? desc.DepthOrArraySize
+          : 1;
+  info.mipmap_level_count = desc.MipLevels;
+  info.sample_count = desc.SampleDesc.Count;
+  if (info.sample_count > 1)
+    info.mipmap_level_count = 1;
+  info.usage = static_cast<WMTTextureUsage>(
+      WMTTextureUsageRenderTarget | WMTTextureUsageShaderRead |
+      WMTTextureUsageShaderWrite | WMTTextureUsagePixelFormatView);
+  info.options = WMTResourceStorageModePrivate;
+  info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(
+      static_cast<DXGI_FORMAT>(desc.Format));
+  if ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
+      desc.Format == DXGI_FORMAT_R32_TYPELESS)
+    info.pixel_format = WMTPixelFormatDepth32Float;
+  return info.pixel_format != WMTPixelFormatInvalid;
+}
+
+static bool MakeSharedTextureServiceName(char *out, size_t capacity) {
+  if (!out || capacity == 0)
+    return false;
+  static std::atomic<uint64_t> serial = 0;
+  const uint64_t value = serial.fetch_add(1, std::memory_order_relaxed);
+  const uint64_t nonce = GetTickCount64();
+  const int written = std::snprintf(
+      out, capacity, "DXMT_shared_texture_%08lx_%016llx_%016llx",
+      static_cast<unsigned long>(GetCurrentProcessId()),
+      static_cast<unsigned long long>(nonce),
+      static_cast<unsigned long long>(value));
+  return written > 0 && static_cast<size_t>(written) < capacity;
 }
 
 } // namespace
@@ -266,6 +331,152 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
   SHARETRACE("opened shared buffer mapping=%p resource=%p size=%llu",
              mapping, (void *)*resource,
              (unsigned long long)metadata.data_size);
+  return S_OK;
+}
+
+HRESULT CreateSharedTextureMapping(
+    MTLD3D12Resource *resource, const SECURITY_ATTRIBUTES *attributes,
+    const WCHAR *name, HANDLE *mapping) {
+  if (!resource || resource->IsBuffer() || !resource->IsValid() ||
+      !resource->GetSharedTextureMachPort() || !name || !name[0] || !mapping)
+    return E_INVALIDARG;
+  *mapping = nullptr;
+
+  char service_name[128] = {};
+  if (!MakeSharedTextureServiceName(service_name, sizeof(service_name)))
+    return E_FAIL;
+  const bool registered =
+      WMTBootstrapRegister(service_name, resource->GetSharedTextureMachPort());
+  if (!registered)
+    return E_NOTIMPL;
+
+  constexpr uint64_t mapping_size = 4096;
+  HANDLE section = CreateFileMappingW(
+      INVALID_HANDLE_VALUE, const_cast<SECURITY_ATTRIBUTES *>(attributes),
+      PAGE_READWRITE, 0, static_cast<DWORD>(mapping_size), name);
+  if (!section)
+    return HResultFromLastError();
+  if (GetLastError() == ERROR_ALREADY_EXISTS) {
+    CloseHandle(section);
+    return DXGI_ERROR_NAME_ALREADY_EXISTS;
+  }
+  void *view = MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+  if (!view) {
+    HRESULT hr = HResultFromLastError();
+    CloseHandle(section);
+    return hr;
+  }
+
+  D3D12SharedTextureMetadata metadata = {};
+  metadata.mapping_size = mapping_size;
+  resource->GetDesc(&metadata.resource_desc);
+  resource->GetHeapProperties(&metadata.heap_properties,
+                              &metadata.heap_flags);
+  metadata.initial_state = resource->GetTrackedState();
+  ID3D12Device *resource_device = nullptr;
+  if (FAILED(resource->GetDevice(IID_PPV_ARGS(&resource_device)))) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
+  metadata.adapter_luid = AdapterLuidValue(resource_device);
+  resource_device->Release();
+  if (!metadata.adapter_luid) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
+  std::memcpy(metadata.service_name, service_name,
+              std::min(sizeof(metadata.service_name) - 1,
+                       std::strlen(service_name)));
+  std::memcpy(view, &metadata, sizeof(metadata));
+  UnmapViewOfFile(view);
+  *mapping = section;
+  SHARETRACE("created shared texture resource=%p name=%ls service=%s mapping=%p",
+             (void *)resource, name, service_name, section);
+  return S_OK;
+}
+
+HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
+                                     ID3D12Resource **resource) {
+  if (!device || !mapping || !resource)
+    return E_INVALIDARG;
+  *resource = nullptr;
+  void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+  if (!view)
+    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  if (!view)
+    return HResultFromLastError();
+  D3D12SharedTextureMetadata metadata = {};
+  std::memcpy(&metadata, view, sizeof(metadata));
+  const bool service_terminated =
+      std::memchr(metadata.service_name, '\0',
+                  sizeof(metadata.service_name)) != nullptr;
+  if (metadata.magic != kD3D12SharedResourceMagic ||
+      metadata.version != kD3D12SharedResourceVersion ||
+      metadata.kind != kD3D12SharedResourceKindTexture ||
+      metadata.mapping_size < sizeof(metadata) ||
+      metadata.mapping_size != 4096 || !metadata.adapter_luid ||
+      !service_terminated) {
+    UnmapViewOfFile(view);
+    return DXGI_ERROR_INVALID_CALL;
+  }
+  if (metadata.adapter_luid !=
+      AdapterLuidValue(static_cast<ID3D12Device *>(device))) {
+    UnmapViewOfFile(view);
+    return DXGI_ERROR_INVALID_CALL;
+  }
+
+  mach_port_t texture_port = 0;
+  if (!WMTBootstrapLookUp(metadata.service_name, &texture_port) ||
+      !texture_port) {
+    UnmapViewOfFile(view);
+    return DXGI_ERROR_NOT_FOUND;
+  }
+  WMTTextureInfo texture_info = {};
+  if (!FillSharedTextureInfo(metadata.resource_desc, texture_info)) {
+    UnmapViewOfFile(view);
+    return E_NOTIMPL;
+  }
+  texture_info.mach_port = texture_port;
+  auto texture = device->GetDXMTDevice().device().newSharedTexture(texture_info);
+  if (!texture.handle) {
+    UnmapViewOfFile(view);
+    return E_NOTIMPL;
+  }
+  HANDLE owner_mapping = nullptr;
+  HRESULT hr = DuplicateMappingHandle(mapping, &owner_mapping);
+  if (FAILED(hr)) {
+    UnmapViewOfFile(view);
+    return hr;
+  }
+  MTLD3D12Resource *created = nullptr;
+  try {
+    created = new MTLD3D12Resource(
+        device, metadata.resource_desc, metadata.initial_state,
+        metadata.heap_properties, metadata.heap_flags, std::move(texture),
+        texture_info.gpu_resource_id, 0);
+  } catch (const std::bad_alloc &) {
+    CloseHandle(owner_mapping);
+    UnmapViewOfFile(view);
+    return E_OUTOFMEMORY;
+  }
+  if (!created->IsValid()) {
+    created->Release();
+    CloseHandle(owner_mapping);
+    UnmapViewOfFile(view);
+    return E_FAIL;
+  }
+  created->AdoptSharedMapping(owner_mapping, view, metadata.mapping_size, 0);
+  hr = created->QueryInterface(IID_ID3D12Resource,
+                               reinterpret_cast<void **>(resource));
+  created->Release();
+  if (FAILED(hr)) {
+    *resource = nullptr;
+    return hr;
+  }
+  SHARETRACE("opened shared texture mapping=%p resource=%p service=%s",
+             mapping, (void *)*resource, metadata.service_name);
   return S_OK;
 }
 

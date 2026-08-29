@@ -5715,6 +5715,18 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
               (void *)object, name, public_mapping);
         return S_OK;
       }
+      if (resource_impl->GetSharedTextureMachPort()) {
+        HANDLE public_mapping = nullptr;
+        HRESULT hr = CreateSharedTextureMapping(resource_impl, attributes,
+                                                name, &public_mapping);
+        resource->Release();
+        if (FAILED(hr))
+          return hr;
+        *handle = public_mapping;
+        TRACE("CreateSharedHandle named texture object=%p name=%ls handle=%p",
+              (void *)object, name, public_mapping);
+        return S_OK;
+      }
       resource->Release();
       TRACE("CreateSharedHandle named texture object=%p -> E_NOTIMPL",
             (void *)object);
@@ -5780,6 +5792,21 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
           return hr;
         *handle = public_mapping;
         TRACE("CreateSharedHandle unnamed buffer object=%p handle=%p",
+              (void *)object, public_mapping);
+        return S_OK;
+      }
+      if (resource_impl->GetSharedTextureMachPort()) {
+        WCHAR generated_name[96] = {};
+        MakeUnnamedSharedName(generated_name, ARRAYSIZE(generated_name),
+                               L"texture");
+        HANDLE public_mapping = nullptr;
+        HRESULT hr = CreateSharedTextureMapping(
+            resource_impl, attributes, generated_name, &public_mapping);
+        resource->Release();
+        if (FAILED(hr))
+          return hr;
+        *handle = public_mapping;
+        TRACE("CreateSharedHandle unnamed texture object=%p handle=%p",
               (void *)object, public_mapping);
         return S_OK;
       }
@@ -5894,6 +5921,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
     shared_fence->Release();
     return hr;
   }
+  ID3D12Resource *shared_texture = nullptr;
+  HRESULT shared_texture_hr =
+      OpenSharedTextureFromMapping(this, handle, &shared_texture);
+  if (SUCCEEDED(shared_texture_hr) && shared_texture) {
+    HRESULT hr = shared_texture->QueryInterface(riid, object);
+    shared_texture->Release();
+    return hr;
+  }
 
   // Unsupported object kinds retain the legacy in-process registry until a
   // platform-backed provider exists; do not pretend a closed mapping is one.
@@ -5926,16 +5961,23 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
                                              &shared_resource);
     ID3D12Heap *shared_heap = nullptr;
     ID3D12Fence *shared_fence = nullptr;
+    ID3D12Resource *shared_texture = nullptr;
     if (FAILED(hr) || !shared_resource)
       hr = OpenSharedHeapFromMapping(this, opened_mapping, &shared_heap);
     if (FAILED(hr) || (!shared_resource && !shared_heap))
       hr = OpenSharedFenceFromMapping(this, opened_mapping, &shared_fence);
+    if (FAILED(hr) ||
+        (!shared_resource && !shared_heap && !shared_fence))
+      hr = OpenSharedTextureFromMapping(this, opened_mapping,
+                                        &shared_texture);
     if (shared_resource)
       shared_resource->Release();
     if (shared_heap)
       shared_heap->Release();
     if (shared_fence)
       shared_fence->Release();
+    if (shared_texture)
+      shared_texture->Release();
     if (SUCCEEDED(hr)) {
       *handle = opened_mapping;
       TRACE("OpenSharedHandleByName name=%ls handle=%p", name,

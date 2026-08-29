@@ -252,7 +252,8 @@ static int run_shared_child() {
     }
     const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_name_hr) && SUCCEEDED(open_hr) &&
                       SUCCEEDED(fence_name_hr) && SUCCEEDED(fence_open_hr) && fence_verified &&
-                      fence_value == 7 && heap_verified && SUCCEEDED(map_hr) && before == 0x1234abcdu;
+                      fence_value == 7 && heap_verified &&
+                      SUCCEEDED(map_hr) && before == 0x1234abcdu;
     // The parent owns the machine-readable probe stream; keep child output
     // silent so it cannot corrupt the parent's JSON document.
     if (resource)
@@ -271,6 +272,53 @@ static int run_shared_child() {
         device->Release();
     // Do not unload d3d12.dll explicitly: DXMT owns worker-thread state and
     // Wine's loader lock can otherwise outlive the child device teardown.
+    return pass ? 0 : 1;
+}
+
+static int run_shared_texture_child() {
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
+    auto create_device = reinterpret_cast<CreateDeviceFn>(
+        reinterpret_cast<void*>(d3d12 ? GetProcAddress(d3d12, "D3D12CreateDevice") : nullptr));
+    ID3D12Device* device = nullptr;
+    HRESULT create_hr = create_device
+                            ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, IID_D3D12DeviceProbe,
+                                            reinterpret_cast<void**>(&device))
+                            : E_NOINTERFACE;
+    HANDLE texture_handle = nullptr;
+    ID3D12Resource* texture = nullptr;
+    HRESULT name_hr = device ? device->OpenSharedHandleByName(
+                                      L"metalsharp-probe-shared-texture",
+                                      GENERIC_ALL, &texture_handle)
+                             : E_FAIL;
+    HRESULT open_hr = SUCCEEDED(name_hr) && device
+                          ? device->OpenSharedHandle(texture_handle,
+                                                     IID_PPV_ARGS(&texture))
+                          : E_FAIL;
+    uint8_t before[64] = {};
+    HRESULT read_hr = texture ? texture->ReadFromSubresource(
+                                    before, 16, sizeof(before), 0, nullptr)
+                              : E_FAIL;
+    const bool source_ok = before[0] == 5 && before[1] == 18 &&
+                           before[2] == 31 && before[3] == 44;
+    HRESULT write_hr = E_FAIL;
+    if (SUCCEEDED(read_hr) && source_ok) {
+        uint8_t after[64] = {};
+        std::memcpy(after, before, sizeof(after));
+        const uint32_t sentinel = 0xcafef00du;
+        std::memcpy(after, &sentinel, sizeof(sentinel));
+        write_hr = texture->WriteToSubresource(0, nullptr, after, 16,
+                                                sizeof(after));
+    }
+    const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(name_hr) &&
+                      SUCCEEDED(open_hr) && SUCCEEDED(read_hr) && source_ok &&
+                      SUCCEEDED(write_hr);
+    if (texture)
+        texture->Release();
+    if (texture_handle)
+        CloseHandle(texture_handle);
+    if (device)
+        device->Release();
     return pass ? 0 : 1;
 }
 
@@ -372,6 +420,34 @@ static bool launch_shared_child() {
     return exit_code == 0;
 }
 
+static bool launch_shared_texture_child() {
+    char module_path[MAX_PATH] = {};
+    if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
+        return false;
+    std::string command = std::string("\"") + module_path +
+                          "\" --shared-texture-child";
+    std::vector<char> command_line(command.begin(), command.end());
+    command_line.push_back('\0');
+    STARTUPINFOA startup = {};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process = {};
+    if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, FALSE, 0,
+                        nullptr, nullptr, &startup, &process))
+        return false;
+    const DWORD wait_result = WaitForSingleObject(process.hProcess, 30000);
+    if (wait_result != WAIT_OBJECT_0) {
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return false;
+    }
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exit_code == 0;
+}
+
 static bool launch_unnamed_heap_child(HANDLE inherited_heap_handle) {
     if (!inherited_heap_handle)
         return false;
@@ -449,6 +525,8 @@ static bool launch_unnamed_shared_child(HANDLE inherited_resource_handle,
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--shared-child") == 0)
         return run_shared_child();
+    if (argc == 2 && std::strcmp(argv[1], "--shared-texture-child") == 0)
+        return run_shared_texture_child();
     if (argc == 3 && std::strcmp(argv[1], "--unnamed-heap-child") == 0) {
         char *end = nullptr;
         const unsigned long long value = std::strtoull(argv[2], &end, 16);
@@ -2431,6 +2509,11 @@ int main(int argc, char** argv) {
     ID3D12Resource* direct_io_d32s8 = nullptr;
     ID3D12Resource* direct_io_nv12 = nullptr;
     ID3D12Resource* direct_io_p010 = nullptr;
+    ID3D12Resource* shared_texture_resource = nullptr;
+    ID3D12Resource* shared_texture_open = nullptr;
+    ID3D12Resource* shared_texture_named_open = nullptr;
+    HANDLE shared_texture_resource_handle = nullptr;
+    HANDLE shared_texture_resource_named_handle = nullptr;
     ID3D12Resource* direct_io_nv12_upload = nullptr;
     ID3D12Resource* direct_io_nv12_readback = nullptr;
     ID3D12Resource* direct_io_nv12_copy_destination = nullptr;
@@ -2683,6 +2766,12 @@ int main(int argc, char** argv) {
     HRESULT direct_io_nv12_write_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_nv12_read_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_p010_create_hr = E_FAIL;
+    HRESULT shared_texture_resource_hr = E_FAIL;
+    HRESULT shared_texture_handle_hr = E_FAIL;
+    HRESULT shared_texture_open_hr = E_FAIL;
+    HRESULT shared_texture_named_open_hr = E_FAIL;
+    bool shared_texture_roundtrip_ok = false;
+    bool shared_texture_cross_process_ok = false;
     HRESULT direct_io_p010_write_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_p010_read_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_nv12_upload_hr = E_FAIL;
@@ -2735,6 +2824,76 @@ int main(int argc, char** argv) {
             L"metalsharp-probe-texture", &shared_texture_handle);
         if (shared_texture_handle)
             CloseHandle(shared_texture_handle);
+    }
+
+    D3D12_RESOURCE_DESC shared_texture_desc =
+        texture_desc(4, 4, DXGI_FORMAT_R8G8B8A8_UNORM);
+    shared_texture_resource_hr = device
+                                    ? device->CreateCommittedResource(
+                                          &default_heap,
+                                          D3D12_HEAP_FLAG_SHARED,
+                                          &shared_texture_desc,
+                                          D3D12_RESOURCE_STATE_COMMON,
+                                          nullptr,
+                                          IID_PPV_ARGS(&shared_texture_resource))
+                                    : E_FAIL;
+    if (shared_texture_resource) {
+        uint8_t source[64] = {};
+        for (UINT i = 0; i < sizeof(source); ++i)
+            source[i] = static_cast<uint8_t>(i * 13u + 5u);
+        uint8_t destination[sizeof(source)] = {};
+        const HRESULT write_hr = shared_texture_resource->WriteToSubresource(
+            0, nullptr, source, 16, sizeof(source));
+        const HRESULT read_hr = shared_texture_resource->ReadFromSubresource(
+            destination, 16, sizeof(destination), 0, nullptr);
+        shared_texture_roundtrip_ok =
+            SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
+            std::memcmp(source, destination, sizeof(source)) == 0;
+        shared_texture_handle_hr = device->CreateSharedHandle(
+            shared_texture_resource, nullptr, GENERIC_ALL,
+            L"metalsharp-probe-shared-texture",
+            &shared_texture_resource_handle);
+        if (SUCCEEDED(shared_texture_handle_hr))
+            shared_texture_open_hr = device->OpenSharedHandle(
+                shared_texture_resource_handle,
+                IID_PPV_ARGS(&shared_texture_open));
+        shared_texture_resource_named_handle = nullptr;
+        if (SUCCEEDED(device->OpenSharedHandleByName(
+                L"metalsharp-probe-shared-texture", GENERIC_ALL,
+                &shared_texture_resource_named_handle)))
+            shared_texture_named_open_hr = device->OpenSharedHandle(
+                shared_texture_resource_named_handle,
+                IID_PPV_ARGS(&shared_texture_named_open));
+        auto verify_shared_texture = [&](ID3D12Resource *opened) {
+            if (!opened)
+                return false;
+            uint8_t opened_data[64] = {};
+            return SUCCEEDED(opened->ReadFromSubresource(
+                       opened_data, 16, sizeof(opened_data), 0, nullptr)) &&
+                   opened_data[0] == 5 && opened_data[1] == 18 &&
+                   opened_data[2] == 31 && opened_data[3] == 44;
+        };
+        shared_texture_roundtrip_ok =
+            shared_texture_roundtrip_ok &&
+            SUCCEEDED(shared_texture_handle_hr) &&
+            SUCCEEDED(shared_texture_open_hr) &&
+            SUCCEEDED(shared_texture_named_open_hr) &&
+            verify_shared_texture(shared_texture_open) &&
+            verify_shared_texture(shared_texture_named_open);
+        if (shared_texture_roundtrip_ok) {
+            shared_texture_cross_process_ok =
+                launch_shared_texture_child();
+            uint8_t child_data[64] = {};
+            shared_texture_cross_process_ok =
+                shared_texture_cross_process_ok &&
+                SUCCEEDED(shared_texture_resource->ReadFromSubresource(
+                    child_data, 16, sizeof(child_data), 0, nullptr));
+            uint32_t child_value = 0;
+            std::memcpy(&child_value, child_data, sizeof(child_value));
+            shared_texture_cross_process_ok =
+                shared_texture_cross_process_ok &&
+                child_value == 0xcafef00du;
+        }
     }
     D3D12_RESOURCE_DESC direct_io_volume_desc =
         texture_desc(4, 4, DXGI_FORMAT_R8_UNORM);
@@ -4672,7 +4831,13 @@ int main(int argc, char** argv) {
         SUCCEEDED(direct_io_texture_create_hr) && SUCCEEDED(direct_io_texture_write_hr) &&
         SUCCEEDED(direct_io_texture_read_hr) && direct_io_texture_ok &&
         shared_texture_hr == E_NOTIMPL &&
-        SUCCEEDED(direct_io_volume_create_hr) && SUCCEEDED(direct_io_volume_write_hr) &&
+        SUCCEEDED(shared_texture_resource_hr) &&
+        SUCCEEDED(shared_texture_handle_hr) &&
+        SUCCEEDED(shared_texture_open_hr) &&
+        SUCCEEDED(shared_texture_named_open_hr) &&
+        shared_texture_roundtrip_ok && shared_texture_cross_process_ok &&
+        SUCCEEDED(direct_io_volume_create_hr) &&
+        SUCCEEDED(direct_io_volume_write_hr) &&
         SUCCEEDED(direct_io_volume_read_hr) && direct_io_volume_ok &&
         SUCCEEDED(direct_io_volume_box_write_hr) &&
         SUCCEEDED(direct_io_volume_box_read_hr) && direct_io_volume_box_ok &&
@@ -5196,6 +5361,14 @@ int main(int argc, char** argv) {
     std::printf("    \"direct_io_texture_verified\": %s,\n",
                 direct_io_texture_ok ? "true" : "false");
     print_hr("shared_texture_create", shared_texture_hr);
+    print_hr("shared_texture_resource_create", shared_texture_resource_hr);
+    print_hr("shared_texture_handle_create", shared_texture_handle_hr);
+    print_hr("shared_texture_open", shared_texture_open_hr);
+    print_hr("shared_texture_named_open", shared_texture_named_open_hr);
+    std::printf("    \"shared_texture_roundtrip_verified\": %s,\n",
+                shared_texture_roundtrip_ok ? "true" : "false");
+    std::printf("    \"shared_texture_cross_process_verified\": %s,\n",
+                shared_texture_cross_process_ok ? "true" : "false");
     print_hr("direct_io_volume_create", direct_io_volume_create_hr);
     print_hr("direct_io_volume_write", direct_io_volume_write_hr);
     print_hr("direct_io_volume_read", direct_io_volume_read_hr);
@@ -5511,6 +5684,10 @@ int main(int argc, char** argv) {
     std::printf("  }\n");
     std::printf("}\n");
 
+    if (shared_texture_resource_handle)
+        CloseHandle(shared_texture_resource_handle);
+    if (shared_texture_resource_named_handle)
+        CloseHandle(shared_texture_resource_named_handle);
     std::fflush(stdout);
     TerminateProcess(GetCurrentProcess(), pass ? 0 : 1);
 }

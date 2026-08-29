@@ -15,6 +15,7 @@ inline constexpr uint32_t kD3D12SharedResourceVersion = 1;
 inline constexpr uint32_t kD3D12SharedResourceKindBuffer = 1;
 inline constexpr uint32_t kD3D12SharedResourceKindHeap = 2;
 inline constexpr uint32_t kD3D12SharedResourceKindFence = 3;
+inline constexpr uint32_t kD3D12SharedResourceKindTexture = 4;
 inline constexpr uint64_t kD3D12SharedResourceDataOffset = 4096;
 inline constexpr uint64_t kD3D12SharedFenceValueOffset = 128;
 
@@ -54,6 +55,23 @@ struct D3D12SharedHeapMetadata {
 
 static_assert(sizeof(D3D12SharedHeapMetadata) % 8 == 0);
 
+struct D3D12SharedTextureMetadata {
+  uint32_t magic = kD3D12SharedResourceMagic;
+  uint32_t version = kD3D12SharedResourceVersion;
+  uint32_t kind = kD3D12SharedResourceKindTexture;
+  uint32_t reserved = 0;
+  uint64_t mapping_size = 4096;
+  D3D12_RESOURCE_DESC resource_desc = {};
+  D3D12_HEAP_PROPERTIES heap_properties = {};
+  D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
+  D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
+  uint64_t adapter_luid = 0;
+  char service_name[128] = {};
+  uint64_t reserved_tail[2] = {};
+};
+
+static_assert(sizeof(D3D12SharedTextureMetadata) % 8 == 0);
+
 struct D3D12SharedFenceMetadata {
   uint32_t magic = kD3D12SharedResourceMagic;
   uint32_t version = kD3D12SharedResourceVersion;
@@ -75,6 +93,11 @@ HRESULT CreateSharedBufferMapping(MTLD3D12Resource *resource,
                                   const WCHAR *name, HANDLE *mapping);
 HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
                                     ID3D12Resource **resource);
+HRESULT CreateSharedTextureMapping(
+    MTLD3D12Resource *resource, const SECURITY_ATTRIBUTES *attributes,
+    const WCHAR *name, HANDLE *mapping);
+HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
+                                     ID3D12Resource **resource);
 HRESULT CreateSharedHeapMapping(MTLD3D12Heap *heap,
                                 const SECURITY_ATTRIBUTES *attributes,
                                 const WCHAR *name, HANDLE *mapping);
