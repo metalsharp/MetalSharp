@@ -114,6 +114,13 @@ static bool IsBlockCompressedFormat(DXGI_FORMAT format) {
   }
 }
 
+static uint32_t PackedTextureRowCount(DXGI_FORMAT format,
+                                      uint64_t height) {
+  return static_cast<uint32_t>(
+      IsBlockCompressedFormat(format) ? std::max<uint64_t>(1, (height + 3) / 4)
+                                      : std::max<uint64_t>(1, height));
+}
+
 static uint32_t PackedTextureRowBytes(DXGI_FORMAT format, uint64_t width) {
   if (IsBlockCompressedFormat(format)) {
     const uint64_t blocks = std::max<uint64_t>(1, (width + 3) / 4);
@@ -1043,9 +1050,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
       PackedTextureRowBytes(m_desc.Format, size.width);
   if (src_row_pitch < row_bytes)
     return E_INVALIDARG;
-  const uint64_t image_bytes =
-      src_slice_pitch ? src_slice_pitch : uint64_t(src_row_pitch) * size.height;
-  if (image_bytes < uint64_t(src_row_pitch) * size.height)
+  const uint32_t row_count = PackedTextureRowCount(m_desc.Format, size.height);
+  const uint64_t image_bytes = src_slice_pitch
+                                   ? src_slice_pitch
+                                   : uint64_t(src_row_pitch) * row_count;
+  if (image_bytes < uint64_t(src_row_pitch) * row_count)
     return E_INVALIDARG;
 
   if (m_mtl_texture.handle) {
@@ -1105,10 +1114,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
   const uint64_t row_bytes = PackedTextureRowBytes(m_desc.Format, size.width);
   if (dst_row_pitch < row_bytes)
     return E_INVALIDARG;
+  const uint32_t row_count = PackedTextureRowCount(m_desc.Format, size.height);
   const uint64_t slice_pitch = dst_slice_pitch
                                    ? dst_slice_pitch
-                                   : uint64_t(dst_row_pitch) * size.height;
-  if (slice_pitch < uint64_t(dst_row_pitch) * size.height)
+                                   : uint64_t(dst_row_pitch) * row_count;
+  if (slice_pitch < uint64_t(dst_row_pitch) * row_count)
     return E_INVALIDARG;
   if (!m_mtl_texture.handle)
     return E_FAIL;
@@ -1127,7 +1137,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
   const auto *source = static_cast<const uint8_t *>(staging_data);
   auto *destination = static_cast<uint8_t *>(dst_data);
   for (uint64_t z = 0; z < size.depth; z++) {
-    for (uint64_t y = 0; y < size.height; y++) {
+    for (uint64_t y = 0; y < row_count; y++) {
       std::memcpy(destination + z * slice_pitch + y * dst_row_pitch,
                   source + z * slice_pitch + y * dst_row_pitch,
                   static_cast<size_t>(row_bytes));

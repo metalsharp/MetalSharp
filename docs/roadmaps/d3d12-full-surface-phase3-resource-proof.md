@@ -33,6 +33,9 @@
 - Resource flag validation rejects render-target resources with a buffer
   dimension and rejects mutually exclusive render-target/depth-stencil flags,
   both with exact `E_INVALIDARG` and no returned object.
+- Direct BC1 subresource I/O now uses block-row counts for slice pitches:
+  unaligned `7x5` BC1 write/read accepts two 16-byte rows and round-trips the
+  exact compressed bytes, in addition to the command-list copy proof.
 - Direct default-resource subresource I/O is behavior-backed for a 2D array
   with mips (boxed mip write/read) and a 3D volume (two depth slices), with
   exact row and slice pitches and byte readback.
@@ -154,6 +157,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_heap_flags": "0x80070057",
   "textures.direct_io_texture_verified": true,
   "textures.direct_io_volume_verified": true,
+  "textures.unaligned_bc1_direct_io_verified": true,
   "textures.unaligned_bc1_copy_verified": true,
   "formats.D24_UNORM_S8_UINT.plane_count": 2,
   "sparse.unmapped_zero_verified": true,
