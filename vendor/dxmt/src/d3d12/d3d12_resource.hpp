@@ -154,7 +154,9 @@ public:
     return m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
   }
   bool IsValid() const {
-    return IsBuffer() ? m_mtl_buffer.handle != 0 : m_mtl_texture.handle != 0;
+    return IsBuffer() ? m_mtl_buffer.handle != 0
+                      : (m_mtl_texture.handle != 0 ||
+                         !m_planar_shadow.empty());
   }
 
   WMT::Reference<WMT::Buffer> GetMTLBuffer() { return m_mtl_buffer; }
@@ -468,6 +470,7 @@ private:
 
   void *m_cpu_addr = nullptr;
   std::vector<uint8_t> m_stencil_shadow;
+  std::vector<uint8_t> m_planar_shadow;
   uint64_t m_gpu_addr = 0;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};
