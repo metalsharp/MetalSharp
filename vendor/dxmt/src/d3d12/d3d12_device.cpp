@@ -486,6 +486,15 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
 
   const bool tight_alignment =
       (desc.Flags & kD3D12ResourceFlagUseTightAlignment) != 0;
+  const bool render_target =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0;
+  const bool depth_stencil =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0;
+  const bool unordered_access =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0;
+  if ((render_target && depth_stencil) ||
+      (depth_stencil && unordered_access))
+    return false;
   if (desc.Alignment && !IsPowerOfTwo(desc.Alignment))
     return false;
   if (!tight_alignment && desc.Alignment &&
@@ -498,7 +507,8 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
     if (desc.Height != 1 || desc.DepthOrArraySize != 1 ||
         desc.MipLevels != 1 || desc.Format != DXGI_FORMAT_UNKNOWN ||
         desc.SampleDesc.Count != 1 || desc.SampleDesc.Quality != 0 ||
-        desc.Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
+        desc.Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR || render_target ||
+        depth_stencil)
       return false;
     if (tight_alignment &&
         ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) ||
