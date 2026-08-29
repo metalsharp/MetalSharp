@@ -2577,10 +2577,23 @@ int main(int argc, char** argv) {
         SUCCEEDED(packed_tail_reserved_tiling_hr) &&
         packed_tail_total_tiles == 22 && packed_tail_info.NumStandardMips == 3 &&
         packed_tail_info.NumPackedMips == 1) {
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT packed_tail_layout_guard[2] = {};
+        UINT packed_tail_rows_guard[2] = {};
+        UINT64 packed_tail_row_bytes_guard[2] = {};
+        packed_tail_layout_guard[1].Offset = UINT64_C(0xdeadbeef);
+        packed_tail_rows_guard[1] = 0xdeadbeef;
+        packed_tail_row_bytes_guard[1] = UINT64_C(0xfeedface);
         device->GetCopyableFootprints(
-            &packed_tail_desc, 3, 1, 0, &packed_tail_footprint,
-            &packed_tail_rows, &packed_tail_row_bytes, &packed_tail_copy_bytes);
+            &packed_tail_desc, 3, 1, 0, packed_tail_layout_guard,
+            packed_tail_rows_guard, packed_tail_row_bytes_guard,
+            &packed_tail_copy_bytes);
+        packed_tail_footprint = packed_tail_layout_guard[0];
+        packed_tail_rows = packed_tail_rows_guard[0];
+        packed_tail_row_bytes = packed_tail_row_bytes_guard[0];
         packed_tail_footprint_ok =
+            packed_tail_layout_guard[1].Offset == UINT64_C(0xdeadbeef) &&
+            packed_tail_rows_guard[1] == 0xdeadbeef &&
+            packed_tail_row_bytes_guard[1] == UINT64_C(0xfeedface) &&
             packed_tail_footprint.Offset == 0 &&
             packed_tail_footprint.Footprint.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
             packed_tail_footprint.Footprint.Width == 64 &&
