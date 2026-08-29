@@ -24,6 +24,7 @@
 namespace dxmt {
 
 class MTLD3D12Device;
+class MTLD3D12Heap;
 class MTLD3D12SwapChain;
 
 struct D3D12SamplerFeedbackLevelLayout {
@@ -127,9 +128,10 @@ public:
     return m_state_tracker.transitionLayout(subresource, before, after);
   }
   void MarkAliasedState() { m_state_tracker.markAliased(); }
-  bool IsResident() const { return m_residency.isResident(); }
-  void MakeResident() { m_residency.makeResident(); }
-  void Evict() { m_residency.evict(); }
+  bool IsResident() const;
+  void MakeResident();
+  void Evict();
+  void SetParentHeap(MTLD3D12Heap *heap);
   D3D12_RESIDENCY_PRIORITY GetResidencyPriority() const {
     return m_residency.priority();
   }
@@ -461,6 +463,7 @@ private:
   void *m_shared_mapping_view = nullptr;
   uint64_t m_shared_mapping_size = 0;
   uint64_t m_shared_data_offset = 0;
+  MTLD3D12Heap *m_parent_heap = nullptr;
 
   void *m_cpu_addr = nullptr;
   uint64_t m_gpu_addr = 0;

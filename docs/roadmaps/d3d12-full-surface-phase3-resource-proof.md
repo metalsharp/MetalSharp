@@ -11,6 +11,9 @@
 - Texture subresource I/O resolves mip, array, box, block-compressed, and
   volume regions with correct row and slice pitches.
 - Resource and heap residency state tracks resident/evicted transitions and
+  propagates an explicit heap eviction to placed resources: a mapped placed
+  buffer rejects access while its heap is evicted and succeeds again after the
+  heap is made resident.
   priority; mapping an evicted resource is rejected until it is made resident
   again.
 - Named buffers, CPU-visible heaps, and fences use platform file mappings with
@@ -124,6 +127,7 @@ The isolated source-staged probe passed with:
   "shared_handles.invalid_open_access": "0x80070057",
   "buffers.address_heap_open_verified": true,
   "buffers.heap_aliasing_verified": true,
+  "buffers.heap_residency_verified": true,
   "buffers.texture_gpu_va_zero": true,
   "resource_shapes.all_created_and_roundtripped": true,
   "resource_shapes.footprint_matrix_verified": true,

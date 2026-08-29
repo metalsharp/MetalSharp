@@ -446,6 +446,11 @@ int main(int argc, char** argv) {
     HRESULT misaligned_placement_hr = E_FAIL;
     bool address_heap_open_ok = false;
     bool heap_aliasing_ok = false;
+    HRESULT address_heap_evict_hr = E_FAIL;
+    HRESULT address_heap_map_hr = E_FAIL;
+    HRESULT address_heap_make_resident_hr = E_FAIL;
+    HRESULT address_heap_remap_hr = E_FAIL;
+    bool heap_residency_ok = false;
     ID3D12Resource* tight_committed = nullptr;
     ID3D12Heap* tight_heap = nullptr;
     ID3D12Resource* tight_placed = nullptr;
@@ -1098,6 +1103,25 @@ int main(int argc, char** argv) {
                 SUCCEEDED(shared_heap_create_hr) && SUCCEEDED(shared_heap_open_hr) &&
                 SUCCEEDED(shared_heap_file_open_hr) && shared_heap_open &&
                 shared_heap_file_open;
+        }
+        if (address_heap && address_resource) {
+            ID3D12Pageable *heap_pageable = address_heap;
+            address_heap_evict_hr = device->Evict(1, &heap_pageable);
+            void *evicted_address = nullptr;
+            address_heap_map_hr = address_resource->Map(
+                0, nullptr, &evicted_address);
+            address_heap_make_resident_hr =
+                device->MakeResident(1, &heap_pageable);
+            void *remapped_address = nullptr;
+            address_heap_remap_hr = address_resource->Map(
+                0, nullptr, &remapped_address);
+            heap_residency_ok = SUCCEEDED(address_heap_evict_hr) &&
+                                address_heap_map_hr == DXGI_ERROR_INVALID_CALL &&
+                                SUCCEEDED(address_heap_make_resident_hr) &&
+                                SUCCEEDED(address_heap_remap_hr) &&
+                                remapped_address != nullptr;
+            if (SUCCEEDED(address_heap_remap_hr))
+                address_resource->Unmap(0, nullptr);
         }
     }
 
@@ -2670,7 +2694,9 @@ int main(int argc, char** argv) {
         SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
-        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+        default_cpu_io_ok && residency_state_ok && heap_residency_ok && address_heap_open_ok &&
+        heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok &&
+        sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
@@ -2734,7 +2760,12 @@ int main(int argc, char** argv) {
     print_hr("address_alias_resource_create", address_alias_resource_hr);
     print_hr("address_open", address_open_hr);
     std::printf("    \"address_heap_open_verified\": %s,\n", address_heap_open_ok ? "true" : "false");
-    std::printf("    \"heap_aliasing_verified\": %s\n", heap_aliasing_ok ? "true" : "false");
+    std::printf("    \"heap_aliasing_verified\": %s,\n", heap_aliasing_ok ? "true" : "false");
+    print_hr("heap_evict", address_heap_evict_hr);
+    print_hr("heap_evicted_resource_map", address_heap_map_hr);
+    print_hr("heap_make_resident", address_heap_make_resident_hr);
+    print_hr("heap_remapped_resource_map", address_heap_remap_hr);
+    std::printf("    \"heap_residency_verified\": %s\n", heap_residency_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"resource_shapes\": {\n");
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
