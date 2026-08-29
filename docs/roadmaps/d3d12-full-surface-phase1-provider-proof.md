@@ -97,7 +97,7 @@ METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   capability compilation units.
 - `validate-full-surface-contract.py` passed with 145 interfaces, 537 methods,
   and the synchronized 1,028 static inventory findings.
-- `validate-contracts.py` passed all 11 contracts.
+- `validate-contracts.py` passed all 12 contracts.
 - `validate-probe-matrix.py` passed all 25 probe groups.
 - Shell syntax, Python syntax, clang-format, and `git diff --check` passed.
 
