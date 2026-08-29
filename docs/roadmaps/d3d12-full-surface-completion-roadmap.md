@@ -600,8 +600,9 @@ clear, the focused relaxed-castable-format readback, tight buffer alignment,
 `CREATE_NOT_RESIDENT`/enqueued residency, descriptor and
 query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O, bounded
-footprint subresource-window behavior, DXGI resource aggregation, and
-OfferResources/Trim/Reclaim residency-state evidence. The latest sparse run
+footprint subresource-window behavior, DXGI resource aggregation, generated
+pointer-free unnamed heap/fence mappings, and OfferResources/Trim/Reclaim
+residency-state evidence. The latest sparse run
 also passes native 3D volume mapping, cross-resource mapping copy, readback,
 and physical-page ownership. The exhaustive Phase 3 gate
 remains open for all remaining legal dimensions/formats, native packed-tail

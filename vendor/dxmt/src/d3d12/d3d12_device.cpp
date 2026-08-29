@@ -279,12 +279,14 @@ struct D3D12SharedHandleRegistryCleanup {
 
 D3D12SharedHandleRegistryCleanup g_shared_handle_registry_cleanup;
 
-static void MakeUnnamedSharedBufferName(WCHAR *out, size_t capacity) {
+static void MakeUnnamedSharedName(WCHAR *out, size_t capacity,
+                                  const wchar_t *kind) {
   if (!out || capacity == 0)
     return;
   static std::atomic<uint64_t> sequence = 0;
   const uint64_t serial = sequence.fetch_add(1, std::memory_order_relaxed);
-  std::swprintf(out, capacity, L"DXMT_shared_buffer_%08lx_%016llx",
+  std::swprintf(out, capacity, L"DXMT_shared_%ls_%08lx_%016llx",
+                kind ? kind : L"object",
                 static_cast<unsigned long>(GetCurrentProcessId()),
                 static_cast<unsigned long long>(serial));
   out[capacity - 1] = L'\0';
@@ -5532,18 +5534,19 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
     }
   }
 
-  // Unnamed buffer handles must remain portable when the caller duplicates the
-  // returned HANDLE into another process. A generated file-mapping name gives
-  // OpenSharedHandle a self-describing transport without relying on the
-  // process-local registry used by unsupported object kinds.
+  // Unnamed buffer, CPU-visible heap, and fence handles must remain portable
+  // when the caller duplicates the returned HANDLE into another process. A
+  // generated file-mapping name gives OpenSharedHandle a self-describing
+  // transport without relying on the process-local registry used by
+  // unsupported object kinds.
   if (!name) {
     ID3D12Resource *resource = nullptr;
     if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&resource)))) {
       auto *resource_impl = static_cast<MTLD3D12Resource *>(resource);
       if (resource_impl->IsBuffer()) {
         WCHAR generated_name[96] = {};
-        MakeUnnamedSharedBufferName(generated_name,
-                                    ARRAYSIZE(generated_name));
+        MakeUnnamedSharedName(generated_name, ARRAYSIZE(generated_name),
+                               L"buffer");
         HANDLE public_mapping = nullptr;
         HRESULT hr = CreateSharedBufferMapping(resource_impl, generated_name,
                                                &public_mapping);
@@ -5556,6 +5559,43 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         return S_OK;
       }
       resource->Release();
+    }
+    ID3D12Heap *heap = nullptr;
+    if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
+      auto *heap_impl = static_cast<MTLD3D12Heap *>(heap);
+      if (heap_impl->GetCPUAddress()) {
+        WCHAR generated_name[96] = {};
+        MakeUnnamedSharedName(generated_name, ARRAYSIZE(generated_name),
+                               L"heap");
+        HANDLE public_mapping = nullptr;
+        HRESULT hr = CreateSharedHeapMapping(heap_impl, generated_name,
+                                             &public_mapping);
+        heap->Release();
+        if (FAILED(hr))
+          return hr;
+        *handle = public_mapping;
+        TRACE("CreateSharedHandle unnamed heap object=%p handle=%p",
+              (void *)object, public_mapping);
+        return S_OK;
+      }
+      heap->Release();
+    }
+    ID3D12Fence *fence = nullptr;
+    if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&fence)))) {
+      WCHAR generated_name[96] = {};
+      MakeUnnamedSharedName(generated_name, ARRAYSIZE(generated_name),
+                             L"fence");
+      HANDLE public_mapping = nullptr;
+      HRESULT hr = CreateSharedFenceMapping(
+          static_cast<MTLD3D12Fence *>(fence), generated_name,
+          &public_mapping);
+      fence->Release();
+      if (FAILED(hr))
+        return hr;
+      *handle = public_mapping;
+      TRACE("CreateSharedHandle unnamed fence object=%p handle=%p",
+            (void *)object, public_mapping);
+      return S_OK;
     }
   }
 
