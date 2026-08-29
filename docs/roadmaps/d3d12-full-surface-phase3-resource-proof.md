@@ -113,9 +113,10 @@
   mixed 64-KiB/4-MiB/64-KiB batch reports the required 12-MiB aggregate,
   4-MiB alignment, and middle-resource placement at `4 MiB`.
 - Committed-resource validation rejects a null heap-properties pointer, a
-  buffer placed in a heap with `DENY_BUFFERS`, and 1D/2D/3D dimensions above
-  the D3D12 request limits, all with exact `E_INVALIDARG` before allocating
-  any object.
+  buffer placed in a heap with `DENY_BUFFERS`, 1D/2D/3D dimensions above
+  the D3D12 request limits, and a reserved texture using `UNKNOWN` layout;
+  all return exact `E_INVALIDARG` before allocating any object. Valid reserved
+  textures use the required `64KB_UNDEFINED_SWIZZLE` layout.
 - `ID3D12Device::GetAdapterLuid` returns a stable nonzero adapter identity in
   the same source-staged run as the resource/share tests; the existing DXGI
   factory lane cross-checks that identity against adapter enumeration.
@@ -254,6 +255,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.oversized_1d": "0x80070057",
   "resource_shapes.oversized_2d": "0x80070057",
   "resource_shapes.oversized_3d": "0x80070057",
+  "resource_shapes.invalid_reserved_layout": "0x80070057",
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",
   "resource_shapes.invalid_heap_properties": "0x80070057",
   "resource_shapes.invalid_node_mask": "0x80070057",

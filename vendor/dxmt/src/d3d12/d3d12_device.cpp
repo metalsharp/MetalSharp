@@ -5497,6 +5497,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   desc = &normalized_desc;
   if (desc->Flags & kD3D12ResourceFlagUseTightAlignment)
     return E_INVALIDARG;
+  if (desc->Dimension != D3D12_RESOURCE_DIMENSION_BUFFER &&
+      desc->Layout != D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE)
+    return E_INVALIDARG;
   if (!IsValidOptimizedClearValue(*desc, optimized_clear_value))
     return E_INVALIDARG;
   const bool reserved_buffer =

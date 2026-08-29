@@ -483,6 +483,7 @@ int main(int argc, char** argv) {
     D3D12_RESOURCE_ALLOCATION_INFO1 allocation_mixed_sideband[3] = {};
     bool allocation_mixed_ok = false;
     HRESULT invalid_msaa_mips_hr = E_FAIL;
+    HRESULT invalid_reserved_layout_hr = E_FAIL;
     UINT64 invalid_msaa_mips_allocation_size = 0;
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
     UINT64 volume_allocation_size = 0;
@@ -2432,7 +2433,16 @@ int main(int argc, char** argv) {
     copy_mapping_heap_hr =
         device ? device->CreateHeap(&copy_mapping_heap_desc, IID_PPV_ARGS(&copy_mapping_heap)) : E_FAIL;
     D3D12_RESOURCE_DESC reserved_desc = texture_desc(128, 128, DXGI_FORMAT_R8G8B8A8_UNORM);
+    reserved_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     reserved_desc.DepthOrArraySize = 2;
+    D3D12_RESOURCE_DESC invalid_reserved_layout_desc = reserved_desc;
+    invalid_reserved_layout_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    ID3D12Resource *invalid_reserved_layout_resource = nullptr;
+    invalid_reserved_layout_hr = device->CreateReservedResource(
+        &invalid_reserved_layout_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr, IID_PPV_ARGS(&invalid_reserved_layout_resource));
+    if (invalid_reserved_layout_resource)
+        invalid_reserved_layout_resource->Release();
     reserved_texture_hr = device ? device->CreateReservedResource(&reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                                                   nullptr, IID_PPV_ARGS(&reserved_texture))
                                  : E_FAIL;
@@ -2442,6 +2452,7 @@ int main(int argc, char** argv) {
                                   &sparse_tiling_count, 0, sparse_tiling);
     }
     D3D12_RESOURCE_DESC reserved_1d_desc = texture_desc(16384, 1, DXGI_FORMAT_R32_FLOAT);
+    reserved_1d_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     reserved_1d_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
     reserved_1d_desc.DepthOrArraySize = 2;
     reserved_1d_texture_hr =
@@ -2591,6 +2602,7 @@ int main(int argc, char** argv) {
                                                  IID_PPV_ARGS(&mapping_copy_readback))
                : E_FAIL;
     D3D12_RESOURCE_DESC mipped_reserved_desc = texture_desc(256, 256, DXGI_FORMAT_R8G8B8A8_UNORM);
+    mipped_reserved_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     mipped_reserved_desc.MipLevels = 2;
     mipped_reserved_texture_hr =
         device ? device->CreateReservedResource(&mipped_reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
@@ -2603,6 +2615,7 @@ int main(int argc, char** argv) {
                                   mipped_reserved_tilings);
     }
     D3D12_RESOURCE_DESC packed_tail_desc = texture_desc(512, 512, DXGI_FORMAT_R8G8B8A8_UNORM);
+    packed_tail_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     packed_tail_desc.MipLevels = 4;
     packed_tail_reserved_texture_hr =
         device ? device->CreateReservedResource(&packed_tail_desc,
@@ -2655,6 +2668,7 @@ int main(int argc, char** argv) {
                                                   IID_PPV_ARGS(&packed_tail_readback))
                : E_FAIL;
     D3D12_RESOURCE_DESC r8_reserved_desc = texture_desc(256, 256, DXGI_FORMAT_R8_UNORM);
+    r8_reserved_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     r8_reserved_texture_hr = device ? device->CreateReservedResource(&r8_reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                                                      nullptr, IID_PPV_ARGS(&r8_reserved_texture))
                                     : E_FAIL;
@@ -2674,6 +2688,7 @@ int main(int argc, char** argv) {
     r8_mipped_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
     r8_mipped_heap_hr = device ? device->CreateHeap(&r8_mipped_heap_desc, IID_PPV_ARGS(&r8_mipped_heap)) : E_FAIL;
     D3D12_RESOURCE_DESC r8_mipped_desc = texture_desc(512, 512, DXGI_FORMAT_R8_UNORM);
+    r8_mipped_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     r8_mipped_desc.MipLevels = 2;
     r8_mipped_texture_hr = device ? device->CreateReservedResource(&r8_mipped_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                                                    nullptr, IID_PPV_ARGS(&r8_mipped_texture))
@@ -2688,6 +2703,7 @@ int main(int argc, char** argv) {
                                          D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&r8_mipped_readback))
                                    : E_FAIL;
     D3D12_RESOURCE_DESC r8_partial_desc = texture_desc(256, 256, DXGI_FORMAT_R8_UNORM);
+    r8_partial_desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
     r8_partial_desc.MipLevels = 2;
     r8_partial_texture_hr = device ? device->CreateReservedResource(&r8_partial_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                                                     nullptr, IID_PPV_ARGS(&r8_partial_texture))
@@ -2739,6 +2755,8 @@ int main(int argc, char** argv) {
     for (auto& sparse_format : sparse_format_probes) {
         D3D12_RESOURCE_DESC sparse_format_desc =
             texture_desc(sparse_format.width, sparse_format.height, sparse_format.format);
+        sparse_format_desc.Layout =
+            D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
         sparse_format.texture_hr =
             device ? device->CreateReservedResource(&sparse_format_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                     IID_PPV_ARGS(&sparse_format.texture))
@@ -3922,6 +3940,7 @@ int main(int argc, char** argv) {
         FAILED(invalid_zero_width_hr) &&
         oversized_1d_hr == E_INVALIDARG && oversized_2d_hr == E_INVALIDARG &&
         oversized_3d_hr == E_INVALIDARG &&
+        invalid_reserved_layout_hr == E_INVALIDARG &&
         invalid_committed_heap_flags_hr == E_INVALIDARG &&
         invalid_heap_properties_hr == E_INVALIDARG &&
         invalid_node_mask_hr == E_INVALIDARG &&
@@ -4234,6 +4253,7 @@ int main(int argc, char** argv) {
     print_hr("oversized_1d", oversized_1d_hr);
     print_hr("oversized_2d", oversized_2d_hr);
     print_hr("oversized_3d", oversized_3d_hr);
+    print_hr("invalid_reserved_layout", invalid_reserved_layout_hr);
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
     print_hr("invalid_heap_properties", invalid_heap_properties_hr);
     print_hr("invalid_node_mask", invalid_node_mask_hr);
