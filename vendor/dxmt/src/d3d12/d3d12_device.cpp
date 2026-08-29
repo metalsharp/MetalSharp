@@ -714,7 +714,8 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
         desc.MipLevels != 1 || desc.Format != DXGI_FORMAT_UNKNOWN ||
         desc.SampleDesc.Count != 1 || desc.SampleDesc.Quality != 0 ||
         desc.Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR || render_target ||
-        depth_stencil)
+        depth_stencil ||
+        (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS))
       return false;
     if (tight_alignment &&
         ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) ||
