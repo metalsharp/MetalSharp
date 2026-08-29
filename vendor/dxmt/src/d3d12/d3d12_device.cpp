@@ -469,6 +469,84 @@ static bool IsPlanarResourceFormat(DXGI_FORMAT format) {
   }
 }
 
+// Metal's sparse provider is format-specific. Keep the D3D12 tiled bit
+// limited to the formats whose UpdateTileMappings/CopyTiles readback is
+// behavior-backed on the proof host; format support for ordinary texture I/O
+// remains independent of this sparse capability.
+static bool IsBehaviorBackedSparseFormat(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_R8_TYPELESS:
+  case DXGI_FORMAT_A8_UNORM:
+  case DXGI_FORMAT_R8_UNORM:
+  case DXGI_FORMAT_R8_SNORM:
+  case DXGI_FORMAT_R8_UINT:
+  case DXGI_FORMAT_R8_SINT:
+  case DXGI_FORMAT_R8G8_TYPELESS:
+  case DXGI_FORMAT_R8G8_UNORM:
+  case DXGI_FORMAT_R8G8_SNORM:
+  case DXGI_FORMAT_R8G8_UINT:
+  case DXGI_FORMAT_R8G8_SINT:
+  case DXGI_FORMAT_R16_TYPELESS:
+  case DXGI_FORMAT_R16_UNORM:
+  case DXGI_FORMAT_R16_SNORM:
+  case DXGI_FORMAT_R16_UINT:
+  case DXGI_FORMAT_R16_SINT:
+  case DXGI_FORMAT_R16_FLOAT:
+  case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+  case DXGI_FORMAT_R8G8B8A8_UNORM:
+  case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+  case DXGI_FORMAT_R8G8B8A8_SNORM:
+  case DXGI_FORMAT_R8G8B8A8_UINT:
+  case DXGI_FORMAT_R8G8B8A8_SINT:
+  case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+  case DXGI_FORMAT_R10G10B10A2_UNORM:
+  case DXGI_FORMAT_R10G10B10A2_UINT:
+  case DXGI_FORMAT_R11G11B10_FLOAT:
+  case DXGI_FORMAT_R32_TYPELESS:
+  case DXGI_FORMAT_R32_UINT:
+  case DXGI_FORMAT_R32_SINT:
+  case DXGI_FORMAT_R32_FLOAT:
+  case DXGI_FORMAT_R32G32_TYPELESS:
+  case DXGI_FORMAT_R32G32_FLOAT:
+  case DXGI_FORMAT_R32G32_UINT:
+  case DXGI_FORMAT_R32G32_SINT:
+  case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+  case DXGI_FORMAT_R16G16B16A16_FLOAT:
+  case DXGI_FORMAT_R16G16B16A16_UNORM:
+  case DXGI_FORMAT_R16G16B16A16_UINT:
+  case DXGI_FORMAT_R16G16B16A16_SNORM:
+  case DXGI_FORMAT_R16G16B16A16_SINT:
+  case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+  case DXGI_FORMAT_R32G32B32A32_FLOAT:
+  case DXGI_FORMAT_R32G32B32A32_UINT:
+  case DXGI_FORMAT_R32G32B32A32_SINT:
+  case DXGI_FORMAT_BC1_TYPELESS:
+  case DXGI_FORMAT_BC1_UNORM:
+  case DXGI_FORMAT_BC1_UNORM_SRGB:
+  case DXGI_FORMAT_BC4_TYPELESS:
+  case DXGI_FORMAT_BC4_UNORM:
+  case DXGI_FORMAT_BC4_SNORM:
+  case DXGI_FORMAT_BC2_TYPELESS:
+  case DXGI_FORMAT_BC2_UNORM:
+  case DXGI_FORMAT_BC2_UNORM_SRGB:
+  case DXGI_FORMAT_BC3_TYPELESS:
+  case DXGI_FORMAT_BC3_UNORM:
+  case DXGI_FORMAT_BC3_UNORM_SRGB:
+  case DXGI_FORMAT_BC5_TYPELESS:
+  case DXGI_FORMAT_BC5_UNORM:
+  case DXGI_FORMAT_BC5_SNORM:
+  case DXGI_FORMAT_BC6H_TYPELESS:
+  case DXGI_FORMAT_BC6H_UF16:
+  case DXGI_FORMAT_BC6H_SF16:
+  case DXGI_FORMAT_BC7_TYPELESS:
+  case DXGI_FORMAT_BC7_UNORM:
+  case DXGI_FORMAT_BC7_UNORM_SRGB:
+    return true;
+  default:
+    return false;
+  }
+}
+
 static UINT FormatPlaneCount(DXGI_FORMAT format) {
   switch (format) {
   case DXGI_FORMAT_R24G8_TYPELESS:
@@ -4265,7 +4343,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
                                   D3D12_FORMAT_SUPPORT2_OUTPUT_MERGER_LOGIC_OP);
     }
 
-    if (has_format_capability(capability, FormatCapability::Sparse)) {
+    if (has_format_capability(capability, FormatCapability::Sparse) &&
+        IsBehaviorBackedSparseFormat(fmt->Format)) {
       support2 =
           (D3D12_FORMAT_SUPPORT2)(support2 | D3D12_FORMAT_SUPPORT2_TILED);
     }
@@ -4871,6 +4950,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
                 desc->RaytracingAccelerationStructure.Location,
             (void *)resource);
     }
+    if (resource) {
+      D3D12_RESOURCE_DESC resource_desc = {};
+      auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
+      if (dxmt_res)
+        dxmt_res->GetDesc(&resource_desc);
+      if (resource_desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) {
+        TRACE("CreateShaderResourceView rejected DENY_SHADER_RESOURCE res=%p",
+              (void *)resource);
+        resource = nullptr;
+      }
+    }
     d->resource = resource;
     d->metal_texture_view = {};
     d->metal_texture_gpu_id = 0;
@@ -4921,6 +5011,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateUnorderedAccessView(
   if (d) {
     d->is_sampler_feedback = false;
     d->sampler_feedback_target = nullptr;
+    if (resource) {
+      D3D12_RESOURCE_DESC resource_desc = {};
+      auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
+      if (dxmt_res)
+        dxmt_res->GetDesc(&resource_desc);
+      if (!(resource_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) {
+        TRACE("CreateUnorderedAccessView rejected missing ALLOW_UAV res=%p",
+              (void *)resource);
+        resource = nullptr;
+      }
+    }
     d->resource = resource;
     d->resource_uav_counter = counter_resource;
     d->metal_texture_view = {};
@@ -4961,6 +5062,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateRenderTargetView(
   }
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    if (resource) {
+      D3D12_RESOURCE_DESC resource_desc = {};
+      auto *resource_impl = static_cast<MTLD3D12Resource *>(resource);
+      if (resource_impl)
+        resource_impl->GetDesc(&resource_desc);
+      if (!(resource_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)) {
+        TRACE("CreateRenderTargetView rejected missing ALLOW_RT res=%p",
+              (void *)resource);
+        resource = nullptr;
+      }
+    }
     d->resource = resource;
     auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
     if (desc && dxmt_res &&
@@ -4993,6 +5105,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateDepthStencilView(
   }
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d) {
+    if (resource) {
+      D3D12_RESOURCE_DESC resource_desc = {};
+      auto *resource_impl = static_cast<MTLD3D12Resource *>(resource);
+      if (resource_impl)
+        resource_impl->GetDesc(&resource_desc);
+      if (!(resource_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) {
+        TRACE("CreateDepthStencilView rejected missing ALLOW_DS res=%p",
+              (void *)resource);
+        resource = nullptr;
+      }
+    }
     d->resource = resource;
     auto *dxmt_res = static_cast<MTLD3D12Resource *>(resource);
     if (desc && dxmt_res &&
@@ -5676,6 +5799,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
       desc->MipLevels && desc->MipLevels <= 16 &&
       desc->SampleDesc.Count <= 1 && desc->Width && desc->Height &&
       desc->DepthOrArraySize &&
+      IsBehaviorBackedSparseFormat(desc->Format) &&
       MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc->Format) !=
           WMTPixelFormatInvalid;
   if (!reserved_buffer && !reserved_texture) {
@@ -5730,7 +5854,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       if (is_buffer) {
         HANDLE public_mapping = nullptr;
         HRESULT hr = CreateSharedBufferMapping(resource_impl, attributes,
-                                               name, &public_mapping);
+                                               access, name, &public_mapping);
         resource->Release();
         if (FAILED(hr))
           return hr;
@@ -5742,7 +5866,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       if (resource_impl->GetSharedTextureMachPort()) {
         HANDLE public_mapping = nullptr;
         HRESULT hr = CreateSharedTextureMapping(resource_impl, attributes,
-                                                name, &public_mapping);
+                                                access, name, &public_mapping);
         resource->Release();
         if (FAILED(hr))
           return hr;
@@ -5762,8 +5886,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       const bool shareable_heap = heap_impl->GetCPUAddress() != nullptr;
       if (shareable_heap) {
         HANDLE public_mapping = nullptr;
-        HRESULT hr = CreateSharedHeapMapping(heap_impl, attributes, name,
-                                             &public_mapping);
+        HRESULT hr = CreateSharedHeapMapping(heap_impl, attributes, access,
+                                             name, &public_mapping);
         heap->Release();
         if (FAILED(hr))
           return hr;
@@ -5781,7 +5905,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
     if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&fence)))) {
       HANDLE public_mapping = nullptr;
       HRESULT hr = CreateSharedFenceMapping(
-          static_cast<MTLD3D12Fence *>(fence), attributes, name,
+          static_cast<MTLD3D12Fence *>(fence), attributes, access, name,
           &public_mapping);
       fence->Release();
       if (SUCCEEDED(hr)) {
@@ -5810,7 +5934,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
                                L"buffer");
         HANDLE public_mapping = nullptr;
         HRESULT hr = CreateSharedBufferMapping(
-            resource_impl, attributes, generated_name, &public_mapping);
+            resource_impl, attributes, access, generated_name, &public_mapping);
         resource->Release();
         if (FAILED(hr))
           return hr;
@@ -5825,7 +5949,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
                                L"texture");
         HANDLE public_mapping = nullptr;
         HRESULT hr = CreateSharedTextureMapping(
-            resource_impl, attributes, generated_name, &public_mapping);
+            resource_impl, attributes, access, generated_name, &public_mapping);
         resource->Release();
         if (FAILED(hr))
           return hr;
@@ -5848,7 +5972,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
                                L"heap");
         HANDLE public_mapping = nullptr;
         HRESULT hr = CreateSharedHeapMapping(
-            heap_impl, attributes, generated_name, &public_mapping);
+            heap_impl, attributes, access, generated_name, &public_mapping);
         heap->Release();
         if (FAILED(hr))
           return hr;
@@ -5869,8 +5993,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
                              L"fence");
       HANDLE public_mapping = nullptr;
       HRESULT hr = CreateSharedFenceMapping(
-          static_cast<MTLD3D12Fence *>(fence), attributes, generated_name,
-          &public_mapping);
+          static_cast<MTLD3D12Fence *>(fence), attributes, access,
+          generated_name, &public_mapping);
       fence->Release();
       if (FAILED(hr))
         return hr;
@@ -5977,6 +6101,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
   HANDLE opened_mapping =
       OpenFileMappingW(mapping_access, FALSE, name);
   if (opened_mapping) {
+    const HRESULT access_hr =
+        ValidateRequestedMappingAccess(opened_mapping, access);
+    if (FAILED(access_hr)) {
+      CloseHandle(opened_mapping);
+      return access_hr;
+    }
     // Validate the mapping without retaining a process-global COM object.
     // The returned handle can subsequently be passed to OpenSharedHandle,
     // which reconstructs a fresh object from the same metadata.

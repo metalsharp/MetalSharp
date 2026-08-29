@@ -31,6 +31,21 @@ struct ResourceShapeProbe {
     D3D12_RESOURCE_DESC created = {};
 };
 
+struct ResourceMatrixProbe {
+    const char *name;
+    D3D12_RESOURCE_DESC desc = {};
+    HRESULT create_hr = E_FAIL;
+    HRESULT footprint_hr = E_FAIL;
+    HRESULT write_hr = E_FAIL;
+    HRESULT read_hr = E_FAIL;
+    UINT subresource_count = 0;
+    UINT64 footprint_bytes = 0;
+    UINT64 mismatch = UINT64_MAX;
+    uint8_t actual = 0;
+    uint8_t expected = 0;
+    bool io_ok = false;
+};
+
 struct TightAlignmentFeatureProbe {
     UINT SupportTier = 0;
 };
@@ -76,6 +91,22 @@ struct SparseFormatProbe {
     UINT total_tiles = 0;
     D3D12_TILE_SHAPE tile_shape = {};
     bool copy_ok = false;
+};
+
+struct SharedTextureShapeProbe {
+    const char *name;
+    D3D12_RESOURCE_DESC desc = {};
+    UINT row_bytes = 0;
+    UINT rows = 0;
+    UINT depth = 1;
+    HRESULT create_hr = E_FAIL;
+    HRESULT write_hr = E_FAIL;
+    HRESULT read_hr = E_FAIL;
+    HRESULT handle_hr = E_FAIL;
+    HRESULT open_hr = E_FAIL;
+    HRESULT named_hr = E_FAIL;
+    bool io_ok = false;
+    bool independent_open_ok = false;
 };
 
 static const GUID IID_D3D12DeviceProbe = {0x189819f1, 0x1db6, 0x4b57, {0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}};
@@ -275,6 +306,45 @@ static int run_shared_child() {
     return pass ? 0 : 1;
 }
 
+static int run_unnamed_shared_texture_child(HANDLE inherited_texture_handle) {
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
+    auto create_device = reinterpret_cast<CreateDeviceFn>(
+        reinterpret_cast<void*>(d3d12 ? GetProcAddress(d3d12, "D3D12CreateDevice") : nullptr));
+    ID3D12Device* device = nullptr;
+    HRESULT create_hr = create_device
+                            ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, IID_D3D12DeviceProbe,
+                                            reinterpret_cast<void**>(&device))
+                            : E_NOINTERFACE;
+    ID3D12Resource* texture = nullptr;
+    HRESULT open_hr = SUCCEEDED(create_hr) && device
+                          ? device->OpenSharedHandle(inherited_texture_handle,
+                                                     IID_PPV_ARGS(&texture))
+                          : E_FAIL;
+    uint8_t before[64] = {};
+    HRESULT read_hr = texture ? texture->ReadFromSubresource(
+                                    before, 16, sizeof(before), 0, nullptr)
+                              : E_FAIL;
+    const bool source_ok = before[0] == 5 && before[1] == 18 &&
+                           before[2] == 31 && before[3] == 44;
+    HRESULT write_hr = E_FAIL;
+    if (SUCCEEDED(read_hr) && source_ok) {
+        uint8_t after[64] = {};
+        std::memcpy(after, before, sizeof(after));
+        const uint32_t sentinel = 0xb16b00b5u;
+        std::memcpy(after, &sentinel, sizeof(sentinel));
+        write_hr = texture->WriteToSubresource(0, nullptr, after, 16,
+                                                sizeof(after));
+    }
+    const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_hr) &&
+                      SUCCEEDED(read_hr) && source_ok && SUCCEEDED(write_hr);
+    if (texture)
+        texture->Release();
+    if (device)
+        device->Release();
+    return pass ? 0 : 1;
+}
+
 static int run_shared_texture_child() {
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
@@ -448,6 +518,41 @@ static bool launch_shared_texture_child() {
     return exit_code == 0;
 }
 
+static bool launch_unnamed_shared_texture_child(
+    HANDLE inherited_texture_handle) {
+    if (!inherited_texture_handle)
+        return false;
+    char module_path[MAX_PATH] = {};
+    if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
+        return false;
+    char handle_text[32] = {};
+    std::snprintf(handle_text, sizeof(handle_text), "%llx",
+                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(
+                      inherited_texture_handle)));
+    std::string command = std::string("\"") + module_path +
+                          "\" --unnamed-shared-texture-child " + handle_text;
+    std::vector<char> command_line(command.begin(), command.end());
+    command_line.push_back('\0');
+    STARTUPINFOA startup = {};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process = {};
+    if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, TRUE, 0,
+                        nullptr, nullptr, &startup, &process))
+        return false;
+    const DWORD wait_result = WaitForSingleObject(process.hProcess, 30000);
+    if (wait_result != WAIT_OBJECT_0) {
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return false;
+    }
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exit_code == 0;
+}
+
 static bool launch_unnamed_heap_child(HANDLE inherited_heap_handle) {
     if (!inherited_heap_handle)
         return false;
@@ -527,6 +632,14 @@ int main(int argc, char** argv) {
         return run_shared_child();
     if (argc == 2 && std::strcmp(argv[1], "--shared-texture-child") == 0)
         return run_shared_texture_child();
+    if (argc == 3 && std::strcmp(argv[1], "--unnamed-shared-texture-child") == 0) {
+        char *end = nullptr;
+        const unsigned long long value = std::strtoull(argv[2], &end, 16);
+        if (!end || *end != '\0' || !value)
+            return 1;
+        return run_unnamed_shared_texture_child(
+            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(value)));
+    }
     if (argc == 3 && std::strcmp(argv[1], "--unnamed-heap-child") == 0) {
         char *end = nullptr;
         const unsigned long long value = std::strtoull(argv[2], &end, 16);
@@ -630,6 +743,16 @@ int main(int argc, char** argv) {
     HRESULT unnamed_shared_fence_signal_hr = E_FAIL;
     HRESULT invalid_shared_cross_adapter_fence_hr = E_FAIL;
     bool unnamed_shared_fence_roundtrip_ok = false;
+    ID3D12Fence *shared_read_only_fence = nullptr;
+    HANDLE shared_read_only_fence_handle = nullptr;
+    HANDLE shared_read_only_fence_name_handle = nullptr;
+    ID3D12Fence *shared_read_only_fence_open = nullptr;
+    HRESULT shared_read_only_fence_create_hr = E_FAIL;
+    HRESULT shared_read_only_fence_name_open_hr = E_FAIL;
+    HRESULT shared_read_only_fence_open_hr = E_FAIL;
+    HRESULT shared_read_only_fence_signal_hr = E_FAIL;
+    HRESULT shared_read_only_fence_write_open_hr = E_FAIL;
+    bool shared_fence_access_policy_ok = false;
     if (SUCCEEDED(shared_fence_signal_hr) && shared_fence_handle && device) {
         ID3D12Fence *mapped_fence_probe = nullptr;
         if (SUCCEEDED(device->OpenSharedHandle(
@@ -694,6 +817,58 @@ int main(int argc, char** argv) {
         SUCCEEDED(unnamed_shared_fence_signal_hr) &&
         unnamed_shared_fence_signaled;
 
+    // Exercise fence handle rights independently from the all-access
+    // synchronization path. A read-only handle may observe completion but
+    // cannot signal or be reopened with stronger rights.
+    shared_read_only_fence_create_hr = device
+        ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                              IID_PPV_ARGS(&shared_read_only_fence))
+        : E_FAIL;
+    if (shared_read_only_fence) {
+        shared_read_only_fence_create_hr = device->CreateSharedHandle(
+            shared_read_only_fence, nullptr, GENERIC_READ,
+            L"metalsharp-probe-readonly-fence",
+            &shared_read_only_fence_handle);
+        if (SUCCEEDED(shared_read_only_fence_create_hr)) {
+            shared_read_only_fence_name_open_hr =
+                device->OpenSharedHandleByName(
+                    L"metalsharp-probe-readonly-fence", GENERIC_READ,
+                    &shared_read_only_fence_name_handle);
+            if (shared_read_only_fence_name_handle)
+                CloseHandle(shared_read_only_fence_name_handle);
+            shared_read_only_fence_name_handle = nullptr;
+            HANDLE stronger_fence_handle = nullptr;
+            shared_read_only_fence_write_open_hr =
+                device->OpenSharedHandleByName(
+                    L"metalsharp-probe-readonly-fence", GENERIC_WRITE,
+                    &stronger_fence_handle);
+            if (stronger_fence_handle)
+                CloseHandle(stronger_fence_handle);
+            shared_read_only_fence_open_hr = device->OpenSharedHandle(
+                shared_read_only_fence_handle,
+                IID_PPV_ARGS(&shared_read_only_fence_open));
+            shared_read_only_fence_signal_hr =
+                shared_read_only_fence_open
+                    ? queue->Signal(shared_read_only_fence_open, 1)
+                    : E_FAIL;
+            shared_fence_access_policy_ok =
+                SUCCEEDED(shared_read_only_fence_create_hr) &&
+                SUCCEEDED(shared_read_only_fence_name_open_hr) &&
+                SUCCEEDED(shared_read_only_fence_open_hr) &&
+                shared_read_only_fence_open->GetCompletedValue() == 0 &&
+                shared_read_only_fence_signal_hr == E_ACCESSDENIED &&
+                shared_read_only_fence_write_open_hr == E_ACCESSDENIED;
+        }
+    }
+    if (shared_read_only_fence_open)
+        shared_read_only_fence_open->Release();
+    if (shared_read_only_fence_name_handle)
+        CloseHandle(shared_read_only_fence_name_handle);
+    if (shared_read_only_fence_handle)
+        CloseHandle(shared_read_only_fence_handle);
+    if (shared_read_only_fence)
+        shared_read_only_fence->Release();
+
     const UINT64 buffer_bytes = 4096;
     D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
     D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
@@ -726,6 +901,10 @@ int main(int argc, char** argv) {
     ID3D12Heap* unsupported_shared_default_heap = nullptr;
     HANDLE unnamed_shared_heap_handle = nullptr;
     std::vector<ResourceShapeProbe> resource_shapes;
+    std::vector<ResourceMatrixProbe> resource_matrix_probes;
+    bool resource_matrix_ok = false;
+    UINT placed_offset_matrix_count = 0;
+    bool placed_offset_matrix_ok = false;
     ID3D12Heap *placed_1d_array_heap = nullptr;
     ID3D12Resource *placed_1d_array_resource = nullptr;
     ID3D12Heap *placed_2d_heap = nullptr;
@@ -864,6 +1043,18 @@ int main(int argc, char** argv) {
     HRESULT unnamed_shared_heap_handle_hr = E_FAIL;
     HRESULT unnamed_shared_heap_open_hr = E_FAIL;
     bool unnamed_shared_heap_roundtrip_ok = false;
+    HANDLE shared_read_only_heap_handle = nullptr;
+    HANDLE shared_read_only_heap_name_handle = nullptr;
+    ID3D12Heap *shared_read_only_heap_open = nullptr;
+    ID3D12Resource *shared_read_only_heap_resource = nullptr;
+    HRESULT shared_read_only_heap_create_hr = E_FAIL;
+    HRESULT shared_read_only_heap_name_open_hr = E_FAIL;
+    HRESULT shared_read_only_heap_open_hr = E_FAIL;
+    HRESULT shared_read_only_heap_write_open_hr = E_FAIL;
+    HRESULT shared_read_only_heap_resource_hr = E_FAIL;
+    HRESULT shared_read_only_heap_map_hr = E_FAIL;
+    HRESULT shared_read_only_heap_read_hr = E_FAIL;
+    bool shared_heap_access_policy_ok = false;
     HRESULT shared_default_heap_create_hr = E_FAIL;
     HRESULT shared_default_heap_handle_hr = E_FAIL;
     HANDLE shared_default_heap_handle = nullptr;
@@ -876,6 +1067,21 @@ int main(int argc, char** argv) {
     HRESULT shared_missing_name_hr = E_FAIL;
     HRESULT shared_invalid_create_access_hr = E_FAIL;
     HRESULT shared_invalid_open_access_hr = E_FAIL;
+    HANDLE shared_read_only_handle = nullptr;
+    HANDLE shared_read_only_name_handle = nullptr;
+    ID3D12Resource *shared_read_only_open = nullptr;
+    HRESULT shared_read_only_create_hr = E_FAIL;
+    HRESULT shared_read_only_name_open_hr = E_FAIL;
+    HRESULT shared_read_only_handle_open_hr = E_FAIL;
+    HRESULT shared_read_only_read_hr = E_FAIL;
+    HRESULT shared_read_only_write_hr = E_FAIL;
+    HRESULT shared_read_only_map_hr = E_FAIL;
+    HRESULT shared_read_only_write_open_hr = E_FAIL;
+    bool shared_access_policy_ok = false;
+    HRESULT shared_lifetime_create_hr = E_FAIL;
+    HRESULT shared_lifetime_release_hr = E_FAIL;
+    HRESULT shared_lifetime_open_after_release_hr = E_FAIL;
+    bool shared_lifetime_policy_ok = false;
     bool shared_independent_object_ok = false;
     HRESULT shared_texture_hr = E_FAIL;
     HANDLE shared_texture_handle = nullptr;
@@ -918,6 +1124,13 @@ int main(int argc, char** argv) {
     HRESULT query_reclaim_residency_hr = E_FAIL;
     WINBOOL offered_resource_discarded = FALSE;
     bool dxgi_offer_reclaim_ok = false;
+    HRESULT residency_pressure_offer_hr = E_FAIL;
+    HRESULT residency_pressure_reclaim_hr = E_FAIL;
+    HRESULT residency_pressure_query_after_trim_hr = E_FAIL;
+    UINT residency_pressure_allocation_count = 0;
+    UINT64 residency_pressure_allocated_bytes = 0;
+    bool residency_pressure_discarded = false;
+    bool residency_pressure_verified = false;
     bool residency_state_ok = false;
     HRESULT address_heap_hr = E_FAIL;
     HRESULT address_resource_hr = E_FAIL;
@@ -2296,6 +2509,83 @@ int main(int argc, char** argv) {
                 unnamed_shared_heap_cross_process_ok =
                     launch_unnamed_heap_child(unnamed_shared_heap_handle);
         }
+
+        // A read-only heap handle may be inspected and used for readback, but
+        // a placed CPU-visible resource must not expose a writable mapping.
+        D3D12_HEAP_DESC read_only_heap_desc = {};
+        read_only_heap_desc.SizeInBytes = 64 * 1024;
+        read_only_heap_desc.Properties = upload_heap;
+        read_only_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        ID3D12Heap *read_only_heap_source = nullptr;
+        shared_read_only_heap_create_hr = device->CreateHeap(
+            &read_only_heap_desc, IID_PPV_ARGS(&read_only_heap_source));
+        if (read_only_heap_source) {
+            shared_read_only_heap_create_hr = device->CreateSharedHandle(
+                read_only_heap_source, nullptr, GENERIC_READ,
+                L"metalsharp-probe-readonly-heap",
+                &shared_read_only_heap_handle);
+            if (SUCCEEDED(shared_read_only_heap_create_hr)) {
+                shared_read_only_heap_name_open_hr =
+                    device->OpenSharedHandleByName(
+                        L"metalsharp-probe-readonly-heap", GENERIC_READ,
+                        &shared_read_only_heap_name_handle);
+                if (shared_read_only_heap_name_handle)
+                    CloseHandle(shared_read_only_heap_name_handle);
+                shared_read_only_heap_name_handle = nullptr;
+                HANDLE stronger_heap_handle = nullptr;
+                shared_read_only_heap_write_open_hr =
+                    device->OpenSharedHandleByName(
+                        L"metalsharp-probe-readonly-heap", GENERIC_WRITE,
+                        &stronger_heap_handle);
+                if (stronger_heap_handle)
+                    CloseHandle(stronger_heap_handle);
+                shared_read_only_heap_open_hr = device->OpenSharedHandle(
+                    shared_read_only_heap_handle,
+                    IID_PPV_ARGS(&shared_read_only_heap_open));
+            }
+            if (shared_read_only_heap_open) {
+                D3D12_RESOURCE_DESC read_only_heap_resource_desc =
+                    buffer_desc(256);
+                shared_read_only_heap_resource_hr =
+                    device->CreatePlacedResource(
+                        shared_read_only_heap_open, 0,
+                        &read_only_heap_resource_desc,
+                        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                        IID_PPV_ARGS(&shared_read_only_heap_resource));
+                void *read_only_heap_data = nullptr;
+                shared_read_only_heap_map_hr =
+                    shared_read_only_heap_resource
+                        ? shared_read_only_heap_resource->Map(
+                              0, nullptr, &read_only_heap_data)
+                        : E_FAIL;
+                uint8_t read_only_heap_bytes[16] = {};
+                shared_read_only_heap_read_hr =
+                    shared_read_only_heap_resource
+                        ? shared_read_only_heap_resource->ReadFromSubresource(
+                              read_only_heap_bytes, sizeof(read_only_heap_bytes),
+                              sizeof(read_only_heap_bytes), 0, nullptr)
+                        : E_FAIL;
+                shared_heap_access_policy_ok =
+                    SUCCEEDED(shared_read_only_heap_create_hr) &&
+                    SUCCEEDED(shared_read_only_heap_name_open_hr) &&
+                    SUCCEEDED(shared_read_only_heap_open_hr) &&
+                    SUCCEEDED(shared_read_only_heap_resource_hr) &&
+                    shared_read_only_heap_map_hr == E_ACCESSDENIED &&
+                    SUCCEEDED(shared_read_only_heap_read_hr) &&
+                    shared_read_only_heap_write_open_hr == E_ACCESSDENIED;
+            }
+        }
+        if (shared_read_only_heap_resource)
+            shared_read_only_heap_resource->Release();
+        if (shared_read_only_heap_open)
+            shared_read_only_heap_open->Release();
+        if (shared_read_only_heap_name_handle)
+            CloseHandle(shared_read_only_heap_name_handle);
+        if (shared_read_only_heap_handle)
+            CloseHandle(shared_read_only_heap_handle);
+        if (read_only_heap_source)
+            read_only_heap_source->Release();
+
         D3D12_HEAP_DESC unsupported_shared_default_heap_desc = {};
         unsupported_shared_default_heap_desc.SizeInBytes = 64 * 1024;
         unsupported_shared_default_heap_desc.Properties = default_heap;
@@ -2443,6 +2733,81 @@ int main(int argc, char** argv) {
                 SUCCEEDED(query_reclaim_residency_hr) &&
                 reclaim_residency == DXGI_RESIDENCY_FULLY_RESIDENT;
         }
+
+        // Allocate a bounded pressure arena before offering it. The arena is
+        // large enough to exercise real Metal allocations on the proof host,
+        // while remaining deterministic and released before probe teardown.
+        constexpr UINT64 pressure_bytes_per_resource = UINT64(64) * 1024 * 1024;
+        constexpr UINT pressure_resource_limit = 8;
+        std::vector<ID3D12Resource *> pressure_resources;
+        for (UINT i = 0; i < pressure_resource_limit; ++i) {
+            D3D12_RESOURCE_DESC pressure_desc =
+                buffer_desc(pressure_bytes_per_resource);
+            ID3D12Resource *pressure_resource = nullptr;
+            HRESULT pressure_hr = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &pressure_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&pressure_resource));
+            if (FAILED(pressure_hr) || !pressure_resource) {
+                if (pressure_resource)
+                    pressure_resource->Release();
+                break;
+            }
+            pressure_resources.push_back(pressure_resource);
+            ++residency_pressure_allocation_count;
+            residency_pressure_allocated_bytes +=
+                pressure_bytes_per_resource;
+            const uint8_t touch = static_cast<uint8_t>(0x40u + i);
+            pressure_resource->WriteToSubresource(0, nullptr, &touch, 1, 1);
+        }
+        if (dxgi_device && pressure_resources.size() == pressure_resource_limit) {
+            std::vector<IDXGIResource *> pressure_views;
+            std::vector<IUnknown *> pressure_unknowns;
+            pressure_views.reserve(pressure_resources.size());
+            pressure_unknowns.reserve(pressure_resources.size());
+            for (auto *pressure_resource : pressure_resources) {
+                IDXGIResource *pressure_view = nullptr;
+                if (FAILED(pressure_resource->QueryInterface(
+                        IID_PPV_ARGS(&pressure_view))))
+                    break;
+                pressure_views.push_back(pressure_view);
+                pressure_unknowns.push_back(pressure_view);
+            }
+            if (pressure_views.size() == pressure_resources.size()) {
+                residency_pressure_offer_hr = dxgi_device->OfferResources(
+                    static_cast<UINT>(pressure_views.size()), pressure_views.data(),
+                    DXGI_OFFER_RESOURCE_PRIORITY_LOW);
+                dxgi_device->Trim();
+                std::vector<DXGI_RESIDENCY> pressure_residency(
+                    pressure_unknowns.size(), DXGI_RESIDENCY_FULLY_RESIDENT);
+                residency_pressure_query_after_trim_hr =
+                    dxgi_device->QueryResourceResidency(
+                        pressure_unknowns.data(), pressure_residency.data(),
+                        static_cast<UINT>(pressure_unknowns.size()));
+                std::vector<WINBOOL> pressure_discarded(
+                    pressure_views.size(), FALSE);
+                residency_pressure_reclaim_hr = dxgi_device->ReclaimResources(
+                    static_cast<UINT>(pressure_views.size()), pressure_views.data(),
+                    pressure_discarded.data());
+                residency_pressure_discarded =
+                    SUCCEEDED(residency_pressure_reclaim_hr);
+                for (size_t i = 0; i < pressure_discarded.size(); ++i)
+                    residency_pressure_discarded =
+                        residency_pressure_discarded && pressure_discarded[i] == TRUE &&
+                        pressure_residency[i] == DXGI_RESIDENCY_EVICTED_TO_DISK;
+                residency_pressure_verified =
+                    SUCCEEDED(residency_pressure_offer_hr) &&
+                    SUCCEEDED(residency_pressure_query_after_trim_hr) &&
+                    residency_pressure_discarded &&
+                    residency_pressure_allocation_count == pressure_resource_limit &&
+                    residency_pressure_allocated_bytes ==
+                        pressure_bytes_per_resource * pressure_resource_limit;
+            }
+            for (auto *pressure_view : pressure_views)
+                pressure_view->Release();
+        }
+        for (auto *pressure_resource : pressure_resources)
+            pressure_resource->Release();
     }
 
     if (device && default_buffer) {
@@ -2585,6 +2950,91 @@ int main(int argc, char** argv) {
             L"metalsharp-probe-buffer", 0, &invalid_access_handle);
         if (invalid_access_handle)
             CloseHandle(invalid_access_handle);
+
+        // A read-only shared handle must preserve read access while refusing
+        // both writable views and a stronger OpenSharedHandleByName request.
+        if (unnamed_shared_source) {
+            shared_read_only_create_hr = device->CreateSharedHandle(
+                unnamed_shared_source, nullptr, GENERIC_READ,
+                L"metalsharp-probe-readonly-buffer",
+                &shared_read_only_handle);
+            if (SUCCEEDED(shared_read_only_create_hr)) {
+                shared_read_only_name_open_hr = device->OpenSharedHandleByName(
+                    L"metalsharp-probe-readonly-buffer", GENERIC_READ,
+                    &shared_read_only_name_handle);
+                shared_read_only_write_open_hr = device->OpenSharedHandleByName(
+                    L"metalsharp-probe-readonly-buffer", GENERIC_WRITE,
+                    &invalid_access_handle);
+                if (invalid_access_handle)
+                    CloseHandle(invalid_access_handle);
+                shared_read_only_handle_open_hr = device->OpenSharedHandle(
+                    shared_read_only_handle,
+                    IID_PPV_ARGS(&shared_read_only_open));
+            }
+            if (shared_read_only_open) {
+                uint32_t read_value = 0;
+                shared_read_only_read_hr =
+                    shared_read_only_open->ReadFromSubresource(
+                        &read_value, sizeof(read_value), sizeof(read_value),
+                        0, nullptr);
+                const uint32_t denied_value = 0xfeedfaceu;
+                shared_read_only_write_hr =
+                    shared_read_only_open->WriteToSubresource(
+                        0, nullptr, &denied_value, sizeof(denied_value),
+                        sizeof(denied_value));
+                void *read_only_data = nullptr;
+                shared_read_only_map_hr = shared_read_only_open->Map(
+                    0, nullptr, &read_only_data);
+                shared_access_policy_ok =
+                    SUCCEEDED(shared_read_only_create_hr) &&
+                    SUCCEEDED(shared_read_only_name_open_hr) &&
+                    SUCCEEDED(shared_read_only_handle_open_hr) &&
+                    SUCCEEDED(shared_read_only_read_hr) &&
+                    read_value == 0xdecafbadu &&
+                    shared_read_only_write_hr == E_ACCESSDENIED &&
+                    shared_read_only_map_hr == E_ACCESSDENIED &&
+                    shared_read_only_write_open_hr == E_ACCESSDENIED;
+            }
+        }
+        if (shared_read_only_open)
+            shared_read_only_open->Release();
+        if (shared_read_only_name_handle)
+            CloseHandle(shared_read_only_name_handle);
+        if (shared_read_only_handle)
+            CloseHandle(shared_read_only_handle);
+
+        // The named section must be kept alive by an outstanding resource or
+        // handle, and must disappear after both lifetimes end.
+        ID3D12Resource *lifetime_resource = nullptr;
+        HANDLE lifetime_handle = nullptr;
+        D3D12_RESOURCE_DESC lifetime_desc = buffer_desc(256);
+        shared_lifetime_create_hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &lifetime_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&lifetime_resource));
+        if (lifetime_resource)
+            shared_lifetime_create_hr = device->CreateSharedHandle(
+                lifetime_resource, nullptr, GENERIC_ALL,
+                L"metalsharp-probe-shared-lifetime", &lifetime_handle);
+        if (lifetime_handle)
+            CloseHandle(lifetime_handle);
+        lifetime_handle = nullptr;
+        if (lifetime_resource) {
+            lifetime_resource->Release();
+            lifetime_resource = nullptr;
+            shared_lifetime_release_hr = S_OK;
+        }
+        HANDLE stale_lifetime_handle = nullptr;
+        shared_lifetime_open_after_release_hr =
+            device->OpenSharedHandleByName(
+                L"metalsharp-probe-shared-lifetime", GENERIC_ALL,
+                &stale_lifetime_handle);
+        if (stale_lifetime_handle)
+            CloseHandle(stale_lifetime_handle);
+        shared_lifetime_policy_ok =
+            SUCCEEDED(shared_lifetime_create_hr) &&
+            SUCCEEDED(shared_lifetime_release_hr) &&
+            shared_lifetime_open_after_release_hr == DXGI_ERROR_NOT_FOUND;
     }
 
     uint8_t* upload_ptr = nullptr;
@@ -2636,6 +3086,11 @@ int main(int argc, char** argv) {
     ID3D12Resource* shared_texture_resource = nullptr;
     ID3D12Resource* shared_texture_open = nullptr;
     ID3D12Resource* shared_texture_named_open = nullptr;
+    ID3D12Resource* unnamed_shared_texture = nullptr;
+    HANDLE unnamed_shared_texture_handle = nullptr;
+    HRESULT unnamed_shared_texture_create_hr = E_FAIL;
+    HRESULT unnamed_shared_texture_handle_hr = E_FAIL;
+    bool unnamed_shared_texture_cross_process_ok = false;
     HANDLE shared_texture_resource_handle = nullptr;
     HANDLE shared_texture_resource_named_handle = nullptr;
     ID3D12Resource* direct_io_nv12_upload = nullptr;
@@ -2910,6 +3365,19 @@ int main(int argc, char** argv) {
     HRESULT shared_texture_named_open_hr = E_FAIL;
     bool shared_texture_roundtrip_ok = false;
     bool shared_texture_cross_process_ok = false;
+    HANDLE shared_read_only_texture_handle = nullptr;
+    HANDLE shared_read_only_texture_name_handle = nullptr;
+    ID3D12Resource *shared_read_only_texture_open = nullptr;
+    HRESULT shared_read_only_texture_create_hr = E_FAIL;
+    HRESULT shared_read_only_texture_name_open_hr = E_FAIL;
+    HRESULT shared_read_only_texture_open_hr = E_FAIL;
+    HRESULT shared_read_only_texture_read_hr = E_FAIL;
+    HRESULT shared_read_only_texture_write_hr = E_FAIL;
+    HRESULT shared_read_only_texture_map_hr = E_FAIL;
+    HRESULT shared_read_only_texture_write_open_hr = E_FAIL;
+    bool shared_texture_access_policy_ok = false;
+    std::vector<SharedTextureShapeProbe> shared_texture_shape_probes;
+    bool shared_texture_shape_matrix_ok = false;
     HRESULT direct_io_p010_write_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_p010_read_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_nv12_upload_hr = E_FAIL;
@@ -3032,6 +3500,216 @@ int main(int argc, char** argv) {
                 shared_texture_cross_process_ok &&
                 child_value == 0xcafef00du;
         }
+
+        if (shared_texture_resource) {
+            shared_read_only_texture_create_hr = device->CreateSharedHandle(
+                shared_texture_resource, nullptr, GENERIC_READ,
+                L"metalsharp-probe-readonly-texture",
+                &shared_read_only_texture_handle);
+            if (SUCCEEDED(shared_read_only_texture_create_hr)) {
+                shared_read_only_texture_name_open_hr =
+                    device->OpenSharedHandleByName(
+                        L"metalsharp-probe-readonly-texture", GENERIC_READ,
+                        &shared_read_only_texture_name_handle);
+                if (shared_read_only_texture_name_handle)
+                    CloseHandle(shared_read_only_texture_name_handle);
+                shared_read_only_texture_name_handle = nullptr;
+                HANDLE stronger_texture_handle = nullptr;
+                shared_read_only_texture_write_open_hr =
+                    device->OpenSharedHandleByName(
+                        L"metalsharp-probe-readonly-texture", GENERIC_WRITE,
+                        &stronger_texture_handle);
+                if (stronger_texture_handle)
+                    CloseHandle(stronger_texture_handle);
+                shared_read_only_texture_open_hr = device->OpenSharedHandle(
+                    shared_read_only_texture_handle,
+                    IID_PPV_ARGS(&shared_read_only_texture_open));
+            }
+            if (shared_read_only_texture_open) {
+                uint8_t read_data[64] = {};
+                shared_read_only_texture_read_hr =
+                    shared_read_only_texture_open->ReadFromSubresource(
+                        read_data, 16, sizeof(read_data), 0, nullptr);
+                const uint8_t denied_data[64] = {};
+                shared_read_only_texture_write_hr =
+                    shared_read_only_texture_open->WriteToSubresource(
+                        0, nullptr, denied_data, 16, sizeof(denied_data));
+                void *read_only_data = nullptr;
+                shared_read_only_texture_map_hr =
+                    shared_read_only_texture_open->Map(
+                        0, nullptr, &read_only_data);
+                shared_texture_access_policy_ok =
+                    SUCCEEDED(shared_read_only_texture_create_hr) &&
+                    SUCCEEDED(shared_read_only_texture_name_open_hr) &&
+                    SUCCEEDED(shared_read_only_texture_open_hr) &&
+                    SUCCEEDED(shared_read_only_texture_read_hr) &&
+                    shared_read_only_texture_write_hr == E_ACCESSDENIED &&
+                    shared_read_only_texture_map_hr == E_ACCESSDENIED &&
+                    shared_read_only_texture_write_open_hr == E_ACCESSDENIED;
+            }
+        }
+        if (shared_read_only_texture_open)
+            shared_read_only_texture_open->Release();
+        if (shared_read_only_texture_name_handle)
+            CloseHandle(shared_read_only_texture_name_handle);
+        if (shared_read_only_texture_handle)
+            CloseHandle(shared_read_only_texture_handle);
+
+        D3D12_RESOURCE_DESC unnamed_shared_texture_desc =
+            texture_desc(4, 4, DXGI_FORMAT_R8G8B8A8_UNORM);
+        unnamed_shared_texture_create_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_SHARED,
+            &unnamed_shared_texture_desc, D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&unnamed_shared_texture));
+        if (unnamed_shared_texture) {
+            uint8_t source[64] = {};
+            for (UINT i = 0; i < sizeof(source); ++i)
+                source[i] = static_cast<uint8_t>(i * 13u + 5u);
+            unnamed_shared_texture->WriteToSubresource(
+                0, nullptr, source, 16, sizeof(source));
+            unnamed_shared_texture_handle_hr = device->CreateSharedHandle(
+                unnamed_shared_texture, &inherited_shared_attributes,
+                GENERIC_ALL, nullptr, &unnamed_shared_texture_handle);
+            if (SUCCEEDED(unnamed_shared_texture_handle_hr))
+                unnamed_shared_texture_cross_process_ok =
+                    launch_unnamed_shared_texture_child(
+                        unnamed_shared_texture_handle);
+            if (unnamed_shared_texture_cross_process_ok) {
+                uint8_t child_data[64] = {};
+                if (SUCCEEDED(unnamed_shared_texture->ReadFromSubresource(
+                        child_data, 16, sizeof(child_data), 0, nullptr))) {
+                    uint32_t child_value = 0;
+                    std::memcpy(&child_value, child_data, sizeof(child_value));
+                    unnamed_shared_texture_cross_process_ok =
+                        child_value == 0xb16b00b5u;
+                } else {
+                    unnamed_shared_texture_cross_process_ok = false;
+                }
+            }
+        }
+        if (unnamed_shared_texture_handle)
+            CloseHandle(unnamed_shared_texture_handle);
+        if (unnamed_shared_texture)
+            unnamed_shared_texture->Release();
+    }
+
+    // Shared texture transport is a platform-backed provider, so exercise
+    // each texture representation that the provider can legally construct,
+    // rather than treating one RGBA8 2D sample as universal coverage.
+    const struct {
+        const char *name;
+        D3D12_RESOURCE_DESC desc;
+        UINT row_bytes;
+        UINT rows;
+        UINT depth;
+    } shared_texture_cases[] = {
+        {"rgba8_2d_array", [] {
+             auto d = texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+             d.DepthOrArraySize = 2;
+             return d;
+         }(), 32, 8, 1},
+        {"rgba8_2d_mips", [] {
+             auto d = texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+             d.MipLevels = 2;
+             return d;
+         }(), 32, 8, 1},
+        {"r8_2d", texture_desc(8, 8, DXGI_FORMAT_R8_UNORM), 8, 8, 1},
+        {"a8_2d", texture_desc(8, 8, DXGI_FORMAT_A8_UNORM), 8, 8, 1},
+        {"r16_2d", texture_desc(8, 8, DXGI_FORMAT_R16_FLOAT), 16, 8, 1},
+        {"r32_1d", [] {
+             auto d = texture_desc(8, 1, DXGI_FORMAT_R32_FLOAT);
+             d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+             return d;
+         }(), 32, 1, 1},
+        {"bgra8_2d", texture_desc(8, 8, DXGI_FORMAT_B8G8R8A8_UNORM), 32, 8, 1},
+        {"rg8_2d", texture_desc(8, 8, DXGI_FORMAT_R8G8_UNORM), 16, 8, 1},
+        {"r10_2d", texture_desc(8, 8, DXGI_FORMAT_R10G10B10A2_UNORM), 32, 8, 1},
+        {"r11_2d", texture_desc(8, 8, DXGI_FORMAT_R11G11B10_FLOAT), 32, 8, 1},
+        {"r9_2d", texture_desc(8, 8, DXGI_FORMAT_R9G9B9E5_SHAREDEXP), 32, 8, 1},
+        {"rg16_2d", texture_desc(8, 8, DXGI_FORMAT_R16G16_FLOAT), 32, 8, 1},
+        {"rg32_2d", texture_desc(8, 8, DXGI_FORMAT_R32G32_FLOAT), 64, 8, 1},
+        {"rgba16_2d", texture_desc(8, 8, DXGI_FORMAT_R16G16B16A16_FLOAT), 64, 8, 1},
+        {"rgba32_2d", texture_desc(4, 4, DXGI_FORMAT_R32G32B32A32_FLOAT), 64, 4, 1},
+        {"bc1_2d", texture_desc(8, 8, DXGI_FORMAT_BC1_UNORM), 16, 2, 1},
+        {"bc7_2d", texture_desc(8, 8, DXGI_FORMAT_BC7_UNORM), 32, 2, 1},
+    };
+    shared_texture_shape_matrix_ok = device != nullptr;
+    for (UINT case_index = 0;
+         case_index < ARRAYSIZE(shared_texture_cases); ++case_index) {
+        const auto &texture_case = shared_texture_cases[case_index];
+        SharedTextureShapeProbe probe = {};
+        probe.name = texture_case.name;
+        probe.desc = texture_case.desc;
+        probe.row_bytes = texture_case.row_bytes;
+        probe.rows = texture_case.rows;
+        probe.depth = texture_case.depth;
+        ID3D12Resource *shape_resource = nullptr;
+        probe.create_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_SHARED, &probe.desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&shape_resource));
+        if (shape_resource) {
+            const UINT64 byte_count = UINT64(probe.row_bytes) * probe.rows *
+                                      probe.depth;
+            std::vector<uint8_t> source(static_cast<size_t>(byte_count));
+            std::vector<uint8_t> destination(static_cast<size_t>(byte_count));
+            for (UINT64 i = 0; i < byte_count; ++i)
+                source[static_cast<size_t>(i)] = static_cast<uint8_t>(
+                    (i * 17u + case_index * 29u + 3u) & 0xffu);
+            probe.write_hr = shape_resource->WriteToSubresource(
+                0, nullptr, source.data(), probe.row_bytes,
+                probe.row_bytes * probe.rows);
+            probe.read_hr = shape_resource->ReadFromSubresource(
+                destination.data(), probe.row_bytes,
+                probe.row_bytes * probe.rows, 0, nullptr);
+            probe.io_ok = SUCCEEDED(probe.write_hr) &&
+                          SUCCEEDED(probe.read_hr) && source == destination;
+            WCHAR name[96] = {};
+            std::swprintf(name, ARRAYSIZE(name),
+                          L"metalsharp-probe-shared-shape-%u", case_index);
+            HANDLE shape_handle = nullptr;
+            probe.handle_hr = device->CreateSharedHandle(
+                shape_resource, nullptr, GENERIC_ALL, name, &shape_handle);
+            ID3D12Resource *opened_shape = nullptr;
+            if (SUCCEEDED(probe.handle_hr))
+                probe.open_hr = device->OpenSharedHandle(
+                    shape_handle, IID_PPV_ARGS(&opened_shape));
+            HANDLE named_shape_handle = nullptr;
+            ID3D12Resource *named_shape = nullptr;
+            if (SUCCEEDED(device->OpenSharedHandleByName(
+                    name, GENERIC_ALL, &named_shape_handle))) {
+                probe.named_hr = device->OpenSharedHandle(
+                    named_shape_handle, IID_PPV_ARGS(&named_shape));
+            }
+            D3D12_RESOURCE_DESC opened_desc = {};
+            if (opened_shape)
+                opened_shape->GetDesc(&opened_desc);
+            D3D12_RESOURCE_DESC named_desc = {};
+            if (named_shape)
+                named_shape->GetDesc(&named_desc);
+            probe.independent_open_ok =
+                opened_shape && named_shape && opened_shape != shape_resource &&
+                named_shape != shape_resource &&
+                same_resource_desc(opened_desc, probe.desc) &&
+                same_resource_desc(named_desc, probe.desc);
+            if (named_shape)
+                named_shape->Release();
+            if (named_shape_handle)
+                CloseHandle(named_shape_handle);
+            if (opened_shape)
+                opened_shape->Release();
+            if (shape_handle)
+                CloseHandle(shape_handle);
+            shape_resource->Release();
+        }
+        const bool case_ok = SUCCEEDED(probe.create_hr) && probe.io_ok &&
+                             SUCCEEDED(probe.handle_hr) &&
+                             SUCCEEDED(probe.open_hr) &&
+                             SUCCEEDED(probe.named_hr) &&
+                             probe.independent_open_ok;
+        shared_texture_shape_matrix_ok =
+            shared_texture_shape_matrix_ok && case_ok;
+        shared_texture_shape_probes.push_back(probe);
     }
     D3D12_RESOURCE_DESC direct_io_volume_desc =
         texture_desc(4, 4, DXGI_FORMAT_R8_UNORM);
@@ -3720,22 +4398,120 @@ int main(int argc, char** argv) {
         }
         r8_partial_upload->Unmap(0, nullptr);
     }
-    std::vector<SparseFormatProbe> sparse_format_probes = {
-        {"R8_UNORM", DXGI_FORMAT_R8_UNORM, 256, 256, 256, 256},
-        {"R8G8_UNORM", DXGI_FORMAT_R8G8_UNORM, 256, 128, 256, 128},
-        {"R16_FLOAT", DXGI_FORMAT_R16_FLOAT, 256, 128, 256, 128},
-        {"R32_UINT", DXGI_FORMAT_R32_UINT, 128, 128, 128, 128},
-        {"R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM, 128, 128, 128, 128},
-        {"R10G10B10A2_UNORM", DXGI_FORMAT_R10G10B10A2_UNORM, 128, 128, 128, 128},
-        {"R11G11B10_FLOAT", DXGI_FORMAT_R11G11B10_FLOAT, 128, 128, 128, 128},
-        {"R16G16B16A16_UNORM", DXGI_FORMAT_R16G16B16A16_UNORM, 128, 64, 128, 64},
-        {"R32G32B32A32_FLOAT", DXGI_FORMAT_R32G32B32A32_FLOAT, 64, 64, 64, 64},
-        {"R8G8B8A8_UINT", DXGI_FORMAT_R8G8B8A8_UINT, 128, 128, 128, 128},
-        {"R32_FLOAT", DXGI_FORMAT_R32_FLOAT, 128, 128, 128, 128},
-        {"BC1_UNORM", DXGI_FORMAT_BC1_UNORM, 512, 256, 512, 256},
-        {"BC4_UNORM", DXGI_FORMAT_BC4_UNORM, 512, 256, 512, 256},
-        {"BC7_UNORM", DXGI_FORMAT_BC7_UNORM, 256, 256, 256, 256},
+    std::vector<SparseFormatProbe> sparse_format_probes;
+    auto add_sparse_format = [&](const char *name, DXGI_FORMAT format,
+                                 UINT width, UINT height,
+                                 UINT expected_width, UINT expected_height) {
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {};
+        support.Format = format;
+        if (FAILED(device->CheckFeatureSupport(
+                D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support))) ||
+            !(support.Support2 & D3D12_FORMAT_SUPPORT2_TILED))
+            return;
+        sparse_format_probes.push_back(
+            {name, format, width, height, expected_width, expected_height});
     };
+    auto add_sparse_1b = [&](const char *name, DXGI_FORMAT format) {
+        add_sparse_format(name, format, 256, 256, 256, 256);
+    };
+    auto add_sparse_2b = [&](const char *name, DXGI_FORMAT format) {
+        add_sparse_format(name, format, 256, 128, 256, 128);
+    };
+    auto add_sparse_4b = [&](const char *name, DXGI_FORMAT format) {
+        add_sparse_format(name, format, 128, 128, 128, 128);
+    };
+    auto add_sparse_8b = [&](const char *name, DXGI_FORMAT format) {
+        add_sparse_format(name, format, 128, 64, 128, 64);
+    };
+    auto add_sparse_16b = [&](const char *name, DXGI_FORMAT format) {
+        add_sparse_format(name, format, 64, 64, 64, 64);
+    };
+    auto add_sparse_bc8 = [&](const char *name, DXGI_FORMAT format) {
+        add_sparse_format(name, format, 512, 256, 512, 256);
+    };
+    auto add_sparse_bc16 = [&](const char *name, DXGI_FORMAT format) {
+        add_sparse_format(name, format, 256, 256, 256, 256);
+    };
+    add_sparse_1b("R8_TYPELESS", DXGI_FORMAT_R8_TYPELESS);
+    add_sparse_1b("A8_UNORM", DXGI_FORMAT_A8_UNORM);
+    add_sparse_1b("R8_UNORM", DXGI_FORMAT_R8_UNORM);
+    add_sparse_1b("R8_SNORM", DXGI_FORMAT_R8_SNORM);
+    add_sparse_1b("R8_UINT", DXGI_FORMAT_R8_UINT);
+    add_sparse_1b("R8_SINT", DXGI_FORMAT_R8_SINT);
+    add_sparse_2b("R8G8_TYPELESS", DXGI_FORMAT_R8G8_TYPELESS);
+    add_sparse_2b("R8G8_UNORM", DXGI_FORMAT_R8G8_UNORM);
+    add_sparse_2b("R8G8_SNORM", DXGI_FORMAT_R8G8_SNORM);
+    add_sparse_2b("R8G8_UINT", DXGI_FORMAT_R8G8_UINT);
+    add_sparse_2b("R8G8_SINT", DXGI_FORMAT_R8G8_SINT);
+    add_sparse_2b("R16_TYPELESS", DXGI_FORMAT_R16_TYPELESS);
+    add_sparse_2b("R16_UNORM", DXGI_FORMAT_R16_UNORM);
+    add_sparse_2b("R16_SNORM", DXGI_FORMAT_R16_SNORM);
+    add_sparse_2b("R16_UINT", DXGI_FORMAT_R16_UINT);
+    add_sparse_2b("R16_SINT", DXGI_FORMAT_R16_SINT);
+    add_sparse_2b("R16_FLOAT", DXGI_FORMAT_R16_FLOAT);
+    add_sparse_2b("D16_UNORM", DXGI_FORMAT_D16_UNORM);
+    add_sparse_4b("R8G8B8A8_TYPELESS", DXGI_FORMAT_R8G8B8A8_TYPELESS);
+    add_sparse_4b("R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM);
+    add_sparse_4b("R8G8B8A8_UNORM_SRGB", DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+    add_sparse_4b("R8G8B8A8_SNORM", DXGI_FORMAT_R8G8B8A8_SNORM);
+    add_sparse_4b("R8G8B8A8_UINT", DXGI_FORMAT_R8G8B8A8_UINT);
+    add_sparse_4b("R8G8B8A8_SINT", DXGI_FORMAT_R8G8B8A8_SINT);
+    add_sparse_4b("B8G8R8A8_TYPELESS", DXGI_FORMAT_B8G8R8A8_TYPELESS);
+    add_sparse_4b("B8G8R8A8_UNORM", DXGI_FORMAT_B8G8R8A8_UNORM);
+    add_sparse_4b("B8G8R8A8_UNORM_SRGB", DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+    add_sparse_4b("B8G8R8X8_TYPELESS", DXGI_FORMAT_B8G8R8X8_TYPELESS);
+    add_sparse_4b("B8G8R8X8_UNORM", DXGI_FORMAT_B8G8R8X8_UNORM);
+    add_sparse_4b("B8G8R8X8_UNORM_SRGB", DXGI_FORMAT_B8G8R8X8_UNORM_SRGB);
+    add_sparse_4b("R10G10B10A2_TYPELESS", DXGI_FORMAT_R10G10B10A2_TYPELESS);
+    add_sparse_4b("R10G10B10A2_UNORM", DXGI_FORMAT_R10G10B10A2_UNORM);
+    add_sparse_4b("R10G10B10A2_UINT", DXGI_FORMAT_R10G10B10A2_UINT);
+    add_sparse_4b("R11G11B10_FLOAT", DXGI_FORMAT_R11G11B10_FLOAT);
+    add_sparse_4b("R9G9B9E5_SHAREDEXP", DXGI_FORMAT_R9G9B9E5_SHAREDEXP);
+    add_sparse_4b("R32_TYPELESS", DXGI_FORMAT_R32_TYPELESS);
+    add_sparse_4b("R32_UINT", DXGI_FORMAT_R32_UINT);
+    add_sparse_4b("R32_SINT", DXGI_FORMAT_R32_SINT);
+    add_sparse_4b("R32_FLOAT", DXGI_FORMAT_R32_FLOAT);
+    add_sparse_8b("R16G16_TYPELESS", DXGI_FORMAT_R16G16_TYPELESS);
+    add_sparse_8b("R16G16_FLOAT", DXGI_FORMAT_R16G16_FLOAT);
+    add_sparse_8b("R16G16_UNORM", DXGI_FORMAT_R16G16_UNORM);
+    add_sparse_8b("R16G16_SNORM", DXGI_FORMAT_R16G16_SNORM);
+    add_sparse_8b("R16G16_UINT", DXGI_FORMAT_R16G16_UINT);
+    add_sparse_8b("R16G16_SINT", DXGI_FORMAT_R16G16_SINT);
+    add_sparse_8b("R32G32_TYPELESS", DXGI_FORMAT_R32G32_TYPELESS);
+    add_sparse_8b("R32G32_FLOAT", DXGI_FORMAT_R32G32_FLOAT);
+    add_sparse_8b("R32G32_UINT", DXGI_FORMAT_R32G32_UINT);
+    add_sparse_8b("R32G32_SINT", DXGI_FORMAT_R32G32_SINT);
+    add_sparse_8b("R16G16B16A16_TYPELESS", DXGI_FORMAT_R16G16B16A16_TYPELESS);
+    add_sparse_8b("R16G16B16A16_FLOAT", DXGI_FORMAT_R16G16B16A16_FLOAT);
+    add_sparse_8b("R16G16B16A16_UNORM", DXGI_FORMAT_R16G16B16A16_UNORM);
+    add_sparse_8b("R16G16B16A16_UINT", DXGI_FORMAT_R16G16B16A16_UINT);
+    add_sparse_8b("R16G16B16A16_SNORM", DXGI_FORMAT_R16G16B16A16_SNORM);
+    add_sparse_8b("R16G16B16A16_SINT", DXGI_FORMAT_R16G16B16A16_SINT);
+    add_sparse_16b("R32G32B32A32_TYPELESS", DXGI_FORMAT_R32G32B32A32_TYPELESS);
+    add_sparse_16b("R32G32B32A32_FLOAT", DXGI_FORMAT_R32G32B32A32_FLOAT);
+    add_sparse_16b("R32G32B32A32_UINT", DXGI_FORMAT_R32G32B32A32_UINT);
+    add_sparse_16b("R32G32B32A32_SINT", DXGI_FORMAT_R32G32B32A32_SINT);
+    add_sparse_bc8("BC1_TYPELESS", DXGI_FORMAT_BC1_TYPELESS);
+    add_sparse_bc8("BC1_UNORM", DXGI_FORMAT_BC1_UNORM);
+    add_sparse_bc8("BC1_UNORM_SRGB", DXGI_FORMAT_BC1_UNORM_SRGB);
+    add_sparse_bc8("BC4_TYPELESS", DXGI_FORMAT_BC4_TYPELESS);
+    add_sparse_bc8("BC4_UNORM", DXGI_FORMAT_BC4_UNORM);
+    add_sparse_bc8("BC4_SNORM", DXGI_FORMAT_BC4_SNORM);
+    add_sparse_bc16("BC2_TYPELESS", DXGI_FORMAT_BC2_TYPELESS);
+    add_sparse_bc16("BC2_UNORM", DXGI_FORMAT_BC2_UNORM);
+    add_sparse_bc16("BC2_UNORM_SRGB", DXGI_FORMAT_BC2_UNORM_SRGB);
+    add_sparse_bc16("BC3_TYPELESS", DXGI_FORMAT_BC3_TYPELESS);
+    add_sparse_bc16("BC3_UNORM", DXGI_FORMAT_BC3_UNORM);
+    add_sparse_bc16("BC3_UNORM_SRGB", DXGI_FORMAT_BC3_UNORM_SRGB);
+    add_sparse_bc16("BC5_TYPELESS", DXGI_FORMAT_BC5_TYPELESS);
+    add_sparse_bc16("BC5_UNORM", DXGI_FORMAT_BC5_UNORM);
+    add_sparse_bc16("BC5_SNORM", DXGI_FORMAT_BC5_SNORM);
+    add_sparse_bc16("BC6H_TYPELESS", DXGI_FORMAT_BC6H_TYPELESS);
+    add_sparse_bc16("BC6H_UF16", DXGI_FORMAT_BC6H_UF16);
+    add_sparse_bc16("BC6H_SF16", DXGI_FORMAT_BC6H_SF16);
+    add_sparse_bc16("BC7_TYPELESS", DXGI_FORMAT_BC7_TYPELESS);
+    add_sparse_bc16("BC7_UNORM", DXGI_FORMAT_BC7_UNORM);
+    add_sparse_bc16("BC7_UNORM_SRGB", DXGI_FORMAT_BC7_UNORM_SRGB);
     for (auto& sparse_format : sparse_format_probes) {
         D3D12_RESOURCE_DESC sparse_format_desc =
             texture_desc(sparse_format.width, sparse_format.height, sparse_format.format);
@@ -4982,6 +5758,351 @@ int main(int argc, char** argv) {
                      sizeof(unsupported_rgb32_format))
                : E_FAIL;
 
+    // Enumerate the complete provider format set and the legal resource
+    // representations used by D3D12. Each accepted case must create, report a
+    // non-sentinel footprint, and survive exact direct write/readback. This
+    // keeps the phase gate tied to behavior rather than a hand-maintained
+    // handful of representative formats.
+    const struct {
+        const char *name;
+        DXGI_FORMAT format;
+        bool depth;
+    } resource_matrix_formats[] = {
+        {"R8G8B8A8_TYPELESS", DXGI_FORMAT_R8G8B8A8_TYPELESS, false},
+        {"R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM, false},
+        {"R8G8B8A8_UNORM_SRGB", DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, false},
+        {"R8G8B8A8_UINT", DXGI_FORMAT_R8G8B8A8_UINT, false},
+        {"R8G8B8A8_SNORM", DXGI_FORMAT_R8G8B8A8_SNORM, false},
+        {"R8G8B8A8_SINT", DXGI_FORMAT_R8G8B8A8_SINT, false},
+        {"B8G8R8A8_TYPELESS", DXGI_FORMAT_B8G8R8A8_TYPELESS, false},
+        {"B8G8R8A8_UNORM", DXGI_FORMAT_B8G8R8A8_UNORM, false},
+        {"B8G8R8A8_UNORM_SRGB", DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, false},
+        {"B8G8R8X8_TYPELESS", DXGI_FORMAT_B8G8R8X8_TYPELESS, false},
+        {"B8G8R8X8_UNORM", DXGI_FORMAT_B8G8R8X8_UNORM, false},
+        {"B8G8R8X8_UNORM_SRGB", DXGI_FORMAT_B8G8R8X8_UNORM_SRGB, false},
+        {"B5G6R5_UNORM", DXGI_FORMAT_B5G6R5_UNORM, false},
+        {"B5G5R5A1_UNORM", DXGI_FORMAT_B5G5R5A1_UNORM, false},
+        {"B4G4R4A4_UNORM", DXGI_FORMAT_B4G4R4A4_UNORM, false},
+        {"R9G9B9E5_SHAREDEXP", DXGI_FORMAT_R9G9B9E5_SHAREDEXP, false},
+        {"R16G16B16A16_TYPELESS", DXGI_FORMAT_R16G16B16A16_TYPELESS, false},
+        {"R16G16B16A16_FLOAT", DXGI_FORMAT_R16G16B16A16_FLOAT, false},
+        {"R16G16B16A16_UNORM", DXGI_FORMAT_R16G16B16A16_UNORM, false},
+        {"R16G16B16A16_UINT", DXGI_FORMAT_R16G16B16A16_UINT, false},
+        {"R16G16B16A16_SNORM", DXGI_FORMAT_R16G16B16A16_SNORM, false},
+        {"R16G16B16A16_SINT", DXGI_FORMAT_R16G16B16A16_SINT, false},
+        {"R32G32B32A32_TYPELESS", DXGI_FORMAT_R32G32B32A32_TYPELESS, false},
+        {"R32G32B32A32_FLOAT", DXGI_FORMAT_R32G32B32A32_FLOAT, false},
+        {"R32G32B32A32_UINT", DXGI_FORMAT_R32G32B32A32_UINT, false},
+        {"R32G32B32A32_SINT", DXGI_FORMAT_R32G32B32A32_SINT, false},
+        {"R10G10B10A2_TYPELESS", DXGI_FORMAT_R10G10B10A2_TYPELESS, false},
+        {"R10G10B10A2_UNORM", DXGI_FORMAT_R10G10B10A2_UNORM, false},
+        {"R10G10B10A2_UINT", DXGI_FORMAT_R10G10B10A2_UINT, false},
+        {"R11G11B10_FLOAT", DXGI_FORMAT_R11G11B10_FLOAT, false},
+        {"R8_TYPELESS", DXGI_FORMAT_R8_TYPELESS, false},
+        {"A8_UNORM", DXGI_FORMAT_A8_UNORM, false},
+        {"R8_UNORM", DXGI_FORMAT_R8_UNORM, false},
+        {"R8_SNORM", DXGI_FORMAT_R8_SNORM, false},
+        {"R8_UINT", DXGI_FORMAT_R8_UINT, false},
+        {"R8_SINT", DXGI_FORMAT_R8_SINT, false},
+        {"R16_TYPELESS", DXGI_FORMAT_R16_TYPELESS, false},
+        {"R16_UNORM", DXGI_FORMAT_R16_UNORM, false},
+        {"R16_SNORM", DXGI_FORMAT_R16_SNORM, false},
+        {"R16_UINT", DXGI_FORMAT_R16_UINT, false},
+        {"R16_SINT", DXGI_FORMAT_R16_SINT, false},
+        {"R16_FLOAT", DXGI_FORMAT_R16_FLOAT, false},
+        {"R32_TYPELESS", DXGI_FORMAT_R32_TYPELESS, false},
+        {"R32_UINT", DXGI_FORMAT_R32_UINT, false},
+        {"R32_SINT", DXGI_FORMAT_R32_SINT, false},
+        {"R32_FLOAT", DXGI_FORMAT_R32_FLOAT, false},
+        {"R16G16_TYPELESS", DXGI_FORMAT_R16G16_TYPELESS, false},
+        {"R16G16_FLOAT", DXGI_FORMAT_R16G16_FLOAT, false},
+        {"R16G16_UNORM", DXGI_FORMAT_R16G16_UNORM, false},
+        {"R16G16_SNORM", DXGI_FORMAT_R16G16_SNORM, false},
+        {"R16G16_UINT", DXGI_FORMAT_R16G16_UINT, false},
+        {"R16G16_SINT", DXGI_FORMAT_R16G16_SINT, false},
+        {"R32G32_TYPELESS", DXGI_FORMAT_R32G32_TYPELESS, false},
+        {"R32G32_FLOAT", DXGI_FORMAT_R32G32_FLOAT, false},
+        {"R32G32_UINT", DXGI_FORMAT_R32G32_UINT, false},
+        {"R32G32_SINT", DXGI_FORMAT_R32G32_SINT, false},
+        {"R8G8_TYPELESS", DXGI_FORMAT_R8G8_TYPELESS, false},
+        {"R8G8_UNORM", DXGI_FORMAT_R8G8_UNORM, false},
+        {"R8G8_B8G8_UNORM", DXGI_FORMAT_R8G8_B8G8_UNORM, false},
+        {"G8R8_G8B8_UNORM", DXGI_FORMAT_G8R8_G8B8_UNORM, false},
+        {"R8G8_SNORM", DXGI_FORMAT_R8G8_SNORM, false},
+        {"R8G8_UINT", DXGI_FORMAT_R8G8_UINT, false},
+        {"R8G8_SINT", DXGI_FORMAT_R8G8_SINT, false},
+        {"BC1_TYPELESS", DXGI_FORMAT_BC1_TYPELESS, false},
+        {"BC1_UNORM", DXGI_FORMAT_BC1_UNORM, false},
+        {"BC1_UNORM_SRGB", DXGI_FORMAT_BC1_UNORM_SRGB, false},
+        {"BC2_TYPELESS", DXGI_FORMAT_BC2_TYPELESS, false},
+        {"BC2_UNORM", DXGI_FORMAT_BC2_UNORM, false},
+        {"BC2_UNORM_SRGB", DXGI_FORMAT_BC2_UNORM_SRGB, false},
+        {"BC3_TYPELESS", DXGI_FORMAT_BC3_TYPELESS, false},
+        {"BC3_UNORM", DXGI_FORMAT_BC3_UNORM, false},
+        {"BC3_UNORM_SRGB", DXGI_FORMAT_BC3_UNORM_SRGB, false},
+        {"BC4_TYPELESS", DXGI_FORMAT_BC4_TYPELESS, false},
+        {"BC4_UNORM", DXGI_FORMAT_BC4_UNORM, false},
+        {"BC4_SNORM", DXGI_FORMAT_BC4_SNORM, false},
+        {"BC5_TYPELESS", DXGI_FORMAT_BC5_TYPELESS, false},
+        {"BC5_UNORM", DXGI_FORMAT_BC5_UNORM, false},
+        {"BC5_SNORM", DXGI_FORMAT_BC5_SNORM, false},
+        {"BC6H_TYPELESS", DXGI_FORMAT_BC6H_TYPELESS, false},
+        {"BC6H_UF16", DXGI_FORMAT_BC6H_UF16, false},
+        {"BC6H_SF16", DXGI_FORMAT_BC6H_SF16, false},
+        {"BC7_TYPELESS", DXGI_FORMAT_BC7_TYPELESS, false},
+        {"BC7_UNORM", DXGI_FORMAT_BC7_UNORM, false},
+        {"BC7_UNORM_SRGB", DXGI_FORMAT_BC7_UNORM_SRGB, false},
+        {"D16_UNORM", DXGI_FORMAT_D16_UNORM, true},
+        {"D24_UNORM_S8_UINT", DXGI_FORMAT_D24_UNORM_S8_UINT, true},
+        {"D32_FLOAT", DXGI_FORMAT_D32_FLOAT, true},
+        {"D32_FLOAT_S8X24_UINT", DXGI_FORMAT_D32_FLOAT_S8X24_UINT, true},
+        {"R24G8_TYPELESS", DXGI_FORMAT_R24G8_TYPELESS, true},
+        {"R24_UNORM_X8_TYPELESS", DXGI_FORMAT_R24_UNORM_X8_TYPELESS, false},
+        {"X24_TYPELESS_G8_UINT", DXGI_FORMAT_X24_TYPELESS_G8_UINT, false},
+        {"R32G8X24_TYPELESS", DXGI_FORMAT_R32G8X24_TYPELESS, true},
+        {"R32_FLOAT_X8X24_TYPELESS", DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, false},
+        {"X32_TYPELESS_G8X24_UINT", DXGI_FORMAT_X32_TYPELESS_G8X24_UINT, false},
+        {"NV12", DXGI_FORMAT_NV12, false},
+        {"P010", DXGI_FORMAT_P010, false},
+        {"P016", DXGI_FORMAT_P016, false},
+        {"420_OPAQUE", DXGI_FORMAT_420_OPAQUE, false},
+    };
+    auto run_resource_matrix_case = [&](const char *name,
+                                        D3D12_RESOURCE_DESC case_desc,
+                                        D3D12_RESOURCE_STATES state) {
+        ResourceMatrixProbe probe = {};
+        probe.name = name;
+        probe.desc = case_desc;
+        ID3D12Resource *case_resource = nullptr;
+        probe.create_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &case_desc, state, nullptr,
+            IID_PPV_ARGS(&case_resource));
+        if (case_resource) {
+            D3D12_FEATURE_DATA_FORMAT_INFO format_info = {};
+            format_info.Format = case_desc.Format;
+            UINT plane_count = 1;
+            if (SUCCEEDED(device->CheckFeatureSupport(
+                    D3D12_FEATURE_FORMAT_INFO, &format_info,
+                    sizeof(format_info))))
+                plane_count = std::max<UINT>(format_info.PlaneCount, 1);
+            const UINT mip_levels = std::max<UINT>(case_desc.MipLevels, 1);
+            const UINT array_size =
+                case_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                    ? 1
+                    : std::max<UINT>(case_desc.DepthOrArraySize, 1);
+            const uint64_t full_subresource_count =
+                uint64_t(mip_levels) * array_size * plane_count;
+            probe.subresource_count =
+                full_subresource_count <= UINT_MAX
+                    ? static_cast<UINT>(full_subresource_count)
+                    : 0;
+            std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints(
+                probe.subresource_count);
+            std::vector<UINT> row_counts(probe.subresource_count);
+            std::vector<UINT64> row_bytes_all(probe.subresource_count);
+            UINT64 total_bytes = 0;
+            if (probe.subresource_count &&
+                probe.subresource_count <= D3D12_REQ_SUBRESOURCES) {
+                device->GetCopyableFootprints(
+                    &case_desc, 0, probe.subresource_count, 0,
+                    footprints.data(), row_counts.data(), row_bytes_all.data(),
+                    &total_bytes);
+            }
+            probe.footprint_bytes = total_bytes;
+            bool full_footprints_ok = probe.subresource_count != 0 &&
+                                      total_bytes != 0 &&
+                                      total_bytes != UINT64_MAX;
+            for (UINT i = 0; i < probe.subresource_count && full_footprints_ok;
+                 ++i) {
+                full_footprints_ok =
+                    footprints[i].Offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT == 0 &&
+                    footprints[i].Footprint.RowPitch >= D3D12_TEXTURE_DATA_PITCH_ALIGNMENT &&
+                    row_counts[i] != 0 && row_bytes_all[i] != 0 &&
+                    (!i || footprints[i].Offset > footprints[i - 1].Offset);
+            }
+            probe.footprint_hr = full_footprints_ok ? S_OK : E_FAIL;
+            const bool view_only_plane_format =
+                case_desc.Format == DXGI_FORMAT_R24_UNORM_X8_TYPELESS ||
+                case_desc.Format == DXGI_FORMAT_X24_TYPELESS_G8_UINT ||
+                case_desc.Format == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS ||
+                case_desc.Format == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT;
+            if (view_only_plane_format) {
+                // These DXGI values are depth/stencil view formats, not
+                // independently writable resource planes. Creation and
+                // complete-footprint coverage is still required; plane I/O is
+                // proven against the typeless parent resources above.
+                probe.io_ok = full_footprints_ok;
+            } else if (SUCCEEDED(probe.footprint_hr)) {
+                probe.io_ok = true;
+                for (UINT subresource = 0;
+                     subresource < probe.subresource_count && probe.io_ok;
+                     ++subresource) {
+                    const UINT depth = footprints[subresource].Footprint.Depth
+                                           ? footprints[subresource].Footprint.Depth
+                                           : 1;
+                    const UINT64 row_bytes = row_bytes_all[subresource];
+                    const UINT rows = row_counts[subresource];
+                    const uint64_t image_bytes =
+                        rows && row_bytes <= UINT64_MAX / rows
+                            ? row_bytes * rows
+                            : 0;
+                    if (!row_bytes || !rows || !image_bytes ||
+                        image_bytes > UINT64_C(16) * 1024 * 1024 ||
+                        image_bytes > UINT64_MAX / depth ||
+                        row_bytes > UINT_MAX || image_bytes > UINT_MAX) {
+                        probe.io_ok = false;
+                        break;
+                    }
+                    const size_t byte_count =
+                        static_cast<size_t>(image_bytes * depth);
+                    std::vector<uint8_t> source(byte_count);
+                    std::vector<uint8_t> destination(byte_count);
+                    for (size_t i = 0; i < byte_count; ++i)
+                        source[i] = static_cast<uint8_t>(
+                            (i * 31u + subresource * 13u +
+                             static_cast<unsigned>(resource_matrix_probes.size()) * 7u +
+                             0x2du) & 0xffu);
+                    const HRESULT write_hr = case_resource->WriteToSubresource(
+                        subresource, nullptr, source.data(),
+                        static_cast<UINT>(row_bytes),
+                        static_cast<UINT>(image_bytes));
+                    const HRESULT read_hr = case_resource->ReadFromSubresource(
+                        destination.data(), static_cast<UINT>(row_bytes),
+                        static_cast<UINT>(image_bytes), subresource, nullptr);
+                    if (subresource == 0) {
+                        probe.write_hr = write_hr;
+                        probe.read_hr = read_hr;
+                    }
+                    probe.io_ok = SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
+                                  source == destination;
+                    if (!probe.io_ok) {
+                        for (size_t i = 0; i < source.size(); ++i) {
+                            if (source[i] != destination[i]) {
+                                probe.mismatch = i;
+                                probe.actual = destination[i];
+                                probe.expected = source[i];
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            case_resource->Release();
+        }
+        resource_matrix_probes.push_back(probe);
+    };
+    for (const auto &format_case : resource_matrix_formats) {
+        D3D12_RESOURCE_DESC case_desc = texture_desc(8, 8, format_case.format);
+        if (format_case.depth)
+            case_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        const D3D12_RESOURCE_STATES state =
+            format_case.depth ? D3D12_RESOURCE_STATE_DEPTH_WRITE
+                              : D3D12_RESOURCE_STATE_COMMON;
+        run_resource_matrix_case(format_case.name, case_desc, state);
+    }
+    run_resource_matrix_case("buffer_1_byte", buffer_desc(1),
+                             D3D12_RESOURCE_STATE_COMMON);
+    run_resource_matrix_case("buffer_255_bytes", buffer_desc(255),
+                             D3D12_RESOURCE_STATE_COMMON);
+    run_resource_matrix_case("buffer_4k", buffer_desc(4096),
+                             D3D12_RESOURCE_STATE_COMMON);
+    run_resource_matrix_case("buffer_64k", buffer_desc(64 * 1024),
+                             D3D12_RESOURCE_STATE_COMMON);
+    D3D12_RESOURCE_DESC matrix_1d_array =
+        texture_desc(17, 1, DXGI_FORMAT_R8_UNORM);
+    matrix_1d_array.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+    matrix_1d_array.DepthOrArraySize = 3;
+    run_resource_matrix_case("shape_1d_array", matrix_1d_array,
+                             D3D12_RESOURCE_STATE_COMMON);
+    D3D12_RESOURCE_DESC matrix_2d_array =
+        texture_desc(19, 11, DXGI_FORMAT_R8G8B8A8_UNORM);
+    matrix_2d_array.DepthOrArraySize = 4;
+    matrix_2d_array.MipLevels = 3;
+    run_resource_matrix_case("shape_2d_array_mips", matrix_2d_array,
+                             D3D12_RESOURCE_STATE_COMMON);
+    D3D12_RESOURCE_DESC matrix_cube =
+        texture_desc(16, 16, DXGI_FORMAT_R8G8B8A8_UNORM);
+    matrix_cube.DepthOrArraySize = 6;
+    run_resource_matrix_case("shape_cube_six_slices", matrix_cube,
+                             D3D12_RESOURCE_STATE_COMMON);
+    D3D12_RESOURCE_DESC matrix_msaa =
+        texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+    matrix_msaa.SampleDesc.Count = 4;
+    run_resource_matrix_case("shape_msaa4", matrix_msaa,
+                             D3D12_RESOURCE_STATE_COMMON);
+    matrix_msaa.DepthOrArraySize = 3;
+    run_resource_matrix_case("shape_msaa4_array", matrix_msaa,
+                             D3D12_RESOURCE_STATE_COMMON);
+    D3D12_RESOURCE_DESC matrix_volume =
+        texture_desc(9, 7, DXGI_FORMAT_R8G8B8A8_UNORM);
+    matrix_volume.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    matrix_volume.DepthOrArraySize = 5;
+    matrix_volume.MipLevels = 3;
+    run_resource_matrix_case("shape_3d_mips", matrix_volume,
+                             D3D12_RESOURCE_STATE_COMMON);
+    resource_matrix_ok = !resource_matrix_probes.empty();
+    for (const auto &probe : resource_matrix_probes)
+        resource_matrix_ok = resource_matrix_ok &&
+                             SUCCEEDED(probe.create_hr) &&
+                             SUCCEEDED(probe.footprint_hr) && probe.io_ok;
+    resource_shapes_ok = resource_shapes_ok && resource_matrix_ok;
+
+    // Exercise multiple legal buffer offsets in one explicit heap. Every
+    // placement is aligned by the queried allocation contract and is read
+    // back independently so the test covers suballocation rather than only
+    // committed resources.
+    D3D12_HEAP_DESC placed_offset_heap_desc = {};
+    placed_offset_heap_desc.SizeInBytes = 4 * 64 * 1024;
+    placed_offset_heap_desc.Properties = default_heap;
+    placed_offset_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+    ID3D12Heap *placed_offset_heap = nullptr;
+    HRESULT placed_offset_heap_hr = device->CreateHeap(
+        &placed_offset_heap_desc, IID_PPV_ARGS(&placed_offset_heap));
+    const UINT64 placed_offset_widths[] = {1, 4096, 64 * 1024};
+    const UINT64 placed_offsets[] = {0, 64 * 1024, 2 * 64 * 1024};
+    placed_offset_matrix_ok = SUCCEEDED(placed_offset_heap_hr);
+    if (placed_offset_heap) {
+        for (UINT i = 0; i < ARRAYSIZE(placed_offset_widths); ++i) {
+            D3D12_RESOURCE_DESC placed_desc =
+                buffer_desc(placed_offset_widths[i]);
+            ID3D12Resource *placed_resource = nullptr;
+            const HRESULT create_hr = device->CreatePlacedResource(
+                placed_offset_heap, placed_offsets[i], &placed_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&placed_resource));
+            bool case_ok = SUCCEEDED(create_hr) && placed_resource;
+            if (case_ok) {
+                const size_t byte_count =
+                    static_cast<size_t>(placed_offset_widths[i]);
+                std::vector<uint8_t> source(byte_count);
+                std::vector<uint8_t> destination(byte_count);
+                for (size_t byte = 0; byte < byte_count; ++byte)
+                    source[byte] = static_cast<uint8_t>(
+                        (byte * 19u + i * 41u + 0x51u) & 0xffu);
+                const HRESULT write_hr = placed_resource->WriteToSubresource(
+                    0, nullptr, source.data(),
+                    static_cast<UINT>(byte_count),
+                    static_cast<UINT>(byte_count));
+                const HRESULT read_hr = placed_resource->ReadFromSubresource(
+                    destination.data(), static_cast<UINT>(byte_count),
+                    static_cast<UINT>(byte_count), 0, nullptr);
+                case_ok = SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
+                          source == destination;
+            }
+            placed_offset_matrix_ok = placed_offset_matrix_ok && case_ok;
+            if (case_ok)
+                ++placed_offset_matrix_count;
+            if (placed_resource)
+                placed_resource->Release();
+        }
+        placed_offset_matrix_ok =
+            placed_offset_matrix_ok && placed_offset_matrix_count ==
+                                          ARRAYSIZE(placed_offset_widths);
+        placed_offset_heap->Release();
+    } else {
+        placed_offset_matrix_ok = false;
+    }
+
     bool format_support_ok = true;
     for (const auto& format : formats) {
         if (FAILED(format.hr) || FAILED(format.format_info_hr) ||
@@ -5001,6 +6122,17 @@ int main(int argc, char** argv) {
                                   sparse_format.copy_ok;
     }
 
+    const bool sparse_cross_queue_mapping_ok =
+        SUCCEEDED(reuse_mapping_signal_hr) &&
+        SUCCEEDED(reuse_mapping_wait_hr) &&
+        SUCCEEDED(array_mapping_wait_fence_hr);
+    const bool sparse_dimension_matrix_ok =
+        reserved_1d_copy_ok && reserved_1d_mapping_copy_ok &&
+        array_alias_copy_ok && volume_physical_page_ownership_ok &&
+        mipped_reserved_copy_ok && packed_tail_copy_ok &&
+        packed_tail_array_copy_ok && r8_reserved_copy_ok &&
+        r8_mipped_copy_ok && r8_partial_copy_ok &&
+        sparse_unmapped_zero_ok && sparse_cross_queue_mapping_ok;
     const bool default_cpu_io_ok = default_cpu_io_verified;
     D3D12_RESOURCE_DESC shared_open_desc = {};
     D3D12_RESOURCE_DESC shared_named_open_desc = {};
@@ -5112,6 +6244,7 @@ int main(int argc, char** argv) {
         SUCCEEDED(shared_texture_open_hr) &&
         SUCCEEDED(shared_texture_named_open_hr) &&
         shared_texture_roundtrip_ok && shared_texture_cross_process_ok &&
+        shared_texture_shape_matrix_ok &&
         SUCCEEDED(direct_io_volume_create_hr) &&
         SUCCEEDED(direct_io_volume_write_hr) &&
         SUCCEEDED(direct_io_volume_read_hr) && direct_io_volume_ok &&
@@ -5236,9 +6369,11 @@ int main(int argc, char** argv) {
         SUCCEEDED(residency_query_heap_make_hr) &&
         SUCCEEDED(residency_pageable_priority_hr) &&
         default_cpu_io_ok && residency_state_ok && dxgi_offer_reclaim_ok &&
-        heap_residency_ok && address_heap_open_ok && heap_aliasing_ok &&
+        residency_pressure_verified && heap_residency_ok &&
+        address_heap_open_ok && heap_aliasing_ok &&
         atomic_copy_ok && atomic64_copy_ok && discard_ok &&
-        resource_shapes_ok && zero_mip_shapes_ok && resource_validation_ok &&
+        resource_shapes_ok && placed_offset_matrix_ok &&
+        zero_mip_shapes_ok && resource_validation_ok &&
         SUCCEEDED(placed_1d_array_heap_hr) &&
         SUCCEEDED(placed_1d_array_resource_hr) &&
         SUCCEEDED(placed_1d_array_write_hr[0]) &&
@@ -5271,10 +6406,13 @@ int main(int argc, char** argv) {
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
-        adapter_luid_metadata_verified && format_support_ok &&
+        adapter_luid_metadata_verified && shared_access_policy_ok &&
+        shared_lifetime_policy_ok && shared_fence_access_policy_ok &&
+        shared_heap_access_policy_ok &&
+        shared_texture_access_policy_ok && format_support_ok &&
         unsupported_rgb32_format_support_hr == E_INVALIDARG &&
-        sparse_format_matrix_ok && unsupported_texture_rejected &&
-        unsupported_format_allocation_size == 0 &&
+        sparse_format_matrix_ok && sparse_dimension_matrix_ok &&
+        unsupported_texture_rejected && unsupported_format_allocation_size == 0 &&
         unsupported_format_allocation_alignment == 0 &&
         unsupported_rgb32_allocation_size == 0 &&
         unsupported_rgb32_allocation_alignment == 0 &&
@@ -5294,7 +6432,10 @@ int main(int argc, char** argv) {
         SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr) &&
         SUCCEEDED(shared_fence_mapping_signal_hr) &&
         SUCCEEDED(shared_fence_wait_hr) &&
-        unnamed_shared_fence_roundtrip_ok && shared_heap_cross_process_ok;
+        unnamed_shared_fence_roundtrip_ok && shared_heap_cross_process_ok &&
+        SUCCEEDED(unnamed_shared_texture_create_hr) &&
+        SUCCEEDED(unnamed_shared_texture_handle_hr) &&
+        unnamed_shared_texture_cross_process_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -5364,6 +6505,18 @@ int main(int argc, char** argv) {
                 offered_resource_discarded ? "true" : "false");
     std::printf("    \"dxgi_offer_reclaim_verified\": %s,\n",
                 dxgi_offer_reclaim_ok ? "true" : "false");
+    print_hr("residency_pressure_offer", residency_pressure_offer_hr);
+    print_hr("residency_pressure_query_after_trim",
+             residency_pressure_query_after_trim_hr);
+    print_hr("residency_pressure_reclaim", residency_pressure_reclaim_hr);
+    std::printf("    \"residency_pressure_allocation_count\": %u,\n",
+                residency_pressure_allocation_count);
+    std::printf("    \"residency_pressure_allocated_bytes\": %llu,\n",
+                static_cast<unsigned long long>(residency_pressure_allocated_bytes));
+    std::printf("    \"residency_pressure_discarded\": %s,\n",
+                residency_pressure_discarded ? "true" : "false");
+    std::printf("    \"residency_pressure_verified\": %s,\n",
+                residency_pressure_verified ? "true" : "false");
     print_hr("address_heap_create", address_heap_hr);
     print_hr("address_resource_create", address_resource_hr);
     print_hr("address_alias_resource_create", address_alias_resource_hr);
@@ -5378,6 +6531,37 @@ int main(int argc, char** argv) {
     std::printf("  },\n");
     std::printf("  \"resource_shapes\": {\n");
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
+    std::printf("    \"exhaustive_format_shape_matrix_count\": %zu,\n",
+                resource_matrix_probes.size());
+    std::printf("    \"exhaustive_format_shape_matrix_verified\": %s,\n",
+                resource_matrix_ok ? "true" : "false");
+    std::printf("    \"placed_offset_matrix_count\": %u,\n",
+                placed_offset_matrix_count);
+    std::printf("    \"placed_offset_matrix_verified\": %s,\n",
+                placed_offset_matrix_ok ? "true" : "false");
+    std::printf("    \"exhaustive_format_shape_matrix\": [\n");
+    for (size_t i = 0; i < resource_matrix_probes.size(); ++i) {
+        const auto &probe = resource_matrix_probes[i];
+        std::printf("      {\"name\": \"%s\", \"create_hr\": \"0x%08lx\", "
+                    "\"footprint_hr\": \"0x%08lx\", \"write_hr\": \"0x%08lx\", "
+                    "\"read_hr\": \"0x%08lx\", \"subresource_count\": %u, "
+                    "\"footprint_bytes\": %llu, "
+                    "\"mismatch\": %llu, \"actual\": %u, \"expected\": %u, "
+                    "\"io_verified\": %s}%s\n",
+                    probe.name,
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.create_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.footprint_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.write_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.read_hr)),
+                    probe.subresource_count,
+                    static_cast<unsigned long long>(probe.footprint_bytes),
+                    static_cast<unsigned long long>(probe.mismatch),
+                    static_cast<unsigned>(probe.actual),
+                    static_cast<unsigned>(probe.expected),
+                    probe.io_ok ? "true" : "false",
+                    i + 1 == resource_matrix_probes.size() ? "" : ",");
+    }
+    std::printf("    ],\n");
     std::printf("    \"validation_matrix_verified\": %s,\n", resource_validation_ok ? "true" : "false");
     std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
     print_hr("zero_mip_1d", zero_mip_1d_hr);
@@ -5614,6 +6798,20 @@ int main(int argc, char** argv) {
     print_hr("missing_name", shared_missing_name_hr);
     print_hr("invalid_create_access", shared_invalid_create_access_hr);
     print_hr("invalid_open_access", shared_invalid_open_access_hr);
+    print_hr("read_only_create", shared_read_only_create_hr);
+    print_hr("read_only_name_open", shared_read_only_name_open_hr);
+    print_hr("read_only_handle_open", shared_read_only_handle_open_hr);
+    print_hr("read_only_read", shared_read_only_read_hr);
+    print_hr("read_only_write", shared_read_only_write_hr);
+    print_hr("read_only_map", shared_read_only_map_hr);
+    print_hr("read_only_write_open", shared_read_only_write_open_hr);
+    std::printf("    \"access_policy_verified\": %s,\n",
+                shared_access_policy_ok ? "true" : "false");
+    print_hr("lifetime_create", shared_lifetime_create_hr);
+    print_hr("lifetime_release", shared_lifetime_release_hr);
+    print_hr("lifetime_open_after_release", shared_lifetime_open_after_release_hr);
+    std::printf("    \"lifetime_policy_verified\": %s,\n",
+                shared_lifetime_policy_ok ? "true" : "false");
     std::printf("    \"roundtrip_verified\": %s,\n", shared_handle_roundtrip ? "true" : "false");
     std::printf("    \"cross_process_verified\": %s,\n", cross_process_shared_ok ? "true" : "false");
     print_hr("heap_create", shared_heap_create_hr);
@@ -5628,6 +6826,15 @@ int main(int argc, char** argv) {
                 unnamed_shared_heap_roundtrip_ok ? "true" : "false");
     std::printf("    \"unnamed_heap_cross_process_verified\": %s,\n",
                 unnamed_shared_heap_cross_process_ok ? "true" : "false");
+    print_hr("read_only_heap_create", shared_read_only_heap_create_hr);
+    print_hr("read_only_heap_name_open", shared_read_only_heap_name_open_hr);
+    print_hr("read_only_heap_open", shared_read_only_heap_open_hr);
+    print_hr("read_only_heap_write_open", shared_read_only_heap_write_open_hr);
+    print_hr("read_only_heap_resource_create", shared_read_only_heap_resource_hr);
+    print_hr("read_only_heap_map", shared_read_only_heap_map_hr);
+    print_hr("read_only_heap_read", shared_read_only_heap_read_hr);
+    std::printf("    \"heap_access_policy_verified\": %s,\n",
+                shared_heap_access_policy_ok ? "true" : "false");
     std::printf("    \"adapter_luid_metadata_verified\": %s,\n",
                 adapter_luid_metadata_verified ? "true" : "false");
     print_hr("default_heap_create", shared_default_heap_create_hr);
@@ -5637,6 +6844,13 @@ int main(int argc, char** argv) {
     print_hr("fence_signal", shared_fence_signal_hr);
     print_hr("fence_mapping_signal", shared_fence_mapping_signal_hr);
     print_hr("fence_wait_mapping", shared_fence_wait_hr);
+    print_hr("read_only_fence_create", shared_read_only_fence_create_hr);
+    print_hr("read_only_fence_name_open", shared_read_only_fence_name_open_hr);
+    print_hr("read_only_fence_open", shared_read_only_fence_open_hr);
+    print_hr("read_only_fence_signal", shared_read_only_fence_signal_hr);
+    print_hr("read_only_fence_write_open", shared_read_only_fence_write_open_hr);
+    std::printf("    \"fence_access_policy_verified\": %s,\n",
+                shared_fence_access_policy_ok ? "true" : "false");
     print_hr("unnamed_fence_create", unnamed_shared_fence_create_hr);
     print_hr("unnamed_fence_handle_create", unnamed_shared_fence_handle_hr);
     print_hr("unnamed_fence_open", unnamed_shared_fence_open_hr);
@@ -5664,10 +6878,47 @@ int main(int argc, char** argv) {
     print_hr("shared_texture_handle_create", shared_texture_handle_hr);
     print_hr("shared_texture_open", shared_texture_open_hr);
     print_hr("shared_texture_named_open", shared_texture_named_open_hr);
+    print_hr("read_only_texture_create", shared_read_only_texture_create_hr);
+    print_hr("read_only_texture_name_open", shared_read_only_texture_name_open_hr);
+    print_hr("read_only_texture_open", shared_read_only_texture_open_hr);
+    print_hr("read_only_texture_read", shared_read_only_texture_read_hr);
+    print_hr("read_only_texture_write", shared_read_only_texture_write_hr);
+    print_hr("read_only_texture_map", shared_read_only_texture_map_hr);
+    print_hr("read_only_texture_write_open", shared_read_only_texture_write_open_hr);
+    std::printf("    \"shared_texture_access_policy_verified\": %s,\n",
+                shared_texture_access_policy_ok ? "true" : "false");
     std::printf("    \"shared_texture_roundtrip_verified\": %s,\n",
                 shared_texture_roundtrip_ok ? "true" : "false");
     std::printf("    \"shared_texture_cross_process_verified\": %s,\n",
                 shared_texture_cross_process_ok ? "true" : "false");
+    print_hr("unnamed_shared_texture_create", unnamed_shared_texture_create_hr);
+    print_hr("unnamed_shared_texture_handle_create", unnamed_shared_texture_handle_hr);
+    std::printf("    \"unnamed_shared_texture_cross_process_verified\": %s,\n",
+                unnamed_shared_texture_cross_process_ok ? "true" : "false");
+    std::printf("    \"shared_texture_shape_matrix_count\": %zu,\n",
+                shared_texture_shape_probes.size());
+    std::printf("    \"shared_texture_shape_matrix_verified\": %s,\n",
+                shared_texture_shape_matrix_ok ? "true" : "false");
+    std::printf("    \"shared_texture_shape_matrix\": [\n");
+    for (size_t i = 0; i < shared_texture_shape_probes.size(); ++i) {
+        const auto &probe = shared_texture_shape_probes[i];
+        std::printf("      {\"name\": \"%s\", \"create_hr\": \"0x%08lx\", "
+                    "\"write_hr\": \"0x%08lx\", \"read_hr\": \"0x%08lx\", "
+                    "\"handle_hr\": \"0x%08lx\", \"open_hr\": \"0x%08lx\", "
+                    "\"named_hr\": \"0x%08lx\", \"io_verified\": %s, "
+                    "\"independent_open_verified\": %s}%s\n",
+                    probe.name,
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.create_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.write_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.read_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.handle_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.open_hr)),
+                    static_cast<unsigned long>(static_cast<uint32_t>(probe.named_hr)),
+                    probe.io_ok ? "true" : "false",
+                    probe.independent_open_ok ? "true" : "false",
+                    i + 1 == shared_texture_shape_probes.size() ? "" : ",");
+    }
+    std::printf("    ],\n");
     print_hr("direct_io_volume_create", direct_io_volume_create_hr);
     print_hr("direct_io_volume_write", direct_io_volume_write_hr);
     print_hr("direct_io_volume_read", direct_io_volume_read_hr);
@@ -5797,9 +7048,9 @@ int main(int argc, char** argv) {
     std::printf("    \"copy_verified\": %s,\n", sparse_copy_ok ? "true" : "false");
     std::printf("    \"unmapped_zero_verified\": %s,\n", sparse_unmapped_zero_ok ? "true" : "false");
     std::printf("    \"cross_queue_mapping_wait_verified\": %s,\n",
-                (SUCCEEDED(reuse_mapping_signal_hr) && SUCCEEDED(reuse_mapping_wait_hr))
-                    ? "true"
-                    : "false");
+                sparse_cross_queue_mapping_ok ? "true" : "false");
+    std::printf("    \"dimension_matrix_verified\": %s,\n",
+                sparse_dimension_matrix_ok ? "true" : "false");
     print_hr("placement_alias_texture_create", placement_alias_texture_hr);
     print_hr("array_alias_heap_create", array_alias_heap_hr);
     print_hr("array_alias_texture_create", array_alias_texture_hr);

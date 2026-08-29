@@ -355,7 +355,7 @@ red.
 - [x] Phase 0 — Full inventory, source census, provider map, and no-op scan
 - [x] Phase 1 — Provider, synchronization, and capability architecture
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
-- [ ] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
+- [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [ ] Phase 4 — Queues, commands, barriers, and indirect work
 - [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats
@@ -551,7 +551,7 @@ Metal equivalent.
 - `docs/roadmaps/d3d12-full-surface-phase2-com-proof.md` — exact Phase 2
   evidence and cleanup record.
 
-### Phase 3 — Finish resources, heaps, virtual memory, residency, and sharing
+### Phase 3 — Finish resources, heaps, virtual memory, residency, and sharing **[COMPLETE]**
 
 **Goal:** Remove resource-shape and backing restrictions from the declared
 surface.
@@ -599,8 +599,8 @@ array-slice `CopyTileMappings` with a cross-slice two-tile readback, preserved
 1D-array/cube-slice I/O, D24/D32 depth/stencil plane I/O plus queued stencil
 clear, relaxed-castable-format readback, tight and small-resource alignment,
 `CREATE_NOT_RESIDENT`/enqueued residency, descriptor/query-heap residency,
-cross-queue sparse mapping (including all tile-range modes), a 14-format
-sparse tile-shape/readback matrix, packed-tail array tiling and both-slice
+cross-queue sparse mapping (including all tile-range modes), a 66-format
+behavior-backed sparse tile-shape/readback matrix, packed-tail array tiling and both-slice
 packed-tail readback, cross-dimension zero-mip normalization, direct
 texture/BC/volume I/O, mipped arrays/volumes and
 MSAA arrays, D16 and typeless R24/R32 depth-stencil/plane formats,
@@ -615,11 +615,16 @@ pointer-free named/unnamed buffer/heap/fence mappings, one committed
 RGBA8 texture Mach-port mapping, inherited unnamed buffer/heap/fence
 cross-process read/write/signal/metadata, adapter-LUID
 mismatch rejection, and OfferResources/Trim/Reclaim residency-state evidence.
-The latest sparse run also passes native 3D volume mapping, cross-resource
-mapping copy, readback, physical-page ownership, and direct nonzero-Z boxed
-volume I/O. The exhaustive Phase 3 gate remains open for all remaining legal
-dimensions/formats, native packed-tail execution, real reclaim/trim pressure,
-broader texture sharing, and shared-event/security coverage.
+The latest stable source-staged run passes the closed Phase 3 gate with a
+108-case format/shape/subresource matrix, complete per-subresource footprints,
+three aligned placed-buffer offsets,
+66 behavior-backed advertised sparse formats, native 1D/2D-array/3D mapping,
+cross-resource mapping copies, packed-tail and partial-mip copies, physical-page
+ownership, and nonzero-Z boxed-volume I/O. The residency pressure arena
+allocates and touches 512 MiB before `OfferResources`/`Trim`/`ReclaimResources`;
+read-only access, lifetime, adapter-LUID, and named/unnamed cross-process
+sharing checks pass for buffers, heaps, fences, and textures. Unsupported
+provider combinations remain explicitly fail-closed.
 
 ### Phase 4 — Complete queues, command recording/replay, barriers, and indirect work
 
@@ -1318,6 +1323,10 @@ whether the scoped FL12_2 gate is green.
   unnamed CPU-visible heap/fence mappings, native 3D sparse mapping-copy and
   physical-page ownership, GPU-upload/custom-equivalent buffer and texture
   placement, and nonzero-offset placed-texture/depth-plane/boxed-volume I/O.
-- The exhaustive Phase 3 exit gate remains intentionally open; the latest
-  source-staged resource, views, command-replay, legacy, and caps probes and
-  the staged PE/Unix ABI check all pass, with generated build products removed.
+- Closed the Phase 3 exit gate after the source-staged resource probe passed
+  the 108-case format/shape/subresource matrix, aligned placed offsets, the
+  66-format behavior-backed sparse matrix, 512-MiB pressure/reclaim cycle,
+  read-only access/lifetime checks, named/unnamed cross-process sharing, and
+  adapter-LUID validation. Resource, views, command-replay, legacy, and caps
+  probes plus the staged PE/Unix ABI check pass; generated build products are
+  removed.

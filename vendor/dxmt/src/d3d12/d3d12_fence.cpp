@@ -127,14 +127,19 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Fence::GetDevice(REFIID riid, void **device) {
 
 void MTLD3D12Fence::AdoptSharedMapping(HANDLE mapping, void *mapping_view,
                                        uint64_t mapping_size,
-                                       uint64_t value_offset) {
+                                       uint64_t value_offset,
+                                       bool writable) {
   m_shared_mapping = mapping;
   m_shared_mapping_view = mapping_view;
   m_shared_mapping_size = mapping_size;
+  m_shared_mapping_writable = writable;
   m_shared_value = reinterpret_cast<volatile LONG64 *>(
       static_cast<uint8_t *>(mapping_view) + value_offset);
-  const uint64_t shared_value = static_cast<uint64_t>(
-      InterlockedCompareExchange64(m_shared_value, 0, 0));
+  const uint64_t shared_value = m_shared_mapping_writable
+                                     ? static_cast<uint64_t>(
+                                           InterlockedCompareExchange64(
+                                               m_shared_value, 0, 0))
+                                     : static_cast<uint64_t>(*m_shared_value);
   if (shared_value > m_value.load(std::memory_order_acquire))
     m_value.store(shared_value, std::memory_order_release);
 }
@@ -142,8 +147,11 @@ void MTLD3D12Fence::AdoptSharedMapping(HANDLE mapping, void *mapping_view,
 uint64_t STDMETHODCALLTYPE MTLD3D12Fence::GetCompletedValue() {
   uint64_t current = m_value.load(std::memory_order_acquire);
   if (m_shared_value) {
-    uint64_t shared_value = static_cast<uint64_t>(
-        InterlockedCompareExchange64(m_shared_value, 0, 0));
+    uint64_t shared_value = m_shared_mapping_writable
+                                 ? static_cast<uint64_t>(
+                                       InterlockedCompareExchange64(
+                                           m_shared_value, 0, 0))
+                                 : static_cast<uint64_t>(*m_shared_value);
     if (shared_value > current) {
       m_value.store(shared_value, std::memory_order_release);
       current = shared_value;
@@ -204,7 +212,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Fence::SetEventOnCompletion(uint64_t value,
   AddRef();
   auto *ctx = new (std::nothrow) FenceEventWaitCtx{
       this, m_shared_event, value, event, m_shared_value != nullptr,
-      m_shared_value != nullptr};
+      m_shared_value != nullptr && m_shared_mapping_writable};
   if (!ctx) {
     Release();
     return E_OUTOFMEMORY;
@@ -225,7 +233,8 @@ bool MTLD3D12Fence::ScheduleSharedMappingSignal(uint64_t value) {
     return false;
   AddRef();
   auto *ctx = new (std::nothrow) FenceEventWaitCtx{
-      this, m_shared_event, value, nullptr, false, true};
+      this, m_shared_event, value, nullptr, false,
+      m_shared_mapping_writable};
   if (!ctx) {
     Release();
     return false;
@@ -246,7 +255,8 @@ bool MTLD3D12Fence::ScheduleLocalEventSignalFromMapping(uint64_t value) {
     return false;
   AddRef();
   auto *ctx = new (std::nothrow) FenceEventWaitCtx{
-      this, m_shared_event, value, nullptr, true, true};
+      this, m_shared_event, value, nullptr, true,
+      m_shared_mapping_writable};
   if (!ctx) {
     Release();
     return false;
@@ -264,6 +274,10 @@ bool MTLD3D12Fence::ScheduleLocalEventSignalFromMapping(uint64_t value) {
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Fence::Signal(uint64_t value) {
   FTRACE("Signal value=%llu this=%p", (unsigned long long)value, (void *)this);
+  if (m_shared_mapping && !m_shared_mapping_writable) {
+    FTRACE("Signal rejected read-only shared mapping this=%p", (void *)this);
+    return E_ACCESSDENIED;
+  }
   m_value.store(value, std::memory_order_release);
   if (m_shared_value)
     InterlockedExchange64(m_shared_value, static_cast<LONG64>(value));

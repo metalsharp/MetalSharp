@@ -1,6 +1,6 @@
 # Full-Surface Phase 3 Resource, Residency, and Sharing Proof
 
-**Status:** Phase 3 resource milestone; full phase remains open
+**Status:** Phase 3 complete on the stable isolated proof host
 **Stable runtime:** MetalSharp Wine 11.5 / Apple M4 / Metal 4
 **Stable Agility lane:** 1.619.5 (`D3D12SDKVersion=619`)
 
@@ -29,19 +29,24 @@
   an evicted resource is rejected until it is made resident again.
 - Named buffers, CPU-visible heaps, and fences use platform file mappings with
   fixed metadata headers rather than a process-local object map. A second Wine
-  process can reconstruct a buffer, observe writes to the same backing, and
-  observe a signaled fence value. Queue `Signal` propagates completion into
-  the pointer-free fence mapping, and an independently reopened fence bridges
-  that mapping into a queue `Wait` before the child-process readback.
+  process can reconstruct buffers, a heap, a texture, and a fence; observe
+  shared writes/signals; and return the child result through the same backing.
+  Queue `Signal` propagates completion into the pointer-free fence mapping, and
+  an independently reopened fence bridges that mapping into a queue `Wait`.
+  The probe also covers read-only buffer/heap/texture/fence rights, stronger
+  access rejection, adapter-LUID checks, and disappearance of a named mapping
+  after its final owner and handle are released.
 - `OpenExistingHeapFromAddress` resolves a live mapped heap only for the owning
   device, and `OpenExistingHeapFromFileMapping` validates and reconstructs a
   shared CPU-visible heap.
 - Resource lifetime, placed-resource aliasing, reserved buffers/textures,
   packed and partial mips, volume tiling, format variants, tile mapping,
-  unmapped zeroing, and physical-page ownership remain behavior-backed by the
-  resource probe. The sparse format matrix now executes exact one-tile
-  round-trips with reported tile-shape checks for R8, R8G8, R16, R32,
-  RGBA8_UNORM, packed 10/11-bit, RGBA16, RGBA32, RGBA8_UINT, and BC1/BC4/BC7.
+  unmapped zeroing, and physical-page ownership are behavior-backed by the
+  resource probe. The advertised sparse format matrix now executes exact
+  one-tile round-trips for **66** stable-provider formats, including every
+  R8/R8G8/R16/RGBA8/R10/R11/R32/R32G32/RGBA16/RGBA32 and BC variant whose
+  `FORMAT_SUPPORT2_TILED` result is promoted. Non-proven sparse formats are
+  not advertised as tiled.
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
@@ -430,8 +435,9 @@ The isolated source-staged probe passed with:
   "sparse.array_alias_mapping_verified": true,
   "sparse.array_alias_first_byte": 7,
   "sparse.array_alias_second_byte": 11,
-  "sparse.format_matrix_count": 14,
+  "sparse.format_matrix_count": 66,
   "sparse.format_matrix_all_tile_shapes_verified": true,
+  "sparse.dimension_matrix_verified": true,
   "sparse.packed_tail_reserved": {
     "array_total_tiles": 44,
     "array_tiling_count": 8,
@@ -461,8 +467,10 @@ python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-gate.py \
   --phase 3 --profile metalsharp-isolated
 ```
 
-It correctly remains nonzero until the tracked exhaustive-coverage manifest is
-closed; focused positive evidence does not silently promote the phase.
+The tracked exhaustive-coverage manifest is now closed only after the latest
+source-staged result supplied the required positive checks. Running the command
+above is the reproducible Phase 3 gate; it passes for `--phase 3` and remains
+fail-closed for the later full-surface phases.
 
 ### Relaxed castable-format and heap restriction proof
 
@@ -488,12 +496,15 @@ run exercises the corrected composite heap restriction mask and reports
 ```sh
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
 METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
-  tools/d3d12-metal-sdk/scripts/run-source-probes.sh --queues-only
+  tools/d3d12-metal-sdk/scripts/run-source-probes.sh --resources-only
 ```
 
-The queue probe's `IDXGIDevice3::QueryResourceResidency` path observed
+The resource probe's `IDXGIDevice3::QueryResourceResidency` path observed
 `DXGI_RESIDENCY_FULLY_RESIDENT (1)`, `DXGI_RESIDENCY_EVICTED_TO_DISK (3)`,
-and `FULLY_RESIDENT (1)` around a real D3D12 `Evict`/`MakeResident` cycle.
+and `FULLY_RESIDENT (1)` around D3D12 `Evict`/`MakeResident` and
+`OfferResources`/`Trim`/`ReclaimResources` cycles. It additionally allocated
+and touched an 8-resource, 512-MiB pressure arena before offering, trimming,
+querying, and reclaiming all resources with discarded-state readback.
 
 ### D3D10/D3D11 regression
 
@@ -515,11 +526,11 @@ The legacy regression probe passed after the resource and backing changes.
 - Generated build products, probe caches, and temporary staging data were
   removed before delivery; no runtime binaries are committed.
 
-This checkpoint completes the behavior-backed resource, sparse-resource,
-residency, sharing, legal-shape creation, alignment, adapter-identity, and
-malformed-descriptor validation subset. The full Phase 3 exit gate remains
-open for exhaustive allocation and footprint/plane behavior, every legal
-sparse tier and aliasing case, real reclaim/trim pressure, additional shared
-texture formats/placements, and security-policy coverage; those items remain
-explicitly ledgered rather
-than promoted by query results alone.
+The Phase 3 exit gate is closed on the stable 1.619.5 proof host. The final
+source-staged `probe-resources-metalsharp-isolated.json` reports a 108-case
+format/shape/subresource matrix, three aligned placed-buffer offsets, a
+66-format advertised sparse matrix with physical-page and alias evidence,
+512-MiB pressure/reclaim evidence, and named/unnamed cross-process sharing for
+buffers, heaps, fences, and textures. Read-only access, lifetime, security,
+and adapter-LUID checks are explicit. Unsupported provider combinations remain
+fail-closed and are not promoted by the phase gate.

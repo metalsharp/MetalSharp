@@ -13497,6 +13497,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Signal(ID3D12Fence *fence,
   if (!fence)
     return E_POINTER;
   auto dxmt_fence = static_cast<MTLD3D12Fence *>(fence);
+  if (!dxmt_fence->IsSharedMappingWritable())
+    return E_ACCESSDENIED;
   auto shared_event = dxmt_fence->GetMTLSharedEvent();
   if (!shared_event.handle)
     return E_FAIL;

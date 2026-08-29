@@ -7,6 +7,7 @@
 #include "d3d12_trace.hpp"
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -34,11 +35,14 @@ static uint64_t AdapterLuidValue(ID3D12Device *device) {
          static_cast<uint32_t>(luid.LowPart);
 }
 
+static bool IsValidSharedAccess(DWORD access);
+
 static bool ValidMetadata(const D3D12SharedResourceMetadata &metadata,
                           SIZE_T mapped_size) {
   if (metadata.magic != kD3D12SharedResourceMagic ||
       metadata.version != kD3D12SharedResourceVersion ||
       metadata.kind != kD3D12SharedResourceKindBuffer ||
+      !IsValidSharedAccess(metadata.reserved) ||
       metadata.data_offset < sizeof(D3D12SharedResourceMetadata) ||
       metadata.mapping_size < metadata.data_offset ||
       metadata.data_size > metadata.mapping_size - metadata.data_offset)
@@ -50,14 +54,93 @@ static bool ValidMetadata(const D3D12SharedResourceMetadata &metadata,
          desc.Width == metadata.data_size && metadata.data_size != 0;
 }
 
-static HRESULT DuplicateMappingHandle(HANDLE source, HANDLE *duplicate) {
+static bool IsValidSharedAccess(DWORD access) {
+  constexpr DWORD kGenericAccess = GENERIC_READ | GENERIC_WRITE | GENERIC_ALL;
+  return access != 0 && (access & ~kGenericAccess) == 0;
+}
+
+static DWORD MappingAccessForSharedHandle(DWORD access) {
+  if (access & GENERIC_ALL)
+    return FILE_MAP_ALL_ACCESS;
+  DWORD mapping_access = 0;
+  if (access & GENERIC_READ)
+    mapping_access |= FILE_MAP_READ;
+  if (access & GENERIC_WRITE)
+    mapping_access |= FILE_MAP_WRITE;
+  return mapping_access;
+}
+
+static HRESULT DuplicateMappingHandle(HANDLE source, DWORD access,
+                                       HANDLE *duplicate,
+                                       bool inheritable = false) {
   if (!duplicate)
     return E_POINTER;
   *duplicate = nullptr;
+  const DWORD desired_access = access ? MappingAccessForSharedHandle(access) : 0;
+  const DWORD options = access ? 0 : DUPLICATE_SAME_ACCESS;
   if (!DuplicateHandle(GetCurrentProcess(), source, GetCurrentProcess(),
-                       duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+                       duplicate, desired_access, inheritable, options))
     return HResultFromLastError();
   return S_OK;
+}
+
+static bool MapSharedView(HANDLE mapping, void **view) {
+  if (!view)
+    return false;
+  *view = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, 0);
+  if (*view)
+    return true;
+  *view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  return false;
+}
+
+static bool SharedAccessGrants(DWORD declared, DWORD requested) {
+  if (!IsValidSharedAccess(declared) || !IsValidSharedAccess(requested))
+    return false;
+  if (declared & GENERIC_ALL)
+    return true;
+  if (requested & GENERIC_ALL)
+    return false;
+  const DWORD basic_access = GENERIC_READ | GENERIC_WRITE;
+  return (requested & basic_access) ==
+         (declared & requested & basic_access);
+}
+
+static HRESULT ValidateRequestedMappingAccessImpl(HANDLE mapping,
+                                                   DWORD requested_access) {
+  if (!mapping || !IsValidSharedAccess(requested_access))
+    return E_INVALIDARG;
+  void *view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  if (!view)
+    return HResultFromLastError();
+  uint32_t kind = 0;
+  std::memcpy(&kind, static_cast<uint8_t *>(view) + sizeof(uint32_t) * 2,
+              sizeof(kind));
+  DWORD declared_access = 0;
+  switch (kind) {
+  case kD3D12SharedResourceKindBuffer:
+  case kD3D12SharedResourceKindHeap:
+  case kD3D12SharedResourceKindTexture: {
+    std::memcpy(&declared_access,
+                static_cast<uint8_t *>(view) + sizeof(uint32_t) * 3,
+                sizeof(declared_access));
+    break;
+  }
+  case kD3D12SharedResourceKindFence: {
+    std::memcpy(&declared_access,
+                static_cast<uint8_t *>(view) + offsetof(
+                    D3D12SharedFenceMetadata, reserved_flags),
+                sizeof(declared_access));
+    break;
+  }
+  default:
+    UnmapViewOfFile(view);
+    return DXGI_ERROR_INVALID_CALL;
+  }
+  UnmapViewOfFile(view);
+  return SharedAccessGrants(declared_access, requested_access)
+             ? S_OK
+             : E_ACCESSDENIED;
 }
 
 static bool FillSharedTextureInfo(const D3D12_RESOURCE_DESC &desc,
@@ -124,6 +207,10 @@ static bool MakeSharedTextureServiceName(char *out, size_t capacity) {
 
 } // namespace
 
+HRESULT ValidateRequestedMappingAccess(HANDLE mapping, DWORD requested_access) {
+  return ValidateRequestedMappingAccessImpl(mapping, requested_access);
+}
+
 HRESULT MTLD3D12Resource::AttachSharedBacking(
     HANDLE mapping, void *mapping_view, uint64_t mapping_size,
     uint64_t data_offset, bool preserve_contents) {
@@ -185,8 +272,9 @@ HRESULT MTLD3D12Resource::AttachSharedBacking(
 
 HRESULT CreateSharedBufferMapping(
     MTLD3D12Resource *resource, const SECURITY_ATTRIBUTES *attributes,
-    const WCHAR *name, HANDLE *mapping) {
-  if (!resource || !name || !name[0] || !mapping)
+    DWORD access, const WCHAR *name, HANDLE *mapping) {
+  if (!resource || !name || !name[0] || !mapping ||
+      !IsValidSharedAccess(access))
     return E_INVALIDARG;
   *mapping = nullptr;
   if (!resource->IsBuffer() || !resource->IsValid())
@@ -225,6 +313,7 @@ HRESULT CreateSharedBufferMapping(
   D3D12SharedResourceMetadata metadata = {};
   metadata.mapping_size = mapping_size;
   metadata.data_size = desc.Width;
+  metadata.reserved = access;
   metadata.resource_desc = desc;
   resource->GetHeapProperties(&metadata.heap_properties,
                               &metadata.heap_flags);
@@ -245,21 +334,29 @@ HRESULT CreateSharedBufferMapping(
   std::memcpy(view, &metadata, sizeof(metadata));
 
   HANDLE owner_mapping = nullptr;
-  HRESULT hr = DuplicateMappingHandle(section, &owner_mapping);
+  HANDLE public_mapping = nullptr;
+  HRESULT hr = DuplicateMappingHandle(section, GENERIC_ALL, &owner_mapping);
+  if (SUCCEEDED(hr))
+    hr = DuplicateMappingHandle(
+        section, access, &public_mapping,
+        attributes && attributes->bInheritHandle != FALSE);
   if (SUCCEEDED(hr))
     hr = resource->AttachSharedBacking(owner_mapping, view, mapping_size,
                                        metadata.data_offset, true);
   if (FAILED(hr)) {
     if (owner_mapping)
       CloseHandle(owner_mapping);
+    if (public_mapping)
+      CloseHandle(public_mapping);
     UnmapViewOfFile(view);
     CloseHandle(section);
     return hr;
   }
 
-  *mapping = section;
+  CloseHandle(section);
+  *mapping = public_mapping;
   SHARETRACE("created named shared buffer resource=%p name=%ls mapping=%p size=%llu",
-             (void *)resource, name, section,
+             (void *)resource, name, public_mapping,
              (unsigned long long)desc.Width);
   return S_OK;
 }
@@ -269,9 +366,8 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
   if (!device || !mapping || !resource)
     return E_INVALIDARG;
   *resource = nullptr;
-  void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
-  if (!view)
-    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  void *view = nullptr;
+  const bool writable = MapSharedView(mapping, &view);
   if (!view)
     return HResultFromLastError();
   D3D12SharedResourceMetadata metadata = {};
@@ -284,7 +380,7 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
   }
 
   HANDLE owner_mapping = nullptr;
-  HRESULT hr = DuplicateMappingHandle(mapping, &owner_mapping);
+  HRESULT hr = DuplicateMappingHandle(mapping, 0, &owner_mapping);
   if (FAILED(hr)) {
     UnmapViewOfFile(view);
     return hr;
@@ -320,7 +416,7 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return E_FAIL;
   }
   created->AdoptSharedMapping(owner_mapping, view, metadata.mapping_size,
-                              metadata.data_offset);
+                              metadata.data_offset, writable);
   hr = created->QueryInterface(IID_ID3D12Resource,
                                reinterpret_cast<void **>(resource));
   created->Release();
@@ -336,9 +432,10 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
 
 HRESULT CreateSharedTextureMapping(
     MTLD3D12Resource *resource, const SECURITY_ATTRIBUTES *attributes,
-    const WCHAR *name, HANDLE *mapping) {
+    DWORD access, const WCHAR *name, HANDLE *mapping) {
   if (!resource || resource->IsBuffer() || !resource->IsValid() ||
-      !resource->GetSharedTextureMachPort() || !name || !name[0] || !mapping)
+      !resource->GetSharedTextureMachPort() || !name || !name[0] || !mapping ||
+      !IsValidSharedAccess(access))
     return E_INVALIDARG;
   *mapping = nullptr;
 
@@ -369,6 +466,7 @@ HRESULT CreateSharedTextureMapping(
 
   D3D12SharedTextureMetadata metadata = {};
   metadata.mapping_size = mapping_size;
+  metadata.reserved = access;
   resource->GetDesc(&metadata.resource_desc);
   resource->GetHeapProperties(&metadata.heap_properties,
                               &metadata.heap_flags);
@@ -390,10 +488,19 @@ HRESULT CreateSharedTextureMapping(
               std::min(sizeof(metadata.service_name) - 1,
                        std::strlen(service_name)));
   std::memcpy(view, &metadata, sizeof(metadata));
+  HANDLE public_mapping = nullptr;
+  HRESULT duplicate_hr = DuplicateMappingHandle(
+      section, access, &public_mapping,
+      attributes && attributes->bInheritHandle != FALSE);
   UnmapViewOfFile(view);
-  *mapping = section;
+  if (FAILED(duplicate_hr)) {
+    CloseHandle(section);
+    return duplicate_hr;
+  }
+  CloseHandle(section);
+  *mapping = public_mapping;
   SHARETRACE("created shared texture resource=%p name=%ls service=%s mapping=%p",
-             (void *)resource, name, service_name, section);
+             (void *)resource, name, service_name, public_mapping);
   return S_OK;
 }
 
@@ -402,9 +509,8 @@ HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
   if (!device || !mapping || !resource)
     return E_INVALIDARG;
   *resource = nullptr;
-  void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
-  if (!view)
-    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  void *view = nullptr;
+  const bool writable = MapSharedView(mapping, &view);
   if (!view)
     return HResultFromLastError();
   D3D12SharedTextureMetadata metadata = {};
@@ -415,6 +521,7 @@ HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
   if (metadata.magic != kD3D12SharedResourceMagic ||
       metadata.version != kD3D12SharedResourceVersion ||
       metadata.kind != kD3D12SharedResourceKindTexture ||
+      !IsValidSharedAccess(metadata.reserved) ||
       metadata.mapping_size < sizeof(metadata) ||
       metadata.mapping_size != 4096 || !metadata.adapter_luid ||
       !service_terminated) {
@@ -445,7 +552,7 @@ HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return E_NOTIMPL;
   }
   HANDLE owner_mapping = nullptr;
-  HRESULT hr = DuplicateMappingHandle(mapping, &owner_mapping);
+  HRESULT hr = DuplicateMappingHandle(mapping, 0, &owner_mapping);
   if (FAILED(hr)) {
     UnmapViewOfFile(view);
     return hr;
@@ -467,7 +574,8 @@ HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
     UnmapViewOfFile(view);
     return E_FAIL;
   }
-  created->AdoptSharedMapping(owner_mapping, view, metadata.mapping_size, 0);
+  created->AdoptSharedMapping(owner_mapping, view, metadata.mapping_size, 0,
+                              writable);
   hr = created->QueryInterface(IID_ID3D12Resource,
                                reinterpret_cast<void **>(resource));
   created->Release();
@@ -482,8 +590,9 @@ HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
 
 HRESULT CreateSharedFenceMapping(
     MTLD3D12Fence *fence, const SECURITY_ATTRIBUTES *attributes,
-    const WCHAR *name, HANDLE *mapping) {
-  if (!fence || !name || !name[0] || !mapping)
+    DWORD access, const WCHAR *name, HANDLE *mapping) {
+  if (!fence || !name || !name[0] || !mapping ||
+      !IsValidSharedAccess(access))
     return E_INVALIDARG;
   *mapping = nullptr;
   constexpr uint64_t mapping_size = 4096;
@@ -493,7 +602,8 @@ HRESULT CreateSharedFenceMapping(
                                       static_cast<DWORD>(mapping_size), name);
   if (!section)
     return HResultFromLastError();
-  if (GetLastError() == ERROR_ALREADY_EXISTS) {
+  const DWORD section_error = GetLastError();
+  if (section_error == ERROR_ALREADY_EXISTS) {
     CloseHandle(section);
     return DXGI_ERROR_NAME_ALREADY_EXISTS;
   }
@@ -505,6 +615,7 @@ HRESULT CreateSharedFenceMapping(
   }
   D3D12SharedFenceMetadata metadata = {};
   metadata.mapping_size = mapping_size;
+  metadata.reserved_flags = access;
   metadata.initial_value = fence->GetCompletedValue();
   metadata.flags = fence->GetFlags();
   ID3D12Device *fence_device = nullptr;
@@ -525,18 +636,26 @@ HRESULT CreateSharedFenceMapping(
       static_cast<uint8_t *>(view) + metadata.value_offset);
   InterlockedExchange64(shared_value, static_cast<LONG64>(metadata.initial_value));
   HANDLE owner_mapping = nullptr;
-  HRESULT hr = DuplicateMappingHandle(section, &owner_mapping);
+  HANDLE public_mapping = nullptr;
+  HRESULT hr = DuplicateMappingHandle(section, GENERIC_ALL, &owner_mapping);
+  if (SUCCEEDED(hr))
+    hr = DuplicateMappingHandle(
+        section, access, &public_mapping,
+        attributes && attributes->bInheritHandle != FALSE);
   if (SUCCEEDED(hr))
     fence->AdoptSharedMapping(owner_mapping, view, mapping_size,
-                              metadata.value_offset);
+                              metadata.value_offset, true);
   if (FAILED(hr)) {
     if (owner_mapping)
       CloseHandle(owner_mapping);
+    if (public_mapping)
+      CloseHandle(public_mapping);
     UnmapViewOfFile(view);
     CloseHandle(section);
     return hr;
   }
-  *mapping = section;
+  CloseHandle(section);
+  *mapping = public_mapping;
   return S_OK;
 }
 
@@ -545,9 +664,8 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
   if (!device || !mapping || !fence)
     return E_INVALIDARG;
   *fence = nullptr;
-  void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
-  if (!view)
-    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  void *view = nullptr;
+  const bool writable = MapSharedView(mapping, &view);
   if (!view)
     return HResultFromLastError();
   D3D12SharedFenceMetadata metadata = {};
@@ -555,6 +673,7 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
   if (metadata.magic != kD3D12SharedResourceMagic ||
       metadata.version != kD3D12SharedResourceVersion ||
       metadata.kind != kD3D12SharedResourceKindFence ||
+      !IsValidSharedAccess(metadata.reserved_flags) ||
       metadata.mapping_size < metadata.value_offset + sizeof(LONG64) ||
       metadata.value_offset < sizeof(metadata) || metadata.adapter_luid == 0 ||
       metadata.value_offset % alignof(LONG64) != 0) {
@@ -563,8 +682,11 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
   }
   auto *shared_value = reinterpret_cast<volatile LONG64 *>(
       static_cast<uint8_t *>(view) + metadata.value_offset);
-  const uint64_t initial_value = static_cast<uint64_t>(
-      InterlockedCompareExchange64(shared_value, 0, 0));
+  const uint64_t initial_value = writable
+                                     ? static_cast<uint64_t>(
+                                           InterlockedCompareExchange64(
+                                               shared_value, 0, 0))
+                                     : static_cast<uint64_t>(*shared_value);
   const uint64_t current_luid =
       AdapterLuidValue(static_cast<ID3D12Device *>(device));
   if (!current_luid || current_luid != metadata.adapter_luid) {
@@ -572,7 +694,7 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return DXGI_ERROR_INVALID_CALL;
   }
   HANDLE owner_mapping = nullptr;
-  HRESULT hr = DuplicateMappingHandle(mapping, &owner_mapping);
+  HRESULT hr = DuplicateMappingHandle(mapping, 0, &owner_mapping);
   if (FAILED(hr)) {
     UnmapViewOfFile(view);
     return hr;
@@ -585,7 +707,7 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return E_OUTOFMEMORY;
   }
   created->AdoptSharedMapping(owner_mapping, view, metadata.mapping_size,
-                              metadata.value_offset);
+                              metadata.value_offset, writable);
   hr = created->QueryInterface(IID_ID3D12Fence,
                                reinterpret_cast<void **>(fence));
   created->Release();
