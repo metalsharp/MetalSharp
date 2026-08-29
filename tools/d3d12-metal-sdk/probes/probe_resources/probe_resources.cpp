@@ -288,6 +288,11 @@ int main(int argc, char** argv) {
     HRESULT create_hr = create_device ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, IID_D3D12DeviceProbe,
                                                       reinterpret_cast<void**>(&device))
                                       : E_FAIL;
+    LUID device_luid = {};
+    bool device_luid_ok = false;
+    if (device)
+        device_luid_ok = device->GetAdapterLuid(&device_luid) != nullptr &&
+                         (device_luid.HighPart != 0 || device_luid.LowPart != 0);
 
     D3D12_COMMAND_QUEUE_DESC queue_desc = {};
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -2598,7 +2603,7 @@ int main(int argc, char** argv) {
         CloseHandle(shared_named_handle);
 
     bool pass =
-        SUCCEEDED(create_hr) && SUCCEEDED(queue_hr) && SUCCEEDED(sparse_mapping_queue_hr) &&
+        SUCCEEDED(create_hr) && device_luid_ok && SUCCEEDED(queue_hr) && SUCCEEDED(sparse_mapping_queue_hr) &&
         SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) && SUCCEEDED(fence_hr) &&
         SUCCEEDED(sparse_mapping_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(default_buffer_hr) &&
         SUCCEEDED(readback_buffer_hr) && SUCCEEDED(map_upload_hr) && SUCCEEDED(close_hr) && SUCCEEDED(execute_hr) &&
@@ -2681,7 +2686,10 @@ int main(int argc, char** argv) {
     std::printf("  \"profile\": \"%s\",\n", json_escape(profile).c_str());
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"device_create\": {\n");
-    print_hr("hr", create_hr, false);
+    print_hr("hr", create_hr);
+    std::printf("    \"adapter_luid\": [%ld, %lu],\n", static_cast<long>(device_luid.HighPart),
+                static_cast<unsigned long>(device_luid.LowPart));
+    std::printf("    \"adapter_luid_verified\": %s\n", device_luid_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"command_execution\": {\n");
     print_hr("queue", queue_hr);
