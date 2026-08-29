@@ -2056,6 +2056,24 @@ int main(int argc, char** argv) {
         device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &bc_staging_desc,
                                                  D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&bc_readback))
                : E_FAIL;
+    HRESULT bc_direct_write_hr = E_FAIL;
+    HRESULT bc_direct_read_hr = E_FAIL;
+    bool bc_direct_io_ok = false;
+    uint8_t bc_direct_data[32] = {};
+    for (UINT row = 0; row < 2; ++row)
+        for (UINT64 byte = 0; byte < 16; ++byte)
+            bc_direct_data[row * 16 + byte] = static_cast<uint8_t>(0x31u + row * 17u + byte);
+    if (bc_texture) {
+        bc_direct_write_hr = bc_texture->WriteToSubresource(
+            0, nullptr, bc_direct_data, 16, 32);
+        uint8_t bc_direct_readback[32] = {};
+        bc_direct_read_hr = bc_texture->ReadFromSubresource(
+            bc_direct_readback, 16, 32, 0, nullptr);
+        bc_direct_io_ok = SUCCEEDED(bc_direct_write_hr) &&
+                          SUCCEEDED(bc_direct_read_hr) &&
+                          std::memcmp(bc_direct_data, bc_direct_readback,
+                                      sizeof(bc_direct_data)) == 0;
+    }
     uint8_t* bc_upload_ptr = nullptr;
     HRESULT bc_upload_map_hr =
         bc_upload ? bc_upload->Map(0, nullptr, reinterpret_cast<void**>(&bc_upload_ptr)) : E_FAIL;
@@ -2578,7 +2596,9 @@ int main(int argc, char** argv) {
         SUCCEEDED(direct_io_volume_create_hr) && SUCCEEDED(direct_io_volume_write_hr) &&
         SUCCEEDED(direct_io_volume_read_hr) && direct_io_volume_ok &&
         SUCCEEDED(bc_texture_hr) && SUCCEEDED(bc_upload_hr) && SUCCEEDED(bc_readback_hr) &&
-        SUCCEEDED(bc_upload_map_hr) && SUCCEEDED(bc_readback_map_hr) && bc_copy_ok && SUCCEEDED(sparse_heap_hr) &&
+        SUCCEEDED(bc_upload_map_hr) && SUCCEEDED(bc_readback_map_hr) && bc_copy_ok &&
+        SUCCEEDED(bc_direct_write_hr) && SUCCEEDED(bc_direct_read_hr) && bc_direct_io_ok &&
+        SUCCEEDED(sparse_heap_hr) &&
         SUCCEEDED(reserved_texture_hr) && SUCCEEDED(placement_alias_texture_hr) &&
         SUCCEEDED(placement_alias_readback_hr) && SUCCEEDED(placement_alias_readback_map_hr) &&
         placement_alias_copy_ok && SUCCEEDED(volume_heap_hr) && SUCCEEDED(volume_texture_hr) &&
@@ -2832,6 +2852,9 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long>(static_cast<uint32_t>(bc_upload_hr)));
     std::printf("    \"unaligned_bc1_readback_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(static_cast<uint32_t>(bc_readback_hr)));
+    print_hr("unaligned_bc1_direct_write", bc_direct_write_hr);
+    print_hr("unaligned_bc1_direct_read", bc_direct_read_hr);
+    std::printf("    \"unaligned_bc1_direct_io_verified\": %s,\n", bc_direct_io_ok ? "true" : "false");
     std::printf("    \"unaligned_bc1_copy_verified\": %s,\n", bc_copy_ok ? "true" : "false");
     std::printf("    \"unaligned_bc1_width\": 7,\n");
     std::printf("    \"unaligned_bc1_height\": 5,\n");
