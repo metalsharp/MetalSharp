@@ -43,6 +43,9 @@ public:
   WMT::Reference<WMT::SharedEvent> GetMTLSharedEvent() {
     return m_shared_event;
   }
+  bool HasSharedMapping() const { return m_shared_value != nullptr; }
+  bool ScheduleSharedMappingSignal(uint64_t value);
+  bool ScheduleLocalEventSignalFromMapping(uint64_t value);
 
 private:
   MTLD3D12Device *m_device;

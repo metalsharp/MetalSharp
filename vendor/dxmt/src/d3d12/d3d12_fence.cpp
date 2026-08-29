@@ -18,6 +18,7 @@ struct FenceEventWaitCtx {
   uint64_t wait_value;
   HANDLE wait_event;
   bool shared_mapping;
+  bool propagate_shared_mapping;
 };
 
 DWORD WINAPI FenceEventWaitThread(void *arg) {
@@ -38,6 +39,8 @@ DWORD WINAPI FenceEventWaitThread(void *arg) {
     if (shared_value > current)
       ctx->self->Signal(shared_value);
   }
+  if (ctx->propagate_shared_mapping)
+    ctx->self->Signal(ctx->wait_value);
   FTRACE("SetEventOnCompletion async wait end value=%llu shared=%llu this=%p",
          (unsigned long long)ctx->wait_value, (unsigned long long)shared_value,
          (void *)ctx->self);
@@ -199,8 +202,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Fence::SetEventOnCompletion(uint64_t value,
   }
 
   AddRef();
-  auto *ctx = new FenceEventWaitCtx{this, m_shared_event, value, event,
-                                     m_shared_value != nullptr};
+  auto *ctx = new (std::nothrow) FenceEventWaitCtx{
+      this, m_shared_event, value, event, m_shared_value != nullptr,
+      m_shared_value != nullptr};
+  if (!ctx) {
+    Release();
+    return E_OUTOFMEMORY;
+  }
   HANDLE thread = CreateThread(nullptr, 0, FenceEventWaitThread, ctx, 0, nullptr);
   if (!thread) {
     delete ctx;
@@ -210,6 +218,48 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Fence::SetEventOnCompletion(uint64_t value,
   CloseHandle(thread);
 
   return S_OK;
+}
+
+bool MTLD3D12Fence::ScheduleSharedMappingSignal(uint64_t value) {
+  if (!m_shared_value || !m_shared_event.handle)
+    return false;
+  AddRef();
+  auto *ctx = new (std::nothrow) FenceEventWaitCtx{
+      this, m_shared_event, value, nullptr, false, true};
+  if (!ctx) {
+    Release();
+    return false;
+  }
+  HANDLE thread = CreateThread(nullptr, 0, FenceEventWaitThread, ctx, 0,
+                               nullptr);
+  if (!thread) {
+    delete ctx;
+    Release();
+    return false;
+  }
+  CloseHandle(thread);
+  return true;
+}
+
+bool MTLD3D12Fence::ScheduleLocalEventSignalFromMapping(uint64_t value) {
+  if (!m_shared_value || !m_shared_event.handle)
+    return false;
+  AddRef();
+  auto *ctx = new (std::nothrow) FenceEventWaitCtx{
+      this, m_shared_event, value, nullptr, true, true};
+  if (!ctx) {
+    Release();
+    return false;
+  }
+  HANDLE thread = CreateThread(nullptr, 0, FenceEventWaitThread, ctx, 0,
+                               nullptr);
+  if (!thread) {
+    delete ctx;
+    Release();
+    return false;
+  }
+  CloseHandle(thread);
+  return true;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Fence::Signal(uint64_t value) {
