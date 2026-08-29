@@ -456,6 +456,28 @@ static D3D12_RESOURCE_DESC NormalizeResourceDesc(
   return normalized;
 }
 
+static bool IsResourceAllowedByHeapFlags(
+    const D3D12_RESOURCE_DESC &desc, D3D12_HEAP_FLAGS heap_flags) {
+  const UINT flags = static_cast<UINT>(heap_flags);
+  const bool buffer = desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
+  if (buffer)
+    return (flags & static_cast<UINT>(D3D12_HEAP_FLAG_DENY_BUFFERS)) == 0;
+  if (flags & static_cast<UINT>(D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS))
+    return false;
+  const bool render_target =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0;
+  const bool depth_stencil =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0;
+  const bool rt_or_ds = render_target || depth_stencil;
+  if ((flags & static_cast<UINT>(D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES)) &&
+      rt_or_ds)
+    return false;
+  if ((flags & static_cast<UINT>(D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES)) &&
+      !rt_or_ds)
+    return false;
+  return true;
+}
+
 static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
   if (desc.Dimension < D3D12_RESOURCE_DIMENSION_BUFFER ||
       desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D || !desc.Width ||
@@ -4905,9 +4927,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   CheckVtable("CreateCommittedResource");
   if (!desc || !resource)
     return E_POINTER;
+  if (!heap_properties)
+    return E_INVALIDARG;
   InitReturnPtr(resource);
   D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
-  if (!IsValidResourceDesc(normalized_desc))
+  if (!IsValidResourceDesc(normalized_desc) ||
+      !IsResourceAllowedByHeapFlags(normalized_desc, heap_flags))
     return E_INVALIDARG;
   desc = &normalized_desc;
 
@@ -5001,6 +5026,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
     const auto &heap_desc = mt_heap->GetHeapDesc();
     heap_props = heap_desc.Properties;
     heap_flags = heap_desc.Flags;
+    if (!IsResourceAllowedByHeapFlags(*desc, heap_flags))
+      return E_INVALIDARG;
     D3D12_RESOURCE_ALLOCATION_INFO info = {};
     GetResourceAllocationInfo(&info, 0, 1, desc);
     if ((desc->Flags & kD3D12ResourceFlagUseTightAlignment) &&

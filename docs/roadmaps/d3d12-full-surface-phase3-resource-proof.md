@@ -27,6 +27,9 @@
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
+- Committed-resource validation rejects a null heap-properties pointer and a
+  buffer placed in a heap with `DENY_BUFFERS`, both with exact
+  `E_INVALIDARG`, before allocating any object.
 - Zero `MipLevels` is normalized to the complete mip chain: a 32x16 texture
   creates six mips and its six copy footprints report exact dimensions, row
   counts, row sizes, and increasing placement offsets.
@@ -79,6 +82,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.all_created_and_roundtripped": true,
   "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
+  "resource_shapes.invalid_committed_heap_flags": "0x80070057",
+  "resource_shapes.null_heap_properties": "0x80070057",
   "resource_shapes.invalid_zero_width_allocation": [0, 0],
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.invalid_msaa_mips_allocation": [0, 0],
