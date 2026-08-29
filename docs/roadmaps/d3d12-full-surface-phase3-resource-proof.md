@@ -82,6 +82,9 @@
 - `CREATE_NOT_RESIDENT` is honored for committed and placed upload buffers:
   initial `Map` returns `DXGI_ERROR_INVALID_CALL`, `MakeResident` succeeds, and
   the remapped resources expose their CPU backing and exact byte roundtrip.
+- `GetResourceTiling` honors partial query windows: requesting four entries
+  from subresource 2 returns exactly two entries (`mip2` and the packed-tail
+  marker) rather than claiming the full resource count.
 - Reserved 512x512 RGBA8 resources with four mips now create successfully and
   report the packed tail exactly: 22 total tiles, three standard mips, one
   packed mip tile, and per-subresource starts `[0, 16, 20, D3D12_PACKED_TILE]`.
@@ -197,7 +200,9 @@ The isolated source-staged probe passed with:
   "sparse.packed_tail_reserved": {
     "total_tiles": 22,
     "packed_mips": [3, 1, 1, 21],
-    "tilings": [[4, 4, 1, 0], [2, 2, 1, 16], [1, 1, 1, 20], [0, 0, 0, 4294967295]]
+    "tilings": [[4, 4, 1, 0], [2, 2, 1, 16], [1, 1, 1, 20], [0, 0, 0, 4294967295]],
+    "partial_query_count": 2,
+    "partial_query_verified": true
   }
 }
 ```
