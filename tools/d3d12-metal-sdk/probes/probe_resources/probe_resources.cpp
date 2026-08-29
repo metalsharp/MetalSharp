@@ -1392,6 +1392,7 @@ int main(int argc, char** argv) {
     ID3D12Heap* copy_mapping_heap = nullptr;
     ID3D12Resource* reserved_texture = nullptr;
     ID3D12Resource* reserved_1d_texture = nullptr;
+    ID3D12Resource* reserved_1d_alias_texture = nullptr;
     ID3D12Resource* reserved_1d_readback = nullptr;
     ID3D12Resource* placement_alias_texture = nullptr;
     ID3D12Resource* array_alias_texture = nullptr;
@@ -1432,6 +1433,7 @@ int main(int argc, char** argv) {
     HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
     HRESULT reserved_1d_texture_hr = E_FAIL;
+    HRESULT reserved_1d_alias_texture_hr = E_FAIL;
     HRESULT reserved_1d_tiling_hr = E_FAIL;
     HRESULT reserved_1d_readback_hr = E_FAIL;
     HRESULT reserved_1d_readback_map_hr = E_FAIL;
@@ -1440,6 +1442,7 @@ int main(int argc, char** argv) {
     D3D12_SUBRESOURCE_TILING reserved_1d_tilings[2] = {};
     UINT reserved_1d_tiling_count = 2;
     bool reserved_1d_copy_ok = false;
+    bool reserved_1d_mapping_copy_ok = false;
     HRESULT placement_alias_texture_hr = E_FAIL;
     HRESULT array_alias_texture_hr = E_FAIL;
     HRESULT array_alias_readback_hr = E_FAIL;
@@ -1919,6 +1922,11 @@ int main(int argc, char** argv) {
                                   &reserved_1d_tiling_count, 0,
                                   reserved_1d_tilings);
     }
+    reserved_1d_alias_texture_hr =
+        device ? device->CreateReservedResource(
+                     &reserved_1d_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                     nullptr, IID_PPV_ARGS(&reserved_1d_alias_texture))
+               : E_FAIL;
     D3D12_RESOURCE_DESC placement_alias_desc = reserved_desc;
     placement_alias_desc.DepthOrArraySize = 1;
     placement_alias_texture_hr =
@@ -2512,8 +2520,10 @@ int main(int argc, char** argv) {
         list->CopyTiles(sparse_format.texture, &format_coordinate, &format_region, sparse_format.readback, 0,
                         D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
-    if (list && queue && sparse_heap && sparse_upload && reserved_1d_texture && reserved_1d_readback &&
-        SUCCEEDED(reserved_1d_texture_hr) && reserved_1d_total_tiles == 2 &&
+    if (list && queue && sparse_heap && sparse_upload && reserved_1d_texture &&
+        reserved_1d_alias_texture && reserved_1d_readback &&
+        SUCCEEDED(reserved_1d_texture_hr) &&
+        SUCCEEDED(reserved_1d_alias_texture_hr) && reserved_1d_total_tiles == 2 &&
         reserved_1d_tiling_count == 2 && reserved_1d_tile_shape.WidthInTexels == 16384 &&
         reserved_1d_tile_shape.HeightInTexels == 1) {
         D3D12_TILED_RESOURCE_COORDINATE reserved_1d_coordinate = {};
@@ -2527,6 +2537,10 @@ int main(int argc, char** argv) {
                                   &reserved_1d_range_flag, &reserved_1d_heap_offset,
                                   &reserved_1d_range_tiles,
                                   D3D12_TILE_MAPPING_FLAG_NONE);
+        queue->CopyTileMappings(reserved_1d_alias_texture,
+                                &reserved_1d_coordinate, reserved_1d_texture,
+                                &reserved_1d_coordinate, &reserved_1d_region,
+                                D3D12_TILE_MAPPING_FLAG_NONE);
         list->CopyTiles(reserved_1d_texture, &reserved_1d_coordinate,
                         &reserved_1d_region, sparse_upload, 0,
                         D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
@@ -2534,7 +2548,11 @@ int main(int argc, char** argv) {
             transition_barrier(reserved_1d_texture, D3D12_RESOURCE_STATE_COPY_DEST,
                                D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->ResourceBarrier(1, &reserved_1d_barrier);
-        list->CopyTiles(reserved_1d_texture, &reserved_1d_coordinate,
+        D3D12_RESOURCE_BARRIER reserved_1d_alias_barrier = transition_barrier(
+            reserved_1d_alias_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &reserved_1d_alias_barrier);
+        list->CopyTiles(reserved_1d_alias_texture, &reserved_1d_coordinate,
                         &reserved_1d_region, reserved_1d_readback, 0,
                         D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
@@ -3003,6 +3021,7 @@ int main(int argc, char** argv) {
                 break;
             }
         }
+        reserved_1d_mapping_copy_ok = reserved_1d_copy_ok;
         reserved_1d_readback->Unmap(0, nullptr);
     }
     uint8_t* sparse_unmapped_ptr = nullptr;
@@ -3400,12 +3419,14 @@ int main(int argc, char** argv) {
         SUCCEEDED(reserved_1d_tiling_hr) && reserved_1d_total_tiles == 2 &&
         reserved_1d_tiling_count == 2 && reserved_1d_tile_shape.WidthInTexels == 16384 &&
         reserved_1d_tile_shape.HeightInTexels == 1 &&
+        SUCCEEDED(reserved_1d_alias_texture_hr) &&
         reserved_1d_tilings[0].WidthInTiles == 1 &&
         reserved_1d_tilings[0].StartTileIndexInOverallResource == 0 &&
         reserved_1d_tilings[1].WidthInTiles == 1 &&
         reserved_1d_tilings[1].StartTileIndexInOverallResource == 1 &&
         SUCCEEDED(reserved_1d_readback_hr) &&
         SUCCEEDED(reserved_1d_readback_map_hr) && reserved_1d_copy_ok &&
+        reserved_1d_mapping_copy_ok &&
         SUCCEEDED(placement_alias_texture_hr) &&
         SUCCEEDED(array_alias_heap_hr) && SUCCEEDED(array_alias_texture_hr) &&
         SUCCEEDED(array_alias_readback_hr) && SUCCEEDED(array_alias_readback_map_hr) &&
@@ -3769,6 +3790,7 @@ int main(int argc, char** argv) {
     print_hr("heap_create", sparse_heap_hr);
     print_hr("reserved_resource_create", reserved_texture_hr);
     print_hr("reserved_1d_resource_create", reserved_1d_texture_hr);
+    print_hr("reserved_1d_alias_texture_create", reserved_1d_alias_texture_hr);
     print_hr("reserved_1d_tiling", reserved_1d_tiling_hr);
     print_hr("reserved_1d_readback_create", reserved_1d_readback_hr);
     print_hr("reserved_1d_readback_map", reserved_1d_readback_map_hr);
@@ -3785,6 +3807,8 @@ int main(int argc, char** argv) {
                 reserved_1d_tilings[1].StartTileIndexInOverallResource);
     std::printf("    \"reserved_1d_copy_verified\": %s,\n",
                 reserved_1d_copy_ok ? "true" : "false");
+    std::printf("    \"reserved_1d_mapping_copy_verified\": %s,\n",
+                reserved_1d_mapping_copy_ok ? "true" : "false");
     print_hr("upload_create", sparse_upload_hr);
     print_hr("readback_create", sparse_readback_hr);
     print_hr("unmapped_readback_create", sparse_unmapped_readback_hr);
