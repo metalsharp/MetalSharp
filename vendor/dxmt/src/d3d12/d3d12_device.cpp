@@ -5192,30 +5192,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
       desc->Height == 1 && desc->DepthOrArraySize == 1 &&
       desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 &&
       desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-  const bool standard_mip_color_format =
-      desc->Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
-      desc->Format == DXGI_FORMAT_R8G8B8A8_TYPELESS ||
-      desc->Format == DXGI_FORMAT_R32_FLOAT ||
-      desc->Format == DXGI_FORMAT_R32_TYPELESS;
-  const bool standard_mip_r8_format =
-      desc->Format == DXGI_FORMAT_R8_UNORM;
-  const UINT mip_count = std::max<UINT>(1, desc->MipLevels);
-  const uint64_t smallest_mip_width =
-      std::max<uint64_t>(1, desc->Width >> (mip_count - 1));
-  const uint64_t smallest_mip_height =
-      std::max<uint64_t>(1, static_cast<uint64_t>(desc->Height) >>
-                                (mip_count - 1));
-  const bool standard_mip_texture =
-      desc->MipLevels == 1 ||
-      (desc->MipLevels > 1 && desc->MipLevels <= 16 &&
-       ((standard_mip_color_format && smallest_mip_width >= 128 &&
-         smallest_mip_height >= 128) ||
-        (standard_mip_r8_format && smallest_mip_width >= 128 &&
-         smallest_mip_height >= 128)));
   const bool reserved_texture =
       (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
        desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D) &&
-      desc->MipLevels && standard_mip_texture &&
+      desc->MipLevels && desc->MipLevels <= 16 &&
       desc->SampleDesc.Count <= 1 && desc->Width && desc->Height &&
       desc->DepthOrArraySize &&
       MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc->Format) !=
@@ -5774,26 +5754,18 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
   const UINT array_size = volume ? 1 : desc.DepthOrArraySize;
   const UINT tiling_count = mip_levels * array_size;
   UINT standard_mip_count = mip_levels;
-  // The R8 standard tile is 256x256. Once a mip becomes smaller than that
-  // shape, D3D12 describes the remaining mip chain as a packed/non-standard
-  // tail even though the Metal sparse texture may expose some of those levels
-  // as individually addressable pages.
-  if (volume && mip_levels > 1) {
+  // Once any dimension falls below the standard tile shape, the remaining
+  // mip chain is represented by D3D12's packed tail. This applies equally to
+  // color, integer, depth, compressed, and volume resources.
+  if (mip_levels > 1) {
     for (UINT mip = 0; mip < mip_levels; mip++) {
       const UINT width = std::max<UINT>(1, desc.Width >> mip);
       const UINT height = std::max<UINT>(1, desc.Height >> mip);
-      const UINT depth = std::max<UINT>(1, desc.DepthOrArraySize >> mip);
+      const UINT depth = volume
+                             ? std::max<UINT>(1, desc.DepthOrArraySize >> mip)
+                             : 1;
       if (width < shape.WidthInTexels || height < shape.HeightInTexels ||
           depth < shape.DepthInTexels) {
-        standard_mip_count = mip;
-        break;
-      }
-    }
-  } else if (desc.Format == DXGI_FORMAT_R8_UNORM && mip_levels > 1) {
-    for (UINT mip = 0; mip < mip_levels; mip++) {
-      const UINT width = std::max<UINT>(1, desc.Width >> mip);
-      const UINT height = std::max<UINT>(1, desc.Height >> mip);
-      if (width < shape.WidthInTexels || height < shape.HeightInTexels) {
         standard_mip_count = mip;
         break;
       }
