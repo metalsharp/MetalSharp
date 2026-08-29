@@ -5820,7 +5820,10 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
       desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
           ? 1
           : uint64_t(mip_levels) * array_size * plane_count;
-  if (uint64_t(first_sub_resource) > D3D12_REQ_SUBRESOURCES ||
+  if (uint64_t(first_sub_resource) > subresource_count ||
+      uint64_t(sub_resource_count) >
+          subresource_count - first_sub_resource ||
+      uint64_t(first_sub_resource) > D3D12_REQ_SUBRESOURCES ||
       uint64_t(sub_resource_count) >
           uint64_t(D3D12_REQ_SUBRESOURCES) - first_sub_resource) {
     if (total_bytes)

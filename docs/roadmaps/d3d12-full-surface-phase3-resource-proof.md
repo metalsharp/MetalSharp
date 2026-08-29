@@ -93,7 +93,9 @@
   visible through a subsequent plane-1 readback.
 - Invalid `GetCopyableFootprints` descriptors initialize the documented
   `pTotalBytes` sentinel (`UINT64_MAX`) instead of reporting a fabricated
-  zero-sized layout.
+  zero-sized layout. Valid requests honor the caller's requested subresource
+  window: a one-subresource packed-mip query writes only that footprint and
+  leaves adjacent guard entries untouched.
 - Allocation-info and sideband allocation-info calls with a nonzero count and
   null descriptor arrays initialize `[SizeInBytes=0, Alignment=0]` and zero
   sideband output without dereferencing the caller's null pointer.
