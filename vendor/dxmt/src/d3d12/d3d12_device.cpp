@@ -591,6 +591,19 @@ static bool IsValidOptimizedClearValue(
   return true;
 }
 
+static bool IsValidInitialResourceState(D3D12_HEAP_TYPE heap_type,
+                                         D3D12_RESOURCE_STATES state) {
+  switch (static_cast<UINT>(heap_type)) {
+  case static_cast<UINT>(D3D12_HEAP_TYPE_UPLOAD):
+  case 5: // D3D12_HEAP_TYPE_GPU_UPLOAD in newer headers.
+    return state == D3D12_RESOURCE_STATE_GENERIC_READ;
+  case static_cast<UINT>(D3D12_HEAP_TYPE_READBACK):
+    return state == D3D12_RESOURCE_STATE_COPY_DEST;
+  default:
+    return true;
+  }
+}
+
 static bool IsResourceAllowedByHeapFlags(
     const D3D12_RESOURCE_DESC &desc, D3D12_HEAP_FLAGS heap_flags) {
   const UINT flags = static_cast<UINT>(heap_flags);
@@ -5100,6 +5113,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
   if (!IsValidResourceDesc(normalized_desc) ||
       !IsResourceAllowedByHeapFlags(normalized_desc, heap_flags) ||
+      !IsValidInitialResourceState(heap_properties->Type, initial_state) ||
       !IsValidOptimizedClearValue(normalized_desc, optimized_clear_value))
     return E_INVALIDARG;
   desc = &normalized_desc;
@@ -5217,6 +5231,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
       return E_INVALIDARG;
     }
   }
+
+  if (!IsValidInitialResourceState(heap_props.Type, initial_state))
+    return E_INVALIDARG;
 
   auto heap_buffer =
       mt_heap ? mt_heap->GetMTLBuffer() : WMT::Reference<WMT::Buffer>{};

@@ -33,6 +33,9 @@
 - Depth-stencil flags require a depth/stencil-compatible resource format;
   an R8 color texture with `ALLOW_DEPTH_STENCIL` rejects with
   `E_INVALIDARG` rather than creating a non-depth backing.
+- Upload resources reject an initial `COPY_DEST` state and readback resources
+  reject an initial `GENERIC_READ` state with exact `E_INVALIDARG`; only the
+  documented heap-specific initial states are accepted.
 - Optimized clear values are accepted only for matching render-target or
   depth-stencil resources; a clear value on a buffer and a depth clear format
   on a color target both reject with `E_INVALIDARG`.
@@ -136,6 +139,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",
+  "resource_shapes.invalid_upload_state": "0x80070057",
+  "resource_shapes.invalid_readback_state": "0x80070057",
   "resource_shapes.invalid_buffer_resource_flags": "0x80070057",
   "resource_shapes.invalid_texture_resource_flags": "0x80070057",
   "resource_shapes.invalid_depth_format_flags": "0x80070057",
