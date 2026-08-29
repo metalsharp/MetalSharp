@@ -4165,6 +4165,7 @@ int main(int argc, char** argv) {
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
     texture_gpu_va = texture ? texture->GetGPUVirtualAddress() : 1;
 
+    HRESULT unsupported_rgb32_format_support_hr = E_FAIL;
     std::vector<FormatProbe> formats = {
         {"R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM},
         {"B8G8R8A8_UNORM", DXGI_FORMAT_B8G8R8A8_UNORM},
@@ -4205,6 +4206,15 @@ int main(int argc, char** argv) {
                                        : E_FAIL;
         format.plane_count = format_info.PlaneCount;
     }
+
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT unsupported_rgb32_format = {};
+    unsupported_rgb32_format.Format = DXGI_FORMAT_R32G32B32_FLOAT;
+    unsupported_rgb32_format_support_hr =
+        device ? device->CheckFeatureSupport(
+                     D3D12_FEATURE_FORMAT_SUPPORT,
+                     &unsupported_rgb32_format,
+                     sizeof(unsupported_rgb32_format))
+               : E_FAIL;
 
     bool format_support_ok = true;
     for (const auto& format : formats) {
@@ -4461,7 +4471,8 @@ int main(int argc, char** argv) {
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
-        format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected &&
+        format_support_ok && unsupported_rgb32_format_support_hr == E_INVALIDARG &&
+        sparse_format_matrix_ok && unsupported_texture_rejected &&
         unsupported_format_allocation_size == 0 &&
         unsupported_format_allocation_alignment == 0 &&
         cross_process_shared_ok &&
@@ -5112,7 +5123,9 @@ int main(int argc, char** argv) {
     std::printf("  },\n");
     std::printf("  \"formats\": {\n");
     for (size_t i = 0; i < formats.size(); ++i)
-        print_format_json(formats[i], i + 1 == formats.size());
+        print_format_json(formats[i], false);
+    print_hr("unsupported_rgb32_format_support", unsupported_rgb32_format_support_hr,
+             false);
     std::printf("  }\n");
     std::printf("}\n");
 
