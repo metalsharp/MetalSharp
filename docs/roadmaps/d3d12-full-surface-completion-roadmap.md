@@ -601,8 +601,8 @@ clear, the focused relaxed-castable-format readback, tight buffer alignment,
 `CREATE_NOT_RESIDENT`/enqueued residency, descriptor and
 query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O, D16 and typeless R24/R32 depth-stencil/plane
-format creation, checked allocation/footprint arithmetic, multi-resource
-sideband offsets,
+format creation, provider-less R32G32B32 rejection, checked
+allocation/footprint arithmetic, multi-resource sideband offsets,
 4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, committed
 and placed GPU-upload buffer/RGBA8 texture I/O, custom-equivalent GPU-upload
 texture placement, Options16/custom-heap reporting, GPU-upload flag rejection,

@@ -77,7 +77,8 @@
   4:2:2 packed forms) now create through their matching Metal pixel formats
   and pass format-info/support queries. The D3D12 format-support matrix also
   covers the typeless depth/stencil and 10-bit cases without advertising a
-  provider-less texture format. Direct default-resource I/O also
+  provider-less texture format; a provider-less R32G32B32 format query
+  returns exact `E_INVALIDARG`. Direct default-resource I/O also
   round-trips exact packed bytes for B5G6R5, B5G5R5A1, B4G4R4A4, and
   R9G9B9E5. Unsupported `R1_UNORM` creation and allocation-info queries both
   fail closed without returning a fabricated allocation.
