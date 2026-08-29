@@ -50,6 +50,7 @@ The isolated source-staged probe passed with:
   "shared_handles.heap_cross_process_verified": true,
   "shared_handles.fence_cross_process_verified": true,
   "buffers.address_heap_open_verified": true,
+  "buffers.heap_aliasing_verified": true,
   "resource_shapes.all_created_and_roundtripped": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
   "resource_shapes.invalid_msaa_mips": "0x80070057",

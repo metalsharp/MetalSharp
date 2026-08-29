@@ -328,6 +328,7 @@ int main(int argc, char** argv) {
     ID3D12Resource* unknown_open_buffer = nullptr;
     ID3D12Heap* address_heap = nullptr;
     ID3D12Resource* address_resource = nullptr;
+    ID3D12Resource* address_alias_resource = nullptr;
     ID3D12Heap* shared_heap_source = nullptr;
     ID3D12Heap* shared_heap_open = nullptr;
     ID3D12Heap* shared_heap_file_open = nullptr;
@@ -367,11 +368,13 @@ int main(int argc, char** argv) {
     bool residency_state_ok = false;
     HRESULT address_heap_hr = E_FAIL;
     HRESULT address_resource_hr = E_FAIL;
+    HRESULT address_alias_resource_hr = E_FAIL;
     HRESULT address_open_hr = E_FAIL;
     HRESULT invalid_heap_alignment_hr = E_FAIL;
     HRESULT invalid_heap_flags_hr = E_FAIL;
     HRESULT misaligned_placement_hr = E_FAIL;
     bool address_heap_open_ok = false;
+    bool heap_aliasing_ok = false;
     auto probe_resource_shape = [&](const char* name, D3D12_RESOURCE_DESC desc,
                                     D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON) {
         ResourceShapeProbe probe = {};
@@ -480,6 +483,35 @@ int main(int argc, char** argv) {
                                                                  D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                  IID_PPV_ARGS(&address_resource))
                                   : E_FAIL;
+        address_alias_resource_hr = address_heap
+                                        ? device->CreatePlacedResource(address_heap, 0, &address_desc,
+                                                                       D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                                       IID_PPV_ARGS(&address_alias_resource))
+                                        : E_FAIL;
+        if (address_resource && address_alias_resource && SUCCEEDED(address_resource_hr) &&
+            SUCCEEDED(address_alias_resource_hr)) {
+            void* first_alias = nullptr;
+            if (SUCCEEDED(address_resource->Map(0, nullptr, &first_alias)) && first_alias) {
+                std::memset(first_alias, 0x5a, 4096);
+                address_resource->Unmap(0, nullptr);
+                void* second_alias = nullptr;
+                if (SUCCEEDED(address_alias_resource->Map(0, nullptr, &second_alias)) && second_alias) {
+                    heap_aliasing_ok = static_cast<uint8_t*>(second_alias)[0] == 0x5a &&
+                                       static_cast<uint8_t*>(second_alias)[4095] == 0x5a;
+                    std::memset(second_alias, 0xa6, 4096);
+                    address_alias_resource->Unmap(0, nullptr);
+                    void* first_again = nullptr;
+                    if (SUCCEEDED(address_resource->Map(0, nullptr, &first_again)) && first_again) {
+                        heap_aliasing_ok = heap_aliasing_ok &&
+                                           static_cast<uint8_t*>(first_again)[0] == 0xa6 &&
+                                           static_cast<uint8_t*>(first_again)[4095] == 0xa6;
+                        address_resource->Unmap(0, nullptr);
+                    } else {
+                        heap_aliasing_ok = false;
+                    }
+                }
+            }
+        }
         ID3D12Resource* misaligned_resource = nullptr;
         misaligned_placement_hr = address_heap
                                       ? device->CreatePlacedResource(address_heap, 1, &address_desc,
@@ -1860,7 +1892,7 @@ int main(int argc, char** argv) {
         mipped_reserved_tiling_count == 2 && SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
-        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
@@ -1915,8 +1947,10 @@ int main(int argc, char** argv) {
     std::printf("    \"residency_state_verified\": %s,\n", residency_state_ok ? "true" : "false");
     print_hr("address_heap_create", address_heap_hr);
     print_hr("address_resource_create", address_resource_hr);
+    print_hr("address_alias_resource_create", address_alias_resource_hr);
     print_hr("address_open", address_open_hr);
-    std::printf("    \"address_heap_open_verified\": %s\n", address_heap_open_ok ? "true" : "false");
+    std::printf("    \"address_heap_open_verified\": %s,\n", address_heap_open_ok ? "true" : "false");
+    std::printf("    \"heap_aliasing_verified\": %s\n", heap_aliasing_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"resource_shapes\": {\n");
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
