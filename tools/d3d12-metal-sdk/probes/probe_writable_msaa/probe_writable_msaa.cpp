@@ -1093,6 +1093,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     std::printf("  \"store_r8_pso_hr\": \"%s\",\n", hr_hex(store_r8_pso_hr).c_str());
     std::printf("  \"load_r8_pso_hr\": \"%s\",\n", hr_hex(load_r8_pso_hr).c_str());
     std::printf("  \"graphics_pso_hr\": \"%s\",\n", hr_hex(graphics_pso_hr).c_str());
+    std::printf("  \"list1_hr\": \"%s\",\n", hr_hex(list1_hr).c_str());
     std::printf("  \"target_create_hr\": \"%s\",\n", hr_hex(target_hr).c_str());
     std::printf("  \"target_array_create_hr\": \"%s\",\n", hr_hex(target_array_hr).c_str());
     std::printf("  \"target_2_create_hr\": \"%s\",\n", hr_hex(target_2_hr).c_str());
