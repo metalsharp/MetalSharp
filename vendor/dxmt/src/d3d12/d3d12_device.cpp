@@ -5226,16 +5226,24 @@ MTLD3D12Device::GetCustomHeapProperties(D3D12_HEAP_PROPERTIES *__ret,
         heap_type, (void *)__ret);
   if (!__ret)
     return nullptr;
-  __ret->Type = heap_type;
-  if (static_cast<UINT>(heap_type) == 5) {
-    // The proof host is cache-coherent UMA, so GPU-upload is equivalent to a
-    // write-back L0 custom heap while direct Type=GPU_UPLOAD properties keep
-    // the required UNKNOWN/UNKNOWN form.
+  __ret->Type = D3D12_HEAP_TYPE_CUSTOM;
+  switch (static_cast<UINT>(heap_type)) {
+  case static_cast<UINT>(D3D12_HEAP_TYPE_DEFAULT):
+    __ret->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
+    __ret->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    break;
+  case static_cast<UINT>(D3D12_HEAP_TYPE_UPLOAD):
+  case static_cast<UINT>(D3D12_HEAP_TYPE_READBACK):
+  case 5:
+    // The proof host is cache-coherent UMA, so CPU-visible heap types map to
+    // write-back L0 custom memory.
     __ret->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
     __ret->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
-  } else {
+    break;
+  default:
     __ret->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
     __ret->MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    break;
   }
   __ret->CreationNodeMask = 1;
   __ret->VisibleNodeMask = 1;
@@ -5472,10 +5480,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
                           WMTTextureUsageShaderRead |
                           WMTTextureUsageShaderWrite |
                           WMTTextureUsagePixelFormatView);
-    texture_info.options =
-        static_cast<UINT>(heap_props.Type) == 5
-            ? WMTResourceStorageModeShared
-            : WMTResourceStorageModePrivate;
+    const UINT placed_heap_type = static_cast<UINT>(heap_props.Type);
+    const bool placed_cpu_visible =
+        placed_heap_type == 5 ||
+        (placed_heap_type == static_cast<UINT>(D3D12_HEAP_TYPE_CUSTOM) &&
+         (heap_props.CPUPageProperty ==
+              D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE ||
+          heap_props.CPUPageProperty ==
+              D3D12_CPU_PAGE_PROPERTY_WRITE_BACK));
+    texture_info.options = placed_cpu_visible
+                               ? WMTResourceStorageModeShared
+                               : WMTResourceStorageModePrivate;
     texture_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(
         static_cast<DXGI_FORMAT>(desc->Format));
     if (texture_info.pixel_format == WMTPixelFormatInvalid)

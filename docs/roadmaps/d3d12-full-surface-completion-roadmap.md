@@ -603,8 +603,9 @@ query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O,
 checked allocation/footprint arithmetic, multi-resource sideband offsets,
 4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and
-RGBA8 texture I/O, Options16/custom-heap reporting, GPU-upload flag rejection,
-D32 plane footprint layout, bounded tiling
+RGBA8 texture I/O, custom-equivalent GPU-upload texture placement,
+Options16/custom-heap reporting, GPU-upload flag rejection, D32 plane footprint
+layout, bounded tiling
 and subresource-window behavior, bounded Map ranges, D3D12 dimension-limit and
 reserved-layout rejection, unsupported-format allocation rejection, invalid
 buffer-flag rejection, DXGI resource aggregation, generated pointer-free

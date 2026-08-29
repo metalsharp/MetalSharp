@@ -14,10 +14,16 @@ namespace dxmt {
 
 namespace {
 
-static bool IsCPUAccessibleHeapType(D3D12_HEAP_TYPE type) {
-  const UINT value = static_cast<UINT>(type);
-  return value == static_cast<UINT>(D3D12_HEAP_TYPE_UPLOAD) ||
-         value == static_cast<UINT>(D3D12_HEAP_TYPE_READBACK) || value == 5;
+static bool IsCPUAccessibleHeap(
+    const D3D12_HEAP_PROPERTIES &properties) {
+  const UINT type = static_cast<UINT>(properties.Type);
+  if (type == static_cast<UINT>(D3D12_HEAP_TYPE_UPLOAD) ||
+      type == static_cast<UINT>(D3D12_HEAP_TYPE_READBACK) || type == 5)
+    return true;
+  return type == static_cast<UINT>(D3D12_HEAP_TYPE_CUSTOM) &&
+         (properties.CPUPageProperty ==
+              D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE ||
+          properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK);
 }
 
 static bool SubmitBufferCopy(WMT::Device device, WMT::Buffer source,
@@ -939,7 +945,7 @@ void MTLD3D12Resource::InitializeResource(
 
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
     bool cpu_accessible =
-        m_is_reserved || IsCPUAccessibleHeapType(m_heap_properties.Type);
+        m_is_reserved || IsCPUAccessibleHeap(m_heap_properties);
     WMTBufferInfo buf_info = {};
     buf_info.length = m_desc.Width ? m_desc.Width : 256;
     if (m_is_reserved && !backing_buffer.handle) {
@@ -1006,7 +1012,7 @@ void MTLD3D12Resource::InitializeResource(
       }
     }
   } else {
-    bool cpu_accessible = IsCPUAccessibleHeapType(m_heap_properties.Type);
+    bool cpu_accessible = IsCPUAccessibleHeap(m_heap_properties);
     m_is_shading_rate_image =
         m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
         m_desc.Format == DXGI_FORMAT_R8_UINT &&
@@ -1146,7 +1152,7 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
   if (m_is_reserved)
     return m_mtl_texture;
   if (!m_mtl_texture.handle && m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
-    bool cpu_accessible = IsCPUAccessibleHeapType(m_heap_properties.Type);
+    bool cpu_accessible = IsCPUAccessibleHeap(m_heap_properties);
     auto wmt_device = m_device->GetDXMTDevice().device();
     WMTTextureInfo tex_info = {};
     tex_info.width = m_desc.Width ? m_desc.Width : 1;
