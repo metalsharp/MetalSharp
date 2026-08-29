@@ -36,6 +36,9 @@
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
+- `CREATE_NOT_RESIDENT` is honored for committed and placed upload buffers:
+  initial `Map` returns `DXGI_ERROR_INVALID_CALL`, `MakeResident` succeeds, and
+  the remapped resources expose their CPU backing and exact byte roundtrip.
 - Reserved 512x512 RGBA8 resources with four mips now create successfully and
   report the packed tail exactly: 22 total tiles, three standard mips, one
   packed mip tile, and per-subresource starts `[0, 16, 20, D3D12_PACKED_TILE]`.
@@ -111,6 +114,7 @@ The isolated source-staged probe passed with:
   },
   "resource_shapes.full_mip_count": 6,
   "resource_shapes.full_mip_footprint_verified": true,
+  "resource_shapes.not_resident_roundtrip_verified": true,
   "resource_shapes.misaligned_placement": "0x80070057",
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",

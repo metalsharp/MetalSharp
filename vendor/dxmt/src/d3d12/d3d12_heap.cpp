@@ -21,7 +21,8 @@ std::vector<MTLD3D12Heap *> g_heap_registry;
 } // namespace
 
 MTLD3D12Heap::MTLD3D12Heap(MTLD3D12Device *device, const D3D12_HEAP_DESC &desc)
-    : m_device(device), m_desc(desc) {
+    : m_device(device), m_desc(desc),
+      m_residency((desc.Flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT) == 0) {
   m_device->AddRef();
   HTRACE("ctor: size=%llu alignment=%llu type=%u flags=0x%x",
     (unsigned long long)desc.SizeInBytes, (unsigned long long)desc.Alignment,

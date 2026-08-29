@@ -450,6 +450,7 @@ MTLD3D12Resource::MTLD3D12Resource(
     D3D12_HEAP_PROPERTIES heap_properties, D3D12_HEAP_FLAGS heap_flags,
     bool reserved)
     : m_device(device), m_desc(desc), m_state_tracker(initial_state),
+      m_residency((heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT) == 0),
       m_heap_properties(heap_properties), m_heap_flags(heap_flags),
       m_is_reserved(reserved) {
   InitializeResource(WMT::Reference<WMT::Buffer>{}, nullptr, 0, 0);
@@ -463,6 +464,7 @@ MTLD3D12Resource::MTLD3D12Resource(
     WMT::Reference<WMT::Buffer> backing_buffer, void *backing_cpu_addr,
     uint64_t backing_gpu_addr, uint64_t backing_offset)
     : m_device(device), m_desc(desc), m_state_tracker(initial_state),
+      m_residency((heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT) == 0),
       m_heap_properties(heap_properties), m_heap_flags(heap_flags),
       m_backing_offset(backing_offset) {
   InitializeResource(std::move(backing_buffer), backing_cpu_addr,
@@ -477,6 +479,7 @@ MTLD3D12Resource::MTLD3D12Resource(
     WMT::Reference<WMT::Texture> backing_texture,
     uint64_t backing_texture_gpu_id, uint64_t backing_offset)
     : m_device(device), m_desc(desc), m_state_tracker(initial_state),
+      m_residency((heap_flags & D3D12_HEAP_FLAG_CREATE_NOT_RESIDENT) == 0),
       m_heap_properties(heap_properties), m_heap_flags(heap_flags),
       m_tex_gpu_resource_id(backing_texture_gpu_id),
       m_backing_offset(backing_offset) {
