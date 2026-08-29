@@ -1323,10 +1323,13 @@ int main(int argc, char** argv) {
     ID3D12Resource* unsupported_texture = nullptr;
     ID3D12Heap* sparse_heap = nullptr;
     ID3D12Heap* reuse_heap = nullptr;
+    ID3D12Heap* array_alias_heap = nullptr;
     ID3D12Heap* volume_heap = nullptr;
     ID3D12Heap* copy_mapping_heap = nullptr;
     ID3D12Resource* reserved_texture = nullptr;
     ID3D12Resource* placement_alias_texture = nullptr;
+    ID3D12Resource* array_alias_texture = nullptr;
+    ID3D12Resource* array_alias_readback = nullptr;
     ID3D12Resource* volume_texture = nullptr;
     ID3D12Resource* volume_alias_texture = nullptr;
     ID3D12Resource* sparse_upload = nullptr;
@@ -1357,10 +1360,28 @@ int main(int argc, char** argv) {
     HRESULT sparse_heap_hr = E_FAIL;
     HRESULT reuse_heap_hr = E_FAIL;
     HRESULT reuse_buffer_hr = E_FAIL;
+    HRESULT array_alias_heap_hr = E_FAIL;
     HRESULT volume_heap_hr = E_FAIL;
     HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
     HRESULT placement_alias_texture_hr = E_FAIL;
+    HRESULT array_alias_texture_hr = E_FAIL;
+    HRESULT array_alias_readback_hr = E_FAIL;
+    HRESULT array_mapping_signal_hr = E_FAIL;
+    HRESULT array_mapping_wait_hr = E_FAIL;
+    HRESULT array_mapping_close_hr = E_FAIL;
+    HRESULT array_mapping_execute_hr = E_FAIL;
+    HRESULT array_mapping_signal_fence_hr = E_FAIL;
+    HRESULT array_mapping_wait_fence_hr = E_FAIL;
+    HRESULT array_upload_map_hr = E_FAIL;
+    HRESULT array_upload_restore_hr = E_FAIL;
+    HRESULT array_alias_readback_map_hr = E_FAIL;
+    UINT8 array_alias_first = 0;
+    UINT8 array_alias_second = 0;
+    UINT64 array_alias_mismatch = UINT64_MAX;
+    UINT8 array_alias_mismatch_actual = 0;
+    UINT8 array_alias_mismatch_expected = 0;
+    bool array_alias_copy_ok = false;
     HRESULT volume_texture_hr = E_FAIL;
     HRESULT volume_alias_texture_hr = E_FAIL;
     HRESULT sparse_upload_hr = E_FAIL;
@@ -1625,6 +1646,9 @@ int main(int argc, char** argv) {
     reuse_heap_desc.Properties = default_heap;
     reuse_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
     reuse_heap_hr = device ? device->CreateHeap(&reuse_heap_desc, IID_PPV_ARGS(&reuse_heap)) : E_FAIL;
+    D3D12_HEAP_DESC array_alias_heap_desc = reuse_heap_desc;
+    array_alias_heap_desc.SizeInBytes = sparse_tile_bytes;
+    array_alias_heap_hr = device ? device->CreateHeap(&array_alias_heap_desc, IID_PPV_ARGS(&array_alias_heap)) : E_FAIL;
     D3D12_HEAP_DESC copy_mapping_heap_desc = {};
     copy_mapping_heap_desc.SizeInBytes = sparse_tile_size;
     copy_mapping_heap_desc.Properties = default_heap;
@@ -1646,6 +1670,10 @@ int main(int argc, char** argv) {
     placement_alias_texture_hr =
         device ? device->CreateReservedResource(&placement_alias_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                 IID_PPV_ARGS(&placement_alias_texture))
+               : E_FAIL;
+    array_alias_texture_hr =
+        device ? device->CreateReservedResource(&reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                IID_PPV_ARGS(&array_alias_texture))
                : E_FAIL;
     D3D12_RESOURCE_DESC volume_desc = reserved_desc;
     volume_desc.Width = 32;
@@ -1725,6 +1753,13 @@ int main(int argc, char** argv) {
         device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &reserved_buffer_readback_desc,
                                                  D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                  IID_PPV_ARGS(&placement_alias_readback))
+               : E_FAIL;
+    D3D12_RESOURCE_DESC array_alias_readback_desc = buffer_desc(sparse_tile_bytes);
+    array_alias_readback_hr =
+        device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
+                                                 &array_alias_readback_desc,
+                                                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                 IID_PPV_ARGS(&array_alias_readback))
                : E_FAIL;
     volume_readback_hr =
         device
@@ -2246,6 +2281,117 @@ int main(int argc, char** argv) {
         }
     }
     bool sparse_unmapped_zero_ok = false;
+    if (queue && sparse_mapping_queue && list && allocator && fence && sparse_mapping_fence &&
+        reserved_texture && array_alias_texture && array_alias_heap && array_alias_readback &&
+        SUCCEEDED(wait_hr)) {
+        uint8_t *array_upload_ptr = nullptr;
+        array_upload_map_hr =
+            sparse_upload->Map(0, nullptr,
+                               reinterpret_cast<void **>(&array_upload_ptr));
+        if (SUCCEEDED(array_upload_map_hr) && array_upload_ptr) {
+            for (UINT64 i = 0; i < sparse_tile_size; ++i)
+                array_upload_ptr[sparse_tile_size + i] =
+                    static_cast<uint8_t>((i * 53u + 11u) & 0xffu);
+            sparse_upload->Unmap(0, nullptr);
+        }
+        D3D12_TILED_RESOURCE_COORDINATE array_source_coordinates[2] = {};
+        array_source_coordinates[1].Subresource = 1;
+        D3D12_TILE_REGION_SIZE array_source_regions[2] = {};
+        array_source_regions[0].NumTiles = 1;
+        array_source_regions[1].NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS array_source_flags[2] = {
+            D3D12_TILE_RANGE_FLAG_NONE, D3D12_TILE_RANGE_FLAG_NONE};
+        UINT array_source_heap_offsets[2] = {0, 1};
+        UINT array_source_range_counts[2] = {1, 1};
+        queue->UpdateTileMappings(reserved_texture, 2,
+                                  array_source_coordinates,
+                                  array_source_regions, array_alias_heap, 2,
+                                  array_source_flags, array_source_heap_offsets,
+                                  array_source_range_counts,
+                                  D3D12_TILE_MAPPING_FLAG_NONE);
+        D3D12_TILED_RESOURCE_COORDINATE array_destination = {};
+        D3D12_TILED_RESOURCE_COORDINATE array_source = {};
+        D3D12_TILE_REGION_SIZE array_region = {};
+        array_region.NumTiles = 2;
+        queue->CopyTileMappings(array_alias_texture, &array_destination,
+                                reserved_texture, &array_source, &array_region,
+                                D3D12_TILE_MAPPING_FLAG_NONE);
+        array_mapping_signal_hr = queue->Signal(sparse_mapping_fence, 1);
+        array_mapping_wait_hr = sparse_mapping_queue->Wait(
+            sparse_mapping_fence, 1);
+        array_mapping_close_hr =
+            (SUCCEEDED(array_mapping_signal_hr) && SUCCEEDED(array_mapping_wait_hr))
+                ? list->Reset(allocator, nullptr)
+                : E_FAIL;
+        if (SUCCEEDED(array_mapping_close_hr)) {
+            D3D12_RESOURCE_BARRIER source_to_copy =
+                transition_barrier(reserved_texture,
+                                   D3D12_RESOURCE_STATE_COPY_SOURCE,
+                                   D3D12_RESOURCE_STATE_COPY_DEST);
+            list->ResourceBarrier(1, &source_to_copy);
+            list->CopyTiles(reserved_texture, &array_source_coordinates[0],
+                            &array_source_regions[0], sparse_upload, 0,
+                            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+            list->CopyTiles(reserved_texture, &array_source_coordinates[1],
+                            &array_source_regions[1], sparse_upload,
+                            sparse_tile_size,
+                            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+            D3D12_RESOURCE_BARRIER source_to_read =
+                transition_barrier(reserved_texture,
+                                   D3D12_RESOURCE_STATE_COPY_DEST,
+                                   D3D12_RESOURCE_STATE_COPY_SOURCE);
+            list->ResourceBarrier(1, &source_to_read);
+            D3D12_RESOURCE_BARRIER aliasing_barrier = {};
+            aliasing_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+            aliasing_barrier.Aliasing.pResourceBefore = reserved_texture;
+            aliasing_barrier.Aliasing.pResourceAfter = array_alias_texture;
+            list->ResourceBarrier(1, &aliasing_barrier);
+            D3D12_RESOURCE_BARRIER array_barrier =
+                transition_barrier(array_alias_texture,
+                                   D3D12_RESOURCE_STATE_COPY_DEST,
+                                   D3D12_RESOURCE_STATE_COPY_SOURCE);
+            list->ResourceBarrier(1, &array_barrier);
+            D3D12_TILED_RESOURCE_COORDINATE array_read_coordinates[2] = {};
+            array_read_coordinates[1].Subresource = 1;
+            D3D12_TILE_REGION_SIZE array_read_region = {};
+            array_read_region.NumTiles = 1;
+            list->CopyTiles(array_alias_texture, &array_read_coordinates[0],
+                            &array_read_region, array_alias_readback, 0,
+                            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+            list->CopyTiles(array_alias_texture, &array_read_coordinates[1],
+                            &array_read_region, array_alias_readback,
+                            sparse_tile_size,
+                            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+            array_mapping_close_hr = list->Close();
+        }
+        if (SUCCEEDED(array_mapping_close_hr)) {
+            ID3D12CommandList *lists[] = {list};
+            sparse_mapping_queue->ExecuteCommandLists(1, lists);
+            array_mapping_execute_hr = S_OK;
+            array_mapping_signal_fence_hr =
+                sparse_mapping_queue->Signal(fence, 2);
+            HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+            if (event_handle && SUCCEEDED(array_mapping_signal_fence_hr)) {
+                array_mapping_wait_fence_hr =
+                    fence->SetEventOnCompletion(2, event_handle);
+                if (SUCCEEDED(array_mapping_wait_fence_hr) &&
+                    WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
+                    array_mapping_wait_fence_hr = E_FAIL;
+                CloseHandle(event_handle);
+            }
+            uint8_t *array_upload_restore_ptr = nullptr;
+            array_upload_restore_hr =
+                sparse_upload->Map(
+                    0, nullptr,
+                    reinterpret_cast<void **>(&array_upload_restore_ptr));
+            if (SUCCEEDED(array_upload_restore_hr) && array_upload_restore_ptr) {
+                for (UINT64 i = 0; i < sparse_tile_size; ++i)
+                    array_upload_restore_ptr[sparse_tile_size + i] =
+                        static_cast<uint8_t>((i * 29u + 7u) & 0xffu);
+                sparse_upload->Unmap(0, nullptr);
+            }
+        }
+    }
     if (queue && sparse_mapping_queue && list && allocator && fence && sparse_mapping_fence && reuse_buffer &&
         reuse_heap && reserved_buffer_reuse_readback && SUCCEEDED(wait_hr)) {
         // Map both logical tiles to one physical tile, then issue SKIP for
@@ -2265,8 +2411,8 @@ int main(int argc, char** argv) {
         D3D12_TILE_RANGE_FLAGS skip_flag = D3D12_TILE_RANGE_FLAG_SKIP;
         queue->UpdateTileMappings(reuse_buffer, 1, &reuse_coordinate, &reuse_region, nullptr, 1,
                                   &skip_flag, nullptr, nullptr, D3D12_TILE_MAPPING_FLAG_NONE);
-        reuse_mapping_signal_hr = queue->Signal(sparse_mapping_fence, 1);
-        reuse_mapping_wait_hr = sparse_mapping_queue->Wait(sparse_mapping_fence, 1);
+        reuse_mapping_signal_hr = queue->Signal(sparse_mapping_fence, 2);
+        reuse_mapping_wait_hr = sparse_mapping_queue->Wait(sparse_mapping_fence, 2);
         reuse_skip_close_hr = (SUCCEEDED(reuse_mapping_signal_hr) && SUCCEEDED(reuse_mapping_wait_hr))
                                   ? list->Reset(allocator, nullptr)
                                   : E_FAIL;
@@ -2288,10 +2434,10 @@ int main(int argc, char** argv) {
             ID3D12CommandList* lists[] = {list};
             sparse_mapping_queue->ExecuteCommandLists(1, lists);
             reuse_skip_execute_hr = S_OK;
-            reuse_skip_signal_hr = sparse_mapping_queue->Signal(fence, 2);
+            reuse_skip_signal_hr = sparse_mapping_queue->Signal(fence, 3);
             HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
             if (event_handle && SUCCEEDED(reuse_skip_signal_hr)) {
-                reuse_skip_wait_hr = fence->SetEventOnCompletion(2, event_handle);
+                reuse_skip_wait_hr = fence->SetEventOnCompletion(3, event_handle);
                 if (SUCCEEDED(reuse_skip_wait_hr) && WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
                     reuse_skip_wait_hr = E_FAIL;
                 CloseHandle(event_handle);
@@ -2336,10 +2482,10 @@ int main(int argc, char** argv) {
             ID3D12CommandList* lists[] = {list};
             queue->ExecuteCommandLists(1, lists);
             sparse_unmap_execute_hr = S_OK;
-            sparse_unmap_signal_hr = queue->Signal(fence, 3);
+            sparse_unmap_signal_hr = queue->Signal(fence, 4);
             HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
             if (event_handle && SUCCEEDED(sparse_unmap_signal_hr)) {
-                sparse_unmap_wait_hr = fence->SetEventOnCompletion(3, event_handle);
+                sparse_unmap_wait_hr = fence->SetEventOnCompletion(4, event_handle);
                 if (SUCCEEDED(sparse_unmap_wait_hr) && WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
                     sparse_unmap_wait_hr = E_FAIL;
             }
@@ -2534,6 +2680,35 @@ int main(int argc, char** argv) {
             }
         }
         placement_alias_readback->Unmap(0, nullptr);
+    }
+    uint8_t *array_alias_readback_ptr = nullptr;
+    array_alias_readback_map_hr =
+        array_alias_readback
+            ? array_alias_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&array_alias_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(array_alias_readback_map_hr) && array_alias_readback_ptr) {
+        array_alias_first = array_alias_readback_ptr[0];
+        array_alias_second = array_alias_readback_ptr[sparse_tile_size];
+        array_alias_copy_ok = SUCCEEDED(array_mapping_wait_fence_hr);
+        for (UINT tile = 0; tile < 2 && array_alias_copy_ok; ++tile) {
+            for (UINT64 i = 0; i < sparse_tile_size; ++i) {
+                const UINT64 offset = UINT64(tile) * sparse_tile_size + i;
+                const uint8_t expected =
+                    tile == 0
+                        ? static_cast<uint8_t>((i * 29u + 7u) & 0xffu)
+                        : static_cast<uint8_t>((i * 53u + 11u) & 0xffu);
+                if (array_alias_readback_ptr[offset] != expected) {
+                    array_alias_mismatch = offset;
+                    array_alias_mismatch_actual = array_alias_readback_ptr[offset];
+                    array_alias_mismatch_expected = expected;
+                    array_alias_copy_ok = false;
+                    break;
+                }
+            }
+        }
+        array_alias_readback->Unmap(0, nullptr);
     }
     uint8_t* volume_readback_ptr = nullptr;
     volume_readback_map_hr =
@@ -2773,6 +2948,13 @@ int main(int argc, char** argv) {
         SUCCEEDED(bc_direct_write_hr) && SUCCEEDED(bc_direct_read_hr) && bc_direct_io_ok &&
         SUCCEEDED(sparse_heap_hr) &&
         SUCCEEDED(reserved_texture_hr) && SUCCEEDED(placement_alias_texture_hr) &&
+        SUCCEEDED(array_alias_heap_hr) && SUCCEEDED(array_alias_texture_hr) &&
+        SUCCEEDED(array_alias_readback_hr) && SUCCEEDED(array_alias_readback_map_hr) &&
+        SUCCEEDED(array_upload_map_hr) && SUCCEEDED(array_upload_restore_hr) &&
+        array_alias_copy_ok && SUCCEEDED(array_mapping_signal_hr) &&
+        SUCCEEDED(array_mapping_wait_hr) && SUCCEEDED(array_mapping_close_hr) &&
+        SUCCEEDED(array_mapping_execute_hr) && SUCCEEDED(array_mapping_signal_fence_hr) &&
+        SUCCEEDED(array_mapping_wait_fence_hr) &&
         SUCCEEDED(placement_alias_readback_hr) && SUCCEEDED(placement_alias_readback_map_hr) &&
         placement_alias_copy_ok && SUCCEEDED(volume_heap_hr) && SUCCEEDED(volume_texture_hr) &&
         SUCCEEDED(volume_alias_texture_hr) && SUCCEEDED(volume_tiling_hr) && SUCCEEDED(volume_alias_tiling_hr) &&
@@ -3112,6 +3294,27 @@ int main(int argc, char** argv) {
                     ? "true"
                     : "false");
     print_hr("placement_alias_texture_create", placement_alias_texture_hr);
+    print_hr("array_alias_heap_create", array_alias_heap_hr);
+    print_hr("array_alias_texture_create", array_alias_texture_hr);
+    print_hr("array_alias_readback_create", array_alias_readback_hr);
+    print_hr("array_alias_readback_map", array_alias_readback_map_hr);
+    print_hr("array_upload_map", array_upload_map_hr);
+    print_hr("array_upload_restore", array_upload_restore_hr);
+    print_hr("array_mapping_signal", array_mapping_signal_hr);
+    print_hr("array_mapping_wait", array_mapping_wait_hr);
+    print_hr("array_mapping_close", array_mapping_close_hr);
+    print_hr("array_mapping_execute", array_mapping_execute_hr);
+    print_hr("array_mapping_signal_fence", array_mapping_signal_fence_hr);
+    print_hr("array_mapping_wait_fence", array_mapping_wait_fence_hr);
+    std::printf("    \"array_alias_mapping_verified\": %s,\n", array_alias_copy_ok ? "true" : "false");
+    std::printf("    \"array_alias_first_byte\": %u,\n", array_alias_first);
+    std::printf("    \"array_alias_second_byte\": %u,\n", array_alias_second);
+    std::printf("    \"array_alias_mismatch\": %s,\n",
+                array_alias_mismatch == UINT64_MAX
+                    ? "null"
+                    : std::to_string(array_alias_mismatch).c_str());
+    std::printf("    \"array_alias_mismatch_actual_expected\": [%u, %u],\n",
+                array_alias_mismatch_actual, array_alias_mismatch_expected);
     print_hr("placement_alias_readback_create", placement_alias_readback_hr);
     print_hr("placement_alias_readback_map", placement_alias_readback_map_hr);
     std::printf("    \"placement_alias_copy_verified\": %s,\n", placement_alias_copy_ok ? "true" : "false");
