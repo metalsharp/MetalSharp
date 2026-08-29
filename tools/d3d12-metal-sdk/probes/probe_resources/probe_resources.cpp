@@ -362,6 +362,9 @@ int main(int argc, char** argv) {
     HRESULT tight_invalid_alignment_hr = E_FAIL;
     HRESULT tight_overaligned_placed_hr = E_FAIL;
     HRESULT tight_reserved_hr = E_FAIL;
+    HRESULT full_mip_create_hr = E_FAIL;
+    UINT full_mip_count = 0;
+    bool full_mip_footprint_ok = false;
     bool tight_placed_roundtrip_ok = false;
     HANDLE shared_heap_handle = nullptr;
     HRESULT shared_heap_create_hr = E_FAIL;
@@ -559,6 +562,40 @@ int main(int argc, char** argv) {
             IID_PPV_ARGS(&tight_reserved_resource));
         if (tight_reserved_resource)
             tight_reserved_resource->Release();
+
+        D3D12_RESOURCE_DESC full_mip_desc =
+            texture_desc(32, 16, DXGI_FORMAT_R8G8B8A8_UNORM);
+        full_mip_desc.MipLevels = 0;
+        ID3D12Resource *full_mip_resource = nullptr;
+        full_mip_create_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &full_mip_desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&full_mip_resource));
+        if (full_mip_resource) {
+            D3D12_RESOURCE_DESC created_full_mip = {};
+            full_mip_resource->GetDesc(&created_full_mip);
+            full_mip_count = created_full_mip.MipLevels;
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT full_mip_layouts[6] = {};
+            UINT full_mip_rows[6] = {};
+            UINT64 full_mip_row_bytes[6] = {};
+            UINT64 full_mip_total = 0;
+            device->GetCopyableFootprints(
+                &full_mip_desc, 0, 6, 0, full_mip_layouts, full_mip_rows,
+                full_mip_row_bytes, &full_mip_total);
+            full_mip_footprint_ok = full_mip_total != 0;
+            for (UINT mip = 0; mip < 6 && full_mip_footprint_ok; ++mip) {
+                const UINT width = std::max<UINT>(1, full_mip_desc.Width >> mip);
+                const UINT height = std::max<UINT>(1, full_mip_desc.Height >> mip);
+                full_mip_footprint_ok =
+                    full_mip_layouts[mip].Footprint.Width == width &&
+                    full_mip_layouts[mip].Footprint.Height == height &&
+                    full_mip_rows[mip] == height &&
+                    full_mip_row_bytes[mip] == UINT64(width) * 4 &&
+                    (!mip || full_mip_layouts[mip].Offset >
+                                  full_mip_layouts[mip - 1].Offset);
+            }
+            full_mip_resource->Release();
+        }
     }
     auto same_resource_desc = [](const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
         return a.Dimension == b.Dimension && a.Alignment == b.Alignment && a.Width == b.Width &&
@@ -643,6 +680,7 @@ int main(int argc, char** argv) {
                          SUCCEEDED(tight_heap_hr) && SUCCEEDED(tight_placed_hr) &&
                          tight_placed_roundtrip_ok && tight_invalid_alignment_hr == E_INVALIDARG &&
                          tight_overaligned_placed_hr == E_INVALIDARG && tight_reserved_hr == E_INVALIDARG &&
+                         full_mip_create_hr == S_OK && full_mip_count == 6 && full_mip_footprint_ok &&
                          FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -2293,6 +2331,10 @@ int main(int argc, char** argv) {
     print_hr("tight_invalid_alignment", tight_invalid_alignment_hr);
     print_hr("tight_overaligned_placed", tight_overaligned_placed_hr);
     print_hr("tight_reserved", tight_reserved_hr);
+    print_hr("full_mip_create", full_mip_create_hr);
+    std::printf("    \"full_mip_count\": %u,\n", full_mip_count);
+    std::printf("    \"full_mip_footprint_verified\": %s,\n",
+                full_mip_footprint_ok ? "true" : "false");
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);
