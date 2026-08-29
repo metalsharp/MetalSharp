@@ -27,6 +27,9 @@
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
+- Zero `MipLevels` is normalized to the complete mip chain: a 32x16 texture
+  creates six mips and its six copy footprints report exact dimensions, row
+  counts, row sizes, and increasing placement offsets.
 - Stable tight alignment Tier 1 is behavior-backed for buffers: a committed
   1000-byte buffer reports `[SizeInBytes=1024, Alignment=256]`, a 256-byte
   placed upload buffer round-trips 1000 exact bytes, non-power-of-two and
@@ -88,6 +91,8 @@ The isolated source-staged probe passed with:
     "overaligned_placed": "0x80070057",
     "reserved_rejected": "0x80070057"
   },
+  "resource_shapes.full_mip_count": 6,
+  "resource_shapes.full_mip_footprint_verified": true,
   "resource_shapes.misaligned_placement": "0x80070057",
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",

@@ -432,10 +432,44 @@ static bool IsPowerOfTwo(UINT64 value) {
   return value && (value & (value - 1)) == 0;
 }
 
+static UINT FullMipLevelCount(const D3D12_RESOURCE_DESC &desc) {
+  UINT64 largest = std::max<UINT64>(desc.Width, 1);
+  if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+    largest = std::max<UINT64>(largest, std::max<UINT>(desc.Height, 1));
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+    largest = std::max<UINT64>(
+        largest, std::max<UINT16>(desc.DepthOrArraySize, 1));
+  UINT levels = 1;
+  while (largest > 1) {
+    largest >>= 1;
+    ++levels;
+  }
+  return levels;
+}
+
+static D3D12_RESOURCE_DESC NormalizeResourceDesc(
+    const D3D12_RESOURCE_DESC &desc) {
+  D3D12_RESOURCE_DESC normalized = desc;
+  if (normalized.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER &&
+      normalized.MipLevels == 0 && normalized.SampleDesc.Count == 1)
+    normalized.MipLevels = static_cast<UINT16>(FullMipLevelCount(normalized));
+  return normalized;
+}
+
 static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
   if (desc.Dimension < D3D12_RESOURCE_DIMENSION_BUFFER ||
       desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D || !desc.Width ||
       !desc.SampleDesc.Count)
+    return false;
+
+  const bool tight_alignment =
+      (desc.Flags & kD3D12ResourceFlagUseTightAlignment) != 0;
+  if (desc.Alignment && !IsPowerOfTwo(desc.Alignment))
+    return false;
+  if (!tight_alignment && desc.Alignment &&
+      desc.Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT &&
+      desc.Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
+      desc.Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT)
     return false;
 
   if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
@@ -444,21 +478,22 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
         desc.SampleDesc.Count != 1 || desc.SampleDesc.Quality != 0 ||
         desc.Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
       return false;
-    if ((desc.Flags & kD3D12ResourceFlagUseTightAlignment) &&
+    if (tight_alignment &&
         ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) ||
-         (desc.Alignment &&
-          (!IsPowerOfTwo(desc.Alignment) || desc.Alignment > 4096))))
+         (desc.Alignment && desc.Alignment > 4096)))
       return false;
     return true;
   }
 
-  if (desc.Flags & kD3D12ResourceFlagUseTightAlignment) {
+  if (tight_alignment) {
     // Tier 1 is deliberately scoped to buffers. A texture request using the
     // flag must not be accepted as though it received tight placement.
     return false;
   }
 
   if (!desc.Height || !desc.DepthOrArraySize ||
+      (desc.SampleDesc.Count == 1 && desc.SampleDesc.Quality != 0) ||
+      (desc.MipLevels && desc.MipLevels > FullMipLevelCount(desc)) ||
       desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR ||
       (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
        (desc.Height != 1 || desc.SampleDesc.Count != 1)) ||
@@ -4773,20 +4808,22 @@ MTLD3D12Device::GetResourceAllocationInfo(
   __ret->Alignment = 0;
   UINT64 cursor = 0;
   for (UINT i = 0; i < resource_desc_count; i++) {
-    if (!IsValidResourceDesc(resource_descs[i])) {
+    const D3D12_RESOURCE_DESC normalized =
+        NormalizeResourceDesc(resource_descs[i]);
+    if (!IsValidResourceDesc(normalized)) {
       __ret->Alignment = 0;
       return __ret;
     }
-    UINT64 alignment = ResourcePlacementAlignment(resource_descs[i]);
-    UINT64 size = EstimateResourceAllocationSize(resource_descs[i]);
+    UINT64 alignment = ResourcePlacementAlignment(normalized);
+    UINT64 size = EstimateResourceAllocationSize(normalized);
     __ret->Alignment = std::max<UINT64>(__ret->Alignment, alignment);
     cursor = AlignTo(cursor, alignment);
     TRACE("GetResourceAllocationInfo[%u] dim=%u fmt=%u %llux%u size=%llu "
           "align=%llu offset=%llu",
-          i, resource_descs[i].Dimension, resource_descs[i].Format,
-          (unsigned long long)resource_descs[i].Width, resource_descs[i].Height,
-          (unsigned long long)size, (unsigned long long)alignment,
-          (unsigned long long)cursor);
+          i, normalized.Dimension, normalized.Format,
+          (unsigned long long)normalized.Width,
+          normalized.Height, (unsigned long long)size,
+          (unsigned long long)alignment, (unsigned long long)cursor);
     cursor += size;
   }
   __ret->SizeInBytes = AlignTo(cursor, __ret->Alignment);
@@ -4812,14 +4849,16 @@ static D3D12_RESOURCE_ALLOCATION_INFO *FillResourceAllocationInfoWithSideband(
   __ret->Alignment = 0;
   UINT64 cursor = 0;
   for (UINT i = 0; i < resource_desc_count; i++) {
-    if (!IsValidResourceDesc(resource_descs[i])) {
+    const D3D12_RESOURCE_DESC normalized =
+        NormalizeResourceDesc(resource_descs[i]);
+    if (!IsValidResourceDesc(normalized)) {
       __ret->Alignment = 0;
       if (resource_allocation_info1)
         resource_allocation_info1[i] = {};
       return __ret;
     }
-    UINT64 alignment = ResourcePlacementAlignment(resource_descs[i]);
-    UINT64 size = EstimateResourceAllocationSize(resource_descs[i]);
+    UINT64 alignment = ResourcePlacementAlignment(normalized);
+    UINT64 size = EstimateResourceAllocationSize(normalized);
     cursor = AlignTo(cursor, alignment);
     if (resource_allocation_info1) {
       resource_allocation_info1[i].Offset = cursor;
@@ -4867,8 +4906,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   if (!desc || !resource)
     return E_POINTER;
   InitReturnPtr(resource);
-  if (!IsValidResourceDesc(*desc))
+  D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
+  if (!IsValidResourceDesc(normalized_desc))
     return E_INVALIDARG;
+  desc = &normalized_desc;
 
   auto res = new MTLD3D12Resource(
       this, *desc, initial_state,
@@ -4947,8 +4988,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
   if (!desc || !resource || !heap)
     return E_POINTER;
   InitReturnPtr(resource);
-  if (!IsValidResourceDesc(*desc))
+  D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
+  if (!IsValidResourceDesc(normalized_desc))
     return E_INVALIDARG;
+  desc = &normalized_desc;
 
   D3D12_HEAP_PROPERTIES heap_props = {};
   D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
@@ -5101,8 +5144,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   InitReturnPtr(resource);
   if (!desc)
     return E_INVALIDARG;
-  if (!IsValidResourceDesc(*desc))
+  D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
+  if (!IsValidResourceDesc(normalized_desc))
     return E_INVALIDARG;
+  desc = &normalized_desc;
   if (desc->Flags & kD3D12ResourceFlagUseTightAlignment)
     return E_INVALIDARG;
   const bool reserved_buffer =
@@ -5509,6 +5554,11 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
         (unsigned long long)base_offset, (void *)layouts, (void *)row_count,
         (void *)row_size, (void *)total_bytes);
 
+  D3D12_RESOURCE_DESC normalized_desc = {};
+  if (desc) {
+    normalized_desc = NormalizeResourceDesc(*desc);
+    desc = &normalized_desc;
+  }
   UINT64 cursor = base_offset;
   UINT64 last_end = base_offset;
 
