@@ -445,6 +445,9 @@ int main(int argc, char** argv) {
     ID3D12Resource *placed_1d_array_resource = nullptr;
     ID3D12Heap *placed_2d_heap = nullptr;
     ID3D12Resource *placed_2d_resource = nullptr;
+    ID3D12Heap *gpu_upload_heap = nullptr;
+    ID3D12Resource *gpu_upload_resource = nullptr;
+    ID3D12Resource *gpu_upload_placed = nullptr;
     HRESULT placed_1d_array_heap_hr = E_FAIL;
     HRESULT placed_1d_array_resource_hr = E_FAIL;
     HRESULT placed_1d_array_write_hr[2] = {E_FAIL, E_FAIL};
@@ -455,6 +458,11 @@ int main(int argc, char** argv) {
     HRESULT placed_2d_write_hr = E_FAIL;
     HRESULT placed_2d_read_hr = E_FAIL;
     bool placed_2d_io_ok = false;
+    HRESULT gpu_upload_resource_hr = E_FAIL;
+    HRESULT gpu_upload_heap_hr = E_FAIL;
+    HRESULT gpu_upload_placed_hr = E_FAIL;
+    bool gpu_upload_io_ok = false;
+    bool gpu_upload_placed_io_ok = false;
     HRESULT invalid_zero_width_hr = E_FAIL;
     HRESULT oversized_1d_hr = E_FAIL;
     HRESULT oversized_2d_hr = E_FAIL;
@@ -752,6 +760,63 @@ int main(int argc, char** argv) {
                 SUCCEEDED(placed_2d_read_hr) &&
                 std::memcmp(placed_2d_source, placed_2d_destination,
                             sizeof(placed_2d_source)) == 0;
+        }
+        const D3D12_HEAP_TYPE gpu_upload_type =
+            static_cast<D3D12_HEAP_TYPE>(5);
+        const D3D12_HEAP_PROPERTIES gpu_upload_properties =
+            heap_props(gpu_upload_type);
+        D3D12_RESOURCE_DESC gpu_upload_desc = buffer_desc(1024);
+        gpu_upload_resource_hr = device->CreateCommittedResource(
+            &gpu_upload_properties, D3D12_HEAP_FLAG_NONE, &gpu_upload_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&gpu_upload_resource));
+        if (gpu_upload_resource) {
+            uint8_t *mapped = nullptr;
+            HRESULT map_hr = gpu_upload_resource->Map(
+                0, nullptr, reinterpret_cast<void **>(&mapped));
+            if (SUCCEEDED(map_hr) && mapped) {
+                uint8_t source[1024] = {};
+                for (UINT i = 0; i < 1024; ++i)
+                    source[i] = static_cast<uint8_t>((i * 7u + 0x55u) & 0xffu);
+                std::memcpy(mapped, source, sizeof(source));
+                gpu_upload_resource->Unmap(0, nullptr);
+                uint8_t readback[1024] = {};
+                HRESULT read_hr = gpu_upload_resource->ReadFromSubresource(
+                    readback, 1024, 1024, 0, nullptr);
+                gpu_upload_io_ok =
+                    SUCCEEDED(read_hr) &&
+                    std::memcmp(source, readback, sizeof(readback)) == 0;
+            }
+        }
+        D3D12_HEAP_DESC gpu_upload_heap_desc = {};
+        gpu_upload_heap_desc.SizeInBytes = 64 * 1024;
+        gpu_upload_heap_desc.Properties = gpu_upload_properties;
+        gpu_upload_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        gpu_upload_heap_hr = device->CreateHeap(
+            &gpu_upload_heap_desc, IID_PPV_ARGS(&gpu_upload_heap));
+        gpu_upload_placed_hr =
+            gpu_upload_heap
+                ? device->CreatePlacedResource(
+                      gpu_upload_heap, 0, &gpu_upload_desc,
+                      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                      IID_PPV_ARGS(&gpu_upload_placed))
+                : E_FAIL;
+        if (gpu_upload_placed) {
+            uint8_t *mapped = nullptr;
+            HRESULT map_hr = gpu_upload_placed->Map(
+                0, nullptr, reinterpret_cast<void **>(&mapped));
+            gpu_upload_placed_io_ok = SUCCEEDED(map_hr) && mapped;
+            if (gpu_upload_placed_io_ok) {
+                std::memset(mapped, 0x9b, 1024);
+                gpu_upload_placed->Unmap(0, nullptr);
+                uint8_t readback[1024] = {};
+                HRESULT read_hr = gpu_upload_placed->ReadFromSubresource(
+                    readback, 1024, 1024, 0, nullptr);
+                for (UINT i = 0; i < 1024 && gpu_upload_placed_io_ok; ++i)
+                    gpu_upload_placed_io_ok = readback[i] == 0x9b;
+                gpu_upload_placed_io_ok =
+                    gpu_upload_placed_io_ok && SUCCEEDED(read_hr);
+            }
         }
         ID3D12Resource* invalid_resource = nullptr;
         D3D12_RESOURCE_DESC invalid = texture_desc(0, 1, DXGI_FORMAT_R8_UNORM);
@@ -4152,6 +4217,9 @@ int main(int argc, char** argv) {
         placed_1d_array_io_ok && SUCCEEDED(placed_2d_heap_hr) &&
         SUCCEEDED(placed_2d_resource_hr) && SUCCEEDED(placed_2d_write_hr) &&
         SUCCEEDED(placed_2d_read_hr) && placed_2d_io_ok &&
+        SUCCEEDED(gpu_upload_resource_hr) && gpu_upload_io_ok &&
+        SUCCEEDED(gpu_upload_heap_hr) && SUCCEEDED(gpu_upload_placed_hr) &&
+        gpu_upload_placed_io_ok &&
         sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
@@ -4273,6 +4341,13 @@ int main(int argc, char** argv) {
     print_hr("placed_2d_read", placed_2d_read_hr);
     std::printf("    \"placed_2d_io_verified\": %s,\n",
                 placed_2d_io_ok ? "true" : "false");
+    print_hr("gpu_upload_resource_create", gpu_upload_resource_hr);
+    print_hr("gpu_upload_heap_create", gpu_upload_heap_hr);
+    print_hr("gpu_upload_placed_create", gpu_upload_placed_hr);
+    std::printf("    \"gpu_upload_resource_io_verified\": %s,\n",
+                gpu_upload_io_ok ? "true" : "false");
+    std::printf("    \"gpu_upload_placed_io_verified\": %s,\n",
+                gpu_upload_placed_io_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("oversized_1d", oversized_1d_hr);
     print_hr("oversized_2d", oversized_2d_hr);
