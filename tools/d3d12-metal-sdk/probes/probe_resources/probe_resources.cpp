@@ -463,6 +463,10 @@ int main(int argc, char** argv) {
     UINT64 invalid_zero_width_allocation_alignment = 0;
     UINT64 allocation_overflow_size = UINT64_MAX;
     UINT64 allocation_overflow_alignment = UINT64_MAX;
+    UINT64 allocation_batch_size = 0;
+    UINT64 allocation_batch_alignment = 0;
+    D3D12_RESOURCE_ALLOCATION_INFO1 allocation_batch_sideband[2] = {};
+    bool allocation_batch_ok = false;
     HRESULT invalid_msaa_mips_hr = E_FAIL;
     UINT64 invalid_msaa_mips_allocation_size = 0;
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
@@ -830,6 +834,26 @@ int main(int argc, char** argv) {
                                                &allocation_overflow_desc);
         allocation_overflow_size = allocation_overflow_info.SizeInBytes;
         allocation_overflow_alignment = allocation_overflow_info.Alignment;
+        D3D12_RESOURCE_DESC allocation_batch_descs[2] = {
+            buffer_desc(1000), buffer_desc(2000)};
+        ID3D12Device4 *allocation_device4 = nullptr;
+        if (SUCCEEDED(device->QueryInterface(
+                IID_PPV_ARGS(&allocation_device4)))) {
+            D3D12_RESOURCE_ALLOCATION_INFO allocation_batch_info =
+                allocation_device4->GetResourceAllocationInfo1(
+                    0, 2, allocation_batch_descs,
+                    allocation_batch_sideband);
+            allocation_batch_size = allocation_batch_info.SizeInBytes;
+            allocation_batch_alignment = allocation_batch_info.Alignment;
+            allocation_batch_ok =
+                allocation_batch_size == 2 * 65536 &&
+                allocation_batch_alignment == 65536 &&
+                allocation_batch_sideband[0].Offset == 0 &&
+                allocation_batch_sideband[0].SizeInBytes == 65536 &&
+                allocation_batch_sideband[1].Offset == 65536 &&
+                allocation_batch_sideband[1].SizeInBytes == 65536;
+            allocation_device4->Release();
+        }
         ID3D12Device4 *device4 = nullptr;
         null_sideband_query_hr = device->QueryInterface(
             IID_PPV_ARGS(&device4));
@@ -3713,7 +3737,7 @@ int main(int argc, char** argv) {
         invalid_zero_width_allocation_size == 0 &&
         invalid_zero_width_allocation_alignment == 0 &&
         allocation_overflow_size == 0 && allocation_overflow_alignment == 0 &&
-        invalid_msaa_mips_allocation_size == 0 &&
+        allocation_batch_ok && invalid_msaa_mips_allocation_size == 0 &&
         invalid_msaa_mips_allocation_alignment == 0 &&
         volume_allocation_size == 64 * 1024 &&
         volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
@@ -4004,6 +4028,14 @@ int main(int argc, char** argv) {
     std::printf("    \"allocation_overflow\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(allocation_overflow_size),
                 static_cast<unsigned long long>(allocation_overflow_alignment));
+    std::printf("    \"allocation_batch\": [%llu,%llu,%llu,%llu,%llu],\n",
+                static_cast<unsigned long long>(allocation_batch_size),
+                static_cast<unsigned long long>(allocation_batch_alignment),
+                static_cast<unsigned long long>(allocation_batch_sideband[0].Offset),
+                static_cast<unsigned long long>(allocation_batch_sideband[1].Offset),
+                static_cast<unsigned long long>(allocation_batch_sideband[1].SizeInBytes));
+    std::printf("    \"allocation_batch_verified\": %s,\n",
+                allocation_batch_ok ? "true" : "false");
     print_hr("invalid_msaa_mips", invalid_msaa_mips_hr);
     std::printf("    \"invalid_msaa_mips_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(invalid_msaa_mips_allocation_size),
