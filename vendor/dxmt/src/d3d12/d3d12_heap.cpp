@@ -102,7 +102,7 @@ MTLD3D12Heap *FindHeapContainingAddress(const void *address,
 
 HRESULT MTLD3D12Heap::AttachSharedBacking(
     HANDLE mapping, void *mapping_view, uint64_t mapping_size,
-    uint64_t data_offset, bool preserve_contents) {
+    uint64_t data_offset, bool preserve_contents, bool writable) {
   if (!mapping || !mapping_view || !m_desc.SizeInBytes ||
       data_offset >= mapping_size ||
       m_desc.SizeInBytes > mapping_size - data_offset)
@@ -139,6 +139,7 @@ HRESULT MTLD3D12Heap::AttachSharedBacking(
   m_shared_mapping_view = mapping_view;
   m_shared_mapping_size = mapping_size;
   m_shared_data_offset = data_offset;
+  m_shared_mapping_writable = writable;
   HTRACE("attached shared heap mapping=%p size=%llu gpu=0x%llx", mapping,
          (unsigned long long)m_desc.SizeInBytes,
          (unsigned long long)m_gpu_addr);
@@ -146,21 +147,52 @@ HRESULT MTLD3D12Heap::AttachSharedBacking(
 }
 
 namespace {
-static HRESULT DuplicateHeapMappingHandle(HANDLE source, HANDLE *duplicate) {
+static bool IsValidHeapSharedAccess(DWORD access) {
+  constexpr DWORD kGenericAccess = GENERIC_READ | GENERIC_WRITE | GENERIC_ALL;
+  return access != 0 && (access & ~kGenericAccess) == 0;
+}
+
+static DWORD HeapMappingAccessForSharedHandle(DWORD access) {
+  if (access & GENERIC_ALL)
+    return FILE_MAP_ALL_ACCESS;
+  DWORD mapping_access = 0;
+  if (access & GENERIC_READ)
+    mapping_access |= FILE_MAP_READ;
+  if (access & GENERIC_WRITE)
+    mapping_access |= FILE_MAP_WRITE;
+  return mapping_access;
+}
+
+static HRESULT DuplicateHeapMappingHandle(HANDLE source, DWORD access,
+                                           HANDLE *duplicate,
+                                           bool inheritable = false) {
   if (!duplicate)
     return E_POINTER;
   *duplicate = nullptr;
+  const DWORD desired_access = access ? HeapMappingAccessForSharedHandle(access) : 0;
+  const DWORD options = access ? 0 : DUPLICATE_SAME_ACCESS;
   if (!DuplicateHandle(GetCurrentProcess(), source, GetCurrentProcess(),
-                       duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+                       duplicate, desired_access, inheritable, options))
     return HRESULT_FROM_WIN32(GetLastError());
   return S_OK;
+}
+
+static bool MapHeapSharedView(HANDLE mapping, void **view) {
+  if (!view)
+    return false;
+  *view = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, 0);
+  if (*view)
+    return true;
+  *view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  return false;
 }
 }
 
 HRESULT CreateSharedHeapMapping(
     MTLD3D12Heap *heap, const SECURITY_ATTRIBUTES *attributes,
-    const WCHAR *name, HANDLE *mapping) {
-  if (!heap || !name || !name[0] || !mapping || !heap->GetCPUAddress())
+    DWORD access, const WCHAR *name, HANDLE *mapping) {
+  if (!heap || !name || !name[0] || !mapping || !heap->GetCPUAddress() ||
+      !IsValidHeapSharedAccess(access))
     return E_INVALIDARG;
   *mapping = nullptr;
   const auto &desc = heap->GetHeapDesc();
@@ -188,6 +220,7 @@ HRESULT CreateSharedHeapMapping(
   D3D12SharedHeapMetadata metadata = {};
   metadata.mapping_size = mapping_size;
   metadata.data_size = desc.SizeInBytes;
+  metadata.reserved = access;
   metadata.heap_desc = desc;
   ID3D12Device *heap_device = nullptr;
   if (FAILED(heap->GetDevice(IID_PPV_ARGS(&heap_device)))) {
@@ -213,18 +246,27 @@ HRESULT CreateSharedHeapMapping(
   }
   std::memcpy(view, &metadata, sizeof(metadata));
   HANDLE owner_mapping = nullptr;
-  HRESULT hr = DuplicateHeapMappingHandle(section, &owner_mapping);
+  HANDLE public_mapping = nullptr;
+  HRESULT hr = DuplicateHeapMappingHandle(section, GENERIC_ALL,
+                                           &owner_mapping);
+  if (SUCCEEDED(hr))
+    hr = DuplicateHeapMappingHandle(
+        section, access, &public_mapping,
+        attributes && attributes->bInheritHandle != FALSE);
   if (SUCCEEDED(hr))
     hr = heap->AttachSharedBacking(owner_mapping, view, mapping_size,
-                                   metadata.data_offset, true);
+                                   metadata.data_offset, true, true);
   if (FAILED(hr)) {
     if (owner_mapping)
       CloseHandle(owner_mapping);
+    if (public_mapping)
+      CloseHandle(public_mapping);
     UnmapViewOfFile(view);
     CloseHandle(section);
     return hr;
   }
-  *mapping = section;
+  CloseHandle(section);
+  *mapping = public_mapping;
   return S_OK;
 }
 
@@ -233,9 +275,8 @@ HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
   if (!device || !mapping || !heap)
     return E_INVALIDARG;
   *heap = nullptr;
-  void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
-  if (!view)
-    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  void *view = nullptr;
+  const bool writable = MapHeapSharedView(mapping, &view);
   if (!view)
     return HRESULT_FROM_WIN32(GetLastError());
   D3D12SharedHeapMetadata metadata = {};
@@ -243,6 +284,7 @@ HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
   if (metadata.magic != kD3D12SharedResourceMagic ||
       metadata.version != kD3D12SharedResourceVersion ||
       metadata.kind != kD3D12SharedResourceKindHeap ||
+      !IsValidHeapSharedAccess(metadata.reserved) ||
       metadata.data_offset < sizeof(metadata) ||
       metadata.mapping_size < metadata.data_offset ||
       metadata.data_size != metadata.heap_desc.SizeInBytes ||
@@ -270,7 +312,7 @@ HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return DXGI_ERROR_INVALID_CALL;
   }
   HANDLE owner_mapping = nullptr;
-  HRESULT hr = DuplicateHeapMappingHandle(mapping, &owner_mapping);
+  HRESULT hr = DuplicateHeapMappingHandle(mapping, 0, &owner_mapping);
   if (FAILED(hr)) {
     UnmapViewOfFile(view);
     return hr;
@@ -282,7 +324,7 @@ HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return E_OUTOFMEMORY;
   }
   hr = created->AttachSharedBacking(owner_mapping, view, metadata.mapping_size,
-                                    metadata.data_offset, false);
+                                    metadata.data_offset, false, writable);
   if (FAILED(hr)) {
     created->Release();
     CloseHandle(owner_mapping);

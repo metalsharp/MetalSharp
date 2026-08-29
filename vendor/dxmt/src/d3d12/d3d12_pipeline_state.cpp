@@ -1482,6 +1482,8 @@ WMTPixelFormat MTLD3D12PipelineState::DXGIToMTLPixelFormat(DXGI_FORMAT format) {
     return WMTPixelFormatRG11B10Float;
   case DXGI_FORMAT_R8_TYPELESS:
     return WMTPixelFormatR8Uint;
+  case DXGI_FORMAT_A8_UNORM:
+    return WMTPixelFormatA8Unorm;
   case DXGI_FORMAT_R8_UNORM:
     return WMTPixelFormatR8Unorm;
   case DXGI_FORMAT_R8_SNORM:

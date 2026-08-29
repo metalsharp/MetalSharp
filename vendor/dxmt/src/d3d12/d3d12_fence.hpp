@@ -36,8 +36,12 @@ public:
                                                  HANDLE event) override;
   HRESULT STDMETHODCALLTYPE Signal(uint64_t value) override;
   void AdoptSharedMapping(HANDLE mapping, void *mapping_view,
-                          uint64_t mapping_size, uint64_t value_offset);
+                          uint64_t mapping_size, uint64_t value_offset,
+                          bool writable = true);
   bool IsShared() const { return m_shared_value != nullptr; }
+  bool IsSharedMappingWritable() const {
+    return !m_shared_mapping || m_shared_mapping_writable;
+  }
   D3D12_FENCE_FLAGS GetFlags() const { return m_flags; }
 
   WMT::Reference<WMT::SharedEvent> GetMTLSharedEvent() {
@@ -56,6 +60,7 @@ private:
   void *m_shared_mapping_view = nullptr;
   uint64_t m_shared_mapping_size = 0;
   volatile LONG64 *m_shared_value = nullptr;
+  bool m_shared_mapping_writable = true;
   ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};
 };

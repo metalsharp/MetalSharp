@@ -90,22 +90,26 @@ static_assert(sizeof(D3D12SharedFenceMetadata) % 8 == 0);
 
 HRESULT CreateSharedBufferMapping(MTLD3D12Resource *resource,
                                   const SECURITY_ATTRIBUTES *attributes,
-                                  const WCHAR *name, HANDLE *mapping);
+                                  DWORD access, const WCHAR *name,
+                                  HANDLE *mapping);
 HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
                                     ID3D12Resource **resource);
+HRESULT ValidateRequestedMappingAccess(HANDLE mapping, DWORD requested_access);
 HRESULT CreateSharedTextureMapping(
     MTLD3D12Resource *resource, const SECURITY_ATTRIBUTES *attributes,
-    const WCHAR *name, HANDLE *mapping);
+    DWORD access, const WCHAR *name, HANDLE *mapping);
 HRESULT OpenSharedTextureFromMapping(MTLD3D12Device *device, HANDLE mapping,
                                      ID3D12Resource **resource);
 HRESULT CreateSharedHeapMapping(MTLD3D12Heap *heap,
                                 const SECURITY_ATTRIBUTES *attributes,
-                                const WCHAR *name, HANDLE *mapping);
+                                DWORD access, const WCHAR *name,
+                                HANDLE *mapping);
 HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
                                   ID3D12Heap **heap);
 HRESULT CreateSharedFenceMapping(MTLD3D12Fence *fence,
                                  const SECURITY_ATTRIBUTES *attributes,
-                                 const WCHAR *name, HANDLE *mapping);
+                                 DWORD access, const WCHAR *name,
+                                 HANDLE *mapping);
 HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
                                    ID3D12Fence **fence);
 

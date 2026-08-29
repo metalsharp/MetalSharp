@@ -39,6 +39,9 @@ public:
   WMT::Reference<WMT::Heap> GetMTLHeap();
   void *GetCPUAddress() const { return m_cpu_addr; }
   uint64_t GetGPUAddress() const { return m_gpu_addr; }
+  bool IsSharedMappingWritable() const {
+    return !m_shared_mapping || m_shared_mapping_writable;
+  }
   bool IsResident() const { return m_residency.isResident(); }
   void MakeResident() { m_residency.makeResident(); }
   void Evict() { m_residency.evict(); }
@@ -55,7 +58,7 @@ public:
   bool IsValid() const { return m_buffer.handle || m_heap.handle; }
   HRESULT AttachSharedBacking(HANDLE mapping, void *mapping_view,
                               uint64_t mapping_size, uint64_t data_offset,
-                              bool preserve_contents);
+                              bool preserve_contents, bool writable = true);
 
 private:
   MTLD3D12Device *m_device;
@@ -68,6 +71,7 @@ private:
   void *m_shared_mapping_view = nullptr;
   uint64_t m_shared_mapping_size = 0;
   uint64_t m_shared_data_offset = 0;
+  bool m_shared_mapping_writable = true;
   void *m_cpu_addr = nullptr;
   uint64_t m_gpu_addr = 0;
   ComPrivateData m_private_data;

@@ -7,6 +7,9 @@
 #include "util_string.hpp"
 #include <algorithm>
 #include <cstring>
+#include <new>
+#include <mutex>
+#include <unordered_map>
 
 #define RTRACE(fmt, ...) DXMTD3D12Trace("Resource", fmt, ##__VA_ARGS__)
 
@@ -264,6 +267,11 @@ static bool IsStencilPlaneFormat(DXGI_FORMAT format) {
          format == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT;
 }
 
+static bool IsPacked422Format(DXGI_FORMAT format) {
+  return format == DXGI_FORMAT_R8G8_B8G8_UNORM ||
+         format == DXGI_FORMAT_G8R8_G8B8_UNORM;
+}
+
 static bool IsPlanarFormat(DXGI_FORMAT format) {
   switch (format) {
   case DXGI_FORMAT_NV12:
@@ -325,6 +333,87 @@ static void AdjustResourcePlaneDimensions(DXGI_FORMAT format, UINT plane,
     break;
   }
 }
+
+static uint64_t Packed422ShadowSize(const D3D12_RESOURCE_DESC &desc) {
+  if (!IsPacked422Format(desc.Format))
+    return 0;
+  const UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
+  const UINT array_size =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(desc.DepthOrArraySize, 1);
+  uint64_t total = 0;
+  for (UINT slice = 0; slice < array_size; ++slice) {
+    (void)slice;
+    for (UINT mip = 0; mip < mip_levels; ++mip) {
+      const uint64_t width = std::max<uint64_t>(1, desc.Width >> mip);
+      const uint64_t height = std::max<uint64_t>(1, desc.Height >> mip);
+      const uint64_t depth =
+          desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+              ? std::max<uint64_t>(1, desc.DepthOrArraySize >> mip)
+              : 1;
+      if (width > UINT64_MAX / 4 || width * 4 > UINT64_MAX / height)
+        return 0;
+      const uint64_t image_bytes = width * 4 * height;
+      if (depth > UINT64_MAX / image_bytes ||
+          total > UINT64_MAX - image_bytes * depth)
+        return 0;
+      total += image_bytes * depth;
+    }
+  }
+  return total <= SIZE_MAX ? total : 0;
+}
+
+static size_t Packed422ShadowOffset(const D3D12_RESOURCE_DESC &desc,
+                                    UINT mip, UINT slice) {
+  if (!IsPacked422Format(desc.Format))
+    return SIZE_MAX;
+  const UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
+  const UINT array_size =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(desc.DepthOrArraySize, 1);
+  if (mip >= mip_levels || slice >= array_size)
+    return SIZE_MAX;
+  uint64_t offset = 0;
+  for (UINT prior_slice = 0; prior_slice < slice; ++prior_slice) {
+    for (UINT prior_mip = 0; prior_mip < mip_levels; ++prior_mip) {
+      const uint64_t width = std::max<uint64_t>(1, desc.Width >> prior_mip);
+      const uint64_t height = std::max<uint64_t>(1, desc.Height >> prior_mip);
+      const uint64_t depth =
+          desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+              ? std::max<uint64_t>(1, desc.DepthOrArraySize >> prior_mip)
+              : 1;
+      if (width > UINT64_MAX / 4 || width * 4 > UINT64_MAX / height)
+        return SIZE_MAX;
+      const uint64_t image_bytes = width * 4 * height;
+      if (depth > UINT64_MAX / image_bytes ||
+          offset > UINT64_MAX - image_bytes * depth)
+        return SIZE_MAX;
+      offset += image_bytes * depth;
+    }
+  }
+  for (UINT prior_mip = 0; prior_mip < mip; ++prior_mip) {
+    const uint64_t width = std::max<uint64_t>(1, desc.Width >> prior_mip);
+    const uint64_t height = std::max<uint64_t>(1, desc.Height >> prior_mip);
+    const uint64_t depth =
+        desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+            ? std::max<uint64_t>(1, desc.DepthOrArraySize >> prior_mip)
+            : 1;
+    if (width > UINT64_MAX / 4 || width * 4 > UINT64_MAX / height)
+      return SIZE_MAX;
+    const uint64_t image_bytes = width * 4 * height;
+    if (depth > UINT64_MAX / image_bytes ||
+        offset > UINT64_MAX - image_bytes * depth)
+      return SIZE_MAX;
+    offset += image_bytes * depth;
+  }
+  return offset <= SIZE_MAX ? static_cast<size_t>(offset) : SIZE_MAX;
+}
+
+static std::mutex g_packed_shadow_mutex;
+static std::unordered_map<MTLD3D12Resource *, std::vector<uint8_t>>
+    g_packed_shadows;
 
 static uint64_t PlanarShadowSize(const D3D12_RESOURCE_DESC &desc) {
   if (!IsPlanarFormat(desc.Format))
@@ -771,6 +860,7 @@ static D3D12_TILE_SHAPE TileShapeForFormat(DXGI_FORMAT format,
   case DXGI_FORMAT_R16_UINT:
   case DXGI_FORMAT_R16_SNORM:
   case DXGI_FORMAT_R16_SINT:
+  case DXGI_FORMAT_D16_UNORM:
     return {256, 128, 1};
   case DXGI_FORMAT_R8G8B8A8_TYPELESS:
   case DXGI_FORMAT_R8G8B8A8_UNORM:
@@ -1334,6 +1424,10 @@ bool MTLD3D12Resource::ConfigureSamplerFeedback(
 }
 
 MTLD3D12Resource::~MTLD3D12Resource() {
+  {
+    std::lock_guard lock(g_packed_shadow_mutex);
+    g_packed_shadows.erase(this);
+  }
   m_device->UnregisterResource(this);
   if (m_shared_mapping_view)
     UnmapViewOfFile(m_shared_mapping_view);
@@ -1532,6 +1626,11 @@ MTLD3D12Resource::Map(UINT sub_resource,
     *data = nullptr;
     return DXGI_ERROR_INVALID_CALL;
   }
+  if (!IsSharedMappingWritable() ||
+      (m_parent_heap && !m_parent_heap->IsSharedMappingWritable())) {
+    *data = nullptr;
+    return E_ACCESSDENIED;
+  }
   if (read_range && m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
       (read_range->Begin > read_range->End ||
        read_range->End > m_desc.Width)) {
@@ -1602,6 +1701,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
     return E_POINTER;
   if (!IsResident())
     return DXGI_ERROR_INVALID_CALL;
+  if (!IsSharedMappingWritable() ||
+      (m_parent_heap && !m_parent_heap->IsSharedMappingWritable()))
+    return E_ACCESSDENIED;
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
     if (dst_sub_resource || dst_box || !src_row_pitch)
       return E_INVALIDARG;
@@ -1647,6 +1749,55 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
                                    : uint64_t(src_row_pitch) * row_count;
   if (image_bytes < uint64_t(src_row_pitch) * row_count)
     return E_INVALIDARG;
+
+  if (IsPacked422Format(m_desc.Format)) {
+    std::lock_guard lock(g_packed_shadow_mutex);
+    auto [it, inserted] = g_packed_shadows.try_emplace(this);
+    if (inserted) {
+      const uint64_t shadow_size = Packed422ShadowSize(m_desc);
+      if (!shadow_size) {
+        g_packed_shadows.erase(it);
+        return E_OUTOFMEMORY;
+      }
+      try {
+        it->second.resize(static_cast<size_t>(shadow_size));
+      } catch (const std::bad_alloc &) {
+        g_packed_shadows.erase(it);
+        return E_OUTOFMEMORY;
+      }
+    }
+    auto &shadow = it->second;
+    const uint64_t full_width = std::max<uint64_t>(1, m_desc.Width >> mip);
+    const uint64_t full_height = std::max<uint64_t>(1, m_desc.Height >> mip);
+    const uint64_t full_row_bytes = full_width * 4;
+    const uint64_t full_slice_bytes = full_row_bytes * full_height;
+    const size_t base = Packed422ShadowOffset(m_desc, mip, slice);
+    const uint64_t copy_row_bytes = uint64_t(size.width) * 4;
+    if (base == SIZE_MAX || uint64_t(origin.x) * 4 > full_row_bytes ||
+        copy_row_bytes > full_row_bytes - uint64_t(origin.x) * 4 ||
+        uint64_t(origin.y) + size.height > full_height ||
+        uint64_t(origin.z) + size.depth >
+            (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                 ? std::max<uint64_t>(1, m_desc.DepthOrArraySize >> mip)
+                 : 1))
+      return E_INVALIDARG;
+    for (uint64_t z = 0; z < size.depth; ++z) {
+      for (uint64_t y = 0; y < size.height; ++y) {
+        const uint64_t destination_offset =
+            uint64_t(base) + (uint64_t(origin.z) + z) * full_slice_bytes +
+            (uint64_t(origin.y) + y) * full_row_bytes +
+            uint64_t(origin.x) * 4;
+        if (destination_offset > shadow.size() ||
+            copy_row_bytes > shadow.size() - destination_offset)
+          return E_INVALIDARG;
+        std::memcpy(shadow.data() + destination_offset,
+                    static_cast<const uint8_t *>(src_data) +
+                        z * image_bytes + y * src_row_pitch,
+                    static_cast<size_t>(copy_row_bytes));
+      }
+    }
+    return S_OK;
+  }
 
   if (IsPlanarFormat(m_desc.Format)) {
     size_t shadow_offset = SIZE_MAX;
@@ -1773,6 +1924,43 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
                                    : uint64_t(dst_row_pitch) * row_count;
   if (slice_pitch < uint64_t(dst_row_pitch) * row_count)
     return E_INVALIDARG;
+  if (IsPacked422Format(m_desc.Format) && plane == 0) {
+    std::lock_guard lock(g_packed_shadow_mutex);
+    auto it = g_packed_shadows.find(this);
+    if (it != g_packed_shadows.end()) {
+      const auto &shadow = it->second;
+      const uint64_t full_width = std::max<uint64_t>(1, m_desc.Width >> mip);
+      const uint64_t full_height = std::max<uint64_t>(1, m_desc.Height >> mip);
+      const uint64_t full_row_bytes = full_width * 4;
+      const uint64_t full_slice_bytes = full_row_bytes * full_height;
+      const size_t base = Packed422ShadowOffset(m_desc, mip, slice);
+      const uint64_t copy_row_bytes = uint64_t(size.width) * 4;
+      if (base == SIZE_MAX || uint64_t(origin.x) * 4 > full_row_bytes ||
+          copy_row_bytes > full_row_bytes - uint64_t(origin.x) * 4 ||
+          uint64_t(origin.y) + size.height > full_height ||
+          uint64_t(origin.z) + size.depth >
+              (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                   ? std::max<uint64_t>(1, m_desc.DepthOrArraySize >> mip)
+                   : 1))
+        return E_INVALIDARG;
+      for (uint64_t z = 0; z < size.depth; ++z) {
+        for (uint64_t y = 0; y < size.height; ++y) {
+          const uint64_t source_offset =
+              uint64_t(base) + (uint64_t(origin.z) + z) * full_slice_bytes +
+              (uint64_t(origin.y) + y) * full_row_bytes +
+              uint64_t(origin.x) * 4;
+          if (source_offset > shadow.size() ||
+              copy_row_bytes > shadow.size() - source_offset)
+            return E_INVALIDARG;
+          std::memcpy(static_cast<uint8_t *>(dst_data) +
+                          z * slice_pitch + y * dst_row_pitch,
+                      shadow.data() + source_offset,
+                      static_cast<size_t>(copy_row_bytes));
+        }
+      }
+      return S_OK;
+    }
+  }
   if (IsPlanarFormat(m_desc.Format)) {
     size_t shadow_offset = SIZE_MAX;
     uint64_t full_row_bytes = 0;

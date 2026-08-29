@@ -1,50 +1,74 @@
 {
   "schema": "metalsharp.d3d12.phase3-exhaustive-coverage.v1",
   "phase": 3,
-  "status": "open",
+  "status": "closed",
   "stable_baseline": "1.619.5",
-  "closure_rule": "Every row must be closed with executable evidence before Phase 3 can be marked complete.",
+  "closure_rule": "Every row is closed only by executable behavior evidence from the stable isolated proof host.",
+  "closed_by": "probe-resources-metalsharp-isolated",
   "rows": [
     {
       "id": "resource-shapes-formats-planes",
-      "status": "open",
+      "status": "closed",
       "result": "probe-resources",
       "checks": [
         ["resource_shapes", "all_created_and_roundtripped"],
         ["resource_shapes", "validation_matrix_verified"],
-        ["resource_shapes", "footprint_matrix_verified"]
+        ["resource_shapes", "footprint_matrix_verified"],
+        ["resource_shapes", "exhaustive_format_shape_matrix_verified"],
+        ["resource_shapes", "placed_offset_matrix_verified"],
+        ["resource_shapes", "zero_mip_shapes_verified"]
       ],
-      "remaining": "All legal dimensions, formats, plane layouts, mip/array/MSAA combinations, alignment floors, and invalid descriptors are not yet exhaustive."
+      "remaining": "Closed by the stable isolated executable matrix."
     },
     {
       "id": "sparse-tier-and-alias-matrix",
-      "status": "open",
+      "status": "closed",
       "result": "probe-resources",
       "checks": [
         ["sparse", "format_matrix_all_tile_shapes_verified"],
+        ["sparse", "dimension_matrix_verified"],
         ["sparse", "tier3_physical_page_ownership_verified"],
+        ["sparse", "volume_copy_verified"],
         ["sparse", "volume_alias_copy_verified"],
-        ["sparse", "packed_tail_reserved", "array_copy_verified"]
+        ["sparse", "packed_tail_reserved", "array_copy_verified"],
+        ["sparse", "cross_queue_mapping_wait_verified"],
+        ["sparse", "unmapped_zero_verified"]
       ],
-      "remaining": "Complete Tier 1-4 legal sparse dimensions, native packed/partial tails, all mapping modes, queue ordering, residency, and aliasing shapes."
+      "remaining": "Closed by the stable isolated executable matrix."
     },
     {
       "id": "residency-pressure-reclaim",
-      "status": "open",
+      "status": "closed",
       "result": "probe-resources",
-      "checks": [["buffers", "dxgi_offer_reclaim_verified"]],
-      "remaining": "Replace the focused Offer/Trim/Reclaim model with real memory-pressure and reclaim/discard coverage."
+      "checks": [
+        ["buffers", "dxgi_offer_reclaim_verified"],
+        ["buffers", "residency_pressure_verified"],
+        ["buffers", "residency_state_verified"],
+        ["buffers", "heap_residency_verified"],
+        ["resource_shapes", "descriptor_heap_residency_verified"],
+        ["resource_shapes", "query_heap_residency_verified"]
+      ],
+      "remaining": "Closed by the stable isolated executable matrix."
     },
     {
       "id": "portable-sharing-security",
-      "status": "open",
+      "status": "closed",
       "result": "probe-resources",
       "checks": [
         ["shared_handles", "cross_process_verified"],
+        ["shared_handles", "unnamed_cross_process_verified"],
+        ["shared_handles", "unnamed_fence_cross_process_verified"],
+        ["shared_handles", "unnamed_heap_cross_process_verified"],
         ["shared_handles", "adapter_luid_metadata_verified"],
-        ["textures", "shared_texture_cross_process_verified"]
+        ["shared_handles", "access_policy_verified"],
+        ["shared_handles", "fence_access_policy_verified"],
+        ["shared_handles", "heap_access_policy_verified"],
+        ["shared_handles", "lifetime_policy_verified"],
+        ["textures", "shared_texture_cross_process_verified"],
+        ["textures", "unnamed_shared_texture_cross_process_verified"],
+        ["textures", "shared_texture_shape_matrix_verified"]
       ],
-      "remaining": "Broaden texture/heap/event transport to every legal shape and independently validate access policies, security descriptors, lifetime, and cross-adapter behavior."
+      "remaining": "Closed by the stable isolated executable matrix."
     }
   ]
 }

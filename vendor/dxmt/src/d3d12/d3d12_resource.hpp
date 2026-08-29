@@ -154,11 +154,16 @@ public:
                               uint64_t mapping_size, uint64_t data_offset,
                               bool preserve_contents);
   void AdoptSharedMapping(HANDLE mapping, void *mapping_view,
-                          uint64_t mapping_size, uint64_t data_offset) {
+                          uint64_t mapping_size, uint64_t data_offset,
+                          bool writable = true) {
     m_shared_mapping = mapping;
     m_shared_mapping_view = mapping_view;
     m_shared_mapping_size = mapping_size;
     m_shared_data_offset = data_offset;
+    m_shared_mapping_writable = writable;
+  }
+  bool IsSharedMappingWritable() const {
+    return !m_shared_mapping || m_shared_mapping_writable;
   }
 
   bool IsBuffer() const {
@@ -483,11 +488,13 @@ private:
   void *m_shared_mapping_view = nullptr;
   uint64_t m_shared_mapping_size = 0;
   uint64_t m_shared_data_offset = 0;
+  bool m_shared_mapping_writable = true;
   MTLD3D12Heap *m_parent_heap = nullptr;
 
   void *m_cpu_addr = nullptr;
   std::vector<uint8_t> m_stencil_shadow;
   std::vector<uint8_t> m_planar_shadow;
+  std::vector<uint8_t> m_packed_shadow;
   uint64_t m_gpu_addr = 0;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};
