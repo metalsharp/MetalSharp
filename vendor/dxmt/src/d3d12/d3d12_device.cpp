@@ -6108,11 +6108,15 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
   }
   if (standard_tile_shape)
     *standard_tile_shape = shape;
-  if (sub_resource_tiling_count)
-    *sub_resource_tiling_count = requested_tiling_count
-                                     ? std::min(requested_tiling_count,
-                                                tiling_count)
-                                     : tiling_count;
+  if (sub_resource_tiling_count) {
+    const UINT available = first_sub_resource_tiling < tiling_count
+                               ? tiling_count - first_sub_resource_tiling
+                               : 0;
+    *sub_resource_tiling_count =
+        requested_tiling_count
+            ? std::min(requested_tiling_count, available)
+            : available;
+  }
 }
 
 LUID *STDMETHODCALLTYPE MTLD3D12Device::GetAdapterLuid(LUID *__ret) {

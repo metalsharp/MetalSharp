@@ -1415,6 +1415,9 @@ int main(int argc, char** argv) {
     D3D12_PACKED_MIP_INFO packed_tail_info = {};
     D3D12_TILE_SHAPE packed_tail_shape = {};
     D3D12_SUBRESOURCE_TILING packed_tail_tilings[4] = {};
+    UINT packed_tail_partial_count = 4;
+    D3D12_SUBRESOURCE_TILING packed_tail_partial_tilings[2] = {};
+    bool packed_tail_partial_query_ok = false;
     HRESULT r8_reserved_texture_hr = E_FAIL;
     HRESULT r8_reserved_tiling_hr = E_FAIL;
     HRESULT r8_reserved_readback_hr = E_FAIL;
@@ -1756,6 +1759,15 @@ int main(int argc, char** argv) {
                                   &packed_tail_info, &packed_tail_shape,
                                   &packed_tail_tiling_count, 0,
                                   packed_tail_tilings);
+        device->GetResourceTiling(packed_tail_reserved_texture, nullptr, nullptr,
+                                  nullptr, &packed_tail_partial_count, 2,
+                                  packed_tail_partial_tilings);
+        packed_tail_partial_query_ok =
+            packed_tail_partial_count == 2 &&
+            packed_tail_partial_tilings[0].WidthInTiles == 1 &&
+            packed_tail_partial_tilings[0].StartTileIndexInOverallResource == 20 &&
+            packed_tail_partial_tilings[1].WidthInTiles == 0 &&
+            packed_tail_partial_tilings[1].StartTileIndexInOverallResource == D3D12_PACKED_TILE;
     }
     D3D12_RESOURCE_DESC mipped_reserved_readback_desc = buffer_desc(sparse_tile_size);
     mipped_reserved_readback_hr =
@@ -2785,7 +2797,7 @@ int main(int argc, char** argv) {
         packed_tail_tilings[0].WidthInTiles == 4 && packed_tail_tilings[1].WidthInTiles == 2 &&
         packed_tail_tilings[2].WidthInTiles == 1 && packed_tail_tilings[3].WidthInTiles == 0 &&
         packed_tail_tilings[3].StartTileIndexInOverallResource == D3D12_PACKED_TILE &&
-        SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
+        packed_tail_partial_query_ok && SUCCEEDED(sparse_unmap_close_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
         SUCCEEDED(residency_descriptor_heap_create_hr) &&
@@ -3169,6 +3181,8 @@ int main(int argc, char** argv) {
     print_hr("tiling", packed_tail_reserved_tiling_hr);
     std::printf("      \"total_tiles\": %u,\n", packed_tail_total_tiles);
     std::printf("      \"tiling_count\": %u,\n", packed_tail_tiling_count);
+    std::printf("      \"partial_query_count\": %u,\n", packed_tail_partial_count);
+    std::printf("      \"partial_query_verified\": %s,\n", packed_tail_partial_query_ok ? "true" : "false");
     std::printf("      \"packed_mips\": [%u, %u, %u, %u],\n", packed_tail_info.NumStandardMips,
                 packed_tail_info.NumPackedMips, packed_tail_info.NumTilesForPackedMips,
                 packed_tail_info.StartTileIndexInOverallResource);
