@@ -500,6 +500,7 @@ int main(int argc, char** argv) {
     HRESULT invalid_readback_state_hr = E_FAIL;
     HRESULT invalid_buffer_resource_flags_hr = E_FAIL;
     HRESULT invalid_buffer_simultaneous_hr = E_FAIL;
+    HRESULT invalid_cross_adapter_hr = E_FAIL;
     HRESULT invalid_texture_resource_flags_hr = E_FAIL;
     HRESULT invalid_depth_format_flags_hr = E_FAIL;
     HRESULT invalid_clear_without_flag_hr = E_FAIL;
@@ -1085,6 +1086,15 @@ int main(int argc, char** argv) {
             &default_heap, D3D12_HEAP_FLAG_NONE,
             &invalid_buffer_simultaneous, D3D12_RESOURCE_STATE_COMMON,
             nullptr, IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_cross_adapter = buffer;
+        invalid_cross_adapter.Flags = D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
+        invalid_cross_adapter_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_cross_adapter,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
         invalid_resource = nullptr;
@@ -4197,6 +4207,7 @@ int main(int argc, char** argv) {
         invalid_readback_state_hr == E_INVALIDARG &&
         invalid_buffer_resource_flags_hr == E_INVALIDARG &&
         invalid_buffer_simultaneous_hr == E_INVALIDARG &&
+        invalid_cross_adapter_hr == E_INVALIDARG &&
         invalid_texture_resource_flags_hr == E_INVALIDARG &&
         invalid_depth_format_flags_hr == E_INVALIDARG &&
         invalid_clear_without_flag_hr == E_INVALIDARG &&
@@ -4559,6 +4570,7 @@ int main(int argc, char** argv) {
     print_hr("invalid_readback_state", invalid_readback_state_hr);
     print_hr("invalid_buffer_resource_flags", invalid_buffer_resource_flags_hr);
     print_hr("invalid_buffer_simultaneous", invalid_buffer_simultaneous_hr);
+    print_hr("invalid_cross_adapter", invalid_cross_adapter_hr);
     print_hr("invalid_texture_resource_flags", invalid_texture_resource_flags_hr);
     print_hr("invalid_depth_format_flags", invalid_depth_format_flags_hr);
     print_hr("invalid_clear_without_flag", invalid_clear_without_flag_hr);

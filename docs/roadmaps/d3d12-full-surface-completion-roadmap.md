@@ -602,12 +602,12 @@ clear, the focused relaxed-castable-format readback, tight buffer alignment,
 query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O,
 checked allocation/footprint arithmetic, multi-resource sideband offsets,
-4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and
-RGBA8 texture I/O, custom-equivalent GPU-upload texture placement,
-Options16/custom-heap reporting, GPU-upload flag rejection, D32 plane footprint
-layout, bounded tiling
-and subresource-window behavior, bounded Map ranges, D3D12 dimension-limit and
-reserved-layout rejection, unsupported-format allocation rejection, invalid
+4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, committed
+and placed GPU-upload buffer/RGBA8 texture I/O, custom-equivalent GPU-upload
+texture placement, Options16/custom-heap reporting, GPU-upload flag rejection,
+D32 plane footprint layout, bounded tiling and subresource-window behavior,
+bounded Map ranges, D3D12 dimension-limit/reserved-layout rejection,
+unsupported-format allocation rejection, invalid simultaneous/cross-adapter
 buffer-flag rejection, DXGI resource aggregation, generated pointer-free
 unnamed heap/fence mappings, and OfferResources/Trim/Reclaim residency-state
 evidence. The latest sparse run also passes native 3D volume mapping,
