@@ -937,6 +937,13 @@ int main(int argc, char** argv) {
     ID3D12Resource* not_resident_committed = nullptr;
     ID3D12Heap* not_resident_heap = nullptr;
     ID3D12Resource* not_resident_placed = nullptr;
+    HRESULT zero_mip_1d_hr = E_FAIL;
+    HRESULT zero_mip_2d_array_hr = E_FAIL;
+    HRESULT zero_mip_3d_hr = E_FAIL;
+    UINT zero_mip_1d_count = 0;
+    UINT zero_mip_2d_array_count = 0;
+    UINT zero_mip_3d_count = 0;
+    bool zero_mip_shapes_ok = false;
     auto probe_resource_shape = [&](const char* name, D3D12_RESOURCE_DESC desc,
                                     D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON) {
         ResourceShapeProbe probe = {};
@@ -1043,6 +1050,57 @@ int main(int argc, char** argv) {
         shape.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
         shape.DepthOrArraySize = 4;
         probe_resource_shape("texture3d", shape);
+        D3D12_RESOURCE_DESC zero_mip_1d_desc =
+            texture_desc(17, 1, DXGI_FORMAT_R8_UNORM);
+        zero_mip_1d_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+        zero_mip_1d_desc.DepthOrArraySize = 3;
+        zero_mip_1d_desc.MipLevels = 0;
+        ID3D12Resource *zero_mip_1d_resource = nullptr;
+        zero_mip_1d_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &zero_mip_1d_desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&zero_mip_1d_resource));
+        if (zero_mip_1d_resource) {
+            D3D12_RESOURCE_DESC created_desc = {};
+            zero_mip_1d_resource->GetDesc(&created_desc);
+            zero_mip_1d_count = created_desc.MipLevels;
+            zero_mip_1d_resource->Release();
+        }
+        D3D12_RESOURCE_DESC zero_mip_2d_array_desc =
+            texture_desc(19, 11, DXGI_FORMAT_R8G8B8A8_UNORM);
+        zero_mip_2d_array_desc.DepthOrArraySize = 4;
+        zero_mip_2d_array_desc.MipLevels = 0;
+        ID3D12Resource *zero_mip_2d_array_resource = nullptr;
+        zero_mip_2d_array_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &zero_mip_2d_array_desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&zero_mip_2d_array_resource));
+        if (zero_mip_2d_array_resource) {
+            D3D12_RESOURCE_DESC created_desc = {};
+            zero_mip_2d_array_resource->GetDesc(&created_desc);
+            zero_mip_2d_array_count = created_desc.MipLevels;
+            zero_mip_2d_array_resource->Release();
+        }
+        D3D12_RESOURCE_DESC zero_mip_3d_desc =
+            texture_desc(7, 5, DXGI_FORMAT_R8_UNORM);
+        zero_mip_3d_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+        zero_mip_3d_desc.DepthOrArraySize = 4;
+        zero_mip_3d_desc.MipLevels = 0;
+        ID3D12Resource *zero_mip_3d_resource = nullptr;
+        zero_mip_3d_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &zero_mip_3d_desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&zero_mip_3d_resource));
+        if (zero_mip_3d_resource) {
+            D3D12_RESOURCE_DESC created_desc = {};
+            zero_mip_3d_resource->GetDesc(&created_desc);
+            zero_mip_3d_count = created_desc.MipLevels;
+            zero_mip_3d_resource->Release();
+        }
+        zero_mip_shapes_ok =
+            SUCCEEDED(zero_mip_1d_hr) && zero_mip_1d_count == 5 &&
+            SUCCEEDED(zero_mip_2d_array_hr) && zero_mip_2d_array_count == 5 &&
+            SUCCEEDED(zero_mip_3d_hr) && zero_mip_3d_count == 3;
         D3D12_RESOURCE_DESC placed_1d_array_desc =
             texture_desc(17, 1, DXGI_FORMAT_R8_UNORM);
         placed_1d_array_desc.Dimension =
@@ -5112,7 +5170,7 @@ int main(int argc, char** argv) {
         default_cpu_io_ok && residency_state_ok && dxgi_offer_reclaim_ok &&
         heap_residency_ok && address_heap_open_ok && heap_aliasing_ok &&
         atomic_copy_ok && atomic64_copy_ok && discard_ok &&
-        resource_shapes_ok && resource_validation_ok &&
+        resource_shapes_ok && zero_mip_shapes_ok && resource_validation_ok &&
         SUCCEEDED(placed_1d_array_heap_hr) &&
         SUCCEEDED(placed_1d_array_resource_hr) &&
         SUCCEEDED(placed_1d_array_write_hr[0]) &&
@@ -5252,6 +5310,14 @@ int main(int argc, char** argv) {
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
     std::printf("    \"validation_matrix_verified\": %s,\n", resource_validation_ok ? "true" : "false");
     std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
+    print_hr("zero_mip_1d", zero_mip_1d_hr);
+    print_hr("zero_mip_2d_array", zero_mip_2d_array_hr);
+    print_hr("zero_mip_3d", zero_mip_3d_hr);
+    std::printf("    \"zero_mip_counts\": [%u,%u,%u],\n",
+                zero_mip_1d_count, zero_mip_2d_array_count,
+                zero_mip_3d_count);
+    std::printf("    \"zero_mip_shapes_verified\": %s,\n",
+                zero_mip_shapes_ok ? "true" : "false");
     print_hr("placed_1d_array_heap_create", placed_1d_array_heap_hr);
     print_hr("placed_1d_array_resource_create", placed_1d_array_resource_hr);
     print_hr("placed_1d_array_first_write", placed_1d_array_write_hr[0]);
