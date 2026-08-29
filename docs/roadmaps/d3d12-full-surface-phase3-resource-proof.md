@@ -88,9 +88,9 @@
 - Planar depth/stencil footprints expand the D24/R24G8 family into the
   documented R32 depth and R8 stencil planes across array slices and mips;
   eight subresources report exact plane formats, row sizes, dimensions, and
-  ordered offsets (`12032` total bytes). D24 plane-0 and plane-1 direct I/O
-  round-trips exact depth/stencil bytes, and a queued stencil-only clear is
-  visible through a subsequent plane-1 readback.
+  ordered offsets (`12032` total bytes). D24 and D32_FLOAT_S8X24_UINT plane-0
+  and plane-1 direct I/O round-trip exact depth/stencil bytes, and a queued
+  stencil-only clear is visible through a subsequent plane-1 readback.
 - Invalid `GetCopyableFootprints` descriptors initialize the documented
   `pTotalBytes` sentinel (`UINT64_MAX`) instead of reporting a fabricated
   zero-sized layout. Valid requests honor the caller's requested subresource
