@@ -351,6 +351,36 @@ int main() {
     if (event_handle)
         CloseHandle(event_handle);
 
+    DXGI_RESIDENCY d3d12_residency_before = DXGI_RESIDENCY_EVICTED_TO_DISK;
+    DXGI_RESIDENCY d3d12_residency_after_evict = DXGI_RESIDENCY_FULLY_RESIDENT;
+    DXGI_RESIDENCY d3d12_residency_after_make = DXGI_RESIDENCY_EVICTED_TO_DISK;
+    HRESULT d3d12_residency_before_hr = E_FAIL;
+    HRESULT d3d12_residency_evict_hr = E_FAIL;
+    HRESULT d3d12_residency_after_evict_hr = E_FAIL;
+    HRESULT d3d12_residency_make_hr = E_FAIL;
+    HRESULT d3d12_residency_after_make_hr = E_FAIL;
+    bool d3d12_residency_ok = false;
+    if (dxgi_device3 && copy_buffer) {
+        IUnknown* residency_objects[] = {copy_buffer};
+        d3d12_residency_before_hr = dxgi_device3->QueryResourceResidency(
+            residency_objects, &d3d12_residency_before, 1);
+        ID3D12Pageable* pageable = copy_buffer;
+        d3d12_residency_evict_hr = device->Evict(1, &pageable);
+        d3d12_residency_after_evict_hr = dxgi_device3->QueryResourceResidency(
+            residency_objects, &d3d12_residency_after_evict, 1);
+        d3d12_residency_make_hr = device->MakeResident(1, &pageable);
+        d3d12_residency_after_make_hr = dxgi_device3->QueryResourceResidency(
+            residency_objects, &d3d12_residency_after_make, 1);
+        d3d12_residency_ok = SUCCEEDED(d3d12_residency_before_hr) &&
+                             d3d12_residency_before == DXGI_RESIDENCY_FULLY_RESIDENT &&
+                             SUCCEEDED(d3d12_residency_evict_hr) &&
+                             SUCCEEDED(d3d12_residency_after_evict_hr) &&
+                             d3d12_residency_after_evict == DXGI_RESIDENCY_EVICTED_TO_DISK &&
+                             SUCCEEDED(d3d12_residency_make_hr) &&
+                             SUCCEEDED(d3d12_residency_after_make_hr) &&
+                             d3d12_residency_after_make == DXGI_RESIDENCY_FULLY_RESIDENT;
+    }
+
     if (copy_allocator)
         copy_allocator_reset_hr = copy_allocator->Reset();
     if (render_allocator)
@@ -461,7 +491,8 @@ int main() {
         SUCCEEDED(compute_list_reset_hr) && SUCCEEDED(present_list_reset_hr) && SUCCEEDED(map_readback_hr) &&
         readback_ok && queue_types_ok && fences_ok && SUCCEEDED(timestamp_frequency_hr) &&
         null_timestamp_frequency_hr == E_POINTER && clock_calibration_ok &&
-        null_clock_calibration_hr == E_POINTER && SUCCEEDED(timestamp_heap_hr) &&
+        null_clock_calibration_hr == E_POINTER && d3d12_residency_ok &&
+        SUCCEEDED(timestamp_heap_hr) &&
         SUCCEEDED(timestamp_readback_hr) && copy_timestamps_ok;
 
     std::printf("{\n");
@@ -539,6 +570,15 @@ int main() {
     print_hr("get_reset_frame_latency", get_reset_frame_latency_hr);
     print_hr("set_invalid_frame_latency", set_invalid_frame_latency_hr);
     print_hr("zero_resource_residency", zero_residency_hr);
+    print_hr("d3d12_residency_before", d3d12_residency_before_hr);
+    print_hr("d3d12_residency_evict", d3d12_residency_evict_hr);
+    print_hr("d3d12_residency_after_evict", d3d12_residency_after_evict_hr);
+    print_hr("d3d12_residency_make", d3d12_residency_make_hr);
+    print_hr("d3d12_residency_after_make", d3d12_residency_after_make_hr);
+    std::printf("    \"d3d12_residency_before_value\": %u,\n", d3d12_residency_before);
+    std::printf("    \"d3d12_residency_after_evict_value\": %u,\n", d3d12_residency_after_evict);
+    std::printf("    \"d3d12_residency_after_make_value\": %u,\n", d3d12_residency_after_make);
+    std::printf("    \"d3d12_residency_verified\": %s,\n", d3d12_residency_ok ? "true" : "false");
     print_hr("zero_resource_offer", zero_offer_hr);
     print_hr("invalid_offer_priority", invalid_offer_priority_hr);
     print_hr("zero_resource_reclaim", zero_reclaim_hr);

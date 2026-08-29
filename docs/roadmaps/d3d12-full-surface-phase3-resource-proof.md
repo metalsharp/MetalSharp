@@ -71,6 +71,18 @@ wait, map, copy, readback, residency, and invalid-handle HRESULTs. The child
 process is bounded to 30 seconds and the source wrapper removes its disposable
 Wine clone and prefix on every exit path.
 
+### DXGI residency view
+
+```sh
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
+  tools/d3d12-metal-sdk/scripts/run-source-probes.sh --queues-only
+```
+
+The queue probe's `IDXGIDevice3::QueryResourceResidency` path observed
+`DXGI_RESIDENCY_FULLY_RESIDENT (1)`, `DXGI_RESIDENCY_EVICTED_TO_DISK (3)`,
+and `FULLY_RESIDENT (1)` around a real D3D12 `Evict`/`MakeResident` cycle.
+
 ### D3D10/D3D11 regression
 
 ```sh
