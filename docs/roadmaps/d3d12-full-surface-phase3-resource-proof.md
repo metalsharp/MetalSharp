@@ -27,6 +27,10 @@
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
+- Stable tight alignment Tier 1 is behavior-backed for buffers: a committed
+  1000-byte buffer reports `[SizeInBytes=1024, Alignment=256]`, a 256-byte
+  placed upload buffer round-trips 1000 exact bytes, non-power-of-two and
+  over-aligned placed requests reject, and reserved tight buffers reject.
 - 3D allocation sizing counts volume depth once (a 64x64x4 R8 volume reports
   one 64-KiB allocation with 64-KiB alignment), while arrays continue to count
   `DepthOrArraySize` as slices.
@@ -76,6 +80,14 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.invalid_msaa_mips_allocation": [0, 0],
   "resource_shapes.volume_allocation": [65536, 65536],
+  "resource_shapes.tight_alignment": {
+    "feature_tier": 1,
+    "allocation": [1024, 256],
+    "placed_roundtrip_verified": true,
+    "invalid_alignment": "0x80070057",
+    "overaligned_placed": "0x80070057",
+    "reserved_rejected": "0x80070057"
+  },
   "resource_shapes.misaligned_placement": "0x80070057",
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",

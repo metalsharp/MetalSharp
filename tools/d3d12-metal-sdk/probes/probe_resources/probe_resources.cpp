@@ -28,6 +28,10 @@ struct ResourceShapeProbe {
     D3D12_RESOURCE_DESC created = {};
 };
 
+struct TightAlignmentFeatureProbe {
+    UINT SupportTier = 0;
+};
+
 struct SparseFormatProbe {
     const char* name;
     DXGI_FORMAT format;
@@ -347,6 +351,18 @@ int main(int argc, char** argv) {
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
     UINT64 volume_allocation_size = 0;
     UINT64 volume_allocation_alignment = 0;
+    HRESULT tight_feature_hr = E_FAIL;
+    UINT tight_feature_tier = 0;
+    HRESULT tight_committed_hr = E_FAIL;
+    HRESULT tight_allocation_info_hr = E_FAIL;
+    UINT64 tight_allocation_size = 0;
+    UINT64 tight_allocation_alignment = 0;
+    HRESULT tight_heap_hr = E_FAIL;
+    HRESULT tight_placed_hr = E_FAIL;
+    HRESULT tight_invalid_alignment_hr = E_FAIL;
+    HRESULT tight_overaligned_placed_hr = E_FAIL;
+    HRESULT tight_reserved_hr = E_FAIL;
+    bool tight_placed_roundtrip_ok = false;
     HANDLE shared_heap_handle = nullptr;
     HRESULT shared_heap_create_hr = E_FAIL;
     HRESULT shared_heap_open_hr = E_FAIL;
@@ -388,6 +404,9 @@ int main(int argc, char** argv) {
     HRESULT misaligned_placement_hr = E_FAIL;
     bool address_heap_open_ok = false;
     bool heap_aliasing_ok = false;
+    ID3D12Resource* tight_committed = nullptr;
+    ID3D12Heap* tight_heap = nullptr;
+    ID3D12Resource* tight_placed = nullptr;
     auto probe_resource_shape = [&](const char* name, D3D12_RESOURCE_DESC desc,
                                     D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON) {
         ResourceShapeProbe probe = {};
@@ -467,6 +486,79 @@ int main(int argc, char** argv) {
             device->GetResourceAllocationInfo(0, 1, &volume_allocation_desc);
         volume_allocation_size = volume_info.SizeInBytes;
         volume_allocation_alignment = volume_info.Alignment;
+
+        const D3D12_RESOURCE_FLAGS tight_flag =
+            static_cast<D3D12_RESOURCE_FLAGS>(0x400);
+        TightAlignmentFeatureProbe tight_feature = {};
+        tight_feature_hr = device->CheckFeatureSupport(
+            static_cast<D3D12_FEATURE>(54), &tight_feature, sizeof(tight_feature));
+        tight_feature_tier = tight_feature.SupportTier;
+        D3D12_RESOURCE_DESC tight_desc = buffer_desc(1000);
+        tight_desc.Flags = tight_flag;
+        tight_committed_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &tight_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&tight_committed));
+        D3D12_RESOURCE_ALLOCATION_INFO tight_info =
+            device->GetResourceAllocationInfo(0, 1, &tight_desc);
+        tight_allocation_info_hr = S_OK;
+        tight_allocation_size = tight_info.SizeInBytes;
+        tight_allocation_alignment = tight_info.Alignment;
+        D3D12_HEAP_DESC tight_heap_desc = {};
+        tight_heap_desc.SizeInBytes = 64 * 1024;
+        tight_heap_desc.Properties = upload_heap;
+        tight_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        tight_heap_hr = device->CreateHeap(&tight_heap_desc, IID_PPV_ARGS(&tight_heap));
+        tight_placed_hr = tight_heap
+                             ? device->CreatePlacedResource(
+                                   tight_heap, 256, &tight_desc,
+                                   D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                   IID_PPV_ARGS(&tight_placed))
+                             : E_FAIL;
+        if (tight_placed) {
+            uint8_t *tight_data = nullptr;
+            if (SUCCEEDED(tight_placed->Map(
+                    0, nullptr, reinterpret_cast<void **>(&tight_data))) &&
+                tight_data) {
+                for (UINT i = 0; i < 1000; ++i)
+                    tight_data[i] = static_cast<uint8_t>((i * 13u + 5u) & 0xffu);
+                D3D12_RANGE written = {0, 1000};
+                tight_placed->Unmap(0, &written);
+                uint8_t tight_readback[1000] = {};
+                tight_placed_roundtrip_ok = SUCCEEDED(
+                    tight_placed->ReadFromSubresource(tight_readback, 1000, 1000, 0, nullptr));
+                for (UINT i = 0; i < 1000 && tight_placed_roundtrip_ok; ++i)
+                    tight_placed_roundtrip_ok =
+                        tight_readback[i] == static_cast<uint8_t>((i * 13u + 5u) & 0xffu);
+            }
+        }
+        D3D12_RESOURCE_DESC invalid_tight_desc = tight_desc;
+        invalid_tight_desc.Alignment = 3;
+        ID3D12Resource *invalid_tight_resource = nullptr;
+        tight_invalid_alignment_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_tight_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&invalid_tight_resource));
+        if (invalid_tight_resource)
+            invalid_tight_resource->Release();
+        D3D12_RESOURCE_DESC overaligned_tight_desc = tight_desc;
+        overaligned_tight_desc.Alignment = 512;
+        ID3D12Resource *overaligned_tight_resource = nullptr;
+        tight_overaligned_placed_hr = tight_heap
+                                          ? device->CreatePlacedResource(
+                                                tight_heap, 256,
+                                                &overaligned_tight_desc,
+                                                D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                nullptr,
+                                                IID_PPV_ARGS(&overaligned_tight_resource))
+                                          : E_FAIL;
+        if (overaligned_tight_resource)
+            overaligned_tight_resource->Release();
+        ID3D12Resource *tight_reserved_resource = nullptr;
+        tight_reserved_hr = device->CreateReservedResource(
+            &tight_desc, D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&tight_reserved_resource));
+        if (tight_reserved_resource)
+            tight_reserved_resource->Release();
     }
     auto same_resource_desc = [](const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
         return a.Dimension == b.Dimension && a.Alignment == b.Alignment && a.Width == b.Width &&
@@ -545,6 +637,12 @@ int main(int argc, char** argv) {
                          invalid_msaa_mips_allocation_size == 0 && invalid_msaa_mips_allocation_alignment == 0 &&
                          volume_allocation_size == 64 * 1024 &&
                          volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
+                         SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
+                         SUCCEEDED(tight_committed_hr) && SUCCEEDED(tight_allocation_info_hr) &&
+                         tight_allocation_size == 1024 && tight_allocation_alignment == 256 &&
+                         SUCCEEDED(tight_heap_hr) && SUCCEEDED(tight_placed_hr) &&
+                         tight_placed_roundtrip_ok && tight_invalid_alignment_hr == E_INVALIDARG &&
+                         tight_overaligned_placed_hr == E_INVALIDARG && tight_reserved_hr == E_INVALIDARG &&
                          FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -2181,6 +2279,20 @@ int main(int argc, char** argv) {
     std::printf("    \"volume_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(volume_allocation_size),
                 static_cast<unsigned long long>(volume_allocation_alignment));
+    print_hr("tight_feature", tight_feature_hr);
+    std::printf("    \"tight_feature_tier\": %u,\n", tight_feature_tier);
+    print_hr("tight_committed", tight_committed_hr);
+    print_hr("tight_allocation_info", tight_allocation_info_hr);
+    std::printf("    \"tight_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(tight_allocation_size),
+                static_cast<unsigned long long>(tight_allocation_alignment));
+    print_hr("tight_heap", tight_heap_hr);
+    print_hr("tight_placed", tight_placed_hr);
+    std::printf("    \"tight_placed_roundtrip_verified\": %s,\n",
+                tight_placed_roundtrip_ok ? "true" : "false");
+    print_hr("tight_invalid_alignment", tight_invalid_alignment_hr);
+    print_hr("tight_overaligned_placed", tight_overaligned_placed_hr);
+    print_hr("tight_reserved", tight_reserved_hr);
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);

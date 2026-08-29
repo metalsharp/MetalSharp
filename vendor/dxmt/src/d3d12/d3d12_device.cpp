@@ -252,6 +252,11 @@ static UINT64 AlignTo(UINT64 value, UINT64 alignment) {
   return alignment ? ((value + alignment - 1) & ~(alignment - 1)) : value;
 }
 
+// The stable 1.619 headers add this flag, while the host MinGW headers used
+// for the Wine build may predate it.
+static constexpr D3D12_RESOURCE_FLAGS kD3D12ResourceFlagUseTightAlignment =
+    static_cast<D3D12_RESOURCE_FLAGS>(0x400);
+
 static UINT FormatBlockSize(DXGI_FORMAT format) {
   switch (format) {
   case DXGI_FORMAT_BC1_TYPELESS:
@@ -409,11 +414,22 @@ static UINT FormatPlaneCount(DXGI_FORMAT format) {
 }
 
 static UINT64 ResourcePlacementAlignment(const D3D12_RESOURCE_DESC &desc) {
+  if ((desc.Flags & kD3D12ResourceFlagUseTightAlignment) &&
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    // GetResourceAllocationInfo is used to place resources in explicit heaps;
+    // the tight-alignment buffer contract permits at most 256-byte placement
+    // alignment and defaults to that maximum when no floor is supplied.
+    return desc.Alignment ? std::max<UINT64>(desc.Alignment, 8) : 256;
+  }
   if (desc.Alignment)
     return desc.Alignment;
   if (desc.SampleDesc.Count > 1)
     return D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
   return D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
+static bool IsPowerOfTwo(UINT64 value) {
+  return value && (value & (value - 1)) == 0;
 }
 
 static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
@@ -423,10 +439,23 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
     return false;
 
   if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
-    return desc.Height == 1 && desc.DepthOrArraySize == 1 &&
-           desc.MipLevels == 1 && desc.Format == DXGI_FORMAT_UNKNOWN &&
-           desc.SampleDesc.Count == 1 && desc.SampleDesc.Quality == 0 &&
-           desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    if (desc.Height != 1 || desc.DepthOrArraySize != 1 ||
+        desc.MipLevels != 1 || desc.Format != DXGI_FORMAT_UNKNOWN ||
+        desc.SampleDesc.Count != 1 || desc.SampleDesc.Quality != 0 ||
+        desc.Layout != D3D12_TEXTURE_LAYOUT_ROW_MAJOR)
+      return false;
+    if ((desc.Flags & kD3D12ResourceFlagUseTightAlignment) &&
+        ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) ||
+         (desc.Alignment &&
+          (!IsPowerOfTwo(desc.Alignment) || desc.Alignment > 4096))))
+      return false;
+    return true;
+  }
+
+  if (desc.Flags & kD3D12ResourceFlagUseTightAlignment) {
+    // Tier 1 is deliberately scoped to buffers. A texture request using the
+    // flag must not be accepted as though it received tight placement.
+    return false;
   }
 
   if (!desc.Height || !desc.DepthOrArraySize ||
@@ -4145,7 +4174,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *t = (D3D12FeatureTightAlignment *)feature_data;
     if (feature_data_size < sizeof(*t))
       return E_INVALIDARG;
-    t->SupportTier = 0;
+    t->SupportTier = 1;
     TRACE("  TIGHT_ALIGNMENT: SupportTier=%u", t->SupportTier);
     return S_OK;
   }
@@ -4931,6 +4960,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
     heap_flags = heap_desc.Flags;
     D3D12_RESOURCE_ALLOCATION_INFO info = {};
     GetResourceAllocationInfo(&info, 0, 1, desc);
+    if ((desc->Flags & kD3D12ResourceFlagUseTightAlignment) &&
+        desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+        info.Alignment > 256)
+      return E_INVALIDARG;
     if (info.Alignment && heap_offset % info.Alignment) {
       TRACE("CreatePlacedResource misaligned offset=%llu align=%llu",
             (unsigned long long)heap_offset,
@@ -5069,6 +5102,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
   if (!desc)
     return E_INVALIDARG;
   if (!IsValidResourceDesc(*desc))
+    return E_INVALIDARG;
+  if (desc->Flags & kD3D12ResourceFlagUseTightAlignment)
     return E_INVALIDARG;
   const bool reserved_buffer =
       desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
