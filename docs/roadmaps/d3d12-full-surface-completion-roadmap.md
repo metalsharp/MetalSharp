@@ -572,8 +572,9 @@ surface.
   residency queries.
 - Finish reserved resources and Tier 1–4 sparse behavior, including the stable
   1.619 Tier 4 additions:
-  `GetResourceTiling`, standard and packed/partial mips, 1D/2D/3D/array/cube
-  layouts, all supported formats, physical page ownership, update/copy tile
+  `GetResourceTiling`, standard and packed/partial mips, native 1D/1D-array,
+  2D/3D/array/cube layouts, all supported formats, physical page ownership,
+  update/copy tile
   mappings, cross-queue ordering, unmap zeroing, aliasing, and `CopyTiles`.
 - Implement portable cross-process shared resources, heaps, fences/events,
   named handles, adapter LUID lookup, and lifetime/security checks using

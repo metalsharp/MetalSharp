@@ -111,6 +111,11 @@
 - Reserved 512x512 RGBA8 resources with four mips now create successfully and
   report the packed tail exactly: 22 total tiles, three standard mips, one
   packed mip tile, and per-subresource starts `[0, 16, 20, D3D12_PACKED_TILE]`.
+- A native reserved 1D `R32_FLOAT` resource (`16384` texels, one mip) now
+  creates successfully and reports the exact one-tile shape
+  `[16384,1,1]`; the source-staged run maps its four Metal 16-KiB pages,
+  executes `CopyTiles` in both directions, and verifies the exact 64-KiB
+  readback without falling back to a failed sparse heap allocation.
 - Zero `MipLevels` is normalized to the complete mip chain: a 32x16 texture
   creates six mips and its six copy footprints report exact dimensions, row
   counts, row sizes, and increasing placement offsets.
@@ -234,6 +239,11 @@ The isolated source-staged probe passed with:
     "invalid_castable_list_rejected": true
   },
   "sparse.unmapped_zero_verified": true,
+  "sparse.reserved_1d_resource_create": "0x00000000",
+  "sparse.reserved_1d_tiling": "0x00000000",
+  "sparse.reserved_1d_total_tiles": 1,
+  "sparse.reserved_1d_tile_shape": [16384, 1, 1],
+  "sparse.reserved_1d_copy_verified": true,
   "sparse.tier3_physical_page_ownership_verified": true,
   "sparse.volume_copy_verified": true,
   "sparse.volume_alias_copy_verified": true,
