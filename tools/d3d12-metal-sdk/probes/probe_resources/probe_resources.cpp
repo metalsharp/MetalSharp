@@ -339,6 +339,8 @@ int main(int argc, char** argv) {
     HRESULT invalid_msaa_mips_hr = E_FAIL;
     UINT64 invalid_msaa_mips_allocation_size = 0;
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
+    UINT64 volume_allocation_size = 0;
+    UINT64 volume_allocation_alignment = 0;
     HANDLE shared_heap_handle = nullptr;
     HRESULT shared_heap_create_hr = E_FAIL;
     HRESULT shared_heap_open_hr = E_FAIL;
@@ -447,6 +449,18 @@ int main(int argc, char** argv) {
             device->GetResourceAllocationInfo(0, 1, &invalid);
         invalid_msaa_mips_allocation_size = invalid_msaa_mips_info.SizeInBytes;
         invalid_msaa_mips_allocation_alignment = invalid_msaa_mips_info.Alignment;
+
+        // DepthOrArraySize is texel depth for a 3D resource, not an outer
+        // array count. Counting it twice would report 256 KiB instead of the
+        // expected 64 KiB for this one-mip R8 volume.
+        D3D12_RESOURCE_DESC volume_allocation_desc =
+            texture_desc(64, 64, DXGI_FORMAT_R8_UNORM);
+        volume_allocation_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+        volume_allocation_desc.DepthOrArraySize = 4;
+        D3D12_RESOURCE_ALLOCATION_INFO volume_info =
+            device->GetResourceAllocationInfo(0, 1, &volume_allocation_desc);
+        volume_allocation_size = volume_info.SizeInBytes;
+        volume_allocation_alignment = volume_info.Alignment;
     }
     auto same_resource_desc = [](const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
         return a.Dimension == b.Dimension && a.Alignment == b.Alignment && a.Width == b.Width &&
@@ -523,6 +537,8 @@ int main(int argc, char** argv) {
                          FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr) &&
                          invalid_zero_width_allocation_size == 0 && invalid_zero_width_allocation_alignment == 0 &&
                          invalid_msaa_mips_allocation_size == 0 && invalid_msaa_mips_allocation_alignment == 0 &&
+                         volume_allocation_size == 64 * 1024 &&
+                         volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
                          FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -2043,6 +2059,9 @@ int main(int argc, char** argv) {
     std::printf("    \"invalid_msaa_mips_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(invalid_msaa_mips_allocation_size),
                 static_cast<unsigned long long>(invalid_msaa_mips_allocation_alignment));
+    std::printf("    \"volume_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(volume_allocation_size),
+                static_cast<unsigned long long>(volume_allocation_alignment));
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);
