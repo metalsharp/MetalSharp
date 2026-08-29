@@ -8564,18 +8564,12 @@ static bool BuildSparseTextureMappings(
       metal4 ? (volume ? 1u : 2u)
              : std::max<UINT>(1, shape.HeightInTexels / 2);
   const UINT metal_tiles_z = std::max<UINT>(1, shape.DepthInTexels);
-  // Placement textures use 16 KiB texture pages while D3D12 heap ranges are
-  // expressed in 64 KiB tiles.  A volume tile can cover more physical Metal
-  // pages than its logical D3D12 payload (for RGBA8 32x32x16, four 64 KiB
-  // heap tiles are required because Metal's sparse XY tile is 64x64).
-  const uint64_t metal_page_bytes = UINT64_C(16384);
-  const uint64_t physical_bytes_per_d3d_tile =
-      uint64_t(metal_tiles_x) * metal_tiles_y * metal_tiles_z *
-      metal_page_bytes;
+  // MTL4 heap offsets count the 16 KiB sparse pages consumed by each
+  // mapping operation, while D3D12 heap offsets count 64 KiB tiles.  Keep
+  // those units distinct: a 128x128 RGBA8 D3D12 tile is four 64x64 Metal
+  // pages, and a 32x32x16 volume tile is sixteen 32x32x1 pages.
   const uint64_t heap_tile_multiplier = std::max<uint64_t>(
-      1, (physical_bytes_per_d3d_tile +
-          D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES - 1) /
-             D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES);
+      1, uint64_t(metal_tiles_x) * metal_tiles_y * metal_tiles_z);
   struct SparseTileLocation {
     UINT subresource;
     UINT x;
@@ -9090,67 +9084,84 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
     const UINT src_tiles_z =
         (src_depth + src_shape.DepthInTexels - 1) /
         src_shape.DepthInTexels;
+    const uint64_t dst_tiles_per_slice =
+        uint64_t(dst_tiles_x) * dst_tiles_y * dst_tiles_z;
+    const uint64_t src_tiles_per_slice =
+        uint64_t(src_tiles_x) * src_tiles_y * src_tiles_z;
+    const UINT dst_slice_count =
+        volume ? 1 : std::max<UINT16>(dst_desc.DepthOrArraySize, 1);
+    const UINT src_slice_count =
+        volume ? 1 : std::max<UINT16>(src_desc.DepthOrArraySize, 1);
     const uint64_t region_tile_count =
         region_size->UseBox
             ? uint64_t(region_size->Width) * region_size->Height *
                   region_size->Depth
             : region_size->NumTiles;
-    if (!region_tile_count || region_tile_count > 1048576 ||
-        (region_size->UseBox &&
-         region_size->NumTiles != region_tile_count) ||
-        (!volume && (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-                     src_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)) ||
-        (volume && (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ||
-                    src_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)) ||
-        dst_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
-        src_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
-        dst_desc.SampleDesc.Count != 1 || src_desc.SampleDesc.Count != 1 ||
-        dst_desc.MipLevels != 1 || src_desc.MipLevels != 1 ||
-        dst_shape.WidthInTexels != (volume ? 32u : 128u) ||
-        dst_shape.HeightInTexels != (volume ? 32u : 128u) ||
-        dst_shape.DepthInTexels != (volume ? 16u : 1u) ||
-        src_shape.WidthInTexels != (volume ? 32u : 128u) ||
-        src_shape.HeightInTexels != (volume ? 32u : 128u) ||
-        src_shape.DepthInTexels != (volume ? 16u : 1u) ||
-        (!volume && (dst_slice >= dst_desc.DepthOrArraySize ||
-                     src_slice >= src_desc.DepthOrArraySize)) ||
-        (volume && (dst_slice != 0 || src_slice != 0)) ||
-        dst_coordinate.X >= dst_tiles_x || dst_coordinate.Y >= dst_tiles_y ||
-        (volume && dst_coordinate.Z >= dst_tiles_z) ||
-        src_coordinate.X >= src_tiles_x || src_coordinate.Y >= src_tiles_y ||
-        (volume && src_coordinate.Z >= src_tiles_z) ||
-        (region_size->UseBox
-             ? (uint64_t(dst_coordinate.X) + region_size->Width >
-                    dst_tiles_x ||
-                uint64_t(dst_coordinate.Y) + region_size->Height >
-                    dst_tiles_y ||
-                (volume
-                     ? uint64_t(dst_coordinate.Z) + region_size->Depth >
-                           dst_tiles_z
-                     : uint64_t(dst_coordinate.Z) + region_size->Depth >
-                           dst_desc.DepthOrArraySize - dst_slice) ||
-                uint64_t(src_coordinate.X) + region_size->Width >
-                    src_tiles_x ||
-                uint64_t(src_coordinate.Y) + region_size->Height >
-                    src_tiles_y ||
-                (volume
-                     ? uint64_t(src_coordinate.Z) + region_size->Depth >
-                           src_tiles_z
-                     : uint64_t(src_coordinate.Z) + region_size->Depth >
-                           src_desc.DepthOrArraySize - src_slice))
-             : ((!volume && (dst_coordinate.Z || src_coordinate.Z)) ||
-                region_tile_count >
-                    dst_tiles_x * dst_tiles_y * dst_tiles_z -
-                        ((uint64_t(dst_coordinate.Z) * dst_tiles_y +
-                          dst_coordinate.Y) *
-                             dst_tiles_x +
-                         dst_coordinate.X) ||
-                region_tile_count >
-                    src_tiles_x * src_tiles_y * src_tiles_z -
-                        ((uint64_t(src_coordinate.Z) * src_tiles_y +
-                          src_coordinate.Y) *
-                             src_tiles_x +
-                         src_coordinate.X)))) {
+    bool valid_region =
+        region_tile_count && region_tile_count <= 1048576 &&
+        (!region_size->UseBox || region_size->NumTiles == region_tile_count) &&
+        (volume
+             ? (dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+                src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+             : (dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+                src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)) &&
+        dst_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+        src_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+        dst_desc.SampleDesc.Count == 1 && src_desc.SampleDesc.Count == 1 &&
+        dst_desc.MipLevels == 1 && src_desc.MipLevels == 1 &&
+        dst_shape.WidthInTexels == (volume ? 32u : 128u) &&
+        dst_shape.HeightInTexels == (volume ? 32u : 128u) &&
+        dst_shape.DepthInTexels == (volume ? 16u : 1u) &&
+        src_shape.WidthInTexels == (volume ? 32u : 128u) &&
+        src_shape.HeightInTexels == (volume ? 32u : 128u) &&
+        src_shape.DepthInTexels == (volume ? 16u : 1u) &&
+        dst_slice < dst_slice_count && src_slice < src_slice_count &&
+        dst_coordinate.X < dst_tiles_x && dst_coordinate.Y < dst_tiles_y &&
+        src_coordinate.X < src_tiles_x && src_coordinate.Y < src_tiles_y;
+    if (valid_region && volume)
+      valid_region = dst_slice == 0 && src_slice == 0 &&
+                     dst_coordinate.Z < dst_tiles_z &&
+                     src_coordinate.Z < src_tiles_z;
+    if (valid_region && region_size->UseBox) {
+      valid_region =
+          uint64_t(dst_coordinate.X) + region_size->Width <= dst_tiles_x &&
+          uint64_t(dst_coordinate.Y) + region_size->Height <= dst_tiles_y &&
+          uint64_t(src_coordinate.X) + region_size->Width <= src_tiles_x &&
+          uint64_t(src_coordinate.Y) + region_size->Height <= src_tiles_y;
+      if (volume) {
+        valid_region =
+            valid_region &&
+            uint64_t(dst_coordinate.Z) + region_size->Depth <= dst_tiles_z &&
+            uint64_t(src_coordinate.Z) + region_size->Depth <= src_tiles_z;
+      } else {
+        valid_region =
+            valid_region &&
+            uint64_t(dst_coordinate.Z) + region_size->Depth <=
+                dst_slice_count - dst_slice &&
+            uint64_t(src_coordinate.Z) + region_size->Depth <=
+                src_slice_count - src_slice;
+      }
+    } else if (valid_region) {
+      if (!volume && (dst_coordinate.Z || src_coordinate.Z))
+        valid_region = false;
+      const uint64_t dst_start =
+          uint64_t(dst_coordinate.Y) * dst_tiles_x + dst_coordinate.X;
+      const uint64_t src_start =
+          uint64_t(src_coordinate.Y) * src_tiles_x + src_coordinate.X;
+      const uint64_t dst_available =
+          dst_start < dst_tiles_per_slice
+              ? uint64_t(dst_slice_count - dst_slice) * dst_tiles_per_slice -
+                    dst_start
+              : 0;
+      const uint64_t src_available =
+          src_start < src_tiles_per_slice
+              ? uint64_t(src_slice_count - src_slice) * src_tiles_per_slice -
+                    src_start
+              : 0;
+      valid_region = valid_region && region_tile_count <= dst_available &&
+                     region_tile_count <= src_available;
+    }
+    if (!valid_region) {
       QTRACE("CmdQueue::CopyTileMappings rejected placement texture range");
       return;
     }
@@ -9194,15 +9205,21 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
           dst_slice_for_tile += dst_coordinate.Z + z;
       } else {
         const uint64_t src_linear = src_first + tile;
-        const uint64_t src_plane = src_linear / src_tiles_x;
-        src_x = static_cast<UINT>(src_linear % src_tiles_x);
+        const uint64_t src_slice_offset = src_linear / src_tiles_per_slice;
+        const uint64_t src_in_slice = src_linear % src_tiles_per_slice;
+        const uint64_t src_plane = src_in_slice / src_tiles_x;
+        src_x = static_cast<UINT>(src_in_slice % src_tiles_x);
         src_y = static_cast<UINT>(src_plane % src_tiles_y);
+        src_slice_for_tile += static_cast<UINT>(src_slice_offset);
         if (volume)
           src_z = static_cast<UINT>(src_plane / src_tiles_y);
         const uint64_t dst_linear = dst_first + tile;
-        const uint64_t dst_plane = dst_linear / dst_tiles_x;
-        dst_x = static_cast<UINT>(dst_linear % dst_tiles_x);
+        const uint64_t dst_slice_offset = dst_linear / dst_tiles_per_slice;
+        const uint64_t dst_in_slice = dst_linear % dst_tiles_per_slice;
+        const uint64_t dst_plane = dst_in_slice / dst_tiles_x;
+        dst_x = static_cast<UINT>(dst_in_slice % dst_tiles_x);
         dst_y = static_cast<UINT>(dst_plane % dst_tiles_y);
+        dst_slice_for_tile += static_cast<UINT>(dst_slice_offset);
         if (volume)
           dst_z = static_cast<UINT>(dst_plane / dst_tiles_y);
       }

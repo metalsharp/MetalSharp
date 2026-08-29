@@ -115,6 +115,13 @@
   documented single-region/default-region and omitted range-count forms.
   Mapping is issued on one direct queue, synchronized with a fence wait on a
   second direct queue, and the second queue performs the verified readback.
+- Placement-texture `CopyTileMappings` is behavior-backed across array slices:
+  a two-tile source mapping is copied across both slices of an independently
+  created two-slice reserved texture, then a queued copy/readback observes both exact
+  source tiles after an aliasing barrier. The two-tile linear range crosses the
+  array-slice boundary; the implementation expands such ranges across slices
+  while retaining volume Z addressing. The array mapping uses the same direct
+  queue/fence ordering and second-queue readback path.
 - Copyable footprint dimensions, pitches, row counts, and 512-byte placement
   alignment are validated for 1D, arrays, mip chains, volumes, and unaligned
   BC1 dimensions; BC footprints report texel dimensions while retaining
@@ -210,6 +217,9 @@ The isolated source-staged probe passed with:
   "sparse.volume_alias_copy_verified": true,
   "sparse.reserved_buffer_reuse_single_tile_skip_verified": true,
   "sparse.cross_queue_mapping_wait_verified": true,
+  "sparse.array_alias_mapping_verified": true,
+  "sparse.array_alias_first_byte": 7,
+  "sparse.array_alias_second_byte": 11,
   "sparse.packed_tail_reserved": {
     "total_tiles": 22,
     "packed_mips": [3, 1, 1, 21],
