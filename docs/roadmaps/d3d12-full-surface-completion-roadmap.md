@@ -597,30 +597,23 @@ legal-shape creation/validation, placed-buffer aliasing, multi-plane and NV12
 copy footprints, complete-mip normalization, packed sparse mip-tail reporting,
 array-slice `CopyTileMappings` with a cross-slice two-tile readback, preserved
 1D-array/cube-slice I/O, D24/D32 depth/stencil plane I/O plus queued stencil
-clear, the focused relaxed-castable-format readback, tight buffer alignment,
-`CREATE_NOT_RESIDENT`/enqueued residency, descriptor and
-query heap residency, cross-queue sparse mapping (including all tile-range
-modes), cross-process heap reopening, direct texture/BC/volume I/O, mipped arrays/volumes and MSAA arrays, D16
-and typeless R24/R32 depth-stencil/plane format creation, provider-less
-R32G32B32 rejection, checked
-allocation/footprint arithmetic, multi-resource sideband offsets,
-4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, committed
-and placed GPU-upload buffer/RGBA8 texture I/O, custom-equivalent GPU-upload
-texture placement, Options16/custom-heap reporting, GPU-upload flag rejection,
-D32 plane footprint layout, bounded tiling and subresource-window behavior,
-bounded Map ranges, D3D12 dimension-limit/reserved-layout and unsupported standard-swizzle
-rejection, unsupported heap-flag/format allocation rejection, invalid simultaneous/cross-adapter
-buffer-flag and MSAA rejection, DXGI resource aggregation, generated
-pointer-free unnamed buffer/heap/fence mappings, inherited unnamed-buffer,
-heap, and fence cross-process read/write/signal/metadata, adapter-LUID
-mismatch rejection, shared-cross-adapter fence rejection, and
-OfferResources/Trim/Reclaim
-residency-state
-evidence. The latest sparse run also passes native 3D volume mapping,
-cross-resource mapping copy, readback, and physical-page ownership; direct
-nonzero-Z boxed volume I/O also round-trips. The exhaustive Phase 3 gate
-remains open for all remaining legal dimensions/formats, native packed-tail
-execution, real reclaim and trim pressure, and shared-event/security coverage.
+clear, relaxed-castable-format readback, tight and small-resource alignment,
+`CREATE_NOT_RESIDENT`/enqueued residency, descriptor/query-heap residency,
+cross-queue sparse mapping (including all tile-range modes), direct
+texture/BC/volume I/O, mipped arrays/volumes and MSAA arrays, D16 and typeless
+R24/R32 depth-stencil/plane formats, provider-less R32G32B32 rejection,
+checked allocation/footprint arithmetic, mixed-alignment sidebands,
+nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and RGBA8
+texture I/O, custom-equivalent GPU-upload placement, Options16 reporting,
+unsupported heap/resource/fence flag rejection, DXGI resource aggregation,
+pointer-free named/unnamed buffer/heap/fence mappings, inherited unnamed
+buffer/heap/fence cross-process read/write/signal/metadata, adapter-LUID
+mismatch rejection, and OfferResources/Trim/Reclaim residency-state evidence.
+The latest sparse run also passes native 3D volume mapping, cross-resource
+mapping copy, readback, physical-page ownership, and direct nonzero-Z boxed
+volume I/O. The exhaustive Phase 3 gate remains open for all remaining legal
+dimensions/formats, native packed-tail execution, real reclaim/trim pressure,
+and shared-event/security coverage.
 
 ### Phase 4 — Complete queues, command recording/replay, barriers, and indirect work
 

@@ -704,6 +704,45 @@ static bool IsResourceAllowedByHeapFlags(
   return true;
 }
 
+static bool IsSmallResource(const D3D12_RESOURCE_DESC &desc,
+                            UINT64 size_limit) {
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ||
+      desc.Layout != D3D12_TEXTURE_LAYOUT_UNKNOWN ||
+      (desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
+                     D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
+    return false;
+  const UINT bytes_per_texel = FormatBytesPerTexel(desc.Format);
+  const UINT block_size = FormatBlockSize(desc.Format);
+  if (!bytes_per_texel || !block_size)
+    return false;
+  const UINT64 width = std::max<UINT64>(desc.Width, 1);
+  const UINT64 height = std::max<UINT>(desc.Height, 1);
+  const UINT64 depth =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? std::max<UINT>(desc.DepthOrArraySize, 1)
+          : std::max<UINT>(desc.DepthOrArraySize, 1);
+  if (width > UINT64_MAX - (block_size - 1) ||
+      height > UINT64_MAX - (block_size - 1))
+    return false;
+  const UINT64 width_blocks = (width + block_size - 1) / block_size;
+  const UINT64 height_blocks = (height + block_size - 1) / block_size;
+  if (width_blocks > UINT64_MAX / bytes_per_texel)
+    return false;
+  const UINT64 row_bytes = width_blocks * bytes_per_texel;
+  if (height_blocks > UINT64_MAX / row_bytes)
+    return false;
+  const UINT64 slice_bytes = row_bytes * height_blocks;
+  if (depth > UINT64_MAX / slice_bytes)
+    return false;
+  UINT64 size = slice_bytes * depth;
+  if (desc.SampleDesc.Count > 1) {
+    if (desc.SampleDesc.Count > UINT64_MAX / size)
+      return false;
+    size *= desc.SampleDesc.Count;
+  }
+  return size <= size_limit;
+}
+
 static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
   if (desc.Dimension < D3D12_RESOURCE_DIMENSION_BUFFER ||
       desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D || !desc.Width ||
@@ -732,11 +771,26 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
     return false;
   if (desc.Alignment && !IsPowerOfTwo(desc.Alignment))
     return false;
-  if (!tight_alignment && desc.Alignment &&
-      desc.Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT &&
-      desc.Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
-      desc.Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT)
-    return false;
+  if (!tight_alignment && desc.Alignment) {
+    if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+      if (desc.Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT)
+        return false;
+    } else if (desc.SampleDesc.Count > 1) {
+      if (desc.Alignment != D3D12_SMALL_MSAA_RESOURCE_PLACEMENT_ALIGNMENT &&
+          desc.Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT)
+        return false;
+      if (desc.Alignment == D3D12_SMALL_MSAA_RESOURCE_PLACEMENT_ALIGNMENT &&
+          !IsSmallResource(desc, D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
+        return false;
+    } else {
+      if (desc.Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT &&
+          desc.Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        return false;
+      if (desc.Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT &&
+          !IsSmallResource(desc, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT))
+        return false;
+    }
+  }
 
   if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
     if (desc.Height != 1 || desc.DepthOrArraySize != 1 ||

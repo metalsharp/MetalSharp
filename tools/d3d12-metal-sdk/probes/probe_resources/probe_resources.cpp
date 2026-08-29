@@ -724,6 +724,13 @@ int main(int argc, char** argv) {
     HRESULT invalid_msaa_mips_hr = E_FAIL;
     HRESULT invalid_reserved_layout_hr = E_FAIL;
     HRESULT invalid_standard_swizzle_hr = E_FAIL;
+    HRESULT invalid_small_texture_alignment_hr = E_FAIL;
+    HRESULT invalid_msaa_small_alignment_hr = E_FAIL;
+    HRESULT invalid_nonmsaa_msaa_alignment_hr = E_FAIL;
+    UINT64 small_texture_allocation_size = 0;
+    UINT64 small_texture_allocation_alignment = 0;
+    UINT64 small_msaa_allocation_size = 0;
+    UINT64 small_msaa_allocation_alignment = 0;
     UINT64 invalid_msaa_mips_allocation_size = 0;
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
     UINT64 volume_allocation_size = 0;
@@ -891,7 +898,21 @@ int main(int argc, char** argv) {
         shape.MipLevels = 3;
         probe_resource_shape("texture3d_mips", shape);
         shape = texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        shape.Alignment = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+        probe_resource_shape("texture2d_small_aligned", shape);
+        D3D12_RESOURCE_ALLOCATION_INFO small_texture_info =
+            device->GetResourceAllocationInfo(0, 1, &shape);
+        small_texture_allocation_size = small_texture_info.SizeInBytes;
+        small_texture_allocation_alignment = small_texture_info.Alignment;
+        shape = texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
         shape.SampleDesc.Count = 4;
+        shape.Alignment = D3D12_SMALL_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+        probe_resource_shape("texture2d_small_msaa_aligned", shape);
+        D3D12_RESOURCE_ALLOCATION_INFO small_msaa_info =
+            device->GetResourceAllocationInfo(0, 1, &shape);
+        small_msaa_allocation_size = small_msaa_info.SizeInBytes;
+        small_msaa_allocation_alignment = small_msaa_info.Alignment;
+        shape.Alignment = 0;
         probe_resource_shape("texture2d_msaa4", shape);
         shape.DepthOrArraySize = 3;
         probe_resource_shape("texture2d_msaa4_array", shape);
@@ -1362,6 +1383,40 @@ int main(int argc, char** argv) {
             &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_standard_swizzle,
             D3D12_RESOURCE_STATE_COMMON, nullptr,
             IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_small_texture_alignment =
+            texture_desc(512, 512, DXGI_FORMAT_R8G8B8A8_UNORM);
+        invalid_small_texture_alignment.Alignment =
+            D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+        invalid_small_texture_alignment_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE,
+            &invalid_small_texture_alignment, D3D12_RESOURCE_STATE_COMMON,
+            nullptr, IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_msaa_small_alignment =
+            texture_desc(2048, 2048, DXGI_FORMAT_R8G8B8A8_UNORM);
+        invalid_msaa_small_alignment.SampleDesc.Count = 4;
+        invalid_msaa_small_alignment.Alignment =
+            D3D12_SMALL_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+        invalid_msaa_small_alignment_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE,
+            &invalid_msaa_small_alignment, D3D12_RESOURCE_STATE_COMMON,
+            nullptr, IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_nonmsaa_msaa_alignment =
+            texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        invalid_nonmsaa_msaa_alignment.Alignment =
+            D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT;
+        invalid_nonmsaa_msaa_alignment_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE,
+            &invalid_nonmsaa_msaa_alignment, D3D12_RESOURCE_STATE_COMMON,
+            nullptr, IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
         invalid_resource = nullptr;
@@ -4547,6 +4602,13 @@ int main(int argc, char** argv) {
         oversized_3d_hr == E_INVALIDARG &&
         invalid_reserved_layout_hr == E_INVALIDARG &&
         invalid_standard_swizzle_hr == E_INVALIDARG &&
+        invalid_small_texture_alignment_hr == E_INVALIDARG &&
+        invalid_msaa_small_alignment_hr == E_INVALIDARG &&
+        small_texture_allocation_size == 4096 &&
+        small_texture_allocation_alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT &&
+        small_msaa_allocation_size == D3D12_SMALL_MSAA_RESOURCE_PLACEMENT_ALIGNMENT &&
+        small_msaa_allocation_alignment == D3D12_SMALL_MSAA_RESOURCE_PLACEMENT_ALIGNMENT &&
+        invalid_nonmsaa_msaa_alignment_hr == E_INVALIDARG &&
         invalid_committed_heap_flags_hr == E_INVALIDARG &&
         invalid_heap_properties_hr == E_INVALIDARG &&
         invalid_node_mask_hr == E_INVALIDARG &&
@@ -4919,6 +4981,17 @@ int main(int argc, char** argv) {
     print_hr("oversized_3d", oversized_3d_hr);
     print_hr("invalid_reserved_layout", invalid_reserved_layout_hr);
     print_hr("invalid_standard_swizzle", invalid_standard_swizzle_hr);
+    print_hr("invalid_small_texture_alignment",
+             invalid_small_texture_alignment_hr);
+    print_hr("invalid_msaa_small_alignment", invalid_msaa_small_alignment_hr);
+    print_hr("invalid_nonmsaa_msaa_alignment",
+             invalid_nonmsaa_msaa_alignment_hr);
+    std::printf("    \"small_texture_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(small_texture_allocation_size),
+                static_cast<unsigned long long>(small_texture_allocation_alignment));
+    std::printf("    \"small_msaa_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(small_msaa_allocation_size),
+                static_cast<unsigned long long>(small_msaa_allocation_alignment));
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
     print_hr("invalid_heap_properties", invalid_heap_properties_hr);
     print_hr("invalid_node_mask", invalid_node_mask_hr);
