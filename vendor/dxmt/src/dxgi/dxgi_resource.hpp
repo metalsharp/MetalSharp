@@ -4,6 +4,7 @@
 
 #include "dxgi1_2.h"
 #include "log/log.hpp"
+#include <utility>
 
 namespace dxmt {
 
@@ -22,7 +23,7 @@ struct IDXGIResourceVD: public IDXGIResource1 {
 };
 
 /* designed to be used as an aggregated object*/
-template <DXGIResourceAggregateContext IResource> class MTLDXGIResource : public IDXGIResourceVD {
+template <typename IResource> class MTLDXGIResource : public IDXGIResourceVD {
 public:
   MTLDXGIResource(IResource *pResource) : resource_(pResource) {}
   ~MTLDXGIResource() {}

@@ -6,9 +6,11 @@
 #include "d3d12_resource_state.hpp"
 #include "d3d12_residency.hpp"
 #include "d3d12_shared_resource.hpp"
+#include "../dxgi/dxgi_resource.hpp"
 #include "Metal.hpp"
 #include "winemetal.h"
 #include <atomic>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -89,6 +91,15 @@ public:
   HRESULT STDMETHODCALLTYPE SetName(LPCWSTR name) override;
 
   HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override;
+  HRESULT GetDeviceInterface(REFIID riid, void **device) {
+    return GetDevice(riid, device);
+  }
+  HRESULT GetSharedHandle(HANDLE *handle);
+  HRESULT CreateSharedHandle(const SECURITY_ATTRIBUTES *attributes, DWORD access,
+                             const WCHAR *name, HANDLE *handle);
+  HRESULT GetDXGIUsage(DXGI_USAGE *usage);
+  void SetEvictionPriority(UINT priority);
+  UINT GetEvictionPriority() const;
 
   HRESULT STDMETHODCALLTYPE Map(UINT sub_resource,
                                 const D3D12_RANGE *read_range,
@@ -462,6 +473,7 @@ private:
   uint32_t m_swapchain_buffer_index = 0;
   MTLD3D12SwapChain *m_swapchain = nullptr;
   D3D12SwapchainBackbufferWork m_swapchain_work = {};
+  std::unique_ptr<MTLDXGIResource<MTLD3D12Resource>> m_dxgi_resource;
   ComPrivateData m_private_data;
   HANDLE m_shared_mapping = nullptr;
   void *m_shared_mapping_view = nullptr;

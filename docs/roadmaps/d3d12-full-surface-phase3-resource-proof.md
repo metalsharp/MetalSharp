@@ -172,6 +172,11 @@
   alignment are validated for 1D, arrays, mip chains, volumes, and unaligned
   BC1 dimensions; BC footprints report texel dimensions while retaining
   block-rounded row math.
+- D3D12 resources expose the DXGI resource aggregate used by residency APIs.
+  A source-staged `OfferResources` → `IDXGIDevice3::Trim` →
+  `ReclaimResources` cycle reports the resource evicted after trim, sets the
+  discarded bit, and reports it fully resident after reclaim; priority values
+  preserve the DXGI/D3D12 high-priority encoding difference.
 - Shared mapping views and section handles are released with the resource;
   malformed or unknown handles remain rejected.
 
@@ -193,6 +198,9 @@ The isolated source-staged probe passed with:
   "device.adapter_luid_verified": true,
   "buffers.default_cpu_io_verified": true,
   "buffers.residency_state_verified": true,
+  "buffers.dxgi_offer_reclaim_verified": true,
+  "buffers.offered_resource_discarded": true,
+  "buffers.offered_resource_priority": 2684354560,
   "buffers.residency_refcount_first_evict_map": "0x00000000",
   "buffers.residency_refcount_second_evict_map": "0x887a0001",
   "shared_handles.roundtrip_verified": true,
