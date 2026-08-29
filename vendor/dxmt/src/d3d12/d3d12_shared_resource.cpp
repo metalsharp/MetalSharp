@@ -108,8 +108,9 @@ HRESULT MTLD3D12Resource::AttachSharedBacking(
   return S_OK;
 }
 
-HRESULT CreateSharedBufferMapping(MTLD3D12Resource *resource,
-                                  const WCHAR *name, HANDLE *mapping) {
+HRESULT CreateSharedBufferMapping(
+    MTLD3D12Resource *resource, const SECURITY_ATTRIBUTES *attributes,
+    const WCHAR *name, HANDLE *mapping) {
   if (!resource || !name || !name[0] || !mapping)
     return E_INVALIDARG;
   *mapping = nullptr;
@@ -127,7 +128,8 @@ HRESULT CreateSharedBufferMapping(MTLD3D12Resource *resource,
     return E_OUTOFMEMORY;
 
   HANDLE section = CreateFileMappingW(
-      INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+      INVALID_HANDLE_VALUE, const_cast<SECURITY_ATTRIBUTES *>(attributes),
+      PAGE_READWRITE,
       static_cast<DWORD>(mapping_size >> 32),
       static_cast<DWORD>(mapping_size & std::numeric_limits<DWORD>::max()),
       name);
@@ -242,14 +244,16 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
   return S_OK;
 }
 
-HRESULT CreateSharedFenceMapping(MTLD3D12Fence *fence, const WCHAR *name,
-                                 HANDLE *mapping) {
+HRESULT CreateSharedFenceMapping(
+    MTLD3D12Fence *fence, const SECURITY_ATTRIBUTES *attributes,
+    const WCHAR *name, HANDLE *mapping) {
   if (!fence || !name || !name[0] || !mapping)
     return E_INVALIDARG;
   *mapping = nullptr;
   constexpr uint64_t mapping_size = 4096;
-  HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
-                                      PAGE_READWRITE, 0,
+  HANDLE section = CreateFileMappingW(
+      INVALID_HANDLE_VALUE, const_cast<SECURITY_ATTRIBUTES *>(attributes),
+      PAGE_READWRITE, 0,
                                       static_cast<DWORD>(mapping_size), name);
   if (!section)
     return HResultFromLastError();

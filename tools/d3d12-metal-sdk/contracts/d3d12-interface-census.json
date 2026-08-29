@@ -481,7 +481,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -506,7 +506,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -2106,7 +2106,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -2131,7 +2131,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -2963,10 +2963,10 @@
             {
               "lines": [
                 5614,
-                5648,
-                5653,
-                5669,
-                5674,
+                5647,
+                5652,
+                5668,
+                5673,
                 5686,
                 5715,
                 5720,
@@ -5274,7 +5274,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -5299,7 +5299,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -5579,7 +5579,7 @@
             },
             {
               "lines": [
-                269
+                273
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             }
@@ -6011,7 +6011,7 @@
             },
             {
               "lines": [
-                268
+                272
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             }
@@ -9787,7 +9787,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -9812,7 +9812,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -11260,7 +11260,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -11285,7 +11285,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -11539,7 +11539,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -11564,7 +11564,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -11716,7 +11716,7 @@
             },
             {
               "lines": [
-                152
+                154
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             }
@@ -12358,7 +12358,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -12383,7 +12383,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -14052,7 +14052,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -14077,7 +14077,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -14249,7 +14249,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -14274,7 +14274,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -15853,7 +15853,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -15878,7 +15878,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -16043,7 +16043,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -16068,7 +16068,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -16232,7 +16232,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -16257,7 +16257,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -17610,7 +17610,7 @@
             },
             {
               "lines": [
-                344
+                346
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_heap.cpp"
             },
@@ -17635,7 +17635,7 @@
             },
             {
               "lines": [
-                120
+                121
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_shared_resource.cpp"
             },
@@ -18196,7 +18196,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "ecaff436391d44c896bdbf5311c16f81fa34f31c",
+    "git_head": "b15c4bc33364229cbfc5e7fe7ebd2689757ce97c",
     "runtime_file_count": 166,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
@@ -18205,7 +18205,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "0c55810af3aed195432cf261ed6b4c7dafa5c8a787a84bbfe7b27992d8dcb028"
+    "runtime_tree_sha256": "58c21255bd4b1f49b850c520b3c5df54321bbd194060d0fcc20df74ffca780d1"
   },
   "state": "phase0_inventory",
   "summary": {

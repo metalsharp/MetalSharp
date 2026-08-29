@@ -141,7 +141,10 @@
   while `OpenSharedHandle` reconstructs named objects first and uses the legacy
   registry only for unsupported object kinds. Unnamed buffer handles also use a
   generated, pointer-free file-mapping transport and independently reopen with
-  exact byte readback in the creating process.
+  exact byte readback in the creating process. An inheritable unnamed resource
+  mapping is passed as a real `HANDLE` to an independent Wine process; the
+  child opens it, verifies the initial bytes, writes a sentinel, and the parent
+  observes that write after the child exits.
 - `OpenSharedHandle` reconstructs named mapping-backed resources as
   independent COM objects (rather than returning a process-global registry
   pointer); descriptor identity and shared bytes remain valid across the
@@ -247,6 +250,7 @@ The isolated source-staged probe passed with:
   "shared_handles.roundtrip_verified": true,
   "shared_handles.independent_objects_verified": true,
   "shared_handles.unnamed_roundtrip_verified": true,
+  "shared_handles.unnamed_cross_process_verified": true,
   "shared_handles.cross_process_verified": true,
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -252,6 +253,38 @@ static int run_shared_child() {
     return pass ? 0 : 1;
 }
 
+static int run_unnamed_shared_child(HANDLE inherited_handle) {
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
+    auto create_device = reinterpret_cast<CreateDeviceFn>(
+        reinterpret_cast<void*>(d3d12 ? GetProcAddress(d3d12, "D3D12CreateDevice") : nullptr));
+    ID3D12Device* device = nullptr;
+    HRESULT create_hr = create_device
+                            ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, IID_D3D12DeviceProbe,
+                                            reinterpret_cast<void**>(&device))
+                            : E_NOINTERFACE;
+    ID3D12Resource* resource = nullptr;
+    HRESULT open_hr = SUCCEEDED(create_hr) && device
+                          ? device->OpenSharedHandle(inherited_handle, IID_PPV_ARGS(&resource))
+                          : E_FAIL;
+    uint32_t before = 0;
+    void* mapped = nullptr;
+    HRESULT map_hr = resource ? resource->Map(0, nullptr, &mapped) : E_FAIL;
+    if (SUCCEEDED(map_hr) && mapped) {
+        std::memcpy(&before, mapped, sizeof(before));
+        const uint32_t after = 0xdecafbad;
+        std::memcpy(mapped, &after, sizeof(after));
+        resource->Unmap(0, nullptr);
+    }
+    const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_hr) && resource &&
+                      SUCCEEDED(map_hr) && mapped && before == 0x7a55300bu;
+    if (resource)
+        resource->Release();
+    if (device)
+        device->Release();
+    return pass ? 0 : 1;
+}
+
 static bool launch_shared_child() {
     char module_path[MAX_PATH] = {};
     if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
@@ -279,9 +312,51 @@ static bool launch_shared_child() {
     return exit_code == 0;
 }
 
+static bool launch_unnamed_shared_child(HANDLE inherited_handle) {
+    if (!inherited_handle)
+        return false;
+    char module_path[MAX_PATH] = {};
+    if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
+        return false;
+    char handle_text[32] = {};
+    std::snprintf(handle_text, sizeof(handle_text), "%llx",
+                  static_cast<unsigned long long>(
+                      reinterpret_cast<uintptr_t>(inherited_handle)));
+    std::string command = std::string("\"") + module_path +
+                          "\" --unnamed-shared-child " + handle_text;
+    std::vector<char> command_line(command.begin(), command.end());
+    command_line.push_back('\0');
+    STARTUPINFOA startup = {};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process = {};
+    if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, TRUE, 0,
+                        nullptr, nullptr, &startup, &process))
+        return false;
+    const DWORD wait_result = WaitForSingleObject(process.hProcess, 30000);
+    if (wait_result != WAIT_OBJECT_0) {
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return false;
+    }
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exit_code == 0;
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--shared-child") == 0)
         return run_shared_child();
+    if (argc == 3 && std::strcmp(argv[1], "--unnamed-shared-child") == 0) {
+        char *end = nullptr;
+        const unsigned long long value = std::strtoull(argv[2], &end, 16);
+        if (!end || *end != '\0' || !value)
+            return 1;
+        return run_unnamed_shared_child(
+            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(value)));
+    }
 
     std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
 
@@ -596,6 +671,7 @@ int main(int argc, char** argv) {
     bool atomic64_copy_ok = false;
     bool discard_ok = false;
     bool cross_process_shared_ok = false;
+    bool unnamed_shared_cross_process_ok = false;
     bool shared_heap_cross_process_ok = false;
     HRESULT default_write_subresource_hr = E_FAIL;
     HRESULT default_read_subresource_hr = E_FAIL;
@@ -1972,9 +2048,12 @@ int main(int argc, char** argv) {
                     static_cast<uint8_t *>(unnamed_source_data)[i] =
                         static_cast<uint8_t>((i * 37u + 11u) & 0xffu);
                 unnamed_shared_source->Unmap(0, nullptr);
+                SECURITY_ATTRIBUTES inherited_attributes = {};
+                inherited_attributes.nLength = sizeof(inherited_attributes);
+                inherited_attributes.bInheritHandle = TRUE;
                 unnamed_shared_create_hr = device->CreateSharedHandle(
-                    unnamed_shared_source, nullptr, GENERIC_ALL, nullptr,
-                    &unnamed_shared_handle);
+                    unnamed_shared_source, &inherited_attributes, GENERIC_ALL,
+                    nullptr, &unnamed_shared_handle);
             }
             if (SUCCEEDED(unnamed_shared_create_hr))
                 unnamed_shared_open_hr = device->OpenSharedHandle(
@@ -1992,6 +2071,25 @@ int main(int argc, char** argv) {
                         static_cast<uint8_t>((i * 37u + 11u) & 0xffu);
                 if (SUCCEEDED(unnamed_shared_map_hr))
                     unnamed_shared_open->Unmap(0, nullptr);
+            }
+            if (SUCCEEDED(unnamed_shared_create_hr) && unnamed_shared_handle) {
+                unnamed_shared_cross_process_ok =
+                    launch_unnamed_shared_child(unnamed_shared_handle);
+                if (unnamed_shared_cross_process_ok) {
+                    void *unnamed_source_after_child = nullptr;
+                    if (SUCCEEDED(unnamed_shared_source->Map(
+                            0, nullptr, &unnamed_source_after_child)) &&
+                        unnamed_source_after_child) {
+                        uint32_t child_value = 0;
+                        std::memcpy(&child_value, unnamed_source_after_child,
+                                    sizeof(child_value));
+                        unnamed_shared_cross_process_ok =
+                            child_value == 0xdecafbad;
+                        unnamed_shared_source->Unmap(0, nullptr);
+                    } else {
+                        unnamed_shared_cross_process_ok = false;
+                    }
+                }
             }
         }
         uint8_t cpu_io_scratch[64] = {};
@@ -4490,7 +4588,8 @@ int main(int argc, char** argv) {
         shared_heap_roundtrip_ok && unnamed_shared_heap_roundtrip_ok &&
         SUCCEEDED(shared_default_heap_create_hr) &&
         shared_default_heap_handle_hr == E_NOTIMPL &&
-        unnamed_shared_roundtrip_ok && SUCCEEDED(unnamed_shared_source_hr) &&
+        unnamed_shared_roundtrip_ok && unnamed_shared_cross_process_ok &&
+        SUCCEEDED(unnamed_shared_source_hr) &&
         SUCCEEDED(unnamed_shared_create_hr) &&
         SUCCEEDED(unnamed_shared_open_hr) &&
         SUCCEEDED(unnamed_shared_map_hr) &&
@@ -4781,6 +4880,8 @@ int main(int argc, char** argv) {
     print_hr("unnamed_map", unnamed_shared_map_hr);
     std::printf("    \"unnamed_roundtrip_verified\": %s,\n",
                 unnamed_shared_roundtrip_ok ? "true" : "false");
+    std::printf("    \"unnamed_cross_process_verified\": %s,\n",
+                unnamed_shared_cross_process_ok ? "true" : "false");
     print_hr("unknown_handle", shared_unknown_hr);
     print_hr("missing_name", shared_missing_name_hr);
     print_hr("invalid_create_access", shared_invalid_create_access_hr);

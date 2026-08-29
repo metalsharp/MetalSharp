@@ -611,8 +611,8 @@ D32 plane footprint layout, bounded tiling and subresource-window behavior,
 bounded Map ranges, D3D12 dimension-limit/reserved-layout rejection,
 unsupported-format allocation rejection, invalid simultaneous/cross-adapter
 buffer-flag and MSAA rejection, DXGI resource aggregation, generated
-pointer-free
-unnamed heap/fence mappings, and OfferResources/Trim/Reclaim residency-state
+pointer-free unnamed buffer/heap/fence mappings, inherited unnamed-buffer
+cross-process read/write, and OfferResources/Trim/Reclaim residency-state
 evidence. The latest sparse run also passes native 3D volume mapping,
 cross-resource mapping copy, readback, and physical-page ownership; direct
 nonzero-Z boxed volume I/O also round-trips. The exhaustive Phase 3 gate
