@@ -591,9 +591,14 @@ surface.
 
 **Phase 3 resource checkpoint evidence:**
 `docs/roadmaps/d3d12-full-surface-phase3-resource-proof.md` now includes
-legal-shape creation/validation, placed-buffer aliasing, multi-plane format
-information, cross-process heap reopening, and DXGI residency-state evidence.
-The exhaustive Phase 3 gate remains open.
+legal-shape creation/validation, placed-buffer aliasing, multi-plane and NV12
+copy footprints, complete-mip normalization, packed sparse mip-tail reporting,
+tight buffer alignment, `CREATE_NOT_RESIDENT`/enqueued residency, descriptor and
+query heap residency, cross-queue sparse mapping (including all tile-range
+modes), cross-process heap reopening, direct texture/BC/volume I/O, and DXGI
+residency-state evidence. The exhaustive Phase 3 gate remains open for all
+remaining legal dimensions/formats, native packed-tail execution, real reclaim
+and trim pressure, and shared-event/security coverage.
 
 ### Phase 4 — Complete queues, command recording/replay, barriers, and indirect work
 
