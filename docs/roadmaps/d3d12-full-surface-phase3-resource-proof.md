@@ -35,6 +35,8 @@
   `REUSE_SINGLE_TILE`; a subsequent `SKIP` update leaves the alias intact, and
   a copy/readback observes the exact source bytes. The same run exercises the
   documented single-region/default-region and omitted range-count forms.
+  Mapping is issued on one direct queue, synchronized with a fence wait on a
+  second direct queue, and the second queue performs the verified readback.
 - Copyable footprint dimensions, pitches, row counts, and 512-byte placement
   alignment are validated for 1D, arrays, mip chains, volumes, and unaligned
   BC1 dimensions; BC footprints report texel dimensions while retaining
@@ -83,7 +85,8 @@ The isolated source-staged probe passed with:
   "sparse.tier3_physical_page_ownership_verified": true,
   "sparse.volume_copy_verified": true,
   "sparse.volume_alias_copy_verified": true,
-  "sparse.reserved_buffer_reuse_single_tile_skip_verified": true
+  "sparse.reserved_buffer_reuse_single_tile_skip_verified": true,
+  "sparse.cross_queue_mapping_wait_verified": true
 }
 ```
 

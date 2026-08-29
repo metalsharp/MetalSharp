@@ -290,11 +290,15 @@ int main(int argc, char** argv) {
     queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
     queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandQueue* sparse_mapping_queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12GraphicsCommandList* list = nullptr;
     ID3D12GraphicsCommandList1* list1 = nullptr;
     ID3D12Fence* fence = nullptr;
+    ID3D12Fence* sparse_mapping_fence = nullptr;
     HRESULT queue_hr = device ? device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)) : E_FAIL;
+    HRESULT sparse_mapping_queue_hr =
+        device ? device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&sparse_mapping_queue)) : E_FAIL;
     HRESULT allocator_hr =
         device ? device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)) : E_FAIL;
     HRESULT list_hr =
@@ -302,6 +306,8 @@ int main(int argc, char** argv) {
                : E_FAIL;
     HRESULT list1_hr = list ? list->QueryInterface(IID_PPV_ARGS(&list1)) : E_FAIL;
     HRESULT fence_hr = device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) : E_FAIL;
+    HRESULT sparse_mapping_fence_hr =
+        device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&sparse_mapping_fence)) : E_FAIL;
     ID3D12Fence* shared_fence = nullptr;
     HANDLE shared_fence_handle = nullptr;
     HRESULT shared_fence_create_hr = device
@@ -872,6 +878,8 @@ int main(int argc, char** argv) {
     HRESULT reuse_skip_execute_hr = E_FAIL;
     HRESULT reuse_skip_signal_hr = E_FAIL;
     HRESULT reuse_skip_wait_hr = E_FAIL;
+    HRESULT reuse_mapping_signal_hr = E_FAIL;
+    HRESULT reuse_mapping_wait_hr = E_FAIL;
     bool placement_alias_copy_ok = false;
     HRESULT placement_alias_readback_map_hr = E_FAIL;
     uint8_t placement_alias_first = 0;
@@ -1588,8 +1596,8 @@ int main(int argc, char** argv) {
         }
     }
     bool sparse_unmapped_zero_ok = false;
-    if (queue && list && allocator && fence && reuse_buffer && reuse_heap && reserved_buffer_reuse_readback &&
-        SUCCEEDED(wait_hr)) {
+    if (queue && sparse_mapping_queue && list && allocator && fence && sparse_mapping_fence && reuse_buffer &&
+        reuse_heap && reserved_buffer_reuse_readback && SUCCEEDED(wait_hr)) {
         // Map both logical tiles to one physical tile, then issue SKIP for
         // the second logical tile. A write to tile 0 must be visible through
         // tile 1, proving both REUSE_SINGLE_TILE and SKIP have provider-
@@ -1607,7 +1615,11 @@ int main(int argc, char** argv) {
         D3D12_TILE_RANGE_FLAGS skip_flag = D3D12_TILE_RANGE_FLAG_SKIP;
         queue->UpdateTileMappings(reuse_buffer, 1, &reuse_coordinate, &reuse_region, nullptr, 1,
                                   &skip_flag, nullptr, nullptr, D3D12_TILE_MAPPING_FLAG_NONE);
-        reuse_skip_close_hr = list->Reset(allocator, nullptr);
+        reuse_mapping_signal_hr = queue->Signal(sparse_mapping_fence, 1);
+        reuse_mapping_wait_hr = sparse_mapping_queue->Wait(sparse_mapping_fence, 1);
+        reuse_skip_close_hr = (SUCCEEDED(reuse_mapping_signal_hr) && SUCCEEDED(reuse_mapping_wait_hr))
+                                  ? list->Reset(allocator, nullptr)
+                                  : E_FAIL;
         if (SUCCEEDED(reuse_skip_close_hr)) {
             D3D12_TILED_RESOURCE_COORDINATE source_coordinate = {};
             D3D12_TILE_REGION_SIZE one_tile = {};
@@ -1624,9 +1636,9 @@ int main(int argc, char** argv) {
         }
         if (SUCCEEDED(reuse_skip_close_hr)) {
             ID3D12CommandList* lists[] = {list};
-            queue->ExecuteCommandLists(1, lists);
+            sparse_mapping_queue->ExecuteCommandLists(1, lists);
             reuse_skip_execute_hr = S_OK;
-            reuse_skip_signal_hr = queue->Signal(fence, 2);
+            reuse_skip_signal_hr = sparse_mapping_queue->Signal(fence, 2);
             HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
             if (event_handle && SUCCEEDED(reuse_skip_signal_hr)) {
                 reuse_skip_wait_hr = fence->SetEventOnCompletion(2, event_handle);
@@ -2040,8 +2052,9 @@ int main(int argc, char** argv) {
         CloseHandle(shared_named_handle);
 
     bool pass =
-        SUCCEEDED(create_hr) && SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
-        SUCCEEDED(fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(default_buffer_hr) &&
+        SUCCEEDED(create_hr) && SUCCEEDED(queue_hr) && SUCCEEDED(sparse_mapping_queue_hr) &&
+        SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) && SUCCEEDED(fence_hr) &&
+        SUCCEEDED(sparse_mapping_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(default_buffer_hr) &&
         SUCCEEDED(readback_buffer_hr) && SUCCEEDED(map_upload_hr) && SUCCEEDED(close_hr) && SUCCEEDED(execute_hr) &&
         SUCCEEDED(signal_hr) && SUCCEEDED(wait_hr) && SUCCEEDED(map_readback_hr) && buffer_copy_ok &&
         SUCCEEDED(texture_hr) && SUCCEEDED(texture_upload_hr) && SUCCEEDED(texture_readback_hr) &&
@@ -2058,6 +2071,7 @@ int main(int argc, char** argv) {
         SUCCEEDED(sparse_readback_map_hr) && sparse_copy_ok && SUCCEEDED(sparse_unmapped_readback_hr) &&
         SUCCEEDED(reserved_buffer_hr) && SUCCEEDED(reserved_buffer_tiling_hr) &&
         SUCCEEDED(reuse_heap_hr) && SUCCEEDED(reuse_buffer_hr) &&
+        SUCCEEDED(reuse_mapping_signal_hr) && SUCCEEDED(reuse_mapping_wait_hr) &&
         SUCCEEDED(reserved_buffer_readback_hr) && SUCCEEDED(reserved_buffer_reuse_readback_hr) &&
         SUCCEEDED(reserved_buffer_reuse_readback_map_hr) && SUCCEEDED(reserved_buffer_unmapped_readback_hr) &&
         SUCCEEDED(reserved_buffer_readback_map_hr) && SUCCEEDED(reserved_buffer_unmapped_map_hr) &&
@@ -2110,9 +2124,11 @@ int main(int argc, char** argv) {
     std::printf("  },\n");
     std::printf("  \"command_execution\": {\n");
     print_hr("queue", queue_hr);
+    print_hr("sparse_mapping_queue", sparse_mapping_queue_hr);
     print_hr("allocator", allocator_hr);
     print_hr("list", list_hr);
     print_hr("fence", fence_hr);
+    print_hr("sparse_mapping_fence", sparse_mapping_fence_hr);
     print_hr("close", close_hr);
     print_hr("execute", execute_hr);
     print_hr("signal", signal_hr);
@@ -2254,6 +2270,10 @@ int main(int argc, char** argv) {
                 sparse_tiling[1].StartTileIndexInOverallResource);
     std::printf("    \"copy_verified\": %s,\n", sparse_copy_ok ? "true" : "false");
     std::printf("    \"unmapped_zero_verified\": %s,\n", sparse_unmapped_zero_ok ? "true" : "false");
+    std::printf("    \"cross_queue_mapping_wait_verified\": %s,\n",
+                (SUCCEEDED(reuse_mapping_signal_hr) && SUCCEEDED(reuse_mapping_wait_hr))
+                    ? "true"
+                    : "false");
     print_hr("placement_alias_texture_create", placement_alias_texture_hr);
     print_hr("placement_alias_readback_create", placement_alias_readback_hr);
     print_hr("placement_alias_readback_map", placement_alias_readback_map_hr);
@@ -2284,6 +2304,8 @@ int main(int argc, char** argv) {
     print_hr("reuse_skip_execute", reuse_skip_execute_hr);
     print_hr("reuse_skip_signal", reuse_skip_signal_hr);
     print_hr("reuse_skip_wait", reuse_skip_wait_hr);
+    print_hr("reuse_mapping_signal", reuse_mapping_signal_hr);
+    print_hr("reuse_mapping_wait", reuse_mapping_wait_hr);
     std::printf("      \"reuse_single_tile_skip_verified\": %s,\n",
                 reserved_buffer_reuse_skip_ok ? "true" : "false");
     std::printf("      \"reuse_first_last\": [%u, %u],\n", reserved_buffer_reuse_first,
