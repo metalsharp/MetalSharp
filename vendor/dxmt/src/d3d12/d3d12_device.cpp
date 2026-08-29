@@ -591,6 +591,26 @@ static bool IsValidOptimizedClearValue(
   return true;
 }
 
+static bool IsValidHeapProperties(
+    const D3D12_HEAP_PROPERTIES &properties) {
+  const UINT type = static_cast<UINT>(properties.Type);
+  if (type < static_cast<UINT>(D3D12_HEAP_TYPE_DEFAULT) || type > 5)
+    return false;
+  const UINT creation_mask = properties.CreationNodeMask;
+  const UINT visible_mask = properties.VisibleNodeMask;
+  if (creation_mask && (creation_mask & (creation_mask - 1)) != 0)
+    return false;
+  if (creation_mask && visible_mask &&
+      (visible_mask & creation_mask) != creation_mask)
+    return false;
+  const bool custom = type == static_cast<UINT>(D3D12_HEAP_TYPE_CUSTOM);
+  if (custom)
+    return properties.CPUPageProperty != D3D12_CPU_PAGE_PROPERTY_UNKNOWN &&
+           properties.MemoryPoolPreference != D3D12_MEMORY_POOL_UNKNOWN;
+  return properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_UNKNOWN &&
+         properties.MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN;
+}
+
 static bool IsValidInitialResourceState(D3D12_HEAP_TYPE heap_type,
                                          D3D12_RESOURCE_STATES state) {
   switch (static_cast<UINT>(heap_type)) {
@@ -5107,9 +5127,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   CheckVtable("CreateCommittedResource");
   if (!desc || !resource)
     return E_POINTER;
-  if (!heap_properties)
-    return E_INVALIDARG;
   InitReturnPtr(resource);
+  if (!heap_properties || !IsValidHeapProperties(*heap_properties))
+    return E_INVALIDARG;
   D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
   if (!IsValidResourceDesc(normalized_desc) ||
       !IsResourceAllowedByHeapFlags(normalized_desc, heap_flags) ||
@@ -5154,7 +5174,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateHeap(
   if (!desc || !heap)
     return E_POINTER;
   InitReturnPtr(heap);
-  if (!desc->SizeInBytes ||
+  if (!desc->SizeInBytes || !IsValidHeapProperties(desc->Properties) ||
       (desc->Alignment &&
        desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
        desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT) ||

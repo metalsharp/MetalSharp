@@ -364,6 +364,8 @@ int main(int argc, char** argv) {
     std::vector<ResourceShapeProbe> resource_shapes;
     HRESULT invalid_zero_width_hr = E_FAIL;
     HRESULT invalid_committed_heap_flags_hr = E_FAIL;
+    HRESULT invalid_heap_properties_hr = E_FAIL;
+    HRESULT invalid_node_mask_hr = E_FAIL;
     HRESULT invalid_upload_state_hr = E_FAIL;
     HRESULT invalid_readback_state_hr = E_FAIL;
     HRESULT invalid_buffer_resource_flags_hr = E_FAIL;
@@ -522,6 +524,25 @@ int main(int argc, char** argv) {
             device->GetResourceAllocationInfo(0, 1, &invalid);
         invalid_zero_width_allocation_size = invalid_zero_width_info.SizeInBytes;
         invalid_zero_width_allocation_alignment = invalid_zero_width_info.Alignment;
+        D3D12_HEAP_PROPERTIES invalid_properties = default_heap;
+        invalid_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
+        invalid_heap_properties_hr = device->CreateCommittedResource(
+            &invalid_properties, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        invalid_properties = default_heap;
+        invalid_properties.CreationNodeMask = 3;
+        invalid_properties.VisibleNodeMask = 3;
+        invalid_node_mask_hr = device->CreateCommittedResource(
+            &invalid_properties, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
         invalid_committed_heap_flags_hr = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_DENY_BUFFERS, &buffer,
             D3D12_RESOURCE_STATE_COMMON, nullptr,
@@ -979,6 +1000,8 @@ int main(int argc, char** argv) {
     resource_shapes_ok = resource_shapes_ok && footprint_matrix_ok &&
                          FAILED(invalid_zero_width_hr) &&
                          invalid_committed_heap_flags_hr == E_INVALIDARG &&
+                         invalid_heap_properties_hr == E_INVALIDARG &&
+                         invalid_node_mask_hr == E_INVALIDARG &&
                          invalid_upload_state_hr == E_INVALIDARG &&
                          invalid_readback_state_hr == E_INVALIDARG &&
                          invalid_buffer_resource_flags_hr == E_INVALIDARG &&
@@ -2838,6 +2861,8 @@ int main(int argc, char** argv) {
     std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
+    print_hr("invalid_heap_properties", invalid_heap_properties_hr);
+    print_hr("invalid_node_mask", invalid_node_mask_hr);
     print_hr("invalid_upload_state", invalid_upload_state_hr);
     print_hr("invalid_readback_state", invalid_readback_state_hr);
     print_hr("invalid_buffer_resource_flags", invalid_buffer_resource_flags_hr);

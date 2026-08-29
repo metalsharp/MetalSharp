@@ -33,6 +33,9 @@
 - Depth-stencil flags require a depth/stencil-compatible resource format;
   an R8 color texture with `ALLOW_DEPTH_STENCIL` rejects with
   `E_INVALIDARG` rather than creating a non-depth backing.
+- Heap properties enforce the documented custom/non-custom CPU-page and
+  memory-pool combinations and node-mask relationship; invalid combinations
+  reject before allocation with exact `E_INVALIDARG`.
 - Upload resources reject an initial `COPY_DEST` state and readback resources
   reject an initial `GENERIC_READ` state with exact `E_INVALIDARG`; only the
   documented heap-specific initial states are accepted.
@@ -139,6 +142,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",
+  "resource_shapes.invalid_heap_properties": "0x80070057",
+  "resource_shapes.invalid_node_mask": "0x80070057",
   "resource_shapes.invalid_upload_state": "0x80070057",
   "resource_shapes.invalid_readback_state": "0x80070057",
   "resource_shapes.invalid_buffer_resource_flags": "0x80070057",
