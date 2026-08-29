@@ -461,6 +461,8 @@ int main(int argc, char** argv) {
     HRESULT null_heap_properties_hr = E_FAIL;
     UINT64 invalid_zero_width_allocation_size = 0;
     UINT64 invalid_zero_width_allocation_alignment = 0;
+    UINT64 allocation_overflow_size = UINT64_MAX;
+    UINT64 allocation_overflow_alignment = UINT64_MAX;
     HRESULT invalid_msaa_mips_hr = E_FAIL;
     UINT64 invalid_msaa_mips_allocation_size = 0;
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
@@ -822,6 +824,12 @@ int main(int argc, char** argv) {
             device->GetResourceAllocationInfo(0, 1, nullptr);
         null_allocation_size = null_info.SizeInBytes;
         null_allocation_alignment = null_info.Alignment;
+        D3D12_RESOURCE_DESC allocation_overflow_desc = buffer_desc(UINT64_MAX);
+        D3D12_RESOURCE_ALLOCATION_INFO allocation_overflow_info =
+            device->GetResourceAllocationInfo(0, 1,
+                                               &allocation_overflow_desc);
+        allocation_overflow_size = allocation_overflow_info.SizeInBytes;
+        allocation_overflow_alignment = allocation_overflow_info.Alignment;
         ID3D12Device4 *device4 = nullptr;
         null_sideband_query_hr = device->QueryInterface(
             IID_PPV_ARGS(&device4));
@@ -3704,6 +3712,7 @@ int main(int argc, char** argv) {
         FAILED(invalid_msaa_mips_hr) &&
         invalid_zero_width_allocation_size == 0 &&
         invalid_zero_width_allocation_alignment == 0 &&
+        allocation_overflow_size == 0 && allocation_overflow_alignment == 0 &&
         invalid_msaa_mips_allocation_size == 0 &&
         invalid_msaa_mips_allocation_alignment == 0 &&
         volume_allocation_size == 64 * 1024 &&
@@ -3992,6 +4001,9 @@ int main(int argc, char** argv) {
     std::printf("    \"invalid_zero_width_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(invalid_zero_width_allocation_size),
                 static_cast<unsigned long long>(invalid_zero_width_allocation_alignment));
+    std::printf("    \"allocation_overflow\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(allocation_overflow_size),
+                static_cast<unsigned long long>(allocation_overflow_alignment));
     print_hr("invalid_msaa_mips", invalid_msaa_mips_hr);
     std::printf("    \"invalid_msaa_mips_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(invalid_msaa_mips_allocation_size),

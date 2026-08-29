@@ -296,6 +296,20 @@ static UINT64 AlignTo(UINT64 value, UINT64 alignment) {
   return alignment ? ((value + alignment - 1) & ~(alignment - 1)) : value;
 }
 
+static bool TryAlignTo(UINT64 value, UINT64 alignment, UINT64 *aligned) {
+  if (!aligned)
+    return false;
+  if (!alignment) {
+    *aligned = value;
+    return true;
+  }
+  const UINT64 padding = (alignment - (value % alignment)) % alignment;
+  if (padding && value > UINT64_MAX - padding)
+    return false;
+  *aligned = value + padding;
+  return true;
+}
+
 // The stable 1.619 headers add this flag, while the host MinGW headers used
 // for the Wine build may predate it.
 static constexpr D3D12_RESOURCE_FLAGS kD3D12ResourceFlagUseTightAlignment =
@@ -744,9 +758,13 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
 }
 
 static UINT64 EstimateResourceAllocationSize(const D3D12_RESOURCE_DESC &desc) {
-  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-    return AlignTo(std::max<UINT64>(desc.Width, 1),
-                   ResourcePlacementAlignment(desc));
+  const UINT64 alignment = ResourcePlacementAlignment(desc);
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+    UINT64 size = 0;
+    return TryAlignTo(std::max<UINT64>(desc.Width, 1), alignment, &size)
+               ? size
+               : 0;
+  }
 
   UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
   // A 3D resource stores depth in each mip and has no array slices. Treating
@@ -773,21 +791,40 @@ static UINT64 EstimateResourceAllocationSize(const D3D12_RESOURCE_DESC &desc) {
         UINT64 depth = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
                            ? std::max<UINT64>(1, desc.DepthOrArraySize >> mip)
                            : 1;
+        UINT64 rounded_width = 0;
+        UINT64 rounded_height = 0;
+        if (!TryAlignTo(width, block_size, &rounded_width) ||
+            !TryAlignTo(height, block_size, &rounded_height))
+          return 0;
         UINT64 width_blocks =
-            std::max<UINT64>(1, AlignTo(width, block_size) / block_size);
-        UINT64 rows =
-            std::max<UINT64>(1, AlignTo(height, block_size) / block_size);
-        UINT64 row_pitch = AlignTo(width_blocks * bytes_per_texel,
-                                   D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-        total += AlignTo(row_pitch * rows * depth,
-                         D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+            std::max<UINT64>(1, rounded_width / block_size);
+        UINT64 rows = std::max<UINT64>(1, rounded_height / block_size);
+        if (width_blocks > UINT64_MAX / bytes_per_texel)
+          return 0;
+        UINT64 row_pitch = 0;
+        if (!TryAlignTo(width_blocks * bytes_per_texel,
+                        D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, &row_pitch) ||
+            rows && row_pitch > UINT64_MAX / rows)
+          return 0;
+        UINT64 subresource_size = row_pitch * rows;
+        if (depth && subresource_size > UINT64_MAX / depth)
+          return 0;
+        subresource_size *= depth;
+        UINT64 aligned_subresource = 0;
+        if (!TryAlignTo(subresource_size,
+                        D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT,
+                        &aligned_subresource) ||
+            total > UINT64_MAX - aligned_subresource)
+          return 0;
+        total += aligned_subresource;
       }
     }
   }
 
-  return AlignTo(
-      std::max<UINT64>(total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT),
-      ResourcePlacementAlignment(desc));
+  UINT64 minimum = std::max<UINT64>(
+      total, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+  UINT64 result = 0;
+  return TryAlignTo(minimum, alignment, &result) ? result : 0;
 }
 
 static WMTTextureType
@@ -5059,8 +5096,15 @@ MTLD3D12Device::GetResourceAllocationInfo(
     }
     UINT64 alignment = ResourcePlacementAlignment(normalized);
     UINT64 size = EstimateResourceAllocationSize(normalized);
+    UINT64 aligned_cursor = 0;
+    if (!size || !TryAlignTo(cursor, alignment, &aligned_cursor) ||
+        aligned_cursor > UINT64_MAX - size) {
+      __ret->SizeInBytes = 0;
+      __ret->Alignment = 0;
+      return __ret;
+    }
     __ret->Alignment = std::max<UINT64>(__ret->Alignment, alignment);
-    cursor = AlignTo(cursor, alignment);
+    cursor = aligned_cursor;
     TRACE("GetResourceAllocationInfo[%u] dim=%u fmt=%u %llux%u size=%llu "
           "align=%llu offset=%llu",
           i, normalized.Dimension, normalized.Format,
@@ -5069,7 +5113,13 @@ MTLD3D12Device::GetResourceAllocationInfo(
           (unsigned long long)alignment, (unsigned long long)cursor);
     cursor += size;
   }
-  __ret->SizeInBytes = AlignTo(cursor, __ret->Alignment);
+  UINT64 result_size = 0;
+  if (!TryAlignTo(cursor, __ret->Alignment, &result_size)) {
+    __ret->SizeInBytes = 0;
+    __ret->Alignment = 0;
+    return __ret;
+  }
+  __ret->SizeInBytes = result_size;
   TRACE("GetResourceAllocationInfo -> size=%llu align=%llu",
         (unsigned long long)__ret->SizeInBytes,
         (unsigned long long)__ret->Alignment);
@@ -5106,7 +5156,16 @@ static D3D12_RESOURCE_ALLOCATION_INFO *FillResourceAllocationInfoWithSideband(
     }
     UINT64 alignment = ResourcePlacementAlignment(normalized);
     UINT64 size = EstimateResourceAllocationSize(normalized);
-    cursor = AlignTo(cursor, alignment);
+    UINT64 aligned_cursor = 0;
+    if (!size || !TryAlignTo(cursor, alignment, &aligned_cursor) ||
+        aligned_cursor > UINT64_MAX - size) {
+      __ret->SizeInBytes = 0;
+      __ret->Alignment = 0;
+      if (resource_allocation_info1)
+        resource_allocation_info1[i] = {};
+      return __ret;
+    }
+    cursor = aligned_cursor;
     if (resource_allocation_info1) {
       resource_allocation_info1[i].Offset = cursor;
       resource_allocation_info1[i].Alignment = alignment;
@@ -5116,7 +5175,13 @@ static D3D12_RESOURCE_ALLOCATION_INFO *FillResourceAllocationInfoWithSideband(
     cursor += size;
   }
 
-  __ret->SizeInBytes = AlignTo(cursor, __ret->Alignment);
+  UINT64 result_size = 0;
+  if (!TryAlignTo(cursor, __ret->Alignment, &result_size)) {
+    __ret->SizeInBytes = 0;
+    __ret->Alignment = 0;
+    return __ret;
+  }
+  __ret->SizeInBytes = result_size;
   TRACE("GetResourceAllocationInfo sideband visible=0x%x count=%u -> size=%llu "
         "align=%llu",
         visible_mask, resource_desc_count,

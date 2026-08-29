@@ -99,7 +99,9 @@
   writes only that footprint and leaves adjacent guard entries untouched.
 - Allocation-info and sideband allocation-info calls with a nonzero count and
   null descriptor arrays initialize `[SizeInBytes=0, Alignment=0]` and zero
-  sideband output without dereferencing the caller's null pointer.
+  sideband output without dereferencing the caller's null pointer. Checked
+  allocation arithmetic rejects a `UINT64_MAX` buffer size with the same zero
+  allocation result instead of wrapping.
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
@@ -242,6 +244,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_clear_format": "0x80070057",
   "resource_shapes.null_heap_properties": "0x80070057",
   "resource_shapes.invalid_zero_width_allocation": [0, 0],
+  "resource_shapes.allocation_overflow": [0, 0],
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.invalid_msaa_mips_allocation": [0, 0],
   "resource_shapes.volume_allocation": [65536, 65536],
