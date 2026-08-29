@@ -595,14 +595,16 @@ surface.
 legal-shape creation/validation, placed-buffer aliasing, multi-plane and NV12
 copy footprints, complete-mip normalization, packed sparse mip-tail reporting,
 array-slice `CopyTileMappings` with a cross-slice two-tile readback, preserved
-1D-array/cube-slice I/O, D24 depth/stencil plane I/O plus queued stencil clear,
-the focused relaxed-castable-format readback, tight buffer alignment,
+1D-array/cube-slice I/O, D24/D32 depth/stencil plane I/O plus queued stencil
+clear, the focused relaxed-castable-format readback, tight buffer alignment,
 `CREATE_NOT_RESIDENT`/enqueued residency, descriptor and
 query heap residency, cross-queue sparse mapping (including all tile-range
-modes), cross-process heap reopening, direct texture/BC/volume I/O, and DXGI
-residency-state evidence. The exhaustive Phase 3 gate remains open for all
-remaining legal dimensions/formats, native packed-tail execution, real reclaim
-and trim pressure, and shared-event/security coverage.
+modes), cross-process heap reopening, direct texture/BC/volume I/O, bounded
+footprint subresource-window behavior, and DXGI residency-state evidence. The
+latest sparse run also passes native 3D volume mapping, cross-resource mapping
+copy, readback, and physical-page ownership. The exhaustive Phase 3 gate
+remains open for all remaining legal dimensions/formats, native packed-tail
+execution, real reclaim and trim pressure, and shared-event/security coverage.
 
 ### Phase 4 — Complete queues, command recording/replay, barriers, and indirect work
 
