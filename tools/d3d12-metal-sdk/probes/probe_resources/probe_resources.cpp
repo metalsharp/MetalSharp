@@ -723,6 +723,7 @@ int main(int argc, char** argv) {
     bool allocation_mixed_ok = false;
     HRESULT invalid_msaa_mips_hr = E_FAIL;
     HRESULT invalid_reserved_layout_hr = E_FAIL;
+    HRESULT invalid_standard_swizzle_hr = E_FAIL;
     UINT64 invalid_msaa_mips_allocation_size = 0;
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
     UINT64 volume_allocation_size = 0;
@@ -1349,6 +1350,17 @@ int main(int argc, char** argv) {
             &default_heap, D3D12_HEAP_FLAG_NONE,
             &invalid_simultaneous_msaa, D3D12_RESOURCE_STATE_COMMON,
             nullptr, IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_standard_swizzle =
+            texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        invalid_standard_swizzle.Layout =
+            D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE;
+        invalid_standard_swizzle_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_standard_swizzle,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
         invalid_resource = nullptr;
@@ -4526,6 +4538,7 @@ int main(int argc, char** argv) {
         oversized_1d_hr == E_INVALIDARG && oversized_2d_hr == E_INVALIDARG &&
         oversized_3d_hr == E_INVALIDARG &&
         invalid_reserved_layout_hr == E_INVALIDARG &&
+        invalid_standard_swizzle_hr == E_INVALIDARG &&
         invalid_committed_heap_flags_hr == E_INVALIDARG &&
         invalid_heap_properties_hr == E_INVALIDARG &&
         invalid_node_mask_hr == E_INVALIDARG &&
@@ -4896,6 +4909,7 @@ int main(int argc, char** argv) {
     print_hr("oversized_2d", oversized_2d_hr);
     print_hr("oversized_3d", oversized_3d_hr);
     print_hr("invalid_reserved_layout", invalid_reserved_layout_hr);
+    print_hr("invalid_standard_swizzle", invalid_standard_swizzle_hr);
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
     print_hr("invalid_heap_properties", invalid_heap_properties_hr);
     print_hr("invalid_node_mask", invalid_node_mask_hr);

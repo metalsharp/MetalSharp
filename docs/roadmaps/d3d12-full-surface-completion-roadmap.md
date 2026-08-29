@@ -608,8 +608,8 @@ allocation/footprint arithmetic, multi-resource sideband offsets,
 and placed GPU-upload buffer/RGBA8 texture I/O, custom-equivalent GPU-upload
 texture placement, Options16/custom-heap reporting, GPU-upload flag rejection,
 D32 plane footprint layout, bounded tiling and subresource-window behavior,
-bounded Map ranges, D3D12 dimension-limit/reserved-layout rejection,
-unsupported-format allocation rejection, invalid simultaneous/cross-adapter
+bounded Map ranges, D3D12 dimension-limit/reserved-layout and unsupported standard-swizzle
+rejection, unsupported-format allocation rejection, invalid simultaneous/cross-adapter
 buffer-flag and MSAA rejection, DXGI resource aggregation, generated
 pointer-free unnamed buffer/heap/fence mappings, inherited unnamed-buffer,
 heap, and fence cross-process read/write/signal/metadata, adapter-LUID

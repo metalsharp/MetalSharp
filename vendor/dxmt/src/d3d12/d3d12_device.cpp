@@ -776,6 +776,7 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
        (desc.Height & 1)) ||
       (desc.MipLevels && desc.MipLevels > FullMipLevelCount(desc)) ||
       desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR ||
+      desc.Layout == D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE ||
       (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
        (desc.Height != 1 || desc.SampleDesc.Count != 1)) ||
       (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
