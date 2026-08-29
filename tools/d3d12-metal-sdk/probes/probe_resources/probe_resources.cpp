@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -38,6 +39,26 @@ struct GPUUploadFeatureProbe {
     BOOL DynamicDepthBiasSupported = FALSE;
     BOOL GPUUploadHeapSupported = FALSE;
 };
+
+// Keep a pointer-free mirror of the shared-buffer metadata solely for the
+// identity-mismatch probe. The runtime stores the adapter LUID in the first
+// slot formerly reserved for metadata padding.
+struct SharedResourceMetadataProbeLayout {
+    uint32_t magic = 0;
+    uint32_t version = 0;
+    uint32_t kind = 0;
+    uint32_t reserved = 0;
+    uint64_t mapping_size = 0;
+    uint64_t data_offset = 0;
+    uint64_t data_size = 0;
+    D3D12_RESOURCE_DESC resource_desc = {};
+    D3D12_HEAP_PROPERTIES heap_properties = {};
+    D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
+    D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
+    uint64_t adapter_luid = 0;
+};
+
+static_assert(offsetof(SharedResourceMetadataProbeLayout, adapter_luid) == 128);
 
 struct SparseFormatProbe {
     const char* name;
@@ -772,6 +793,7 @@ int main(int argc, char** argv) {
     bool unnamed_shared_fence_cross_process_ok = false;
     bool unnamed_shared_heap_cross_process_ok = false;
     bool shared_heap_cross_process_ok = false;
+    HRESULT adapter_luid_mismatch_hr = E_FAIL;
     HRESULT default_write_subresource_hr = E_FAIL;
     HRESULT default_read_subresource_hr = E_FAIL;
     bool default_cpu_io_verified = false;
@@ -2153,8 +2175,27 @@ int main(int argc, char** argv) {
                         static_cast<uint8_t>((i * 37u + 11u) & 0xffu);
                 unnamed_shared_source->Unmap(0, nullptr);
                 unnamed_shared_create_hr = device->CreateSharedHandle(
-                    unnamed_shared_source, &inherited_shared_attributes, GENERIC_ALL,
-                    nullptr, &unnamed_shared_handle);
+                    unnamed_shared_source, &inherited_shared_attributes,
+                    GENERIC_ALL, nullptr, &unnamed_shared_handle);
+            }
+            if (SUCCEEDED(unnamed_shared_create_hr) && unnamed_shared_handle) {
+                void *metadata_view = MapViewOfFile(
+                    unnamed_shared_handle, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+                if (metadata_view) {
+                    auto *metadata =
+                        static_cast<SharedResourceMetadataProbeLayout *>(
+                            metadata_view);
+                    const uint64_t original_luid = metadata->adapter_luid;
+                    metadata->adapter_luid = original_luid ^ UINT64_C(1);
+                    ID3D12Resource *mismatched_resource = nullptr;
+                    adapter_luid_mismatch_hr = device->OpenSharedHandle(
+                        unnamed_shared_handle,
+                        IID_PPV_ARGS(&mismatched_resource));
+                    if (mismatched_resource)
+                        mismatched_resource->Release();
+                    metadata->adapter_luid = original_luid;
+                    UnmapViewOfFile(metadata_view);
+                }
             }
             if (SUCCEEDED(unnamed_shared_create_hr))
                 unnamed_shared_open_hr = device->OpenSharedHandle(
@@ -4465,6 +4506,12 @@ int main(int argc, char** argv) {
     if (shared_named_handle)
         CloseHandle(shared_named_handle);
 
+    const bool adapter_luid_metadata_verified =
+        device_luid_ok && adapter_luid_mismatch_hr == DXGI_ERROR_INVALID_CALL &&
+        shared_handle_roundtrip && unnamed_shared_cross_process_ok &&
+        unnamed_shared_fence_cross_process_ok &&
+        unnamed_shared_heap_cross_process_ok;
+
     const bool resource_validation_ok =
         FAILED(invalid_zero_width_hr) &&
         oversized_1d_hr == E_INVALIDARG && oversized_2d_hr == E_INVALIDARG &&
@@ -4684,7 +4731,8 @@ int main(int argc, char** argv) {
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
-        format_support_ok && unsupported_rgb32_format_support_hr == E_INVALIDARG &&
+        adapter_luid_metadata_verified && format_support_ok &&
+        unsupported_rgb32_format_support_hr == E_INVALIDARG &&
         sparse_format_matrix_ok && unsupported_texture_rejected &&
         unsupported_format_allocation_size == 0 &&
         unsupported_format_allocation_alignment == 0 &&
@@ -4982,6 +5030,7 @@ int main(int argc, char** argv) {
     std::printf("    \"independent_objects_verified\": %s,\n", shared_independent_object_ok ? "true" : "false");
     print_hr("unnamed_source_create", unnamed_shared_source_hr);
     print_hr("unnamed_handle_create", unnamed_shared_create_hr);
+    print_hr("adapter_luid_mismatch", adapter_luid_mismatch_hr);
     print_hr("unnamed_open", unnamed_shared_open_hr);
     print_hr("unnamed_map", unnamed_shared_map_hr);
     std::printf("    \"unnamed_roundtrip_verified\": %s,\n",
@@ -5008,6 +5057,8 @@ int main(int argc, char** argv) {
                 unnamed_shared_heap_roundtrip_ok ? "true" : "false");
     std::printf("    \"unnamed_heap_cross_process_verified\": %s,\n",
                 unnamed_shared_heap_cross_process_ok ? "true" : "false");
+    std::printf("    \"adapter_luid_metadata_verified\": %s,\n",
+                adapter_luid_metadata_verified ? "true" : "false");
     print_hr("default_heap_create", shared_default_heap_create_hr);
     print_hr("default_heap_handle_create", shared_default_heap_handle_hr);
     print_hr("fence_create", shared_fence_create_hr);

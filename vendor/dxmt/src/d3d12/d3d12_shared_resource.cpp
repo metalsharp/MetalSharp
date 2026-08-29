@@ -21,6 +21,16 @@ static HRESULT HResultFromLastError() {
   return HRESULT_FROM_WIN32(error ? error : ERROR_FUNCTION_FAILED);
 }
 
+static uint64_t AdapterLuidValue(ID3D12Device *device) {
+  if (!device)
+    return 0;
+  LUID luid = {};
+  if (!device->GetAdapterLuid(&luid))
+    return 0;
+  return (static_cast<uint64_t>(static_cast<uint32_t>(luid.HighPart)) << 32) |
+         static_cast<uint32_t>(luid.LowPart);
+}
+
 static bool ValidMetadata(const D3D12SharedResourceMetadata &metadata,
                           SIZE_T mapped_size) {
   if (metadata.magic != kD3D12SharedResourceMagic ||
@@ -154,6 +164,19 @@ HRESULT CreateSharedBufferMapping(
   resource->GetHeapProperties(&metadata.heap_properties,
                               &metadata.heap_flags);
   metadata.initial_state = resource->GetTrackedState();
+  ID3D12Device *resource_device = nullptr;
+  if (FAILED(resource->GetDevice(IID_PPV_ARGS(&resource_device)))) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
+  metadata.adapter_luid = AdapterLuidValue(resource_device);
+  resource_device->Release();
+  if (!metadata.adapter_luid) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
   std::memcpy(view, &metadata, sizeof(metadata));
 
   HANDLE owner_mapping = nullptr;
@@ -188,7 +211,9 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return HResultFromLastError();
   D3D12SharedResourceMetadata metadata = {};
   std::memcpy(&metadata, view, sizeof(metadata));
-  if (!ValidMetadata(metadata, 0)) {
+  if (!ValidMetadata(metadata, 0) ||
+      metadata.adapter_luid !=
+          AdapterLuidValue(static_cast<ID3D12Device *>(device))) {
     UnmapViewOfFile(view);
     return DXGI_ERROR_INVALID_CALL;
   }
@@ -271,6 +296,19 @@ HRESULT CreateSharedFenceMapping(
   metadata.mapping_size = mapping_size;
   metadata.initial_value = fence->GetCompletedValue();
   metadata.flags = fence->GetFlags();
+  ID3D12Device *fence_device = nullptr;
+  if (FAILED(fence->GetDevice(IID_PPV_ARGS(&fence_device)))) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
+  metadata.adapter_luid = AdapterLuidValue(fence_device);
+  fence_device->Release();
+  if (!metadata.adapter_luid) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
   std::memcpy(view, &metadata, sizeof(metadata));
   auto *shared_value = reinterpret_cast<volatile LONG64 *>(
       static_cast<uint8_t *>(view) + metadata.value_offset);
@@ -307,7 +345,7 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
       metadata.version != kD3D12SharedResourceVersion ||
       metadata.kind != kD3D12SharedResourceKindFence ||
       metadata.mapping_size < metadata.value_offset + sizeof(LONG64) ||
-      metadata.value_offset < sizeof(metadata) ||
+      metadata.value_offset < sizeof(metadata) || metadata.adapter_luid == 0 ||
       metadata.value_offset % alignof(LONG64) != 0) {
     UnmapViewOfFile(view);
     return DXGI_ERROR_INVALID_CALL;
@@ -316,6 +354,12 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
       static_cast<uint8_t *>(view) + metadata.value_offset);
   const uint64_t initial_value = static_cast<uint64_t>(
       InterlockedCompareExchange64(shared_value, 0, 0));
+  const uint64_t current_luid =
+      AdapterLuidValue(static_cast<ID3D12Device *>(device));
+  if (!current_luid || current_luid != metadata.adapter_luid) {
+    UnmapViewOfFile(view);
+    return DXGI_ERROR_INVALID_CALL;
+  }
   HANDLE owner_mapping = nullptr;
   HRESULT hr = DuplicateMappingHandle(mapping, &owner_mapping);
   if (FAILED(hr)) {

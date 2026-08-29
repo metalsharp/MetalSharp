@@ -137,8 +137,10 @@
   the same source-staged run as the resource/share tests; the existing DXGI
   factory lane cross-checks that identity against adapter enumeration.
 - Named mapping handles no longer retain process-global COM references; each
-  `OpenSharedHandleByName` call opens and validates a fresh file-mapping handle,
-  while `OpenSharedHandle` reconstructs named objects first and uses the legacy
+  `OpenSharedHandleByName` call opens and validates a fresh file-mapping handle;
+  buffer, heap, and fence metadata carries the adapter LUID and reopening
+  rejects a mapping whose identity does not match the current device, while
+  `OpenSharedHandle` reconstructs named objects first and uses the legacy
   registry only for unsupported object kinds. Unnamed buffer handles also use a
   generated, pointer-free file-mapping transport and independently reopen with
   exact byte readback in the creating process. An inheritable unnamed resource
@@ -147,7 +149,10 @@
   fence value, writes a sentinel, and the parent observes that write after the
   child exits. An inherited unnamed heap handle is independently opened by a
   second child and its heap metadata is validated without a process-local
-  registry entry.
+  registry entry. Mutating a mapping's stored adapter LUID makes
+  `OpenSharedHandle` reject it with exact `DXGI_ERROR_INVALID_CALL`
+  (`0x887A0001`), then the original metadata is restored before the valid
+  reopen.
 - `OpenSharedHandle` reconstructs named mapping-backed resources as
   independent COM objects (rather than returning a process-global registry
   pointer); descriptor identity and shared bytes remain valid across the
@@ -257,6 +262,8 @@ The isolated source-staged probe passed with:
   "shared_handles.unnamed_fence_cross_process_verified": true,
   "shared_handles.cross_process_verified": true,
   "shared_handles.unnamed_heap_cross_process_verified": true,
+  "shared_handles.adapter_luid_mismatch": "0x887a0001",
+  "shared_handles.adapter_luid_metadata_verified": true,
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,
   "shared_handles.unnamed_heap_roundtrip_verified": true,

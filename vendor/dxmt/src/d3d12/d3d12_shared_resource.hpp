@@ -33,7 +33,8 @@ struct D3D12SharedResourceMetadata {
   D3D12_HEAP_PROPERTIES heap_properties = {};
   D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
   D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
-  uint64_t reserved_tail[4] = {};
+  uint64_t adapter_luid = 0;
+  uint64_t reserved_tail[3] = {};
 };
 
 static_assert(sizeof(D3D12SharedResourceMetadata) % 8 == 0);
@@ -47,7 +48,8 @@ struct D3D12SharedHeapMetadata {
   uint64_t data_offset = kD3D12SharedResourceDataOffset;
   uint64_t data_size = 0;
   D3D12_HEAP_DESC heap_desc = {};
-  uint64_t reserved_tail[4] = {};
+  uint64_t adapter_luid = 0;
+  uint64_t reserved_tail[3] = {};
 };
 
 static_assert(sizeof(D3D12SharedHeapMetadata) % 8 == 0);
@@ -62,7 +64,8 @@ struct D3D12SharedFenceMetadata {
   uint64_t initial_value = 0;
   D3D12_FENCE_FLAGS flags = D3D12_FENCE_FLAG_NONE;
   uint32_t reserved_flags = 0;
-  uint64_t reserved_tail[4] = {};
+  uint64_t adapter_luid = 0;
+  uint64_t reserved_tail[3] = {};
 };
 
 static_assert(sizeof(D3D12SharedFenceMetadata) % 8 == 0);
