@@ -2,7 +2,7 @@
   "method_inventory": {
     "interface_count": 145,
     "method_count": 537,
-    "static_findings": 1333
+    "static_findings": 1334
   },
   "preview_sdk_version": "1.721.3-preview",
   "promotion_rule": "Every row needs executable behavior, exact readback/side-effect evidence, invalid-input evidence, and source/runtime provenance.",
