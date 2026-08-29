@@ -63,7 +63,8 @@
   exact compressed bytes, in addition to the command-list copy proof.
 - Direct default-resource subresource I/O is behavior-backed for a 2D array
   with mips (boxed mip write/read) and a 3D volume (two depth slices), with
-  exact row and slice pitches and byte readback. Additional legal packed
+  exact row and slice pitches and byte readback; a nonzero-Z `2x2x1` boxed
+  volume write/read also round-trips exact bytes. Additional legal packed
   format variants (B8G8R8X8, B5G6R5, B5G5R5A1, B4G4R4A4, R9G9B9E5, and the
   4:2:2 packed forms) now create through their matching Metal pixel formats
   and pass format-info/support queries. Direct default-resource I/O also
@@ -280,6 +281,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_heap_flags": "0x80070057",
   "textures.direct_io_texture_verified": true,
   "textures.direct_io_volume_verified": true,
+  "textures.direct_io_volume_box_verified": true,
   "textures.direct_io_d32s8_verified": true,
   "textures.direct_io_nv12_verified": true,
   "textures.direct_io_p010_verified": true,
