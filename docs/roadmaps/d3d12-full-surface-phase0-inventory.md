@@ -3,10 +3,10 @@
 **State:** Phase 0 inventory complete; implementation and behavior gates remain open.
 **Stable baseline:** Microsoft DirectX Agility SDK 1.619.5 (`D3D12SDKVersion=619`)
 **Preview lane:** Agility SDK 1.721.3-preview (`D3D12SDKVersion=721`), opt-in only
-**Generated:** 2026-08-29T14:29:55.532702+00:00
-**Git HEAD:** `0757bb0ed6cd9e0571c96c46860f50b40175ef22`
+**Generated:** 2026-08-29T14:51:34.764644+00:00
+**Git HEAD:** `5b6d865c51a843b0380868680d5e8b7e7b0eadd1`
 **Runtime source files scanned:** 166
-**Runtime source tree SHA-256:** `c6a6355511fca1b911b43b147ef9da7443078634c843a7ed2f92170cfd4bed70`
+**Runtime source tree SHA-256:** `0c55810af3aed195432cf261ed6b4c7dafa5c8a787a84bbfe7b27992d8dcb028`
 
 ## Interface census
 

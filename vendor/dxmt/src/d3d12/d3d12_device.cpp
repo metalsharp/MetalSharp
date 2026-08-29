@@ -4045,6 +4045,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
       return S_OK;
     }
 
+    if (MTLD3D12PipelineState::DXGIToMTLPixelFormat(fmt->Format) ==
+        WMTPixelFormatInvalid) {
+      TRACE("  FORMAT_SUPPORT: format=%u has no D3D12 texture provider",
+            (unsigned)fmt->Format);
+      return E_INVALIDARG;
+    }
+
     MTL_DXGI_FORMAT_DESC metal_format;
     if (FAILED(MTLQueryDXGIFormat(GetMTLDevice(), fmt->Format, metal_format))) {
       TRACE("  FORMAT_SUPPORT: format=%u unsupported by MTLQueryDXGIFormat",
@@ -5499,6 +5506,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
                                : WMTResourceStorageModePrivate;
     texture_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(
         static_cast<DXGI_FORMAT>(desc->Format));
+    if ((desc->Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
+        desc->Format == DXGI_FORMAT_R32_TYPELESS)
+      texture_info.pixel_format = WMTPixelFormatDepth32Float;
     if (texture_info.pixel_format == WMTPixelFormatInvalid)
       return E_INVALIDARG;
     placed_texture = placement_heap.newTexture(texture_info, heap_offset);

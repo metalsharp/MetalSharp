@@ -1472,6 +1472,8 @@ WMTPixelFormat MTLD3D12PipelineState::DXGIToMTLPixelFormat(DXGI_FORMAT format) {
     return WMTPixelFormatRGBA32Uint;
   case DXGI_FORMAT_R32G32B32A32_SINT:
     return WMTPixelFormatRGBA32Sint;
+  case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+    return WMTPixelFormatRGB10A2Uint;
   case DXGI_FORMAT_R10G10B10A2_UNORM:
     return WMTPixelFormatRGB10A2Unorm;
   case DXGI_FORMAT_R10G10B10A2_UINT:
@@ -1514,10 +1516,17 @@ WMTPixelFormat MTLD3D12PipelineState::DXGIToMTLPixelFormat(DXGI_FORMAT format) {
     return WMTPixelFormatR32Float;
   case DXGI_FORMAT_D32_FLOAT:
     return WMTPixelFormatDepth32Float;
+  case DXGI_FORMAT_R24G8_TYPELESS:
   case DXGI_FORMAT_D24_UNORM_S8_UINT:
-    return WMTPixelFormatDepth32Float_Stencil8;
+  case DXGI_FORMAT_R32G8X24_TYPELESS:
   case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
     return WMTPixelFormatDepth32Float_Stencil8;
+  case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+  case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+    return WMTPixelFormatR32X8X32;
+  case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
+  case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+    return WMTPixelFormatX32G8X32;
   case DXGI_FORMAT_D16_UNORM:
     return WMTPixelFormatDepth16Unorm;
   case DXGI_FORMAT_R16G16_TYPELESS:

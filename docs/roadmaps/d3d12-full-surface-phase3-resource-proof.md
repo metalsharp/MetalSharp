@@ -75,13 +75,17 @@
   volume write/read also round-trips exact bytes. Additional legal packed
   format variants (B8G8R8X8, B5G6R5, B5G5R5A1, B4G4R4A4, R9G9B9E5, and the
   4:2:2 packed forms) now create through their matching Metal pixel formats
-  and pass format-info/support queries. Direct default-resource I/O also
+  and pass format-info/support queries. The D3D12 format-support matrix also
+  covers the typeless depth/stencil and 10-bit cases without advertising a
+  provider-less texture format. Direct default-resource I/O also
   round-trips exact packed bytes for B5G6R5, B5G5R5A1, B4G4R4A4, and
   R9G9B9E5. Unsupported `R1_UNORM` creation and allocation-info queries both
   fail closed without returning a fabricated allocation.
 - A two-slice 1D-array resource and a six-face cube resource (the D3D12
-  six-slice 2D representation) create successfully; the backend preserves the
-  1D array length, and each 1D-array slice and cube face independently
+  six-slice 2D representation) create successfully; D16, R10G10B10A2
+  typeless, and the R24/R32 depth-stencil typeless/plane format family also
+  create with matching Metal depth/swizzle providers. The backend preserves
+  the 1D array length, and each 1D-array slice and cube face independently
   round-trips distinct bytes through `WriteToSubresource`/`ReadFromSubresource`.
   A placed two-slice 1D array also uses the correct Metal array length and
   independently round-trips both slices through a default placement heap. A
