@@ -9357,6 +9357,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
     const bool volume =
         dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
         src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    const bool one_d =
+        dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+        src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D;
     const UINT src_width = MipSize(src_desc.Width, src_mip);
     const UINT src_height = MipSize(src_desc.Height, src_mip);
     const UINT dst_depth =
@@ -9400,17 +9403,24 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
         (volume
              ? (dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
                 src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
-             : (dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
-                src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)) &&
-        dst_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
-        src_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+             : (one_d
+                    ? (dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+                       src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+                    : (dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+                       src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D))) &&
+        ((one_d && dst_desc.Format == DXGI_FORMAT_R32_FLOAT &&
+          src_desc.Format == DXGI_FORMAT_R32_FLOAT) ||
+         (!one_d && dst_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+          src_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM)) &&
         dst_desc.SampleDesc.Count == 1 && src_desc.SampleDesc.Count == 1 &&
         dst_desc.MipLevels == 1 && src_desc.MipLevels == 1 &&
-        dst_shape.WidthInTexels == (volume ? 32u : 128u) &&
-        dst_shape.HeightInTexels == (volume ? 32u : 128u) &&
+        dst_shape.WidthInTexels ==
+            (volume ? 32u : one_d ? 16384u : 128u) &&
+        dst_shape.HeightInTexels == (volume ? 32u : one_d ? 1u : 128u) &&
         dst_shape.DepthInTexels == (volume ? 16u : 1u) &&
-        src_shape.WidthInTexels == (volume ? 32u : 128u) &&
-        src_shape.HeightInTexels == (volume ? 32u : 128u) &&
+        src_shape.WidthInTexels ==
+            (volume ? 32u : one_d ? 16384u : 128u) &&
+        src_shape.HeightInTexels == (volume ? 32u : one_d ? 1u : 128u) &&
         src_shape.DepthInTexels == (volume ? 16u : 1u) &&
         dst_slice < dst_slice_count && src_slice < src_slice_count &&
         dst_coordinate.X < dst_tiles_x && dst_coordinate.Y < dst_tiles_y &&
@@ -9520,19 +9530,22 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
         if (volume)
           dst_z = static_cast<UINT>(dst_plane / dst_tiles_y);
       }
+      const UINT native_tiles_x = volume ? 1u : one_d ? 4u : 2u;
+      const UINT native_tiles_y = volume ? 1u : one_d ? 1u : 2u;
+      const UINT native_tiles_z = volume ? 16u : 1u;
       WMT4SparseTextureMappingCopyOperation operation = {};
       operation.source_origin = {
-          uint64_t(src_x) * (volume ? 1u : 2u),
-          uint64_t(src_y) * (volume ? 1u : 2u),
-          uint64_t(src_z) * (volume ? 16u : 1u)};
-      operation.source_size = {volume ? 1u : 2u, volume ? 1u : 2u,
-                               volume ? 16u : 1u};
+          uint64_t(src_x) * native_tiles_x,
+          uint64_t(src_y) * native_tiles_y,
+          uint64_t(src_z) * native_tiles_z};
+      operation.source_size = {native_tiles_x, native_tiles_y,
+                               native_tiles_z};
       operation.source_mip_level = src_mip;
       operation.source_slice = src_slice_for_tile;
       operation.destination_origin = {
-          uint64_t(dst_x) * (volume ? 1u : 2u),
-          uint64_t(dst_y) * (volume ? 1u : 2u),
-          uint64_t(dst_z) * (volume ? 16u : 1u)};
+          uint64_t(dst_x) * native_tiles_x,
+          uint64_t(dst_y) * native_tiles_y,
+          uint64_t(dst_z) * native_tiles_z};
       operation.destination_mip_level = dst_mip;
       operation.destination_slice = dst_slice_for_tile;
       operations.push_back(operation);

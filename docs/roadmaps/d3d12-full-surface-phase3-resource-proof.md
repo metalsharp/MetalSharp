@@ -126,9 +126,11 @@
 - A native reserved two-slice 1D `R32_FLOAT` resource (`16384` texels per
   slice, one mip) now creates successfully and reports the exact tile shape
   `[16384,1,1]`, two subresource tilings starting at tiles 0 and 1, and two
-  logical tiles. The source-staged run maps eight Metal 16-KiB pages, executes
-  `CopyTiles` across both slices in both directions, and verifies the exact
-  128-KiB readback without falling back to a failed sparse heap allocation.
+  logical tiles. A second native reserved 1D array receives the same two-tile
+  mapping through `CopyTileMappings`; the source-staged run maps eight Metal
+  16-KiB pages, executes `CopyTiles` across both slices in both directions,
+  and verifies the exact 128-KiB readback without falling back to a failed
+  sparse heap allocation.
 - Zero `MipLevels` is normalized to the complete mip chain: a 32x16 texture
   creates six mips and its six copy footprints report exact dimensions, row
   counts, row sizes, and increasing placement offsets.
@@ -264,6 +266,7 @@ The isolated source-staged probe passed with:
   "sparse.reserved_1d_tile_shape": [16384, 1, 1],
   "sparse.reserved_1d_tilings": [[1,0],[1,1]],
   "sparse.reserved_1d_copy_verified": true,
+  "sparse.reserved_1d_mapping_copy_verified": true,
   "sparse.tier3_physical_page_ownership_verified": true,
   "sparse.volume_copy_verified": true,
   "sparse.volume_alias_copy_verified": true,
