@@ -625,6 +625,17 @@ static bool IsValidOptimizedClearValue(
   return true;
 }
 
+static bool IsSupportedHeapFlags(D3D12_HEAP_FLAGS heap_flags) {
+  constexpr UINT kKnownHeapFlags = 0x0001u | 0x0004u | 0x0008u | 0x0020u |
+                                   0x0040u | 0x0080u | 0x0100u | 0x0200u |
+                                   0x0400u | 0x0800u | 0x1000u | 0x2000u;
+  constexpr UINT kUnsupportedHeapFlags = 0x0020u | 0x0100u | 0x0200u |
+                                         0x0400u | 0x1000u | 0x2000u;
+  const UINT flags = static_cast<UINT>(heap_flags);
+  return (flags & ~kKnownHeapFlags) == 0 &&
+         (flags & kUnsupportedHeapFlags) == 0;
+}
+
 static bool IsValidHeapProperties(
     const D3D12_HEAP_PROPERTIES &properties) {
   const UINT type = static_cast<UINT>(properties.Type);
@@ -5278,7 +5289,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   if (!desc || !resource)
     return E_POINTER;
   InitReturnPtr(resource);
-  if (!heap_properties || !IsValidHeapProperties(*heap_properties))
+  if (!heap_properties || !IsValidHeapProperties(*heap_properties) ||
+      !IsSupportedHeapFlags(heap_flags))
     return E_INVALIDARG;
   if (static_cast<UINT>(heap_properties->Type) == 5 &&
       (heap_flags & (D3D12_HEAP_FLAG_SHARED |
@@ -5330,7 +5342,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateHeap(
     return E_POINTER;
   InitReturnPtr(heap);
   if (!desc->SizeInBytes || !IsValidHeapProperties(desc->Properties) ||
-      (desc->Alignment &&
+      !IsSupportedHeapFlags(desc->Flags) || (desc->Alignment &&
        desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
        desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT) ||
       ((desc->Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) ==

@@ -836,6 +836,7 @@ int main(int argc, char** argv) {
     HRESULT address_open_hr = E_FAIL;
     HRESULT invalid_heap_alignment_hr = E_FAIL;
     HRESULT invalid_heap_flags_hr = E_FAIL;
+    HRESULT unsupported_heap_flags_hr = E_FAIL;
     HRESULT invalid_heap_size_hr = E_FAIL;
     HRESULT misaligned_placement_hr = E_FAIL;
     bool address_heap_open_ok = false;
@@ -1901,6 +1902,13 @@ int main(int argc, char** argv) {
         invalid_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_DENY_BUFFERS;
         invalid_heap = nullptr;
         invalid_heap_flags_hr = device->CreateHeap(&invalid_heap_desc, IID_PPV_ARGS(&invalid_heap));
+        if (invalid_heap)
+            invalid_heap->Release();
+        invalid_heap_desc = address_heap_desc;
+        invalid_heap_desc.Flags = static_cast<D3D12_HEAP_FLAGS>(0x100);
+        invalid_heap = nullptr;
+        unsupported_heap_flags_hr =
+            device->CreateHeap(&invalid_heap_desc, IID_PPV_ARGS(&invalid_heap));
         if (invalid_heap)
             invalid_heap->Release();
         invalid_heap_desc = address_heap_desc;
@@ -4588,6 +4596,7 @@ int main(int argc, char** argv) {
         SUCCEEDED(residency_fence_hr) && SUCCEEDED(enqueue_make_resident_hr) &&
         invalid_enqueue_flags_hr == E_INVALIDARG && enqueue_fence_completed >= 9 &&
         FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
+        unsupported_heap_flags_hr == E_INVALIDARG &&
         invalid_heap_size_hr == E_INVALIDARG && FAILED(misaligned_placement_hr);
 
     bool pass =
@@ -5030,6 +5039,7 @@ int main(int argc, char** argv) {
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);
+    print_hr("unsupported_heap_flags", unsupported_heap_flags_hr);
     print_hr("invalid_heap_size", invalid_heap_size_hr);
     std::printf("    \"cases\": [\n");
     for (size_t i = 0; i < resource_shapes.size(); ++i) {
