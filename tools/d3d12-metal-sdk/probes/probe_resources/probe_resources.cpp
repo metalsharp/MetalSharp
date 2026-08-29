@@ -988,6 +988,7 @@ int main(int argc, char** argv) {
     ID3D12Resource* mapping_copy_readback = nullptr;
     ID3D12Resource* mipped_reserved_texture = nullptr;
     ID3D12Resource* mipped_reserved_readback = nullptr;
+    ID3D12Resource* packed_tail_reserved_texture = nullptr;
     ID3D12Resource* r8_reserved_texture = nullptr;
     ID3D12Resource* r8_reserved_readback = nullptr;
     ID3D12Heap* r8_mipped_heap = nullptr;
@@ -1066,6 +1067,13 @@ int main(int argc, char** argv) {
     bool mapping_copy_ok = false;
     HRESULT mipped_reserved_texture_hr = E_FAIL;
     HRESULT mipped_reserved_tiling_hr = E_FAIL;
+    HRESULT packed_tail_reserved_texture_hr = E_FAIL;
+    HRESULT packed_tail_reserved_tiling_hr = E_FAIL;
+    UINT packed_tail_total_tiles = 0;
+    UINT packed_tail_tiling_count = 4;
+    D3D12_PACKED_MIP_INFO packed_tail_info = {};
+    D3D12_TILE_SHAPE packed_tail_shape = {};
+    D3D12_SUBRESOURCE_TILING packed_tail_tilings[4] = {};
     HRESULT r8_reserved_texture_hr = E_FAIL;
     HRESULT r8_reserved_tiling_hr = E_FAIL;
     HRESULT r8_reserved_readback_hr = E_FAIL;
@@ -1331,6 +1339,21 @@ int main(int argc, char** argv) {
         device->GetResourceTiling(mipped_reserved_texture, &mipped_reserved_total_tiles, nullptr,
                                   &mipped_reserved_tile_shape, &mipped_reserved_tiling_count, 0,
                                   mipped_reserved_tilings);
+    }
+    D3D12_RESOURCE_DESC packed_tail_desc = texture_desc(512, 512, DXGI_FORMAT_R8G8B8A8_UNORM);
+    packed_tail_desc.MipLevels = 4;
+    packed_tail_reserved_texture_hr =
+        device ? device->CreateReservedResource(&packed_tail_desc,
+                                                D3D12_RESOURCE_STATE_COPY_DEST,
+                                                nullptr,
+                                                IID_PPV_ARGS(&packed_tail_reserved_texture))
+               : E_FAIL;
+    if (device && packed_tail_reserved_texture) {
+        packed_tail_reserved_tiling_hr = S_OK;
+        device->GetResourceTiling(packed_tail_reserved_texture, &packed_tail_total_tiles,
+                                  &packed_tail_info, &packed_tail_shape,
+                                  &packed_tail_tiling_count, 0,
+                                  packed_tail_tilings);
     }
     D3D12_RESOURCE_DESC mipped_reserved_readback_desc = buffer_desc(sparse_tile_size);
     mipped_reserved_readback_hr =
@@ -2280,7 +2303,16 @@ int main(int argc, char** argv) {
         reserved_buffer_tile_shape.WidthInTexels == sparse_tile_size && SUCCEEDED(mipped_reserved_texture_hr) &&
         SUCCEEDED(mipped_reserved_tiling_hr) && SUCCEEDED(mipped_reserved_readback_hr) &&
         SUCCEEDED(mipped_reserved_readback_map_hr) && mipped_reserved_copy_ok && mipped_reserved_total_tiles == 5 &&
-        mipped_reserved_tiling_count == 2 && SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
+        mipped_reserved_tiling_count == 2 && SUCCEEDED(packed_tail_reserved_texture_hr) &&
+        SUCCEEDED(packed_tail_reserved_tiling_hr) && packed_tail_total_tiles == 22 &&
+        packed_tail_tiling_count == 4 && packed_tail_info.NumStandardMips == 3 &&
+        packed_tail_info.NumPackedMips == 1 && packed_tail_info.NumTilesForPackedMips == 1 &&
+        packed_tail_info.StartTileIndexInOverallResource == 21 &&
+        packed_tail_shape.WidthInTexels == 128 && packed_tail_shape.HeightInTexels == 128 &&
+        packed_tail_tilings[0].WidthInTiles == 4 && packed_tail_tilings[1].WidthInTiles == 2 &&
+        packed_tail_tilings[2].WidthInTiles == 1 && packed_tail_tilings[3].WidthInTiles == 0 &&
+        packed_tail_tilings[3].StartTileIndexInOverallResource == D3D12_PACKED_TILE &&
+        SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
         default_cpu_io_ok && residency_state_ok && address_heap_open_ok && heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
@@ -2573,6 +2605,26 @@ int main(int argc, char** argv) {
                     sparse_format.copy_ok ? "true" : "false", i + 1 == sparse_format_probes.size() ? "" : ",");
     }
     std::printf("    ],\n");
+    std::printf("    \"packed_tail_reserved\": {\n");
+    print_hr("create", packed_tail_reserved_texture_hr);
+    print_hr("tiling", packed_tail_reserved_tiling_hr);
+    std::printf("      \"total_tiles\": %u,\n", packed_tail_total_tiles);
+    std::printf("      \"tiling_count\": %u,\n", packed_tail_tiling_count);
+    std::printf("      \"packed_mips\": [%u, %u, %u, %u],\n", packed_tail_info.NumStandardMips,
+                packed_tail_info.NumPackedMips, packed_tail_info.NumTilesForPackedMips,
+                packed_tail_info.StartTileIndexInOverallResource);
+    std::printf("      \"tile_shape\": [%u, %u, %u],\n", packed_tail_shape.WidthInTexels,
+                packed_tail_shape.HeightInTexels, packed_tail_shape.DepthInTexels);
+    std::printf("      \"tilings\": [[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u]]\n",
+                packed_tail_tilings[0].WidthInTiles, packed_tail_tilings[0].HeightInTiles,
+                packed_tail_tilings[0].DepthInTiles, packed_tail_tilings[0].StartTileIndexInOverallResource,
+                packed_tail_tilings[1].WidthInTiles, packed_tail_tilings[1].HeightInTiles,
+                packed_tail_tilings[1].DepthInTiles, packed_tail_tilings[1].StartTileIndexInOverallResource,
+                packed_tail_tilings[2].WidthInTiles, packed_tail_tilings[2].HeightInTiles,
+                packed_tail_tilings[2].DepthInTiles, packed_tail_tilings[2].StartTileIndexInOverallResource,
+                packed_tail_tilings[3].WidthInTiles, packed_tail_tilings[3].HeightInTiles,
+                packed_tail_tilings[3].DepthInTiles, packed_tail_tilings[3].StartTileIndexInOverallResource);
+    std::printf("    },\n");
     std::printf("    \"mipped_texture\": {\n");
     print_hr("create", mipped_reserved_texture_hr);
     print_hr("tiling", mipped_reserved_tiling_hr);

@@ -33,6 +33,9 @@
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
+- Reserved 512x512 RGBA8 resources with four mips now create successfully and
+  report the packed tail exactly: 22 total tiles, three standard mips, one
+  packed mip tile, and per-subresource starts `[0, 16, 20, D3D12_PACKED_TILE]`.
 - Zero `MipLevels` is normalized to the complete mip chain: a 32x16 texture
   creates six mips and its six copy footprints report exact dimensions, row
   counts, row sizes, and increasing placement offsets.
@@ -113,7 +116,12 @@ The isolated source-staged probe passed with:
   "sparse.volume_copy_verified": true,
   "sparse.volume_alias_copy_verified": true,
   "sparse.reserved_buffer_reuse_single_tile_skip_verified": true,
-  "sparse.cross_queue_mapping_wait_verified": true
+  "sparse.cross_queue_mapping_wait_verified": true,
+  "sparse.packed_tail_reserved": {
+    "total_tiles": 22,
+    "packed_mips": [3, 1, 1, 21],
+    "tilings": [[4, 4, 1, 0], [2, 2, 1, 16], [1, 1, 1, 20], [0, 0, 0, 4294967295]]
+  }
 }
 ```
 
