@@ -104,9 +104,10 @@
   allocation arithmetic rejects a `UINT64_MAX` buffer size with the same zero
   allocation result instead of wrapping. A two-resource sideband query also
   reports the aggregate 128-KiB size and aligned offsets `0`/`65536`.
-- Committed-resource validation rejects a null heap-properties pointer and a
-  buffer placed in a heap with `DENY_BUFFERS`, both with exact
-  `E_INVALIDARG`, before allocating any object.
+- Committed-resource validation rejects a null heap-properties pointer, a
+  buffer placed in a heap with `DENY_BUFFERS`, and 1D/2D/3D dimensions above
+  the D3D12 request limits, all with exact `E_INVALIDARG` before allocating
+  any object.
 - `ID3D12Device::GetAdapterLuid` returns a stable nonzero adapter identity in
   the same source-staged run as the resource/share tests; the existing DXGI
   factory lane cross-checks that identity against adapter enumeration.
@@ -234,6 +235,9 @@ The isolated source-staged probe passed with:
   "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.placed_1d_array_io_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
+  "resource_shapes.oversized_1d": "0x80070057",
+  "resource_shapes.oversized_2d": "0x80070057",
+  "resource_shapes.oversized_3d": "0x80070057",
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",
   "resource_shapes.invalid_heap_properties": "0x80070057",
   "resource_shapes.invalid_node_mask": "0x80070057",

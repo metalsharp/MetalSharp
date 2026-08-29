@@ -448,6 +448,9 @@ int main(int argc, char** argv) {
     HRESULT placed_1d_array_read_hr[2] = {E_FAIL, E_FAIL};
     bool placed_1d_array_io_ok = false;
     HRESULT invalid_zero_width_hr = E_FAIL;
+    HRESULT oversized_1d_hr = E_FAIL;
+    HRESULT oversized_2d_hr = E_FAIL;
+    HRESULT oversized_3d_hr = E_FAIL;
     HRESULT invalid_committed_heap_flags_hr = E_FAIL;
     HRESULT invalid_heap_properties_hr = E_FAIL;
     HRESULT invalid_node_mask_hr = E_FAIL;
@@ -702,6 +705,42 @@ int main(int argc, char** argv) {
             device->GetResourceAllocationInfo(0, 1, &invalid);
         invalid_zero_width_allocation_size = invalid_zero_width_info.SizeInBytes;
         invalid_zero_width_allocation_alignment = invalid_zero_width_info.Alignment;
+        D3D12_RESOURCE_DESC oversized_1d =
+            texture_desc(D3D12_REQ_TEXTURE1D_U_DIMENSION + 1, 1,
+                         DXGI_FORMAT_R8_UNORM);
+        oversized_1d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+        oversized_1d_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &oversized_1d,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC oversized_2d =
+            texture_desc(D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1,
+                         D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION + 1,
+                         DXGI_FORMAT_R8_UNORM);
+        oversized_2d_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &oversized_2d,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC oversized_3d =
+            texture_desc(D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1,
+                         D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1,
+                         DXGI_FORMAT_R8_UNORM);
+        oversized_3d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+        oversized_3d.DepthOrArraySize =
+            D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION + 1;
+        oversized_3d_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &oversized_3d,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
         D3D12_HEAP_PROPERTIES invalid_properties = default_heap;
         invalid_properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
         invalid_heap_properties_hr = device->CreateCommittedResource(
@@ -3737,6 +3776,8 @@ int main(int argc, char** argv) {
 
     const bool resource_validation_ok =
         FAILED(invalid_zero_width_hr) &&
+        oversized_1d_hr == E_INVALIDARG && oversized_2d_hr == E_INVALIDARG &&
+        oversized_3d_hr == E_INVALIDARG &&
         invalid_committed_heap_flags_hr == E_INVALIDARG &&
         invalid_heap_properties_hr == E_INVALIDARG &&
         invalid_node_mask_hr == E_INVALIDARG &&
@@ -4028,6 +4069,9 @@ int main(int argc, char** argv) {
     std::printf("    \"placed_1d_array_io_verified\": %s,\n",
                 placed_1d_array_io_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
+    print_hr("oversized_1d", oversized_1d_hr);
+    print_hr("oversized_2d", oversized_2d_hr);
+    print_hr("oversized_3d", oversized_3d_hr);
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
     print_hr("invalid_heap_properties", invalid_heap_properties_hr);
     print_hr("invalid_node_mask", invalid_node_mask_hr);

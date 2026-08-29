@@ -601,7 +601,8 @@ clear, the focused relaxed-castable-format readback, tight buffer alignment,
 query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O, bounded
 checked allocation/footprint arithmetic, multi-resource sideband offsets,
-subresource-window behavior, DXGI resource aggregation, generated pointer-free
+subresource-window behavior, D3D12 dimension-limit rejection, DXGI resource
+aggregation, generated pointer-free
 unnamed heap/fence mappings, and OfferResources/Trim/Reclaim residency-state
 evidence. The latest sparse run also passes native 3D volume mapping,
 cross-resource mapping copy, readback, and physical-page ownership; direct

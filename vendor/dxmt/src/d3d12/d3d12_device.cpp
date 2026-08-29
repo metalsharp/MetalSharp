@@ -735,6 +735,21 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
   if (planar && desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
     return false;
 
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+      (desc.Width > D3D12_REQ_TEXTURE1D_U_DIMENSION ||
+       desc.DepthOrArraySize > D3D12_REQ_TEXTURE1D_ARRAY_AXIS_DIMENSION))
+    return false;
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+      (desc.Width > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
+       desc.Height > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
+       desc.DepthOrArraySize > D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION))
+    return false;
+  if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+      (desc.Width > D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION ||
+       desc.Height > D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION ||
+       desc.DepthOrArraySize > D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION))
+    return false;
+
   if (!desc.Height || !desc.DepthOrArraySize ||
       (desc.SampleDesc.Count == 1 && desc.SampleDesc.Quality != 0) ||
       ((desc.Format == DXGI_FORMAT_NV12 || desc.Format == DXGI_FORMAT_P010 ||
