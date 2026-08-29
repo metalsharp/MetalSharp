@@ -201,9 +201,11 @@
   16-KiB pages, executes `CopyTiles` across both slices in both directions,
   and verifies the exact 128-KiB readback without falling back to a failed
   sparse heap allocation.
-- Zero `MipLevels` is normalized to the complete mip chain: a 32x16 texture
-  creates six mips and its six copy footprints report exact dimensions, row
-  counts, row sizes, and increasing placement offsets.
+- Zero `MipLevels` is normalized to the complete mip chain across dimensions:
+  1D-array `17x1` creates five mips, a 2D-array `19x11` creates five mips, a
+  3D `7x5x4` volume creates three mips, and the existing 32x16 texture creates
+  six mips. The six 2D footprints report exact dimensions, row counts, row
+  sizes, and increasing placement offsets.
 - Small-resource placement alignment is behavior-backed: an 8x8 RGBA8 texture
   reports `[SizeInBytes=4096, Alignment=4096]`, and an 8x8 four-sample MSAA
   texture reports `[SizeInBytes=65536, Alignment=65536]`; a large texture,
@@ -297,6 +299,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.all_created_and_roundtripped": true,
   "resource_shapes.validation_matrix_verified": true,
   "resource_shapes.footprint_matrix_verified": true,
+  "resource_shapes.zero_mip_counts": [5, 5, 3],
+  "resource_shapes.zero_mip_shapes_verified": true,
   "resource_shapes.placed_1d_array_io_verified": true,
   "resource_shapes.placed_2d_io_verified": true,
   "resource_shapes.gpu_upload_resource_io_verified": true,
