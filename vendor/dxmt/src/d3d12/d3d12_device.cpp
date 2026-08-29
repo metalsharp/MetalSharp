@@ -431,6 +431,23 @@ static UINT FormatPlaneCount(DXGI_FORMAT format) {
   }
 }
 
+static DXGI_FORMAT CopyFootprintPlaneFormat(DXGI_FORMAT format,
+                                             UINT plane_slice) {
+  switch (format) {
+  case DXGI_FORMAT_R24G8_TYPELESS:
+  case DXGI_FORMAT_D24_UNORM_S8_UINT:
+  case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+  case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
+  case DXGI_FORMAT_R32G8X24_TYPELESS:
+  case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+  case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+  case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+    return plane_slice ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
+  default:
+    return format;
+  }
+}
+
 static UINT64 ResourcePlacementAlignment(const D3D12_RESOURCE_DESC &desc) {
   if ((desc.Flags & kD3D12ResourceFlagUseTightAlignment) &&
       desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
@@ -571,28 +588,33 @@ static UINT64 EstimateResourceAllocationSize(const D3D12_RESOURCE_DESC &desc) {
   UINT array_size = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
                          ? 1
                          : std::max<UINT>(desc.DepthOrArraySize, 1);
-  UINT bytes_per_texel = FormatBytesPerTexel(desc.Format);
-  UINT block_size = FormatBlockSize(desc.Format);
-  if (!bytes_per_texel)
-    bytes_per_texel = 4;
+  const UINT plane_count = FormatPlaneCount(desc.Format);
 
   UINT64 total = 0;
-  for (UINT array_or_plane = 0; array_or_plane < array_size; array_or_plane++) {
-    (void)array_or_plane;
-    for (UINT mip = 0; mip < mip_levels; mip++) {
-      UINT64 width = std::max<UINT64>(1, desc.Width >> mip);
-      UINT64 height = std::max<UINT64>(1, desc.Height >> mip);
-      UINT64 depth = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
-                         ? std::max<UINT64>(1, desc.DepthOrArraySize >> mip)
-                         : 1;
-      UINT64 width_blocks =
-          std::max<UINT64>(1, AlignTo(width, block_size) / block_size);
-      UINT64 rows =
-          std::max<UINT64>(1, AlignTo(height, block_size) / block_size);
-      UINT64 row_pitch = AlignTo(width_blocks * bytes_per_texel,
-                                 D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-      total += AlignTo(row_pitch * rows * depth,
-                       D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+  for (UINT plane = 0; plane < plane_count; ++plane) {
+    const DXGI_FORMAT plane_format =
+        CopyFootprintPlaneFormat(desc.Format, plane);
+    UINT bytes_per_texel = FormatBytesPerTexel(plane_format);
+    UINT block_size = FormatBlockSize(plane_format);
+    if (!bytes_per_texel)
+      bytes_per_texel = 4;
+    for (UINT array_or_plane = 0; array_or_plane < array_size;
+         array_or_plane++) {
+      for (UINT mip = 0; mip < mip_levels; mip++) {
+        UINT64 width = std::max<UINT64>(1, desc.Width >> mip);
+        UINT64 height = std::max<UINT64>(1, desc.Height >> mip);
+        UINT64 depth = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                           ? std::max<UINT64>(1, desc.DepthOrArraySize >> mip)
+                           : 1;
+        UINT64 width_blocks =
+            std::max<UINT64>(1, AlignTo(width, block_size) / block_size);
+        UINT64 rows =
+            std::max<UINT64>(1, AlignTo(height, block_size) / block_size);
+        UINT64 row_pitch = AlignTo(width_blocks * bytes_per_texel,
+                                   D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+        total += AlignTo(row_pitch * rows * depth,
+                         D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+      }
     }
   }
 
@@ -5631,16 +5653,17 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
 
   for (UINT i = 0; i < sub_resource_count; i++) {
     UINT subresource = first_sub_resource + i;
-    UINT mip_levels = std::max<UINT>(desc ? desc->MipLevels : 1, 1);
-    UINT array_size = std::max<UINT>(desc ? desc->DepthOrArraySize : 1, 1);
-    UINT mip = mip_levels ? (subresource % mip_levels) : 0;
-    UINT plane_slice = (subresource / mip_levels) / array_size;
-    (void)plane_slice;
+    UINT mip = subresource % mip_levels;
+    UINT plane_slice =
+        (subresource / mip_levels) / std::max<UINT>(array_size, 1);
 
-    UINT64 width = desc ? desc->Width : 0;
-    UINT height = desc ? desc->Height : 0;
-    UINT depth = desc ? desc->DepthOrArraySize : 0;
-    DXGI_FORMAT format = desc ? desc->Format : DXGI_FORMAT_UNKNOWN;
+    UINT64 width = desc->Width;
+    UINT height = desc->Height;
+    UINT depth = desc->DepthOrArraySize;
+    DXGI_FORMAT format =
+        desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+            ? DXGI_FORMAT_UNKNOWN
+            : CopyFootprintPlaneFormat(desc->Format, plane_slice);
 
     if (desc && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
       height = 1;

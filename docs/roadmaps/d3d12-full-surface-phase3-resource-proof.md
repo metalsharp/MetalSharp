@@ -30,6 +30,10 @@
 - Resource flag validation rejects render-target resources with a buffer
   dimension and rejects mutually exclusive render-target/depth-stencil flags,
   both with exact `E_INVALIDARG` and no returned object.
+- Planar depth/stencil footprints expand the D24/R24G8 family into the
+  documented R32 depth and R8 stencil planes across array slices and mips;
+  eight subresources report exact plane formats, row sizes, dimensions, and
+  ordered offsets (`12032` total bytes).
 - Invalid `GetCopyableFootprints` descriptors initialize the documented
   `pTotalBytes` sentinel (`UINT64_MAX`) instead of reporting a fabricated
   zero-sized layout.
@@ -116,6 +120,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.null_allocation": [0, 0],
   "resource_shapes.null_sideband": [0, 0, 0],
   "resource_shapes.invalid_footprint_total": 18446744073709551615,
+  "resource_shapes.planar_footprint_total": 12032,
+  "resource_shapes.planar_footprint_verified": true,
   "resource_shapes.tight_alignment": {
     "feature_tier": 1,
     "allocation": [1024, 256],
