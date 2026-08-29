@@ -58,6 +58,9 @@
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
+- `ID3D12Device::GetAdapterLuid` returns a stable nonzero adapter identity in
+  the same source-staged run as the resource/share tests; the existing DXGI
+  factory lane cross-checks that identity against adapter enumeration.
 - Shared-handle creation and named opening reject zero access masks with
   exact `E_INVALIDARG`; valid named buffer, heap, and fence mappings retain
   their cross-process behavior.
@@ -109,6 +112,7 @@ The isolated source-staged probe passed with:
 ```json
 {
   "pass": true,
+  "device.adapter_luid_verified": true,
   "buffers.default_cpu_io_verified": true,
   "buffers.residency_state_verified": true,
   "shared_handles.roundtrip_verified": true,
