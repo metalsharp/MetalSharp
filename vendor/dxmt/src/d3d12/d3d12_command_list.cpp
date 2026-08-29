@@ -8,6 +8,7 @@
 #include "d3d12_descriptor_heap.hpp"
 #include "log/log.hpp"
 #include "util_string.hpp"
+#include <algorithm>
 #include <cstddef>
 
 #define CLTRACE(fmt, ...) do { FILE *_tf = dxmt::openDiagnosticLog("dxmt-d3d12-trace.log"); if (_tf) { fprintf(_tf, "CmdList::" fmt "\n", ##__VA_ARGS__); fclose(_tf); } } while(0)
@@ -1513,7 +1514,32 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetDepthBounds(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetSamplePositions(
     UINT sample_count, UINT pixel_count,
-    D3D12_SAMPLE_POSITION *sample_positions) {}
+    D3D12_SAMPLE_POSITION *sample_positions) {
+  const bool valid_sample_count = sample_count == 1 || sample_count == 2 ||
+                                  sample_count == 4 || sample_count == 8 ||
+                                  sample_count == 16 || sample_count == 32;
+  const bool reset = sample_count == 0 && pixel_count == 0 && !sample_positions;
+  if ((!reset && (!valid_sample_count || pixel_count != 1 || !sample_positions)) ||
+      sample_count > 32 || pixel_count > UINT32_MAX / std::max(sample_count, 1u))
+    return;
+  const uint64_t position_count = reset ? 0 : uint64_t(sample_count) * pixel_count;
+  const size_t base_size = offsetof(CmdSetSamplePositions, positions);
+  if (position_count > (UINT32_MAX - base_size) / sizeof(D3D12_SAMPLE_POSITION))
+    return;
+  const size_t total_size = base_size +
+                            static_cast<size_t>(position_count) * sizeof(D3D12_SAMPLE_POSITION);
+  const size_t offset = m_cmds.size();
+  m_cmds.resize(offset + total_size);
+  CmdSetSamplePositions cmd = {};
+  cmd.header = {CmdType::SetSamplePositions, static_cast<uint32_t>(total_size)};
+  cmd.sample_count = sample_count;
+  cmd.pixel_count = pixel_count;
+  cmd.position_count = static_cast<uint32_t>(position_count);
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (position_count)
+    memcpy(m_cmds.data() + offset + base_size, sample_positions,
+           static_cast<size_t>(position_count) * sizeof(D3D12_SAMPLE_POSITION));
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresourceRegion(
     ID3D12Resource *dst_resource, UINT dst_sub_resource_idx,

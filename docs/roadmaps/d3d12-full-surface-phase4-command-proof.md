@@ -19,6 +19,9 @@
   buffer.
 - Enhanced barrier groups continue to replay with global, buffer, and texture
   ordering.
+- `SetSamplePositions` records a validated tier-1, one-pixel sample pattern;
+  replay converts D3D12 fixed-point positions to Metal render-pass positions.
+  The provider applies the pattern to multisampled render passes.
 
 ## Exact evidence
 
@@ -50,6 +53,13 @@ The isolated source-staged command probe passed with these behavior checks:
   "enhanced_barriers": {
     "pass": true,
     "copy_values_verified": true
+  },
+  "programmable_sample_positions": {
+    "pass": true,
+    "options2_hr": "0x00000000",
+    "tier": 1,
+    "provider_sample_count": 4,
+    "graphics_color_verified": true
   }
 }
 ```
@@ -61,14 +71,17 @@ and exact null-output `E_POINTER` validation. With `DXMT_WINEMETAL_DEBUG=1`,
 the Unix provider log recorded `encoder_insert_debug_signpost`,
 `encoder_push_debug_group`, and `encoder_pop_debug_group` calls for the
 recorded marker/event commands. The D3D10/D3D11 legacy
-regression probe also passed against the same rebuilt runtime. All child waits
+regression probe also passed against the same rebuilt runtime. The updated
+Winemetal bridge ABI check passed with the expanded render-pass structure and
+three debug-annotation exports, with no missing PE, Unix, or WOW64 entries.
+All child waits
 are bounded and the source wrapper removes its disposable Wine clone and prefix
 after each invocation.
 
 ## Remaining Phase 4 work
 
-The complete exit gate is not claimed. Stream-output capture, programmable
-sample positions, view-instance masks, protected-session/meta-command paths,
+The complete exit gate is not claimed. Stream-output capture, tier-2 multi-pixel sample-position patterns,
+view-instance masks, protected-session/meta-command paths,
 markers/events with real provider side effects, queue priority/VBlank/event
 semantics, complete indirect bounds/nested behavior, and exhaustive command
 inventory validation remain open and explicitly ledgered.

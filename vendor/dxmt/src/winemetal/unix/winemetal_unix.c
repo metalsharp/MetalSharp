@@ -1533,6 +1533,31 @@ _MTLCommandBuffer_renderCommandEncoder(void *obj) {
   descriptor.renderTargetHeight = info->render_target_height;
   descriptor.renderTargetWidth = info->render_target_width;
   descriptor.visibilityResultBuffer = (id<MTLBuffer>)info->visibility_buffer;
+  NSUInteger attachment_sample_count = 1;
+  for (unsigned i = 0; i < 8; ++i) {
+    if (descriptor.colorAttachments[i].texture) {
+      attachment_sample_count = [descriptor.colorAttachments[i].texture sampleCount];
+      break;
+    }
+  }
+  if (attachment_sample_count == 1 && descriptor.depthAttachment.texture)
+    attachment_sample_count = [descriptor.depthAttachment.texture sampleCount];
+  if (info->sample_position_count && info->sample_position_count <= 32 &&
+      attachment_sample_count > 1 &&
+      info->sample_position_count == attachment_sample_count) {
+    MTLSamplePosition positions[32];
+    for (uint32_t i = 0; i < info->sample_position_count; ++i) {
+      positions[i].x = info->sample_positions[i].x;
+      positions[i].y = info->sample_positions[i].y;
+    }
+    [descriptor setSamplePositions:positions count:info->sample_position_count];
+    FILE *dl = winemetal_debug_log();
+    if (dl) {
+      fprintf(dl, "render_pass_sample_positions count=%u\n",
+              info->sample_position_count);
+      fclose(dl);
+    }
+  }
 
   if (info->tile_height && info->tile_width) {
     descriptor.tileWidth = info->tile_width;
