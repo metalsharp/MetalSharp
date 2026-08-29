@@ -101,7 +101,8 @@
   null descriptor arrays initialize `[SizeInBytes=0, Alignment=0]` and zero
   sideband output without dereferencing the caller's null pointer. Checked
   allocation arithmetic rejects a `UINT64_MAX` buffer size with the same zero
-  allocation result instead of wrapping.
+  allocation result instead of wrapping. A two-resource sideband query also
+  reports the aggregate 128-KiB size and aligned offsets `0`/`65536`.
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
@@ -245,6 +246,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.null_heap_properties": "0x80070057",
   "resource_shapes.invalid_zero_width_allocation": [0, 0],
   "resource_shapes.allocation_overflow": [0, 0],
+  "resource_shapes.allocation_batch": [131072, 65536, 0, 65536, 65536],
+  "resource_shapes.allocation_batch_verified": true,
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.invalid_msaa_mips_allocation": [0, 0],
   "resource_shapes.volume_allocation": [65536, 65536],
