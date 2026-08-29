@@ -165,6 +165,7 @@ public:
   uint32_t GetTextureArrayLength() const;
   uint64_t GetBufferByteLength() const;
   bool IsReservedResource() const { return m_is_reserved; }
+  bool IsPlanarResource() const { return !m_planar_shadow.empty(); }
   bool IsSparseBacked() const {
     return m_is_reserved &&
            ((IsBuffer() && m_mtl_buffer.handle) ||
