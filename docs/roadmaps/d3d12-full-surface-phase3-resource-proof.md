@@ -36,6 +36,9 @@
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
+- Shared-handle creation and named opening reject zero access masks with
+  exact `E_INVALIDARG`; valid named buffer, heap, and fence mappings retain
+  their cross-process behavior.
 - `EnqueueMakeResident` validates residency flags, makes the evicted resource
   resident, and signals a fence at value 9; an unknown flag is rejected with
   `E_INVALIDARG`.
@@ -91,6 +94,8 @@ The isolated source-staged probe passed with:
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,
   "shared_handles.fence_cross_process_verified": true,
+  "shared_handles.invalid_create_access": "0x80070057",
+  "shared_handles.invalid_open_access": "0x80070057",
   "buffers.address_heap_open_verified": true,
   "buffers.heap_aliasing_verified": true,
   "buffers.texture_gpu_va_zero": true,

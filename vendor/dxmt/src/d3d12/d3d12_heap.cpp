@@ -203,6 +203,8 @@ HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
   *heap = nullptr;
   void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
   if (!view)
+    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  if (!view)
     return HRESULT_FROM_WIN32(GetLastError());
   D3D12SharedHeapMetadata metadata = {};
   std::memcpy(&metadata, view, sizeof(metadata));

@@ -186,6 +186,24 @@ struct D3D12SharedHandleEntry {
   HANDLE retained_handle = nullptr;
 };
 
+static bool IsValidSharedHandleAccess(DWORD access) {
+  if (!access)
+    return false;
+  constexpr DWORD kGenericAccess = GENERIC_READ | GENERIC_WRITE | GENERIC_ALL;
+  return (access & ~kGenericAccess) == 0;
+}
+
+static DWORD FileMappingAccessForSharedHandle(DWORD access) {
+  if (access & GENERIC_ALL)
+    return FILE_MAP_ALL_ACCESS;
+  DWORD mapping_access = 0;
+  if (access & GENERIC_READ)
+    mapping_access |= FILE_MAP_READ;
+  if (access & GENERIC_WRITE)
+    mapping_access |= FILE_MAP_WRITE;
+  return mapping_access;
+}
+
 std::mutex g_shared_handle_mutex;
 std::unordered_map<HANDLE, D3D12SharedHandleEntry> g_shared_handles;
 std::unordered_map<std::wstring, HANDLE> g_named_shared_handles;
@@ -5244,6 +5262,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
   *handle = nullptr;
   if (!object)
     return E_INVALIDARG;
+  if (!IsValidSharedHandleAccess(access))
+    return E_INVALIDARG;
 
   std::lock_guard lock(g_shared_handle_mutex);
   if (name && g_named_shared_handles.contains(std::wstring(name)))
@@ -5422,17 +5442,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
     const WCHAR *name, DWORD access, HANDLE *handle) {
-  (void)access;
   if (!handle)
     return E_POINTER;
   *handle = nullptr;
-  if (!name)
+  if (!name || !IsValidSharedHandleAccess(access))
     return E_INVALIDARG;
+  const DWORD mapping_access = FileMappingAccessForSharedHandle(access);
   std::lock_guard lock(g_shared_handle_mutex);
   auto named = g_named_shared_handles.find(std::wstring(name));
   if (named == g_named_shared_handles.end()) {
     HANDLE opened_mapping =
-        OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, name);
+        OpenFileMappingW(mapping_access, FALSE, name);
     if (!opened_mapping)
       return DXGI_ERROR_NOT_FOUND;
     ID3D12Resource *shared_resource = nullptr;

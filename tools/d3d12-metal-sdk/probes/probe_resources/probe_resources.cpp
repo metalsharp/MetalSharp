@@ -400,6 +400,8 @@ int main(int argc, char** argv) {
     HRESULT shared_open_named_hr = E_FAIL;
     HRESULT shared_unknown_hr = E_FAIL;
     HRESULT shared_missing_name_hr = E_FAIL;
+    HRESULT shared_invalid_create_access_hr = E_FAIL;
+    HRESULT shared_invalid_open_access_hr = E_FAIL;
     D3D12_RESOURCE_DESC default_buffer_desc = {};
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = 0;
     D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
@@ -1055,6 +1057,16 @@ int main(int argc, char** argv) {
             device->OpenSharedHandleByName(L"metalsharp-probe-missing", GENERIC_ALL, &missing_name_handle);
         if (missing_name_handle)
             CloseHandle(missing_name_handle);
+        HANDLE invalid_access_handle = nullptr;
+        shared_invalid_create_access_hr = device->CreateSharedHandle(
+            default_buffer, nullptr, 0, L"metalsharp-probe-invalid-access",
+            &invalid_access_handle);
+        if (invalid_access_handle)
+            CloseHandle(invalid_access_handle);
+        shared_invalid_open_access_hr = device->OpenSharedHandleByName(
+            L"metalsharp-probe-buffer", 0, &invalid_access_handle);
+        if (invalid_access_handle)
+            CloseHandle(invalid_access_handle);
     }
 
     uint8_t* upload_ptr = nullptr;
@@ -2382,7 +2394,9 @@ int main(int argc, char** argv) {
         shared_named_handle && shared_open_buffer && shared_named_open_buffer &&
         shared_open_buffer->GetGPUVirtualAddress() == default_gpu_va &&
         shared_named_open_buffer->GetGPUVirtualAddress() == default_gpu_va &&
-        shared_unknown_hr == DXGI_ERROR_INVALID_CALL && shared_missing_name_hr == DXGI_ERROR_NOT_FOUND;
+        shared_unknown_hr == DXGI_ERROR_INVALID_CALL && shared_missing_name_hr == DXGI_ERROR_NOT_FOUND &&
+        shared_invalid_create_access_hr == E_INVALIDARG &&
+        shared_invalid_open_access_hr == E_INVALIDARG;
     if (shared_handle)
         CloseHandle(shared_handle);
     if (shared_named_handle)
@@ -2595,6 +2609,8 @@ int main(int argc, char** argv) {
     print_hr("open_by_name", shared_open_named_hr);
     print_hr("unknown_handle", shared_unknown_hr);
     print_hr("missing_name", shared_missing_name_hr);
+    print_hr("invalid_create_access", shared_invalid_create_access_hr);
+    print_hr("invalid_open_access", shared_invalid_open_access_hr);
     std::printf("    \"roundtrip_verified\": %s,\n", shared_handle_roundtrip ? "true" : "false");
     std::printf("    \"cross_process_verified\": %s,\n", cross_process_shared_ok ? "true" : "false");
     print_hr("heap_create", shared_heap_create_hr);
