@@ -4061,6 +4061,47 @@ _MTLCommandEncoder_setLabel(void *args) {
 }
 
 static NTSTATUS
+_MTLCommandEncoder_pushDebugGroup(void *args) {
+  struct unixcall_generic_obj_obj_noret *params = args;
+  [(id<MTLCommandEncoder>)params->handle pushDebugGroup:(NSString *)params->arg];
+  FILE *dl = winemetal_debug_log();
+  if (dl) {
+    fprintf(dl, "encoder_push_debug_group encoder=%llu label=%llu\n",
+            (unsigned long long)params->handle,
+            (unsigned long long)params->arg);
+    fclose(dl);
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandEncoder_popDebugGroup(void *args) {
+  struct unixcall_generic_obj_noret *params = args;
+  [(id<MTLCommandEncoder>)params->handle popDebugGroup];
+  FILE *dl = winemetal_debug_log();
+  if (dl) {
+    fprintf(dl, "encoder_pop_debug_group encoder=%llu\n",
+            (unsigned long long)params->handle);
+    fclose(dl);
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLCommandEncoder_insertDebugSignpost(void *args) {
+  struct unixcall_generic_obj_obj_noret *params = args;
+  [(id<MTLCommandEncoder>)params->handle insertDebugSignpost:(NSString *)params->arg];
+  FILE *dl = winemetal_debug_log();
+  if (dl) {
+    fprintf(dl, "encoder_insert_debug_signpost encoder=%llu label=%llu\n",
+            (unsigned long long)params->handle,
+            (unsigned long long)params->arg);
+    fclose(dl);
+  }
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 _MTLDevice_setShouldMaximizeConcurrentCompilation(void *args) {
   struct unixcall_generic_obj_uint64_noret *params = args;
   [(id<MTLDevice>)params->handle setShouldMaximizeConcurrentCompilation:(BOOL)params->arg];
@@ -5350,6 +5391,9 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForMixedGeometries,
     &_MTLCommandBuffer_buildMixedAccelerationStructure,
     &_MTLCommandBuffer_refitMixedAccelerationStructure,
+    &_MTLCommandEncoder_pushDebugGroup,
+    &_MTLCommandEncoder_popDebugGroup,
+    &_MTLCommandEncoder_insertDebugSignpost,
 };
 
 #ifndef DXMT_NATIVE
@@ -5528,5 +5572,8 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_accelerationStructureSizesForMixedGeometries,
     &_MTLCommandBuffer_buildMixedAccelerationStructure,
     &_MTLCommandBuffer_refitMixedAccelerationStructure,
+    &_MTLCommandEncoder_pushDebugGroup,
+    &_MTLCommandEncoder_popDebugGroup,
+    &_MTLCommandEncoder_insertDebugSignpost,
 };
 #endif

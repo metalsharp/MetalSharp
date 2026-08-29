@@ -324,6 +324,21 @@ public:
   setLabel(String label) {
     MTLCommandEncoder_setLabel(handle, label);
   }
+
+  void
+  pushDebugGroup(String group) {
+    MTLCommandEncoder_pushDebugGroup(handle, group.handle);
+  }
+
+  void
+  popDebugGroup() {
+    MTLCommandEncoder_popDebugGroup(handle);
+  }
+
+  void
+  insertDebugSignpost(String signpost) {
+    MTLCommandEncoder_insertDebugSignpost(handle, signpost.handle);
+  }
 };
 
 class ResourceStateCommandEncoder : public CommandEncoder {

@@ -266,7 +266,13 @@ static CaseResult run_command_list_reuse_case() {
         hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(first), D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &readback);
     HRESULT repeated_close_hr = E_FAIL;
+    bool debug_annotations_recorded = false;
     if (SUCCEEDED(hr)) {
+        const char marker_payload[] = "phase4-command-annotation";
+        list->SetMarker(0x1001, marker_payload, sizeof(marker_payload) - 1);
+        list->BeginEvent(0x1002, marker_payload, sizeof(marker_payload) - 1);
+        list->EndEvent();
+        debug_annotations_recorded = true;
         list->CopyBufferRegion(target, 0, upload_first, 0, sizeof(first));
         D3D12_RESOURCE_BARRIER to_src =
             transition_barrier(target, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -307,14 +313,16 @@ static CaseResult run_command_list_reuse_case() {
     uint8_t got_second[64] = {};
     bool second_ok = SUCCEEDED(hr) && readback_bytes(readback, got_second, sizeof(got_second)) &&
                      std::memcmp(got_second, second, sizeof(second)) == 0;
-    result.pass = first_ok && second_ok && SUCCEEDED(allocator_reset_hr) && repeated_close_hr == E_FAIL &&
+    result.pass = first_ok && second_ok && debug_annotations_recorded && SUCCEEDED(allocator_reset_hr) && repeated_close_hr == E_FAIL &&
                   null_reset_hr == E_INVALIDARG && SUCCEEDED(list_reset_hr);
     result.hr = result.pass ? S_OK : hr;
-    result.detail = result.pass ? "command list close, repeated-close rejection, allocator reset, null-reset "
-                                  "rejection, list reset, and reuse verified"
+    result.detail = result.pass ? "command list close, debug marker/event recording, repeated-close rejection, "
+                                  "allocator reset, null-reset rejection, list reset, and reuse verified"
                                 : "command list reuse verification failed";
     result.extra = "\"first_verified\":" + std::string(first_ok ? "true" : "false") +
-                   ",\"second_verified\":" + (second_ok ? "true" : "false") + ",\"allocator_reset\":\"" +
+                   ",\"second_verified\":" + (second_ok ? "true" : "false") +
+                   ",\"debug_annotations_recorded\":" + (debug_annotations_recorded ? "true" : "false") +
+                   ",\"allocator_reset\":\"" +
                    hr_hex(allocator_reset_hr) + "\",\"repeated_close\":\"" + hr_hex(repeated_close_hr) +
                    "\",\"null_reset\":\"" + hr_hex(null_reset_hr) + "\",\"list_reset\":\"" + hr_hex(list_reset_hr) +
                    "\"";

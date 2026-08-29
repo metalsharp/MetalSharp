@@ -1407,12 +1407,39 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetPredication(
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetMarker(
-    UINT metadata, const void *data, UINT size) {}
+    UINT metadata, const void *data, UINT size) {
+  if (size && !data)
+    return;
+  const size_t base_size = sizeof(CmdDebugEvent) - 1;
+  if (size > UINT32_MAX - base_size)
+    return;
+  CmdDebugEvent cmd = {};
+  cmd.header = {CmdType::SetMarker, static_cast<uint32_t>(base_size + size)};
+  cmd.metadata = metadata;
+  cmd.data_size = size;
+  const uint8_t empty = 0;
+  EmitVar(cmd, data ? data : &empty, size);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginEvent(
-    UINT metadata, const void *data, UINT size) {}
+    UINT metadata, const void *data, UINT size) {
+  if (size && !data)
+    return;
+  const size_t base_size = sizeof(CmdDebugEvent) - 1;
+  if (size > UINT32_MAX - base_size)
+    return;
+  CmdDebugEvent cmd = {};
+  cmd.header = {CmdType::BeginEvent, static_cast<uint32_t>(base_size + size)};
+  cmd.metadata = metadata;
+  cmd.data_size = size;
+  const uint8_t empty = 0;
+  EmitVar(cmd, data ? data : &empty, size);
+}
 
-void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EndEvent() {}
+void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EndEvent() {
+  CmdHeader cmd = {CmdType::EndEvent, sizeof(CmdHeader)};
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteIndirect(
     ID3D12CommandSignature *command_signature, UINT max_command_count,
