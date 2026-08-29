@@ -70,6 +70,10 @@
 - `ID3D12Device::GetAdapterLuid` returns a stable nonzero adapter identity in
   the same source-staged run as the resource/share tests; the existing DXGI
   factory lane cross-checks that identity against adapter enumeration.
+- Named mapping handles no longer retain process-global COM references; each
+  `OpenSharedHandleByName` call opens and validates a fresh file-mapping handle,
+  while `OpenSharedHandle` reconstructs named objects first and uses the legacy
+  registry only for unsupported unnamed object kinds.
 - `OpenSharedHandle` reconstructs named mapping-backed resources as
   independent COM objects (rather than returning a process-global registry
   pointer); descriptor identity and shared bytes remain valid across the
