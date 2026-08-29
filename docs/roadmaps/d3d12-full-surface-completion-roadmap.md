@@ -601,7 +601,7 @@ clear, the focused relaxed-castable-format readback, tight buffer alignment,
 query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O, bounded
 checked allocation/footprint arithmetic, multi-resource sideband offsets,
-4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, D32 plane footprint layout,
+4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, D32 plane footprint layout, bounded tiling-window behavior,
 subresource-window behavior, bounded Map ranges, D3D12 dimension-limit
 rejection, DXGI resource
 aggregation, generated pointer-free

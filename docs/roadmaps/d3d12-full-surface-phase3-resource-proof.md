@@ -146,7 +146,9 @@
   the remapped resources expose their CPU backing and exact byte roundtrip.
 - `GetResourceTiling` honors partial query windows: requesting four entries
   from subresource 2 returns exactly two entries (`mip2` and the packed-tail
-  marker) rather than claiming the full resource count.
+  marker) rather than claiming the full resource count. A boundary query with
+  `FirstSubresourceTilingToGet=UINT_MAX` returns zero and leaves its output
+  guard untouched.
 - Reserved 512x512 RGBA8 resources with four mips now create successfully and
   report the packed tail exactly: 22 total tiles, three standard mips, one
   packed mip tile, and per-subresource starts `[0, 16, 20, D3D12_PACKED_TILE]`.
@@ -344,6 +346,7 @@ The isolated source-staged probe passed with:
     "total_tiles": 22,
     "footprint_verified": true,
     "copy_verified": true,
+    "boundary_query_verified": true,
     "packed_mips": [3, 1, 1, 21],
     "tilings": [[4, 4, 1, 0], [2, 2, 1, 16], [1, 1, 1, 20], [0, 0, 0, 4294967295]],
     "partial_query_count": 2,

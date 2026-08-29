@@ -1983,6 +1983,7 @@ int main(int argc, char** argv) {
     D3D12_SUBRESOURCE_TILING mipped_reserved_tilings[2] = {};
     bool mipped_reserved_copy_ok = false;
     bool packed_tail_footprint_ok = false;
+    bool packed_tail_boundary_query_ok = false;
     bool packed_tail_copy_ok = false;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT packed_tail_footprint = {};
     UINT packed_tail_rows = 0;
@@ -2624,6 +2625,19 @@ int main(int argc, char** argv) {
             packed_tail_partial_tilings[0].StartTileIndexInOverallResource == 20 &&
             packed_tail_partial_tilings[1].WidthInTiles == 0 &&
             packed_tail_partial_tilings[1].StartTileIndexInOverallResource == D3D12_PACKED_TILE;
+        UINT packed_tail_boundary_count = UINT_MAX;
+        D3D12_SUBRESOURCE_TILING packed_tail_boundary_tiling = {};
+        packed_tail_boundary_tiling.WidthInTiles = 0xdeadbeef;
+        packed_tail_boundary_tiling.StartTileIndexInOverallResource = 0xdeadbeef;
+        device->GetResourceTiling(
+            packed_tail_reserved_texture, nullptr, nullptr, nullptr,
+            &packed_tail_boundary_count, UINT_MAX,
+            &packed_tail_boundary_tiling);
+        packed_tail_boundary_query_ok =
+            packed_tail_boundary_count == 0 &&
+            packed_tail_boundary_tiling.WidthInTiles == 0xdeadbeef &&
+            packed_tail_boundary_tiling.StartTileIndexInOverallResource ==
+                0xdeadbeef;
     }
     D3D12_RESOURCE_DESC mipped_reserved_readback_desc = buffer_desc(sparse_tile_size);
     mipped_reserved_readback_hr =
@@ -4074,7 +4088,8 @@ int main(int argc, char** argv) {
         packed_tail_tilings[0].WidthInTiles == 4 && packed_tail_tilings[1].WidthInTiles == 2 &&
         packed_tail_tilings[2].WidthInTiles == 1 && packed_tail_tilings[3].WidthInTiles == 0 &&
         packed_tail_tilings[3].StartTileIndexInOverallResource == D3D12_PACKED_TILE &&
-        packed_tail_partial_query_ok && SUCCEEDED(sparse_unmap_close_hr) &&
+        packed_tail_partial_query_ok && packed_tail_boundary_query_ok &&
+        SUCCEEDED(sparse_unmap_close_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
         SUCCEEDED(residency_descriptor_heap_create_hr) &&
@@ -4669,6 +4684,8 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(packed_tail_copy_bytes));
     std::printf("      \"copy_verified\": %s,\n",
                 packed_tail_copy_ok ? "true" : "false");
+    std::printf("      \"boundary_query_verified\": %s,\n",
+                packed_tail_boundary_query_ok ? "true" : "false");
     std::printf("      \"packed_mips\": [%u, %u, %u, %u],\n", packed_tail_info.NumStandardMips,
                 packed_tail_info.NumPackedMips, packed_tail_info.NumTilesForPackedMips,
                 packed_tail_info.StartTileIndexInOverallResource);
