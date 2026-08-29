@@ -5870,6 +5870,22 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
       *total_bytes = UINT64_MAX;
     return;
   }
+  auto footprint_failure = [&]() {
+    if (total_bytes)
+      *total_bytes = UINT64_MAX;
+  };
+  auto safe_align = [](UINT64 value, UINT64 alignment, UINT64 &aligned) {
+    if (!alignment) {
+      aligned = value;
+      return true;
+    }
+    const UINT64 remainder = value % alignment;
+    const UINT64 padding = remainder ? alignment - remainder : 0;
+    if (padding && value > UINT64_MAX - padding)
+      return false;
+    aligned = value + padding;
+    return true;
+  };
   UINT64 cursor = base_offset;
   UINT64 last_end = base_offset;
 
@@ -5909,19 +5925,51 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
     UINT block_size = desc && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
                           ? 1
                           : FormatBlockSize(format);
+    UINT64 rounded_width = 0;
+    UINT64 rounded_height = 0;
+    if (!safe_align(width, block_size, rounded_width) ||
+        !safe_align(height, block_size, rounded_height)) {
+      footprint_failure();
+      return;
+    }
     UINT64 width_blocks =
         desc && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
             ? width
-            : std::max<UINT64>(1, AlignTo(width, block_size) / block_size);
+            : std::max<UINT64>(1, rounded_width / block_size);
     UINT64 rows =
         desc && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
             ? 1
-            : std::max<UINT64>(1, AlignTo(height, block_size) / block_size);
+            : std::max<UINT64>(1, rounded_height / block_size);
+    if (bytes_per_texel && width_blocks > UINT64_MAX / bytes_per_texel) {
+      footprint_failure();
+      return;
+    }
     UINT64 unaligned_row_size = width_blocks * bytes_per_texel;
-    UINT64 aligned_row_pitch =
-        AlignTo(unaligned_row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-    UINT64 subresource_bytes = aligned_row_pitch * rows * depth;
-    UINT64 offset = AlignTo(cursor, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+    UINT64 aligned_row_pitch = 0;
+    if (!safe_align(unaligned_row_size, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT,
+                    aligned_row_pitch) ||
+        aligned_row_pitch > UINT32_MAX || rows > UINT32_MAX ||
+        width > UINT32_MAX || height > UINT32_MAX) {
+      footprint_failure();
+      return;
+    }
+    if (rows && aligned_row_pitch > UINT64_MAX / rows) {
+      footprint_failure();
+      return;
+    }
+    UINT64 subresource_bytes = aligned_row_pitch * rows;
+    if (depth && subresource_bytes > UINT64_MAX / depth) {
+      footprint_failure();
+      return;
+    }
+    subresource_bytes *= depth;
+    UINT64 offset = 0;
+    if (!safe_align(cursor, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT,
+                    offset) ||
+        offset > UINT64_MAX - subresource_bytes) {
+      footprint_failure();
+      return;
+    }
 
     if (layouts) {
       layouts[i].Offset = offset;

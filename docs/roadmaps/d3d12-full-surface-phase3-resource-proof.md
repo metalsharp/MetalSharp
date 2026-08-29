@@ -93,9 +93,10 @@
   stencil-only clear is visible through a subsequent plane-1 readback.
 - Invalid `GetCopyableFootprints` descriptors initialize the documented
   `pTotalBytes` sentinel (`UINT64_MAX`) instead of reporting a fabricated
-  zero-sized layout. Valid requests honor the caller's requested subresource
-  window: a one-subresource packed-mip query writes only that footprint and
-  leaves adjacent guard entries untouched.
+  zero-sized layout. Checked arithmetic also returns that sentinel for a valid
+  footprint whose base offset would overflow. Valid requests honor the
+  caller's requested subresource window: a one-subresource packed-mip query
+  writes only that footprint and leaves adjacent guard entries untouched.
 - Allocation-info and sideband allocation-info calls with a nonzero count and
   null descriptor arrays initialize `[SizeInBytes=0, Alignment=0]` and zero
   sideband output without dereferencing the caller's null pointer.
@@ -247,6 +248,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.null_allocation": [0, 0],
   "resource_shapes.null_sideband": [0, 0, 0],
   "resource_shapes.invalid_footprint_total": 18446744073709551615,
+  "resource_shapes.footprint_overflow_total": 18446744073709551615,
   "resource_shapes.planar_footprint_total": 12032,
   "resource_shapes.planar_footprint_verified": true,
   "resource_shapes.nv12_footprint_total": 3072,

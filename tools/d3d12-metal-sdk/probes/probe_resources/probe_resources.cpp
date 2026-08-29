@@ -473,6 +473,7 @@ int main(int argc, char** argv) {
     UINT64 null_sideband_alignment = UINT64_MAX;
     UINT64 null_sideband_offset = UINT64_MAX;
     UINT64 invalid_footprint_total = 0;
+    UINT64 footprint_overflow_total = 0;
     UINT64 planar_footprint_total = 0;
     bool planar_footprint_ok = false;
     UINT64 nv12_footprint_total = 0;
@@ -842,6 +843,15 @@ int main(int argc, char** argv) {
             &invalid_footprint_desc, 0, 1, 0, &invalid_footprint_layout,
             &invalid_footprint_rows, &invalid_footprint_row_size,
             &invalid_footprint_total);
+        D3D12_RESOURCE_DESC overflow_desc =
+            texture_desc(4, 4, DXGI_FORMAT_R8G8B8A8_UNORM);
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT overflow_footprint = {};
+        UINT overflow_rows = 0;
+        UINT64 overflow_row_size = 0;
+        device->GetCopyableFootprints(
+            &overflow_desc, 0, 1,
+            UINT64_MAX - 1, &overflow_footprint, &overflow_rows,
+            &overflow_row_size, &footprint_overflow_total);
         D3D12_RESOURCE_DESC planar_desc =
             texture_desc(13, 7, DXGI_FORMAT_R24G8_TYPELESS);
         planar_desc.DepthOrArraySize = 2;
@@ -3699,7 +3709,8 @@ int main(int argc, char** argv) {
         volume_allocation_size == 64 * 1024 &&
         volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
         null_allocation_size == 0 && null_allocation_alignment == 0 &&
-        invalid_footprint_total == UINT64_MAX && planar_footprint_ok &&
+        invalid_footprint_total == UINT64_MAX &&
+        footprint_overflow_total == UINT64_MAX && planar_footprint_ok &&
         planar_footprint_total != 0 && nv12_footprint_ok &&
         invalid_nv12_height_hr == E_INVALIDARG &&
         SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
@@ -3993,6 +4004,8 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(null_allocation_alignment));
     std::printf("    \"invalid_footprint_total\": %llu,\n",
                 static_cast<unsigned long long>(invalid_footprint_total));
+    std::printf("    \"footprint_overflow_total\": %llu,\n",
+                static_cast<unsigned long long>(footprint_overflow_total));
     std::printf("    \"planar_footprint_total\": %llu,\n",
                 static_cast<unsigned long long>(planar_footprint_total));
     std::printf("    \"planar_footprint_verified\": %s,\n",
