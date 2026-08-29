@@ -157,8 +157,9 @@ static HRESULT DuplicateHeapMappingHandle(HANDLE source, HANDLE *duplicate) {
 }
 }
 
-HRESULT CreateSharedHeapMapping(MTLD3D12Heap *heap, const WCHAR *name,
-                                HANDLE *mapping) {
+HRESULT CreateSharedHeapMapping(
+    MTLD3D12Heap *heap, const SECURITY_ATTRIBUTES *attributes,
+    const WCHAR *name, HANDLE *mapping) {
   if (!heap || !name || !name[0] || !mapping || !heap->GetCPUAddress())
     return E_INVALIDARG;
   *mapping = nullptr;
@@ -167,7 +168,8 @@ HRESULT CreateSharedHeapMapping(MTLD3D12Heap *heap, const WCHAR *name,
     return E_INVALIDARG;
   const uint64_t mapping_size = kD3D12SharedResourceDataOffset + desc.SizeInBytes;
   HANDLE section = CreateFileMappingW(
-      INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+      INVALID_HANDLE_VALUE, const_cast<SECURITY_ATTRIBUTES *>(attributes),
+      PAGE_READWRITE,
       static_cast<DWORD>(mapping_size >> 32),
       static_cast<DWORD>(mapping_size & std::numeric_limits<DWORD>::max()),
       name);

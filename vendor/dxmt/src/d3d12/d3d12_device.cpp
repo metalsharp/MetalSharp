@@ -5614,7 +5614,6 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
     ID3D12DeviceChild *object, const SECURITY_ATTRIBUTES *attributes,
     DWORD access, const WCHAR *name, HANDLE *handle) {
-  (void)attributes;
   (void)access;
   if (!handle)
     return E_POINTER;
@@ -5639,8 +5638,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       const bool is_buffer = resource_impl->IsBuffer();
       if (is_buffer) {
         HANDLE public_mapping = nullptr;
-        HRESULT hr = CreateSharedBufferMapping(resource_impl, name,
-                                               &public_mapping);
+        HRESULT hr = CreateSharedBufferMapping(resource_impl, attributes,
+                                               name, &public_mapping);
         resource->Release();
         if (FAILED(hr))
           return hr;
@@ -5660,7 +5659,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       const bool shareable_heap = heap_impl->GetCPUAddress() != nullptr;
       if (shareable_heap) {
         HANDLE public_mapping = nullptr;
-        HRESULT hr = CreateSharedHeapMapping(heap_impl, name,
+        HRESULT hr = CreateSharedHeapMapping(heap_impl, attributes, name,
                                              &public_mapping);
         heap->Release();
         if (FAILED(hr))
@@ -5679,7 +5678,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
     if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&fence)))) {
       HANDLE public_mapping = nullptr;
       HRESULT hr = CreateSharedFenceMapping(
-          static_cast<MTLD3D12Fence *>(fence), name, &public_mapping);
+          static_cast<MTLD3D12Fence *>(fence), attributes, name,
+          &public_mapping);
       fence->Release();
       if (SUCCEEDED(hr)) {
         *handle = public_mapping;
@@ -5706,8 +5706,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         MakeUnnamedSharedName(generated_name, ARRAYSIZE(generated_name),
                                L"buffer");
         HANDLE public_mapping = nullptr;
-        HRESULT hr = CreateSharedBufferMapping(resource_impl, generated_name,
-                                               &public_mapping);
+        HRESULT hr = CreateSharedBufferMapping(
+            resource_impl, attributes, generated_name, &public_mapping);
         resource->Release();
         if (FAILED(hr))
           return hr;
@@ -5729,8 +5729,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         MakeUnnamedSharedName(generated_name, ARRAYSIZE(generated_name),
                                L"heap");
         HANDLE public_mapping = nullptr;
-        HRESULT hr = CreateSharedHeapMapping(heap_impl, generated_name,
-                                             &public_mapping);
+        HRESULT hr = CreateSharedHeapMapping(
+            heap_impl, attributes, generated_name, &public_mapping);
         heap->Release();
         if (FAILED(hr))
           return hr;
@@ -5751,7 +5751,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
                              L"fence");
       HANDLE public_mapping = nullptr;
       HRESULT hr = CreateSharedFenceMapping(
-          static_cast<MTLD3D12Fence *>(fence), generated_name,
+          static_cast<MTLD3D12Fence *>(fence), attributes, generated_name,
           &public_mapping);
       fence->Release();
       if (FAILED(hr))
