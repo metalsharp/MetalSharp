@@ -4822,8 +4822,12 @@ MTLD3D12Device::GetResourceAllocationInfo(
     return nullptr;
 
   __ret->SizeInBytes = 0;
-  if (!resource_descs || !resource_desc_count) {
+  if (!resource_desc_count) {
     __ret->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    return __ret;
+  }
+  if (!resource_descs) {
+    __ret->Alignment = 0;
     return __ret;
   }
 
@@ -4863,8 +4867,12 @@ static D3D12_RESOURCE_ALLOCATION_INFO *FillResourceAllocationInfoWithSideband(
     return nullptr;
 
   __ret->SizeInBytes = 0;
-  if (!resource_descs || !resource_desc_count) {
+  if (!resource_desc_count) {
     __ret->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    return __ret;
+  }
+  if (!resource_descs) {
+    __ret->Alignment = 0;
     return __ret;
   }
 
@@ -7017,7 +7025,18 @@ MTLD3D12Device::GetResourceAllocationInfo2(
   TRACE("ID3D12Device8::GetResourceAllocationInfo2 count=%u sideband=%p",
         resource_descs_count, (void *)resource_allocation_info1);
   D3D12_RESOURCE_DESC descs_compat[MAX_DESCS];
-  UINT count = std::min<UINT>(resource_descs_count, MAX_DESCS);
+  if (resource_descs_count > MAX_DESCS ||
+      (resource_descs_count && !resource_descs)) {
+    if (__ret) {
+      __ret->SizeInBytes = 0;
+      __ret->Alignment = 0;
+    }
+    if (resource_allocation_info1 && resource_descs_count <= MAX_DESCS)
+      std::memset(resource_allocation_info1, 0,
+                  resource_descs_count * sizeof(*resource_allocation_info1));
+    return __ret;
+  }
+  UINT count = resource_descs_count;
   for (UINT i = 0; i < count; i++) {
     memcpy(&descs_compat[i], &resource_descs[i], sizeof(D3D12_RESOURCE_DESC));
   }

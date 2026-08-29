@@ -353,6 +353,12 @@ int main(int argc, char** argv) {
     UINT64 invalid_msaa_mips_allocation_alignment = 0;
     UINT64 volume_allocation_size = 0;
     UINT64 volume_allocation_alignment = 0;
+    UINT64 null_allocation_size = UINT64_MAX;
+    UINT64 null_allocation_alignment = UINT64_MAX;
+    HRESULT null_sideband_query_hr = E_FAIL;
+    UINT64 null_sideband_size = UINT64_MAX;
+    UINT64 null_sideband_alignment = UINT64_MAX;
+    UINT64 null_sideband_offset = UINT64_MAX;
     HRESULT tight_feature_hr = E_FAIL;
     UINT tight_feature_tier = 0;
     HRESULT tight_committed_hr = E_FAIL;
@@ -504,6 +510,22 @@ int main(int argc, char** argv) {
             device->GetResourceAllocationInfo(0, 1, &volume_allocation_desc);
         volume_allocation_size = volume_info.SizeInBytes;
         volume_allocation_alignment = volume_info.Alignment;
+        D3D12_RESOURCE_ALLOCATION_INFO null_info =
+            device->GetResourceAllocationInfo(0, 1, nullptr);
+        null_allocation_size = null_info.SizeInBytes;
+        null_allocation_alignment = null_info.Alignment;
+        ID3D12Device4 *device4 = nullptr;
+        null_sideband_query_hr = device->QueryInterface(
+            IID_PPV_ARGS(&device4));
+        if (device4) {
+            D3D12_RESOURCE_ALLOCATION_INFO sideband_info = {};
+            D3D12_RESOURCE_ALLOCATION_INFO1 sideband = {};
+            sideband_info = device4->GetResourceAllocationInfo1(0, 1, nullptr, &sideband);
+            null_sideband_size = sideband_info.SizeInBytes;
+            null_sideband_alignment = sideband_info.Alignment;
+            null_sideband_offset = sideband.Offset;
+            device4->Release();
+        }
 
         const D3D12_RESOURCE_FLAGS tight_flag =
             static_cast<D3D12_RESOURCE_FLAGS>(0x400);
@@ -692,6 +714,9 @@ int main(int argc, char** argv) {
                          invalid_msaa_mips_allocation_size == 0 && invalid_msaa_mips_allocation_alignment == 0 &&
                          volume_allocation_size == 64 * 1024 &&
                          volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
+                         null_allocation_size == 0 && null_allocation_alignment == 0 &&
+                         SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
+                         null_sideband_alignment == 0 && null_sideband_offset == 0 &&
                          SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
                          SUCCEEDED(tight_committed_hr) && SUCCEEDED(tight_allocation_info_hr) &&
                          tight_allocation_size == 1024 && tight_allocation_alignment == 256 &&
@@ -2337,6 +2362,14 @@ int main(int argc, char** argv) {
     std::printf("    \"volume_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(volume_allocation_size),
                 static_cast<unsigned long long>(volume_allocation_alignment));
+    std::printf("    \"null_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(null_allocation_size),
+                static_cast<unsigned long long>(null_allocation_alignment));
+    print_hr("null_sideband_query", null_sideband_query_hr);
+    std::printf("    \"null_sideband\": [%llu,%llu,%llu],\n",
+                static_cast<unsigned long long>(null_sideband_size),
+                static_cast<unsigned long long>(null_sideband_alignment),
+                static_cast<unsigned long long>(null_sideband_offset));
     print_hr("tight_feature", tight_feature_hr);
     std::printf("    \"tight_feature_tier\": %u,\n", tight_feature_tier);
     print_hr("tight_committed", tight_committed_hr);

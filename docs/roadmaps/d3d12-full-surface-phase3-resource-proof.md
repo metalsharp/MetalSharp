@@ -27,6 +27,9 @@
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
+- Allocation-info and sideband allocation-info calls with a nonzero count and
+  null descriptor arrays initialize `[SizeInBytes=0, Alignment=0]` and zero
+  sideband output without dereferencing the caller's null pointer.
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
@@ -88,6 +91,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.invalid_msaa_mips_allocation": [0, 0],
   "resource_shapes.volume_allocation": [65536, 65536],
+  "resource_shapes.null_allocation": [0, 0],
+  "resource_shapes.null_sideband": [0, 0, 0],
   "resource_shapes.tight_alignment": {
     "feature_tier": 1,
     "allocation": [1024, 256],
