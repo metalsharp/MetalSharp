@@ -296,6 +296,34 @@ static int run_unnamed_shared_child(HANDLE inherited_resource_handle,
     return pass ? 0 : 1;
 }
 
+static int run_unnamed_heap_child(HANDLE inherited_heap_handle) {
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
+    auto create_device = reinterpret_cast<CreateDeviceFn>(
+        reinterpret_cast<void*>(d3d12 ? GetProcAddress(d3d12, "D3D12CreateDevice") : nullptr));
+    ID3D12Device* device = nullptr;
+    HRESULT create_hr = create_device
+                            ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, IID_D3D12DeviceProbe,
+                                            reinterpret_cast<void**>(&device))
+                            : E_NOINTERFACE;
+    ID3D12Heap* heap = nullptr;
+    HRESULT open_hr = SUCCEEDED(create_hr) && device
+                          ? device->OpenSharedHandle(inherited_heap_handle,
+                                                     IID_PPV_ARGS(&heap))
+                          : E_FAIL;
+    D3D12_HEAP_DESC desc = {};
+    if (heap)
+        heap->GetDesc(&desc);
+    const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_hr) && heap &&
+                      desc.SizeInBytes == 64 * 1024 &&
+                      desc.Properties.Type == D3D12_HEAP_TYPE_UPLOAD;
+    if (heap)
+        heap->Release();
+    if (device)
+        device->Release();
+    return pass ? 0 : 1;
+}
+
 static bool launch_shared_child() {
     char module_path[MAX_PATH] = {};
     if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
@@ -308,6 +336,40 @@ static bool launch_shared_child() {
     PROCESS_INFORMATION process = {};
     if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup,
                         &process))
+        return false;
+    const DWORD wait_result = WaitForSingleObject(process.hProcess, 30000);
+    if (wait_result != WAIT_OBJECT_0) {
+        TerminateProcess(process.hProcess, 1);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return false;
+    }
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exit_code == 0;
+}
+
+static bool launch_unnamed_heap_child(HANDLE inherited_heap_handle) {
+    if (!inherited_heap_handle)
+        return false;
+    char module_path[MAX_PATH] = {};
+    if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
+        return false;
+    char handle_text[32] = {};
+    std::snprintf(handle_text, sizeof(handle_text), "%llx",
+                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(
+                      inherited_heap_handle)));
+    std::string command = std::string("\"") + module_path +
+                          "\" --unnamed-heap-child " + handle_text;
+    std::vector<char> command_line(command.begin(), command.end());
+    command_line.push_back('\0');
+    STARTUPINFOA startup = {};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process = {};
+    if (!CreateProcessA(nullptr, command_line.data(), nullptr, nullptr, TRUE, 0,
+                        nullptr, nullptr, &startup, &process))
         return false;
     const DWORD wait_result = WaitForSingleObject(process.hProcess, 30000);
     if (wait_result != WAIT_OBJECT_0) {
@@ -366,6 +428,14 @@ static bool launch_unnamed_shared_child(HANDLE inherited_resource_handle,
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--shared-child") == 0)
         return run_shared_child();
+    if (argc == 3 && std::strcmp(argv[1], "--unnamed-heap-child") == 0) {
+        char *end = nullptr;
+        const unsigned long long value = std::strtoull(argv[2], &end, 16);
+        if (!end || *end != '\0' || !value)
+            return 1;
+        return run_unnamed_heap_child(
+            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(value)));
+    }
     if (argc == 4 && std::strcmp(argv[1], "--unnamed-shared-child") == 0) {
         char *resource_end = nullptr;
         char *fence_end = nullptr;
@@ -700,6 +770,7 @@ int main(int argc, char** argv) {
     bool cross_process_shared_ok = false;
     bool unnamed_shared_cross_process_ok = false;
     bool unnamed_shared_fence_cross_process_ok = false;
+    bool unnamed_shared_heap_cross_process_ok = false;
     bool shared_heap_cross_process_ok = false;
     HRESULT default_write_subresource_hr = E_FAIL;
     HRESULT default_read_subresource_hr = E_FAIL;
@@ -1892,7 +1963,8 @@ int main(int argc, char** argv) {
             unnamed_shared_heap_handle_hr =
                 unnamed_shared_heap_source
                     ? device->CreateSharedHandle(
-                          unnamed_shared_heap_source, nullptr, GENERIC_ALL,
+                          unnamed_shared_heap_source,
+                          &inherited_shared_attributes, GENERIC_ALL,
                           nullptr, &unnamed_shared_heap_handle)
                     : E_FAIL;
             unnamed_shared_heap_open_hr =
@@ -1911,6 +1983,10 @@ int main(int argc, char** argv) {
                 unnamed_shared_heap_open &&
                 opened_desc.SizeInBytes == unnamed_shared_heap_desc.SizeInBytes &&
                 opened_desc.Properties.Type == D3D12_HEAP_TYPE_UPLOAD;
+            if (unnamed_shared_heap_roundtrip_ok &&
+                unnamed_shared_heap_handle)
+                unnamed_shared_heap_cross_process_ok =
+                    launch_unnamed_heap_child(unnamed_shared_heap_handle);
         }
         D3D12_HEAP_DESC unsupported_shared_default_heap_desc = {};
         unsupported_shared_default_heap_desc.SizeInBytes = 64 * 1024;
@@ -4618,6 +4694,7 @@ int main(int argc, char** argv) {
         shared_default_heap_handle_hr == E_NOTIMPL &&
         unnamed_shared_roundtrip_ok && unnamed_shared_cross_process_ok &&
         unnamed_shared_fence_cross_process_ok &&
+        unnamed_shared_heap_cross_process_ok &&
         SUCCEEDED(unnamed_shared_source_hr) &&
         SUCCEEDED(unnamed_shared_create_hr) &&
         SUCCEEDED(unnamed_shared_open_hr) &&
@@ -4929,6 +5006,8 @@ int main(int argc, char** argv) {
     print_hr("unnamed_heap_open", unnamed_shared_heap_open_hr);
     std::printf("    \"unnamed_heap_roundtrip_verified\": %s,\n",
                 unnamed_shared_heap_roundtrip_ok ? "true" : "false");
+    std::printf("    \"unnamed_heap_cross_process_verified\": %s,\n",
+                unnamed_shared_heap_cross_process_ok ? "true" : "false");
     print_hr("default_heap_create", shared_default_heap_create_hr);
     print_hr("default_heap_handle_create", shared_default_heap_handle_hr);
     print_hr("fence_create", shared_fence_create_hr);
