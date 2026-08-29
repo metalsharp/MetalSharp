@@ -438,6 +438,7 @@ int main(int argc, char** argv) {
     ID3D12Heap* shared_heap_file_open = nullptr;
     ID3D12Heap* unnamed_shared_heap_source = nullptr;
     ID3D12Heap* unnamed_shared_heap_open = nullptr;
+    ID3D12Heap* unsupported_shared_default_heap = nullptr;
     HANDLE unnamed_shared_heap_handle = nullptr;
     std::vector<ResourceShapeProbe> resource_shapes;
     ID3D12Heap *placed_1d_array_heap = nullptr;
@@ -531,6 +532,9 @@ int main(int argc, char** argv) {
     HRESULT unnamed_shared_heap_handle_hr = E_FAIL;
     HRESULT unnamed_shared_heap_open_hr = E_FAIL;
     bool unnamed_shared_heap_roundtrip_ok = false;
+    HRESULT shared_default_heap_create_hr = E_FAIL;
+    HRESULT shared_default_heap_handle_hr = E_FAIL;
+    HANDLE shared_default_heap_handle = nullptr;
     HANDLE shared_handle = nullptr;
     HANDLE shared_named_handle = nullptr;
     HRESULT shared_create_hr = E_FAIL;
@@ -1481,6 +1485,23 @@ int main(int argc, char** argv) {
                 opened_desc.SizeInBytes == unnamed_shared_heap_desc.SizeInBytes &&
                 opened_desc.Properties.Type == D3D12_HEAP_TYPE_UPLOAD;
         }
+        D3D12_HEAP_DESC unsupported_shared_default_heap_desc = {};
+        unsupported_shared_default_heap_desc.SizeInBytes = 64 * 1024;
+        unsupported_shared_default_heap_desc.Properties = default_heap;
+        unsupported_shared_default_heap_desc.Flags =
+            D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        shared_default_heap_create_hr = device->CreateHeap(
+            &unsupported_shared_default_heap_desc,
+            IID_PPV_ARGS(&unsupported_shared_default_heap));
+        shared_default_heap_handle_hr =
+            unsupported_shared_default_heap
+                ? device->CreateSharedHandle(
+                      unsupported_shared_default_heap, nullptr, GENERIC_ALL,
+                      L"metalsharp-probe-default-heap",
+                      &shared_default_heap_handle)
+                : E_FAIL;
+        if (shared_default_heap_handle)
+            CloseHandle(shared_default_heap_handle);
         D3D12_DESCRIPTOR_HEAP_DESC residency_descriptor_desc = {};
         residency_descriptor_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         residency_descriptor_desc.NumDescriptors = 1;
@@ -4059,6 +4080,8 @@ int main(int argc, char** argv) {
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
         format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
         shared_heap_roundtrip_ok && unnamed_shared_heap_roundtrip_ok &&
+        SUCCEEDED(shared_default_heap_create_hr) &&
+        shared_default_heap_handle_hr == E_NOTIMPL &&
         unnamed_shared_roundtrip_ok && SUCCEEDED(unnamed_shared_source_hr) &&
         SUCCEEDED(unnamed_shared_create_hr) &&
         SUCCEEDED(unnamed_shared_open_hr) &&
@@ -4328,6 +4351,8 @@ int main(int argc, char** argv) {
     print_hr("unnamed_heap_open", unnamed_shared_heap_open_hr);
     std::printf("    \"unnamed_heap_roundtrip_verified\": %s,\n",
                 unnamed_shared_heap_roundtrip_ok ? "true" : "false");
+    print_hr("default_heap_create", shared_default_heap_create_hr);
+    print_hr("default_heap_handle_create", shared_default_heap_handle_hr);
     print_hr("fence_create", shared_fence_create_hr);
     print_hr("fence_handle_create", shared_fence_handle_hr);
     print_hr("fence_signal", shared_fence_signal_hr);
