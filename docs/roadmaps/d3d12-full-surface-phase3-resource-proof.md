@@ -9,9 +9,11 @@
 - CPU-visible upload/readback and GPU-upload buffers, plus default-resource
   `ReadFromSubresource`/`WriteToSubresource`, now use validated buffer copies;
   committed and placed GPU-upload buffers plus committed and placed RGBA8
-  GPU-upload textures map/round-trip exact bytes. Options16 reports
-  `GPUUploadHeapSupported`, `GetCustomHeapProperties` returns the cache-coherent
-  UMA mapping, and shared/shared-cross-adapter GPU-upload flags reject. An
+  GPU-upload textures map/round-trip exact bytes. An equivalent custom
+  write-back/L0 heap also places and round-trips an RGBA8 texture. Options16
+  reports `GPUUploadHeapSupported`, `GetCustomHeapProperties` returns the
+  cache-coherent UMA mapping, and shared/shared-cross-adapter GPU-upload flags
+  reject. An
   out-of-bounds `Map` read range rejects with `E_INVALIDARG` and leaves the
   output pointer null.
 - Texture subresource I/O resolves mip, array, box, block-compressed, and
@@ -261,6 +263,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.gpu_upload_texture_io_verified": true,
   "resource_shapes.gpu_upload_placed_io_verified": true,
   "resource_shapes.gpu_upload_texture_placed_io_verified": true,
+  "resource_shapes.custom_gpu_upload_texture_placed_io_verified": true,
   "resource_shapes.gpu_upload_feature_verified": true,
   "resource_shapes.gpu_upload_custom_properties_verified": true,
   "resource_shapes.gpu_upload_invalid_shared": "0x80070057",
