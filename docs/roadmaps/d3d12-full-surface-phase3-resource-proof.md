@@ -30,6 +30,9 @@
 - Resource flag validation rejects render-target resources with a buffer
   dimension and rejects mutually exclusive render-target/depth-stencil flags,
   both with exact `E_INVALIDARG` and no returned object.
+- NV12 footprints expand luma/chroma into R8/R8G8 planes with half-resolution
+  chroma dimensions (`13x8` plus `7x4`, 3072 bytes total); odd NV12 heights
+  reject with `E_INVALIDARG`.
 - Planar depth/stencil footprints expand the D24/R24G8 family into the
   documented R32 depth and R8 stencil planes across array slices and mips;
   eight subresources report exact plane formats, row sizes, dimensions, and
@@ -122,6 +125,9 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_footprint_total": 18446744073709551615,
   "resource_shapes.planar_footprint_total": 12032,
   "resource_shapes.planar_footprint_verified": true,
+  "resource_shapes.nv12_footprint_total": 3072,
+  "resource_shapes.nv12_footprint_verified": true,
+  "resource_shapes.invalid_nv12_height": "0x80070057",
   "resource_shapes.tight_alignment": {
     "feature_tier": 1,
     "allocation": [1024, 256],

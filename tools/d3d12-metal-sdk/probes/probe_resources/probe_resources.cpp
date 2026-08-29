@@ -369,6 +369,9 @@ int main(int argc, char** argv) {
     UINT64 invalid_footprint_total = 0;
     UINT64 planar_footprint_total = 0;
     bool planar_footprint_ok = false;
+    UINT64 nv12_footprint_total = 0;
+    bool nv12_footprint_ok = false;
+    HRESULT invalid_nv12_height_hr = E_FAIL;
     HRESULT tight_feature_hr = E_FAIL;
     UINT tight_feature_tier = 0;
     HRESULT tight_committed_hr = E_FAIL;
@@ -607,6 +610,33 @@ int main(int argc, char** argv) {
                 (!subresource || planar_layouts[subresource].Offset >
                                      planar_layouts[subresource - 1].Offset);
         }
+        D3D12_RESOURCE_DESC nv12_desc =
+            texture_desc(13, 8, DXGI_FORMAT_NV12);
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT nv12_layouts[2] = {};
+        UINT nv12_rows[2] = {};
+        UINT64 nv12_row_sizes[2] = {};
+        device->GetCopyableFootprints(
+            &nv12_desc, 0, 2, 0, nv12_layouts, nv12_rows,
+            nv12_row_sizes, &nv12_footprint_total);
+        nv12_footprint_ok =
+            nv12_layouts[0].Footprint.Format == DXGI_FORMAT_R8_UNORM &&
+            nv12_layouts[0].Footprint.Width == 13 &&
+            nv12_layouts[0].Footprint.Height == 8 && nv12_rows[0] == 8 &&
+            nv12_row_sizes[0] == 13 &&
+            nv12_layouts[1].Footprint.Format == DXGI_FORMAT_R8G8_UNORM &&
+            nv12_layouts[1].Footprint.Width == 7 &&
+            nv12_layouts[1].Footprint.Height == 4 && nv12_rows[1] == 4 &&
+            nv12_row_sizes[1] == 14 && nv12_footprint_total == 3072 &&
+            nv12_layouts[1].Offset > nv12_layouts[0].Offset;
+        D3D12_RESOURCE_DESC invalid_nv12_desc = nv12_desc;
+        invalid_nv12_desc.Height = 7;
+        ID3D12Resource *invalid_nv12_resource = nullptr;
+        invalid_nv12_height_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_nv12_desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_nv12_resource));
+        if (invalid_nv12_resource)
+            invalid_nv12_resource->Release();
 
         const D3D12_RESOURCE_FLAGS tight_flag =
             static_cast<D3D12_RESOURCE_FLAGS>(0x400);
@@ -889,6 +919,7 @@ int main(int argc, char** argv) {
                          null_allocation_size == 0 && null_allocation_alignment == 0 &&
                          invalid_footprint_total == UINT64_MAX &&
                          planar_footprint_ok && planar_footprint_total != 0 &&
+                         nv12_footprint_ok && invalid_nv12_height_hr == E_INVALIDARG &&
                          SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
                          null_sideband_alignment == 0 && null_sideband_offset == 0 &&
                          SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
@@ -2598,6 +2629,11 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(planar_footprint_total));
     std::printf("    \"planar_footprint_verified\": %s,\n",
                 planar_footprint_ok ? "true" : "false");
+    std::printf("    \"nv12_footprint_total\": %llu,\n",
+                static_cast<unsigned long long>(nv12_footprint_total));
+    std::printf("    \"nv12_footprint_verified\": %s,\n",
+                nv12_footprint_ok ? "true" : "false");
+    print_hr("invalid_nv12_height", invalid_nv12_height_hr);
     print_hr("null_sideband_query", null_sideband_query_hr);
     std::printf("    \"null_sideband\": [%llu,%llu,%llu],\n",
                 static_cast<unsigned long long>(null_sideband_size),
