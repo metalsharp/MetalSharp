@@ -3534,7 +3534,11 @@ int main(int argc, char** argv) {
         r8_partial_upload->Unmap(0, nullptr);
     }
     std::vector<SparseFormatProbe> sparse_format_probes = {
+        {"R8_UNORM", DXGI_FORMAT_R8_UNORM, 256, 256, 256, 256},
         {"R8G8_UNORM", DXGI_FORMAT_R8G8_UNORM, 256, 128, 256, 128},
+        {"R16_FLOAT", DXGI_FORMAT_R16_FLOAT, 256, 128, 256, 128},
+        {"R32_UINT", DXGI_FORMAT_R32_UINT, 128, 128, 128, 128},
+        {"R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM, 128, 128, 128, 128},
         {"R10G10B10A2_UNORM", DXGI_FORMAT_R10G10B10A2_UNORM, 128, 128, 128, 128},
         {"R11G11B10_FLOAT", DXGI_FORMAT_R11G11B10_FLOAT, 128, 128, 128, 128},
         {"R16G16B16A16_UNORM", DXGI_FORMAT_R16G16B16A16_UNORM, 128, 64, 128, 64},
@@ -4723,7 +4727,12 @@ int main(int argc, char** argv) {
     for (const auto& sparse_format : sparse_format_probes) {
         sparse_format_matrix_ok = sparse_format_matrix_ok && SUCCEEDED(sparse_format.texture_hr) &&
                                   SUCCEEDED(sparse_format.tiling_hr) && SUCCEEDED(sparse_format.readback_hr) &&
-                                  SUCCEEDED(sparse_format.readback_map_hr) && sparse_format.total_tiles == 1 &&
+                                  SUCCEEDED(sparse_format.readback_map_hr) &&
+                                  sparse_format.total_tiles == 1 &&
+                                  sparse_format.tile_shape.WidthInTexels ==
+                                      sparse_format.expected_tile_width &&
+                                  sparse_format.tile_shape.HeightInTexels ==
+                                      sparse_format.expected_tile_height &&
                                   sparse_format.copy_ok;
     }
 
@@ -5596,6 +5605,10 @@ int main(int argc, char** argv) {
                 r8_partial_packed_mips.StartTileIndexInOverallResource);
     std::printf("      \"r8_partial_copy_verified\": %s\n", r8_partial_copy_ok ? "true" : "false");
     std::printf("    },\n");
+    std::printf("    \"format_matrix_count\": %u,\n",
+                static_cast<unsigned>(sparse_format_probes.size()));
+    std::printf("    \"format_matrix_all_tile_shapes_verified\": %s,\n",
+                sparse_format_matrix_ok ? "true" : "false");
     std::printf("    \"format_matrix\": [\n");
     for (size_t i = 0; i < sparse_format_probes.size(); ++i) {
         const auto& sparse_format = sparse_format_probes[i];

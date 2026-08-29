@@ -38,8 +38,8 @@
   packed and partial mips, volume tiling, format variants, tile mapping,
   unmapped zeroing, and physical-page ownership remain behavior-backed by the
   resource probe. The sparse format matrix now executes exact one-tile
-  round-trips for R8G8, packed 10/11-bit, RGBA16, RGBA32, RGBA8_UINT, R32,
-  and BC1/BC4/BC7 (with each reported D3D12 tile shape checked).
+  round-trips with reported tile-shape checks for R8, R8G8, R16, R32,
+  RGBA8_UNORM, packed 10/11-bit, RGBA16, RGBA32, RGBA8_UINT, and BC1/BC4/BC7.
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
@@ -415,6 +415,8 @@ The isolated source-staged probe passed with:
   "sparse.array_alias_mapping_verified": true,
   "sparse.array_alias_first_byte": 7,
   "sparse.array_alias_second_byte": 11,
+  "sparse.format_matrix_count": 14,
+  "sparse.format_matrix_all_tile_shapes_verified": true,
   "sparse.packed_tail_reserved": {
     "total_tiles": 22,
     "footprint_verified": true,

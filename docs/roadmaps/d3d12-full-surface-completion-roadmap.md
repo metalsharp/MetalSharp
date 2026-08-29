@@ -599,8 +599,9 @@ array-slice `CopyTileMappings` with a cross-slice two-tile readback, preserved
 1D-array/cube-slice I/O, D24/D32 depth/stencil plane I/O plus queued stencil
 clear, relaxed-castable-format readback, tight and small-resource alignment,
 `CREATE_NOT_RESIDENT`/enqueued residency, descriptor/query-heap residency,
-cross-queue sparse mapping (including all tile-range modes), direct
-texture/BC/volume I/O, mipped arrays/volumes and MSAA arrays, D16 and typeless
+cross-queue sparse mapping (including all tile-range modes), a 14-format
+sparse tile-shape/readback matrix, direct texture/BC/volume I/O, mipped
+arrays/volumes and MSAA arrays, D16 and typeless
 R24/R32 depth-stencil/plane formats, provider-less R32G32B32 rejection,
 checked allocation/footprint arithmetic, mixed-alignment sidebands,
 nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and RGBA8
