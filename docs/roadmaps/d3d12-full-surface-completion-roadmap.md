@@ -613,7 +613,8 @@ unsupported-format allocation rejection, invalid simultaneous/cross-adapter
 buffer-flag and MSAA rejection, DXGI resource aggregation, generated
 pointer-free unnamed buffer/heap/fence mappings, inherited unnamed-buffer,
 heap, and fence cross-process read/write/signal/metadata, adapter-LUID
-mismatch rejection, and OfferResources/Trim/Reclaim
+mismatch rejection, shared-cross-adapter fence rejection, and
+OfferResources/Trim/Reclaim
 residency-state
 evidence. The latest sparse run also passes native 3D volume mapping,
 cross-resource mapping copy, readback, and physical-page ownership; direct
