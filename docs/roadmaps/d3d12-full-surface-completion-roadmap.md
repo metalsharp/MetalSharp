@@ -602,9 +602,9 @@ clear, relaxed-castable-format readback, tight and small-resource alignment,
 cross-queue sparse mapping (including all tile-range modes), a 14-format
 sparse tile-shape/readback matrix, packed-tail array tiling and both-slice
 packed-tail readback, direct texture/BC/volume I/O, mipped arrays/volumes and
-MSAA arrays, D16 and typeless
-R24/R32 depth-stencil/plane formats, provider-less R32G32B32 rejection,
-checked allocation/footprint arithmetic, mixed-alignment sidebands,
+MSAA arrays, D16 and typeless R24/R32 depth-stencil/plane formats,
+provider-less R32G32B32 rejection with zero allocation, checked
+allocation/footprint arithmetic, mixed-alignment sidebands,
 nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and RGBA8
 texture I/O, custom-equivalent GPU-upload placement, Options16 reporting,
 unsupported heap/resource/fence flag rejection, DXGI resource aggregation,

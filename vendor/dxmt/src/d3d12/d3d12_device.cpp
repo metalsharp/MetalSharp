@@ -457,6 +457,18 @@ static UINT FormatBytesPerTexel(DXGI_FORMAT format) {
   }
 }
 
+static bool IsPlanarResourceFormat(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_NV12:
+  case DXGI_FORMAT_P010:
+  case DXGI_FORMAT_P016:
+  case DXGI_FORMAT_420_OPAQUE:
+    return true;
+  default:
+    return false;
+  }
+}
+
 static UINT FormatPlaneCount(DXGI_FORMAT format) {
   switch (format) {
   case DXGI_FORMAT_R24G8_TYPELESS:
@@ -813,10 +825,12 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
     return false;
   }
 
-  const bool planar =
-      desc.Format == DXGI_FORMAT_NV12 || desc.Format == DXGI_FORMAT_P010 ||
-      desc.Format == DXGI_FORMAT_P016 || desc.Format == DXGI_FORMAT_420_OPAQUE;
+  const bool planar = IsPlanarResourceFormat(desc.Format);
   if (planar && desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    return false;
+  if (!planar &&
+      MTLD3D12PipelineState::DXGIToMTLPixelFormat(desc.Format) ==
+          WMTPixelFormatInvalid)
     return false;
 
   if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
