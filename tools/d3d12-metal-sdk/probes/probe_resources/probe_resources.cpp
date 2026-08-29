@@ -446,8 +446,11 @@ int main(int argc, char** argv) {
     ID3D12Heap *placed_2d_heap = nullptr;
     ID3D12Resource *placed_2d_resource = nullptr;
     ID3D12Heap *gpu_upload_heap = nullptr;
+    ID3D12Heap *gpu_upload_texture_heap = nullptr;
     ID3D12Resource *gpu_upload_resource = nullptr;
+    ID3D12Resource *gpu_upload_texture = nullptr;
     ID3D12Resource *gpu_upload_placed = nullptr;
+    ID3D12Resource *gpu_upload_texture_placed = nullptr;
     HRESULT placed_1d_array_heap_hr = E_FAIL;
     HRESULT placed_1d_array_resource_hr = E_FAIL;
     HRESULT placed_1d_array_write_hr[2] = {E_FAIL, E_FAIL};
@@ -459,10 +462,15 @@ int main(int argc, char** argv) {
     HRESULT placed_2d_read_hr = E_FAIL;
     bool placed_2d_io_ok = false;
     HRESULT gpu_upload_resource_hr = E_FAIL;
+    HRESULT gpu_upload_texture_hr = E_FAIL;
     HRESULT gpu_upload_heap_hr = E_FAIL;
     HRESULT gpu_upload_placed_hr = E_FAIL;
+    HRESULT gpu_upload_texture_heap_hr = E_FAIL;
+    HRESULT gpu_upload_texture_placed_hr = E_FAIL;
     bool gpu_upload_io_ok = false;
+    bool gpu_upload_texture_io_ok = false;
     bool gpu_upload_placed_io_ok = false;
+    bool gpu_upload_texture_placed_io_ok = false;
     HRESULT invalid_zero_width_hr = E_FAIL;
     HRESULT oversized_1d_hr = E_FAIL;
     HRESULT oversized_2d_hr = E_FAIL;
@@ -787,6 +795,59 @@ int main(int argc, char** argv) {
                     SUCCEEDED(read_hr) &&
                     std::memcmp(source, readback, sizeof(readback)) == 0;
             }
+        }
+        D3D12_RESOURCE_DESC gpu_upload_texture_desc =
+            texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        gpu_upload_texture_hr = device->CreateCommittedResource(
+            &gpu_upload_properties, D3D12_HEAP_FLAG_NONE,
+            &gpu_upload_texture_desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr, IID_PPV_ARGS(&gpu_upload_texture));
+        if (gpu_upload_texture) {
+            uint8_t source[8 * 8 * 4] = {};
+            uint8_t destination[sizeof(source)] = {};
+            for (UINT i = 0; i < sizeof(source); ++i)
+                source[i] = static_cast<uint8_t>((i * 11u + 0x37u) & 0xffu);
+            HRESULT write_hr = gpu_upload_texture->WriteToSubresource(
+                0, nullptr, source, 8 * 4, sizeof(source));
+            HRESULT read_hr = gpu_upload_texture->ReadFromSubresource(
+                destination, 8 * 4, sizeof(destination), 0, nullptr);
+            gpu_upload_texture_io_ok =
+                SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
+                std::memcmp(source, destination, sizeof(source)) == 0;
+        }
+        const D3D12_RESOURCE_ALLOCATION_INFO gpu_upload_texture_info =
+            device->GetResourceAllocationInfo(
+                0, 1, &gpu_upload_texture_desc);
+        D3D12_HEAP_DESC gpu_upload_texture_heap_desc = {};
+        gpu_upload_texture_heap_desc.SizeInBytes =
+            gpu_upload_texture_info.SizeInBytes;
+        gpu_upload_texture_heap_desc.Alignment =
+            gpu_upload_texture_info.Alignment;
+        gpu_upload_texture_heap_desc.Properties = gpu_upload_properties;
+        gpu_upload_texture_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
+        gpu_upload_texture_heap_hr = device->CreateHeap(
+            &gpu_upload_texture_heap_desc,
+            IID_PPV_ARGS(&gpu_upload_texture_heap));
+        gpu_upload_texture_placed_hr =
+            gpu_upload_texture_heap
+                ? device->CreatePlacedResource(
+                      gpu_upload_texture_heap, 0,
+                      &gpu_upload_texture_desc,
+                      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                      IID_PPV_ARGS(&gpu_upload_texture_placed))
+                : E_FAIL;
+        if (gpu_upload_texture_placed) {
+            uint8_t source[8 * 8 * 4] = {};
+            uint8_t destination[sizeof(source)] = {};
+            for (UINT i = 0; i < sizeof(source); ++i)
+                source[i] = static_cast<uint8_t>((i * 13u + 0x61u) & 0xffu);
+            HRESULT write_hr = gpu_upload_texture_placed->WriteToSubresource(
+                0, nullptr, source, 8 * 4, sizeof(source));
+            HRESULT read_hr = gpu_upload_texture_placed->ReadFromSubresource(
+                destination, 8 * 4, sizeof(destination), 0, nullptr);
+            gpu_upload_texture_placed_io_ok =
+                SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
+                std::memcmp(source, destination, sizeof(source)) == 0;
         }
         D3D12_HEAP_DESC gpu_upload_heap_desc = {};
         gpu_upload_heap_desc.SizeInBytes = 64 * 1024;
@@ -4218,6 +4279,10 @@ int main(int argc, char** argv) {
         SUCCEEDED(placed_2d_resource_hr) && SUCCEEDED(placed_2d_write_hr) &&
         SUCCEEDED(placed_2d_read_hr) && placed_2d_io_ok &&
         SUCCEEDED(gpu_upload_resource_hr) && gpu_upload_io_ok &&
+        SUCCEEDED(gpu_upload_texture_hr) && gpu_upload_texture_io_ok &&
+        SUCCEEDED(gpu_upload_texture_heap_hr) &&
+        SUCCEEDED(gpu_upload_texture_placed_hr) &&
+        gpu_upload_texture_placed_io_ok &&
         SUCCEEDED(gpu_upload_heap_hr) && SUCCEEDED(gpu_upload_placed_hr) &&
         gpu_upload_placed_io_ok &&
         sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
@@ -4342,6 +4407,13 @@ int main(int argc, char** argv) {
     std::printf("    \"placed_2d_io_verified\": %s,\n",
                 placed_2d_io_ok ? "true" : "false");
     print_hr("gpu_upload_resource_create", gpu_upload_resource_hr);
+    print_hr("gpu_upload_texture_create", gpu_upload_texture_hr);
+    std::printf("    \"gpu_upload_texture_io_verified\": %s,\n",
+                gpu_upload_texture_io_ok ? "true" : "false");
+    print_hr("gpu_upload_texture_heap_create", gpu_upload_texture_heap_hr);
+    print_hr("gpu_upload_texture_placed_create", gpu_upload_texture_placed_hr);
+    std::printf("    \"gpu_upload_texture_placed_io_verified\": %s,\n",
+                gpu_upload_texture_placed_io_ok ? "true" : "false");
     print_hr("gpu_upload_heap_create", gpu_upload_heap_hr);
     print_hr("gpu_upload_placed_create", gpu_upload_placed_hr);
     std::printf("    \"gpu_upload_resource_io_verified\": %s,\n",

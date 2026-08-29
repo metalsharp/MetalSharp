@@ -252,7 +252,10 @@ HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
 }
 
 WMT::Reference<WMT::Heap> MTLD3D12Heap::GetMTLHeap() {
-  if (m_heap.handle || m_desc.Properties.Type != D3D12_HEAP_TYPE_DEFAULT ||
+  const UINT heap_type = static_cast<UINT>(m_desc.Properties.Type);
+  const bool gpu_upload = heap_type == 5;
+  if (m_heap.handle || (!gpu_upload &&
+                        m_desc.Properties.Type != D3D12_HEAP_TYPE_DEFAULT) ||
       !m_desc.SizeInBytes ||
       (m_desc.Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) ==
           D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS)
@@ -260,7 +263,8 @@ WMT::Reference<WMT::Heap> MTLD3D12Heap::GetMTLHeap() {
   auto wmt_device = m_device->GetDXMTDevice().device();
   WMTHeapInfo info = {};
   info.size = m_desc.SizeInBytes;
-  info.options = WMTResourceStorageModePrivate |
+  info.options = (gpu_upload ? WMTResourceStorageModeShared
+                             : WMTResourceStorageModePrivate) |
                  WMTResourceHazardTrackingModeTracked;
   info.type = WMTHeapTypePlacement;
   info.max_compatible_placement_sparse_page_size = WMTSparsePageSize64;

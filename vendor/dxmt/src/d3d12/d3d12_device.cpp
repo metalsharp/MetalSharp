@@ -5438,7 +5438,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
                           WMTTextureUsageShaderRead |
                           WMTTextureUsageShaderWrite |
                           WMTTextureUsagePixelFormatView);
-    texture_info.options = WMTResourceStorageModePrivate;
+    texture_info.options =
+        static_cast<UINT>(heap_props.Type) == 5
+            ? WMTResourceStorageModeShared
+            : WMTResourceStorageModePrivate;
     texture_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(
         static_cast<DXGI_FORMAT>(desc->Format));
     if (texture_info.pixel_format == WMTPixelFormatInvalid)
