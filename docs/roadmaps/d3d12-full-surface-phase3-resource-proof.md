@@ -70,7 +70,9 @@
 - Planar depth/stencil footprints expand the D24/R24G8 family into the
   documented R32 depth and R8 stencil planes across array slices and mips;
   eight subresources report exact plane formats, row sizes, dimensions, and
-  ordered offsets (`12032` total bytes).
+  ordered offsets (`12032` total bytes). D24 plane-0 and plane-1 direct I/O
+  round-trips exact depth/stencil bytes, and a queued stencil-only clear is
+  visible through a subsequent plane-1 readback.
 - Invalid `GetCopyableFootprints` descriptors initialize the documented
   `pTotalBytes` sentinel (`UINT64_MAX`) instead of reporting a fabricated
   zero-sized layout.
@@ -269,7 +271,10 @@ The focused view probe passed the castable case with `observed_bits=0x3f800000`,
 invalid castable list and left the undeclared `R32_SINT` view unusable. The same
 run exercises the corrected composite heap restriction mask and reports
 `cube_six_slice_array=true` with `cube_face_io_verified=true`, and
-`texture1d_array_face_io_verified=true`.
+`texture1d_array_face_io_verified=true`. Its D24 plane lane reports
+`depth_plane_bytes_verified=true`, `stencil_plane_bytes_verified=true`, and
+`stencil_clear_verified=true`, with all reported plane/clear HRESULTs equal
+`0x00000000`.
 
 ### DXGI residency view
 

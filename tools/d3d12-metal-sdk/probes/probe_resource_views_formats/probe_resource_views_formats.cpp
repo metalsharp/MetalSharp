@@ -323,6 +323,8 @@ static CaseResult run_resource_shapes_case() {
     ID3D12Resource* tex2d_array_mips = nullptr;
     ID3D12Resource* tex3d = nullptr;
     ID3D12Resource* cube = nullptr;
+    ID3D12Resource* depth_stencil_io = nullptr;
+    ID3D12DescriptorHeap* depth_stencil_dsv_heap = nullptr;
     ID3D12Resource* msaa = nullptr;
     ID3D12Heap* heap = nullptr;
     ID3D12Resource* placed_buffer = nullptr;
@@ -438,6 +440,85 @@ static CaseResult run_resource_shapes_case() {
     HRESULT tex3d_hr =
         device ? create_committed_texture(device, tex3d_desc_v, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, &tex3d)
                : E_FAIL;
+    D3D12_RESOURCE_DESC depth_stencil_io_desc =
+        texture2d_desc(4, 4, 1, 1, DXGI_FORMAT_D24_UNORM_S8_UINT,
+                       D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    D3D12_CLEAR_VALUE depth_stencil_io_clear = {};
+    depth_stencil_io_clear.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depth_stencil_io_clear.DepthStencil.Depth = 1.0f;
+    HRESULT depth_stencil_hr =
+        device ? create_committed_texture(device, depth_stencil_io_desc,
+                                          D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                                          &depth_stencil_io_clear,
+                                          &depth_stencil_io)
+               : E_FAIL;
+    HRESULT depth_plane_write_hr = E_FAIL;
+    HRESULT depth_plane_read_hr = E_FAIL;
+    HRESULT stencil_plane_write_hr = E_FAIL;
+    HRESULT stencil_plane_read_hr = E_FAIL;
+    HRESULT depth_stencil_dsv_heap_hr = E_FAIL;
+    HRESULT stencil_clear_execute_hr = E_FAIL;
+    bool stencil_clear_verified = false;
+    uint32_t depth_plane_observed[4] = {};
+    uint8_t stencil_plane_observed[4] = {};
+    bool depth_plane_bytes_ok = false;
+    bool stencil_plane_bytes_ok = false;
+    bool depth_stencil_plane_io_ok = false;
+    if (SUCCEEDED(depth_stencil_hr) && depth_stencil_io) {
+        const D3D12_BOX plane_box = {0, 0, 0, 2, 2, 1};
+        uint32_t depth_source[4] = {0x3e800000u, 0x3f000000u,
+                                    0x3f400000u, 0x3f600000u};
+        const uint8_t stencil_source[4] = {0x12, 0x34, 0x56, 0x78};
+        depth_plane_write_hr = depth_stencil_io->WriteToSubresource(
+            0, &plane_box, depth_source, 8, 16);
+        depth_plane_read_hr = depth_stencil_io->ReadFromSubresource(
+            depth_plane_observed, 8, 16, 0, &plane_box);
+        stencil_plane_write_hr = depth_stencil_io->WriteToSubresource(
+            1, &plane_box, stencil_source, 2, 4);
+        stencil_plane_read_hr = depth_stencil_io->ReadFromSubresource(
+            stencil_plane_observed, 2, 4, 1, &plane_box);
+        depth_plane_bytes_ok =
+            std::memcmp(depth_source, depth_plane_observed,
+                        sizeof(depth_source)) == 0;
+        stencil_plane_bytes_ok =
+            std::memcmp(stencil_source, stencil_plane_observed,
+                        sizeof(stencil_source)) == 0;
+        depth_stencil_plane_io_ok =
+            SUCCEEDED(depth_plane_write_hr) && SUCCEEDED(depth_plane_read_hr) &&
+            SUCCEEDED(stencil_plane_write_hr) &&
+            SUCCEEDED(stencil_plane_read_hr) && depth_plane_bytes_ok &&
+            stencil_plane_bytes_ok;
+        D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc = {};
+        dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        dsv_heap_desc.NumDescriptors = 1;
+        depth_stencil_dsv_heap_hr = device->CreateDescriptorHeap(
+            &dsv_heap_desc, IID_PPV_ARGS(&depth_stencil_dsv_heap));
+        if (SUCCEEDED(depth_stencil_dsv_heap_hr) && depth_stencil_dsv_heap &&
+            allocator && list) {
+            D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+            dsv_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+            dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+            device->CreateDepthStencilView(
+                depth_stencil_io, &dsv_desc,
+                depth_stencil_dsv_heap->GetCPUDescriptorHandleForHeapStart());
+            allocator->Reset();
+            if (SUCCEEDED(list->Reset(allocator, nullptr))) {
+                list->ClearDepthStencilView(
+                    depth_stencil_dsv_heap->GetCPUDescriptorHandleForHeapStart(),
+                    D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0xa5, 0, nullptr);
+                stencil_clear_execute_hr = execute_and_wait(device, queue, list);
+                uint8_t stencil_after_clear[16] = {};
+                HRESULT stencil_clear_read_hr =
+                    depth_stencil_io->ReadFromSubresource(
+                        stencil_after_clear, 4, 16, 1, nullptr);
+                stencil_clear_verified =
+                    SUCCEEDED(stencil_clear_execute_hr) &&
+                    SUCCEEDED(stencil_clear_read_hr);
+                for (uint8_t value : stencil_after_clear)
+                    stencil_clear_verified &= value == 0xa5;
+            }
+        }
+    }
     HRESULT cube_hr =
         device ? create_committed_texture(device, cube_desc_v, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, &cube)
                : E_FAIL;
@@ -493,6 +574,8 @@ static CaseResult run_resource_shapes_case() {
     D3D12_RESOURCE_DESC tex2d_roundtrip = tex2d_array_mips ? tex2d_array_mips->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC tex3d_roundtrip = tex3d ? tex3d->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC cube_roundtrip = cube ? cube->GetDesc() : D3D12_RESOURCE_DESC{};
+    D3D12_RESOURCE_DESC depth_stencil_roundtrip =
+        depth_stencil_io ? depth_stencil_io->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC msaa_roundtrip = msaa ? msaa->GetDesc() : D3D12_RESOURCE_DESC{};
     bool shapes_ok =
         tex1d_roundtrip.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D && tex1d_roundtrip.Width == 16 &&
@@ -502,7 +585,9 @@ static CaseResult run_resource_shapes_case() {
         tex2d_roundtrip.MipLevels == 3 && tex3d_roundtrip.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
         tex3d_roundtrip.DepthOrArraySize == 4 && tex3d_roundtrip.MipLevels == 2 &&
         cube_roundtrip.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
-        cube_roundtrip.DepthOrArraySize == 6 && msaa_roundtrip.SampleDesc.Count == 4;
+        cube_roundtrip.DepthOrArraySize == 6 &&
+        depth_stencil_roundtrip.Format == DXGI_FORMAT_D24_UNORM_S8_UINT &&
+        msaa_roundtrip.SampleDesc.Count == 4;
     bool map_behavior_ok = SUCCEEDED(upload_map_hr) && SUCCEEDED(readback_map_hr) && FAILED(default_map_hr);
     bool gpu_va_ok = upload && def && placed_buffer && upload->GetGPUVirtualAddress() != 0 &&
                      def->GetGPUVirtualAddress() != 0 && placed_buffer->GetGPUVirtualAddress() != 0 &&
@@ -514,13 +599,16 @@ static CaseResult run_resource_shapes_case() {
     result.pass = SUCCEEDED(hr) && SUCCEEDED(upload_hr) && SUCCEEDED(default_hr) && SUCCEEDED(readback_hr) &&
                   buffer_copy_ok && map_behavior_ok && gpu_va_ok && SUCCEEDED(tex1d_hr) &&
                   SUCCEEDED(tex1d_array_hr) && SUCCEEDED(tex2d_array_mips_hr) && SUCCEEDED(tex3d_hr) &&
-                  SUCCEEDED(cube_hr) && cube_face_io_ok && SUCCEEDED(msaa_hr) && shapes_ok &&
+                  SUCCEEDED(cube_hr) && cube_face_io_ok && SUCCEEDED(depth_stencil_hr) &&
+                  depth_stencil_plane_io_ok && SUCCEEDED(depth_stencil_dsv_heap_hr) &&
+                  SUCCEEDED(stencil_clear_execute_hr) && stencil_clear_verified &&
+                  SUCCEEDED(msaa_hr) && shapes_ok &&
                   allocation_ok && SUCCEEDED(heap_hr) && SUCCEEDED(placed_buffer_hr) && SUCCEEDED(placed_texture_hr);
     result.hr = result.pass ? S_OK : hr;
     result.detail =
         result.pass ? "committed, placed, upload, readback, default, 1D/1D-array, 2D array/mip, cube, 3D, and MSAA resources verified"
                     : "resource shape, heap, map, or copy verification failed";
-    char extra[1024] = {};
+    char extra[2048] = {};
     std::snprintf(extra, sizeof(extra),
                   "\"upload_create\":\"%s\",\"default_create\":\"%s\",\"readback_create\":\"%s\","
                   "\"upload_map\":\"%s\",\"readback_map\":\"%s\",\"default_map_rejected\":%s,"
@@ -530,7 +618,16 @@ static CaseResult run_resource_shapes_case() {
                   "\"texture1d_array_mismatch_actual_expected\":[%u,%u],"
                   "\"texture2d_array_mips_create\":\"%s\","
                   "\"texture3d_create\":\"%s\",\"cube_create\":\"%s\",\"cube_six_slice_array\":%s,"
-                  "\"cube_face_io_verified\":%s,\"msaa4x_create\":\"%s\",\"heap_create\":\"%s\","
+                  "\"cube_face_io_verified\":%s,\"depth_stencil_create\":\"%s\","
+                  "\"depth_plane_write\":\"%s\",\"depth_plane_read\":\"%s\","
+                  "\"stencil_plane_write\":\"%s\",\"stencil_plane_read\":\"%s\","
+                  "\"depth_plane_bytes_verified\":%s,\"stencil_plane_bytes_verified\":%s,"
+                  "\"depth_plane_observed\":[%u,%u,%u,%u],"
+                  "\"stencil_plane_observed\":[%u,%u,%u,%u],"
+                  "\"depth_stencil_plane_io_verified\":%s,\"depth_stencil_dsv_heap\":\"%s\","
+                  "\"stencil_clear_execute\":\"%s\",\"stencil_clear_verified\":%s,"
+                  "\"msaa4x_create\":\"%s\","
+                  "\"heap_create\":\"%s\","
                   "\"placed_buffer_create\":\"%s\",\"placed_texture_create\":\"%s\","
                   "\"combined_allocation_size\":%llu,\"combined_allocation_alignment\":%llu,"
                   "\"gpu_virtual_addresses_nonzero_unique\":%s,\"buffer_copy_verified\":%s",
@@ -543,7 +640,16 @@ static CaseResult run_resource_shapes_case() {
                   tex1d_array_mismatch_expected, hr_hex(tex2d_array_mips_hr).c_str(), hr_hex(tex3d_hr).c_str(),
                   hr_hex(cube_hr).c_str(),
                   cube_roundtrip.DepthOrArraySize == 6 ? "true" : "false",
-                  cube_face_io_ok ? "true" : "false", hr_hex(msaa_hr).c_str(), hr_hex(heap_hr).c_str(),
+                  cube_face_io_ok ? "true" : "false", hr_hex(depth_stencil_hr).c_str(),
+                  hr_hex(depth_plane_write_hr).c_str(), hr_hex(depth_plane_read_hr).c_str(),
+                  hr_hex(stencil_plane_write_hr).c_str(), hr_hex(stencil_plane_read_hr).c_str(),
+                  depth_plane_bytes_ok ? "true" : "false", stencil_plane_bytes_ok ? "true" : "false",
+                  depth_plane_observed[0], depth_plane_observed[1], depth_plane_observed[2],
+                  depth_plane_observed[3], stencil_plane_observed[0], stencil_plane_observed[1],
+                  stencil_plane_observed[2], stencil_plane_observed[3],
+                  depth_stencil_plane_io_ok ? "true" : "false", hr_hex(depth_stencil_dsv_heap_hr).c_str(),
+                  hr_hex(stencil_clear_execute_hr).c_str(), stencil_clear_verified ? "true" : "false",
+                  hr_hex(msaa_hr).c_str(), hr_hex(heap_hr).c_str(),
                   hr_hex(placed_buffer_hr).c_str(), hr_hex(placed_texture_hr).c_str(),
                   static_cast<unsigned long long>(combined_alloc.SizeInBytes),
                   static_cast<unsigned long long>(combined_alloc.Alignment), gpu_va_ok ? "true" : "false",
@@ -554,6 +660,8 @@ static CaseResult run_resource_shapes_case() {
     safe_release(placed_buffer);
     safe_release(heap);
     safe_release(msaa);
+    safe_release(depth_stencil_dsv_heap);
+    safe_release(depth_stencil_io);
     safe_release(cube);
     safe_release(tex3d);
     safe_release(tex2d_array_mips);
