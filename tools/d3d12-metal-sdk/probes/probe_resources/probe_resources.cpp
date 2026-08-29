@@ -456,6 +456,7 @@ int main(int argc, char** argv) {
     HRESULT address_open_hr = E_FAIL;
     HRESULT invalid_heap_alignment_hr = E_FAIL;
     HRESULT invalid_heap_flags_hr = E_FAIL;
+    HRESULT invalid_heap_size_hr = E_FAIL;
     HRESULT misaligned_placement_hr = E_FAIL;
     bool address_heap_open_ok = false;
     bool heap_aliasing_ok = false;
@@ -997,46 +998,7 @@ int main(int argc, char** argv) {
         verify_mip_footprints(footprint_mips, 6) &&
         verify_footprints(footprint_3d, 1, 7, 5, 4, 7, 5) &&
         verify_footprints(footprint_bc, 1, 7, 5, 1, 16, 2);
-    resource_shapes_ok = resource_shapes_ok && footprint_matrix_ok &&
-                         FAILED(invalid_zero_width_hr) &&
-                         invalid_committed_heap_flags_hr == E_INVALIDARG &&
-                         invalid_heap_properties_hr == E_INVALIDARG &&
-                         invalid_node_mask_hr == E_INVALIDARG &&
-                         invalid_upload_state_hr == E_INVALIDARG &&
-                         invalid_readback_state_hr == E_INVALIDARG &&
-                         invalid_buffer_resource_flags_hr == E_INVALIDARG &&
-                         invalid_texture_resource_flags_hr == E_INVALIDARG &&
-                         invalid_depth_format_flags_hr == E_INVALIDARG &&
-                         invalid_clear_without_flag_hr == E_INVALIDARG &&
-                         invalid_clear_format_hr == E_INVALIDARG &&
-                         null_heap_properties_hr == E_INVALIDARG &&
-                         FAILED(invalid_msaa_mips_hr) &&
-                         invalid_zero_width_allocation_size == 0 && invalid_zero_width_allocation_alignment == 0 &&
-                         invalid_msaa_mips_allocation_size == 0 && invalid_msaa_mips_allocation_alignment == 0 &&
-                         volume_allocation_size == 64 * 1024 &&
-                         volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
-                         null_allocation_size == 0 && null_allocation_alignment == 0 &&
-                         invalid_footprint_total == UINT64_MAX &&
-                         planar_footprint_ok && planar_footprint_total != 0 &&
-                         nv12_footprint_ok && invalid_nv12_height_hr == E_INVALIDARG &&
-                         SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
-                         null_sideband_alignment == 0 && null_sideband_offset == 0 &&
-                         SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
-                         SUCCEEDED(tight_committed_hr) && SUCCEEDED(tight_allocation_info_hr) &&
-                         tight_allocation_size == 1024 && tight_allocation_alignment == 256 &&
-                         SUCCEEDED(tight_heap_hr) && null_heap_desc_ok && SUCCEEDED(tight_placed_hr) &&
-                         tight_placed_roundtrip_ok && tight_invalid_alignment_hr == E_INVALIDARG &&
-                         tight_overaligned_placed_hr == E_INVALIDARG && tight_reserved_hr == E_INVALIDARG &&
-                         full_mip_create_hr == S_OK && full_mip_count == 6 && full_mip_footprint_ok &&
-                         SUCCEEDED(not_resident_committed_hr) &&
-                         not_resident_initial_map_hr == DXGI_ERROR_INVALID_CALL &&
-                         SUCCEEDED(not_resident_make_resident_hr) &&
-                         SUCCEEDED(not_resident_remade_map_hr) && SUCCEEDED(not_resident_heap_hr) &&
-                         SUCCEEDED(not_resident_placed_hr) && not_resident_roundtrip_ok &&
-                         SUCCEEDED(residency_fence_hr) && SUCCEEDED(enqueue_make_resident_hr) &&
-                         invalid_enqueue_flags_hr == E_INVALIDARG && enqueue_fence_completed >= 9 &&
-                         FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
-                         FAILED(misaligned_placement_hr);
+    resource_shapes_ok = resource_shapes_ok && footprint_matrix_ok;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                                         IID_PPV_ARGS(&upload_buffer))
@@ -1065,6 +1027,11 @@ int main(int argc, char** argv) {
         invalid_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_DENY_BUFFERS;
         invalid_heap = nullptr;
         invalid_heap_flags_hr = device->CreateHeap(&invalid_heap_desc, IID_PPV_ARGS(&invalid_heap));
+        if (invalid_heap)
+            invalid_heap->Release();
+        invalid_heap_desc = address_heap_desc;
+        invalid_heap_desc.SizeInBytes = UINT64_MAX;
+        invalid_heap_size_hr = device->CreateHeap(&invalid_heap_desc, IID_PPV_ARGS(&invalid_heap));
         if (invalid_heap)
             invalid_heap->Release();
         D3D12_RESOURCE_DESC address_desc = buffer_desc(4096);
@@ -2708,6 +2675,51 @@ int main(int argc, char** argv) {
     if (shared_named_handle)
         CloseHandle(shared_named_handle);
 
+    const bool resource_validation_ok =
+        FAILED(invalid_zero_width_hr) &&
+        invalid_committed_heap_flags_hr == E_INVALIDARG &&
+        invalid_heap_properties_hr == E_INVALIDARG &&
+        invalid_node_mask_hr == E_INVALIDARG &&
+        invalid_upload_state_hr == E_INVALIDARG &&
+        invalid_readback_state_hr == E_INVALIDARG &&
+        invalid_buffer_resource_flags_hr == E_INVALIDARG &&
+        invalid_texture_resource_flags_hr == E_INVALIDARG &&
+        invalid_depth_format_flags_hr == E_INVALIDARG &&
+        invalid_clear_without_flag_hr == E_INVALIDARG &&
+        invalid_clear_format_hr == E_INVALIDARG &&
+        null_heap_properties_hr == E_INVALIDARG &&
+        FAILED(invalid_msaa_mips_hr) &&
+        invalid_zero_width_allocation_size == 0 &&
+        invalid_zero_width_allocation_alignment == 0 &&
+        invalid_msaa_mips_allocation_size == 0 &&
+        invalid_msaa_mips_allocation_alignment == 0 &&
+        volume_allocation_size == 64 * 1024 &&
+        volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
+        null_allocation_size == 0 && null_allocation_alignment == 0 &&
+        invalid_footprint_total == UINT64_MAX && planar_footprint_ok &&
+        planar_footprint_total != 0 && nv12_footprint_ok &&
+        invalid_nv12_height_hr == E_INVALIDARG &&
+        SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
+        null_sideband_alignment == 0 && null_sideband_offset == 0 &&
+        SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
+        SUCCEEDED(tight_committed_hr) && SUCCEEDED(tight_allocation_info_hr) &&
+        tight_allocation_size == 1024 && tight_allocation_alignment == 256 &&
+        SUCCEEDED(tight_heap_hr) && null_heap_desc_ok &&
+        SUCCEEDED(tight_placed_hr) && tight_placed_roundtrip_ok &&
+        tight_invalid_alignment_hr == E_INVALIDARG &&
+        tight_overaligned_placed_hr == E_INVALIDARG &&
+        tight_reserved_hr == E_INVALIDARG && full_mip_create_hr == S_OK &&
+        full_mip_count == 6 && full_mip_footprint_ok &&
+        SUCCEEDED(not_resident_committed_hr) &&
+        not_resident_initial_map_hr == DXGI_ERROR_INVALID_CALL &&
+        SUCCEEDED(not_resident_make_resident_hr) &&
+        SUCCEEDED(not_resident_remade_map_hr) && SUCCEEDED(not_resident_heap_hr) &&
+        SUCCEEDED(not_resident_placed_hr) && not_resident_roundtrip_ok &&
+        SUCCEEDED(residency_fence_hr) && SUCCEEDED(enqueue_make_resident_hr) &&
+        invalid_enqueue_flags_hr == E_INVALIDARG && enqueue_fence_completed >= 9 &&
+        FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
+        invalid_heap_size_hr == E_INVALIDARG && FAILED(misaligned_placement_hr);
+
     bool pass =
         SUCCEEDED(create_hr) && device_luid_ok && SUCCEEDED(queue_hr) && SUCCEEDED(sparse_mapping_queue_hr) &&
         SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) && SUCCEEDED(fence_hr) &&
@@ -2784,7 +2796,8 @@ int main(int argc, char** argv) {
         SUCCEEDED(residency_query_heap_make_hr) &&
         SUCCEEDED(residency_pageable_priority_hr) &&
         default_cpu_io_ok && residency_state_ok && heap_residency_ok && address_heap_open_ok &&
-        heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok &&
+        heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok &&
+        resource_shapes_ok && resource_validation_ok &&
         sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
@@ -2858,6 +2871,7 @@ int main(int argc, char** argv) {
     std::printf("  },\n");
     std::printf("  \"resource_shapes\": {\n");
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
+    std::printf("    \"validation_matrix_verified\": %s,\n", resource_validation_ok ? "true" : "false");
     std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
@@ -2952,6 +2966,7 @@ int main(int argc, char** argv) {
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);
+    print_hr("invalid_heap_size", invalid_heap_size_hr);
     std::printf("    \"cases\": [\n");
     for (size_t i = 0; i < resource_shapes.size(); ++i) {
         const auto& shape = resource_shapes[i];

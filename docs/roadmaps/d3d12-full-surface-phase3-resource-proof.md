@@ -139,6 +139,7 @@ The isolated source-staged probe passed with:
   "buffers.heap_residency_verified": true,
   "buffers.texture_gpu_va_zero": true,
   "resource_shapes.all_created_and_roundtripped": true,
+  "resource_shapes.validation_matrix_verified": true,
   "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",

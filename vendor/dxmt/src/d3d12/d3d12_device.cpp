@@ -5185,6 +5185,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateHeap(
   D3D12_HEAP_DESC normalized = *desc;
   if (!normalized.Alignment)
     normalized.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+  if (normalized.SizeInBytes >
+      UINT64_MAX - (normalized.Alignment - 1))
+    return E_INVALIDARG;
   normalized.SizeInBytes = AlignTo(std::max<UINT64>(normalized.SizeInBytes, 1),
                                    normalized.Alignment);
 
