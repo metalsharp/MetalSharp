@@ -67,6 +67,9 @@
 - Shared-handle creation and named opening reject zero access masks with
   exact `E_INVALIDARG`; valid named buffer, heap, and fence mappings retain
   their cross-process behavior.
+- Descriptor heaps and query heaps now participate in the D3D12 residency
+  object set; the probe accepts and re-makes both pageables and applies their
+  residency priorities without silently ignoring them.
 - `EnqueueMakeResident` validates residency flags, makes the evicted resource
   resident, and signals a fence at value 9; an unknown flag is rejected with
   `E_INVALIDARG`.
@@ -164,6 +167,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.not_resident_roundtrip_verified": true,
   "resource_shapes.enqueue_make_resident": ["0x00000000", 9],
   "resource_shapes.invalid_enqueue_flags": "0x80070057",
+  "resource_shapes.descriptor_heap_residency_verified": true,
+  "resource_shapes.query_heap_residency_verified": true,
   "resource_shapes.misaligned_placement": "0x80070057",
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",

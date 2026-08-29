@@ -322,6 +322,15 @@ int main(int argc, char** argv) {
     HRESULT fence_hr = device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)) : E_FAIL;
     HRESULT sparse_mapping_fence_hr =
         device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&sparse_mapping_fence)) : E_FAIL;
+    ID3D12DescriptorHeap *residency_descriptor_heap = nullptr;
+    ID3D12QueryHeap *residency_query_heap = nullptr;
+    HRESULT residency_descriptor_heap_create_hr = E_FAIL;
+    HRESULT residency_query_heap_create_hr = E_FAIL;
+    HRESULT residency_descriptor_heap_evict_hr = E_FAIL;
+    HRESULT residency_descriptor_heap_make_hr = E_FAIL;
+    HRESULT residency_query_heap_evict_hr = E_FAIL;
+    HRESULT residency_query_heap_make_hr = E_FAIL;
+    HRESULT residency_pageable_priority_hr = E_FAIL;
     ID3D12Fence* shared_fence = nullptr;
     HANDLE shared_fence_handle = nullptr;
     HRESULT shared_fence_create_hr = device
@@ -1103,6 +1112,38 @@ int main(int argc, char** argv) {
                 SUCCEEDED(shared_heap_create_hr) && SUCCEEDED(shared_heap_open_hr) &&
                 SUCCEEDED(shared_heap_file_open_hr) && shared_heap_open &&
                 shared_heap_file_open;
+        }
+        D3D12_DESCRIPTOR_HEAP_DESC residency_descriptor_desc = {};
+        residency_descriptor_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        residency_descriptor_desc.NumDescriptors = 1;
+        residency_descriptor_heap_create_hr = device->CreateDescriptorHeap(
+            &residency_descriptor_desc, IID_PPV_ARGS(&residency_descriptor_heap));
+        D3D12_QUERY_HEAP_DESC residency_query_desc = {};
+        residency_query_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        residency_query_desc.Count = 1;
+        residency_query_heap_create_hr = device->CreateQueryHeap(
+            &residency_query_desc, IID_PPV_ARGS(&residency_query_heap));
+        if (residency_descriptor_heap) {
+            ID3D12Pageable *pageable = residency_descriptor_heap;
+            residency_descriptor_heap_evict_hr = device->Evict(1, &pageable);
+            residency_descriptor_heap_make_hr = device->MakeResident(1, &pageable);
+        }
+        if (residency_query_heap) {
+            ID3D12Pageable *pageable = residency_query_heap;
+            residency_query_heap_evict_hr = device->Evict(1, &pageable);
+            residency_query_heap_make_hr = device->MakeResident(1, &pageable);
+        }
+        if (residency_descriptor_heap && residency_query_heap) {
+            ID3D12Pageable *pageables[] = {residency_descriptor_heap,
+                                           residency_query_heap};
+            D3D12_RESIDENCY_PRIORITY priorities[] = {
+                D3D12_RESIDENCY_PRIORITY_HIGH, D3D12_RESIDENCY_PRIORITY_LOW};
+            ID3D12Device1 *device1 = nullptr;
+            if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&device1))) ) {
+                residency_pageable_priority_hr = device1->SetResidencyPriority(
+                    2, pageables, priorities);
+                device1->Release();
+            }
         }
         if (address_heap && address_resource) {
             ID3D12Pageable *heap_pageable = address_heap;
@@ -2694,6 +2735,13 @@ int main(int argc, char** argv) {
         SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
+        SUCCEEDED(residency_descriptor_heap_create_hr) &&
+        SUCCEEDED(residency_query_heap_create_hr) &&
+        SUCCEEDED(residency_descriptor_heap_evict_hr) &&
+        SUCCEEDED(residency_descriptor_heap_make_hr) &&
+        SUCCEEDED(residency_query_heap_evict_hr) &&
+        SUCCEEDED(residency_query_heap_make_hr) &&
+        SUCCEEDED(residency_pageable_priority_hr) &&
         default_cpu_io_ok && residency_state_ok && heap_residency_ok && address_heap_open_ok &&
         heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok &&
         sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
@@ -2837,6 +2885,23 @@ int main(int argc, char** argv) {
     print_hr("residency_fence", residency_fence_hr);
     print_hr("enqueue_make_resident", enqueue_make_resident_hr);
     print_hr("invalid_enqueue_flags", invalid_enqueue_flags_hr);
+    print_hr("descriptor_heap_create", residency_descriptor_heap_create_hr);
+    print_hr("descriptor_heap_evict", residency_descriptor_heap_evict_hr);
+    print_hr("descriptor_heap_make_resident", residency_descriptor_heap_make_hr);
+    print_hr("query_heap_create", residency_query_heap_create_hr);
+    print_hr("query_heap_evict", residency_query_heap_evict_hr);
+    print_hr("query_heap_make_resident", residency_query_heap_make_hr);
+    print_hr("pageable_priority", residency_pageable_priority_hr);
+    std::printf("    \"descriptor_heap_residency_verified\": %s,\n",
+                (SUCCEEDED(residency_descriptor_heap_evict_hr) &&
+                 SUCCEEDED(residency_descriptor_heap_make_hr))
+                    ? "true"
+                    : "false");
+    std::printf("    \"query_heap_residency_verified\": %s,\n",
+                (SUCCEEDED(residency_query_heap_evict_hr) &&
+                 SUCCEEDED(residency_query_heap_make_hr))
+                    ? "true"
+                    : "false");
     std::printf("    \"enqueue_fence_completed\": %llu,\n",
                 static_cast<unsigned long long>(enqueue_fence_completed));
     print_hr("misaligned_placement", misaligned_placement_hr);
