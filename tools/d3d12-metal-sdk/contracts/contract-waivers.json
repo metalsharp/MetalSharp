@@ -1,5 +1,0 @@
-{
-  "schema": "metalsharp.d3d12-metal.contract-waivers.v1",
-  "purpose": "Track explicit temporary waivers for risky D3D12 capability claims that are only partially proven by the current SDK probe suite.",
-  "waivers": []
-}

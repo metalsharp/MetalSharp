@@ -1,5 +1,11 @@
 # Changelog
 
+## FINAL UPDATE 
+
+- Removed dependencies on C, Rust and C++ entirely
+- Simple build step
+- Minified, agent-first architecture
+
 ## v0.54.5 — 2026-07-09
 
 Testing-surface hardening, pre-commit strictness, and compatibility database refresh.

@@ -1,6 +1,0 @@
-# Regenerated 2026-08-17T18:58:33Z by update-vulkan-lane-hashes.sh — do not edit by hand.
-# Paths are relative to the vkd3d-proton runtime lane root.
-path	sha256
-x86_64-windows/d3d12.dll	ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e
-x86_64-windows/d3d12core.dll	78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8
-x86_64-windows/dxgi.dll	943dc921530aeba8bc5add09f5a3c5fac7da50e90a84ca2f41f1b87ba532846e
