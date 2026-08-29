@@ -5302,6 +5302,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
                              heap_offset)
                  : new MTLD3D12Resource(this, *desc, initial_state, heap_props,
                                         heap_flags);
+  if (mt_heap)
+    res->SetParentHeap(mt_heap);
   if (!res->IsValid()) {
     TRACE("CreatePlacedResource unsupported resource backing dim=%u fmt=%u",
           (unsigned)desc->Dimension, (unsigned)desc->Format);

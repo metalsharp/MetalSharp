@@ -1,5 +1,6 @@
 #include "d3d12_resource.hpp"
 #include "d3d12_device.hpp"
+#include "d3d12_heap.hpp"
 #include "d3d12_pipeline_state.hpp"
 #include "d3d12_trace.hpp"
 #include "log/log.hpp"
@@ -877,6 +878,10 @@ MTLD3D12Resource::~MTLD3D12Resource() {
     CloseHandle(m_shared_mapping);
   m_shared_mapping_view = nullptr;
   m_shared_mapping = nullptr;
+  if (m_parent_heap) {
+    m_parent_heap->Release();
+    m_parent_heap = nullptr;
+  }
   m_mtl_buffer = nullptr;
   m_mtl_texture = nullptr;
   m_device->Release();
@@ -937,6 +942,30 @@ HRESULT STDMETHODCALLTYPE
 MTLD3D12Resource::GetDevice(REFIID riid, void **device) {
   return m_device->QueryInterface(riid, device);
 }
+
+bool MTLD3D12Resource::IsResident() const {
+  return m_residency.isResident() &&
+         (!m_parent_heap || m_parent_heap->IsResident());
+}
+
+void MTLD3D12Resource::MakeResident() {
+  m_residency.makeResident();
+  if (m_parent_heap)
+    m_parent_heap->MakeResident();
+}
+
+void MTLD3D12Resource::Evict() { m_residency.evict(); }
+
+void MTLD3D12Resource::SetParentHeap(MTLD3D12Heap *heap) {
+  if (m_parent_heap == heap)
+    return;
+  if (heap)
+    heap->AddRef();
+  if (m_parent_heap)
+    m_parent_heap->Release();
+  m_parent_heap = heap;
+}
+
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Resource::Map(UINT sub_resource,
                                                  const D3D12_RANGE *read_range,
@@ -945,7 +974,7 @@ MTLD3D12Resource::Map(UINT sub_resource,
   (void)read_range;
   if (!data)
     return E_POINTER;
-  if (!m_residency.isResident()) {
+  if (!IsResident()) {
     *data = nullptr;
     return DXGI_ERROR_INVALID_CALL;
   }
@@ -1011,7 +1040,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
   RTRACE("WriteToSubresource sub=%u box=%p", dst_sub_resource, dst_box);
   if (!src_data)
     return E_POINTER;
-  if (!m_residency.isResident())
+  if (!IsResident())
     return DXGI_ERROR_INVALID_CALL;
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
     if (dst_sub_resource || dst_box || !src_row_pitch)
@@ -1075,7 +1104,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
          m_desc.Dimension, (void *)this);
   if (!dst_data)
     return E_POINTER;
-  if (!m_residency.isResident())
+  if (!IsResident())
     return DXGI_ERROR_INVALID_CALL;
 
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
