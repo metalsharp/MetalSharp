@@ -1880,6 +1880,8 @@ int main(int argc, char** argv) {
     HRESULT direct_io_volume_create_hr = E_FAIL;
     HRESULT direct_io_volume_write_hr = E_FAIL;
     HRESULT direct_io_volume_read_hr = E_FAIL;
+    HRESULT direct_io_volume_box_write_hr = E_FAIL;
+    HRESULT direct_io_volume_box_read_hr = E_FAIL;
     HRESULT direct_io_d32s8_create_hr = E_FAIL;
     HRESULT direct_io_d32s8_write_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_d32s8_read_hr[2] = {E_FAIL, E_FAIL};
@@ -1899,6 +1901,7 @@ int main(int argc, char** argv) {
     HRESULT direct_io_nv12_copy_uv_read_hr = E_FAIL;
     bool direct_io_texture_ok = false;
     bool direct_io_volume_ok = false;
+    bool direct_io_volume_box_ok = false;
     bool direct_io_nv12_ok = false;
     bool direct_io_nv12_copy_ok = false;
     bool direct_io_nv12_resource_copy_ok = false;
@@ -1959,6 +1962,18 @@ int main(int argc, char** argv) {
             SUCCEEDED(direct_io_volume_write_hr) &&
             SUCCEEDED(direct_io_volume_read_hr) &&
             std::memcmp(volume_source, volume_destination, sizeof(volume_source)) == 0;
+        const D3D12_BOX volume_box = {1, 1, 1, 3, 3, 2};
+        const uint8_t volume_box_source[4] = {0x19, 0x2a, 0x3b, 0x4c};
+        uint8_t volume_box_destination[4] = {};
+        direct_io_volume_box_write_hr = direct_io_volume->WriteToSubresource(
+            0, &volume_box, volume_box_source, 2, 4);
+        direct_io_volume_box_read_hr = direct_io_volume->ReadFromSubresource(
+            volume_box_destination, 2, 4, 0, &volume_box);
+        direct_io_volume_box_ok =
+            SUCCEEDED(direct_io_volume_box_write_hr) &&
+            SUCCEEDED(direct_io_volume_box_read_hr) &&
+            std::memcmp(volume_box_source, volume_box_destination,
+                        sizeof(volume_box_source)) == 0;
     }
     D3D12_RESOURCE_DESC direct_io_d32s8_desc =
         texture_desc(4, 4, DXGI_FORMAT_D32_FLOAT_S8X24_UINT);
@@ -3779,6 +3794,8 @@ int main(int argc, char** argv) {
         SUCCEEDED(direct_io_texture_read_hr) && direct_io_texture_ok &&
         SUCCEEDED(direct_io_volume_create_hr) && SUCCEEDED(direct_io_volume_write_hr) &&
         SUCCEEDED(direct_io_volume_read_hr) && direct_io_volume_ok &&
+        SUCCEEDED(direct_io_volume_box_write_hr) &&
+        SUCCEEDED(direct_io_volume_box_read_hr) && direct_io_volume_box_ok &&
         SUCCEEDED(direct_io_d32s8_create_hr) &&
         SUCCEEDED(direct_io_d32s8_write_hr[0]) &&
         SUCCEEDED(direct_io_d32s8_write_hr[1]) &&
@@ -4188,8 +4205,12 @@ int main(int argc, char** argv) {
     print_hr("direct_io_volume_create", direct_io_volume_create_hr);
     print_hr("direct_io_volume_write", direct_io_volume_write_hr);
     print_hr("direct_io_volume_read", direct_io_volume_read_hr);
+    print_hr("direct_io_volume_box_write", direct_io_volume_box_write_hr);
+    print_hr("direct_io_volume_box_read", direct_io_volume_box_read_hr);
     std::printf("    \"direct_io_volume_verified\": %s,\n",
                 direct_io_volume_ok ? "true" : "false");
+    std::printf("    \"direct_io_volume_box_verified\": %s,\n",
+                direct_io_volume_box_ok ? "true" : "false");
     print_hr("direct_io_d32s8_create", direct_io_d32s8_create_hr);
     print_hr("direct_io_d32s8_write_depth", direct_io_d32s8_write_hr[0]);
     print_hr("direct_io_d32s8_write_stencil", direct_io_d32s8_write_hr[1]);
