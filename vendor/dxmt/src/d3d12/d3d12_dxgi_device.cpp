@@ -1,5 +1,7 @@
 #include "d3d12_dxgi_device.hpp"
 #include "d3d12_device.hpp"
+#include "d3d12_heap.hpp"
+#include "d3d12_resource.hpp"
 #include "d3d12_swapchain.hpp"
 #include "../dxgi/dxgi_trace.hpp"
 #include "log/log.hpp"
@@ -9,6 +11,52 @@
 #define DDTRACE(fmt, ...) DXMTDXGITrace("DXGIDev", fmt, ##__VA_ARGS__)
 
 namespace dxmt {
+
+namespace {
+
+static bool QueryD3D12Residency(IUnknown *object, bool *resident) {
+  if (!object || !resident)
+    return false;
+  ID3D12Resource *resource = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&resource)))) {
+    *resident = static_cast<MTLD3D12Resource *>(resource)->IsResident();
+    resource->Release();
+    return true;
+  }
+  ID3D12Heap *heap = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
+    *resident = static_cast<MTLD3D12Heap *>(heap)->IsResident();
+    heap->Release();
+    return true;
+  }
+  return false;
+}
+
+static bool SetD3D12Residency(IUnknown *object, bool resident) {
+  if (!object)
+    return false;
+  ID3D12Resource *resource = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&resource)))) {
+    if (resident)
+      static_cast<MTLD3D12Resource *>(resource)->MakeResident();
+    else
+      static_cast<MTLD3D12Resource *>(resource)->Evict();
+    resource->Release();
+    return true;
+  }
+  ID3D12Heap *heap = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
+    if (resident)
+      static_cast<MTLD3D12Heap *>(heap)->MakeResident();
+    else
+      static_cast<MTLD3D12Heap *>(heap)->Evict();
+    heap->Release();
+    return true;
+  }
+  return false;
+}
+
+} // namespace
 
 MTLD3D12DXGIDevice::MTLD3D12DXGIDevice(std::unique_ptr<Device> &&device,
                                        IMTLDXGIAdapter *adapter)
@@ -26,6 +74,13 @@ MTLD3D12DXGIDevice::MTLD3D12DXGIDevice(std::unique_ptr<Device> &&device,
 }
 
 MTLD3D12DXGIDevice::~MTLD3D12DXGIDevice() {
+  {
+    std::lock_guard lock(m_offered_resource_mutex);
+    for (auto *resource : m_offered_resources)
+      if (resource)
+        resource->Release();
+    m_offered_resources.clear();
+  }
   if (m_d3d12_device) {
     m_d3d12_device->SetDXGIDevice(nullptr);
     m_d3d12_device->Release();
@@ -117,8 +172,13 @@ MTLD3D12DXGIDevice::QueryResourceResidency(IUnknown *const *ppResources,
                                            UINT ResourceCount) {
   if (ResourceCount && (!ppResources || !pResidency))
     return E_INVALIDARG;
-  for (UINT i = 0; i < ResourceCount; i++)
-    pResidency[i] = DXGI_RESIDENCY_FULLY_RESIDENT;
+  for (UINT i = 0; i < ResourceCount; i++) {
+    bool resident = false;
+    if (!QueryD3D12Residency(ppResources[i], &resident))
+      return E_INVALIDARG;
+    pResidency[i] = resident ? DXGI_RESIDENCY_FULLY_RESIDENT
+                             : DXGI_RESIDENCY_EVICTED_TO_DISK;
+  }
   return S_OK;
 }
 
@@ -164,12 +224,15 @@ MTLD3D12DXGIDevice::OfferResources(UINT NumResources,
       (NumResources && !ppResources))
     return E_INVALIDARG;
   for (UINT i = 0; i < NumResources; i++) {
-    if (!ppResources[i])
+    bool resident = false;
+    if (!ppResources[i] || !QueryD3D12Residency(ppResources[i], &resident))
       return E_INVALIDARG;
   }
   std::lock_guard lock(m_offered_resource_mutex);
-  for (UINT i = 0; i < NumResources; i++)
-    m_offered_resources.insert(ppResources[i]);
+  for (UINT i = 0; i < NumResources; i++) {
+    if (m_offered_resources.insert(ppResources[i]).second)
+      ppResources[i]->AddRef();
+  }
   return S_OK;
 }
 
@@ -188,8 +251,15 @@ MTLD3D12DXGIDevice::ReclaimResources(UINT NumResources,
     if (!ppResources[i] || !m_offered_resources.contains(ppResources[i]))
       return E_INVALIDARG;
   }
-  for (UINT i = 0; i < NumResources; i++)
-    m_offered_resources.erase(ppResources[i]);
+  for (UINT i = 0; i < NumResources; i++) {
+    bool resident = true;
+    QueryD3D12Residency(ppResources[i], &resident);
+    if (pDiscarded)
+      pDiscarded[i] = resident ? FALSE : TRUE;
+    SetD3D12Residency(ppResources[i], true);
+    if (m_offered_resources.erase(ppResources[i]))
+      ppResources[i]->Release();
+  }
   return S_OK;
 }
 
@@ -198,7 +268,11 @@ MTLD3D12DXGIDevice::EnqueueSetEvent(HANDLE hEvent) {
   return m_d3d12_device->EnqueueSetEvent(hEvent);
 }
 
-void STDMETHODCALLTYPE MTLD3D12DXGIDevice::Trim() {}
+void STDMETHODCALLTYPE MTLD3D12DXGIDevice::Trim() {
+  std::lock_guard lock(m_offered_resource_mutex);
+  for (auto *resource : m_offered_resources)
+    SetD3D12Residency(resource, false);
+}
 
 WMT::Device STDMETHODCALLTYPE MTLD3D12DXGIDevice::GetMTLDevice() {
   return m_adapter->GetMTLDevice();

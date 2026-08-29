@@ -589,6 +589,12 @@ surface.
 - Two independent processes can share a resource, synchronize it, read it,
   and close it without leaks or stale handles.
 
+**Phase 3 resource checkpoint evidence:**
+`docs/roadmaps/d3d12-full-surface-phase3-resource-proof.md` now includes
+legal-shape creation/validation, placed-buffer aliasing, multi-plane format
+information, cross-process heap reopening, and DXGI residency-state evidence.
+The exhaustive Phase 3 gate remains open.
+
 ### Phase 4 — Complete queues, command recording/replay, barriers, and indirect work
 
 **Goal:** Ensure every legal command is recorded, retained, ordered, and
