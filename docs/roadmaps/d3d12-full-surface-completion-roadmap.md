@@ -1303,3 +1303,16 @@ whether the scoped FL12_2 gate is green.
 - Selected stable Agility 1.619.5 (`D3D12SDKVersion=619`) as the release
   baseline, with older/no-Agility compatibility lanes and a separate
   non-promoted 1.721.3-preview lane.
+
+### 2026-08-29 — Phase 3 resource checkpoint continuation
+
+- Added checked allocation and footprint arithmetic, requested-subresource and
+  tiling-window bounds, D3D12 texture dimension/layout/format validation, and
+  invalid buffer-flag rejection.
+- Added DXGI resource aggregation with Offer/Trim/Reclaim evidence, portable
+  unnamed CPU-visible heap/fence mappings, native 3D sparse mapping-copy and
+  physical-page ownership, GPU-upload/custom-equivalent buffer and texture
+  placement, and nonzero-offset placed-texture/depth-plane/boxed-volume I/O.
+- The exhaustive Phase 3 exit gate remains intentionally open; the latest
+  source-staged resource, views, command-replay, legacy, and caps probes and
+  the staged PE/Unix ABI check all pass, with generated build products removed.
