@@ -1110,7 +1110,12 @@ void MTLD3D12Resource::InitializeResource(
         m_native_placement_sparse_texture = m_mtl_texture.handle != 0;
       }
     } else if (!m_is_reserved && !m_mtl_texture.handle) {
-      m_mtl_texture = wmt_device.newTexture(tex_info);
+      if (m_heap_flags & D3D12_HEAP_FLAG_SHARED) {
+        m_mtl_texture = wmt_device.newSharedTexture(tex_info);
+        m_shared_texture_mach_port = tex_info.mach_port;
+      } else {
+        m_mtl_texture = wmt_device.newTexture(tex_info);
+      }
     }
     if (!m_mtl_texture.handle && m_is_reserved) {
       // Older Metal falls back to the existing private sparse heap path. Clear

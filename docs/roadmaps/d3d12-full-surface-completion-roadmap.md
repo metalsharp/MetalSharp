@@ -196,7 +196,7 @@ roadmap. The following rows are the starting gap inventory.
 | Node shaders | Absent as part of work graphs | Full node shader execution and graph node properties |
 | Stream output | No output buffer recording/replay | Declarations, strides, multiple streams, counters, overflow behavior, capture buffers, and downstream consumption |
 | Sparse/reserved resources | Focused native sparse textures/buffers pass | All legal dimensions, formats, packed/partial mips, physical page ownership, mapping copies, queue ordering, residency, aliases, and `CopyTiles` |
-| Shared resources | Process-local registry only | Portable cross-process resource/heap/event transport, names, LUIDs, synchronization, lifetime, and security validation |
+| Shared resources | Pointer-free named/unnamed buffer, heap, fence, and one committed RGBA8 texture provider; broader formats/placements remain limited | Portable cross-process resource/heap/event transport for every legal resource shape, names, LUIDs, synchronization, lifetime, and security validation |
 | Geometry shaders | Narrow SM5 vertex/geometry proof | General topology, resource, stream, primitive, state, and multi-stage coverage |
 | Hull/domain shaders | One native tessellation proof shape | All patch layouts, partitioning, topologies, factors, resources, indexing, state, and shader conversion paths |
 
@@ -606,14 +606,15 @@ checked allocation/footprint arithmetic, mixed-alignment sidebands,
 nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and RGBA8
 texture I/O, custom-equivalent GPU-upload placement, Options16 reporting,
 unsupported heap/resource/fence flag rejection, DXGI resource aggregation,
-pointer-free named/unnamed buffer/heap/fence mappings, inherited unnamed
-buffer/heap/fence cross-process read/write/signal/metadata, adapter-LUID
+pointer-free named/unnamed buffer/heap/fence mappings, one committed
+RGBA8 texture Mach-port mapping, inherited unnamed buffer/heap/fence
+cross-process read/write/signal/metadata, adapter-LUID
 mismatch rejection, and OfferResources/Trim/Reclaim residency-state evidence.
 The latest sparse run also passes native 3D volume mapping, cross-resource
 mapping copy, readback, physical-page ownership, and direct nonzero-Z boxed
 volume I/O. The exhaustive Phase 3 gate remains open for all remaining legal
 dimensions/formats, native packed-tail execution, real reclaim/trim pressure,
-and shared-event/security coverage.
+broader texture sharing, and shared-event/security coverage.
 
 ### Phase 4 — Complete queues, command recording/replay, barriers, and indirect work
 

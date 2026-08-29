@@ -163,10 +163,11 @@
   original and both opened objects.
 - Shared-handle creation and named opening reject zero access masks with
   exact `E_INVALIDARG`; unsupported shared-cross-adapter fence creation also
-  rejects with exact `E_INVALIDARG`. Valid named buffer, heap, and fence
-  mappings retain their cross-process behavior. Attempting to share a texture
-  returns the explicit `E_NOTIMPL` provider boundary instead of a process-local
-  success.
+  rejects with exact `E_INVALIDARG`. Valid named buffer, heap, fence, and
+  committed shared RGBA8 texture mappings retain their cross-process behavior.
+  The shared texture uses a Metal `MTLSharedTextureHandle` Mach-port service;
+  an ordinary non-shared texture still returns the explicit `E_NOTIMPL`
+  provider boundary rather than a process-local success.
   A non-CPU-visible default heap is rejected the same way, while CPU-visible
   upload heaps remain shareable through the file-mapping provider.
 - Descriptor heaps and query heaps now participate in the D3D12 residency
@@ -370,6 +371,12 @@ The isolated source-staged probe passed with:
   "resource_shapes.unsupported_heap_flags": "0x80070057",
   "textures.direct_io_texture_verified": true,
   "textures.shared_texture_create": "0x80004001",
+  "textures.shared_texture_resource_create": "0x00000000",
+  "textures.shared_texture_handle_create": "0x00000000",
+  "textures.shared_texture_open": "0x00000000",
+  "textures.shared_texture_named_open": "0x00000000",
+  "textures.shared_texture_roundtrip_verified": true,
+  "textures.shared_texture_cross_process_verified": true,
   "textures.unsupported_r1_allocation": [0, 0],
   "textures.direct_io_volume_verified": true,
   "textures.direct_io_volume_box_verified": true,
@@ -481,6 +488,7 @@ This checkpoint completes the behavior-backed resource, sparse-resource,
 residency, sharing, legal-shape creation, alignment, adapter-identity, and
 malformed-descriptor validation subset. The full Phase 3 exit gate remains
 open for exhaustive allocation and footprint/plane behavior, every legal
-sparse tier and aliasing case, real reclaim/trim pressure, shared textures,
-and security-policy coverage; those items remain explicitly ledgered rather
+sparse tier and aliasing case, real reclaim/trim pressure, additional shared
+texture formats/placements, and security-policy coverage; those items remain
+explicitly ledgered rather
 than promoted by query results alone.

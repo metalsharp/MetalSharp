@@ -173,6 +173,9 @@ public:
   WMT::Reference<WMT::Buffer> GetMTLBuffer() { return m_mtl_buffer; }
   WMT::Reference<WMT::Texture> GetMTLTexture();
   uint64_t GetTextureGPUResourceID() const { return m_tex_gpu_resource_id; }
+  mach_port_t GetSharedTextureMachPort() const {
+    return m_shared_texture_mach_port;
+  }
   uint32_t GetTextureArrayLength() const;
   uint64_t GetBufferByteLength() const;
   bool IsReservedResource() const { return m_is_reserved; }
@@ -453,6 +456,7 @@ private:
       m_serialized_instance_contributions_buffer;
   uint64_t m_serialized_instance_contributions_gpu_address = 0;
   uint64_t m_tex_gpu_resource_id = 0;
+  mach_port_t m_shared_texture_mach_port = 0;
   uint64_t m_backing_offset = 0;
   bool m_is_reserved = false;
   bool m_native_sparse_buffer = false;
