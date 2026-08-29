@@ -2520,6 +2520,8 @@ int main(int argc, char** argv) {
     ID3D12Resource* unsupported_texture = nullptr;
     UINT64 unsupported_format_allocation_size = UINT64_MAX;
     UINT64 unsupported_format_allocation_alignment = UINT64_MAX;
+    UINT64 unsupported_rgb32_allocation_size = UINT64_MAX;
+    UINT64 unsupported_rgb32_allocation_alignment = UINT64_MAX;
     ID3D12Heap* sparse_heap = nullptr;
     ID3D12Heap* reuse_heap = nullptr;
     ID3D12Heap* array_alias_heap = nullptr;
@@ -3177,6 +3179,14 @@ int main(int argc, char** argv) {
         unsupported_format_allocation.SizeInBytes;
     unsupported_format_allocation_alignment =
         unsupported_format_allocation.Alignment;
+    D3D12_RESOURCE_DESC unsupported_rgb32_desc =
+        texture_desc(4, 4, DXGI_FORMAT_R32G32B32_FLOAT);
+    D3D12_RESOURCE_ALLOCATION_INFO unsupported_rgb32_allocation =
+        device->GetResourceAllocationInfo(0, 1, &unsupported_rgb32_desc);
+    unsupported_rgb32_allocation_size =
+        unsupported_rgb32_allocation.SizeInBytes;
+    unsupported_rgb32_allocation_alignment =
+        unsupported_rgb32_allocation.Alignment;
     uint8_t* texture_upload_ptr = nullptr;
     HRESULT texture_map_hr =
         texture_upload ? texture_upload->Map(0, nullptr, reinterpret_cast<void**>(&texture_upload_ptr)) : E_FAIL;
@@ -5138,6 +5148,8 @@ int main(int argc, char** argv) {
         sparse_format_matrix_ok && unsupported_texture_rejected &&
         unsupported_format_allocation_size == 0 &&
         unsupported_format_allocation_alignment == 0 &&
+        unsupported_rgb32_allocation_size == 0 &&
+        unsupported_rgb32_allocation_alignment == 0 &&
         cross_process_shared_ok &&
         shared_heap_roundtrip_ok && unnamed_shared_heap_roundtrip_ok &&
         SUCCEEDED(shared_default_heap_create_hr) &&
@@ -5576,6 +5588,9 @@ int main(int argc, char** argv) {
     std::printf("    \"unsupported_r1_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(unsupported_format_allocation_size),
                 static_cast<unsigned long long>(unsupported_format_allocation_alignment));
+    std::printf("    \"unsupported_rgb32_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(unsupported_rgb32_allocation_size),
+                static_cast<unsigned long long>(unsupported_rgb32_allocation_alignment));
     std::printf("    \"unaligned_bc1_create_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(static_cast<uint32_t>(bc_texture_hr)));
     std::printf("    \"unaligned_bc1_upload_hr\": \"0x%08lx\",\n",

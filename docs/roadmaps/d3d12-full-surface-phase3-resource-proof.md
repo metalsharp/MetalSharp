@@ -381,6 +381,7 @@ The isolated source-staged probe passed with:
   "textures.shared_texture_roundtrip_verified": true,
   "textures.shared_texture_cross_process_verified": true,
   "textures.unsupported_r1_allocation": [0, 0],
+  "textures.unsupported_rgb32_allocation": [0, 0],
   "textures.direct_io_volume_verified": true,
   "textures.direct_io_volume_box_verified": true,
   "textures.direct_io_d32s8_verified": true,
