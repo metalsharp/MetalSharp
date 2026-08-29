@@ -607,8 +607,8 @@ and placed GPU-upload buffer/RGBA8 texture I/O, custom-equivalent GPU-upload
 texture placement, Options16/custom-heap reporting, GPU-upload flag rejection,
 D32 plane footprint layout, bounded tiling and subresource-window behavior,
 bounded Map ranges, D3D12 dimension-limit/reserved-layout rejection,
-unsupported-format allocation rejection, invalid simultaneous/cross-adapter
-buffer-flag rejection, DXGI resource aggregation, generated pointer-free
+unsupported-format allocation rejection, invalid simultaneous/cross-adapter buffer-flag and MSAA rejection, DXGI
+resource aggregation, generated pointer-free
 unnamed heap/fence mappings, and OfferResources/Trim/Reclaim residency-state
 evidence. The latest sparse run also passes native 3D volume mapping,
 cross-resource mapping copy, readback, and physical-page ownership; direct
