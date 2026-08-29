@@ -354,6 +354,7 @@ int main(int argc, char** argv) {
     D3D12_RESOURCE_DESC default_buffer_desc = {};
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = 0;
     D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
+    D3D12_GPU_VIRTUAL_ADDRESS texture_gpu_va = 0;
     bool command_resource_lifetime_ok = false;
     bool atomic_copy_ok = false;
     bool atomic64_copy_ok = false;
@@ -1870,6 +1871,7 @@ int main(int argc, char** argv) {
     }
 
     D3D12_RESOURCE_DESC texture_roundtrip_desc = texture ? texture->GetDesc() : D3D12_RESOURCE_DESC{};
+    texture_gpu_va = texture ? texture->GetGPUVirtualAddress() : 1;
 
     std::vector<FormatProbe> formats = {
         {"R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM},
@@ -1974,7 +1976,7 @@ int main(int argc, char** argv) {
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
-        texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && shared_handle_roundtrip &&
+        texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
         format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
         shared_heap_roundtrip_ok && SUCCEEDED(shared_fence_create_hr) &&
         SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr) &&
@@ -2012,6 +2014,7 @@ int main(int argc, char** argv) {
     std::printf("    \"default_desc_width\": %llu,\n", static_cast<unsigned long long>(default_buffer_desc.Width));
     std::printf("    \"upload_gpu_va_nonzero\": %s,\n", upload_gpu_va != 0 ? "true" : "false");
     std::printf("    \"default_gpu_va_nonzero\": %s,\n", default_gpu_va != 0 ? "true" : "false");
+    std::printf("    \"texture_gpu_va_zero\": %s,\n", texture_gpu_va == 0 ? "true" : "false");
     std::printf("    \"command_resource_lifetime_verified\": %s,\n", command_resource_lifetime_ok ? "true" : "false");
     print_hr("list1_query", list1_hr);
     std::printf("    \"default_cpu_io_verified\": %s,\n", default_cpu_io_verified ? "true" : "false");

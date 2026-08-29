@@ -24,6 +24,9 @@
   packed and partial mips, volume tiling, format variants, tile mapping,
   unmapped zeroing, and physical-page ownership remain behavior-backed by the
   resource probe.
+- Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
+  identity continues to use the Metal texture/resource id rather than a fake
+  buffer address.
 - Copyable footprint dimensions, pitches, row counts, and 512-byte placement
   alignment are validated for 1D, arrays, mip chains, volumes, and unaligned
   BC1 dimensions; BC footprints report texel dimensions while retaining
@@ -55,6 +58,7 @@ The isolated source-staged probe passed with:
   "shared_handles.fence_cross_process_verified": true,
   "buffers.address_heap_open_verified": true,
   "buffers.heap_aliasing_verified": true,
+  "buffers.texture_gpu_va_zero": true,
   "resource_shapes.all_created_and_roundtripped": true,
   "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
