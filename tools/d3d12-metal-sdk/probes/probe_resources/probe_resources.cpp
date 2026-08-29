@@ -1437,7 +1437,8 @@ int main(int argc, char** argv) {
     HRESULT reserved_1d_readback_map_hr = E_FAIL;
     UINT reserved_1d_total_tiles = 0;
     D3D12_TILE_SHAPE reserved_1d_tile_shape = {};
-    UINT reserved_1d_tiling_count = 1;
+    D3D12_SUBRESOURCE_TILING reserved_1d_tilings[2] = {};
+    UINT reserved_1d_tiling_count = 2;
     bool reserved_1d_copy_ok = false;
     HRESULT placement_alias_texture_hr = E_FAIL;
     HRESULT array_alias_texture_hr = E_FAIL;
@@ -1903,6 +1904,7 @@ int main(int argc, char** argv) {
     }
     D3D12_RESOURCE_DESC reserved_1d_desc = texture_desc(16384, 1, DXGI_FORMAT_R32_FLOAT);
     reserved_1d_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+    reserved_1d_desc.DepthOrArraySize = 2;
     reserved_1d_texture_hr =
         device ? device->CreateReservedResource(&reserved_1d_desc,
                                                 D3D12_RESOURCE_STATE_COPY_DEST,
@@ -1914,7 +1916,8 @@ int main(int argc, char** argv) {
         device->GetResourceTiling(reserved_1d_texture,
                                   &reserved_1d_total_tiles, nullptr,
                                   &reserved_1d_tile_shape,
-                                  &reserved_1d_tiling_count, 0, nullptr);
+                                  &reserved_1d_tiling_count, 0,
+                                  reserved_1d_tilings);
     }
     D3D12_RESOURCE_DESC placement_alias_desc = reserved_desc;
     placement_alias_desc.DepthOrArraySize = 1;
@@ -1977,7 +1980,7 @@ int main(int argc, char** argv) {
                                                                   &sparse_buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                                                   nullptr, IID_PPV_ARGS(&sparse_readback))
                                 : E_FAIL;
-    D3D12_RESOURCE_DESC reserved_1d_readback_desc = buffer_desc(sparse_tile_size);
+    D3D12_RESOURCE_DESC reserved_1d_readback_desc = buffer_desc(sparse_tile_bytes);
     reserved_1d_readback_hr =
         device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
                                                   &reserved_1d_readback_desc,
@@ -2510,18 +2513,19 @@ int main(int argc, char** argv) {
                         D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
     }
     if (list && queue && sparse_heap && sparse_upload && reserved_1d_texture && reserved_1d_readback &&
-        SUCCEEDED(reserved_1d_texture_hr) && reserved_1d_total_tiles == 1 &&
-        reserved_1d_tile_shape.WidthInTexels == 16384 && reserved_1d_tile_shape.HeightInTexels == 1) {
+        SUCCEEDED(reserved_1d_texture_hr) && reserved_1d_total_tiles == 2 &&
+        reserved_1d_tiling_count == 2 && reserved_1d_tile_shape.WidthInTexels == 16384 &&
+        reserved_1d_tile_shape.HeightInTexels == 1) {
         D3D12_TILED_RESOURCE_COORDINATE reserved_1d_coordinate = {};
         D3D12_TILE_REGION_SIZE reserved_1d_region = {};
-        reserved_1d_region.NumTiles = 1;
+        reserved_1d_region.NumTiles = 2;
         D3D12_TILE_RANGE_FLAGS reserved_1d_range_flag = D3D12_TILE_RANGE_FLAG_NONE;
         UINT reserved_1d_heap_offset = 0;
-        UINT reserved_1d_range_count = 1;
+        UINT reserved_1d_range_tiles = 2;
         queue->UpdateTileMappings(reserved_1d_texture, 1, &reserved_1d_coordinate,
                                   &reserved_1d_region, sparse_heap, 1,
                                   &reserved_1d_range_flag, &reserved_1d_heap_offset,
-                                  &reserved_1d_range_count,
+                                  &reserved_1d_range_tiles,
                                   D3D12_TILE_MAPPING_FLAG_NONE);
         list->CopyTiles(reserved_1d_texture, &reserved_1d_coordinate,
                         &reserved_1d_region, sparse_upload, 0,
@@ -2992,7 +2996,7 @@ int main(int argc, char** argv) {
             : E_FAIL;
     if (SUCCEEDED(reserved_1d_readback_map_hr) && reserved_1d_readback_ptr) {
         reserved_1d_copy_ok = true;
-        for (UINT64 i = 0; i < sparse_tile_size; ++i) {
+        for (UINT64 i = 0; i < sparse_tile_bytes; ++i) {
             if (reserved_1d_readback_ptr[i] !=
                 static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
                 reserved_1d_copy_ok = false;
@@ -3393,9 +3397,13 @@ int main(int argc, char** argv) {
         SUCCEEDED(bc_direct_write_hr) && SUCCEEDED(bc_direct_read_hr) && bc_direct_io_ok &&
         SUCCEEDED(sparse_heap_hr) &&
         SUCCEEDED(reserved_texture_hr) && SUCCEEDED(reserved_1d_texture_hr) &&
-        SUCCEEDED(reserved_1d_tiling_hr) && reserved_1d_total_tiles == 1 &&
-        reserved_1d_tiling_count == 1 && reserved_1d_tile_shape.WidthInTexels == 16384 &&
+        SUCCEEDED(reserved_1d_tiling_hr) && reserved_1d_total_tiles == 2 &&
+        reserved_1d_tiling_count == 2 && reserved_1d_tile_shape.WidthInTexels == 16384 &&
         reserved_1d_tile_shape.HeightInTexels == 1 &&
+        reserved_1d_tilings[0].WidthInTiles == 1 &&
+        reserved_1d_tilings[0].StartTileIndexInOverallResource == 0 &&
+        reserved_1d_tilings[1].WidthInTiles == 1 &&
+        reserved_1d_tilings[1].StartTileIndexInOverallResource == 1 &&
         SUCCEEDED(reserved_1d_readback_hr) &&
         SUCCEEDED(reserved_1d_readback_map_hr) && reserved_1d_copy_ok &&
         SUCCEEDED(placement_alias_texture_hr) &&
@@ -3765,10 +3773,16 @@ int main(int argc, char** argv) {
     print_hr("reserved_1d_readback_create", reserved_1d_readback_hr);
     print_hr("reserved_1d_readback_map", reserved_1d_readback_map_hr);
     std::printf("    \"reserved_1d_total_tiles\": %u,\n", reserved_1d_total_tiles);
+    std::printf("    \"reserved_1d_tiling_count\": %u,\n", reserved_1d_tiling_count);
     std::printf("    \"reserved_1d_tile_shape\": [%u,%u,%u],\n",
                 reserved_1d_tile_shape.WidthInTexels,
                 reserved_1d_tile_shape.HeightInTexels,
                 reserved_1d_tile_shape.DepthInTexels);
+    std::printf("    \"reserved_1d_tilings\": [[%u,%u],[%u,%u]],\n",
+                reserved_1d_tilings[0].WidthInTiles,
+                reserved_1d_tilings[0].StartTileIndexInOverallResource,
+                reserved_1d_tilings[1].WidthInTiles,
+                reserved_1d_tilings[1].StartTileIndexInOverallResource);
     std::printf("    \"reserved_1d_copy_verified\": %s,\n",
                 reserved_1d_copy_ok ? "true" : "false");
     print_hr("upload_create", sparse_upload_hr);
