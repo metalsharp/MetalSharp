@@ -207,8 +207,6 @@ static bool ResolveSubresourceRegion(const D3D12_RESOURCE_DESC &desc,
 
 } // namespace
 
-static std::atomic<uint64_t> g_next_texture_virtual_address{0x200000000000ull};
-
 static WMTTextureType
 TextureTypeForResourceDesc(const D3D12_RESOURCE_DESC &desc) {
   UINT sample_count = desc.SampleDesc.Count ? desc.SampleDesc.Count : 1;
@@ -681,11 +679,11 @@ void MTLD3D12Resource::InitializeResource(
         tex_info.pixel_format, (unsigned)tex_info.width, (unsigned)tex_info.height, (unsigned)tex_info.array_length,
         (unsigned long long)m_mtl_texture.handle, cpu_accessible ? "cpu" : "gpu");
     }
-    // Textures do not expose a real D3D12 GPU virtual address. Older bridge
-    // code allocated a same-sized fake Metal buffer here, which doubled memory
-    // pressure for large render targets before UE5/Nanite transient heaps.
-    m_gpu_addr = g_next_texture_virtual_address.fetch_add(0x10000ull);
-    RTRACE("ctor: texture synthetic gpu_addr=0x%llx (no backing buffer)", (unsigned long long)m_gpu_addr);
+    // D3D12 texture resources do not expose GPU virtual addresses. The
+    // provider uses the Metal texture/resource id for descriptor identity;
+    // never manufacture a buffer address that callers could dereference.
+    m_gpu_addr = 0;
+    RTRACE("ctor: texture gpu_addr=0 (texture resources have no VA)");
   }
 
   Logger::info(str::format("D3D12Resource: dim=", m_desc.Dimension,
