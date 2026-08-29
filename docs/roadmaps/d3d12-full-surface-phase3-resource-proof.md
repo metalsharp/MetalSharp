@@ -129,7 +129,8 @@
   original and both opened objects.
 - Shared-handle creation and named opening reject zero access masks with
   exact `E_INVALIDARG`; valid named buffer, heap, and fence mappings retain
-  their cross-process behavior.
+  their cross-process behavior. Attempting to share a texture returns the
+  explicit `E_NOTIMPL` provider boundary instead of a process-local success.
 - Descriptor heaps and query heaps now participate in the D3D12 residency
   object set; the probe accepts and re-makes both pageables and applies their
   residency priorities without silently ignoring them.
@@ -294,6 +295,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",
   "textures.direct_io_texture_verified": true,
+  "textures.shared_texture_create": "0x80004001",
   "textures.direct_io_volume_verified": true,
   "textures.direct_io_volume_box_verified": true,
   "textures.direct_io_d32s8_verified": true,
