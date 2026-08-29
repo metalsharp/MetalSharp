@@ -1081,7 +1081,7 @@ not check its children.
 - [ ] `SOSetTargets` records state and captures stream output.
 - [ ] `DiscardResource` has D3D12-correct discard/undefined-content semantics.
 - [ ] `SetPredication` controls every applicable command.
-- [ ] Command-list markers/events and queue markers/events reach the provider.
+- [x] Command-list markers/events and queue markers/events reach the provider.
 - [ ] `AtomicCopyBufferUINT` is atomic and honors dependent ranges.
 - [ ] `AtomicCopyBufferUINT64` is atomic and honors dependent ranges.
 - [ ] `SetSamplePositions` affects raster/MSAA behavior.
@@ -1093,7 +1093,7 @@ not check its children.
 - [ ] `MakeResident`, `Evict`, priority, trim, and residency queries track
       actual state.
 - [ ] Device removed reason and DRED reflect actual faults.
-- [ ] Clock calibration returns correlated CPU/GPU timestamps.
+- [x] Clock calibration returns correlated CPU/GPU timestamps.
 
 ### 5.2 Feature-query completion
 
