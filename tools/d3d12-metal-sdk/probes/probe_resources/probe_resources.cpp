@@ -181,6 +181,8 @@ static int run_shared_child() {
     ID3D12Resource* resource = nullptr;
     HANDLE fence_handle = nullptr;
     ID3D12Fence* shared_fence = nullptr;
+    HANDLE heap_handle = nullptr;
+    ID3D12Heap* shared_heap = nullptr;
     HRESULT open_name_hr = device ? device->OpenSharedHandleByName(L"metalsharp-probe-buffer", GENERIC_ALL,
                                                                     &shared_handle)
                                   : E_FAIL;
@@ -195,7 +197,20 @@ static int run_shared_child() {
     HRESULT fence_open_hr = SUCCEEDED(fence_name_hr) && device
                                 ? device->OpenSharedHandle(fence_handle, IID_PPV_ARGS(&shared_fence))
                                 : E_FAIL;
+    const HRESULT heap_name_hr = device ? device->OpenSharedHandleByName(L"metalsharp-probe-upload-heap",
+                                                                          GENERIC_ALL, &heap_handle)
+                                        : E_FAIL;
+    const HRESULT heap_open_hr = SUCCEEDED(heap_name_hr) && device
+                                     ? device->OpenSharedHandle(heap_handle, IID_PPV_ARGS(&shared_heap))
+                                     : E_FAIL;
+    D3D12_HEAP_DESC heap_desc = {};
+    if (shared_heap)
+        shared_heap->GetDesc(&heap_desc);
+    const bool heap_verified = SUCCEEDED(heap_name_hr) && SUCCEEDED(heap_open_hr) && shared_heap &&
+                               heap_desc.SizeInBytes == 64 * 1024 &&
+                               heap_desc.Properties.Type == D3D12_HEAP_TYPE_UPLOAD;
     const uint64_t fence_value = shared_fence ? shared_fence->GetCompletedValue() : 0;
+    const bool fence_verified = SUCCEEDED(fence_name_hr) && SUCCEEDED(fence_open_hr) && fence_value == 7;
     HRESULT map_hr = resource ? resource->Map(0, nullptr, &mapped) : E_FAIL;
     if (SUCCEEDED(map_hr) && mapped) {
         std::memcpy(&before, mapped, sizeof(before));
@@ -204,8 +219,8 @@ static int run_shared_child() {
         resource->Unmap(0, nullptr);
     }
     const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_name_hr) && SUCCEEDED(open_hr) &&
-                      SUCCEEDED(fence_name_hr) && SUCCEEDED(fence_open_hr) && fence_value == 7 &&
-                      SUCCEEDED(map_hr) && before == 0x1234abcdu;
+                      SUCCEEDED(fence_name_hr) && SUCCEEDED(fence_open_hr) && fence_verified &&
+                      fence_value == 7 && heap_verified && SUCCEEDED(map_hr) && before == 0x1234abcdu;
     // The parent owns the machine-readable probe stream; keep child output
     // silent so it cannot corrupt the parent's JSON document.
     if (resource)
@@ -214,8 +229,12 @@ static int run_shared_child() {
         CloseHandle(shared_handle);
     if (fence_handle)
         CloseHandle(fence_handle);
+    if (heap_handle)
+        CloseHandle(heap_handle);
     if (shared_fence)
         shared_fence->Release();
+    if (shared_heap)
+        shared_heap->Release();
     if (device)
         device->Release();
     // Do not unload d3d12.dll explicitly: DXMT owns worker-thread state and
@@ -334,6 +353,7 @@ int main(int argc, char** argv) {
     bool atomic_copy_ok = false;
     bool discard_ok = false;
     bool cross_process_shared_ok = false;
+    bool shared_heap_cross_process_ok = false;
     HRESULT default_write_subresource_hr = E_FAIL;
     HRESULT default_read_subresource_hr = E_FAIL;
     bool default_cpu_io_verified = false;
@@ -565,7 +585,8 @@ int main(int argc, char** argv) {
             const uint32_t shared_parent_value = 0x1234abcdu;
             std::memcpy(shared_parent_data, &shared_parent_value, sizeof(shared_parent_value));
             default_buffer->Unmap(0, nullptr);
-            cross_process_shared_ok = launch_shared_child();
+            shared_heap_cross_process_ok = launch_shared_child();
+            cross_process_shared_ok = shared_heap_cross_process_ok;
             shared_parent_data = nullptr;
             if (cross_process_shared_ok && SUCCEEDED(default_buffer->Map(0, nullptr, &shared_parent_data)) &&
                 shared_parent_data) {
@@ -1838,7 +1859,8 @@ int main(int argc, char** argv) {
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && shared_handle_roundtrip &&
         format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
         shared_heap_roundtrip_ok && SUCCEEDED(shared_fence_create_hr) &&
-        SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr);
+        SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr) &&
+        shared_heap_cross_process_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -1921,10 +1943,11 @@ int main(int argc, char** argv) {
     print_hr("heap_open", shared_heap_open_hr);
     print_hr("heap_file_open", shared_heap_file_open_hr);
     std::printf("    \"heap_roundtrip_verified\": %s,\n", shared_heap_roundtrip_ok ? "true" : "false");
+    std::printf("    \"heap_cross_process_verified\": %s,\n", shared_heap_cross_process_ok ? "true" : "false");
     print_hr("fence_create", shared_fence_create_hr);
     print_hr("fence_handle_create", shared_fence_handle_hr);
     print_hr("fence_signal", shared_fence_signal_hr);
-    std::printf("    \"fence_cross_process_verified\": %s\n", cross_process_shared_ok ? "true" : "false");
+    std::printf("    \"fence_cross_process_verified\": %s\n", shared_heap_cross_process_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"textures\": {\n");
     print_hr("texture_create", texture_hr);
