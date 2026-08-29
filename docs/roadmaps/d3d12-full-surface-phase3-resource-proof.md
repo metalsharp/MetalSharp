@@ -177,6 +177,10 @@
   `ReclaimResources` cycle reports the resource evicted after trim, sets the
   discarded bit, and reports it fully resident after reclaim; priority values
   preserve the DXGI/D3D12 high-priority encoding difference.
+- Unnamed CPU-visible heap and fence handles use generated, pointer-free file
+  mappings rather than the legacy process-local registry. Independent objects
+  reopen from each handle; the unnamed fence observes an asynchronous queue
+  signal at value `13`.
 - Shared mapping views and section handles are released with the resource;
   malformed or unknown handles remain rejected.
 
@@ -209,6 +213,8 @@ The isolated source-staged probe passed with:
   "shared_handles.cross_process_verified": true,
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,
+  "shared_handles.unnamed_heap_roundtrip_verified": true,
+  "shared_handles.unnamed_fence_roundtrip_verified": true,
   "shared_handles.fence_cross_process_verified": true,
   "shared_handles.fence_mapping_signal": "0x00000000",
   "shared_handles.fence_wait_mapping": "0x00000000",

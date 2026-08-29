@@ -333,7 +333,10 @@ int main(int argc, char** argv) {
     HRESULT residency_query_heap_make_hr = E_FAIL;
     HRESULT residency_pageable_priority_hr = E_FAIL;
     ID3D12Fence* shared_fence = nullptr;
+    ID3D12Fence* unnamed_shared_fence = nullptr;
+    ID3D12Fence* unnamed_shared_fence_open = nullptr;
     HANDLE shared_fence_handle = nullptr;
+    HANDLE unnamed_shared_fence_handle = nullptr;
     HRESULT shared_fence_create_hr = device
                                          ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                                                                IID_PPV_ARGS(&shared_fence))
@@ -346,6 +349,11 @@ int main(int argc, char** argv) {
         shared_fence && queue ? queue->Signal(shared_fence, 7) : E_FAIL;
     HRESULT shared_fence_mapping_signal_hr = E_FAIL;
     HRESULT shared_fence_wait_hr = E_FAIL;
+    HRESULT unnamed_shared_fence_create_hr = E_FAIL;
+    HRESULT unnamed_shared_fence_handle_hr = E_FAIL;
+    HRESULT unnamed_shared_fence_open_hr = E_FAIL;
+    HRESULT unnamed_shared_fence_signal_hr = E_FAIL;
+    bool unnamed_shared_fence_roundtrip_ok = false;
     if (SUCCEEDED(shared_fence_signal_hr) && shared_fence_handle && device) {
         ID3D12Fence *mapped_fence_probe = nullptr;
         if (SUCCEEDED(device->OpenSharedHandle(
@@ -365,6 +373,41 @@ int main(int argc, char** argv) {
             mapped_fence_probe->Release();
         }
     }
+    unnamed_shared_fence_create_hr =
+        device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                     IID_PPV_ARGS(&unnamed_shared_fence))
+               : E_FAIL;
+    unnamed_shared_fence_handle_hr =
+        unnamed_shared_fence
+            ? device->CreateSharedHandle(unnamed_shared_fence, nullptr,
+                                         GENERIC_ALL, nullptr,
+                                         &unnamed_shared_fence_handle)
+            : E_FAIL;
+    unnamed_shared_fence_open_hr =
+        SUCCEEDED(unnamed_shared_fence_handle_hr)
+            ? device->OpenSharedHandle(unnamed_shared_fence_handle,
+                                       IID_PPV_ARGS(&unnamed_shared_fence_open))
+            : E_FAIL;
+    unnamed_shared_fence_signal_hr =
+        unnamed_shared_fence && queue ? queue->Signal(unnamed_shared_fence, 13)
+                                      : E_FAIL;
+    bool unnamed_shared_fence_signaled = false;
+    if (SUCCEEDED(unnamed_shared_fence_signal_hr) &&
+        unnamed_shared_fence_open) {
+        for (UINT attempt = 0; attempt < 5000; ++attempt) {
+            if (unnamed_shared_fence_open->GetCompletedValue() >= 13) {
+                unnamed_shared_fence_signaled = true;
+                break;
+            }
+            Sleep(1);
+        }
+    }
+    unnamed_shared_fence_roundtrip_ok =
+        SUCCEEDED(unnamed_shared_fence_create_hr) &&
+        SUCCEEDED(unnamed_shared_fence_handle_hr) &&
+        SUCCEEDED(unnamed_shared_fence_open_hr) &&
+        SUCCEEDED(unnamed_shared_fence_signal_hr) &&
+        unnamed_shared_fence_signaled;
 
     const UINT64 buffer_bytes = 4096;
     D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -393,6 +436,9 @@ int main(int argc, char** argv) {
     ID3D12Heap* shared_heap_source = nullptr;
     ID3D12Heap* shared_heap_open = nullptr;
     ID3D12Heap* shared_heap_file_open = nullptr;
+    ID3D12Heap* unnamed_shared_heap_source = nullptr;
+    ID3D12Heap* unnamed_shared_heap_open = nullptr;
+    HANDLE unnamed_shared_heap_handle = nullptr;
     std::vector<ResourceShapeProbe> resource_shapes;
     ID3D12Heap *placed_1d_array_heap = nullptr;
     ID3D12Resource *placed_1d_array_resource = nullptr;
@@ -460,6 +506,10 @@ int main(int argc, char** argv) {
     HRESULT shared_heap_open_hr = E_FAIL;
     HRESULT shared_heap_file_open_hr = E_FAIL;
     bool shared_heap_roundtrip_ok = false;
+    HRESULT unnamed_shared_heap_create_hr = E_FAIL;
+    HRESULT unnamed_shared_heap_handle_hr = E_FAIL;
+    HRESULT unnamed_shared_heap_open_hr = E_FAIL;
+    bool unnamed_shared_heap_roundtrip_ok = false;
     HANDLE shared_handle = nullptr;
     HANDLE shared_named_handle = nullptr;
     HRESULT shared_create_hr = E_FAIL;
@@ -1244,6 +1294,37 @@ int main(int argc, char** argv) {
                 SUCCEEDED(shared_heap_create_hr) && SUCCEEDED(shared_heap_open_hr) &&
                 SUCCEEDED(shared_heap_file_open_hr) && shared_heap_open &&
                 shared_heap_file_open;
+        }
+        if (device) {
+            D3D12_HEAP_DESC unnamed_shared_heap_desc = {};
+            unnamed_shared_heap_desc.SizeInBytes = 64 * 1024;
+            unnamed_shared_heap_desc.Properties = upload_heap;
+            unnamed_shared_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+            unnamed_shared_heap_create_hr = device->CreateHeap(
+                &unnamed_shared_heap_desc,
+                IID_PPV_ARGS(&unnamed_shared_heap_source));
+            unnamed_shared_heap_handle_hr =
+                unnamed_shared_heap_source
+                    ? device->CreateSharedHandle(
+                          unnamed_shared_heap_source, nullptr, GENERIC_ALL,
+                          nullptr, &unnamed_shared_heap_handle)
+                    : E_FAIL;
+            unnamed_shared_heap_open_hr =
+                SUCCEEDED(unnamed_shared_heap_handle_hr)
+                    ? device->OpenSharedHandle(
+                          unnamed_shared_heap_handle,
+                          IID_PPV_ARGS(&unnamed_shared_heap_open))
+                    : E_FAIL;
+            D3D12_HEAP_DESC opened_desc = {};
+            if (unnamed_shared_heap_open)
+                unnamed_shared_heap_open->GetDesc(&opened_desc);
+            unnamed_shared_heap_roundtrip_ok =
+                SUCCEEDED(unnamed_shared_heap_create_hr) &&
+                SUCCEEDED(unnamed_shared_heap_handle_hr) &&
+                SUCCEEDED(unnamed_shared_heap_open_hr) &&
+                unnamed_shared_heap_open &&
+                opened_desc.SizeInBytes == unnamed_shared_heap_desc.SizeInBytes &&
+                opened_desc.Properties.Type == D3D12_HEAP_TYPE_UPLOAD;
         }
         D3D12_DESCRIPTOR_HEAP_DESC residency_descriptor_desc = {};
         residency_descriptor_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -3785,15 +3866,16 @@ int main(int argc, char** argv) {
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
         format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
-        shared_heap_roundtrip_ok && unnamed_shared_roundtrip_ok &&
-        SUCCEEDED(unnamed_shared_source_hr) &&
+        shared_heap_roundtrip_ok && unnamed_shared_heap_roundtrip_ok &&
+        unnamed_shared_roundtrip_ok && SUCCEEDED(unnamed_shared_source_hr) &&
         SUCCEEDED(unnamed_shared_create_hr) &&
         SUCCEEDED(unnamed_shared_open_hr) &&
         SUCCEEDED(unnamed_shared_map_hr) &&
         SUCCEEDED(shared_fence_create_hr) &&
         SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr) &&
         SUCCEEDED(shared_fence_mapping_signal_hr) &&
-        SUCCEEDED(shared_fence_wait_hr) && shared_heap_cross_process_ok;
+        SUCCEEDED(shared_fence_wait_hr) &&
+        unnamed_shared_fence_roundtrip_ok && shared_heap_cross_process_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -4016,11 +4098,22 @@ int main(int argc, char** argv) {
     print_hr("heap_file_open", shared_heap_file_open_hr);
     std::printf("    \"heap_roundtrip_verified\": %s,\n", shared_heap_roundtrip_ok ? "true" : "false");
     std::printf("    \"heap_cross_process_verified\": %s,\n", shared_heap_cross_process_ok ? "true" : "false");
+    print_hr("unnamed_heap_create", unnamed_shared_heap_create_hr);
+    print_hr("unnamed_heap_handle_create", unnamed_shared_heap_handle_hr);
+    print_hr("unnamed_heap_open", unnamed_shared_heap_open_hr);
+    std::printf("    \"unnamed_heap_roundtrip_verified\": %s,\n",
+                unnamed_shared_heap_roundtrip_ok ? "true" : "false");
     print_hr("fence_create", shared_fence_create_hr);
     print_hr("fence_handle_create", shared_fence_handle_hr);
     print_hr("fence_signal", shared_fence_signal_hr);
     print_hr("fence_mapping_signal", shared_fence_mapping_signal_hr);
     print_hr("fence_wait_mapping", shared_fence_wait_hr);
+    print_hr("unnamed_fence_create", unnamed_shared_fence_create_hr);
+    print_hr("unnamed_fence_handle_create", unnamed_shared_fence_handle_hr);
+    print_hr("unnamed_fence_open", unnamed_shared_fence_open_hr);
+    print_hr("unnamed_fence_signal", unnamed_shared_fence_signal_hr);
+    std::printf("    \"unnamed_fence_roundtrip_verified\": %s,\n",
+                unnamed_shared_fence_roundtrip_ok ? "true" : "false");
     std::printf("    \"fence_cross_process_verified\": %s\n", shared_heap_cross_process_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"textures\": {\n");
