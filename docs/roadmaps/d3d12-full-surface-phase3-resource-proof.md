@@ -10,8 +10,10 @@
   `ReadFromSubresource`/`WriteToSubresource` now use validated buffer copies.
 - Texture subresource I/O resolves mip, array, box, block-compressed, and
   volume regions with correct row and slice pitches.
-- Resource and heap residency state tracks resident/evicted transitions and
-  propagates an explicit heap eviction to placed resources: a mapped placed
+- Resource and heap residency state is reference-counted as required by
+  D3D12: after one extra `MakeResident`, the first `Evict` leaves mapping
+  available, while the matching second `Evict` rejects `Map`; the state then
+  remakes cleanly. It also propagates an explicit heap eviction to placed
   buffer rejects access while its heap is evicted and succeeds again after the
   heap is made resident.
   priority; mapping an evicted resource is rejected until it is made resident
@@ -138,6 +140,8 @@ The isolated source-staged probe passed with:
   "device.adapter_luid_verified": true,
   "buffers.default_cpu_io_verified": true,
   "buffers.residency_state_verified": true,
+  "buffers.residency_refcount_first_evict_map": "0x00000000",
+  "buffers.residency_refcount_second_evict_map": "0x887a0001",
   "shared_handles.roundtrip_verified": true,
   "shared_handles.independent_objects_verified": true,
   "shared_handles.cross_process_verified": true,

@@ -447,6 +447,8 @@ int main(int argc, char** argv) {
     HRESULT residency_make_hr = E_FAIL;
     HRESULT residency_priority_hr = E_FAIL;
     HRESULT residency_evict_hr = E_FAIL;
+    HRESULT residency_first_evict_map_hr = E_FAIL;
+    HRESULT residency_second_evict_hr = E_FAIL;
     HRESULT residency_evicted_map_hr = E_FAIL;
     HRESULT residency_remake_hr = E_FAIL;
     HRESULT residency_remade_map_hr = E_FAIL;
@@ -1187,6 +1189,12 @@ int main(int argc, char** argv) {
         if (residency_device1)
             residency_device1->Release();
         residency_evict_hr = device->Evict(1, &pageable);
+        void *first_evict_map = nullptr;
+        residency_first_evict_map_hr =
+            upload_buffer->Map(0, nullptr, &first_evict_map);
+        if (SUCCEEDED(residency_first_evict_map_hr))
+            upload_buffer->Unmap(0, nullptr);
+        residency_second_evict_hr = device->Evict(1, &pageable);
         void* evicted_map = nullptr;
         residency_evicted_map_hr = upload_buffer->Map(0, nullptr, &evicted_map);
         residency_remake_hr = device->MakeResident(1, &pageable);
@@ -1197,6 +1205,8 @@ int main(int argc, char** argv) {
         residency_state_ok = SUCCEEDED(residency_make_hr) &&
                              SUCCEEDED(residency_priority_hr) &&
                              SUCCEEDED(residency_evict_hr) &&
+                             SUCCEEDED(residency_first_evict_map_hr) &&
+                             SUCCEEDED(residency_second_evict_hr) &&
                              residency_evicted_map_hr == DXGI_ERROR_INVALID_CALL &&
                              SUCCEEDED(residency_remake_hr) &&
                              SUCCEEDED(residency_remade_map_hr) && remade_map;
@@ -2879,6 +2889,8 @@ int main(int argc, char** argv) {
     print_hr("residency_make", residency_make_hr);
     print_hr("residency_priority", residency_priority_hr);
     print_hr("residency_evict", residency_evict_hr);
+    print_hr("residency_first_evict_map", residency_first_evict_map_hr);
+    print_hr("residency_second_evict", residency_second_evict_hr);
     print_hr("residency_evicted_map", residency_evicted_map_hr);
     print_hr("residency_remake", residency_remake_hr);
     print_hr("residency_remade_map", residency_remade_map_hr);
