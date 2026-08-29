@@ -14,10 +14,9 @@
   D3D12: after one extra `MakeResident`, the first `Evict` leaves mapping
   available, while the matching second `Evict` rejects `Map`; the state then
   remakes cleanly. It also propagates an explicit heap eviction to placed
-  buffer rejects access while its heap is evicted and succeeds again after the
-  heap is made resident.
-  priority; mapping an evicted resource is rejected until it is made resident
-  again.
+  buffers: access is rejected while the heap is evicted and succeeds again
+  after the heap is made resident. Resource priority is retained, and mapping
+  an evicted resource is rejected until it is made resident again.
 - Named buffers, CPU-visible heaps, and fences use platform file mappings with
   fixed metadata headers rather than a process-local object map. A second Wine
   process can reconstruct a buffer, observe writes to the same backing, and
@@ -61,9 +60,10 @@
 - Direct default-resource subresource I/O is behavior-backed for a 2D array
   with mips (boxed mip write/read) and a 3D volume (two depth slices), with
   exact row and slice pitches and byte readback.
-- A six-face cube resource (the D3D12 six-slice 2D representation) creates
-  successfully and each face independently round-trips distinct bytes through
-  `WriteToSubresource`/`ReadFromSubresource`.
+- A two-slice 1D-array resource and a six-face cube resource (the D3D12
+  six-slice 2D representation) create successfully; the backend preserves the
+  1D array length, and each 1D-array slice and cube face independently
+  round-trips distinct bytes through `WriteToSubresource`/`ReadFromSubresource`.
 - NV12 footprints expand luma/chroma into R8/R8G8 planes with half-resolution
   chroma dimensions (`13x8` plus `7x4`, 3072 bytes total); odd NV12 heights
   reject with `E_INVALIDARG`.
@@ -268,7 +268,8 @@ The focused view probe passed the castable case with `observed_bits=0x3f800000`,
 `rgba8_uint_values=[0,0,128,63]`. It also returned exact `E_INVALIDARG` for the
 invalid castable list and left the undeclared `R32_SINT` view unusable. The same
 run exercises the corrected composite heap restriction mask and reports
-`cube_six_slice_array=true` with `cube_face_io_verified=true`.
+`cube_six_slice_array=true` with `cube_face_io_verified=true`, and
+`texture1d_array_face_io_verified=true`.
 
 ### DXGI residency view
 
