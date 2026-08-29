@@ -527,6 +527,13 @@ static bool IsDepthStencilFormat(DXGI_FORMAT format) {
   }
 }
 
+static bool IsDepthStencilResourceFormat(DXGI_FORMAT format) {
+  return IsDepthStencilFormat(format) ||
+         format == DXGI_FORMAT_R32_TYPELESS ||
+         format == DXGI_FORMAT_R24G8_TYPELESS ||
+         format == DXGI_FORMAT_R32G8X24_TYPELESS;
+}
+
 static bool AreClearFormatsCompatible(DXGI_FORMAT resource_format,
                                        DXGI_FORMAT clear_format) {
   if (resource_format == clear_format)
@@ -609,7 +616,10 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
   const bool unordered_access =
       (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0;
   if ((render_target && depth_stencil) ||
-      (depth_stencil && unordered_access))
+      (depth_stencil && unordered_access) ||
+      (depth_stencil && !IsDepthStencilResourceFormat(desc.Format)) ||
+      (render_target && IsDepthStencilResourceFormat(desc.Format)) ||
+      (unordered_access && IsDepthStencilResourceFormat(desc.Format)))
     return false;
   if (desc.Alignment && !IsPowerOfTwo(desc.Alignment))
     return false;
@@ -5049,6 +5059,8 @@ MTLD3D12Device::GetCustomHeapProperties(D3D12_HEAP_PROPERTIES *__ret,
                                         D3D12_HEAP_TYPE heap_type) {
   TRACE("GetCustomHeapProperties node=0x%x heap_type=%u ret=%p", node_mask,
         heap_type, (void *)__ret);
+  if (!__ret)
+    return nullptr;
   __ret->Type = heap_type;
   __ret->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
   __ret->MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;

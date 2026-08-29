@@ -27,6 +27,9 @@
 - Texture `GetGPUVirtualAddress` correctly returns zero; texture descriptor
   identity continues to use the Metal texture/resource id rather than a fake
   buffer address.
+- Depth-stencil flags require a depth/stencil-compatible resource format;
+  an R8 color texture with `ALLOW_DEPTH_STENCIL` rejects with
+  `E_INVALIDARG` rather than creating a non-depth backing.
 - Optimized clear values are accepted only for matching render-target or
   depth-stencil resources; a clear value on a buffer and a depth clear format
   on a color target both reject with `E_INVALIDARG`.
@@ -124,6 +127,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",
   "resource_shapes.invalid_buffer_resource_flags": "0x80070057",
   "resource_shapes.invalid_texture_resource_flags": "0x80070057",
+  "resource_shapes.invalid_depth_format_flags": "0x80070057",
   "resource_shapes.invalid_clear_without_flag": "0x80070057",
   "resource_shapes.invalid_clear_format": "0x80070057",
   "resource_shapes.null_heap_properties": "0x80070057",
