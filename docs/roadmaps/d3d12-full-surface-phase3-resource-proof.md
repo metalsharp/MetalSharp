@@ -47,6 +47,14 @@
 - Resource flag validation rejects render-target resources with a buffer
   dimension and rejects mutually exclusive render-target/depth-stencil flags,
   both with exact `E_INVALIDARG` and no returned object.
+- Heap restriction masks now distinguish the composite `ALLOW_ONLY_*` values
+  from their individual deny bits, so `ALLOW_ONLY_NON_RT_DS_TEXTURES` accepts
+  valid placed color resources while still rejecting buffers and RT/DS objects.
+- The focused `ID3D12Device10` relaxed-cast lane accepts declared same-sized
+  `R32_UINT` and `R8G8B8A8_UINT` views of an `R32_FLOAT` resource, rejects an
+  undeclared `R32_SINT` view and an invalid castable list, and reads back the
+  exact float bit pattern through committed, placed, and overlapping-alias
+  resources.
 - Direct BC1 subresource I/O now uses block-row counts for slice pitches:
   unaligned `7x5` BC1 write/read accepts two 16-byte rows and round-trips the
   exact compressed bytes, in addition to the command-list copy proof.
@@ -211,6 +219,15 @@ The isolated source-staged probe passed with:
   "textures.unaligned_bc1_direct_io_verified": true,
   "textures.unaligned_bc1_copy_verified": true,
   "formats.D24_UNORM_S8_UINT.plane_count": 2,
+  "castable_formats.relaxed_castable_formats": {
+    "pass": true,
+    "observed_bits": 1065353216,
+    "placed_observed_bits": 1065353216,
+    "alias_observed_bits": 1073741824,
+    "rgba8_uint_values": [0, 0, 128, 63],
+    "undeclared_view_rejected": true,
+    "invalid_castable_list_rejected": true
+  },
   "sparse.unmapped_zero_verified": true,
   "sparse.tier3_physical_page_ownership_verified": true,
   "sparse.volume_copy_verified": true,
@@ -234,6 +251,20 @@ The same result records exact successful creation, queue execution, signal,
 wait, map, copy, readback, residency, and invalid-handle HRESULTs. The child
 process is bounded to 30 seconds and the source wrapper removes its disposable
 Wine clone and prefix on every exit path.
+
+### Relaxed castable-format and heap restriction proof
+
+```sh
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
+  tools/d3d12-metal-sdk/scripts/run-source-probes.sh --resource-views-formats-only
+```
+
+The focused view probe passed the castable case with `observed_bits=0x3f800000`,
+`placed_observed_bits=0x3f800000`, `alias_observed_bits=0x40000000`, and
+`rgba8_uint_values=[0,0,128,63]`. It also returned exact `E_INVALIDARG` for the
+invalid castable list and left the undeclared `R32_SINT` view unusable. The same
+run exercises the corrected composite heap restriction mask.
 
 ### DXGI residency view
 
