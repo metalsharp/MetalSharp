@@ -375,6 +375,13 @@ int main(int argc, char** argv) {
     HRESULT full_mip_create_hr = E_FAIL;
     UINT full_mip_count = 0;
     bool full_mip_footprint_ok = false;
+    HRESULT not_resident_committed_hr = E_FAIL;
+    HRESULT not_resident_initial_map_hr = E_FAIL;
+    HRESULT not_resident_make_resident_hr = E_FAIL;
+    HRESULT not_resident_remade_map_hr = E_FAIL;
+    HRESULT not_resident_heap_hr = E_FAIL;
+    HRESULT not_resident_placed_hr = E_FAIL;
+    bool not_resident_roundtrip_ok = false;
     bool tight_placed_roundtrip_ok = false;
     HANDLE shared_heap_handle = nullptr;
     HRESULT shared_heap_create_hr = E_FAIL;
@@ -420,6 +427,9 @@ int main(int argc, char** argv) {
     ID3D12Resource* tight_committed = nullptr;
     ID3D12Heap* tight_heap = nullptr;
     ID3D12Resource* tight_placed = nullptr;
+    ID3D12Resource* not_resident_committed = nullptr;
+    ID3D12Heap* not_resident_heap = nullptr;
+    ID3D12Resource* not_resident_placed = nullptr;
     auto probe_resource_shape = [&](const char* name, D3D12_RESOURCE_DESC desc,
                                     D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON) {
         ResourceShapeProbe probe = {};
@@ -655,6 +665,74 @@ int main(int argc, char** argv) {
             }
             full_mip_resource->Release();
         }
+
+        const D3D12_HEAP_FLAGS not_resident_flag =
+            static_cast<D3D12_HEAP_FLAGS>(0x800);
+        D3D12_RESOURCE_DESC not_resident_desc = buffer_desc(1024);
+        not_resident_committed_hr = device->CreateCommittedResource(
+            &upload_heap, not_resident_flag, &not_resident_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&not_resident_committed));
+        void *not_resident_data = nullptr;
+        not_resident_initial_map_hr = not_resident_committed
+                                          ? not_resident_committed->Map(
+                                                0, nullptr, &not_resident_data)
+                                          : E_FAIL;
+        ID3D12Pageable *not_resident_pageable = not_resident_committed;
+        not_resident_make_resident_hr =
+            not_resident_committed
+                ? device->MakeResident(1, &not_resident_pageable)
+                : E_FAIL;
+        not_resident_data = nullptr;
+        not_resident_remade_map_hr = not_resident_committed
+                                          ? not_resident_committed->Map(
+                                                0, nullptr, &not_resident_data)
+                                          : E_FAIL;
+        if (SUCCEEDED(not_resident_remade_map_hr) && not_resident_data) {
+            auto *bytes = static_cast<uint8_t *>(not_resident_data);
+            for (UINT i = 0; i < 1024; ++i)
+                bytes[i] = static_cast<uint8_t>((i * 7u + 19u) & 0xffu);
+            D3D12_RANGE written = {0, 1024};
+            not_resident_committed->Unmap(0, &written);
+            not_resident_roundtrip_ok = true;
+            uint8_t readback[1024] = {};
+            not_resident_roundtrip_ok = SUCCEEDED(
+                not_resident_committed->ReadFromSubresource(readback, 1024, 1024, 0, nullptr));
+            for (UINT i = 0; i < 1024 && not_resident_roundtrip_ok; ++i)
+                not_resident_roundtrip_ok =
+                    readback[i] == static_cast<uint8_t>((i * 7u + 19u) & 0xffu);
+        }
+        D3D12_HEAP_DESC not_resident_heap_desc = {};
+        not_resident_heap_desc.SizeInBytes = 64 * 1024;
+        not_resident_heap_desc.Properties = upload_heap;
+        not_resident_heap_desc.Flags = not_resident_flag | D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        not_resident_heap_hr = device->CreateHeap(
+            &not_resident_heap_desc, IID_PPV_ARGS(&not_resident_heap));
+        not_resident_placed_hr = not_resident_heap
+                                     ? device->CreatePlacedResource(
+                                           not_resident_heap, 0,
+                                           &not_resident_desc,
+                                           D3D12_RESOURCE_STATE_GENERIC_READ,
+                                           nullptr,
+                                           IID_PPV_ARGS(&not_resident_placed))
+                                     : E_FAIL;
+        if (not_resident_placed) {
+            void *placed_data = nullptr;
+            HRESULT initial_placed_map =
+                not_resident_placed->Map(0, nullptr, &placed_data);
+            ID3D12Pageable *placed_pageable = not_resident_placed;
+            HRESULT placed_make = device->MakeResident(1, &placed_pageable);
+            placed_data = nullptr;
+            HRESULT remade_placed_map =
+                not_resident_placed->Map(0, nullptr, &placed_data);
+            not_resident_roundtrip_ok =
+                not_resident_roundtrip_ok &&
+                initial_placed_map == DXGI_ERROR_INVALID_CALL &&
+                SUCCEEDED(placed_make) && SUCCEEDED(remade_placed_map) &&
+                placed_data != nullptr;
+            if (SUCCEEDED(remade_placed_map))
+                not_resident_placed->Unmap(0, nullptr);
+        }
     }
     auto same_resource_desc = [](const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
         return a.Dimension == b.Dimension && a.Alignment == b.Alignment && a.Width == b.Width &&
@@ -748,6 +826,11 @@ int main(int argc, char** argv) {
                          tight_placed_roundtrip_ok && tight_invalid_alignment_hr == E_INVALIDARG &&
                          tight_overaligned_placed_hr == E_INVALIDARG && tight_reserved_hr == E_INVALIDARG &&
                          full_mip_create_hr == S_OK && full_mip_count == 6 && full_mip_footprint_ok &&
+                         SUCCEEDED(not_resident_committed_hr) &&
+                         not_resident_initial_map_hr == DXGI_ERROR_INVALID_CALL &&
+                         SUCCEEDED(not_resident_make_resident_hr) &&
+                         SUCCEEDED(not_resident_remade_map_hr) && SUCCEEDED(not_resident_heap_hr) &&
+                         SUCCEEDED(not_resident_placed_hr) && not_resident_roundtrip_ok &&
                          FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -2446,6 +2529,14 @@ int main(int argc, char** argv) {
     std::printf("    \"full_mip_count\": %u,\n", full_mip_count);
     std::printf("    \"full_mip_footprint_verified\": %s,\n",
                 full_mip_footprint_ok ? "true" : "false");
+    print_hr("not_resident_committed", not_resident_committed_hr);
+    print_hr("not_resident_initial_map", not_resident_initial_map_hr);
+    print_hr("not_resident_make_resident", not_resident_make_resident_hr);
+    print_hr("not_resident_remade_map", not_resident_remade_map_hr);
+    print_hr("not_resident_heap", not_resident_heap_hr);
+    print_hr("not_resident_placed", not_resident_placed_hr);
+    std::printf("    \"not_resident_roundtrip_verified\": %s,\n",
+                not_resident_roundtrip_ok ? "true" : "false");
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);
