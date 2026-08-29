@@ -3836,8 +3836,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     o->DepthBoundsTestSupported = TRUE;
+    // Metal supports a single programmable sample pattern for each
+    // multisampled render pass; expose the corresponding D3D12 tier-1 shape.
     o->ProgrammableSamplePositionsTier =
-        D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
+        D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_1;
     return S_OK;
   }
   case D3D12_FEATURE_SHADER_CACHE: {

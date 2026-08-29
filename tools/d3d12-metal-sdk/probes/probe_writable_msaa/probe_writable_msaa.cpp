@@ -331,6 +331,13 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     HRESULT create_hr = create_device ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0, IID_D3D12DeviceProbe,
                                                       reinterpret_cast<void**>(&device))
                                       : E_FAIL;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2 = {};
+    HRESULT options2_hr = device ? device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS2, &options2,
+                                                                sizeof(options2))
+                                  : E_FAIL;
+    const bool sample_positions_feature =
+        SUCCEEDED(options2_hr) &&
+        options2.ProgrammableSamplePositionsTier == D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_1;
 
     D3D12_DESCRIPTOR_RANGE range = {};
     range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
@@ -432,7 +439,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     graphics_pipeline_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     graphics_pipeline_desc.NumRenderTargets = 1;
     graphics_pipeline_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    graphics_pipeline_desc.SampleDesc.Count = 1;
+    graphics_pipeline_desc.SampleDesc.Count = 4;
     HRESULT graphics_pso_hr =
         device && root && !graphics_vs_dxil.empty() && !graphics_ps_dxil.empty()
             ? device->CreateGraphicsPipelineState(&graphics_pipeline_desc, IID_PPV_ARGS(&graphics_pso))
@@ -441,6 +448,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12GraphicsCommandList1* list1 = nullptr;
     ID3D12DescriptorHeap* heap = nullptr;
     ID3D12DescriptorHeap* rtv_heap = nullptr;
     ID3D12DescriptorHeap* dsv_heap = nullptr;
@@ -463,6 +471,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     ID3D12Resource* readback = nullptr;
     ID3D12Resource* graphics_target = nullptr;
     ID3D12Resource* graphics_readback = nullptr;
+    bool sample_positions_recorded = false;
     ID3D12Resource* depth_target = nullptr;
     ID3D12Resource* vertex_buffer = nullptr;
     D3D12_COMMAND_QUEUE_DESC queue_desc = {};
@@ -473,6 +482,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     HRESULT list_hr = SUCCEEDED(allocator_hr) ? device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator,
                                                                           nullptr, IID_PPV_ARGS(&list))
                                               : E_FAIL;
+    HRESULT list1_hr = SUCCEEDED(list_hr) ? list->QueryInterface(IID_PPV_ARGS(&list1)) : E_FAIL;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.NumDescriptors = 6;
@@ -585,7 +595,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     graphics_target_desc.DepthOrArraySize = 1;
     graphics_target_desc.MipLevels = 1;
     graphics_target_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    graphics_target_desc.SampleDesc.Count = 1;
+    graphics_target_desc.SampleDesc.Count = 4;
     graphics_target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     graphics_target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     HRESULT graphics_target_hr = SUCCEEDED(readback_hr)
@@ -766,6 +776,11 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
         const float clear_color[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         D3D12_CPU_DESCRIPTOR_HANDLE graphics_dsv = dsv_heap->GetCPUDescriptorHandleForHeapStart();
         list->OMSetRenderTargets(1, &graphics_rtv, FALSE, &graphics_dsv);
+        D3D12_SAMPLE_POSITION sample_positions[4] = {{-4, -4}, {4, -4}, {-4, 4}, {4, 4}};
+        if (list1) {
+            list1->SetSamplePositions(4, 1, sample_positions);
+            sample_positions_recorded = true;
+        }
         list->ClearRenderTargetView(graphics_rtv, clear_color, 0, nullptr);
         list->ClearDepthStencilView(graphics_dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
         D3D12_VIEWPORT viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
@@ -1028,6 +1043,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
         SUCCEEDED(load_pso_hr) && SUCCEEDED(store_2_pso_hr) && SUCCEEDED(load_2_pso_hr) && SUCCEEDED(store_8_pso_hr) &&
         SUCCEEDED(load_8_pso_hr) && SUCCEEDED(store_r8_pso_hr) && SUCCEEDED(load_r8_pso_hr) &&
         SUCCEEDED(graphics_pso_hr) && SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
+        SUCCEEDED(list1_hr) &&
         SUCCEEDED(heap_hr) && SUCCEEDED(target_hr) && SUCCEEDED(target_array_hr) && SUCCEEDED(target_2_hr) &&
         SUCCEEDED(target_8_hr) && SUCCEEDED(target_r8_hr) && SUCCEEDED(outbuf_hr) && SUCCEEDED(readback_hr) &&
         SUCCEEDED(resolve_target_hr) && SUCCEEDED(resolve_array_target_hr) && SUCCEEDED(resolve_2_target_hr) &&
@@ -1039,7 +1055,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
         SUCCEEDED(graphics_map_hr) && graphics_color_ok && SUCCEEDED(resolve_map_hr) && resolve_value_ok &&
         SUCCEEDED(resolve_array_map_hr) && resolve_array_value_ok && SUCCEEDED(resolve_2_map_hr) &&
         resolve_2_value_ok && SUCCEEDED(resolve_8_map_hr) && resolve_8_value_ok && SUCCEEDED(resolve_r8_map_hr) &&
-        resolve_r8_value_ok;
+        resolve_r8_value_ok && sample_positions_recorded && sample_positions_feature;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-writable-msaa.v1\",\n");
@@ -1126,6 +1142,10 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     std::printf("  \"values_verified\": %s,\n", values_ok ? "true" : "false");
     std::printf("  \"graphics_color\": \"0x%08x\",\n", graphics_color);
     std::printf("  \"graphics_color_verified\": %s,\n", graphics_color_ok ? "true" : "false");
+    std::printf("  \"sample_positions_command_recorded\": %s,\n", sample_positions_recorded ? "true" : "false");
+    std::printf("  \"options2_hr\": \"%s\",\n", hr_hex(options2_hr).c_str());
+    std::printf("  \"programmable_sample_positions_tier\": %u,\n", options2.ProgrammableSamplePositionsTier);
+    std::printf("  \"programmable_sample_positions_verified\": %s,\n", sample_positions_feature ? "true" : "false");
     std::printf("  \"summary\": {\n");
     std::printf("    \"writable_msaa_subset_complete\": %s,\n", pass ? "true" : "false");
     const bool options14_behavior_complete = pass && resolve_value_ok && resolve_array_value_ok && resolve_2_value_ok &&
@@ -1135,6 +1155,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
     std::printf("}\n");
     std::fflush(stdout);
 
+    safe_release(list1);
     safe_release(graphics_readback);
     safe_release(vertex_buffer);
     safe_release(depth_target);

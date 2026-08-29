@@ -15,6 +15,7 @@ enum class CmdType : uint32_t {
   SetMarker,
   BeginEvent,
   EndEvent,
+  SetSamplePositions,
   CopyBufferRegion,
   CopyTextureRegion,
   CopyResource,
@@ -161,6 +162,14 @@ struct CmdDebugEvent {
   uint32_t metadata;
   uint32_t data_size;
   uint8_t data[1];
+};
+
+struct CmdSetSamplePositions {
+  CmdHeader header;
+  uint32_t sample_count;
+  uint32_t pixel_count;
+  uint32_t position_count;
+  D3D12_SAMPLE_POSITION positions[1];
 };
 
 struct CmdCopyBufferRegion {

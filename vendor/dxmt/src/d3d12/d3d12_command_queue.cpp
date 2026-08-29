@@ -2302,6 +2302,8 @@ struct ReplayState {
   uint64_t root_constants_mtl_buf_offset = 0;
   uint64_t root_constants_gpu_address = 0;
   uint32_t debug_event_depth = 0;
+  uint32_t sample_position_count = 0;
+  WMTSamplePosition sample_positions[32] = {};
   WMT::Reference<WMT::Buffer> geometry_draw_args_buf;
   WMT::Reference<WMT::Buffer> msc_vertex_arg_buf;
   WMT::Reference<WMT::Buffer> msc_draw_args_buf;
@@ -5838,6 +5840,9 @@ struct ReplayState {
         std::min<uint16_t>(render_target_array_length, UINT8_MAX));
     rp.render_target_width = render_target_width;
     rp.render_target_height = render_target_height;
+    rp.sample_position_count = std::min<uint32_t>(sample_position_count, 32);
+    for (uint32_t i = 0; i < rp.sample_position_count; ++i)
+      rp.sample_positions[i] = sample_positions[i];
 
     auto try_rate_map = [&](float horizontal, float vertical,
                             const char *source) {
@@ -11238,6 +11243,27 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           emit_debug_signpost(label);
         }
         QTRACE("EndEvent depth=%u", st.debug_event_depth);
+        break;
+      }
+      case CmdType::SetSamplePositions: {
+        auto *cmd = reinterpret_cast<const CmdSetSamplePositions *>(header);
+        const uint32_t base_size = offsetof(CmdSetSamplePositions, positions);
+        if (header->size < base_size || cmd->position_count > 32 ||
+            header->size < base_size + cmd->position_count * sizeof(D3D12_SAMPLE_POSITION)) {
+          QTRACE("SetSamplePositions rejected malformed record count=%u size=%u",
+                 cmd->position_count, header->size);
+          break;
+        }
+        st.CloseRenderEncoder();
+        st.sample_position_count = cmd->position_count;
+        auto *positions = reinterpret_cast<const D3D12_SAMPLE_POSITION *>(
+            reinterpret_cast<const uint8_t *>(cmd) + base_size);
+        for (uint32_t i = 0; i < st.sample_position_count; ++i) {
+          st.sample_positions[i].x = 0.5f + static_cast<float>(positions[i].X) / 16.0f;
+          st.sample_positions[i].y = 0.5f + static_cast<float>(positions[i].Y) / 16.0f;
+        }
+        QTRACE("SetSamplePositions samples=%u pixels=%u", cmd->sample_count,
+               cmd->pixel_count);
         break;
       }
       case CmdType::CopyBufferRegion: {

@@ -627,7 +627,8 @@ replayed with no dropped operation.
 **Phase 4 command milestone evidence:**
 `docs/roadmaps/d3d12-full-surface-phase4-command-proof.md` records the
 behavior-backed atomic-copy, discard, predication, GPU-only indirect argument,
-root-constant, and enhanced-barrier checks. The phase remains open until the
+root-constant, enhanced-barrier, command-annotation, and tier-1 programmable
+sample-position checks. The phase remains open until the
 remaining command inventory and provider-side effects pass the exit gate.
 
 ### Phase 5 — Complete the shader compiler and SM5.x–SM6.9 execution surface

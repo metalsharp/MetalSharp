@@ -929,6 +929,11 @@ struct WMTStencilAttachmentInfo {
   uint8_t clear_stencil;
 };
 
+struct WMTSamplePosition {
+  float x;
+  float y;
+};
+
 struct WMTRenderPassInfo {
   struct WMTColorAttachmentInfo colors[8];
   struct WMTDepthAttachmentInfo depth;
@@ -945,9 +950,11 @@ struct WMTRenderPassInfo {
   float rasterization_rate_vertical[2];
   uint8_t rasterization_rate_map_enabled;
   uint8_t rasterization_rate_reserved[7];
+  uint32_t sample_position_count;
+  struct WMTSamplePosition sample_positions[32];
 };
 
-STATIC_ASSERT(sizeof(WMTRenderPassInfo) == 696);
+STATIC_ASSERT(sizeof(WMTRenderPassInfo) == 960);
 
 WINEMETAL_API obj_handle_t MTLCommandBuffer_renderCommandEncoder(obj_handle_t cmdbuf, struct WMTRenderPassInfo *info);
 
