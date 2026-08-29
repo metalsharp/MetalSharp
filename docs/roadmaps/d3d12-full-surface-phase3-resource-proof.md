@@ -478,8 +478,9 @@ The legacy regression probe passed after the resource and backing changes.
   removed before delivery; no runtime binaries are committed.
 
 This checkpoint completes the behavior-backed resource, sparse-resource,
-residency, sharing, legal-shape creation, and malformed-descriptor validation
-subset. The full Phase 3 exit gate remains open for exhaustive allocation and
-footprint/plane behavior, every legal sparse tier and aliasing case, real
-reclaim/trim behavior, and shared-event/security/LUID coverage; those items
-remain explicitly ledgered rather than promoted by query results alone.
+residency, sharing, legal-shape creation, alignment, adapter-identity, and
+malformed-descriptor validation subset. The full Phase 3 exit gate remains
+open for exhaustive allocation and footprint/plane behavior, every legal
+sparse tier and aliasing case, real reclaim/trim pressure, shared textures,
+and security-policy coverage; those items remain explicitly ledgered rather
+than promoted by query results alone.
