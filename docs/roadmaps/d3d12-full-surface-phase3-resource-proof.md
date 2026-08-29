@@ -106,7 +106,9 @@
 - Named mapping handles no longer retain process-global COM references; each
   `OpenSharedHandleByName` call opens and validates a fresh file-mapping handle,
   while `OpenSharedHandle` reconstructs named objects first and uses the legacy
-  registry only for unsupported unnamed object kinds.
+  registry only for unsupported object kinds. Unnamed buffer handles also use a
+  generated, pointer-free file-mapping transport and independently reopen with
+  exact byte readback in the creating process.
 - `OpenSharedHandle` reconstructs named mapping-backed resources as
   independent COM objects (rather than returning a process-global registry
   pointer); descriptor identity and shared bytes remain valid across the
@@ -193,6 +195,7 @@ The isolated source-staged probe passed with:
   "buffers.residency_refcount_second_evict_map": "0x887a0001",
   "shared_handles.roundtrip_verified": true,
   "shared_handles.independent_objects_verified": true,
+  "shared_handles.unnamed_roundtrip_verified": true,
   "shared_handles.cross_process_verified": true,
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,
