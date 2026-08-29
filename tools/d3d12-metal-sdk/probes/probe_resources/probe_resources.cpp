@@ -1356,6 +1356,7 @@ int main(int argc, char** argv) {
     ID3D12Resource* mipped_reserved_texture = nullptr;
     ID3D12Resource* mipped_reserved_readback = nullptr;
     ID3D12Resource* packed_tail_reserved_texture = nullptr;
+    ID3D12Resource* packed_tail_readback = nullptr;
     ID3D12Resource* r8_reserved_texture = nullptr;
     ID3D12Resource* r8_reserved_readback = nullptr;
     ID3D12Heap* r8_mipped_heap = nullptr;
@@ -1462,6 +1463,8 @@ int main(int argc, char** argv) {
     HRESULT mipped_reserved_tiling_hr = E_FAIL;
     HRESULT packed_tail_reserved_texture_hr = E_FAIL;
     HRESULT packed_tail_reserved_tiling_hr = E_FAIL;
+    HRESULT packed_tail_readback_hr = E_FAIL;
+    HRESULT packed_tail_readback_map_hr = E_FAIL;
     UINT packed_tail_total_tiles = 0;
     UINT packed_tail_tiling_count = 4;
     D3D12_PACKED_MIP_INFO packed_tail_info = {};
@@ -1492,6 +1495,12 @@ int main(int argc, char** argv) {
     D3D12_TILE_SHAPE mipped_reserved_tile_shape = {};
     D3D12_SUBRESOURCE_TILING mipped_reserved_tilings[2] = {};
     bool mipped_reserved_copy_ok = false;
+    bool packed_tail_footprint_ok = false;
+    bool packed_tail_copy_ok = false;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT packed_tail_footprint = {};
+    UINT packed_tail_rows = 0;
+    UINT64 packed_tail_row_bytes = 0;
+    UINT64 packed_tail_copy_bytes = 0;
     UINT r8_reserved_total_tiles = 0;
     UINT r8_reserved_tiling_count = 1;
     D3D12_TILE_SHAPE r8_reserved_tile_shape = {};
@@ -2017,6 +2026,15 @@ int main(int argc, char** argv) {
                                                  D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                  IID_PPV_ARGS(&mipped_reserved_readback))
                : E_FAIL;
+    D3D12_RESOURCE_DESC packed_tail_readback_desc = buffer_desc(sparse_tile_size);
+    packed_tail_readback_hr =
+        device ? device->CreateCommittedResource(&readback_heap,
+                                                  D3D12_HEAP_FLAG_NONE,
+                                                  &packed_tail_readback_desc,
+                                                  D3D12_RESOURCE_STATE_COPY_DEST,
+                                                  nullptr,
+                                                  IID_PPV_ARGS(&packed_tail_readback))
+               : E_FAIL;
     D3D12_RESOURCE_DESC r8_reserved_desc = texture_desc(256, 256, DXGI_FORMAT_R8_UNORM);
     r8_reserved_texture_hr = device ? device->CreateReservedResource(&r8_reserved_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                                                      nullptr, IID_PPV_ARGS(&r8_reserved_texture))
@@ -2353,6 +2371,60 @@ int main(int argc, char** argv) {
         partial_src_texture.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         partial_src_texture.SubresourceIndex = 1;
         list->CopyTextureRegion(&partial_readback_dst, 0, 0, 0, &partial_src_texture, nullptr);
+    }
+    if (list && queue && packed_tail_reserved_texture && sparse_heap && sparse_upload &&
+        packed_tail_readback && SUCCEEDED(packed_tail_reserved_texture_hr) &&
+        SUCCEEDED(packed_tail_reserved_tiling_hr) &&
+        packed_tail_total_tiles == 22 && packed_tail_info.NumStandardMips == 3 &&
+        packed_tail_info.NumPackedMips == 1) {
+        device->GetCopyableFootprints(
+            &packed_tail_desc, 3, 1, 0, &packed_tail_footprint,
+            &packed_tail_rows, &packed_tail_row_bytes, &packed_tail_copy_bytes);
+        packed_tail_footprint_ok =
+            packed_tail_footprint.Offset == 0 &&
+            packed_tail_footprint.Footprint.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+            packed_tail_footprint.Footprint.Width == 64 &&
+            packed_tail_footprint.Footprint.Height == 64 &&
+            packed_tail_footprint.Footprint.Depth == 1 &&
+            packed_tail_footprint.Footprint.RowPitch == 256 &&
+            packed_tail_rows == 64 && packed_tail_row_bytes == 256 &&
+            packed_tail_copy_bytes == 16384;
+        D3D12_TILED_RESOURCE_COORDINATE packed_tail_coordinate = {};
+        packed_tail_coordinate.Subresource = 3;
+        D3D12_TILE_REGION_SIZE packed_tail_region = {};
+        packed_tail_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS packed_tail_range_flag = D3D12_TILE_RANGE_FLAG_NONE;
+        UINT packed_tail_heap_offset = 0;
+        UINT packed_tail_range_count = 1;
+        queue->UpdateTileMappings(
+            packed_tail_reserved_texture, 1, &packed_tail_coordinate,
+            &packed_tail_region, sparse_heap, 1, &packed_tail_range_flag,
+            &packed_tail_heap_offset, &packed_tail_range_count,
+            D3D12_TILE_MAPPING_FLAG_NONE);
+        D3D12_TEXTURE_COPY_LOCATION packed_tail_upload_location = {};
+        packed_tail_upload_location.pResource = sparse_upload;
+        packed_tail_upload_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        packed_tail_upload_location.PlacedFootprint = packed_tail_footprint;
+        D3D12_TEXTURE_COPY_LOCATION packed_tail_texture_location = {};
+        packed_tail_texture_location.pResource = packed_tail_reserved_texture;
+        packed_tail_texture_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        packed_tail_texture_location.SubresourceIndex = 3;
+        list->CopyTextureRegion(&packed_tail_texture_location, 0, 0, 0,
+                                &packed_tail_upload_location, nullptr);
+        D3D12_RESOURCE_BARRIER packed_tail_barrier = transition_barrier(
+            packed_tail_reserved_texture, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &packed_tail_barrier);
+        D3D12_TEXTURE_COPY_LOCATION packed_tail_readback_location = {};
+        packed_tail_readback_location.pResource = packed_tail_readback;
+        packed_tail_readback_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        packed_tail_readback_location.PlacedFootprint = packed_tail_footprint;
+        D3D12_TEXTURE_COPY_LOCATION packed_tail_source_location = {};
+        packed_tail_source_location.pResource = packed_tail_reserved_texture;
+        packed_tail_source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        packed_tail_source_location.SubresourceIndex = 3;
+        list->CopyTextureRegion(&packed_tail_readback_location, 0, 0, 0,
+                                &packed_tail_source_location, nullptr);
     }
     for (auto& sparse_format : sparse_format_probes) {
         if (!list || !queue || !sparse_heap || !sparse_upload || !sparse_format.texture || !sparse_format.readback ||
@@ -2950,6 +3022,24 @@ int main(int argc, char** argv) {
         }
         mipped_reserved_readback->Unmap(0, nullptr);
     }
+    uint8_t *packed_tail_readback_ptr = nullptr;
+    packed_tail_readback_map_hr =
+        packed_tail_readback
+            ? packed_tail_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&packed_tail_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(packed_tail_readback_map_hr) && packed_tail_readback_ptr) {
+        packed_tail_copy_ok = true;
+        for (UINT64 i = 0; i < 64 * 64 * 4; ++i) {
+            if (packed_tail_readback_ptr[i] !=
+                static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                packed_tail_copy_ok = false;
+                break;
+            }
+        }
+        packed_tail_readback->Unmap(0, nullptr);
+    }
     uint8_t* placement_alias_readback_ptr = nullptr;
     placement_alias_readback_map_hr =
         placement_alias_readback
@@ -3302,6 +3392,9 @@ int main(int argc, char** argv) {
         packed_tail_info.NumPackedMips == 1 && packed_tail_info.NumTilesForPackedMips == 1 &&
         packed_tail_info.StartTileIndexInOverallResource == 21 &&
         packed_tail_shape.WidthInTexels == 128 && packed_tail_shape.HeightInTexels == 128 &&
+        SUCCEEDED(packed_tail_readback_hr) &&
+        SUCCEEDED(packed_tail_readback_map_hr) && packed_tail_footprint_ok &&
+        packed_tail_copy_ok &&
         packed_tail_tilings[0].WidthInTiles == 4 && packed_tail_tilings[1].WidthInTiles == 2 &&
         packed_tail_tilings[2].WidthInTiles == 1 && packed_tail_tilings[3].WidthInTiles == 0 &&
         packed_tail_tilings[3].StartTileIndexInOverallResource == D3D12_PACKED_TILE &&
@@ -3752,6 +3845,21 @@ int main(int argc, char** argv) {
     std::printf("      \"tiling_count\": %u,\n", packed_tail_tiling_count);
     std::printf("      \"partial_query_count\": %u,\n", packed_tail_partial_count);
     std::printf("      \"partial_query_verified\": %s,\n", packed_tail_partial_query_ok ? "true" : "false");
+    print_hr("readback_create", packed_tail_readback_hr);
+    print_hr("readback_map", packed_tail_readback_map_hr);
+    std::printf("      \"footprint_verified\": %s,\n",
+                packed_tail_footprint_ok ? "true" : "false");
+    std::printf("      \"footprint\": [%llu,%u,%u,%u,%u,%u,%llu,%llu],\n",
+                static_cast<unsigned long long>(packed_tail_footprint.Offset),
+                packed_tail_footprint.Footprint.Width,
+                packed_tail_footprint.Footprint.Height,
+                packed_tail_footprint.Footprint.Depth,
+                packed_tail_footprint.Footprint.RowPitch,
+                packed_tail_rows,
+                static_cast<unsigned long long>(packed_tail_row_bytes),
+                static_cast<unsigned long long>(packed_tail_copy_bytes));
+    std::printf("      \"copy_verified\": %s,\n",
+                packed_tail_copy_ok ? "true" : "false");
     std::printf("      \"packed_mips\": [%u, %u, %u, %u],\n", packed_tail_info.NumStandardMips,
                 packed_tail_info.NumPackedMips, packed_tail_info.NumTilesForPackedMips,
                 packed_tail_info.StartTileIndexInOverallResource);

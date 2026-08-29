@@ -118,6 +118,9 @@
 - Reserved 512x512 RGBA8 resources with four mips now create successfully and
   report the packed tail exactly: 22 total tiles, three standard mips, one
   packed mip tile, and per-subresource starts `[0, 16, 20, D3D12_PACKED_TILE]`.
+  The packed mip is also mapped and transferred through standard
+  `CopyTextureRegion` calls (the API required for packed mips), with a 64x64
+  RGBA8 footprint (`row_size=256`, `total_bytes=16384`) and exact readback.
 - A native reserved 1D `R32_FLOAT` resource (`16384` texels, one mip) now
   creates successfully and reports the exact one-tile shape
   `[16384,1,1]`; the source-staged run maps its four Metal 16-KiB pages,
@@ -265,6 +268,8 @@ The isolated source-staged probe passed with:
   "sparse.array_alias_second_byte": 11,
   "sparse.packed_tail_reserved": {
     "total_tiles": 22,
+    "footprint_verified": true,
+    "copy_verified": true,
     "packed_mips": [3, 1, 1, 21],
     "tilings": [[4, 4, 1, 0], [2, 2, 1, 16], [1, 1, 1, 20], [0, 0, 0, 4294967295]],
     "partial_query_count": 2,

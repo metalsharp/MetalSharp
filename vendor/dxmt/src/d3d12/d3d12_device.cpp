@@ -5309,7 +5309,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
             ? desc->DepthOrArraySize
             : 1;
     texture_info.array_length =
-        desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+        (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+         desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
             ? desc->DepthOrArraySize
             : 1;
     texture_info.mipmap_level_count = desc->MipLevels ? desc->MipLevels : 1;
