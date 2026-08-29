@@ -133,8 +133,9 @@
   4-MiB alignment, and middle-resource placement at `4 MiB`.
 - Committed-resource validation rejects a null heap-properties pointer, a
   buffer placed in a heap with `DENY_BUFFERS`, the invalid simultaneous-access
-  and unsupported cross-adapter buffer flags, simultaneous-access MSAA, the
-  unsupported standard-swizzle layout, 1D/2D/3D dimensions above the D3D12
+  and unsupported cross-adapter buffer flags, simultaneous-access MSAA,
+  unsupported video/reference and raytracing resource flags, the unsupported
+  standard-swizzle layout, 1D/2D/3D dimensions above the D3D12
   request limits, and a
   reserved texture using `UNKNOWN` layout;
   all return exact `E_INVALIDARG` before allocating any object. Valid reserved
@@ -336,6 +337,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_buffer_simultaneous": "0x80070057",
   "resource_shapes.invalid_cross_adapter": "0x80070057",
   "resource_shapes.invalid_simultaneous_msaa": "0x80070057",
+  "resource_shapes.invalid_video_resource_flags": "0x80070057",
+  "resource_shapes.invalid_raytracing_resource_flags": "0x80070057",
   "resource_shapes.invalid_texture_resource_flags": "0x80070057",
   "resource_shapes.invalid_depth_format_flags": "0x80070057",
   "resource_shapes.invalid_clear_without_flag": "0x80070057",

@@ -784,6 +784,8 @@ int main(int argc, char** argv) {
     HRESULT invalid_buffer_simultaneous_hr = E_FAIL;
     HRESULT invalid_cross_adapter_hr = E_FAIL;
     HRESULT invalid_simultaneous_msaa_hr = E_FAIL;
+    HRESULT invalid_video_resource_flags_hr = E_FAIL;
+    HRESULT invalid_raytracing_resource_flags_hr = E_FAIL;
     HRESULT invalid_texture_resource_flags_hr = E_FAIL;
     HRESULT invalid_depth_format_flags_hr = E_FAIL;
     HRESULT invalid_clear_without_flag_hr = E_FAIL;
@@ -1551,6 +1553,27 @@ int main(int argc, char** argv) {
             &default_heap, D3D12_HEAP_FLAG_NONE,
             &invalid_simultaneous_msaa, D3D12_RESOURCE_STATE_COMMON,
             nullptr, IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_video_flags =
+            texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        invalid_video_flags.Flags = static_cast<D3D12_RESOURCE_FLAGS>(0x40);
+        invalid_video_resource_flags_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_video_flags,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_raytracing_flags = buffer;
+        invalid_raytracing_flags.Flags =
+            static_cast<D3D12_RESOURCE_FLAGS>(0x100);
+        invalid_raytracing_resource_flags_hr =
+            device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE,
+                &invalid_raytracing_flags, D3D12_RESOURCE_STATE_COMMON,
+                nullptr, IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
         invalid_resource = nullptr;
@@ -5028,6 +5051,8 @@ int main(int argc, char** argv) {
         invalid_buffer_simultaneous_hr == E_INVALIDARG &&
         invalid_cross_adapter_hr == E_INVALIDARG &&
         invalid_simultaneous_msaa_hr == E_INVALIDARG &&
+        invalid_video_resource_flags_hr == E_INVALIDARG &&
+        invalid_raytracing_resource_flags_hr == E_INVALIDARG &&
         invalid_texture_resource_flags_hr == E_INVALIDARG &&
         invalid_depth_format_flags_hr == E_INVALIDARG &&
         invalid_clear_without_flag_hr == E_INVALIDARG &&
@@ -5437,6 +5462,9 @@ int main(int argc, char** argv) {
     print_hr("invalid_buffer_simultaneous", invalid_buffer_simultaneous_hr);
     print_hr("invalid_cross_adapter", invalid_cross_adapter_hr);
     print_hr("invalid_simultaneous_msaa", invalid_simultaneous_msaa_hr);
+    print_hr("invalid_video_resource_flags", invalid_video_resource_flags_hr);
+    print_hr("invalid_raytracing_resource_flags",
+             invalid_raytracing_resource_flags_hr);
     print_hr("invalid_texture_resource_flags", invalid_texture_resource_flags_hr);
     print_hr("invalid_depth_format_flags", invalid_depth_format_flags_hr);
     print_hr("invalid_clear_without_flag", invalid_clear_without_flag_hr);
