@@ -599,8 +599,11 @@ void MTLD3D12Resource::InitializeResource(
     tex_info.depth = (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
                          ? m_desc.DepthOrArraySize
                          : 1;
+    // Both 1D and 2D D3D12 arrays use Metal's arrayLength; only 3D uses
+    // depth for its additional extent.
     tex_info.array_length =
-        (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+        (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+         m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
             ? m_desc.DepthOrArraySize
             : 1;
     tex_info.mipmap_level_count = m_desc.MipLevels ? m_desc.MipLevels : 1;
@@ -715,8 +718,13 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
     tex_info.height = m_desc.Height ? m_desc.Height : 1;
     tex_info.depth = (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
                           ? m_desc.DepthOrArraySize : 1;
-    tex_info.array_length = (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
-                                  ? m_desc.DepthOrArraySize : 1;
+    // Keep lazy texture creation consistent with the constructor path for
+    // 1D/2D arrays.
+    tex_info.array_length =
+        (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+         m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+            ? m_desc.DepthOrArraySize
+            : 1;
     tex_info.mipmap_level_count = m_desc.MipLevels ? m_desc.MipLevels : 1;
     if (m_writable_msaa_emulated) {
       tex_info.type = WMTTextureType2DArray;
@@ -758,7 +766,8 @@ uint32_t MTLD3D12Resource::GetTextureArrayLength() const {
   if (m_writable_msaa_emulated)
     return std::max<UINT16>(m_desc.DepthOrArraySize, 1) *
            std::max<UINT>(m_desc.SampleDesc.Count, 1);
-  if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+  if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
     return m_desc.DepthOrArraySize ? m_desc.DepthOrArraySize : 1;
   return 1;
 }
