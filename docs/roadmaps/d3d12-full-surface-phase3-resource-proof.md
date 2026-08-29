@@ -36,6 +36,9 @@
 - Committed-resource validation rejects a null heap-properties pointer and a
   buffer placed in a heap with `DENY_BUFFERS`, both with exact
   `E_INVALIDARG`, before allocating any object.
+- `EnqueueMakeResident` validates residency flags, makes the evicted resource
+  resident, and signals a fence at value 9; an unknown flag is rejected with
+  `E_INVALIDARG`.
 - `CREATE_NOT_RESIDENT` is honored for committed and placed upload buffers:
   initial `Map` returns `DXGI_ERROR_INVALID_CALL`, `MakeResident` succeeds, and
   the remapped resources expose their CPU backing and exact byte roundtrip.
@@ -115,6 +118,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.full_mip_count": 6,
   "resource_shapes.full_mip_footprint_verified": true,
   "resource_shapes.not_resident_roundtrip_verified": true,
+  "resource_shapes.enqueue_make_resident": ["0x00000000", 9],
+  "resource_shapes.invalid_enqueue_flags": "0x80070057",
   "resource_shapes.misaligned_placement": "0x80070057",
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",
