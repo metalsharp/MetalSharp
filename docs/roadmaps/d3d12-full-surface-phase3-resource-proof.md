@@ -443,6 +443,16 @@ wait, map, copy, readback, residency, and invalid-handle HRESULTs. The child
 process is bounded to 30 seconds and the source wrapper removes its disposable
 Wine clone and prefix on every exit path.
 
+The fail-closed aggregate gate is now executable as well:
+
+```sh
+python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-gate.py \
+  --phase 3 --profile metalsharp-isolated
+```
+
+It correctly remains nonzero until the tracked exhaustive-coverage manifest is
+closed; focused positive evidence does not silently promote the phase.
+
 ### Relaxed castable-format and heap restriction proof
 
 ```sh
