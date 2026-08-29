@@ -143,8 +143,9 @@
   generated, pointer-free file-mapping transport and independently reopen with
   exact byte readback in the creating process. An inheritable unnamed resource
   mapping is passed as a real `HANDLE` to an independent Wine process; the
-  child opens it, verifies the initial bytes, writes a sentinel, and the parent
-  observes that write after the child exits.
+  child opens the buffer and fence, verifies the initial bytes and signaled
+  fence value, writes a sentinel, and the parent observes that write after the
+  child exits.
 - `OpenSharedHandle` reconstructs named mapping-backed resources as
   independent COM objects (rather than returning a process-global registry
   pointer); descriptor identity and shared bytes remain valid across the
@@ -251,6 +252,7 @@ The isolated source-staged probe passed with:
   "shared_handles.independent_objects_verified": true,
   "shared_handles.unnamed_roundtrip_verified": true,
   "shared_handles.unnamed_cross_process_verified": true,
+  "shared_handles.unnamed_fence_cross_process_verified": true,
   "shared_handles.cross_process_verified": true,
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,

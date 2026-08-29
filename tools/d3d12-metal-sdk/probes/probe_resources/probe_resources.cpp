@@ -253,7 +253,8 @@ static int run_shared_child() {
     return pass ? 0 : 1;
 }
 
-static int run_unnamed_shared_child(HANDLE inherited_handle) {
+static int run_unnamed_shared_child(HANDLE inherited_resource_handle,
+                                    HANDLE inherited_fence_handle) {
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
     auto create_device = reinterpret_cast<CreateDeviceFn>(
@@ -264,9 +265,15 @@ static int run_unnamed_shared_child(HANDLE inherited_handle) {
                                             reinterpret_cast<void**>(&device))
                             : E_NOINTERFACE;
     ID3D12Resource* resource = nullptr;
+    ID3D12Fence* fence = nullptr;
     HRESULT open_hr = SUCCEEDED(create_hr) && device
-                          ? device->OpenSharedHandle(inherited_handle, IID_PPV_ARGS(&resource))
+                          ? device->OpenSharedHandle(inherited_resource_handle,
+                                                     IID_PPV_ARGS(&resource))
                           : E_FAIL;
+    HRESULT fence_open_hr = SUCCEEDED(create_hr) && device
+                                ? device->OpenSharedHandle(inherited_fence_handle,
+                                                           IID_PPV_ARGS(&fence))
+                                : E_FAIL;
     uint32_t before = 0;
     void* mapped = nullptr;
     HRESULT map_hr = resource ? resource->Map(0, nullptr, &mapped) : E_FAIL;
@@ -277,9 +284,13 @@ static int run_unnamed_shared_child(HANDLE inherited_handle) {
         resource->Unmap(0, nullptr);
     }
     const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(open_hr) && resource &&
-                      SUCCEEDED(map_hr) && mapped && before == 0x7a55300bu;
+                      SUCCEEDED(fence_open_hr) && fence &&
+                      fence->GetCompletedValue() >= 13 && SUCCEEDED(map_hr) &&
+                      mapped && before == 0x7a55300bu;
     if (resource)
         resource->Release();
+    if (fence)
+        fence->Release();
     if (device)
         device->Release();
     return pass ? 0 : 1;
@@ -312,18 +323,24 @@ static bool launch_shared_child() {
     return exit_code == 0;
 }
 
-static bool launch_unnamed_shared_child(HANDLE inherited_handle) {
-    if (!inherited_handle)
+static bool launch_unnamed_shared_child(HANDLE inherited_resource_handle,
+                                        HANDLE inherited_fence_handle) {
+    if (!inherited_resource_handle || !inherited_fence_handle)
         return false;
     char module_path[MAX_PATH] = {};
     if (!GetModuleFileNameA(nullptr, module_path, ARRAYSIZE(module_path)))
         return false;
-    char handle_text[32] = {};
-    std::snprintf(handle_text, sizeof(handle_text), "%llx",
-                  static_cast<unsigned long long>(
-                      reinterpret_cast<uintptr_t>(inherited_handle)));
+    char resource_handle_text[32] = {};
+    char fence_handle_text[32] = {};
+    std::snprintf(resource_handle_text, sizeof(resource_handle_text), "%llx",
+                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(
+                      inherited_resource_handle)));
+    std::snprintf(fence_handle_text, sizeof(fence_handle_text), "%llx",
+                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(
+                      inherited_fence_handle)));
     std::string command = std::string("\"") + module_path +
-                          "\" --unnamed-shared-child " + handle_text;
+                          "\" --unnamed-shared-child " + resource_handle_text +
+                          " " + fence_handle_text;
     std::vector<char> command_line(command.begin(), command.end());
     command_line.push_back('\0');
     STARTUPINFOA startup = {};
@@ -349,13 +366,19 @@ static bool launch_unnamed_shared_child(HANDLE inherited_handle) {
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--shared-child") == 0)
         return run_shared_child();
-    if (argc == 3 && std::strcmp(argv[1], "--unnamed-shared-child") == 0) {
-        char *end = nullptr;
-        const unsigned long long value = std::strtoull(argv[2], &end, 16);
-        if (!end || *end != '\0' || !value)
+    if (argc == 4 && std::strcmp(argv[1], "--unnamed-shared-child") == 0) {
+        char *resource_end = nullptr;
+        char *fence_end = nullptr;
+        const unsigned long long resource_value =
+            std::strtoull(argv[2], &resource_end, 16);
+        const unsigned long long fence_value =
+            std::strtoull(argv[3], &fence_end, 16);
+        if (!resource_end || *resource_end != '\0' || !resource_value ||
+            !fence_end || *fence_end != '\0' || !fence_value)
             return 1;
         return run_unnamed_shared_child(
-            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(value)));
+            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(resource_value)),
+            reinterpret_cast<HANDLE>(static_cast<uintptr_t>(fence_value)));
     }
 
     std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
@@ -417,6 +440,9 @@ int main(int argc, char** argv) {
     ID3D12Fence* unnamed_shared_fence_open = nullptr;
     HANDLE shared_fence_handle = nullptr;
     HANDLE unnamed_shared_fence_handle = nullptr;
+    SECURITY_ATTRIBUTES inherited_shared_attributes = {};
+    inherited_shared_attributes.nLength = sizeof(inherited_shared_attributes);
+    inherited_shared_attributes.bInheritHandle = TRUE;
     HRESULT shared_fence_create_hr = device
                                          ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                                                                IID_PPV_ARGS(&shared_fence))
@@ -459,7 +485,8 @@ int main(int argc, char** argv) {
                : E_FAIL;
     unnamed_shared_fence_handle_hr =
         unnamed_shared_fence
-            ? device->CreateSharedHandle(unnamed_shared_fence, nullptr,
+            ? device->CreateSharedHandle(unnamed_shared_fence,
+                                         &inherited_shared_attributes,
                                          GENERIC_ALL, nullptr,
                                          &unnamed_shared_fence_handle)
             : E_FAIL;
@@ -672,6 +699,7 @@ int main(int argc, char** argv) {
     bool discard_ok = false;
     bool cross_process_shared_ok = false;
     bool unnamed_shared_cross_process_ok = false;
+    bool unnamed_shared_fence_cross_process_ok = false;
     bool shared_heap_cross_process_ok = false;
     HRESULT default_write_subresource_hr = E_FAIL;
     HRESULT default_read_subresource_hr = E_FAIL;
@@ -2048,11 +2076,8 @@ int main(int argc, char** argv) {
                     static_cast<uint8_t *>(unnamed_source_data)[i] =
                         static_cast<uint8_t>((i * 37u + 11u) & 0xffu);
                 unnamed_shared_source->Unmap(0, nullptr);
-                SECURITY_ATTRIBUTES inherited_attributes = {};
-                inherited_attributes.nLength = sizeof(inherited_attributes);
-                inherited_attributes.bInheritHandle = TRUE;
                 unnamed_shared_create_hr = device->CreateSharedHandle(
-                    unnamed_shared_source, &inherited_attributes, GENERIC_ALL,
+                    unnamed_shared_source, &inherited_shared_attributes, GENERIC_ALL,
                     nullptr, &unnamed_shared_handle);
             }
             if (SUCCEEDED(unnamed_shared_create_hr))
@@ -2074,7 +2099,10 @@ int main(int argc, char** argv) {
             }
             if (SUCCEEDED(unnamed_shared_create_hr) && unnamed_shared_handle) {
                 unnamed_shared_cross_process_ok =
-                    launch_unnamed_shared_child(unnamed_shared_handle);
+                    launch_unnamed_shared_child(unnamed_shared_handle,
+                                                unnamed_shared_fence_handle);
+                unnamed_shared_fence_cross_process_ok =
+                    unnamed_shared_cross_process_ok;
                 if (unnamed_shared_cross_process_ok) {
                     void *unnamed_source_after_child = nullptr;
                     if (SUCCEEDED(unnamed_shared_source->Map(
@@ -4589,6 +4617,7 @@ int main(int argc, char** argv) {
         SUCCEEDED(shared_default_heap_create_hr) &&
         shared_default_heap_handle_hr == E_NOTIMPL &&
         unnamed_shared_roundtrip_ok && unnamed_shared_cross_process_ok &&
+        unnamed_shared_fence_cross_process_ok &&
         SUCCEEDED(unnamed_shared_source_hr) &&
         SUCCEEDED(unnamed_shared_create_hr) &&
         SUCCEEDED(unnamed_shared_open_hr) &&
@@ -4882,6 +4911,8 @@ int main(int argc, char** argv) {
                 unnamed_shared_roundtrip_ok ? "true" : "false");
     std::printf("    \"unnamed_cross_process_verified\": %s,\n",
                 unnamed_shared_cross_process_ok ? "true" : "false");
+    std::printf("    \"unnamed_fence_cross_process_verified\": %s,\n",
+                unnamed_shared_fence_cross_process_ok ? "true" : "false");
     print_hr("unknown_handle", shared_unknown_hr);
     print_hr("missing_name", shared_missing_name_hr);
     print_hr("invalid_create_access", shared_invalid_create_access_hr);
