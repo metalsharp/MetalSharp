@@ -493,8 +493,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -2118,8 +2118,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -5282,8 +5282,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -8800,8 +8800,8 @@
               "lines": [
                 508,
                 919,
-                1611,
-                1738
+                1617,
+                1744
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             }
@@ -9795,8 +9795,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11268,8 +11268,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11547,8 +11547,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11670,8 +11670,8 @@
             },
             {
               "lines": [
-                1566,
-                1567
+                1572,
+                1573
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11700,7 +11700,7 @@
           "source_references": [
             {
               "lines": [
-                1825
+                1831
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11758,9 +11758,9 @@
               "lines": [
                 1504,
                 1507,
-                1516,
-                1532,
-                1535
+                1522,
+                1538,
+                1541
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11808,8 +11808,8 @@
             },
             {
               "lines": [
-                1694,
-                1697
+                1700,
+                1703
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11865,8 +11865,8 @@
             },
             {
               "lines": [
-                1539,
-                1541
+                1545,
+                1547
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -11904,9 +11904,9 @@
             },
             {
               "lines": [
-                1571,
-                1574,
-                1690
+                1577,
+                1580,
+                1696
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -12366,8 +12366,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -14060,8 +14060,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -14257,8 +14257,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -15861,8 +15861,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -16051,8 +16051,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -16240,8 +16240,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -17618,8 +17618,8 @@
             },
             {
               "lines": [
-                1556,
-                1558
+                1562,
+                1564
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_resource.cpp"
             },
@@ -18192,7 +18192,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "e6575786abc1adc381c2126f08a137da42412623",
+    "git_head": "2f92c388e00ff143bd336cd3a28359f56464d41d",
     "runtime_file_count": 166,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
@@ -18201,7 +18201,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "b4b888df8bdfd0dcd4010a6800e98a3f8fcda8762bd73b12633497b2936acba9"
+    "runtime_tree_sha256": "bd109a8440bb7e043e73b232b9375559ff32ca436ae29bf63604c2faf32868f1"
   },
   "state": "phase0_inventory",
   "summary": {

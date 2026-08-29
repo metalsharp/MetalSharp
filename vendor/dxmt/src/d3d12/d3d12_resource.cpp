@@ -1512,6 +1512,12 @@ MTLD3D12Resource::Map(UINT sub_resource,
     *data = nullptr;
     return DXGI_ERROR_INVALID_CALL;
   }
+  if (read_range && m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+      (read_range->Begin > read_range->End ||
+       read_range->End > m_desc.Width)) {
+    *data = nullptr;
+    return E_INVALIDARG;
+  }
   if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
     RTRACE("Map: invalid resource dimension=%u", (unsigned)m_desc.Dimension);
     *data = nullptr;

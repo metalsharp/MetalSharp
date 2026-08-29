@@ -551,6 +551,8 @@ int main(int argc, char** argv) {
     HRESULT residency_evicted_map_hr = E_FAIL;
     HRESULT residency_remake_hr = E_FAIL;
     HRESULT residency_remade_map_hr = E_FAIL;
+    HRESULT invalid_map_range_hr = E_FAIL;
+    bool invalid_map_range_ok = false;
     HRESULT dxgi_device_qi_hr = E_FAIL;
     HRESULT offered_dxgi_resource_qi_hr = E_FAIL;
     HRESULT offered_resource_priority_set_hr = E_FAIL;
@@ -1485,6 +1487,12 @@ int main(int argc, char** argv) {
         residency_remade_map_hr = upload_buffer->Map(0, nullptr, &remade_map);
         if (SUCCEEDED(residency_remade_map_hr))
             upload_buffer->Unmap(0, nullptr);
+        D3D12_RANGE invalid_map_range = {0, buffer_bytes + 1};
+        void *invalid_map_data = nullptr;
+        invalid_map_range_hr = upload_buffer->Map(
+            0, &invalid_map_range, &invalid_map_data);
+        invalid_map_range_ok = invalid_map_range_hr == E_INVALIDARG &&
+                              invalid_map_data == nullptr;
         residency_state_ok = SUCCEEDED(residency_make_hr) &&
                              SUCCEEDED(residency_priority_hr) &&
                              SUCCEEDED(residency_evict_hr) &&
@@ -3792,6 +3800,7 @@ int main(int argc, char** argv) {
         FAILED(invalid_msaa_mips_hr) &&
         invalid_zero_width_allocation_size == 0 &&
         invalid_zero_width_allocation_alignment == 0 &&
+        invalid_map_range_ok &&
         allocation_overflow_size == 0 && allocation_overflow_alignment == 0 &&
         allocation_batch_ok && invalid_msaa_mips_allocation_size == 0 &&
         invalid_msaa_mips_allocation_alignment == 0 &&
@@ -4028,6 +4037,9 @@ int main(int argc, char** argv) {
     print_hr("residency_evicted_map", residency_evicted_map_hr);
     print_hr("residency_remake", residency_remake_hr);
     print_hr("residency_remade_map", residency_remade_map_hr);
+    print_hr("invalid_map_range", invalid_map_range_hr);
+    std::printf("    \"invalid_map_range_verified\": %s,\n",
+                invalid_map_range_ok ? "true" : "false");
     std::printf("    \"residency_state_verified\": %s,\n", residency_state_ok ? "true" : "false");
     print_hr("dxgi_device_query", dxgi_device_qi_hr);
     print_hr("offered_dxgi_resource_query", offered_dxgi_resource_qi_hr);

@@ -7,7 +7,9 @@
 ## Implemented behavior
 
 - CPU-visible upload/readback buffers and default-resource
-  `ReadFromSubresource`/`WriteToSubresource` now use validated buffer copies.
+  `ReadFromSubresource`/`WriteToSubresource` now use validated buffer copies;
+  an out-of-bounds `Map` read range rejects with `E_INVALIDARG` and leaves the
+  output pointer null.
 - Texture subresource I/O resolves mip, array, box, block-compressed, and
   volume regions with correct row and slice pitches.
 - Resource and heap residency state is reference-counted as required by
@@ -208,6 +210,7 @@ The isolated source-staged probe passed with:
   "device.adapter_luid_verified": true,
   "buffers.default_cpu_io_verified": true,
   "buffers.residency_state_verified": true,
+  "buffers.invalid_map_range_verified": true,
   "buffers.dxgi_offer_reclaim_verified": true,
   "buffers.offered_resource_discarded": true,
   "buffers.offered_resource_priority": 2684354560,
