@@ -443,8 +443,32 @@ static DXGI_FORMAT CopyFootprintPlaneFormat(DXGI_FORMAT format,
   case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
   case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
     return plane_slice ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS;
+  case DXGI_FORMAT_NV12:
+  case DXGI_FORMAT_420_OPAQUE:
+    return plane_slice ? DXGI_FORMAT_R8G8_UNORM : DXGI_FORMAT_R8_UNORM;
+  case DXGI_FORMAT_P010:
+  case DXGI_FORMAT_P016:
+    return plane_slice ? DXGI_FORMAT_R16G16_UNORM : DXGI_FORMAT_R16_UNORM;
   default:
     return format;
+  }
+}
+
+static void AdjustCopyFootprintPlaneDimensions(DXGI_FORMAT format,
+                                                UINT plane_slice,
+                                                UINT64 &width, UINT64 &height) {
+  if (plane_slice != 1)
+    return;
+  switch (format) {
+  case DXGI_FORMAT_NV12:
+  case DXGI_FORMAT_P010:
+  case DXGI_FORMAT_P016:
+  case DXGI_FORMAT_420_OPAQUE:
+    width = std::max<UINT64>(1, (width + 1) / 2);
+    height = std::max<UINT64>(1, (height + 1) / 2);
+    break;
+  default:
+    break;
   }
 }
 
@@ -560,6 +584,9 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
 
   if (!desc.Height || !desc.DepthOrArraySize ||
       (desc.SampleDesc.Count == 1 && desc.SampleDesc.Quality != 0) ||
+      ((desc.Format == DXGI_FORMAT_NV12 || desc.Format == DXGI_FORMAT_P010 ||
+        desc.Format == DXGI_FORMAT_P016 || desc.Format == DXGI_FORMAT_420_OPAQUE) &&
+       (desc.Height & 1)) ||
       (desc.MipLevels && desc.MipLevels > FullMipLevelCount(desc)) ||
       desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR ||
       (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
@@ -603,6 +630,7 @@ static UINT64 EstimateResourceAllocationSize(const D3D12_RESOURCE_DESC &desc) {
       for (UINT mip = 0; mip < mip_levels; mip++) {
         UINT64 width = std::max<UINT64>(1, desc.Width >> mip);
         UINT64 height = std::max<UINT64>(1, desc.Height >> mip);
+        AdjustCopyFootprintPlaneDimensions(desc.Format, plane, width, height);
         UINT64 depth = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
                            ? std::max<UINT64>(1, desc.DepthOrArraySize >> mip)
                            : 1;
@@ -5658,7 +5686,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
         (subresource / mip_levels) / std::max<UINT>(array_size, 1);
 
     UINT64 width = desc->Width;
-    UINT height = desc->Height;
+    UINT64 height = desc->Height;
     UINT depth = desc->DepthOrArraySize;
     DXGI_FORMAT format =
         desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
@@ -5671,7 +5699,9 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
       format = DXGI_FORMAT_UNKNOWN;
     } else {
       width = std::max<UINT64>(1, width >> mip);
-      height = std::max<UINT>(1, height >> mip);
+      height = std::max<UINT64>(1, height >> mip);
+      AdjustCopyFootprintPlaneDimensions(desc->Format, plane_slice, width,
+                                          height);
       if (desc && desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
         depth = std::max<UINT>(1, depth >> mip);
       else
