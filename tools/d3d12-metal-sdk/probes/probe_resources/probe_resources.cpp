@@ -362,6 +362,13 @@ int main(int argc, char** argv) {
     ID3D12Heap* shared_heap_open = nullptr;
     ID3D12Heap* shared_heap_file_open = nullptr;
     std::vector<ResourceShapeProbe> resource_shapes;
+    ID3D12Heap *placed_1d_array_heap = nullptr;
+    ID3D12Resource *placed_1d_array_resource = nullptr;
+    HRESULT placed_1d_array_heap_hr = E_FAIL;
+    HRESULT placed_1d_array_resource_hr = E_FAIL;
+    HRESULT placed_1d_array_write_hr[2] = {E_FAIL, E_FAIL};
+    HRESULT placed_1d_array_read_hr[2] = {E_FAIL, E_FAIL};
+    bool placed_1d_array_io_ok = false;
     HRESULT invalid_zero_width_hr = E_FAIL;
     HRESULT invalid_committed_heap_flags_hr = E_FAIL;
     HRESULT invalid_heap_properties_hr = E_FAIL;
@@ -517,6 +524,58 @@ int main(int argc, char** argv) {
         shape.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
         shape.DepthOrArraySize = 4;
         probe_resource_shape("texture3d", shape);
+        D3D12_RESOURCE_DESC placed_1d_array_desc =
+            texture_desc(17, 1, DXGI_FORMAT_R8_UNORM);
+        placed_1d_array_desc.Dimension =
+            D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+        placed_1d_array_desc.DepthOrArraySize = 2;
+        D3D12_RESOURCE_ALLOCATION_INFO placed_1d_array_info =
+            device->GetResourceAllocationInfo(0, 1, &placed_1d_array_desc);
+        D3D12_HEAP_DESC placed_1d_array_heap_desc = {};
+        placed_1d_array_heap_desc.SizeInBytes =
+            placed_1d_array_info.SizeInBytes;
+        placed_1d_array_heap_desc.Alignment = placed_1d_array_info.Alignment;
+        placed_1d_array_heap_desc.Properties = default_heap;
+        placed_1d_array_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
+        placed_1d_array_heap_hr = device->CreateHeap(
+            &placed_1d_array_heap_desc, IID_PPV_ARGS(&placed_1d_array_heap));
+        placed_1d_array_resource_hr =
+            placed_1d_array_heap
+                ? device->CreatePlacedResource(
+                      placed_1d_array_heap, 0, &placed_1d_array_desc,
+                      D3D12_RESOURCE_STATE_COMMON, nullptr,
+                      IID_PPV_ARGS(&placed_1d_array_resource))
+                : E_FAIL;
+        if (placed_1d_array_resource) {
+            uint8_t first_slice[17] = {};
+            uint8_t second_slice[17] = {};
+            for (UINT i = 0; i < 17; ++i) {
+                first_slice[i] = static_cast<uint8_t>(0x20u + i);
+                second_slice[i] = static_cast<uint8_t>(0x80u + i);
+            }
+            placed_1d_array_write_hr[0] =
+                placed_1d_array_resource->WriteToSubresource(
+                    0, nullptr, first_slice, 17, 17);
+            placed_1d_array_write_hr[1] =
+                placed_1d_array_resource->WriteToSubresource(
+                    1, nullptr, second_slice, 17, 17);
+            uint8_t first_readback[17] = {};
+            uint8_t second_readback[17] = {};
+            placed_1d_array_read_hr[0] =
+                placed_1d_array_resource->ReadFromSubresource(
+                    first_readback, 17, 17, 0, nullptr);
+            placed_1d_array_read_hr[1] =
+                placed_1d_array_resource->ReadFromSubresource(
+                    second_readback, 17, 17, 1, nullptr);
+            placed_1d_array_io_ok =
+                SUCCEEDED(placed_1d_array_write_hr[0]) &&
+                SUCCEEDED(placed_1d_array_write_hr[1]) &&
+                SUCCEEDED(placed_1d_array_read_hr[0]) &&
+                SUCCEEDED(placed_1d_array_read_hr[1]) &&
+                std::memcmp(first_slice, first_readback, sizeof(first_slice)) == 0 &&
+                std::memcmp(second_slice, second_readback,
+                            sizeof(second_slice)) == 0;
+        }
         ID3D12Resource* invalid_resource = nullptr;
         D3D12_RESOURCE_DESC invalid = texture_desc(0, 1, DXGI_FORMAT_R8_UNORM);
         invalid_zero_width_hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &invalid,
@@ -3411,6 +3470,13 @@ int main(int argc, char** argv) {
         default_cpu_io_ok && residency_state_ok && heap_residency_ok && address_heap_open_ok &&
         heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok &&
         resource_shapes_ok && resource_validation_ok &&
+        SUCCEEDED(placed_1d_array_heap_hr) &&
+        SUCCEEDED(placed_1d_array_resource_hr) &&
+        SUCCEEDED(placed_1d_array_write_hr[0]) &&
+        SUCCEEDED(placed_1d_array_write_hr[1]) &&
+        SUCCEEDED(placed_1d_array_read_hr[0]) &&
+        SUCCEEDED(placed_1d_array_read_hr[1]) &&
+        placed_1d_array_io_ok &&
         sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
@@ -3488,6 +3554,14 @@ int main(int argc, char** argv) {
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
     std::printf("    \"validation_matrix_verified\": %s,\n", resource_validation_ok ? "true" : "false");
     std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
+    print_hr("placed_1d_array_heap_create", placed_1d_array_heap_hr);
+    print_hr("placed_1d_array_resource_create", placed_1d_array_resource_hr);
+    print_hr("placed_1d_array_first_write", placed_1d_array_write_hr[0]);
+    print_hr("placed_1d_array_second_write", placed_1d_array_write_hr[1]);
+    print_hr("placed_1d_array_first_read", placed_1d_array_read_hr[0]);
+    print_hr("placed_1d_array_second_read", placed_1d_array_read_hr[1]);
+    std::printf("    \"placed_1d_array_io_verified\": %s,\n",
+                placed_1d_array_io_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
     print_hr("invalid_heap_properties", invalid_heap_properties_hr);

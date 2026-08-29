@@ -64,6 +64,8 @@
   six-slice 2D representation) create successfully; the backend preserves the
   1D array length, and each 1D-array slice and cube face independently
   round-trips distinct bytes through `WriteToSubresource`/`ReadFromSubresource`.
+  A placed two-slice 1D array also uses the correct Metal array length and
+  independently round-trips both slices through a default placement heap.
 - NV12 footprints expand luma/chroma into R8/R8G8 planes with half-resolution
   chroma dimensions (`13x8` plus `7x4`, 3072 bytes total); odd NV12 heights
   reject with `E_INVALIDARG`. Committed NV12 and P010 resources use an explicit
@@ -192,6 +194,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.all_created_and_roundtripped": true,
   "resource_shapes.validation_matrix_verified": true,
   "resource_shapes.footprint_matrix_verified": true,
+  "resource_shapes.placed_1d_array_io_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",
   "resource_shapes.invalid_heap_properties": "0x80070057",
