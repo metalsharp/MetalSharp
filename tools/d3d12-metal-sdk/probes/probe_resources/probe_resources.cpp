@@ -541,6 +541,8 @@ int main(int argc, char** argv) {
     HRESULT shared_invalid_create_access_hr = E_FAIL;
     HRESULT shared_invalid_open_access_hr = E_FAIL;
     bool shared_independent_object_ok = false;
+    HRESULT shared_texture_hr = E_FAIL;
+    HANDLE shared_texture_handle = nullptr;
     D3D12_RESOURCE_DESC default_buffer_desc = {};
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = 0;
     D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
@@ -2054,6 +2056,11 @@ int main(int argc, char** argv) {
             for (UINT byte = 0; byte < 8; ++byte)
                 direct_io_texture_ok =
                     io_destination[row * 16 + byte] == io_source[row * 8 + byte];
+        shared_texture_hr = device->CreateSharedHandle(
+            direct_io_texture, nullptr, GENERIC_ALL,
+            L"metalsharp-probe-texture", &shared_texture_handle);
+        if (shared_texture_handle)
+            CloseHandle(shared_texture_handle);
     }
     D3D12_RESOURCE_DESC direct_io_volume_desc =
         texture_desc(4, 4, DXGI_FORMAT_R8_UNORM);
@@ -3913,6 +3920,7 @@ int main(int argc, char** argv) {
         SUCCEEDED(texture_map_hr) && SUCCEEDED(texture_readback_map_hr) && texture_copy_ok &&
         SUCCEEDED(direct_io_texture_create_hr) && SUCCEEDED(direct_io_texture_write_hr) &&
         SUCCEEDED(direct_io_texture_read_hr) && direct_io_texture_ok &&
+        shared_texture_hr == E_NOTIMPL &&
         SUCCEEDED(direct_io_volume_create_hr) && SUCCEEDED(direct_io_volume_write_hr) &&
         SUCCEEDED(direct_io_volume_read_hr) && direct_io_volume_ok &&
         SUCCEEDED(direct_io_volume_box_write_hr) &&
@@ -4345,6 +4353,7 @@ int main(int argc, char** argv) {
     print_hr("direct_io_texture_read", direct_io_texture_read_hr);
     std::printf("    \"direct_io_texture_verified\": %s,\n",
                 direct_io_texture_ok ? "true" : "false");
+    print_hr("shared_texture_create", shared_texture_hr);
     print_hr("direct_io_volume_create", direct_io_volume_create_hr);
     print_hr("direct_io_volume_write", direct_io_volume_write_hr);
     print_hr("direct_io_volume_read", direct_io_volume_read_hr);

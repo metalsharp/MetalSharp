@@ -5578,6 +5578,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         return S_OK;
       }
       resource->Release();
+      TRACE("CreateSharedHandle named texture object=%p -> E_NOTIMPL",
+            (void *)object);
+      return E_NOTIMPL;
     }
     ID3D12Heap *heap = nullptr;
     if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
@@ -5596,6 +5599,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         return S_OK;
       }
       heap->Release();
+      TRACE("CreateSharedHandle named non-CPU heap object=%p -> E_NOTIMPL",
+            (void *)object);
+      return E_NOTIMPL;
     }
     ID3D12Fence *fence = nullptr;
     if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&fence)))) {
@@ -5639,6 +5645,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         return S_OK;
       }
       resource->Release();
+      TRACE("CreateSharedHandle unnamed texture object=%p -> E_NOTIMPL",
+            (void *)object);
+      return E_NOTIMPL;
     }
     ID3D12Heap *heap = nullptr;
     if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
@@ -5659,6 +5668,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         return S_OK;
       }
       heap->Release();
+      TRACE("CreateSharedHandle unnamed non-CPU heap object=%p -> E_NOTIMPL",
+            (void *)object);
+      return E_NOTIMPL;
     }
     ID3D12Fence *fence = nullptr;
     if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&fence)))) {
