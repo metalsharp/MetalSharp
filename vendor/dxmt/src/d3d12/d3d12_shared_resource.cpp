@@ -181,6 +181,8 @@ HRESULT OpenSharedBufferFromMapping(MTLD3D12Device *device, HANDLE mapping,
   *resource = nullptr;
   void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
   if (!view)
+    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+  if (!view)
     return HResultFromLastError();
   D3D12SharedResourceMetadata metadata = {};
   std::memcpy(&metadata, view, sizeof(metadata));
@@ -291,6 +293,8 @@ HRESULT OpenSharedFenceFromMapping(MTLD3D12Device *device, HANDLE mapping,
     return E_INVALIDARG;
   *fence = nullptr;
   void *view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+  if (!view)
+    view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
   if (!view)
     return HResultFromLastError();
   D3D12SharedFenceMetadata metadata = {};
