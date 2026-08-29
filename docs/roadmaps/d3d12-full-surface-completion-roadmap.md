@@ -212,8 +212,8 @@ for feature families that this roadmap must implement before reporting support:
 - 64-KB MSAA alignment and native 16-bit shader operations.
 - Full RT-array index range and derivatives in mesh/amplification stages.
 - Mesh per-primitive VRS.
-- Triangle fan, dynamic strip-cut, dynamic depth bias, and GPU-upload texture
-  and non-buffer heap-class breadth beyond the proven buffer provider.
+- Triangle fan, dynamic strip-cut, dynamic depth bias, and GPU-upload format
+  and heap-flag breadth beyond the tested buffer/RGBA8 texture provider.
 - Non-normalized samplers and manual write tracking.
 - Tier 4 tiled resources, including the stable 1.619 sparse-resource additions.
 - SM6.9 long vectors, required 16/64-bit wave operations, float16 specials,
@@ -602,8 +602,8 @@ clear, the focused relaxed-castable-format readback, tight buffer alignment,
 query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O,
 checked allocation/footprint arithmetic, multi-resource sideband offsets,
-4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, committed
-and placed GPU-upload buffer I/O, D32 plane footprint layout, bounded tiling
+4-MiB mixed-alignment batches, nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and
+RGBA8 texture I/O, D32 plane footprint layout, bounded tiling
 and subresource-window behavior, bounded Map ranges, D3D12 dimension-limit and
 reserved-layout rejection, unsupported-format allocation rejection, invalid
 buffer-flag rejection, DXGI resource aggregation, generated pointer-free
