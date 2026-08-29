@@ -5462,19 +5462,6 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         resource->Release();
         if (FAILED(hr))
           return hr;
-        HANDLE retained_mapping = nullptr;
-        if (!DuplicateHandle(GetCurrentProcess(), public_mapping,
-                             GetCurrentProcess(), &retained_mapping, 0, FALSE,
-                             DUPLICATE_SAME_ACCESS)) {
-          HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
-          CloseHandle(public_mapping);
-          return duplicate_hr;
-        }
-        object->AddRef();
-        g_shared_handles.emplace(
-            public_mapping,
-            D3D12SharedHandleEntry{object, retained_mapping});
-        g_named_shared_handles.emplace(std::wstring(name), public_mapping);
         *handle = public_mapping;
         TRACE("CreateSharedHandle named buffer object=%p name=%ls handle=%p",
               (void *)object, name, public_mapping);
@@ -5493,19 +5480,6 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
         heap->Release();
         if (FAILED(hr))
           return hr;
-        HANDLE retained_mapping = nullptr;
-        if (!DuplicateHandle(GetCurrentProcess(), public_mapping,
-                             GetCurrentProcess(), &retained_mapping, 0, FALSE,
-                             DUPLICATE_SAME_ACCESS)) {
-          HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
-          CloseHandle(public_mapping);
-          return duplicate_hr;
-        }
-        object->AddRef();
-        g_shared_handles.emplace(
-            public_mapping,
-            D3D12SharedHandleEntry{object, retained_mapping});
-        g_named_shared_handles.emplace(std::wstring(name), public_mapping);
         *handle = public_mapping;
         TRACE("CreateSharedHandle named heap object=%p name=%ls handle=%p",
               (void *)object, name, public_mapping);
@@ -5520,19 +5494,6 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
           static_cast<MTLD3D12Fence *>(fence), name, &public_mapping);
       fence->Release();
       if (SUCCEEDED(hr)) {
-        HANDLE retained_mapping = nullptr;
-        if (!DuplicateHandle(GetCurrentProcess(), public_mapping,
-                             GetCurrentProcess(), &retained_mapping, 0, FALSE,
-                             DUPLICATE_SAME_ACCESS)) {
-          HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
-          CloseHandle(public_mapping);
-          return duplicate_hr;
-        }
-        object->AddRef();
-        g_shared_handles.emplace(
-            public_mapping,
-            D3D12SharedHandleEntry{object, retained_mapping});
-        g_named_shared_handles.emplace(std::wstring(name), public_mapping);
         *handle = public_mapping;
         TRACE("CreateSharedHandle named fence object=%p name=%ls handle=%p",
               (void *)object, name, public_mapping);
@@ -5628,13 +5589,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
   if (!name || !IsValidSharedHandleAccess(access))
     return E_INVALIDARG;
   const DWORD mapping_access = FileMappingAccessForSharedHandle(access);
-  std::lock_guard lock(g_shared_handle_mutex);
-  auto named = g_named_shared_handles.find(std::wstring(name));
-  if (named == g_named_shared_handles.end()) {
-    HANDLE opened_mapping =
-        OpenFileMappingW(mapping_access, FALSE, name);
-    if (!opened_mapping)
-      return DXGI_ERROR_NOT_FOUND;
+  HANDLE opened_mapping =
+      OpenFileMappingW(mapping_access, FALSE, name);
+  if (opened_mapping) {
+    // Validate the mapping without retaining a process-global COM object.
+    // The returned handle can subsequently be passed to OpenSharedHandle,
+    // which reconstructs a fresh object from the same metadata.
     ID3D12Resource *shared_resource = nullptr;
     HRESULT hr = OpenSharedBufferFromMapping(this, opened_mapping,
                                              &shared_resource);
@@ -5644,42 +5604,30 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
       hr = OpenSharedHeapFromMapping(this, opened_mapping, &shared_heap);
     if (FAILED(hr) || (!shared_resource && !shared_heap))
       hr = OpenSharedFenceFromMapping(this, opened_mapping, &shared_fence);
-    if (FAILED(hr) || (!shared_resource && !shared_heap && !shared_fence)) {
-      CloseHandle(opened_mapping);
-      return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
+    if (shared_resource)
+      shared_resource->Release();
+    if (shared_heap)
+      shared_heap->Release();
+    if (shared_fence)
+      shared_fence->Release();
+    if (SUCCEEDED(hr)) {
+      *handle = opened_mapping;
+      TRACE("OpenSharedHandleByName name=%ls handle=%p", name,
+            opened_mapping);
+      return S_OK;
     }
-    IUnknown *shared_object = shared_resource
-                                   ? static_cast<IUnknown *>(shared_resource)
-                                   : shared_heap
-                                         ? static_cast<IUnknown *>(shared_heap)
-                                         : static_cast<IUnknown *>(shared_fence);
-    HANDLE retained_mapping = nullptr;
-    if (!DuplicateHandle(GetCurrentProcess(), opened_mapping,
-                         GetCurrentProcess(), &retained_mapping, 0, FALSE,
-                         DUPLICATE_SAME_ACCESS)) {
-      HRESULT duplicate_hr = HRESULT_FROM_WIN32(GetLastError());
-      if (shared_resource)
-        shared_resource->Release();
-      if (shared_heap)
-        shared_heap->Release();
-      if (shared_fence)
-        shared_fence->Release();
-      CloseHandle(opened_mapping);
-      return duplicate_hr;
-    }
-    g_shared_handles.emplace(
-        opened_mapping,
-        D3D12SharedHandleEntry{shared_object, retained_mapping});
-    g_named_shared_handles.emplace(std::wstring(name), opened_mapping);
-    *handle = opened_mapping;
-    TRACE("OpenSharedHandleByName cross-process name=%ls handle=%p resource=%p",
-          name, opened_mapping, (void *)shared_resource);
-    return S_OK;
+    CloseHandle(opened_mapping);
   }
+
+  // Unsupported object kinds retain the legacy registry path until their
+  // platform-backed provider exists.
+  std::lock_guard lock(g_shared_handle_mutex);
+  auto named = g_named_shared_handles.find(std::wstring(name));
+  if (named == g_named_shared_handles.end())
+    return DXGI_ERROR_NOT_FOUND;
   auto entry = g_shared_handles.find(named->second);
   if (entry == g_shared_handles.end() || !entry->second.retained_handle)
     return DXGI_ERROR_INVALID_CALL;
-
   HANDLE opened = nullptr;
   if (!DuplicateHandle(GetCurrentProcess(), entry->second.retained_handle,
                        GetCurrentProcess(), &opened, 0, FALSE,
@@ -5693,15 +5641,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandleByName(
     return hr;
   }
   entry->second.object->AddRef();
-  auto existing = g_shared_handles.find(opened);
-  if (existing != g_shared_handles.end()) {
-    ReleaseSharedHandleEntry(existing->second);
-    g_shared_handles.erase(existing);
-  }
   g_shared_handles.emplace(
       opened, D3D12SharedHandleEntry{entry->second.object, retained_opened});
   *handle = opened;
-  TRACE("OpenSharedHandleByName name=%ls handle=%p", name, opened);
   return S_OK;
 }
 
