@@ -796,7 +796,7 @@ static UINT64 EstimateResourceAllocationSize(const D3D12_RESOURCE_DESC &desc) {
     UINT bytes_per_texel = FormatBytesPerTexel(plane_format);
     UINT block_size = FormatBlockSize(plane_format);
     if (!bytes_per_texel)
-      bytes_per_texel = 4;
+      return 0;
     for (UINT array_or_plane = 0; array_or_plane < array_size;
          array_or_plane++) {
       for (UINT mip = 0; mip < mip_levels; mip++) {

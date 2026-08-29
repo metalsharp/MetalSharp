@@ -18196,7 +18196,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "9be0577790142370a261335a73b30bf8972cac95",
+    "git_head": "d7c25155f78ddac11c5116337af33f59fdc27637",
     "runtime_file_count": 166,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
@@ -18205,7 +18205,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "4407d96f4ff4cf9a521eff9cf87e18246872f36263aba65e5680b22f1df165b9"
+    "runtime_tree_sha256": "c3dfecfcfa099933568343f221d99dd4dde0d29729198f9bbb356a4d60c81fa1"
   },
   "state": "phase0_inventory",
   "summary": {
