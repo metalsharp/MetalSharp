@@ -105,7 +105,7 @@
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
         "tools/d3d12-metal-sdk/probes/probe_resources"
       ],
-      "reason": "Native Metal placement-sparse backing now creates a 128x128x2 RGBA8-array reserved texture, maps both array slices through an explicit D3D12 placement heap, round-trips two exact 64 KiB tiles, and reads the same mapped physical tile through a second reserved texture. A separate reserved two-tile buffer path uses an MTL4 placement-sparse buffer and D3D12 heap mapping on the proof host, then round-trips exact tile copies, copied mappings, and zero-after-unmap; focused R8_UNORM one-tile and two-level standard-mip texture copies also pass through the legacy sparse path. An explicit full shared backing fallback remains available when MTL4 is unavailable. Tier 3 remains unreported because broader packed/partial-mip and 3D/array layouts, physical residency transitions, and broader format coverage remain gated; the focused single-mip RGBA8 mapping-copy/alias does not establish full Tier 3 coverage.",
+      "reason": "Native Metal placement-sparse backing now creates a 128x128x2 RGBA8-array reserved texture, maps both array slices through an explicit D3D12 placement heap, round-trips two exact 64 KiB tiles, and reads the same mapped physical tile through a second reserved texture. Native 1D R32_FLOAT arrays now map eight 16 KiB Metal pages, execute CopyTiles across both slices, and pass CopyTileMappings into an independent reserved array. A separate reserved two-tile buffer path uses an MTL4 placement-sparse buffer and D3D12 heap mapping on the proof host, then round-trips exact tile copies, copied mappings, and zero-after-unmap; focused R8_UNORM, integer/packed formats, BC1/BC4/BC7, standard-mip, and packed-mip CopyTextureRegion cases also pass. An explicit full shared backing fallback remains available when MTL4 is unavailable. Tier 3 remains unreported because broader packed/partial-mip and 3D/array layouts, physical residency transitions, and all supported-format coverage remain gated; these focused mapping and copy cases do not establish full Tier 3 coverage.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },
@@ -115,7 +115,7 @@
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
         "tools/d3d12-metal-sdk/probes/probe_resources"
       ],
-      "reason": "CreateSharedHandle, OpenSharedHandle, and named lookup are proven only through a retained process-local registry; cross-process Metal resource/heap transport is not implemented and must not be reported as portable sharing.",
+      "reason": "Named CPU-visible buffers, upload heaps, and fences now use pointer-free CreateFileMappingW metadata and pass independent-object plus cross-process read/write/signal checks. Portable texture transport, unnamed handle duplication across processes, shared events beyond the mapped-fence bridge, and security/access-policy coverage remain unimplemented; those gaps must not be hidden behind the legacy in-process registry used only for unsupported object kinds.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

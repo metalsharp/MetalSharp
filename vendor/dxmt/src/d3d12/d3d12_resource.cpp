@@ -184,13 +184,21 @@ static uint32_t PackedTextureRowBytes(DXGI_FORMAT format, uint64_t width) {
   }
 
   switch (format) {
+  case DXGI_FORMAT_B5G6R5_UNORM:
+  case DXGI_FORMAT_B5G5R5A1_UNORM:
+  case DXGI_FORMAT_B4G4R4A4_UNORM:
   case DXGI_FORMAT_R8_TYPELESS:
   case DXGI_FORMAT_R8_UNORM:
   case DXGI_FORMAT_R8_UINT:
   case DXGI_FORMAT_R8_SNORM:
   case DXGI_FORMAT_R8_SINT:
   case DXGI_FORMAT_A8_UNORM:
-    return static_cast<uint32_t>(width);
+    return static_cast<uint32_t>(width *
+                                 ((format == DXGI_FORMAT_B5G6R5_UNORM ||
+                                   format == DXGI_FORMAT_B5G5R5A1_UNORM ||
+                                   format == DXGI_FORMAT_B4G4R4A4_UNORM)
+                                      ? 2
+                                      : 1));
   case DXGI_FORMAT_R8G8_TYPELESS:
   case DXGI_FORMAT_R8G8_UNORM:
   case DXGI_FORMAT_R8G8_UINT:
@@ -209,6 +217,10 @@ static uint32_t PackedTextureRowBytes(DXGI_FORMAT format, uint64_t width) {
   case DXGI_FORMAT_R32G32B32A32_UINT:
   case DXGI_FORMAT_R32G32B32A32_SINT:
     return static_cast<uint32_t>(width * 16);
+  case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+  case DXGI_FORMAT_R8G8_B8G8_UNORM:
+  case DXGI_FORMAT_G8R8_G8B8_UNORM:
+    return static_cast<uint32_t>(width * 4);
   case DXGI_FORMAT_R16G16B16A16_TYPELESS:
   case DXGI_FORMAT_R16G16B16A16_FLOAT:
   case DXGI_FORMAT_R16G16B16A16_UNORM:
