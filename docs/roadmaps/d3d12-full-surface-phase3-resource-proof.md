@@ -30,6 +30,11 @@
 - 3D allocation sizing counts volume depth once (a 64x64x4 R8 volume reports
   one 64-KiB allocation with 64-KiB alignment), while arrays continue to count
   `DepthOrArraySize` as slices.
+- Reserved-buffer tile mappings cover all four D3D12 range modes. A dedicated
+  one-tile heap is mapped to both logical tiles with
+  `REUSE_SINGLE_TILE`; a subsequent `SKIP` update leaves the alias intact, and
+  a copy/readback observes the exact source bytes. The same run exercises the
+  documented single-region/default-region and omitted range-count forms.
 - Copyable footprint dimensions, pitches, row counts, and 512-byte placement
   alignment are validated for 1D, arrays, mip chains, volumes, and unaligned
   BC1 dimensions; BC footprints report texel dimensions while retaining
@@ -77,7 +82,8 @@ The isolated source-staged probe passed with:
   "sparse.unmapped_zero_verified": true,
   "sparse.tier3_physical_page_ownership_verified": true,
   "sparse.volume_copy_verified": true,
-  "sparse.volume_alias_copy_verified": true
+  "sparse.volume_alias_copy_verified": true,
+  "sparse.reserved_buffer_reuse_single_tile_skip_verified": true
 }
 ```
 

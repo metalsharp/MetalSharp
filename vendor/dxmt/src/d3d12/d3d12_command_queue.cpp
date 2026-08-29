@@ -115,6 +115,23 @@ static uint32_t AlignReadbackPitch(uint32_t value, uint32_t alignment) {
   return (value + alignment - 1) & ~(alignment - 1);
 }
 
+static bool IsSupportedTileRangeFlag(D3D12_TILE_RANGE_FLAGS flags) {
+  switch (flags) {
+  case D3D12_TILE_RANGE_FLAG_NONE:
+  case D3D12_TILE_RANGE_FLAG_NULL:
+  case D3D12_TILE_RANGE_FLAG_SKIP:
+  case D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool TileRangeUsesHeap(D3D12_TILE_RANGE_FLAGS flags) {
+  return flags == D3D12_TILE_RANGE_FLAG_NONE ||
+         flags == D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE;
+}
+
 const char *TraceCompileFailureStage(MTLD3D12PipelineState *pso) {
   static thread_local std::string stage;
   stage = pso ? pso->GetCompileFailureStage() : "no_pso";
@@ -8529,10 +8546,9 @@ static bool BuildSparseTextureMappings(
   for (UINT range = 0; range < range_count; range++) {
     const D3D12_TILE_RANGE_FLAGS flags =
         range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
-    if (flags != D3D12_TILE_RANGE_FLAG_NONE &&
-        flags != D3D12_TILE_RANGE_FLAG_NULL)
+    if (!IsSupportedTileRangeFlag(flags))
       return false;
-    if (flags == D3D12_TILE_RANGE_FLAG_NONE && !heap_range_offsets)
+    if (TileRangeUsesHeap(flags) && !heap_range_offsets)
       return false;
   }
   const D3D12_TILE_SHAPE shape = resource->GetTiledResourceTileShape();
@@ -8678,28 +8694,43 @@ static bool BuildSparseTextureMappings(
               ? uint64_t(heap_range_offsets[range_index]) +
                     (uint64_t(range_tile_counts[range_index]) -
                      range_remaining)
-              : 0;
+              : flags == D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE
+                    ? uint64_t(heap_range_offsets[range_index])
+                    : 0;
       const uint64_t heap_tile_offset =
           logical_heap_tile_offset * heap_tile_multiplier;
       const auto &location = locations[tile];
       const UINT mip = location.subresource % mip_levels;
       const UINT slice = location.subresource / mip_levels;
-      mappings.push_back({
-          flags == D3D12_TILE_RANGE_FLAG_NULL
-              ? WMTTextureMappingModeUnmap
-              : WMTTextureMappingModeMap,
-          {uint64_t(location.x) * metal_tiles_x,
-           uint64_t(location.y) * metal_tiles_y,
-           uint64_t(location.z) * metal_tiles_z},
-          {metal_tiles_x, metal_tiles_y, metal_tiles_z}, mip,
-          volume ? 0 : slice, heap_tile_offset});
+      // SKIP consumes the logical range but intentionally leaves the old
+      // mapping untouched; Metal has no separate no-op mapping opcode.
+      if (flags != D3D12_TILE_RANGE_FLAG_SKIP) {
+        mappings.push_back({
+            flags == D3D12_TILE_RANGE_FLAG_NULL
+                ? WMTTextureMappingModeUnmap
+                : WMTTextureMappingModeMap,
+            {uint64_t(location.x) * metal_tiles_x,
+             uint64_t(location.y) * metal_tiles_y,
+             uint64_t(location.z) * metal_tiles_z},
+            {metal_tiles_x, metal_tiles_y, metal_tiles_z}, mip,
+            volume ? 0 : slice, heap_tile_offset});
+      }
       if (range_count && range_remaining)
         range_remaining--;
     }
   }
-  return !mappings.empty();
-}
 
+  while (range_count && range_index < range_count && range_remaining == 0) {
+    range_index++;
+    range_remaining = range_index < range_count
+                          ? (range_tile_counts ? range_tile_counts[range_index]
+                                                : 1)
+                          : 0;
+  }
+  if (range_count && range_index != range_count)
+    return false;
+  return true;
+}
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
     ID3D12Resource *resource, UINT region_count,
     const D3D12_TILED_RESOURCE_COORDINATE *region_start_coordinates,
@@ -8722,20 +8753,66 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
   }
   auto *sparse_resource = static_cast<MTLD3D12Resource *>(resource);
   auto *tile_heap = static_cast<MTLD3D12Heap *>(heap);
-  if (!range_tile_counts)
-    return;
   D3D12_RESOURCE_DESC sparse_desc = {};
   if (!sparse_resource || !sparse_resource->IsReservedResource() ||
-      !sparse_resource->IsSparseBacked() || !region_count ||
-      !region_start_coordinates || !region_sizes)
+      !sparse_resource->IsSparseBacked() || !region_count)
     return;
   sparse_resource->GetDesc(&sparse_desc);
+
+  // The D3D12 API permits the region coordinate/size arrays to be omitted
+  // for a single default region, and permits the range-count array to be
+  // omitted for a single range. Normalize those forms before walking the
+  // mapping stream so every provider sees the same tile sequence.
+  D3D12_TILED_RESOURCE_COORDINATE default_coordinate = {};
+  const D3D12_TILED_RESOURCE_COORDINATE *effective_coordinates =
+      region_start_coordinates;
+  if (!effective_coordinates) {
+    if (region_count != 1)
+      return;
+    effective_coordinates = &default_coordinate;
+  }
+  D3D12_TILE_REGION_SIZE default_region = {};
+  const D3D12_TILE_REGION_SIZE *effective_regions = region_sizes;
+  UINT default_region_tile_count = 0;
+  if (!effective_regions) {
+    if (region_count != 1 || !m_device)
+      return;
+    m_device->GetResourceTiling(sparse_resource, &default_region_tile_count,
+                                nullptr, nullptr, nullptr, 0, nullptr);
+    if (!default_region_tile_count)
+      return;
+    default_region.NumTiles = default_region_tile_count;
+    effective_regions = &default_region;
+  }
+  uint64_t total_region_tiles = 0;
+  for (UINT region = 0; region < region_count; region++) {
+    const auto &size = effective_regions[region];
+    const uint64_t count = size.UseBox
+                               ? uint64_t(size.Width) * size.Height * size.Depth
+                               : size.NumTiles;
+    if (!count || (total_region_tiles > UINT32_MAX - count))
+      return;
+    total_region_tiles += count;
+  }
+
+  UINT default_range_tile_count = 0;
+  const UINT *effective_range_tile_counts = range_tile_counts;
+  if (!effective_range_tile_counts) {
+    if (range_count != 1 || total_region_tiles > UINT32_MAX)
+      return;
+    default_range_tile_count = static_cast<UINT>(total_region_tiles);
+    effective_range_tile_counts = &default_range_tile_count;
+  }
   bool needs_heap = false;
-  for (UINT range = 0; range < range_count; range++)
-    needs_heap |= !range_flags ||
-                  range_flags[range] == D3D12_TILE_RANGE_FLAG_NONE;
+  for (UINT range = 0; range < range_count; range++) {
+    const D3D12_TILE_RANGE_FLAGS range_flag =
+        range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
+    if (!IsSupportedTileRangeFlag(range_flag))
+      return;
+    needs_heap |= TileRangeUsesHeap(range_flag);
+  }
   if (needs_heap) {
-    if (!tile_heap || !heap_range_offsets || !range_tile_counts)
+    if (!tile_heap || !heap_range_offsets)
       return;
     const UINT64 heap_tile_count =
         tile_heap->GetHeapDesc().SizeInBytes /
@@ -8743,17 +8820,23 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
     for (UINT range = 0; range < range_count; range++) {
       const D3D12_TILE_RANGE_FLAGS range_flag =
           range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
-      if (range_flag == D3D12_TILE_RANGE_FLAG_NONE &&
-          (uint64_t(heap_range_offsets[range]) + range_tile_counts[range] >
-           heap_tile_count)) {
+      const UINT64 required_tiles =
+          range_flag == D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE ? 1
+                                                                : effective_range_tile_counts[range];
+      if (uint64_t(heap_range_offsets[range]) + required_tiles >
+          heap_tile_count) {
         QTRACE("CmdQueue::UpdateTileMappings rejected heap range=%u offset=%u "
-               "count=%u heap_tiles=%llu",
-               range, heap_range_offsets[range], range_tile_counts[range],
+               "count=%llu heap_tiles=%llu",
+               range, heap_range_offsets[range],
+               (unsigned long long)required_tiles,
                (unsigned long long)heap_tile_count);
         return;
       }
     }
   }
+  region_start_coordinates = effective_coordinates;
+  region_sizes = effective_regions;
+  range_tile_counts = effective_range_tile_counts;
   if (sparse_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
     const uint64_t tile_size = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
     const uint64_t total_tiles =
@@ -8761,8 +8844,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
     for (UINT range = 0; range < range_count; range++) {
       const auto range_flag =
           range_flags ? range_flags[range] : D3D12_TILE_RANGE_FLAG_NONE;
-      if (range_flag != D3D12_TILE_RANGE_FLAG_NONE &&
-          range_flag != D3D12_TILE_RANGE_FLAG_NULL)
+      if (!IsSupportedTileRangeFlag(range_flag))
         return;
     }
     if (sparse_resource->IsNativeSparseBuffer()) {
@@ -8794,19 +8876,36 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
           const uint64_t range_consumed =
               uint64_t(range_tile_counts[range_index]) - range_remaining;
           const uint64_t chunk = std::min(remaining, range_remaining);
-          WMT4SparseBufferMappingOperation operation = {};
-          operation.mode = range_flag == D3D12_TILE_RANGE_FLAG_NULL
-                               ? WMTTextureMappingModeUnmap
-                               : WMTTextureMappingModeMap;
-          operation.buffer_tile_offset = virtual_tile;
-          operation.buffer_tile_count = chunk;
-          operation.heap_tile_offset =
-              range_flag == D3D12_TILE_RANGE_FLAG_NULL
-                  ? 0
-                  : uint64_t(heap_range_offsets[range_index]) +
-                        range_consumed;
-          operations.push_back(operation);
-          has_map |= operation.mode == WMTTextureMappingModeMap;
+          if (range_flag != D3D12_TILE_RANGE_FLAG_SKIP) {
+            const auto emit_operation = [&](uint64_t buffer_tile_offset,
+                                            uint64_t buffer_tile_count,
+                                            uint64_t heap_tile_offset) {
+              WMT4SparseBufferMappingOperation operation = {};
+              operation.mode = range_flag == D3D12_TILE_RANGE_FLAG_NULL
+                                   ? WMTTextureMappingModeUnmap
+                                   : WMTTextureMappingModeMap;
+              operation.buffer_tile_offset = buffer_tile_offset;
+              operation.buffer_tile_count = buffer_tile_count;
+              operation.heap_tile_offset = heap_tile_offset;
+              operations.push_back(operation);
+              has_map |= operation.mode == WMTTextureMappingModeMap;
+            };
+            if (range_flag == D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE) {
+              // Metal maps one buffer range to consecutive heap tiles. Emit
+              // one one-tile operation per logical tile to preserve D3D12's
+              // single-physical-tile aliasing semantics.
+              for (uint64_t tile = 0; tile < chunk; ++tile)
+                emit_operation(virtual_tile + tile, 1,
+                               uint64_t(heap_range_offsets[range_index]));
+            } else {
+              emit_operation(
+                  virtual_tile, chunk,
+                  range_flag == D3D12_TILE_RANGE_FLAG_NULL
+                      ? 0
+                      : uint64_t(heap_range_offsets[range_index]) +
+                            range_consumed);
+            }
+          }
           virtual_tile += chunk;
           remaining -= chunk;
           range_remaining -= static_cast<UINT>(chunk);
@@ -8854,7 +8953,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
         if (range_flag == D3D12_TILE_RANGE_FLAG_NULL && cpu)
           std::memset(cpu + (uint64_t(coordinate.X) + tile) * tile_size, 0,
                       static_cast<size_t>(tile_size));
-        if (range_flag == D3D12_TILE_RANGE_FLAG_NONE && !tile_heap)
+        if (TileRangeUsesHeap(range_flag) && !tile_heap)
           return;
         range_remaining--;
         mapped_tiles++;
@@ -8874,6 +8973,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::UpdateTileMappings(
           region_sizes, range_count, range_flags, heap_range_offsets,
           range_tile_counts, placement_sparse_texture, mappings)) {
     QTRACE("CmdQueue::UpdateTileMappings rejected unsupported sparse mapping");
+    return;
+  }
+  if (mappings.empty()) {
+    QTRACE("CmdQueue::UpdateTileMappings contained only SKIP ranges");
     return;
   }
   if (placement_sparse_texture && m_wmt4_queue.handle) {

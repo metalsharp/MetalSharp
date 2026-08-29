@@ -780,6 +780,7 @@ int main(int argc, char** argv) {
     ID3D12Resource* texture_readback = nullptr;
     ID3D12Resource* unsupported_texture = nullptr;
     ID3D12Heap* sparse_heap = nullptr;
+    ID3D12Heap* reuse_heap = nullptr;
     ID3D12Heap* volume_heap = nullptr;
     ID3D12Heap* copy_mapping_heap = nullptr;
     ID3D12Resource* reserved_texture = nullptr;
@@ -792,7 +793,9 @@ int main(int argc, char** argv) {
     ID3D12Resource* volume_readback = nullptr;
     ID3D12Resource* volume_alias_readback = nullptr;
     ID3D12Resource* reserved_buffer = nullptr;
+    ID3D12Resource* reuse_buffer = nullptr;
     ID3D12Resource* reserved_buffer_readback = nullptr;
+    ID3D12Resource* reserved_buffer_reuse_readback = nullptr;
     ID3D12Resource* reserved_buffer_unmapped_readback = nullptr;
     ID3D12Resource* placement_alias_readback = nullptr;
     ID3D12Resource* mapping_copy_source = nullptr;
@@ -809,6 +812,8 @@ int main(int argc, char** argv) {
     ID3D12Resource* r8_partial_upload = nullptr;
     ID3D12Resource* r8_partial_readback = nullptr;
     HRESULT sparse_heap_hr = E_FAIL;
+    HRESULT reuse_heap_hr = E_FAIL;
+    HRESULT reuse_buffer_hr = E_FAIL;
     HRESULT volume_heap_hr = E_FAIL;
     HRESULT copy_mapping_heap_hr = E_FAIL;
     HRESULT reserved_texture_hr = E_FAIL;
@@ -826,6 +831,8 @@ int main(int argc, char** argv) {
     HRESULT reserved_buffer_hr = E_FAIL;
     HRESULT reserved_buffer_tiling_hr = E_FAIL;
     HRESULT reserved_buffer_readback_hr = E_FAIL;
+    HRESULT reserved_buffer_reuse_readback_hr = E_FAIL;
+    HRESULT reserved_buffer_reuse_readback_map_hr = E_FAIL;
     HRESULT reserved_buffer_unmapped_readback_hr = E_FAIL;
     HRESULT placement_alias_readback_hr = E_FAIL;
     HRESULT volume_readback_hr = E_FAIL;
@@ -854,7 +861,17 @@ int main(int argc, char** argv) {
     D3D12_SUBRESOURCE_TILING reserved_buffer_tiling = {};
     UINT reserved_buffer_tiling_count = 1;
     bool reserved_buffer_copy_ok = false;
+    bool reserved_buffer_reuse_skip_ok = false;
+    UINT8 reserved_buffer_reuse_first = 0;
+    UINT8 reserved_buffer_reuse_last = 0;
+    UINT64 reserved_buffer_reuse_mismatch = UINT64_MAX;
+    UINT8 reserved_buffer_reuse_actual = 0;
+    UINT8 reserved_buffer_reuse_expected = 0;
     bool reserved_buffer_unmapped_zero_ok = false;
+    HRESULT reuse_skip_close_hr = E_FAIL;
+    HRESULT reuse_skip_execute_hr = E_FAIL;
+    HRESULT reuse_skip_signal_hr = E_FAIL;
+    HRESULT reuse_skip_wait_hr = E_FAIL;
     bool placement_alias_copy_ok = false;
     HRESULT placement_alias_readback_map_hr = E_FAIL;
     uint8_t placement_alias_first = 0;
@@ -987,6 +1004,11 @@ int main(int argc, char** argv) {
     sparse_heap_desc.Properties = default_heap;
     sparse_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
     sparse_heap_hr = device ? device->CreateHeap(&sparse_heap_desc, IID_PPV_ARGS(&sparse_heap)) : E_FAIL;
+    D3D12_HEAP_DESC reuse_heap_desc = {};
+    reuse_heap_desc.SizeInBytes = sparse_tile_size;
+    reuse_heap_desc.Properties = default_heap;
+    reuse_heap_desc.Flags = D3D12_HEAP_FLAG_NONE;
+    reuse_heap_hr = device ? device->CreateHeap(&reuse_heap_desc, IID_PPV_ARGS(&reuse_heap)) : E_FAIL;
     D3D12_HEAP_DESC copy_mapping_heap_desc = {};
     copy_mapping_heap_desc.SizeInBytes = sparse_tile_size;
     copy_mapping_heap_desc.Properties = default_heap;
@@ -1043,6 +1065,9 @@ int main(int argc, char** argv) {
     reserved_buffer_hr = device ? device->CreateReservedResource(&reserved_buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                                                  nullptr, IID_PPV_ARGS(&reserved_buffer))
                                 : E_FAIL;
+    reuse_buffer_hr = device ? device->CreateReservedResource(&reserved_buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                                              nullptr, IID_PPV_ARGS(&reuse_buffer))
+                             : E_FAIL;
     if (device && reserved_buffer) {
         reserved_buffer_tiling_hr = S_OK;
         device->GetResourceTiling(reserved_buffer, &reserved_buffer_total_tiles, nullptr, &reserved_buffer_tile_shape,
@@ -1067,6 +1092,13 @@ int main(int argc, char** argv) {
         device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &reserved_buffer_readback_desc,
                                                  D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                  IID_PPV_ARGS(&reserved_buffer_readback))
+               : E_FAIL;
+    D3D12_RESOURCE_DESC reserved_buffer_reuse_readback_desc = buffer_desc(sparse_tile_size);
+    reserved_buffer_reuse_readback_hr =
+        device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE,
+                                                 &reserved_buffer_reuse_readback_desc,
+                                                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                 IID_PPV_ARGS(&reserved_buffer_reuse_readback))
                : E_FAIL;
     reserved_buffer_unmapped_readback_hr =
         device ? device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &reserved_buffer_readback_desc,
@@ -1556,6 +1588,54 @@ int main(int argc, char** argv) {
         }
     }
     bool sparse_unmapped_zero_ok = false;
+    if (queue && list && allocator && fence && reuse_buffer && reuse_heap && reserved_buffer_reuse_readback &&
+        SUCCEEDED(wait_hr)) {
+        // Map both logical tiles to one physical tile, then issue SKIP for
+        // the second logical tile. A write to tile 0 must be visible through
+        // tile 1, proving both REUSE_SINGLE_TILE and SKIP have provider-
+        // visible semantics.
+        D3D12_TILED_RESOURCE_COORDINATE reuse_coordinate = {};
+        reuse_coordinate.X = 1;
+        D3D12_TILE_REGION_SIZE reuse_region = {};
+        reuse_region.NumTiles = 1;
+        D3D12_TILE_RANGE_FLAGS reuse_flag = D3D12_TILE_RANGE_FLAG_REUSE_SINGLE_TILE;
+        UINT reuse_heap_offset = 0;
+        // Omit the coordinate, region size, and range count arrays in the
+        // first call to exercise D3D12's single-region/default-range forms.
+        queue->UpdateTileMappings(reuse_buffer, 1, nullptr, nullptr, reuse_heap, 1,
+                                  &reuse_flag, &reuse_heap_offset, nullptr, D3D12_TILE_MAPPING_FLAG_NONE);
+        D3D12_TILE_RANGE_FLAGS skip_flag = D3D12_TILE_RANGE_FLAG_SKIP;
+        queue->UpdateTileMappings(reuse_buffer, 1, &reuse_coordinate, &reuse_region, nullptr, 1,
+                                  &skip_flag, nullptr, nullptr, D3D12_TILE_MAPPING_FLAG_NONE);
+        reuse_skip_close_hr = list->Reset(allocator, nullptr);
+        if (SUCCEEDED(reuse_skip_close_hr)) {
+            D3D12_TILED_RESOURCE_COORDINATE source_coordinate = {};
+            D3D12_TILE_REGION_SIZE one_tile = {};
+            one_tile.NumTiles = 1;
+            list->CopyTiles(reuse_buffer, &source_coordinate, &one_tile, sparse_upload, 0,
+                            D3D12_TILE_COPY_FLAG_LINEAR_BUFFER_TO_SWIZZLED_TILED_RESOURCE);
+            D3D12_RESOURCE_BARRIER reuse_barrier =
+                transition_barrier(reuse_buffer, D3D12_RESOURCE_STATE_COPY_DEST,
+                                   D3D12_RESOURCE_STATE_COPY_SOURCE);
+            list->ResourceBarrier(1, &reuse_barrier);
+            list->CopyTiles(reuse_buffer, &reuse_coordinate, &reuse_region, reserved_buffer_reuse_readback, 0,
+                            D3D12_TILE_COPY_FLAG_SWIZZLED_TILED_RESOURCE_TO_LINEAR_BUFFER);
+            reuse_skip_close_hr = list->Close();
+        }
+        if (SUCCEEDED(reuse_skip_close_hr)) {
+            ID3D12CommandList* lists[] = {list};
+            queue->ExecuteCommandLists(1, lists);
+            reuse_skip_execute_hr = S_OK;
+            reuse_skip_signal_hr = queue->Signal(fence, 2);
+            HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+            if (event_handle && SUCCEEDED(reuse_skip_signal_hr)) {
+                reuse_skip_wait_hr = fence->SetEventOnCompletion(2, event_handle);
+                if (SUCCEEDED(reuse_skip_wait_hr) && WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
+                    reuse_skip_wait_hr = E_FAIL;
+                CloseHandle(event_handle);
+            }
+        }
+    }
     if (queue && list && allocator && fence && reserved_texture && sparse_unmapped_readback && SUCCEEDED(wait_hr)) {
         D3D12_TILED_RESOURCE_COORDINATE coordinates[2] = {};
         coordinates[1].Subresource = 1;
@@ -1594,10 +1674,10 @@ int main(int argc, char** argv) {
             ID3D12CommandList* lists[] = {list};
             queue->ExecuteCommandLists(1, lists);
             sparse_unmap_execute_hr = S_OK;
-            sparse_unmap_signal_hr = queue->Signal(fence, 2);
+            sparse_unmap_signal_hr = queue->Signal(fence, 3);
             HANDLE event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
             if (event_handle && SUCCEEDED(sparse_unmap_signal_hr)) {
-                sparse_unmap_wait_hr = fence->SetEventOnCompletion(2, event_handle);
+                sparse_unmap_wait_hr = fence->SetEventOnCompletion(3, event_handle);
                 if (SUCCEEDED(sparse_unmap_wait_hr) && WaitForSingleObject(event_handle, 15000) != WAIT_OBJECT_0)
                     sparse_unmap_wait_hr = E_FAIL;
             }
@@ -1710,6 +1790,26 @@ int main(int argc, char** argv) {
             }
         }
         sparse_unmapped_readback->Unmap(0, nullptr);
+    }
+    uint8_t* reserved_buffer_reuse_readback_ptr = nullptr;
+    reserved_buffer_reuse_readback_map_hr =
+        reserved_buffer_reuse_readback
+            ? reserved_buffer_reuse_readback->Map(0, nullptr,
+                                                  reinterpret_cast<void**>(&reserved_buffer_reuse_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(reserved_buffer_reuse_readback_map_hr) && reserved_buffer_reuse_readback_ptr) {
+        reserved_buffer_reuse_first = reserved_buffer_reuse_readback_ptr[0];
+        reserved_buffer_reuse_last = reserved_buffer_reuse_readback_ptr[sparse_tile_size - 1];
+        reserved_buffer_reuse_skip_ok = SUCCEEDED(reuse_skip_wait_hr);
+        for (UINT64 i = 0; i < sparse_tile_size && reserved_buffer_reuse_skip_ok; i++) {
+            if (reserved_buffer_reuse_readback_ptr[i] != static_cast<uint8_t>((i * 29u + 7u) & 0xffu)) {
+                reserved_buffer_reuse_skip_ok = false;
+                reserved_buffer_reuse_mismatch = i;
+                reserved_buffer_reuse_actual = reserved_buffer_reuse_readback_ptr[i];
+                reserved_buffer_reuse_expected = static_cast<uint8_t>((i * 29u + 7u) & 0xffu);
+            }
+        }
+        reserved_buffer_reuse_readback->Unmap(0, nullptr);
     }
     uint8_t* reserved_buffer_readback_ptr = nullptr;
     HRESULT reserved_buffer_readback_map_hr =
@@ -1957,9 +2057,12 @@ int main(int argc, char** argv) {
         SUCCEEDED(sparse_upload_hr) && SUCCEEDED(sparse_readback_hr) && SUCCEEDED(sparse_upload_map_hr) &&
         SUCCEEDED(sparse_readback_map_hr) && sparse_copy_ok && SUCCEEDED(sparse_unmapped_readback_hr) &&
         SUCCEEDED(reserved_buffer_hr) && SUCCEEDED(reserved_buffer_tiling_hr) &&
-        SUCCEEDED(reserved_buffer_readback_hr) && SUCCEEDED(reserved_buffer_unmapped_readback_hr) &&
+        SUCCEEDED(reuse_heap_hr) && SUCCEEDED(reuse_buffer_hr) &&
+        SUCCEEDED(reserved_buffer_readback_hr) && SUCCEEDED(reserved_buffer_reuse_readback_hr) &&
+        SUCCEEDED(reserved_buffer_reuse_readback_map_hr) && SUCCEEDED(reserved_buffer_unmapped_readback_hr) &&
         SUCCEEDED(reserved_buffer_readback_map_hr) && SUCCEEDED(reserved_buffer_unmapped_map_hr) &&
-        reserved_buffer_copy_ok && reserved_buffer_unmapped_zero_ok && SUCCEEDED(copy_mapping_heap_hr) &&
+        reserved_buffer_copy_ok && reserved_buffer_reuse_skip_ok && reserved_buffer_unmapped_zero_ok &&
+        SUCCEEDED(copy_mapping_heap_hr) &&
         SUCCEEDED(mapping_copy_source_hr) && SUCCEEDED(mapping_copy_destination_hr) &&
         SUCCEEDED(mapping_copy_readback_hr) && SUCCEEDED(mapping_copy_readback_map_hr) && mapping_copy_ok &&
         SUCCEEDED(r8_reserved_texture_hr) && SUCCEEDED(r8_reserved_tiling_hr) && SUCCEEDED(r8_reserved_readback_hr) &&
@@ -2161,8 +2264,12 @@ int main(int argc, char** argv) {
                                                              : std::to_string(placement_alias_first_mismatch).c_str());
     std::printf("    \"reserved_buffer\": {\n");
     print_hr("create", reserved_buffer_hr);
+    print_hr("reuse_heap_create", reuse_heap_hr);
+    print_hr("reuse_buffer_create", reuse_buffer_hr);
     print_hr("tiling", reserved_buffer_tiling_hr);
     print_hr("readback_create", reserved_buffer_readback_hr);
+    print_hr("reuse_readback_create", reserved_buffer_reuse_readback_hr);
+    print_hr("reuse_readback_map", reserved_buffer_reuse_readback_map_hr);
     print_hr("unmapped_readback_create", reserved_buffer_unmapped_readback_hr);
     print_hr("readback_map", reserved_buffer_readback_map_hr);
     print_hr("unmapped_readback_map", reserved_buffer_unmapped_map_hr);
@@ -2173,6 +2280,20 @@ int main(int argc, char** argv) {
                 reserved_buffer_tiling.HeightInTiles, reserved_buffer_tiling.DepthInTiles,
                 reserved_buffer_tiling.StartTileIndexInOverallResource);
     std::printf("      \"copy_verified\": %s,\n", reserved_buffer_copy_ok ? "true" : "false");
+    print_hr("reuse_skip_close", reuse_skip_close_hr);
+    print_hr("reuse_skip_execute", reuse_skip_execute_hr);
+    print_hr("reuse_skip_signal", reuse_skip_signal_hr);
+    print_hr("reuse_skip_wait", reuse_skip_wait_hr);
+    std::printf("      \"reuse_single_tile_skip_verified\": %s,\n",
+                reserved_buffer_reuse_skip_ok ? "true" : "false");
+    std::printf("      \"reuse_first_last\": [%u, %u],\n", reserved_buffer_reuse_first,
+                reserved_buffer_reuse_last);
+    std::printf("      \"reuse_mismatch\": %s,\n",
+                reserved_buffer_reuse_mismatch == UINT64_MAX
+                    ? "null"
+                    : std::to_string(reserved_buffer_reuse_mismatch).c_str());
+    std::printf("      \"reuse_actual_expected\": [%u, %u],\n", reserved_buffer_reuse_actual,
+                reserved_buffer_reuse_expected);
     std::printf("      \"unmapped_zero_verified\": %s,\n", reserved_buffer_unmapped_zero_ok ? "true" : "false");
     print_hr("mapping_copy_heap_create", copy_mapping_heap_hr);
     print_hr("mapping_copy_source_create", mapping_copy_source_hr);
