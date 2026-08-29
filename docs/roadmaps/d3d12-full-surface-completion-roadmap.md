@@ -593,8 +593,9 @@ surface.
 `docs/roadmaps/d3d12-full-surface-phase3-resource-proof.md` now includes
 legal-shape creation/validation, placed-buffer aliasing, multi-plane and NV12
 copy footprints, complete-mip normalization, packed sparse mip-tail reporting,
-array-slice `CopyTileMappings` with a cross-slice two-tile readback, the
-focused relaxed-castable-format readback, tight buffer alignment,
+array-slice `CopyTileMappings` with a cross-slice two-tile readback, six-face
+cube-slice I/O, the focused relaxed-castable-format readback, tight buffer
+alignment,
 `CREATE_NOT_RESIDENT`/enqueued residency, descriptor and
 query heap residency, cross-queue sparse mapping (including all tile-range
 modes), cross-process heap reopening, direct texture/BC/volume I/O, and DXGI

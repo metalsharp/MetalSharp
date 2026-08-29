@@ -61,6 +61,9 @@
 - Direct default-resource subresource I/O is behavior-backed for a 2D array
   with mips (boxed mip write/read) and a 3D volume (two depth slices), with
   exact row and slice pitches and byte readback.
+- A six-face cube resource (the D3D12 six-slice 2D representation) creates
+  successfully and each face independently round-trips distinct bytes through
+  `WriteToSubresource`/`ReadFromSubresource`.
 - NV12 footprints expand luma/chroma into R8/R8G8 planes with half-resolution
   chroma dimensions (`13x8` plus `7x4`, 3072 bytes total); odd NV12 heights
   reject with `E_INVALIDARG`.
@@ -264,7 +267,8 @@ The focused view probe passed the castable case with `observed_bits=0x3f800000`,
 `placed_observed_bits=0x3f800000`, `alias_observed_bits=0x40000000`, and
 `rgba8_uint_values=[0,0,128,63]`. It also returned exact `E_INVALIDARG` for the
 invalid castable list and left the undeclared `R32_SINT` view unusable. The same
-run exercises the corrected composite heap restriction mask.
+run exercises the corrected composite heap restriction mask and reports
+`cube_six_slice_array=true` with `cube_face_io_verified=true`.
 
 ### DXGI residency view
 

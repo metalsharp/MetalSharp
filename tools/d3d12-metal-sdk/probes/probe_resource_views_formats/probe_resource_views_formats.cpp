@@ -321,6 +321,7 @@ static CaseResult run_resource_shapes_case() {
     ID3D12Resource* tex1d = nullptr;
     ID3D12Resource* tex2d_array_mips = nullptr;
     ID3D12Resource* tex3d = nullptr;
+    ID3D12Resource* cube = nullptr;
     ID3D12Resource* msaa = nullptr;
     ID3D12Heap* heap = nullptr;
     ID3D12Resource* placed_buffer = nullptr;
@@ -383,6 +384,8 @@ static CaseResult run_resource_shapes_case() {
     D3D12_RESOURCE_DESC tex2d_array_mips_desc_v =
         texture2d_desc(8, 8, 2, 3, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE);
     D3D12_RESOURCE_DESC tex3d_desc_v = texture3d_desc(4, 4, 4, 2, DXGI_FORMAT_R8G8B8A8_UNORM);
+    D3D12_RESOURCE_DESC cube_desc_v =
+        texture2d_desc(4, 4, 6, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE);
     D3D12_RESOURCE_DESC msaa_desc_v =
         texture2d_desc(4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, 4);
     D3D12_CLEAR_VALUE msaa_clear = {};
@@ -398,6 +401,23 @@ static CaseResult run_resource_shapes_case() {
     HRESULT tex3d_hr =
         device ? create_committed_texture(device, tex3d_desc_v, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, &tex3d)
                : E_FAIL;
+    HRESULT cube_hr =
+        device ? create_committed_texture(device, cube_desc_v, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, &cube)
+               : E_FAIL;
+    bool cube_face_io_ok = false;
+    if (SUCCEEDED(cube_hr) && cube) {
+        uint8_t source[64] = {};
+        uint8_t destination[64] = {};
+        cube_face_io_ok = true;
+        for (UINT face = 0; face < 6 && cube_face_io_ok; ++face) {
+            for (UINT i = 0; i < sizeof(source); ++i)
+                source[i] = static_cast<uint8_t>((face * 41u + i * 13u + 3u) & 0xffu);
+            HRESULT write_hr = cube->WriteToSubresource(face, nullptr, source, 16, sizeof(source));
+            HRESULT read_hr = cube->ReadFromSubresource(destination, 16, sizeof(destination), face, nullptr);
+            cube_face_io_ok = SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
+                              std::memcmp(source, destination, sizeof(source)) == 0;
+        }
+    }
     HRESULT msaa_hr =
         device ? create_committed_texture(device, msaa_desc_v, D3D12_RESOURCE_STATE_RENDER_TARGET, &msaa_clear, &msaa)
                : E_FAIL;
@@ -434,12 +454,15 @@ static CaseResult run_resource_shapes_case() {
     D3D12_RESOURCE_DESC tex1d_roundtrip = tex1d ? tex1d->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC tex2d_roundtrip = tex2d_array_mips ? tex2d_array_mips->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC tex3d_roundtrip = tex3d ? tex3d->GetDesc() : D3D12_RESOURCE_DESC{};
+    D3D12_RESOURCE_DESC cube_roundtrip = cube ? cube->GetDesc() : D3D12_RESOURCE_DESC{};
     D3D12_RESOURCE_DESC msaa_roundtrip = msaa ? msaa->GetDesc() : D3D12_RESOURCE_DESC{};
     bool shapes_ok =
         tex1d_roundtrip.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D && tex1d_roundtrip.Width == 16 &&
         tex2d_roundtrip.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && tex2d_roundtrip.DepthOrArraySize == 2 &&
         tex2d_roundtrip.MipLevels == 3 && tex3d_roundtrip.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
-        tex3d_roundtrip.DepthOrArraySize == 4 && tex3d_roundtrip.MipLevels == 2 && msaa_roundtrip.SampleDesc.Count == 4;
+        tex3d_roundtrip.DepthOrArraySize == 4 && tex3d_roundtrip.MipLevels == 2 &&
+        cube_roundtrip.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        cube_roundtrip.DepthOrArraySize == 6 && msaa_roundtrip.SampleDesc.Count == 4;
     bool map_behavior_ok = SUCCEEDED(upload_map_hr) && SUCCEEDED(readback_map_hr) && FAILED(default_map_hr);
     bool gpu_va_ok = upload && def && placed_buffer && upload->GetGPUVirtualAddress() != 0 &&
                      def->GetGPUVirtualAddress() != 0 && placed_buffer->GetGPUVirtualAddress() != 0 &&
@@ -450,26 +473,30 @@ static CaseResult run_resource_shapes_case() {
 
     result.pass = SUCCEEDED(hr) && SUCCEEDED(upload_hr) && SUCCEEDED(default_hr) && SUCCEEDED(readback_hr) &&
                   buffer_copy_ok && map_behavior_ok && gpu_va_ok && SUCCEEDED(tex1d_hr) &&
-                  SUCCEEDED(tex2d_array_mips_hr) && SUCCEEDED(tex3d_hr) && SUCCEEDED(msaa_hr) && shapes_ok &&
+                  SUCCEEDED(tex2d_array_mips_hr) && SUCCEEDED(tex3d_hr) && SUCCEEDED(cube_hr) &&
+                  cube_face_io_ok && SUCCEEDED(msaa_hr) && shapes_ok &&
                   allocation_ok && SUCCEEDED(heap_hr) && SUCCEEDED(placed_buffer_hr) && SUCCEEDED(placed_texture_hr);
     result.hr = result.pass ? S_OK : hr;
     result.detail =
-        result.pass ? "committed, placed, upload, readback, default, 1D, 2D array/mip, 3D, and MSAA resources verified"
+        result.pass ? "committed, placed, upload, readback, default, 1D, 2D array/mip, cube, 3D, and MSAA resources verified"
                     : "resource shape, heap, map, or copy verification failed";
     char extra[1024] = {};
     std::snprintf(extra, sizeof(extra),
                   "\"upload_create\":\"%s\",\"default_create\":\"%s\",\"readback_create\":\"%s\","
                   "\"upload_map\":\"%s\",\"readback_map\":\"%s\",\"default_map_rejected\":%s,"
                   "\"texture1d_create\":\"%s\",\"texture2d_array_mips_create\":\"%s\","
-                  "\"texture3d_create\":\"%s\",\"msaa4x_create\":\"%s\",\"heap_create\":\"%s\","
+                  "\"texture3d_create\":\"%s\",\"cube_create\":\"%s\",\"cube_six_slice_array\":%s,"
+                  "\"cube_face_io_verified\":%s,\"msaa4x_create\":\"%s\",\"heap_create\":\"%s\","
                   "\"placed_buffer_create\":\"%s\",\"placed_texture_create\":\"%s\","
                   "\"combined_allocation_size\":%llu,\"combined_allocation_alignment\":%llu,"
                   "\"gpu_virtual_addresses_nonzero_unique\":%s,\"buffer_copy_verified\":%s",
                   hr_hex(upload_hr).c_str(), hr_hex(default_hr).c_str(), hr_hex(readback_hr).c_str(),
                   hr_hex(upload_map_hr).c_str(), hr_hex(readback_map_hr).c_str(),
                   FAILED(default_map_hr) ? "true" : "false", hr_hex(tex1d_hr).c_str(),
-                  hr_hex(tex2d_array_mips_hr).c_str(), hr_hex(tex3d_hr).c_str(), hr_hex(msaa_hr).c_str(),
-                  hr_hex(heap_hr).c_str(), hr_hex(placed_buffer_hr).c_str(), hr_hex(placed_texture_hr).c_str(),
+                  hr_hex(tex2d_array_mips_hr).c_str(), hr_hex(tex3d_hr).c_str(), hr_hex(cube_hr).c_str(),
+                  cube_roundtrip.DepthOrArraySize == 6 ? "true" : "false",
+                  cube_face_io_ok ? "true" : "false", hr_hex(msaa_hr).c_str(), hr_hex(heap_hr).c_str(),
+                  hr_hex(placed_buffer_hr).c_str(), hr_hex(placed_texture_hr).c_str(),
                   static_cast<unsigned long long>(combined_alloc.SizeInBytes),
                   static_cast<unsigned long long>(combined_alloc.Alignment), gpu_va_ok ? "true" : "false",
                   buffer_copy_ok ? "true" : "false");
@@ -479,6 +506,7 @@ static CaseResult run_resource_shapes_case() {
     safe_release(placed_buffer);
     safe_release(heap);
     safe_release(msaa);
+    safe_release(cube);
     safe_release(tex3d);
     safe_release(tex2d_array_mips);
     safe_release(tex1d);
