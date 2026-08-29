@@ -200,8 +200,13 @@
 - Zero `MipLevels` is normalized to the complete mip chain: a 32x16 texture
   creates six mips and its six copy footprints report exact dimensions, row
   counts, row sizes, and increasing placement offsets.
-- Stable tight alignment Tier 1 is behavior-backed for buffers: a committed
-  1000-byte buffer reports `[SizeInBytes=1024, Alignment=256]`, a 256-byte
+- Small-resource placement alignment is behavior-backed: an 8x8 RGBA8 texture
+  reports `[SizeInBytes=4096, Alignment=4096]`, and an 8x8 four-sample MSAA
+  texture reports `[SizeInBytes=65536, Alignment=65536]`; a large texture,
+  oversized MSAA texture, or non-MSAA texture requesting MSAA alignment rejects
+  with `E_INVALIDARG`. Stable tight alignment Tier 1 is behavior-backed for
+  buffers: a committed 1000-byte buffer reports
+  `[SizeInBytes=1024, Alignment=256]`, a 256-byte
   placed upload buffer round-trips 1000 exact bytes, non-power-of-two and
   over-aligned placed requests reject, and reserved tight buffers reject.
 - 3D allocation sizing counts volume depth once (a 64x64x4 R8 volume reports
@@ -305,6 +310,11 @@ The isolated source-staged probe passed with:
   "resource_shapes.oversized_3d": "0x80070057",
   "resource_shapes.invalid_reserved_layout": "0x80070057",
   "resource_shapes.invalid_standard_swizzle": "0x80070057",
+  "resource_shapes.invalid_small_texture_alignment": "0x80070057",
+  "resource_shapes.invalid_msaa_small_alignment": "0x80070057",
+  "resource_shapes.invalid_nonmsaa_msaa_alignment": "0x80070057",
+  "resource_shapes.small_texture_allocation": [4096, 4096],
+  "resource_shapes.small_msaa_allocation": [65536, 65536],
   "resource_shapes.invalid_committed_heap_flags": "0x80070057",
   "resource_shapes.invalid_heap_properties": "0x80070057",
   "resource_shapes.invalid_node_mask": "0x80070057",
