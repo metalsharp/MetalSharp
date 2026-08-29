@@ -2301,6 +2301,7 @@ struct ReplayState {
   WMT::Reference<WMT::Buffer> root_constants_mtl_buf;
   uint64_t root_constants_mtl_buf_offset = 0;
   uint64_t root_constants_gpu_address = 0;
+  uint32_t debug_event_depth = 0;
   WMT::Reference<WMT::Buffer> geometry_draw_args_buf;
   WMT::Reference<WMT::Buffer> msc_vertex_arg_buf;
   WMT::Reference<WMT::Buffer> msc_draw_args_buf;
@@ -5615,6 +5616,8 @@ struct ReplayState {
     const bool resolve_after_close =
         vrs_resolve_pending && !vrs_resolve_in_progress;
     if (render_enc_open && render_enc.handle) {
+      while (debug_event_depth)
+        render_enc.popDebugGroup(), --debug_event_depth;
       EndMetalEncoder(render_enc, "render_ensure");
     } else if (render_enc_open) {
       QTRACE("CloseRenderEncoder: open flag set without encoder handle");
@@ -9211,6 +9214,39 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
     st.replay_device = m_device;
 
     QTRACE("ExecuteCommandLists: cmd_size=%zu", cmds.size());
+    auto debug_label_for = [](const CmdDebugEvent *cmd, const CmdHeader *header) {
+      const uint32_t base_size = sizeof(CmdDebugEvent) - 1;
+      const uint32_t payload_size =
+          header->size > base_size ? std::min(cmd->data_size, header->size - base_size) : 0;
+      char text[256] = {};
+      std::snprintf(text, sizeof(text), "D3D12 metadata=%u payload=%u", cmd->metadata,
+                    payload_size);
+      return WMT::String::string(text, WMTUTF8StringEncoding);
+    };
+    auto emit_debug_signpost = [&](WMT::String &label) {
+      if (st.render_enc_open && st.render_enc.handle) {
+        st.render_enc.insertDebugSignpost(label);
+        return;
+      }
+      auto enc = cmdbuf.blitCommandEncoder();
+      if (!enc.handle)
+        return;
+      enc.insertDebugSignpost(label);
+      enc.endEncoding();
+    };
+    auto emit_debug_group = [&](WMT::String &label) {
+      if (st.render_enc_open && st.render_enc.handle) {
+        st.render_enc.pushDebugGroup(label);
+        st.debug_event_depth++;
+        return;
+      }
+      auto enc = cmdbuf.blitCommandEncoder();
+      if (!enc.handle)
+        return;
+      enc.pushDebugGroup(label);
+      enc.popDebugGroup();
+      enc.endEncoding();
+    };
     auto replay_begin = std::chrono::steady_clock::now();
     size_t offset = 0;
     size_t cmd_count = 0;
@@ -11179,6 +11215,31 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                (unsigned)cmd->operation);
         break;
       }
+      case CmdType::SetMarker: {
+        auto *cmd = reinterpret_cast<const CmdDebugEvent *>(header);
+        auto label = debug_label_for(cmd, header);
+        emit_debug_signpost(label);
+        QTRACE("SetMarker metadata=%u payload=%u", cmd->metadata, cmd->data_size);
+        break;
+      }
+      case CmdType::BeginEvent: {
+        auto *cmd = reinterpret_cast<const CmdDebugEvent *>(header);
+        auto label = debug_label_for(cmd, header);
+        emit_debug_group(label);
+        QTRACE("BeginEvent metadata=%u payload=%u", cmd->metadata, cmd->data_size);
+        break;
+      }
+      case CmdType::EndEvent: {
+        if (st.render_enc_open && st.render_enc.handle && st.debug_event_depth) {
+          st.render_enc.popDebugGroup();
+          --st.debug_event_depth;
+        } else {
+          auto label = WMT::String::string("D3D12 end event", WMTUTF8StringEncoding);
+          emit_debug_signpost(label);
+        }
+        QTRACE("EndEvent depth=%u", st.debug_event_depth);
+        break;
+      }
       case CmdType::CopyBufferRegion: {
         auto *cmd = reinterpret_cast<const CmdCopyBufferRegion *>(header);
         if (!st.PredicationAllows()) {
@@ -12909,11 +12970,35 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
   }
 }
 
+static void SubmitQueueDebugAnnotation(WMT::CommandQueue &queue,
+                                       const char *operation, UINT metadata,
+                                       UINT size, bool group) {
+  char text[256] = {};
+  std::snprintf(text, sizeof(text), "D3D12 queue %s metadata=%u payload=%u",
+                operation, metadata, size);
+  auto cmdbuf = queue.commandBuffer();
+  if (!cmdbuf.handle)
+    return;
+  auto encoder = cmdbuf.blitCommandEncoder();
+  if (!encoder.handle)
+    return;
+  auto label = WMT::String::string(text, WMTUTF8StringEncoding);
+  if (group) {
+    encoder.pushDebugGroup(label);
+    encoder.popDebugGroup();
+  } else {
+    encoder.insertDebugSignpost(label);
+  }
+  encoder.endEncoding();
+  cmdbuf.commit();
+}
+
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::SetMarker(UINT metadata,
                                                        const void *data,
                                                        UINT size) {
   QTRACE("CmdQueue::SetMarker this=%p metadata=%u data=%p size=%u",
          (void *)this, metadata, data, size);
+  SubmitQueueDebugAnnotation(m_wmt_queue, "marker", metadata, size, false);
 }
 
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::BeginEvent(UINT metadata,
@@ -12921,10 +13006,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::BeginEvent(UINT metadata,
                                                         UINT size) {
   QTRACE("CmdQueue::BeginEvent this=%p metadata=%u data=%p size=%u",
          (void *)this, metadata, data, size);
+  SubmitQueueDebugAnnotation(m_wmt_queue, "begin", metadata, size, true);
 }
 
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::EndEvent() {
   QTRACE("CmdQueue::EndEvent this=%p", (void *)this);
+  SubmitQueueDebugAnnotation(m_wmt_queue, "end", 0, 0, true);
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Signal(ID3D12Fence *fence,

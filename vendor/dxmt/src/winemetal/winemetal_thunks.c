@@ -909,6 +909,29 @@ MTLCommandEncoder_setLabel(obj_handle_t encoder, obj_handle_t label) {
 }
 
 WINEMETAL_API void
+MTLCommandEncoder_pushDebugGroup(obj_handle_t encoder, obj_handle_t group) {
+  struct unixcall_generic_obj_obj_noret params;
+  params.handle = encoder;
+  params.arg = group;
+  UNIX_CALL(174, &params);
+}
+
+WINEMETAL_API void
+MTLCommandEncoder_popDebugGroup(obj_handle_t encoder) {
+  struct unixcall_generic_obj_noret params;
+  params.handle = encoder;
+  UNIX_CALL(175, &params);
+}
+
+WINEMETAL_API void
+MTLCommandEncoder_insertDebugSignpost(obj_handle_t encoder, obj_handle_t signpost) {
+  struct unixcall_generic_obj_obj_noret params;
+  params.handle = encoder;
+  params.arg = signpost;
+  UNIX_CALL(176, &params);
+}
+
+WINEMETAL_API void
 MTLDevice_setShouldMaximizeConcurrentCompilation(obj_handle_t device, bool value) {
   struct unixcall_generic_obj_uint64_noret params;
   params.handle = device;

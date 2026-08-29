@@ -2156,6 +2156,9 @@ WINEMETAL_API obj_handle_t CreateMetalViewFromHWND(intptr_t hwnd, obj_handle_t d
 WINEMETAL_API void ReleaseMetalView(obj_handle_t view);
 
 WINEMETAL_API void MTLCommandEncoder_setLabel(obj_handle_t encoder, obj_handle_t label);
+WINEMETAL_API void MTLCommandEncoder_pushDebugGroup(obj_handle_t encoder, obj_handle_t group);
+WINEMETAL_API void MTLCommandEncoder_popDebugGroup(obj_handle_t encoder);
+WINEMETAL_API void MTLCommandEncoder_insertDebugSignpost(obj_handle_t encoder, obj_handle_t signpost);
 
 WINEMETAL_API void MTLDevice_setShouldMaximizeConcurrentCompilation(obj_handle_t device, bool value);
 
