@@ -902,6 +902,8 @@ MTLD3D12Resource::MTLD3D12Resource(
 void MTLD3D12Resource::InitializeResource(
     WMT::Reference<WMT::Buffer> backing_buffer, void *backing_cpu_addr,
     uint64_t backing_gpu_addr, uint64_t backing_offset) {
+  m_dxgi_resource =
+      std::make_unique<MTLDXGIResource<MTLD3D12Resource>>(this);
   const uint64_t stencil_shadow_size = StencilShadowSize(m_desc);
   if (stencil_shadow_size)
     m_stencil_shadow.resize(static_cast<size_t>(stencil_shadow_size));
@@ -1341,8 +1343,82 @@ MTLD3D12Resource::QueryInterface(REFIID riid, void **ppvObject) {
     *ppvObject = ref(this);
     return S_OK;
   }
+  if (riid == __uuidof(IDXGIObject) ||
+      riid == __uuidof(IDXGIDeviceSubObject) ||
+      riid == __uuidof(IDXGIResource) ||
+      riid == __uuidof(IDXGIResource1)) {
+    *ppvObject = ref(m_dxgi_resource.get());
+    return S_OK;
+  }
   RTRACE("QI unknown IID %s -> E_NOINTERFACE", str::format(riid).c_str());
   return E_NOINTERFACE;
+}
+
+HRESULT MTLD3D12Resource::GetSharedHandle(HANDLE *handle) {
+  if (!handle)
+    return E_POINTER;
+  *handle = nullptr;
+  if (!m_device)
+    return DXGI_ERROR_INVALID_CALL;
+  return m_device->CreateSharedHandle(
+      static_cast<ID3D12DeviceChild *>(this), nullptr, GENERIC_ALL, nullptr,
+      handle);
+}
+
+HRESULT MTLD3D12Resource::CreateSharedHandle(
+    const SECURITY_ATTRIBUTES *attributes, DWORD access, const WCHAR *name,
+    HANDLE *handle) {
+  if (!m_device)
+    return DXGI_ERROR_INVALID_CALL;
+  return m_device->CreateSharedHandle(
+      static_cast<ID3D12DeviceChild *>(this), attributes, access, name, handle);
+}
+
+HRESULT MTLD3D12Resource::GetDXGIUsage(DXGI_USAGE *usage) {
+  if (!usage)
+    return E_INVALIDARG;
+  *usage = 0;
+  return S_OK;
+}
+
+void MTLD3D12Resource::SetEvictionPriority(UINT priority) {
+  switch (priority) {
+  case DXGI_RESOURCE_PRIORITY_MINIMUM:
+    m_residency.setPriority(D3D12_RESIDENCY_PRIORITY_MINIMUM);
+    break;
+  case DXGI_RESOURCE_PRIORITY_LOW:
+    m_residency.setPriority(D3D12_RESIDENCY_PRIORITY_LOW);
+    break;
+  case DXGI_RESOURCE_PRIORITY_NORMAL:
+    m_residency.setPriority(D3D12_RESIDENCY_PRIORITY_NORMAL);
+    break;
+  case DXGI_RESOURCE_PRIORITY_HIGH:
+    m_residency.setPriority(D3D12_RESIDENCY_PRIORITY_HIGH);
+    break;
+  case DXGI_RESOURCE_PRIORITY_MAXIMUM:
+    m_residency.setPriority(D3D12_RESIDENCY_PRIORITY_MAXIMUM);
+    break;
+  default:
+    RTRACE("SetEvictionPriority ignored invalid priority=0x%x", priority);
+    break;
+  }
+}
+
+UINT MTLD3D12Resource::GetEvictionPriority() const {
+  switch (m_residency.priority()) {
+  case D3D12_RESIDENCY_PRIORITY_MINIMUM:
+    return DXGI_RESOURCE_PRIORITY_MINIMUM;
+  case D3D12_RESIDENCY_PRIORITY_LOW:
+    return DXGI_RESOURCE_PRIORITY_LOW;
+  case D3D12_RESIDENCY_PRIORITY_NORMAL:
+    return DXGI_RESOURCE_PRIORITY_NORMAL;
+  case D3D12_RESIDENCY_PRIORITY_HIGH:
+    return DXGI_RESOURCE_PRIORITY_HIGH;
+  case D3D12_RESIDENCY_PRIORITY_MAXIMUM:
+    return DXGI_RESOURCE_PRIORITY_MAXIMUM;
+  default:
+    return DXGI_RESOURCE_PRIORITY_NORMAL;
+  }
 }
 
 ULONG STDMETHODCALLTYPE MTLD3D12Resource::AddRef() { return ++m_refCount; }

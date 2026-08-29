@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <d3d12.h>
+#include <dxgi1_3.h>
 #include <dxgiformat.h>
 
 struct FormatProbe {
@@ -371,6 +372,8 @@ int main(int argc, char** argv) {
     D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
     D3D12_RESOURCE_DESC buffer = buffer_desc(buffer_bytes);
     ID3D12Resource* upload_buffer = nullptr;
+    IDXGIDevice3* dxgi_device = nullptr;
+    IDXGIResource* offered_dxgi_resource = nullptr;
     ID3D12Resource* default_buffer = nullptr;
     ID3D12Resource* readback_buffer = nullptr;
     ID3D12Resource* shared_open_buffer = nullptr;
@@ -488,6 +491,18 @@ int main(int argc, char** argv) {
     HRESULT residency_evicted_map_hr = E_FAIL;
     HRESULT residency_remake_hr = E_FAIL;
     HRESULT residency_remade_map_hr = E_FAIL;
+    HRESULT dxgi_device_qi_hr = E_FAIL;
+    HRESULT offered_dxgi_resource_qi_hr = E_FAIL;
+    HRESULT offered_resource_priority_set_hr = E_FAIL;
+    HRESULT offered_resource_priority_get_hr = E_FAIL;
+    UINT offered_resource_priority = 0;
+    HRESULT offer_resources_hr = E_FAIL;
+    HRESULT trim_residency_hr = E_FAIL;
+    HRESULT query_trim_residency_hr = E_FAIL;
+    HRESULT reclaim_resources_hr = E_FAIL;
+    HRESULT query_reclaim_residency_hr = E_FAIL;
+    WINBOOL offered_resource_discarded = FALSE;
+    bool dxgi_offer_reclaim_ok = false;
     bool residency_state_ok = false;
     HRESULT address_heap_hr = E_FAIL;
     HRESULT address_resource_hr = E_FAIL;
@@ -1316,6 +1331,44 @@ int main(int argc, char** argv) {
                              residency_evicted_map_hr == DXGI_ERROR_INVALID_CALL &&
                              SUCCEEDED(residency_remake_hr) &&
                              SUCCEEDED(residency_remade_map_hr) && remade_map;
+        dxgi_device_qi_hr = device->QueryInterface(IID_PPV_ARGS(&dxgi_device));
+        offered_dxgi_resource_qi_hr =
+            upload_buffer ? upload_buffer->QueryInterface(
+                                IID_PPV_ARGS(&offered_dxgi_resource))
+                          : E_FAIL;
+        if (dxgi_device && offered_dxgi_resource) {
+            IDXGIResource *offered[] = {offered_dxgi_resource};
+            offered_resource_priority_set_hr =
+                offered_dxgi_resource->SetEvictionPriority(
+                    DXGI_RESOURCE_PRIORITY_HIGH);
+            offered_resource_priority_get_hr =
+                offered_dxgi_resource->GetEvictionPriority(
+                    &offered_resource_priority);
+            offer_resources_hr = dxgi_device->OfferResources(
+                1, offered, DXGI_OFFER_RESOURCE_PRIORITY_LOW);
+            dxgi_device->Trim();
+            trim_residency_hr = S_OK;
+            IUnknown *offered_unknown = offered_dxgi_resource;
+            DXGI_RESIDENCY trim_residency = DXGI_RESIDENCY_FULLY_RESIDENT;
+            query_trim_residency_hr = dxgi_device->QueryResourceResidency(
+                &offered_unknown, &trim_residency, 1);
+            reclaim_resources_hr = dxgi_device->ReclaimResources(
+                1, offered, &offered_resource_discarded);
+            DXGI_RESIDENCY reclaim_residency = DXGI_RESIDENCY_EVICTED_TO_DISK;
+            query_reclaim_residency_hr = dxgi_device->QueryResourceResidency(
+                &offered_unknown, &reclaim_residency, 1);
+            dxgi_offer_reclaim_ok =
+                SUCCEEDED(offered_resource_priority_set_hr) &&
+                SUCCEEDED(offered_resource_priority_get_hr) &&
+                offered_resource_priority == DXGI_RESOURCE_PRIORITY_HIGH &&
+                SUCCEEDED(offer_resources_hr) && trim_residency_hr == S_OK &&
+                SUCCEEDED(query_trim_residency_hr) &&
+                trim_residency == DXGI_RESIDENCY_EVICTED_TO_DISK &&
+                SUCCEEDED(reclaim_resources_hr) &&
+                offered_resource_discarded == TRUE &&
+                SUCCEEDED(query_reclaim_residency_hr) &&
+                reclaim_residency == DXGI_RESIDENCY_FULLY_RESIDENT;
+        }
     }
 
     if (device && default_buffer) {
@@ -3714,8 +3767,9 @@ int main(int argc, char** argv) {
         SUCCEEDED(residency_query_heap_evict_hr) &&
         SUCCEEDED(residency_query_heap_make_hr) &&
         SUCCEEDED(residency_pageable_priority_hr) &&
-        default_cpu_io_ok && residency_state_ok && heap_residency_ok && address_heap_open_ok &&
-        heap_aliasing_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok &&
+        default_cpu_io_ok && residency_state_ok && dxgi_offer_reclaim_ok &&
+        heap_residency_ok && address_heap_open_ok && heap_aliasing_ok &&
+        atomic_copy_ok && atomic64_copy_ok && discard_ok &&
         resource_shapes_ok && resource_validation_ok &&
         SUCCEEDED(placed_1d_array_heap_hr) &&
         SUCCEEDED(placed_1d_array_resource_hr) &&
@@ -3791,6 +3845,21 @@ int main(int argc, char** argv) {
     print_hr("residency_remake", residency_remake_hr);
     print_hr("residency_remade_map", residency_remade_map_hr);
     std::printf("    \"residency_state_verified\": %s,\n", residency_state_ok ? "true" : "false");
+    print_hr("dxgi_device_query", dxgi_device_qi_hr);
+    print_hr("offered_dxgi_resource_query", offered_dxgi_resource_qi_hr);
+    print_hr("offered_resource_priority_set", offered_resource_priority_set_hr);
+    print_hr("offered_resource_priority_get", offered_resource_priority_get_hr);
+    std::printf("    \"offered_resource_priority\": %u,\n",
+                offered_resource_priority);
+    print_hr("offer_resources", offer_resources_hr);
+    print_hr("trim_residency", trim_residency_hr);
+    print_hr("query_trim_residency", query_trim_residency_hr);
+    print_hr("reclaim_resources", reclaim_resources_hr);
+    print_hr("query_reclaim_residency", query_reclaim_residency_hr);
+    std::printf("    \"offered_resource_discarded\": %s,\n",
+                offered_resource_discarded ? "true" : "false");
+    std::printf("    \"dxgi_offer_reclaim_verified\": %s,\n",
+                dxgi_offer_reclaim_ok ? "true" : "false");
     print_hr("address_heap_create", address_heap_hr);
     print_hr("address_resource_create", address_resource_hr);
     print_hr("address_alias_resource_create", address_alias_resource_hr);
