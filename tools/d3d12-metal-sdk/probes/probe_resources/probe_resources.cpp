@@ -1810,6 +1810,8 @@ int main(int argc, char** argv) {
     ID3D12Resource* direct_io_nv12_readback = nullptr;
     ID3D12Resource* direct_io_nv12_copy_destination = nullptr;
     ID3D12Resource* unsupported_texture = nullptr;
+    UINT64 unsupported_format_allocation_size = UINT64_MAX;
+    UINT64 unsupported_format_allocation_alignment = UINT64_MAX;
     ID3D12Heap* sparse_heap = nullptr;
     ID3D12Heap* reuse_heap = nullptr;
     ID3D12Heap* array_alias_heap = nullptr;
@@ -2372,6 +2374,13 @@ int main(int argc, char** argv) {
                                               D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&unsupported_texture))
             : E_FAIL;
     const bool unsupported_texture_rejected = unsupported_texture_hr == E_INVALIDARG && unsupported_texture == nullptr;
+    D3D12_RESOURCE_ALLOCATION_INFO unsupported_format_allocation =
+        device->GetResourceAllocationInfo(0, 1,
+                                          &unsupported_texture_desc);
+    unsupported_format_allocation_size =
+        unsupported_format_allocation.SizeInBytes;
+    unsupported_format_allocation_alignment =
+        unsupported_format_allocation.Alignment;
     uint8_t* texture_upload_ptr = nullptr;
     HRESULT texture_map_hr =
         texture_upload ? texture_upload->Map(0, nullptr, reinterpret_cast<void**>(&texture_upload_ptr)) : E_FAIL;
@@ -4137,7 +4146,10 @@ int main(int argc, char** argv) {
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
-        format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
+        format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected &&
+        unsupported_format_allocation_size == 0 &&
+        unsupported_format_allocation_alignment == 0 &&
+        cross_process_shared_ok &&
         shared_heap_roundtrip_ok && unnamed_shared_heap_roundtrip_ok &&
         SUCCEEDED(shared_default_heap_create_hr) &&
         shared_default_heap_handle_hr == E_NOTIMPL &&
@@ -4503,6 +4515,9 @@ int main(int argc, char** argv) {
     std::printf("    \"upload_bytes\": %llu,\n", static_cast<unsigned long long>(texture_upload_bytes));
     print_hr("unsupported_r1_texture_create", unsupported_texture_hr);
     std::printf("    \"unsupported_r1_texture_rejected\": %s,\n", unsupported_texture_rejected ? "true" : "false");
+    std::printf("    \"unsupported_r1_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(unsupported_format_allocation_size),
+                static_cast<unsigned long long>(unsupported_format_allocation_alignment));
     std::printf("    \"unaligned_bc1_create_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(static_cast<uint32_t>(bc_texture_hr)));
     std::printf("    \"unaligned_bc1_upload_hr\": \"0x%08lx\",\n",
