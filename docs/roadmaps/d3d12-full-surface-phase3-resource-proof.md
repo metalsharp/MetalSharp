@@ -70,6 +70,10 @@
 - `ID3D12Device::GetAdapterLuid` returns a stable nonzero adapter identity in
   the same source-staged run as the resource/share tests; the existing DXGI
   factory lane cross-checks that identity against adapter enumeration.
+- `OpenSharedHandle` reconstructs named mapping-backed resources as
+  independent COM objects (rather than returning a process-global registry
+  pointer); descriptor identity and shared bytes remain valid across the
+  original and both opened objects.
 - Shared-handle creation and named opening reject zero access masks with
   exact `E_INVALIDARG`; valid named buffer, heap, and fence mappings retain
   their cross-process behavior.
@@ -131,6 +135,7 @@ The isolated source-staged probe passed with:
   "buffers.default_cpu_io_verified": true,
   "buffers.residency_state_verified": true,
   "shared_handles.roundtrip_verified": true,
+  "shared_handles.independent_objects_verified": true,
   "shared_handles.cross_process_verified": true,
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,

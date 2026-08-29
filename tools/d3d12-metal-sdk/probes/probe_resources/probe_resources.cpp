@@ -430,6 +430,7 @@ int main(int argc, char** argv) {
     HRESULT shared_missing_name_hr = E_FAIL;
     HRESULT shared_invalid_create_access_hr = E_FAIL;
     HRESULT shared_invalid_open_access_hr = E_FAIL;
+    bool shared_independent_object_ok = false;
     D3D12_RESOURCE_DESC default_buffer_desc = {};
     D3D12_GPU_VIRTUAL_ADDRESS upload_gpu_va = 0;
     D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
@@ -1220,6 +1221,11 @@ int main(int argc, char** argv) {
         if (SUCCEEDED(shared_open_named_hr))
             shared_open_named_hr =
                 device->OpenSharedHandle(shared_named_handle, IID_PPV_ARGS(&shared_named_open_buffer));
+        shared_independent_object_ok =
+            shared_open_buffer && shared_named_open_buffer &&
+            shared_open_buffer != default_buffer &&
+            shared_named_open_buffer != default_buffer &&
+            shared_open_buffer != shared_named_open_buffer;
         void* shared_parent_data = nullptr;
         if (SUCCEEDED(shared_create_hr) && SUCCEEDED(default_buffer->Map(0, nullptr, &shared_parent_data)) &&
             shared_parent_data) {
@@ -2674,11 +2680,19 @@ int main(int argc, char** argv) {
     }
 
     const bool default_cpu_io_ok = default_cpu_io_verified;
+    D3D12_RESOURCE_DESC shared_open_desc = {};
+    D3D12_RESOURCE_DESC shared_named_open_desc = {};
+    if (shared_open_buffer)
+        shared_open_buffer->GetDesc(&shared_open_desc);
+    if (shared_named_open_buffer)
+        shared_named_open_buffer->GetDesc(&shared_named_open_desc);
     const bool shared_handle_roundtrip =
         SUCCEEDED(shared_create_hr) && SUCCEEDED(shared_open_hr) && SUCCEEDED(shared_open_named_hr) && shared_handle &&
         shared_named_handle && shared_open_buffer && shared_named_open_buffer &&
-        shared_open_buffer->GetGPUVirtualAddress() == default_gpu_va &&
-        shared_named_open_buffer->GetGPUVirtualAddress() == default_gpu_va &&
+        shared_open_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+        shared_open_desc.Width == buffer_bytes &&
+        shared_named_open_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+        shared_named_open_desc.Width == buffer_bytes && shared_independent_object_ok &&
         shared_unknown_hr == DXGI_ERROR_INVALID_CALL && shared_missing_name_hr == DXGI_ERROR_NOT_FOUND &&
         shared_invalid_create_access_hr == E_INVALIDARG &&
         shared_invalid_open_access_hr == E_INVALIDARG;
@@ -2999,6 +3013,7 @@ int main(int argc, char** argv) {
     print_hr("create", shared_create_hr);
     print_hr("open", shared_open_hr);
     print_hr("open_by_name", shared_open_named_hr);
+    std::printf("    \"independent_objects_verified\": %s,\n", shared_independent_object_ok ? "true" : "false");
     print_hr("unknown_handle", shared_unknown_hr);
     print_hr("missing_name", shared_missing_name_hr);
     print_hr("invalid_create_access", shared_invalid_create_access_hr);

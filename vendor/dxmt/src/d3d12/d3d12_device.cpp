@@ -5579,38 +5579,41 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenSharedHandle(HANDLE handle,
   *object = nullptr;
   if (!handle)
     return E_INVALIDARG;
+
+  // Named resource/heap/fence handles carry self-describing, pointer-free
+  // metadata. Reconstruct from the mapping first even in the creating
+  // process, so OpenSharedHandle has normal independent-object lifetime
+  // rather than returning a stale registry-owned pointer.
+  ID3D12Resource *shared_resource = nullptr;
+  HRESULT shared_resource_hr =
+      OpenSharedBufferFromMapping(this, handle, &shared_resource);
+  if (SUCCEEDED(shared_resource_hr) && shared_resource) {
+    HRESULT hr = shared_resource->QueryInterface(riid, object);
+    shared_resource->Release();
+    return hr;
+  }
+  ID3D12Heap *shared_heap = nullptr;
+  HRESULT shared_heap_hr = OpenSharedHeapFromMapping(this, handle, &shared_heap);
+  if (SUCCEEDED(shared_heap_hr) && shared_heap) {
+    HRESULT hr = shared_heap->QueryInterface(riid, object);
+    shared_heap->Release();
+    return hr;
+  }
+  ID3D12Fence *shared_fence = nullptr;
+  HRESULT shared_fence_hr =
+      OpenSharedFenceFromMapping(this, handle, &shared_fence);
+  if (SUCCEEDED(shared_fence_hr) && shared_fence) {
+    HRESULT hr = shared_fence->QueryInterface(riid, object);
+    shared_fence->Release();
+    return hr;
+  }
+
+  // Unsupported object kinds retain the legacy in-process registry until a
+  // platform-backed provider exists; do not pretend a closed mapping is one.
   std::lock_guard lock(g_shared_handle_mutex);
   auto entry = g_shared_handles.find(handle);
-  if (entry == g_shared_handles.end() || !entry->second.object) {
-    // A named mapping may have been inherited or duplicated from another
-    // process without a local registry entry. Reconstruct its buffer from the
-    // pointer-free metadata before reporting an invalid handle.
-    ID3D12Resource *shared_resource = nullptr;
-    HRESULT cross_process_hr =
-        OpenSharedBufferFromMapping(this, handle, &shared_resource);
-    if (SUCCEEDED(cross_process_hr) && shared_resource) {
-      HRESULT hr = shared_resource->QueryInterface(riid, object);
-      shared_resource->Release();
-      return hr;
-    }
-    ID3D12Heap *shared_heap = nullptr;
-    HRESULT shared_heap_hr =
-        OpenSharedHeapFromMapping(this, handle, &shared_heap);
-    if (SUCCEEDED(shared_heap_hr) && shared_heap) {
-      HRESULT hr = shared_heap->QueryInterface(riid, object);
-      shared_heap->Release();
-      return hr;
-    }
-    ID3D12Fence *shared_fence = nullptr;
-    HRESULT shared_fence_hr =
-        OpenSharedFenceFromMapping(this, handle, &shared_fence);
-    if (SUCCEEDED(shared_fence_hr) && shared_fence) {
-      HRESULT hr = shared_fence->QueryInterface(riid, object);
-      shared_fence->Release();
-      return hr;
-    }
+  if (entry == g_shared_handles.end() || !entry->second.object)
     return DXGI_ERROR_INVALID_CALL;
-  }
   HRESULT hr = entry->second.object->QueryInterface(riid, object);
   TRACE("OpenSharedHandle handle=%p riid=%s out=%p hr=0x%lx", handle,
         str::format(riid).c_str(), *object, hr);
