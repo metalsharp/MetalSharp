@@ -33,6 +33,9 @@
 - Resource flag validation rejects render-target resources with a buffer
   dimension and rejects mutually exclusive render-target/depth-stencil flags,
   both with exact `E_INVALIDARG` and no returned object.
+- Direct default-resource subresource I/O is behavior-backed for a 2D array
+  with mips (boxed mip write/read) and a 3D volume (two depth slices), with
+  exact row and slice pitches and byte readback.
 - NV12 footprints expand luma/chroma into R8/R8G8 planes with half-resolution
   chroma dimensions (`13x8` plus `7x4`, 3072 bytes total); odd NV12 heights
   reject with `E_INVALIDARG`.
@@ -149,6 +152,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.misaligned_placement": "0x80070057",
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",
+  "textures.direct_io_texture_verified": true,
+  "textures.direct_io_volume_verified": true,
   "textures.unaligned_bc1_copy_verified": true,
   "formats.D24_UNORM_S8_UINT.plane_count": 2,
   "sparse.unmapped_zero_verified": true,
