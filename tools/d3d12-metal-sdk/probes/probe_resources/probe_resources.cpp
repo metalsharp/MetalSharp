@@ -33,6 +33,11 @@ struct TightAlignmentFeatureProbe {
     UINT SupportTier = 0;
 };
 
+struct GPUUploadFeatureProbe {
+    BOOL DynamicDepthBiasSupported = FALSE;
+    BOOL GPUUploadHeapSupported = FALSE;
+};
+
 struct SparseFormatProbe {
     const char* name;
     DXGI_FORMAT format;
@@ -461,13 +466,18 @@ int main(int argc, char** argv) {
     HRESULT placed_2d_write_hr = E_FAIL;
     HRESULT placed_2d_read_hr = E_FAIL;
     bool placed_2d_io_ok = false;
+    HRESULT gpu_upload_feature_hr = E_FAIL;
+    bool gpu_upload_feature_ok = false;
     HRESULT gpu_upload_resource_hr = E_FAIL;
+    HRESULT gpu_upload_invalid_shared_hr = E_FAIL;
     HRESULT gpu_upload_texture_hr = E_FAIL;
     HRESULT gpu_upload_heap_hr = E_FAIL;
     HRESULT gpu_upload_placed_hr = E_FAIL;
     HRESULT gpu_upload_texture_heap_hr = E_FAIL;
     HRESULT gpu_upload_texture_placed_hr = E_FAIL;
+    HRESULT gpu_upload_heap_invalid_shared_hr = E_FAIL;
     bool gpu_upload_io_ok = false;
+    bool gpu_upload_custom_properties_ok = false;
     bool gpu_upload_texture_io_ok = false;
     bool gpu_upload_placed_io_ok = false;
     bool gpu_upload_texture_placed_io_ok = false;
@@ -769,10 +779,23 @@ int main(int argc, char** argv) {
                 std::memcmp(placed_2d_source, placed_2d_destination,
                             sizeof(placed_2d_source)) == 0;
         }
+        GPUUploadFeatureProbe gpu_upload_feature = {};
+        gpu_upload_feature_hr = device->CheckFeatureSupport(
+            static_cast<D3D12_FEATURE>(45), &gpu_upload_feature,
+            sizeof(gpu_upload_feature));
+        gpu_upload_feature_ok = SUCCEEDED(gpu_upload_feature_hr) &&
+                                gpu_upload_feature.GPUUploadHeapSupported;
         const D3D12_HEAP_TYPE gpu_upload_type =
             static_cast<D3D12_HEAP_TYPE>(5);
         const D3D12_HEAP_PROPERTIES gpu_upload_properties =
             heap_props(gpu_upload_type);
+        const D3D12_HEAP_PROPERTIES custom_gpu_upload_properties =
+            device->GetCustomHeapProperties(0, gpu_upload_type);
+        gpu_upload_custom_properties_ok =
+            custom_gpu_upload_properties.CPUPageProperty ==
+                D3D12_CPU_PAGE_PROPERTY_WRITE_BACK &&
+            custom_gpu_upload_properties.MemoryPoolPreference ==
+                D3D12_MEMORY_POOL_L0;
         D3D12_RESOURCE_DESC gpu_upload_desc = buffer_desc(1024);
         gpu_upload_resource_hr = device->CreateCommittedResource(
             &gpu_upload_properties, D3D12_HEAP_FLAG_NONE, &gpu_upload_desc,
@@ -796,6 +819,13 @@ int main(int argc, char** argv) {
                     std::memcmp(source, readback, sizeof(readback)) == 0;
             }
         }
+        ID3D12Resource *invalid_gpu_upload_resource = nullptr;
+        gpu_upload_invalid_shared_hr = device->CreateCommittedResource(
+            &gpu_upload_properties, D3D12_HEAP_FLAG_SHARED,
+            &gpu_upload_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&invalid_gpu_upload_resource));
+        if (invalid_gpu_upload_resource)
+            invalid_gpu_upload_resource->Release();
         D3D12_RESOURCE_DESC gpu_upload_texture_desc =
             texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
         gpu_upload_texture_hr = device->CreateCommittedResource(
@@ -853,6 +883,14 @@ int main(int argc, char** argv) {
         gpu_upload_heap_desc.SizeInBytes = 64 * 1024;
         gpu_upload_heap_desc.Properties = gpu_upload_properties;
         gpu_upload_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+        D3D12_HEAP_DESC invalid_gpu_upload_heap_desc = gpu_upload_heap_desc;
+        invalid_gpu_upload_heap_desc.Flags = D3D12_HEAP_FLAG_SHARED;
+        gpu_upload_heap_invalid_shared_hr = device->CreateHeap(
+            &invalid_gpu_upload_heap_desc,
+            IID_PPV_ARGS(&gpu_upload_heap));
+        if (gpu_upload_heap)
+            gpu_upload_heap->Release();
+        gpu_upload_heap = nullptr;
         gpu_upload_heap_hr = device->CreateHeap(
             &gpu_upload_heap_desc, IID_PPV_ARGS(&gpu_upload_heap));
         gpu_upload_placed_hr =
@@ -4278,13 +4316,17 @@ int main(int argc, char** argv) {
         placed_1d_array_io_ok && SUCCEEDED(placed_2d_heap_hr) &&
         SUCCEEDED(placed_2d_resource_hr) && SUCCEEDED(placed_2d_write_hr) &&
         SUCCEEDED(placed_2d_read_hr) && placed_2d_io_ok &&
+        SUCCEEDED(gpu_upload_feature_hr) && gpu_upload_feature_ok &&
+        gpu_upload_custom_properties_ok &&
         SUCCEEDED(gpu_upload_resource_hr) && gpu_upload_io_ok &&
+        gpu_upload_invalid_shared_hr == E_INVALIDARG &&
         SUCCEEDED(gpu_upload_texture_hr) && gpu_upload_texture_io_ok &&
         SUCCEEDED(gpu_upload_texture_heap_hr) &&
         SUCCEEDED(gpu_upload_texture_placed_hr) &&
         gpu_upload_texture_placed_io_ok &&
-        SUCCEEDED(gpu_upload_heap_hr) && SUCCEEDED(gpu_upload_placed_hr) &&
-        gpu_upload_placed_io_ok &&
+        SUCCEEDED(gpu_upload_heap_hr) &&
+        gpu_upload_heap_invalid_shared_hr == E_INVALIDARG &&
+        SUCCEEDED(gpu_upload_placed_hr) && gpu_upload_placed_io_ok &&
         sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
@@ -4406,7 +4448,13 @@ int main(int argc, char** argv) {
     print_hr("placed_2d_read", placed_2d_read_hr);
     std::printf("    \"placed_2d_io_verified\": %s,\n",
                 placed_2d_io_ok ? "true" : "false");
+    print_hr("gpu_upload_feature", gpu_upload_feature_hr);
+    std::printf("    \"gpu_upload_feature_verified\": %s,\n",
+                gpu_upload_feature_ok ? "true" : "false");
+    std::printf("    \"gpu_upload_custom_properties_verified\": %s,\n",
+                gpu_upload_custom_properties_ok ? "true" : "false");
     print_hr("gpu_upload_resource_create", gpu_upload_resource_hr);
+    print_hr("gpu_upload_invalid_shared", gpu_upload_invalid_shared_hr);
     print_hr("gpu_upload_texture_create", gpu_upload_texture_hr);
     std::printf("    \"gpu_upload_texture_io_verified\": %s,\n",
                 gpu_upload_texture_io_ok ? "true" : "false");
@@ -4415,6 +4463,7 @@ int main(int argc, char** argv) {
     std::printf("    \"gpu_upload_texture_placed_io_verified\": %s,\n",
                 gpu_upload_texture_placed_io_ok ? "true" : "false");
     print_hr("gpu_upload_heap_create", gpu_upload_heap_hr);
+    print_hr("gpu_upload_heap_invalid_shared", gpu_upload_heap_invalid_shared_hr);
     print_hr("gpu_upload_placed_create", gpu_upload_placed_hr);
     std::printf("    \"gpu_upload_resource_io_verified\": %s,\n",
                 gpu_upload_io_ok ? "true" : "false");

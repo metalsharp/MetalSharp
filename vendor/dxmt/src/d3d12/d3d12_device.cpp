@@ -638,9 +638,21 @@ static bool IsValidHeapProperties(
       (visible_mask & creation_mask) != creation_mask)
     return false;
   const bool custom = type == static_cast<UINT>(D3D12_HEAP_TYPE_CUSTOM);
+  const bool gpu_upload = type == 5;
   if (custom)
     return properties.CPUPageProperty != D3D12_CPU_PAGE_PROPERTY_UNKNOWN &&
            properties.MemoryPoolPreference != D3D12_MEMORY_POOL_UNKNOWN;
+  if (gpu_upload) {
+    const bool default_properties =
+        properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_UNKNOWN &&
+        properties.MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN;
+    const bool custom_equivalent =
+        (properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE ||
+         properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK) &&
+        (properties.MemoryPoolPreference == D3D12_MEMORY_POOL_L0 ||
+         properties.MemoryPoolPreference == D3D12_MEMORY_POOL_L1);
+    return default_properties || custom_equivalent;
+  }
   return properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_UNKNOWN &&
          properties.MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN;
 }
@@ -4409,7 +4421,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     o->DynamicDepthBiasSupported = FALSE;
-    o->GPUUploadHeapSupported = FALSE;
+    o->GPUUploadHeapSupported = TRUE;
     TRACE("  OPTIONS16: DynamicDepthBias=%d GPUUploadHeap=%d",
           o->DynamicDepthBiasSupported, o->GPUUploadHeapSupported);
     return S_OK;
@@ -5215,8 +5227,16 @@ MTLD3D12Device::GetCustomHeapProperties(D3D12_HEAP_PROPERTIES *__ret,
   if (!__ret)
     return nullptr;
   __ret->Type = heap_type;
-  __ret->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-  __ret->MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+  if (static_cast<UINT>(heap_type) == 5) {
+    // The proof host is cache-coherent UMA, so GPU-upload is equivalent to a
+    // write-back L0 custom heap while direct Type=GPU_UPLOAD properties keep
+    // the required UNKNOWN/UNKNOWN form.
+    __ret->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    __ret->MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+  } else {
+    __ret->CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+    __ret->MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+  }
   __ret->CreationNodeMask = 1;
   __ret->VisibleNodeMask = 1;
   return __ret;
@@ -5237,6 +5257,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
     return E_POINTER;
   InitReturnPtr(resource);
   if (!heap_properties || !IsValidHeapProperties(*heap_properties))
+    return E_INVALIDARG;
+  if (static_cast<UINT>(heap_properties->Type) == 5 &&
+      (heap_flags & (D3D12_HEAP_FLAG_SHARED |
+                     D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER |
+                     D3D12_HEAP_FLAG_ALLOW_DISPLAY)))
     return E_INVALIDARG;
   D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
   if (!IsValidResourceDesc(normalized_desc) ||
@@ -5288,7 +5313,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateHeap(
        desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT) ||
       ((desc->Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) ==
            D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS &&
-       (desc->Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)))
+       (desc->Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)) ||
+      (static_cast<UINT>(desc->Properties.Type) == 5 &&
+       (desc->Flags & (D3D12_HEAP_FLAG_SHARED |
+                       D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER |
+                       D3D12_HEAP_FLAG_ALLOW_DISPLAY))))
     return E_INVALIDARG;
 
   D3D12_HEAP_DESC normalized = *desc;
@@ -5341,6 +5370,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
     const auto &heap_desc = mt_heap->GetHeapDesc();
     heap_props = heap_desc.Properties;
     heap_flags = heap_desc.Flags;
+    if (static_cast<UINT>(heap_props.Type) == 5 &&
+        (heap_flags & (D3D12_HEAP_FLAG_SHARED |
+                       D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER |
+                       D3D12_HEAP_FLAG_ALLOW_DISPLAY)))
+      return E_INVALIDARG;
     if (!IsResourceAllowedByHeapFlags(*desc, heap_flags))
       return E_INVALIDARG;
     D3D12_RESOURCE_ALLOCATION_INFO info = {};
