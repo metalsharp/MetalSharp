@@ -366,6 +366,7 @@ int main(int argc, char** argv) {
     UINT64 null_sideband_size = UINT64_MAX;
     UINT64 null_sideband_alignment = UINT64_MAX;
     UINT64 null_sideband_offset = UINT64_MAX;
+    UINT64 invalid_footprint_total = 0;
     HRESULT tight_feature_hr = E_FAIL;
     UINT tight_feature_tier = 0;
     HRESULT tight_committed_hr = E_FAIL;
@@ -565,6 +566,15 @@ int main(int argc, char** argv) {
             null_sideband_offset = sideband.Offset;
             device4->Release();
         }
+        D3D12_RESOURCE_DESC invalid_footprint_desc =
+            texture_desc(0, 8, DXGI_FORMAT_R8_UNORM);
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT invalid_footprint_layout = {};
+        UINT invalid_footprint_rows = 0;
+        UINT64 invalid_footprint_row_size = 0;
+        device->GetCopyableFootprints(
+            &invalid_footprint_desc, 0, 1, 0, &invalid_footprint_layout,
+            &invalid_footprint_rows, &invalid_footprint_row_size,
+            &invalid_footprint_total);
 
         const D3D12_RESOURCE_FLAGS tight_flag =
             static_cast<D3D12_RESOURCE_FLAGS>(0x400);
@@ -845,6 +855,7 @@ int main(int argc, char** argv) {
                          volume_allocation_size == 64 * 1024 &&
                          volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
                          null_allocation_size == 0 && null_allocation_alignment == 0 &&
+                         invalid_footprint_total == UINT64_MAX &&
                          SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
                          null_sideband_alignment == 0 && null_sideband_offset == 0 &&
                          SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
@@ -2548,6 +2559,8 @@ int main(int argc, char** argv) {
     std::printf("    \"null_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(null_allocation_size),
                 static_cast<unsigned long long>(null_allocation_alignment));
+    std::printf("    \"invalid_footprint_total\": %llu,\n",
+                static_cast<unsigned long long>(invalid_footprint_total));
     print_hr("null_sideband_query", null_sideband_query_hr);
     std::printf("    \"null_sideband\": [%llu,%llu,%llu],\n",
                 static_cast<unsigned long long>(null_sideband_size),

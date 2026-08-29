@@ -5604,6 +5604,28 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
     normalized_desc = NormalizeResourceDesc(*desc);
     desc = &normalized_desc;
   }
+  if (!desc || !IsValidResourceDesc(*desc)) {
+    if (total_bytes)
+      *total_bytes = UINT64_MAX;
+    return;
+  }
+  const UINT plane_count = FormatPlaneCount(desc->Format);
+  const UINT mip_levels = std::max<UINT>(desc->MipLevels, 1);
+  const UINT array_size =
+      desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(desc->DepthOrArraySize, 1);
+  const uint64_t subresource_count =
+      desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
+          ? 1
+          : uint64_t(mip_levels) * array_size * plane_count;
+  if (uint64_t(first_sub_resource) > D3D12_REQ_SUBRESOURCES ||
+      uint64_t(sub_resource_count) >
+          uint64_t(D3D12_REQ_SUBRESOURCES) - first_sub_resource) {
+    if (total_bytes)
+      *total_bytes = UINT64_MAX;
+    return;
+  }
   UINT64 cursor = base_offset;
   UINT64 last_end = base_offset;
 

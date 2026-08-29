@@ -30,6 +30,9 @@
 - Resource flag validation rejects render-target resources with a buffer
   dimension and rejects mutually exclusive render-target/depth-stencil flags,
   both with exact `E_INVALIDARG` and no returned object.
+- Invalid `GetCopyableFootprints` descriptors initialize the documented
+  `pTotalBytes` sentinel (`UINT64_MAX`) instead of reporting a fabricated
+  zero-sized layout.
 - Allocation-info and sideband allocation-info calls with a nonzero count and
   null descriptor arrays initialize `[SizeInBytes=0, Alignment=0]` and zero
   sideband output without dereferencing the caller's null pointer.
@@ -112,6 +115,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.volume_allocation": [65536, 65536],
   "resource_shapes.null_allocation": [0, 0],
   "resource_shapes.null_sideband": [0, 0, 0],
+  "resource_shapes.invalid_footprint_total": 18446744073709551615,
   "resource_shapes.tight_alignment": {
     "feature_tier": 1,
     "allocation": [1024, 256],
