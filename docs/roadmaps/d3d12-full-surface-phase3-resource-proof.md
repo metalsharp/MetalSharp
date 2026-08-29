@@ -122,7 +122,10 @@
   null descriptor arrays initialize `[SizeInBytes=0, Alignment=0]` and zero
   sideband output without dereferencing the caller's null pointer. Checked
   allocation arithmetic rejects a `UINT64_MAX` buffer size with the same zero
-  allocation result instead of wrapping. A two-resource sideband query also
+  allocation result instead of wrapping. Unsupported hardware-protected,
+  write-watch, shader-atomic, manual-write-tracking, create-not-zeroed, and
+  cross-adapter heap flags reject with exact `E_INVALIDARG` rather than
+  creating an unbacked heap. A two-resource sideband query also
   reports the aggregate 128-KiB size and aligned offsets `0`/`65536`. A
   mixed 64-KiB/4-MiB/64-KiB batch reports the required 12-MiB aggregate,
   4-MiB alignment, and middle-resource placement at `4 MiB`.
@@ -354,6 +357,7 @@ The isolated source-staged probe passed with:
   "resource_shapes.misaligned_placement": "0x80070057",
   "resource_shapes.invalid_heap_alignment": "0x80070057",
   "resource_shapes.invalid_heap_flags": "0x80070057",
+  "resource_shapes.unsupported_heap_flags": "0x80070057",
   "textures.direct_io_texture_verified": true,
   "textures.shared_texture_create": "0x80004001",
   "textures.unsupported_r1_allocation": [0, 0],
