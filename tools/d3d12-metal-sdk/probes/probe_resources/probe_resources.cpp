@@ -352,6 +352,7 @@ int main(int argc, char** argv) {
     HRESULT invalid_committed_heap_flags_hr = E_FAIL;
     HRESULT invalid_buffer_resource_flags_hr = E_FAIL;
     HRESULT invalid_texture_resource_flags_hr = E_FAIL;
+    HRESULT invalid_depth_format_flags_hr = E_FAIL;
     HRESULT invalid_clear_without_flag_hr = E_FAIL;
     HRESULT invalid_clear_format_hr = E_FAIL;
     HRESULT null_heap_properties_hr = E_FAIL;
@@ -395,6 +396,7 @@ int main(int argc, char** argv) {
     HRESULT not_resident_heap_hr = E_FAIL;
     HRESULT not_resident_placed_hr = E_FAIL;
     bool not_resident_roundtrip_ok = false;
+    bool null_heap_desc_ok = false;
     bool tight_placed_roundtrip_ok = false;
     HANDLE shared_heap_handle = nullptr;
     HRESULT shared_heap_create_hr = E_FAIL;
@@ -522,6 +524,16 @@ int main(int argc, char** argv) {
         invalid_texture_resource_flags_hr = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_texture_flags,
             D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC invalid_depth_format =
+            texture_desc(8, 8, DXGI_FORMAT_R8_UNORM);
+        invalid_depth_format.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        invalid_depth_format_flags_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_depth_format,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr,
             IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
@@ -682,6 +694,7 @@ int main(int argc, char** argv) {
         tight_heap_desc.Properties = upload_heap;
         tight_heap_desc.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
         tight_heap_hr = device->CreateHeap(&tight_heap_desc, IID_PPV_ARGS(&tight_heap));
+        null_heap_desc_ok = tight_heap && tight_heap->GetDesc(nullptr) == nullptr;
         tight_placed_hr = tight_heap
                              ? device->CreatePlacedResource(
                                    tight_heap, 256, &tight_desc,
@@ -933,6 +946,7 @@ int main(int argc, char** argv) {
                          invalid_committed_heap_flags_hr == E_INVALIDARG &&
                          invalid_buffer_resource_flags_hr == E_INVALIDARG &&
                          invalid_texture_resource_flags_hr == E_INVALIDARG &&
+                         invalid_depth_format_flags_hr == E_INVALIDARG &&
                          invalid_clear_without_flag_hr == E_INVALIDARG &&
                          invalid_clear_format_hr == E_INVALIDARG &&
                          null_heap_properties_hr == E_INVALIDARG &&
@@ -950,7 +964,7 @@ int main(int argc, char** argv) {
                          SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
                          SUCCEEDED(tight_committed_hr) && SUCCEEDED(tight_allocation_info_hr) &&
                          tight_allocation_size == 1024 && tight_allocation_alignment == 256 &&
-                         SUCCEEDED(tight_heap_hr) && SUCCEEDED(tight_placed_hr) &&
+                         SUCCEEDED(tight_heap_hr) && null_heap_desc_ok && SUCCEEDED(tight_placed_hr) &&
                          tight_placed_roundtrip_ok && tight_invalid_alignment_hr == E_INVALIDARG &&
                          tight_overaligned_placed_hr == E_INVALIDARG && tight_reserved_hr == E_INVALIDARG &&
                          full_mip_create_hr == S_OK && full_mip_count == 6 && full_mip_footprint_ok &&
@@ -2721,6 +2735,7 @@ int main(int argc, char** argv) {
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
     print_hr("invalid_buffer_resource_flags", invalid_buffer_resource_flags_hr);
     print_hr("invalid_texture_resource_flags", invalid_texture_resource_flags_hr);
+    print_hr("invalid_depth_format_flags", invalid_depth_format_flags_hr);
     print_hr("invalid_clear_without_flag", invalid_clear_without_flag_hr);
     print_hr("invalid_clear_format", invalid_clear_format_hr);
     print_hr("null_heap_properties", null_heap_properties_hr);
@@ -2761,6 +2776,7 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(tight_allocation_size),
                 static_cast<unsigned long long>(tight_allocation_alignment));
     print_hr("tight_heap", tight_heap_hr);
+    std::printf("    \"null_heap_desc_verified\": %s,\n", null_heap_desc_ok ? "true" : "false");
     print_hr("tight_placed", tight_placed_hr);
     std::printf("    \"tight_placed_roundtrip_verified\": %s,\n",
                 tight_placed_roundtrip_ok ? "true" : "false");

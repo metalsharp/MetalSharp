@@ -321,6 +321,8 @@ MTLD3D12Heap::GetDevice(REFIID riid, void **device) {
 
 D3D12_HEAP_DESC *STDMETHODCALLTYPE
 MTLD3D12Heap::GetDesc(D3D12_HEAP_DESC *__ret) {
+  if (!__ret)
+    return nullptr;
   *__ret = m_desc;
   return __ret;
 }
