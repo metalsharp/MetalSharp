@@ -1072,6 +1072,9 @@ void MTLD3D12Resource::InitializeResource(
                                       WMTTextureUsagePixelFormatView);
     tex_info.options = cpu_accessible ? WMTResourceStorageModeShared : WMTResourceStorageModePrivate;
     tex_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(static_cast<DXGI_FORMAT>(m_desc.Format));
+    if ((m_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
+        m_desc.Format == DXGI_FORMAT_R32_TYPELESS)
+      tex_info.pixel_format = WMTPixelFormatDepth32Float;
     if (tex_info.pixel_format == WMTPixelFormatInvalid) {
       RTRACE("ctor: unsupported texture format=%u; refusing fallback",
              (unsigned)m_desc.Format);
@@ -1183,6 +1186,9 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
     tex_info.usage = (WMTTextureUsage)(WMTTextureUsageRenderTarget | WMTTextureUsageShaderRead | WMTTextureUsageShaderWrite | WMTTextureUsagePixelFormatView);
     tex_info.options = cpu_accessible ? WMTResourceStorageModeShared : WMTResourceStorageModePrivate;
     tex_info.pixel_format = MTLD3D12PipelineState::DXGIToMTLPixelFormat(static_cast<DXGI_FORMAT>(m_desc.Format));
+    if ((m_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
+        m_desc.Format == DXGI_FORMAT_R32_TYPELESS)
+      tex_info.pixel_format = WMTPixelFormatDepth32Float;
     if (tex_info.pixel_format == WMTPixelFormatInvalid) {
       RTRACE("GetMTLTexture: unsupported texture format=%u; refusing fallback",
              (unsigned)m_desc.Format);

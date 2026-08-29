@@ -679,8 +679,32 @@ int main(int argc, char** argv) {
         shape = texture_desc(8, 8, DXGI_FORMAT_D32_FLOAT);
         shape.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
         probe_resource_shape("texture2d_depth", shape, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        shape = texture_desc(8, 8, DXGI_FORMAT_D16_UNORM);
+        shape.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        probe_resource_shape("texture2d_depth16", shape, D3D12_RESOURCE_STATE_DEPTH_WRITE);
         shape = texture_desc(8, 8, DXGI_FORMAT_R32_TYPELESS);
         probe_resource_shape("texture2d_typeless", shape);
+        shape.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        probe_resource_shape("texture2d_typeless_depth", shape,
+                             D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R24G8_TYPELESS);
+        shape.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        probe_resource_shape("texture2d_r24g8_typeless", shape,
+                             D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R24_UNORM_X8_TYPELESS);
+        probe_resource_shape("texture2d_r24_depth_plane", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_X24_TYPELESS_G8_UINT);
+        probe_resource_shape("texture2d_x24_stencil_plane", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R32G8X24_TYPELESS);
+        shape.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        probe_resource_shape("texture2d_r32g8x24_typeless", shape,
+                             D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS);
+        probe_resource_shape("texture2d_r32_depth_plane", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_X32_TYPELESS_G8X24_UINT);
+        probe_resource_shape("texture2d_x32_stencil_plane", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R10G10B10A2_TYPELESS);
+        probe_resource_shape("texture2d_r10g10b10a2_typeless", shape);
         shape = texture_desc(7, 5, DXGI_FORMAT_BC1_UNORM);
         probe_resource_shape("texture2d_bc1_unaligned", shape);
         shape = texture_desc(8, 8, DXGI_FORMAT_B8G8R8X8_UNORM);
@@ -4153,8 +4177,18 @@ int main(int argc, char** argv) {
         {"G8R8_G8B8_UNORM", DXGI_FORMAT_G8R8_G8B8_UNORM},
         {"R16G16B16A16_FLOAT", DXGI_FORMAT_R16G16B16A16_FLOAT},
         {"R32_FLOAT", DXGI_FORMAT_R32_FLOAT},
+        {"R32_TYPELESS", DXGI_FORMAT_R32_TYPELESS},
+        {"R10G10B10A2_TYPELESS", DXGI_FORMAT_R10G10B10A2_TYPELESS},
+        {"D16_UNORM", DXGI_FORMAT_D16_UNORM},
         {"D24_UNORM_S8_UINT", DXGI_FORMAT_D24_UNORM_S8_UINT, E_FAIL, E_FAIL, 0, 0, 0, 2},
+        {"R24G8_TYPELESS", DXGI_FORMAT_R24G8_TYPELESS, E_FAIL, E_FAIL, 0, 0, 0, 2},
+        {"R24_UNORM_X8_TYPELESS", DXGI_FORMAT_R24_UNORM_X8_TYPELESS, E_FAIL, E_FAIL, 0, 0, 0, 2},
+        {"X24_TYPELESS_G8_UINT", DXGI_FORMAT_X24_TYPELESS_G8_UINT, E_FAIL, E_FAIL, 0, 0, 0, 2},
         {"D32_FLOAT", DXGI_FORMAT_D32_FLOAT},
+        {"R32G8X24_TYPELESS", DXGI_FORMAT_R32G8X24_TYPELESS, E_FAIL, E_FAIL, 0, 0, 0, 2},
+        {"R32_FLOAT_X8X24_TYPELESS", DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, E_FAIL, E_FAIL, 0, 0, 0, 2},
+        {"X32_TYPELESS_G8X24_UINT", DXGI_FORMAT_X32_TYPELESS_G8X24_UINT, E_FAIL, E_FAIL, 0, 0, 0, 2},
+        {"D32_FLOAT_S8X24_UINT", DXGI_FORMAT_D32_FLOAT_S8X24_UINT, E_FAIL, E_FAIL, 0, 0, 0, 2},
         {"R32_UINT", DXGI_FORMAT_R32_UINT},
     };
     for (auto& format : formats) {
