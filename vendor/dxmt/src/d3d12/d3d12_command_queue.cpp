@@ -12435,6 +12435,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               if (cmd->flags & D3D12_CLEAR_FLAG_DEPTH)
                 rp.depth.clear_depth = cmd->depth;
               if (DSVHasStencil(desc)) {
+                if (cmd->flags & D3D12_CLEAR_FLAG_STENCIL)
+                  res->ClearStencil(DSVMipLevel(desc), DSVArraySlice(desc),
+                                    cmd->stencil);
                 rp.stencil.texture = tex.handle;
                 rp.stencil.level = DSVMipLevel(desc);
                 rp.stencil.slice = DSVArraySlice(desc);

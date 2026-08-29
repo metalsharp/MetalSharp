@@ -131,6 +131,7 @@ public:
   bool IsResident() const;
   void MakeResident();
   void Evict();
+  void ClearStencil(UINT mip, UINT slice, UINT8 value);
   void SetParentHeap(MTLD3D12Heap *heap);
   D3D12_RESIDENCY_PRIORITY GetResidencyPriority() const {
     return m_residency.priority();
@@ -466,6 +467,7 @@ private:
   MTLD3D12Heap *m_parent_heap = nullptr;
 
   void *m_cpu_addr = nullptr;
+  std::vector<uint8_t> m_stencil_shadow;
   uint64_t m_gpu_addr = 0;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};

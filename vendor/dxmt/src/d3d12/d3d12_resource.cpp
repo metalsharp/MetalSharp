@@ -46,6 +46,54 @@ static bool SubmitBufferCopy(WMT::Device device, WMT::Buffer source,
   return command_buffer.status() != WMTCommandBufferStatusError;
 }
 
+static bool SubmitTextureUpload(WMT::Device device, WMT::Texture destination,
+                                uint32_t slice, uint32_t level,
+                                WMTOrigin origin, WMTSize size,
+                                const void *source, uint64_t source_length,
+                                uint32_t bytes_per_row,
+                                uint32_t bytes_per_image) {
+  if (!device.handle || !destination.handle || !source || !source_length ||
+      !bytes_per_row || !bytes_per_image)
+    return false;
+  WMTBufferInfo staging_info = {};
+  staging_info.length = source_length;
+  staging_info.options = WMTResourceStorageModeShared;
+  auto staging = device.newBuffer(staging_info);
+  void *staging_data = staging_info.memory.get_accessible_or_null();
+  if (!staging.handle || !staging_data)
+    return false;
+  std::memcpy(staging_data, source, static_cast<size_t>(source_length));
+  auto queue = device.newCommandQueue(1);
+  if (!queue.handle)
+    return false;
+  auto command_buffer = queue.commandBuffer();
+  if (!command_buffer.handle)
+    return false;
+  auto blit = command_buffer.blitCommandEncoder();
+  if (!blit.handle)
+    return false;
+  wmtcmd_blit_copy_from_buffer_to_texture command = {};
+  command.type = WMTBlitCommandCopyFromBufferToTexture;
+  command.next.set(nullptr);
+  command.src = staging.handle;
+  command.src_offset = 0;
+  command.bytes_per_row = bytes_per_row;
+  command.bytes_per_image = bytes_per_image;
+  command.size = size;
+  command.dst = destination.handle;
+  command.slice = slice;
+  command.level = level;
+  command.origin = origin;
+  if (!blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&command))) {
+    blit.endEncoding();
+    return false;
+  }
+  blit.endEncoding();
+  command_buffer.commit();
+  command_buffer.waitUntilCompleted();
+  return command_buffer.status() != WMTCommandBufferStatusError;
+}
+
 static bool SubmitTextureReadback(WMT::Device device, WMT::Texture source,
                                   uint32_t slice, uint32_t level,
                                   WMTOrigin origin, WMTSize size,
@@ -181,22 +229,121 @@ static uint32_t PackedTextureRowBytes(DXGI_FORMAT format, uint64_t width) {
   }
 }
 
-static bool ResolveSubresourceRegion(const D3D12_RESOURCE_DESC &desc,
-                                     UINT subresource,
-                                     const D3D12_BOX *requested,
-                                     UINT &mip, UINT &slice, WMTOrigin &origin,
-                                     WMTSize &size) {
+static bool IsStencilPlaneFormat(DXGI_FORMAT format) {
+  return format == DXGI_FORMAT_D24_UNORM_S8_UINT ||
+         format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT ||
+         format == DXGI_FORMAT_R24G8_TYPELESS ||
+         format == DXGI_FORMAT_R32G8X24_TYPELESS ||
+         format == DXGI_FORMAT_R24_UNORM_X8_TYPELESS ||
+         format == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS ||
+         format == DXGI_FORMAT_X24_TYPELESS_G8_UINT ||
+         format == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT;
+}
+
+static UINT ResourcePlaneCount(DXGI_FORMAT format) {
+  return IsStencilPlaneFormat(format) ? 2 : 1;
+}
+
+static DXGI_FORMAT ResourcePlaneFormat(DXGI_FORMAT format, UINT plane) {
+  if (plane == 0)
+    return IsStencilPlaneFormat(format) ? DXGI_FORMAT_R32_TYPELESS : format;
+  if (IsStencilPlaneFormat(format))
+    return DXGI_FORMAT_R8_TYPELESS;
+  switch (format) {
+  case DXGI_FORMAT_NV12:
+  case DXGI_FORMAT_420_OPAQUE:
+    return DXGI_FORMAT_R8G8_UNORM;
+  case DXGI_FORMAT_P010:
+  case DXGI_FORMAT_P016:
+    return DXGI_FORMAT_R16G16_UNORM;
+  default:
+    return format;
+  }
+}
+
+static void AdjustResourcePlaneDimensions(DXGI_FORMAT format, UINT plane,
+                                           uint64_t &width, uint64_t &height) {
+  if (plane != 1)
+    return;
+  switch (format) {
+  case DXGI_FORMAT_NV12:
+  case DXGI_FORMAT_P010:
+  case DXGI_FORMAT_P016:
+  case DXGI_FORMAT_420_OPAQUE:
+    width = std::max<uint64_t>(1, (width + 1) / 2);
+    height = std::max<uint64_t>(1, (height + 1) / 2);
+    break;
+  default:
+    break;
+  }
+}
+
+static uint64_t StencilShadowSize(const D3D12_RESOURCE_DESC &desc) {
+  if (!IsStencilPlaneFormat(desc.Format))
+    return 0;
   const UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
   const UINT array_size =
       desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
           ? 1
           : std::max<UINT>(desc.DepthOrArraySize, 1);
-  if (subresource >= mip_levels * array_size)
+  uint64_t total = 0;
+  for (UINT slice = 0; slice < array_size; ++slice) {
+    (void)slice;
+    for (UINT mip = 0; mip < mip_levels; ++mip) {
+      const uint64_t width = std::max<uint64_t>(1, desc.Width >> mip);
+      const uint64_t height = std::max<uint64_t>(1, desc.Height >> mip);
+      if (width > (UINT64_MAX - total) / height)
+        return 0;
+      total += width * height;
+    }
+  }
+  return total <= SIZE_MAX ? total : 0;
+}
+
+static size_t StencilShadowOffset(const D3D12_RESOURCE_DESC &desc, UINT mip,
+                                  UINT slice) {
+  const UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
+  const UINT array_size =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(desc.DepthOrArraySize, 1);
+  if (slice >= array_size || mip >= mip_levels)
+    return SIZE_MAX;
+  uint64_t offset = 0;
+  for (UINT s = 0; s < slice; ++s) {
+    for (UINT m = 0; m < mip_levels; ++m)
+      offset += std::max<uint64_t>(1, desc.Width >> m) *
+                std::max<uint64_t>(1, desc.Height >> m);
+  }
+  for (UINT m = 0; m < mip; ++m)
+    offset += std::max<uint64_t>(1, desc.Width >> m) *
+              std::max<uint64_t>(1, desc.Height >> m);
+  return offset <= SIZE_MAX ? static_cast<size_t>(offset) : SIZE_MAX;
+}
+
+static bool ResolveSubresourceRegion(const D3D12_RESOURCE_DESC &desc,
+                                     UINT subresource,
+                                     const D3D12_BOX *requested,
+                                     UINT &mip, UINT &slice, UINT &plane,
+                                     DXGI_FORMAT &plane_format,
+                                     WMTOrigin &origin, WMTSize &size) {
+  const UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
+  const UINT array_size =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+          ? 1
+          : std::max<UINT>(desc.DepthOrArraySize, 1);
+  const uint64_t base_subresources = uint64_t(mip_levels) * array_size;
+  if (subresource >= base_subresources * ResourcePlaneCount(desc.Format))
     return false;
-  mip = subresource % mip_levels;
-  slice = subresource / mip_levels;
-  const uint64_t width = std::max<uint64_t>(1, desc.Width >> mip);
-  const uint64_t height = std::max<uint64_t>(1, desc.Height >> mip);
+  plane = static_cast<UINT>(subresource / base_subresources);
+  const UINT base_subresource =
+      static_cast<UINT>(subresource % base_subresources);
+  mip = base_subresource % mip_levels;
+  slice = base_subresource / mip_levels;
+  plane_format = ResourcePlaneFormat(desc.Format, plane);
+  uint64_t width = std::max<uint64_t>(1, desc.Width >> mip);
+  uint64_t height = std::max<uint64_t>(1, desc.Height >> mip);
+  AdjustResourcePlaneDimensions(desc.Format, plane, width, height);
   const uint64_t depth =
       desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
           ? std::max<uint64_t>(1, desc.DepthOrArraySize >> mip)
@@ -498,6 +645,9 @@ MTLD3D12Resource::MTLD3D12Resource(
 void MTLD3D12Resource::InitializeResource(
     WMT::Reference<WMT::Buffer> backing_buffer, void *backing_cpu_addr,
     uint64_t backing_gpu_addr, uint64_t backing_offset) {
+  const uint64_t stencil_shadow_size = StencilShadowSize(m_desc);
+  if (stencil_shadow_size)
+    m_stencil_shadow.resize(static_cast<size_t>(stencil_shadow_size));
   m_device->AddRef();
 
   auto wmt_device = m_device->GetDXMTDevice().device();
@@ -965,6 +1115,23 @@ void MTLD3D12Resource::MakeResident() {
 
 void MTLD3D12Resource::Evict() { m_residency.evict(); }
 
+void MTLD3D12Resource::ClearStencil(UINT mip, UINT slice, UINT8 value) {
+  if (m_stencil_shadow.empty())
+    return;
+  const size_t offset = StencilShadowOffset(m_desc, mip, slice);
+  const uint64_t width = std::max<uint64_t>(1, m_desc.Width >> mip);
+  const uint64_t height = std::max<uint64_t>(1, m_desc.Height >> mip);
+  if (offset == SIZE_MAX || offset > m_stencil_shadow.size() ||
+      height > UINT64_MAX / width)
+    return;
+  const uint64_t size = width * height;
+  if (size > m_stencil_shadow.size() - offset)
+    return;
+  for (uint64_t y = 0; y < height; ++y)
+    std::memset(m_stencil_shadow.data() + offset + y * width, value,
+                static_cast<size_t>(width));
+}
+
 void MTLD3D12Resource::SetParentHeap(MTLD3D12Heap *heap) {
   if (m_parent_heap == heap)
     return;
@@ -1079,23 +1246,55 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
 
   UINT mip = 0;
   UINT slice = 0;
+  UINT plane = 0;
+  DXGI_FORMAT plane_format = DXGI_FORMAT_UNKNOWN;
   WMTOrigin origin = {};
   WMTSize size = {};
   if (!ResolveSubresourceRegion(m_desc, dst_sub_resource, dst_box, mip, slice,
-                                origin, size))
+                                plane, plane_format, origin, size))
     return E_INVALIDARG;
   const uint64_t row_bytes =
-      PackedTextureRowBytes(m_desc.Format, size.width);
+      PackedTextureRowBytes(plane_format, size.width);
   if (src_row_pitch < row_bytes)
     return E_INVALIDARG;
-  const uint32_t row_count = PackedTextureRowCount(m_desc.Format, size.height);
+  const uint32_t row_count = PackedTextureRowCount(plane_format, size.height);
   const uint64_t image_bytes = src_slice_pitch
                                    ? src_slice_pitch
                                    : uint64_t(src_row_pitch) * row_count;
   if (image_bytes < uint64_t(src_row_pitch) * row_count)
     return E_INVALIDARG;
 
+  if (plane == 1 && IsStencilPlaneFormat(m_desc.Format)) {
+    const size_t shadow_offset = StencilShadowOffset(m_desc, mip, slice);
+    const uint64_t width = std::max<uint64_t>(1, m_desc.Width >> mip);
+    if (shadow_offset == SIZE_MAX ||
+        shadow_offset > m_stencil_shadow.size() ||
+        size.width > width ||
+        uint64_t(origin.y) + size.height >
+            std::max<uint64_t>(1, m_desc.Height >> mip))
+      return E_INVALIDARG;
+    for (uint64_t y = 0; y < size.height; ++y)
+      std::memcpy(m_stencil_shadow.data() + shadow_offset +
+                      (uint64_t(origin.y) + y) * width + origin.x,
+                  static_cast<const uint8_t *>(src_data) + y * src_row_pitch,
+                  static_cast<size_t>(size.width));
+    return S_OK;
+  }
+  if (plane != 0)
+    return E_NOTIMPL;
   if (m_mtl_texture.handle) {
+    if (m_heap_properties.Type == D3D12_HEAP_TYPE_DEFAULT) {
+      if (image_bytes > UINT32_MAX ||
+          (size.depth && image_bytes > UINT64_MAX / size.depth))
+        return E_INVALIDARG;
+      const uint64_t source_length = image_bytes * size.depth;
+      return SubmitTextureUpload(
+                 m_device->GetDXMTDevice().device(), m_mtl_texture, slice,
+                 mip, origin, size, src_data, source_length, src_row_pitch,
+                 static_cast<uint32_t>(image_bytes))
+                 ? S_OK
+                 : E_FAIL;
+    }
     m_mtl_texture.replaceRegion(origin, size, mip, slice, src_data,
                                 src_row_pitch, image_bytes);
     return S_OK;
@@ -1144,20 +1343,40 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
     return E_INVALIDARG;
   UINT mip = 0;
   UINT slice = 0;
+  UINT plane = 0;
+  DXGI_FORMAT plane_format = DXGI_FORMAT_UNKNOWN;
   WMTOrigin origin = {};
   WMTSize size = {};
   if (!ResolveSubresourceRegion(m_desc, src_sub_resource, src_box, mip, slice,
-                                origin, size))
+                                plane, plane_format, origin, size))
     return E_INVALIDARG;
-  const uint64_t row_bytes = PackedTextureRowBytes(m_desc.Format, size.width);
+  const uint64_t row_bytes = PackedTextureRowBytes(plane_format, size.width);
   if (dst_row_pitch < row_bytes)
     return E_INVALIDARG;
-  const uint32_t row_count = PackedTextureRowCount(m_desc.Format, size.height);
+  const uint32_t row_count = PackedTextureRowCount(plane_format, size.height);
   const uint64_t slice_pitch = dst_slice_pitch
                                    ? dst_slice_pitch
                                    : uint64_t(dst_row_pitch) * row_count;
   if (slice_pitch < uint64_t(dst_row_pitch) * row_count)
     return E_INVALIDARG;
+  if (plane == 1 && IsStencilPlaneFormat(m_desc.Format)) {
+    const size_t shadow_offset = StencilShadowOffset(m_desc, mip, slice);
+    const uint64_t width = std::max<uint64_t>(1, m_desc.Width >> mip);
+    if (shadow_offset == SIZE_MAX ||
+        shadow_offset > m_stencil_shadow.size() ||
+        size.width > width ||
+        uint64_t(origin.y) + size.height >
+            std::max<uint64_t>(1, m_desc.Height >> mip))
+      return E_INVALIDARG;
+    for (uint64_t y = 0; y < size.height; ++y)
+      std::memcpy(static_cast<uint8_t *>(dst_data) + y * dst_row_pitch,
+                  m_stencil_shadow.data() + shadow_offset +
+                      (uint64_t(origin.y) + y) * width + origin.x,
+                  static_cast<size_t>(size.width));
+    return S_OK;
+  }
+  if (plane != 0)
+    return E_NOTIMPL;
   if (!m_mtl_texture.handle)
     return E_FAIL;
 
