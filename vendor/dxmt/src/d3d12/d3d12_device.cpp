@@ -25,6 +25,7 @@
 #include <array>
 #include <bit>
 #include <cstring>
+#include <cwchar>
 #include <limits>
 #include <mutex>
 #include <new>
@@ -277,6 +278,17 @@ struct D3D12SharedHandleRegistryCleanup {
 };
 
 D3D12SharedHandleRegistryCleanup g_shared_handle_registry_cleanup;
+
+static void MakeUnnamedSharedBufferName(WCHAR *out, size_t capacity) {
+  if (!out || capacity == 0)
+    return;
+  static std::atomic<uint64_t> sequence = 0;
+  const uint64_t serial = sequence.fetch_add(1, std::memory_order_relaxed);
+  std::swprintf(out, capacity, L"DXMT_shared_buffer_%08lx_%016llx",
+                static_cast<unsigned long>(GetCurrentProcessId()),
+                static_cast<unsigned long long>(serial));
+  out[capacity - 1] = L'\0';
+}
 
 static UINT64 AlignTo(UINT64 value, UINT64 alignment) {
   return alignment ? ((value + alignment - 1) & ~(alignment - 1)) : value;
@@ -5517,6 +5529,33 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateSharedHandle(
       }
       if (hr != E_INVALIDARG)
         return hr;
+    }
+  }
+
+  // Unnamed buffer handles must remain portable when the caller duplicates the
+  // returned HANDLE into another process. A generated file-mapping name gives
+  // OpenSharedHandle a self-describing transport without relying on the
+  // process-local registry used by unsupported object kinds.
+  if (!name) {
+    ID3D12Resource *resource = nullptr;
+    if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&resource)))) {
+      auto *resource_impl = static_cast<MTLD3D12Resource *>(resource);
+      if (resource_impl->IsBuffer()) {
+        WCHAR generated_name[96] = {};
+        MakeUnnamedSharedBufferName(generated_name,
+                                    ARRAYSIZE(generated_name));
+        HANDLE public_mapping = nullptr;
+        HRESULT hr = CreateSharedBufferMapping(resource_impl, generated_name,
+                                               &public_mapping);
+        resource->Release();
+        if (FAILED(hr))
+          return hr;
+        *handle = public_mapping;
+        TRACE("CreateSharedHandle unnamed buffer object=%p handle=%p",
+              (void *)object, public_mapping);
+        return S_OK;
+      }
+      resource->Release();
     }
   }
 

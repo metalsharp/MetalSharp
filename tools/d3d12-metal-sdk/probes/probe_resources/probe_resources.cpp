@@ -375,6 +375,14 @@ int main(int argc, char** argv) {
     ID3D12Resource* readback_buffer = nullptr;
     ID3D12Resource* shared_open_buffer = nullptr;
     ID3D12Resource* shared_named_open_buffer = nullptr;
+    ID3D12Resource* unnamed_shared_source = nullptr;
+    ID3D12Resource* unnamed_shared_open = nullptr;
+    HANDLE unnamed_shared_handle = nullptr;
+    HRESULT unnamed_shared_source_hr = E_FAIL;
+    HRESULT unnamed_shared_create_hr = E_FAIL;
+    HRESULT unnamed_shared_open_hr = E_FAIL;
+    HRESULT unnamed_shared_map_hr = E_FAIL;
+    bool unnamed_shared_roundtrip_ok = false;
     ID3D12Resource* unknown_open_buffer = nullptr;
     ID3D12Heap* address_heap = nullptr;
     ID3D12Resource* address_resource = nullptr;
@@ -1311,6 +1319,42 @@ int main(int argc, char** argv) {
     }
 
     if (device && default_buffer) {
+        D3D12_RESOURCE_DESC unnamed_shared_desc = buffer_desc(256);
+        unnamed_shared_source_hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &unnamed_shared_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&unnamed_shared_source));
+        if (unnamed_shared_source) {
+            void *unnamed_source_data = nullptr;
+            if (SUCCEEDED(unnamed_shared_source->Map(
+                    0, nullptr, &unnamed_source_data)) &&
+                unnamed_source_data) {
+                for (UINT i = 0; i < 256; ++i)
+                    static_cast<uint8_t *>(unnamed_source_data)[i] =
+                        static_cast<uint8_t>((i * 37u + 11u) & 0xffu);
+                unnamed_shared_source->Unmap(0, nullptr);
+                unnamed_shared_create_hr = device->CreateSharedHandle(
+                    unnamed_shared_source, nullptr, GENERIC_ALL, nullptr,
+                    &unnamed_shared_handle);
+            }
+            if (SUCCEEDED(unnamed_shared_create_hr))
+                unnamed_shared_open_hr = device->OpenSharedHandle(
+                    unnamed_shared_handle, IID_PPV_ARGS(&unnamed_shared_open));
+            if (unnamed_shared_open) {
+                void *unnamed_open_data = nullptr;
+                unnamed_shared_map_hr = unnamed_shared_open->Map(
+                    0, nullptr, &unnamed_open_data);
+                unnamed_shared_roundtrip_ok =
+                    SUCCEEDED(unnamed_shared_map_hr) && unnamed_open_data;
+                for (UINT i = 0; i < 256 && unnamed_shared_roundtrip_ok;
+                     ++i)
+                    unnamed_shared_roundtrip_ok =
+                        static_cast<uint8_t *>(unnamed_open_data)[i] ==
+                        static_cast<uint8_t>((i * 37u + 11u) & 0xffu);
+                if (SUCCEEDED(unnamed_shared_map_hr))
+                    unnamed_shared_open->Unmap(0, nullptr);
+            }
+        }
         uint8_t cpu_io_scratch[64] = {};
         const uint32_t cpu_io_value = 0x12345678u;
         default_write_subresource_hr =
@@ -3619,7 +3663,12 @@ int main(int argc, char** argv) {
         default_buffer_desc.Width == buffer_bytes && texture_roundtrip_desc.Width == 4 &&
         texture_roundtrip_desc.Height == 4 && upload_gpu_va != 0 && default_gpu_va != 0 && texture_gpu_va == 0 && shared_handle_roundtrip &&
         format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
-        shared_heap_roundtrip_ok && SUCCEEDED(shared_fence_create_hr) &&
+        shared_heap_roundtrip_ok && unnamed_shared_roundtrip_ok &&
+        SUCCEEDED(unnamed_shared_source_hr) &&
+        SUCCEEDED(unnamed_shared_create_hr) &&
+        SUCCEEDED(unnamed_shared_open_hr) &&
+        SUCCEEDED(unnamed_shared_map_hr) &&
+        SUCCEEDED(shared_fence_create_hr) &&
         SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr) &&
         SUCCEEDED(shared_fence_mapping_signal_hr) &&
         SUCCEEDED(shared_fence_wait_hr) && shared_heap_cross_process_ok;
@@ -3813,6 +3862,12 @@ int main(int argc, char** argv) {
     print_hr("open", shared_open_hr);
     print_hr("open_by_name", shared_open_named_hr);
     std::printf("    \"independent_objects_verified\": %s,\n", shared_independent_object_ok ? "true" : "false");
+    print_hr("unnamed_source_create", unnamed_shared_source_hr);
+    print_hr("unnamed_handle_create", unnamed_shared_create_hr);
+    print_hr("unnamed_open", unnamed_shared_open_hr);
+    print_hr("unnamed_map", unnamed_shared_map_hr);
+    std::printf("    \"unnamed_roundtrip_verified\": %s,\n",
+                unnamed_shared_roundtrip_ok ? "true" : "false");
     print_hr("unknown_handle", shared_unknown_hr);
     print_hr("missing_name", shared_missing_name_hr);
     print_hr("invalid_create_access", shared_invalid_create_access_hr);
