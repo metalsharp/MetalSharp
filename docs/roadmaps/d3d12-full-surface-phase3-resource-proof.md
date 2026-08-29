@@ -131,6 +131,8 @@
   exact `E_INVALIDARG`; valid named buffer, heap, and fence mappings retain
   their cross-process behavior. Attempting to share a texture returns the
   explicit `E_NOTIMPL` provider boundary instead of a process-local success.
+  A non-CPU-visible default heap is rejected the same way, while CPU-visible
+  upload heaps remain shareable through the file-mapping provider.
 - Descriptor heaps and query heaps now participate in the D3D12 residency
   object set; the probe accepts and re-makes both pageables and applies their
   residency priorities without silently ignoring them.
@@ -228,6 +230,7 @@ The isolated source-staged probe passed with:
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,
   "shared_handles.unnamed_heap_roundtrip_verified": true,
+  "shared_handles.default_heap_handle_create": "0x80004001",
   "shared_handles.unnamed_fence_roundtrip_verified": true,
   "shared_handles.fence_cross_process_verified": true,
   "shared_handles.fence_mapping_signal": "0x00000000",
