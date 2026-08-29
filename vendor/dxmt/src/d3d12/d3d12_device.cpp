@@ -6235,8 +6235,8 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
       const UINT subresource = array_slice * mip_levels + mip;
       if (sub_resource_tilings && sub_resource_tiling_count &&
           subresource >= first_sub_resource_tiling &&
-          subresource < first_sub_resource_tiling +
-                            requested_tiling_count) {
+          uint64_t(subresource) - first_sub_resource_tiling <
+              requested_tiling_count) {
         const UINT output_index = subresource - first_sub_resource_tiling;
         if (mip < standard_mip_count) {
           const UINT width = std::max<UINT>(1, desc.Width >> mip);
