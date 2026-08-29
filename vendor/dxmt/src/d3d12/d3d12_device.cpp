@@ -630,7 +630,8 @@ static bool IsResourceAllowedByHeapFlags(
   const bool buffer = desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER;
   if (buffer)
     return (flags & static_cast<UINT>(D3D12_HEAP_FLAG_DENY_BUFFERS)) == 0;
-  if (flags & static_cast<UINT>(D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS))
+  if ((flags & static_cast<UINT>(D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS)) ==
+      static_cast<UINT>(D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS))
     return false;
   const bool render_target =
       (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0;
@@ -5178,7 +5179,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateHeap(
       (desc->Alignment &&
        desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
        desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT) ||
-      ((desc->Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) &&
+      ((desc->Flags & D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS) ==
+           D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS &&
        (desc->Flags & D3D12_HEAP_FLAG_DENY_BUFFERS)))
     return E_INVALIDARG;
 
