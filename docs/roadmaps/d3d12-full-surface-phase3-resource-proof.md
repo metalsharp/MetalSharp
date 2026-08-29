@@ -66,7 +66,9 @@
   exact row and slice pitches and byte readback. Additional legal packed
   format variants (B8G8R8X8, B5G6R5, B5G5R5A1, B4G4R4A4, R9G9B9E5, and the
   4:2:2 packed forms) now create through their matching Metal pixel formats
-  and pass format-info/support queries.
+  and pass format-info/support queries. Direct default-resource I/O also
+  round-trips exact packed bytes for B5G6R5, B5G5R5A1, B4G4R4A4, and
+  R9G9B9E5.
 - A two-slice 1D-array resource and a six-face cube resource (the D3D12
   six-slice 2D representation) create successfully; the backend preserves the
   1D array length, and each 1D-array slice and cube face independently
@@ -253,6 +255,7 @@ The isolated source-staged probe passed with:
   "textures.direct_io_volume_verified": true,
   "textures.direct_io_nv12_verified": true,
   "textures.direct_io_p010_verified": true,
+  "textures.direct_io_variant_verified": true,
   "textures.direct_io_nv12_copy_verified": true,
   "textures.direct_io_nv12_resource_copy_verified": true,
   "textures.unaligned_bc1_direct_io_verified": true,

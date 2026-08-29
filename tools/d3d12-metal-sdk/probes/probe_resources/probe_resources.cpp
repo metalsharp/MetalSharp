@@ -1068,6 +1068,8 @@ int main(int argc, char** argv) {
     footprint_3d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
     footprint_3d.DepthOrArraySize = 4;
     D3D12_RESOURCE_DESC footprint_bc = texture_desc(7, 5, DXGI_FORMAT_BC1_UNORM);
+    D3D12_RESOURCE_DESC footprint_b5 = texture_desc(8, 4, DXGI_FORMAT_B5G6R5_UNORM);
+    D3D12_RESOURCE_DESC footprint_r9 = texture_desc(8, 4, DXGI_FORMAT_R9G9B9E5_SHAREDEXP);
     auto verify_mip_footprints = [&](const D3D12_RESOURCE_DESC& desc, UINT count) {
         if (!device || !count || count > 16)
             return false;
@@ -1094,7 +1096,9 @@ int main(int argc, char** argv) {
         verify_footprints(footprint_array, 4, 19, 11, 1, 19 * 4, 11) &&
         verify_mip_footprints(footprint_mips, 6) &&
         verify_footprints(footprint_3d, 1, 7, 5, 4, 7, 5) &&
-        verify_footprints(footprint_bc, 1, 7, 5, 1, 16, 2);
+        verify_footprints(footprint_bc, 1, 7, 5, 1, 16, 2) &&
+        verify_footprints(footprint_b5, 1, 8, 4, 1, 16, 4) &&
+        verify_footprints(footprint_r9, 1, 8, 4, 1, 32, 4);
     resource_shapes_ok = resource_shapes_ok && footprint_matrix_ok;
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
                                                                         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -1674,6 +1678,10 @@ int main(int argc, char** argv) {
     bool direct_io_nv12_copy_ok = false;
     bool direct_io_nv12_resource_copy_ok = false;
     bool direct_io_p010_ok = false;
+    HRESULT direct_io_variant_create_hr[4] = {E_FAIL, E_FAIL, E_FAIL, E_FAIL};
+    HRESULT direct_io_variant_write_hr[4] = {E_FAIL, E_FAIL, E_FAIL, E_FAIL};
+    HRESULT direct_io_variant_read_hr[4] = {E_FAIL, E_FAIL, E_FAIL, E_FAIL};
+    bool direct_io_variant_ok = false;
     D3D12_RESOURCE_DESC direct_io_texture_desc =
         texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
     direct_io_texture_desc.DepthOrArraySize = 2;
@@ -1798,6 +1806,44 @@ int main(int argc, char** argv) {
             SUCCEEDED(direct_io_p010_read_hr[1]) &&
             std::memcmp(y_source, y_destination, sizeof(y_source)) == 0 &&
             std::memcmp(uv_source, uv_destination, sizeof(uv_source)) == 0;
+    }
+    const DXGI_FORMAT direct_io_variant_formats[4] = {
+        DXGI_FORMAT_B5G6R5_UNORM, DXGI_FORMAT_B5G5R5A1_UNORM,
+        DXGI_FORMAT_B4G4R4A4_UNORM, DXGI_FORMAT_R9G9B9E5_SHAREDEXP};
+    const UINT direct_io_variant_bytes_per_pixel[4] = {2, 2, 2, 4};
+    direct_io_variant_ok = true;
+    for (UINT variant = 0; variant < 4; ++variant) {
+        D3D12_RESOURCE_DESC variant_desc = texture_desc(
+            8, 4, direct_io_variant_formats[variant]);
+        ID3D12Resource *variant_resource = nullptr;
+        direct_io_variant_create_hr[variant] =
+            device ? device->CreateCommittedResource(
+                         &default_heap, D3D12_HEAP_FLAG_NONE, &variant_desc,
+                         D3D12_RESOURCE_STATE_COMMON, nullptr,
+                         IID_PPV_ARGS(&variant_resource))
+                   : E_FAIL;
+        const UINT row_pitch = 8 * direct_io_variant_bytes_per_pixel[variant];
+        const UINT slice_pitch = row_pitch * 4;
+        std::vector<uint8_t> source(slice_pitch);
+        std::vector<uint8_t> destination(slice_pitch);
+        for (UINT i = 0; i < slice_pitch; ++i)
+            source[i] = static_cast<uint8_t>((i * 19u + variant * 23u + 1u) & 0xffu);
+        if (variant_resource) {
+            direct_io_variant_write_hr[variant] =
+                variant_resource->WriteToSubresource(
+                    0, nullptr, source.data(), row_pitch, slice_pitch);
+            direct_io_variant_read_hr[variant] =
+                variant_resource->ReadFromSubresource(
+                    destination.data(), row_pitch, slice_pitch, 0, nullptr);
+            direct_io_variant_ok =
+                direct_io_variant_ok &&
+                SUCCEEDED(direct_io_variant_write_hr[variant]) &&
+                SUCCEEDED(direct_io_variant_read_hr[variant]) &&
+                source == destination;
+            variant_resource->Release();
+        } else {
+            direct_io_variant_ok = false;
+        }
     }
     D3D12_RESOURCE_DESC planar_copy_buffer_desc = buffer_desc(2048);
     direct_io_nv12_upload_hr =
@@ -3458,6 +3504,19 @@ int main(int argc, char** argv) {
         SUCCEEDED(direct_io_nv12_copy_uv_read_hr) &&
         direct_io_nv12_resource_copy_ok &&
         SUCCEEDED(direct_io_p010_create_hr) && direct_io_p010_ok &&
+        direct_io_variant_ok &&
+        SUCCEEDED(direct_io_variant_create_hr[0]) &&
+        SUCCEEDED(direct_io_variant_create_hr[1]) &&
+        SUCCEEDED(direct_io_variant_create_hr[2]) &&
+        SUCCEEDED(direct_io_variant_create_hr[3]) &&
+        SUCCEEDED(direct_io_variant_write_hr[0]) &&
+        SUCCEEDED(direct_io_variant_write_hr[1]) &&
+        SUCCEEDED(direct_io_variant_write_hr[2]) &&
+        SUCCEEDED(direct_io_variant_write_hr[3]) &&
+        SUCCEEDED(direct_io_variant_read_hr[0]) &&
+        SUCCEEDED(direct_io_variant_read_hr[1]) &&
+        SUCCEEDED(direct_io_variant_read_hr[2]) &&
+        SUCCEEDED(direct_io_variant_read_hr[3]) &&
         SUCCEEDED(bc_texture_hr) && SUCCEEDED(bc_upload_hr) && SUCCEEDED(bc_readback_hr) &&
         SUCCEEDED(bc_upload_map_hr) && SUCCEEDED(bc_readback_map_hr) && bc_copy_ok &&
         SUCCEEDED(bc_direct_write_hr) && SUCCEEDED(bc_direct_read_hr) && bc_direct_io_ok &&
@@ -3815,6 +3874,18 @@ int main(int argc, char** argv) {
     print_hr("direct_io_p010_uv_read", direct_io_p010_read_hr[1]);
     std::printf("    \"direct_io_p010_verified\": %s,\n",
                 direct_io_p010_ok ? "true" : "false");
+    const char *variant_names[4] = {"b5g6r5", "b5g5r5a1", "b4g4r4a4", "r9g9b9e5"};
+    for (UINT variant = 0; variant < 4; ++variant) {
+        char key[64] = {};
+        std::snprintf(key, sizeof(key), "direct_io_%s_create", variant_names[variant]);
+        print_hr(key, direct_io_variant_create_hr[variant]);
+        std::snprintf(key, sizeof(key), "direct_io_%s_write", variant_names[variant]);
+        print_hr(key, direct_io_variant_write_hr[variant]);
+        std::snprintf(key, sizeof(key), "direct_io_%s_read", variant_names[variant]);
+        print_hr(key, direct_io_variant_read_hr[variant]);
+    }
+    std::printf("    \"direct_io_variant_verified\": %s,\n",
+                direct_io_variant_ok ? "true" : "false");
     std::printf("    \"width\": %llu,\n", static_cast<unsigned long long>(texture_roundtrip_desc.Width));
     std::printf("    \"height\": %u,\n", texture_roundtrip_desc.Height);
     std::printf("    \"row_pitch\": %u,\n", texture_footprint.Footprint.RowPitch);
