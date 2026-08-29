@@ -367,6 +367,8 @@ int main(int argc, char** argv) {
     UINT64 null_sideband_alignment = UINT64_MAX;
     UINT64 null_sideband_offset = UINT64_MAX;
     UINT64 invalid_footprint_total = 0;
+    UINT64 planar_footprint_total = 0;
+    bool planar_footprint_ok = false;
     HRESULT tight_feature_hr = E_FAIL;
     UINT tight_feature_tier = 0;
     HRESULT tight_committed_hr = E_FAIL;
@@ -575,6 +577,36 @@ int main(int argc, char** argv) {
             &invalid_footprint_desc, 0, 1, 0, &invalid_footprint_layout,
             &invalid_footprint_rows, &invalid_footprint_row_size,
             &invalid_footprint_total);
+        D3D12_RESOURCE_DESC planar_desc =
+            texture_desc(13, 7, DXGI_FORMAT_R24G8_TYPELESS);
+        planar_desc.DepthOrArraySize = 2;
+        planar_desc.MipLevels = 2;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT planar_layouts[8] = {};
+        UINT planar_rows[8] = {};
+        UINT64 planar_row_sizes[8] = {};
+        device->GetCopyableFootprints(
+            &planar_desc, 0, 8, 0, planar_layouts, planar_rows,
+            planar_row_sizes, &planar_footprint_total);
+        planar_footprint_ok = planar_footprint_total != 0;
+        for (UINT subresource = 0; subresource < 8 && planar_footprint_ok;
+             ++subresource) {
+            const UINT mip = subresource % 2;
+            const UINT plane = (subresource / 2) / 2;
+            const UINT width = std::max<UINT>(1, 13 >> mip);
+            const UINT height = std::max<UINT>(1, 7 >> mip);
+            const UINT expected_bytes = plane ? 1 : 4;
+            planar_footprint_ok =
+                planar_layouts[subresource].Footprint.Format ==
+                    (plane ? DXGI_FORMAT_R8_TYPELESS : DXGI_FORMAT_R32_TYPELESS) &&
+                planar_layouts[subresource].Footprint.Width == width &&
+                planar_layouts[subresource].Footprint.Height == height &&
+                planar_layouts[subresource].Footprint.Depth == 1 &&
+                planar_layouts[subresource].Footprint.RowPitch >= 256 &&
+                planar_rows[subresource] == height &&
+                planar_row_sizes[subresource] == UINT64(width) * expected_bytes &&
+                (!subresource || planar_layouts[subresource].Offset >
+                                     planar_layouts[subresource - 1].Offset);
+        }
 
         const D3D12_RESOURCE_FLAGS tight_flag =
             static_cast<D3D12_RESOURCE_FLAGS>(0x400);
@@ -856,6 +888,7 @@ int main(int argc, char** argv) {
                          volume_allocation_alignment == D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT &&
                          null_allocation_size == 0 && null_allocation_alignment == 0 &&
                          invalid_footprint_total == UINT64_MAX &&
+                         planar_footprint_ok && planar_footprint_total != 0 &&
                          SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
                          null_sideband_alignment == 0 && null_sideband_offset == 0 &&
                          SUCCEEDED(tight_feature_hr) && tight_feature_tier == 1 &&
@@ -2561,6 +2594,10 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(null_allocation_alignment));
     std::printf("    \"invalid_footprint_total\": %llu,\n",
                 static_cast<unsigned long long>(invalid_footprint_total));
+    std::printf("    \"planar_footprint_total\": %llu,\n",
+                static_cast<unsigned long long>(planar_footprint_total));
+    std::printf("    \"planar_footprint_verified\": %s,\n",
+                planar_footprint_ok ? "true" : "false");
     print_hr("null_sideband_query", null_sideband_query_hr);
     std::printf("    \"null_sideband\": [%llu,%llu,%llu],\n",
                 static_cast<unsigned long long>(null_sideband_size),
