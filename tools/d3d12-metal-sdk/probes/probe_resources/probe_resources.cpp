@@ -765,6 +765,8 @@ int main(int argc, char** argv) {
     bool gpu_upload_io_ok = false;
     bool custom_gpu_upload_io_ok = false;
     bool gpu_upload_custom_properties_ok = false;
+    bool gpu_upload_texture_format_matrix_ok = false;
+    UINT gpu_upload_texture_format_matrix_count = 0;
     bool gpu_upload_texture_io_ok = false;
     bool gpu_upload_placed_io_ok = false;
     bool gpu_upload_texture_placed_io_ok = false;
@@ -1345,6 +1347,47 @@ int main(int argc, char** argv) {
             custom_gpu_upload_texture_placed_io_ok =
                 SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
                 std::memcmp(source, destination, sizeof(source)) == 0;
+        }
+        const struct {
+            DXGI_FORMAT format;
+            UINT width;
+            UINT height;
+            UINT row_pitch;
+        } gpu_upload_texture_formats[] = {
+            {DXGI_FORMAT_R8_UNORM, 8, 8, 8},
+            {DXGI_FORMAT_R16_FLOAT, 8, 8, 16},
+            {DXGI_FORMAT_R16G16B16A16_UNORM, 4, 4, 32},
+        };
+        gpu_upload_texture_format_matrix_ok = true;
+        for (const auto &format_case : gpu_upload_texture_formats) {
+            D3D12_RESOURCE_DESC format_desc = texture_desc(
+                format_case.width, format_case.height, format_case.format);
+            ID3D12Resource *format_resource = nullptr;
+            HRESULT create_format_hr = device->CreateCommittedResource(
+                &gpu_upload_properties, D3D12_HEAP_FLAG_NONE, &format_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&format_resource));
+            bool format_ok = SUCCEEDED(create_format_hr) && format_resource;
+            if (format_ok) {
+                const UINT byte_count = format_case.row_pitch * format_case.height;
+                std::vector<uint8_t> source(byte_count);
+                std::vector<uint8_t> destination(byte_count);
+                for (UINT i = 0; i < byte_count; ++i)
+                    source[i] = static_cast<uint8_t>((i * 23u + 0x1du) & 0xffu);
+                const HRESULT write_hr = format_resource->WriteToSubresource(
+                    0, nullptr, source.data(), format_case.row_pitch,
+                    byte_count);
+                const HRESULT read_hr = format_resource->ReadFromSubresource(
+                    destination.data(), format_case.row_pitch, byte_count, 0,
+                    nullptr);
+                format_ok = SUCCEEDED(write_hr) && SUCCEEDED(read_hr) &&
+                            source == destination;
+            }
+            if (format_resource)
+                format_resource->Release();
+            gpu_upload_texture_format_matrix_ok =
+                gpu_upload_texture_format_matrix_ok && format_ok;
+            ++gpu_upload_texture_format_matrix_count;
         }
         D3D12_HEAP_DESC gpu_upload_heap_desc = {};
         gpu_upload_heap_desc.SizeInBytes = 64 * 1024;
@@ -5182,6 +5225,8 @@ int main(int argc, char** argv) {
         SUCCEEDED(placed_2d_read_hr) && placed_2d_io_ok &&
         SUCCEEDED(gpu_upload_feature_hr) && gpu_upload_feature_ok &&
         gpu_upload_custom_properties_ok &&
+        gpu_upload_texture_format_matrix_ok &&
+        gpu_upload_texture_format_matrix_count == 3 &&
         SUCCEEDED(gpu_upload_resource_hr) && gpu_upload_io_ok &&
         SUCCEEDED(custom_gpu_upload_resource_hr) && custom_gpu_upload_io_ok &&
         gpu_upload_invalid_shared_hr == E_INVALIDARG &&
@@ -5337,6 +5382,10 @@ int main(int argc, char** argv) {
                 gpu_upload_feature_ok ? "true" : "false");
     std::printf("    \"gpu_upload_custom_properties_verified\": %s,\n",
                 gpu_upload_custom_properties_ok ? "true" : "false");
+    std::printf("    \"gpu_upload_texture_format_matrix_count\": %u,\n",
+                gpu_upload_texture_format_matrix_count);
+    std::printf("    \"gpu_upload_texture_format_matrix_verified\": %s,\n",
+                gpu_upload_texture_format_matrix_ok ? "true" : "false");
     print_hr("gpu_upload_resource_create", gpu_upload_resource_hr);
     print_hr("custom_gpu_upload_resource_create", custom_gpu_upload_resource_hr);
     std::printf("    \"custom_gpu_upload_io_verified\": %s,\n",
