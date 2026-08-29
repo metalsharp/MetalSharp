@@ -1322,6 +1322,9 @@ int main(int argc, char** argv) {
     ID3D12Resource* direct_io_volume = nullptr;
     ID3D12Resource* direct_io_nv12 = nullptr;
     ID3D12Resource* direct_io_p010 = nullptr;
+    ID3D12Resource* direct_io_nv12_upload = nullptr;
+    ID3D12Resource* direct_io_nv12_readback = nullptr;
+    ID3D12Resource* direct_io_nv12_copy_destination = nullptr;
     ID3D12Resource* unsupported_texture = nullptr;
     ID3D12Heap* sparse_heap = nullptr;
     ID3D12Heap* reuse_heap = nullptr;
@@ -1551,9 +1554,18 @@ int main(int argc, char** argv) {
     HRESULT direct_io_p010_create_hr = E_FAIL;
     HRESULT direct_io_p010_write_hr[2] = {E_FAIL, E_FAIL};
     HRESULT direct_io_p010_read_hr[2] = {E_FAIL, E_FAIL};
+    HRESULT direct_io_nv12_upload_hr = E_FAIL;
+    HRESULT direct_io_nv12_readback_hr = E_FAIL;
+    HRESULT direct_io_nv12_upload_map_hr = E_FAIL;
+    HRESULT direct_io_nv12_readback_map_hr = E_FAIL;
+    HRESULT direct_io_nv12_copy_destination_hr = E_FAIL;
+    HRESULT direct_io_nv12_copy_y_read_hr = E_FAIL;
+    HRESULT direct_io_nv12_copy_uv_read_hr = E_FAIL;
     bool direct_io_texture_ok = false;
     bool direct_io_volume_ok = false;
     bool direct_io_nv12_ok = false;
+    bool direct_io_nv12_copy_ok = false;
+    bool direct_io_nv12_resource_copy_ok = false;
     bool direct_io_p010_ok = false;
     D3D12_RESOURCE_DESC direct_io_texture_desc =
         texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
@@ -1641,6 +1653,12 @@ int main(int argc, char** argv) {
             std::memcmp(y_source, y_destination, sizeof(y_source)) == 0 &&
             std::memcmp(uv_source, uv_destination, sizeof(uv_source)) == 0;
     }
+    direct_io_nv12_copy_destination_hr =
+        device ? device->CreateCommittedResource(
+                     &default_heap, D3D12_HEAP_FLAG_NONE,
+                     &direct_io_nv12_desc, D3D12_RESOURCE_STATE_COMMON,
+                     nullptr, IID_PPV_ARGS(&direct_io_nv12_copy_destination))
+               : E_FAIL;
     D3D12_RESOURCE_DESC direct_io_p010_desc =
         texture_desc(8, 8, DXGI_FORMAT_P010);
     direct_io_p010_create_hr =
@@ -1673,6 +1691,70 @@ int main(int argc, char** argv) {
             SUCCEEDED(direct_io_p010_read_hr[1]) &&
             std::memcmp(y_source, y_destination, sizeof(y_source)) == 0 &&
             std::memcmp(uv_source, uv_destination, sizeof(uv_source)) == 0;
+    }
+    D3D12_RESOURCE_DESC planar_copy_buffer_desc = buffer_desc(2048);
+    direct_io_nv12_upload_hr =
+        device ? device->CreateCommittedResource(
+                     &upload_heap, D3D12_HEAP_FLAG_NONE,
+                     &planar_copy_buffer_desc,
+                     D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                     IID_PPV_ARGS(&direct_io_nv12_upload))
+               : E_FAIL;
+    direct_io_nv12_readback_hr =
+        device ? device->CreateCommittedResource(
+                     &readback_heap, D3D12_HEAP_FLAG_NONE,
+                     &planar_copy_buffer_desc,
+                     D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                     IID_PPV_ARGS(&direct_io_nv12_readback))
+               : E_FAIL;
+    if (direct_io_nv12_upload) {
+        uint8_t *planar_upload_data = nullptr;
+        direct_io_nv12_upload_map_hr = direct_io_nv12_upload->Map(
+            0, nullptr, reinterpret_cast<void **>(&planar_upload_data));
+        if (SUCCEEDED(direct_io_nv12_upload_map_hr) && planar_upload_data) {
+            std::memset(planar_upload_data, 0, 2048);
+            for (UINT y = 0; y < 8; ++y)
+                for (UINT x = 0; x < 13; ++x)
+                    planar_upload_data[y * 256 + x] =
+                        static_cast<uint8_t>((x * 17u + y * 31u + 5u) & 0xffu);
+            direct_io_nv12_upload->Unmap(0, nullptr);
+        }
+    }
+    if (list && direct_io_nv12 && direct_io_nv12_upload &&
+        direct_io_nv12_readback && SUCCEEDED(direct_io_nv12_upload_map_hr)) {
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT planar_copy_footprint = {};
+        planar_copy_footprint.Footprint.Format = DXGI_FORMAT_R8_UNORM;
+        planar_copy_footprint.Footprint.Width = 13;
+        planar_copy_footprint.Footprint.Height = 8;
+        planar_copy_footprint.Footprint.Depth = 1;
+        planar_copy_footprint.Footprint.RowPitch = 256;
+        D3D12_TEXTURE_COPY_LOCATION planar_upload_location = {};
+        planar_upload_location.pResource = direct_io_nv12_upload;
+        planar_upload_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        planar_upload_location.PlacedFootprint = planar_copy_footprint;
+        D3D12_TEXTURE_COPY_LOCATION planar_texture_location = {};
+        planar_texture_location.pResource = direct_io_nv12;
+        planar_texture_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        planar_texture_location.SubresourceIndex = 0;
+        list->CopyTextureRegion(&planar_texture_location, 0, 0, 0,
+                                &planar_upload_location, nullptr);
+        D3D12_RESOURCE_BARRIER planar_copy_barrier = transition_barrier(
+            direct_io_nv12, D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &planar_copy_barrier);
+        D3D12_TEXTURE_COPY_LOCATION planar_readback_location = {};
+        planar_readback_location.pResource = direct_io_nv12_readback;
+        planar_readback_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        planar_readback_location.PlacedFootprint = planar_copy_footprint;
+        D3D12_TEXTURE_COPY_LOCATION planar_source_location = {};
+        planar_source_location.pResource = direct_io_nv12;
+        planar_source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        planar_source_location.SubresourceIndex = 0;
+        list->CopyTextureRegion(&planar_readback_location, 0, 0, 0,
+                                &planar_source_location, nullptr);
+        if (direct_io_nv12_copy_destination) {
+            list->CopyResource(direct_io_nv12_copy_destination, direct_io_nv12);
+        }
     }
     D3D12_RESOURCE_DESC unsupported_texture_desc = texture_desc(4, 4, DXGI_FORMAT_R1_UNORM);
     HRESULT unsupported_texture_hr =
@@ -2683,6 +2765,59 @@ int main(int argc, char** argv) {
         texture_readback->Unmap(0, nullptr);
     }
 
+    uint8_t *direct_io_nv12_copy_readback_ptr = nullptr;
+    direct_io_nv12_readback_map_hr =
+        direct_io_nv12_readback
+            ? direct_io_nv12_readback->Map(
+                  0, nullptr,
+                  reinterpret_cast<void **>(&direct_io_nv12_copy_readback_ptr))
+            : E_FAIL;
+    if (SUCCEEDED(direct_io_nv12_readback_map_hr) &&
+        direct_io_nv12_copy_readback_ptr) {
+        direct_io_nv12_copy_ok = true;
+        for (UINT y = 0; y < 8 && direct_io_nv12_copy_ok; ++y) {
+            for (UINT x = 0; x < 13; ++x) {
+                const uint8_t expected =
+                    static_cast<uint8_t>((x * 17u + y * 31u + 5u) & 0xffu);
+                if (direct_io_nv12_copy_readback_ptr[y * 256 + x] !=
+                    expected) {
+                    direct_io_nv12_copy_ok = false;
+                    break;
+                }
+            }
+        }
+        direct_io_nv12_readback->Unmap(0, nullptr);
+    }
+    if (direct_io_nv12_copy_destination) {
+        uint8_t copied_y[13 * 8] = {};
+        uint8_t copied_uv[7 * 4 * 2] = {};
+        direct_io_nv12_copy_y_read_hr =
+            direct_io_nv12_copy_destination->ReadFromSubresource(
+                copied_y, 13, sizeof(copied_y), 0, nullptr);
+        direct_io_nv12_copy_uv_read_hr =
+            direct_io_nv12_copy_destination->ReadFromSubresource(
+                copied_uv, 14, sizeof(copied_uv), 1, nullptr);
+        direct_io_nv12_resource_copy_ok =
+            SUCCEEDED(direct_io_nv12_copy_y_read_hr) &&
+            SUCCEEDED(direct_io_nv12_copy_uv_read_hr);
+        for (UINT y = 0; y < 8 && direct_io_nv12_resource_copy_ok; ++y) {
+            for (UINT x = 0; x < 13; ++x) {
+                const uint8_t expected =
+                    static_cast<uint8_t>((x * 17u + y * 31u + 5u) & 0xffu);
+                if (copied_y[y * 13 + x] != expected) {
+                    direct_io_nv12_resource_copy_ok = false;
+                    break;
+                }
+            }
+        }
+        for (UINT i = 0; i < sizeof(copied_uv) && direct_io_nv12_resource_copy_ok;
+             ++i) {
+            const uint8_t expected = static_cast<uint8_t>((i * 7u + 3u) & 0xffu);
+            if (copied_uv[i] != expected)
+                direct_io_nv12_resource_copy_ok = false;
+        }
+    }
+
     uint8_t* bc_readback_ptr = nullptr;
     HRESULT bc_readback_map_hr =
         bc_readback ? bc_readback->Map(0, nullptr, reinterpret_cast<void**>(&bc_readback_ptr)) : E_FAIL;
@@ -3095,6 +3230,14 @@ int main(int argc, char** argv) {
         SUCCEEDED(direct_io_volume_create_hr) && SUCCEEDED(direct_io_volume_write_hr) &&
         SUCCEEDED(direct_io_volume_read_hr) && direct_io_volume_ok &&
         SUCCEEDED(direct_io_nv12_create_hr) && direct_io_nv12_ok &&
+        SUCCEEDED(direct_io_nv12_upload_hr) &&
+        SUCCEEDED(direct_io_nv12_readback_hr) &&
+        SUCCEEDED(direct_io_nv12_upload_map_hr) &&
+        SUCCEEDED(direct_io_nv12_readback_map_hr) && direct_io_nv12_copy_ok &&
+        SUCCEEDED(direct_io_nv12_copy_destination_hr) &&
+        SUCCEEDED(direct_io_nv12_copy_y_read_hr) &&
+        SUCCEEDED(direct_io_nv12_copy_uv_read_hr) &&
+        direct_io_nv12_resource_copy_ok &&
         SUCCEEDED(direct_io_p010_create_hr) && direct_io_p010_ok &&
         SUCCEEDED(bc_texture_hr) && SUCCEEDED(bc_upload_hr) && SUCCEEDED(bc_readback_hr) &&
         SUCCEEDED(bc_upload_map_hr) && SUCCEEDED(bc_readback_map_hr) && bc_copy_ok &&
@@ -3407,6 +3550,18 @@ int main(int argc, char** argv) {
     print_hr("direct_io_nv12_uv_read", direct_io_nv12_read_hr[1]);
     std::printf("    \"direct_io_nv12_verified\": %s,\n",
                 direct_io_nv12_ok ? "true" : "false");
+    print_hr("direct_io_nv12_upload_create", direct_io_nv12_upload_hr);
+    print_hr("direct_io_nv12_readback_create", direct_io_nv12_readback_hr);
+    print_hr("direct_io_nv12_upload_map", direct_io_nv12_upload_map_hr);
+    print_hr("direct_io_nv12_readback_map", direct_io_nv12_readback_map_hr);
+    std::printf("    \"direct_io_nv12_copy_verified\": %s,\n",
+                direct_io_nv12_copy_ok ? "true" : "false");
+    print_hr("direct_io_nv12_copy_destination_create",
+              direct_io_nv12_copy_destination_hr);
+    print_hr("direct_io_nv12_copy_y_read", direct_io_nv12_copy_y_read_hr);
+    print_hr("direct_io_nv12_copy_uv_read", direct_io_nv12_copy_uv_read_hr);
+    std::printf("    \"direct_io_nv12_resource_copy_verified\": %s,\n",
+                direct_io_nv12_resource_copy_ok ? "true" : "false");
     print_hr("direct_io_p010_create", direct_io_p010_create_hr);
     print_hr("direct_io_p010_y_write", direct_io_p010_write_hr[0]);
     print_hr("direct_io_p010_uv_write", direct_io_p010_write_hr[1]);

@@ -7093,6 +7093,300 @@ static uint64_t FootprintOffset(uint64_t base_offset, uint32_t row_pitch,
          uint64_t(x / block) * uint64_t(bytes_per_block);
 }
 
+static bool IsPlanarReplayFormat(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_NV12:
+  case DXGI_FORMAT_P010:
+  case DXGI_FORMAT_P016:
+  case DXGI_FORMAT_420_OPAQUE:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static uint32_t ReplayFormatBytesPerPixel(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_R8_TYPELESS:
+  case DXGI_FORMAT_R8_UNORM:
+  case DXGI_FORMAT_R8_UINT:
+  case DXGI_FORMAT_R8_SNORM:
+  case DXGI_FORMAT_R8_SINT:
+    return 1;
+  case DXGI_FORMAT_R8G8_TYPELESS:
+  case DXGI_FORMAT_R8G8_UNORM:
+  case DXGI_FORMAT_R8G8_UINT:
+  case DXGI_FORMAT_R8G8_SNORM:
+  case DXGI_FORMAT_R8G8_SINT:
+  case DXGI_FORMAT_R16_TYPELESS:
+  case DXGI_FORMAT_R16_UNORM:
+  case DXGI_FORMAT_R16_UINT:
+  case DXGI_FORMAT_R16_SNORM:
+  case DXGI_FORMAT_R16_SINT:
+  case DXGI_FORMAT_R16_FLOAT:
+    return 2;
+  case DXGI_FORMAT_R16G16_TYPELESS:
+  case DXGI_FORMAT_R16G16_UNORM:
+  case DXGI_FORMAT_R16G16_UINT:
+  case DXGI_FORMAT_R16G16_SNORM:
+  case DXGI_FORMAT_R16G16_SINT:
+  case DXGI_FORMAT_R16G16_FLOAT:
+    return 4;
+  default:
+    return 0;
+  }
+}
+
+struct ReplayPlanarSubresourceLayout {
+  UINT mip = 0;
+  UINT slice = 0;
+  UINT plane = 0;
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint32_t bytes_per_pixel = 0;
+};
+
+static bool GetReplayPlanarSubresourceLayout(
+    MTLD3D12Resource *resource, UINT subresource,
+    ReplayPlanarSubresourceLayout &layout) {
+  if (!resource || !resource->IsPlanarResource())
+    return false;
+  D3D12_RESOURCE_DESC desc = {};
+  resource->GetDesc(&desc);
+  if (!IsPlanarReplayFormat(desc.Format) ||
+      desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    return false;
+  const UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
+  const UINT array_size = std::max<UINT>(desc.DepthOrArraySize, 1);
+  const uint64_t base_subresources = uint64_t(mip_levels) * array_size;
+  if (subresource >= base_subresources * 2)
+    return false;
+  const UINT base = subresource % static_cast<UINT>(base_subresources);
+  layout.plane = subresource / static_cast<UINT>(base_subresources);
+  layout.mip = base % mip_levels;
+  layout.slice = base / mip_levels;
+  layout.width = static_cast<uint32_t>(std::max<UINT64>(1, desc.Width >> layout.mip));
+  layout.height = std::max<UINT>(1, desc.Height >> layout.mip);
+  if (layout.plane == 1) {
+    layout.width = std::max<UINT>(1, (layout.width + 1) / 2);
+    layout.height = std::max<UINT>(1, (layout.height + 1) / 2);
+  }
+  if (desc.Format == DXGI_FORMAT_P010 || desc.Format == DXGI_FORMAT_P016)
+    layout.bytes_per_pixel = layout.plane ? 4 : 2;
+  else
+    layout.bytes_per_pixel = layout.plane ? 2 : 1;
+  return true;
+}
+
+static bool ReadReplayBufferRange(MTLD3D12Resource *buffer, uint64_t offset,
+                                  uint64_t bytes, std::vector<uint8_t> &data) {
+  if (!buffer || !buffer->IsBuffer() || !bytes ||
+      offset > buffer->GetBufferByteLength() ||
+      bytes > buffer->GetBufferByteLength() - offset ||
+      bytes > SIZE_MAX || offset + bytes > SIZE_MAX)
+    return false;
+  data.resize(static_cast<size_t>(bytes));
+  if (void *cpu = buffer->GetCPUAddress()) {
+    std::memcpy(data.data(), static_cast<uint8_t *>(cpu) + offset,
+                static_cast<size_t>(bytes));
+    return true;
+  }
+  const uint64_t end = offset + bytes;
+  if (end > UINT_MAX)
+    return false;
+  std::vector<uint8_t> whole(static_cast<size_t>(end));
+  if (FAILED(buffer->ReadFromSubresource(whole.data(), static_cast<UINT>(end),
+                                         static_cast<UINT>(end), 0, nullptr)))
+    return false;
+  std::memcpy(data.data(), whole.data() + offset, static_cast<size_t>(bytes));
+  return true;
+}
+
+static bool WriteReplayBufferRange(MTLD3D12Resource *buffer, uint64_t offset,
+                                   const std::vector<uint8_t> &data) {
+  if (!buffer || !buffer->IsBuffer() || data.empty() ||
+      offset > buffer->GetBufferByteLength() ||
+      data.size() > buffer->GetBufferByteLength() - offset)
+    return false;
+  if (void *cpu = buffer->GetCPUAddress()) {
+    std::memcpy(static_cast<uint8_t *>(cpu) + offset, data.data(), data.size());
+    return true;
+  }
+  const uint64_t length = buffer->GetBufferByteLength();
+  if (length > UINT_MAX || length > SIZE_MAX)
+    return false;
+  std::vector<uint8_t> whole(static_cast<size_t>(length));
+  if (FAILED(buffer->ReadFromSubresource(whole.data(), static_cast<UINT>(length),
+                                         static_cast<UINT>(length), 0, nullptr)))
+    return false;
+  std::memcpy(whole.data() + offset, data.data(), data.size());
+  return SUCCEEDED(buffer->WriteToSubresource(
+      0, nullptr, whole.data(), static_cast<UINT>(length),
+      static_cast<UINT>(length)));
+}
+
+static bool ReplayPlanarCopy(const CmdCopyTextureRegion &cmd,
+                             MTLD3D12Resource *dst,
+                             MTLD3D12Resource *src, bool src_is_buffer,
+                             bool dst_is_buffer, UINT copy_w, UINT copy_h,
+                             UINT copy_d) {
+  const bool src_planar = src && src->IsPlanarResource();
+  const bool dst_planar = dst && dst->IsPlanarResource();
+  if ((!src_planar && !dst_planar) || copy_w == 0 || copy_h == 0 ||
+      copy_d == 0 || (src_is_buffer && src_planar) ||
+      (dst_is_buffer && dst_planar))
+    return false;
+
+  if (src_is_buffer && dst_planar) {
+    ReplayPlanarSubresourceLayout dst_layout = {};
+    if (!GetReplayPlanarSubresourceLayout(dst, cmd.dst_subresource,
+                                          dst_layout) ||
+        copy_d != 1)
+      return false;
+    DXGI_FORMAT format = cmd.src_footprint_format;
+    uint32_t bytes_per_pixel = ReplayFormatBytesPerPixel(format);
+    if (!bytes_per_pixel)
+      bytes_per_pixel = dst_layout.bytes_per_pixel;
+    if (bytes_per_pixel != dst_layout.bytes_per_pixel)
+      return false;
+    const uint32_t row_pitch =
+        cmd.src_footprint_row_pitch
+            ? cmd.src_footprint_row_pitch
+            : copy_w * bytes_per_pixel;
+    const uint64_t rows = FootprintRows(
+        cmd.src_footprint_height ? cmd.src_footprint_height : copy_h,
+        format);
+    if (!row_pitch || rows > UINT64_MAX / row_pitch)
+      return false;
+    const uint64_t image_bytes = uint64_t(row_pitch) * rows;
+    const UINT src_x = cmd.has_src_box ? cmd.src_box.left : 0;
+    const UINT src_y = cmd.has_src_box ? cmd.src_box.top : 0;
+    const UINT src_z = cmd.has_src_box ? cmd.src_box.front : 0;
+    const uint64_t source_offset = FootprintOffset(
+        cmd.src_offset, row_pitch, cmd.src_footprint_height, format, src_x,
+        src_y, src_z);
+    std::vector<uint8_t> data;
+    if (!ReadReplayBufferRange(static_cast<MTLD3D12Resource *>(src),
+                               source_offset, image_bytes, data))
+      return false;
+    D3D12_BOX destination_box = {
+        cmd.dst_x, cmd.dst_y, cmd.dst_z, cmd.dst_x + copy_w,
+        cmd.dst_y + copy_h, cmd.dst_z + copy_d};
+    return SUCCEEDED(dst->WriteToSubresource(
+        cmd.dst_subresource, &destination_box, data.data(), row_pitch,
+        static_cast<UINT>(image_bytes)));
+  }
+
+  if (src_planar && dst_is_buffer) {
+    ReplayPlanarSubresourceLayout src_layout = {};
+    if (!GetReplayPlanarSubresourceLayout(src, cmd.src_subresource,
+                                          src_layout) ||
+        copy_d != 1)
+      return false;
+    DXGI_FORMAT format = cmd.dst_footprint_format;
+    uint32_t bytes_per_pixel = ReplayFormatBytesPerPixel(format);
+    if (!bytes_per_pixel)
+      bytes_per_pixel = src_layout.bytes_per_pixel;
+    if (bytes_per_pixel != src_layout.bytes_per_pixel)
+      return false;
+    const uint32_t row_pitch =
+        cmd.dst_footprint_row_pitch
+            ? cmd.dst_footprint_row_pitch
+            : copy_w * bytes_per_pixel;
+    const uint64_t rows = FootprintRows(
+        cmd.dst_footprint_height ? cmd.dst_footprint_height : copy_h,
+        format);
+    if (!row_pitch || rows > UINT64_MAX / row_pitch)
+      return false;
+    const uint64_t image_bytes = uint64_t(row_pitch) * rows;
+    std::vector<uint8_t> data(static_cast<size_t>(image_bytes));
+    const D3D12_BOX *source_box = cmd.has_src_box ? &cmd.src_box : nullptr;
+    if (FAILED(src->ReadFromSubresource(
+            data.data(), row_pitch, static_cast<UINT>(image_bytes),
+            cmd.src_subresource, source_box)))
+      return false;
+    const uint64_t destination_offset = FootprintOffset(
+        cmd.dst_offset, row_pitch, cmd.dst_footprint_height, format, cmd.dst_x,
+        cmd.dst_y, cmd.dst_z);
+    return WriteReplayBufferRange(static_cast<MTLD3D12Resource *>(dst),
+                                   destination_offset, data);
+  }
+
+  if (src_planar && dst_planar) {
+    ReplayPlanarSubresourceLayout src_layout = {};
+    ReplayPlanarSubresourceLayout dst_layout = {};
+    if (!GetReplayPlanarSubresourceLayout(src, cmd.src_subresource,
+                                          src_layout) ||
+        !GetReplayPlanarSubresourceLayout(dst, cmd.dst_subresource,
+                                          dst_layout) ||
+        src_layout.bytes_per_pixel != dst_layout.bytes_per_pixel)
+      return false;
+    const uint64_t row_pitch =
+        uint64_t(copy_w) * src_layout.bytes_per_pixel;
+    const uint64_t slice_pitch = row_pitch * copy_h;
+    if (!row_pitch || slice_pitch > UINT_MAX ||
+        slice_pitch * copy_d > SIZE_MAX)
+      return false;
+    std::vector<uint8_t> data(static_cast<size_t>(slice_pitch * copy_d));
+    const D3D12_BOX *source_box = cmd.has_src_box ? &cmd.src_box : nullptr;
+    if (FAILED(src->ReadFromSubresource(
+            data.data(), static_cast<UINT>(row_pitch),
+            static_cast<UINT>(slice_pitch), cmd.src_subresource, source_box)))
+      return false;
+    D3D12_BOX destination_box = {
+        cmd.dst_x, cmd.dst_y, cmd.dst_z, cmd.dst_x + copy_w,
+        cmd.dst_y + copy_h, cmd.dst_z + copy_d};
+    return SUCCEEDED(dst->WriteToSubresource(
+        cmd.dst_subresource, &destination_box, data.data(),
+        static_cast<UINT>(row_pitch), static_cast<UINT>(slice_pitch)));
+  }
+  return false;
+}
+
+static bool ReplayPlanarResourceCopy(MTLD3D12Resource *dst,
+                                     MTLD3D12Resource *src) {
+  if (!dst || !src || !dst->IsPlanarResource() || !src->IsPlanarResource())
+    return false;
+  D3D12_RESOURCE_DESC dst_desc = {};
+  D3D12_RESOURCE_DESC src_desc = {};
+  dst->GetDesc(&dst_desc);
+  src->GetDesc(&src_desc);
+  if (dst_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      src_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      dst_desc.Format != src_desc.Format ||
+      dst_desc.Width != src_desc.Width || dst_desc.Height != src_desc.Height ||
+      dst_desc.DepthOrArraySize != src_desc.DepthOrArraySize ||
+      std::max<UINT>(dst_desc.MipLevels, 1) !=
+          std::max<UINT>(src_desc.MipLevels, 1))
+    return false;
+  const UINT mip_levels = std::max<UINT>(dst_desc.MipLevels, 1);
+  const UINT array_size = std::max<UINT>(dst_desc.DepthOrArraySize, 1);
+  const uint64_t subresource_count = uint64_t(mip_levels) * array_size * 2;
+  if (subresource_count > UINT_MAX)
+    return false;
+  for (UINT subresource = 0;
+       subresource < static_cast<UINT>(subresource_count); ++subresource) {
+    ReplayPlanarSubresourceLayout layout = {};
+    if (!GetReplayPlanarSubresourceLayout(src, subresource, layout) ||
+        layout.bytes_per_pixel == 0)
+      return false;
+    const uint64_t row_pitch =
+        uint64_t(layout.width) * layout.bytes_per_pixel;
+    const uint64_t slice_pitch = row_pitch * layout.height;
+    if (!row_pitch || slice_pitch > UINT_MAX || slice_pitch > SIZE_MAX)
+      return false;
+    std::vector<uint8_t> data(static_cast<size_t>(slice_pitch));
+    if (FAILED(src->ReadFromSubresource(
+            data.data(), static_cast<UINT>(row_pitch),
+            static_cast<UINT>(slice_pitch), subresource, nullptr)) ||
+        FAILED(dst->WriteToSubresource(
+            subresource, nullptr, data.data(), static_cast<UINT>(row_pitch),
+            static_cast<UINT>(slice_pitch))))
+      return false;
+  }
+  return true;
+}
+
 struct PreparedRayShaderTable {
   WMT::Reference<WMT::Buffer> buffer;
   uint64_t gpu_address = 0;
@@ -11596,13 +11890,15 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             copy_w = cmd->dst_footprint_width;
             copy_h = cmd->dst_footprint_height;
             copy_d = cmd->dst_footprint_depth ? cmd->dst_footprint_depth : 1;
-          } else if (!dst_is_buffer && dst_tex.handle) {
+          } else if (!dst_is_buffer &&
+                     (dst_tex.handle || dst_res->IsPlanarResource())) {
             copy_w = MipSize(dst_desc.Width, dst_level);
             copy_h = MipSize(dst_desc.Height, dst_level);
             copy_d = dst_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
                          ? MipSize(dst_desc.DepthOrArraySize, dst_level)
                          : 1;
-          } else if (!src_is_buffer && src_tex.handle) {
+          } else if (!src_is_buffer &&
+                     (src_tex.handle || src_res->IsPlanarResource())) {
             copy_w = MipSize(src_desc.Width, src_level);
             copy_h = MipSize(src_desc.Height, src_level);
             copy_d = src_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
@@ -11617,6 +11913,15 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             copy_w = 1;
           if (copy_h == 0)
             copy_h = 1;
+        }
+
+        if (src_res->IsPlanarResource() || dst_res->IsPlanarResource()) {
+          const bool success = ReplayPlanarCopy(
+              *cmd, dst_res, src_res, src_is_buffer, dst_is_buffer, copy_w,
+              copy_h, copy_d);
+          QTRACE("CopyTextureRegion planar replay success=%d size=%ux%ux%u",
+                 success ? 1 : 0, copy_w, copy_h, copy_d);
+          break;
         }
 
         if (src_is_buffer && !dst_is_buffer && dst_tex.handle) {
@@ -11755,6 +12060,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (!dst_res || !src_res)
           break;
         st.CloseRenderEncoder();
+
+        if (dst_res->IsPlanarResource() || src_res->IsPlanarResource()) {
+          const bool success = ReplayPlanarResourceCopy(dst_res, src_res);
+          QTRACE("CopyResource planar replay success=%d", success ? 1 : 0);
+          break;
+        }
 
         if (dst_res->GetMTLBuffer().handle && src_res->GetMTLBuffer().handle) {
           st.RetainResourceMetalObjectsForCompletion(dst_res);

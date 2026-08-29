@@ -69,7 +69,11 @@
   reject with `E_INVALIDARG`. Committed NV12 and P010 resources use an explicit
   tightly packed CPU multi-plane provider: luma and chroma `WriteToSubresource`
   and `ReadFromSubresource` calls round-trip exact bytes on both planes rather
-  than treating a single-plane Metal texture as planar data.
+  than treating a single-plane Metal texture as planar data. The command
+  replay path also copies an R8 luma footprint from an upload buffer into the
+  NV12 resource and back to a readback buffer, with exact row-pitch-preserving
+  bytes. `CopyResource` also copies both NV12 planes into an independent
+  resource and the destination is read back byte-for-byte.
 - Planar depth/stencil footprints expand the D24/R24G8 family into the
   documented R32 depth and R8 stencil planes across array slices and mips;
   eight subresources report exact plane formats, row sizes, dimensions, and
@@ -231,6 +235,8 @@ The isolated source-staged probe passed with:
   "textures.direct_io_volume_verified": true,
   "textures.direct_io_nv12_verified": true,
   "textures.direct_io_p010_verified": true,
+  "textures.direct_io_nv12_copy_verified": true,
+  "textures.direct_io_nv12_resource_copy_verified": true,
   "textures.unaligned_bc1_direct_io_verified": true,
   "textures.unaligned_bc1_copy_verified": true,
   "formats.D24_UNORM_S8_UINT.plane_count": 2,
