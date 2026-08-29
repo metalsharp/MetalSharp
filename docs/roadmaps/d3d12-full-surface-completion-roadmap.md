@@ -609,7 +609,8 @@ allocation/footprint arithmetic, mixed-alignment sidebands,
 nonzero-offset placed-texture I/O, committed/placed GPU-upload buffer and
 RGBA8 texture I/O, a committed GPU-upload R8/R16/RGBA16 format matrix,
 custom-equivalent GPU-upload placement, Options16 reporting,
-unsupported heap/resource/fence flag rejection, DXGI resource aggregation,
+unsupported heap/resource/video/raytracing/fence flag rejection, DXGI
+resource aggregation,
 pointer-free named/unnamed buffer/heap/fence mappings, one committed
 RGBA8 texture Mach-port mapping, inherited unnamed buffer/heap/fence
 cross-process read/write/signal/metadata, adapter-LUID

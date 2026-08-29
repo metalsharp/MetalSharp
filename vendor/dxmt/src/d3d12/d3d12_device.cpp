@@ -761,6 +761,16 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
       !desc.SampleDesc.Count)
     return false;
 
+  constexpr UINT kSupportedResourceFlags =
+      static_cast<UINT>(D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) |
+      static_cast<UINT>(D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) |
+      static_cast<UINT>(D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) |
+      static_cast<UINT>(D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) |
+      static_cast<UINT>(D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) |
+      static_cast<UINT>(D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) |
+      static_cast<UINT>(kD3D12ResourceFlagUseTightAlignment);
+  if (static_cast<UINT>(desc.Flags) & ~kSupportedResourceFlags)
+    return false;
   const bool tight_alignment =
       (desc.Flags & kD3D12ResourceFlagUseTightAlignment) != 0;
   const bool render_target =
